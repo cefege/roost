@@ -69,7 +69,12 @@ export function sendUserTerminalInput(
   return admission;
 }
 
+/** Clear callbacks retained by panes from the previous dashboard. */
+export function resetUserTerminalInput(): void {
+  registrations.clear();
+}
+
 /** Deterministic registry reset for focused unit tests. */
 export function _resetUserTerminalInputForTest(): void {
-  registrations.clear();
+  resetUserTerminalInput();
 }

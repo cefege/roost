@@ -17,7 +17,7 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import { FirehoseFrameSchema, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
-import type { SyncDeadlineClock } from "./sync-ws-deadline.ts";
+import type { WsDeadlineClock } from "./ws-auth-deadline.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 
 export const APPLICATION_MAX_UNACKED_FRAMES = 512;
@@ -32,7 +32,7 @@ export type SyncBackpressureReason =
   | "age_limit";
 
 export interface SyncV1DeliveryDeps {
-  readonly deadlineClock: SyncDeadlineClock;
+  readonly deadlineClock: WsDeadlineClock;
   readonly backpressureLimitBytes: number;
   readonly backpressureTimeoutMs: number;
   /** Socket teardown, owned by sync-ws-handler: every close path routes through
@@ -167,55 +167,64 @@ export function makeSyncV1Delivery(deps: SyncV1DeliveryDeps) {
 
   const sendGuarded = (ws: ServerWebSocket<SyncWsData>, frame: FirehoseFrame): boolean => {
     if (ws.data.pressureClosing) return false;
+    const frameKind = frame.frame.case ?? "unknown";
+    const nextSeq = ws.data.lastSentDeliverySeq + 1n;
+    const outboundFrame = ws.data.flowControl
+      ? create(FirehoseFrameSchema, { deliverySeq: nextSeq, frame: frame.frame })
+      : frame;
+    let bin: Uint8Array;
     try {
-      const frameKind = frame.frame.case ?? "unknown";
-      const nextSeq = ws.data.lastSentDeliverySeq + 1n;
-      const outboundFrame = ws.data.flowControl
-        ? create(FirehoseFrameSchema, { deliverySeq: nextSeq, frame: frame.frame })
-        : frame;
-      const bin = toBinary(FirehoseFrameSchema, outboundFrame);
-
-      if (ws.data.flowControl) {
-        if (ws.data.deliveryQueue.length + 1 > APPLICATION_MAX_UNACKED_FRAMES) {
-          closeForBackpressure(ws, "frame_limit", frameKind);
-          return false;
-        }
-        if (ws.data.unackedEncodedBytes + bin.byteLength > APPLICATION_MAX_UNACKED_BYTES) {
-          closeForBackpressure(ws, "byte_limit", frameKind);
-          return false;
-        }
-      }
-
-      const sentAtMs = deadlineClock.now();
-      const result = ws.send(bin);
-      if (result !== 0 && ws.data.flowControl) {
-        ws.data.lastSentDeliverySeq = nextSeq;
-        ws.data.unackedEncodedBytes += bin.byteLength;
-        ws.data.deliveryQueue.push({ seq: nextSeq, encodedBytes: bin.byteLength, sentAtMs });
-        if (!ws.data.deliveryTimer) rearmApplicationDeadline(ws);
-      }
-
-      const bufferedBytes = ws.getBufferedAmount();
-      if (result === 0) {
-        closeForDroppedFrame(ws, frameKind, bin.byteLength, bufferedBytes);
-        return false;
-      }
-      if (bufferedBytes > backpressureLimitBytes) {
-        closeForBackpressure(ws, "high_water", frameKind);
-        return false;
-      }
-      if (result === -1 && !ws.data.pressureTimer) {
-        ws.data.pressureFrame = frameKind;
-        ws.data.pressureTimer = deadlineClock.setTimeout(() => {
-          ws.data.pressureTimer = null;
-          closeForBackpressure(ws, "timeout", ws.data.pressureFrame ?? frameKind);
-        }, backpressureTimeoutMs);
-      }
-      return true;
-    } catch (e) {
-      log.warn("sync-ws", "send_failed", { error: String(e) });
+      bin = toBinary(FirehoseFrameSchema, outboundFrame);
+    } catch (error) {
+      log.warn("sync-ws", "encode_failed", { error: String(error), frame: frameKind });
       return false;
     }
+
+    if (ws.data.flowControl) {
+      if (ws.data.deliveryQueue.length + 1 > APPLICATION_MAX_UNACKED_FRAMES) {
+        closeForBackpressure(ws, "frame_limit", frameKind);
+        return false;
+      }
+      if (ws.data.unackedEncodedBytes + bin.byteLength > APPLICATION_MAX_UNACKED_BYTES) {
+        closeForBackpressure(ws, "byte_limit", frameKind);
+        return false;
+      }
+    }
+
+    const sentAtMs = deadlineClock.now();
+    let result: number;
+    let bufferedBytes = 0;
+    try {
+      result = ws.send(bin);
+      bufferedBytes = ws.getBufferedAmount();
+    } catch (error) {
+      log.warn("sync-ws", "send_failed", { error: String(error), frame: frameKind });
+      closeForDroppedFrame(ws, frameKind, bin.byteLength, bufferedBytes);
+      return false;
+    }
+    if (result === 0) {
+      closeForDroppedFrame(ws, frameKind, bin.byteLength, bufferedBytes);
+      return false;
+    }
+
+    if (ws.data.flowControl) {
+      ws.data.lastSentDeliverySeq = nextSeq;
+      ws.data.unackedEncodedBytes += bin.byteLength;
+      ws.data.deliveryQueue.push({ seq: nextSeq, encodedBytes: bin.byteLength, sentAtMs });
+      if (!ws.data.deliveryTimer) rearmApplicationDeadline(ws);
+    }
+    if (bufferedBytes > backpressureLimitBytes) {
+      closeForBackpressure(ws, "high_water", frameKind);
+      return false;
+    }
+    if (result === -1 && !ws.data.pressureTimer) {
+      ws.data.pressureFrame = frameKind;
+      ws.data.pressureTimer = deadlineClock.setTimeout(() => {
+        ws.data.pressureTimer = null;
+        closeForBackpressure(ws, "timeout", ws.data.pressureFrame ?? frameKind);
+      }, backpressureTimeoutMs);
+    }
+    return true;
   };
 
   const waitForDeliveryChange = (

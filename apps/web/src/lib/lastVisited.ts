@@ -65,3 +65,13 @@ export function getLastTerminalPath(): string | null {
 export function getLastSessionForFolder(workerFp: string, folder: string): string | null {
   return _folderMap()[folderKey(workerFp, folder)] ?? null;
 }
+
+/** Forget terminal and folder paths that name the signed-out account. */
+export function clearLastVisitedForLogout(): void {
+  _setFolderMap({});
+  _lastPathWritten = null;
+  try {
+    localStorage.removeItem(PATH_KEY);
+    localStorage.removeItem(FOLDER_KEY);
+  } catch { /* quota / privacy mode */ }
+}

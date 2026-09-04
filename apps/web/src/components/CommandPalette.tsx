@@ -1,12 +1,12 @@
-// CommandPalette — Cmd-K modal host. Always mounted (App.tsx RootShell) but
-// deliberately HOLLOW: it owns only the open signal wiring (overlayMotion
+// CommandPalette — Cmd-K modal host. Mounted inside App.tsx's protected
+// overlay shell but deliberately HOLLOW: it owns only the open signal wiring (overlayMotion
 // presence) and defers the entire reactive body — memo chain, list JSX,
 // keyboard nav — to CommandPaletteBody.tsx, mounted ONLY while the palette is
 // open. While closed, zero computations subscribe to the store (perf sweep
 // C1.1); the body chunk is also code-split and fetched on first ⌘K (C2.1).
 //
 // Open/close + folder context live in lib/keyboardShortcuts.ts.
-// Callers: App.tsx (always rendered; gated on cmdPaletteOpen).
+// Callers: App.tsx (mounted after protected route access; gated on cmdPaletteOpen).
 
 import { Show, lazy } from "solid-js";
 import { cmdPaletteOpen } from "../lib/keyboardShortcuts.ts";

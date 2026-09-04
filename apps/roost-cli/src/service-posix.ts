@@ -14,7 +14,7 @@ import {
   WORKER_LABEL_DARWIN,
   WORKER_LABEL_LINUX,
 } from "@roost/shared/paths";
-import { posixShellQuote } from "./shell-quote.ts";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 
 /** The command-string helpers below are retained for POSIX deploy callers. */
 export type PosixServiceOs = "darwin" | "linux";

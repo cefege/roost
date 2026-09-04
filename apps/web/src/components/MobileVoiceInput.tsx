@@ -17,7 +17,6 @@ import {
 	onMount,
 } from "solid-js";
 import type { SessionId } from "@roost/shared/wire";
-import { coordClient } from "../connect.ts";
 import { createDeepgramDictation } from "../lib/deepgramDictation.ts";
 import {
 	getDeepgramKey,
@@ -33,6 +32,12 @@ import {
 import { learnTerms, lexiconTopTerms } from "../lib/keytermLexicon.ts";
 import { keytermBiasing } from "../lib/keytermBiasingPref.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
+import {
+	activeVoiceOwner,
+	ensureTranscriptionConfig,
+	setActiveVoiceOwner,
+	transcriptionConfig,
+} from "../lib/voiceState.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
 
 // The capture pipeline stays warm after a recording so the next tap skips a
@@ -49,24 +54,7 @@ if (isTouchDevice()) micIdle.releaseMs = 4_000;
 // session ID provides globally meaningful diagnostics; the token prevents a
 // responsive replacement for that same session from rendering a second live
 // mic or releasing the first instance's claim.
-type VoiceOwner = { sessionId: SessionId; token: number };
 let nextVoiceOwnerToken = 0;
-const [activeVoiceOwner, setActiveVoiceOwner] = createSignal<VoiceOwner | null>(null);
-
-// Transcription config is global, not per-pane. Cached at module scope because
-// the composer's inline mic remounts on every composer open — a per-mount RPC
-// would race the first tap into the Web Speech fallback.
-type TranscriptionConfig = { deepgramConfigured: boolean; deepgramLanguage: string };
-const [transcriptionConfig, setTranscriptionConfig] = createSignal<TranscriptionConfig | null>(null);
-let configFetch: Promise<unknown> | null = null;
-function ensureTranscriptionConfig(): void {
-	configFetch ??= coordClient
-		.transcriptionGetConfig({})
-		.then((c) => setTranscriptionConfig({ deepgramConfigured: c.deepgramConfigured, deepgramLanguage: c.deepgramLanguage }))
-		.catch(() => {
-			configFetch = null;
-		});
-}
 
 // ─── voice recognition shim (built-in fallback) ──────────────────────────
 interface SpeechRecognitionAlternative { transcript: string; confidence: number }

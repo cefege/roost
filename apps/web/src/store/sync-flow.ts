@@ -73,7 +73,8 @@ export function isImmediateSyncRedial(reason: string | null): boolean {
   return reason === "visibility"
     || reason === "manual"
     || reason === "stale"
-    || reason === "flow";
+    || reason === "flow"
+    || reason === "terminal-liveness";
 }
 
 /** Build the one owner for an infinite reconnect loop. */

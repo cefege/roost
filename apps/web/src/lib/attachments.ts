@@ -16,6 +16,8 @@
 import { coordClient } from "../connect.ts";
 import { log } from "@roost/shared/log";
 import { sendUserTerminalInput } from "./userTerminalInput.ts";
+import { safeAttachmentInsertion } from "./attachmentInsertion.ts";
+import { workerPathPlatform } from "./nativePath.ts";
 import { addTransfer, markTransferState, setTransferProgress } from "../store/transfers.ts";
 import type { Session } from "@roost/shared/wire";
 
@@ -142,9 +144,14 @@ export async function enqueueAttachmentTo(session: Session, file: File, sink: (a
   return myTurn;
 }
 
-/** Type an uploaded file's absolute path into the session PTY (trailing space). */
+/** Type one safely quoted uploaded path into a POSIX session PTY. */
 export function injectPath(session: Session, absPath: string): void {
-  sendUserTerminalInput(session.id, new TextEncoder().encode(`${absPath} `));
+  const insertion = safeAttachmentInsertion(
+    workerPathPlatform(session.worker_fp, absPath),
+    absPath,
+  );
+  if (insertion === null) return;
+  sendUserTerminalInput(session.id, new TextEncoder().encode(insertion + " "));
 }
 
 /** Upload + inject the abs_path into the PTY (trailing space). Shared by

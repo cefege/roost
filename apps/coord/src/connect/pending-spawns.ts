@@ -1,6 +1,6 @@
-// Process-wide dedupe of in-flight session spawns keyed by caller-minted
-// UUID: exact duplicates join the first caller's promise; caller/parameter
-// conflicts reject before any membership change; capacity caps at 1024.
+// Process-wide dedupe of in-flight session spawns keyed by the globally unique
+// session UUID. Exact duplicates join; dashboard/caller/signature conflicts
+// reject before a second worker command can create an orphan PTY.
 // Ambiguous failures (transport loss, timeout) deliberately RETAIN the
 // reservation until durable-open reconciliation resolves it — rejecting
 // early here would let one lost rpc-ok turn into a duplicate spawn.
@@ -13,6 +13,7 @@ const MAX_PENDING_SPAWNS = 1_024;
 export interface PendingSpawnSignature {
   callerKey: string;
   workerFp: string;
+  dashboardId: string;
   kind: string;
   folder: string;
   cols?: number;
@@ -44,10 +45,12 @@ export type PendingSpawnReservation =
 
 const pendingSpawns = new Map<string, PendingSpawnEntry>();
 
+
 function signatureKey(signature: PendingSpawnSignature): string {
   return JSON.stringify({
     callerKey: signature.callerKey,
     workerFp: signature.workerFp,
+    dashboardId: signature.dashboardId,
     kind: signature.kind,
     folder: signature.folder,
     cols: signature.cols ?? null,
@@ -62,10 +65,10 @@ export function reservePendingSpawn(
   signature: PendingSpawnSignature,
   timeoutMs = PENDING_SPAWN_TIMEOUT_MS,
 ): PendingSpawnReservation {
-  const key = signatureKey(signature);
+  const signatureHash = signatureKey(signature);
   const existing = pendingSpawns.get(sessionId);
   if (existing) {
-    return existing.signatureKey === key
+    return existing.signatureKey === signatureHash
       ? { kind: "joined", promise: existing.promise }
       : { kind: "conflict" };
   }
@@ -73,7 +76,7 @@ export function reservePendingSpawn(
 
   const { promise, resolve, reject } = Promise.withResolvers<PendingSpawnResult>();
   const entry: PendingSpawnEntry = {
-    signatureKey: key,
+    signatureKey: signatureHash,
     signature,
     promise,
     resolve,
@@ -83,7 +86,9 @@ export function reservePendingSpawn(
     ambiguous: false,
   };
   entry.timer = setTimeout(() => {
-    if (pendingSpawns.get(sessionId) !== entry || entry.state !== "pending") return;
+    if (pendingSpawns.get(sessionId) !== entry || entry.state !== "pending") {
+      return;
+    }
     pendingSpawns.delete(sessionId);
     entry.reject(new ConnectError(
       `spawn ${sessionId} did not durably open within ${timeoutMs}ms`,
@@ -97,11 +102,16 @@ export function reservePendingSpawn(
 
 
 export function resolvePendingSpawn(
+  dashboardId: string,
   sessionId: string,
   result: PendingSpawnResult,
 ): boolean {
   const entry = pendingSpawns.get(sessionId);
-  if (!entry || entry.state !== "pending") return false;
+  if (
+    !entry
+    || entry.signature.dashboardId !== dashboardId
+    || entry.state !== "pending"
+  ) return false;
   clearTimeout(entry.timer);
   entry.state = "resolved";
   entry.resolve(result);
@@ -113,12 +123,13 @@ export function resolvePendingSpawn(
 }
 
 function resolveFromDurableOpened(
+  dashboardId: string,
   sessionId: string,
   entry: PendingSpawnEntry,
 ): boolean {
   const opened = entry.durableOpened;
   if (!opened || !entry.ambiguous || entry.state !== "pending") return false;
-  return resolvePendingSpawn(sessionId, {
+  return resolvePendingSpawn(dashboardId, sessionId, {
     sessionId,
     channelId: opened.channelId,
   });
@@ -128,6 +139,7 @@ function resolveFromDurableOpened(
  * which is ordered after the first full frame. Opened resolves only a lost or
  * otherwise ambiguous worker reply. */
 export function resolvePendingSpawnOpened(
+  dashboardId: string,
   workerFp: string,
   sessionId: string,
   channelId: number,
@@ -136,31 +148,62 @@ export function resolvePendingSpawnOpened(
   if (
     !entry
     || entry.state !== "pending"
+    || entry.signature.dashboardId !== dashboardId
     || entry.signature.workerFp !== workerFp
   ) return false;
   entry.durableOpened = { workerFp, channelId };
-  resolveFromDurableOpened(sessionId, entry);
+  resolveFromDurableOpened(dashboardId, sessionId, entry);
   return true;
 }
 
 /** Transport loss/timeouts are ambiguous and retain the reservation for
  * durable-open reconciliation; definite failures reject immediately. */
 export function rejectPendingSpawn(
+  dashboardId: string,
   sessionId: string,
   error: Error,
   definite: boolean,
 ): boolean {
   const entry = pendingSpawns.get(sessionId);
-  if (!entry || entry.state !== "pending") return false;
+  if (
+    !entry
+    || entry.signature.dashboardId !== dashboardId
+    || entry.state !== "pending"
+  ) return false;
   if (!definite) {
     entry.ambiguous = true;
-    resolveFromDurableOpened(sessionId, entry);
+    resolveFromDurableOpened(dashboardId, sessionId, entry);
     return true;
   }
   clearTimeout(entry.timer);
   pendingSpawns.delete(sessionId);
   entry.reject(error);
   return true;
+}
+
+/** True only for the exact dashboard/worker spawn reservation. */
+export function hasPendingSpawn(
+  dashboardId: string,
+  workerFp: string,
+  sessionId: string,
+): boolean {
+  const entry = pendingSpawns.get(sessionId);
+  return entry?.signature.dashboardId === dashboardId
+    && entry.signature.workerFp === workerFp;
+}
+
+/** A durable worker credential revocation makes every unresolved spawn for
+ * that worker definitively impossible; unlike transport loss, no replay can
+ * reconcile it through this credential generation. */
+export function rejectPendingSpawnsForWorker(workerFp: string): void {
+  for (const [sessionId, entry] of pendingSpawns) {
+    if (entry.signature.workerFp !== workerFp) continue;
+    clearTimeout(entry.timer);
+    pendingSpawns.delete(sessionId);
+    if (entry.state === "pending") {
+      entry.reject(new ConnectError("worker credential revoked", Code.Unauthenticated));
+    }
+  }
 }
 
 export function pendingSpawnStats(): { pending: number; resolved: number } {

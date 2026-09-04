@@ -13,12 +13,14 @@ import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
+import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
 function freshMgr(): { mgr: SessionManager; calls: { n: number } } {
   const calls = { n: 0 };
+  const sink = new LifecycleTestSink();
   const mgr = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
-    sink: { emit: () => {} },
+    sink,
   });
   mgr.setOnKeeperDegraded(() => { calls.n++; });
   return { mgr, calls };
@@ -33,7 +35,9 @@ function injectSession(mgr: SessionManager, channelId: number, headSeq: number, 
     socketPath: `mux:${channelId}`,
     kind: "shell" as const,
     cwd: "/",
-    fsm: { send: () => {} } as never,
+    fsm: {
+      send: () => ({ ok: true, from: "open", to: "closed" }),
+    } as never,
     bridge: null,
     scrollback: createSbRing(),
     head_seq: headSeq,
@@ -46,6 +50,7 @@ function injectSession(mgr: SessionManager, channelId: number, headSeq: number, 
     session_trace_id: "t",
     cell_emit: initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"),
     spawnedAtMs: Date.now() - ageMs,
+    closeReservation: mgr.reserveLifecycleEvent("closed"),
   };
   (mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(channelId, record);
 }

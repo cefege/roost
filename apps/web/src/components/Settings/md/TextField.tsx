@@ -1,52 +1,63 @@
+// Canonical Material outlined text field shared by settings and public account forms.
+// Callers own field state; this wrapper forwards validation, accessibility, and focus
+// properties to the form-associated Material host without exposing its shadow input.
+
 import { type JSX, type Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import type { MdOutlinedTextField } from "@material/web/textfield/outlined-text-field.js";
 import "@material/web/textfield/outlined-text-field.js";
 
-// ─── Text field → real md-outlined-text-field (floating label, focus, error) ─
+export type TextFieldElement = MdOutlinedTextField;
+
 export const TextField: Component<{
   value: string;
-  onInput: (v: string) => void;
+  onInput: (value: string) => void;
   label?: string;
   type?: string;
   placeholder?: string;
   class?: string;
   style?: JSX.CSSProperties;
   testId?: string;
-  // type="textarea" + rows for multiline; min/max for type="number".
   rows?: number;
   min?: number;
   max?: number;
-  // Forwarded so inputs that need them (Enter-to-submit / Esc-to-close, or a
-  // ref for .focus()) can migrate off the native <input>. md-text-field's host
-  // exposes .focus() (delegates to its inner input).
-  onKeyDown?: (e: KeyboardEvent) => void;
-  // prop:, not attr: — a bare disabled={false} through <Dynamic> can land as
-  // the attribute disabled="false", which HTML reads as DISABLED and would
-  // permanently lock a field that only disables itself while sending.
+  autocomplete?: string;
+  inputMode?: string;
+  required?: boolean;
+  minLength?: number;
+  maxLength?: number;
+  ariaDescribedBy?: string;
+  autofocus?: boolean;
+  onKeyDown?: (event: KeyboardEvent) => void;
   disabled?: boolean;
-  // For fields with no visible label (the chat composer): supplies the
-  // accessible name md-outlined-text-field otherwise lacks.
   ariaLabel?: string;
-  ref?: (el: HTMLElement) => void;
+  ref?: (element: TextFieldElement) => void;
 }> = (props) => (
   <Dynamic
     component="md-outlined-text-field"
-    ref={props.ref}
+    ref={(element: HTMLElement) => props.ref?.(element as TextFieldElement)}
     prop:value={props.value}
     label={props.label}
     type={props.type ?? "text"}
     rows={props.rows}
     min={props.min}
     max={props.max}
+    prop:autocomplete={props.autocomplete ?? ""}
+    prop:inputMode={props.inputMode ?? ""}
+    prop:required={props.required ?? false}
+    prop:minLength={props.minLength ?? -1}
+    prop:maxLength={props.maxLength ?? -1}
     placeholder={props.placeholder}
     class={props.class}
     style={props.style}
     attr:data-testid={props.testId}
+    attr:aria-describedby={props.ariaDescribedBy}
+    attr:autofocus={props.autofocus ? "" : undefined}
     prop:disabled={props.disabled ?? false}
     attr:aria-label={props.ariaLabel}
     on:keydown={props.onKeyDown}
-    on:input={(e: Event) =>
-      props.onInput((e.currentTarget as HTMLInputElement & { value: string }).value)
+    on:input={(event: Event) =>
+      props.onInput((event.currentTarget as TextFieldElement).value)
     }
   />
 );

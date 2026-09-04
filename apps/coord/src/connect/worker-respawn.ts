@@ -9,7 +9,7 @@ import {
 import { asSessionId, SessionKind, type ClientControlFrame } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
 import type { KyselyDB } from "../db/connection.ts";
-import type { WorkerHandle } from "./worker-registry.ts";
+import { connectWorkers, type WorkerHandle } from "./worker-registry.ts";
 
 /**
  * Called after the worker hello grace period. Open terminal sessions are
@@ -21,14 +21,29 @@ export async function respawnMissingForWorker(
   workerFp: string,
   handle: WorkerHandle,
 ): Promise<void> {
-  const rows = await db.selectFrom("sessions")
-    .select(["id", "kind", "cwd"])
-    .where("worker_fp", "=", workerFp)
-    .where("status", "=", "open")
+  if (!handle.ready || handle.revoked || connectWorkers.get(workerFp) !== handle) return;
+  const dashboardId = handle.dashboardId;
+  if (dashboardId === undefined) {
+    log.warn("worker-service", "respawn_unscoped_worker_handle", { worker_fp: workerFp });
+    return;
+  }
+  const rows = await db.selectFrom("sessions as session")
+    .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
+    .select([
+      "session.id as id",
+      "session.kind as kind",
+      "session.cwd as cwd",
+    ])
+    .where("session.worker_fp", "=", workerFp)
+    .where("session.dashboard_id", "=", dashboardId)
+    .where("session.status", "=", "open")
+    .where("worker.dashboard_id", "=", dashboardId)
+    .where("worker.deleted_at_ms", "is", null)
     .execute();
   if (rows.length === 0) return;
   log.info("worker-service", "respawn_missing_dispatch", { worker_fp: workerFp, count: rows.length });
   for (const row of rows) {
+    if (!handle.ready || handle.revoked || connectWorkers.get(workerFp) !== handle) return;
     const requestId = randomUUID();
     // Kinds SessionKind knows about are recreated; a historical row carrying
     // any other value stays visible but is not respawned.

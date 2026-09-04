@@ -35,18 +35,32 @@ import {
 export interface TerminalViewHubOptions {
   db: KyselyDB;
   now?: () => number;
-  resolveRoute?: (sessionId: string) => Promise<TerminalStreamRoute | null>;
+  resolveRoute?: (
+    dashboardId: string,
+    sessionId: string,
+  ) => Promise<TerminalStreamRoute | null>;
   sendStreamState?: (
     workerFp: string,
-    state: Omit<TerminalStreamDesired, "retry"> & { sessionId: string },
+    state: Omit<TerminalStreamDesired, "retry"> & {
+      sessionId: string;
+      dashboardId: string;
+    },
   ) => TerminalWorkerRequest<WTerminalStreamResult>;
-  sendSnapshot?: (workerFp: string, sessionId: string, streamId: string) => boolean;
+  sendSnapshot?: (
+    workerFp: string,
+    sessionId: string,
+    streamId: string,
+    dashboardId: string,
+  ) => boolean;
 }
 
 export interface TerminalSocketRegistration {
   socketId: string;
   viewerKey: string | null;
   callerFingerprint: string;
+  /** Server-selected dashboard, not a terminal command field. */
+  dashboardId: string;
+  allowsSession(sessionId: string): boolean;
   sink: TerminalScreenSocketSink;
 }
 
@@ -82,6 +96,13 @@ export function notifyTerminalRouteReconciled(
   productionHub?.routeReconciled(workerFp, sessionIds);
 }
 
+export function notifyTerminalWorkerRetired(
+  workerFp: string,
+  sessionIds: Iterable<string>,
+): void {
+  productionHub?.workerRetired(workerFp, sessionIds);
+}
+
 /**
  * Coordinator owner for socket-bound terminal view membership and the one
  * effective worker stream per watched session. Membership and stream lifecycle
@@ -95,17 +116,22 @@ export class TerminalViewHub {
   private readonly streams: TerminalViewStreamController;
   private readonly timer: ReturnType<typeof setInterval>;
   private readonly unsubscribe: () => void;
+  private onLiveViewExpired:
+    (socketId: string, viewId: string, sessionId: string) => void = () => undefined;
 
   constructor(options: TerminalViewHubOptions) {
     this.now = options.now ?? Date.now;
     const resolveRoute = options.resolveRoute
-      ?? ((sessionId: string) => resolveSessionRoute(options.db, sessionId));
+      ?? ((dashboardId: string, sessionId: string) =>
+        resolveSessionRoute(options.db, dashboardId, sessionId));
     const sendStream = options.sendStreamState
-      ?? ((workerFp: string, state: Omit<TerminalStreamDesired, "retry"> & { sessionId: string }) =>
-        sendTerminalStreamStateRequest(workerFp, state));
+      ?? ((workerFp: string, state: Omit<TerminalStreamDesired, "retry"> & {
+        sessionId: string;
+        dashboardId: string;
+      }) => sendTerminalStreamStateRequest(workerFp, state));
     const sendSnapshot = options.sendSnapshot
-      ?? ((workerFp: string, sessionId: string, streamId: string) =>
-        sendTerminalSnapshotRequest(workerFp, { sessionId, streamId }));
+      ?? ((workerFp: string, sessionId: string, streamId: string, dashboardId: string) =>
+        sendTerminalSnapshotRequest(workerFp, { sessionId, streamId, dashboardId }));
 
     this.streams = new TerminalViewStreamController({
       resolveRoute,
@@ -123,8 +149,11 @@ export class TerminalViewHub {
       screen: this.screen,
       now: this.now,
       streamState: (sessionId) => this.streams.state(sessionId),
-      recompute: (sessionId) => this.streams.recompute(sessionId),
+      recompute: (sessionId, dashboardId) => this.streams.recompute(sessionId, dashboardId),
       redrive: (sessionId) => this.streams.redrive(sessionId),
+      onLiveViewExpired: (socketId, viewId, sessionId) => {
+        this.onLiveViewExpired(socketId, viewId, sessionId);
+      },
     });
 
     this.timer = setInterval(() => this.sweep(), TERMINAL_VIEW_SWEEP_MS);
@@ -136,6 +165,7 @@ export class TerminalViewHub {
 
   dispose(): void {
     clearInterval(this.timer);
+    this.onLiveViewExpired = () => undefined;
     this.unsubscribe();
     this.registry.dispose();
     this.streams.dispose();
@@ -148,9 +178,19 @@ export class TerminalViewHub {
   closeSocket(socketId: string): void {
     this.registry.closeSocket(socketId);
   }
+  setOnLiveViewExpired(
+    handler: ((socketId: string, viewId: string, sessionId: string) => void) | null,
+  ): void {
+    this.onLiveViewExpired = handler ?? (() => undefined);
+  }
+
 
   removeFingerprint(fingerprint: string): void {
     this.registry.removeFingerprint(fingerprint);
+  }
+
+  removeDashboard(dashboardId: string): void {
+    this.registry.removeDashboard(dashboardId);
   }
 
   handleViewCommand(socketId: string, command: TerminalViewCommand): void {
@@ -167,6 +207,10 @@ export class TerminalViewHub {
 
   routeReconciled(workerFp: string, sessionIds: Iterable<string>): void {
     this.streams.routeReconciled(workerFp, sessionIds);
+  }
+
+  workerRetired(workerFp: string, sessionIds: Iterable<string>): void {
+    this.streams.workerRetired(workerFp, sessionIds);
   }
 
   closeSession(sessionId: string): void {

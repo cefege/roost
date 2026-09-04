@@ -16,11 +16,31 @@ import {
   DeleteAttachmentResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { asSessionId } from "@roost/shared/wire";
-import { requireAuth } from "./auth-interceptor.ts";
+import { requireAccountDevice, requireDashboardActor } from "./auth-interceptor.ts";
 import { getWorkerHubSocket, sendAttachmentChunk } from "./worker-service.ts";
-import { createPendingRpc, createPendingRpcWithId } from "../router/pending-rpcs.ts";
+import {
+  createPendingRpc,
+  createPendingRpcWithId,
+  rejectPendingRpcUnavailable,
+} from "../router/pending-rpcs.ts";
 import { sendBrowserCmd, requireSessionWorkerSocket } from "./router-helpers.ts";
 import type { ConnectDeps } from "./router.ts";
+
+async function requireDashboardWorkerSocket(
+  deps: ConnectDeps,
+  dashboardId: string,
+  workerFp: string,
+) {
+  const worker = await deps.db.selectFrom("workers").select("fp")
+    .where("fp", "=", workerFp)
+    .where("dashboard_id", "=", dashboardId)
+    .where("deleted_at_ms", "is", null)
+    .executeTakeFirst();
+  if (!worker) throw new ConnectError("worker not found", Code.NotFound);
+  const sock = getWorkerHubSocket(worker.fp);
+  if (!sock) throw new ConnectError("worker not connected", Code.FailedPrecondition);
+  return { workerFp: worker.fp, sock };
+}
 
 type AttachmentMethods =
   | "filesRead" | "filesReadChunk" | "filesListDir" | "filesMkdir"
@@ -31,10 +51,14 @@ export function makeAttachmentHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, AttachmentMethods> {
   return {
     async filesRead(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const sock = getWorkerHubSocket(req.workerFp);
-      if (!sock) throw new ConnectError("worker not connected", Code.FailedPrecondition);
-      const pending = createPendingRpc<{ content_b64: string; size: number }>(10_000, req.workerFp);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
+      const { workerFp, sock } = await requireDashboardWorkerSocket(
+        deps,
+        actor.dashboardId,
+        req.workerFp,
+      );
+      const pending = createPendingRpc<{ content_b64: string; size: number }>(10_000, workerFp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "read-file" as const, request_id: pending.request_id, path: req.path,
       });
@@ -46,13 +70,17 @@ export function makeAttachmentHandlers(
     },
 
     async filesReadChunk(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const sock = getWorkerHubSocket(req.workerFp);
-      if (!sock) throw new ConnectError("worker not connected", Code.FailedPrecondition);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
+      const { workerFp, sock } = await requireDashboardWorkerSocket(
+        deps,
+        actor.dashboardId,
+        req.workerFp,
+      );
       if (req.len <= 0 || req.len > 4 * 1024 * 1024) {
         throw new ConnectError("file chunk length must be between 1 and 4194304 bytes", Code.InvalidArgument);
       }
-      const pending = createPendingRpc<{ content_b64: string; size: number; eof: boolean }>(30_000, req.workerFp);
+      const pending = createPendingRpc<{ content_b64: string; size: number; eof: boolean }>(30_000, workerFp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "read-file-chunk" as const, request_id: pending.request_id, path: req.path, offset: Number(req.offset), len: req.len,
       });
@@ -64,10 +92,14 @@ export function makeAttachmentHandlers(
     },
 
     async filesListDir(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const sock = getWorkerHubSocket(req.workerFp);
-      if (!sock) throw new ConnectError("worker not connected", Code.FailedPrecondition);
-      const pending = createPendingRpc<{ entries: Array<{ name: string; isDir: boolean; mtime_ms?: number }>; resolved_path?: string }>(10_000, req.workerFp);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
+      const { workerFp, sock } = await requireDashboardWorkerSocket(
+        deps,
+        actor.dashboardId,
+        req.workerFp,
+      );
+      const pending = createPendingRpc<{ entries: Array<{ name: string; isDir: boolean; mtime_ms?: number }>; resolved_path?: string }>(10_000, workerFp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "list-dir" as const, request_id: pending.request_id, path: req.path,
       });
@@ -79,10 +111,14 @@ export function makeAttachmentHandlers(
     },
 
     async filesMkdir(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const sock = getWorkerHubSocket(req.workerFp);
-      if (!sock) throw new ConnectError("worker not connected", Code.FailedPrecondition);
-      const pending = createPendingRpc<{ resolved_path?: string }>(10_000, req.workerFp);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
+      const { workerFp, sock } = await requireDashboardWorkerSocket(
+        deps,
+        actor.dashboardId,
+        req.workerFp,
+      );
+      const pending = createPendingRpc<{ resolved_path?: string }>(10_000, workerFp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "mkdir" as const, request_id: pending.request_id, path: req.path,
       });
@@ -98,10 +134,10 @@ export function makeAttachmentHandlers(
     // abs_path; non-last chunks return immediately with an empty path. Memory
     // here is O(chunk), not O(file).
     async attachFileChunk(req, ctx) {
-      requireAuth(ctx.values);  // authz gate (throws if unauthed)
+      const actor = requireDashboardActor(ctx.values);
       if (!req.uploadId) throw new ConnectError("upload_id required", Code.InvalidArgument);
       if (!req.sessionId) throw new ConnectError("session_id required", Code.InvalidArgument);
-      const { row } = await requireSessionWorkerSocket(deps.db, req.sessionId);
+      const { row } = await requireSessionWorkerSocket(deps.db, actor, req.sessionId);
       const workerFp = row.worker_fp;
 
       // Register the pending BEFORE sending the final chunk so the worker's
@@ -113,7 +149,16 @@ export function makeAttachmentHandlers(
       if (!sendAttachmentChunk(workerFp, {
         requestId: req.uploadId, sessionId: req.sessionId, filename: req.filename,
         shortPath: req.shortPath, data: req.data, last: req.last, seq: req.seq,
-      })) throw new ConnectError("worker disconnected mid-upload", Code.Unavailable);
+      })) {
+        if (pending) {
+          rejectPendingRpcUnavailable(
+            req.uploadId,
+            "worker disconnected mid-upload",
+            workerFp,
+          );
+        }
+        throw new ConnectError("worker disconnected mid-upload", Code.Unavailable);
+      }
       if (!pending) return create(AttachFileChunkResponseSchema, { absPath: "" });
       const res = await pending.promise;
       return create(AttachFileChunkResponseSchema, { absPath: res.abs_path });
@@ -122,9 +167,10 @@ export function makeAttachmentHandlers(
     // att3 — content-dedup probe. Resolve the session's worker and relay the
     // hash; a hit returns the existing path so the SPA skips the byte upload.
     async attachmentProbe(req, ctx) {
-      const caller = requireAuth(ctx.values);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
       if (!req.sessionId) throw new ConnectError("session_id required", Code.InvalidArgument);
-      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, actor, req.sessionId);
       const pending = createPendingRpc<{ hit: boolean; abs_path: string }>(10_000, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "attachment-probe" as const, request_id: pending.request_id, session_id: asSessionId(req.sessionId), sha256: req.sha256, short_path: req.shortPath,
@@ -134,8 +180,9 @@ export function makeAttachmentHandlers(
     },
 
     async listAttachments(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, actor, req.sessionId);
       const pending = createPendingRpc<{ entries: Array<{ filename: string; size_bytes: number; mtime_ms: number; abs_path: string }> }>(10_000, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "list-attachments" as const,
@@ -154,8 +201,9 @@ export function makeAttachmentHandlers(
     },
 
     async deleteAttachment(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, actor, req.sessionId);
       const pending = createPendingRpc<{ ok: boolean }>(10_000, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "delete-attachment" as const,

@@ -19,10 +19,6 @@ export interface CoordRelocationRecoveryOptions {
   link: CoordLink;
   statusAt: (url: string, handoffId: string) => Promise<MoveStatus>;
   setCoordinatorEndpoint: (url: string) => void;
-  /** The failover cutover below is the lossy path — the source died, so no
-   *  COMMIT frame ever arrives to trigger main.ts's own re-announce and the
-   *  new coordinator would have no session projection. */
-  reannounce: (targetUrl: string) => void;
   now?: () => number;
   abortTarget: (handoffId: string) => Promise<void>;
   unavailableAfterMs?: number;
@@ -171,8 +167,5 @@ async function resolveUnreachableSource(
   }
   options.setCoordinatorEndpoint(journal.target_url);
   options.link.relocate(journal.target_url);
-  options.reannounce(journal.target_url);
-  // Settled for this tick: without clearing the gate the 5s driver re-enters
-  // immediately and rebuilds the Connect transport on every tick.
   return false;
 }

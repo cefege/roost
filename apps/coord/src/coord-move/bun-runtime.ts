@@ -13,7 +13,7 @@ import {
   sendCoordinatorSnapshotChunk,
   sendCoordinatorSnapshotStart,
 } from "../connect/worker-send.ts";
-import { connectWorkers } from "../connect/worker-registry.ts";
+import { connectWorkers, type WorkerHandle } from "../connect/worker-registry.ts";
 import { createSqliteSnapshot } from "../db/snapshot.ts";
 import type { CoordinatorMoveRuntime, MoveSnapshot, MoveWorker } from "./runtime.ts";
 import type { MovePhase } from "./state.ts";
@@ -28,7 +28,16 @@ export function createBunCoordinatorMoveRuntime(options: {
   handoffPath: string;
   publishRelocation: (state: MoveSnapshot) => void;
 }): CoordinatorMoveRuntime {
+  function requireScopedWorker(workerFp: string, dashboardId: string) {
+    const worker = connectWorkers.get(workerFp);
+    if (!worker || !worker.ready || worker.revoked || worker.dashboardId !== dashboardId) {
+      throw new Error("worker unavailable");
+    }
+    return worker;
+  }
+
   async function callTarget(state: MoveSnapshot, action: "CHECK" | "PREPARE"): Promise<void> {
+    requireScopedWorker(state.targetWorkerFp, state.dashboardId);
     await sendCoordinatorMovePrepare(state.targetWorkerFp, {
       handoffId: state.handoffId, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl,
       expectedCoordKid: state.expectedCoordKid, expectedGitSha: state.expectedGitSha,
@@ -57,11 +66,11 @@ export function createBunCoordinatorMoveRuntime(options: {
     throw lastError ?? new Error(`target request failed: ${path}`);
   }
 
-  async function reconnectWorkers(workers: MoveWorker[], timeoutMs: number): Promise<void> {
-    const previous = new Map<string, ReturnType<typeof connectWorkers.get>>();
+  async function reconnectWorkers(dashboardId: string, workers: MoveWorker[], timeoutMs: number): Promise<void> {
+    const previous = new Map<string, WorkerHandle | undefined>();
     for (const worker of workers) {
-      const handle = connectWorkers.get(worker.fp);
-      if (!handle?.close) throw new Error(`worker ${worker.fp} cannot reconnect to target`);
+      const handle = requireScopedWorker(worker.fp, dashboardId);
+      if (!handle.close) throw new Error(`worker ${worker.fp} cannot reconnect to target`);
       previous.set(worker.fp, handle);
       handle.close();
     }
@@ -69,7 +78,10 @@ export function createBunCoordinatorMoveRuntime(options: {
     while (Date.now() < deadline) {
       if (workers.every((worker) => {
         const current = connectWorkers.get(worker.fp);
-        return current !== undefined && current !== previous.get(worker.fp);
+        return current?.dashboardId === dashboardId
+          && current.ready
+          && !current.revoked
+          && current !== previous.get(worker.fp);
       })) return;
       await Bun.sleep(50);
     }
@@ -77,11 +89,12 @@ export function createBunCoordinatorMoveRuntime(options: {
   }
 
   return {
-    async checkTarget(target: MoveWorker, expectedGitSha: string, estimatedDbSize: number): Promise<string | null> {
+    async checkTarget(dashboardId: string, target: MoveWorker, expectedGitSha: string, estimatedDbSize: number): Promise<string | null> {
       try {
         // CHECK on the worker is only statfs + a service-liveness probe, so a
         // wedged target must not hold the move dialog open for the 180s
         // PREPARE default.
+        requireScopedWorker(target.fp, dashboardId);
         await sendCoordinatorMovePrepare(target.fp, {
           handoffId: crypto.randomUUID(), sourceUrl: "https://check.invalid", targetUrl: `https://${target.reachableAddr}:4102`,
           expectedCoordKid: "preflight", expectedGitSha, estimatedDbSize: BigInt(estimatedDbSize), action: "CHECK",
@@ -93,22 +106,27 @@ export function createBunCoordinatorMoveRuntime(options: {
     },
     async prepareTarget(state) { await callTarget(state, "PREPARE"); },
     async stageWorker(worker, state) {
+      requireScopedWorker(worker.fp, state.dashboardId);
       await sendCoordinatorRelocate(worker.fp, { handoffId: state.handoffId, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, action: "STAGE" });
     },
     async activateWorker(worker, state) {
+      requireScopedWorker(worker.fp, state.dashboardId);
       await sendCoordinatorRelocate(worker.fp, { handoffId: state.handoffId, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, action: "ACTIVATE" });
     },
     async commitWorker(worker, state) {
       // The worker's own commit() waits up to 30s for its event drain before
       // rewriting its service definition; coord must outlast that.
+      requireScopedWorker(worker.fp, state.dashboardId);
       await sendCoordinatorRelocate(worker.fp, { handoffId: state.handoffId, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, action: "COMMIT" }, 60_000);
     },
     async abortWorker(worker, state) {
       // Matches commitWorker: the worker's rollback also waits on its drain,
       // and a 30s budget records FAILED on a rollback that actually worked.
+      requireScopedWorker(worker.fp, state.dashboardId);
       await sendCoordinatorRelocate(worker.fp, { handoffId: state.handoffId, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, action: "ABORT" }, 60_000);
     },
     async copySnapshot(state) {
+      requireScopedWorker(state.targetWorkerFp, state.dashboardId);
       const handoffDir = join(dirname(options.handoffPath), "handoffs", state.handoffId);
       fs.mkdirSync(handoffDir, { recursive: true, mode: 0o700 });
       const snapshot = join(handoffDir, "coordinator_v2.snapshot");
@@ -117,6 +135,7 @@ export function createBunCoordinatorMoveRuntime(options: {
       try {
         // One budget covers the whole transfer plus the target's fsync, sha256,
         // integrity_check, renames and installer run — scale it with payload.
+        const handleAtStart = requireScopedWorker(state.targetWorkerFp, state.dashboardId);
         const receipt = sendCoordinatorSnapshotStart(state.targetWorkerFp, {
           handoffId: state.handoffId, totalSize: BigInt(size), sha256,
           coordKeyPem: fs.readFileSync(options.coordKeyPath),
@@ -129,7 +148,6 @@ export function createBunCoordinatorMoveRuntime(options: {
             : new Uint8Array(),
           secretSha256: state.secretSha256, expectedWorkerFps: state.expectedWorkerFps,
         }, 120_000 + Math.ceil(size / 1_000_000) * 1_000);
-        const handleAtStart = connectWorkers.get(state.targetWorkerFp);
         const streamFd = fs.openSync(snapshot, "r");
         try {
           for (let offset = 0, seq = 0; offset < size; seq++) {
@@ -137,6 +155,7 @@ export function createBunCoordinatorMoveRuntime(options: {
             if (read === 0) throw new Error("coordinator snapshot ended unexpectedly");
             offset += read;
             // Bun's ws.send: 0 = dropped, -1 = enqueued under backpressure, >0 = bytes.
+            requireScopedWorker(state.targetWorkerFp, state.dashboardId);
             if (sendCoordinatorSnapshotChunk(state.targetWorkerFp, {
               handoffId: state.handoffId, seq, data: chunk.subarray(0, read), last: offset === size,
             }) === 0) throw new Error(`coordinator snapshot chunk ${seq} was dropped`);
@@ -145,7 +164,14 @@ export function createBunCoordinatorMoveRuntime(options: {
             // while we'd measure backpressure on the dead one. Fail instead:
             // execute()'s catch turns this into a clean rollback.
             const live = connectWorkers.get(state.targetWorkerFp);
-            if (live !== handleAtStart) throw new Error("target worker reconnected mid-snapshot");
+            if (
+              live !== handleAtStart
+              || !live?.ready
+              || live?.revoked
+              || live?.dashboardId !== state.dashboardId
+            ) {
+              throw new Error("target worker reconnected mid-snapshot");
+            }
             // Without this the whole DB buffers in coord's heap before a byte
             // drains — an OOM at the least recoverable phase.
             while ((live?.bufferedAmount?.() ?? 0) > 8 * CHUNK_SIZE) await Bun.sleep(5);
@@ -160,8 +186,8 @@ export function createBunCoordinatorMoveRuntime(options: {
         fs.rmSync(snapshot, { force: true });
       }
     },
-    async reconnectWorkers(workers, timeoutMs) {
-      await reconnectWorkers(workers, timeoutMs);
+    async reconnectWorkers(dashboardId, workers, timeoutMs) {
+      await reconnectWorkers(dashboardId, workers, timeoutMs);
     },
     async waitForWorkers(state, timeoutMs) {
       const deadline = Date.now() + timeoutMs;
@@ -203,6 +229,7 @@ export function createBunCoordinatorMoveRuntime(options: {
         // its worker is still attached here and owns the rollback. A 4xx/5xx
         // answer means the target coord IS up and has ruled on the abort —
         // uninstalling it then would tear down a live coordinator.
+        requireScopedWorker(state.targetWorkerFp, state.dashboardId);
         await sendCoordinatorRelocate(state.targetWorkerFp, {
           handoffId: state.handoffId, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, action: "ABORT",
         }).catch(() => { throw error; });

@@ -7,9 +7,13 @@
 import {
   extractAuditMeta,
   preflightResponse,
+  recordAuditTelemetry,
   securityOptionsForConfig,
+  shouldPersistNonConnectAudit,
+  SPA_AUDIT_TELEMETRY_PATH,
   wrapResponse,
   writeAuditLog,
+  type NonConnectAuditSurface,
 } from "./middleware/security.ts";
 import { checkRateLimit } from "./middleware/rate-limit.ts";
 import { buildConnectRouter } from "./connect/router.ts";
@@ -25,6 +29,9 @@ import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "./jwt.ts";
 import type { CoordinatorMoveService } from "./coord-move/orchestrator.ts";
 import type { CallerOrigin } from "./middleware/caller-origin.ts";
+import type { EmailDeliveryService } from "./email-delivery.ts";
+import type { PasswordWorkGate } from "./connect/password-work-gate.ts";
+import type { PendingEventPublicationStore } from "./pending-event-publications.ts";
 
 export interface CoordHandlerContext {
   origin: CallerOrigin;
@@ -42,8 +49,15 @@ export interface CoordDeps {
   coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;
+  passwordWorkGate: PasswordWorkGate;
   move?: CoordinatorMoveService;
+  pendingPublications?: PendingEventPublicationStore;
   onKeyRevoked?: (fingerprint: string) => void;
+  onWorkerDeletedFence?: (fingerprint: string) => void;
+  onWorkerDeletedSyncScope?: (dashboardId: string, fingerprint: string) => void;
+  onWorkerDeletedSocketClose?: (fingerprint: string) => void;
+  email?: Pick<EmailDeliveryService, "encryptPayload">;
+  onDashboardRevoked?: (dashboardId: string, fingerprint?: string) => void;
 }
 
 export interface CoordHandle {
@@ -70,7 +84,11 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   const stopLastActivityHub = startLastActivityHub();
   // Volatile coding-agent status: validate worker ownership, retain the latest
   // active revision per session, and clear it on terminal close.
-  startAgentStatusHub({ db: deps.db });
+  startAgentStatusHub({
+    db: deps.db,
+    pushAllowedOrigins: deps.cfg.pushAllowedOrigins,
+    tenantRouteKey: deps.cfg.tenantRouteKey,
+  });
 
   const secOpts = securityOptionsForConfig(deps.cfg, false);
 
@@ -87,17 +105,24 @@ export function createCoord(deps: CoordDeps): CoordHandle {
     const auditMeta = extractAuditMeta(req);
     let resp: Response;
     let isConnect = false;
+    let nonConnectSurface: NonConnectAuditSurface = "api";
     try {
       if (connectHandler.matches(url.pathname)) {
         isConnect = true;
         resp = await connectHandler.fetch(req, origin);
+      } else if (req.method === "POST" && url.pathname.startsWith("/roost.")) {
+        nonConnectSurface = "api";
+        resp = new Response("not found", { status: 404 });
       } else if (url.pathname === "/api/db-export") {
+        nonConnectSurface = "db-export";
         resp = ctx?.dbExport
           ? await ctx.dbExport(origin)
           : new Response(JSON.stringify({ error: "db-export not configured" }), { status: 501 });
       } else if (url.pathname.startsWith("/api/")) {
+        nonConnectSurface = "api";
         resp = new Response("not found", { status: 404 });
       } else if (ctx?.spa) {
+        nonConnectSurface = "spa";
         resp = await ctx.spa(url, req.method, req.headers.get("accept-encoding") ?? "");
       } else {
         resp = new Response("not found", { status: 404 });
@@ -109,10 +134,27 @@ export function createCoord(deps: CoordDeps): CoordHandle {
       });
     }
 
-    // Connect RPCs audit inside the interceptor with the verified caller
-    // fp. Everything else audits here with callerFp:null (no JWT context).
+    // Connect RPCs audit inside the interceptor with the verified caller fp.
+    // Static/deep-link successes retain one bounded metric label but do not
+    // let arbitrary Internet paths amplify durable SQLite rows.
     if (!isConnect) {
-      writeAuditLog({ db: deps.db, status: resp.status, ...auditMeta, callerFp: null });
+      const telemetryPath = nonConnectSurface === "spa"
+        ? SPA_AUDIT_TELEMETRY_PATH
+        : auditMeta.path;
+      recordAuditTelemetry(telemetryPath, resp.status);
+      if (shouldPersistNonConnectAudit({
+        surface: nonConnectSurface,
+        method: auditMeta.method,
+        status: resp.status,
+      })) {
+        writeAuditLog({
+          db: deps.db,
+          status: resp.status,
+          ...auditMeta,
+          callerFp: null,
+          recordTelemetry: false,
+        });
+      }
     }
     return wrapResponse(resp, req, opts);
   }

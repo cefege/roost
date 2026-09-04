@@ -1,51 +1,45 @@
-// Emit snapshot SessionEvent on coord reconnect (R3.1).
-// Coord reconciles: sessions in DB for this worker NOT in the snapshot
-// get synthetic closed events. Ensures no ghost sessions after restart.
-//
-// 24a-5: routes through the same SessionEventSink as every other
-// SessionEvent. Per phase-24.md R0.3 invariant, ONE emit boundary
-// leaves the worker — no more split between snapshot (tRPC) + others
-// (CoordLink). Reconciliation correctness depends on snapshot
-// arriving AT coord before any browser query reads stale rows; the
-// CoordLink pending queue is FIFO + drains in order on open, so
-// snapshot ordering vs other events is preserved.
-
+// Builds the exact reconnect snapshot from one SessionManager membership copy.
+// Immutable launch fields come from admitted records while current terminal
+// metadata repairs replaceable events after reconnect.
+import type { WorkerFp, SessionEvent } from "@roost/shared/wire";
 import type { SessionManager } from "./session-manager.ts";
-import type { SessionEventSink } from "./event-sink.ts";
-import type { WorkerFp } from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
 
-export async function emitSnapshot(opts: {
-  mgr: SessionManager;
-  sink: SessionEventSink;
-  workerFp: WorkerFp;
-}): Promise<void> {
-  const { mgr, sink, workerFp } = opts;
-  const live = mgr.allSessions();
-  const sessions = live.map((r) => ({
-    id: r.sessionId,
-    worker_fp: workerFp,
-    channel: r.channelId,
-    kind: r.kind,
-    cwd: r.cwd,
-    workspace_id: null,
-    status: "open" as const,
-    created_at: Date.now(),
-    closed_at: null,
-    custom_title: null, // coord-owned; coord's snapshot fold preserves the real value
-    git_branch: r.git_branch ?? null, // worker-authoritative; survives coord restart
-    git_remote: r.git_remote ?? null,
-    pr_number: r.pr?.number ?? null,  // retained on the record; re-announce so
-    pr_state: r.pr?.state ?? null,    // coord's snapshot upsert keeps the badge
-    pr_checks: r.pr?.checks ?? null,  // instead of clearing it on reconnect
-    pr_url: r.pr?.url ?? null,
-    ports: r.ports ?? [],             // re-announce so reconnect keeps the chips
-  }));
-  sink.emit({
+export type WorkerSnapshotEvent = Extract<SessionEvent, { kind: "snapshot" }>;
+
+/**
+ * Copies SessionManager membership exactly once and builds the authoritative
+ * reconnect barrier. Immutable launch fields come from the session record;
+ * mutable terminal metadata comes from the same copied records.
+ */
+export function buildSnapshot(
+  mgr: Pick<SessionManager, "allSessions">,
+  workerFp: WorkerFp,
+  now = Date.now(),
+): WorkerSnapshotEvent {
+  const records = mgr.allSessions();
+  return {
     kind: "snapshot",
     worker_fp: workerFp,
-    sessions,
-    ts: Date.now(),
-  });
-  log.info("snapshot", "emitted", { count: sessions.length, workerFp });
+    ts: now,
+    sessions: records.map((record) => ({
+      id: record.sessionId,
+      worker_fp: workerFp,
+      channel: record.channelId,
+      kind: record.kind,
+      cwd: record.cwd,
+      spawn_cwd: record.shellSpec.cwd,
+      workspace_id: null,
+      status: "open" as const,
+      created_at: record.spawnedAtMs,
+      closed_at: null,
+      custom_title: null,
+      git_branch: record.git_branch ?? null,
+      git_remote: record.git_remote ?? null,
+      pr_number: record.pr?.number ?? null,
+      pr_state: record.pr?.state ?? null,
+      pr_checks: record.pr?.checks ?? null,
+      pr_url: record.pr?.url ?? null,
+      ports: record.ports ?? [],
+    })),
+  };
 }

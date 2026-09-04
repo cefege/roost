@@ -8,11 +8,9 @@
 import { create } from "@bufbuild/protobuf";
 import {
   WorkerSchema, HostMetricsSchema,
-  TaskSchema, WebhookTokenSchema, PermissionRuleSchema, McpRelaySchema,
+  TaskSchema, McpRelaySchema,
   type Worker as PbWorker,
   type Task as PbTask,
-  type WebhookToken as PbWebhookToken,
-  type PermissionRule as PbPermissionRule,
   type McpRelay as PbMcpRelay,
 } from "../gen/roost/v1/wire_pb.ts";
 import { safeJsonParse } from "../json.ts";
@@ -101,35 +99,6 @@ export function taskRowToProto(row: {
   });
 }
 
-export function webhookTokenRowToProto(row: {
-  id: string; label: string; last4: string;
-  scopes_json: string;
-  created_at_ms: number; last_used_at_ms: number | null;
-}): PbWebhookToken {
-  const scopes = safeJsonParse<string[]>(row.scopes_json, [], "scopes_json");
-  return create(WebhookTokenSchema, {
-    id: row.id,
-    label: row.label,
-    last4: row.last4,
-    scopes,
-    createdAtMs: BigInt(row.created_at_ms),
-    lastUsedAtMs: row.last_used_at_ms != null ? BigInt(row.last_used_at_ms) : undefined,
-  });
-}
-
-export function permissionRuleRowToProto(row: {
-  id: string; tool_pattern: string; folder_glob: string;
-  decision: string; enabled: number; created_at_ms: number;
-}): PbPermissionRule {
-  return create(PermissionRuleSchema, {
-    id: row.id,
-    toolPattern: row.tool_pattern,
-    folderGlob: row.folder_glob,
-    decision: row.decision,
-    enabled: row.enabled === 1,
-    createdAtMs: BigInt(row.created_at_ms),
-  });
-}
 
 export function mcpRelayRowToProto(row: {
   id: string; label: string; kind: string; config_json: string;

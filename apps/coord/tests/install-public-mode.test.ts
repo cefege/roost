@@ -73,6 +73,18 @@ case "$url" in
       fi
     fi
     ;;
+  */roost.v1.CoordinatorService/AuthCoordIdentity)
+    status="${"$"}{ROOST_TEST_IDENTITY_STATUS:-200}"
+    if [ -n "$output" ]; then
+      printf '%s' "${"$"}{ROOST_TEST_IDENTITY_BODY:-{\"gitSha\":\"test-sha\",\"saasMode\":true}}" > "$output"
+    fi
+    ;;
+  */roost.v1.CoordinatorService/AuthPasswordLogin)
+    status="${"$"}{ROOST_TEST_LOGIN_STATUS:-401}"
+    if [ -n "$headers" ]; then
+      printf 'HTTP/1.1 %s\\r\\n\\r\\n' "$status" > "$headers"
+    fi
+    ;;
   *)
     status="${"$"}{ROOST_TEST_CURL_STATUS:-401}"
     if [ "$status" = 401 ] && [ -n "$headers" ]; then
@@ -106,6 +118,7 @@ printf '%s' "$status"
     ROOST_CF_ACCESS_AUD: "a".repeat(64),
     ROOST_INSTALL_READY_ATTEMPTS: "1",
     ROOST_INSTALL_READY_INTERVAL_SECS: "0",
+    ROOST_TEST_IDENTITY_BODY: '{"gitSha":"test-sha"}',
     ROOST_TEST_LOG: log,
   };
   return { dir, unit, log, env };
@@ -122,6 +135,7 @@ describe("public coordinator service install", () => {
     expect(result.exitCode, result.stderr?.toString()).toBe(0);
     expect(result.stdout?.toString()).toContain("Coord v2 ready");
     const service = readFileSync(unit, "utf8");
+    expect(service).toContain('ExecStart="/usr/bin/true" "--env-file=/dev/null"');
     expect(service).toContain('Environment="ROOST_PUBLIC_BIND=127.0.0.1:4104"');
     expect(service).toContain('Environment="ROOST_CF_ACCESS_TEAM_DOMAIN=example.cloudflareaccess.com"');
     expect(service).toContain('Environment="ROOST_FRONTED=1"');
@@ -133,9 +147,56 @@ describe("public coordinator service install", () => {
     expect(service).toContain(`Environment="ROOST_COORD_LOGROTATE_CONF=${env.ROOST_COORD_LOGROTATE_CONF}"`);
   });
 
+  test("persists managed mode and optional email without persisting the bootstrap password", () => {
+    const { unit, env } = fixture();
+    const managedEnv = {
+      ...env,
+      ROOST_SAAS_MODE: "1",
+      ROOST_CF_ACCESS_TEAM_DOMAIN: "",
+      ROOST_CF_ACCESS_AUD: "",
+      ROOST_RESEND_ENDPOINT: "https://api.resend.com/emails",
+      ROOST_RESEND_API_KEY: "re_test",
+      ROOST_EMAIL_FROM: "Roost <noreply@example.com>",
+      ROOST_EMAIL_OUTBOX_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      ROOST_OWNER_BOOTSTRAP_PASSWORD: "must-not-persist",
+      ROOST_TEST_IDENTITY_BODY: '{"saasMode":true}',
+      ROOST_TEST_HEALTH_STATUS: "401",
+    };
+    const result = install(managedEnv);
+    expect(result.exitCode, result.stderr?.toString()).toBe(0);
+    const service = readFileSync(unit, "utf8");
+    expect(service).toContain('Environment="ROOST_SAAS_MODE=1"');
+    expect(service).toContain('Environment="ROOST_RESEND_ENDPOINT=https://api.resend.com/emails"');
+    expect(service).toContain('Environment="ROOST_RESEND_API_KEY=re_test"');
+    expect(service).toContain('Environment="ROOST_EMAIL_FROM=Roost <noreply@example.com>"');
+    expect(service).toContain('Environment="ROOST_EMAIL_OUTBOX_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"');
+    expect(service).not.toContain("must-not-persist");
+    expect(service).not.toContain("ROOST_OWNER_BOOTSTRAP_PASSWORD");
+  });
+
+  test("managed mode without a public listener probes the public identity contract", () => {
+    const { env } = fixture();
+    const result = install({
+      ...env,
+      ROOST_SAAS_MODE: "1",
+      ROOST_PUBLIC_BIND: "",
+      ROOST_TEST_HEALTH_STATUS: "401",
+      ROOST_TEST_IDENTITY_BODY: '{"gitSha":"test-sha","saasMode":true}',
+    });
+    expect(result.exitCode, result.stderr?.toString()).toBe(0);
+    expect(result.stdout?.toString()).toContain("Coord v2 ready");
+  });
+
   test("records explicit direct mode so a clean worktree cannot revert it", () => {
     const { unit, env } = fixture();
-    const result = install({ ...env, ROOST_FRONTED: "0" });
+    const result = install({
+      ...env,
+      ROOST_FRONTED: "0",
+      ROOST_COORDINATOR_BIND: "0.0.0.0:4443",
+      ROOST_COORDINATOR_PUBLIC_URL: "https://direct.example:4443",
+      ROOST_TLS_CERT_PATH: join(env.ROOST_COORD_DATA_DIR, "tls", "fullchain.pem"),
+      ROOST_TLS_KEY_PATH: join(env.ROOST_COORD_DATA_DIR, "tls", "privkey.pem"),
+    });
     expect(result.exitCode, result.stderr?.toString()).toBe(0);
     const service = readFileSync(unit, "utf8");
     expect(service).toContain('Environment="ROOST_FRONTED=0"');
@@ -145,8 +206,8 @@ describe("public coordinator service install", () => {
   test("wrong readiness, immediate exit, and tailscale failure restore an existing unit", () => {
     const failures: Array<Record<string, string>> = [
       { ROOST_TEST_CURL_STATUS: "200" },
-      { ROOST_TEST_HEALTH_STATUS: "503" },
-      { ROOST_TEST_HEALTH_BODY: "{\"ok\":false}" },
+      { ROOST_TEST_IDENTITY_STATUS: "503" },
+      { ROOST_TEST_IDENTITY_BODY: "{\"ok\":false}" },
       { ROOST_TEST_PROCESS_DEAD: "1" },
       { ROOST_TEST_TAILSCALE_FAIL: "1" },
     ];

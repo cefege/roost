@@ -137,19 +137,18 @@ no query, no fragment. The port comes from `ROOST_COORDINATOR_BIND` (default
 `127.0.0.1:4102`) or an explicit `ROOST_COORD_URL`. Anything else is refused
 before a request is made.
 
-## How `roost api` authorizes itself
+## How `roost api` enrolls its key
 
-`roost api` signs its requests with a local key: the worker key if this machine
-has a registered worker, otherwise `~/.roost/cli-key`. If that key is unknown to
-the coordinator, the CLI self-authorizes once — registering its public key under
-the label `roost-cli` — and retries the call.
+`roost api` always signs with its path-isolated `~/.roost/cli-key`; it never
+borrows a worker credential. After authorization it resolves
+`AuthDashboardAccess.selected_dashboard_id` and scopes unary and Sync requests
+to that dashboard.
 
-That self-authorization endpoint is gated to **loopback or tailnet callers** on
-the coordinator, so it works from the coordinator machine or a tailnet peer and is
-refused from anywhere else. When it is refused, the CLI says so explicitly rather
-than reporting a generic auth failure. The same endpoint is on the public
-listener's deny list, so a Cloudflare browser endpoint can never reach it — see
-[networking](/docs/networking/).
+An unknown key can enroll automatically only while the CLI is running on the
+coordinator host: the host mints a scoped one-shot browser grant and the CLI
+redeems it through the normal browser-redemption RPC. A fresh remote or managed
+CLI instead stops with explicit pairing-required guidance. Loopback and tailnet
+addresses are not credentials and never authorize the key by themselves.
 
 ## Two verbs that were removed
 

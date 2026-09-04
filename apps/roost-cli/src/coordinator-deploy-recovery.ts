@@ -6,6 +6,7 @@
 // Schema/parse live in coordinator-deploy-journal.ts.
 
 import { coordServiceLabel, workerServicePath } from "@roost/shared/paths";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -125,7 +126,7 @@ export async function coordinatorStartupPolicyIsEnabled(
     const unit = label.endsWith(".service") ? label : `${label}.service`;
     const result = await run(["bash", "-lc",
       `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; ` +
-        `systemctl --user is-enabled '${unit.replaceAll("'", `'\"'\"'`)}'`,
+        `systemctl --user is-enabled ${posixShellQuote(unit)}`,
     ], { quiet: true });
     return result.exit === 0 && result.stdout.trim() === "enabled";
   }

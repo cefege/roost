@@ -12,7 +12,7 @@
 // ws/sync-outbound.ts (callers via the global `diag` export).
 
 import { setDiagSink, setSignalSink, isDiagEnabled, signal } from "@roost/shared/diag";
-import { coordClient } from "../connect.ts";
+import { coordinatorRpcUrl, coordClient } from "../connect.ts";
 
 // Fixed-size, always-on SPA phase recorder. Unlike the diagnostic firehose,
 // phase marks must exist on an ordinary cold navigation: enabling diagnostics
@@ -23,9 +23,6 @@ const PHASE_MARK_CAPACITY = 256;
 export type SpaPhaseName =
   | "module_start"
   | "identity_complete"
-  | "self_register_gate"
-  | "self_register_start"
-  | "self_register_complete"
   | "sync_subscribed"
   | "snapshot_complete"
   | "snapshot_applied"
@@ -360,7 +357,7 @@ function sendBeaconFlush(): void {
       })),
     });
     const blob = new Blob([body], { type: "application/json" });
-    navigator.sendBeacon("/roost.v1.CoordinatorService/DiagDebugLogBatch", blob);
+    navigator.sendBeacon(coordinatorRpcUrl("/roost.v1.CoordinatorService/DiagDebugLogBatch"), blob);
   } catch { console.warn("[diag] flush dropped", _buf.length); }
   _buf = [];
 }

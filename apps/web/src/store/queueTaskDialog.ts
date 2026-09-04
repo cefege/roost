@@ -23,3 +23,9 @@ export const queueTaskDialogStore = {
     setOpen(false);
   },
 } as const;
+
+export function clearQueueTaskDialogForLogout(): void {
+  setOpen(false);
+  setPrefillCwd(undefined);
+  setPrefillBody(undefined);
+}

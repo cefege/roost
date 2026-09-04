@@ -54,6 +54,26 @@ describe("deepgramKey cache", () => {
     expect(grantCalls).toBe(2);
   });
 
+  test("logout invalidation cannot let an older response refill or clear the new generation", async () => {
+    const stale = Promise.withResolvers<{ accessToken: string }>();
+    grantResult = () => stale.promise;
+    const staleRequest = getDeepgramKey();
+
+    // Managed logout uses this same invalidation before discarding local keys.
+    invalidateDeepgramKey();
+    const fresh = Promise.withResolvers<{ accessToken: string }>();
+    grantResult = () => fresh.promise;
+    const freshRequest = getDeepgramKey();
+
+    stale.resolve({ accessToken: "signed-out-owner-key" });
+    await expect(staleRequest).rejects.toThrow("invalidated");
+
+    fresh.resolve({ accessToken: "current-owner-key" });
+    expect(await freshRequest).toBe("current-owner-key");
+    expect(await getDeepgramKey()).toBe("current-owner-key");
+    expect(grantCalls).toBe(2);
+  });
+
   test("a rejected fetch leaves the cache empty so the next call retries", async () => {
     grantResult = () => Promise.reject(new Error("coord restarting"));
     await expect(getDeepgramKey()).rejects.toThrow("coord restarting");

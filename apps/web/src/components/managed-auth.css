@@ -1,0 +1,181 @@
+/*
+ * Shared layout for managed public-auth routes and gate states.
+ * Surface and TextField own chrome and controls; these rules only arrange content.
+ * Theme variables supply every responsive size, type role, and color.
+ */
+
+.managed-auth-page {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: clamp(var(--md-space-5), 5vw, var(--md-space-9));
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-font);
+}
+
+.managed-auth-sheet {
+  width: min(100%, var(--md-content-width-auth));
+  min-width: 0;
+  box-sizing: border-box;
+  padding: clamp(var(--md-space-6), 6vw, var(--md-space-8));
+}
+
+.managed-auth-header {
+  margin-bottom: var(--md-space-7);
+}
+
+.managed-auth-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  margin-bottom: var(--md-space-7);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-title-s-weight) var(--md-title-s-size) / var(--md-title-s-line) var(--md-font);
+}
+
+.managed-auth-title {
+  margin: 0 0 var(--md-space-2);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-headline-s-weight) var(--md-headline-s-size) / var(--md-headline-s-line) var(--md-font);
+}
+
+.managed-auth-description {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-m-weight) var(--md-body-m-size) / var(--md-body-m-line) var(--md-font);
+}
+
+.managed-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-4);
+}
+
+.managed-auth-text-field,
+.managed-auth-form md-outlined-text-field {
+  width: 100%;
+  min-width: 0;
+}
+
+.managed-auth-hint {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size) / var(--md-body-s-line) var(--md-font);
+}
+
+.managed-auth-error {
+  min-height: var(--md-space-6);
+  margin: 0;
+  color: var(--md-sys-color-error);
+  font: var(--md-body-s-weight) var(--md-body-s-size) / var(--md-body-s-line) var(--md-font);
+}
+
+.managed-auth-submit {
+  width: 100%;
+}
+
+.managed-auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--md-space-2) var(--md-space-4);
+  margin-top: var(--md-space-2);
+  font: var(--md-label-l-weight) var(--md-label-l-size) / var(--md-label-l-line) var(--md-font);
+}
+
+.managed-auth-link {
+  color: var(--md-sys-color-primary);
+  text-underline-offset: var(--md-space-1);
+}
+
+.managed-auth-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+.managed-auth-link:focus-visible {
+  border-radius: var(--md-shape-xs);
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: var(--md-space-1);
+}
+
+.managed-auth-legal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--md-space-2) var(--md-space-4);
+  margin-top: var(--md-space-7);
+  padding-top: var(--md-space-5);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  font: var(--md-label-m-weight) var(--md-label-m-size) / var(--md-label-m-line) var(--md-font);
+}
+
+.managed-auth-legal .managed-auth-link {
+  overflow-wrap: anywhere;
+}
+
+.managed-auth-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-5);
+}
+
+.managed-auth-status > p:not(.managed-auth-error) {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-l-weight) var(--md-body-l-size) / var(--md-body-l-line) var(--md-font);
+}
+
+.managed-auth-message {
+  min-height: var(--md-space-6);
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size) / var(--md-body-s-line) var(--md-font);
+}
+
+.managed-google-button {
+  order: -1;
+}
+
+.managed-auth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--md-space-3);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-label-m-weight) var(--md-label-m-size) / var(--md-label-m-line) var(--md-font);
+}
+
+.managed-auth-divider::before,
+.managed-auth-divider::after {
+  height: 1px;
+  background: var(--md-sys-color-outline-variant);
+  content: "";
+}
+
+.managed-turnstile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-space-2);
+  max-width: 100%;
+}
+
+.managed-turnstile-widget {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.managed-turnstile-widget[aria-disabled="true"] {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.managed-turnstile-error {
+  color: var(--md-sys-color-error);
+  text-align: center;
+}

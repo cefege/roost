@@ -11,6 +11,7 @@ import type { PrStatus } from "./pr-status.ts";
 import type { SbRing } from "./session-scrollback-ring.ts";
 import type { AgentOscState } from "./terminal-stream-scan.ts";
 import type { ShellSpec } from "./shell-spec.ts";
+import type { LifecycleReservation } from "./event-sink.ts";
 
 /** One distinct escape sequence the core's dispatcher did not recognise, as
  *  first seen on the CURRENT core instance. */
@@ -82,6 +83,9 @@ interface SessionRecordCommon {
 	// DEAD_BIRTH_LIFETIME_MS: a child that exits fast having produced zero bytes
 	// (head_seq===0) is a dead-birth → feeds the degraded-keeper self-heal.
 	spawnedAtMs: number;
+	// Capacity admitted before this session's keeper/core mutation. Exactly one
+	// natural, requested, or reconciliation close consumes it.
+	closeReservation: LifecycleReservation;
 }
 
 /** The last core-rebuild origin pin, and the history floor that pin established.

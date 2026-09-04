@@ -1,8 +1,8 @@
-// The coordinator's caller-trust model: one CallerOrigin per request, derived
+// The coordinator's caller-address model: one CallerOrigin per request, derived
 // from the listener's boot-selected trust profile. Forwarded headers are
 // trusted ONLY under "tailscale-serve"; sniffing XFF anywhere else would let
-// a client forge its address past the tailnet and on-host gates, which is
-// why onHost requires a direct loopback peer with no proxy hop.
+// a client forge its address past rate limits and on-host gates. Application
+// enrollment authority never derives from a tailnet address.
 import { Code, ConnectError } from "@connectrpc/connect";
 
 /** How a listener learns the real client address. Chosen per-listener at boot
@@ -12,8 +12,8 @@ export type ListenerTrust = "direct" | "tailscale-serve" | "public-edge";
 export interface CallerOrigin {
   /** Boot-selected trust profile for the listener that accepted the request. */
   listener: ListenerTrust;
-  /** Real client address, for rate-limiting, audit and the tailnet check.
-   * "public" when a public-edge listener could not determine one. */
+  /** Real client address for rate limiting and audit. Tailnet classification
+   * is applied only while normalizing public-edge proxy addresses. */
   clientIp: string;
   /** True ONLY for a request that originated on the coordinator host and
    * traversed no proxy. Gates the most sensitive endpoints. */
@@ -71,11 +71,5 @@ export function isTailnetAddr(remoteAddress: string): boolean {
 export function assertOnHost(origin: CallerOrigin): void {
   if (!origin.onHost) {
     throw new ConnectError("on-host only", Code.PermissionDenied);
-  }
-}
-
-export function assertOnHostOrTailnet(origin: CallerOrigin): void {
-  if (!origin.onHost && !isTailnetAddr(origin.clientIp)) {
-    throw new ConnectError("on-host or tailnet only", Code.PermissionDenied);
   }
 }

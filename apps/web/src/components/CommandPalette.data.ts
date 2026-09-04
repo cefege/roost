@@ -31,8 +31,6 @@ export interface PaletteItem {
 function buildStaticActions(navigate: Navigator): PaletteItem[] {
   const items: PaletteItem[] = [
     { id: "action:settings:machines", kind: "action", label: "Settings — Machines", hint: platformShortcutLabel("settings", "⌘,"), action: () => navigate("/settings/machines") },
-    { id: "action:settings:permissions", kind: "action", label: "Settings — Access", action: () => navigate("/settings/permissions") },
-    { id: "action:settings:webhooks", kind: "action", label: "Settings — Webhooks", action: () => navigate("/settings/webhooks") },
     { id: "action:queue-new-task", kind: "action", label: "Queue new task", hint: "task queue", action: () => queueTaskDialogStore.open() },
   ];
   // Only online servers can spawn — a down/asleep Mac's row would hang on spawn.
@@ -66,6 +64,12 @@ export function matchesQuery(text: string, qLower: string): boolean {
 // id (fp) or stable (navigate) — reusing the old closure is behaviorally
 // identical, so actions compare by presence, not reference.
 let _itemCache = new Map<string, PaletteItem>();
+
+/** Account and dashboard boundaries must not retain labels, paths, or actions
+ * captured by rows from the prior scope. */
+export function clearCommandPaletteCacheForAccountBoundary(): void {
+  _itemCache.clear();
+}
 
 function stableItem(next: PaletteItem, nextCache: Map<string, PaletteItem>): PaletteItem {
   const prev = _itemCache.get(next.id);

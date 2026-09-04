@@ -1,8 +1,8 @@
 // TranscriptionPane — voice dictation settings (Settings → Voice).
-// Deepgram only: paste an API key (stored on the coordinator, shared by every
-// device), Test it, or remove it. No key → the mic uses the browser's built-in
-// Web Speech. Keys are write-only: coord returns them masked and never echoes
-// the secret.
+// Deepgram only: paste an API key (stored on the coordinator), Test it, or
+// remove it. Settings readback is masked. For direct Deepgram dictation the
+// configured key is returned only to an authenticated dashboard-admin browser
+// (the owner in managed mode), which connects to Deepgram directly.
 // Callers: SettingsRoot.tsx. Depends on: coordClient transcription* RPCs +
 // lib/deepgramKey (cache dropped on save).
 
@@ -245,7 +245,7 @@ export function TranscriptionPane() {
           </div>
           <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", "margin-top": "2px" }}>
             {deepgramOn()
-              ? "Live Deepgram transcription, shared across all your devices."
+              ? "Live Deepgram transcription for your authenticated owner devices."
               : "Browser's built-in speech — add a Deepgram key below to upgrade."}
           </div>
         </div>
@@ -265,7 +265,7 @@ export function TranscriptionPane() {
       {/* ── Deepgram ── */}
       <Card
         title="API key"
-        supporting="Paste your Deepgram API key to use Deepgram for dictation on every device. The key is stored on the coordinator (never sent back to the browser). Leave it empty to use the browser's built-in speech."
+        supporting="Stored on the coordinator. For direct Deepgram dictation, Roost returns the configured key to this authenticated admin browser, which connects to Deepgram directly. Leave it empty to use the browser's built-in speech."
         trailing={
           <span style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
             <Dot tone={deepgramOn() ? "ok" : "off"} />

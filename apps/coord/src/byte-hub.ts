@@ -50,14 +50,6 @@ const _sessionToKeys = new Map<SessionId, Set<string>>();
 // safe — getWorkerHubSocket returns null → accepted:false (the existing
 // no_worker_sock path). Repopulated on the next hello/primeChannelMap.
 const _sessionToWorker = new Map<string, { worker_fp: string; channel: number }>();
-export interface CoordinatorLastCellDiagnostic {
-  worker_fp: string;
-  channel_id: number;
-  grid_epoch: string;
-  seq: string;
-  full: boolean;
-  received_at_ms: number;
-}
 
 interface LastCellDiagnostic {
   workerFp: string;
@@ -84,28 +76,6 @@ export function evictSessionWorker(sessionId: string): void {
   _lastCellBySession.delete(sessionId);
 }
 
-export function _sessionRouteSnapshot(): Record<string, { worker_fp: string; channel_id: number }> {
-  const out: Record<string, { worker_fp: string; channel_id: number }> = {};
-  for (const [sessionId, route] of _sessionToWorker) {
-    out[sessionId] = { worker_fp: route.worker_fp, channel_id: route.channel };
-  }
-  return out;
-}
-
-export function _lastCellSnapshot(): Record<string, CoordinatorLastCellDiagnostic> {
-  const out: Record<string, CoordinatorLastCellDiagnostic> = {};
-  for (const [sessionId, cell] of _lastCellBySession) {
-    out[sessionId] = {
-      worker_fp: cell.workerFp,
-      channel_id: cell.channelId,
-      grid_epoch: cell.gridEpoch,
-      seq: cell.seq.toString(),
-      full: cell.full,
-      received_at_ms: cell.receivedAtMs,
-    };
-  }
-  return out;
-}
 
 
 // Branded WorkerFp/ChannelId are assignable to these, so the coordinator-local
@@ -430,6 +400,23 @@ export function replaceWorkerChannelIndex(
     cacheSessionWorker(entry.sessionId, workerFp, entry.channelId);
   }
   _reconciledWorkers.add(workerFp);
+}
+
+/** Permanently retire every volatile route owned by a deleted worker while
+ * preserving its durable session breadcrumbs. Returns affected session ids so
+ * terminal-view cleanup can fail independently of route retirement. */
+export function retireWorkerRoutes(workerFp: WorkerFp): SessionId[] {
+  const sessionIds = new Set<SessionId>();
+  for (const [sessionId, route] of _sessionToWorker) {
+    if (route.worker_fp === workerFp) sessionIds.add(sessionId as SessionId);
+  }
+  const prefix = `${workerFp}:`;
+  for (const [key, sessionId] of _channelToSession) {
+    if (key.startsWith(prefix)) sessionIds.add(sessionId);
+  }
+  replaceWorkerChannelIndex(workerFp, []);
+  for (const sessionId of sessionIds) dropCoalescedBytes(sessionId);
+  return [...sessionIds];
 }
 
 /** Post-commit channel-index step of appendEvent's durable publication.

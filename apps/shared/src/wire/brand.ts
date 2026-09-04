@@ -28,16 +28,10 @@ export const asWorkspaceId = (s: string): WorkspaceId => WorkspaceId.parse(s);
 export const TaskId = z.string().regex(UUID_RE).brand<"TaskId">();
 export type TaskId = z.infer<typeof TaskId>;
 
-export const PermissionRuleId = z.string().regex(UUID_RE).brand<"PermissionRuleId">();
-export type PermissionRuleId = z.infer<typeof PermissionRuleId>;
-export const asPermissionRuleId = (s: string): PermissionRuleId => PermissionRuleId.parse(s);
 
 export const McpRelayId = z.string().regex(UUID_RE).brand<"McpRelayId">();
 export type McpRelayId = z.infer<typeof McpRelayId>;
 
-export const WebhookTokenId = z.string().regex(UUID_RE).brand<"WebhookTokenId">();
-export type WebhookTokenId = z.infer<typeof WebhookTokenId>;
-export const asWebhookTokenId = (s: string): WebhookTokenId => WebhookTokenId.parse(s);
 
 // Trace correlation id. Hex, any length ≥ 8.
 export const TraceId = z.string().regex(/^[0-9a-f]{8,}$/i).brand<"TraceId">();

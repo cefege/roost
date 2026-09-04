@@ -18,6 +18,22 @@ import { DAY_MS } from "./audit-retention.ts";
 
 const MAX_BACKUPS = 14;
 
+export interface InVolumeBackupOptions {
+  managedContainer?: boolean;
+}
+
+/** Managed instances are backed up by the host lifecycle, never into /data. */
+export function makePreMigrationBackupHook(
+  sqlite: Database,
+  dbPath: string,
+  options: InVolumeBackupOptions = {},
+): (() => Promise<void>) | undefined {
+  if (options.managedContainer) return undefined;
+  return async () => {
+    await runBackup(sqlite, dbPath, "pre-migration");
+  };
+}
+
 
 function listBackups(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -95,7 +111,12 @@ function runScheduledBackup(sqlite: Database, dbPath: string): void {
   });
 }
 
-export function scheduleBackups(sqlite: Database, dbPath: string): void {
+export function scheduleBackups(
+  sqlite: Database,
+  dbPath: string,
+  options: InVolumeBackupOptions = {},
+): void {
+  if (options.managedContainer) return;
   if (!existsSync(dbPath)) {
     log.warn("backup", "backup_skip_no_db", { dbPath });
     return;

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # install / uninstall the v2 coord service. macOS → launchd LaunchAgent;
-# Linux → systemd --user unit. Binds :4102 (new port; legacy stays at :4101
-# until R4.5 cutover). Runs `bun apps/coord/src/main.ts` directly — no bundle
-# step required (Bun runs .ts natively).
+# Linux → systemd --user unit. Automatic mode fronts the loopback coordinator
+# with Tailscale Serve on :4102; direct mode uses the operator's explicit HTTPS
+# bind and public origin. Runs `bun apps/coord/src/main.ts` directly.
 
 set -euo pipefail
 
@@ -107,48 +107,22 @@ systemd_env() {
   printf 'Environment="%s=%s"\n' "$1" "$(systemd_escape "$value")"
 }
 
-# FRONTED mode (DEFAULT): coord serves PLAINTEXT on loopback behind
+# AUTOMATIC mode (DEFAULT): coord serves PLAINTEXT on loopback behind
 # `tailscale serve`, which terminates TLS with the tailnet cert. This dodges
 # the Bun 1.3.14 segfault in us_internal_ssl_on_close / RequestContext.onAbort
 # that fires when a browser aborts a long-lived streaming TLS response (the
 # Sync firehose) — Bun never runs the TLS close path, so the coord stops
-# crash-looping. ROOST_FRONTED=0 reverts to direct Bun TLS (the old path).
+# crash-looping. ROOST_FRONTED=0 selects direct HTTPS with an operator-owned
+# endpoint and certificate.
 FRONTED="${ROOST_FRONTED:-1}"
-COORD_LOOPBACK_PORT="${ROOST_COORD_LOOPBACK_PORT:-4103}"
-TAILNET_HTTPS_PORT="${ROOST_TAILNET_HTTPS_PORT:-4102}"
-
-# Optional TLS via `tailscale cert <fqdn>`. When both are set, coord serves
-# HTTPS instead of HTTP — required for tailnet daily-driver (browsers need
-# secure-context for WebCrypto on non-localhost origins).
 TLS_CERT_PATH="${ROOST_TLS_CERT_PATH:-}"
 TLS_KEY_PATH="${ROOST_TLS_KEY_PATH:-}"
-# Auto-detect from $DATA_DIR/tls/ when env vars unset. Cert files persist
-# across hostname renames (a `tailscale cert <new-fqdn>` adds a new pair
-# without deleting the old one); pick the most recently modified .crt and
-# its sibling .key. Eliminates the "reinstall silently dropped TLS" failure
-# mode where coord came up plaintext on :4102 and rejected every https
-# client until env vars were re-exported.
-if [[ "$FRONTED" != "1" && ( -z "$TLS_CERT_PATH" || -z "$TLS_KEY_PATH" ) ]]; then
-  TLS_DIR="$DATA_DIR/tls"
-  if [[ -d "$TLS_DIR" ]]; then
-    # ls -t newest first; null-safe via `|| true` (set -e otherwise aborts on empty dir)
-    AUTO_CRT="$(ls -t "$TLS_DIR"/*.crt 2>/dev/null | head -1 || true)"
-    if [[ -n "$AUTO_CRT" ]]; then
-      AUTO_KEY="${AUTO_CRT%.crt}.key"
-      if [[ -f "$AUTO_KEY" ]]; then
-        TLS_CERT_PATH="$AUTO_CRT"
-        TLS_KEY_PATH="$AUTO_KEY"
-        echo "auto-detected TLS: $TLS_CERT_PATH"
-      fi
-    fi
-  fi
-fi
 TLS_PLIST=""
-if [[ "$FRONTED" != "1" && -n "$TLS_CERT_PATH" && -n "$TLS_KEY_PATH" ]]; then
-  # Expand leading tilde — plist values aren't shell-expanded at read time.
-  TLS_CERT_PATH="${TLS_CERT_PATH/#\~/$HOME}"
-  TLS_KEY_PATH="${TLS_KEY_PATH/#\~/$HOME}"
-  TLS_PLIST=$'\n    <key>ROOST_TLS_CERT_PATH</key>\n    <string>'"$(xml_escape "${TLS_CERT_PATH}")"$'</string>\n    <key>ROOST_TLS_KEY_PATH</key>\n    <string>'"$(xml_escape "${TLS_KEY_PATH}")"$'</string>'
+MODE_PLIST=""
+
+if [[ "$FRONTED" != "0" && "$FRONTED" != "1" ]]; then
+  echo "ROOST_FRONTED must be 0 (direct HTTPS) or 1 (automatic Tailscale Serve)" >&2
+  exit 1
 fi
 
 # Stamp the current repo HEAD into coord's env so misc.health.git_sha
@@ -162,31 +136,47 @@ if [[ -n "$GIT_SHA_RESOLVED" ]]; then
 fi
 
 PUBLIC_PLIST=""
+[[ "${ROOST_SAAS_MODE:-0}" == "1" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_SAAS_MODE</key>\n    <string>1</string>'
 [[ -n "${ROOST_PUBLIC_BIND:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_PUBLIC_BIND</key>\n    <string>'"$(xml_escape "${ROOST_PUBLIC_BIND}")"$'</string>'
 [[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_WEB_PUBLIC_URL</key>\n    <string>'"$(xml_escape "${ROOST_WEB_PUBLIC_URL}")"$'</string>'
 [[ -n "${ROOST_CF_ACCESS_TEAM_DOMAIN:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_CF_ACCESS_TEAM_DOMAIN</key>\n    <string>'"$(xml_escape "${ROOST_CF_ACCESS_TEAM_DOMAIN}")"$'</string>'
 [[ -n "${ROOST_CF_ACCESS_AUD:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_CF_ACCESS_AUD</key>\n    <string>'"$(xml_escape "${ROOST_CF_ACCESS_AUD}")"$'</string>'
+[[ -n "${ROOST_RESEND_ENDPOINT:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_RESEND_ENDPOINT</key>\n    <string>'"$(xml_escape "${ROOST_RESEND_ENDPOINT}")"$'</string>'
+[[ -n "${ROOST_RESEND_API_KEY:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_RESEND_API_KEY</key>\n    <string>'"$(xml_escape "${ROOST_RESEND_API_KEY}")"$'</string>'
+[[ -n "${ROOST_EMAIL_FROM:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_EMAIL_FROM</key>\n    <string>'"$(xml_escape "${ROOST_EMAIL_FROM}")"$'</string>'
+[[ -n "${ROOST_EMAIL_OUTBOX_KEY:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_EMAIL_OUTBOX_KEY</key>\n    <string>'"$(xml_escape "${ROOST_EMAIL_OUTBOX_KEY}")"$'</string>'
 
-# Bind + trust-proxy depend on FRONTED. Fronted: plaintext on loopback, trust
-# X-Forwarded-For from `tailscale serve` (verified un-spoofable: tailscale
-# OVERWRITES client XFF with the authenticated tailnet IP). Direct: 0.0.0.0 TLS.
+# Bind and proxy trust are mode-specific. Automatic mode listens only on
+# loopback and trusts X-Forwarded-For from Tailscale Serve (which overwrites
+# client XFF with the authenticated tailnet IP). Direct mode persists only its
+# explicit bind, public HTTPS origin, and certificate/key contract.
 if [[ "$FRONTED" == "1" ]]; then
+  COORD_LOOPBACK_PORT="${ROOST_COORD_LOOPBACK_PORT:-4103}"
+  TAILNET_HTTPS_PORT="${ROOST_TAILNET_HTTPS_PORT:-4102}"
   BIND_VALUE="127.0.0.1:${COORD_LOOPBACK_PORT}"
-  TRUST_PROXY_PLIST=$'\n    <key>ROOST_TRUST_PROXY</key>\n    <string>1</string>\n    <key>ROOST_FRONTED</key>\n    <string>1</string>\n    <key>ROOST_COORD_LOOPBACK_PORT</key>\n    <string>'"$(xml_escape "${COORD_LOOPBACK_PORT}")"$'</string>'
+  MODE_PLIST=$'\n    <key>ROOST_TRUST_PROXY</key>\n    <string>1</string>\n    <key>ROOST_FRONTED</key>\n    <string>1</string>\n    <key>ROOST_COORD_LOOPBACK_PORT</key>\n    <string>'"$(xml_escape "${COORD_LOOPBACK_PORT}")"$'</string>\n    <key>ROOST_TAILNET_HTTPS_PORT</key>\n    <string>'"$(xml_escape "${TAILNET_HTTPS_PORT}")"$'</string>'
 else
-  BIND_VALUE="0.0.0.0:${TAILNET_HTTPS_PORT}"
-  TRUST_PROXY_PLIST=$'\n    <key>ROOST_FRONTED</key>\n    <string>0</string>\n    <key>ROOST_COORD_LOOPBACK_PORT</key>\n    <string>'"$(xml_escape "${COORD_LOOPBACK_PORT}")"$'</string>'
+  [[ -n "${ROOST_COORDINATOR_BIND:-}" ]] || { echo "direct HTTPS requires ROOST_COORDINATOR_BIND" >&2; exit 1; }
+  [[ -n "$PUBLIC_URL" ]] || { echo "direct HTTPS requires ROOST_COORDINATOR_PUBLIC_URL" >&2; exit 1; }
+  [[ -n "$TLS_CERT_PATH" ]] || { echo "direct HTTPS requires ROOST_TLS_CERT_PATH" >&2; exit 1; }
+  [[ -n "$TLS_KEY_PATH" ]] || { echo "direct HTTPS requires ROOST_TLS_KEY_PATH" >&2; exit 1; }
+  # Service definitions do not perform shell expansion at read time.
+  TLS_CERT_PATH="${TLS_CERT_PATH/#\~/$HOME}"
+  TLS_KEY_PATH="${TLS_KEY_PATH/#\~/$HOME}"
+  BIND_VALUE="$ROOST_COORDINATOR_BIND"
+  TLS_PLIST=$'\n    <key>ROOST_TLS_CERT_PATH</key>\n    <string>'"$(xml_escape "${TLS_CERT_PATH}")"$'</string>\n    <key>ROOST_TLS_KEY_PATH</key>\n    <string>'"$(xml_escape "${TLS_KEY_PATH}")"$'</string>'
+  MODE_PLIST=$'\n    <key>ROOST_FRONTED</key>\n    <string>0</string>'
 fi
 
 cmd="${1:-status}"
 
 write_plist() {
   mkdir -p "$DATA_DIR" "$LOG_DIR"
-  # ProgramArguments/workdir/dist switch by mode: ROOST_EXEC_BIN set → compiled
-  # binary (`roost coord`); unset → from-source (`bun …/main.ts`). Only these
-  # differ between modes; the safety-critical env below (BIND, TRUST_PROXY,
-  # TLS) is computed identically for both.
-  local prog_bin prog_arg2 workdir web_dist label_xml prog_bin_xml prog_arg2_xml workdir_xml home_xml bind_xml db_xml auth_xml key_xml handoff_xml public_url_xml web_dist_xml diag_xml log_dir_xml tailnet_port_xml
+  # ProgramArguments/workdir/dist switch by execution form: ROOST_EXEC_BIN set
+  # means compiled binary (`roost coord`); unset means from-source
+  # (`bun …/main.ts`). The selected network mode's endpoint environment is
+  # otherwise identical for both forms.
+  local prog_bin prog_arg2 workdir web_dist label_xml prog_bin_xml prog_arg2_xml workdir_xml home_xml bind_xml db_xml auth_xml key_xml handoff_xml public_url_xml web_dist_xml diag_xml log_dir_xml
   if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
     prog_bin="${ROOST_EXEC_BIN}"; prog_arg2="coord"
   else
@@ -208,7 +198,6 @@ write_plist() {
   web_dist_xml="$(xml_escape "$web_dist")"
   diag_xml="$(xml_escape "${ROOST_DIAG:-0}")"
   log_dir_xml="$(xml_escape "$LOG_DIR")"
-  tailnet_port_xml="$(xml_escape "$TAILNET_HTTPS_PORT")"
   cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -241,12 +230,10 @@ write_plist() {
     <string>${handoff_xml}</string>
     <key>ROOST_COORDINATOR_PUBLIC_URL</key>
     <string>${public_url_xml}</string>
-    <key>ROOST_TAILNET_HTTPS_PORT</key>
-    <string>${tailnet_port_xml}</string>
     <key>ROOST_WEB_DIST_PATH</key>
     <string>${web_dist_xml}</string>
     <key>ROOST_DIAG</key>
-    <string>${diag_xml}</string>${TLS_PLIST}${GIT_SHA_PLIST}${TRUST_PROXY_PLIST}${PUBLIC_PLIST}
+    <string>${diag_xml}</string>${TLS_PLIST}${GIT_SHA_PLIST}${MODE_PLIST}${PUBLIC_PLIST}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -301,16 +288,17 @@ bootstrap() {
 # where one fat PTY would take every live session down with the unit).
 write_unit() {
   mkdir -p "$(dirname "$UNIT")" "$DATA_DIR" "$LOG_DIR"
-  local prog_bin prog_arg2 workdir web_dist prog_bin_unit prog_arg2_unit workdir_unit stdout_unit stderr_unit
+  local prog_bin prog_args_unit workdir web_dist prog_bin_unit workdir_unit stdout_unit stderr_unit
   if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
-    prog_bin="${ROOST_EXEC_BIN}"; prog_arg2="coord"
+    prog_bin="${ROOST_EXEC_BIN}"
+    prog_args_unit="$(systemd_quote "coord")"
   else
-    prog_bin="${BUN_BIN}"; prog_arg2="${REPO_ROOT}/apps/coord/src/main.ts"
+    prog_bin="${BUN_BIN}"
+    prog_args_unit="$(systemd_quote "--env-file=/dev/null") $(systemd_quote "${REPO_ROOT}/apps/coord/src/main.ts")"
   fi
   workdir="${ROOST_WORKDIR:-$REPO_ROOT}"
   web_dist="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"
   prog_bin_unit="$(systemd_quote "$prog_bin")"
-  prog_arg2_unit="$(systemd_quote "$prog_arg2")"
   workdir_unit="$(systemd_path "$workdir")"
   stdout_unit="$(systemd_path "append:${LOG_DIR}/main.out.log")"
   stderr_unit="$(systemd_path "append:${LOG_DIR}/main.err.log")"
@@ -323,7 +311,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=${workdir_unit}
-ExecStart=${prog_bin_unit} ${prog_arg2_unit}
+ExecStart=${prog_bin_unit} ${prog_args_unit}
 EOF
     systemd_env "HOME" "$HOME"
     systemd_env "PATH" "$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -337,26 +325,31 @@ EOF
     systemd_env "ROOST_COORD_LOG_DIR" "$LOG_DIR"
     systemd_env "ROOST_WEB_DIST_PATH" "$web_dist"
     systemd_env "ROOST_DIAG" "${ROOST_DIAG:-0}"
-    systemd_env "ROOST_TAILNET_HTTPS_PORT" "$TAILNET_HTTPS_PORT"
     systemd_env "ROOST_COORD_MEMORY_HIGH" "$COORD_MEM_HIGH"
     systemd_env "ROOST_COORD_MEMORY_MAX" "$COORD_MEM_MAX"
     systemd_env "ROOST_COORD_TASKS_MAX" "$COORD_TASKS_MAX"
     systemd_env "ROOST_COORD_LOGROTATE_CONF" "$LOGROTATE_CONF"
-    systemd_env "ROOST_FRONTED" "$FRONTED"
-    systemd_env "ROOST_COORD_LOOPBACK_PORT" "$COORD_LOOPBACK_PORT"
-    if [[ "$FRONTED" != "1" && -n "$TLS_CERT_PATH" && -n "$TLS_KEY_PATH" ]]; then
+    if [[ "$FRONTED" == "1" ]]; then
+      systemd_env "ROOST_TAILNET_HTTPS_PORT" "$TAILNET_HTTPS_PORT"
+      systemd_env "ROOST_FRONTED" "1"
+      systemd_env "ROOST_COORD_LOOPBACK_PORT" "$COORD_LOOPBACK_PORT"
+      systemd_env "ROOST_TRUST_PROXY" "1"
+    else
+      systemd_env "ROOST_FRONTED" "0"
       systemd_env "ROOST_TLS_CERT_PATH" "$TLS_CERT_PATH"
       systemd_env "ROOST_TLS_KEY_PATH" "$TLS_KEY_PATH"
     fi
     [[ -n "$GIT_SHA_RESOLVED" ]] && systemd_env "ROOST_GIT_SHA" "$GIT_SHA_RESOLVED"
-    if [[ "$FRONTED" == "1" ]]; then
-      systemd_env "ROOST_TRUST_PROXY" "1"
-    fi
     [[ -n "${ROOST_EXEC_BIN:-}" ]] && systemd_env "ROOST_EXEC_BIN" "$ROOST_EXEC_BIN"
+    [[ "${ROOST_SAAS_MODE:-0}" == "1" ]] && systemd_env "ROOST_SAAS_MODE" "1"
     [[ -n "${ROOST_PUBLIC_BIND:-}" ]] && systemd_env "ROOST_PUBLIC_BIND" "$ROOST_PUBLIC_BIND"
     [[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]] && systemd_env "ROOST_WEB_PUBLIC_URL" "$ROOST_WEB_PUBLIC_URL"
     [[ -n "${ROOST_CF_ACCESS_TEAM_DOMAIN:-}" ]] && systemd_env "ROOST_CF_ACCESS_TEAM_DOMAIN" "$ROOST_CF_ACCESS_TEAM_DOMAIN"
     [[ -n "${ROOST_CF_ACCESS_AUD:-}" ]] && systemd_env "ROOST_CF_ACCESS_AUD" "$ROOST_CF_ACCESS_AUD"
+    [[ -n "${ROOST_RESEND_ENDPOINT:-}" ]] && systemd_env "ROOST_RESEND_ENDPOINT" "$ROOST_RESEND_ENDPOINT"
+    [[ -n "${ROOST_RESEND_API_KEY:-}" ]] && systemd_env "ROOST_RESEND_API_KEY" "$ROOST_RESEND_API_KEY"
+    [[ -n "${ROOST_EMAIL_FROM:-}" ]] && systemd_env "ROOST_EMAIL_FROM" "$ROOST_EMAIL_FROM"
+    [[ -n "${ROOST_EMAIL_OUTBOX_KEY:-}" ]] && systemd_env "ROOST_EMAIL_OUTBOX_KEY" "$ROOST_EMAIL_OUTBOX_KEY"
     # RestartSec=1 is the systemd analogue of the plist's ThrottleInterval 1:
     # a Bun crash must not freeze every browser's Sync stream for 10s.
     cat <<EOF
@@ -446,7 +439,7 @@ bootstrap_systemd() {
   fi
 }
 
-# Unchanged across platforms: a bare-`tailscale` PATH lookup that works on Linux.
+# Automatic-mode convenience only; direct HTTPS returns without a Tailscale lookup.
 serve_front() {
   if [[ "$FRONTED" == "1" ]]; then
     echo ">> tailscale serve --https=${TAILNET_HTTPS_PORT} -> http://127.0.0.1:${COORD_LOOPBACK_PORT} (TLS off Bun)"
@@ -496,7 +489,7 @@ wait_until_ready() {
       curl_cmd+=(-k)
     fi
   fi
-  health_url="${health_scheme}://${health_bind}/roost.v1.CoordinatorService/MiscHealth"
+  health_url="${health_scheme}://${health_bind}/roost.v1.CoordinatorService/AuthCoordIdentity"
 
   for ((i = 0; i < attempts; i++)); do
     if ! service_alive; then
@@ -504,10 +497,25 @@ wait_until_ready() {
       return 1
     fi
 
+    if [[ "${ROOST_SAAS_MODE:-0}" == "1" && -n "${ROOST_PUBLIC_BIND:-}" ]]; then
+      body="$(mktemp)"
+      public_code="$(curl -sS -o "$body" -w '%{http_code}' \
+        -X POST -H 'content-type: application/json' --data '{}' \
+        "http://${ROOST_PUBLIC_BIND}/roost.v1.CoordinatorService/AuthCoordIdentity" 2>/dev/null || true)"
+      if [[ "$public_code" == "200" && "$(< "$body")" =~ \"saasMode\"[[:space:]]*:[[:space:]]*true ]]; then
+        rm -f "$body"
+        return 0
+      fi
+      rm -f "$body"
+      sleep "$interval"
+      continue
+    fi
+
     body="$(mktemp)"
     private_code="$("${curl_cmd[@]}" -sS -o "$body" -w '%{http_code}' \
       -X POST -H 'content-type: application/json' --data '{}' "$health_url" 2>/dev/null || true)"
-    if [[ "$private_code" == "200" && "$(< "$body")" =~ \"ok\"[[:space:]]*:[[:space:]]*true ]]; then
+    if [[ "$private_code" == "200" && "$(< "$body")" =~ \"gitSha\"[[:space:]]*:[[:space:]]*\"[^\"]+\" ]] \
+      && { [[ "${ROOST_SAAS_MODE:-0}" != "1" ]] || [[ "$(< "$body")" =~ \"saasMode\"[[:space:]]*:[[:space:]]*true ]]; }; then
       rm -f "$body"
       if [[ -z "${ROOST_PUBLIC_BIND:-}" ]]; then
         return 0
@@ -531,7 +539,7 @@ wait_until_ready() {
     fi
     sleep "$interval"
   done
-  echo "coordinator health/readiness probes did not succeed" >&2
+  echo "coordinator identity/readiness probes did not succeed (private=${private_code:-unset} public=${public_code:-unset})" >&2
   return 1
 }
 
@@ -589,7 +597,11 @@ case "$cmd" in
     fi
     rm -f "$snapshot"
     echo
-    echo "Coord v2 ready (FRONTED=${FRONTED}) - tailnet https://<host>:${TAILNET_HTTPS_PORT}. Logs:"
+    if [[ "$FRONTED" == "1" ]]; then
+      echo "Coord v2 ready (automatic Tailscale Serve) - https://<host>:${TAILNET_HTTPS_PORT}. Logs:"
+    else
+      echo "Coord v2 ready (direct HTTPS) - ${PUBLIC_URL} (bind ${BIND_VALUE}). Logs:"
+    fi
     echo "  bun apps/roost-cli/src/main.ts logs coord"
     ;;
   # The verb name stays `write-plist` on both platforms: CoordTarget invokes it

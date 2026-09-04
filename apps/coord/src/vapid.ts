@@ -1,6 +1,6 @@
-// Web Push VAPID key management. The P-256 identity is generated once and
-// persisted in app_settings so every subscribed device shares it across
-// coordinator restarts.
+// Web Push VAPID key management. The P-256 identity is coordinator-global:
+// it lives in the explicit NULL dashboard scope, never in a tenant setting.
+// Push handlers and delivery share this cache so first-use key generation stays serialized.
 
 import type { Kysely } from "kysely";
 import webpush from "web-push";
@@ -28,6 +28,7 @@ async function loadOrCreateVapidKeys(db: Kysely<DB>): Promise<VapidKeys> {
   const row = await db
     .selectFrom("app_settings")
     .select("value")
+    .where("dashboard_id", "is", null)
     .where("key", "=", VAPID_SETTING_KEY)
     .executeTakeFirst();
   if (row) return parseVapidKeys(row.value);
@@ -38,16 +39,16 @@ async function loadOrCreateVapidKeys(db: Kysely<DB>): Promise<VapidKeys> {
   const now = Date.now();
   await db
     .insertInto("app_settings")
-    .values({ key: VAPID_SETTING_KEY, value, updated_at_ms: now })
-    .onConflict((conflict) => conflict.column("key").doNothing())
+    .values({ dashboard_id: null, key: VAPID_SETTING_KEY, value, updated_at_ms: now })
     .execute();
 
-  // Another coordinator-local caller cannot race this function because
-  // loadPromise serializes it. doNothing also makes this safe if two process
-  // generations briefly overlap during a service handoff.
+  // `loadPromise` serializes first use in the one coordinator process. During
+  // a handoff, read the retained coordinator-global row rather than a tenant
+  // setting; deployment guarantees only one writer after cutover.
   const persisted = await db
     .selectFrom("app_settings")
     .select("value")
+    .where("dashboard_id", "is", null)
     .where("key", "=", VAPID_SETTING_KEY)
     .executeTakeFirstOrThrow();
   return parseVapidKeys(persisted.value);

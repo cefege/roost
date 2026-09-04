@@ -7,7 +7,7 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { HostMetrics, McpRelay, PairRequest, PermissionRule, Session, Task, WebhookToken, Worker, Workspace } from "./wire_pb.ts";
+import type { HostMetrics, McpRelay, PairRequest, Session, Task, Worker, Workspace } from "./wire_pb.ts";
 import { file_roost_v1_wire } from "./wire_pb.ts";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/events.proto.
  */
 export const file_roost_v1_events: GenFile = /*@__PURE__*/
-  fileDesc("ChVyb29zdC92MS9ldmVudHMucHJvdG8SCHJvb3N0LnYxInIKCU9wZW5lZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCXdvcmtlcl9mcBgCIAEoCRIPCgdjaGFubmVsGAMgASgNEhQKDHNlc3Npb25fa2luZBgEIAEoCRILCgNjd2QYBSABKAkSCgoCdHMYBiABKAQiUQoJQ2xvc2VkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSFgoJZXhpdF9jb2RlGAIgASgFSACIAQESCgoCdHMYAyABKARCDAoKX2V4aXRfY29kZSItCgtBdHRhY2hlZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEgoKAnRzGAIgASgEIi0KC0RldGFjaGVkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSCgoCdHMYAiABKAQiNQoGQ3dkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSCwoDY3dkGAIgASgJEgoKAnRzGAMgASgEImIKFFdvcmtzcGFjZUFzc2lnbmVkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSGQoMd29ya3NwYWNlX2lkGAIgASgJSACIAQESCgoCdHMYAyABKARCDwoNX3dvcmtzcGFjZV9pZCJRCgtTbmFwc2hvdEV2dBIRCgl3b3JrZXJfZnAYASABKAkSIwoIc2Vzc2lvbnMYAiADKAsyES5yb29zdC52MS5TZXNzaW9uEgoKAnRzGAMgASgEIkMKDFJlc3Bhd25lZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhMKC25ld19jaGFubmVsGAIgASgNEgoKAnRzGAMgASgEIkIKClJlbmFtZWRFdnQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxjdXN0b21fdGl0bGUYAiABKAkSCgoCdHMYAyABKAQiaAoGR2l0RXZ0EhIKCnNlc3Npb25faWQYASABKAkSEwoGYnJhbmNoGAIgASgJSACIAQESCgoCdHMYAyABKAQSEwoGcmVtb3RlGAQgASgJSAGIAQFCCQoHX2JyYW5jaEIJCgdfcmVtb3RlIp8BCgVQckV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhMKBm51bWJlchgCIAEoBUgAiAEBEhIKBXN0YXRlGAMgASgJSAGIAQESEwoGY2hlY2tzGAQgASgJSAKIAQESEAoDdXJsGAUgASgJSAOIAQESCgoCdHMYBiABKARCCQoHX251bWJlckIICgZfc3RhdGVCCQoHX2NoZWNrc0IGCgRfdXJsIjkKCFBvcnRzRXZ0EhIKCnNlc3Npb25faWQYASABKAkSDQoFcG9ydHMYAiADKAUSCgoCdHMYAyABKAQinAQKEVNlc3Npb25FdmVudFByb3RvEhAKCGV2ZW50X2lkGAEgASgEEiUKBm9wZW5lZBgKIAEoCzITLnJvb3N0LnYxLk9wZW5lZEV2dEgAEiUKBmNsb3NlZBgLIAEoCzITLnJvb3N0LnYxLkNsb3NlZEV2dEgAEikKCGF0dGFjaGVkGAwgASgLMhUucm9vc3QudjEuQXR0YWNoZWRFdnRIABIpCghkZXRhY2hlZBgNIAEoCzIVLnJvb3N0LnYxLkRldGFjaGVkRXZ0SAASHwoDY3dkGA4gASgLMhAucm9vc3QudjEuQ3dkRXZ0SAASPAoSd29ya3NwYWNlX2Fzc2lnbmVkGA8gASgLMh4ucm9vc3QudjEuV29ya3NwYWNlQXNzaWduZWRFdnRIABIpCghzbmFwc2hvdBgRIAEoCzIVLnJvb3N0LnYxLlNuYXBzaG90RXZ0SAASKwoJcmVzcGF3bmVkGBIgASgLMhYucm9vc3QudjEuUmVzcGF3bmVkRXZ0SAASJwoHcmVuYW1lZBgTIAEoCzIULnJvb3N0LnYxLlJlbmFtZWRFdnRIABIfCgNnaXQYFCABKAsyEC5yb29zdC52MS5HaXRFdnRIABIdCgJwchgVIAEoCzIPLnJvb3N0LnYxLlByRXZ0SAASIwoFcG9ydHMYFiABKAsyEi5yb29zdC52MS5Qb3J0c0V2dEgAQgYKBGtpbmRKBAgQEBEiUgoUV29ya3NwYWNlU2Vzc2lvbnNTZXQSFAoMd29ya3NwYWNlX2lkGAEgASgJEhMKC3Nlc3Npb25faWRzGAIgAygJEg8KB3ZlcnNpb24YAyABKAQiuwEKE1dvcmtzcGFjZURlbHRhUHJvdG8SJgoHY3JlYXRlZBgBIAEoCzITLnJvb3N0LnYxLldvcmtzcGFjZUgAEiYKB3VwZGF0ZWQYAiABKAsyEy5yb29zdC52MS5Xb3Jrc3BhY2VIABIUCgpkZWxldGVkX2lkGAMgASgJSAASNgoMc2Vzc2lvbnNfc2V0GAQgASgLMh4ucm9vc3QudjEuV29ya3NwYWNlU2Vzc2lvbnNTZXRIAEIGCgRraW5kIlwKDlRhc2tEZWx0YVByb3RvEiEKB2NyZWF0ZWQYASABKAsyDi5yb29zdC52MS5UYXNrSAASHwoFc3RhdGUYAiABKAsyDi5yb29zdC52MS5UYXNrSABCBgoEa2luZCJhChZXZWJob29rVG9rZW5EZWx0YVByb3RvEikKB2NyZWF0ZWQYASABKAsyFi5yb29zdC52MS5XZWJob29rVG9rZW5IABIUCgpkZWxldGVkX2lkGAIgASgJSABCBgoEa2luZCKTAQoVUGFpclJlcXVlc3REZWx0YVByb3RvEigKB3BlbmRpbmcYASABKAsyFS5yb29zdC52MS5QYWlyUmVxdWVzdEgAEhQKCnJlbW92ZWRfaWQYAiABKAlIABIyCghzbmFwc2hvdBgDIAEoCzIeLnJvb3N0LnYxLlBhaXJSZXF1ZXN0c1NuYXBzaG90SABCBgoEa2luZCI+ChRQYWlyUmVxdWVzdHNTbmFwc2hvdBImCgdwZW5kaW5nGAEgAygLMhUucm9vc3QudjEuUGFpclJlcXVlc3QikgEKGFBlcm1pc3Npb25SdWxlRGVsdGFQcm90bxIrCgdjcmVhdGVkGAEgASgLMhgucm9vc3QudjEuUGVybWlzc2lvblJ1bGVIABIrCgd1cGRhdGVkGAIgASgLMhgucm9vc3QudjEuUGVybWlzc2lvblJ1bGVIABIUCgpkZWxldGVkX2lkGAMgASgJSABCBgoEa2luZCJDCg1NY3BSZWxheUV2ZW50EhAKCHJlbGF5X2lkGAEgASgJEhQKDHBheWxvYWRfanNvbhgCIAEoCRIKCgJ0cxgDIAEoBCKtAQoVTWNwU3RyZWFtTWVzc2FnZVByb3RvEiUKB2NyZWF0ZWQYASABKAsyEi5yb29zdC52MS5NY3BSZWxheUgAEiUKB3VwZGF0ZWQYAiABKAsyEi5yb29zdC52MS5NY3BSZWxheUgAEhQKCmRlbGV0ZWRfaWQYAyABKAlIABIoCgVldmVudBgEIAEoCzIXLnJvb3N0LnYxLk1jcFJlbGF5RXZlbnRIAEIGCgRraW5kIn0KD1dvcmtlckhlYXJ0YmVhdBIRCgl3b3JrZXJfZnAYASABKAkSFAoMbGFzdF9zZWVuX21zGAIgASgEEjAKDGhvc3RfbWV0cmljcxgDIAEoCzIVLnJvb3N0LnYxLkhvc3RNZXRyaWNzSACIAQFCDwoNX2hvc3RfbWV0cmljcyKLAQoTV29ya2VyUHJlc2VuY2VQcm90bxImCgpyZWdpc3RlcmVkGAEgASgLMhAucm9vc3QudjEuV29ya2VySAASLgoJaGVhcnRiZWF0GAIgASgLMhkucm9vc3QudjEuV29ya2VySGVhcnRiZWF0SAASFAoKcmVtb3ZlZF9mcBgDIAEoCUgAQgYKBGtpbmRiBnByb3RvMw", [file_roost_v1_wire]);
+  fileDesc("ChVyb29zdC92MS9ldmVudHMucHJvdG8SCHJvb3N0LnYxInIKCU9wZW5lZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCXdvcmtlcl9mcBgCIAEoCRIPCgdjaGFubmVsGAMgASgNEhQKDHNlc3Npb25fa2luZBgEIAEoCRILCgNjd2QYBSABKAkSCgoCdHMYBiABKAQiUQoJQ2xvc2VkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSFgoJZXhpdF9jb2RlGAIgASgFSACIAQESCgoCdHMYAyABKARCDAoKX2V4aXRfY29kZSItCgtBdHRhY2hlZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEgoKAnRzGAIgASgEIi0KC0RldGFjaGVkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSCgoCdHMYAiABKAQiNQoGQ3dkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSCwoDY3dkGAIgASgJEgoKAnRzGAMgASgEImIKFFdvcmtzcGFjZUFzc2lnbmVkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSGQoMd29ya3NwYWNlX2lkGAIgASgJSACIAQESCgoCdHMYAyABKARCDwoNX3dvcmtzcGFjZV9pZCJRCgtTbmFwc2hvdEV2dBIRCgl3b3JrZXJfZnAYASABKAkSIwoIc2Vzc2lvbnMYAiADKAsyES5yb29zdC52MS5TZXNzaW9uEgoKAnRzGAMgASgEIkMKDFJlc3Bhd25lZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhMKC25ld19jaGFubmVsGAIgASgNEgoKAnRzGAMgASgEIkIKClJlbmFtZWRFdnQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxjdXN0b21fdGl0bGUYAiABKAkSCgoCdHMYAyABKAQiaAoGR2l0RXZ0EhIKCnNlc3Npb25faWQYASABKAkSEwoGYnJhbmNoGAIgASgJSACIAQESCgoCdHMYAyABKAQSEwoGcmVtb3RlGAQgASgJSAGIAQFCCQoHX2JyYW5jaEIJCgdfcmVtb3RlIp8BCgVQckV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhMKBm51bWJlchgCIAEoBUgAiAEBEhIKBXN0YXRlGAMgASgJSAGIAQESEwoGY2hlY2tzGAQgASgJSAKIAQESEAoDdXJsGAUgASgJSAOIAQESCgoCdHMYBiABKARCCQoHX251bWJlckIICgZfc3RhdGVCCQoHX2NoZWNrc0IGCgRfdXJsIjkKCFBvcnRzRXZ0EhIKCnNlc3Npb25faWQYASABKAkSDQoFcG9ydHMYAiADKAUSCgoCdHMYAyABKAQinAQKEVNlc3Npb25FdmVudFByb3RvEhAKCGV2ZW50X2lkGAEgASgEEiUKBm9wZW5lZBgKIAEoCzITLnJvb3N0LnYxLk9wZW5lZEV2dEgAEiUKBmNsb3NlZBgLIAEoCzITLnJvb3N0LnYxLkNsb3NlZEV2dEgAEikKCGF0dGFjaGVkGAwgASgLMhUucm9vc3QudjEuQXR0YWNoZWRFdnRIABIpCghkZXRhY2hlZBgNIAEoCzIVLnJvb3N0LnYxLkRldGFjaGVkRXZ0SAASHwoDY3dkGA4gASgLMhAucm9vc3QudjEuQ3dkRXZ0SAASPAoSd29ya3NwYWNlX2Fzc2lnbmVkGA8gASgLMh4ucm9vc3QudjEuV29ya3NwYWNlQXNzaWduZWRFdnRIABIpCghzbmFwc2hvdBgRIAEoCzIVLnJvb3N0LnYxLlNuYXBzaG90RXZ0SAASKwoJcmVzcGF3bmVkGBIgASgLMhYucm9vc3QudjEuUmVzcGF3bmVkRXZ0SAASJwoHcmVuYW1lZBgTIAEoCzIULnJvb3N0LnYxLlJlbmFtZWRFdnRIABIfCgNnaXQYFCABKAsyEC5yb29zdC52MS5HaXRFdnRIABIdCgJwchgVIAEoCzIPLnJvb3N0LnYxLlByRXZ0SAASIwoFcG9ydHMYFiABKAsyEi5yb29zdC52MS5Qb3J0c0V2dEgAQgYKBGtpbmRKBAgQEBEiUgoUV29ya3NwYWNlU2Vzc2lvbnNTZXQSFAoMd29ya3NwYWNlX2lkGAEgASgJEhMKC3Nlc3Npb25faWRzGAIgAygJEg8KB3ZlcnNpb24YAyABKAQiuwEKE1dvcmtzcGFjZURlbHRhUHJvdG8SJgoHY3JlYXRlZBgBIAEoCzITLnJvb3N0LnYxLldvcmtzcGFjZUgAEiYKB3VwZGF0ZWQYAiABKAsyEy5yb29zdC52MS5Xb3Jrc3BhY2VIABIUCgpkZWxldGVkX2lkGAMgASgJSAASNgoMc2Vzc2lvbnNfc2V0GAQgASgLMh4ucm9vc3QudjEuV29ya3NwYWNlU2Vzc2lvbnNTZXRIAEIGCgRraW5kIlwKDlRhc2tEZWx0YVByb3RvEiEKB2NyZWF0ZWQYASABKAsyDi5yb29zdC52MS5UYXNrSAASHwoFc3RhdGUYAiABKAsyDi5yb29zdC52MS5UYXNrSABCBgoEa2luZCKTAQoVUGFpclJlcXVlc3REZWx0YVByb3RvEigKB3BlbmRpbmcYASABKAsyFS5yb29zdC52MS5QYWlyUmVxdWVzdEgAEhQKCnJlbW92ZWRfaWQYAiABKAlIABIyCghzbmFwc2hvdBgDIAEoCzIeLnJvb3N0LnYxLlBhaXJSZXF1ZXN0c1NuYXBzaG90SABCBgoEa2luZCI+ChRQYWlyUmVxdWVzdHNTbmFwc2hvdBImCgdwZW5kaW5nGAEgAygLMhUucm9vc3QudjEuUGFpclJlcXVlc3QiQwoNTWNwUmVsYXlFdmVudBIQCghyZWxheV9pZBgBIAEoCRIUCgxwYXlsb2FkX2pzb24YAiABKAkSCgoCdHMYAyABKAQirQEKFU1jcFN0cmVhbU1lc3NhZ2VQcm90bxIlCgdjcmVhdGVkGAEgASgLMhIucm9vc3QudjEuTWNwUmVsYXlIABIlCgd1cGRhdGVkGAIgASgLMhIucm9vc3QudjEuTWNwUmVsYXlIABIUCgpkZWxldGVkX2lkGAMgASgJSAASKAoFZXZlbnQYBCABKAsyFy5yb29zdC52MS5NY3BSZWxheUV2ZW50SABCBgoEa2luZCJ9Cg9Xb3JrZXJIZWFydGJlYXQSEQoJd29ya2VyX2ZwGAEgASgJEhQKDGxhc3Rfc2Vlbl9tcxgCIAEoBBIwCgxob3N0X21ldHJpY3MYAyABKAsyFS5yb29zdC52MS5Ib3N0TWV0cmljc0gAiAEBQg8KDV9ob3N0X21ldHJpY3MiiwEKE1dvcmtlclByZXNlbmNlUHJvdG8SJgoKcmVnaXN0ZXJlZBgBIAEoCzIQLnJvb3N0LnYxLldvcmtlckgAEi4KCWhlYXJ0YmVhdBgCIAEoCzIZLnJvb3N0LnYxLldvcmtlckhlYXJ0YmVhdEgAEhQKCnJlbW92ZWRfZnAYAyABKAlIAEIGCgRraW5kYgZwcm90bzM", [file_roost_v1_wire]);
 
 /**
  * @generated from message roost.v1.OpenedEvt
@@ -594,35 +594,6 @@ export const TaskDeltaProtoSchema: GenMessage<TaskDeltaProto> = /*@__PURE__*/
   messageDesc(file_roost_v1_events, 15);
 
 /**
- * @generated from message roost.v1.WebhookTokenDeltaProto
- */
-export type WebhookTokenDeltaProto = Message<"roost.v1.WebhookTokenDeltaProto"> & {
-  /**
-   * @generated from oneof roost.v1.WebhookTokenDeltaProto.kind
-   */
-  kind: {
-    /**
-     * @generated from field: roost.v1.WebhookToken created = 1;
-     */
-    value: WebhookToken;
-    case: "created";
-  } | {
-    /**
-     * @generated from field: string deleted_id = 2;
-     */
-    value: string;
-    case: "deletedId";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message roost.v1.WebhookTokenDeltaProto.
- * Use `create(WebhookTokenDeltaProtoSchema)` to create a new message.
- */
-export const WebhookTokenDeltaProtoSchema: GenMessage<WebhookTokenDeltaProto> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 16);
-
-/**
  * Pair-request delta (perf sweep C2.4 — replaces the SPA's 5 s pairList
  * poller). `pending` upserts one request, `removed_id` drops one (approved
  * or denied), `snapshot` carries the FULL pending set — seeded on every Sync
@@ -661,7 +632,7 @@ export type PairRequestDeltaProto = Message<"roost.v1.PairRequestDeltaProto"> & 
  * Use `create(PairRequestDeltaProtoSchema)` to create a new message.
  */
 export const PairRequestDeltaProtoSchema: GenMessage<PairRequestDeltaProto> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 17);
+  messageDesc(file_roost_v1_events, 16);
 
 /**
  * @generated from message roost.v1.PairRequestsSnapshot
@@ -678,42 +649,7 @@ export type PairRequestsSnapshot = Message<"roost.v1.PairRequestsSnapshot"> & {
  * Use `create(PairRequestsSnapshotSchema)` to create a new message.
  */
 export const PairRequestsSnapshotSchema: GenMessage<PairRequestsSnapshot> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 18);
-
-/**
- * @generated from message roost.v1.PermissionRuleDeltaProto
- */
-export type PermissionRuleDeltaProto = Message<"roost.v1.PermissionRuleDeltaProto"> & {
-  /**
-   * @generated from oneof roost.v1.PermissionRuleDeltaProto.kind
-   */
-  kind: {
-    /**
-     * @generated from field: roost.v1.PermissionRule created = 1;
-     */
-    value: PermissionRule;
-    case: "created";
-  } | {
-    /**
-     * @generated from field: roost.v1.PermissionRule updated = 2;
-     */
-    value: PermissionRule;
-    case: "updated";
-  } | {
-    /**
-     * @generated from field: string deleted_id = 3;
-     */
-    value: string;
-    case: "deletedId";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message roost.v1.PermissionRuleDeltaProto.
- * Use `create(PermissionRuleDeltaProtoSchema)` to create a new message.
- */
-export const PermissionRuleDeltaProtoSchema: GenMessage<PermissionRuleDeltaProto> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 19);
+  messageDesc(file_roost_v1_events, 17);
 
 /**
  * @generated from message roost.v1.McpRelayEvent
@@ -740,7 +676,7 @@ export type McpRelayEvent = Message<"roost.v1.McpRelayEvent"> & {
  * Use `create(McpRelayEventSchema)` to create a new message.
  */
 export const McpRelayEventSchema: GenMessage<McpRelayEvent> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 20);
+  messageDesc(file_roost_v1_events, 18);
 
 /**
  * @generated from message roost.v1.McpStreamMessageProto
@@ -781,7 +717,7 @@ export type McpStreamMessageProto = Message<"roost.v1.McpStreamMessageProto"> & 
  * Use `create(McpStreamMessageProtoSchema)` to create a new message.
  */
 export const McpStreamMessageProtoSchema: GenMessage<McpStreamMessageProto> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 21);
+  messageDesc(file_roost_v1_events, 19);
 
 /**
  * Worker presence (post-MVP — workers/registered/heartbeat/removed share
@@ -811,7 +747,7 @@ export type WorkerHeartbeat = Message<"roost.v1.WorkerHeartbeat"> & {
  * Use `create(WorkerHeartbeatSchema)` to create a new message.
  */
 export const WorkerHeartbeatSchema: GenMessage<WorkerHeartbeat> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 22);
+  messageDesc(file_roost_v1_events, 20);
 
 /**
  * @generated from message roost.v1.WorkerPresenceProto
@@ -846,5 +782,5 @@ export type WorkerPresenceProto = Message<"roost.v1.WorkerPresenceProto"> & {
  * Use `create(WorkerPresenceProtoSchema)` to create a new message.
  */
 export const WorkerPresenceProtoSchema: GenMessage<WorkerPresenceProto> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 23);
+  messageDesc(file_roost_v1_events, 21);
 

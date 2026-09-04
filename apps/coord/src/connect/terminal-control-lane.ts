@@ -16,6 +16,9 @@ const MAX_AGGREGATE_DEPTH = 2_048;
 export interface TerminalViewerIdentity {
   viewerKey: string;
   callerFingerprint: string;
+  /** Dashboard selected by a server-resolved actor; absent identities are
+   * intentionally unable to route terminal input. */
+  dashboardId?: string;
   clientIp?: string;
 }
 
@@ -28,11 +31,13 @@ export function terminalViewerIdentity(
   callerFingerprint: string,
   tabId: string | null | undefined,
   remoteAddress?: string,
+  dashboardId?: string,
 ): TerminalViewerIdentity {
   return {
     viewerKey: tabId ? `${callerFingerprint}:${tabId}` : callerFingerprint,
     callerFingerprint,
     clientIp: remoteAddress,
+    dashboardId,
   };
 }
 
@@ -144,18 +149,41 @@ export function enqueueLane<T>(
 
 interface SessionRoute {
   workerFp: string;
+  dashboardId: string;
   channel: number;
 }
 
-export async function resolveSessionRoute(db: KyselyDB, sessionId: string): Promise<SessionRoute | null> {
-  const cached = getCachedSessionWorker(sessionId);
-  if (cached) return { workerFp: cached.worker_fp, channel: cached.channel };
-  const row = await db.selectFrom("sessions")
-    .select(["worker_fp", "channel"])
-    .where("id", "=", sessionId)
-    .where("status", "=", "open")
+export async function resolveSessionRoute(
+  db: KyselyDB,
+  dashboardId: string | undefined,
+  sessionId: string,
+): Promise<SessionRoute | null> {
+  if (dashboardId === undefined) return null;
+  // Always prove persisted scope before consulting the process-global route
+  // cache. A guessed foreign id must not create a cache/view/worker side effect.
+  const row = await db.selectFrom("sessions as session")
+    .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
+    .select([
+      "session.worker_fp as worker_fp",
+      "session.channel as channel",
+    ])
+    .where("session.id", "=", sessionId)
+    .where("session.dashboard_id", "=", dashboardId)
+    .where("session.status", "=", "open")
+    .where("worker.dashboard_id", "=", dashboardId)
+    .where("worker.deleted_at_ms", "is", null)
     .executeTakeFirst();
   if (!row) return null;
+  const cached = getCachedSessionWorker(sessionId);
+  if (
+    cached
+    && cached.worker_fp === row.worker_fp
+    && cached.channel === row.channel
+  ) return {
+    workerFp: cached.worker_fp,
+    channel: cached.channel,
+    dashboardId,
+  };
   // DB fallback exists only for the pre-reconcile startup window (coord
   // restarted under a live worker, before that worker's snapshot arrived). Once
   // the worker announced its exact live set, a session with no live route is
@@ -163,5 +191,5 @@ export async function resolveSessionRoute(db: KyselyDB, sessionId: string): Prom
   // stale channel, so input was written into a channel no keeper owned.
   if (isWorkerChannelIndexReconciled(row.worker_fp)) return null;
   cacheSessionWorker(sessionId, row.worker_fp, row.channel);
-  return { workerFp: row.worker_fp, channel: row.channel };
+  return { workerFp: row.worker_fp, channel: row.channel, dashboardId };
 }

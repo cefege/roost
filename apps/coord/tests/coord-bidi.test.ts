@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { InputCommandSchema } from "@roost/shared/proto/sync_pb";
+import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
@@ -29,6 +30,7 @@ import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { primeChannelMap } from "../src/byte-hub.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { ConnectDeps } from "../src/connect/router.ts";
+import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import {
   makeSyncTerminalControlHooks,
   type SyncTerminalControlHooks,
@@ -47,6 +49,10 @@ let browserFp: string;
 let db: import("../src/db/connection.ts").KyselyDB;
 let terminalControlHooks: SyncTerminalControlHooks;
 let terminalViews: TerminalViewHub;
+const ACCOUNT_ID = "coord-bidi-account";
+const ORGANIZATION_ID = "coord-bidi-organization";
+const DASHBOARD_ID = "coord-bidi-dashboard";
+const OFFLINE_WORKER_FP = "deadbeef".repeat(8);
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-coord-bidi-"));
@@ -62,6 +68,9 @@ beforeAll(async () => {
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
+  saasMode: false,
+  managedContainer: false,
+  pushAllowedOrigins: [],
   dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
   webDistPath: "",
   tlsCertPath: undefined, tlsKeyPath: undefined,
@@ -72,12 +81,19 @@ beforeAll(async () => {
   logDir: workdir,
   publicUrl: undefined,
   handoffPath: join(workdir, "coord-handoff.json"), }
-  const deps: ConnectDeps = { db, sqlite, coordKey, cfg, jwtCache };
+  const deps: ConnectDeps = {
+    db,
+    sqlite,
+    coordKey,
+    cfg,
+    jwtCache,
+    passwordWorkGate: new PasswordWorkGate(),
+  };
   coord = createCoord(deps);
   terminalViews = new TerminalViewHub({ db });
   terminalControlHooks = makeSyncTerminalControlHooks(deps, terminalViews);
 
-  // Mint a browser keypair, authorize it loopback-only, sign a JWT.
+  // Mint a browser keypair, then seed it as an explicit account device.
   const browserKeys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
   const rawPub = new Uint8Array(await crypto.subtle.exportKey("raw", browserKeys.publicKey));
   browserFp = await fingerprintOf(rawPub);
@@ -86,6 +102,60 @@ beforeAll(async () => {
     public_key: rawPub,
     label: "test-browser",
     added_at: Date.now(),
+  }).execute();
+  const fixtureNow = Date.now();
+  await db.insertInto("accounts").values({
+    id: ACCOUNT_ID,
+    email_normalized: "coord-bidi@example.test",
+    password_hash: null,
+    status: "active",
+    created_at_ms: fixtureNow,
+    password_changed_at_ms: null,
+  }).execute();
+  await db.insertInto("account_devices").values({
+    fingerprint: browserFp,
+    account_id: ACCOUNT_ID,
+    added_at_ms: fixtureNow,
+    last_seen_at_ms: fixtureNow,
+  }).execute();
+  await db.insertInto("organizations").values({
+    id: ORGANIZATION_ID,
+    slug: "coord-bidi",
+    name: "Coord bidi",
+    status: "active",
+    created_at_ms: fixtureNow,
+  }).execute();
+  await db.insertInto("organization_memberships").values({
+    organization_id: ORGANIZATION_ID,
+    account_id: ACCOUNT_ID,
+    role: "owner",
+    created_at_ms: fixtureNow,
+  }).execute();
+  await db.insertInto("dashboards").values({
+    id: DASHBOARD_ID,
+    organization_id: ORGANIZATION_ID,
+    slug: "coord-bidi",
+    name: "Coord bidi",
+    status: "active",
+    created_at_ms: fixtureNow,
+  }).execute();
+  await db.insertInto("dashboard_memberships").values({
+    dashboard_id: DASHBOARD_ID,
+    account_id: ACCOUNT_ID,
+    role: "admin",
+    created_at_ms: fixtureNow,
+  }).execute();
+  await db.insertInto("workers").values({
+    fp: OFFLINE_WORKER_FP,
+    dashboard_id: DASHBOARD_ID,
+    label: "offline",
+    os: "darwin",
+    reachable_addr: "127.0.0.1",
+    git_sha: null,
+    host_metrics_json: null,
+    registered_at_ms: fixtureNow,
+    last_seen_ms: fixtureNow,
+    keeper_stale: null,
   }).execute();
   const now = Math.floor(Date.now() / 1000);
   browserJwt = await signJwt(
@@ -107,6 +177,7 @@ function authedFetch(path: string, body: unknown, tabId?: string): Promise<Respo
   const headers: Record<string, string> = {
     "content-type": "application/json",
     authorization: `Bearer ${browserJwt}`,
+    [X_ROOST_DASHBOARD_ID]: DASHBOARD_ID,
   };
   if (tabId) headers["x-roost-tab-id"] = tabId;
   return coord.fetch(new Request(`http://t${path}`, {
@@ -117,6 +188,18 @@ function authedFetch(path: string, body: unknown, tabId?: string): Promise<Respo
 }
 
 const TERMINAL_DOMAIN_GENERATION = 7n;
+
+function syncActor(): SyncV2CommandContext["actor"] {
+  return {
+    dashboardId: DASHBOARD_ID,
+  };
+}
+const SYNC_SCOPE: SyncV2CommandContext["scope"] = {
+  dashboardId: DASHBOARD_ID,
+  workerFps: new Set(),
+  sessionIds: new Set(),
+  workspaceIds: new Set(),
+};
 
 function syncViewerKey(tabId: string): string {
   return `${browserFp}:${tabId}`;
@@ -130,7 +213,14 @@ function dispatchSyncTerminalCommand(
   const { promise, resolve } = Promise.withResolvers<SyncV2ResultControl>();
   let replied = false;
   terminalControlHooks.onV2Command({
-    caller: { fingerprint: browserFp, label: "test-browser", keyGeneration: 1 },
+    caller: {
+      fingerprint: browserFp,
+      label: "test-browser",
+      keyGeneration: 1,
+      validUntilMs: Date.now() + 60_000,
+    },
+    actor: syncActor(),
+    scope: SYNC_SCOPE,
     viewerKey: syncViewerKey(tabId),
     remoteAddress,
     socketId: `coord-bidi:${tabId}`,
@@ -148,7 +238,7 @@ function dispatchSyncTerminalCommand(
 describe("coord-bidi spawn → Sync input → kill routing", () => {
   test("SessionsSpawn with no worker attached → FAILED_PRECONDITION", async () => {
     const resp = await authedFetch("/roost.v1.CoordinatorService/SessionsSpawn", {
-      workerFp: "deadbeef".repeat(8),
+      workerFp: OFFLINE_WORKER_FP,
       kind: "shell",
       folder: "/tmp",
       cols: 80, rows: 24,
@@ -190,7 +280,7 @@ describe("coord-bidi spawn → Sync input → kill routing", () => {
       inputSeq: 1n,
       domainGeneration: TERMINAL_DOMAIN_GENERATION,
     });
-    expect(result.value.reason).toMatch(/unknown session/);
+    expect(result.value.reason).toBe("terminal session is unavailable");
   });
 
   test("SessionsList authenticated → 200 + sessions array (may be omitted when empty)", async () => {
@@ -211,16 +301,18 @@ describe("coord-bidi spawn → Sync input → kill routing", () => {
 });
 
 describe("cursor presence and worker command routing", () => {
-  const FAKE_WORKER_FP = "deadbeef".repeat(8);
+  const FAKE_WORKER_FP = "feedface".repeat(8);
   let workerSends: CoordWorkerDown[] = [];
 
   async function seedSession(sid: string): Promise<void> {
     await db.insertInto("workers").values({
+      dashboard_id: DASHBOARD_ID,
       fp: FAKE_WORKER_FP, label: "fake", os: "darwin",
       reachable_addr: "127.0.0.1", git_sha: null, host_metrics_json: null,
       registered_at_ms: Date.now(), last_seen_ms: Date.now(),
     }).onConflict((oc) => oc.column("fp").doNothing()).execute();
     await db.insertInto("sessions").values({
+      dashboard_id: DASHBOARD_ID,
       id: sid, worker_fp: FAKE_WORKER_FP, channel: 1, kind: "shell",
       cwd: "/tmp", status: "open", created_at: Date.now(),
     }).onConflict((oc) => oc.column("id").doNothing()).execute();
@@ -229,6 +321,7 @@ describe("cursor presence and worker command routing", () => {
   beforeAll(() => {
     __setConnectWorkerForTest(FAKE_WORKER_FP, {
       workerFp: FAKE_WORKER_FP,
+      dashboardId: DASHBOARD_ID,
       send(frame: CoordWorkerDown): number {
         workerSends.push(frame);
         return 1;

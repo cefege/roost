@@ -21,6 +21,7 @@ import { isPageVisible } from "../lib/pageVisible.ts";
 
 export const SYNC_STALE_TIMEOUT_MS = 90_000;   // 3 missed 30s keepalives
 export const SYNC_STALE_CHECK_MS = 15_000;
+export const SYNC_OPEN_TIMEOUT_MS = 15_000;
 
 /** Idle budget a refocused tab tolerates before re-dialing. 1.5× coord's 30s
  *  Sync keepalive (sync-ws-handler.ts): one dropped keepalive must not force a

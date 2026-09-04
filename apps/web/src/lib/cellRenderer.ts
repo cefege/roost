@@ -65,6 +65,7 @@ export class CellGridRenderer {
   private frame: CellGridFrame | null = null;
   // Canonical frames advance while explicit reading keeps the DOM immutable.
   private readerPendingFrame: CellGridFrame | null = null;
+  private readerPendingFrameRetainsHistory = true;
   private _readerIntent: ReaderIntent = "live";
   private _readerReason: ReaderIntentReason | null = null;
   // Global reader anchor retained across incompatible full-frame repairs.
@@ -205,9 +206,9 @@ export class CellGridRenderer {
       ? this.applyFullFrame(incoming)
       : this.applyDeltaFrame(incoming);
   }
-  /** Apply an authoritative full repair. Compatible viewport-only checkpoints
-   * retain presentation-owned immutable history; incompatible reader repairs
-   * reset immediately so backfill can page the new epoch toward its anchor. */
+  /** Apply an authoritative full repair. Reader intervals retain every full
+   * off-DOM; compatible checkpoints may carry painted history into that
+   * pending canonical shell, while incompatible repairs wait for release. */
   applyFullFrame(incoming: CellGridFrame): boolean {
     if (!incoming.full || incoming.viewportRows.length !== incoming.rows) return false;
     for (let i = 0; i < incoming.viewportRows.length; i++) {
@@ -221,45 +222,9 @@ export class CellGridRenderer {
     const retainsHistory = this._mergePaintedHistoryInto(owned, true);
     if (retainsHistory) this._replaceViewportOnReconcile = true;
     if (this._readerIntent === "reading" || this.readerPendingFrame) {
-      if ((this._readerReason === "find" || this.holding) && !retainsHistory) {
-        if (!this._readerAnchorNeedsRestore) this._captureReaderAnchor();
-        if (this._readerAnchor && owned.scrollbackTotal > 0) {
-          this._readerAnchor.row = Math.min(
-            this._readerAnchor.row,
-            owned.scrollbackTotal - 1,
-          );
-        } else if (owned.scrollbackTotal === 0) {
-          this._readerAnchor = null;
-        }
-        this._readerAnchorNeedsRestore = this._readerAnchor !== null;
-        this.readerPendingFrame = owned;
-        this.pendingRender = true;
-        return true;
-      }
-      if (retainsHistory) {
-        this.readerPendingFrame = owned;
-        if (this._readerIntent === "live") this.pendingRender = true;
-        return true;
-      }
-      if (!this._readerAnchorNeedsRestore) this._captureReaderAnchor();
-      if (this._readerAnchor && owned.scrollbackTotal > 0) {
-        this._readerAnchor.row = Math.min(
-          this._readerAnchor.row,
-          owned.scrollbackTotal - 1,
-        );
-      } else if (owned.scrollbackTotal === 0) {
-        this._readerAnchor = null;
-      }
-      if (!this._readerAnchor) {
-        this.readerPendingFrame = owned;
-        if (this._readerIntent === "live") this.pendingRender = true;
-        return true;
-      }
-      this._readerAnchorNeedsRestore = this._readerAnchor !== null;
-      this.readerPendingFrame = null;
-      this.pendingRender = false;
-      this.frame = owned;
-      this.renderFull(false);
+      this.readerPendingFrame = owned;
+      this.readerPendingFrameRetainsHistory = retainsHistory;
+      if (this._readerIntent === "live") this.pendingRender = true;
       return true;
     }
     this.frame = owned;
@@ -365,6 +330,15 @@ export class CellGridRenderer {
   enterReading(reason: ReaderIntentReason): void {
     // Explicit intent always wins a still-pending lifecycle classification.
     this._liveSelectionReleasePending = false;
+    if (
+      reason === "selection"
+      && this._readerIntent === "reading"
+      && this._readerReason !== null
+      && this._readerReason !== "selection"
+    ) {
+      this._captureReaderAnchor();
+      return;
+    }
     this._readerIntent = "reading";
     this._readerReason = reason;
     this._captureReaderAnchor();
@@ -406,12 +380,15 @@ export class CellGridRenderer {
     this._holdMask &= ~RENDERER_HOLD_LINK;
     return this._flushIfReleased();
   }
-  /** Flush the latest canonical frame after every hold clears, but never cancel
-   * a persistent explicit reading interval. */
+  /** Flush the latest canonical frame after every hold clears. Selection owns
+   * its reader interval, so releasing its last hold resumes live; independent
+   * scroll, touch, wheel, and find intent remains protected. */
   private _flushIfReleased(): LiveInteractionResult {
-    if (this.holding || this._readerIntent === "reading") {
-      return NO_LIVE_INTERACTION_RESULT;
-    }
+    if (this.holding) return NO_LIVE_INTERACTION_RESULT;
+    if (
+      this._readerIntent === "reading"
+      && this._readerReason !== "selection"
+    ) return NO_LIVE_INTERACTION_RESULT;
     return this._resumeLive(false);
   }
   private _resumeLive(clearHolds: boolean, explicit = false): LiveInteractionResult {
@@ -428,6 +405,7 @@ export class CellGridRenderer {
       this.frame = this.readerPendingFrame;
       this.readerPendingFrame = null;
       this.pendingRender = true;
+      this.readerPendingFrameRetainsHistory = true;
     }
     let reconciled = false;
     const frame = this.frame;
@@ -769,7 +747,10 @@ export class CellGridRenderer {
 
   /** Immutable identity and absolute range for demand-driven history paging. */
   backfillAnchor(): BackfillAnchor | null {
-    if (!this.frame) return null;
+    if (
+      !this.frame
+      || (this.readerPendingFrame && !this.readerPendingFrameRetainsHistory)
+    ) return null;
     return {
       sbBase: this.frame.sbBase,
       cols: this.frame.cols,
@@ -1270,6 +1251,7 @@ export class CellGridRenderer {
     this.viewportEl.remove();
     this.frame = null;
     this.readerPendingFrame = null;
+    this.readerPendingFrameRetainsHistory = true;
     this._reconciledGridEpoch = null;
     this._reconciledSeq = null;
     this._reconciledAltScreen = null;

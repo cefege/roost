@@ -14,6 +14,7 @@ import type {
   TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
+import type { SessionEventStore } from "./session-event-store.ts";
 
 /** Bounded, monotonic budget for one downstream terminal-control request.
  * The coordinator sends a RELATIVE `budget_ms`, never an instant, and the
@@ -33,6 +34,10 @@ export interface TerminalRequestBudget {
   isCurrentConnection(): boolean;
 }
 
+export type WorkerSnapshotEvent = Extract<SessionEvent, { kind: "snapshot" }>;
+export type WorkerSnapshotProvider = () => WorkerSnapshotEvent;
+export type CoordLinkProtocolPhase = "hello" | "replay" | "snapshot" | "live";
+
 // ─── deps + options ──────────────────────────────────────────────────
 
 export interface CoordLinkDeps {
@@ -40,6 +45,7 @@ export interface CoordLinkDeps {
   coordHttpUrl: string;
   workerFp: WorkerFp;
   workerVersion: string;
+  sessionEventStore: SessionEventStore;
   mintJwt: () => Promise<string>;
   jwtTtlSecs?: number;
   // Test-only overrides for the stale-link watchdog (defaults in
@@ -47,17 +53,19 @@ export interface CoordLinkDeps {
   staleLinkTimeoutMs?: number;
   staleCheckIntervalMs?: number;
   // Test-only socket injection for deterministic outbox/backpressure coverage.
-  webSocketFactory?: (url: string) => WebSocket;
+  webSocketFactory?: (url: string, protocols: [string, string]) => WebSocket;
   // Fired after native WebSocket backpressure clears and earlier durable events
   // have drained. It runs before queued controls so an authoritative cell
   // repair preserves opened → full → reply ordering.
   // Edge-triggered only after a cell send reported "dropped".
   onWritable?: () => void;
-  onHelloAck?: (msg: { coord_pubkey_b64: string; coord_pubkey_kid: string; reconnected: boolean }) => void;
-  // Fires after hello + event/control drain on every successful socket open.
-  // Raw metadata remains held until helloAck and authoritative cell repair.
-  // reconnected=false only for the first open in this CoordLink lifetime.
+  // Hello only establishes the socket generation. The worker remains unready
+  // while durable lifecycle replay and the snapshot barrier are in progress.
+  onHelloAck?: (msg: { reconnected: boolean }) => void;
+  // Socket-open observation only. Application traffic remains fenced until
+  // onSnapshotReady, which fires after the exact snapshot ACK.
   onOpen?: (reconnected: boolean) => void;
+  onSnapshotReady?: (msg: { reconnected: boolean }) => void;
   onBrowserCommand?: (msg: { browser_id: string; viewer_id: string; request_id: string; frame: ClientControlFrame }) => void;
   onBinary?: (channelId: number, dir: number, bytes: Uint8Array) => void;
   onInputRequest?: (request: DInputRequest, budget: TerminalRequestBudget) => Promise<void> | void;
@@ -110,6 +118,10 @@ export interface CoordLink {
   sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult;
   sendAgentStatus(status: AgentStatusUpdate): boolean;
   state(): CoordLinkState;
+  protocolPhase(): CoordLinkProtocolPhase;
+  ready(): boolean;
+  activateSnapshotProvider(provider: WorkerSnapshotProvider): void;
+  snapshotStateChanged(): void;
   sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TerminalCellSendResult;
   relocate(targetUrl: string, force?: boolean): void;
   unackedEventCount(): number;
@@ -122,7 +134,13 @@ export interface CoordLink {
 export type UpstreamFrame =
   | { kind: "hello"; worker_fp: string; version: string }
   | { kind: "pong"; ts: number }
-  | { kind: "event"; event: SessionEvent }
+  | {
+      kind: "event";
+      event: SessionEvent;
+      clientSeq: number;
+      eventClass: "lifecycle" | "metadata";
+      metadataKey?: string;
+    }
   | { kind: "rpc-ok"; request_id: string; data: unknown }
   | { kind: "rpc-error"; request_id: string; message: string }
   // `phase` is mandatory on both result frames: the coordinator honours a
@@ -170,9 +188,9 @@ export type CoordLinkState =
 // the same per-link closure state. They live here rather than in the modules
 // that implement them so the seams can be read in one place.
 
-/** Encoded-outbox + native-backpressure engine (coord-link-outbox.ts). Owns
- * every byte that leaves the worker, the D-4b unacked SessionEvent outbox and
- * the socket currently attached to it. */
+/** Encoded-outbox + native-backpressure engine (coord-link-outbox.ts). It
+ * enforces the hello → replay → snapshot → live application barrier while
+ * allowing only pong/JWT refresh liveness traffic around it. */
 export interface CoordLinkOutbox {
   send(frame: UpstreamFrame): boolean;
   sendBinary(channelId: number, direction: number, endSeq: number, data: Uint8Array): TransportSendResult;
@@ -180,18 +198,19 @@ export interface CoordLinkOutbox {
   sendAgentStatus(status: AgentStatusUpdate): boolean;
   sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TerminalCellSendResult;
   sendControlProto(frame: CoordWorkerUp): TransportSendResult;
+  sendLivenessProto(frame: CoordWorkerUp): TransportSendResult;
   encodeUpstream(frame: CoordWorkerUp): Uint8Array | null;
-  /** Bypasses byte admission. Legitimate only for the hello frame on a
-   * just-opened socket, whose native buffer is provably empty. */
+  /** Bypasses byte admission only for hello on a just-opened socket. */
   forceWrite(bytes: Uint8Array): boolean;
-  /** Installs the writer for a freshly opened socket. Leaves the link
-   * not-ready: raw metadata stays held until markLinkReady(). */
   attachSocket(socket: WebSocket, write: (bytes: Uint8Array) => void): void;
   detachSocket(): void;
-  markLinkReady(): void;
+  acceptHelloAck(reconnected: boolean): void;
+  activateSnapshotProvider(provider: WorkerSnapshotProvider): void;
+  snapshotStateChanged(): void;
+  protocolPhase(): CoordLinkProtocolPhase;
+  ready(): boolean;
   isAttached(): boolean;
   activeSocket(): WebSocket | null;
-  replayUnacked(): void;
   drainQueues(): void;
   clearDrainTimer(): void;
   ackEvent(seq: number): void;

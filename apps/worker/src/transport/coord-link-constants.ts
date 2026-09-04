@@ -33,6 +33,11 @@ export const PENDING_BYTES_CAP = 8 * 1024 * 1024;
 // exposes the browser-compatible bufferedAmount counter but no drain event, so
 // CoordLink samples it on a short bounded timer while work is waiting.
 export const WS_BUFFERED_HIGH_WATER_BYTES = 4 * 1024 * 1024;
+// A barrier snapshot is one unchunked SessionEvent. Both limits are enforced
+// against its encoded CoordWorkerUp envelope before the frame reaches the
+// socket; terminal-cell chunking is intentionally unrelated.
+export const WORKER_SNAPSHOT_MAX_SESSIONS = 1_024;
+export const WORKER_SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
 export const WS_DRAIN_RETRY_MS = 4;
 // Raw PTY bytes feed coordinator-only metadata scanners. Cells normally go
 // first, but an old metadata frame is promoted so it cannot starve forever.
@@ -41,10 +46,9 @@ export const RAW_METADATA_MAX_AGE_MS = 100;
 // helloAck-then-immediate-drop pattern would otherwise cycle
 // attempt:1 forever, hiding a coord flap pathology from telemetry.
 export const STABLE_SESSION_MS = 30_000;
-// D-4b unacked cap. Bounds worker memory if coord is down or wedged
-// for hours (claude streaming bursts ~10 ev/s = 36k entries/hour).
-// On overflow, evict oldest with log.error — coord's next snapshot
-// reconciliation on reconnect catches the gap.
+// Volatile replaceable-metadata bound. Durable lifecycle capacity is owned by
+// session-event-store; the link never evicts it and ACK-paces one event at a
+// time.
 export const UNACKED_CAP = 8192;
 // Stale-link watchdog. Coord pings every 30s (coord worker-conn.ts keepalive),
 // so a healthy open link never goes >30s without a downstream frame. When the

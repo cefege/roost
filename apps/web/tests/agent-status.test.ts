@@ -11,7 +11,7 @@ import {
 import { AgentStatusFrameSchema } from "@roost/shared/proto/sync_pb";
 import {
   applyAgentStatusFrame,
-  resetAgentStatusProjectionForTest,
+  resetAgentStatusProjection,
   subscribeAgentStatus,
 } from "../src/store/agent-status.ts";
 import { rootStore } from "../src/store/root.ts";
@@ -84,7 +84,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   storage.clear();
-  resetAgentStatusProjectionForTest();
+  resetAgentStatusProjection();
   resetAgentSeenForTest();
   resetNotifyPrefsForTest();
 });

@@ -146,13 +146,6 @@ message TaskDeltaProto {
   }
 }
 
-message WebhookTokenDeltaProto {
-  oneof kind {
-    WebhookToken created = 1;
-    string deleted_id = 2;
-  }
-}
-
 // Pair-request delta (perf sweep C2.4 — replaces the SPA's 5 s pairList
 // poller). `pending` upserts one request, `removed_id` drops one (approved
 // or denied), `snapshot` carries the FULL pending set — seeded on every Sync
@@ -168,14 +161,6 @@ message PairRequestDeltaProto {
 
 message PairRequestsSnapshot {
   repeated PairRequest pending = 1;
-}
-
-message PermissionRuleDeltaProto {
-  oneof kind {
-    PermissionRule created = 1;
-    PermissionRule updated = 2;
-    string deleted_id = 3;
-  }
 }
 
 message McpRelayEvent {

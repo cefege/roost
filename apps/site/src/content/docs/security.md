@@ -1,15 +1,23 @@
 ---
 title: "Security model"
-description: "EdDSA device keys that never leave the browser, the four pairing flows, revocation, what the audit log keeps and prunes, backups, and no telemetry."
+description: "How Roost uses non-extractable device keys in both deployment modes, plus self-hosted pairing, revocation, audit, backups, and telemetry behavior."
 order: 9
 section: "Reference"
 ---
 
-## Device identity is a key, not an account
+Managed Roost is a private operator-provisioned service with one initial owner
+and dashboard. The owner password authorizes a browser's non-extractable device
+key; subsequent requests use signed device JWTs. Self-hosted startup instead
+creates and validates one internal local account, `personal` organization, and
+`default` dashboard automatically. That topology is not an operator login
+identity; the pairing and operational details below describe self-hosted access.
 
-There are no accounts and no shared tokens. Each browser mints its own Ed25519
-key pair with WebCrypto, marked **non-extractable**, and persists it through
-IndexedDB's structured clone. A non-extractable private key cannot be exported by
+## Self-hosted device identity is a key, not a login account
+
+Self-hosted Roost has no login-account provisioning and no shared tokens. Each
+browser mints its own Ed25519 key pair with WebCrypto, marks it
+**non-extractable**, and persists it through IndexedDB's structured clone. A
+non-extractable private key cannot be exported by
 the page that created it, so there is no code path — including Roost's own — that
 reads it out and sends it anywhere.
 
@@ -28,7 +36,7 @@ it with Bun's WebCrypto:
 Key rotation keeps the old and the staged key until the coordinator's commit state
 is unambiguous, so a rotation interrupted midway cannot lock a device out.
 
-## Four ways to authorize a browser
+## Three ways to authorize a browser
 
 **1. QR pairing.** In **Settings → Pair a device**, Roost mints a one-shot browser
 bootstrap token and renders a QR for the current HTTPS origin. The token rides in
@@ -39,15 +47,14 @@ header. Scan it with a phone camera and the device signs itself in.
 **2. Paste a bootstrap token.** Mint a token in an already-authorized browser and
 paste it into the new one.
 
-**3. Loopback self-registration.** A convenience path for a browser on the
-coordinator machine itself. The endpoint that backs it is gated to loopback or
-tailnet callers and is on the public listener's deny list, so it is unreachable
-from a Cloudflare browser endpoint.
-
-**4. Tap-to-pair approval.** The new browser posts its public key and polls for a
+**3. Tap-to-pair approval.** The new browser posts its public key and polls for a
 decision. An already-authorized browser sees the request under **Pending pair
 requests** and approves or denies it; on approval the waiting browser reloads
 itself with an authorized token. Nothing is typed on either side.
+
+Neither loopback nor a Tailscale address authorizes a browser. Those addresses
+are transport metadata only; a fresh device still needs a scoped one-shot grant
+or an explicit pairing approval.
 
 Bootstrap tokens are prefixed `roost_bt_`, single-use, and expire 24 hours after
 minting whether or not they are redeemed. Redemption claims the row atomically —
@@ -108,7 +115,7 @@ a yield between statements, so a large backlog cannot block live RPCs on the
 coordinator's single write thread.
 
 Everything with forensic value is kept indefinitely: `PairApprove`,
-`AuthAuthorizeBrowser`, `WorkersDelete`, `WorkspacesDelete`, `SessionsKill`, and
+`AuthRedeemBrowser`, `WorkersDelete`, `WorkspacesDelete`, `SessionsKill`, and
 `SessionsSpawn`. "When was this device authorized, and by whom" is precisely the
 question the log exists to answer.
 
@@ -126,23 +133,22 @@ with an independent failure domain if host-loss recovery matters.
 
 ## What the public surface refuses
 
-If you enable the optional Cloudflare browser endpoint, the public listener is
-strictly narrower than the private one. It returns 404 for anything under
+In the self-hosted edition, if you enable the optional Cloudflare browser endpoint, the public listener is
+strictly narrower than the main one. It returns 404 for anything under
 `/internal/`, for the worker WebSocket path, for `/api/db-export`, and for the
-browser-authorization, worker-redeem, and coordinator-relocation RPCs. Cloudflare
-Access authenticates a human; Roost pairing still has to authorize the browser as
-a device. Details in [networking](/docs/networking/).
+worker-redemption and coordinator-relocation RPCs. Cloudflare Access
+authenticates a human; a browser still needs a scoped one-shot grant or an
+approved pairing request. Details in [networking](/docs/networking/).
 
-## No telemetry
+## Self-hosted telemetry behavior
 
-Roost sends nothing anywhere. There is no analytics, no crash reporting, no
-phone-home, and no vendor account in the loop. Diagnostics are local files:
-always-on signal events land in the coordinator's and worker's own error logs, and
+The self-hosted edition has no analytics, crash reporting, or phone-home, and no
+Roost vendor account is involved. Diagnostics are local files: always-on signal
+events land in the coordinator's and worker's own error logs, and
 `roost doctor --since <window>` summarizes them from disk. Agent status is not
 persisted at all, so there is not even a local history of what you were running.
-The only thing that leaves your hardware is what you deliberately configure —
-for example a Deepgram API key you add yourself for dictation, or a Cloudflare
-tunnel you set up yourself.
+Data leaves your hardware only through integrations you deliberately configure —
+for example dictation sent to Deepgram or a Cloudflare tunnel you operate.
 
 ## Next
 

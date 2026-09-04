@@ -19,19 +19,24 @@ describe("TerminalScreenHub canonical cache", () => {
     const { hub } = makeHarness();
     const incremental = new TestSink(true);
     const needsBaseline = new TestSink(false);
+    const handled = new TestSink("handled");
     watch(hub, incremental, "incremental");
     watch(hub, needsBaseline, "needs-baseline");
+    watch(hub, handled, "handled");
     hub.expectStream(SESSION, STREAM, 8, 2);
 
     hub.publishFrame(SESSION, fullFrame({ texts: ["old-a", "old-b"] }));
     expect(incremental.snapshots).toHaveLength(1);
     expect(needsBaseline.snapshots).toHaveLength(1);
+    expect(handled.snapshots).toHaveLength(1);
 
     hub.publishFrame(SESSION, deltaFrame({ text: "new-b" }));
     expect(incremental.deltas).toHaveLength(1);
     expect(incremental.snapshots).toHaveLength(1);
     expect(needsBaseline.deltas).toHaveLength(1);
     expect(needsBaseline.snapshots).toHaveLength(2);
+    expect(handled.deltas).toHaveLength(1);
+    expect(handled.snapshots).toHaveLength(1);
 
     const folded = seededFrame(needsBaseline);
     expect(folded).toMatchObject({

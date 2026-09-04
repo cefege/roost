@@ -30,7 +30,14 @@ test("verified bundle preserves coordinator key identity and abort restores cano
   const sourceKeyPath = join(root, "source.key");
   const sourceKey = await loadOrCreateCoordKey(sourceKeyPath);
   const snapshotPath = join(root, "snapshot.db");
-  const snapshotDb = new Database(snapshotPath); snapshotDb.exec("CREATE TABLE proof (value TEXT); INSERT INTO proof VALUES ('copy');"); snapshotDb.close();
+  const snapshotDb = new Database(snapshotPath);
+  snapshotDb.exec(`
+    CREATE TABLE proof (value TEXT);
+    INSERT INTO proof VALUES ('copy');
+    CREATE TABLE workers (fp TEXT PRIMARY KEY, dashboard_id TEXT);
+    INSERT INTO workers VALUES ('worker', 'dashboard');
+  `);
+  snapshotDb.close();
   const bytes = fs.readFileSync(snapshotPath);
   const handoff = "00000000-0000-4000-8000-000000000001";
   const previous = { path: process.env.PATH, exec: process.env.ROOST_EXEC_BIN, install: process.env.ROOST_COORDINATOR_INSTALL_SCRIPT, installLog: process.env.ROOST_TEST_INSTALL_LOG, tailscale: process.env.ROOST_TAILSCALE_BIN };
@@ -174,7 +181,12 @@ async function harness(): Promise<TargetHarness> {
   const keyPem = fs.readFileSync(sourceKeyPath);
   const snapshotPath = join(root, "snapshot.db");
   const snapshotDb = new Database(snapshotPath);
-  snapshotDb.exec("CREATE TABLE proof (value TEXT); INSERT INTO proof VALUES ('copy');");
+  snapshotDb.exec(`
+    CREATE TABLE proof (value TEXT);
+    INSERT INTO proof VALUES ('copy');
+    CREATE TABLE workers (fp TEXT PRIMARY KEY, dashboard_id TEXT);
+    INSERT INTO workers VALUES ('worker', 'dashboard');
+  `);
   snapshotDb.close();
   const bytes = fs.readFileSync(snapshotPath);
   const sha256 = createHash("sha256").update(bytes).digest("hex");

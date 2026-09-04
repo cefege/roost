@@ -3,7 +3,7 @@
 // query. Spread into router.ts's single router.service() literal.
 // Split out of router.ts (400-line cap).
 
-import type { ServiceImpl } from "@connectrpc/connect";
+import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import { log } from "@roost/shared/log";
 import { isDiagEnabled } from "@roost/shared/diag";
@@ -15,30 +15,62 @@ import {
   AuditListResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { AuditRowSchema } from "@roost/shared/proto/wire_pb";
-import { callerOrigin, requireAuth } from "./auth-interceptor.ts";
+import {
+  callerOrigin,
+  requireAccountDevice,
+  requireDashboardActor,
+  requireDashboardAdmin,
+} from "./auth-interceptor.ts";
 import { assertOnHost } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
 import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
 import { getMetricsSnapshot } from "../telemetry.ts";
 import {
   currentTerminalScreenHub,
-  terminalViewerProjection,
   terminalViewSnapshot,
 } from "./terminal-view-hub.ts";
-import {
-  _lastCellSnapshot,
-  _sessionRouteSnapshot,
-  type CoordinatorLastCellDiagnostic,
-} from "../byte-hub.ts";
-import { getAgentStatusDiagnostics } from "../agent-status-hub.ts";
+import { getCachedSessionWorker } from "../byte-hub.ts";
 import { connectWorkers } from "./worker-registry.ts";
-import { collectWorkerDiagSnapshots } from "./worker-send.ts";
-import { _pendingRpcStats } from "../router/pending-rpcs.ts";
+import {
+  collectWorkerDiagSnapshots,
+  type WorkerDiagSnapshotResult,
+} from "./worker-send.ts";
 import type { ConnectDeps } from "./router.ts";
 
 // Coord process boot time — captured at module load (coord startup). Used
 // by miscHealth for uptime.
 const BOOT_MS = Date.now();
+
+/**
+ * A worker can retain stale sessions while it is being reassigned. Keep only
+ * the actor-authorized session records; process-wide worker counters would
+ * otherwise disclose activity outside the selected dashboard.
+ */
+function scopedWorkerDiagnostic(
+  workerFp: string,
+  result: WorkerDiagSnapshotResult,
+  allowedSessionIds: ReadonlySet<string>,
+): WorkerDiagSnapshotResult {
+  if (result.status !== "ok") return result;
+  const sourceSessions = result.snapshot.sessions;
+  const sessions = sourceSessions !== null
+    && typeof sourceSessions === "object"
+    && !Array.isArray(sourceSessions)
+    ? Object.fromEntries(
+      Object.entries(sourceSessions)
+        .filter(([sessionId]) => allowedSessionIds.has(sessionId)),
+    )
+    : {};
+  return {
+    ...result,
+    snapshot: {
+      captured_at_ms: result.snapshot.captured_at_ms,
+      build: result.snapshot.build,
+      worker_fp: workerFp,
+      sessions,
+    },
+  };
+}
 
 type SystemMethods =
   | "miscHealth" | "miscDbExportUrl" | "miscMetrics"
@@ -49,8 +81,10 @@ export function makeSystemHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, SystemMethods> {
   return {
     // ─── misc ──────────────────────────────────────────────────────────
-    async miscHealth(_req, _ctx) {
-      // public
+    async miscHealth(_req, ctx) {
+      // Self-hosted health remains public. Managed health is a browser RPC and
+      // must cross the same verified device boundary as the rest of the app.
+      if (deps.cfg.saasMode) requireAccountDevice(ctx.values);
       return create(MiscHealthResponseSchema, {
         ok: true, bootMs: BigInt(BOOT_MS),
         uptimeMs: BigInt(Date.now() - BOOT_MS), gitSha: COORD_GIT_SHA,
@@ -58,7 +92,10 @@ export function makeSystemHandlers(
     },
 
     async miscDbExportUrl(_req, ctx) {
-      requireAuth(ctx.values);
+      if (deps.cfg.saasMode) {
+        throw new ConnectError("database export is unavailable in managed mode", Code.PermissionDenied);
+      }
+      requireAccountDevice(ctx.values);
       assertOnHost(callerOrigin(ctx.values));
       const port = deps.cfg.bind.split(":").pop();
       return create(MiscDbExportUrlResponseSchema, {
@@ -67,7 +104,7 @@ export function makeSystemHandlers(
     },
 
     async miscMetrics(_req, ctx) {
-      requireAuth(ctx.values);
+      requireAccountDevice(ctx.values);
       const m = getMetricsSnapshot();
       const requests: Record<string, bigint> = {};
       const errors: Record<string, bigint> = {};
@@ -87,7 +124,7 @@ export function makeSystemHandlers(
     // they land in RoostCoord/main.out.log with the canonical JSON shape.
     // Target="diag" so grep stays independent of operational logs.
     async diagDebugLogBatch(req, ctx) {
-      requireAuth(ctx.values);
+      requireDashboardActor(ctx.values);
       // Tier-1 signals always land. The diag firehose (info entries) is
       // dropped unless coord-side ROOST_DIAG=1 — a single coord switch
       // governs disk/CPU even when a stale browser keeps localStorage.roostDiag=1
@@ -127,30 +164,71 @@ export function makeSystemHandlers(
       return create(DiagDebugLogBatchResponseSchema, { accepted });
     },
 
-    // On-demand state dump. The coordinator captures its bounded local state,
-    // requests one correlated snapshot from every known worker that is live,
-    // and waits only through the worker-RPC deadline before returning.
-    // A non-empty sessionFilterId narrows the whole dump to ONE session and
-    // answers purely from memory (no DB): the attach-progress poller fires
-    // this RPC every 750 ms per attaching browser pane, so both the open-
-    // sessions scan and the fleet-wide worker fan-out would burn the shared
-    // loop for a question only one worker can answer.
+    // On-demand state dump. A filtered session diagnosis is available to
+    // dashboard members; an unfiltered fleet dump is an admin diagnostic.
     async diagSnapshot(req, ctx) {
-      requireAuth(ctx.values);
-      const capturedAtMs = Date.now();
       const sessionFilterId: string = req.sessionFilterId || "";
-      const connectedWorkerFps = new Set(connectWorkers.keys());
-      const routeState = _sessionRouteSnapshot();
-      const lastCellState = _lastCellSnapshot();
-      const viewerState = terminalViewerProjection();
-      const terminalScreen = currentTerminalScreenHub();
-      const openSessions = sessionFilterId === "" ? [] : await deps.db.selectFrom("sessions")
-        .select(["id", "worker_fp", "channel"])
-        .where("status", "=", "open")
-        .execute();
-      const registeredWorkers = sessionFilterId === "" ? [] : await deps.db.selectFrom("workers")
-        .select("fp")
-        .execute();
+      const actor = sessionFilterId === ""
+        ? requireDashboardAdmin(ctx.values)
+        : requireDashboardActor(ctx.values);
+      const capturedAtMs = Date.now();
+
+      // Resolve every resource boundary from durable dashboard predicates
+      // before touching coordinator caches. The filtered attach poller only
+      // looks up its one session's worker, not the dashboard's whole fleet.
+      let sessionQuery = deps.db.selectFrom("sessions as session")
+        .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
+        .select([
+          "session.id as id",
+          "session.worker_fp as worker_fp",
+          "session.channel as channel",
+        ])
+        .where("session.dashboard_id", "=", actor.dashboardId)
+        .where("session.status", "=", "open")
+        .where("worker.dashboard_id", "=", actor.dashboardId)
+        .where("worker.deleted_at_ms", "is", null);
+      if (sessionFilterId !== "") {
+        sessionQuery = sessionQuery.where("session.id", "=", sessionFilterId);
+      }
+      const scopedSessionRows = await sessionQuery.execute();
+      const sessionWorkerFps = [...new Set(scopedSessionRows.map((row) => row.worker_fp))];
+      const scopedWorkerRows = sessionFilterId !== ""
+        ? sessionWorkerFps.length === 0
+          ? []
+          : await deps.db.selectFrom("workers")
+            .select("fp")
+            .where("dashboard_id", "=", actor.dashboardId)
+            .where("fp", "in", sessionWorkerFps)
+            .where("deleted_at_ms", "is", null)
+            .execute()
+        : await deps.db.selectFrom("workers")
+          .select("fp")
+          .where("dashboard_id", "=", actor.dashboardId)
+          .where("deleted_at_ms", "is", null)
+          .execute();
+      const allowedSessionIds = new Set(scopedSessionRows.map((row) => row.id));
+      const allowedWorkerFps = new Set(scopedWorkerRows.map((row) => row.fp));
+      const workerFpsToDiagnose = new Set(
+        sessionFilterId === ""
+          ? allowedWorkerFps
+          : sessionWorkerFps.filter((workerFp) => allowedWorkerFps.has(workerFp)),
+      );
+
+      // The registry is volatile, so its server-stamped dashboard scope must
+      // agree with the durable predicate before it is used for a route, a
+      // connection bit, or a worker dispatch.
+      const dispatchableWorkerFps = new Set<string>();
+      for (const workerFp of workerFpsToDiagnose) {
+        const handle = connectWorkers.get(workerFp);
+        if (
+          handle !== undefined
+          && handle.dashboardId === actor.dashboardId
+          && handle.ready
+          && !handle.revoked
+        ) {
+          dispatchableWorkerFps.add(workerFp);
+        }
+      }
 
       type CoordSessionDiagnostic = {
         route: {
@@ -159,7 +237,13 @@ export function makeSystemHandlers(
           connected: boolean;
           source: "live_cache" | "database";
         } | null;
-        terminal_view: ReturnType<typeof terminalViewSnapshot>;
+        terminal_view: {
+          activeViews: number;
+          parkedViews: number;
+          streamId: string;
+          effective: { cols: number; rows: number } | null;
+          unavailable: boolean;
+        } | null;
         terminal_screen: {
           stream_id: string;
           grid_epoch: string;
@@ -170,52 +254,36 @@ export function makeSystemHandlers(
         } | null;
         viewers: Record<string, { cols: number; rows: number }>;
       };
+      const terminalScreen = currentTerminalScreenHub();
       const sessions: Record<string, CoordSessionDiagnostic> = {};
-      const ensureSession = (sessionId: string): CoordSessionDiagnostic => {
-        let state = sessions[sessionId];
-        if (!state) {
-          const route = routeState[sessionId];
-          state = {
-            route: route ? {
-              ...route,
-              connected: connectedWorkerFps.has(route.worker_fp),
+      for (const row of scopedSessionRows) {
+        const cachedRoute = getCachedSessionWorker(row.id);
+        const state: CoordSessionDiagnostic = {
+          route: cachedRoute && allowedWorkerFps.has(cachedRoute.worker_fp)
+            ? {
+              worker_fp: cachedRoute.worker_fp,
+              channel_id: cachedRoute.channel,
+              connected: dispatchableWorkerFps.has(cachedRoute.worker_fp),
               source: "live_cache",
-            } : null,
-            terminal_view: terminalViewSnapshot(sessionId),
-            terminal_screen: null,
-            viewers: {},
-          };
-          sessions[sessionId] = state;
-        }
-        return state;
-      };
-
-      for (const row of openSessions) {
-        const state = ensureSession(row.id);
-        if (!state.route) {
-          state.route = {
-            worker_fp: row.worker_fp,
-            channel_id: row.channel,
-            connected: connectedWorkerFps.has(row.worker_fp),
-            source: "database",
-          };
-        }
-      }
-      const filtered = sessionFilterId === "" ? null : [sessionFilterId];
-      for (const [sessionId, viewers] of viewerState) {
-        if (filtered !== null && !filtered.includes(sessionId)) continue;
-        const state = ensureSession(sessionId);
-        for (const [viewerId, geometry] of viewers) {
-          state.viewers[viewerId] = {
-            cols: geometry.cols,
-            rows: geometry.rows,
-          };
-        }
-      }
-      for (const sessionId of Object.keys(sessions)) {
-        const screen = terminalScreen?.snapshot(sessionId);
+            }
+            : allowedWorkerFps.has(row.worker_fp)
+              ? {
+                worker_fp: row.worker_fp,
+                channel_id: row.channel,
+                connected: dispatchableWorkerFps.has(row.worker_fp),
+                source: "database",
+              }
+              : null,
+          terminal_view: terminalViewSnapshot(row.id),
+          terminal_screen: null,
+          // Viewer projection only has a process-wide snapshot API. Do not
+          // enumerate it for a tenant diagnostic; terminal_view has scoped
+          // aggregate view state above.
+          viewers: {},
+        };
+        const screen = terminalScreen?.snapshot(row.id);
         if (screen) {
-          sessions[sessionId]!.terminal_screen = {
+          state.terminal_screen = {
             stream_id: screen.streamId,
             grid_epoch: screen.gridEpoch,
             seq: screen.seq.toString(),
@@ -224,28 +292,20 @@ export function makeSystemHandlers(
             valid: screen.valid,
           };
         }
+        sessions[row.id] = state;
       }
-      for (const sessionId of Object.keys(lastCellState)) {
-        if (filtered !== null && !filtered.includes(sessionId)) continue;
-        ensureSession(sessionId);
-      }
-      // The filtered dump must still describe its session even when no viewer,
-      // screen, or last-cell signal has ever touched it (e.g. a dead route).
-      if (filtered !== null) ensureSession(sessionFilterId);
 
-      // Session-scoped fan-out: only the routed worker is asked, and an
-      // unrouted session asks nobody — the browser-side mapper reads that as
-      // "worker offline". collectWorkerDiagSnapshots answers offline/timeout
-      // per fingerprint without throwing.
-      const workerFps = sessionFilterId !== ""
-        ? new Set(routeState[sessionFilterId]
-          ? [routeState[sessionFilterId]!.worker_fp]
-          : [])
-        : new Set([
-          ...registeredWorkers.map((worker) => worker.fp),
-          ...connectedWorkerFps,
-        ]);
-      const workers = await collectWorkerDiagSnapshots(workerFps);
+      const rawWorkers = await collectWorkerDiagSnapshots(
+        dispatchableWorkerFps,
+        undefined,
+        actor.dashboardId,
+      );
+      const workers = Object.fromEntries(
+        Object.entries(rawWorkers).map(([workerFp, result]) => [
+          workerFp,
+          scopedWorkerDiagnostic(workerFp, result, allowedSessionIds),
+        ] as const),
+      );
 
       const coordState: Record<string, unknown> = {
         build: {
@@ -253,10 +313,6 @@ export function makeSystemHandlers(
           artifact_version: ROOST_ARTIFACT_VERSION,
         },
         sessions,
-        agent_status: getAgentStatusDiagnostics(),
-        terminal_control: {
-          pending_rpcs: _pendingRpcStats().pending,
-        },
       };
 
       let spaPayload: unknown = null;
@@ -277,12 +333,13 @@ export function makeSystemHandlers(
 
     // ─── audit ────────────────────────────────────────────────────────
     async auditList(req, ctx) {
-      requireAuth(ctx.values);
+      const actor = requireDashboardAdmin(ctx.values);
       const limit = Math.min(req.limit || 100, 500);
       let q = deps.db.selectFrom("audit_log as a")
         .leftJoin("authorized_keys as k", "k.fingerprint", "a.caller_fp")
         .select(["a.id", "a.ts", "a.caller_fp", "k.label as caller_label",
                  "a.method", "a.path", "a.status", "a.trace_id"])
+        .where("a.dashboard_id", "=", actor.dashboardId)
         .orderBy("a.id", "desc").limit(limit + 1);
       if (req.cursor) q = q.where("a.id", "<", parseInt(req.cursor, 10));
       if (req.callerFp) q = q.where("a.caller_fp", "=", req.callerFp);
@@ -303,5 +360,6 @@ export function makeSystemHandlers(
       const next_cursor = hasMore && lastRow ? String(lastRow.id) : undefined;
       return create(AuditListResponseSchema, { rows, nextCursor: next_cursor });
     },
+
   };
 }

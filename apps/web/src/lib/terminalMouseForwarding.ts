@@ -15,9 +15,10 @@
 //   * pane-local press/touch listeners attach for the mount (attach → dispose)
 //   * the drag continuation lives on window, attached only while the pane is
 //     visible, so parked tabs don't multiply document event work
-//   * wheel/touchmove re-attach on every tracking-mode flip (passivity swap)
+//   * native wheel/touch reader classification is non-passive, so it runs before
+//     the browser changes the scrolling root
 
-import { createEffect, onCleanup, type Accessor } from "solid-js";
+import { onCleanup, type Accessor } from "solid-js";
 import type { MouseTracking } from "@roost/shared/cell";
 import { mouseForwardEnabled } from "./mouseForwardPref.ts";
 import {
@@ -26,6 +27,9 @@ import {
 	type MouseGesture,
 } from "./terminalMouse.ts";
 import type { CellGridRenderer } from "./cellRenderer.ts";
+import { isTerminalLinkActivationGesture } from "../components/terminal-links.ts";
+import { TERMINAL_LINK_CLASS } from "./cellRow.ts";
+
 
 export interface TerminalMouseForwardingDeps {
 	/** The pane's scroll container — every pane-local listener binds here. */
@@ -72,6 +76,7 @@ export function attachTerminalMouseForwarding(
 		measureCell,
 	} = deps;
 	const forwardActive = () => mouseForwardEnabled() && mouseTracking() !== 0;
+	let wheelAndTouchBound = false;
 	// Reader intent must only precede a native gesture that can actually move the
 	// display. Entering reader mode at a clamped edge (or with no overflow)
 	// freezes live painting even though the browser has no scroll to perform.
@@ -84,7 +89,18 @@ export function attachTerminalMouseForwarding(
 		const maxScrollTop = Math.max(0, display.scrollHeight - display.clientHeight);
 		const canMove =
 			deltaY < 0 ? display.scrollTop > 0 : display.scrollTop < maxScrollTop;
-		if (canMove) getRenderer()?.enterReading(reason);
+		const renderer = getRenderer();
+		// Passive wheel scrolling can reach an edge before Chromium invokes this
+		// listener. The scroll handler has already recorded native_scroll for that
+		// same real movement; upgrade it to the gesture's explicit reason. A truly
+		// clamped gesture starts live and therefore remains live.
+		if (
+			canMove
+			|| (
+				renderer?.readerIntent === "reading"
+				&& renderer.readerReason === "native_scroll"
+			)
+		) renderer?.enterReading(reason);
 	};
 	const report = (gesture: MouseGesture): boolean => {
 		const bytes = terminalMouseReport(
@@ -143,9 +159,11 @@ export function attachTerminalMouseForwarding(
 	const onMouseDownFwd = (ev: MouseEvent) => {
 		if (ev.defaultPrevented) return;
 		if (!forwardActive()) return;
-		// Modified link clicks open locally through the native anchor; never
-		// forward them to the worker PTY.
-		if ((ev.target as HTMLElement | null)?.closest("a")) return;
+		// The exact local link gesture wins over DECSET mouse reporting. Bare
+		// anchor clicks continue below so mouse-aware TUIs retain their press.
+		const link = (ev.target as HTMLElement | null)
+			?.closest(`a.${TERMINAL_LINK_CLASS}`);
+		if (link && isTerminalLinkActivationGesture(ev)) return;
 		// Middle button is reserved for the deck's bring-to-front toggle
 		// (TerminalDeck onDeckPointerDown) — never forwarded as a press.
 		if (ev.button === 1) return;
@@ -247,26 +265,32 @@ export function attachTerminalMouseForwarding(
 	return {
 		onWindowMouseMove: onMouseMoveFwd,
 		onWindowMouseUp: onMouseUpFwd,
-		// Wheel/touchmove passivity: preventDefault (mouse forwarding) only ever
-		// fires for an app that REQUESTED mouse reporting — outside that the
-		// always-non-passive listeners disabled compositor fast-scroll on every
-		// terminal, including every alt-screen pager that never asked for a mouse.
-		// Swap on tracking-mode flips. Remove-then-add matters: `passive` isn't part
-		// of listener identity, so re-adding the same fn without removing first is
-		// silently ignored as a duplicate (the effect's onCleanup runs before each
-		// re-run).
+		// A passive listener can be bypassed until after compositor scrolling has
+		// already reached an edge, leaving only the weaker native_scroll fallback.
+		// These listeners are pane-local (not document-global), do constant work,
+		// and must run before the native gesture to preserve explicit wheel/touch
+		// reader intent. Wheel capture also prevents a descendant from preempting
+		// that classification.
 		bindWheelAndTouchMove(): void {
-			createEffect(() => {
-				const passive = mouseTracking() === 0;
-				display.addEventListener("wheel", onWheelForward, { passive });
-				display.addEventListener("touchmove", onTouchMove, { passive });
-				onCleanup(() => {
-					display.removeEventListener("wheel", onWheelForward);
-					display.removeEventListener("touchmove", onTouchMove);
-				});
+			if (wheelAndTouchBound) return;
+			wheelAndTouchBound = true;
+			display.addEventListener("wheel", onWheelForward, {
+				capture: true,
+				passive: false,
+			});
+			display.addEventListener("touchmove", onTouchMove, { passive: false });
+			onCleanup(() => {
+				display.removeEventListener("wheel", onWheelForward, { capture: true });
+				display.removeEventListener("touchmove", onTouchMove);
+				wheelAndTouchBound = false;
 			});
 		},
 		dispose(): void {
+			if (wheelAndTouchBound) {
+				display.removeEventListener("wheel", onWheelForward, { capture: true });
+				display.removeEventListener("touchmove", onTouchMove);
+				wheelAndTouchBound = false;
+			}
 			display.removeEventListener("mousedown", onMouseDownFwd);
 			display.removeEventListener("touchstart", onTouchStart);
 			display.removeEventListener("touchend", onTouchEnd);

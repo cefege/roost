@@ -10,12 +10,17 @@ import { createCoordClient } from "./coord-client.ts";
 import { runInstall } from "./install.ts";
 import { startHeartbeat } from "./heartbeat.ts";
 import { SessionManager } from "./session-manager.ts";
-import { emitSnapshot } from "./snapshot.ts";
+import { buildSnapshot } from "./snapshot.ts";
 import { startCoordLink } from "./transport/coord-link.ts";
 import { buildCoordLinkDeps, type CoordLinkRefs } from "./coord-link-deps.ts";
 import { handleKeeperSurvivor } from "./boot-keeper.ts";
-import { setupReconcile } from "./boot-reconcile.ts";
-import { coordLinkSink } from "./event-sink.ts";
+import {
+	setupReconcile,
+	type ReconcileAdmissionOutcome,
+	type ReconcileAdmissionSuccess,
+} from "./boot-reconcile.ts";
+import { coordLinkSink, isFatalSessionEventError } from "./event-sink.ts";
+import { openSessionEventStore } from "./transport/session-event-store.ts";
 import { CoordTarget } from "./coord-target.ts";
 import { WorkerCoordRelocation } from "./coord-relocation.ts";
 import { createCoordRelocationRecovery } from "./coord-relocation-recovery.ts";
@@ -33,11 +38,22 @@ import { prepareWtermCoreModule } from "@roost/shared/wterm-core-factory";
 
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { homedir } from "node:os";
 
-// hook.sock lives in the same data dir as the worker key/coord-verifying-key.
+// hook.sock lives in the same data dir as the worker key.
 // install.sh always sets ROOST_WORKER_DATA_DIR; default is v2-isolated.
 const SUPPORT = workerDataDir();
+
+export async function completeWorkerBootAdmission(deps: {
+	reconcile: () => Promise<ReconcileAdmissionOutcome>;
+	activateSnapshotProvider: () => void;
+	markReady: () => void;
+}): Promise<ReconcileAdmissionSuccess> {
+	const outcome = await deps.reconcile();
+	if (!outcome.admitted) throw outcome.error;
+	deps.activateSnapshotProvider();
+	deps.markReady();
+	return outcome;
+}
 
 export async function runWorker() {
 	// Worker-scoped global handlers — installed when the worker RUNS (source
@@ -70,13 +86,9 @@ export async function runWorker() {
 		process.exit(1);
 	});
 	log.info("worker", "starting");
-	// Compile the shared patched WTerm module while the independent keeper
-	// readiness/adoption probe is in flight. Session creation reuses the same
-	// single-flight promise, so the first shell never starts a second compile.
-	await Promise.all([
-		handleKeeperSurvivor(),
-		prepareWtermCoreModule(),
-	]);
+	// Compile the patched WTerm module without touching the keeper. Survivor
+	// admission waits until the coordinator's complete open set is reserved.
+	await prepareWtermCoreModule();
 
 	diag("worker.boot", { step: "config" });
 	const cfg = loadWorkerConfig();
@@ -144,6 +156,7 @@ export async function runWorker() {
 	// 24a-5 will move snapshot here as well + retire `client.sessions.emit`.
 	diag("worker.boot", { step: "link" });
 	const refs: CoordLinkRefs = { link: null, sessionMgr: null, agentRegistry: null };
+	const lifecycleStore = openSessionEventStore();
 	const coordLink = startCoordLink(buildCoordLinkDeps({
 		coordHttpUrl: cfg.coordinatorUrl,
 		workerFp,
@@ -151,31 +164,12 @@ export async function runWorker() {
 		coordTarget,
 		relocation,
 		setCoordinatorEndpoint,
-		reannounceAfterRelocation,
 		refs,
+		sessionEventStore: lifecycleStore,
 	}));
 	// Bind the forward ref before yielding: startCoordLink's first dial awaits
 	// mintJwt(), so no callback can observe a null link on this tick.
 	refs.link = coordLink;
-	// The unacked replay that carries events across the cutover is in-memory and
-	// capped, and emitSnapshot/reconcileOpenSessions run only at boot — nothing
-	// re-announces after a relocation. emitSnapshot is a pure re-announce the
-	// coordinator's projection folds idempotently, so the happy path pays one
-	// extra message and the lossy paths get a repair pass.
-	function reannounceAfterRelocation(targetUrl: string): void {
-		void (async () => {
-			const deadline = Date.now() + 60_000;
-			while (Date.now() < deadline) {
-				if (coordLink.state().kind === "open" && cfg.coordinatorUrl === targetUrl) {
-					await emitSnapshot({ mgr: sessionMgr, sink, workerFp });
-					log.info("worker", "coord_relocate_reannounced", { target_url: targetUrl });
-					return;
-				}
-				await Bun.sleep(500);
-			}
-			log.warn("worker", "coord_relocate_reannounce_timeout", { target_url: targetUrl });
-		})().catch((error) => log.warn("worker", "coord_relocate_reannounce_failed", { error: String(error) }));
-	}
 	const recoverRelocation = createCoordRelocationRecovery({
 		relocation,
 		link: coordLink,
@@ -185,7 +179,6 @@ export async function runWorker() {
 				getJwt: () => mintJwt(key, "roost-coordinator"),
 			}).coordinatorMoveStatus({ handoffId }, { timeoutMs: 5_000 }),
 		setCoordinatorEndpoint,
-		reannounce: reannounceAfterRelocation,
 		abortTarget: (handoffId) => coordTarget.abort(handoffId),
 		currentCoordinatorUrl: () => cfg.coordinatorUrl,
 	});
@@ -198,11 +191,10 @@ export async function runWorker() {
 		);
 	};
 	triggerRelocationRecovery();
-	setInterval(triggerRelocationRecovery, 5_000);
 	// phase-25d: teeSink retired. Single emit boundary via CoordLink.
 	// tRPC sessions.emit + the trpcSink branch deleted; CoordLink has
 	// been proven through smoke + multi-restart cycles.
-	const sink = coordLinkSink(coordLink);
+	const sink = coordLinkSink(coordLink, lifecycleStore);
 
 	// att1b — attachment TTL/LRU reaper. 1h sweep interval; 24h TTL;
 	// 1 GB LRU cap on ~/.roost/attachments/.
@@ -233,7 +225,7 @@ export async function runWorker() {
 		sessionClosed: (sessionId) => agentDetector.closeSession(sessionId),
 	});
 	const serviceHealth = await serveServiceHealth("worker", () => {
-		const targetLinkReady = coordLink.state().kind === "open";
+		const targetLinkReady = coordLink.ready();
 		return {
 			role: "worker",
 			version: healthVersion,
@@ -261,27 +253,30 @@ export async function runWorker() {
 	}
 	// Start heartbeat (first beat registers/updates worker row).
 	diag("worker.boot", { step: "heartbeat" });
-	await startHeartbeat({ client: () => client });
+	const stopHeartbeat = await startHeartbeat({ client: () => client });
 
 	diag("worker.boot", { step: "reconcile" });
 	const { reconcileOpenSessions } = setupReconcile({
 		client: () => client,
 		workerFp,
 		sessionMgr,
-		sink,
+		prepareKeeper: handleKeeperSurvivor,
 	});
 
-	await reconcileOpenSessions("boot");
-
-	// Snapshot: re-announce live sessions (relevant after restart).
-	// 24a-5: routed through SessionEventSink (CoordLink-backed). The
-	// CoordLink pending queue is FIFO + drains in order on open, so
-	// snapshot orders correctly w.r.t. any earlier `opened` events
-	// queued before this point.
-	diag("worker.boot", { step: "snapshot" });
-	await emitSnapshot({ mgr: sessionMgr, sink, workerFp });
-
-	workerReady = true;
+	await completeWorkerBootAdmission({
+		reconcile: () => reconcileOpenSessions("boot"),
+		activateSnapshotProvider: () => {
+			// Snapshot ownership starts only after reconciliation produced the
+			// complete local session set.
+			diag("worker.boot", { step: "snapshot-provider" });
+			coordLink.activateSnapshotProvider(() =>
+				buildSnapshot(sessionMgr, workerFp)
+			);
+		},
+		markReady: () => {
+			workerReady = true;
+		},
+	});
 	log.info("worker", "ready", {
 		fingerprint: workerFp,
 		coordLinkState: coordLink.state().kind,
@@ -298,6 +293,7 @@ export async function runWorker() {
 		if (_shuttingDown) return;
 		_shuttingDown = true;
 		workerReady = false;
+		stopHeartbeat();
 		try {
 			await serviceHealth.close();
 		} catch {
@@ -320,8 +316,8 @@ export async function runWorker() {
 		diag("worker.shutdown", { step: "sessions" });
 		try {
 			sessionMgr.dispose();
-		} catch {
-			/* best-effort */
+		} catch (error) {
+			if (isFatalSessionEventError(error)) throw error;
 		}
 		diag("worker.shutdown", { step: "coordlink" });
 		try {
@@ -329,6 +325,8 @@ export async function runWorker() {
 		} catch {
 			/* best-effort */
 		}
+		diag("worker.shutdown", { step: "session-event-store" });
+		lifecycleStore.close();
 		process.exit(0);
 	};
 	process.on("SIGTERM", () => { void shutdown("SIGTERM"); });

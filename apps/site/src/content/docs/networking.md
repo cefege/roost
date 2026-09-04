@@ -1,35 +1,42 @@
 ---
 title: "Networking"
-description: "Tailscale Serve is the supported topology. Optional Cloudflare Access for browser-only devices, what the public listener refuses, and what stays manual."
+description: "Automatic Tailscale Serve and explicit-certificate HTTPS topologies, optional Cloudflare Access, and the public listener boundary."
 order: 7
 section: "Reference"
 ---
 
-## The supported topology: Tailscale Serve
+## Coordinator HTTPS: automatic Tailscale Serve or an explicit certificate
 
-The coordinator binds a loopback listener on `127.0.0.1:4103`. Tailscale Serve
-publishes it on the tailnet as `:4102`. That single mapping —
+`roost quickstart` supports two mutually exclusive endpoint modes. With no
+endpoint flags, automatic mode configures Tailscale Serve in front of a loopback
+coordinator:
 
 ```text
 Tailscale Serve :4102  →  127.0.0.1:4103
 ```
 
-— is the topology the installer configures, the one `roost quickstart` produces,
-and the only one the release canaries exercise. Everything below about other
-networks is honest about being outside that boundary.
+For a host reachable without Tailscale, explicit mode serves HTTPS directly:
 
-Tailscale is doing three jobs here, which is why it is a prerequisite rather than
-a suggestion. It is the private transport between browsers, the coordinator, and
-every worker. It is the trusted enrollment boundary: a worker's join and a
-browser's self-authorization are accepted only from loopback or a tailnet peer.
-And it supplies TLS — `roost quickstart` mints the certificate for the machine's
-tailnet FQDN, so browsers get real HTTPS with no self-signed warnings and phones
-connect with no port forwarding.
+```sh
+roost quickstart \
+  --coordinator-url https://roost.example.com:4102 \
+  --tls-cert /absolute/path/fullchain.pem \
+  --tls-key /absolute/path/privkey.pem
+```
 
-Workers dial the coordinator's tailnet URL outbound
-(`https://<coord>.<tailnet>.ts.net:4102`) and never listen for inbound
-connections. `roost status` reports whether TLS is currently provided by Tailscale
-Serve or by a direct certificate.
+The URL, certificate, and key flags form one required group; partial input never
+falls back to Tailscale. The certificate must be browser-trusted for the
+coordinator hostname.
+
+Tailscale supplies convenient private reachability and TLS in automatic mode. It
+is never an application identity or enrollment authority. Every browser must
+redeem a scoped one-shot browser grant or complete approved pairing, and every
+worker must redeem a scoped worker grant; a loopback or tailnet source address
+does not replace either credential.
+
+Workers dial the configured coordinator HTTPS origin outbound and never listen
+for inbound connections. `roost status` reports whether TLS is provided by
+Tailscale Serve or directly by the coordinator certificate.
 
 ## Optional: Cloudflare browser access
 
@@ -40,7 +47,7 @@ locked-down phone.
 
 What changes and what does not:
 
-| | Default Tailscale path | Cloudflare browser access |
+| | Automatic Tailscale path | Cloudflare browser access |
 |---|---|---|
 | Browser device software | Tailscale app | Ordinary browser only |
 | Coordinator/worker network | Tailscale | Tailscale |
@@ -101,14 +108,13 @@ correct Access policy, the public listener returns 404 for a fixed deny list:
 - any path under `/internal/`
 - `/ws/coord-worker/…` — the worker transport
 - `/api/db-export`
-- the RPCs `AuthAuthorizeBrowser`, `AuthRedeemWorker`,
-  `AuthMintCoordinatorRelocation`, `AuthRedeemCoordinatorRelocation`,
-  `CoordinatorMovePreflight`, `CoordinatorMoveStart`, `CoordinatorMoveStatus`,
-  and `MiscDbExportUrl`
+- the RPCs `AuthRedeemWorker`, `AuthMintCoordinatorRelocation`,
+  `AuthRedeemCoordinatorRelocation`, `CoordinatorMovePreflight`,
+  `CoordinatorMoveStart`, `CoordinatorMoveStatus`, and `MiscDbExportUrl`
 
 So worker enrollment, worker transport, database export, internal handoff, and
-coordinator relocation stay on the private Tailscale path whether or not the
-public endpoint exists.
+coordinator relocation stay on the coordinator's main HTTPS endpoint whether or
+not the public browser endpoint exists.
 
 Roost pairing still authorizes the browser as a Roost device. A successful Access
 login without pairing is not sufficient. To verify the edge before you trust it,
@@ -143,20 +149,20 @@ removes public reachability but does not restore local pairing links or clear th
 saved public URL. Do not hand-edit the launchd or systemd definitions; reinstall
 or reconfigure the coordinator for a full local reset.
 
-## Everything else is manual and unexercised
+## Other private overlays
 
-WireGuard, Headscale, ZeroTier, other VPNs, and a plain LAN can be wired up by
-hand once browser-to-coordinator and worker-to-coordinator reachability is already
-solved. Roost has no opinion that stops you.
+WireGuard, Headscale, ZeroTier, and other private overlays can provide the
+reachability that automatic Tailscale mode normally supplies. Roost does not
+configure or exercise those overlays; you own their routing and DNS. Use a
+browser-trusted certificate at the coordinator origin.
 
-They are not supported paths, though, and the docs will not pretend otherwise: the
-installer does not configure them, and the release canaries do not exercise them.
-If you go that route, you own the transport, the certificates, and the enrollment
-boundary that Tailscale would otherwise provide.
+No network membership grants Roost authority. Browsers and workers still redeem
+scoped one-shot grants or complete explicit pairing, exactly as they do over
+Tailscale or direct HTTPS.
 
 ## Next
 
-- [Install](/docs/install/) — the Tailscale prerequisite in order
+- [Install](/docs/install/) — choose automatic Tailscale or explicit HTTPS
 - [Fleet](/docs/fleet/) — why workers only ever dial outbound
 - [Security](/docs/security/) — pairing, device keys, and revocation
 - [The CLI](/docs/cli/) — `expose`, `status`, `doctor`

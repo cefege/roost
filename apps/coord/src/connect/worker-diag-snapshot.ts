@@ -47,10 +47,16 @@ function diagError(
 async function requestWorkerDiagSnapshot(
   workerFp: string,
   timeoutMs: number,
+  expectedDashboardId?: string,
 ): Promise<WorkerDiagSnapshotResult> {
   const startedAtMs = Date.now();
   const worker = connectWorkers.get(workerFp);
-  if (!worker) return diagError(startedAtMs, "offline", "worker is not connected");
+  if (
+    !worker
+    || !worker.ready
+    || worker.revoked
+    || (expectedDashboardId !== undefined && worker.dashboardId !== expectedDashboardId)
+  ) return diagError(startedAtMs, "offline", "worker is not connected");
 
   const pending = createPendingRpc<Record<string, unknown>>(timeoutMs, workerFp);
   try {
@@ -66,6 +72,7 @@ async function requestWorkerDiagSnapshot(
       rejectPendingRpcUnavailable(
         pending.request_id,
         "worker transport dropped diagnostic snapshot request",
+        workerFp,
       );
       await pending.promise.catch(() => undefined);
       return diagError(startedAtMs, "send_failed", "worker transport dropped request");
@@ -74,6 +81,7 @@ async function requestWorkerDiagSnapshot(
     rejectPendingRpcUnavailable(
       pending.request_id,
       error instanceof Error ? error.message : "worker transport failed diagnostic snapshot",
+      workerFp,
     );
     await pending.promise.catch(() => undefined);
     return diagError(
@@ -111,11 +119,14 @@ async function requestWorkerDiagSnapshot(
 
 /** Fan out one bounded, correlated request per known worker. The registry key
  * is the authenticated fingerprint from the worker hello; payload identity is
- * never used as a result key. Promise.allSettled isolates worker failures, and
- * each pending RPC owns a deadline/cleanup timer. */
+ * never used as a result key. When a caller passes an expected dashboard, the
+ * final registry read rejects a reassigned worker instead of dispatching
+ * across tenant scope. Promise.allSettled isolates worker failures, and each
+ * pending RPC owns a deadline/cleanup timer. */
 export async function collectWorkerDiagSnapshots(
   workerFps: Iterable<string> = connectWorkers.keys(),
   timeoutMs = DIAG_SNAPSHOT_TIMEOUT_MS,
+  expectedDashboardId?: string,
 ): Promise<Record<string, WorkerDiagSnapshotResult>> {
   const boundedTimeoutMs = Number.isFinite(timeoutMs)
     ? Math.max(1, Math.min(timeoutMs, 10_000))
@@ -124,7 +135,7 @@ export async function collectWorkerDiagSnapshots(
   const startedAtMs = Date.now();
   const settled = await Promise.allSettled(
     fingerprints.map((workerFp) =>
-      requestWorkerDiagSnapshot(workerFp, boundedTimeoutMs)),
+      requestWorkerDiagSnapshot(workerFp, boundedTimeoutMs, expectedDashboardId)),
   );
   const entries = fingerprints.map((workerFp, index) => {
     const result = settled[index]!;

@@ -23,6 +23,7 @@ import type { CoordinatorMoveService } from "../src/coord-move/orchestrator.ts";
 import type { CoordinatorMoveRuntime, MoveWorker } from "../src/coord-move/runtime.ts";
 
 const HANDOFF_ID = "11111111-2222-3333-4444-555555555555";
+const DASHBOARD_ID = "coord-move-internal-http-dashboard";
 const SECRET = "e2e-handoff-secret-value";
 const SECRET_SHA256 = createHash("sha256").update(SECRET).digest("hex");
 const PREFIX = "https://coord.test/internal/coord-handoff";
@@ -62,6 +63,9 @@ async function fixture(): Promise<Fixture> {
   await runMigrations(opened.sqlite);
   closers.push(() => opened.close());
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:4102", dbPath, coordKeyPath: keyPath, authorizedKeysPath,
+  saasMode: false,
+  managedContainer: false,
+  pushAllowedOrigins: [],
   handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
   publicUrl: "https://target.ts.net:4102", tlsCertPath: undefined, tlsKeyPath: undefined,
   jwtMaxAgeSecs: 300, auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [] };
@@ -86,6 +90,7 @@ async function fixture(): Promise<Fixture> {
   store.write({
     version: 1, handoff_id: HANDOFF_ID, role: "TARGET",
     phase: "WAITING_FOR_WORKERS",
+    dashboard_id: DASHBOARD_ID,
     source_url: "https://source.ts.net:4102", target_url: cfg.publicUrl!, target_worker_fp: "target-pending",
     expected_worker_fps: ["worker-a"], commit_acked_worker_fps: [],
     expected_coord_kid: coordKey.verifyingKeyKid(), expected_git_sha: COORD_GIT_SHA,
@@ -99,9 +104,10 @@ async function fixture(): Promise<Fixture> {
   // the constant-time digest compare lives inside internalStatus.
   const calls = { internalStatus: 0, internalCommit: 0, internalAbort: 0 };
   const counted: CoordinatorMoveService = {
-    preflight: (targetWorkerFp) => move.preflight(targetWorkerFp),
-    start: (targetWorkerFp) => move.start(targetWorkerFp),
-    status: (handoffId) => move.status(handoffId),
+    preflight: (dashboardId, targetWorkerFp) => move.preflight(dashboardId, targetWorkerFp),
+    start: (dashboardId, targetWorkerFp) => move.start(dashboardId, targetWorkerFp),
+    status: (dashboardId, handoffId) => move.status(dashboardId, handoffId),
+    statusForWorker: (handoffId, workerFp) => move.statusForWorker(handoffId, workerFp),
     current: () => move.current(),
     recover: () => move.recover(),
     internalStatus: async (handoffId, secret) => { calls.internalStatus += 1; return move.internalStatus(handoffId, secret); },

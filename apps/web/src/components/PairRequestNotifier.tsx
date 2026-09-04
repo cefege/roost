@@ -13,7 +13,8 @@ import { coordClient } from "../connect.ts";
 import { addToast } from "../store/toastStore.ts";
 import { Button } from "./Settings/md/Button.tsx";
 
-const isAuthorized = () => !rootStore.browser_unauthorized;
+const canApprovePairRequests = () =>
+  !rootStore.browser_unauthorized && rootStore.coord_identity?.saas_mode === false;
 
 export function PairRequestNotifier() {
   const pending = createMemo(() => Object.values(rootStore.pair_requests));
@@ -39,7 +40,7 @@ export function PairRequestNotifier() {
   }
 
   return (
-    <Show when={isAuthorized() && pending().length > 0}>
+    <Show when={canApprovePairRequests() && pending().length > 0}>
       <Portal mount={document.body}>
         <style>{`
           @keyframes pair-card-in {

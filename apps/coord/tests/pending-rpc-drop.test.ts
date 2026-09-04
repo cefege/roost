@@ -10,6 +10,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   createPendingRpc,
+  createPendingRpcWithId,
   rejectPendingRpcsForWorker,
   resolvePendingRpc,
   _pendingRpcStats,
@@ -18,6 +19,7 @@ import {
 const FP_A = "a".repeat(64);
 const FP_B = "b".repeat(64);
 
+const SHARED_UPLOAD_ID = "shared-upload-id";
 describe("A5 — rejectPendingRpcsForWorker", () => {
   test("rejects only the dropped worker's RPCs; others survive", async () => {
     const a = createPendingRpc<{ ok: boolean }>(30_000, FP_A);
@@ -51,5 +53,35 @@ describe("A5 — rejectPendingRpcsForWorker", () => {
     // still resolvable
     expect(resolvePendingRpc(untagged.request_id, 1)).toBe(true);
     await expect(untagged.promise).resolves.toBe(1);
+  });
+});
+
+describe("worker-scoped explicit request ids", () => {
+  test("equal upload ids resolve independently across workers", async () => {
+    const a = createPendingRpcWithId<{ worker: string }>(
+      SHARED_UPLOAD_ID,
+      30_000,
+      FP_A,
+    );
+    const b = createPendingRpcWithId<{ worker: string }>(
+      SHARED_UPLOAD_ID,
+      30_000,
+      FP_B,
+    );
+    expect(resolvePendingRpc(SHARED_UPLOAD_ID, { worker: "b" }, FP_B)).toBe(true);
+    await expect(b.promise).resolves.toEqual({ worker: "b" });
+    expect(resolvePendingRpc(SHARED_UPLOAD_ID, { worker: "a" }, FP_A)).toBe(true);
+    await expect(a.promise).resolves.toEqual({ worker: "a" });
+  });
+
+  test("duplicate explicit ids for one worker reject instead of overwriting", () => {
+    const first = createPendingRpcWithId(SHARED_UPLOAD_ID, 30_000, FP_A);
+    expect(() => createPendingRpcWithId(
+      SHARED_UPLOAD_ID,
+      30_000,
+      FP_A,
+    )).toThrow("request_id is already pending for this worker");
+    rejectPendingRpcsForWorker(FP_A, "test cleanup");
+    void first.promise.catch(() => undefined);
   });
 });

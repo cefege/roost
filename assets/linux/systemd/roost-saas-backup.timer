@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily backup of Roost managed coordinators
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15min
+Unit=roost-saas-backup.service
+
+[Install]
+WantedBy=timers.target

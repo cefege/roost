@@ -117,6 +117,48 @@ describe("snapshot reconciliation", () => {
     expect(result.get(SID2)?.cwd).toBe("/other");
   });
 
+  test("snapshot preserves immutable creation and coordinator-owned fields", () => {
+    const workspaceId = asWorkspaceId("00000000-0000-4000-8000-000000000099");
+    const before = foldAll([
+      openEvent(SID, 1000),
+      {
+        kind: "workspace_assigned",
+        session_id: SID,
+        workspace_id: workspaceId,
+        ts: 1001,
+      },
+      {
+        kind: "renamed",
+        session_id: SID,
+        custom_title: "kept title",
+        ts: 1002,
+      },
+    ]);
+    const announced: Session = {
+      ...before.get(SID)!,
+      channel: asChannelId(9),
+      cwd: "/current",
+      created_at: 9000,
+      spawn_cwd: "/rewritten",
+      workspace_id: asWorkspaceId("00000000-0000-4000-8000-000000000088"),
+      custom_title: "rewritten title",
+    };
+    const result = foldEvent(before, {
+      kind: "snapshot",
+      worker_fp: FP,
+      sessions: [announced],
+      ts: 10_000,
+    });
+    expect(result.get(SID)).toMatchObject({
+      channel: 9,
+      cwd: "/current",
+      created_at: 1000,
+      spawn_cwd: "/home",
+      workspace_id: workspaceId,
+      custom_title: "kept title",
+    });
+  });
+
   test("snapshot from different worker does not affect other worker sessions", () => {
     const FP2 = asWorkerFp("b".repeat(64));
     const s1: SessionEvent = openEvent(SID, 1000);

@@ -1,7 +1,7 @@
-// Coord's own ed25519 signing key. Used to mint short-lived browser→worker
-// direct JWTs. Loads from disk (OpenSSH unencrypted PEM) or generates fresh.
-// Same on-disk path as legacy coord (ssh_ed25519.key) so TOFU pins survive
-// the R4.5 cutover. R0.9, R1.1.
+// Coordinator Ed25519 key for short-lived internal credentials and
+// coordinator relocation tokens. Loads from disk (OpenSSH unencrypted PEM)
+// or generates fresh. Its fingerprint remains internal except for relocation
+// bundle verification.
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
 import { dirname } from "node:path";
@@ -11,7 +11,6 @@ import { log } from "@roost/shared/log";
 
 export interface CoordKey {
   sign(claims: SignClaims): Promise<string>;
-  verifyingKeyB64(): string;
   verifyingKeyKid(): string;
   verifyRelocation(token: string): Promise<{
     aud: string;
@@ -205,16 +204,12 @@ export async function loadOrCreateCoordKey(keyPath: string): Promise<CoordKey> {
     false,
     ["verify"],
   );
-  const pubB64 = Buffer.from(pubRaw).toString("base64url");
 
   log.info("coord-key", "loaded", { fp, path: keyPath });
 
   return {
     async sign(claims: SignClaims): Promise<string> {
       return signJwt(claims, cryptoKey, fp);
-    },
-    verifyingKeyB64(): string {
-      return pubB64;
     },
     verifyingKeyKid(): string {
       return fp;

@@ -17,6 +17,11 @@ certificate for the machine's tailnet FQDN, installs the coordinator service,
 deploys a worker on the same machine, waits for the coordinator to report
 healthy, prints a status readout, and opens your browser already authorized.
 
+Coordinator startup owns the self-hosted tenant setup. Before enrollment, it
+creates or validates one internal `local@roost.invalid` account, one `personal`
+organization, and its `default` dashboard; no separate organization bootstrap
+command is required.
+
 That last step uses a one-shot bootstrap token carried in the URL **fragment**
 (`#pair=…`). A fragment is never sent to the server, so the token never lands in
 the coordinator's logs, in an access log, or in a `Referer` header.

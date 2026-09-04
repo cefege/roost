@@ -1,28 +1,24 @@
-// SOURCE half of a coordinator move: preflight, phase ladder, rollback, recovery from
-// durable state; phases/terminal states/gate flips all log — a silent mid-move failure was
-// undiagnosable. TARGET half: target-orchestrator.ts.
+// Source coordinator moves are sequenced here so one owner controls phase, gate, and recovery order.
+// RPC handlers call this orchestrator; target-only plumbing remains in target-orchestrator.ts.
+// It depends on durable handoff state, the move runtime, and source preflight checks.
+// Phase transitions, write-gate changes, rollback, and publication must keep their established ordering.
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { log } from "@roost/shared/log";
-import * as fs from "node:fs";
 import { COORD_GIT_SHA } from "../git-sha.ts";
 import { isTerminalPhase, type CoordinatorMoveTransaction, type HandoffState, type MovePhase } from "./state.ts";
 import type { CoordinatorWriteGate } from "./write-gate.ts";
 import type { MoveWorker } from "./runtime.ts";
+import { preflightSourceMove, type MoveBlocker, type MoveBlockerCode, type MovePreflight } from "./source-preflight.ts";
 import { CoordinatorMoveTargetRole } from "./target-orchestrator.ts";
 
-export type MoveBlockerCode =
-  | "move_in_progress" | "public_url_unavailable" | "target_same_as_source"
-  | "target_offline" | "target_address_missing"
-  | "target_version_mismatch" | "worker_offline" | "worker_version_mismatch"
-  | "target_coord_active" | "target_prepare_failed" | "insufficient_disk";
+export type { MoveBlocker, MoveBlockerCode, MovePreflight };
 
-export interface MoveBlocker { code: MoveBlockerCode; message: string; workerFp?: string }
-export interface MovePreflight { eligible: boolean; sourceUrl: string; targetUrl: string; blockers: MoveBlocker[] }
 export interface CoordinatorMoveService {
-  preflight(targetWorkerFp: string): Promise<MovePreflight>;
-  start(targetWorkerFp: string): Promise<string>;
-  status(handoffId: string): HandoffState | null;
+  preflight(dashboardId: string, targetWorkerFp: string): Promise<MovePreflight>;
+  start(dashboardId: string, targetWorkerFp: string): Promise<string>;
+  status(dashboardId: string, handoffId: string): HandoffState | null;
+  statusForWorker(handoffId: string, workerFp: string): Promise<HandoffState | null>;
   current(): HandoffState | null;
   recover(): Promise<void>;
   internalStatus(handoffId: string, secret: string): Promise<HandoffState & { connected_worker_fps: string[] }>;
@@ -31,8 +27,6 @@ export interface CoordinatorMoveService {
   readonly gate: CoordinatorWriteGate;
 }
 
-const SHA8 = COORD_GIT_SHA.slice(0, 8);
-
 /** Long enough for a large snapshot plus a slow target install; short enough
  *  that a wedged cluster self-heals. Never unbounded — the write gate is held. */
 const FINISH_COMMIT_TIMEOUT_MS = 600_000;
@@ -40,100 +34,40 @@ const FINISH_COMMIT_TIMEOUT_MS = 600_000;
 /** Phases where the target may already have self-committed under us. */
 const ROLLBACK_RACE_PHASES = new Set<MovePhase>(["DRAINING_SOURCE", "COPYING_STATE", "WAITING_FOR_WORKERS", "COMMITTING"]);
 
-function publicTargetUrl(worker: MoveWorker): string {
-  return worker.reachableAddr ? `https://${worker.reachableAddr}:4102` : "";
-}
-
-function blocker(code: MoveBlockerCode, message: string, workerFp?: string): MoveBlocker {
-  return workerFp ? { code, message, workerFp } : { code, message };
-}
-
-function targetProbeBlocker(target: MoveWorker, detail: string): MoveBlocker {
-  if (detail.includes("target already has an active coordinator")) {
-    return blocker("target_coord_active", `${target.label} already runs a different active coordinator.`, target.fp);
-  }
-  if (detail.includes("target URL does not match this worker's Tailscale address")) {
-    return blocker(
-      "target_address_missing",
-      `${target.label} does not recognise ${publicTargetUrl(target)} as its own Tailscale address.`,
-      target.fp,
-    );
-  }
-  const disk = /insufficient disk: required (\d+), available (\d+)/.exec(detail);
-  if (disk) {
-    return blocker(
-      "insufficient_disk",
-      `${target.label} needs at least ${disk[1]} bytes free; ${disk[2]} bytes are available.`,
-      target.fp,
-    );
-  }
-  return blocker("target_prepare_failed", `${target.label} could not prepare: ${detail}`, target.fp);
-}
-
 /** The SOURCE half. The TARGET half and the plumbing both roles share live in
  *  the base class — see target-orchestrator.ts for why it is a base class and
  *  not a collaborator. */
 export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole implements CoordinatorMoveService {
   #starting = false;
 
-  async preflight(targetWorkerFp: string): Promise<MovePreflight> {
+  async preflight(dashboardId: string, targetWorkerFp: string): Promise<MovePreflight> {
     const transaction = await this.options.store.acquireTransaction();
     try {
-      return await this.#preflightUnlocked(targetWorkerFp);
+      return await preflightSourceMove(this.options, dashboardId, targetWorkerFp);
     } finally {
       await transaction.release();
     }
   }
 
-  async #preflightUnlocked(targetWorkerFp: string): Promise<MovePreflight> {
-    const sourceUrl = this.options.cfg.publicUrl ?? "";
-    const workers = await this.options.workers();
-    const target = workers.find((worker) => worker.fp === targetWorkerFp);
-    const targetUrl = target ? publicTargetUrl(target) : "";
-    const blockers: MoveBlocker[] = [];
-    const previous = this.options.store.load();
-    if (previous && !isTerminalPhase(previous.phase)) blockers.push(blocker("move_in_progress", "Another coordinator move is already in progress."));
-    if (!sourceUrl) blockers.push(blocker("public_url_unavailable", "Set ROOST_COORDINATOR_PUBLIC_URL on the current coordinator and restart it."));
-    if (!target) {
-      blockers.push(blocker("target_offline", "Bring the selected machine online before moving the coordinator.", targetWorkerFp));
-    } else {
-      const sourceHost = sourceUrl ? new URL(sourceUrl).hostname.toLowerCase() : "";
-      if (sourceHost && target.reachableAddr?.toLowerCase() === sourceHost) blockers.push(blocker("target_same_as_source", "This machine already hosts the coordinator.", target.fp));
-      if (!target.online) blockers.push(blocker("target_offline", `Bring ${target.label} online before moving the coordinator.`, target.fp));
-      if (!target.reachableAddr) blockers.push(blocker("target_address_missing", `${target.label} has not reported a Tailscale address.`, target.fp));
-      if (target.gitSha !== COORD_GIT_SHA) blockers.push(blocker("target_version_mismatch", `Deploy coordinator version ${SHA8} to ${target.label} first.`, target.fp));
-      if (target.online && target.reachableAddr && target.gitSha === COORD_GIT_SHA) {
-        // PREPARE stats dbPath size; the target sizes its disk check off it.
-        const check = await this.options.runtime.checkTarget(target, COORD_GIT_SHA, fs.statSync(this.options.cfg.dbPath).size);
-        if (check) blockers.push(targetProbeBlocker(target, check));
-      }
-    }
-    for (const worker of workers) {
-      if (worker.fp === targetWorkerFp) continue;
-      if (!worker.online) blockers.push(blocker("worker_offline", `Bring ${worker.label} online or remove it from Machines before moving.`, worker.fp));
-      else if (worker.gitSha !== COORD_GIT_SHA) blockers.push(blocker("worker_version_mismatch", `Deploy coordinator version ${SHA8} to ${worker.label} first.`, worker.fp));
-    }
-    return { eligible: blockers.length === 0, sourceUrl, targetUrl, blockers };
-  }
-
-  async start(targetWorkerFp: string): Promise<string> {
+  async start(dashboardId: string, targetWorkerFp: string): Promise<string> {
     if (this.run || this.#starting) throw new Error("Another coordinator move is already in progress.");
     this.#starting = true;
     let transaction: CoordinatorMoveTransaction | null = null;
     let transactionOwnedByRun = false;
     try {
       transaction = await this.options.store.acquireTransaction();
-      const preflight = await this.#preflightUnlocked(targetWorkerFp);
+      const preflight = await preflightSourceMove(this.options, dashboardId, targetWorkerFp);
       if (!preflight.eligible) throw new Error(preflight.blockers[0]!.message);
       const existing = this.options.store.load();
       if (existing) await this.options.store.archiveTerminalDurable(existing);
-      const workers = await this.options.workers();
+      const workers = await this.options.workers(dashboardId);
       const secret = randomBytes(32).toString("base64url");
       const now = Date.now();
       const state = await this.options.store.writeDurable({
         version: 1,
         handoff_id: randomUUID(),
         role: "SOURCE",
+        dashboard_id: dashboardId,
         phase: "PREPARING_TARGET",
         source_url: preflight.sourceUrl,
         target_url: preflight.targetUrl,
@@ -180,7 +114,7 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
     const transaction = await this.options.store.acquireTransaction();
     let transactionOwnedByRun = false;
     try {
-      await this.#awaitExpectedWorkers(state.expected_worker_fps);
+      await this.#awaitExpectedWorkers(state.dashboard_id, state.expected_worker_fps);
       if (state.phase === "ROLLING_BACK") {
         await this.rollbackRecovered(state);
         return;
@@ -254,7 +188,7 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
         // A crash after durable staging but before `staged` was populated is
         // recovered by including every expected source-connected worker:
         // ABORT is idempotent.
-        const connected = await this.options.workers().catch(() => []);
+        const connected = await this.options.workers(current.dashboard_id).catch(() => []);
         const rollbackWorkers = new Map(staged.map((worker) => [worker.fp, worker]));
         for (const worker of connected) {
           if (current.expected_worker_fps.includes(worker.fp)) rollbackWorkers.set(worker.fp, worker);
@@ -292,7 +226,7 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
     // paired since would be staged here yet skipped by the target's
     // commitTargetWorkers and by the rollback filter, both of which iterate
     // expected_worker_fps.
-    const workers = await this.#expectedWorkers(state.expected_worker_fps);
+    const workers = await this.#expectedWorkers(state.dashboard_id, state.expected_worker_fps);
 
     if (state.phase === "PREPARING_TARGET") {
       await this.options.runtime.prepareTarget(this.snapshot(state, "PREPARING_TARGET"));
@@ -371,8 +305,8 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
 
   /** Staged set = exactly the start() snapshot, resolved against the live
    *  registry; a missing fp is a hard error, not a silent skip. */
-  async #expectedWorkers(fps: string[]): Promise<MoveWorker[]> {
-    const live = await this.options.workers();
+  async #expectedWorkers(dashboardId: string, fps: string[]): Promise<MoveWorker[]> {
+    const live = await this.options.workers(dashboardId);
     const byFp = new Map(live.map((worker) => [worker.fp, worker]));
     const missing = fps.filter((fp) => !byFp.has(fp));
     if (missing.length > 0) throw new Error(`expected workers are no longer known to the coordinator: ${missing.join(", ")}`);
@@ -382,10 +316,10 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
   /** Recovery runs before workers re-attach: an empty registry means a blind
    *  rollback, so wait for the expected set. Never throws on timeout — the
    *  rollback path handles it. */
-  async #awaitExpectedWorkers(fps: string[], timeoutMs = 60_000): Promise<void> {
+  async #awaitExpectedWorkers(dashboardId: string, fps: string[], timeoutMs = 60_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const online = new Set((await this.options.workers()).filter((worker) => worker.online).map((worker) => worker.fp));
+      const online = new Set((await this.options.workers(dashboardId)).filter((worker) => worker.online).map((worker) => worker.fp));
       if (fps.every((fp) => online.has(fp))) return;
       if (Date.now() >= deadline) return;
       await Bun.sleep(500);
@@ -396,7 +330,7 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
     const snapshot = this.snapshot(state, "ROLLING_BACK");
     await this.options.store.writeDurable({ ...state, phase: "ROLLING_BACK" });
     log.info("coord-move", "rollback_started", { handoff_id: state.handoff_id, reason: `recovered in ${snapshot.phase}` });
-    const workers = await this.options.workers();
+    const workers = await this.options.workers(state.dashboard_id);
     await Promise.allSettled(workers
       .filter((worker) => state.expected_worker_fps.includes(worker.fp))
       .map((worker) => this.options.runtime.abortWorker(worker, snapshot)));

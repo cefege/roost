@@ -1,8 +1,7 @@
 // Thin Connect adapters for the coordinator-move lifecycle (preflight/start/
-// status): require auth, delegate to deps.move, translate results to protos.
-// Every method calls requireAuth — including status, whose phase, both URLs
-// and error text would otherwise be readable by any tailnet peer that knows
-// a handoff id. A missing move service is FailedPrecondition, not a crash.
+// status): organization-admin user operations delegate to deps.move; a worker
+// may continue only as a server-verified handoff participant. A missing move
+// service is FailedPrecondition, not a crash.
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import {
@@ -12,7 +11,8 @@ import {
   CoordinatorMoveStatusResponseSchema,
   CoordinatorService,
 } from "@roost/shared/proto/coordinator_pb";
-import { requireAuth } from "./auth-interceptor.ts";
+import type { HandoffState } from "../coord-move/state.ts";
+import { callerKey, requireOrganizationAdmin, requireWorker } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 
 const PHASE_TO_PROTO: Record<string, CoordinatorMovePhase> = {
@@ -35,13 +35,20 @@ function requireMoveService(deps: ConnectDeps) {
   return deps.move;
 }
 
+function requireMoveAllowed(deps: ConnectDeps): void {
+  if (deps.cfg.saasMode) {
+    throw new ConnectError("coordinator move is unavailable in managed mode", Code.PermissionDenied);
+  }
+}
+
 export function makeCoordinatorMoveHandlers(
   deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, CoordinatorMoveMethods> {
   return {
     async coordinatorMovePreflight(req, ctx) {
-      requireAuth(ctx.values);
-      const result = await requireMoveService(deps).preflight(req.targetWorkerFp);
+      requireMoveAllowed(deps);
+      const actor = requireOrganizationAdmin(ctx.values);
+      const result = await requireMoveService(deps).preflight(actor.dashboardId, req.targetWorkerFp);
       return create(CoordinatorMovePreflightResponseSchema, {
         eligible: result.eligible,
         sourceUrl: result.sourceUrl,
@@ -50,19 +57,28 @@ export function makeCoordinatorMoveHandlers(
       });
     },
     async coordinatorMoveStart(req, ctx) {
-      requireAuth(ctx.values);
+      requireMoveAllowed(deps);
+      const actor = requireOrganizationAdmin(ctx.values);
       try {
-        return create(CoordinatorMoveStartResponseSchema, { handoffId: await requireMoveService(deps).start(req.targetWorkerFp) });
+        return create(CoordinatorMoveStartResponseSchema, {
+          handoffId: await requireMoveService(deps).start(actor.dashboardId, req.targetWorkerFp),
+        });
       } catch (error) {
         throw new ConnectError((error as Error).message, Code.FailedPrecondition);
       }
     },
     async coordinatorMoveStatus(req, ctx) {
-      // Both real callers already carry a JWT (the SPA's auth interceptor, and
-      // the worker's createCoordClient); without this any tailnet peer holding
-      // a handoff id reads phase, both URLs and the error text.
-      requireAuth(ctx.values);
-      const state = requireMoveService(deps).status(req.handoffId);
+      requireMoveAllowed(deps);
+      const move = requireMoveService(deps);
+      const principal = ctx.values.get(callerKey);
+      let state: HandoffState | null;
+      if (principal?.kind === "worker") {
+        const worker = requireWorker(ctx.values);
+        state = await move.statusForWorker(req.handoffId, worker.fingerprint);
+      } else {
+        const actor = requireOrganizationAdmin(ctx.values);
+        state = move.status(actor.dashboardId, req.handoffId);
+      }
       if (!state) throw new ConnectError("handoff not found", Code.NotFound);
       return create(CoordinatorMoveStatusResponseSchema, {
         phase: PHASE_TO_PROTO[state.phase], sourceUrl: state.source_url, targetUrl: state.target_url, error: state.error,

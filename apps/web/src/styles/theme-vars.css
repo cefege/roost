@@ -208,6 +208,9 @@
   --md-space-8: 40px;
   --md-space-9: 48px;
 
+  /* Narrow public account forms share one readable measure on every route. */
+  --md-content-width-auth: 440px;
+
   /* Type ramp (M3 — Roboto Flex). Pairs of font-size/line-height/
      weight. Use display for hero numbers, headline for pane titles,
      title for card headers, body for content, label for chips +

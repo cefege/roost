@@ -108,36 +108,6 @@ message Task {
   uint64 claim_ttl_ms = 11;
 }
 
-// ─── WebhookToken ─────────────────────────────────────────────────────────
-
-message WebhookToken {
-  string id = 1;
-  string label = 2;
-  string last4 = 3;
-  repeated string scopes = 4;  // "tasks.enqueue", etc.
-  uint64 created_at_ms = 5;
-  optional uint64 last_used_at_ms = 6;
-}
-
-message WebhookTokenMint {
-  string id = 1;
-  string label = 2;
-  string plaintext = 3;  // ONCE — only on mint
-  repeated string scopes = 4;
-  uint64 created_at_ms = 5;
-}
-
-// ─── PermissionRule ───────────────────────────────────────────────────────
-
-message PermissionRule {
-  string id = 1;
-  string tool_pattern = 2;
-  string folder_glob = 3;
-  string decision = 4;  // allow|deny|allow-and-remember
-  bool enabled = 5;
-  uint64 created_at_ms = 6;
-}
-
 // ─── McpRelay ─────────────────────────────────────────────────────────────
 
 message McpRelay {

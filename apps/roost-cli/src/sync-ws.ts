@@ -8,12 +8,58 @@
 // (CLI/test) equivalent of the browser's inline WS.
 
 import { fromBinary } from "@bufbuild/protobuf";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { FirehoseFrameSchema, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { loadWorkerConfig } from "../../worker/src/config.ts";
-import { loadWorkerKey, mintJwt } from "../../worker/src/jwt.ts";
+import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
+import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
+import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
+import { SYNC_WS_PATH } from "@roost/shared/wire/sync-ws";
+import { mintJwt } from "../../worker/src/jwt.ts";
+import { buildDashboardScopedCliContext } from "./cli-auth.ts";
+
+export interface SyncWsFrameOptions {
+  dashboardId: string;
+  since?: number;
+  signal?: AbortSignal;
+}
+
+export interface OpenSyncWsOptions {
+  dashboardId?: string;
+  since?: number;
+  signal?: AbortSignal;
+}
+
+interface BunWebSocketConstructor {
+  new(url: string | URL, options: Bun.WebSocketOptions): WebSocket;
+}
+
+const BunWebSocket = WebSocket as unknown as BunWebSocketConstructor;
+
+export function buildHeadlessSyncWsUrl(
+  wsBase: string,
+  dashboardId: string,
+  since = 0,
+): string {
+  const selected = dashboardId.trim();
+  if (!selected) throw new Error("headless Sync requires an explicit dashboard ID");
+  const url = new URL(wsBase);
+  const prefix = url.pathname.replace(/\/+$/, "");
+  url.pathname = `${prefix}${SYNC_WS_PATH}`;
+  url.search = "";
+  url.searchParams.set("dashboard", selected);
+  url.searchParams.set("since", String(since));
+  return url.toString();
+}
+export function buildHeadlessSyncWsOptions(
+  token: string,
+  dashboardId: string,
+): Bun.WebSocketOptions {
+  const selected = dashboardId.trim();
+  if (!selected) throw new Error("headless Sync requires an explicit dashboard ID");
+  return {
+    protocols: ["roost-auth", token],
+    headers: { [X_ROOST_DASHBOARD_ID]: selected },
+  };
+}
+
 
 /** Stream FirehoseFrames from the coord WS until the socket closes or `signal`
  *  aborts. Abort → ws.close → clean generator return (no throw), so a caller's
@@ -23,10 +69,12 @@ import { loadWorkerKey, mintJwt } from "../../worker/src/jwt.ts";
 export async function* syncWsFrames(
   wsBase: string,
   token: string,
-  opts: { since?: number; signal?: AbortSignal } = {},
+  opts: SyncWsFrameOptions,
 ): AsyncGenerator<FirehoseFrame> {
-  const url = `${wsBase}/ws/coord-sync?since=${opts.since ?? 0}`;
-  const ws = new WebSocket(url, ["roost-auth", token]);
+  const ws = new BunWebSocket(
+    buildHeadlessSyncWsUrl(wsBase, opts.dashboardId, opts.since ?? 0),
+    buildHeadlessSyncWsOptions(token, opts.dashboardId),
+  );
   ws.binaryType = "arraybuffer";
   const queue: FirehoseFrame[] = [];
   let done = false;
@@ -55,18 +103,21 @@ export async function* syncWsFrames(
   }
 }
 
-/** Open the firehose WS using the SAME coord URL + headless key as
- *  buildApiClient (worker key, else ~/.roost/cli-key; ROOST_COORD_URL override).
- *  The key must already be in coord's authorized_keys (same prerequisite as the
- *  Connect client). */
+/** Open Sync with the same path-isolated CLI key and selected dashboard as unary RPCs. */
 export async function openSyncWs(
-  opts: { since?: number; signal?: AbortSignal } = {},
+  opts: OpenSyncWsOptions = {},
 ): Promise<AsyncGenerator<FirehoseFrame>> {
-  const cfg = loadWorkerConfig();
-  if (process.env.ROOST_COORD_URL) cfg.coordinatorUrl = process.env.ROOST_COORD_URL;
-  const keyPath = existsSync(cfg.workerKeyPath) ? cfg.workerKeyPath : join(homedir(), ".roost", "cli-key");
-  const key = await loadWorkerKey(keyPath);
+  const requestedDashboardId = opts.dashboardId?.trim()
+    || process.env.ROOST_DASHBOARD_ID?.trim()
+    || undefined;
+  const { cfg, key, dashboardId } = await buildDashboardScopedCliContext({
+    requestedDashboardId,
+  });
   const token = await mintJwt(key, "roost-coordinator");
   const wsBase = cfg.coordinatorUrl.replace(/^http/, "ws");
-  return syncWsFrames(wsBase, token, opts);
+  return syncWsFrames(wsBase, token, {
+    dashboardId,
+    ...(opts.since !== undefined ? { since: opts.since } : {}),
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+  });
 }

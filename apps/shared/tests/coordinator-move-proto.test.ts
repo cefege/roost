@@ -59,7 +59,7 @@ describe("coordinator-move protobuf contract", () => {
       handoffId: "handoff",
     }))).toMatchObject({ handoffId: "handoff" });
     expect(roundTrip(AuthCoordIdentityResponseSchema, create(AuthCoordIdentityResponseSchema, {
-      fingerprintHex: "coord", gitSha: "sha", publicUrl: "https://target.ts.net:4102",
+      gitSha: "sha", publicUrl: "https://target.ts.net:4102",
       relocatedToUrl: "https://next.ts.net:4102", handoffId: "handoff",
     }))).toMatchObject({ relocatedToUrl: "https://next.ts.net:4102", handoffId: "handoff" });
     expect(roundTrip(AuthMintCoordinatorRelocationRequestSchema, create(AuthMintCoordinatorRelocationRequestSchema, {

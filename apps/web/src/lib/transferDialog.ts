@@ -1,23 +1,17 @@
-// Module-level state for the "Transfer files…" dialog. Opened from
-// SessionRow's right-click menu. Carries the source context (worker,
-// cwd) so the dialog can pre-fill the form.
+// Open state for the cross-worker transfer beta availability dialog.
+// Session row context menus open it; the App-level host renders it.
+// Managed logout closes it with the rest of account-sensitive UI state.
 
 import { createSignal } from "solid-js";
 
-export interface TransferDialogContext {
-  srcFp: string;
-  srcLabel: string;
-  srcPath: string;
-}
+const [transferDialogOpen, setTransferDialogOpen] = createSignal(false);
 
-const [_active, _setActive] = createSignal<TransferDialogContext | null>(null);
+export { transferDialogOpen };
 
-export const activeTransferDialog = _active;
-
-export function openTransferDialog(ctx: TransferDialogContext): void {
-  _setActive(ctx);
+export function openTransferDialog(): void {
+  setTransferDialogOpen(true);
 }
 
 export function closeTransferDialog(): void {
-  _setActive(null);
+  setTransferDialogOpen(false);
 }

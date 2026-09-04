@@ -62,3 +62,12 @@ export function saveComposerDraft(sessionId: string, text: string): void {
     localStorage.setItem(DRAFTS_KEY, JSON.stringify(Object.fromEntries(drafts)));
   } catch { /* quota / privacy mode */ }
 }
+
+/** Remove every account-scoped draft from memory and durable browser storage. */
+export function clearComposerDraftsForLogout(): void {
+  drafts.clear();
+  for (const sessionSubscribers of subscribers.values()) {
+    for (const subscriber of [...sessionSubscribers]) subscriber("");
+  }
+  try { localStorage.removeItem(DRAFTS_KEY); } catch { /* quota / privacy mode */ }
+}

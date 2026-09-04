@@ -63,6 +63,13 @@ export function buildSpawnShellRequest(
 // split, browse, context menu); without this a second call re-queues the command
 // and the agent gets typed twice into the same PTY. sendInput has no dedup.
 const autoLaunchedSessionIds = new Set<string>();
+let spawnRuntimeGeneration = 0;
+
+/** Forget per-session launch admission and stop retrying old-dashboard spawns. */
+export function resetSpawnSessionRuntime(): void {
+  spawnRuntimeGeneration++;
+  autoLaunchedSessionIds.clear();
+}
 
 // Spawn-retry window. After a coord restart the worker↔coord WS is down for
 // ~10-15s while the worker re-dials; coord rejects a spawn in that window with
@@ -84,17 +91,31 @@ export function isWorkerReconnecting(err: unknown): boolean {
 // past the deadline) propagates. Generic over the call so it's unit-testable
 // without the coordClient singleton.
 export async function withSpawnRetry<T>(call: () => Promise<T>): Promise<T> {
+  const requestGeneration = spawnRuntimeGeneration;
   const deadline = Date.now() + SPAWN_RETRY_MS;
   let delay = 200;
   for (let attempt = 1; ; attempt++) {
+    if (requestGeneration !== spawnRuntimeGeneration) {
+      throw new Error("spawn request was invalidated by a dashboard change");
+    }
     try {
-      return await call();
+      const result = await call();
+      if (requestGeneration !== spawnRuntimeGeneration) {
+        throw new Error("spawn request was invalidated by a dashboard change");
+      }
+      return result;
     } catch (err) {
-      if (!isWorkerReconnecting(err) || Date.now() >= deadline) throw err;
+      if (
+        requestGeneration !== spawnRuntimeGeneration
+        || !isWorkerReconnecting(err)
+        || Date.now() >= deadline
+      ) throw err;
       log.info("spawnSession", "worker reconnecting — retrying spawn", {
         attempt, delay_ms: delay,
       });
-      await new Promise((r) => setTimeout(r, delay));
+      const { promise: slept, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, delay);
+      await slept;
       delay = Math.min(Math.round(delay * 1.6), 1_000);
     }
   }

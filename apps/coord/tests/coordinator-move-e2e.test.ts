@@ -47,6 +47,9 @@ async function side(name: string, publicUrl: string): Promise<MoveSide> {
   await runMigrations(opened.sqlite);
   closers.push(() => opened.close());
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:4102", dbPath, coordKeyPath: keyPath, authorizedKeysPath,
+  saasMode: false,
+  managedContainer: false,
+  pushAllowedOrigins: [],
   handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
   publicUrl, tlsCertPath: undefined, tlsKeyPath: undefined,
   jwtMaxAgeSecs: 300, auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [], }
@@ -58,6 +61,7 @@ function worker(fp: string): MoveWorker {
 }
 
 const SOURCE_URL = "https://source.ts.net:4102";
+const DASHBOARD_ID = "coordinator-move-e2e-dashboard";
 const TARGET_URL = "https://target.ts.net:4102";
 
 /** The target half of the pair: its own orchestrator plus the runtime it uses
@@ -120,6 +124,7 @@ function sourceRuntime(options: {
       // only the digest the source will authenticate against.
       targetStore.write({
         version: 1, handoff_id: state.handoffId, role: "TARGET", phase: "WAITING_FOR_WORKERS",
+        dashboard_id: state.dashboardId,
         source_url: state.sourceUrl, target_url: state.targetUrl, target_worker_fp: "target-pending",
         expected_worker_fps: state.expectedWorkerFps, commit_acked_worker_fps: [],
         expected_coord_kid: options.targetCoordKid, expected_git_sha: state.expectedGitSha,
@@ -134,7 +139,7 @@ function sourceRuntime(options: {
     targetStatus: phaseOf,
     commitTarget: async (state) => {
       calls.push("commit-target");
-      if (target.status(state.handoffId)?.phase === "COMMITTED") return;
+      if (target.status(state.dashboardId, state.handoffId)?.phase === "COMMITTED") return;
       // internalCommit returns as soon as it has kicked its background
       // commitTargetWorkers, exactly like the real RPC ack. Await the durable
       // COMMITTED write so the source's next targetStatus is not racing
@@ -182,7 +187,7 @@ test("a full source-to-target move retires the source and leaves the target serv
   });
 
   const retired = whenPhase(source.store, "COMMITTED");
-  const handoffId = await sourceMove.start("target");
+  const handoffId = await sourceMove.start(DASHBOARD_ID, "target");
   await retired;
 
   expect(source.store.load()?.phase).toBe("COMMITTED");
@@ -191,7 +196,7 @@ test("a full source-to-target move retires the source and leaves the target serv
   // The target is the live coordinator now — a gate left closed here rejects
   // every mutation and every browser firehose upgrade on the new host.
   expect(targetMove.gate.mode).toBe("active");
-  expect(targetMove.status(handoffId)?.commit_acked_worker_fps).toEqual(["target", "worker-a"]);
+  expect(targetMove.status(DASHBOARD_ID, handoffId)?.commit_acked_worker_fps).toEqual(["target", "worker-a"]);
   expect(published).toEqual([TARGET_URL]);
 });
 
@@ -216,7 +221,7 @@ test("a move that fails mid-flight rolls both halves back to a terminal phase wi
   });
 
   const failed = whenPhase(source.store, "FAILED");
-  await sourceMove.start("target");
+  await sourceMove.start(DASHBOARD_ID, "target");
   await failed;
 
   expect(source.store.load()?.phase).toBe("FAILED");
@@ -249,9 +254,10 @@ test("a failed snapshot transfer does not leave the vacuumed database copy behin
   await expect(runtime.copySnapshot({
     handoffId, phase: "COPYING_STATE", sourceUrl: SOURCE_URL, targetUrl: TARGET_URL,
     targetWorkerFp: "no-such-worker", expectedWorkerFps: ["no-such-worker"],
+    dashboardId: DASHBOARD_ID,
     expectedCoordKid: source.coordKey.verifyingKeyKid(), expectedGitSha: COORD_GIT_SHA,
     secret: "secret", secretSha256: createHash("sha256").update("secret").digest("hex"),
-  })).rejects.toThrow("worker offline");
+  })).rejects.toThrow("worker unavailable");
 
   expect(existsSync(join(source.dir, "handoffs", handoffId, "coordinator_v2.snapshot"))).toBeFalse();
 });

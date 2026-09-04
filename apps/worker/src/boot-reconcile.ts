@@ -1,202 +1,340 @@
-// Reconcile + keeper-liveness wiring for worker boot. Extracted from main.ts:
-// owns reconcileOpenSessions (resume/respawn coord's open sessions against
-// live keeper PTYs) plus the keeper-death and keeper-degraded remediation
-// handlers, which share the reconcile in-flight / last-reconcile state.
-// main() calls setupReconcile once after startHeartbeat, then awaits the
-// returned reconcileOpenSessions("boot").
+// Worker boot admission reconciles the coordinator's complete open-session set
+// before any keeper or SessionManager mutation. It also serializes later
+// keeper-death reconciliation and owns degraded-keeper remediation wiring.
 
 import { signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import type { WorkerFp } from "@roost/shared/wire";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import type { CoordClient } from "./coord-client.ts";
-import type { SessionEventSink } from "./event-sink.ts";
-import type { SessionManager } from "./session-manager.ts";
-import { resolveShellSpec } from "./shell-spec.ts";
+import type { LifecycleReservation } from "./event-sink.ts";
+import {
+	isLifecycleOutboxFullError,
+	isSessionLifecycleDurabilityError,
+	type SessionManager,
+} from "./session-manager.ts";
+import { resolveShellSpec, type ShellSpec } from "./shell-spec.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
+
+const BOOT_SESSION_ADMISSION_TIMEOUT_MS = 10_000;
+
+export interface ReconcileAdmissionSuccess {
+	admitted: true;
+	candidates: number;
+	resumed: number;
+	respawned: number;
+	straysReaped: number;
+}
+
+export interface ReconcileAdmissionFailure {
+	admitted: false;
+	error: unknown;
+}
+
+export type ReconcileAdmissionOutcome =
+	| ReconcileAdmissionSuccess
+	| ReconcileAdmissionFailure;
 
 export function setupReconcile(deps: {
 	client: () => CoordClient;
 	workerFp: WorkerFp;
 	sessionMgr: SessionManager;
-	sink: SessionEventSink;
-}): { reconcileOpenSessions: (reason: string) => Promise<void> } {
-	const { client, workerFp, sessionMgr, sink } = deps;
-
-	// Resume / respawn sessions coord still believes open. Two paths:
-	// (a) Keeper PTY survived (`launchctl kickstart -k` of just the worker
-	//     process — Mac stayed on). resume() probes the mux pool's
-	//     listChannels and re-attaches callbacks.
-	// (b) Keeper PTY is gone (full Mac reboot — keeper was a child of the
-	//     previous bun process and died with it). respawn() spawns a fresh
-	//     keeper at the same cwd + kind under the SAME session_id, emitting
-	//     a `respawned` event so the sidebar row stays in place.
-	// What's lost in (b): scrollback, running subprocesses, terminal
-	// context, exported env vars. What survives: cwd, kind,
-	// workspace assignment, sidebar position, `↑`-history (per-cwd HISTFILE).
-	// Reconcile sessions coord still believes open against live keeper PTYs:
-	// resume() the survivors, respawn() the dead. Runs at boot AND whenever
-	// the keeper dies mid-life (registered via setOnKeeperDeath below) — the
-	// two failure modes (worker restart / keeper crash) need the SAME repair.
-	// `_reconcileInFlight` serializes overlapping triggers (a keeper that
-	// dies during the boot reconcile, or twice in a row).
-	let _reconcileInFlight = false;
-	// Timestamp of the last reconcile. A reconcile (boot / keeper restart) briefly
-	// emits emit_no_session on channels not yet remapped → a transient
-	// keeper.degraded. Gate degradation-remediation on this so that transient
-	// burst can't trigger a keeper-restart loop.
-	let _lastReconcileMs = 0;
+	prepareKeeper: () => Promise<void>;
+}): {
+	reconcileOpenSessions: (
+		reason: string,
+	) => Promise<ReconcileAdmissionOutcome>;
+} {
+	const { client, workerFp, sessionMgr, prepareKeeper } = deps;
+	let reconcileInFlight: Promise<ReconcileAdmissionOutcome> | null = null;
+	let lastReconcileMs = 0;
 	const KEEPER_DEGRADED_REMEDIATION_GRACE_MS = 90_000;
-	const reconcileOpenSessions = async (reason: string): Promise<void> => {
-		if (_reconcileInFlight) {
-			log.info("worker", "reconcile_skipped_inflight", { reason });
-			return;
-		}
-		_reconcileInFlight = true;
-		_lastReconcileMs = Date.now();
+
+	const runReconcile = async (
+		reason: string,
+	): Promise<ReconcileAdmissionOutcome> => {
 		try {
-			// Bump the channel counter past any channel the surviving keeper still
-			// holds BEFORE resuming/spawning, else a new spawn collides with an
-			// orphaned keeper channel → "channel_id in use" (visible post-restart).
-			await sessionMgr.advanceChannelCounterPastKeeper();
-			const res = await client().sessionsList({ workerFp, status: "open" });
-			const shellRows = res.sessions;
-			const resumeResults = await Promise.all(
-				shellRows.map(async (r) => {
-					const shellSpec = resolveShellSpec({
-						cwd: r.cwd,
-						sessionId: String(r.id),
-						envOverlay: withAgentStatusEnvironment({}, String(r.id)),
-					});
-					return {
-						session: r,
-						shellSpec,
-						resumed: await sessionMgr.resume({
-							sessionId: r.id as never,
-							channelId: r.channel as never,
-							kind: r.kind as never,
-							cwd: shellSpec.cwd,
-							shellSpec,
-						}),
-					};
-				}),
+			const response = await client().sessionsList(
+				{ workerFp, status: "open" },
+				{ timeoutMs: BOOT_SESSION_ADMISSION_TIMEOUT_MS },
 			);
-			const needRespawn = resumeResults.filter((r) => !r.resumed);
+			const shellRows = response.sessions;
+			const admissions: Array<{
+				session: (typeof shellRows)[number];
+				shellSpec: ShellSpec;
+				resumeClose: LifecycleReservation;
+				respawnEvent: LifecycleReservation;
+				futureClose: LifecycleReservation;
+				resumeCloseOwned: boolean;
+				respawnEventOwned: boolean;
+				futureCloseOwned: boolean;
+			}> = [];
+
+			// No keeper or SessionManager state can change until capacity exists
+			// for every lifecycle path in the coordinator's complete open set.
+			try {
+				for (const session of shellRows) {
+					const shellSpec = resolveShellSpec({
+						cwd: session.cwd,
+						sessionId: String(session.id),
+						envOverlay: withAgentStatusEnvironment(
+							{},
+							String(session.id),
+						),
+					});
+					let resumeClose: LifecycleReservation | null = null;
+					let respawnEvent: LifecycleReservation | null = null;
+					let futureClose: LifecycleReservation | null = null;
+					try {
+						resumeClose = sessionMgr.reserveLifecycleEvent("closed");
+						respawnEvent =
+							sessionMgr.reserveLifecycleEvent("respawned");
+						futureClose = sessionMgr.reserveLifecycleEvent("closed");
+					} catch (error) {
+						if (futureClose) {
+							sessionMgr.releaseLifecycleEvent(futureClose);
+						}
+						if (respawnEvent) {
+							sessionMgr.releaseLifecycleEvent(respawnEvent);
+						}
+						if (resumeClose) {
+							sessionMgr.releaseLifecycleEvent(resumeClose);
+						}
+						throw error;
+					}
+					admissions.push({
+						session,
+						shellSpec,
+						resumeClose,
+						respawnEvent,
+						futureClose,
+						resumeCloseOwned: true,
+						respawnEventOwned: true,
+						futureCloseOwned: true,
+					});
+				}
+			} catch (error) {
+				for (const admission of admissions) {
+					sessionMgr.releaseLifecycleEvent(admission.futureClose);
+					sessionMgr.releaseLifecycleEvent(admission.respawnEvent);
+					sessionMgr.releaseLifecycleEvent(admission.resumeClose);
+					admission.futureCloseOwned = false;
+					admission.respawnEventOwned = false;
+					admission.resumeCloseOwned = false;
+				}
+				throw error;
+			}
+
+			lastReconcileMs = Date.now();
+			let resumed = 0;
 			let respawned = 0;
 			let respawnFailed = 0;
-			for (const o of needRespawn) {
-				const respawnArgs = {
-					oldSessionId: o.session.id as never,
-					cwd: o.session.cwd,
-					kind: "shell" as const,
-					shellSpec: o.shellSpec,
-				};
-				let ok = false;
-				// Transient keeper readiness failures are retried; a terminal spawn
-				// error closes the stale session.
-				for (let attempt = 1; attempt <= 3; attempt++) {
-					try {
-						await sessionMgr.respawn(respawnArgs);
-						ok = true;
-						break;
-					} catch (err) {
-						const errStr = String(err);
-						const transient =
-							/socket closed|not connected|ENOTCONN|not ready|timeout|SpawnErr|keeper/i.test(
-								errStr,
-							);
-						if (attempt < 3 && transient) {
-							log.info("worker", "respawn_retry_transient", {
-								sessionId: o.session.id,
-								attempt,
-								error: errStr,
+			try {
+				// Survivor retirement, keeper creation, and periodic reaping are
+				// all downstream of the complete lifecycle reservation batch.
+				await prepareKeeper();
+				await sessionMgr.startPostAdmissionMaintenance();
+				await sessionMgr.advanceChannelCounterPastKeeper();
+
+				for (const admission of admissions) {
+					admission.resumeCloseOwned = false;
+					const didResume = await sessionMgr.resume({
+						sessionId: admission.session.id as never,
+						channelId: admission.session.channel as never,
+						kind: admission.session.kind as never,
+						cwd: admission.shellSpec.cwd,
+						shellSpec: admission.shellSpec,
+					}, admission.resumeClose);
+					if (didResume) {
+						resumed++;
+						sessionMgr.releaseLifecycleEvent(
+							admission.respawnEvent,
+						);
+						admission.respawnEventOwned = false;
+						sessionMgr.releaseLifecycleEvent(
+							admission.futureClose,
+						);
+						admission.futureCloseOwned = false;
+						continue;
+					}
+
+					const respawnArgs = {
+						oldSessionId: admission.session.id as never,
+						cwd: admission.session.cwd,
+						kind: "shell" as const,
+						shellSpec: admission.shellSpec,
+					};
+					let ok = false;
+					for (let attempt = 1; attempt <= 3; attempt++) {
+						try {
+							await sessionMgr.respawn(respawnArgs, {
+								event: admission.respawnEvent,
+								close: admission.futureClose,
 							});
-							try {
-								await getMultiplexedPool().ensure();
-							} catch {
-								/* retry will surface it */
+							admission.respawnEventOwned = false;
+							admission.futureCloseOwned = false;
+							ok = true;
+							break;
+						} catch (error) {
+							if (isSessionLifecycleDurabilityError(error)) {
+								throw error;
 							}
-							const { promise, resolve } = Promise.withResolvers<void>();
-							setTimeout(resolve, attempt * 400);
-							await promise;
-							continue;
-						}
-						log.warn("worker", "respawn_failed", {
-							sessionId: o.session.id,
-							cwd: o.session.cwd,
-							error: errStr,
-							transient,
-							after_retry: attempt > 1,
-						});
-						// Breadcrumb model: ONLY a terminal cause (cwd ENOENT, binary missing)
-						// closes the row — that session genuinely can't reopen. A transient
-						// failure that outlived the retries (keeper still settling after a Mac
-						// reboot) leaves the row as an offline breadcrumb — NOT tombstoned (that
-						// was the "rows vanish after a Mac restart" bug) — so the sidebar keeps
-						// your place and a later reconcile can respawn it.
-						if (!transient) {
-							await sink.emit({
-								kind: "closed",
-								ts: Date.now(),
-								session_id: o.session.id as never,
-								exit_code: null,
+							const errorText = String(error);
+							const transient =
+								/socket closed|not connected|ENOTCONN|not ready|timeout|SpawnErr|keeper/i.test(
+									errorText,
+								);
+							if (attempt < 3 && transient) {
+								log.info("worker", "respawn_retry_transient", {
+									sessionId: admission.session.id,
+									attempt,
+									error: errorText,
+								});
+								try {
+									await getMultiplexedPool().ensure();
+								} catch {
+									/* the bounded retry reports the final failure */
+								}
+								const { promise, resolve } =
+									Promise.withResolvers<void>();
+								setTimeout(resolve, attempt * 400);
+								await promise;
+								continue;
+							}
+							log.warn("worker", "respawn_failed", {
+								sessionId: admission.session.id,
+								cwd: admission.session.cwd,
+								error: errorText,
+								transient,
+								after_retry: attempt > 1,
 							});
+							if (!transient) {
+								sessionMgr.releaseLifecycleEvent(
+									admission.respawnEvent,
+								);
+								admission.respawnEventOwned = false;
+								admission.futureCloseOwned = false;
+								sessionMgr.emitClosedTombstone(
+									admission.session.id as never,
+									admission.futureClose,
+								);
+							}
+							respawnFailed++;
+							break;
 						}
-						respawnFailed++;
-						break;
+					}
+					if (ok) {
+						respawned++;
+					} else {
+						if (admission.respawnEventOwned) {
+							sessionMgr.releaseLifecycleEvent(
+								admission.respawnEvent,
+							);
+							admission.respawnEventOwned = false;
+						}
+						if (admission.futureCloseOwned) {
+							sessionMgr.releaseLifecycleEvent(
+								admission.futureClose,
+							);
+							admission.futureCloseOwned = false;
+						}
 					}
 				}
-				if (ok) respawned++;
+
+				if (respawnFailed > 0) {
+					throw new Error(
+						`reconcile left ${respawnFailed} coordinator session(s) unresolved`,
+					);
+				}
+				const straysReaped =
+					await sessionMgr.reapStrayKeeperChannels();
+				log.info("worker", "resume_attempted", {
+					reason,
+					candidates: shellRows.length,
+					resumed,
+					respawned,
+					respawn_failed: 0,
+					strays_reaped: straysReaped,
+				});
+				return {
+					admitted: true,
+					candidates: shellRows.length,
+					resumed,
+					respawned,
+					straysReaped,
+				};
+			} finally {
+				for (const admission of admissions) {
+					if (admission.futureCloseOwned) {
+						sessionMgr.releaseLifecycleEvent(
+							admission.futureClose,
+						);
+					}
+					if (admission.respawnEventOwned) {
+						sessionMgr.releaseLifecycleEvent(
+							admission.respawnEvent,
+						);
+					}
+					if (admission.resumeCloseOwned) {
+						sessionMgr.releaseLifecycleEvent(
+							admission.resumeClose,
+						);
+					}
+				}
 			}
-			// Reverse-reap in the same pass: after adopting/respawning coord's open
-			// set, sweep keeper PTYs the worker doesn't track (ghost from a deleted
-			// session whose KillChild no-op'd, or a prior keeper generation). A
-			// keeper-death/boot reconcile is exactly when strays surface, so seed the
-			// sweep here instead of waiting for the first STRAY_REAP_INTERVAL_MS tick
-			// (two-strike means the kill lands on the next observation, ≤ one
-			// interval). Subsumes advanceChannelCounterPastKeeper's collision concern
-			// — the orphan channels it dodged now get reaped.
-			const strays = await sessionMgr.reapStrayKeeperChannels();
-			log.info("worker", "resume_attempted", {
+		} catch (error) {
+			if (isSessionLifecycleDurabilityError(error)) throw error;
+			log.warn("worker", "resume_failed", {
 				reason,
-				candidates: shellRows.length,
-				resumed: resumeResults.filter((r) => r.resumed).length,
-				respawned,
-				respawn_failed: respawnFailed,
-				strays_reaped: strays,
+				error: isLifecycleOutboxFullError(error)
+					? "session lifecycle outbox full"
+					: String(error),
 			});
-		} catch (e) {
-			log.warn("worker", "resume_failed", { reason, error: String(e) });
-		} finally {
-			_reconcileInFlight = false;
+			return { admitted: false, error };
 		}
 	};
 
-	// Mid-life keeper death (the keeper subprocess crashed/was-killed while
-	// this worker stayed up) drives the SAME reconcile. Without this, the
-	// loop only ran at boot and a keeper death orphaned every PTY as a
-	// 'not connected' zombie until a manual worker restart.
+	const reconcileOpenSessions = (
+		reason: string,
+	): Promise<ReconcileAdmissionOutcome> => {
+		if (reconcileInFlight) {
+			log.info("worker", "reconcile_joined_inflight", { reason });
+			return reconcileInFlight;
+		}
+		const current = runReconcile(reason);
+		reconcileInFlight = current;
+		void current.then(
+			() => {
+				if (reconcileInFlight === current) reconcileInFlight = null;
+			},
+			() => {
+				if (reconcileInFlight === current) reconcileInFlight = null;
+			},
+		);
+		return current;
+	};
+
+	// Mid-life keeper death drives the same serialized admission path. A
+	// recoverable coordinator failure remains visible in runReconcile's log and
+	// the next trigger can retry after the shared promise settles.
 	getMultiplexedPool().setOnKeeperDeath(() => {
 		log.warn("worker", "keeper_death_reconcile", {});
-		void reconcileOpenSessions("keeper_death");
+		void reconcileOpenSessions("keeper_death").catch((error) => {
+			// Fatal durability failures must reach the worker's uncaught handler;
+			// recoverable admission failures resolve with admitted:false.
+			queueMicrotask(() => {
+				throw error;
+			});
+		});
 	});
 
-	// Self-heal a DEGRADED survivor keeper (births dead PTYs → emit_no_session
-	// bursts → "can't input"). On sustained degradation, force a fresh keeper —
-	// but ONLY outside the post-reconcile grace window, else the transient burst
-	// a reconcile itself causes would loop. The restart triggers keeper_death →
-	// reconcile, which bumps _lastReconcileMs and suppresses re-fire for the
-	// grace window. See project_keeper_death_auto_respawn.
-	// Restart budget: each restartKeeper SIGTERMs every live PTY, so looping
-	// restarts just flaps the user's sessions. The 90s grace only DELAYS the next
-	// restart — it has no terminal give-up state. After KEEPER_RESTART_BUDGET
-	// restarts in the window, declare the keeper unrecoverable, escalate a Tier-1
-	// signal, and STOP (CLAUDE.md keeper-degradation memory — restart-loop fix).
-	const _keeperRestarts: number[] = [];
+	// Self-heal a DEGRADED survivor keeper outside the post-reconcile grace
+	// window. The bounded restart budget prevents repeated PTY destruction.
+	const keeperRestarts: number[] = [];
 	const KEEPER_RESTART_BUDGET = 2;
 	const KEEPER_RESTART_BUDGET_WINDOW_MS = 5 * 60_000;
 	sessionMgr.setOnKeeperDegraded(() => {
-		const sinceReconcile = Date.now() - _lastReconcileMs;
+		const sinceReconcile = Date.now() - lastReconcileMs;
 		if (sinceReconcile < KEEPER_DEGRADED_REMEDIATION_GRACE_MS) {
 			log.info("worker", "keeper_degraded_skip_transient", {
 				since_reconcile_ms: sinceReconcile,
@@ -205,23 +343,23 @@ export function setupReconcile(deps: {
 		}
 		const now = Date.now();
 		const windowStart = now - KEEPER_RESTART_BUDGET_WINDOW_MS;
-		while (_keeperRestarts.length && _keeperRestarts[0]! < windowStart)
-			_keeperRestarts.shift();
-		if (_keeperRestarts.length >= KEEPER_RESTART_BUDGET) {
+		while (keeperRestarts.length && keeperRestarts[0]! < windowStart)
+			keeperRestarts.shift();
+		if (keeperRestarts.length >= KEEPER_RESTART_BUDGET) {
 			signal("keeper.degraded_unrecoverable", {
-				restarts: _keeperRestarts.length,
+				restarts: keeperRestarts.length,
 				window_ms: KEEPER_RESTART_BUDGET_WINDOW_MS,
 				cooldownKey: "keeper",
 			});
 			log.error("worker", "keeper_degraded_unrecoverable", {
-				restarts: _keeperRestarts.length,
+				restarts: keeperRestarts.length,
 			});
 			return;
 		}
-		_keeperRestarts.push(now);
+		keeperRestarts.push(now);
 		log.warn("worker", "keeper_degraded_restart", {
 			since_reconcile_ms: sinceReconcile,
-			restart_n: _keeperRestarts.length,
+			restart_n: keeperRestarts.length,
 		});
 		getMultiplexedPool().restartKeeper();
 	});

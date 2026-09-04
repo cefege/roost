@@ -27,6 +27,9 @@ interface Props {
   onAttachFile: () => void;
   /** Sends clipboard text through the pane's current terminal mode. */
   onPasteText: (text: string) => void;
+  /** Safe explicit activation for touch and context-menu users. */
+  onOpenLink: (anchor: HTMLAnchorElement) => void;
+  describeLink: (anchor: HTMLAnchorElement) => string | null;
 
 }
 
@@ -34,6 +37,8 @@ interface OpenState {
   x: number;
   y: number;
   selection: string;
+  link: HTMLAnchorElement | null;
+  linkTarget: string | null;
 }
 
 // Bottom action-sheet on touch (phones + tablets), floating menu on mouse.
@@ -55,7 +60,16 @@ export function TerminalContextMenu(props: Props) {
       sel && !sel.isCollapsed && container.contains(sel.anchorNode)
         ? sel.toString()
         : "";
-    setOpen({ x: e.clientX, y: e.clientY, selection: selectionText });
+    const link = (e.target as Element | null)
+      ?.closest?.("a.wterm-link") as HTMLAnchorElement | null;
+    const linkTarget = link ? props.describeLink(link) : null;
+    setOpen({
+      x: e.clientX,
+      y: e.clientY,
+      selection: selectionText,
+      link: linkTarget ? link : null,
+      linkTarget,
+    });
   };
   const dismiss = () => setOpen(null);
   const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") dismiss(); };
@@ -82,6 +96,10 @@ export function TerminalContextMenu(props: Props) {
     dismiss();
     const text = await navigator.clipboard.readText().catch(() => "");
     if (text) props.onPasteText(text);
+  };
+  const doOpenLink = (anchor: HTMLAnchorElement) => {
+    dismiss();
+    props.onOpenLink(anchor);
   };
 
 
@@ -157,6 +175,15 @@ export function TerminalContextMenu(props: Props) {
                   "border-radius": "2px",
                   margin: "0 auto 12px",
                 }} />
+                <Show when={s().link}>
+                  {(link) => (
+                    <SheetItem testid="ctx-open-link" onClick={() => doOpenLink(link())}>
+                      <span style={{ overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
+                        Open link · {s().linkTarget}
+                      </span>
+                    </SheetItem>
+                  )}
+                </Show>
                 <Show when={s().selection.length > 0}>
                   <SheetItem testid="ctx-copy-selection" onClick={() => doCopySelection(s().selection)}>
                     Copy
@@ -189,6 +216,22 @@ export function TerminalContextMenu(props: Props) {
             style={ctxMenuSurfaceStyle(s().x, s().y)}
             onClick={(e) => e.stopPropagation()}
           >
+            <Show when={s().link}>
+              {(link) => (
+                <>
+                  <CtxMenuItem
+                    testid="ctx-open-link"
+                    title={s().linkTarget ?? undefined}
+                    onClick={() => doOpenLink(link())}
+                  >
+                    <span style={{ display: "block", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
+                      Open link · {s().linkTarget}
+                    </span>
+                  </CtxMenuItem>
+                  <CtxMenuSeparator />
+                </>
+              )}
+            </Show>
             <Show when={s().selection.length > 0}>
               <CtxMenuItem testid="ctx-copy-selection" onClick={() => doCopySelection(s().selection)}>
                 Copy
@@ -243,6 +286,8 @@ function sheetStyle(): JSX.CSSProperties {
     "border-radius": "var(--md-shape-md) var(--md-shape-md) 0 0",
     "box-shadow": "0 -8px 32px rgba(0,0,0,0.45)",
     padding: "12px 0 calc(env(safe-area-inset-bottom, 0px) + 16px)",
+    "max-height": "calc(100dvh - var(--md-space-4))",
+    "overflow-y": "auto",
     "user-select": "none",
     color: "var(--text-hi)",
     "font-size": "15px",

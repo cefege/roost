@@ -1,32 +1,7 @@
-// Find-in-scrollback (search-scrollback RPC) against a REAL wterm core.
-//
-// The SPA holds at most 2000 of the worker's retained rows, so this walk is
-// the only complete search — and its `row` is the MONOTONIC absolute index the
-// SPA jumps its reader to. An off-by-one lands the user on the wrong line, so
-// S1 cross-checks the returned index back through readScrollbackRangeCells
-// (the mapping the backfill RPC and every cell frame already use) AND against
-// the marker's own line number, which is independent of that reader.
-//
-//   S1 — a mid-history marker returns its exact absolute index + preview.
-//   S2 — max_matches clamps the result set and reports truncated.
-//   S3 — an invalid regex rejects with the `invalid regex: ` prefix coord maps
-//        to Code.InvalidArgument; a valid one still answers.
-//   S4 — the slice yield really yields: work scheduled after the search starts
-//        runs before the search resolves, so other sessions' PTY output keeps
-//        flowing during a full-depth scan (docs/FAILURE-INDEX.md).
-//   S5 — a live viewport match indexes above scrollbackTotal.
-//   S6 — wide glyphs are reported in grid columns.
-//   S7 — the epoch fence: a request naming a numbering the session no longer
-//        serves is REFUSED, not answered from the rebuilt core, and the reply
-//        stamps the epoch it did serve.
-//   S8 — a reframe landing mid-scan stops the walk instead of mixing two
-//        numberings into one result set.
-//
-// Everything is derived from the core at run time rather than hardcoding the
-// patched build's 10k depth, so the contract holds for whatever capacity the
-// loaded core reports. The scan order is scrollback
-// (newest retained line first) and then the live viewport, so a truncated
-// result never contains viewport rows.
+// These tests exercise complete find-in-scrollback scans against a real terminal core.
+// They cross-check monotonic row indices through the same reader used by browser backfill.
+// Cases cover limits, regex errors, event-loop yielding, wide glyphs, and epoch fencing.
+// Runtime-derived core depth keeps the assertions valid across retained-history capacities.
 
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
@@ -43,6 +18,7 @@ import { createWtermCore } from "@roost/shared/wterm-core-factory";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
+import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000001");
 const CID = 1;
@@ -68,7 +44,7 @@ interface RpcOk {
 interface RpcErr { kind: "rpc-error"; request_id: string; message: string }
 
 function freshMgr(): SessionManager {
-  return new SessionManager({ workerFp: asWorkerFp("00".repeat(32)), sink: { emit: () => {} } });
+  return new SessionManager({ workerFp: asWorkerFp("00".repeat(32)), sink: new LifecycleTestSink() });
 }
 
 async function injectSession(mgr: SessionManager): Promise<SessionShellRecord> {
@@ -97,6 +73,7 @@ async function injectSession(mgr: SessionManager): Promise<SessionShellRecord> {
     lastPtyOutMs: 0,
     sb_origin_pin: null,
     spawnedAtMs: Date.now(),
+    closeReservation: mgr.reserveLifecycleEvent("closed"),
   };
   mgr.sessions.set(CID, record);
   return record;

@@ -1,76 +1,26 @@
-import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
+// Shared browser-smoke contracts for terminal recovery and presentation probes.
+// Playwright specs consume the production SmokeApi type through this type-only leaf.
+// Probe result aliases keep test assertions aligned with the browser producer.
+
+import type {
+  SmokeApi,
+  SmokeMarkerScan,
+  SmokePaintedScrollbackProbe,
+  SmokeTerminalInputCapture,
+  TerminalStreamProbe,
+} from "../../apps/web/src/lib/smokeTypes.ts";
 import type {
   PaintedCursorProof,
   PaintedMarkerProof,
 } from "../../apps/web/src/lib/smokeHarness.ts";
 
-export interface RecoveryMarkerScan {
-  total: number; unique: number; min: number; max: number;
-  duplicated: number[]; missing: number; outOfOrder: number; firstInversion: number;
-}
+export type RecoveryMarkerScan = SmokeMarkerScan;
 
-export interface TerminalInputCapture {
-  batches: Array<{ sessionId: string; data: number[] }>;
-  droppedBatches: number;
-}
+export type TerminalInputCapture = SmokeTerminalInputCapture;
 
-export interface PaintedScrollbackProbe {
-  rows: Array<{ index: number; text: string }>;
-  headSpacerPx: number;
-  tailGapPx: number;
-  readerAnchor: { row: number; offsetPx: number } | null;
-}
+export type PaintedScrollbackProbe = SmokePaintedScrollbackProbe;
 
-interface SmokeSessionProjection {
-  id: string;
-  worker_fp: string;
-  cwd?: string;
-  spawn_cwd?: string;
-}
-
-export interface RecoverySmokeApi {
-  spawnShell(workerFp: string, folder: string, sessionId?: string): Promise<{ session_id: string; channel_id: number }>;
-  state(): {
-    sessions: Record<string, SmokeSessionProjection>;
-    workers: Record<string, unknown>;
-  };
-  createWorkspace(workerFp: string, folder: string, sessionId: string): Promise<{ id: string; channel: number }>;
-  navigate(href: string): void;
-  input(sessionId: string, text: string): Promise<void>;
-  paneFocused(sessionId: string): { hasSlot: boolean; hasTextarea: boolean; focused: boolean };
-  terminalInputCapture(): TerminalInputCapture;
-  resetTerminalInputCapture(): void;
-  dropNextCellFrame(sessionId: string): void;
-  droppedCellFrameCount(sessionId: string): number;
-  cellFrameCount(sessionId: string): number;
-  cellFullFrameCount(sessionId: string): number;
-  cellGridEpoch(sessionId: string): string;
-  lastFullFrameSbRows(sessionId: string): number;
-  scrollbackBackfillRequestCount(sessionId: string): number;
-  syncWsGeneration(): number;
-  pauseSyncTransport(): void;
-  resumeSyncTransport(): void;
-  forceSyncMaxBackoff(): void;
-  syncRedialStatus(): {
-    failures: number;
-    nextDelayMs: number;
-    hiddenParked: boolean;
-    liveness: "none" | "dialing" | "open";
-  };
-  forceHidden(on: boolean): void;
-  forceVisible(on: boolean): void;
-  viewportText(sessionId: string): string;
-  markerScan(sessionId: string, prefix: string): RecoveryMarkerScan;
-  renderProbe(sessionId: string): { atBottom: boolean };
-  paintedScrollback(sessionId: string): PaintedScrollbackProbe;
-  terminalStreamProbe(sessionId: string): Promise<TerminalStreamProbe>;
-  waitForPaintedMarker(sessionId: string, marker: string, timeoutMs?: number): Promise<PaintedMarkerProof>;
-  waitForPaintedCursor(
-    sessionId: string,
-    expected?: { row?: number; column?: number },
-    timeoutMs?: number,
-  ): Promise<PaintedCursorProof>;
-}
+export type RecoverySmokeApi = SmokeApi;
 
 export interface TerminalIdentityProbeWindow {
   __smoke: RecoverySmokeApi;

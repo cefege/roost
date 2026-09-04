@@ -6,6 +6,7 @@ import {
 } from "@roost/shared/proto/sync_pb";
 import type { TerminalScreenSocketSink } from "../src/connect/terminal-screen-hub.ts";
 import {
+  DASHBOARD,
   SESSION,
   VIEW_A,
   disposeHubs,
@@ -45,7 +46,9 @@ function schedulerSink(harness: SchedulerHarness): TerminalScreenSocketSink {
     replaceTerminalSnapshot: (sessionId, streamId, frames) =>
       harness.scheduler.replaceTerminalSnapshot(harness.ws, sessionId, streamId, frames),
     enqueueTerminalDelta: (sessionId, streamId, frame) =>
-      harness.scheduler.enqueueTerminalDelta(harness.ws, sessionId, streamId, frame),
+      harness.scheduler.enqueueTerminalDelta(harness.ws, sessionId, streamId, frame)
+        ? "queued"
+        : "needs_snapshot",
     dropTerminalSession: (sessionId) =>
       harness.scheduler.dropTerminalSession(harness.ws, sessionId),
   };
@@ -64,6 +67,8 @@ describe("terminal view coordinator repair", () => {
       socketId: "socket-a",
       viewerKey: "viewer-a",
       callerFingerprint: "fingerprint-a",
+      dashboardId: DASHBOARD,
+      allowsSession: (sessionId) => sessionId === SESSION,
       sink: schedulerSink(scheduler),
     });
     const command = viewCommand(VIEW_A, 1n);
@@ -126,7 +131,7 @@ describe("terminal view coordinator repair", () => {
     expect(snapshotRequests).toEqual([]);
   });
 
-  test("terminalResync redrives a latched replacement instead of reseeding stale cache", async () => {
+  test("terminalResync does not duplicate a bounded latched replacement request", async () => {
     const { hub, snapshotRequests } = makeViewHarness();
     const sink = register(hub);
     hub.handleViewCommand("socket-a", viewCommand(VIEW_A, 1n));
@@ -141,11 +146,11 @@ describe("terminal view coordinator repair", () => {
     hub.handleResync("socket-a", resyncCommand(streamId));
     await settle();
 
-    expect(snapshotRequests).toHaveLength(2);
+    expect(snapshotRequests).toHaveLength(1);
     expect(sink.snapshots).toEqual([]);
   });
 
-  test("terminalResync retries an invalid cache but not an active chunk assembly", async () => {
+  test("terminalResync deduplicates invalid-cache requests and skips active assembly", async () => {
     const retry = makeViewHarness();
     register(retry.hub);
     retry.hub.handleViewCommand("socket-a", viewCommand(VIEW_A, 1n));
@@ -157,7 +162,6 @@ describe("terminal view coordinator repair", () => {
     retry.hub.handleResync("socket-a", resyncCommand(retryStream));
     await settle();
     expect(retry.snapshotRequests.map(({ streamId }) => streamId)).toEqual([
-      retryStream,
       retryStream,
     ]);
 

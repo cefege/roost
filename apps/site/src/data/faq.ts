@@ -11,20 +11,24 @@ export const FAQ: { q: string; a: string }[] = [
     a: "No. Roost replaces SSH-ing around to find a session, not the terminal itself. Every Roost session is a real shell PTY with full ANSI colour, scrollback, mouse modes and hyperlinks, rendered in a browser instead of a terminal emulator. If tmux or Zellij is how you like to work, run it inside a Roost session.",
   },
   {
+    q: "How do I access managed Roost?",
+    a: "Managed Roost is a private operator-provisioned service. The initial owner uses https://dashboard.roosttt.com/login to authorize a browser and https://dashboard.roosttt.com/app to open the one managed dashboard. The open-source edition remains available separately for anyone who wants to operate Roost themselves.",
+  },
+  {
     q: "Does it work with Claude Code?",
     a: "Yes. A Roost session is an ordinary shell PTY, so Claude Code runs in it exactly as it does in your own terminal, with its real interface rather than a chat wrapper. Roost never spawns, supervises or owns an agent process. Ten CLIs (Codex, Gemini CLI, OpenCode, Cursor Agent, Amp, GitHub Copilot CLI, Droid, Grok, Pi and OMP) additionally get a working / needs input / done badge; everything else runs fine, just unlabelled.",
   },
   {
-    q: "Do I need Tailscale?",
-    a: "For the supported setup, yes. Tailscale Serve publishing the coordinator's loopback listener on port 4102 is the only topology the installer configures, the only one roost quickstart produces, and the only one the release canaries exercise. Tailscale is also the private transport between browsers, coordinator and workers, the trusted enrollment boundary, and the source of real TLS certificates, which is how a phone connects with no port forwarding.",
+    q: "Do I need Tailscale to self-host?",
+    a: "No. With no endpoint flags, roost quickstart uses Tailscale Serve as the automatic convenience topology and obtains HTTPS for the tailnet hostname. It can instead serve a browser-trusted certificate directly when you provide the grouped HTTPS coordinator URL, absolute certificate path and absolute key path. Tailscale supplies reachability only; every browser and worker still needs its own scoped one-shot grant or approved pairing.",
   },
   {
-    q: "Does it work without Tailscale?",
-    a: "Partly, and only in ways the docs are explicit about. The optional Cloudflare Access plus Tunnel path lets a browser-only device reach your fleet with nothing but a browser, while the coordinator and every worker still talk over Tailscale. WireGuard, Headscale, ZeroTier and a plain LAN can be wired up by hand once browser-to-coordinator and worker-to-coordinator reachability is solved, but the installer does not configure them and the canaries do not exercise them, so you own the transport, the certificates and the enrollment boundary.",
+    q: "What does Tailscale provide to self-hosted Roost?",
+    a: "Automatic mode uses Tailscale for private coordinator reachability and convenient browser-trusted HTTPS without port forwarding. Explicit-certificate mode leaves reachability, DNS and certificate issuance to you. A tailnet address is never an enrollment credential, and other private overlays likewise do not replace Roost grants or pairing.",
   },
   {
-    q: "Is my code uploaded anywhere?",
-    a: "No. The coordinator, the workers and every PTY run on hardware you own, over your own network. There is no analytics, no crash reporting, no phone-home and no vendor account in the loop; diagnostics are local log files that roost doctor reads from disk. The only things that leave your machines are ones you deliberately configure, such as a Deepgram key for dictation or a Cloudflare tunnel you set up yourself.",
+    q: "Is my code uploaded to a managed sandbox?",
+    a: "No. Managed Roost hosts the owner account and dashboard, but each shell PTY runs on a worker machine you connect; Roost is not a vendor execution sandbox. With the open-source edition, the coordinator, workers and dashboard are all self-hosted. Optional integrations can still send the data they are configured for, such as dictation audio sent to Deepgram.",
   },
   {
     q: "Does it run on Windows?",
@@ -39,12 +43,12 @@ export const FAQ: { q: string; a: string }[] = [
     a: "The work keeps running. PTYs live in a keeper subprocess on the worker machine that outlives worker restarts and updates, so closing the lid on the device you were browsing from does not touch the session. When you come back, on that device or another one, the browser reconnects, sends the last sequence number it applied, and receives exactly what it missed — nothing duplicated, nothing dropped, scrollback intact.",
   },
   {
-    q: "Can a team share one Roost?",
-    a: "No. Roost is single-user today: every device you pair is one of your own devices, and there are no accounts, roles, shared tokens or per-user permissions. Access control is per device — pair a browser to grant it, delete its row to revoke it immediately.",
+    q: "Can a team share managed Roost?",
+    a: "Not in the initial managed launch. It has one operator-provisioned owner and one dashboard. The self-hosted edition remains accountless and user-operated: pair a browser to grant it access and delete its device row to revoke it.",
   },
   {
-    q: "Is it free?",
-    a: "Yes. Roost is free and open source under GPL-3.0-only, with no paid tier, no hosted plan and no account to create. You self-host it, so the only thing it costs is the hardware you already own.",
+    q: "Is the self-hosted edition free?",
+    a: "Yes. The self-hosted edition is free and open source under GPL-3.0-only. It is accountless and runs the coordinator, workers, and dashboard on infrastructure you operate.",
   },
   {
     q: "How do I add a machine?",

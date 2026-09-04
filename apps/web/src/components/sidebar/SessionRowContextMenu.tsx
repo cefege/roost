@@ -13,13 +13,14 @@ import { Portal } from "solid-js/web";
 import { useNavigate } from "@solidjs/router";
 import type { Session } from "@roost/shared/wire";
 import { rootStore } from "../../store/root.ts";
-import { workerOnline } from "../../store/sync.ts";
+import { sessionWorkerIsOffline } from "../../store/worker-removal.ts";
 import { openRenameDialog } from "../../store/renameDialog.ts";
 import { folderHeadline } from "../../lib/sessionTitle.ts";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { invokeMachineAction, machineActionsForWorker } from "../../lib/machineActions.ts";
 import type { MachineActionDefinition } from "../../lib/machineActions.ts";
 import { addToast } from "../../store/toastStore.ts";
+import { openTransferDialog } from "../../lib/transferDialog.ts";
 import {
 	ctxMenuSurfaceStyle,
 	CtxMenuItem,
@@ -32,6 +33,7 @@ interface SessionRowContextMenuProps {
 	onClose: () => void;
 	onDelete: (e: MouseEvent) => void;
 }
+
 
 export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 	const navigate = useNavigate();
@@ -73,17 +75,9 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 		}
 	}
 
-	async function handleTransfer() {
+	function handleTransfer() {
 		props.onClose();
-		const { openTransferDialog } = await import("../../lib/transferDialog.ts");
-		const srcLabel =
-			rootStore.workers[session().worker_fp]?.label ??
-			session().worker_fp.slice(0, 8);
-		openTransferDialog({
-			srcFp: session().worker_fp,
-			srcLabel,
-			srcPath: session().cwd,
-		});
+		openTransferDialog();
 	}
 
 	// New terminal on the same server, in the same cwd. Unlike Restart it
@@ -109,13 +103,11 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 		}
 	}
 
-	// The owning worker is offline (asleep/dead) → a normal close can't be acked,
-	// so the row is stuck. Force remove tombstones it in coord; if the worker ever
-	// returns with the PTY still live, coord reaps it on snapshot.
-	const workerIsOffline = () => {
-		const w = rootStore.workers[session().worker_fp];
-		return !!w && !workerOnline(w);
-	};
+	// The owning worker is offline (asleep, dead, or permanently removed) → a
+	// normal close cannot be acknowledged. Force remove remains available for
+	// sessions intentionally retained after machine offboarding.
+	const workerIsOffline = () =>
+		sessionWorkerIsOffline(rootStore.workers[session().worker_fp]);
 
 	async function handleForceRemove() {
 		props.onClose();
@@ -186,7 +178,7 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 		...(Object.keys(rootStore.workers).length > 1
 			? [
 					{
-						label: "Transfer files to…",
+						label: "Transfer files (beta)…",
 						testid: "transfer",
 						onClick: () => void handleTransfer(),
 					},

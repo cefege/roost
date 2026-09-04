@@ -10,6 +10,7 @@ import QRCode from "qrcode";
 import { coordClient } from "../../connect.ts";
 import { addToast } from "../../store/toastStore.ts";
 import { Button } from "./md/primitives.tsx";
+import { storedTenantRouteKey } from "../../auth/tenant-routing.ts";
 
 function originIsPhoneReachable(): boolean {
   if (typeof location === "undefined") return false;
@@ -29,7 +30,9 @@ export function PairDevicePane() {
     setStatus("loading");
     try {
       const { token } = await coordClient.authMintBootstrap({ kind: "browser", label: "phone" });
-      const url = `${location.origin}/#pair=${encodeURIComponent(token)}`;
+      const routeKey = storedTenantRouteKey();
+      const pairPath = routeKey ? `/pair/${routeKey}` : "/";
+      const url = `${location.origin}${pairPath}#pair=${encodeURIComponent(token)}`;
       setPairUrl(url);
       setQrDataUrl(await QRCode.toDataURL(url, { width: 240, margin: 1 }));
       setStatus("ready");

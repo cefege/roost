@@ -1,63 +1,67 @@
-// One startup dispatcher owns every fragment bearer. It scrubs credentials
-// before network I/O, then permits exactly one complete credential shape.
+// Startup consumes only entry.ts's already-scrubbed state. Credential state is
+// retained across reloads and ambiguous transport failures, then cleared only
+// after redemption succeeds or the coordinator authoritatively denies it.
 import {
-  credentialFreeUrl,
-  parseFragmentCredential,
-  type FragmentCredential,
+  clearCapturedFragmentCredential,
+  peekCapturedFragmentCredential,
 } from "../auth/fragment-credential.ts";
+import type {
+  CapturedFragmentCredential,
+  CapturedFragmentCredentialKind,
+} from "../auth/fragment-credential.ts";
+import { redeemPairToken } from "../auth/redeemPairToken.ts";
 import type { RedeemResult } from "../auth/redeemPairToken.ts";
+import { redeemCoordinatorRelocation } from "../auth/coordinator-relocation.ts";
+import type { RelocationRedemptionResult } from "../auth/coordinator-relocation.ts";
 
 export interface FragmentDispatcherDependencies {
-  pathname: string;
-  search: string;
-  hash: string;
-  replace(url: string): void;
+  peek(): CapturedFragmentCredential | null;
+  clear(expectedKind: CapturedFragmentCredentialKind): boolean;
   reload(): void;
   redeemPair(token: string): Promise<RedeemResult>;
-  redeemRelocation(credential: Extract<FragmentCredential, { kind: "relocation" }>): Promise<boolean>;
+  redeemRelocation(
+    credential: Extract<CapturedFragmentCredential, { kind: "relocation" }>,
+  ): Promise<RelocationRedemptionResult>;
   warn(message: string): void;
 }
 
-export async function dispatchFragmentCredential(
+export async function dispatchCapturedFragmentCredential(
   deps: FragmentDispatcherDependencies,
 ): Promise<boolean> {
-  const credential = parseFragmentCredential(deps.hash);
-  if (credential.kind === "none") return false;
-  deps.replace(credentialFreeUrl(deps.pathname, deps.search, deps.hash));
-  if (credential.kind === "invalid") {
-    throw new Error(
-      "Invalid credential link (retryable): combined, partial, empty, or duplicate fields",
-    );
-  }
+  const credential = deps.peek();
+  if (credential?.kind !== "pair" && credential?.kind !== "relocation") return false;
+
   if (credential.kind === "relocation") {
-    return deps.redeemRelocation(credential);
+    const result = await deps.redeemRelocation(credential);
+    if (result === "retryable") return false;
+    deps.clear("relocation");
+    if (result === "authoritative-denial") {
+      deps.warn("[sync] coordinator relocation credential was denied");
+      return false;
+    }
+    deps.reload();
+    return true;
   }
+
   const result = await deps.redeemPair(credential.token);
   if (!result.ok) {
-    deps.warn(`[sync] #pair redeem failed: ${"reason" in result ? result.reason : result.error}`);
+    if ("authoritative" in result && result.authoritative) deps.clear("pair");
+    deps.warn(`[sync] #pair redeem failed: ${result.error}`);
     return false;
   }
+  deps.clear("pair");
   deps.reload();
   return true;
 }
 
-/** Scrub, classify, and redeem one fragment credential before ordinary RPCs. */
-export async function _dispatchFragmentCredential(): Promise<boolean> {
-  if (typeof location === "undefined") return false;
-  return dispatchFragmentCredential({
-    pathname: location.pathname,
-    search: location.search,
-    hash: location.hash,
-    replace: (url) => history.replaceState(null, "", url),
+/** Redeem one scrubbed startup credential before ordinary protected RPCs. */
+export async function _dispatchCapturedFragmentCredential(): Promise<boolean> {
+  return dispatchCapturedFragmentCredential({
+    peek: peekCapturedFragmentCredential,
+    clear: clearCapturedFragmentCredential,
     reload: () => location.reload(),
-    redeemPair: async (token) => {
-      const { redeemPairToken } = await import("../auth/redeemPairToken.ts");
-      return redeemPairToken(token);
-    },
-    redeemRelocation: async (credential) => {
-      const { redeemCoordinatorRelocation } = await import("../auth/coordinator-relocation.ts");
-      return redeemCoordinatorRelocation(credential);
-    },
+    redeemPair: redeemPairToken,
+    redeemRelocation: redeemCoordinatorRelocation,
     warn: (message) => console.warn(message),
   });
 }

@@ -1,24 +1,30 @@
-import { type JSX, type Component } from "solid-js";
+// Token-driven Surface is the single owner of panel background, shape, border, and elevation.
+// Screens and primitives choose its semantic element and provide accessible labelling.
+// Theme variables supply every visual value; callers retain only content layout.
 
-// ─── Surface — token-driven panel (design-system phase 1) ───────────────────
-// The one primitive for "a piece of chrome with a background". Every prop maps
-// to a theme token so a Surface can NEVER hardcode a color/shadow/radius the
-// way the old AppShell collapsed rail did (`#262626`). Chrome composes this
-// instead of hand-rolling <div style>.
+import { type JSX, type Component } from "solid-js";
+import { Dynamic } from "solid-js/web";
+
 export const Surface: Component<{
-  level?: 0 | 1 | 2 | 3;                    // background → --surface-N
-  elevation?: 0 | 1 | 2 | 3 | 4 | 5;        // box-shadow → --md-elev-N
-  radius?: "xs" | "sm" | "md" | "lg" | "xl" | "full";  // → --md-shape-*
-  pad?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;  // padding → --md-space-N
-  border?: boolean;                          // 1px --md-outline-variant
+  as?: "div" | "section";
+  level?: 0 | 1 | 2 | 3;
+  elevation?: 0 | 1 | 2 | 3 | 4 | 5;
+  radius?: "xs" | "sm" | "md" | "lg" | "xl" | "full";
+  pad?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  border?: boolean;
   class?: string;
   style?: JSX.CSSProperties;
   onClick?: () => void;
+  "data-testid"?: string;
+  "aria-labelledby"?: string;
   children: JSX.Element;
 }> = (props) => (
-  <div
+  <Dynamic
+    component={props.as ?? "div"}
     class={props.class}
     onClick={props.onClick}
+    attr:data-testid={props["data-testid"]}
+    attr:aria-labelledby={props["aria-labelledby"]}
     style={{
       background: `var(--surface-${props.level ?? 1})`,
       "box-shadow": `var(--md-elev-${props.elevation ?? 0})`,
@@ -29,5 +35,5 @@ export const Surface: Component<{
     }}
   >
     {props.children}
-  </div>
+  </Dynamic>
 );

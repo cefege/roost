@@ -55,6 +55,20 @@ export interface TerminalPresentationActivity {
   seq: number;
   started_at_ms: number;
 }
+export interface TerminalGenerationToken {
+  readonly socketGeneration: number;
+  readonly socketId: string;
+  readonly processEpoch: string;
+  readonly domainGeneration: bigint;
+}
+export interface TerminalGenerationDiagnosticToken {
+  readonly socketGeneration: number;
+  readonly socketId: string;
+  readonly processEpoch: string;
+  readonly domainGeneration: string;
+}
+
+
 
 export function deriveTerminalPresentationState(input: {
   active: boolean;
@@ -80,6 +94,7 @@ export function deriveTerminalPresentationState(input: {
 export interface TerminalViewHandle {
   readonly sessionId: string;
   readonly viewId: string;
+  challengeLiveness(): void;
   setViewport(geometry: TerminalGeometry): void;
   setInactive(): void;
   refresh(): void;
@@ -101,6 +116,17 @@ export interface TerminalViewIntent {
   cols: number;
   rows: number;
 }
+export type TerminalRepairOutcome =
+  | "none"
+  | "requested"
+  | "proved"
+  | "escalated"
+  | "generation_reset"
+  | "inactive"
+  | "disposed"
+  | "stream_replaced"
+  | "pruned";
+
 
 export interface TerminalViewRecord {
   session: TerminalSessionReplica;
@@ -117,10 +143,14 @@ export interface TerminalViewRecord {
   lastProgressKey: string | null;
   rendererSubscribers: Set<TerminalRendererSubscriber>;
   rollingBack: boolean;
+  viewAckTimer: ReturnType<typeof setTimeout> | null;
   // Liveness re-assert interval; armed immediately after record creation,
   // so null only between the two statements (and never observed).
   heartbeat: ReturnType<typeof setInterval> | null;
   leaseDeadlineMs: number | null;
+  pendingViewAckAtMs: number | null;
+  pendingViewAckGeneration: TerminalGenerationToken | null;
+  pendingViewAckRevision: bigint | null;
   disposed: boolean;
 }
 
@@ -147,6 +177,17 @@ export interface TerminalSessionReplica {
   resyncSentGeneration: string | null;
   resyncRetryGeneration: string | null;
   resyncRetryAtMs: number | null;
+  generation: TerminalGenerationToken | null;
+  lastAcceptedFrameAtMs: number | null;
+  idleProbeTimer: ReturnType<typeof setTimeout> | null;
+  proofDeadlineTimer: ReturnType<typeof setTimeout> | null;
+  lastAcceptedFrameGeneration: TerminalGenerationToken | null;
+  proofChallengeAtMs: number | null;
+  proofChallengeGeneration: TerminalGenerationToken | null;
+  resyncLatchedAtMs: number | null;
+  resyncLatchGeneration: TerminalGenerationToken | null;
+  repairAttempts: number;
+  repairOutcome: TerminalRepairOutcome;
   assembler: CellGridChunkAssembler;
   chunkTimer: ReturnType<typeof setTimeout> | null;
   wireStreamId: string | null;
@@ -164,6 +205,8 @@ export interface TerminalStreamDiagnosticSnapshot {
     effective_cols: number | null;
     effective_rows: number | null;
     lease_deadline_ms: number | null;
+    pending_ack_age_ms: number | null;
+    pending_ack_generation: TerminalGenerationDiagnosticToken | null;
   };
   replica: {
     expected_stream_id: string | null;
@@ -171,11 +214,25 @@ export interface TerminalStreamDiagnosticSnapshot {
     seq: number | null;
     baseline_ready: boolean;
     resync_latched: boolean;
+    last_terminal_proof_age_ms: number | null;
+    last_terminal_proof_generation: TerminalGenerationDiagnosticToken | null;
+    challenge_age_ms: number | null;
+    challenge_generation: TerminalGenerationDiagnosticToken | null;
+    resync_latch_age_ms: number | null;
+    resync_latch_generation: TerminalGenerationDiagnosticToken | null;
+    repair_attempts: number;
+    repair_outcome: TerminalRepairOutcome;
   };
   wire_received: {
     stream_id: string | null;
     grid_epoch: string | null;
     seq: number | null;
+  };
+  faults: {
+    blackhole_drop_count: number;
+    wire_delta_drop_count: number;
+    wire_delta_dropped_seq: number | null;
+    wire_delta_post_drop_seq: number | null;
   };
   sync: {
     socket_generation: number | null;

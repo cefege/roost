@@ -93,15 +93,15 @@ message AgentStatusFrame {
 // Enum values are stable wire identifiers; controls themselves are never
 // delivery-sequenced and therefore never consume the application ACK window.
 enum SyncDomain {
+  reserved 5, 8;
+  reserved "SYNC_DOMAIN_PERMISSIONS", "SYNC_DOMAIN_WEBHOOK";
   SYNC_DOMAIN_UNSPECIFIED = 0;
   SYNC_DOMAIN_TERMINAL = 1;
   SYNC_DOMAIN_WORKERS = 2;
   SYNC_DOMAIN_WORKSPACES = 3;
   SYNC_DOMAIN_TASKS = 4;
-  SYNC_DOMAIN_PERMISSIONS = 5;
   SYNC_DOMAIN_MCP = 6;
   SYNC_DOMAIN_PAIR = 7;
-  SYNC_DOMAIN_WEBHOOK = 8;
   SYNC_DOMAIN_AUDIT = 9;
 }
 
@@ -212,8 +212,9 @@ message InputAmbiguous {
 
 
 message FirehoseFrame {
-  reserved 7, 28, 30, 42, 43, 47;  // retired fields
-  reserved "viewport_accepted", "viewport_rejected", "viewport_ambiguous";
+  reserved 7, 14, 15, 28, 30, 42, 43, 47;  // retired fields
+  reserved "webhook_token_delta", "permission_delta",
+    "viewport_accepted", "viewport_rejected", "viewport_ambiguous";
   // Per-socket application-delivery sequence. Zero means legacy/unenforced or
   // an unsequenced v2 control frame.
   uint64 delivery_seq = 31;
@@ -229,8 +230,6 @@ message FirehoseFrame {
     // older clients fall back to the JsonEvent equivalents above.
     WorkspaceDeltaProto workspace_delta = 12;
     TaskDeltaProto task_delta = 13;
-    WebhookTokenDeltaProto webhook_token_delta = 14;
-    PermissionRuleDeltaProto permission_delta = 15;
     McpStreamMessageProto mcp_msg = 16;
     WorkerPresenceProto worker_presence = 17;
     WorkerRoutableFrame worker_routable = 19;

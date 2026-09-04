@@ -78,3 +78,11 @@ export function removeTransfer(id: string): void {
   setTransfers(id, undefined as unknown as Transfer);
   samples.delete(id);
 }
+
+/** Remove file names and progress retained for the signed-out account. */
+export function clearTransfersForLogout(): void {
+  for (const id of Object.keys(transfers)) {
+    setTransfers(id, undefined as unknown as Transfer);
+  }
+  samples.clear();
+}

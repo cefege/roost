@@ -4,7 +4,12 @@
 // harness functions, so a type-only edge from harness→smoke was a latent
 // import cycle. Type-only module: erased at runtime.
 
-import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
+import type {
+  ScrollbackHistoryFloor,
+  Session,
+  Worker,
+  Workspace,
+} from "@roost/shared/wire";
 import type { RendererPaintPresentation } from "./cellRenderer.ts";
 import type { SpaPhaseTimeline } from "./diag.ts";
 import type {
@@ -28,6 +33,8 @@ export interface SmokeTerminalInputCapture {
   batches: SmokeTerminalInputBatch[];
   droppedBatches: number;
 }
+
+export type SmokePaintedScrollbackProbe = RendererPaintPresentation;
 
 export type RetainedMarkerScan = {
   gridEpoch: string;
@@ -69,6 +76,32 @@ export interface TerminalStreamProbe {
   };
 }
 
+export interface SmokeRenderProbe {
+  found: boolean;
+  mode: "cell" | "byte" | "none";
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  fromBottom: number;
+  atBottom: boolean;
+  rowCount: number;
+  nonEmptyRows: number;
+  firstLine: string;
+  lastLine: string;
+}
+
+export interface SmokeMarkerScan {
+  total: number;
+  unique: number;
+  min: number;
+  max: number;
+  duplicated: number[];
+  missing: number;
+  /** Count of render-order inversions and the first displaced marker. */
+  outOfOrder: number;
+  firstInversion: number;
+}
+
 export interface SmokeApi {
   /** Send raw bytes through the terminal transport — BYPASSES the textarea +
    *  focus pipeline. Use for variant coverage only, NEVER as the "can input?"
@@ -91,25 +124,13 @@ export interface SmokeApi {
    *  for a pane. This is what catches "scroll jumped to top", "history lost",
    *  "rows duplicated" — none of which a wire/data-* test can see. Reads the
    *  actual scroll container (.wterm, shared by byte + cell renderers). */
-  renderProbe(sessionId: string): {
-    found: boolean;
-    mode: "cell" | "byte" | "none";
-    fromBottom: number; atBottom: boolean;
-    rowCount: number; nonEmptyRows: number;
-    firstLine: string; lastLine: string;
-  };
+  renderProbe(sessionId: string): SmokeRenderProbe;
   /** Bounded presentation-owned scrollback rows, spacer/gap, and reader anchor. */
-  paintedScrollback(sessionId: string): RendererPaintPresentation;
+  paintedScrollback(sessionId: string): SmokePaintedScrollbackProbe;
   /** Scan EVERY rendered row for `${prefix}<N>` markers. Detects history depth
    *  (min/max N), loss (missing Ns in [min,max]), and CORRUPTION (any N seen
    *  more than once = duplicated rows, the cell-mode tab-switch bug). */
-  markerScan(sessionId: string, prefix: string): {
-    total: number; unique: number; min: number; max: number;
-    duplicated: number[]; missing: number;
-    // outOfOrder: count of render-order inversions (= mangled/out-of-position
-    // rows). firstInversion: the marker N where order first breaks, or -1.
-    outOfOrder: number; firstInversion: number;
-  };
+  markerScan(sessionId: string, prefix: string): SmokeMarkerScan;
   /** Exact-marker paint proof: non-zero Range geometry inside the terminal and
    * visual viewport, visible computed style, and the same proof after 2×rAF. */
   waitForPaintedMarker(sessionId: string, marker: string, timeoutMs?: number): Promise<PaintedMarkerProof>;
@@ -140,9 +161,9 @@ export interface SmokeApi {
   retainedMarkerScan(sessionId: string, prefix: string, pageRows?: number): Promise<RetainedMarkerScan>;
   /** Snapshot of current SPA store state. */
   state(): {
-    sessions: Record<string, unknown>;
-    workspaces: Record<string, unknown>;
-    workers: Record<string, unknown>;
+    sessions: Record<string, Session>;
+    workspaces: Record<string, Workspace>;
+    workers: Record<string, Worker>;
     pair_requests: Record<string, unknown>;
   };
   /** Automation visibility pin: treat the page as foregrounded while hidden or
@@ -174,6 +195,10 @@ export interface SmokeApi {
   scrollbackBackfillRequestCount(sessionId: string): number;
   /** Opaque worker grid epoch on the latest cell frame. */
   cellGridEpoch(sessionId: string): string;
+  /** Drop terminal application frames for exactly the current full terminal generation. */
+  blackholeTerminalFramesForCurrentGeneration(sessionId: string): void;
+  /** ACK but suppress exactly one non-full terminal frame before replica dispatch. */
+  dropNextTerminalWireDelta(sessionId: string): void;
   /** Suppress exactly the next accepted cell frame's renderer delivery after the session replica folds it. */
   dropNextCellFrame(sessionId: string): void;
   droppedCellFrameCount(sessionId: string): number;

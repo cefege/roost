@@ -62,7 +62,7 @@ describe("JWT round-trip", () => {
   test("sign + verify returns correct fingerprint + label", async () => {
     const nowSecs = Math.floor(Date.now() / 1000);
     const token = await signJwt(
-      { aud: "roost-coordinator", sub: "test", iat: nowSecs },
+      { aud: "roost-coordinator", sub: testFp, iat: nowSecs, exp: nowSecs + 60 },
       testPrivKey,
       testFp,
     );
@@ -75,13 +75,31 @@ describe("JWT round-trip", () => {
 
     expect(caller.fingerprint).toBe(testFp);
     expect(caller.label).toBe("test-key");
+    expect(caller.validUntilMs).toBe((nowSecs + 60) * 1000);
+  });
+
+  test("server max age caps validity before a later exp", async () => {
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const token = await signJwt(
+      { aud: "roost-coordinator", sub: testFp, iat: nowSecs, exp: nowSecs + 600 },
+      testPrivKey,
+      testFp,
+    );
+
+    const caller = await verifyJwt(token, {
+      db,
+      cache: newJwtCache(),
+      jwtMaxAgeSecs: 300,
+    });
+
+    expect(caller.validUntilMs).toBe((nowSecs + 300) * 1000);
   });
 
   test("cache hit: second verify uses cache", async () => {
     const nowSecs = Math.floor(Date.now() / 1000);
     const cache = newJwtCache();
     const token = await signJwt(
-      { aud: "roost-coordinator", sub: "test", iat: nowSecs },
+      { aud: "roost-coordinator", sub: testFp, iat: nowSecs, exp: nowSecs + 60 },
       testPrivKey,
       testFp,
     );
@@ -98,7 +116,12 @@ describe("JWT rejection", () => {
   test("expired token rejected", async () => {
     const expiredIat = Math.floor(Date.now() / 1000) - 400; // > 300s old
     const token = await signJwt(
-      { aud: "roost-coordinator", sub: "test", iat: expiredIat },
+      {
+        aud: "roost-coordinator",
+        sub: testFp,
+        iat: expiredIat,
+        exp: Math.floor(Date.now() / 1000) + 60,
+      },
       testPrivKey,
       testFp,
     );
@@ -110,7 +133,7 @@ describe("JWT rejection", () => {
   test("wrong audience rejected", async () => {
     const nowSecs = Math.floor(Date.now() / 1000);
     const token = await signJwt(
-      { aud: "worker-direct", sub: "test", iat: nowSecs },
+      { aud: "worker-direct", sub: testFp, iat: nowSecs, exp: nowSecs + 60 },
       testPrivKey,
       testFp,
     );
@@ -119,10 +142,56 @@ describe("JWT rejection", () => {
     ).rejects.toThrow(/wrong aud/);
   });
 
+  test("subject must equal the signing key fingerprint", async () => {
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const token = await signJwt(
+      { aud: "roost-coordinator", sub: "another-principal", iat: nowSecs, exp: nowSecs + 60 },
+      testPrivKey,
+      testFp,
+    );
+    await expect(
+      verifyJwt(token, { db, cache: newJwtCache(), jwtMaxAgeSecs: 300 }),
+    ).rejects.toThrow(/subject does not match kid/);
+  });
+
+  test("exp is required, finite, and still in the future", async () => {
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const missing = await signJwt(
+      { aud: "roost-coordinator", sub: testFp, iat: nowSecs },
+      testPrivKey,
+      testFp,
+    );
+    const nonNumeric = await signJwt(
+      {
+        aud: "roost-coordinator",
+        sub: testFp,
+        iat: nowSecs,
+        exp: "later",
+      } as never,
+      testPrivKey,
+      testFp,
+    );
+    const expired = await signJwt(
+      { aud: "roost-coordinator", sub: testFp, iat: nowSecs, exp: nowSecs },
+      testPrivKey,
+      testFp,
+    );
+
+    await expect(
+      verifyJwt(missing, { db, cache: newJwtCache(), jwtMaxAgeSecs: 300 }),
+    ).rejects.toThrow(/missing exp/);
+    await expect(
+      verifyJwt(nonNumeric, { db, cache: newJwtCache(), jwtMaxAgeSecs: 300 }),
+    ).rejects.toThrow(/missing exp/);
+    await expect(
+      verifyJwt(expired, { db, cache: newJwtCache(), jwtMaxAgeSecs: 300 }),
+    ).rejects.toThrow(/expired/);
+  });
+
   test("tampered signature rejected", async () => {
     const nowSecs = Math.floor(Date.now() / 1000);
     const token = await signJwt(
-      { aud: "roost-coordinator", sub: "test", iat: nowSecs },
+      { aud: "roost-coordinator", sub: testFp, iat: nowSecs, exp: nowSecs + 60 },
       testPrivKey,
       testFp,
     );
@@ -138,7 +207,7 @@ describe("JWT rejection", () => {
   test("token from the future rejected", async () => {
     const futureIat = Math.floor(Date.now() / 1000) + 60; // 60s in future
     const token = await signJwt(
-      { aud: "roost-coordinator", sub: "test", iat: futureIat },
+      { aud: "roost-coordinator", sub: testFp, iat: futureIat, exp: futureIat + 60 },
       testPrivKey,
       testFp,
     );
@@ -151,7 +220,7 @@ describe("JWT rejection", () => {
     const unknownFp = "f".repeat(64);
     const nowSecs = Math.floor(Date.now() / 1000);
     const token = await signJwt(
-      { aud: "roost-coordinator", sub: "test", iat: nowSecs },
+      { aud: "roost-coordinator", sub: unknownFp, iat: nowSecs, exp: nowSecs + 60 },
       testPrivKey,
       unknownFp,  // kid not in authorized_keys
     );
@@ -164,8 +233,9 @@ describe("JWT rejection", () => {
     const nowSecs = Math.floor(Date.now() / 1000);
     const payloadB64 = Buffer.from(JSON.stringify({
       aud: "roost-coordinator",
-      sub: "test",
+      sub: "f".repeat(64),
       iat: nowSecs,
+      exp: nowSecs + 60,
     })).toString("base64url");
     const headerB64 = Buffer.from(JSON.stringify({
       alg: "RS256",
@@ -193,8 +263,9 @@ describe("JWT cache generations", () => {
     }).execute();
 
     const cache = newJwtCache();
+    const nowSecs = Math.floor(Date.now() / 1000);
     const token = await signJwt(
-      { aud: "roost-coordinator", sub: "test", iat: Math.floor(Date.now() / 1000) },
+      { aud: "roost-coordinator", sub: fingerprint, iat: nowSecs, exp: nowSecs + 60 },
       pair.privateKey,
       fingerprint,
     );
@@ -226,8 +297,9 @@ describe("JWT cache generations", () => {
 
   test("invalidation during a deferred key import rejects and does not repopulate", async () => {
     const cache = newJwtCache();
+    const nowSecs = Math.floor(Date.now() / 1000);
     const token = await signJwt(
-      { aud: "roost-coordinator", sub: "test", iat: Math.floor(Date.now() / 1000) },
+      { aud: "roost-coordinator", sub: testFp, iat: nowSecs, exp: nowSecs + 60 },
       testPrivKey,
       testFp,
     );
@@ -255,8 +327,9 @@ describe("JWT cache generations", () => {
 
   test("invalidation during deferred signature verification rejects a hot-cache caller", async () => {
     const cache = newJwtCache();
+    const nowSecs = Math.floor(Date.now() / 1000);
     const token = await signJwt(
-      { aud: "roost-coordinator", sub: "test", iat: Math.floor(Date.now() / 1000) },
+      { aud: "roost-coordinator", sub: testFp, iat: nowSecs, exp: nowSecs + 60 },
       testPrivKey,
       testFp,
     );

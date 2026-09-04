@@ -1,38 +1,41 @@
-// Browser side of coordinator move. A live SPA is handed off mid-session via
-// a one-time token: relocateBrowserToCoordinator mints it on the CURRENT
-// coord and navigates to the destination with the token only in the URL
-// fragment (never a query/header — intermediaries log those); the fragment
-// is redeemed once by redeemCoordinatorRelocation on the destination and
-// scrubbed by startup before any authenticated transport opens. The
-// module-level `relocating` latch collapses the COMMITTED race between the
-// sync frame and the settings dialog poll into one navigation.
-import { createClient } from "@connectrpc/connect";
+// This module owns the browser half of a live coordinator handoff.
+// Settings and sync mint on the current coordinator; startup redeems after fragment scrubbing.
+// It depends on coordinator RPCs, the browser public key, and fragment-only navigation.
+// A module latch collapses racing commit notifications into one leak-free destination navigation.
+
+import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
 import { diag } from "@roost/shared/diag";
 import { coordClient } from "../connect.ts";
 import { getPublicKeyB64 } from "./web-key.ts";
 import { browserSelfLabel } from "../lib/browserSelfLabel.ts";
+import type { CapturedFragmentCredential } from "./fragment-credential.ts";
 
 const MOVE_FRAGMENT_KEY = "move";
 const HANDOFF_FRAGMENT_KEY = "handoff";
 let relocating = false;
+let relocationGeneration = 0;
 
-export interface CoordinatorRelocationFragment {
-  token: string;
-  handoffId: string;
-}
+export type CoordinatorRelocationFragment = Extract<
+  CapturedFragmentCredential,
+  { kind: "relocation" }
+>;
 
 export interface RetiredCoordinatorIdentity {
   relocatedToUrl?: string;
   handoffId?: string;
 }
 
+export type RelocationRedemptionResult =
+  | "success"
+  | "authoritative-denial"
+  | "retryable";
 
-/** Redeem a one-time relocation token already parsed and scrubbed by startup. */
+/** Redeem a one-time relocation token already parsed and scrubbed by entry.ts. */
 export async function redeemCoordinatorRelocation(
   relocation: CoordinatorRelocationFragment,
-): Promise<boolean> {
+): Promise<RelocationRedemptionResult> {
   try {
     const client = createClient(CoordinatorService, createConnectTransport({
       baseUrl: "/",
@@ -43,11 +46,19 @@ export async function redeemCoordinatorRelocation(
       sshPubkeyB64: await getPublicKeyB64(),
       label: browserSelfLabel(),
     });
-    location.reload();
-    return true;
+    return "success";
   } catch (error) {
-    diag("coord_move.spa_redeem_failed", { error: String(error) });
-    return false;
+    const authoritative = error instanceof ConnectError && (
+      error.code === Code.InvalidArgument
+      || error.code === Code.AlreadyExists
+      || error.code === Code.PermissionDenied
+      || error.code === Code.Unauthenticated
+    );
+    diag("coord_move.spa_redeem_failed", {
+      outcome: authoritative ? "denied" : "retryable",
+      error: String(error),
+    });
+    return authoritative ? "authoritative-denial" : "retryable";
   }
 }
 
@@ -60,8 +71,10 @@ export async function relocateBrowserToCoordinator(handoffId: string, targetUrl:
   // report as "Could not redirect automatically" on a clean move.
   if (relocating) return "in-flight";
   relocating = true;
+  const requestGeneration = relocationGeneration;
   try {
     const minted = await coordClient.authMintCoordinatorRelocation({ handoffId });
+    if (requestGeneration !== relocationGeneration) return "failed";
     const target = new URL(`${location.pathname}${location.search}`, minted.targetUrl || targetUrl);
     target.hash = new URLSearchParams({
       [MOVE_FRAGMENT_KEY]: minted.token,
@@ -70,7 +83,7 @@ export async function relocateBrowserToCoordinator(handoffId: string, targetUrl:
     location.assign(target.href);
     return "started";
   } catch (error) {
-    relocating = false;
+    if (requestGeneration === relocationGeneration) relocating = false;
     diag("coord_move.spa_mint_failed", { handoff_id: handoffId, error: String(error) });
     return "failed";
   }
@@ -80,4 +93,10 @@ export async function relocateBrowserToCoordinator(handoffId: string, targetUrl:
 export async function relocateRetiredBrowser(identity: RetiredCoordinatorIdentity): Promise<RelocationOutcome> {
   if (!identity.relocatedToUrl || !identity.handoffId) return "failed";
   return relocateBrowserToCoordinator(identity.handoffId, identity.relocatedToUrl);
+}
+
+/** Let a later account start a fresh relocation after this one logs out mid-mint. */
+export function clearCoordinatorRelocationRuntimeForLogout(): void {
+  relocationGeneration += 1;
+  relocating = false;
 }

@@ -8,7 +8,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { log } from "@roost/shared/log";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import type { KyselyDB } from "../db/connection.ts";
-import type { Caller } from "./auth-interceptor.ts";
+import type { AccountDeviceCaller, DashboardActor } from "./auth-interceptor.ts";
 import { getWorkerHubSocket } from "./worker-service.ts";
 
 export type WorkerHubSocket = { send(data: string | Uint8Array): void };
@@ -25,31 +25,28 @@ export interface SessionWorkerBinding {
 // contract — do not re-diverge them.
 export async function requireSessionWorkerSocket(
   db: KyselyDB,
+  actor: DashboardActor,
   sessionId: string,
 ): Promise<SessionWorkerBinding> {
-  const row = await db.selectFrom("sessions").select(["worker_fp"])
-    .where("id", "=", sessionId).executeTakeFirst();
+  const row = await db.selectFrom("sessions as session")
+    .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
+    .select("session.worker_fp as worker_fp")
+    .where("session.id", "=", sessionId)
+    .where("session.dashboard_id", "=", actor.dashboardId)
+    .where("worker.dashboard_id", "=", actor.dashboardId)
+    .where("worker.deleted_at_ms", "is", null)
+    .executeTakeFirst();
   if (!row) throw new ConnectError("session not found", Code.NotFound);
   const sock = getWorkerHubSocket(row.worker_fp);
   if (!sock) throw new ConnectError("worker offline", Code.Unavailable);
   return { row, sock };
 }
 
-// `${prefix}<bytes*2 hex>` random id. Used by auth/pair/webhook token mint.
-export function randomToken(prefix: string, bytes: number): string {
-  const buf = new Uint8Array(bytes);
-  crypto.getRandomValues(buf);
-  return `${prefix}${Buffer.from(buf).toString("hex")}`;
-}
 
-export async function sha256hex(s: string): Promise<string> {
-  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return Buffer.from(new Uint8Array(d)).toString("hex");
-}
 
 // Wire-boundary validation for proto3 required-string / required-array
 // fields. Proto3 has no length facet so an unset field arrives as "" or [].
-// Used by webhookTokensMint, permissionsCreate, mcpCreate.
+// Used by mcpCreate.
 export function requireNonEmpty(value: string | unknown[], field: string): void {
   if (value.length === 0) {
     throw new ConnectError(`${field} is required`, Code.InvalidArgument);
@@ -62,7 +59,7 @@ export function requireNonEmpty(value: string | unknown[], field: string): void 
 // immediately after.
 export function sendBrowserCmd(
   sock: WorkerHubSocket,
-  caller: Caller,
+  caller: AccountDeviceCaller,
   requestId: string,
   frame: ClientControlFrame,
 ): void {
@@ -87,8 +84,9 @@ export function sendBrowserCmd(
 // report accepted:false.
 export async function forwardToSessionWorker(
   db: KyselyDB,
+  actor: DashboardActor,
   sessionIdRaw: string,
-  caller: Caller,
+  caller: AccountDeviceCaller,
   frame: ClientControlFrame,
 ): Promise<boolean> {
   // Frames that carry their own request_id reuse it as the envelope id so
@@ -96,7 +94,7 @@ export async function forwardToSessionWorker(
   const requestId = "request_id" in frame ? frame.request_id : randomUUID();
   let binding: SessionWorkerBinding;
   try {
-    binding = await requireSessionWorkerSocket(db, sessionIdRaw);
+    binding = await requireSessionWorkerSocket(db, actor, sessionIdRaw);
   } catch {
     return false;
   }

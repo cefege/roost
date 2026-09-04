@@ -11,10 +11,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// MUST precede any startCoordLink() call: ClientSeq (constructed inside
-// startCoordLink) falls back to the production data dir when this is unset,
-// which would corrupt the live client-seq watermark. Set at module eval,
-// before any test body runs.
+// Isolate the durable session-event outbox from the production worker state.
+// Set at module evaluation before any test body opens its store.
 process.env.ROOST_WORKER_DATA_DIR = mkdtempSync(join(tmpdir(), "coordlink-backoff-test-"));
 process.env.ROOST_KEEPER_QUIET = "1";
 
@@ -26,6 +24,7 @@ import {
   backoffCapMs,
 } from "../src/transport/coord-link-constants.ts";
 import { startCoordLink } from "../src/transport/coord-link.ts";
+import { openSessionEventStore } from "../src/transport/session-event-store.ts";
 import type { WorkerFp } from "@roost/shared/wire";
 
 // This is the regression proper: it fails on the pre-fix code, which read every
@@ -87,11 +86,16 @@ test("link that opened then lost coord re-dials on the normal ladder", async () 
     },
   });
 
+  const eventStore = openSessionEventStore({
+    dbPath: join(process.env.ROOST_WORKER_DATA_DIR!, "session-event-outbox.sqlite"),
+    legacySequencePath: join(process.env.ROOST_WORKER_DATA_DIR!, "client-seq.txt"),
+  });
   const link = startCoordLink({
     coordHttpUrl: `http://127.0.0.1:${server.port}`,
     workerFp: "backoff-fp" as WorkerFp,
     workerVersion: "test",
     mintJwt: async () => "jwt",
+    sessionEventStore: eventStore,
   });
 
   await opened;
@@ -109,6 +113,7 @@ test("link that opened then lost coord re-dials on the normal ladder", async () 
     st = link.state();
   }
   link.dispose();
+  eventStore.close();
   server.stop(true);
 
   expect(st.kind).toBe("reconnecting");

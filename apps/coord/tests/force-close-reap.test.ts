@@ -10,12 +10,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, type DbHandle, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { appendEvent } from "../src/event-log.ts";
+import { appendEvent, type AppendEventResult } from "../src/event-log.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-service.ts";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { SessionEvent, asSessionId, asWorkerFp, asChannelId } from "@roost/shared/wire";
 import type { Session } from "@roost/shared/wire";
+import { sessionBus } from "../src/buses.ts";
+import { lookupSessionId } from "../src/byte-hub.ts";
 
+const ORGANIZATION_ID = "force-close-reap-organization";
+const DASHBOARD_ID = "force-close-reap-dashboard";
 const FP = asWorkerFp("cc".repeat(32));
 const tick = () => new Promise((r) => setTimeout(r, 60));
 
@@ -45,7 +49,23 @@ beforeAll(async () => {
   handle = openDb(join(workdir, "test.db"));
   db = handle.db;
   await runMigrations(handle.sqlite);
+  await db.insertInto("organizations").values({
+    id: ORGANIZATION_ID,
+    slug: "force-close-reap",
+    name: "Force close reap",
+    status: "active",
+    created_at_ms: 1,
+  }).execute();
+  await db.insertInto("dashboards").values({
+    id: DASHBOARD_ID,
+    organization_id: ORGANIZATION_ID,
+    slug: "force-close-reap",
+    name: "Force close reap",
+    status: "active",
+    created_at_ms: 1,
+  }).execute();
   await db.insertInto("workers").values({
+    dashboard_id: DASHBOARD_ID,
     fp: FP, label: "test", os: "darwin", git_sha: null, host_metrics_json: null,
     registered_at_ms: 1, last_seen_ms: 1,
   }).execute();
@@ -60,20 +80,54 @@ describe("force-close + snapshot reap", () => {
   it("force-closed session is NOT resurrected by a returning snapshot, and the orphan is reaped", async () => {
     const SID = "00000000-0000-4000-8000-000000000aa1";
     const captured: CoordWorkerDown[] = [];
-    __setConnectWorkerForTest(FP, { workerFp: FP, send: (f) => captured.push(f) });
+    __setConnectWorkerForTest(FP, { workerFp: FP, dashboardId: DASHBOARD_ID, send: (f) => captured.push(f) });
 
-    await appendEvent(db, opened(SID));
+    await appendEvent(db, opened(SID), {
+      worker_fp: FP, client_seq: 1, dashboardId: DASHBOARD_ID,
+    });
     // Force-close while worker was offline = a direct `closed` tombstone.
-    await appendEvent(db, SessionEvent.parse({ kind: "closed", session_id: asSessionId(SID), exit_code: null, ts: 2 }));
+    await appendEvent(db, SessionEvent.parse({
+      kind: "closed", session_id: asSessionId(SID), exit_code: null, ts: 2,
+    }), {
+      worker_fp: null, client_seq: null, dashboardId: DASHBOARD_ID,
+    });
     expect((await db.selectFrom("sessions").select("id").where("id", "=", SID).execute()).length).toBe(0);
 
-    // Worker returns and re-announces the PTY as live.
-    await appendEvent(db, snapshot([SID]));
+    // Worker returns and re-announces the PTY as live. The force-close filter
+    // must run before durable JSON, projection, channel index, and publication.
+    const publishedSnapshots: SessionEvent[] = [];
+    const unsubscribe = sessionBus.subscribe((event) => {
+      if (event.kind === "snapshot") publishedSnapshots.push(event);
+    });
+    let result: AppendEventResult | undefined;
+    try {
+      result = await appendEvent(db, snapshot([SID]), {
+        worker_fp: FP, client_seq: 2, dashboardId: DASHBOARD_ID,
+      });
+    } finally {
+      unsubscribe();
+    }
     await tick();
 
     // Resurrection guard: row stays gone.
     const rows = await db.selectFrom("sessions").select("id").where("id", "=", SID).execute();
     expect(rows.length).toBe(0);
+    expect(result!.event).toMatchObject({ kind: "snapshot", sessions: [] });
+    const stored = await db.selectFrom("events")
+      .select("payload_json")
+      .where("worker_fp", "=", FP)
+      .where("client_seq", "=", 2)
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(stored.payload_json)).toMatchObject({
+      kind: "snapshot",
+      sessions: [],
+    });
+    expect(publishedSnapshots).toHaveLength(1);
+    expect(publishedSnapshots[0]).toMatchObject({
+      kind: "snapshot",
+      sessions: [],
+    });
+    expect(lookupSessionId(FP, asChannelId(1))).toBeUndefined();
 
     // Reap: a kill browser-command went to the worker for this orphan.
     const kills = captured
@@ -87,9 +141,11 @@ describe("force-close + snapshot reap", () => {
   it("a normal live session (no prior closed event) IS installed by the snapshot — no false reap", async () => {
     const SID = "00000000-0000-4000-8000-000000000bb2";
     const captured: CoordWorkerDown[] = [];
-    __setConnectWorkerForTest(FP, { workerFp: FP, send: (f) => captured.push(f) });
+    __setConnectWorkerForTest(FP, { workerFp: FP, dashboardId: DASHBOARD_ID, send: (f) => captured.push(f) });
 
-    await appendEvent(db, snapshot([SID]));
+    await appendEvent(db, snapshot([SID]), {
+      worker_fp: FP, client_seq: 3, dashboardId: DASHBOARD_ID,
+    });
     await tick();
 
     const rows = await db.selectFrom("sessions").select("id").where("id", "=", SID).execute();

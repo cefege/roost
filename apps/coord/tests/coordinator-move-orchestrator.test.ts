@@ -14,6 +14,7 @@ import type { CoordConfig } from "@roost/shared/config";
 import type { CoordinatorMoveRuntime, MoveSnapshot, MoveWorker } from "../src/coord-move/runtime.ts";
 
 const workdirs: string[] = [];
+const DASHBOARD_ID = "coordinator-move-orchestrator-dashboard";
 afterEach(() => {
   for (const dir of workdirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -28,6 +29,9 @@ async function fixture() {
   const opened = openDb(dbPath);
   await runMigrations(opened.sqlite);
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:4102", dbPath, coordKeyPath: keyPath, authorizedKeysPath,
+  saasMode: false,
+  managedContainer: false,
+  pushAllowedOrigins: [],
   handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
   publicUrl: "https://source.ts.net:4102", tlsCertPath: undefined, tlsKeyPath: undefined,
   jwtMaxAgeSecs: 300, auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [], }
@@ -92,7 +96,7 @@ describe("CoordinatorMoveOrchestrator", () => {
       workers: async () => workers,
     });
 
-    const handoffId = await move.start("target");
+    const handoffId = await move.start(DASHBOARD_ID, "target");
     await relocationPublished;
 
     expect(move.gate.mode).toBe("retired");
@@ -109,6 +113,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     const calls: string[] = [];
     const state = new HandoffStateStore(f.cfg.handoffPath);
     state.write({
+      dashboard_id: DASHBOARD_ID,
       version: 1, handoff_id: "00000000-0000-4000-8000-000000000001", role: "TARGET", phase: "WAITING_FOR_WORKERS",
       source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
       expected_worker_fps: ["target", "worker-a"], commit_acked_worker_fps: [],
@@ -133,7 +138,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     await committed;
     await replaySent;
     expect(move.gate.mode).toBe("active");
-    expect(move.status(handoffId)?.commit_acked_worker_fps).toEqual(["target", "worker-a"]);
+    expect(move.status(DASHBOARD_ID, handoffId)?.commit_acked_worker_fps).toEqual(["target", "worker-a"]);
     // First round obtains durable commit acknowledgements; the second round
     // tells workers to reconnect and replay events held during target_pending.
     expect(calls.filter((call) => call === "commit-worker")).toHaveLength(4);
@@ -156,6 +161,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     const store = new HandoffStateStore(f.cfg.handoffPath);
     store.write({
       version: 1, handoff_id: "00000000-0000-4000-8000-000000000003", role: "SOURCE", phase: "ROLLING_BACK",
+      dashboard_id: DASHBOARD_ID,
       source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
       expected_worker_fps: ["target"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
       expected_git_sha: COORD_GIT_SHA, secret_sha256: createHash("sha256").update("secret").digest("hex"), secret: "secret",
@@ -180,6 +186,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     const store = new HandoffStateStore(f.cfg.handoffPath);
     store.write({
       version: 1, handoff_id: "00000000-0000-4000-8000-000000000004", role: "SOURCE", phase: "COPYING_STATE",
+      dashboard_id: DASHBOARD_ID,
       source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
       expected_worker_fps: ["target", "worker-a"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
       expected_git_sha: COORD_GIT_SHA, secret_sha256: createHash("sha256").update("secret").digest("hex"), secret: "secret",
@@ -216,6 +223,7 @@ describe("CoordinatorMoveOrchestrator", () => {
       const handoffId = "00000000-0000-4000-8000-000000000005";
       store.write({
         version: 1, handoff_id: handoffId, role: "TARGET", phase,
+        dashboard_id: DASHBOARD_ID,
         source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
         expected_worker_fps: ["target"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
         expected_git_sha: COORD_GIT_SHA, secret_sha256: "f".repeat(64),
@@ -243,6 +251,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     const handoffId = "00000000-0000-4000-8000-000000000006";
     store.write({
       version: 1, handoff_id: handoffId, role: "TARGET", phase: "WAITING_FOR_WORKERS",
+      dashboard_id: DASHBOARD_ID,
       source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
       expected_worker_fps: ["target"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
       expected_git_sha: COORD_GIT_SHA, secret_sha256: createHash("sha256").update("secret").digest("hex"),
@@ -273,6 +282,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     const store = new HandoffStateStore(f.cfg.handoffPath);
     const seeded = store.write({
       version: 1, handoff_id: "00000000-0000-4000-8000-000000000007", role: "SOURCE", phase: "COMMITTING",
+      dashboard_id: DASHBOARD_ID,
       source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
       expected_worker_fps: ["target", "worker-a"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
       expected_git_sha: COORD_GIT_SHA, secret_sha256: createHash("sha256").update("secret").digest("hex"), secret: "secret",

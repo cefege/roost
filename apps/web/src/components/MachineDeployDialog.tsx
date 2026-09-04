@@ -4,7 +4,7 @@
 // Callers: MachinesPane.tsx.
 
 import { createMemo, createSignal, Show } from "solid-js";
-import { coordClient } from "../connect.ts";
+import { coordinatorBaseUrl, coordClient } from "../connect.ts";
 import { rootStore } from "../store/root.ts";
 import { TextField, Button, IconButton, Select } from "./Settings/md/primitives.tsx";
 import { workerCoordinatorUrl } from "../lib/workerCoordinatorUrl.ts";
@@ -52,10 +52,11 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
   const [deployCmd, setDeployCmd] = createSignal<string | null>(null);
   const [copied, setCopied] = createSignal(false);
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
-  const workerUrl = createMemo(() => workerCoordinatorUrl(
-    rootStore.coord_identity?.public_url,
-    location.origin,
-  ));
+  const workerUrl = createMemo(() => {
+    if (rootStore.coord_identity?.saas_mode === true) return coordinatorBaseUrl();
+    if (rootStore.coord_identity?.saas_mode !== false) return null;
+    return workerCoordinatorUrl(rootStore.coord_identity.public_url, location.origin);
+  });
 
   async function mintAndShowCmd() {
     setLoading(true);
@@ -64,7 +65,9 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
     try {
       const coordinatorUrl = workerUrl();
       if (!coordinatorUrl) {
-        setError("Worker installation requires the coordinator's distinct private or tailnet URL; the public web address is browser-only.");
+        setError(rootStore.coord_identity?.saas_mode === false
+          ? "Worker installation requires the coordinator's distinct private or tailnet URL."
+          : "Roost is still confirming how this deployment accepts workers.");
         return;
       }
       const lbl = label().trim();
@@ -74,8 +77,6 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
         return;
       }
       const result = await coordClient.authMintBootstrap({ kind: "worker", label: lbl });
-      // Worker enrollment is intentionally denied on the public web listener.
-      // Only the coordinator-advertised private/tailnet origin may be embedded.
       setDeployCmd(buildMachineJoinCommand(targetPlatform(), coordinatorUrl, result.token, lbl, publisher));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

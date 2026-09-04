@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically reconcile Roost managed coordinators
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+RandomizedDelaySec=30s
+Unit=roost-saas-reconcile.service
+
+[Install]
+WantedBy=timers.target

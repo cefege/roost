@@ -61,18 +61,9 @@ export function createCoordLinkDownstream(
     const v = frame.frame.value;
     switch (k) {
       case "helloAck": {
-        const ha = v as { coordPubkeyB64: string; coordPubkeyKid: string };
-        outbox.markLinkReady();
-        // SessionManager emits reconnect/full repairs synchronously from this
-        // callback. drainQueues() then releases raw metadata, preserving the
-        // repair-before-backlog boundary.
-        deps.onHelloAck?.({
-          coord_pubkey_b64: ha.coordPubkeyB64,
-          coord_pubkey_kid: ha.coordPubkeyKid,
-          reconnected,
-        });
-        outbox.drainQueues();
-        log.info("coord-link", "hello_ack", { coord_kid: ha.coordPubkeyKid, reconnected });
+        deps.onHelloAck?.({ reconnected });
+        outbox.acceptHelloAck(reconnected);
+        log.info("coord-link", "hello_ack", { reconnected });
         return;
       }
       case "ping": {
@@ -82,12 +73,23 @@ export function createCoordLinkDownstream(
       }
       case "browserCommand": {
         const bc = v as { browserId: string; viewerId: string; requestId: string; frameJson: string };
+        let command: ClientControlFrame;
         try {
-          deps.onBrowserCommand?.({
-            browser_id: bc.browserId, viewer_id: bc.viewerId,
-            request_id: bc.requestId, frame: JSON.parse(bc.frameJson) as ClientControlFrame,
-          });
-        } catch (e) { log.warn("coord-link", "browser_command_parse", { error: String(e) }); diag("transport.cmd_parse_failed", {}); }
+          command = JSON.parse(bc.frameJson) as ClientControlFrame;
+        } catch (error) {
+          log.warn("coord-link", "browser_command_parse", { error: String(error) });
+          diag("transport.cmd_parse_failed", {});
+          return;
+        }
+        // Producer/durable-store failures are intentionally outside the parse
+        // catch: swallowing one would acknowledge a command whose lifecycle
+        // mutation was not durably journaled.
+        deps.onBrowserCommand?.({
+          browser_id: bc.browserId,
+          viewer_id: bc.viewerId,
+          request_id: bc.requestId,
+          frame: command,
+        });
         return;
       }
       case "binary": {
@@ -304,10 +306,12 @@ export function createCoordLinkDownstream(
         return;
       }
       case "eventAck": {
-        // D-4b: drop the acked entry from the unacked outbox so it
-        // doesn't replay on the next reconnect.
-        const seq = Number((v as { clientSeq: bigint }).clientSeq);
-        outbox.ackEvent(seq);
+        const clientSeq = (v as { clientSeq: bigint }).clientSeq;
+        if (clientSeq > 0n && clientSeq <= BigInt(Number.MAX_SAFE_INTEGER)) {
+          // Exact durable deletion commits before the volatile replay entry is
+          // forgotten. Stale, future and unsafe acknowledgements are no-ops.
+          outbox.ackEvent(Number(clientSeq));
+        }
         return;
       }
     }

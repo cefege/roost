@@ -8,8 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { create } from "@bufbuild/protobuf";
-import { ConnectError, Code } from "@connectrpc/connect";
-import type { HandlerContext } from "@connectrpc/connect";
+import { ConnectError, Code, createContextValues, type HandlerContext } from "@connectrpc/connect";
 import {
   UiListStatesRequestSchema, UiDispatchRequestSchema,
 } from "@roost/shared/proto/coordinator_pb";
@@ -20,6 +19,11 @@ import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import {
+  callerKey,
+  dashboardActorKey,
+  type DashboardActor,
+} from "../src/connect/auth-interceptor.ts";
+import {
   makeUiHandlers, getUiStateSnapshot, _uiStatesByTab, UI_STATE_TTL_MS,
   type UiHandlers,
 } from "../src/connect/handlers-ui.ts";
@@ -29,10 +33,26 @@ let workdir: string;
 let closeDb: () => Promise<void>;
 let handlers: UiHandlers;
 
-// requireAuth only reads ctx.values.get(callerKey); a fake caller suffices —
-// building a real HandlerContext would drag in the whole transport.
+const DASHBOARD = "ui-handlers-dashboard";
+
 function fakeAuthCtx(fingerprint: string): HandlerContext {
-  return { values: { get: () => ({ fingerprint, label: "" }) } } as unknown as HandlerContext;
+  const actor: DashboardActor = {
+    accountId: "ui-handlers-account",
+    organizationId: "ui-handlers-organization",
+    dashboardId: DASHBOARD,
+    organizationRole: "owner",
+    dashboardRole: "admin",
+    deviceFingerprint: fingerprint,
+  };
+  const values = createContextValues();
+  values.set(callerKey, {
+    kind: "account-device",
+    fingerprint,
+    label: "",
+    accountId: actor.accountId,
+  });
+  values.set(dashboardActorKey, actor);
+  return { values } as unknown as HandlerContext;
 }
 const authCtx = fakeAuthCtx("fp-test");
 
@@ -56,10 +76,59 @@ beforeAll(async () => {
   const db = opened.db;
   await runMigrations(opened.sqlite);
   closeDb = async () => { await opened.close(); };
+  const now = Date.now();
+  await db.insertInto("organizations").values({
+    id: "ui-handlers-organization",
+    slug: "ui-handlers",
+    name: "UI handlers",
+    status: "active",
+    created_at_ms: now,
+  }).execute();
+  await db.insertInto("dashboards").values({
+    id: DASHBOARD,
+    organization_id: "ui-handlers-organization",
+    slug: "ui-handlers",
+    name: "UI handlers",
+    status: "active",
+    created_at_ms: now,
+  }).execute();
+  await db.insertInto("workers").values({
+    fp: "ui-handlers-worker",
+    dashboard_id: DASHBOARD,
+    label: "UI handlers",
+    os: "linux",
+    git_sha: null,
+    host_metrics_json: null,
+    registered_at_ms: now,
+    last_seen_ms: now,
+    reachable_addr: null,
+    keeper_stale: null,
+  }).execute();
+  await db.insertInto("sessions").values({
+    id: "sess-9",
+    dashboard_id: DASHBOARD,
+    worker_fp: "ui-handlers-worker",
+    channel: 9,
+    kind: "shell",
+    cwd: "/ui",
+    workspace_id: null,
+    status: "open",
+    created_at: now,
+    closed_at: null,
+    custom_title: null,
+    git_branch: null,
+    git_remote: null,
+    pr_number: null,
+    pr_state: null,
+    pr_checks: null,
+    pr_url: null,
+    ports_json: null,
+    spawn_cwd: null,
+  }).execute();
   // Known fp → label mapping for the uiListStates label test.
   await db.insertInto("authorized_keys").values({
     fingerprint: "fp-known", public_key: new Uint8Array(32),
-    label: "Chrome — test", added_at: Date.now(),
+    label: "Chrome — test", added_at: now,
   }).execute();
   // Handlers only touch deps.db; the rest of ConnectDeps is transport wiring.
   handlers = makeUiHandlers({ db } as unknown as ConnectDeps);
@@ -101,7 +170,7 @@ describe("uiReportState → uiListStates roundtrip", () => {
 
   test("report publishes a state msg on uiBus", async () => {
     const msgs: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((m) => msgs.push(m));
+    const stop = uiBus.subscribe((m) => msgs.push(m), DASHBOARD);
     await handlers.uiReportState(reportReq("tab-1"), authCtx);
     stop();
     expect(msgs.length).toBe(1);
@@ -120,7 +189,7 @@ describe("upsert keying on fp:tabId", () => {
     await handlers.uiReportState(reportReq("tab-1", "/s/old"), authCtx);
     await handlers.uiReportState(reportReq("tab-1", "/s/new"), authCtx);
     expect(_uiStatesByTab.size).toBe(1);
-    expect(_uiStatesByTab.get("fp-test:tab-1")?.state.activePath).toBe("/s/new");
+    expect(_uiStatesByTab.get(`${DASHBOARD}:fp-test:tab-1`)?.state.activePath).toBe("/s/new");
 
     await handlers.uiReportState(reportReq("tab-2"), authCtx);
     expect(_uiStatesByTab.size).toBe(2);
@@ -132,10 +201,10 @@ describe("TTL reap", () => {
     await handlers.uiReportState(reportReq("tab-live"), authCtx);
     await handlers.uiReportState(reportReq("tab-dead"), authCtx);
     // Age the second entry past TTL through the module's explicit test seam.
-    const dead = _uiStatesByTab.get("fp-test:tab-dead")!;
+    const dead = _uiStatesByTab.get(`${DASHBOARD}:fp-test:tab-dead`)!;
     dead.lastMs = Date.now() - UI_STATE_TTL_MS - 1;
 
-    const snap = getUiStateSnapshot();
+    const snap = getUiStateSnapshot(DASHBOARD);
     expect(snap.map((s) => s.tabId)).toEqual(["tab-live"]);
 
     const resp = await handlers.uiListStates(create(UiListStatesRequestSchema, {}), authCtx);
@@ -148,8 +217,8 @@ describe("TTL reap", () => {
 describe("uiDispatch", () => {
   test("publishes the command intact and reports delivered = subscriber count", async () => {
     const msgs: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((m) => msgs.push(m));
-    const expected = uiBus.subscriberCount;
+    const stop = uiBus.subscribe((m) => msgs.push(m), DASHBOARD);
+    const expected = uiBus.subscriberCountFor(DASHBOARD);
     const resp = await handlers.uiDispatch(create(UiDispatchRequestSchema, {
       targetTabId: "tab-1", command: selectTabCmd("sess-9"),
     }), authCtx);
@@ -170,7 +239,7 @@ describe("uiDispatch", () => {
 
   test("missing command → ConnectError InvalidArgument, nothing published", async () => {
     const msgs: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((m) => msgs.push(m));
+    const stop = uiBus.subscribe((m) => msgs.push(m), DASHBOARD);
     // Both shapes must reject: command absent, and command present with no case.
     for (const command of [undefined, create(UiCommandSchema, {})]) {
       try {

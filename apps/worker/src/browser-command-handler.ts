@@ -31,7 +31,7 @@ export function handleBrowserCommand(
 	log.info("worker", "onBrowserCommand", { kind: frame.kind, request_id });
 	switch (frame.kind) {
 		case "kill": {
-			handleKill(frame, request_id, { sessionMgr });
+			handleKill(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "spawn-shell": {

@@ -71,3 +71,7 @@ export function addToast(
 export function dismissToast(id: number): void {
   setToasts((prev) => prev.filter((t) => t.id !== id));
 }
+
+export function clearToastsForAccountBoundary(): void {
+  setToasts([]);
+}

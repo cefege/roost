@@ -1,68 +1,45 @@
 // Settings root. Material 3 navigation rail (left) + top app bar
 // (with back action) + scrollable content area. Pane router based on
 // /settings/:pane param.
-// Panes: machines | mcp | permissions | webhooks | theme | audit |
-//        metrics | attachments | browser-pairing.
+// Managed coordinators replace the self-hosted scope, connection, and pairing
+// surfaces with one Account pane.
 
 import { useParams, useNavigate } from "@solidjs/router";
-import { createMemo, Switch, Match, For, Show } from "solid-js";
+import { createEffect, createMemo, Switch, Match, For, Show } from "solid-js";
 import { MachinesPane } from "./MachinesPane.tsx";
 import { McpPane } from "./McpPane.tsx";
-import { PermissionsPane } from "./PermissionsPane.tsx";
-import { WebhooksPane } from "./WebhooksPane.tsx";
 import { ThemePane } from "./ThemePane.tsx";
 import { AgentLauncherPane } from "./AgentLauncherPane.tsx";
 import { AuditLogPane } from "./AuditLogPane.tsx";
 import { MetricsPane } from "./MetricsPane.tsx";
 import { AttachmentsPane } from "./AttachmentsPane.tsx";
 import { DevicesPane } from "./DevicesPane.tsx";
+import { AccountPane } from "./AccountPane.tsx";
 import { TranscriptionPane } from "./TranscriptionPane.tsx";
 import { TerminalPane } from "./TerminalPane.tsx";
 import { ConnectionPane } from "./ConnectionPane.tsx";
 import { NotificationsPane } from "./NotificationsPane.tsx";
+import { OrganizationPane } from "./OrganizationPane.tsx";
+import { DashboardPane } from "./DashboardPane.tsx";
 import { Icon } from "./md/primitives.tsx";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { withViewTransition } from "../../lib/viewTransition.ts";
+import { rootStore } from "../../store/root.ts";
+import { settingsPaneHref } from "../../routes.ts";
+import {
+  isHiddenManagedSettingsPane,
+  resolveSettingsPaneForMode,
+  settingsGroupsForMode,
+  type SettingsPaneSpec,
+  type SettingsRailGroup,
+} from "./settingsNavigation.ts";
 import "./md/tokens.css";
 
-// The "Devices" pane (DevicesPane) merges phone-pairing (QR) + browser
-// approval (Onboarding) — Onboarding is also rendered at /pair for the
-// cross-browser entry point. Rail items are grouped into labeled sections.
-interface PaneSpec {
-  id: string;
-  label: string;
-  icon: string;
-  title: string;
+// Self-hosted Devices merges phone pairing and browser approval. Managed
+// coordinators instead route every legacy scope/device URL to Account.
+function visibleSettingsGroups(): readonly SettingsRailGroup[] {
+  return settingsGroupsForMode(rootStore.coord_identity?.saas_mode === true);
 }
-interface RailGroup {
-  label: string;
-  panes: PaneSpec[];
-}
-const GROUPS: RailGroup[] = [
-  { label: "Network", panes: [
-    { id: "machines",   label: "Machines",   icon: "desktop_mac", title: "Machines" },
-    { id: "connection", label: "Connection", icon: "lan",         title: "Connection" },
-    { id: "devices",    label: "Devices",    icon: "devices",     title: "Devices" },
-  ] },
-  { label: "Agents", panes: [
-    { id: "launcher",    label: "Launcher", icon: "rocket_launch", title: "Default agent" },
-    { id: "mcp",         label: "MCP",      icon: "extension", title: "MCP relays" },
-    { id: "permissions", label: "Access",   icon: "lock",      title: "Permissions" },
-    { id: "webhooks",    label: "Webhooks", icon: "webhook",   title: "Webhooks" },
-  ] },
-  { label: "Interface", panes: [
-    { id: "terminal",       label: "Terminal",       icon: "terminal",       title: "Terminal" },
-    { id: "voice",    label: "Voice",    icon: "mic",      title: "Voice dictation" },
-    { id: "theme",    label: "Theme",    icon: "palette",  title: "Theme" },
-    { id: "notifications", label: "Notifications", icon: "notifications", title: "Notifications" },
-  ] },
-  { label: "System", panes: [
-    { id: "attachments", label: "Files",   icon: "folder_open", title: "Attachments" },
-    { id: "audit",       label: "Audit",   icon: "history",     title: "Audit log" },
-    { id: "metrics",     label: "Metrics", icon: "monitoring",  title: "Metrics" },
-  ] },
-];
-const ALL_PANES: PaneSpec[] = GROUPS.flatMap((g) => g.panes);
 /** Mobile push/pop: detail slides in from the right (dir 1 = forward),
  *  back pops it out to the right (dir -1). Direction-aware slide via
  *  --settings-nav-dir; withViewTransition handles feature-detect + reduced
@@ -80,16 +57,20 @@ function slideNavigate(
 // Shared pane router — used by both desktop main and mobile detail so the
 // two surfaces render identical pane content with zero duplication.
 function SettingsPane(props: { id: string }) {
-  const id = () => props.id;
+  const id = () => resolveSettingsPaneForMode(
+    props.id,
+    rootStore.coord_identity?.saas_mode === true,
+  );
   return (
     <Switch>
+      <Match when={id() === "account"}><AccountPane /></Match>
       <Match when={id() === "machines"}><MachinesPane /></Match>
+      <Match when={id() === "organization"}><OrganizationPane /></Match>
+      <Match when={id() === "dashboard"}><DashboardPane /></Match>
       <Match when={id() === "connection"}><ConnectionPane /></Match>
       <Match when={id() === "devices"}><DevicesPane /></Match>
       <Match when={id() === "launcher"}><AgentLauncherPane /></Match>
       <Match when={id() === "mcp"}><McpPane /></Match>
-      <Match when={id() === "permissions"}><PermissionsPane /></Match>
-      <Match when={id() === "webhooks"}><WebhooksPane /></Match>
       <Match when={id() === "voice"}><TranscriptionPane /></Match>
       <Match when={id() === "terminal"}><TerminalPane /></Match>
       <Match when={id() === "notifications"}><NotificationsPane /></Match>
@@ -104,24 +85,36 @@ function SettingsPane(props: { id: string }) {
 export function SettingsRoot() {
   const params = useParams<{ pane?: string }>();
   const navigate = useNavigate();
+  createEffect(() => {
+    if (
+      rootStore.coord_identity?.saas_mode === true
+      && isHiddenManagedSettingsPane(params.pane)
+    ) {
+      navigate(settingsPaneHref("account"), { replace: true });
+    }
+  });
 
   // Raw URL pane — undefined when at /settings (the list root). The mobile
-  // branch reads this so no-pane shows the category list instead of forcing
-  // Machines.
-  const paneSpec = createMemo((): PaneSpec | undefined => {
-    const p = params.pane;
-    return p ? ALL_PANES.find((x) => x.id === p) : undefined;
+  // branch reads this so the category list remains the settings home.
+  const paneSpec = createMemo((): SettingsPaneSpec | undefined => {
+    const paneId = params.pane;
+    if (!paneId) return undefined;
+    for (const group of visibleSettingsGroups()) {
+      const pane = group.panes.find((candidate) => candidate.id === paneId);
+      if (pane) return pane;
+    }
+    return undefined;
   });
-  // Desktop rail/content defaults to the first pane (Machines) when none is
-  // selected — preserves the existing desktop behavior.
-  const activePane = createMemo((): PaneSpec => paneSpec() ?? ALL_PANES[0]!);
+  // Desktop rail/content defaults to the first visible pane when none is
+  // selected, preserving the profile's navigation order.
+  const activePane = createMemo((): SettingsPaneSpec => paneSpec() ?? visibleSettingsGroups()[0]!.panes[0]!);
 
   return (
     <Show when={isCompact()} fallback={
       <div class="settings-shell">
         <nav class="settings-rail" aria-label="Settings sections">
           <button type="button" class="settings-rail__brand" aria-label="Back to app" onClick={() => navigate("/")}>Settings</button>
-          <For each={GROUPS}>
+          <For each={visibleSettingsGroups()}>
             {(group) => (
               <div class="settings-rail__group">
                 <div class="settings-rail__group-label">{group.label}</div>
@@ -194,7 +187,7 @@ function MobileSettingsList() {
 
       </header>
       <div class="settings-mobile__list">
-        <For each={GROUPS}>
+        <For each={visibleSettingsGroups()}>
           {(group) => (
             <div class="settings-mobile__group">
               <div class="settings-mobile__group-label">{group.label}</div>
@@ -221,7 +214,7 @@ function MobileSettingsList() {
 }
 
 // ── Mobile settings DETAIL (/settings/:pane) ──────────────────────
-function MobileSettingsDetail(props: { spec: PaneSpec }) {
+function MobileSettingsDetail(props: { spec: SettingsPaneSpec }) {
   const navigate = useNavigate();
   return (
     <div class="settings-mobile__main">

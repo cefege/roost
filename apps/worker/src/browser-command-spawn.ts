@@ -6,27 +6,37 @@ import { log } from "@roost/shared/log";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
+import {
+	isLifecycleOutboxFullError,
+	isSessionLifecycleDurabilityError,
+} from "./session-manager.ts";
 
 export function handleKill(
 	frame: Extract<ClientControlFrame, { kind: "kill" }>,
 	request_id: string,
-	deps: { sessionMgr: SessionManager },
+	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
 ): void {
-	const { sessionMgr } = deps;
+	const { coordLink, sessionMgr } = deps;
 	const rec = sessionMgr.getBySessionId(frame.session_id);
 	if (!rec) {
-		// Orphaned session (keeper restarted out from under it). Don't
-		// silently drop the kill — emit a `closed` tombstone so coord
-		// stops showing it `open` forever. Kill is idempotent.
 		log.warn("worker", "browser_command_kill_unknown_tombstoning", {
 			session_id: frame.session_id,
 			request_id,
 		});
-		sessionMgr.emitClosedTombstone(frame.session_id);
+		try {
+			sessionMgr.emitClosedTombstone(frame.session_id);
+		} catch (error) {
+			if (isSessionLifecycleDurabilityError(error)) throw error;
+			if (!isLifecycleOutboxFullError(error)) throw error;
+			coordLink.send({
+				kind: "rpc-error",
+				request_id,
+				message: "session lifecycle outbox full",
+			});
+		}
 		return;
 	}
 	sessionMgr.kill(rec.channelId);
-	return;
 }
 
 export function handleSpawnShell(
@@ -35,14 +45,14 @@ export function handleSpawnShell(
 	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
 ): void {
 	const { coordLink, sessionMgr } = deps;
-	sessionMgr
-		.spawnShell(
-			frame.folder,
-			frame.cols,
-			frame.rows,
-			frame.session_id,
-		)
-		.then((rec) => {
+	void (async () => {
+		try {
+			const rec = await sessionMgr.spawnShell(
+				frame.folder,
+				frame.cols,
+				frame.rows,
+				frame.session_id,
+			);
 			coordLink.send({
 				kind: "rpc-ok",
 				request_id,
@@ -51,14 +61,15 @@ export function handleSpawnShell(
 					channel_id: rec.channelId,
 				},
 			});
-		})
-		.catch((err) => {
+		} catch (err) {
+			if (isSessionLifecycleDurabilityError(err)) throw err;
 			coordLink.send({
 				kind: "rpc-error",
 				request_id,
 				message: err instanceof Error ? err.message : String(err),
 			});
-		});
+		}
+	})();
 }
 
 
@@ -86,14 +97,14 @@ export function handleRespawnIfMissing(
 	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
 ): void {
 	const { coordLink, sessionMgr } = deps;
-	sessionMgr
-		.respawnIfMissing(
-			frame.session_id,
-			frame.cwd,
-			frame.cols,
-			frame.rows,
-		)
-		.then((rec) => {
+	void (async () => {
+		try {
+			const rec = await sessionMgr.respawnIfMissing(
+				frame.session_id,
+				frame.cwd,
+				frame.cols,
+				frame.rows,
+			);
 			coordLink.send({
 				kind: "rpc-ok",
 				request_id,
@@ -101,16 +112,18 @@ export function handleRespawnIfMissing(
 					session_id: rec.sessionId,
 					channel_id: rec.channelId,
 					already_live:
-						rec.sessionId === frame.session_id && rec.cwd === frame.cwd,
+						rec.sessionId === frame.session_id
+						&& rec.cwd === frame.cwd,
 				},
 			});
-		})
-		.catch((err) => {
+		} catch (err) {
+			if (isSessionLifecycleDurabilityError(err)) throw err;
 			coordLink.send({
 				kind: "rpc-error",
 				request_id,
 				message: err instanceof Error ? err.message : String(err),
 			});
-		});
+		}
+	})();
 	return;
 }

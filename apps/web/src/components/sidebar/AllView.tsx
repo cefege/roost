@@ -17,6 +17,8 @@ import { SidebarEmptyState } from "./SidebarEmptyState.tsx";
 import { SessionRow } from "./SessionRow.tsx";
 import { FolderList } from "./FolderList.tsx";
 import { BrandMark } from "../BrandMark.tsx";
+import { settingsPaneHref } from "../../routes.ts";
+import { resolveSettingsPaneForMode } from "../Settings/settingsNavigation.ts";
 import "@material/web/iconbutton/icon-button.js";
 
 // Debounce interval for the search query → filtered-sessions recompute.
@@ -96,7 +98,10 @@ export function AllView() {
           <md-icon-button
             aria-label="Settings"
             title="Settings"
-            onClick={() => navigate("/settings/keys")}
+            onClick={() => navigate(settingsPaneHref(resolveSettingsPaneForMode(
+              "dashboard",
+              rootStore.coord_identity?.saas_mode === true,
+            )))}
             data-testid="brand-row-settings"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={{ width: "20px", height: "20px" }}>

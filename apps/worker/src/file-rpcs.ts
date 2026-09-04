@@ -29,7 +29,9 @@ function existingFilesystemPath(input: string): { display: string; filesystem: s
 // via a terminal file link. Bigger → chunk it (see AttachFileChunk for the
 // reverse direction). Base64 in one response = ~1.33× in RAM, fine occasionally.
 const READ_FILE_MAX_BYTES = 25 * 1024 * 1024;
-const READ_FILE_CHUNK_MAX_BYTES = 4 * 1024 * 1024;
+const READ_FILE_CHUNK_MAX_BYTES = 2 * 1024 * 1024;
+// RPC replies are JSON/base64 inside CoordWorkerUp. Keep encoded payload plus
+// protobuf framing below coord's 4 MiB worker-WebSocket admission ceiling.
 const LIST_DIR_MAX_ENTRIES = 200;
 
 export type RpcReply =

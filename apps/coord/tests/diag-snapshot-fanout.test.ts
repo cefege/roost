@@ -45,6 +45,8 @@ describe("coordinator diagnostic worker fan-out", () => {
     let lateRequestId = "";
     const responding: WorkerHandle = {
       workerFp: RESPONDING_FP,
+      revoked: false,
+      ready: true,
       send(frame) {
         const requestId = diagnosticRequestId(frame);
         expect(resolvePendingRpc(requestId, { spoofed: true }, TIMED_OUT_FP)).toBe(false);
@@ -54,6 +56,8 @@ describe("coordinator diagnostic worker fan-out", () => {
     };
     const timedOut: WorkerHandle = {
       workerFp: TIMED_OUT_FP,
+      revoked: false,
+      ready: true,
       send(frame) {
         lateRequestId = diagnosticRequestId(frame);
         return 1;

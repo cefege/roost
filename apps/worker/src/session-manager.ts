@@ -6,189 +6,44 @@ import * as emit from "./session-emit.ts";
 import * as gitPorts from "./session-git-ports.ts";
 import * as spawnFns from "./session-spawn.ts";
 import * as resumeFns from "./session-resume.ts";
+import * as respawnFns from "./session-respawn.ts";
 import * as lifecycle from "./session-lifecycle.ts";
 import * as terminalControl from "./session-terminal-control.ts";
 import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
-import type { TerminalControlLane, KeeperAdmissionLane } from "./session-control-lanes.ts";
-import type { TerminalStreamState } from "./session-terminal-state.ts";
-import type { CellGateSuppression } from "./session-emit.ts";
-import type { SyncOutputHold } from "./session-sync-output.ts";
+import { SessionManagerState } from "./session-manager-state.ts";
 import { releaseSyncOutputHold } from "./session-sync-output.ts";
 import { diagSnapshot } from "./session-diag-snapshot.ts";
 import { _enqueueRawMetadata } from "./session-raw-metadata.ts";
-import type { TerminalRequestBudget, TerminalCellSendResult, TransportSendResult } from "./transport/coord-link-types.ts";
+import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
+import { WORKER_SNAPSHOT_MAX_SESSIONS } from "./transport/coord-link-constants.ts";
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
-import { log } from "@roost/shared/log";
 import { asChannelId } from "@roost/shared/wire";
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { SessionEventSink } from "./event-sink.ts";
+import {
+	isFatalSessionEventError,
+	SessionLifecycleOutboxFullError,
+	type DurableLifecycleKind,
+	type LifecycleReservation,
+} from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
-import type { SessionId, ChannelId, WorkerFp, SessionEvent } from "@roost/shared/wire";
-import { STRAY_REAP_INTERVAL_MS } from "./session-constants.ts";
+import type { SessionId, ChannelId, SessionEvent } from "@roost/shared/wire";
 import type { SessionRecord, SessionShellRecord } from "./session-record.ts";
 import type { ShellSpec } from "./shell-spec.ts";
 export type { SessionRecord, SessionShellRecord } from "./session-record.ts";
-interface PendingRawMetadataFrame {
-	endSeq: number;
-	bytes: Uint8Array;
+export function isLifecycleOutboxFullError(
+	error: unknown,
+): error is SessionLifecycleOutboxFullError {
+	return error instanceof SessionLifecycleOutboxFullError;
 }
 
-interface PendingRawMetadataQueue {
-	frames: PendingRawMetadataFrame[];
-	bytes: number;
+export function isSessionLifecycleDurabilityError(error: unknown): boolean {
+	return isFatalSessionEventError(error);
 }
 
 
-export class SessionManager {
-	sessions = new Map<number, SessionRecord>();
-	_nextChannel = 1;
-	// Caller-minted UUID reservation closes the await-before-register window in
-	// session-spawn (wterm-core creation is async). Coordinator idempotency means
-	// one command should arrive, but the worker remains the final collision gate.
-	private readonly pendingSpawnSessionIds = new Set<SessionId>();
-	readonly workerFp: WorkerFp;
-	readonly sink: SessionEventSink;
-	/** One generation-addressed delivery stream per live channel. The coordinator
-	 * owns membership/SCD; the worker only applies this already-aggregated state. */
-	terminalStreams = new Map<number, TerminalStreamState>();
-	private terminalStreamVersion = 0;
+
+export class SessionManager extends SessionManagerState {
 	nextTerminalStreamVersion(): number {
 		return ++this.terminalStreamVersion;
-	}
-	// Last geometry proven by spawn/adoption or an acknowledged keeper resize.
-	lastAppliedSize = new Map<number, { cols: number; rows: number }>();
-	// Per-channel coalesce timer for cell deltas. A burst of terminal output
-	// marks the channel dirty; one delta ships the latest grid per
-	// CELL_EMIT_COALESCE_MS.
-	cellEmitTimers = new Map<number, ReturnType<typeof setTimeout> | null>();
-	cellDirty = new Set<number>();
-	// Raw PTY bytes are coordinator-only metadata input. Stage them separately
-	// from cells so ready cell frames lead, while retaining FIFO byte order.
-	rawMetadataQueues = new Map<number, PendingRawMetadataQueue>();
-	rawMetadataTimers = new Map<number, NodeJS.Timeout | null>();
-	rawMetadataQueuedBytes = 0;
-	// One-shot latency hint: the first PTY chunk after an admitted input may
-	// bypass an already-armed trailing cell timer.
-	inputSensitiveChannels = new Set<number>();
-	// A dropped delta is never guessed forward. The next writable edge emits
-	// one authoritative full repair for that channel.
-	pendingCellRepairs = new Set<number>();
-	// An authoritative full snapshot requested while DEC synchronized output is
-	// open must land at the application's paint boundary, not split its atomic
-	// repaint. Separate from transport-drop repair: the latter deliberately
-	// suppresses output until the worker link reports writable.
-	pendingSyncCellSnapshots = new Set<number>();
-	strayReaperTimer: ReturnType<typeof setInterval> | null = null;
-	// channelId -> consecutive sweeps seen as a stray (see STRAY_REAP_STRIKES).
-	strayStrikes = new Map<number, number>();
-	// Full terminal-control transactions are serialized per channel. Live resize
-	// mutates the existing core at the keeper result-frame boundary; no ordinary
-	// control operation allocates a replacement core.
-	// Mutual exclusion for whole terminal-control transactions; see
-	// session-control-lanes.ts for why this is separate from the write lane.
-	terminalControlChains = new Map<number, TerminalControlLane>();
-	// Receive-order lane for keeper WRITES (resize request, status query, input,
-	// query reply). Held only across a write, never across an ACK.
-	keeperAdmissionLane = new Map<number, KeeperAdmissionLane>();
-	// Highest resize sequence this worker has WRITTEN for the channel (reserved at
-	// write time, not at ACK time).
-	channelResizeSeq = new Map<number, number>();
-	cellEmissionGates = new Set<number>();
-	// has suppressed — so a stalled emitter is attributable from the snapshot.
-	cellGateSuppression = new Map<number, CellGateSuppression>();
-	// Open DEC 2026 synchronized-output frames, one per channel. Bounded by an
-	// armed wall ceiling and a pending-row ceiling so an application that opens a
-	// synchronized frame and never closes it cannot withhold cell frames forever.
-	syncOutputHolds = new Map<number, SyncOutputHold>();
-	// Channels whose core reported a SATURATED OSC 8 link table on the last cell
-	// emit. Edge state only, so the Tier-1 signal fires once per flip instead of
-	// once per frame; a core rebuild empties the table and clears the flag.
-	hyperlinkSaturated = new Set<number>();
-	// Structured raw-metadata sink. Passing fields directly avoids constructing
-	// and immediately reparsing the old private 11-byte header.
-	readonly sendBinaryUpstream:
-		| ((
-			channelId: number,
-			direction: number,
-			endSeq: number,
-			bytes: Uint8Array,
-		) => TransportSendResult | void)
-		| null;
-	readonly sendCellGridUpstream:
-		| ((channelId: number, frame: PbCellGridFrame) => TerminalCellSendResult | void)
-		| null;
-	readonly sendCellGridChunkUpstream:
-		| ((channelId: number, chunk: PbCellGridChunk) => TerminalCellSendResult | void)
-		| null;
-
-	// Sliding-window timestamps of emit_no_session events → keeper.degraded.
-	_noSessionBurst: number[] = [];
-
-	// channelId → closedAtMs. A post-close tail emit within RECENTLY_CLOSED_TTL_MS
-	// is benign and must NOT count toward _noSessionBurst (else it re-trips
-	// keeper.degraded after every reconcile → restart loop).
-	recentlyClosed = new Map<number, number>();
-	// Sliding-window timestamps of dead-births (spawn → instant zero-byte exit)
-	// → keeper.degraded via the same onKeeperDegraded self-heal.
-	_deadBirthBurst: number[] = [];
-	// Fired when keeper degradation is detected (sustained emit_no_session). main.ts
-	// wires this to a grace-gated keeper restart so a degraded survivor self-heals
-	// instead of birthing dead PTYs until a manual restart ("can't input").
-	onKeeperDegraded: (() => void) | null = null;
-	onTerminalChanged: ((channelId: number) => void) | null = null;
-	onSessionClosed: ((sessionId: string) => void) | null = null;
-
-	setAgentStatusHooks(hooks: {
-		terminalChanged: (channelId: number) => void;
-		sessionClosed: (sessionId: string) => void;
-	}): void {
-		this.onTerminalChanged = hooks.terminalChanged;
-		this.onSessionClosed = hooks.sessionClosed;
-	}
-
-	setOnKeeperDegraded(fn: () => void): void {
-		this.onKeeperDegraded = fn;
-	}
-
-	constructor(opts: {
-		workerFp: WorkerFp;
-		sink: SessionEventSink;
-		sendBinaryUpstream?: (
-			channelId: number,
-			direction: number,
-			endSeq: number,
-			bytes: Uint8Array,
-		) => TransportSendResult | void;
-		sendCellGridUpstream?: (
-			channelId: number,
-			frame: PbCellGridFrame,
-		) => TerminalCellSendResult | void;
-		sendCellGridChunkUpstream?: (
-			channelId: number,
-			chunk: PbCellGridChunk,
-		) => TerminalCellSendResult | void;
-	}) {
-		this.workerFp = opts.workerFp;
-		this.sink = opts.sink;
-		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
-		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
-		this.sendCellGridChunkUpstream = opts.sendCellGridChunkUpstream ?? null;
-		// Reverse-reap sweep (see STRAY_REAP_INTERVAL_MS): kill keeper PTYs the
-		// worker no longer tracks so a deleted session's process can't outlive it.
-		this.strayReaperTimer = setInterval(
-			() => void this.reapStrayKeeperChannels(),
-			STRAY_REAP_INTERVAL_MS,
-		);
-		// Eager-init the multiplexed keeper pool so the UDS connect is paid
-		// at boot rather than on first spawn. Legacy per-session keepers
-		// were removed 2026-06-15 — mux is the only path.
-		getMultiplexedPool()
-			.ensure()
-			.catch((err) =>
-				log.warn("session-manager", "mux_keeper_init_failed", {
-					error: String(err),
-				}),
-			);
 	}
 
 
@@ -196,8 +51,20 @@ export class SessionManager {
 		return asChannelId(this._nextChannel++);
 	}
 
-	emitEvent(event: SessionEvent): void {
-		this.sink.emit(event);
+	reserveLifecycleEvent(kind: DurableLifecycleKind): LifecycleReservation {
+		return this.sink.reserveLifecycleEvent(kind);
+	}
+
+	holdLifecycleEvent(reservation: LifecycleReservation): void {
+		this.sink.holdLifecycleEvent(reservation);
+	}
+
+	releaseLifecycleEvent(reservation: LifecycleReservation): void {
+		this.sink.releaseLifecycleEvent(reservation);
+	}
+
+	emitEvent(event: SessionEvent, reservation?: LifecycleReservation): void {
+		this.sink.emit(event, reservation);
 	}
 
 	hasChannel(channelId: number): boolean {
@@ -354,6 +221,7 @@ export class SessionManager {
 		cols?: number,
 		rows?: number,
 		targetSessionId?: SessionId,
+		existingLogicalSession = false,
 	): Promise<SessionRecord> {
 		if (
 			targetSessionId
@@ -364,32 +232,119 @@ export class SessionManager {
 		) {
 			return Promise.reject(new Error(`session ${targetSessionId} is already live or spawning`));
 		}
+		if (
+			!existingLogicalSession
+			&& this.sessions.size + this.pendingSnapshotSessionAdmissions >= WORKER_SNAPSHOT_MAX_SESSIONS
+		) {
+			return Promise.reject(new Error("worker session snapshot limit reached"));
+		}
+		const countedAdmission = !existingLogicalSession;
+		if (countedAdmission) this.pendingSnapshotSessionAdmissions += 1;
+		let openedReservation: LifecycleReservation;
+		try {
+			openedReservation = this.reserveLifecycleEvent("opened");
+		} catch (error) {
+			if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
+			throw error;
+		}
+		let closeReservation: LifecycleReservation;
+		try {
+			closeReservation = this.reserveLifecycleEvent("closed");
+		} catch (error) {
+			this.releaseLifecycleEvent(openedReservation);
+			if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
+			throw error;
+		}
 		if (targetSessionId) this.pendingSpawnSessionIds.add(targetSessionId);
-		const spawned = spawnFns.spawnShell.call(
+		return spawnFns.spawnShell.call(
 			this,
 			cwd,
 			cols,
 			rows,
 			targetSessionId,
+			openedReservation,
+			closeReservation,
+		).finally(() => {
+			if (targetSessionId) this.pendingSpawnSessionIds.delete(targetSessionId);
+			if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
+		});
+	}
+
+
+
+
+	async respawnIfMissing(
+		sessionId: SessionId,
+		cwd: string,
+		cols: number,
+		rows: number,
+	): Promise<SessionRecord> {
+		const existing = this.getBySessionId(sessionId);
+		if (existing) return existing;
+		if (this.pendingSpawnSessionIds.has(sessionId)) {
+			throw new Error(`session ${sessionId} is already live or spawning`);
+		}
+		this.pendingSpawnSessionIds.add(sessionId);
+		try {
+			await this.respawn({
+				oldSessionId: sessionId,
+				cwd,
+				kind: "shell",
+				cols,
+				rows,
+			});
+			const respawned = this.getBySessionId(sessionId);
+			if (!respawned) {
+				throw new Error(`respawned session ${sessionId} is not live`);
+			}
+			return respawned;
+		} finally {
+			this.pendingSpawnSessionIds.delete(sessionId);
+		}
+	}
+
+	resume(
+		opts: { sessionId: SessionId; channelId: ChannelId; kind: "shell"; cwd: string; shellSpec: ShellSpec },
+		closeReservation?: LifecycleReservation,
+	): Promise<boolean> {
+		return resumeFns.resume.call(
+			this,
+			opts,
+			closeReservation ?? this.reserveLifecycleEvent("closed"),
 		);
-		return targetSessionId
-			? spawned.finally(() => this.pendingSpawnSessionIds.delete(targetSessionId))
-			: spawned;
 	}
 
-
-
-
-	respawnIfMissing(sessionId: SessionId, cwd: string, cols: number, rows: number): Promise<SessionRecord> {
-		return spawnFns.respawnIfMissing.call(this, sessionId, cwd, cols, rows);
-	}
-
-	resume(opts: { sessionId: SessionId; channelId: ChannelId; kind: "shell"; cwd: string; shellSpec: ShellSpec }): Promise<boolean> {
-		return resumeFns.resume.call(this, opts);
-	}
-
-	respawn(opts: { oldSessionId: SessionId; cwd: string; kind: "shell"; cols?: number; rows?: number; shellSpec?: ShellSpec }): Promise<void> {
-		return resumeFns.respawn.call(this, opts);
+	respawn(
+		opts: { oldSessionId: SessionId; cwd: string; kind: "shell"; cols?: number; rows?: number; shellSpec?: ShellSpec },
+		reservations?: {
+			event: LifecycleReservation;
+			close: LifecycleReservation;
+		},
+	): Promise<void> {
+		if (reservations) {
+			return respawnFns.respawn.call(
+				this,
+				opts,
+				reservations.event,
+				reservations.close,
+				false,
+			);
+		}
+		const eventReservation = this.reserveLifecycleEvent("respawned");
+		let closeReservation: LifecycleReservation;
+		try {
+			closeReservation = this.reserveLifecycleEvent("closed");
+		} catch (error) {
+			this.releaseLifecycleEvent(eventReservation);
+			throw error;
+		}
+		return respawnFns.respawn.call(
+			this,
+			opts,
+			eventReservation,
+			closeReservation,
+			true,
+		);
 	}
 
 	advanceChannelCounterPastKeeper(): Promise<void> {
@@ -400,8 +355,11 @@ export class SessionManager {
 		return lifecycle.reapStrayKeeperChannels.call(this);
 	}
 
-	emitClosedTombstone(sessionId: SessionId): void {
-		return lifecycle.emitClosedTombstone.call(this, sessionId);
+	emitClosedTombstone(
+		sessionId: SessionId,
+		reservation?: LifecycleReservation,
+	): void {
+		return lifecycle.emitClosedTombstone.call(this, sessionId, reservation);
 	}
 
 	kill(channelId: number): void {

@@ -6,10 +6,10 @@ import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
 import {
   ACTIVITY_COL, FIRST_INPUT_ROW, NARROW_TALL_VIEWPORT, RESIZED_NARROW_VIEWPORT,
   RESIZED_WIDE_VIEWPORT, SECOND_INPUT_ROW, WIDE_SHORT_VIEWPORT, applyNumericUpdate,
-  expectHistoryAnchorPreserved, expectMarkersOnce, expectedMinimum, forceHidden,
-  forceVisible, htopFrame, integer, nonEmptyString, numericUpdate,
-  readBackfillRequestCount, viewportText, waitForHistoryAnchor, waitForPainted,
-  waitForTransition,
+  expectHistoryAnchorPreserved, expectMarkersOnce, expectReaderReframeHeld,
+  expectedMinimum, forceHidden, forceVisible, htopFrame, integer, nonEmptyString,
+  numericUpdate, readBackfillRequestCount, readPaintedScrollback, viewportText,
+  waitForHistoryAnchor, waitForPainted, waitForTransition,
 } from "./terminal-multiview-helpers.ts";
 
 
@@ -75,8 +75,8 @@ test("independent browsers share one continuous terminal replica and effective g
   expect(wideSolo.control.rows).toBe(firstCombined.control.rows);
 
   // Build known normal-screen history, then express real passive-reader intent
-  // with a wheel gesture. The global row/text anchor must survive both the
-  // narrow viewer's width-changing join and its withdrawal/refetch boundary.
+  // with a wheel gesture. Geometry reframes must advance canonical state
+  // off-DOM while the anchor and already-painted history remain fixed.
   const historyPrefix = `MV-HISTORY-${suffix}-`;
   const historyCount = 2_300;
   await inputSmokeTerminal(widePage, sessionId, encodePtyFixtureCommand({
@@ -92,11 +92,6 @@ test("independent browsers share one continuous terminal replica and effective g
   await widePage.mouse.wheel(0, -2_400);
   const historyAnchor = await waitForHistoryAnchor(widePage, sessionId, historyPrefix);
   const readerBeforeJoin = await readTerminalStreamProbe(widePage, sessionId);
-  const readerEpochBeforeJoin = nonEmptyString(
-    readerBeforeJoin.browser.replica.grid_epoch,
-    "reader replica epoch before narrow join",
-  );
-  const backfillsBeforeJoin = await readBackfillRequestCount(widePage, sessionId);
 
   await forceHidden(narrowPage, false);
   const joinedHistory = await waitForTransition(pages, sessionId, {
@@ -108,14 +103,9 @@ test("independent browsers share one continuous terminal replica and effective g
   });
   expect(joinedHistory.control.streamId).not.toBe(currentStreamId);
   currentStreamId = joinedHistory.control.streamId;
-  expect(joinedHistory.probes[0]!.browser.replica.grid_epoch).not.toBe(readerEpochBeforeJoin);
+  expectReaderReframeHeld(readerBeforeJoin, joinedHistory.probes[0]!, crossedMinimum);
   await expectHistoryAnchorPreserved(widePage, sessionId, historyAnchor);
-  await expect.poll(
-    () => readBackfillRequestCount(widePage, sessionId),
-    { timeout: 30_000, intervals: [50, 100, 250] },
-  ).toBeGreaterThan(backfillsBeforeJoin);
   await waitForPainted(narrowPage, sessionId, `${historyPrefix}${historyCount}`);
-  const backfillsBeforeRelease = await readBackfillRequestCount(widePage, sessionId);
 
   await forceHidden(narrowPage, true);
   const releasedHistory = await waitForTransition(pages, sessionId, {
@@ -128,14 +118,12 @@ test("independent browsers share one continuous terminal replica and effective g
   });
   expect(releasedHistory.control.streamId).not.toBe(currentStreamId);
   currentStreamId = releasedHistory.control.streamId;
-  expect(releasedHistory.probes[0]!.browser.replica.grid_epoch)
-    .not.toBe(joinedHistory.probes[0]!.browser.replica.grid_epoch);
+  expectReaderReframeHeld(
+    joinedHistory.probes[0]!,
+    releasedHistory.probes[0]!,
+    { cols: wideSolo.control.cols, rows: wideSolo.control.rows },
+  );
   await expectHistoryAnchorPreserved(widePage, sessionId, historyAnchor);
-  await expect.poll(
-    () => readBackfillRequestCount(widePage, sessionId),
-    { timeout: 30_000, intervals: [50, 100, 250] },
-  ).toBeGreaterThan(backfillsBeforeRelease);
-  const backfillsBeforeRejoin = await readBackfillRequestCount(widePage, sessionId);
 
   await forceHidden(narrowPage, false);
   const rejoinedHistory = await waitForTransition(pages, sessionId, {
@@ -147,11 +135,8 @@ test("independent browsers share one continuous terminal replica and effective g
   });
   expect(rejoinedHistory.control.streamId).not.toBe(currentStreamId);
   currentStreamId = rejoinedHistory.control.streamId;
+  expectReaderReframeHeld(releasedHistory.probes[0]!, rejoinedHistory.probes[0]!, crossedMinimum);
   await expectHistoryAnchorPreserved(widePage, sessionId, historyAnchor);
-  await expect.poll(
-    () => readBackfillRequestCount(widePage, sessionId),
-    { timeout: 30_000, intervals: [50, 100, 250] },
-  ).toBeGreaterThan(backfillsBeforeRejoin);
   await widePage.mouse.wheel(0, 100_000);
   await expect.poll(async () => {
     const presentation = (await readTerminalStreamProbe(widePage, sessionId)).browser.presentation;
@@ -163,6 +148,33 @@ test("independent browsers share one continuous terminal replica and effective g
     streamId: currentStreamId,
     geometry: crossedMinimum,
   });
+  const wideCurrent = liveCombined.probes[0]!.browser;
+  expect(wideCurrent.handler_canonical).toEqual(wideCurrent.dom_reconciled);
+  expect(wideCurrent.presentation?.canonical).toEqual(wideCurrent.handler_canonical);
+  expect(wideCurrent.presentation?.reconciled).toEqual(wideCurrent.handler_canonical);
+
+  // A reframe never makes paging a correctness precondition. Cross the current
+  // epoch's actual unpainted boundary before requiring the demand-only RPC.
+  const backfillsBeforeDemand = await readBackfillRequestCount(widePage, sessionId);
+  const paintedBeforeDemand = await readPaintedScrollback(widePage, sessionId);
+  expect(paintedBeforeDemand.headSpacerPx).toBeGreaterThan(0);
+  await widePage.evaluate((id) => {
+    const container = document.querySelector(
+      `[data-testid="terminal-slot-${id}"] .wterm.cell-grid`,
+    );
+    if (!(container instanceof HTMLElement)) throw new Error("terminal cell grid missing");
+    container.scrollTop = 0;
+    container.dispatchEvent(new Event("scroll"));
+  }, sessionId);
+  await expect.poll(
+    () => readBackfillRequestCount(widePage, sessionId),
+    { timeout: 30_000, intervals: [50, 100, 250] },
+  ).toBeGreaterThan(backfillsBeforeDemand);
+  await widePage.mouse.wheel(0, 100_000);
+  await expect.poll(async () => {
+    const presentation = (await readTerminalStreamProbe(widePage, sessionId)).browser.presentation;
+    return { intent: presentation?.reader_intent ?? null, atBottom: presentation?.at_bottom ?? false };
+  }, { timeout: 30_000, intervals: [50, 100, 250] }).toEqual({ intent: "live", atBottom: true });
 
   // Paint htop-shaped static chrome once. Every later alternate-screen write
   // before the concurrent-input phase changes numeric cells only.

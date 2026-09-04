@@ -67,6 +67,15 @@ if (typeof window !== "undefined") {
   window.addEventListener("pagehide", _flushPendingPersist);
 }
 
+/** Remove layouts whose folder, pane, and session IDs belong to an account. */
+export function clearPaneLayoutsForLogout(): void {
+  clearTimeout(_persistTimer);
+  _persistTimer = undefined;
+  for (const key of Object.keys(_record)) delete _record[key];
+  for (const [, setLayout] of _sigs.values()) setLayout(undefined);
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* quota / privacy mode */ }
+}
+
 /** Reactive stored layout for a folder bucket (undefined until seeded). */
 function rawLayout(folderKey: string): Layout | undefined {
   return _sig(folderKey)[0]();

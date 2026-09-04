@@ -18,18 +18,18 @@ import { applyAgentStatusFrame } from "./agent-status.ts";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 import { _dispatchPresence } from "./sync-dispatch.ts";
 import {
+  consumeTerminalSmokeFrameFault,
   dispatchTerminalCellChunk,
   dispatchTerminalCellFrame,
   dispatchTerminalViewState,
 } from "./terminal-stream.ts";
+import type { TerminalGenerationToken } from "./terminal-stream-types.ts";
 import {
   _handleSessionsEvent, _handlePresenceEvent, _handleWorkspacesDelta,
-  _handleTasksDelta, _handlePermissionsDelta, _handleMcpEvent,
-  _webhookDeltaSubs, _auditDeltaSubs,
+  _handleTasksDelta, _handleMcpEvent, _auditDeltaSubs,
 } from "./sync-handlers.ts";
 import {
-  _workspaceProtoToWire, _taskProtoToWire, _webhookProtoToWire,
-  _permProtoToWire, _mcpProtoToWire, _presenceProtoToWire,
+  _workspaceProtoToWire, _taskProtoToWire, _mcpProtoToWire, _presenceProtoToWire,
 } from "./sync-proto-adapters.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 
@@ -57,6 +57,21 @@ function _scheduleLastSeenPersist(): void {
 export function lastSeenSyncEventId(): number {
   return _lastSeenEventId;
 }
+/** Discard a dashboard's replay watermark before dialing another scope. A
+ * persisted global cursor could otherwise skip that dashboard's initial
+ * history; cancelling the debounce also prevents the old value being written
+ * after the reset. */
+export function resetLastSeenSyncEventId(): void {
+  _lastSeenEventId = 0;
+  clearTimeout(_persistTimer ?? undefined);
+  _persistTimer = null;
+  try {
+    localStorage.removeItem(LAST_SEEN_DB_KEY);
+  } catch {
+    // Storage is optional; the in-memory cursor is still authoritative.
+  }
+}
+
 
 // Per-frame firehose dispatch — SHARED verbatim by the WebSocket transport
 // in store/sync.ts. Every case preserved exactly, including the _lastSeenEventId bump +
@@ -88,7 +103,10 @@ function _foldDelta(
   }
 }
 
-export function _dispatchSyncFrame(frame: FirehoseFrame): boolean {
+export function _dispatchSyncFrame(
+  frame: FirehoseFrame,
+  terminalGeneration: TerminalGenerationToken | null = null,
+): boolean {
   const oneof = frame.frame;
   if (!oneof) return false;
   let consumed = true;
@@ -141,22 +159,10 @@ export function _dispatchSyncFrame(frame: FirehoseFrame): boolean {
           () => _taskProtoToWire(oneof.value),
           (wire) => _handleTasksDelta(wire));
         break;
-      case "permissionDelta":
-        consumed = _foldDelta("permissionDelta",
-          () => _permProtoToWire(oneof.value),
-          (wire) => _handlePermissionsDelta(wire));
-        break;
       case "mcpMsg":
         consumed = _foldDelta("mcpMsg",
           () => _mcpProtoToWire(oneof.value),
           (wire) => _handleMcpEvent(wire));
-        break;
-      case "webhookTokenDelta":
-        consumed = _foldDelta("webhookTokenDelta", () => _webhookProtoToWire(oneof.value), (wire) => {
-          for (const sub of _webhookDeltaSubs) {
-            try { sub(wire); } catch (e) { diag("sync.delta_sub_failed", { frame: "webhookToken", error: String(e) }); }
-          }
-        });
         break;
       case "auditRow": {
         // typed proto AuditRow → legacy wire shape for AuditLogPane.
@@ -185,14 +191,49 @@ export function _dispatchSyncFrame(frame: FirehoseFrame): boolean {
           stream_id: cell.streamId,
           seq: Number(cell.seq),
         });
-        dispatchTerminalCellFrame(cell);
+        if (!terminalGeneration) {
+          consumed = false;
+          break;
+        }
+        if (
+          import.meta.env.VITE_ROOST_SMOKE === "1"
+          && consumeTerminalSmokeFrameFault(
+            cell.sessionId,
+            terminalGeneration,
+            "frame",
+            cell.full,
+            Number(cell.seq),
+          )
+        ) break;
+        dispatchTerminalCellFrame(cell, terminalGeneration);
         break;
       }
-      case "cellGridChunk":
-        dispatchTerminalCellChunk(oneof.value);
+      case "cellGridChunk": {
+        if (!terminalGeneration) {
+          consumed = false;
+          break;
+        }
+        const part = oneof.value.part;
+        if (
+          import.meta.env.VITE_ROOST_SMOKE === "1"
+          && part
+          && consumeTerminalSmokeFrameFault(
+            part.sessionId,
+            terminalGeneration,
+            "chunk",
+            part.full,
+            null,
+          )
+        ) break;
+        dispatchTerminalCellChunk(oneof.value, terminalGeneration);
         break;
+      }
       case "terminalViewState":
-        dispatchTerminalViewState(oneof.value);
+        if (!terminalGeneration) {
+          consumed = false;
+          break;
+        }
+        dispatchTerminalViewState(oneof.value, terminalGeneration);
         break;
       case "sessionPresence": {
         try {

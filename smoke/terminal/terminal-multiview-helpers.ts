@@ -264,6 +264,44 @@ async function expectHistoryAnchorPreserved(
   expect(painted.headSpacerPx).toBeGreaterThan(0);
 }
 
+function expectReaderReframeHeld(
+  previous: TerminalStreamProbe,
+  current: TerminalStreamProbe,
+  geometry: EffectiveGeometry,
+): void {
+  const previousPresentation = previous.browser.presentation;
+  const presentation = current.browser.presentation;
+  if (!previousPresentation || !presentation) {
+    throw new Error("reader reframe omitted renderer presentation state");
+  }
+  const previousCanonical = previous.browser.handler_canonical;
+  const canonical = current.browser.handler_canonical;
+  nonEmptyString(previousCanonical.grid_epoch, "previous reader canonical epoch");
+  nonEmptyString(canonical.grid_epoch, "current reader canonical epoch");
+  integer(previousCanonical.seq, "previous reader canonical sequence", 1);
+  integer(canonical.seq, "current reader canonical sequence", 1);
+  expect(canonical.grid_epoch).not.toBe(previousCanonical.grid_epoch);
+  expect(canonical).toEqual({
+    grid_epoch: current.browser.replica.grid_epoch,
+    seq: current.browser.replica.seq,
+  });
+  expect(current.browser.wire_received).toEqual({
+    stream_id: current.browser.replica.expected_stream_id,
+    ...canonical,
+  });
+  expect(current.browser.dom_reconciled).toEqual(previous.browser.dom_reconciled);
+  expect(presentation).toMatchObject({
+    canonical,
+    reconciled: previous.browser.dom_reconciled,
+    reader_intent: "reading",
+    reader_reason: "wheel",
+    hold_mask: { selection: false, link: false },
+    rows: { canonical: geometry.rows, dom: previousPresentation.rows.dom },
+    cols: { canonical: geometry.cols, dom: previousPresentation.cols.dom },
+  });
+  expect(current.browser.reconcile_block_reason).toBe("reader_pending_frame");
+}
+
 async function forceVisible(page: Page, visible: boolean): Promise<void> {
   await page.evaluate((on) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
@@ -346,8 +384,8 @@ async function applyNumericUpdate(
 export {
   ACTIVITY_COL, FIRST_INPUT_ROW, NARROW_TALL_VIEWPORT, RESIZED_NARROW_VIEWPORT,
   RESIZED_WIDE_VIEWPORT, SECOND_INPUT_ROW, WIDE_SHORT_VIEWPORT, applyNumericUpdate,
-  expectHistoryAnchorPreserved, expectMarkersOnce, expectedMinimum, forceHidden,
-  forceVisible, htopFrame, integer, nonEmptyString, numericUpdate,
-  readBackfillRequestCount, viewportText, waitForHistoryAnchor, waitForPainted,
-  waitForTransition,
+  expectHistoryAnchorPreserved, expectMarkersOnce, expectReaderReframeHeld,
+  expectedMinimum, forceHidden, forceVisible, htopFrame, integer, nonEmptyString,
+  numericUpdate, readBackfillRequestCount, readPaintedScrollback, viewportText,
+  waitForHistoryAnchor, waitForPainted, waitForTransition,
 };

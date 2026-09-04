@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db/connection.ts";
@@ -9,12 +9,23 @@ const WORKER_FP = "aa".repeat(32);
 const MIGRATION_NAME = "0015_normalize_legacy_session_kinds";
 const RETIRE_MIGRATION_NAME = "0017_retire_structured_agent_sessions";
 
+const MIGRATIONS_DIR = join(import.meta.dir, "../migrations");
+function migrationsBefore(name: string): Array<{ name: string; sql: string }> {
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((file) => file.endsWith(".sql") && file.slice(0, -4) < name)
+    .sort()
+    .map((file) => ({
+      name: file.slice(0, -4),
+      sql: readFileSync(join(MIGRATIONS_DIR, file), "utf8"),
+    }));
+}
+
 test("normalizes open legacy PTY kinds while preserving closed history", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "roost-session-kind-migration-"));
   const opened = openDb(join(workdir, "test.db"));
   const { sqlite } = opened;
   try {
-    await runMigrations(sqlite);
+    await runMigrations(sqlite, migrationsBefore(MIGRATION_NAME));
     sqlite.run(
       "INSERT INTO workers (fp, label, os, git_sha, host_metrics_json, registered_at_ms, last_seen_ms, reachable_addr, keeper_stale) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [WORKER_FP, "test", "darwin", null, null, 1, 1, null, null],
@@ -31,10 +42,12 @@ test("normalizes open legacy PTY kinds while preserving closed history", async (
       "INSERT INTO sessions (id, worker_fp, channel, kind, cwd, workspace_id, status, agent_json, created_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ["closed-agent", WORKER_FP, 3, "agent", "/tmp", null, "closed", null, 1, 2],
     );
-    sqlite.run("DELETE FROM _migrations WHERE name = ?", [MIGRATION_NAME]);
 
     const sql = await Bun.file(join(import.meta.dir, "../migrations/0015_normalize_legacy_session_kinds.sql")).text();
-    await runMigrations(sqlite, [{ name: MIGRATION_NAME, sql }]);
+    await runMigrations(sqlite, [
+      ...migrationsBefore(MIGRATION_NAME),
+      { name: MIGRATION_NAME, sql },
+    ]);
 
     const rows = sqlite.query("SELECT id, kind FROM sessions ORDER BY id").all() as { id: string; kind: string }[];
     expect(rows).toEqual([
@@ -52,7 +65,7 @@ test("retires structured sessions before normalizing all history to shell", asyn
   const opened = openDb(join(workdir, "test.db"));
   const { sqlite } = opened;
   try {
-    await runMigrations(sqlite);
+    await runMigrations(sqlite, migrationsBefore(RETIRE_MIGRATION_NAME));
     sqlite.run(
       "INSERT INTO workers (fp, label, os, git_sha, host_metrics_json, registered_at_ms, last_seen_ms, reachable_addr, keeper_stale) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [WORKER_FP, "test", "darwin", null, null, 1, 1, null, null],
@@ -61,7 +74,6 @@ test("retires structured sessions before normalizing all history to shell", asyn
       "UPDATE _migrations SET applied_at = ? WHERE name = ?",
       [1_000, MIGRATION_NAME],
     );
-    sqlite.run("DELETE FROM _migrations WHERE name = ?", [RETIRE_MIGRATION_NAME]);
 
     const insertSession = sqlite.query(
       "INSERT INTO sessions (id, worker_fp, channel, kind, cwd, workspace_id, status, agent_json, created_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -85,7 +97,10 @@ test("retires structured sessions before normalizing all history to shell", asyn
     const sql = await Bun.file(
       join(import.meta.dir, "../migrations/0017_retire_structured_agent_sessions.sql"),
     ).text();
-    await runMigrations(sqlite, [{ name: RETIRE_MIGRATION_NAME, sql }]);
+    await runMigrations(sqlite, [
+      ...migrationsBefore(RETIRE_MIGRATION_NAME),
+      { name: RETIRE_MIGRATION_NAME, sql },
+    ]);
 
     const rows = sqlite.query(
       "SELECT id, kind, status, closed_at, agent_json FROM sessions ORDER BY id",

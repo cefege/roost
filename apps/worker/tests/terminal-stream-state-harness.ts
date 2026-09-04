@@ -22,6 +22,7 @@ import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import type { TerminalCellSendResult } from "../src/transport/coord-link-types.ts";
 import type { FakeKeeper } from "./keeper-fake-pool.ts";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
+import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
 export const SESSION_ID = asSessionId("11111111-2222-4333-8444-555555555555");
 export const CHANNEL_ID = asChannelId(43_211);
@@ -62,7 +63,7 @@ export async function makeHarness(
   const chunkAttempts: PbCellGridChunk[] = [];
   const manager = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
-    sink: { emit: () => {} },
+    sink: new LifecycleTestSink(),
     sendBinaryUpstream: () => "sent",
     sendCellGridUpstream: (_channelId, frame) => {
       frameAttempts.push(frame);
@@ -95,6 +96,7 @@ export async function makeHarness(
     lastPtyOutMs: 0,
     sb_origin_pin: null,
     spawnedAtMs: Date.now(),
+    closeReservation: manager.reserveLifecycleEvent("closed"),
   };
   manager.sessions.set(CHANNEL_ID, record);
   manager.lastAppliedSize.set(CHANNEL_ID, {

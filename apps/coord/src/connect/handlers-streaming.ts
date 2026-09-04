@@ -6,7 +6,7 @@ import type { ServiceImpl } from "@connectrpc/connect";
 import { ConnectError, Code } from "@connectrpc/connect";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
 import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { requireAuth } from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 
 type StreamingMethods = "sync";
@@ -23,7 +23,7 @@ export function makeStreamingHandlers(
     // declared for ServiceImpl completeness but is unimplemented so the
     // crashing abort-listener path is GONE, not merely unused.
     async *sync(_req, ctx): AsyncGenerator<FirehoseFrame> {
-      requireAuth(ctx.values);
+      requireAccountDevice(ctx.values);
       throw new ConnectError("sync moved to /ws/coord-sync", Code.Unimplemented);
     },
   };

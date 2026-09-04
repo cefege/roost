@@ -13,10 +13,11 @@ import { coordClient } from "../../connect.ts";
 import { rootStore } from "../../store/root.ts";
 import { sendUserTerminalInput } from "../../lib/userTerminalInput.ts";
 import { getShortPathPref, setShortPathPref } from "../../lib/attachments.ts";
+import { safeAttachmentInsertion } from "../../lib/attachmentInsertion.ts";
 import { Card, Button, EmptyState, List, ListRow, Icon, Switch, Select } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
 import { isPageVisible } from "../../lib/pageVisible.ts";
-import { supportedWorkerPlatform, workerPathBasename } from "../../lib/nativePath.ts";
+import { supportedWorkerPlatform, workerPathBasename, workerPathPlatform } from "../../lib/nativePath.ts";
 
 function formatAge(mtimeMs: number): string {
   const ageMs = Date.now() - mtimeMs;
@@ -92,8 +93,20 @@ export function AttachmentsPane() {
     },
   );
 
-  async function injectPath(sid: string, absPath: string): Promise<void> {
-    const admission = sendUserTerminalInput(sid, new TextEncoder().encode(absPath + " "));
+  function insertionFor(absPath: string): string | null {
+    const session = selectedSession();
+    return session
+      ? safeAttachmentInsertion(workerPathPlatform(session.worker_fp, absPath), absPath)
+      : null;
+  }
+  async function injectPath(absPath: string): Promise<void> {
+    const session = selectedSession();
+    const insertion = insertionFor(absPath);
+    if (!session || insertion === null) return;
+    const admission = sendUserTerminalInput(
+      session.id,
+      new TextEncoder().encode(insertion + " "),
+    );
     if (!admission.accepted) {
       setStatusMsg(`Inject failed: ${admission.reason}`);
       return;
@@ -222,9 +235,11 @@ export function AttachmentsPane() {
                       }
                       trailing={
                         <>
-                          <Button variant="text" icon="content_paste_go" onClick={() => sid && injectPath(sid, entry.absPath)}>
-                            Inject
-                          </Button>
+                          <Show when={insertionFor(entry.absPath) !== null}>
+                            <Button variant="text" icon="content_paste_go" onClick={() => void injectPath(entry.absPath)}>
+                              Inject
+                            </Button>
+                          </Show>
                           <Button variant="text" icon="content_copy" onClick={() => copyPathToClipboard(entry.absPath)}>
                             Copy
                           </Button>

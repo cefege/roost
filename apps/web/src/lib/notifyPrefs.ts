@@ -79,7 +79,12 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
   });
 }
 
-export function resetNotifyPrefsForTest(): void {
+/** Reset Push-related browser state when its owning account signs out. */
+export function clearNotificationStateForLogout(): void {
   setPrefs({ ...DEFAULTS });
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
+}
+
+export function resetNotifyPrefsForTest(): void {
+  clearNotificationStateForLogout();
 }

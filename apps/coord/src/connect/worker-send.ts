@@ -1,29 +1,38 @@
-// Outbound worker frames: the socket-shape shim the router/files/scrollback
-// use, plus the browser-command and attachment-chunk senders. Each resolves
-// the target worker through the shared connectWorkers registry and writes a
-// CoordWorkerDown frame on its live send handle.
+// Routes browser, terminal-control, attachment, and maintenance frames to the
+// worker generation currently authoritative in the shared registry.
+// Request/response sends retain their pending-RPC deadline so socket admission
+// is never confused with completion by the keeper or update broker.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
   CoordWorkerDownSchema, DBrowserCommandSchema, DBinarySchema, DAttachmentChunkSchema,
-  DCoordMovePrepareSchema, DCoordMoveSnapshotStartSchema, DCoordMoveSnapshotChunkSchema, DCoordRelocateSchema,
   DInputRequestSchema, DTerminalStreamStateSchema, DTerminalSnapshotRequestSchema,
   type WInputResult, type WTerminalStreamResult,
-  DUpdateBrokerSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import { connectWorkers } from "./worker-registry.ts";
 import { createPendingRpc, rejectPendingRpcUnavailable } from "../router/pending-rpcs.ts";
 import { log } from "@roost/shared/log";
+import { currentRoutableWorker } from "./worker-send-target.ts";
+export {
+  sendCoordinatorMovePrepare,
+  sendCoordinatorRelocate,
+  sendCoordinatorSnapshotChunk,
+  sendCoordinatorSnapshotStart,
+  sendWindowsUpdateBroker,
+} from "./worker-send-maintenance.ts";
 
 /** Socket-shape shim: presents the worker-conn registry to call sites
  * as a `.send(string|Uint8Array)` handle so router.ts/files.ts/scrollback
  * don't have to know which transport is underneath. */
 export function getWorkerHubSocket(workerFp: string): { send(data: string | Uint8Array): void } | null {
-  const w = connectWorkers.get(workerFp);
+  const w = currentRoutableWorker(workerFp);
   if (!w) return null;
   return {
     send(data: string | Uint8Array): void {
+      if (!w.ready || w.revoked || connectWorkers.get(workerFp) !== w) {
+        throw new Error("worker offline");
+      }
       // Hot path (PTY bytes, browser commands): callers in router/files/
       // scrollback assume this never throws. w.send now surfaces transport
       // failures, so contain them here.
@@ -56,6 +65,7 @@ export function getWorkerHubSocket(workerFp: string): { send(data: string | Uint
         }
       } catch (e) {
         log.warn("worker-send", "hub_send_failed", { worker_fp: workerFp, error: String(e) });
+        throw e;
       }
     },
   };
@@ -68,10 +78,10 @@ export function sendBrowserCommand(
   workerFp: string,
   msg: { browser_id: string; viewer_id: string; request_id: string; frame: unknown },
 ): boolean {
-  const w = connectWorkers.get(workerFp);
+  const w = currentRoutableWorker(workerFp);
   if (!w) return false;
   try {
-    w.send(create(CoordWorkerDownSchema, {
+    const sent = w.send(create(CoordWorkerDownSchema, {
       frame: { case: "browserCommand", value: create(DBrowserCommandSchema, {
         browserId: msg.browser_id,
         viewerId: msg.viewer_id,
@@ -79,7 +89,7 @@ export function sendBrowserCommand(
         frameJson: JSON.stringify(msg.frame),
       })},
     }));
-    return true;
+    return sent !== 0;
   } catch { return false; }
 }
 
@@ -169,11 +179,19 @@ function unsentRequest<T>(reason: string, expired: boolean): TerminalWorkerReque
  * bytes, rejected before writing, or reported a partial/unknown ambiguity. */
 export function sendTerminalInputRequest(
   workerFp: string,
-  message: { sessionId: string; inputSeq: bigint; data: Uint8Array },
+  message: {
+    sessionId: string;
+    inputSeq: bigint;
+    data: Uint8Array;
+    /** Derived from the actor/session DB lookup, never client frame scope. */
+    dashboardId?: string;
+  },
   deadline: HopDeadline = startHopDeadline(INPUT_CONTROL_TIMEOUT_MS),
 ): TerminalWorkerRequest<WInputResult> {
-  const worker = connectWorkers.get(workerFp);
-  if (!worker) return unsentRequest("worker offline", false);
+  const worker = currentRoutableWorker(workerFp);
+  if (!worker || worker.dashboardId !== message.dashboardId) {
+    return unsentRequest("worker offline", false);
+  }
   const budgetMs = workerBudgetMs(deadline);
   if (budgetMs === null) return unsentRequest("terminal input budget expired before send", true);
   const pending = createPendingRpc<WInputResult>(
@@ -193,12 +211,17 @@ export function sendTerminalInputRequest(
     }));
     admitted = sent !== 0;
     if (!admitted) {
-      rejectPendingRpcUnavailable(pending.request_id, "worker transport dropped terminal input");
+      rejectPendingRpcUnavailable(
+        pending.request_id,
+        "worker transport dropped terminal input",
+        workerFp,
+      );
     }
   } catch (error) {
     rejectPendingRpcUnavailable(
       pending.request_id,
       error instanceof Error ? error.message : "worker transport failed terminal input",
+      workerFp,
     );
   }
   return {
@@ -220,11 +243,15 @@ export function sendTerminalStreamStateRequest(
     enabled: boolean;
     cols: number;
     rows: number;
+    /** Resolved from the owning terminal view's persisted session scope. */
+    dashboardId?: string;
   },
   deadline: HopDeadline = startHopDeadline(TERMINAL_STREAM_CONTROL_TIMEOUT_MS),
 ): TerminalWorkerRequest<WTerminalStreamResult> {
-  const worker = connectWorkers.get(workerFp);
-  if (!worker) return unsentRequest("worker offline", false);
+  const worker = currentRoutableWorker(workerFp);
+  if (!worker || worker.dashboardId !== message.dashboardId) {
+    return unsentRequest("worker offline", false);
+  }
   const budgetMs = workerBudgetMs(deadline);
   if (budgetMs === null) return unsentRequest("terminal stream budget expired before send", true);
   const pending = createPendingRpc<WTerminalStreamResult>(
@@ -246,12 +273,17 @@ export function sendTerminalStreamStateRequest(
     }));
     admitted = sent !== 0;
     if (!admitted) {
-      rejectPendingRpcUnavailable(pending.request_id, "worker transport dropped terminal stream state");
+      rejectPendingRpcUnavailable(
+        pending.request_id,
+        "worker transport dropped terminal stream state",
+        workerFp,
+      );
     }
   } catch (error) {
     rejectPendingRpcUnavailable(
       pending.request_id,
       error instanceof Error ? error.message : "worker transport failed terminal stream state",
+      workerFp,
     );
   }
   return {
@@ -265,10 +297,10 @@ export function sendTerminalStreamStateRequest(
 /** Fire-and-forget full-baseline repair for the currently expected stream. */
 export function sendTerminalSnapshotRequest(
   workerFp: string,
-  message: { sessionId: string; streamId: string },
+  message: { sessionId: string; streamId: string; dashboardId?: string },
 ): boolean {
-  const worker = connectWorkers.get(workerFp);
-  if (!worker) return false;
+  const worker = currentRoutableWorker(workerFp);
+  if (!worker || worker.dashboardId !== message.dashboardId) return false;
   try {
     return worker.send(create(CoordWorkerDownSchema, {
       frame: {
@@ -291,90 +323,15 @@ export function sendAttachmentChunk(
   workerFp: string,
   chunk: { requestId: string; sessionId: string; filename: string; shortPath: boolean; data: Uint8Array; last: boolean; seq: number },
 ): boolean {
-  const w = connectWorkers.get(workerFp);
+  const w = currentRoutableWorker(workerFp);
   if (!w) return false;
   try {
-    w.send(create(CoordWorkerDownSchema, {
+    const sent = w.send(create(CoordWorkerDownSchema, {
       frame: { case: "attachmentChunk", value: create(DAttachmentChunkSchema, {
         requestId: chunk.requestId, sessionId: chunk.sessionId, filename: chunk.filename,
         shortPath: chunk.shortPath, data: chunk.data, last: chunk.last, seq: chunk.seq,
       })},
     }));
-    return true;
+    return sent !== 0;
   } catch { return false; }
-}
-
-export async function sendCoordinatorMovePrepare(workerFp: string, message: {
-  handoffId: string; sourceUrl: string; targetUrl: string; expectedCoordKid: string;
-  expectedGitSha: string; estimatedDbSize: bigint; action: "CHECK" | "PREPARE";
-}, timeoutMs = 180_000): Promise<unknown> {
-  const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
-  const pending = createPendingRpc(timeoutMs, workerFp);
-  worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMovePrepare", value: create(DCoordMovePrepareSchema, {
-    requestId: pending.request_id, ...message,
-  }) } }));
-  return pending.promise;
-}
-
-export async function sendCoordinatorRelocate(workerFp: string, message: {
-  handoffId: string; sourceUrl: string; targetUrl: string; action: "STAGE" | "ACTIVATE" | "COMMIT" | "ABORT";
-}, timeoutMs = 30_000): Promise<unknown> {
-  const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
-  const pending = createPendingRpc(timeoutMs, workerFp);
-  worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordRelocate", value: create(DCoordRelocateSchema, {
-    requestId: pending.request_id, ...message,
-  }) } }));
-  return pending.promise;
-}
-
-export function sendCoordinatorSnapshotStart(workerFp: string, message: {
-  handoffId: string; totalSize: bigint; sha256: string; coordKeyPem: Uint8Array;
-  authorizedKeys: Uint8Array; secretSha256: string; expectedWorkerFps: string[];
-}, timeoutMs = 120_000): { requestId: string; promise: Promise<unknown> } {
-  const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
-  const pending = createPendingRpc(timeoutMs, workerFp);
-  worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMoveSnapshotStart", value: create(DCoordMoveSnapshotStartSchema, {
-    requestId: pending.request_id, ...message,
-  }) } }));
-  return { requestId: pending.request_id, promise: pending.promise };
-}
-export function sendCoordinatorSnapshotChunk(workerFp: string, message: {
-  handoffId: string; seq: number; data: Uint8Array; last: boolean;
-}): number {
-  const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
-  return worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMoveSnapshotChunk", value: create(DCoordMoveSnapshotChunkSchema, message) } }));
-}
-
-export function sendWindowsUpdateBroker(workerFp: string, message: {
-  jobId: string;
-  action: "START" | "STATUS";
-  manifestUrl?: string;
-  signatureUrl?: string;
-  manifestSha256?: string;
-  publisherSha256?: string;
-}, timeoutMs = 30_000): { requestId: string; promise: Promise<unknown> } {
-  const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
-  const pending = createPendingRpc(timeoutMs, workerFp);
-  try {
-    const sent = worker.send(create(CoordWorkerDownSchema, {
-      frame: { case: "updateBroker", value: create(DUpdateBrokerSchema, {
-        requestId: pending.request_id,
-        jobId: message.jobId,
-        action: message.action,
-        manifestUrl: message.manifestUrl ?? "",
-        signatureUrl: message.signatureUrl ?? "",
-        manifestSha256: message.manifestSha256 ?? "",
-        publisherSha256: message.publisherSha256 ?? "",
-      }) },
-    }));
-    if (sent === 0) throw new Error("worker update command was dropped");
-  } catch (error) {
-    rejectPendingRpcUnavailable(pending.request_id, (error as Error).message);
-  }
-  return { requestId: pending.request_id, promise: pending.promise };
 }

@@ -204,7 +204,7 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     )).toEqual([[750, "bridge-750"], [751, "bridge-751"]]);
   });
 
-  test("an incompatible full retains a numeric reader anchor until the new epoch is fetched and restored", () => {
+  test("an incompatible full keeps the reader window immutable until explicit resume", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "old-v")], nRows(250, 500), 750);
@@ -220,44 +220,26 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
       gridEpoch: "test-grid:1",
     })).toBe(true);
 
-    const anchor = r.readerAnchorForBackfill();
-    expect(anchor).toEqual({ row: 600, offsetPx: 0 });
-    expect(r.paintPresentation()).toEqual({
-      rows: [],
-      headSpacerPx: 760 * ROW_PX,
-      tailGapPx: 0,
-      readerAnchor: anchor,
-    });
-
-    // A second authoritative baseline can arrive before backfill finishes.
-    // Preserve the held semantic row even if the browser clamped scrollTop
-    // after the first DOM reset.
-    c.scrollTop = PAD_TOP + 760 * ROW_PX;
-    r.handleScroll();
-    c.resetScrollTopWrites();
-    expect(r.applyFullFrame({
-      ...fullFrame(100, [row(0, "newer-epoch-v")], 760),
-      streamId: "test-stream:2",
-      gridEpoch: "test-grid:2",
-      seq: 2,
-    })).toBe(true);
-    expect(r.readerAnchorForBackfill()).toEqual(anchor);
-    expect(r.restoreReaderAnchor(anchor!)).toBe(false);
-    expect(c.scrollTopWrites).toBe(0);
-    for (const node of oldNodes) expect(sbRows(sbEl(c))).not.toContain(node);
-
-    // This is the exact order ScrollbackBackfill.onFullFrame owns: fetch down
-    // through the anchor, prepend the validated page, then restore.
-    r.prependScrollback(nRows(160, 600));
-    expect(r.restoreReaderAnchor(anchor!)).toBe(true);
+    expect(r.backfillAnchor()).toBeNull();
     expect(r.readerAnchorForBackfill()).toBeNull();
-    expect(r.paintPresentation().readerAnchor).toEqual(anchor);
-    expect(r.currentFrame!.sbBase).toBe(600);
-    expect(rowAtReader(c)).toBe("r600");
-    expect(c.scrollTopWrites).toBeGreaterThan(0);
+    expect(r.currentFrame!.gridEpoch).toBe("test-grid:0");
+    expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:1", seq: 1 });
+    expect(c.scrollTopWrites).toBe(0);
+    for (let index = 0; index < oldNodes.length; index++) {
+      expect(sbRows(sbEl(c))[index]).toBe(oldNodes[index]);
+    }
+
+    expect(r.prepareLiveInteraction()).toEqual({
+      reconciled: true,
+      anchorChanged: true,
+    });
+    expect(r.currentFrame!.gridEpoch).toBe("test-grid:1");
+    expect(r.reconciledEpochSeq()).toEqual(r.canonicalEpochSeq());
+    for (const node of oldNodes) expect(sbRows(sbEl(c))).not.toContain(node);
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
   });
 
-  test("releasing selection alone preserves reading and pending canonical state", () => {
+  test("releasing selection reconciles its pending canonical state", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "old-v")], nRows(250, 500), 750);
@@ -265,12 +247,13 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     r.setSelectionHold(true);
     r.apply({ ...fullFrame(80, [row(0, "latest-v")], 760), seq: 3 });
 
-    expect(r.setSelectionHold(false)).toEqual({ reconciled: false, anchorChanged: false });
-    expect(r.currentFrame!.seq).toBe(2);
-    expect(r.readerIntent).toBe("reading");
     c.resetScrollTopWrites();
-    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
+    expect(r.setSelectionHold(false)).toEqual({
+      reconciled: true,
+      anchorChanged: true,
+    });
     expect(r.currentFrame!.seq).toBe(3);
+    expect(r.readerIntent).toBe("live");
     expect(spansText((r.currentFrame!.viewportRows[0]!).spans)).toBe("latest-v");
     expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
     expect(c.scrollTopWrites).toBe(1);

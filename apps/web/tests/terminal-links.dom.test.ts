@@ -20,6 +20,7 @@ import { attachTerminalLinks } from "../src/components/terminal-links.ts";
 class FakeEl {
 	tagName: string;
 	ownerDocument: unknown;
+	className = "";
 	textContent = "";
 	childNodes: unknown[] = [];
 	replacedWith: unknown[] | null = null;
@@ -41,6 +42,10 @@ class FakeEl {
 	getAttribute(k: string): string | null { return this.attrs.get(k) ?? null; }
 	removeAttribute(k: string): void { this.attrs.delete(k); }
 	querySelector(_sel: string): FakeEl | null { return null; }
+	closest(selector: string): FakeEl | null {
+		if (selector.startsWith("a.") && this.tagName === "a" && this.className === "wterm-link") return this;
+		return this.parentElement?.closest(selector) ?? null;
+	}
 	addEventListener(type: string, fn: (ev: unknown) => void): void {
 		let listeners = this.listeners.get(type);
 		if (!listeners) { listeners = new Set(); this.listeners.set(type, listeners); }
@@ -144,6 +149,21 @@ function makeHarness(): Harness {
 // equivalent for the paths exercised here (unchecked cast — DOM type unexpressible).
 const asEl = (el: FakeEl): HTMLElement => el as unknown as HTMLElement;
 
+function clickEvent(target: FakeEl, fields: Partial<MouseEvent> = {}) {
+	const event = {
+		type: "click",
+		target,
+		button: fields.button ?? 0,
+		metaKey: fields.metaKey ?? false,
+		ctrlKey: fields.ctrlKey ?? false,
+		shiftKey: fields.shiftKey ?? false,
+		altKey: fields.altKey ?? false,
+		defaultPrevented: false,
+		preventDefault() { event.defaultPrevented = true; },
+	};
+	return event;
+}
+
 describe("attachTerminalLinks — visibility recovery", () => {
 	let h: Harness | undefined;
 	afterEach(() => { h?.restore(); h = undefined; });
@@ -241,6 +261,45 @@ describe("attachTerminalLinks — visibility recovery", () => {
 		// Pointer state was cleared: re-arming alone cannot reacquire the hold.
 		h.win.dispatchEvent({ type: "keydown", key: "Meta" });
 		expect(changes).toEqual([true, false]);
+		attachment.dispose();
+	});
+
+	test("modified primary click activates from event fields; bare and custom targets stay inert", () => {
+		h = makeHarness();
+		const opened: string[] = [];
+		const attachment = attachTerminalLinks(asEl(h.container), {
+			resolveFile: (path, line) => `/file/W/${path}${line ? `#L${line}` : ""}`,
+			onOpenFile: (href) => opened.push(href),
+		});
+		const file = new FakeEl("a", h.doc);
+		file.className = "wterm-link";
+		file.setAttribute("data-terminal-target", "s/f.ts:9");
+		file.setAttribute("href", "/file/W/s/f.ts#L9");
+		h.container.appendChild(file);
+
+		const modified = clickEvent(file, { metaKey: true });
+		h.container.dispatchEvent(modified);
+		expect(modified.defaultPrevented).toBe(true);
+		expect(opened).toEqual(["/file/W/s/f.ts#L9"]);
+
+		for (const event of [
+			clickEvent(file),
+			clickEvent(file, { metaKey: true, button: 1 }),
+			clickEvent(file, { metaKey: true, shiftKey: true }),
+		]) {
+			h.container.dispatchEvent(event);
+			expect(event.defaultPrevented).toBe(true);
+		}
+		expect(opened).toHaveLength(1);
+
+		const custom = new FakeEl("a", h.doc);
+		custom.className = "wterm-link";
+		custom.setAttribute("data-terminal-target", "vscode://file/s/f.ts");
+		custom.setAttribute("href", "vscode://file/s/f.ts");
+		h.container.appendChild(custom);
+		const unsafe = clickEvent(custom, { metaKey: true });
+		h.container.dispatchEvent(unsafe);
+		expect(unsafe.defaultPrevented).toBe(true);
 		attachment.dispose();
 	});
 });

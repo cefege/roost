@@ -6,10 +6,12 @@ import { makeCoordinatorMoveHandlers } from "../src/connect/handlers-coordinator
 import type { ConnectDeps } from "../src/connect/router.ts";
 import type { HandoffState } from "../src/coord-move/state.ts";
 
+const DASHBOARD_ID = "coordinator-move-handlers-dashboard";
 const handoff: HandoffState = {
   version: 1,
   handoff_id: "00000000-0000-4000-8000-000000000001",
   role: "SOURCE",
+  dashboard_id: DASHBOARD_ID,
   phase: "COMMITTED",
   source_url: "https://source.ts.net:4102",
   target_url: "https://target.ts.net:4102",
@@ -25,9 +27,22 @@ const handoff: HandoffState = {
 };
 
 function authedContext(): HandlerContext {
-  // Mirrors what makeAuthInterceptor sets: requireAuth reads the caller
-  // context key and nothing else off ctx.values.
-  return { values: { get: () => ({ fingerprint: "fp", label: "l" }) } } as unknown as HandlerContext;
+  // One object satisfies the typed account principal and selected actor keys.
+  return {
+    values: {
+      get: () => ({
+        kind: "account-device",
+        fingerprint: "fp",
+        label: "l",
+        accountId: "account",
+        organizationId: "organization",
+        dashboardId: DASHBOARD_ID,
+        organizationRole: "owner",
+        dashboardRole: "admin",
+        deviceFingerprint: "fp",
+      }),
+    },
+  } as unknown as HandlerContext;
 }
 
 function anonymousContext(): HandlerContext {
@@ -36,9 +51,15 @@ function anonymousContext(): HandlerContext {
 
 test("coordinator move status requires auth and matches only its exact handoff", async () => {
   const handlers = makeCoordinatorMoveHandlers({
-    move: { status: (handoffId: string) => handoffId === handoff.handoff_id ? handoff : null },
-  } as unknown as ConnectDeps);
+    move: {
+      status: (dashboardId: string, handoffId: string) =>
+        dashboardId === DASHBOARD_ID && handoffId === handoff.handoff_id ? handoff : null,
+      statusForWorker: async (handoffId: string, workerFp: string) =>
+        workerFp === "fp" && handoffId === handoff.handoff_id ? handoff : null,
+    },
+    cfg: { saasMode: false },
 
+  } as unknown as ConnectDeps);
   await expect(handlers.coordinatorMoveStatus(
     create(CoordinatorMoveStatusRequestSchema, { handoffId: handoff.handoff_id }),
     authedContext(),

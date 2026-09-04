@@ -1,12 +1,9 @@
+// This file owns scheduler ordering, snapshot supersession, and batch-yield coverage.
+// Bun's coord test suite runs these cases against the v2 scheduler through the shared harness.
+// It depends on protobuf frame shapes and the scheduler's queue-limit and state primitives.
+
 import { expect, test } from "bun:test";
-import { create } from "@bufbuild/protobuf";
-import {
-  FirehoseFrameSchema,
-  SyncDomain,
-  TerminalViewStateFrameSchema,
-  TerminalViewStatus,
-  type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+import { SyncDomain, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import {
   V2_DOMAIN_MAX_QUEUED_FRAMES,
   clearV2State,
@@ -25,132 +22,6 @@ import {
   makeHarness,
   makeState,
 } from "./sync-ws-v2-scheduler-harness.ts";
-test("a throwing application send closes without taking ownership of the queued frame", async () => {
-  const harness = makeHarness("scheduler-test:application-send-throw", true);
-  const streamId = "stream-application-send-throw";
-  harness.scheduler.beginTerminalStream(harness.ws, TARGET_SESSION, streamId);
-  harness.socket.data.v2!.announcedSessions.add(TARGET_SESSION);
-  harness.socket.sendError = new Error("application send failed");
-
-  expect(
-    harness.scheduler.enqueueTerminalDelta(
-      harness.ws,
-      TARGET_SESSION,
-      streamId,
-      makeCell(TARGET_SESSION, 7, false),
-    ),
-  ).toBe(true);
-  await flushMicrotasks();
-
-  expect(harness.socket.sendCalls).toBe(1);
-  expect(harness.socket.bufferedAmountCalls).toBe(0);
-  expect(harness.socket.sent).toEqual([]);
-  expect(harness.droppedFrames).toHaveLength(1);
-  expect(harness.droppedFrames[0]).toEqual({
-    frame: "cellGrid",
-    encodedBytes: expect.any(Number),
-    bufferedBytes: 0,
-  });
-  expect(harness.droppedFrames[0]!.encodedBytes).toBeGreaterThan(0);
-  expect(harness.socket.data.pressureClosing).toBe(true);
-  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
-
-  expect(harness.terminal.queue).toHaveLength(1);
-  expect(cellIdentity(harness.terminal.queue[0]!.frame)).toEqual({
-    sessionId: TARGET_SESSION,
-    full: false,
-    seq: 7n,
-  });
-  expect(harness.socket.data.v2!.queuedFrames).toBe(1);
-  expect(harness.socket.data.lastSentDeliverySeq).toBe(0n);
-  expect(harness.socket.data.unackedEncodedBytes).toBe(0);
-  expect(harness.socket.data.deliveryQueue).toEqual([]);
-
-  // Closing is the recovery boundary; the ambiguous candidate is never
-  // attempted again on the failed socket.
-  await flushMicrotasks();
-  expect(harness.socket.sendCalls).toBe(1);
-});
-
-test("a throwing application buffered-amount probe closes without acknowledging the ambiguous send", async () => {
-  const harness = makeHarness("scheduler-test:application-buffered-throw", true);
-  const streamId = "stream-application-buffered-throw";
-  harness.scheduler.beginTerminalStream(harness.ws, TARGET_SESSION, streamId);
-  harness.socket.data.v2!.announcedSessions.add(TARGET_SESSION);
-  harness.socket.bufferedAmountError = new Error("buffered amount failed");
-
-  expect(
-    harness.scheduler.enqueueTerminalDelta(
-      harness.ws,
-      TARGET_SESSION,
-      streamId,
-      makeCell(TARGET_SESSION, 8, false),
-    ),
-  ).toBe(true);
-  await flushMicrotasks();
-
-  expect(harness.socket.sendCalls).toBe(1);
-  expect(harness.socket.bufferedAmountCalls).toBe(1);
-  expect(harness.socket.sent).toHaveLength(1);
-  expect(harness.droppedFrames).toHaveLength(1);
-  expect(harness.droppedFrames[0]!.frame).toBe("cellGrid");
-  expect(harness.droppedFrames[0]!.encodedBytes).toBeGreaterThan(0);
-  expect(harness.droppedFrames[0]!.bufferedBytes).toBe(0);
-  expect(harness.socket.data.pressureClosing).toBe(true);
-  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
-  expect(harness.terminal.queue).toHaveLength(1);
-  expect(harness.socket.data.v2!.queuedFrames).toBe(1);
-  expect(harness.socket.data.lastSentDeliverySeq).toBe(0n);
-  expect(harness.socket.data.unackedEncodedBytes).toBe(0);
-  expect(harness.socket.data.deliveryQueue).toEqual([]);
-
-  await flushMicrotasks();
-  expect(harness.socket.sendCalls).toBe(1);
-});
-
-test("a throwing control send closes through dropped-frame handling", () => {
-  const harness = makeHarness("scheduler-test:control-send-throw", true);
-  harness.socket.sendError = new Error("control send failed");
-
-  expect(
-    harness.scheduler.sendV2ControlFrame(
-      harness.ws,
-      makeState(TARGET_SESSION, "stream-control-send-throw"),
-    ),
-  ).toBe(false);
-
-  expect(harness.socket.sendCalls).toBe(1);
-  expect(harness.socket.bufferedAmountCalls).toBe(0);
-  expect(harness.socket.sent).toEqual([]);
-  expect(harness.droppedFrames).toHaveLength(1);
-  expect(harness.droppedFrames[0]!.frame).toBe("terminalViewState");
-  expect(harness.droppedFrames[0]!.encodedBytes).toBeGreaterThan(0);
-  expect(harness.droppedFrames[0]!.bufferedBytes).toBe(0);
-  expect(harness.socket.data.pressureClosing).toBe(true);
-  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
-});
-
-test("a throwing control buffered-amount probe closes the ambiguously sent socket", () => {
-  const harness = makeHarness("scheduler-test:control-buffered-throw", true);
-  harness.socket.bufferedAmountError = new Error("control buffered amount failed");
-
-  expect(
-    harness.scheduler.sendV2ControlFrame(
-      harness.ws,
-      makeState(TARGET_SESSION, "stream-control-buffered-throw"),
-    ),
-  ).toBe(false);
-
-  expect(harness.socket.sendCalls).toBe(1);
-  expect(harness.socket.bufferedAmountCalls).toBe(1);
-  expect(harness.socket.sent).toHaveLength(1);
-  expect(harness.droppedFrames).toHaveLength(1);
-  expect(harness.droppedFrames[0]!.frame).toBe("terminalViewState");
-  expect(harness.droppedFrames[0]!.encodedBytes).toBeGreaterThan(0);
-  expect(harness.droppedFrames[0]!.bufferedBytes).toBe(0);
-  expect(harness.socket.data.pressureClosing).toBe(true);
-  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
-});
 
 test("dropping a terminal stream prunes its backlog before a replacement snapshot reaches the queue limit", async () => {
   const harness = makeHarness("scheduler-test:overflow-prune", true);
@@ -246,10 +117,10 @@ test("a replacement snapshot supersedes only its own stream cursor and delta tai
   ]);
   expect(harness.terminal.queue.map((item) => item.estimatedBytes)).toEqual(survivorBytes);
   const cursor = harness.socket.data.v2!.terminalSessions.get(TARGET_SESSION)?.cursor;
-  expect(cursor?.frames.map(cellIdentity)).toEqual([
+  expect(cursor?.frames.map((item) => cellIdentity(item.frame))).toEqual([
     { sessionId: TARGET_SESSION, full: true, seq: 4n },
   ]);
-  expect(cursor?.deltaTail.map(cellIdentity)).toEqual([
+  expect(cursor?.deltaTail.map((item) => cellIdentity(item.frame))).toEqual([
     { sessionId: TARGET_SESSION, full: false, seq: 5n },
   ]);
   expect(cursor?.index).toBe(0);
@@ -257,8 +128,11 @@ test("a replacement snapshot supersedes only its own stream cursor and delta tai
   expect(harness.terminal.queuedBytes).toBe(
     survivorBytes.reduce((total, bytes) => total + bytes, 0),
   );
-  expect(harness.socket.data.v2!.queuedFrames).toBe(2);
-  expect(harness.socket.data.v2!.queuedBytes).toBe(harness.terminal.queuedBytes);
+  expect(harness.socket.data.v2!.queuedFrames).toBe(3);
+  expect(harness.socket.data.v2!.queuedBytes).toBe(
+    harness.terminal.queuedBytes
+      + estimatedTerminalBytes(followingDelta, harness.terminal.generation),
+  );
   expect(harness.socket.data.v2!.schedulerPending).toBe(false);
   expect(harness.socket.sent).toEqual([]);
   expect(harness.socket.closes).toEqual([]);
@@ -427,7 +301,7 @@ test("terminal state precedes the snapshot cursor and its delta tail after ACK r
   const blockedCursor = harness.socket.data.v2!.terminalSessions.get(TARGET_SESSION)?.cursor;
   expect(blockedCursor?.index).toBe(0);
   expect(blockedCursor?.queued).toBe(true);
-  expect(blockedCursor?.deltaTail.map(cellIdentity)).toEqual([
+  expect(blockedCursor?.deltaTail.map((item) => cellIdentity(item.frame))).toEqual([
     { sessionId: TARGET_SESSION, full: false, seq: 22n },
   ]);
 
@@ -460,67 +334,3 @@ test("terminal state precedes the snapshot cursor and its delta tail after ACK r
   expect(harness.delivery.applyCumulativeAck(harness.ws, sent.at(-1)!.deliverySeq)).toBe(true);
   await flushMicrotasks();
 });
-
-// Distinct revisions make the shed order observable: with a blocked domain
-// queue, the backlog must keep the NEWEST states at the frame cap.
-const pendingState = (
-  sessionId: string,
-  streamId: string,
-  revision: bigint,
-): FirehoseFrame =>
-  create(FirehoseFrameSchema, {
-    frame: {
-      case: "terminalViewState",
-      value: create(TerminalViewStateFrameSchema, {
-        viewId: "55555555-5555-4555-8555-555555555555",
-        sessionId,
-        revision,
-        active: true,
-        streamId,
-        status: TerminalViewStatus.ACCEPTED,
-        effectiveCols: 80,
-        effectiveRows: 24,
-      }),
-    },
-  });
-
-test("a blocked terminal domain sheds pendingStates oldest-first at the frame cap", () => {
-  const harness = makeHarness("scheduler-test:pending-states-overflow", true);
-  const streamId = "stream-pending-overflow";
-  const pushed = V2_DOMAIN_MAX_QUEUED_FRAMES + 1;
-
-  // Saturate the TERMINAL domain queue so every state push below stalls in
-  // the lane's pendingStates backlog instead of draining into the queue.
-  harness.scheduler.beginTerminalStream(harness.ws, SESSION_A, streamId);
-  harness.socket.data.v2!.announcedSessions.add(SESSION_A);
-  fillApplicationAckWindow(harness);
-  for (let seq = 1; seq <= V2_DOMAIN_MAX_QUEUED_FRAMES; seq += 1) {
-    expect(
-      harness.scheduler.enqueueTerminalDelta(
-        harness.ws, SESSION_A, streamId, makeCell(SESSION_A, seq, false),
-      ),
-    ).toBe(true);
-  }
-  expect(harness.terminal.queue).toHaveLength(V2_DOMAIN_MAX_QUEUED_FRAMES);
-  for (let seq = 1; seq <= pushed; seq += 1) {
-    harness.scheduler.enqueueTerminalState(
-      harness.ws,
-      pendingState(SESSION_A, streamId, BigInt(seq)),
-      SESSION_A,
-    );
-  }
-
-  const lane = harness.socket.data.v2!.terminalSessions.get(SESSION_A);
-  const revisions = (lane?.pendingStates ?? []).map(
-    (frame) => frame.frame.case === "terminalViewState"
-      ? frame.frame.value.revision
-      : undefined,
-  );
-  expect(lane?.pendingStates).toHaveLength(V2_DOMAIN_MAX_QUEUED_FRAMES);
-  expect(revisions[0]).toBe(2n);
-  expect(revisions.at(-1)).toBe(BigInt(pushed));
-  // The saturated domain queue must be untouched — the cap is shed inside the
-  // lane's own backlog, never by resetting the shared queue.
-  expect(harness.socket.closes).toEqual([]);
-});
-

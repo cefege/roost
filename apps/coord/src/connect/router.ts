@@ -11,8 +11,11 @@ import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
 import { makeTranscriptionHandlers } from "./handlers-transcription.ts";
 import { makeAgentConfigHandlers } from "./handlers-agent-config.ts";
 import { makeAttachmentHandlers } from "./handlers-attachments.ts";
-import { makeSettingsHandlers } from "./handlers-settings.ts";
+import { makeMcpHandlers } from "./handlers-mcp.ts";
 import { makeAuthHandlers } from "./handlers-auth.ts";
+import { makeAccountHandlers } from "./handlers-account.ts";
+import { makeNativeAuthHandlers } from "./handlers-native-auth.ts";
+import { makeFederatedAuthHandlers } from "./handlers-federated-auth.ts";
 import { makeRelocationHandlers } from "./handlers-relocation.ts";
 import { makeSystemHandlers } from "./handlers-system.ts";
 import { makeWorkspaceHandlers } from "./handlers-workspaces.ts";
@@ -31,6 +34,9 @@ import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "../jwt.ts";
 import { makeAuthInterceptor } from "./auth-interceptor.ts";
 import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
+import type { EmailDeliveryService } from "../email-delivery.ts";
+import type { PasswordWorkGate } from "./password-work-gate.ts";
+import type { PendingEventPublicationStore } from "../pending-event-publications.ts";
 
 // ─── deps + helpers ───────────────────────────────────────────────────────
 
@@ -40,8 +46,22 @@ export interface ConnectDeps {
   coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;
+  passwordWorkGate: PasswordWorkGate;
   move?: CoordinatorMoveService;
+  pendingPublications?: PendingEventPublicationStore;
   onKeyRevoked?: (fingerprint: string) => void;
+  /** Synchronous post-commit worker fence: revoke every admitted generation,
+   * detach its ordered inbound queue, then unregister the current handle. */
+  onWorkerDeletedFence?: (fingerprint: string) => void;
+  /** Remove a tombstoned worker from already-open mutable Sync scopes. */
+  onWorkerDeletedSyncScope?: (dashboardId: string, fingerprint: string) => void;
+  /** Request transport close only after every in-process deletion cleanup. */
+  onWorkerDeletedSocketClose?: (fingerprint: string) => void;
+  /** Encrypts password-reset payloads before transactional outbox insert. */
+  email?: Pick<EmailDeliveryService, "encryptPayload">;
+  /** Invoked after a dashboard membership/status mutation commits. A device
+   * fingerprint narrows revocation to that device when present. */
+  onDashboardRevoked?: (dashboardId: string, fingerprint?: string) => void;
 }
 
 // ─── ConnectRouter build ──────────────────────────────────────────────────
@@ -71,8 +91,11 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeSessionHandlers(deps),
     ...makeWorkspaceHandlers(deps),
     ...makeTaskHandlers(deps),
-    ...makeSettingsHandlers(deps),
+    ...makeMcpHandlers(deps),
     ...makeAuthHandlers(deps),
+    ...makeAccountHandlers(deps),
+    ...makeNativeAuthHandlers(deps),
+    ...makeFederatedAuthHandlers(deps),
     ...makeRelocationHandlers(deps),
     ...makeSystemHandlers(deps),
     ...makeTranscriptionHandlers(deps),

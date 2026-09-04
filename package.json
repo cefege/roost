@@ -18,6 +18,7 @@
     "test:unit": "bun apps/roost-cli/src/main.ts test unit",
     "test:worker": "bun scripts/test-worker.ts",
     "test:terminal": "bun apps/roost-cli/src/main.ts test terminal",
+    "test:managed": "bun apps/roost-cli/src/main.ts test managed",
     "test:live-api": "bun apps/roost-cli/src/main.ts test live-api",
     "dev": "bun run --filter='*' dev",
     "roost": "bun apps/roost-cli/src/main.ts"

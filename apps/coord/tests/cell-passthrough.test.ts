@@ -59,7 +59,7 @@ describe("coord cell passthrough", () => {
           gridEpoch: envelope.value.gridEpoch,
         });
       },
-      enqueueTerminalDelta: () => true,
+      enqueueTerminalDelta: () => "queued",
       dropTerminalSession: () => {},
     });
     hub.screen.expectStream(SID, STREAM_ID, 10, 2);

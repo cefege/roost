@@ -6,6 +6,7 @@
 import { type Component, type JSX, ErrorBoundary, onCleanup } from "solid-js";
 import { log } from "@roost/shared/log";
 import { copyToClipboard } from "../lib/clipboard.ts";
+import { credentialFreeUrl } from "../auth/fragment-credential.ts";
 
 interface Props {
   children: JSX.Element;
@@ -31,7 +32,7 @@ function ErrorFallback(err: unknown, reset: () => void): JSX.Element {
 
   async function copyDiagnostic(): Promise<void> {
     const payload = {
-      url: typeof window !== "undefined" ? window.location.href : "",
+      url: typeof window !== "undefined" ? credentialFreeUrl(window.location) : "",
       ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
       time: new Date().toISOString(),
       error: msg,

@@ -5,6 +5,7 @@ import {
   resetTerminalInputCapture,
   readTerminalInputCapture,
 } from "./terminal-helpers.ts";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 
 test("mobile composer starts unfocused and reserves terminal space through rotation", async ({ mobileSmokePage, stack }) => {
   const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
@@ -166,7 +167,9 @@ test("mobile composer is permanent field + attachment + mic + send", async ({ mo
   expect(entry).toBeDefined();
   expect(entry!.sizeBytes).toBe(BigInt(fileBytes.length));
 
-  const expectedInput = Array.from(new TextEncoder().encode(`${entry!.absPath} `));
+  const expectedInput = Array.from(
+    new TextEncoder().encode(`${posixShellQuote(entry!.absPath)} `),
+  );
   await expect.poll(async () =>
     (await readTerminalInputCapture(mobileSmokePage)).batches.flatMap((batch) => batch.data)
   ).toEqual(expectedInput);

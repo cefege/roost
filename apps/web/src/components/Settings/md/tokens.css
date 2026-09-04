@@ -475,21 +475,6 @@
   border-radius: inherit;
 }
 
-/* ─── Empty state ─────────────────────────────────────────────── */
-.md-empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: var(--md-space-9) var(--md-space-4);
-  gap: var(--md-space-3);
-  color: var(--md-sys-color-on-surface-variant);
-}
-.md-empty-state__icon {
-  font-size: 48px;
-  color: var(--md-sys-color-on-surface-variant);
-  opacity: 0.6;
-}
 
 /* ─── Inline form helpers ─────────────────────────────────────── */
 .md-form-row {

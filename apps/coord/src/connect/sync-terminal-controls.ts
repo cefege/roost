@@ -39,6 +39,18 @@ export function makeSyncTerminalControlHooks(
         return;
       }
       const command = context.command.value;
+      if (!context.scope.sessionIds.has(command.sessionId)) {
+        context.reply({
+          case: "inputRejected",
+          value: create(InputRejectedSchema, {
+            sessionId: command.sessionId,
+            inputSeq: command.inputSeq,
+            domainGeneration: command.domainGeneration,
+            reason: "terminal session is unavailable",
+          }),
+        });
+        return;
+      }
       if (context.viewerKey === null) {
         context.reply({
           case: "inputRejected",
@@ -68,6 +80,7 @@ export function makeSyncTerminalControlHooks(
           viewerKey: context.viewerKey,
           callerFingerprint: context.caller.fingerprint,
           clientIp: context.remoteAddress,
+          dashboardId: context.actor.dashboardId,
         },
         sessionId: command.sessionId,
         inputSeq: command.inputSeq,

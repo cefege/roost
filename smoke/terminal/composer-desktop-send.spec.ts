@@ -14,6 +14,7 @@ import {
   coordinatorTerminalViewState,
   readTerminalStreamProbe,
 } from "./terminal-probe-helpers.ts";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 
 test("desktop composer attaches exact files in order without submitting", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop native attachment contract");
@@ -78,7 +79,8 @@ test("desktop composer attaches exact files in order without submitting", async 
   expect(storedFirst).toEqual(new Uint8Array(firstBytes));
   expect(storedSecond).toEqual(new Uint8Array(secondBytes));
 
-  const expectedInput = `${firstEntry!.absPath} ${secondEntry!.absPath} `;
+  const expectedInput =
+    `${posixShellQuote(firstEntry!.absPath)} ${posixShellQuote(secondEntry!.absPath)} `;
   const expectedBytes = Array.from(new TextEncoder().encode(expectedInput));
   await expect.poll(async () => {
     const capture = await readTerminalInputCapture(smokePage);

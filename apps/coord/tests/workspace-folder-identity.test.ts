@@ -12,18 +12,48 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { create } from "@bufbuild/protobuf";
-import type { HandlerContext } from "@connectrpc/connect";
+import { createContextValues, type HandlerContext } from "@connectrpc/connect";
 import { WorkspacesCreateRequestSchema } from "@roost/shared/proto/coordinator_pb";
 import { openDb, type DbHandle } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { makeWorkspaceHandlers, type WorkspaceHandlers } from "../src/connect/handlers-workspaces.ts";
+import {
+  callerKey,
+  dashboardActorKey,
+  type DashboardActor,
+} from "../src/connect/auth-interceptor.ts";
 
+const ACCOUNT_ID = "workspace-identity-account";
+const ORGANIZATION_ID = "workspace-identity-organization";
+const DASHBOARD_ID = "workspace-identity-dashboard";
+const DEVICE_FP = "workspace-identity-device";
 const DARWIN_FP = "fp-darwin";
 const LINUX_FP = "fp-linux";
+const UNKNOWN_OS_FP = "fp-unknown-os";
 
-// requireAuth only reads ctx.values.get(callerKey); a fake caller suffices.
-const authCtx = { values: { get: () => ({ fingerprint: "fp-test", label: "" }) } } as unknown as HandlerContext;
+const actor: DashboardActor = {
+  accountId: ACCOUNT_ID,
+  organizationId: ORGANIZATION_ID,
+  dashboardId: DASHBOARD_ID,
+  organizationRole: "owner",
+  dashboardRole: "admin",
+  deviceFingerprint: DEVICE_FP,
+};
+
+function actorContext(): HandlerContext {
+  const values = createContextValues();
+  values.set(callerKey, {
+    kind: "account-device",
+    fingerprint: DEVICE_FP,
+    label: "workspace identity test device",
+    accountId: ACCOUNT_ID,
+  });
+  values.set(dashboardActorKey, actor);
+  return { values } as unknown as HandlerContext;
+}
+
+const authCtx = actorContext();
 
 let workdir: string;
 let opened: DbHandle;
@@ -31,6 +61,7 @@ let handlers: WorkspaceHandlers;
 
 async function registerWorker(fp: string, os: string): Promise<void> {
   await opened.db.insertInto("workers").values({
+    dashboard_id: DASHBOARD_ID,
     fp, label: fp, os, git_sha: null, host_metrics_json: null,
     registered_at_ms: Date.now(), last_seen_ms: Date.now(), reachable_addr: null,
     keeper_stale: null,
@@ -45,8 +76,57 @@ beforeEach(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-ws-identity-"));
   opened = openDb(join(workdir, "test.db"));
   await runMigrations(opened.sqlite);
+  const now = Date.now();
+  await opened.db.insertInto("authorized_keys").values({
+    fingerprint: DEVICE_FP,
+    public_key: new Uint8Array(32),
+    label: "workspace identity test device",
+    added_at: now,
+  }).execute();
+  await opened.db.insertInto("accounts").values({
+    id: ACCOUNT_ID,
+    email_normalized: "workspace-identity@example.test",
+    password_hash: null,
+    status: "active",
+    created_at_ms: now,
+    password_changed_at_ms: null,
+  }).execute();
+  await opened.db.insertInto("account_devices").values({
+    fingerprint: DEVICE_FP,
+    account_id: ACCOUNT_ID,
+    added_at_ms: now,
+    last_seen_at_ms: now,
+  }).execute();
+  await opened.db.insertInto("organizations").values({
+    id: ORGANIZATION_ID,
+    slug: "workspace-identity",
+    name: "Workspace Identity",
+    status: "active",
+    created_at_ms: now,
+  }).execute();
+  await opened.db.insertInto("organization_memberships").values({
+    organization_id: ORGANIZATION_ID,
+    account_id: ACCOUNT_ID,
+    role: "owner",
+    created_at_ms: now,
+  }).execute();
+  await opened.db.insertInto("dashboards").values({
+    id: DASHBOARD_ID,
+    organization_id: ORGANIZATION_ID,
+    slug: "workspace-identity",
+    name: "Workspace Identity",
+    status: "active",
+    created_at_ms: now,
+  }).execute();
+  await opened.db.insertInto("dashboard_memberships").values({
+    dashboard_id: DASHBOARD_ID,
+    account_id: ACCOUNT_ID,
+    role: "admin",
+    created_at_ms: now,
+  }).execute();
   await registerWorker(DARWIN_FP, "darwin");
   await registerWorker(LINUX_FP, "linux");
+  await registerWorker(UNKNOWN_OS_FP, "unknown");
   handlers = makeWorkspaceHandlers({ db: opened.db } as unknown as ConnectDeps);
 });
 
@@ -86,11 +166,11 @@ describe("workspace folder identity", () => {
       .where("worker_fp", "=", LINUX_FP).execute()).toHaveLength(2);
   });
 
-  test("an unregistered worker falls back to exact equality, never a false merge", async () => {
-    const first = await handlers.workspacesCreate(createReq("fp-unknown", "A", "/tmp/proj"), authCtx);
-    const second = await handlers.workspacesCreate(createReq("fp-unknown", "B", "/private/tmp/proj"), authCtx);
+  test("an unknown worker OS falls back to exact equality, never a false merge", async () => {
+    const first = await handlers.workspacesCreate(createReq(UNKNOWN_OS_FP, "A", "/tmp/proj"), authCtx);
+    const second = await handlers.workspacesCreate(createReq(UNKNOWN_OS_FP, "B", "/private/tmp/proj"), authCtx);
     expect(second.workspace?.id).not.toBe(first.workspace?.id ?? "");
-    const again = await handlers.workspacesCreate(createReq("fp-unknown", "C", "/tmp/proj"), authCtx);
+    const again = await handlers.workspacesCreate(createReq(UNKNOWN_OS_FP, "C", "/tmp/proj"), authCtx);
     expect(again.workspace?.id).toBe(first.workspace?.id ?? "");
   });
 });

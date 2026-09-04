@@ -1,4 +1,5 @@
-import { defineCollection, z } from "astro:content";
+import { defineCollection } from "astro:content";
+import { z } from "astro/zod";
 import { glob } from "astro/loaders";
 
 /** Docs pages. `order` drives both the sidebar and the section index. */
@@ -23,7 +24,7 @@ const compare = defineCollection({
     competitor: z.string(),
     vendor: z.string(),
     license: z.string(),
-    url: z.string().url(),
+    url: z.url(),
     order: z.number(),
     category: z.enum([
       "agent-terminal",

@@ -26,7 +26,7 @@ import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-en
 import { _deployLocal } from "./deploy-local.ts";
 import { manifestOnlyWorkspaces } from "./deploy-workspaces.ts";
 import { deployLinux } from "./deploy-linux.ts";
-import { posixShellQuote } from "./shell-quote.ts";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 import {
   MACOS_WORKER_LABEL,
   _macosDeployJournalPath,

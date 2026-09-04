@@ -14,11 +14,12 @@ import { WasmBridge } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
+import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
 function freshMgr(): SessionManager {
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
-    sink: { emit: () => {} },
+    sink: new LifecycleTestSink(),
   });
 }
 

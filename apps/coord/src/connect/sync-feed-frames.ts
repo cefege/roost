@@ -12,15 +12,12 @@ import {
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import {
   WorkspaceDeltaProtoSchema, WorkspaceSessionsSetSchema,
-  TaskDeltaProtoSchema, WebhookTokenDeltaProtoSchema,
-  PermissionRuleDeltaProtoSchema, McpStreamMessageProtoSchema,
+  TaskDeltaProtoSchema, McpStreamMessageProtoSchema,
   McpRelayEventSchema, WorkerPresenceProtoSchema, WorkerHeartbeatSchema,
   PairRequestDeltaProtoSchema,
 } from "@roost/shared/proto/events_pb";
 import {
   WorkspaceSchema as WorkspacePbSchema,
-  WebhookTokenSchema as WebhookTokenPbSchema,
-  PermissionRuleSchema as PermissionRulePbSchema,
   McpRelaySchema as McpRelayPbSchema,
   WorkerSchema as WorkerPbSchema,
   HostMetricsSchema as HostMetricsPbSchema,
@@ -28,8 +25,8 @@ import {
 } from "@roost/shared/proto/wire_pb";
 import type { TaskBusMsg, PairRequestDelta, AuditRow } from "../buses.ts";
 import type {
-  SessionEvent, WorkspaceDelta, WebhookTokenDelta, PermissionRuleDelta,
-  McpStreamMessage, WorkerPresenceEvent, HostMetrics, AgentStatusUpdate,
+  SessionEvent, WorkspaceDelta, McpStreamMessage, WorkerPresenceEvent,
+  HostMetrics, AgentStatusUpdate,
 } from "@roost/shared/wire";
 
 export type SyncFeedLane = "cell" | "session" | "retained" | "nonterminal" | "control";
@@ -137,14 +134,10 @@ export function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
       return { domain: SyncDomain.WORKSPACES, lane: "nonterminal" };
     case "taskDelta":
       return { domain: SyncDomain.TASKS, lane: "nonterminal" };
-    case "permissionDelta":
-      return { domain: SyncDomain.PERMISSIONS, lane: "nonterminal" };
     case "mcpMsg":
       return { domain: SyncDomain.MCP, lane: "nonterminal" };
     case "pairRequestDelta":
       return { domain: SyncDomain.PAIR, lane: "nonterminal" };
-    case "webhookTokenDelta":
-      return { domain: SyncDomain.WEBHOOK, lane: "nonterminal" };
     case "auditRow":
       return { domain: SyncDomain.AUDIT, lane: "nonterminal" };
     case "uiState":
@@ -202,41 +195,6 @@ export const taskFrame = (e: TaskBusMsg): FirehoseFrame =>
     kind: { case: e.kind, value: e.task },
   })}});
 
-export const webhookFrame = (e: WebhookTokenDelta): FirehoseFrame | null => {
-  if (e.kind === "created") {
-    return create(FirehoseFrameSchema, { frame: { case: "webhookTokenDelta", value: create(WebhookTokenDeltaProtoSchema, {
-      kind: { case: "created", value: create(WebhookTokenPbSchema, {
-        id: e.token.id, label: e.token.label, last4: e.token.last4, scopes: e.token.scopes,
-        createdAtMs: BigInt(e.token.created_at_ms),
-        lastUsedAtMs: e.token.last_used_at_ms != null ? BigInt(e.token.last_used_at_ms) : undefined,
-      }) },
-    })}});
-  }
-  if (e.kind === "deleted") {
-    return create(FirehoseFrameSchema, { frame: { case: "webhookTokenDelta", value: create(WebhookTokenDeltaProtoSchema, {
-      kind: { case: "deletedId", value: e.id },
-    })}});
-  }
-  return null;
-};
-
-export const permFrame = (e: PermissionRuleDelta): FirehoseFrame | null => {
-  if (e.kind === "created" || e.kind === "updated") {
-    return create(FirehoseFrameSchema, { frame: { case: "permissionDelta", value: create(PermissionRuleDeltaProtoSchema, {
-      kind: { case: e.kind, value: create(PermissionRulePbSchema, {
-        id: e.rule.id, toolPattern: e.rule.tool_pattern, folderGlob: e.rule.folder_glob,
-        decision: e.rule.decision, enabled: e.rule.enabled,
-        createdAtMs: BigInt(e.rule.created_at_ms),
-      }) },
-    })}});
-  }
-  if (e.kind === "deleted") {
-    return create(FirehoseFrameSchema, { frame: { case: "permissionDelta", value: create(PermissionRuleDeltaProtoSchema, {
-      kind: { case: "deletedId", value: e.id },
-    })}});
-  }
-  return null;
-};
 
 export const mcpFrame = (e: McpStreamMessage): FirehoseFrame | null => {
   if ("kind" in e && (e.kind === "created" || e.kind === "updated")) {

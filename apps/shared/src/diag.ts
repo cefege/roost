@@ -119,7 +119,6 @@ export type SignalKind =
   | "tab.duplicate_identity_rotated" // duplicated browser tab inherited sessionStorage identity; newcomer rotated before opening authenticated transports
   | "auth.key_evicted"
   | "auth.relogin_401"
-  | "auth.pin_mismatch"
   | "input.drop_burst"
   | "reconnect.give_up"
   | "keeper.died"               // keeper subprocess exited → all PTYs lost; worker respawns + reconciles sessions
@@ -156,17 +155,22 @@ export type SignalKind =
   | "sync.auth_rejected"        // coord rejected a browser Sync WS upgrade (jwt invalid / missing token); kv.reason
   | "sync.ws_frame_dropped"     // coord's ws.send returned 0 = the frame was DROPPED, not merely backpressured. A cell frame lost here is what the SPA's cell.seq_gap then recovers from; without this the coord side of that story is invisible
   | "cell.seq_gap"              // SPA saw a cell-frame seq discontinuity (frame lost in transit) → forced a catch-up claim. A BURST means the socket is losing frames, not that recovery is broken
+  | "cell.foreground_stall"     // foreground terminal liveness bound fired; kv.layer=view_ack|terminal_proof|dom_reconcile and kv.action=resync|redial|reconcile name the failed proof and recovery
   | "cell.paint_lag"            // PTY→browser-arrival latency for a cell frame exceeded the per-session felt-lag floor by PAINT_LAG_SIGNAL_MS (skew-corrected); kv's per-hop values name the hop that owns the delay
   | "event.append_failed"       // coord appendEvent DB tx failed (event-log durability)
   | "audit.write_failed"        // coord audit_log insert failed (audit/compliance trail hole)
   | "audit.input_queue_backpressure" // coord terminal-input audit queue reached its bounded capacity; producers are waiting for durable audit writes
   | "worker.auth_rejected"      // coord rejected a worker WS upgrade (jwt invalid / fp mismatch); kv.reason
   | "worker.protocol_violation" // worker sent event-before-hello / an undecodable frame; kv.reason
+  | "worker.queue_overflow"     // coord bounded worker-frame queue rejected a frame; socket closes with 1009 before retaining it
+  | "worker.event_rate_exceeded" // coord worker durable-event window exceeded 600/minute; socket closes before persistence
   | "rpc.worker_timeout"        // coord→worker pending RPC timed out; browser spawn/attach hangs
   | "auth.rpc_rejected"         // a Connect RPC returned 401/Unauthenticated (jwt verify fail or no caller); kv.reason,path
   | "worker.uncaught"           // worker uncaughtException/unhandledRejection (mirror of spa.uncaught); kv.kind=error|rejection
   | "transport.event_drop"      // SessionEvent evicted from the unacked outbox on overflow (at-least-once broken = data loss)
   | "transport.raw_metadata_drop" // bounded worker/CoordLink metadata lane rejected bytes; cells remain authoritative but the title/activity scanners saw a gap
+  | "transport.metadata_coalesced" // replaceable cwd/git/pr/ports event was superseded or rejected within its bounded volatile lane; lifecycle durability is unaffected
+  | "transport.snapshot_unready" // worker snapshot exceeded membership/byte limits or could not be encoded; the authenticated worker stays locally unready until a valid exact snapshot can cross the barrier
   | "heartbeat.stalled"         // N consecutive heartbeat failures to coord (worker invisible to fleet)
   | "scrollback.history_lost"   // resume fell back to an empty ring after getHistory failed (full scrollback wipe)
   | "worker.coord_relocate_failed" // worker STAGE/ACTIVATE/COMMIT/ABORT of a coordinator move threw; kv.action,handoff_id

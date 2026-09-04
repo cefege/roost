@@ -159,7 +159,10 @@ message CoordWorkerUp {
 
 // ── Downstream (coord → worker) ──────────────────────────────────
 
-message DHelloAck { string coord_pubkey_b64 = 1; string coord_pubkey_kid = 2; }
+message DHelloAck {
+  reserved 1, 2;
+  reserved "coord_pubkey_b64", "coord_pubkey_kid";
+}
 message DPing { uint64 ts = 1; }
 message DBrowserCommand {
   string browser_id = 1;

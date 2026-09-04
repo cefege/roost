@@ -1,9 +1,16 @@
+// Owns verified coordinator snapshot, retention, and migration backup gates.
+// Migration tests exercise the awaited hook against file-backed SQLite failures.
+// Managed host backup policy is represented only by the in-volume opt-out.
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { runBackup } from "../src/backup.ts";
+import {
+  makePreMigrationBackupHook,
+  runBackup,
+  scheduleBackups,
+} from "../src/backup.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 
 const workdirs: string[] = [];
@@ -98,15 +105,47 @@ describe("coordinator backups", () => {
     const sqlite = new Database(dbPath, { create: true });
     writeFileSync(join(dir, "backups"), "blocks backup directory creation");
     try {
+      const backup = makePreMigrationBackupHook(sqlite, dbPath);
+      if (!backup) throw new Error("self-hosted backup hook is required");
       await expect(runMigrations(
         sqlite,
-        [{ name: "0001_must_not_apply", sql: "CREATE TABLE forbidden (id INTEGER)" }],
-        async () => {
-          await runBackup(sqlite, dbPath, "pre-migration");
-        },
+        [
+          {
+            name: "0021_must_not_apply",
+            sql: "CREATE TABLE forbidden_second (id INTEGER)",
+          },
+          {
+            name: "0020_must_not_apply",
+            sql: "CREATE TABLE forbidden_first (id INTEGER)",
+          },
+        ],
+        backup,
       )).rejects.toThrow();
-      expect(sqlite.query("SELECT name FROM sqlite_master WHERE name = 'forbidden'").get()).toBeNull();
-      expect(sqlite.query("SELECT name FROM _migrations WHERE name = '0001_must_not_apply'").get()).toBeNull();
+      expect(sqlite.query(`
+        SELECT name FROM sqlite_master WHERE name LIKE 'forbidden_%'
+      `).all()).toEqual([]);
+      expect(sqlite.query("SELECT name FROM _migrations").all()).toEqual([]);
+    } finally {
+      sqlite.close(true);
+    }
+  });
+
+  test("managed startup installs neither pre-migration nor scheduled in-volume backups", () => {
+    const dir = mkdtempSync(join(tmpdir(), "roost-managed-backup-policy-"));
+    workdirs.push(dir);
+    const dbPath = join(dir, "coord.db");
+    const sqlite = new Database(dbPath, { create: true });
+    try {
+      sqlite.exec("CREATE TABLE sentinel (value TEXT)");
+      expect(makePreMigrationBackupHook(sqlite, dbPath, {
+        managedContainer: true,
+      })).toBeUndefined();
+      expect(makePreMigrationBackupHook(sqlite, dbPath, {
+        managedContainer: false,
+      })).toBeFunction();
+
+      scheduleBackups(sqlite, dbPath, { managedContainer: true });
+      expect(existsSync(join(dir, "backups"))).toBe(false);
     } finally {
       sqlite.close(true);
     }

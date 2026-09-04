@@ -7,8 +7,8 @@
 // Used by Connect session-router mutations and resolved by the worker
 // WS upstream rpc_ok/rpc_error frames.
 //
-// Map key is a UUID minted per call; lifecycle is bounded by deadline
-// timer so a dead worker doesn't leak entries.
+// Map keys include the authenticated worker fingerprint so client-supplied
+// upload ids cannot replace another worker's pending completion.
 
 import { randomUUID } from "node:crypto";
 import { ConnectError, Code } from "@connectrpc/connect";
@@ -18,18 +18,54 @@ import { signal, diag } from "@roost/shared/diag";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 interface PendingEntry {
+  requestId: string;
   resolve: (data: unknown) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   createdAt: number;
-  // A5: the worker this RPC was routed to, so its socket close can reject
-  // it immediately instead of leaving the browser to hang until the
-  // deadline timer (15-30s). null = not worker-routed (shouldn't happen
-  // for browser→worker RPCs, but tolerated).
+  // The authenticated worker namespace prevents one worker response from
+  // settling another worker's request even when client correlation ids match.
   workerFp: string | null;
 }
 
 const _pending = new Map<string, PendingEntry>();
+
+function pendingKey(requestId: string, workerFp: string | null): string {
+  return JSON.stringify([workerFp, requestId]);
+}
+
+function findPending(
+  requestId: string,
+  workerFp?: string,
+): { key: string; entry: PendingEntry } | undefined {
+  if (workerFp !== undefined) {
+    const workerKey = pendingKey(requestId, workerFp);
+    const workerEntry = _pending.get(workerKey);
+    if (workerEntry) return { key: workerKey, entry: workerEntry };
+    const untaggedKey = pendingKey(requestId, null);
+    const untaggedEntry = _pending.get(untaggedKey);
+    return untaggedEntry ? { key: untaggedKey, entry: untaggedEntry } : undefined;
+  }
+
+  let found: { key: string; entry: PendingEntry } | undefined;
+  for (const [key, entry] of _pending) {
+    if (entry.requestId !== requestId) continue;
+    if (found) return undefined;
+    found = { key, entry };
+  }
+  return found;
+}
+
+function takePending(
+  requestId: string,
+  workerFp?: string,
+): PendingEntry | undefined {
+  const found = findPending(requestId, workerFp);
+  if (!found) return undefined;
+  clearTimeout(found.entry.timer);
+  _pending.delete(found.key);
+  return found.entry;
+}
 
 export interface PendingRpc<T = unknown> {
   request_id: string;
@@ -43,26 +79,43 @@ export function createPendingRpc<T = unknown>(
   return createPendingRpcWithId<T>(randomUUID(), timeoutMs, workerFp);
 }
 
-/** att1-stream: the chunked-unary upload reuses ONE worker request_id across
- *  every chunk (the worker assembles by it). Coord registers the pending under
- *  that shared id on the final chunk so the worker's rpc-ok resolves it. */
+/** att1-stream: the chunked-unary upload reuses one worker request id across
+ * every chunk. The final completion is isolated by authenticated worker. */
 export function createPendingRpcWithId<T = unknown>(
   request_id: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   workerFp: string | null = null,
 ): PendingRpc<T> {
+  const key = pendingKey(request_id, workerFp);
+  if (_pending.has(key)) {
+    throw new ConnectError(
+      "request_id is already pending for this worker",
+      Code.AlreadyExists,
+    );
+  }
   const promise = new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      if (_pending.delete(request_id)) {
-        log.warn("pending-rpcs", "timeout", { request_id, timeoutMs });
-        signal("rpc.worker_timeout", { request_id, worker_fp: workerFp, waited_ms: timeoutMs, cooldownKey: workerFp ?? "worker-rpc" });
-        // ConnectError (not plain Error): Connect-ES forwards a ConnectError's
-        // code+message to the browser verbatim, so the toast reads the real
-        // reason instead of the masked "[internal] internal error".
-        reject(new ConnectError(`worker did not reply within ${timeoutMs}ms`, Code.DeadlineExceeded));
+      if (_pending.get(key)?.requestId === request_id && _pending.delete(key)) {
+        log.warn("pending-rpcs", "timeout", {
+          request_id,
+          worker_fp: workerFp,
+          timeout_ms: timeoutMs,
+        });
+        signal("rpc.worker_timeout", {
+          request_id,
+          worker_fp: workerFp,
+          waited_ms: timeoutMs,
+          cooldownKey: workerFp ?? "worker-rpc",
+        });
+        reject(new ConnectError(
+          `worker did not reply within ${timeoutMs}ms`,
+          Code.DeadlineExceeded,
+        ));
       }
     }, timeoutMs);
-    _pending.set(request_id, {
+    timer.unref?.();
+    _pending.set(key, {
+      requestId: request_id,
       resolve: resolve as (data: unknown) => void,
       reject,
       timer,
@@ -79,17 +132,22 @@ export function createPendingRpcWithId<T = unknown>(
  *  Browser fast-fails with a retryable error instead of hanging until the
  *  deadline. Returns the count rejected. */
 export function rejectPendingRpcsForWorker(workerFp: string, message: string): number {
-  let n = 0;
-  for (const [request_id, entry] of _pending) {
+  let count = 0;
+  for (const [key, entry] of _pending) {
     if (entry.workerFp !== workerFp) continue;
     clearTimeout(entry.timer);
-    _pending.delete(request_id);
+    _pending.delete(key);
     entry.reject(new ConnectError(message, Code.Unavailable));
-    n++;
+    count++;
   }
-  if (n > 0) log.warn("pending-rpcs", "rejected_on_worker_close", { workerFp, count: n });
-  if (n > 0) diag("rpc.rejected_worker_close", { worker_fp: workerFp, count: n });
-  return n;
+  if (count > 0) {
+    log.warn("pending-rpcs", "rejected_on_worker_close", {
+      worker_fp: workerFp,
+      count,
+    });
+    diag("rpc.rejected_worker_close", { worker_fp: workerFp, count });
+  }
+  return count;
 }
 
 export function resolvePendingRpc(
@@ -97,13 +155,8 @@ export function resolvePendingRpc(
   data: unknown,
   workerFp?: string,
 ): boolean {
-  const entry = _pending.get(request_id);
+  const entry = takePending(request_id, workerFp);
   if (!entry) return false;
-  // A correlated id is not enough: only the authenticated worker that owns
-  // the pending entry may settle it. Untagged legacy entries remain permissive.
-  if (workerFp !== undefined && entry.workerFp !== null && entry.workerFp !== workerFp) return false;
-  clearTimeout(entry.timer);
-  _pending.delete(request_id);
   entry.resolve(data);
   return true;
 }
@@ -113,29 +166,26 @@ export function rejectPendingRpc(
   message: string,
   workerFp?: string,
 ): boolean {
-  const entry = _pending.get(request_id);
+  const entry = takePending(request_id, workerFp);
   if (!entry) return false;
-  // Mirror the success-path identity fence for worker rpc-error frames.
-  if (workerFp !== undefined && entry.workerFp !== null && entry.workerFp !== workerFp) return false;
-  clearTimeout(entry.timer);
-  _pending.delete(request_id);
-  // The worker's rpc-error `message` carries the REAL failure (e.g. "keeper
-  // spawn no-ack after 800ms", a dead-PTY exit). Reject with ConnectError so
-  // Connect-ES relays that text to the browser toast instead of masking a
-  // plain Error to "[internal] internal error".
+  // The worker's rpc-error carries the real permanent command failure.
   entry.reject(new ConnectError(message || "worker rpc failed", Code.Internal));
   return true;
 }
 
 /** Reject a request that never reached the worker because its transport was
- * unavailable. Callers may safely retry these; worker rpc-error replies use
- * Code.Internal and are permanent command failures. */
-export function rejectPendingRpcUnavailable(request_id: string, message: string): boolean {
-  const entry = _pending.get(request_id);
+ * unavailable. Callers may safely retry these. */
+export function rejectPendingRpcUnavailable(
+  request_id: string,
+  message: string,
+  workerFp?: string,
+): boolean {
+  const entry = takePending(request_id, workerFp);
   if (!entry) return false;
-  clearTimeout(entry.timer);
-  _pending.delete(request_id);
-  entry.reject(new ConnectError(message || "worker transport unavailable", Code.Unavailable));
+  entry.reject(new ConnectError(
+    message || "worker transport unavailable",
+    Code.Unavailable,
+  ));
   return true;
 }
 

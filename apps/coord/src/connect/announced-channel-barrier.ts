@@ -1,10 +1,11 @@
 // Bridges the worker-open chronology gap: frames for an announced channel are
 // buffered between synchronous decode of opened/respawned and its durable DB
 // append plus channel-map publication. Unannounced channels never enter here.
-// Buffers are hard-bounded (64 frames / 4 MiB / 3s); once dropped, later cell
-// frames rebuild the grid, but one-shot OSC 0/2 titles are lost forever since
-// they cross the binary lane only once.
+// Each channel keeps its tighter 64-frame / 4-MiB / 3s repair window while
+// every retained frame also consumes the worker socket's aggregate budget.
+// A later full frame can repair dropped cells, but not one-shot OSC metadata.
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
+import type { WorkerRetainedWorkBudget } from "./worker-frame-queue.ts";
 
 export const ANNOUNCED_CHANNEL_MAX_FRAMES = 64;
 export const ANNOUNCED_CHANNEL_MAX_BYTES = 4 * 1024 * 1024;
@@ -52,6 +53,8 @@ interface BufferedFrame {
   encodedBytes: number;
   cell: boolean;
   binaryBytes: number;
+  retained: boolean;
+  delivering: boolean;
 }
 
 interface AnnouncedChannel {
@@ -77,9 +80,22 @@ interface AnnouncedChannel {
 export class AnnouncedChannelBarrier {
   private readonly channels = new Map<number, AnnouncedChannel>();
   private readonly onDrop: ((drop: AnnouncedDrop) => void) | undefined;
+  private retainedWorkBudget: WorkerRetainedWorkBudget | null;
 
-  constructor(onDrop?: (drop: AnnouncedDrop) => void) {
+  constructor(
+    onDrop?: (drop: AnnouncedDrop) => void,
+    retainedWorkBudget?: WorkerRetainedWorkBudget,
+  ) {
     this.onDrop = onDrop;
+    this.retainedWorkBudget = retainedWorkBudget ?? null;
+  }
+
+  bindRetainedWorkBudget(retainedWorkBudget: WorkerRetainedWorkBudget): void {
+    if (this.retainedWorkBudget === retainedWorkBudget) return;
+    if (this.retainedWorkBudget || this.channels.size !== 0) {
+      throw new Error("announced-channel barrier budget already bound");
+    }
+    this.retainedWorkBudget = retainedWorkBudget;
   }
 
   announce(channelId: number, sessionId: string): void {
@@ -151,6 +167,21 @@ export class AnnouncedChannelBarrier {
         this.drop(channelId, announced, "out_of_order", { cellFrames: 1, binaryFrames: 0, binaryBytes: 0 });
         return "dropped";
       }
+    }
+    const retainedWorkBudget = this.retainedWorkBudget;
+    if (!retainedWorkBudget) {
+      throw new Error("announced-channel barrier budget is not bound");
+    }
+    const retained = retainedWorkBudget.retain(encodedBytes);
+    if (retained !== "retained") {
+      this.drop(channelId, announced, "overflow", {
+        cellFrames: cell ? 1 : 0,
+        binaryFrames: binary ? 1 : 0,
+        binaryBytes,
+      });
+      return "dropped";
+    }
+    if (cell) {
       announced.sawCellFrame = true;
       announced.lastCellSeq = cell.seq;
       announced.cellFrames += 1;
@@ -158,7 +189,14 @@ export class AnnouncedChannelBarrier {
       announced.binaryFrames += 1;
       announced.binaryBytes += binaryBytes;
     }
-    announced.buffered.push({ frame, encodedBytes, cell: cell !== null, binaryBytes });
+    announced.buffered.push({
+      frame,
+      encodedBytes,
+      cell: cell !== null,
+      binaryBytes,
+      retained: true,
+      delivering: false,
+    });
     announced.bytes += encodedBytes;
     return "buffered";
   }
@@ -183,22 +221,35 @@ export class AnnouncedChannelBarrier {
     }
     announced.phase = "draining";
     while (announced.buffered.length > 0) {
-      // A timeout, an overflow from a concurrent arrival, or a replacement
-      // announcement can retire this entry mid-drain; its own drop reported the
-      // remaining loss, so stop rather than publishing past it.
+      // A timeout, overflow, or replacement may retire this entry while its
+      // current delivery is awaited. That item stays charged until settlement.
       if (this.channels.get(channelId) !== announced) return false;
-      const next = announced.buffered.shift()!;
+      const next = announced.buffered[0]!;
+      next.delivering = true;
+      let failed = false;
+      let failure: unknown;
+      try {
+        await deliver(next.frame);
+      } catch (error) {
+        failed = true;
+        failure = error;
+      } finally {
+        this.releaseRetained(next);
+      }
+      if (this.channels.get(channelId) !== announced) {
+        if (failed) throw failure;
+        return false;
+      }
+      announced.buffered.shift();
       announced.bytes -= next.encodedBytes;
       if (next.cell) announced.cellFrames -= 1;
       else {
         announced.binaryFrames -= 1;
         announced.binaryBytes -= next.binaryBytes;
       }
-      try {
-        await deliver(next.frame);
-      } catch (error) {
+      if (failed) {
         this.drop(channelId, announced, "publish_failed");
-        throw error;
+        throw failure;
       }
     }
     if (this.channels.get(channelId) !== announced) return false;
@@ -217,7 +268,13 @@ export class AnnouncedChannelBarrier {
    * generation change that already forces a full frame for every active owner,
    * so a dying route needs no per-channel loss report. */
   clear(): void {
-    for (const announced of this.channels.values()) clearTimeout(announced.timer);
+    for (const announced of this.channels.values()) {
+      clearTimeout(announced.timer);
+      for (const frame of announced.buffered) {
+        if (!frame.delivering) this.releaseRetained(frame);
+      }
+      announced.buffered.length = 0;
+    }
     this.channels.clear();
   }
 
@@ -256,11 +313,20 @@ export class AnnouncedChannelBarrier {
       binaryFrames: announced.binaryFrames + rejected.binaryFrames,
       binaryBytes: announced.binaryBytes + rejected.binaryBytes,
     };
+    for (const frame of announced.buffered) {
+      if (!frame.delivering) this.releaseRetained(frame);
+    }
     announced.buffered.length = 0;
     announced.bytes = 0;
     announced.cellFrames = 0;
     announced.binaryFrames = 0;
     announced.binaryBytes = 0;
     this.onDrop?.(drop);
+  }
+
+  private releaseRetained(frame: BufferedFrame): void {
+    if (!frame.retained) return;
+    frame.retained = false;
+    this.retainedWorkBudget!.release(frame.encodedBytes);
   }
 }

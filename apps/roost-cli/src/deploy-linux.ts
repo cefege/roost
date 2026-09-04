@@ -25,7 +25,7 @@ import {
   sshExec,
 } from "./deploy-exec.ts";
 import { COORD_UNIT, WORKER_UNIT } from "./service-ctl.ts";
-import { posixShellQuote } from "./shell-quote.ts";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 import {
   isManagedLinuxWorkerReleasePath,
   linuxDeployJournalPath,

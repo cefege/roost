@@ -8,6 +8,7 @@ import { log } from "@roost/shared/log";
 import { durableWriteFile } from "@roost/shared/durability";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import { windowsApplyAccountDacl } from "@roost/shared/windows-helper";
+import { resolve } from "node:path";
 
 // PKCS8 DER prefix for a raw 32-byte Ed25519 seed. crypto.subtle.importKey
 // only accepts pkcs8/jwk/spki — prepend this to the seed to import it.
@@ -84,17 +85,28 @@ function parseOpenSshEd25519(pem: string): { privSeed: Uint8Array; pubKey: Uint8
 
 // ─── JWT minting ──────────────────────────────────────────────────────
 
-interface LoadedKey {
+export interface LoadedKey {
   seed: Uint8Array;
   pubKey: Uint8Array;
   fingerprint: string;
   signingKey: CryptoKey;
 }
 
-let _key: LoadedKey | null = null;
+const keysByPath = new Map<string, Promise<LoadedKey>>();
 
-export async function loadWorkerKey(keyPath: string): Promise<LoadedKey> {
-  if (_key) return _key;
+export function loadWorkerKey(keyPath: string): Promise<LoadedKey> {
+  const resolvedPath = resolve(keyPath);
+  const existing = keysByPath.get(resolvedPath);
+  if (existing) return existing;
+  const loading = loadKeyAtPath(resolvedPath);
+  keysByPath.set(resolvedPath, loading);
+  void loading.catch(() => {
+    if (keysByPath.get(resolvedPath) === loading) keysByPath.delete(resolvedPath);
+  });
+  return loading;
+}
+
+async function loadKeyAtPath(keyPath: string): Promise<LoadedKey> {
 
   // First-boot: generate fresh OpenSSH ed25519 keypair if missing or
   // unparseable (legacy Rust worker stored raw 32-byte seeds in the
@@ -120,9 +132,9 @@ export async function loadWorkerKey(keyPath: string): Promise<LoadedKey> {
 
   const fingerprint = await fingerprintOf(parsed.pubKey);
   const signingKey = await importSigningKey(parsed.privSeed);
-  _key = { seed: parsed.privSeed, pubKey: parsed.pubKey, fingerprint, signingKey };
+  const loaded = { seed: parsed.privSeed, pubKey: parsed.pubKey, fingerprint, signingKey };
   log.info("jwt", "worker key loaded", { fingerprint });
-  return _key;
+  return loaded;
 }
 
 // Generate a fresh OpenSSH-format ed25519 key + write to disk. Uses

@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import type { Database } from "bun:sqlite";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { sweepAuditLog } from "../src/audit-retention.ts";
+import {
+  cleanupAnonymousStaticAuditLog,
+  sweepAuditLog,
+} from "../src/audit-retention.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Fixed clock — the window is driven by the injected `now`, never by wall time.
@@ -79,7 +82,7 @@ describe("audit retention sweep", () => {
     seed(sqlite, [
       { ts: ancient, path: `${SVC}/SessionsInput` },
       { ts: ancient, path: `${SVC}/PairApprove` },
-      { ts: ancient, path: `${SVC}/AuthAuthorizeBrowser` },
+      { ts: ancient, path: `${SVC}/AuthRedeemBrowser` },
       { ts: ancient, path: `${SVC}/WorkersDelete` },
       { ts: ancient, path: `${SVC}/WorkspacesDelete` },
       { ts: ancient, path: `${SVC}/SessionsSpawn` },
@@ -90,7 +93,7 @@ describe("audit retention sweep", () => {
     expect(deleted).toBe(1);
     expect(pathsLeft(sqlite)).toEqual([
       `${SVC}/PairApprove`,
-      `${SVC}/AuthAuthorizeBrowser`,
+      `${SVC}/AuthRedeemBrowser`,
       `${SVC}/WorkersDelete`,
       `${SVC}/WorkspacesDelete`,
       `${SVC}/SessionsSpawn`,
@@ -174,4 +177,40 @@ describe("audit retention sweep", () => {
     expect(deleted).toBe(1);
     expect(rowsLeft(sqlite)).toBe(1);
   });
+  test("one-time cleanup removes only anonymous successful static reads", async () => {
+    const sqlite = await fixture();
+    const insert = sqlite.query(
+      `INSERT INTO audit_log
+       (ts, caller_fp, method, path, status)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    const rows: Array<[string | null, string, string, number]> = [
+      [null, "GET", "/", 200],
+      [null, "HEAD", "/assets/app.js", 304],
+      [null, "GET", "/login", 404],
+      [null, "POST", "/", 200],
+      ["authenticated-fp", "GET", "/", 200],
+      [null, "GET", "/api/db-export", 200],
+      [null, "GET", "/api/security-event", 200],
+      [null, "GET", "/internal/lifecycle", 200],
+      [null, "GET", `${SVC}/MiscHealth`, 200],
+    ];
+    for (const [callerFp, method, path, status] of rows) {
+      insert.run(NOW, callerFp, method, path, status);
+    }
+
+    const deleted = await cleanupAnonymousStaticAuditLog(sqlite, 1);
+
+    expect(deleted).toBe(2);
+    expect(pathsLeft(sqlite)).toEqual([
+      "/login",
+      "/",
+      "/",
+      "/api/db-export",
+      "/api/security-event",
+      "/internal/lifecycle",
+      `${SVC}/MiscHealth`,
+    ]);
+  });
+
 });

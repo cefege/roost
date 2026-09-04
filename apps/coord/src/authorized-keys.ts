@@ -67,17 +67,42 @@ export async function isAuthorizedKeyRevoked(db: KyselyDB, fingerprint: string):
 export async function importAuthorizedKeys(db: KyselyDB, filePath: string): Promise<number> {
   const contents = readFileSync(filePath, "utf8");
   const now = Date.now();
+  const accounts = await db.selectFrom("accounts")
+    .select(["id", "status"])
+    .limit(2)
+    .execute();
+  const browserAccountId = accounts.length === 1 && accounts[0]?.status === "active"
+    ? accounts[0].id
+    : null;
   let count = 0;
   for (const line of contents.split(/\r?\n/)) {
     const parsed = parseSshEd25519Line(line);
     if (!parsed) continue;
     const fp = await fingerprintOf(parsed.pubkey);
     if (await isAuthorizedKeyRevoked(db, fp)) continue;
-    await db
-      .insertInto("authorized_keys")
-      .values({ fingerprint: fp, public_key: parsed.pubkey, label: parsed.label, added_at: now })
-      .onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: parsed.label }))
-      .execute();
+    await db.transaction().execute(async (trx) => {
+      await trx
+        .insertInto("authorized_keys")
+        .values({ fingerprint: fp, public_key: parsed.pubkey, label: parsed.label, added_at: now })
+        .onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: parsed.label }))
+        .execute();
+      if (browserAccountId !== null) {
+        const worker = await trx.selectFrom("workers")
+          .select("fp")
+          .where("fp", "=", fp)
+          .executeTakeFirst();
+        if (!worker) {
+          await trx.insertInto("account_devices").values({
+            fingerprint: fp,
+            account_id: browserAccountId,
+            added_at_ms: now,
+            last_seen_at_ms: now,
+          }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({
+            last_seen_at_ms: now,
+          })).execute();
+        }
+      }
+    });
     count++;
   }
   return count;

@@ -1,11 +1,10 @@
-// SessionsSpawn RPC handler: forwards spawn frames to the target worker and,
-// for caller-supplied UUIDs, dedupes concurrent spawns via pending-spawns so
-// exact duplicates share one result while any signature conflict rejects.
-// Caller-minted session ids are trusted only after canonical-UUID validation
-// plus a DB existence check, and worker replies must match the reserved
-// identity before resolving. Spawn cols/rows are initial PTY hints only.
+// SessionsSpawn RPC handler: forwards a coordinator-selected session UUID to
+// the target worker and dedupes concurrent spawns within the selected dashboard.
+// Exact duplicates share one result while signature conflicts reject before
+// membership changes. Worker replies must match the reserved identity.
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { randomUUID } from "node:crypto";
 import {
   SessionsSpawnResponseSchema,
   type SessionsSpawnRequest,
@@ -14,7 +13,7 @@ import {
 import { asSessionId, type ClientControlFrame } from "@roost/shared/wire";
 import { createPendingRpc, rejectPendingRpc } from "../router/pending-rpcs.ts";
 import type { ConnectDeps } from "./router.ts";
-import type { Caller } from "./auth-interceptor.ts";
+import type { AccountDeviceCaller, DashboardActor } from "./auth-interceptor.ts";
 import { getWorkerHubSocket, sendBrowserCommand } from "./worker-service.ts";
 import { sendBrowserCmd } from "./router-helpers.ts";
 import {
@@ -60,35 +59,28 @@ export function spawnFrameFor(req: {
 export async function handleSessionsSpawn(
   deps: ConnectDeps,
   req: SessionsSpawnRequest,
-  caller: Caller,
+  caller: AccountDeviceCaller,
+  actor: DashboardActor,
   tabId: string | undefined,
 ): Promise<SessionsSpawnResponse> {
   const callerKey = tabId ? `${caller.fingerprint}:${tabId}` : caller.fingerprint;
   if (req.sessionId && !CALLER_SESSION_ID_RE.test(req.sessionId)) {
     throw new ConnectError("session_id must be a canonical UUID", Code.InvalidArgument);
   }
+  const sessionId = req.sessionId || randomUUID();
 
-  if (!req.sessionId) {
-    const socket = getWorkerHubSocket(req.workerFp);
-    if (!socket) {
-      throw new ConnectError(
-        `worker ${req.workerFp.slice(0, 12)} not connected`,
-        Code.FailedPrecondition,
-      );
-    }
-    const pending = createPendingRpc<WorkerSpawnResult>(15_000, req.workerFp);
-    sendBrowserCmd(socket, caller, pending.request_id, spawnFrameFor(req));
-    const data = await pending.promise;
-    return create(SessionsSpawnResponseSchema, {
-      sessionId: data.session_id,
-      channelId: data.channel_id,
-    });
-  }
+  const worker = await deps.db.selectFrom("workers")
+    .select("fp")
+    .where("fp", "=", req.workerFp)
+    .where("dashboard_id", "=", actor.dashboardId)
+    .where("deleted_at_ms", "is", null)
+    .executeTakeFirst();
+  if (!worker) throw new ConnectError("worker not found", Code.NotFound);
 
-  const sessionId = req.sessionId;
   const signature: PendingSpawnSignature = {
     callerKey,
-    workerFp: req.workerFp,
+    workerFp: worker.fp,
+    dashboardId: actor.dashboardId,
     kind: req.kind,
     folder: req.folder,
     cols: req.cols,
@@ -106,27 +98,30 @@ export async function handleSessionsSpawn(
   }
 
   if (reservation.kind === "new") {
-    const existing = await deps.db.selectFrom("sessions").select(["id"])
-      .where("id", "=", sessionId).executeTakeFirst();
+    const existing = await deps.db.selectFrom("sessions").select("id")
+      .where("id", "=", sessionId)
+      .executeTakeFirst();
     if (existing) {
       rejectPendingSpawn(
+        actor.dashboardId,
         sessionId,
         new ConnectError("session_id already exists", Code.AlreadyExists),
         true,
       );
     } else {
-      const socket = getWorkerHubSocket(req.workerFp);
+      const socket = getWorkerHubSocket(worker.fp);
       if (!socket) {
         rejectPendingSpawn(
+          actor.dashboardId,
           sessionId,
           new ConnectError(
-            `worker ${req.workerFp.slice(0, 12)} not connected`,
+            `worker ${worker.fp.slice(0, 12)} not connected`,
             Code.FailedPrecondition,
           ),
           true,
         );
       } else {
-        const pending = createPendingRpc<WorkerSpawnResult>(15_000, req.workerFp);
+        const pending = createPendingRpc<WorkerSpawnResult>(15_000, worker.fp);
         void pending.promise.then((data) => {
           if (
             data.session_id !== sessionId
@@ -134,30 +129,31 @@ export async function handleSessionsSpawn(
             || data.channel_id <= 0
           ) {
             rejectPendingSpawn(
+              actor.dashboardId,
               sessionId,
               new ConnectError("worker returned an invalid spawn identity", Code.DataLoss),
               true,
             );
             return;
           }
-          resolvePendingSpawn(sessionId, {
+          resolvePendingSpawn(actor.dashboardId, sessionId, {
             sessionId,
             channelId: data.channel_id,
           });
         }, (error: Error) => {
           const definite = error instanceof ConnectError && error.code === Code.Internal;
-          rejectPendingSpawn(sessionId, error, definite);
+          rejectPendingSpawn(actor.dashboardId, sessionId, error, definite);
         });
-        const sent = sendBrowserCommand(req.workerFp, {
+        const sent = sendBrowserCommand(worker.fp, {
           browser_id: caller.fingerprint,
           viewer_id: callerKey,
           request_id: pending.request_id,
-          frame: spawnFrameFor(req),
+          frame: spawnFrameFor({ ...req, sessionId }),
         });
         if (!sent) {
           const error = new ConnectError("worker send failed", Code.Unavailable);
-          rejectPendingRpc(pending.request_id, error.message);
-          rejectPendingSpawn(sessionId, error, true);
+          rejectPendingRpc(pending.request_id, error.message, worker.fp);
+          rejectPendingSpawn(actor.dashboardId, sessionId, error, true);
         }
       }
     }

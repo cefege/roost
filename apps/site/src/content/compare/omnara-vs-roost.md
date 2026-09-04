@@ -27,7 +27,7 @@ useInsteadIf: "You want a phone-first chat and approval workflow over managed ag
 
 - **What the surface actually shows you.** Omnara shows a structured conversation: progress, streamed output, diffs, and approval prompts. Roost shows the literal cell grid the program is drawing, with full ANSI, scrollback, mouse support, and alt-screen TUIs — which is what you need to run `htop`, page through `git log`, answer an interactive prompt, or use a shell at all.
 
-- **Accounts versus device keys.** Omnara is account-based, with organisations, roles, and API keys, and its default path is Omnara Cloud. Roost has no accounts: each device mints an Ed25519 key pair in the browser with WebCrypto, the private key is a non-extractable IndexedDB object that never leaves the device, and you revoke a device by deleting a row. No shared token, no tenant, no telemetry; Roost is single-user by design.
+- **Accounts and device keys.** Omnara is account-based, with organisations, roles, and API keys, and its default path is Omnara Cloud. Managed Roost currently has one operator-provisioned owner and dashboard. The owner password authorizes a browser's non-extractable Ed25519 device key, which then signs ordinary requests. The self-hosted edition remains accountless and user-operated.
 
 - **Machines mean different things.** Omnara's machines are execution targets an agent can be handed, including vendor sandboxes from Blaxel, Daytona, or Unikraft, added or removed while the agent is running. Roost's workers are your own long-lived computers, enrolled once with `roost add-machine --platform macos|linux|windows`, dialling outbound only so none exposes an inbound port, and shown in one sidebar with per-machine CPU, memory, disk, and network tiles.
 
@@ -35,7 +35,7 @@ useInsteadIf: "You want a phone-first chat and approval workflow over managed ag
 
 ## What you give up either way
 
-- **Choosing Roost costs you:** agent supervision and retries, approval gates in front of side effects, secrets held on an agent's behalf, organisation and project RBAC, HTTP MCP servers, skills, a Slack connector, and a two-way conversational voice mode — Roost's voice is dictation typed into the session.
+- **Choosing Roost costs you:** agent supervision and retries, approval gates in front of side effects, secrets held on an agent's behalf, HTTP MCP servers, skills, a Slack connector, and a two-way conversational voice mode — Roost's voice is dictation typed into the session.
 - **Choosing Omnara costs you:** a shell, panes, and scrollback on a machine you own; any CLI that is not one of its supported agents; and a client that is the same full application on a phone rather than a chat surface over an agent.
 
 ## Use Omnara instead if…

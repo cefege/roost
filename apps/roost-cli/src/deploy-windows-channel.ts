@@ -10,11 +10,9 @@
 // Callers: deploy.ts (worker twin), push.ts + main/update flows (self-update).
 
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { CoordClient } from "../../worker/src/coord-client.ts";
 import { loadWorkerConfig } from "../../worker/src/config.ts";
-import { buildAuthorizedApiClient, buildSelfAuthorizedApiClient } from "./api.ts";
+import { buildApiClient, buildSelfAuthorizedApiClient } from "./api.ts";
 import { DeployFailure, failDeploy } from "./deploy-exec.ts";
 import { loadWindowsServiceDefinitions } from "./service-ctl.ts";
 import { statusReport } from "./status.ts";
@@ -141,11 +139,7 @@ export async function tryCoordinatorWindowsDeploy(
     if (process.platform === "win32") {
       const definitions = await loadWindowsServiceDefinitions();
       const config = loadWorkerConfig(definitions.worker.environment);
-      client = await buildAuthorizedApiClient({
-        coordinatorUrl: config.coordinatorUrl,
-        keyPath: join(homedir(), ".roost", "cli-key"),
-        label: "roost-cli",
-      });
+      client = await buildApiClient({ coordinatorUrl: config.coordinatorUrl });
     } else {
       client = await buildSelfAuthorizedApiClient();
     }

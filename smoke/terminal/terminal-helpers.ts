@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { expect } from "./fixtures.ts";
+import { expect, waitForConfirmedDashboardScope } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
 import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 import { dirname, join } from "node:path";
@@ -71,6 +71,7 @@ function fixtureWorkerFolder(worker: TerminalTestWorker): string {
 }
 
 export async function spawnPtyFixtureSession(page: Page, worker: TerminalTestWorker): Promise<string> {
+  await waitForConfirmedDashboardScope(page);
   await page.waitForFunction((workerFp) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return !!smokeWindow.__smoke.state().workers[workerFp];
@@ -82,6 +83,7 @@ export async function spawnPtyFixtureSession(page: Page, worker: TerminalTestWor
 }
 
 export async function spawnSmokeShell(page: Page, workerFp: string, sessionId?: string) {
+  await waitForConfirmedDashboardScope(page);
   return page.evaluate(async ({ workerFp: fp, sessionId: sid }) => {
     const smoke = (window as unknown as { __smoke: RecoverySmokeApi }).__smoke;
     const session = await smoke.spawnShell(fp, "/tmp", sid);

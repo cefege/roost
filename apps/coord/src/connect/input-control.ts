@@ -76,6 +76,7 @@ interface InputAuditRecord {
   deps: ConnectDeps;
   callerFingerprint: string;
   outcome: InputControlResult["status"];
+  dashboardId: string;
   writtenBytes: number;
   traceId?: string;
 }
@@ -106,6 +107,7 @@ function pumpInputAudits(): void {
             traceId: next.traceId,
             callerFp: next.callerFingerprint,
             throwOnFailure: true,
+            dashboardId: next.dashboardId,
           });
           next.resolve();
         } catch (error) {
@@ -182,6 +184,7 @@ export function processInputControl(
           callerFingerprint: command.identity.callerFingerprint,
           outcome: outcome.status,
           writtenBytes: outcome.writtenBytes,
+          dashboardId: command.identity.dashboardId!,
           traceId: command.audit?.traceId,
         });
         return outcome;
@@ -202,6 +205,9 @@ export function processInputControl(
       }
     });
   };
+  if (command.identity.dashboardId === undefined) {
+    return finish(Promise.resolve(inputRejected(command, "terminal dashboard scope is unavailable")));
+  }
   if (command.data.byteLength === 0) {
     return finish(Promise.resolve({
       status: "accepted",
@@ -226,12 +232,17 @@ export function processInputControl(
       let admitted = false;
       try {
         lease = deps.move?.gate.acquire() ?? null;
-        const route = await resolveSessionRoute(deps.db, command.sessionId);
+        const route = await resolveSessionRoute(
+          deps.db,
+          command.identity.dashboardId,
+          command.sessionId,
+        );
         if (!route) return inputRejected(command, "unknown session");
         const workerCall = sendTerminalInputRequest(route.workerFp, {
           sessionId: command.sessionId,
           inputSeq: command.inputSeq,
           data: command.data,
+          dashboardId: command.identity.dashboardId,
         }, deadline);
         admitted = workerCall.admitted;
         if (!admitted) {

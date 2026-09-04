@@ -222,6 +222,16 @@ test("scheme URLs are NOT evicted by overlapping file-path matches", () => {
   expect(segs.some(s => s.kind === "file")).toBe(false);
 });
 
+test("custom schemes cannot be reinterpreted as worker file paths", () => {
+  for (const target of [
+    "vscode://file/src/main.ts",
+    "vscode:file/src/main.ts",
+    "custom:folder/report.zip",
+  ]) {
+    expect(computeRowLinks(rows(`open ${target} now`), 80, stubResolve)).toEqual([]);
+  }
+});
+
 test("~-prefixed paths are matched whole, not partially as /absolute", () => {
   // ~ is not in [\w.@\-], so without the ~ prefix in branch A, the regex would
   // start at the / after ~, creating a broken "absolute" path /Code/... instead
@@ -302,10 +312,10 @@ test("a painted producer URI wins its span over the identical regex URL", () => 
     .toEqual([{ row: 0, start: 0, end: text.length, url: text }]);
 });
 
-test("a painted file: link on the filename does not block the full-path file link", () => {
-  // `ls --hyperlink` paints an anchor on just the filename while the full path is
-  // on screen. file:// is useless in a browser, so the resolvable path wins and
-  // the painted anchor is the one the applier dissolves.
+test("a valid painted file target remains authoritative over inferred text", () => {
+  // terminal-links.ts resolves the producer's exact file URI onto its existing
+  // anchor before this pure overlap pass. The visible label/path never retargets
+  // an OSC 8 link.
   const text = "/Users/you/Code/project/docs/report_2026-07-13.zip";
   const at = text.indexOf("report_2026-07-13.zip");
   const segs = computeRowLinks(
@@ -313,31 +323,17 @@ test("a painted file: link on the filename does not block the full-path file lin
     80,
     stubResolve,
   );
-  expect(segs).toEqual([{
-    row: 0,
-    start: 0,
-    end: text.length,
-    url: "/file/W/Users/you/Code/project/docs/report_2026-07-13.zip",
-    kind: "file",
-    hint: `Open ${text}`,
-  }]);
+  expect(segs).toEqual([]);
 });
 
-test("a painted link soft-wrapped across rows is ONE match, replaced as one link", () => {
-  // cols=10: row0 fills the grid, so the anchor's two halves are adjacent in the
-  // joined line and share the core's run key. They fuse, so the resolvable path
-  // covering BOTH halves evicts the whole file:// link instead of half of it —
-  // and the applier gets one segment per row, same href.
+test("a painted file target stays authoritative across a soft wrap", () => {
   const half = (start: number, end: number): PaintedLink =>
     ({ start, end, uri: "file:///tmp/Foo.txt", key: PAINTED_KEY });
   const input: RowLinkInput[] = [
     { text: "see /tmp/F", columns: 10, links: [half(9, 10)] },
     { text: "oo.txt", columns: 6, links: [half(0, 6)] },
   ];
-  const segs = computeRowLinks(input, 10, stubResolve);
-  expect(segs.map(s => s.kind)).toEqual(["file", "file"]);
-  expect(new Set(segs.map(s => s.url))).toEqual(new Set(["/file/W/tmp/Foo.txt"]));
-  expect(segs.map(s => input[s.row].text.slice(s.start, s.end)).join("")).toBe("/tmp/Foo.txt");
+  expect(computeRowLinks(input, 10, stubResolve)).toEqual([]);
 });
 
 // ── ROW_LINK_HINT prefilter — one case per pattern family ─────────────────
@@ -353,7 +349,7 @@ test("prefilter keeps every link family detectable", () => {
     computeRowLinks(rows(...texts), 80, resolveFile, ownerRepo).map((s) => s.url);
 
   expect(one(["open https://example.com now"])).toEqual(["https://example.com"]);
-  expect(one(["mail me at mailto:a@b.co"])).toEqual(["mailto:a@b.co"]);
+  expect(one(["mail me at mailto:a@b.co"])).toEqual([]);
   expect(one(["Local:   localhost:5174/"])).toEqual(["http://localhost:5174/"]);
   expect(one(["at apps/web/src/foo.ts:42 exactly"])).toEqual(["/file/fp/apps/web/src/foo.ts#L42"]);
   expect(one(["see foo.ts:9 there"])).toEqual(["/file/fp/foo.ts#L9"]);

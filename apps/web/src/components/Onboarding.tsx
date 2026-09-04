@@ -1,16 +1,14 @@
 // First-boot component. Shown when coord is reachable but no workers are registered.
-// Three flows:
-//   1. bootstrap-token-redeem (worker-mint flow — paste a token from another browser)
-//   2. self-register (loopback-only convenience)
-//   3. tap-to-pair (this browser posts its pubkey; an already-authorized
-//      browser sees the request in #pair-approval-list and approves)
+// Two enrollment flows:
+//   1. redeem a one-shot browser grant, pasted or captured from a #pair fragment;
+//   2. tap-to-pair: this browser posts its public key and an already-authorized
+//      browser sees the request in #pair-approval-list and approves it.
 // When already authorized, the pair-approval-list lets this browser approve
 // pending requests from other browsers (rootStore.pair_requests).
 
 import { createSignal, createMemo, createResource, For, Show, onCleanup } from "solid-js";
 import { coordClient } from "../connect.ts";
 import { getPublicKeyB64, isResetWebKeyEligible, resetWebKey } from "../auth/web-key.ts";
-import { clearCoordTrust } from "../auth/trust.ts";
 import { redeemPairToken } from "../auth/redeemPairToken.ts";
 import { rootStore } from "../store/root.ts";
 import { deletePairRequest } from "../store/mutations.ts";
@@ -24,9 +22,6 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
   const [bootstrapToken, setBootstrapToken] = createSignal("");
   const [status, setStatus] = createSignal<"idle" | "loading" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = createSignal("");
-  // Fail-closed TOFU gate: set when coord presented a fingerprint that
-  // contradicts this browser's pin. Only an explicit user action clears it.
-  const [fpMismatch, setFpMismatch] = createSignal(false);
 
   // tap-to-pair local state
   const [pairEphemeralId, setPairEphemeralId] = createSignal<string | null>(null);
@@ -35,12 +30,12 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
 
   const workerCount = () => Object.keys(rootStore.workers).length;
   // authCoordIdentity is a PUBLIC endpoint — coord_identity is populated
-  // even when the browser hasn't been trusted by the coord yet. Use the
-  // browser_unauthorized flag set by sync.ts (true when authed list
-  // calls came back Connect Unauthenticated). That's the real signal.
+  // even when the browser has not been authorized by the coordinator. Use the
+  // browser_unauthorized flag set by sync.ts (true when authenticated list
+  // calls return Connect Unauthenticated). That is the authoritative signal.
   // Without this gate, Onboarding renders only the <h2>Welcome</h2> on
-  // an untrusted Mac #2 (every <Show when={!isAuthorized()}> hides the
-  // tabs / token mode / pair mode → black screen with one heading).
+  // an unauthorized second browser (every <Show when={!isAuthorized()}> hides
+  // the tabs / token mode / pair mode → black screen with one heading).
   const isAuthorized = createMemo(() => !rootStore.browser_unauthorized);
   const [resetEligible] = createResource(
     () => rootStore.browser_unauthorized,
@@ -58,25 +53,11 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     if (res.ok) {
       setStatus("done");
       window.location.reload();
-    } else if ("reason" in res && res.reason === "coord_fingerprint_mismatch") {
-      // Keep the token input intact so the explicit-trust retry re-redeems
-      // the same code; status returns to idle (the generic error block stays
-      // hidden — this gate has its own dedicated UI below).
-      setFpMismatch(true);
-      setStatus("idle");
-    } else if ("error" in res) {
-      setFpMismatch(false);
+    } else {
       setStatus("error");
       setErrorMsg(res.error);
       addToast(`Redeem failed: ${res.error}`, "err");
     }
-  }
-
-  async function trustNewCoordinatorFingerprint() {
-    // One explicit consent = clear the stale pin, then exactly one retry.
-    // The retry re-runs TOFU against whatever key coord presents now.
-    await clearCoordTrust();
-    await redeemToken();
   }
 
   // tap-to-pair: this browser publishes its pubkey, then polls until
@@ -161,7 +142,7 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
       <Show when={!props.embedded}>
         <h2 style={{ "font-size": "20px", "margin-bottom": "6px", color: "var(--md-sys-color-on-surface)" }}>Pair this browser</h2>
       </Show>
-      {/* Embedded in DevicesPane: when this browser is already trusted and
+      {/* Embedded in DevicesPane: when this browser is already authorized and
           nothing is pending, the card would otherwise be blank. */}
       <Show when={props.embedded && isAuthorized() && pendingPairRequests().length === 0}>
         <p data-testid="onboarding-no-pending" style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface-variant)", margin: "0", "line-height": "1.5" }}>
@@ -171,7 +152,7 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
       </Show>
       <Show when={!isAuthorized()}>
         <p style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface-variant)", "margin-bottom": "24px", "line-height": "1.5" }}>
-          This browser isn't trusted by the coordinator yet. Either paste a
+          This browser isn't authorized by the coordinator yet. Either paste a
           pairing code below, or request approval from a browser that's
           already paired.
         </p>
@@ -183,7 +164,7 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
         </Show>
       <Show when={isAuthorized() && workerCount() === 0}>
         <p style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface-variant)", "margin-bottom": "20px" }}>
-          This browser is trusted, but no machines have registered as workers yet.
+          This browser is authorized, but no machines have registered as workers yet.
         </p>
       </Show>
 
@@ -242,29 +223,6 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
           >
             {status() === "loading" ? "Pairing…" : "Pair"}
           </Button>
-          <Show when={fpMismatch()}>
-            <div
-              data-testid="onboarding-fingerprint-mismatch"
-              style={{
-                border: "1px solid var(--md-sys-color-error)", background: "var(--md-sys-color-surface)",
-                padding: "12px", "border-radius": "var(--md-shape-xs)", "margin-top": "10px",
-              }}
-            >
-              <div style={{ "font-size": "12px", color: "var(--md-sys-color-error)", "line-height": "1.5", "margin-bottom": "8px" }}>
-                Pairing blocked: the coordinator's security fingerprint doesn't match what
-                this browser pinned when it first paired — expected after a coordinator
-                reinstall or key rotation, or if something is impersonating the coordinator.
-              </div>
-              <Button
-                variant="tonal"
-                data-testid="onboarding-trust-new-fingerprint"
-                onClick={() => void trustNewCoordinatorFingerprint()}
-                disabled={status() === "loading"}
-              >
-                Trust new coordinator fingerprint
-              </Button>
-            </div>
-          </Show>
         </div>
       </Show>
 

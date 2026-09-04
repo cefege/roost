@@ -7,6 +7,7 @@
 // posix-deploy-journal core.
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { coordServiceLabel } from "@roost/shared/paths";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 
 import { dirname, isAbsolute, relative } from "node:path";
 import { durableWriteFile } from "@roost/shared/durability";
@@ -325,7 +326,7 @@ export function coordinatorRestartCommand(
   if (platform === "linux") {
     const unit = label.endsWith(".service") ? label : `${label}.service`;
     return `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; ` +
-      `systemctl --user daemon-reload && systemctl --user restart '${unit.replaceAll("'", `'\"'\"'`)}'`;
+      `systemctl --user daemon-reload && systemctl --user restart ${posixShellQuote(unit)}`;
   }
   if (platform !== "darwin") throw new Error(`unsupported POSIX coordinator platform ${platform}`);
   return launchdBootstrapWithRetryCmd(label, servicePath, { role: "coordinator rollback" });

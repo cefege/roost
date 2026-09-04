@@ -35,6 +35,8 @@ class FakeSyncSocket extends EventTarget {
   readyState = FakeSyncSocket.CONNECTING;
   binaryType = "blob";
   readonly sent: Uint8Array[] = [];
+  readonly closes: Array<{ code: number; reason: string }> = [];
+  deferCloseEvent = false;
   onopen: (() => void) | null = null;
   onmessage: ((ev: { data: ArrayBuffer }) => void) | null = null;
   onerror: ((ev: unknown) => void) | null = null;
@@ -47,13 +49,20 @@ class FakeSyncSocket extends EventTarget {
 
   send(data: Uint8Array): void { this.sent.push(data); }
 
-  close(): void {
+  close(code = 1000, reason = ""): void {
     if (this.readyState === FakeSyncSocket.CLOSED) return;
-    this.readyState = FakeSyncSocket.CLOSED;
-    this.onclose?.({ code: 1000, reason: "" });
+    this.closes.push({ code, reason });
+    this.readyState = this.deferCloseEvent
+      ? FakeSyncSocket.CLOSING
+      : FakeSyncSocket.CLOSED;
+    if (!this.deferCloseEvent) this.onclose?.({ code, reason });
   }
 
-  /** Server accepted the dial. */
+  serverClose(code = 1000, reason = ""): void {
+    this.readyState = FakeSyncSocket.CLOSED;
+    this.onclose?.({ code, reason });
+  }
+
   accept(): void {
     this.readyState = FakeSyncSocket.OPEN;
     this.onopen?.();
@@ -98,14 +107,17 @@ Object.assign(globalThis, {
 mock.module("../src/auth/web-key.ts", () => ({
   signCoordinatorJwt: async () => "test-jwt",
   getPublicKeyB64: async () => "test-key",
-  persistedWebKeyAtStartup: true,
 }));
 
 // Intentional module-loading boundary: the host fakes and the JWT mock must be
 // installed before the singleton sync module evaluates.
 const sync = await import("../src/store/sync.ts");
+const {
+  SYNC_OPEN_TIMEOUT_MS,
+  SYNC_REDIAL_MAX_MS,
+  SYNC_REFOCUS_STALE_MS,
+} = await import("../src/store/sync-watchdog.ts");
 const { setForceHidden, setForceVisible } = await import("../src/lib/pageVisible.ts");
-const { SYNC_REDIAL_MAX_MS, SYNC_REFOCUS_STALE_MS } = await import("../src/store/sync-watchdog.ts");
 
 // ─── drivers ─────────────────────────────────────────────────────────────────
 
@@ -133,8 +145,7 @@ async function dropNewestDial(): Promise<void> {
 function subscribedFrame(socketId: string, processEpoch: string): Uint8Array {
   const domains = [
     SyncDomain.TERMINAL, SyncDomain.WORKERS, SyncDomain.WORKSPACES,
-    SyncDomain.TASKS, SyncDomain.PERMISSIONS, SyncDomain.MCP,
-    SyncDomain.PAIR, SyncDomain.WEBHOOK, SyncDomain.AUDIT,
+    SyncDomain.TASKS, SyncDomain.MCP, SyncDomain.PAIR, SyncDomain.AUDIT,
   ];
   return toBinary(FirehoseFrameSchema, create(FirehoseFrameSchema, {
     frame: {
@@ -145,7 +156,7 @@ function subscribedFrame(socketId: string, processEpoch: string): Uint8Array {
         generations: domains.map((domain) => create(SyncDomainGenerationSchema, {
           domain,
           generation: 1n,
-          subscribed: domain === SyncDomain.TERMINAL,
+          subscribed: domain !== SyncDomain.AUDIT,
         })),
       }),
     },
@@ -324,4 +335,65 @@ describe("Sync redial never leaves a visible page parked", () => {
     await completeNewestDial("epoch-stale");
     expect(hydrated.at(-1)).toBe(sync.syncWsGeneration());
   });
+
+  test("terminal liveness closes only the exact generation and redials immediately", async () => {
+    const current = sync.currentSyncV2TerminalState();
+    const socket = dialed.at(-1)!;
+    expect(current?.ready).toBe(true);
+    if (!current) throw new Error("terminal generation was not ready");
+
+    const expected = {
+      socketGeneration: current.socketGeneration,
+      socketId: current.socketId,
+      processEpoch: current.processEpoch,
+      domainGeneration: current.domainGeneration,
+    };
+    const stale = [
+      { ...expected, socketGeneration: expected.socketGeneration + 1 },
+      { ...expected, socketId: `${expected.socketId}-old` },
+      { ...expected, processEpoch: `${expected.processEpoch}-old` },
+      { ...expected, domainGeneration: expected.domainGeneration + 1n },
+    ];
+    for (const candidate of stale) {
+      expect(sync.requestSyncGenerationRecovery(
+        candidate,
+        "terminal-proof-timeout",
+      )).toBe(false);
+    }
+    expect(socket.closes).toHaveLength(0);
+    expect(sync.requestSyncGenerationRecovery(
+      expected,
+      "terminal-view-ack-timeout",
+    )).toBe(true);
+    expect(sync.requestSyncGenerationRecovery(
+      expected,
+      "terminal-proof-timeout",
+    )).toBe(false);
+    expect(socket.closes).toEqual([{
+      code: 4000,
+      reason: "terminal liveness timeout",
+    }]);
+
+    await flush();
+    expect(dialed.at(-1)).not.toBe(socket);
+    expect(sync.syncRedialStatus().liveness).toBe("dialing");
+  });
+
+  test("a stalled CONNECTING generation retires and online wakes its backoff", async () => {
+    const stalled = dialed.at(-1)!;
+    const dialCount = dialed.length;
+    expect(stalled.readyState).toBe(FakeSyncSocket.CONNECTING);
+
+    await advance(SYNC_OPEN_TIMEOUT_MS - 1);
+    expect(stalled.closes).toHaveLength(0);
+    await advance(1);
+    expect(stalled.closes).toEqual([{ code: 1000, reason: "" }]);
+    expect(dialed).toHaveLength(dialCount);
+
+    fakeWindow.dispatchEvent(new Event("online"));
+    await flush();
+    expect(dialed).toHaveLength(dialCount + 1);
+    expect(sync.syncRedialStatus().liveness).toBe("dialing");
+  });
+
 });

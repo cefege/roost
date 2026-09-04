@@ -1,0 +1,44 @@
+[Unit]
+Description=Resolve Roost managed account routes
+After=local-fs.target network.target roost-saas-origin-isolation.service
+Requires=roost-saas-origin-isolation.service
+ConditionPathIsReadWrite=/srv/data/roost
+ConditionFileNotEmpty=/etc/roost/saas.env
+ConditionFileNotEmpty=/etc/roost/saas-resolver-hmac.key
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=/etc/roost/saas.env
+Environment=ROOST_SAAS_RESOLVER_HMAC_KEY_FILE=/etc/roost/saas-resolver-hmac.key
+ExecStart=/usr/local/bin/roost saas resolver
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadOnlyPaths=/srv/data/roost /etc/roost/saas.env /etc/roost/saas-resolver-hmac.key
+InaccessiblePaths=/run/docker.sock /srv/infra/edge
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SocketBindAllow=tcp:4107
+SocketBindDeny=any
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

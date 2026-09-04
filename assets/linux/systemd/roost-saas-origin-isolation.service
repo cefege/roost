@@ -1,0 +1,30 @@
+[Unit]
+Description=Restrict Roost public-origin loopback listeners by service UID
+After=local-fs.target systemd-sysusers.service
+Before=cloudflared.service roost-saas-auth.service roost-saas-auth-bridge.service roost-saas-provisioner.service roost-saas-resolver.service roost-saas-resolver-bridge.service
+ConditionFileNotEmpty=/etc/roost/roost-saas-origin-isolation.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/nft delete table inet roost_saas_origin
+ExecStart=/usr/sbin/nft -f /etc/roost/roost-saas-origin-isolation.nft
+ExecReload=-/usr/sbin/nft delete table inet roost_saas_origin
+ExecReload=/usr/sbin/nft -f /etc/roost/roost-saas-origin-isolation.nft
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_NETLINK
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

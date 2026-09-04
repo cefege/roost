@@ -3,6 +3,7 @@
 // live socket can be taken over ONLY when parked and the revision+intent match
 // exactly; a view can never move between sessions. Every mutation path must
 // end in recompute() (geometry changed) or an explicit reply, never neither.
+
 import {
   TerminalViewStatus, type TerminalResyncCommand, type TerminalViewCommand,
 } from "@roost/shared/proto/sync_pb";
@@ -10,16 +11,20 @@ import {
   TERMINAL_VIEW_LEASE_MS, isTerminalUuid, type TerminalGeometry,
 } from "@roost/shared/viewport";
 import { TerminalScreenHub, type TerminalScreenSocketSink } from "./terminal-screen-hub.ts";
-import { enqueueTerminalViewState, equalTerminalViewIntent, terminalViewIntent,
-  terminalViewKey, validateTerminalViewCommand, type TerminalViewIntent,
+import {
+  equalTerminalViewIntent, terminalViewIntent, validateTerminalViewCommand,
 } from "./terminal-view-protocol.ts";
 import {
-  activeTerminalFingerprints, projectTerminalViewers, retainTerminalViewTombstone,
-  terminalViewGeometries, terminalViewStats,
-  type TerminalViewRecord as View, type TerminalViewSocketRecord as Socket,
+  activeTerminalFingerprints, projectTerminalViewers, terminalViewGeometries,
+  terminalViewStats, type TerminalViewRecord as View,
+  type TerminalViewSocketRecord as Socket,
   type TerminalViewTombstone as Tombstone,
 } from "./terminal-view-registry-state.ts";
 import type { TerminalStreamState } from "./terminal-view-stream-controller.ts";
+import {
+  scopedTerminalViewKey,
+  TerminalViewRegistryOperations,
+} from "./terminal-view-registry-operations.ts";
 
 const SOCKET_CAP = 64;
 const SESSION_CAP = 256;
@@ -28,8 +33,9 @@ export interface TerminalViewRegistryOptions {
   screen: TerminalScreenHub;
   now(): number;
   streamState(sessionId: string): TerminalStreamState | null;
-  recompute(sessionId: string): boolean;
+  recompute(sessionId: string, dashboardId: string): boolean;
   redrive(sessionId: string): void;
+  onLiveViewExpired(socketId: string, viewId: string, sessionId: string): void;
 }
 
 export class TerminalViewRegistry {
@@ -37,8 +43,17 @@ export class TerminalViewRegistry {
   private readonly views = new Map<string, View>();
   private readonly sessionViews = new Map<string, Set<string>>();
   private readonly tombstones = new Map<string, Tombstone>();
+  private readonly operations: TerminalViewRegistryOperations;
 
-  constructor(private readonly options: TerminalViewRegistryOptions) {}
+  constructor(private readonly options: TerminalViewRegistryOptions) {
+    this.operations = new TerminalViewRegistryOperations(
+      options,
+      this.sockets,
+      this.views,
+      this.sessionViews,
+      this.tombstones,
+    );
+  }
 
   dispose(): void {
     for (const id of this.sockets.keys()) this.options.screen.unregisterSocket(id);
@@ -52,6 +67,8 @@ export class TerminalViewRegistry {
     socketId: string;
     viewerKey: string | null;
     callerFingerprint: string;
+    dashboardId: string;
+    allowsSession(sessionId: string): boolean;
     sink: TerminalScreenSocketSink;
   }): void {
     this.closeSocket(registration.socketId);
@@ -59,6 +76,8 @@ export class TerminalViewRegistry {
       id: registration.socketId,
       viewerKey: registration.viewerKey,
       fingerprint: registration.callerFingerprint,
+      dashboardId: registration.dashboardId,
+      allowsSession: registration.allowsSession,
       sink: registration.sink,
       views: new Set(),
     });
@@ -77,11 +96,11 @@ export class TerminalViewRegistry {
   }
 
   removeFingerprint(fingerprint: string): void {
-    const affected = new Set<string>();
+    const affected = new Map<string, string>();
     for (const view of [...this.views.values()]) {
       if (view.fingerprint !== fingerprint) continue;
-      affected.add(view.sessionId);
-      this.remove(view, false);
+      affected.set(view.sessionId, view.dashboardId);
+      this.operations.remove(view, false);
     }
     for (const [key, tombstone] of this.tombstones) {
       if (
@@ -94,7 +113,29 @@ export class TerminalViewRegistry {
       this.sockets.delete(id);
       this.options.screen.unregisterSocket(id);
     }
-    for (const sessionId of affected) this.options.recompute(sessionId);
+    for (const [sessionId, dashboardId] of affected) {
+      this.options.recompute(sessionId, dashboardId);
+    }
+  }
+
+  removeDashboard(dashboardId: string): void {
+    const affected = new Map<string, string>();
+    for (const view of [...this.views.values()]) {
+      if (view.dashboardId !== dashboardId) continue;
+      affected.set(view.sessionId, view.dashboardId);
+      this.operations.remove(view, false);
+    }
+    for (const [key, tombstone] of this.tombstones) {
+      if (tombstone.dashboardId === dashboardId) this.tombstones.delete(key);
+    }
+    for (const [socketId, socket] of this.sockets) {
+      if (socket.dashboardId !== dashboardId) continue;
+      this.sockets.delete(socketId);
+      this.options.screen.unregisterSocket(socketId);
+    }
+    for (const [sessionId, scope] of affected) {
+      this.options.recompute(sessionId, scope);
+    }
   }
 
   handleViewCommand(socketId: string, command: TerminalViewCommand): void {
@@ -102,21 +143,42 @@ export class TerminalViewRegistry {
     if (!socket) return;
     const invalid = validateTerminalViewCommand(socket.viewerKey, command);
     if (invalid) {
-      this.replyCommand(socket, command, TerminalViewStatus.REJECTED, invalid, false);
+      this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, invalid, false);
       return;
     }
-    const key = terminalViewKey(socket.viewerKey!, command.viewId);
+    // This is intentionally before view/tombstone/cache mutation. The set is
+    // seeded from persisted sessions at Sync admission and only expanded by a
+    // same-dashboard durable event.
+    if (!socket.allowsSession(command.sessionId)) {
+      this.operations.replyCommand(
+        socket,
+        command,
+        TerminalViewStatus.REJECTED,
+        "terminal session is unavailable",
+        false,
+      );
+      return;
+    }
+    const key = scopedTerminalViewKey(
+      socket.dashboardId,
+      socket.viewerKey!,
+      command.viewId,
+    );
     const intent = terminalViewIntent(command);
     const current = this.views.get(key);
     const old = this.tombstones.get(key);
 
+    if (current && current.dashboardId !== socket.dashboardId) {
+      this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal session is unavailable", false);
+      return;
+    }
     if (current && current.socketId !== socketId) {
       if (
         !current.parked
         || current.revision !== command.revision
         || !equalTerminalViewIntent(current, intent)
       ) {
-        this.replyCommand(
+        this.operations.replyCommand(
           socket,
           command,
           TerminalViewStatus.REJECTED,
@@ -126,7 +188,7 @@ export class TerminalViewRegistry {
         return;
       }
       if (socket.views.size >= SOCKET_CAP) {
-        this.replyCommand(
+        this.operations.replyCommand(
           socket,
           command,
           TerminalViewStatus.REJECTED,
@@ -141,9 +203,9 @@ export class TerminalViewRegistry {
       socket.views.add(key);
       this.options.screen.setWatching(socketId, current.sessionId, true);
       if (this.options.streamState(current.sessionId)?.unavailable) {
-        this.replayUnavailable(current);
+        this.operations.replayUnavailable(current);
       } else {
-        this.replyView(current, TerminalViewStatus.ACCEPTED, "");
+        this.operations.replyView(current, TerminalViewStatus.ACCEPTED, "");
         this.options.screen.seedSocket(socketId, current.sessionId);
       }
       return;
@@ -151,19 +213,19 @@ export class TerminalViewRegistry {
 
     if (current) {
       if (command.revision < current.revision) {
-        this.replyCommand(socket, command, TerminalViewStatus.REJECTED, "stale terminal view revision", false);
+        this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "stale terminal view revision", false);
         return;
       }
       if (command.revision === current.revision) {
         if (!equalTerminalViewIntent(current, intent)) {
-          this.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal view revision conflicts", false);
+          this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal view revision conflicts", false);
           return;
         }
         current.deadline = this.options.now() + TERMINAL_VIEW_LEASE_MS;
         if (this.options.streamState(current.sessionId)?.unavailable) {
-          this.replayUnavailable(current);
+          this.operations.replayUnavailable(current);
         } else {
-          this.replyView(current, TerminalViewStatus.ACCEPTED, "");
+          this.operations.replyView(current, TerminalViewStatus.ACCEPTED, "");
         }
         if (this.options.screen.ensureSocketStream(socketId, current.sessionId)) {
           this.options.screen.seedSocket(socketId, current.sessionId);
@@ -171,51 +233,55 @@ export class TerminalViewRegistry {
         return;
       }
       if (command.sessionId !== current.sessionId) {
-        this.replyCommand(socket, command, TerminalViewStatus.REJECTED, "a terminal view cannot change sessions", false);
+        this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "a terminal view cannot change sessions", false);
         return;
       }
       if (!command.active) {
-        this.remove(current, true, command.revision, intent);
-        this.options.recompute(command.sessionId);
-        this.replyCommand(socket, command, TerminalViewStatus.ACCEPTED, "", true);
-        this.syncWatching(socketId, command.sessionId);
+        this.operations.remove(current, true, command.revision, intent);
+        this.options.recompute(command.sessionId, current.dashboardId);
+        this.operations.replyCommand(socket, command, TerminalViewStatus.ACCEPTED, "", true);
+        this.operations.syncWatching(socketId, command.sessionId);
         return;
       }
       current.cols = command.cols;
       current.rows = command.rows;
       current.revision = command.revision;
       current.deadline = this.options.now() + TERMINAL_VIEW_LEASE_MS;
-      if (!this.options.recompute(command.sessionId)) {
-        this.replyView(current, TerminalViewStatus.ACCEPTED, "");
+      if (!this.options.recompute(command.sessionId, current.dashboardId)) {
+        this.operations.replyView(current, TerminalViewStatus.ACCEPTED, "");
       }
       return;
     }
 
     if (old) {
+      if (old.dashboardId !== socket.dashboardId) {
+        this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal session is unavailable", false);
+        return;
+      }
       if (
         command.revision < old.revision
         || (command.revision === old.revision && !equalTerminalViewIntent(old.intent, intent))
       ) {
-        this.replyCommand(socket, command, TerminalViewStatus.REJECTED, "stale or conflicting terminal view revision", false);
+        this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "stale or conflicting terminal view revision", false);
         return;
       }
       if (old.intent.sessionId !== command.sessionId) {
-        this.replyCommand(socket, command, TerminalViewStatus.REJECTED, "a terminal view cannot change sessions", false);
+        this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "a terminal view cannot change sessions", false);
         return;
       }
       if (command.revision === old.revision && !command.active) {
-        this.replyCommand(socket, command, TerminalViewStatus.ACCEPTED, "", true);
+        this.operations.replyCommand(socket, command, TerminalViewStatus.ACCEPTED, "", true);
         return;
       }
       this.tombstones.delete(key);
     }
     if (!command.active) {
-      this.tombstone(key, socket.viewerKey!, command.revision, intent);
-      this.replyCommand(socket, command, TerminalViewStatus.ACCEPTED, "", true);
+      this.operations.tombstone(key, socket.viewerKey!, socket.dashboardId, command.revision, intent);
+      this.operations.replyCommand(socket, command, TerminalViewStatus.ACCEPTED, "", true);
       return;
     }
     if (socket.views.size >= SOCKET_CAP) {
-      this.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal socket view capacity exceeded", false);
+      this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal socket view capacity exceeded", false);
       return;
     }
     let sessionViews = this.sessionViews.get(command.sessionId);
@@ -224,7 +290,7 @@ export class TerminalViewRegistry {
       this.sessionViews.set(command.sessionId, sessionViews);
     }
     if (sessionViews.size >= SESSION_CAP) {
-      this.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal session view capacity exceeded", false);
+      this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal session view capacity exceeded", false);
       return;
     }
     const view: View = {
@@ -233,6 +299,7 @@ export class TerminalViewRegistry {
       viewId: command.viewId,
       viewerKey: socket.viewerKey!,
       fingerprint: socket.fingerprint,
+      dashboardId: socket.dashboardId,
       socketId,
       revision: command.revision,
       deadline: this.options.now() + TERMINAL_VIEW_LEASE_MS,
@@ -242,18 +309,27 @@ export class TerminalViewRegistry {
     socket.views.add(key);
     sessionViews.add(key);
     this.options.screen.setWatching(socketId, command.sessionId, true);
-    if (!this.options.recompute(command.sessionId)) {
-      this.replyView(view, TerminalViewStatus.ACCEPTED, "");
+    if (!this.options.recompute(command.sessionId, socket.dashboardId)) {
+      this.operations.replyView(view, TerminalViewStatus.ACCEPTED, "");
       this.options.screen.seedSocket(socketId, command.sessionId);
     }
   }
 
   handleResync(socketId: string, command: TerminalResyncCommand): void {
     const socket = this.sockets.get(socketId);
-    if (!socket?.viewerKey || !isTerminalUuid(command.viewId)) return;
-    const view = this.views.get(terminalViewKey(socket.viewerKey, command.viewId));
+    if (
+      !socket?.viewerKey
+      || !socket.allowsSession(command.sessionId)
+      || !isTerminalUuid(command.viewId)
+    ) return;
+    const view = this.views.get(scopedTerminalViewKey(
+      socket.dashboardId,
+      socket.viewerKey,
+      command.viewId,
+    ));
     if (
       !view
+      || view.dashboardId !== socket.dashboardId
       || view.socketId !== socketId
       || view.parked
       || view.sessionId !== command.sessionId
@@ -266,7 +342,7 @@ export class TerminalViewRegistry {
   closeSession(sessionId: string): void {
     for (const key of [...(this.sessionViews.get(sessionId) ?? [])]) {
       const view = this.views.get(key);
-      if (view) this.remove(view, false);
+      if (view) this.operations.remove(view, false);
     }
     for (const [key, tombstone] of this.tombstones) {
       if (tombstone.intent.sessionId === sessionId) this.tombstones.delete(key);
@@ -293,110 +369,28 @@ export class TerminalViewRegistry {
   broadcast(sessionId: string, status: TerminalViewStatus, message: string): void {
     for (const key of this.sessionViews.get(sessionId) ?? []) {
       const view = this.views.get(key);
-      if (view && !view.parked) this.replyView(view, status, message);
+      if (view && !view.parked) this.operations.replyView(view, status, message);
     }
   }
 
   sweep(): void {
     const now = this.options.now();
-    const affected = new Set<string>();
+    const affected = new Map<string, string>();
     for (const view of [...this.views.values()]) {
       if (view.deadline > now) continue;
-      affected.add(view.sessionId);
-      this.remove(view, true);
-      this.syncWatching(view.socketId, view.sessionId);
+      if (!view.parked) {
+        this.options.onLiveViewExpired(view.socketId, view.viewId, view.sessionId);
+      }
+      affected.set(view.sessionId, view.dashboardId);
+      this.operations.remove(view, true);
+      this.operations.syncWatching(view.socketId, view.sessionId);
     }
     for (const [key, entry] of this.tombstones) {
       if (entry.expires <= now) this.tombstones.delete(key);
     }
-    for (const sessionId of affected) this.options.recompute(sessionId);
-  }
-
-  private replayUnavailable(view: View): void {
-    const session = this.options.streamState(view.sessionId);
-    if (!session?.unavailable) {
-      this.replyView(view, TerminalViewStatus.ACCEPTED, "");
-      return;
+    for (const [sessionId, dashboardId] of affected) {
+      this.options.recompute(sessionId, dashboardId);
     }
-    if (session.unavailablePolicy === "heartbeat") {
-      this.options.redrive(view.sessionId);
-      return;
-    }
-    this.replyView(view, TerminalViewStatus.UNAVAILABLE, session.unavailableReason);
   }
 
-  private replyView(view: View, status: TerminalViewStatus, message: string): void {
-    const socket = this.sockets.get(view.socketId);
-    const session = this.options.streamState(view.sessionId);
-    if (!socket || !session?.effective) return;
-    enqueueTerminalViewState(socket.sink, {
-      viewId: view.viewId,
-      sessionId: view.sessionId,
-      revision: view.revision,
-      active: true,
-      streamId: session.streamId,
-      status,
-      effectiveCols: session.effective.cols,
-      effectiveRows: session.effective.rows,
-      message,
-    });
-  }
-
-  private replyCommand(
-    socket: Socket,
-    command: TerminalViewCommand,
-    status: TerminalViewStatus,
-    message: string,
-    inactive: boolean,
-  ): void {
-    enqueueTerminalViewState(socket.sink, {
-      viewId: command.viewId,
-      sessionId: command.sessionId,
-      revision: command.revision,
-      active: inactive ? false : command.active,
-      streamId: "",
-      status,
-      effectiveCols: 0,
-      effectiveRows: 0,
-      message,
-    });
-  }
-
-  private remove(
-    view: View,
-    save: boolean,
-    revision = view.revision,
-    intent: TerminalViewIntent = view,
-  ): void {
-    this.views.delete(view.key);
-    this.sessionViews.get(view.sessionId)?.delete(view.key);
-    this.sockets.get(view.socketId)?.views.delete(view.key);
-    if (save) this.tombstone(view.key, view.viewerKey, revision, intent);
-  }
-
-  private tombstone(
-    key: string,
-    viewerKey: string,
-    revision: bigint,
-    intent: TerminalViewIntent,
-  ): void {
-    retainTerminalViewTombstone(
-      this.tombstones,
-      this.options.now(),
-      key,
-      viewerKey,
-      revision,
-      intent,
-    );
-  }
-
-  private syncWatching(socketId: string, sessionId: string): void {
-    const socket = this.sockets.get(socketId);
-    if (!socket) return;
-    let active = false;
-    for (const key of socket.views) {
-      if (this.views.get(key)?.sessionId === sessionId) active = true;
-    }
-    this.options.screen.setWatching(socketId, sessionId, active);
-  }
 }

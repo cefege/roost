@@ -1,0 +1,145 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="Terms of Service | Roost"
+  description="Terms for using the Roost managed dashboard beta service."
+>
+  <section class="section legal-page">
+    <div class="wrap">
+      <header class="legal-header">
+        <p class="eyebrow">Legal</p>
+        <h1>Terms of Service</h1>
+        <p class="lede">
+          These terms apply when you create an account or use the Roost managed dashboard service.
+        </p>
+        <p class="updated">Last updated August 31, 2026</p>
+      </header>
+
+      <article class="prose">
+        <h2>Free beta service</h2>
+        <p>
+          Roost is currently offered as a free beta. Features, limits, and availability may change as the service is
+          developed. There is no promise that the beta will remain free or continue indefinitely. If paid service is
+          introduced, you will be given notice and a choice before being charged.
+        </p>
+
+        <h2>Your account and devices</h2>
+        <p>
+          You are responsible for providing accurate account information, keeping control of your email account,
+          password, and authorized devices, and for activity performed through your account. Use a strong, unique
+          password if you add one. Promptly revoke a lost or untrusted device and contact
+          <a href="mailto:support@roosttt.com">support@roosttt.com</a> if you suspect unauthorized access.
+        </p>
+        <p>
+          Capacity is limited during the beta. New account creation may be paused or refused when the service is full,
+          even if signup is otherwise available. One person may not evade account, identity, rate, storage, or capacity
+          limits by creating or coordinating additional accounts.
+        </p>
+
+        <h2>Acceptable use</h2>
+        <p>You may not use Roost to:</p>
+        <ul>
+          <li>break the law or violate another person’s rights;</li>
+          <li>access or attempt to access an account, device, system, or data without authorization;</li>
+          <li>distribute malware, facilitate phishing or spam, or operate abusive automated traffic;</li>
+          <li>probe, bypass, or interfere with authentication, rate limits, isolation, network controls, or security;</li>
+          <li>disrupt the service or impose unreasonable load on shared infrastructure; or</li>
+          <li>use service content or access to harass, exploit, or harm others.</li>
+        </ul>
+        <p>
+          Good-faith security reports are welcome at
+          <a href="mailto:support@roosttt.com">support@roosttt.com</a>. Do not access another user’s data or degrade the
+          service while testing a report.
+        </p>
+
+        <h2>Your content</h2>
+        <p>
+          You keep ownership of content you submit to Roost and are responsible for having the right to use it. You
+          give Roost permission to process, transmit, store, and back up that content only as needed to provide,
+          secure, and support the service. Do not submit content that these terms prohibit.
+        </p>
+        <p>
+          Roost’s backups are operational recovery material, not a guaranteed archival service. Keep an independent
+          copy of anything you cannot afford to lose.
+        </p>
+
+        <h2>Availability and changes</h2>
+        <p>
+          Roost may be unavailable because of maintenance, failures, provider outages, security incidents, or capacity
+          constraints. Features may be added, changed, limited, or removed. Roost does not promise uninterrupted,
+          error-free, or permanent access, any particular uptime, or recovery of all content.
+        </p>
+
+        <h2>Suspension and termination</h2>
+        <p>
+          Access may be limited, suspended, or disabled to address abuse, a security risk, legal requirements,
+          noncompliance with these terms, capacity or operational emergencies, or harm to Roost or others. When it is
+          reasonable and safe, Roost will try to explain the action. You may stop using the service at any time and may
+          contact support to request account deletion. Disabling an account does not by itself delete its data; see the
+          <a href="/privacy/">Privacy Policy</a> for current retention details.
+        </p>
+
+        <h2>Open-source software and hosted service</h2>
+        <p>
+          The Roost source code published at
+          <a href="https://github.com/cefege/roost" rel="noopener">github.com/cefege/roost</a> is licensed under the
+          <a href="https://github.com/cefege/roost/blob/main/LICENSE" rel="noopener">GNU General Public License v3.0
+          only</a>. That license governs your use, copying, modification, and distribution of the published software.
+        </p>
+        <p>
+          These terms separately govern access to the managed service at Roost-operated domains and infrastructure.
+          The GPL license for the source code does not grant an account, hosted capacity, support entitlement, rights
+          to Roost-operated domains or provider accounts, or permission to misuse the managed service.
+        </p>
+
+        <h2>No warranties</h2>
+        <p>
+          To the extent permitted by law, the free beta is provided <strong>“as is”</strong> and
+          <strong>“as available”</strong>, without warranties of merchantability, fitness for a particular purpose,
+          non-infringement, availability, security, or data preservation. You use the service at your own risk.
+        </p>
+
+        <h2>Limits of responsibility</h2>
+        <p>
+          To the extent permitted by law, Roost and its operator will not be liable for indirect, incidental, special,
+          consequential, exemplary, or punitive damages, or for lost data, profits, revenue, business, or opportunity
+          arising from the beta service. Nothing in these terms excludes liability that cannot legally be excluded.
+        </p>
+
+        <h2>Changes and support</h2>
+        <p>
+          These terms may be updated as the beta develops. The date above will be updated when they change. Continued
+          use after an update means you accept the revised terms; if you do not agree, stop using the managed service.
+          For support or questions about these terms, email
+          <a href="mailto:support@roosttt.com">support@roosttt.com</a>.
+        </p>
+      </article>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .legal-page {
+    padding-top: var(--md-space-8);
+  }
+
+  .legal-header {
+    max-width: 72ch;
+    margin-bottom: var(--md-space-8);
+  }
+
+  h1 {
+    margin-bottom: var(--md-space-3);
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+  }
+
+  .updated {
+    margin-top: var(--md-space-4);
+    color: var(--text-lo);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+</style>

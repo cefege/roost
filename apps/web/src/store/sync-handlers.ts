@@ -3,12 +3,11 @@
 // sync.ts) decodes each Sync-stream frame to its wire shape then calls the
 // matching _handle* here; this module imports root/projector/dispatch only,
 // never sync.ts → no import cycle. Also owns the keeper-death respawn-toast
-// detector + the webhook/audit delta subscriber registries (iterated by the
-// firehose, which imports the const Sets).
+// detector and audit delta subscriber registry (iterated by the firehose).
 
 import { deleteStoreRecord, setRootStore } from "./root.ts";
 import { foldEventIntoStore } from "./projector.ts";
-import type { Worker, Workspace, Task, PermissionRule, McpRelay } from "@roost/shared/wire";
+import type { Worker, Workspace, Task, McpRelay } from "@roost/shared/wire";
 
 // Keeper-death awareness toast. A burst of `respawned` events while the SPA
 // stream is steady AND no worker just re-registered = a keeper died mid-life
@@ -23,6 +22,14 @@ let _lastSyncConnectAt = 0;
 let _lastWorkerRegisterAt = 0;
 let _keeperDeathRespawnCount = 0;
 let _keeperDeathToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function resetSyncHandlerRuntimeForDashboardBoundary(): void {
+  clearTimeout(_keeperDeathToastTimer ?? undefined);
+  _lastSyncConnectAt = 0;
+  _lastWorkerRegisterAt = 0;
+  _keeperDeathRespawnCount = 0;
+  _keeperDeathToastTimer = null;
+}
 
 /** Mark a sync-stream (re)connect — suppresses respawn-toasts for backfill. */
 export function _noteSyncConnect(): void { _lastSyncConnectAt = performance.now(); }
@@ -91,16 +98,6 @@ export function _handleTasksDelta(event: unknown): void {
   const d = event as { task: Task };
   setRootStore("tasks", d.task.id, d.task);
 }
-export function _handlePermissionsDelta(event: unknown): void {
-  const d = event as
-    | { kind: "created" | "updated"; rule: PermissionRule }
-    | { kind: "deleted"; id: string };
-  if (d.kind === "created" || d.kind === "updated") {
-    setRootStore("permission_rules", d.rule.id, d.rule);
-  } else if (d.kind === "deleted") {
-    deleteStoreRecord("permission_rules", d.id);
-  }
-}
 export function _handleMcpEvent(event: unknown): void {
   const msg = event as
     | { kind: "created" | "updated"; relay: McpRelay }
@@ -113,15 +110,9 @@ export function _handleMcpEvent(event: unknown): void {
   }
 }
 
-// crpc6 — per-bus delta dispatchers (webhooks + audit ride the firehose).
-// Panes subscribe via registerWebhookDelta / registerAuditDelta; unsubscribe
-// on component cleanup.
-export const _webhookDeltaSubs = new Set<(d: unknown) => void>();
+// Audit rides the firehose; AuditLogPane subscribes on mount and unsubscribes
+// during cleanup.
 export const _auditDeltaSubs = new Set<(d: unknown) => void>();
-export function registerWebhookDelta(fn: (d: unknown) => void): () => void {
-  _webhookDeltaSubs.add(fn);
-  return () => _webhookDeltaSubs.delete(fn);
-}
 export function registerAuditDelta(fn: (d: unknown) => void): () => void {
   _auditDeltaSubs.add(fn);
   return () => _auditDeltaSubs.delete(fn);

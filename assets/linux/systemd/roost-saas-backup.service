@@ -1,0 +1,21 @@
+[Unit]
+Description=Back up Roost managed coordinators
+After=docker.service
+Requires=docker.service
+RequiresMountsFor=/srv/data/roost
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=/etc/roost/saas.env
+ExecStart=/usr/local/bin/roost saas backup
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/data/roost
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -22,6 +22,7 @@ import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import type { KeeperHistoryRecords, MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
 import { installAutoKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import type { ShellSpec } from "../src/shell-spec.ts";
+import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
 const SESSION_ID = asSessionId("8c1e5b20-3333-4444-8555-666677778888");
 const CHANNEL_ID = 11;
@@ -99,7 +100,7 @@ async function resumeWith(opts: {
 
   const mgr = new SessionManager({
     workerFp: asWorkerFp("11".repeat(32)),
-    sink: { emit: () => {} },
+    sink: new LifecycleTestSink(),
     sendBinaryUpstream: () => "sent",
     sendCellGridUpstream: () => "sent",
   });
@@ -120,6 +121,7 @@ async function resumeWith(opts: {
     mgr,
     keeper,
     dispose() {
+      mgr.dispose();
       pool.listChannels = priorListChannels;
       pool.reattach = priorReattach;
       pool.getHistoryRecords = priorHistoryRecords;

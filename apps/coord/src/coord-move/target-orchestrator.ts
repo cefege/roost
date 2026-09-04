@@ -20,7 +20,7 @@ export interface CoordinatorMoveOptions {
   coordKey: CoordKey;
   store: HandoffStateStore;
   runtime: CoordinatorMoveRuntime;
-  workers: () => Promise<MoveWorker[]>;
+  workers: (dashboardId: string) => Promise<MoveWorker[]>;
   gate?: CoordinatorWriteGate;
 }
 
@@ -36,9 +36,21 @@ export abstract class CoordinatorMoveTargetRole {
     this.gate = options.gate ?? new CoordinatorWriteGate();
   }
 
-  status(handoffId: string): HandoffState | null {
+  protected handoff(handoffId: string): HandoffState | null {
     const state = this.options.store.load();
     return state?.handoff_id === handoffId ? state : null;
+  }
+
+  status(dashboardId: string, handoffId: string): HandoffState | null {
+    const state = this.handoff(handoffId);
+    return state?.dashboard_id === dashboardId ? state : null;
+  }
+
+  async statusForWorker(handoffId: string, workerFp: string): Promise<HandoffState | null> {
+    const state = this.handoff(handoffId);
+    if (!state || !state.expected_worker_fps.includes(workerFp)) return null;
+    const workers = await this.options.workers(state.dashboard_id);
+    return workers.some((worker) => worker.fp === workerFp) ? state : null;
   }
 
   current(): HandoffState | null {
@@ -61,9 +73,9 @@ export abstract class CoordinatorMoveTargetRole {
   }
 
   async internalStatus(handoffId: string, secret: string): Promise<HandoffState & { connected_worker_fps: string[] }> {
-    const state = this.status(handoffId);
+    const state = this.handoff(handoffId);
     if (!state || !this.secretMatches(state, secret)) throw new Error("handoff not found");
-    const workers = await this.options.workers();
+    const workers = await this.options.workers(state.dashboard_id);
     // Never echo the plaintext handoff secret back over the wire.
     const { secret: _secret, ...safe } = state;
     return { ...safe, connected_worker_fps: workers.filter((worker) => worker.online).map((worker) => worker.fp) };
@@ -129,7 +141,7 @@ export abstract class CoordinatorMoveTargetRole {
   /** ROLLING_BACK is not terminal: without a terminal write here a restart
    *  re-enters target_pending forever and rejects every write. */
   private async runTargetAbort(state: HandoffState): Promise<void> {
-    const workers = await this.options.workers();
+    const workers = await this.options.workers(state.dashboard_id);
     const staged = workers.filter((worker) => state.expected_worker_fps.includes(worker.fp) && worker.online);
     const results = await Promise.allSettled(staged.map((worker) =>
       this.options.runtime.abortWorker(worker, this.snapshot({ ...state, secret: "target" }, "ROLLING_BACK")),
@@ -150,7 +162,7 @@ export abstract class CoordinatorMoveTargetRole {
   protected snapshot(state: HandoffState, phase: MovePhase): MoveSnapshot {
     return {
       handoffId: state.handoff_id, phase, sourceUrl: state.source_url, targetUrl: state.target_url,
-      targetWorkerFp: state.target_worker_fp, expectedWorkerFps: state.expected_worker_fps,
+      targetWorkerFp: state.target_worker_fp, dashboardId: state.dashboard_id, expectedWorkerFps: state.expected_worker_fps,
       expectedCoordKid: state.expected_coord_kid, expectedGitSha: state.expected_git_sha,
       secret: state.secret!, secretSha256: state.secret_sha256,
     };
@@ -160,7 +172,7 @@ export abstract class CoordinatorMoveTargetRole {
    *  it. `void promise` attaches no rejection handler and coord installs no
    *  unhandledRejection hook. */
   protected async recordRunError(handoffId: string, error: unknown): Promise<void> {
-    const current = this.status(handoffId);
+    const current = this.handoff(handoffId);
     if (current) await this.options.store.writeDurable({ ...current, error: String((error as Error)?.message ?? error) });
     log.error("coord-move", "run_failed", { handoff_id: handoffId, error: String(error) });
   }
@@ -188,12 +200,12 @@ export abstract class CoordinatorMoveTargetRole {
     if (this.targetAutoCommitTimer) return;
     const attempt = async (): Promise<void> => {
       this.targetAutoCommitTimer = null;
-      const current = this.status(state.handoff_id);
+      const current = this.handoff(state.handoff_id);
       if (!current || current.role !== "TARGET" || current.phase !== "WAITING_FOR_WORKERS") return;
-      const workers = await this.options.workers();
+      const workers = await this.options.workers(current.dashboard_id);
       // internalAbort can have written ROLLING_BACK during that await; writing
       // COMMITTING over it would re-open the gate on a dead handoff.
-      const fresh = this.status(state.handoff_id);
+      const fresh = this.handoff(state.handoff_id);
       if (!fresh || fresh.role !== "TARGET" || fresh.phase !== "WAITING_FOR_WORKERS") return;
       if (!fresh.expected_worker_fps.every((fp) => workers.some((worker) => worker.fp === fp && worker.online))) {
         this.targetCompleteSetSinceMs = null;
@@ -218,11 +230,11 @@ export abstract class CoordinatorMoveTargetRole {
    *  authRedeemCoordinatorRelocation rejects every relocated browser. */
   private async scheduleCommitRetry(handoffId: string, error: unknown): Promise<void> {
     await this.recordRunError(handoffId, error);
-    const state = this.status(handoffId);
+    const state = this.handoff(handoffId);
     if (!state || state.role !== "TARGET" || state.phase !== "COMMITTING") return;
     this.commitRetryTimer = setTimeout(() => {
       this.commitRetryTimer = null;
-      const current = this.status(handoffId);
+      const current = this.handoff(handoffId);
       if (!current || current.role !== "TARGET" || current.phase !== "COMMITTING") return;
       this.run = this.commitTargetWorkers(handoffId)
         .catch((cause) => this.scheduleCommitRetry(handoffId, cause))
@@ -231,9 +243,9 @@ export abstract class CoordinatorMoveTargetRole {
   }
 
   private async commitTargetWorkers(handoffId: string): Promise<void> {
-    const state = this.status(handoffId);
+    const state = this.handoff(handoffId);
     if (!state || state.role !== "TARGET") return;
-    const workers = await this.options.workers();
+    const workers = await this.options.workers(state.dashboard_id);
     const pending = state.expected_worker_fps
       .filter((workerFp) => !state.commit_acked_worker_fps.includes(workerFp))
       .map((workerFp) => workers.find((worker) => worker.fp === workerFp))
@@ -244,26 +256,26 @@ export abstract class CoordinatorMoveTargetRole {
     }
     // target_pending withholds event acknowledgements. Closing these sockets
     // makes each preserved unacked event replay against the now-active target.
-    await this.options.runtime.reconnectWorkers(pending, 30_000);
-    const reconnected = await this.options.workers();
+    await this.options.runtime.reconnectWorkers(state.dashboard_id, pending, 30_000);
+    const reconnected = await this.options.workers(state.dashboard_id);
     for (const workerFp of state.expected_worker_fps) {
       if (state.commit_acked_worker_fps.includes(workerFp)) continue;
       const worker = reconnected.find((candidate) => candidate.fp === workerFp);
       if (!worker?.online) throw new Error(`worker ${workerFp} is not connected to target`);
       await this.options.runtime.commitWorker(worker, this.snapshot({ ...state, secret: "target" }, "COMMITTING"));
-      const current = this.status(handoffId);
+      const current = this.handoff(handoffId);
       if (!current) throw new Error("target handoff disappeared");
       await this.options.store.writeDurable({ ...current, commit_acked_worker_fps: [...current.commit_acked_worker_fps, workerFp] });
     }
-    const committed = this.status(handoffId);
+    const committed = this.handoff(handoffId);
     if (committed && committed.commit_acked_worker_fps.length === committed.expected_worker_fps.length) {
       await this.writeTerminalState({ ...committed, phase: "COMMITTED" });
-      await this.replayCommittedWorkers(this.status(handoffId)!);
+      await this.replayCommittedWorkers(this.handoff(handoffId)!);
     }
   }
 
   private async replayCommittedWorkers(state: HandoffState): Promise<void> {
-    const workers = await this.options.workers();
+    const workers = await this.options.workers(state.dashboard_id);
     await Promise.allSettled(state.expected_worker_fps.map(async (workerFp) => {
       const worker = workers.find((candidate) => candidate.fp === workerFp);
       if (worker?.online) await this.options.runtime.commitWorker(worker, this.snapshot({ ...state, secret: "target" }, "COMMITTED"));

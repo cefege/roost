@@ -3,6 +3,18 @@
 
 export const ROUTES = {
   ROOT: "/",
+  // Managed account entry and recovery stay public until they bind or replace
+  // this coordinator-origin browser identity.
+  LOGIN: "/login",
+  SIGNUP: "/signup",
+  SIGNUP_VERIFY: "/signup/verify",
+  GOOGLE_COMPLETE: "/auth/google/complete",
+  ACTIVATE: "/activate",
+  FORGOT_PASSWORD: "/forgot-password",
+  RESET_PASSWORD: "/reset-password",
+  // Authenticated managed entry. Existing terminal deep links remain unchanged
+  // and are guarded globally once the public coordinator identity says SaaS.
+  APP: "/app",
   // /s/:sessionId — the new primary terminal route. Replaces the old
   // /w/:workspaceId/t/:channelId form. Workspaces no longer drive nav
   // since they're auto-grouped from cwd.

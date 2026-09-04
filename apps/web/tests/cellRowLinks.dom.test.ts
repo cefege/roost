@@ -127,16 +127,24 @@ describe("painted OSC 8 anchors", () => {
     expect(flatText(row)).toBe("abcdef");
   });
 
-  test("an executable-scheme URI paints no anchor and keeps its text", () => {
-    // A producer-controlled href is painted verbatim, so the schemes a click
-    // could EXECUTE are refused outright — the text survives, the link does not.
-    for (const uri of ["javascript:alert(1)", "  JavaScript:alert(1)", "data:text/html,<b>", "vbscript:x"]) {
+  test("only HTTP(S) and worker-file targets paint anchors", () => {
+    for (const uri of [
+      "javascript:alert(1)",
+      "  https://space.invalid",
+      "data:text/html,<b>",
+      "vbscript:x",
+      "vscode://file/a.ts",
+      "ssh://host/a.ts",
+      "//protocol-relative.invalid/a.ts",
+    ]) {
       const row = paint([run("prefix "), linked("click me", uri, "b\u00005")]);
       expect(anchorsOf(row).length).toBe(0);
       expect(flatText(row)).toBe("prefix click me");
     }
-    // A non-executable scheme with a similar shape is still a link.
-    expect(anchorsOf(paint([linked("ok", "vscode://file/a.ts", "b\u00006")])).length).toBe(1);
+    const file = anchorsOf(paint([linked("source", "file:///tmp/a.ts#L9", "b\u00006")]))[0];
+    expect(file.attrs.href).toBeUndefined();
+    expect(file.attrs["data-kind"]).toBe("file");
+    expect(file.attrs["data-terminal-target"]).toBe("file:///tmp/a.ts#L9");
   });
 
   test("the row link marker is present exactly when an anchor was painted", () => {

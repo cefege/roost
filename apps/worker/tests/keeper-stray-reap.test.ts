@@ -25,6 +25,7 @@ import { SessionManager } from "../src/session-manager.ts";
 import { getMultiplexedPool, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
 import { asWorkerFp } from "@roost/shared/wire";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
+import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
 const pool = getMultiplexedPool();
 const TRACKED_CH = 900;
@@ -39,7 +40,7 @@ const noopCallbacks: MuxChannelCallbacks = {
 function freshMgr(): SessionManager {
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
-    sink: { emit: () => {} },
+    sink: new LifecycleTestSink(),
   });
 }
 

@@ -1,0 +1,23 @@
+[Unit]
+Description=Proxy Docker bridge traffic to Roost tenant resolver
+Requires=roost-saas-resolver-bridge.socket roost-saas-resolver.service roost-saas-origin-isolation.service
+After=roost-saas-resolver-bridge.socket roost-saas-resolver.service roost-saas-origin-isolation.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:4107
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native

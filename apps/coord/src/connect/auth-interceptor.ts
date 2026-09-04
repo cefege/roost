@@ -1,11 +1,6 @@
-// Connect-RPC auth interceptor + caller context value. Verifies JWT from
-// Authorization: Bearer <jwt>; sets caller on the context; authed
-// procedures throw Code.Unauthenticated if !caller. Also writes the
-// audit_log row for every Connect RPC — the interceptor is the only
-// layer with both the verified caller fp AND the response status, so
-// audit lives here instead of the outer fetch wrapper.
-//
-// JWT verification reuses apps/coord/src/jwt.ts::verifyJwt.
+// Connect RPC authentication resolves verified keys and tenant scope before any
+// handler runs. This interceptor owns request context, move-gate leases, and
+// response-aware auditing because no outer layer sees all three safely.
 
 import {
   Code,
@@ -20,7 +15,11 @@ import type { CoordConfig } from "@roost/shared/config";
 import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 import type { CallerOrigin, ListenerTrust } from "../middleware/caller-origin.ts";
 import { verifyJwt } from "../jwt.ts";
-import { writeAuditLog } from "../middleware/security.ts";
+import {
+  recordAuditTelemetry,
+  shouldPersistConnectAudit,
+  writeAuditLog,
+} from "../middleware/security.ts";
 import { signal, diag } from "@roost/shared/diag";
 // Header names + auth-layer sentinels are the SPA↔coord trust contract; both
 // ends must import them, never retype them.
@@ -30,11 +29,51 @@ import {
   X_ROOST_ON_HOST,
   X_ROOST_LISTENER_TRUST,
   X_ROOST_TAB_ID,
+  X_ROOST_DASHBOARD_ID,
   X_ROOST_AUTH_LAYER,
   AUTH_LAYER_DEVICE,
   AUTH_LAYER_TAILSCALE_SERVE,
   AUTH_LAYER_PUBLIC_EDGE,
 } from "@roost/shared/wire/headers";
+import {
+  resolveCallerPrincipal,
+  type AccountDeviceCaller,
+  type AccountDevicePrincipal,
+  type Caller,
+  type LegacySelfHostedPrincipal,
+  type WorkerPrincipal,
+} from "./auth-principal.ts";
+import {
+  getDashboardAccessSnapshot,
+  isDashboardActor,
+  resolveDashboardActor,
+  type AccessibleDashboard,
+  type AccessibleOrganization,
+  type DashboardAccessSnapshot,
+  type DashboardActor,
+  type DashboardRole,
+  type OrganizationRole,
+} from "./dashboard-authorization.ts";
+
+export {
+  resolveCallerPrincipal,
+  type AccountDeviceCaller,
+  type AccountDevicePrincipal,
+  type Caller,
+  type LegacySelfHostedPrincipal,
+  type WorkerPrincipal,
+};
+export {
+  getDashboardAccessSnapshot,
+  isDashboardActor,
+  resolveDashboardActor,
+  type AccessibleDashboard,
+  type AccessibleOrganization,
+  type DashboardAccessSnapshot,
+  type DashboardActor,
+  type DashboardRole,
+  type OrganizationRole,
+};
 
 // Map a Connect Code → conventional HTTP status. Audit_log records
 // HTTP-semantic status so dashboards reading `WHERE status >= 400`
@@ -58,13 +97,13 @@ function codeToHttpStatus(code: Code): number {
   }
 }
 
-export interface Caller {
-  fingerprint: string;
-  label: string;
+
+function notFound(): never {
+  throw new ConnectError("not found", Code.NotFound);
 }
 
 // Context-key for the caller. Handlers retrieve via `ctx.values.get(callerKey)`.
-const callerKey = createContextKey<Caller | null>(null);
+export const callerKey = createContextKey<Caller | null>(null);
 
 // trace_id context key (propagated from x-roost-trace-id header).
 const traceIdKey = createContextKey<string | undefined>(undefined);
@@ -78,6 +117,11 @@ export const listenerTrustKey = createContextKey<ListenerTrust>("direct");
 // Sync terminal commands require it so concurrent same-device sockets retain
 // distinct sender/viewer identities.
 export const tabIdKey = createContextKey<string | undefined>(undefined);
+
+/** Client-requested dashboard ID. It is not authority until resolved below. */
+export const requestedDashboardIdKey = createContextKey<string | undefined>(undefined);
+/** Server-confirmed dashboard scope, resolved exactly once by the interceptor. */
+export const dashboardActorKey = createContextKey<DashboardActor | null>(null);
 /** Raw bearer header preserved for retired-source relocation forwarding. */
 export const authorizationKey = createContextKey<string | undefined>(undefined);
 
@@ -87,6 +131,7 @@ export interface AuthInterceptorDeps {
   cfg: CoordConfig;
   move?: CoordinatorMoveService;
 }
+
 
 // Only durable coordinator mutations take a gate lease. Read RPCs and
 // server-streaming endpoints must never hold the drain open.
@@ -98,16 +143,17 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   SessionsCursorPos: true, SessionsAssignWorkspace: true,
   TasksEnqueue: true, TasksNextPending: true, TasksSetState: true, TasksCancel: true,
   WorkspacesCreate: true, WorkspacesUpdate: true, WorkspacesDelete: true, WorkspacesSetSessions: true,
-  WebhookTokensMint: true, WebhookTokensDelete: true,
-  PermissionsCreate: true, PermissionsUpdate: true, PermissionsDelete: true,
   McpCreate: true, McpDelete: true, McpPublish: true,
-  AuthAuthorizeBrowser: true, AuthMintBootstrap: true, AuthRedeemWorker: true, AuthRedeemBrowser: true,
+  AuthMintBootstrap: true, AuthRedeemWorker: true, AuthRedeemBrowser: true,
+  AuthLogout: true, AuthPasswordLogin: true, AuthOwnerActivate: true, AuthFederatedContinue: true,
+  AuthPasswordAdd: true, AuthFederatedLinkBegin: true, AuthFederatedLink: true,
+  AuthPasswordResetRequest: true, AuthPasswordResetRedeem: true,
   PairCreate: true, PairApprove: true, PairDeny: true,
   DevicesRevoke: true, DevicesRotateCurrent: true,
   FilesMkdir: true, TranscriptionSetConfig: true, AgentConfigSet: true,
   AttachFileChunk: true, DeleteAttachment: true,
   PushSubscribe: true, PushUnsubscribe: true,
-  TransfersStart: true, DiagDebugLogBatch: true,
+  DiagDebugLogBatch: true,
 };
 
 // High-frequency methods whose audit rows carry no forensic signal: health
@@ -118,7 +164,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
 // a failing heartbeat or a rejected health probe is exactly the anomaly worth
 // keeping.
 const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
-  DiagDebugLogBatch: true, MiscHealth: true, WorkersHeartbeat: true,
+  AuthCoordIdentity: true, DiagDebugLogBatch: true, MiscHealth: true, WorkersHeartbeat: true,
   PairList: true, SessionsCursorPos: true,
   // Non-mutating SPA polling. These were briefly handled by the retention
   // sweep instead, which meant paying an INSERT per RPC to delete the row
@@ -129,7 +175,24 @@ const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
 };
 
 export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
+  // Managed startup serves identity and rejects reconnecting legacy clients
+  // before the owner transaction can assign their rows to a dashboard. Audit
+  // only after that transaction creates the first account; otherwise the
+  // preservation oracle is polluted with unscoped transition traffic.
+  let managedBootstrapComplete = !deps.cfg.saasMode;
   return (next) => async (req) => {
+    let auditEnabledForThisRequest = managedBootstrapComplete;
+    if (!auditEnabledForThisRequest) {
+      try {
+        auditEnabledForThisRequest = Boolean(
+          await deps.db.selectFrom("accounts").select("id").limit(1).executeTakeFirst(),
+        );
+        if (auditEnabledForThisRequest) managedBootstrapComplete = true;
+      } catch {
+        // Startup migration/locking failures must not turn a successful RPC
+        // into a 500. The next request retries the bootstrap-state read.
+      }
+    }
     let caller: Caller | null = null;
     // Per-RPC record lives in audit_log (finally below) — method/path/
     // status/trace_id/caller_fp; the OTel span wrapper was retired
@@ -141,27 +204,36 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
     if (auth?.startsWith("Bearer ")) {
       const token = auth.slice(7);
       try {
-        const c = await verifyJwt(token, {
+        const verified = await verifyJwt(token, {
           db: deps.db,
           cache: deps.jwtCache,
           jwtMaxAgeSecs: deps.cfg.jwtMaxAgeSecs,
         });
-        caller = { fingerprint: c.fingerprint, label: c.label };
+        caller = await resolveCallerPrincipal(deps.db, deps.cfg, verified);
       } catch {
         diag("auth.jwt_verify_failed", { path });
-        // leave caller null; authed handlers reject
+        // leave caller null; authenticated handlers reject
       }
     }
+    const requestedDashboardId = req.header.get(X_ROOST_DASHBOARD_ID)?.trim() || undefined;
+    // A selected dashboard is a request, never a claim. Resolve it after JWT
+    // verification and before any tenant handler can read a resource.
+    const actor = caller?.kind === "account-device" && requestedDashboardId
+      ? await resolveDashboardActor(deps.db, caller.fingerprint, requestedDashboardId)
+      : null;
     const traceId = req.header.get(X_ROOST_TRACE_ID) ?? undefined;
     req.contextValues.set(callerKey, caller);
+    req.contextValues.set(dashboardActorKey, actor);
+    req.contextValues.set(requestedDashboardIdKey, requestedDashboardId);
     req.contextValues.set(traceIdKey, traceId);
     req.contextValues.set(remoteAddressKey, req.header.get(X_ROOST_REMOTE_ADDR) ?? undefined);
     req.contextValues.set(onHostKey, req.header.get(X_ROOST_ON_HOST) === "1");
-    const listener = req.header.get(X_ROOST_LISTENER_TRUST);
-    req.contextValues.set(
-      listenerTrustKey,
-      listener === AUTH_LAYER_TAILSCALE_SERVE || listener === AUTH_LAYER_PUBLIC_EDGE ? listener : "direct",
-    );
+    const listenerHeader = req.header.get(X_ROOST_LISTENER_TRUST);
+    const listenerTrust: ListenerTrust =
+      listenerHeader === AUTH_LAYER_TAILSCALE_SERVE || listenerHeader === AUTH_LAYER_PUBLIC_EDGE
+        ? listenerHeader
+        : "direct";
+    req.contextValues.set(listenerTrustKey, listenerTrust);
     req.contextValues.set(tabIdKey, req.header.get(X_ROOST_TAB_ID) ?? undefined);
     req.contextValues.set(authorizationKey, auth);
     let status = 200;
@@ -173,10 +245,27 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
       throw e;
     } finally {
       lease?.release();
-      if (status !== 200 || !AUDIT_SKIP_METHODS[method]) {
-        writeAuditLog({
-          db: deps.db, status, method: "POST", path, traceId,
+      recordAuditTelemetry(path, status);
+      if (
+        auditEnabledForThisRequest
+        && (status !== 200 || !AUDIT_SKIP_METHODS[method])
+        && shouldPersistConnectAudit({
+          listener: listenerTrust,
+          status,
           callerFp: caller?.fingerprint ?? null,
+        })
+      ) {
+        writeAuditLog({
+          db: deps.db,
+          status,
+          method: "POST",
+          path,
+          traceId,
+          callerFp: caller?.fingerprint ?? null,
+          dashboardId: actor?.dashboardId
+            ?? (caller?.kind === "worker" ? caller.dashboardId : undefined)
+            ?? (deps.cfg.managedContainer ? deps.cfg.instanceId : undefined),
+          recordTelemetry: false,
         });
       }
       if (status === 401) {
@@ -198,23 +287,70 @@ export function callerOrigin(values: ContextValues): CallerOrigin {
   };
 }
 
-/** Throws Code.Unauthenticated if no caller; returns Caller otherwise. */
-export function requireAuth(values: ContextValues): Caller {
-  const caller = values.get(callerKey);
-  if (!caller) {
-    throw new ConnectError(
-      "authentication required",
-      Code.Unauthenticated,
-      new Headers({ [X_ROOST_AUTH_LAYER]: AUTH_LAYER_DEVICE }),
-    );
-  }
-  return caller;
+function authenticationRequired(): never {
+  throw new ConnectError(
+    "authentication required",
+    Code.Unauthenticated,
+    new Headers({ [X_ROOST_AUTH_LAYER]: AUTH_LAYER_DEVICE }),
+  );
 }
 
-/** Caller if a valid JWT was presented, else null — for handlers with an
- *  alternate trust path (pairList/pairApprove/pairDeny accept a LOOPBACK
- *  caller so the on-host agent/CLI can approve devices via API — Author
- *  2026-07-11 "approve new devices via API"; see handlers-auth.ts). */
-export function optionalAuth(values: ContextValues): Caller | null {
-  return values.get(callerKey);
+/** Requires browser authority; worker principals are never browser devices. */
+export function requireAccountDevice(values: ContextValues): AccountDeviceCaller {
+  const caller = values.get(callerKey);
+  if (caller?.kind === "account-device" || caller?.kind === "legacy-self-hosted") {
+    return caller;
+  }
+  return authenticationRequired();
+}
+
+/** Requires a persisted worker with a non-null dashboard assignment. */
+export function requireWorker(values: ContextValues): WorkerPrincipal {
+  const caller = values.get(callerKey);
+  if (caller?.kind === "worker") return caller;
+  return authenticationRequired();
+}
+
+
+export function requestedDashboardId(values: ContextValues): string | undefined {
+  return values.get(requestedDashboardIdKey);
+}
+
+/** Requires a browser principal and an active selected dashboard membership. */
+export function requireDashboardActor(values: ContextValues): DashboardActor {
+  const caller = requireAccountDevice(values);
+  const actor = values.get(dashboardActorKey);
+  if (
+    isDashboardActor(actor)
+    && actor.deviceFingerprint === caller.fingerprint
+    && (caller.kind !== "account-device" || actor.accountId === caller.accountId)
+  ) {
+    return actor;
+  }
+  return notFound();
+}
+
+/** Dashboard admins manage dashboard resources and configuration. */
+export function requireDashboardAdmin(values: ContextValues): DashboardActor {
+  const actor = requireDashboardActor(values);
+  if (actor.dashboardRole !== "admin") {
+    throw new ConnectError("dashboard admin required", Code.PermissionDenied);
+  }
+  return actor;
+}
+
+/** Organization owners and admins manage organization-level resources. */
+export function requireOrganizationAdmin(values: ContextValues): DashboardActor {
+  const actor = requireDashboardActor(values);
+  if (actor.organizationRole !== "owner" && actor.organizationRole !== "admin") {
+    throw new ConnectError("organization admin required", Code.PermissionDenied);
+  }
+  return actor;
+}
+
+/** Account-device caller if present, else null for on-host recovery paths. */
+export function optionalAccountDevice(values: ContextValues): AccountDeviceCaller | null {
+  const caller = values.get(callerKey);
+  if (!caller) return null;
+  return requireAccountDevice(values);
 }

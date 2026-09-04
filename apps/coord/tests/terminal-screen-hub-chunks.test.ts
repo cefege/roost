@@ -26,6 +26,7 @@ import {
   watch,
 } from "./terminal-screen-hub-harness.ts";
 import { TERMINAL_SCREEN_ASSEMBLY_HOLD_MAX_FRAMES } from "../src/connect/terminal-screen-hub-state.ts";
+import { TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS } from "../src/connect/terminal-screen-hub.ts";
 import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
 
 describe("TerminalScreenHub bounded chunk assembly", () => {
@@ -86,6 +87,8 @@ describe("TerminalScreenHub bounded chunk assembly", () => {
     hub.expectStream(SESSION, STREAM, 8, 2);
     hub.publishFrame(SESSION, deltaFrame());
     expect(requests).toEqual([[SESSION, STREAM]]);
+    const [requestTimerId, requestTimer] = [...timers.entries()][0]!;
+    expect(requestTimer.delayMs).toBe(TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS);
     const source = fullFrame();
     const partial = chunks(source, [
       [source.viewportRows[0]!],
@@ -93,10 +96,12 @@ describe("TerminalScreenHub bounded chunk assembly", () => {
     ]);
 
     hub.publishChunk(SESSION, partial[0]!);
+    expect(timers.has(requestTimerId)).toBe(false);
     expect(hub.snapshot(SESSION)).toBeNull();
     expect(timers.size).toBe(1);
     const [timerId, timer] = [...timers.entries()][0]!;
     expect(timer.delayMs).toBe(CELL_GRID_CHUNK_STALL_MS);
+    expect(timerId).not.toBe(requestTimerId);
 
     clock.value = CELL_GRID_CHUNK_STALL_MS;
     fireTimer(timerId);
@@ -109,6 +114,76 @@ describe("TerminalScreenHub bounded chunk assembly", () => {
     hub.publishChunk(SESSION, partial[1]!);
     expect(requests).toHaveLength(2);
     expect(hub.snapshot(SESSION)).toBeNull();
+  });
+
+  test("retries no-first-byte repair once then requests a fresh stream", () => {
+    const clock = { value: 0 };
+    const { hub, requests, freshStreams, timers, fireTimer } = makeHarness(clock);
+    hub.expectStream(SESSION, STREAM, 8, 2);
+    hub.publishFrame(SESSION, deltaFrame());
+    expect(requests).toEqual([[SESSION, STREAM]]);
+
+    const firstTimer = [...timers.keys()][0]!;
+    clock.value += TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS;
+    fireTimer(firstTimer);
+    expect(requests).toEqual([
+      [SESSION, STREAM],
+      [SESSION, STREAM],
+    ]);
+    expect(freshStreams).toEqual([]);
+
+    const secondTimer = [...timers.keys()][0]!;
+    expect(secondTimer).not.toBe(firstTimer);
+    clock.value += TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS;
+    fireTimer(secondTimer);
+    expect(requests).toHaveLength(2);
+    expect(freshStreams).toEqual([[
+      SESSION,
+      STREAM,
+      expect.stringContaining("timed out"),
+    ]]);
+    expect(timers.size).toBe(0);
+  });
+
+  test("valid full and stream supersession cancel request-time repair timers", () => {
+    const full = makeHarness();
+    full.hub.expectStream(SESSION, STREAM, 8, 2);
+    full.hub.publishFrame(SESSION, deltaFrame());
+    expect(full.timers.size).toBe(1);
+    full.hub.publishFrame(SESSION, fullFrame());
+    expect(full.timers.size).toBe(0);
+    expect(full.hub.snapshot(SESSION)).toMatchObject({ valid: true });
+
+    const superseded = makeHarness();
+    superseded.hub.expectStream(SESSION, STREAM, 8, 2);
+    superseded.hub.publishFrame(SESSION, deltaFrame());
+    expect(superseded.timers.size).toBe(1);
+    superseded.hub.expectStream(SESSION, OTHER_STREAM, 8, 2);
+    expect(superseded.timers.size).toBe(0);
+    expect(superseded.freshStreams).toEqual([]);
+  });
+
+  test("post-first-byte chunk failure starts a new bounded request", () => {
+    const { hub, requests, timers } = makeHarness();
+    hub.expectStream(SESSION, STREAM, 8, 2);
+    hub.publishFrame(SESSION, deltaFrame());
+    const source = fullFrame();
+    const partial = chunks(source, [
+      [source.viewportRows[0]!],
+      [source.viewportRows[1]!],
+    ]);
+    hub.publishChunk(SESSION, partial[0]!);
+    expect(requests).toEqual([[SESSION, STREAM]]);
+    expect(timers.size).toBe(1);
+
+    hub.publishChunk(SESSION, partial[0]!);
+    expect(requests).toEqual([
+      [SESSION, STREAM],
+      [SESSION, STREAM],
+    ]);
+    expect(timers.size).toBe(1);
+    expect([...timers.values()][0]!.delayMs)
+      .toBe(TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS);
   });
 });
 

@@ -40,6 +40,22 @@ export function wasAborted(id: string): boolean {
 export function clearAborted(id: string): void {
   aborted.delete(id);
 }
+/** A dashboard boundary invalidates placeholders and their measurement waits.
+ * Do not leave a suspended pre-switch spawn continuation able to navigate or
+ * issue follow-up work after the new scope is hydrated. */
+export function resetOptimisticSpawnState(): void {
+  for (const deferred of measurementDeferreds.values()) {
+    deferred.closed = true;
+    if (!deferred.done) {
+      deferred.done = true;
+      deferred.resolve(null);
+    }
+  }
+  measurementDeferreds.clear();
+  aborted.clear();
+  setPendingIds(new Set<string>());
+}
+
 
 /** Publish the mounted slot size exactly once as an initial PTY-size hint. */
 export function publishMountedSpawnMeasurement(

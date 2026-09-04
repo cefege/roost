@@ -3,6 +3,8 @@ import { SB_RENEWAL_HISTORY_ROWS } from "../../apps/shared/src/cell/types.ts";
 import { TERMINAL_MAX_ROWS } from "../../apps/shared/src/viewport.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { RecoveryMarkerScan, RecoverySmokeApi } from "./terminal-smoke-api.ts";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   spawnPtyFixtureSession,
   navigateToSmokeSession,
@@ -164,8 +166,13 @@ test("identical link text with different URIs keeps both, through a backfill rou
   // which the INFERRED GitHub-ref pass would linkify on its own and muddy the
   // count (the leading word character defeats that regex's lookbehind).
   const suffix = `z${crypto.randomUUID().replaceAll("-", "").slice(0, 7)}`;
+  const linkedFileMarker = `terminal-link-line-9-${suffix}`;
+  await mkdir(join(fixtureWorker.home, "s"), { recursive: true });
+  const linkedFileLines = Array.from({ length: 12 }, (_, index) => `fixture line ${index + 1}`);
+  linkedFileLines[8] = linkedFileMarker;
+  await writeFile(join(fixtureWorker.home, "s", "f.ts"), linkedFileLines.join("\n"), "utf8");
   const linkText = `r-${suffix}`;
-  const firstUri = `https://osc8.test/${suffix}/one`;
+  const firstUri = `${new URL(smokePage.url()).origin}/favicon.ico?terminal-link=${suffix}`;
   const secondUri = `https://osc8.test/${suffix}/two`;
   const hyperlink = (uri: string): string => `\u001b]8;;${uri}\u0007${linkText}\u001b]8;;\u0007`;
   const linkMarker = `O8-${suffix}`;
@@ -235,6 +242,48 @@ test("identical link text with different URIs keeps both, through a backfill rou
   };
 
   await expectLinksIntact();
+  // A real modifier-click must request the exact external target; worker files stay in-app.
+  const linkModifier = await smokePage.evaluate((): "Meta" | "Control" =>
+    /Mac|iPhone|iPad/i.test(navigator.platform) ? "Meta" : "Control");
+  const producerAnchor = smokePage.locator('a.wterm-link[data-link-key]', { hasText: linkText }).first();
+  const popupContext = smokePage.context();
+  const pagesBeforeActivation = new Set(popupContext.pages());
+  await popupContext.route(firstUri, (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html>" }));
+  try {
+    await smokePage.keyboard.down(linkModifier);
+    try {
+      const [activationRequest] = await Promise.all([
+        popupContext.waitForEvent("request", {
+          predicate: (request) => request.url() === firstUri, timeout: 15_000,
+        }),
+        producerAnchor.click({ button: "left" }),
+      ]);
+      expect(activationRequest.url()).toBe(firstUri);
+    } finally {
+      await smokePage.keyboard.up(linkModifier).catch(() => undefined);
+    }
+  } finally {
+    const extraPages = popupContext.pages().filter((page) => !pagesBeforeActivation.has(page));
+    await Promise.all(extraPages.map((page) => page.close().catch(() => undefined)));
+    await popupContext.unroute(firstUri).catch(() => undefined);
+  }
+
+  const fileAnchor = smokePage
+    .locator('a.wterm-link[data-kind="file"]')
+    .filter({ hasText: filePath });
+  await smokePage.keyboard.down(linkModifier);
+  try {
+    await fileAnchor.click({ button: "left" });
+  } finally {
+    await smokePage.keyboard.up(linkModifier);
+  }
+  await expect(smokePage).toHaveURL(/\/file\/.+#L9$/);
+  await expect(smokePage.getByTestId("file-viewer-sheet")).toBeVisible();
+  await expect(smokePage.getByTestId("file-viewer-sheet-line-9")).toContainText(linkedFileMarker);
+  await expect(smokePage.getByTestId("file-viewer-sheet-line-num-9")).toHaveAttribute("data-target", "true");
+  await smokePage.goBack({ waitUntil: "domcontentloaded" });
+  await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
 
   // A same-grid renewal is allowed to carry a bounded history tail. Keep the
   // link close enough to the tail to prove that path preserves both producer

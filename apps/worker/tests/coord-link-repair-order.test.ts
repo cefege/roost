@@ -6,8 +6,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// ClientSeq is constructed inside startCoordLink; isolate its durable counter
-// before importing/starting the link so this test cannot touch worker state.
+// Isolate the durable session-event outbox from production worker state.
 process.env.ROOST_WORKER_DATA_DIR = mkdtempSync(join(tmpdir(), "coordlink-repair-test-"));
 
 import { expect, test, vi } from "bun:test";
@@ -16,14 +15,16 @@ import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
 import {
   CoordWorkerDownSchema,
   CoordWorkerUpSchema,
+  DEventAckSchema,
   DHelloAckSchema,
 } from "@roost/shared/proto/worker_transport_pb";
-import type { WorkerFp } from "@roost/shared/wire";
+import { WORKER_AUTH_SUBPROTOCOL, type WorkerFp } from "@roost/shared/wire";
 import {
   startCoordLink,
   type CoordLink,
   type TransportSendResult,
 } from "../src/transport/coord-link.ts";
+import { openSessionEventStore } from "../src/transport/session-event-store.ts";
 import {
   WS_BUFFERED_HIGH_WATER_BYTES,
   WS_DRAIN_RETRY_MS,
@@ -35,13 +36,16 @@ function helloAckBytes(): Uint8Array {
     create(CoordWorkerDownSchema, {
       frame: {
         case: "helloAck",
-        value: create(DHelloAckSchema, {
-          coordPubkeyB64: "test-key",
-          coordPubkeyKid: "test-kid",
-        }),
+        value: create(DHelloAckSchema, {}),
       },
     }),
   );
+}
+
+function eventAckBytes(clientSeq: bigint): Uint8Array {
+  return toBinary(CoordWorkerDownSchema, create(CoordWorkerDownSchema, {
+    frame: { case: "eventAck", value: create(DEventAckSchema, { clientSeq }) },
+  }));
 }
 
 class ControlledWebSocket {
@@ -88,6 +92,9 @@ test("pending cell repair drains before a queued scrollback RPC reply", async ()
   let sentRpcRequestId: string | undefined;
   let sentRpcData: unknown;
   let repairSendResult: TransportSendResult | undefined;
+  let dialUrl: string | undefined;
+  let snapshotSeq = 0n;
+  let dialProtocols: [string, string] | undefined;
   let link!: CoordLink;
 
   const repair = create(PbCellGridFrameSchema, {
@@ -107,13 +114,20 @@ test("pending cell repair drains before a queued scrollback RPC reply", async ()
     grid_epoch: "repair-grid:0",
   };
   vi.useFakeTimers();
+  const eventStore = openSessionEventStore({
+    dbPath: join(process.env.ROOST_WORKER_DATA_DIR!, "session-event-outbox.sqlite"),
+    legacySequencePath: join(process.env.ROOST_WORKER_DATA_DIR!, "client-seq.txt"),
+  });
 
   link = startCoordLink({
     coordHttpUrl: "http://coord.test:4102",
     workerFp: "test-fp" as WorkerFp,
     workerVersion: "test",
     mintJwt: async () => "jwt",
-    webSocketFactory: () => {
+    sessionEventStore: eventStore,
+    webSocketFactory: (url, protocols) => {
+      dialUrl = url;
+      dialProtocols = protocols;
       const controlled = new ControlledWebSocket((bytes) => {
         const frame = fromBinary(CoordWorkerUpSchema, bytes);
         const frameCase = frame.frame.case;
@@ -121,6 +135,9 @@ test("pending cell repair drains before a queued scrollback RPC reply", async ()
         if (frame.frame.case === "rpcOk") {
           sentRpcRequestId = frame.frame.value.requestId;
           sentRpcData = JSON.parse(frame.frame.value.dataJson) as unknown;
+        }
+        if (frame.frame.case === "event" && frame.frame.value.event?.kind.case === "snapshot") {
+          snapshotSeq = frame.frame.value.clientSeq;
         }
       });
       socketCreated.resolve(controlled);
@@ -131,12 +148,22 @@ test("pending cell repair drains before a queued scrollback RPC reply", async ()
       repairSendResult = link.sendCellGrid(7, repair);
     },
   });
+  link.activateSnapshotProvider(() => ({
+    kind: "snapshot",
+    worker_fp: "test-fp" as WorkerFp,
+    sessions: [],
+    ts: Date.now(),
+  }));
 
   try {
     const controlled = await socketCreated.promise;
+    expect(dialUrl).toBe("ws://coord.test:4102/ws/coord-worker/test-fp");
+    expect(dialUrl).not.toContain("jwt");
+    expect(dialProtocols).toEqual([WORKER_AUTH_SUBPROTOCOL, "jwt"]);
     controlled.open();
     await opened.promise;
     controlled.receive(helloAckBytes());
+    controlled.receive(eventAckBytes(snapshotSeq));
 
     // First lose a cell to native backpressure, arming an authoritative repair.
     controlled.bufferedAmount = WS_BUFFERED_HIGH_WATER_BYTES;
@@ -151,19 +178,20 @@ test("pending cell repair drains before a queued scrollback RPC reply", async ()
       request_id: "scrollback-request",
       data: scrollbackReply,
     })).toBe(false);
-    expect(sentCases).toEqual(["hello"]);
+    expect(sentCases).toEqual(["hello", "event"]);
 
     controlled.bufferedAmount = 0;
     // Drive the existing 4 ms drain retry deterministically. Under the old
     // circular veto this tick only re-schedules itself and no rpcOk appears.
     vi.advanceTimersByTime(WS_DRAIN_RETRY_MS);
 
-    expect(sentCases).toEqual(["hello", "cellGrid", "rpcOk"]);
+    expect(sentCases).toEqual(["hello", "event", "cellGrid", "rpcOk"]);
     expect(repairSendResult).toBe("sent");
     expect(sentRpcRequestId).toBe("scrollback-request");
     expect(sentRpcData).toEqual(scrollbackReply);
   } finally {
     link.dispose();
+    eventStore.close();
     vi.useRealTimers();
   }
 });

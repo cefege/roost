@@ -1,12 +1,7 @@
-// Per-document UUID. Sent as `x-roost-tab-id` on every Connect request so
-// coord can distinguish multiple tabs from the SAME browser (same EdDSA
-// fingerprint, different windows). sessionStorage normally provides exactly
-// the desired lifetime: it survives reloads and is distinct between tabs.
-//
-// Browsers copy sessionStorage when a tab is duplicated, though. Bootstrap
-// therefore claims the inherited ID before any authenticated transport uses it.
-// Web Locks provide atomic arbitration; BroadcastChannel is the bounded,
-// best-effort fallback for older engines.
+// This module owns one authenticated request identity per browser document.
+// Connect bootstrap calls it before transport so duplicated tabs cannot share a coordinator tab ID.
+// It depends on session storage, Web Locks, and a bounded BroadcastChannel fallback.
+// Holding the claim for the document lifetime preserves reload identity without duplicate-tab races.
 
 import { signal } from "@roost/shared/diag";
 

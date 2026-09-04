@@ -44,7 +44,7 @@ export interface Dictation {
 const KEEPALIVE_MS = 5000;
 // One automatic reconnect on a transient drop before we surface an error —
 // kills most "sometimes Deepgram connection error" (network blips, brief coord
-// restart during token grant). The mic keeps running across the retry.
+// restart during the configured-key handoff). The mic keeps running across the retry.
 const RECONNECT_DELAY_MS = 500;
 /** Engine deadlines. Mutable, not bare consts, so tests can shrink them (same
  *  recipe as audioPcmCapture's `micIdle` / `micTimeouts`). */
@@ -120,8 +120,8 @@ export function createDeepgramDictation(
 	let segments: string[] = [];
 	let preBuffer: ArrayBuffer[] = []; // PCM captured before the WS finishes opening
 	let injectedKeyterms: string[] = []; // this recording's biasing terms (for hit-rate)
-	// A recording's IDENTITY. Every async continuation — the token grant, a
-	// socket handler, a timer, a repair — captures it at issue and bails when it
+	// A recording's IDENTITY. Every async continuation — the configured-key
+	// handoff, a socket handler, a timer, a repair — captures it at issue and bails when it
 	// no longer matches. `endIntent` cannot carry this: completeSend() resets it
 	// to null, which is indistinguishable from "a recording is live".
 	let runId = 0;
@@ -381,7 +381,7 @@ export function createDeepgramDictation(
 
 		// Start the mic NOW, synchronously inside the tap gesture. Safari (and
 		// others) only grant getUserMedia within the user-gesture window — calling
-		// it later (after the token grant + WS handshake) is denied without even
+		// it later (after the key handoff + WS handshake) is denied without even
 		// prompting. Audio captured before the WS opens is buffered, then flushed.
 		startCapture(pcmSink)
 			.then((attached) => {
@@ -424,7 +424,7 @@ export function createDeepgramDictation(
 			token = await opts.grantToken();
 			grantMs = performance.now() - tapMs;
 		} catch {
-			// Token grant can fail transiently (coord restarting) — reconnect once.
+			// The key handoff can fail transiently (coord restarting) — reconnect once.
 			if (!retried && run === runId) {
 				retried = true;
 				diag("voice.ws_retry", { stage: "grant" });

@@ -1,138 +1,191 @@
-// Raw-WebSocket coord↔worker transport (Bun-native, full-duplex). Replaces
-// the Connect-bidi WorkerService.Attach, which can't hold a stable
-// full-duplex stream under Bun: connect-node has no working h2 (Bun's
-// node:http2 is incomplete → "[internal] h2 is not supported"), and over
-// h1.1 Bun.serve buffers the long-lived request body so the worker's
-// upstream rpc-ok replies never reached coord → every sessionsSpawn hung
-// ("[internal] internal error").
-//
-// Carries the SAME CoordWorkerUp/CoordWorkerDown proto frames as BINARY WS
-// messages (toBinary/fromBinary) — only the transport tube changed. All
-// frame-handling lives in makeWorkerConn (worker-service.ts), shared with
-// the Connect handler so the reader can't diverge. pending-rpcs, byte-hub,
-// connectWorkers registry, keepalive, respawn-if-missing: all unchanged.
-//
-// Auth: query-param JWT (`?token=`) — Bun's CLIENT WebSocket has no
-// custom-header API, so the Authorization header isn't available; this is
-// the proven pre-crpc5 pattern. Verified at upgrade; the URL fp must equal
-// the JWT caller fingerprint.
-//
-// Lives in apps/coord (Bun-specific: server.upgrade). coord-factory.ts stays
-// fetch-only/portable — main.ts wires the upgrade + websocket handler.
+// Owns the live Bun worker WebSocket after authenticated upgrade: ordered
+// frame admission, announced-channel barriers, and connection teardown.
+// The copied decode buffer and queue ordering are required because Bun does
+// not await message handlers and recycles each inbound message buffer.
 
-import type { Server, ServerWebSocket } from "bun";
+import type { ServerWebSocket } from "bun";
 import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, CoordWorkerDownSchema,
 } from "@roost/shared/proto/worker_transport_pb";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
-import { jwtKeyGeneration, verifyJwt } from "../jwt.ts";
+import type {
+  CoordWorkerDown,
+  CoordWorkerUp,
+} from "@roost/shared/proto/worker_transport_pb";
+import { jwtKeyGeneration, type Caller as VerifiedJwtCaller } from "../jwt.ts";
 import { log } from "@roost/shared/log";
 import { diag, signal } from "@roost/shared/diag";
 import { makeWorkerConn, type WorkerConn, type WorkerServiceDeps } from "./worker-service.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { lookupSessionId } from "../byte-hub.ts";
-import { currentTerminalScreenHub } from "./terminal-view-hub.ts";
 import {
-  AnnouncedChannelBarrier,
-  type AnnouncedDrop,
-} from "./announced-channel-barrier.ts";
+  realWsDeadlineClock,
+  scheduleWsAuthDeadline,
+  type WsAuthDeadlineTimer,
+  type WsDeadlineClock,
+} from "./ws-auth-deadline.ts";
+import { OrderedWorkerFrameQueue } from "./worker-frame-queue.ts";
+import { fenceWorkerCredential } from "./worker-registry.ts";
+import type { AnnouncedChannelBarrier } from "./announced-channel-barrier.ts";
+export {
+  createAnnouncedChannelBarrier,
+  handleWorkerWsUpgrade,
+} from "./worker-ws-upgrade.ts";
 
-const WS_PATH_RE = /^\/ws\/coord-worker\/([a-f0-9]{64})$/;
+export const COORD_WEBSOCKET_MAX_PAYLOAD_BYTES = 4 * 1024 * 1024;
+export const WORKER_DURABLE_EVENT_LIMIT = 600;
+export const WORKER_DURABLE_EVENT_WINDOW_MS = 60_000;
+
+export interface WorkerEventRateWindow {
+  startedAtMs: number | null;
+  events: number;
+}
+
+interface QueuedWorkerFrame {
+  frame: CoordWorkerUp;
+  announced: { sessionId: string; channelId: number } | null;
+}
+
+/** Fixed per-socket window: the first 600 durable event frames are admitted;
+ * the next closes only their authenticated worker socket. */
+export function admitWorkerDurableEvent(
+  window: WorkerEventRateWindow,
+  nowMs: number,
+): boolean {
+  if (
+    window.startedAtMs === null
+    || nowMs < window.startedAtMs
+    || nowMs - window.startedAtMs >= WORKER_DURABLE_EVENT_WINDOW_MS
+  ) {
+    window.startedAtMs = nowMs;
+    window.events = 0;
+  }
+  if (window.events >= WORKER_DURABLE_EVENT_LIMIT) return false;
+  window.events += 1;
+  return true;
+}
 
 export interface WorkerWsData {
   kind: "worker";
-  caller: { fingerprint: string; label?: string; keyGeneration: number };
+  caller: VerifiedJwtCaller;
   fp: string;
+  /** Resolved from workers.dashboard_id before WS upgrade; never from a
+   * URL, JWT claim, hello, or worker event payload. */
+  dashboardId: string;
+  authDeadlineAtMs: number | null;
+  authDeadlineTimer: WsAuthDeadlineTimer | null;
   conn: WorkerConn | null;
-  // Per-socket serialization tail: Bun delivers messages in order but does
-  // not await our async handler between them, so chain handleUpstream calls
-  // here to keep event appends ordered (the seqno-splice invariant).
-  tail: Promise<void>;
+  // Bun dispatches messages in order but does not await async handlers. This
+  // explicit bounded queue keeps durable/control frames ordered and accounts
+  // for the in-flight SQLite append until it settles.
+  queue: OrderedWorkerFrameQueue<QueuedWorkerFrame> | null;
+  eventRate: WorkerEventRateWindow;
   // Cell grids and PTY chunks may overtake the async durable opened/respawned
   // append, but only after this socket synchronously decoded that exact
   // worker/channel announcement.
   announcedChannels: AnnouncedChannelBarrier;
 }
 
-/** A barrier drop invalidates the coordinator replica and latches exactly one
- * worker snapshot request after the route announcement is durable. */
-function handleAnnouncedDrop(workerFp: string, drop: AnnouncedDrop): void {
-  currentTerminalScreenHub()?.invalidate(
-    drop.sessionId,
-    `announced channel barrier ${drop.reason} on ${workerFp.slice(0, 12)}`,
-  );
+export interface WorkerWsHandlerOptions {
+  deadlineClock?: WsDeadlineClock;
 }
 
-/** Every socket's barrier must report its drops into the coordinator-local
- *  repair state, so construction is centralized here: a bare
- *  `new AnnouncedChannelBarrier()` would silently lose the marks that force a
- *  dropped route's next full frame. */
-export function createAnnouncedChannelBarrier(workerFp: string): AnnouncedChannelBarrier {
-  return new AnnouncedChannelBarrier((drop) => handleAnnouncedDrop(workerFp, drop));
-}
-
-/** Bun fetch-handler hook. Returns:
- *  - null      → not a worker-WS path; caller should continue to coord.fetch.
- *  - undefined → upgrade succeeded (Bun hijacked); return undefined from fetch.
- *  - Response  → reject (401 / 400); return it from fetch. */
-export async function handleWorkerWsUpgrade(
-  req: Request, server: Server<WorkerWsData>, deps: WorkerServiceDeps,
-): Promise<Response | undefined | null> {
-  const url = new URL(req.url);
-  const m = WS_PATH_RE.exec(url.pathname);
-  if (!m) return null;
-  // WS handshakes are GET, so main.ts's retired gate cannot see them. Reject
-  // ONLY on `retired`: the link must stay open through `source_draining` to
-  // buffer unacked events and receive ACTIVATE. Rejecting once retired is what
-  // makes coord-relocation-recovery's link-closed guard engage.
-  if (deps.move?.gate.mode === "retired") return new Response("coordinator relocated", { status: 410 });
-  const fp = m[1]!;
-  const addr = server.requestIP?.(req)?.address ?? undefined;
-  const token = url.searchParams.get("token");
-  if (!token) return new Response("unauthorized", { status: 401 });
-  let caller: { fingerprint: string; label?: string; keyGeneration: number };
-  try {
-    caller = await verifyJwt(token, {
-      db: deps.db, cache: deps.jwtCache, jwtMaxAgeSecs: deps.cfg.jwtMaxAgeSecs,
-    });
-  } catch (e) {
-    log.warn("worker-ws", "upgrade_jwt_failed", { error: String(e), url_fp: fp, forwarded_for: req.headers.get("x-forwarded-for") });
-    signal("worker.auth_rejected", { reason: "jwt_invalid", addr, cooldownKey: addr ?? "worker-auth" });
-    return new Response("unauthorized", { status: 401 });
-  }
-  if (caller.fingerprint !== fp) {
-    log.warn("worker-ws", "upgrade_fp_mismatch", { url_fp: fp, jwt_fp: caller.fingerprint });
-    signal("worker.auth_rejected", { reason: "fp_mismatch", addr, cooldownKey: addr ?? "worker-auth" });
-    return new Response("unauthorized", { status: 401 });
-  }
-  const worker = await deps.db.selectFrom("workers").select("fp")
-    .where("fp", "=", fp).executeTakeFirst();
-  if (!worker || jwtKeyGeneration(deps.jwtCache, fp) !== caller.keyGeneration) {
-    return new Response("unauthorized", { status: 401 });
-  }
-  const data: WorkerWsData = {
-    kind: "worker",
-    caller,
-    fp,
-    conn: null,
-    tail: Promise.resolve(),
-    announcedChannels: createAnnouncedChannelBarrier(fp),
-  };
-  const ok = server.upgrade(req, { data });
-  if (ok) return undefined; // hijacked
-  return new Response("upgrade failed", { status: 400 });
-}
-
-export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
+export function makeWorkerWsHandler(
+  deps: WorkerServiceDeps,
+  options: WorkerWsHandlerOptions = {},
+) {
+  const deadlineClock = options.deadlineClock ?? realWsDeadlineClock;
   const sockets = new Set<ServerWebSocket<WorkerWsData>>();
+  const clearAuthDeadline = (ws: ServerWebSocket<WorkerWsData>): void => {
+    if (ws.data.authDeadlineTimer?.current) {
+      deadlineClock.clearTimeout(ws.data.authDeadlineTimer.current);
+    }
+    ws.data.authDeadlineTimer = null;
+  };
+  const armAuthDeadline = (
+    ws: ServerWebSocket<WorkerWsData>,
+    deadlineMs: number | null,
+  ): boolean => {
+    clearAuthDeadline(ws);
+    ws.data.authDeadlineAtMs = deadlineMs;
+    if (deadlineMs === null) return true;
+    if (deadlineMs <= deadlineClock.now()) {
+      ws.close(4003, "reauth required");
+      return false;
+    }
+    ws.data.authDeadlineTimer = scheduleWsAuthDeadline(ws, deadlineMs, deadlineClock);
+    return true;
+  };
+  const ensureQueue = (
+    ws: ServerWebSocket<WorkerWsData>,
+    conn: WorkerConn,
+  ): OrderedWorkerFrameQueue<QueuedWorkerFrame> => {
+    if (ws.data.queue) return ws.data.queue;
+    const queue = new OrderedWorkerFrameQueue<QueuedWorkerFrame>(
+      async ({ frame, announced }) => {
+        await conn.handleUpstream(frame);
+        if (!announced) return;
+        // Drain on this same socket lane, awaiting each buffered frame in
+        // order. Arrivals during the drain stay behind the durable route.
+        await ws.data.announcedChannels.commit(
+          announced.channelId,
+          announced.sessionId,
+          () => lookupSessionId(
+            asWorkerFp(ws.data.fp),
+            asChannelId(announced.channelId),
+          ) === announced.sessionId,
+          (buffered) => conn.handleUpstream(buffered),
+        );
+      },
+      (error, queued) => {
+        if (queued.announced) {
+          ws.data.announcedChannels.fail(queued.announced.channelId);
+        }
+        // A throw = fatal (usually a DB durability fault); tear down only this
+        // worker socket so it reconnects and replays unacknowledged events.
+        log.warn("worker-ws", "handle_failed", {
+          worker_fp: ws.data.fp,
+          error: String(error),
+        });
+        signal("event.append_failed", {
+          error: String(error),
+          phase: "ws_handle",
+          cooldownKey: "events",
+        });
+        try { ws.close(); } catch { /* ignore */ }
+      },
+      ({ frames, bytes, rejectedBytes }) => {
+        log.warn("worker-ws", "queue_overflow", {
+          worker_fp: ws.data.fp,
+          frames,
+          bytes,
+          rejected_bytes: rejectedBytes,
+        });
+        signal("worker.queue_overflow", {
+          worker_fp: ws.data.fp,
+          frames,
+          bytes,
+          rejected_bytes: rejectedBytes,
+          cooldownKey: ws.data.fp,
+        });
+        // The queue latches closed before this callback and never retained the
+        // offending frame. 1009 is the WebSocket payload-cap close code.
+        try { ws.close(1009, "worker queue overflow"); } catch { /* ignore */ }
+      },
+    );
+    ws.data.announcedChannels.bindRetainedWorkBudget(queue.retainedWorkBudget);
+    ws.data.queue = queue;
+    return queue;
+  };
   return {
+    maxPayloadLength: COORD_WEBSOCKET_MAX_PAYLOAD_BYTES,
     open(ws: ServerWebSocket<WorkerWsData>): void {
       if (jwtKeyGeneration(deps.jwtCache, ws.data.fp) !== ws.data.caller.keyGeneration) {
         ws.close(4001, "revoked");
         return;
       }
+      if (!armAuthDeadline(ws, ws.data.authDeadlineAtMs)) return;
       sockets.add(ws);
       // Return Bun's send result (0 = dropped, -1 = backpressure, >0 = bytes)
       // and re-throw: the snapshot pump must learn a chunk was lost instead of
@@ -146,27 +199,43 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         }
       };
       const requestClose = (): void => { try { ws.close(); } catch { /* ignore */ } };
-      ws.data.conn = makeWorkerConn(deps, ws.data.caller, send, requestClose, () => ws.getBufferedAmount());
+      const conn = makeWorkerConn(
+        deps,
+        ws.data.caller,
+        send,
+        requestClose,
+        () => ws.getBufferedAmount(),
+        ws.data.dashboardId,
+        (refreshed) => {
+          ws.data.caller = refreshed;
+          if (deps.cfg.saasMode) {
+            armAuthDeadline(ws, refreshed.validUntilMs);
+          }
+        },
+      );
+      ws.data.conn = conn;
+      ensureQueue(ws, conn);
       log.info("worker-ws", "open", { worker_fp: ws.data.fp });
     },
     message(ws: ServerWebSocket<WorkerWsData>, message: string | Buffer): void {
       const conn = ws.data.conn;
       if (!conn) return;
-      // Superseded generation: a newer authenticated hello for this fingerprint
-      // already took over the registry handle, so this socket is closing and its
-      // remaining frames — including a late exact snapshot — must not touch
-      // coordinator state or its replacement's channel index.
+      // Superseded generations are fenced before queue lookup so a late frame
+      // cannot recreate resources detached by fenceForFingerprint.
       if (!conn.isCurrentGeneration()) {
         diag("worker-ws.superseded_frame", { worker_fp: ws.data.fp });
         return;
       }
-      let frame;
+      const queue = ensureQueue(ws, conn);
+      if (!queue.isOpen()) return;
+      let frame: CoordWorkerUp;
+      let frameBytes = 0;
       try {
         // COPY off Bun's ServerWebSocket message buffer — it is pooled and
         // recycled after this synchronous handler returns. protobuf fromBinary
         // returns a subarray VIEW for `bytes` fields (PtyOut terminal data), and
-        // handleUpstream runs DEFERRED via the .tail microtask below — so the
-        // view would outlive Bun's buffer and be dereferenced as freed memory:
+        // handleUpstream runs later on the explicit async queue, so the view
+        // would outlive Bun's buffer and be dereferenced as freed memory:
         // the coord segfault whose fault address is terminal bytes (ESC[, session
         // ids). L11 borrowed-Bun-buffer-view class (feedback_bun_terminal_write_needs_copy).
         // `new Uint8Array(buf)` takes the typed-array→typed-array constructor
@@ -176,12 +245,49 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         const bytes = typeof message === "string"
           ? new TextEncoder().encode(message)
           : new Uint8Array(message);
+        frameBytes = bytes.byteLength;
         frame = fromBinary(CoordWorkerUpSchema, bytes);
       } catch (e) {
         log.warn("worker-ws", "decode_failed", { worker_fp: ws.data.fp, error: String(e) });
         return;
       }
       const fcase = frame.frame.case;
+      // The raw socket exists before the worker's exact snapshot barrier. Keep
+      // liveness and durable lifecycle replay flowing, but do not let ordinary
+      // frames bypass the ordered connection-level readiness gate through the
+      // cell/binary fast path.
+      if (
+        !conn.isReady()
+        && fcase !== "hello"
+        && fcase !== "event"
+        && fcase !== "pong"
+        && fcase !== "refreshJwt"
+      ) {
+        diag("worker-ws.frame_before_snapshot_ready", {
+          worker_fp: ws.data.fp,
+          frame: fcase,
+        });
+        return;
+      }
+      if (
+        fcase === "event"
+        && !admitWorkerDurableEvent(ws.data.eventRate, deadlineClock.now())
+      ) {
+        queue.close();
+        ws.data.announcedChannels.clear();
+        log.warn("worker-ws", "event_rate_exceeded", {
+          worker_fp: ws.data.fp,
+          limit: WORKER_DURABLE_EVENT_LIMIT,
+          window_ms: WORKER_DURABLE_EVENT_WINDOW_MS,
+        });
+        signal("worker.event_rate_exceeded", {
+          worker_fp: ws.data.fp,
+          limit: WORKER_DURABLE_EVENT_LIMIT,
+          cooldownKey: ws.data.fp,
+        });
+        try { ws.close(1008, "worker event rate exceeded"); } catch { /* ignore */ }
+        return;
+      }
       // `opened` AND `respawned` both bind a NEW (worker, channel) route whose
       // durable append is still queued. Recognizing them synchronously here is
       // what lets their first cell/binary frames wait for that binding instead
@@ -222,14 +328,13 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
       // share one buffer so their original arrival order survives the barrier.
       if (fcase === "cellGrid" || fcase === "cellGridChunk" || fcase === "binary") {
         const channelId = frame.frame.value.channelId;
-        // Measuring a frame means encoding it, so only an actually announced
-        // channel pays that: the steady-state PTY/cell lanes must not
-        // re-serialize every chunk on the coordinator's single thread.
+        // Reuse the copied wire length; never re-serialize PTY/cell hot-path
+        // frames just to account for a short announcement barrier.
         if (ws.data.announcedChannels.isAnnounced(channelId)) {
           const queued = ws.data.announcedChannels.enqueue(
             channelId,
             frame,
-            toBinary(CoordWorkerUpSchema, frame).byteLength,
+            frameBytes,
           );
           if (queued !== "not-announced") return;
         }
@@ -238,39 +343,33 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         });
         return;
       }
-      // Slow path: event frames preserve appendEvent ordering.
-      ws.data.tail = ws.data.tail
-        .then(async () => {
-          await conn.handleUpstream(frame);
-          if (!announced) return;
-          // Drain on this same socket lane, awaiting each buffered frame in
-          // order: arrivals during the drain join the tail, so no later
-          // fast-path frame can overtake the channel's first frames.
-          await ws.data.announcedChannels.commit(
-            announced.channelId,
-            announced.sessionId,
-            () => lookupSessionId(
-              asWorkerFp(ws.data.fp),
-              asChannelId(announced!.channelId),
-            ) === announced!.sessionId,
-            (buffered) => conn.handleUpstream(buffered),
-          );
-        })
-        .catch((e) => {
-          if (announced) ws.data.announcedChannels.fail(announced.channelId);
-          // A throw = fatal (DB durability fault); tear down so the worker
-          // reconnects + replays unacked.
-          log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
-          signal("event.append_failed", { error: String(e), phase: "ws_handle", cooldownKey: "events" });
-          try { ws.close(); } catch { /* ignore */ }
-        });
+      // Slow path: one explicit bounded per-socket queue preserves event and
+      // control-frame order. Its accounting includes the in-flight append.
+      queue.enqueue({ frame, announced }, frameBytes);
     },
     close(ws: ServerWebSocket<WorkerWsData>): void {
+      clearAuthDeadline(ws);
       sockets.delete(ws);
+      ws.data.queue?.close();
+      ws.data.queue = null;
       ws.data.announcedChannels.clear();
       ws.data.conn?.close();
       ws.data.conn = null;
       log.info("worker-ws", "close", { worker_fp: ws.data.fp });
+    },
+    /** Synchronous post-commit credential fence. Revoke every admitted socket
+     * generation first, then detach all queued/announced inbound work, then
+     * unregister the authoritative generation. Socket close is deliberately
+     * deferred to the later best-effort cleanup phase. */
+    fenceForFingerprint(fingerprint: string): void {
+      const matching = [...sockets].filter((ws) => ws.data.fp === fingerprint);
+      for (const ws of matching) ws.data.conn?.revoke();
+      for (const ws of matching) {
+        ws.data.queue?.close();
+        ws.data.queue = null;
+        ws.data.announcedChannels.clear();
+      }
+      fenceWorkerCredential(fingerprint);
     },
     closeForFingerprint(fingerprint: string): void {
       for (const ws of sockets) {

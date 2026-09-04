@@ -7,7 +7,7 @@
 import type { ServiceImpl } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import { CoordinatorService, AgentConfigSchema } from "@roost/shared/proto/coordinator_pb";
-import { requireAuth } from "./auth-interceptor.ts";
+import { requireDashboardActor, requireDashboardAdmin } from "./auth-interceptor.ts";
 import { getAgentConfig, setAgentConfig } from "../agent-config.ts";
 import type { ConnectDeps } from "./router.ts";
 
@@ -18,12 +18,12 @@ export function makeAgentConfigHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, AgentConfigMethods> {
   return {
     async agentConfigGet(_req, ctx) {
-      requireAuth(ctx.values);
-      return create(AgentConfigSchema, await getAgentConfig(deps.db));
+      const actor = requireDashboardActor(ctx.values);
+      return create(AgentConfigSchema, await getAgentConfig(deps.db, actor.dashboardId));
     },
     async agentConfigSet(req, ctx) {
-      requireAuth(ctx.values);
-      return create(AgentConfigSchema, await setAgentConfig(deps.db, {
+      const actor = requireDashboardAdmin(ctx.values);
+      return create(AgentConfigSchema, await setAgentConfig(deps.db, actor.dashboardId, {
         selected: req.selected,
         customCommand: req.customCommand,
         autoLaunch: req.autoLaunch ?? false,

@@ -1,5 +1,6 @@
 // Worker → coord OUTBOUND transport: a long-lived raw Bun WebSocket dial
-// to /ws/coord-worker/<fp>?token=<jwt>. (Briefly rewritten as a Connect
+// to /ws/coord-worker/<fp>, authenticated by an exact marker+JWT subprotocol
+// pair. (Briefly rewritten as a Connect
 // HTTP/2 bidi against WorkerService.Attach during crpc5, then reverted —
 // Bun can't hold a Connect bidi; see docs/FAILURE-INDEX.md.)
 //
@@ -28,6 +29,7 @@ import {
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { diag, signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
+import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
 import { createCoordLinkOutbox } from "./coord-link-outbox.ts";
 import { createCoordLinkReconnect } from "./coord-link-reconnect.ts";
 import { createCoordLinkDownstream } from "./coord-link-downstream.ts";
@@ -84,7 +86,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       if (!outbox.isAttached()) return;
       try {
         const jwt = await deps.mintJwt();
-        const result = outbox.sendControlProto(create(CoordWorkerUpSchema, {
+        const result = outbox.sendLivenessProto(create(CoordWorkerUpSchema, {
           frame: { case: "refreshJwt", value: create(WRefreshJwtSchema, { jwt }) },
         }));
         if (result === "dropped") throw new Error("refresh frame outbox full");
@@ -116,12 +118,13 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     // unsupported (Bun's node:http2 is incomplete) and h1.1 buffers the
     // upstream so the worker's rpc-ok replies stalled → sessionsSpawn hung.
     // Same CoordWorkerUp/Down proto frames, carried as BINARY WS messages.
-    // Auth: query-param JWT (Bun's client WebSocket has no custom-header API).
+    // The credential is the second requested subprotocol, never URL material.
     const wsBase = coordHttpUrl.replace(/^http/, "ws");
-    const url = `${wsBase}/ws/coord-worker/${deps.workerFp}?token=${encodeURIComponent(jwt)}`;
+    const url = `${wsBase}/ws/coord-worker/${deps.workerFp}`;
+    const protocols: [string, string] = [WORKER_AUTH_SUBPROTOCOL, jwt];
     let ws: WebSocket;
     try {
-      ws = deps.webSocketFactory?.(url) ?? new WebSocket(url);
+      ws = deps.webSocketFactory?.(url, protocols) ?? new WebSocket(url, protocols);
     } catch (err) {
       log.warn("coord-link", "ws_construct_failed", { error: (err as Error).message });
       signal("auth.jwt_sign_fail", { stage: "ws_construct", cooldownKey: "jwt" });
@@ -203,12 +206,9 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
         }));
         if (!hello) throw new Error("hello encode failed");
         // The socket has just opened, so its native buffer is empty. Hello is
-        // the sole forced write; every application frame uses byte admission.
+        // the sole forced write. Replay begins only after helloAck establishes
+        // this socket generation at the coordinator.
         if (!outbox.forceWrite(hello)) throw new Error("hello encode failed");
-        outbox.replayUnacked();
-        // Events and controls may follow hello immediately. Raw metadata stays
-        // held until helloAck so authoritative cell repairs can lead it.
-        outbox.drainQueues();
         try {
           deps.onOpen?.(dialReconnected);
         } catch (error) {
@@ -288,6 +288,10 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     sendCellGridChunk: outbox.sendCellGridChunk,
     sendAgentStatus: outbox.sendAgentStatus,
     state: () => state,
+    protocolPhase: outbox.protocolPhase,
+    ready: outbox.ready,
+    activateSnapshotProvider: outbox.activateSnapshotProvider,
+    snapshotStateChanged: outbox.snapshotStateChanged,
     relocate,
     unackedEventCount: outbox.unackedCount,
     dispose,

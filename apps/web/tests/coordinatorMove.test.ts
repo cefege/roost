@@ -1,14 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import { parseFragmentCredential } from "../src/auth/fragment-credential.ts";
-import { coordinatorRole, isFailedMovePhase, moveDialogCanClose, MOVE_POLL_FAILURE_LIMIT, type CoordinatorRole } from "../src/lib/coordinatorMove.ts";
+import { coordinatorMoveControlsVisible, coordinatorRole, isFailedMovePhase, moveDialogCanClose, MOVE_POLL_FAILURE_LIMIT, type CoordinatorRole } from "../src/lib/coordinatorMove.ts";
 
 describe("coordinator move browser contracts", () => {
+  test("managed mode hides self-hosted move controls while self-hosted stays unchanged", () => {
+    expect(coordinatorMoveControlsVisible({ saas_mode: true })).toBe(false);
+    expect(coordinatorMoveControlsVisible({ saas_mode: false })).toBe(true);
+    expect(coordinatorMoveControlsVisible(undefined)).toBe(true);
+  });
+
   test("requires both opaque relocation fragment fields", () => {
-    expect(parseFragmentCredential("#move=token&handoff=handoff-id"))
+    expect(parseFragmentCredential("/", "#move=token&handoff=handoff-id"))
       .toEqual({ kind: "relocation", token: "token", handoffId: "handoff-id" });
-    expect(parseFragmentCredential("#move=token")).toEqual({ kind: "invalid" });
-    expect(parseFragmentCredential("#handoff=handoff-id")).toEqual({ kind: "invalid" });
+    expect(parseFragmentCredential("/", "#move=token")).toEqual({ kind: "invalid" });
+    expect(parseFragmentCredential("/", "#handoff=handoff-id")).toEqual({ kind: "invalid" });
   });
 
   test("a committed move is always escapable", () => {

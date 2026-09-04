@@ -11,17 +11,19 @@ const year = new Date().getFullYear();
         <BrandMark size={22} />
         <span>Roost</span>
       </a>
-      <p class="tag">One control panel for every machine you own.</p>
+      <p class="tag">One managed dashboard for every machine you own.</p>
       <p class="fine">
         GPL-3.0-only &middot; &copy; {year} Mihai Mateias
       </p>
     </div>
 
     <nav class="col" aria-label="Site">
-      <h2>Site</h2>
+      <h2>Roost</h2>
+      <a href="https://dashboard.roosttt.com/login">Log in</a>
+      <a href="https://dashboard.roosttt.com/app">Open dashboard</a>
       <a href="/docs/">Docs</a>
+      <a href="/install/">Self-host</a>
       <a href="/alternatives/">Alternatives</a>
-      <a href="/install/">Install</a>
     </nav>
 
     <nav class="col" aria-label="Project">
@@ -29,6 +31,13 @@ const year = new Date().getFullYear();
       <a href="https://github.com/cefege/roost" rel="noopener">github.com/cefege/roost</a>
       <a href="https://github.com/cefege/roost/blob/main/LICENSE" rel="noopener">License (GPL-3.0-only)</a>
       <a href="https://github.com/cefege/roost/issues" rel="noopener">Issues</a>
+    </nav>
+
+    <nav class="col" aria-label="Legal and support">
+      <h2>Legal &amp; support</h2>
+      <a href="/privacy/">Privacy</a>
+      <a href="/terms/">Terms</a>
+      <a href="mailto:support@roosttt.com">Email support</a>
     </nav>
 
     <nav class="col" aria-label="Author">
@@ -49,7 +58,7 @@ const year = new Date().getFullYear();
 
   .footer-inner {
     display: grid;
-    grid-template-columns: 1.4fr repeat(3, 1fr);
+    grid-template-columns: 1.4fr repeat(4, 1fr);
     gap: var(--md-space-7) var(--md-space-6);
     padding-block: var(--md-space-8);
   }

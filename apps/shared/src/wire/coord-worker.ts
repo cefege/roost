@@ -17,6 +17,11 @@ import { SessionId, WorkerFp, TraceId } from "./brand.ts";
 import { ClientControlFrame } from "./control.ts";
 import { SessionEvent } from "./event.ts";
 
+/** The sole protocol marker accepted for worker WebSocket authentication.
+ * The JWT follows as the second requested subprotocol and is never put in the
+ * request URL; the coordinator echoes only this non-secret marker. */
+export const WORKER_AUTH_SUBPROTOCOL = "roost-worker-auth";
+
 const Base = z.object({ trace_id: TraceId.optional() });
 
 // ─── worker → coord (upstream) ────────────────────────────────────────
@@ -75,13 +80,9 @@ export type CoordWorkerUpstream = z.infer<typeof CoordWorkerUpstream>;
 // ─── coord → worker (downstream) ──────────────────────────────────────
 
 export const CoordWorkerDownstream = z.discriminatedUnion("kind", [
-  // immediate reply to `hello`. Carries coord identity so worker can
-  // verify future signed payloads without a separate heartbeat round.
-  // Replaces the side-channel return of `workers.heartbeat` today.
+  // Immediate reply to `hello` and link-readiness barrier.
   Base.extend({
     kind: z.literal("hello-ack"),
-    coord_pubkey_b64: z.string(),
-    coord_pubkey_kid: z.string(),
   }),
   Base.extend({
     kind: z.literal("ping"),

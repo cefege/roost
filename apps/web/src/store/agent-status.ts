@@ -111,9 +111,18 @@ export function clearAgentStatusForSession(sessionId: string): void {
   publish({ sessionId, previous: current, next: null, revision: current.revision });
 }
 
-export function resetAgentStatusProjectionForTest(): void {
+/** Drop every dashboard's revision floors and notify subscribers so delayed
+ * notification timers cannot outlive the resources they describe. */
+export function resetAgentStatusProjection(): void {
+  const currentStatuses = Object.entries(rootStore.agent_status);
   revisionFloors.clear();
-  for (const sessionId of Object.keys(rootStore.agent_status)) {
+  for (const [sessionId, current] of currentStatuses) {
     deleteStoreRecord("agent_status", sessionId);
+    publish({
+      sessionId,
+      previous: detach(current),
+      next: null,
+      revision: current.revision,
+    });
   }
 }

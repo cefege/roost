@@ -13,10 +13,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// MUST precede any startCoordLink() call: ClientSeq (constructed inside
-// startCoordLink) falls back to the production data dir when this is unset,
-// which would corrupt the live client-seq watermark. Set at module eval,
-// before any test body runs.
+// Isolate durable session-event stores from production worker state.
+// Set at module evaluation before any test opens a store.
 process.env.ROOST_WORKER_DATA_DIR = mkdtempSync(join(tmpdir(), "coordlink-test-"));
 process.env.ROOST_KEEPER_QUIET = "1";
 
@@ -24,6 +22,7 @@ import { expect, test } from "bun:test";
 import { create, toBinary } from "@bufbuild/protobuf";
 import { CoordWorkerDownSchema, DHelloAckSchema, DPingSchema } from "@roost/shared/proto/worker_transport_pb";
 import { startCoordLink } from "../src/transport/coord-link.ts";
+import { openSessionEventStore } from "../src/transport/session-event-store.ts";
 import type { WorkerFp } from "@roost/shared/wire";
 
 function pingBytes(): Uint8Array {
@@ -41,7 +40,7 @@ function helloAckBytes(): Uint8Array {
     create(CoordWorkerDownSchema, {
       frame: {
         case: "helloAck",
-        value: create(DHelloAckSchema, { coordPubkeyB64: "test-key", coordPubkeyKid: "test-kid" }),
+        value: create(DHelloAckSchema, {}),
       },
     }),
   );
@@ -73,10 +72,15 @@ test("silent server → watchdog force-closes and re-dials", async () => {
       close() {},
     },
   });
+  const eventStore = openSessionEventStore({
+    dbPath: join(process.env.ROOST_WORKER_DATA_DIR!, "silent-outbox.sqlite"),
+    legacySequencePath: join(process.env.ROOST_WORKER_DATA_DIR!, "silent-client-seq.txt"),
+  });
   const link = startCoordLink({
     coordHttpUrl: `http://127.0.0.1:${server.port}`,
     workerFp: "test-fp" as WorkerFp,
     workerVersion: "test",
+    sessionEventStore: eventStore,
     mintJwt: async () => "jwt",
     staleLinkTimeoutMs: 300,
     staleCheckIntervalMs: 50,
@@ -97,6 +101,7 @@ test("silent server → watchdog force-closes and re-dials", async () => {
   expect(reopenFlags.slice(0, 2)).toEqual([false, true]);
   expect(helloAckFlags.slice(0, 2)).toEqual([false, true]);
   link.dispose();
+  eventStore.close();
   server.stop(true);
 }, 10_000);
 
@@ -139,10 +144,15 @@ test("pinged link stays up — no false-positive reconnect", async () => {
       },
     },
   });
+  const eventStore = openSessionEventStore({
+    dbPath: join(process.env.ROOST_WORKER_DATA_DIR!, "pinged-outbox.sqlite"),
+    legacySequencePath: join(process.env.ROOST_WORKER_DATA_DIR!, "pinged-client-seq.txt"),
+  });
   const link = startCoordLink({
     coordHttpUrl: `http://127.0.0.1:${server.port}`,
     workerFp: "test-fp" as WorkerFp,
     workerVersion: "test",
+    sessionEventStore: eventStore,
     mintJwt: async () => "jwt",
     staleLinkTimeoutMs: 300,
     staleCheckIntervalMs: 50,
@@ -151,5 +161,6 @@ test("pinged link stays up — no false-positive reconnect", async () => {
   expect(opens).toBe(1);
   clearInterval(pingTimer);
   link.dispose();
+  eventStore.close();
   server.stop(true);
 }, 10_000);

@@ -27,6 +27,7 @@ import type {
 } from "../src/keeper/multiplexed-client.ts";
 import { installAutoKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import type { ShellSpec } from "../src/shell-spec.ts";
+import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
 const SESSION_ID = asSessionId("9d2e6c31-4444-4555-9666-777788889999");
 const CHANNEL_ID = 23;
@@ -82,7 +83,8 @@ async function resumeFixture(opts: {
 	const priorGetHistoryRecords = pool.getHistoryRecords;
 	const priorGetTerminalState = pool.getTerminalState;
 	pool.listChannels = async () => [{ channelId: CHANNEL_ID, pid: CHILD_PID }];
-	const events: SessionEvent[] = [];
+	const sink = new LifecycleTestSink();
+	const events = sink.events;
 	const state = { degradedCalls: 0 };
 	pool.reattach = (channelId, callbacks) => {
 		// Mirror reattachChannel's registration so later PtyOut frames dispatch
@@ -100,7 +102,7 @@ async function resumeFixture(opts: {
 
 	const mgr = new SessionManager({
 		workerFp: asWorkerFp("22".repeat(32)),
-		sink: { emit: (event) => events.push(event) },
+		sink,
 		sendBinaryUpstream: () => "sent",
 		sendCellGridUpstream: () => "sent",
 	});
@@ -125,6 +127,7 @@ async function resumeFixture(opts: {
 		events,
 		state,
 		dispose() {
+			mgr.dispose();
 			pool.listChannels = priorListChannels;
 			pool.reattach = priorReattach;
 			pool.getHistoryRecords = priorGetHistoryRecords;

@@ -21,6 +21,7 @@ const handoffSchema = z.object({
   version: z.literal(1),
   handoff_id: z.string().uuid(),
   role: z.enum(["SOURCE", "TARGET"]),
+  dashboard_id: z.string().min(1),
   phase: z.enum(MOVE_PHASES),
   source_url: z.string().url(),
   target_url: z.string().url(),

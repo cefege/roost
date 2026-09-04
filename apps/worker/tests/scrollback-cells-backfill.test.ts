@@ -18,6 +18,7 @@ import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import type { CoordLink } from "../src/transport/coord-link.ts";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
+import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000001");
 const CID = 1;
@@ -31,7 +32,7 @@ const SEED = new TextEncoder().encode(
 function freshManager(onCellFrame?: (frame: PbCellGridFrame) => void): SessionManager {
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
-    sink: { emit: () => {} },
+    sink: new LifecycleTestSink(),
     ...(onCellFrame ? { sendCellGridUpstream: (_channelId, frame) => onCellFrame(frame) } : {}),
   });
 }
@@ -61,6 +62,7 @@ async function injectSession(manager: SessionManager): Promise<SessionShellRecor
     lastPtyOutMs: 0,
     sb_origin_pin: null,
     spawnedAtMs: Date.now(),
+    closeReservation: manager.reserveLifecycleEvent("closed"),
   };
   manager.sessions.set(CID, record);
   return record;

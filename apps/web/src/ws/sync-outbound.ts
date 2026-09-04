@@ -321,7 +321,10 @@ export function pruneTerminalInput(sessionId: string): void {
   lastInputSendTs.delete(sessionId);
 }
 
-export function _resetTerminalOutboundForTest(): void {
+/** Reject every dashboard-bound input lane. Dashboard switching is a hard
+ * transport boundary: queued bytes must never be replayed into the newly
+ * selected scope. */
+export function resetTerminalOutboundState(reason = "dashboard switched"): void {
   for (const lane of inputLanes.values()) {
     for (const pending of lane.pending) {
       clearTimeout(pending.timer ?? undefined);
@@ -329,7 +332,7 @@ export function _resetTerminalOutboundForTest(): void {
         status: pending.started ? "ambiguous" : "rejected",
         inputSeq: pending.inputSeq,
         writtenBytes: 0,
-        reason: "test reset",
+        reason,
       });
     }
   }
@@ -338,5 +341,9 @@ export function _resetTerminalOutboundForTest(): void {
   observedSocketId = null;
   observedDomainGeneration = null;
   nextInputSeq = 0n;
+}
+
+export function _resetTerminalOutboundForTest(): void {
+  resetTerminalOutboundState("test reset");
   _resetSmokeOutboundForTest();
 }

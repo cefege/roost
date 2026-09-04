@@ -8,7 +8,12 @@
 
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
-import { SyncDomain, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
+import { clone, toBinary } from "@bufbuild/protobuf";
+import {
+  FirehoseFrameSchema,
+  SyncDomain,
+  type FirehoseFrame,
+} from "@roost/shared/proto/sync_pb";
 import type { SyncFeedFrameMeta, SyncFeedLane } from "./sync-feed.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 
@@ -25,10 +30,8 @@ export const V2_DOMAINS = [
   SyncDomain.WORKERS,
   SyncDomain.WORKSPACES,
   SyncDomain.TASKS,
-  SyncDomain.PERMISSIONS,
   SyncDomain.MCP,
   SyncDomain.PAIR,
-  SyncDomain.WEBHOOK,
   SyncDomain.AUDIT,
 ] as const;
 export const V2_WEIGHTED_LANES: readonly SyncFeedLane[] = [
@@ -45,7 +48,7 @@ export function allocateDomainGeneration(): bigint {
 }
 
 export function isLazyDomain(domain: SyncDomain): boolean {
-  return domain === SyncDomain.WEBHOOK || domain === SyncDomain.AUDIT;
+  return domain === SyncDomain.AUDIT;
 }
 
 export function isV2SnapshotFrame(frame: FirehoseFrame): boolean {
@@ -53,30 +56,45 @@ export function isV2SnapshotFrame(frame: FirehoseFrame): boolean {
     || (frame.frame.case === "cellGrid" && frame.frame.value.full);
 }
 
-export interface SyncV2QueuedFrame {
+export interface SyncV2OwnedFrame {
   readonly frame: FirehoseFrame;
-  readonly meta: SyncFeedFrameMeta;
-  readonly queuedAtMs: number;
   readonly estimatedBytes: number;
 }
+
+export interface SyncV2AggregateCharge {
+  readonly estimatedBytes: number;
+  retained: boolean;
+}
+
+export interface SyncV2RetainedFrame extends SyncV2OwnedFrame {
+  readonly aggregateCharge: SyncV2AggregateCharge;
+}
+export interface SyncTerminalDeltaFrame extends SyncV2RetainedFrame {
+  readonly payloadBytes: number;
+}
+
+
+export interface SyncV2QueuedFrame extends SyncV2RetainedFrame {
+  readonly meta: SyncFeedFrameMeta;
+  readonly queuedAtMs: number;
+}
+
 export interface SyncTerminalSnapshotCursor {
   readonly streamId: string;
-  readonly frames: readonly FirehoseFrame[];
+  readonly frames: readonly SyncV2RetainedFrame[];
   index: number;
   queued: boolean;
-  readonly deltaTail: FirehoseFrame[];
+  readonly deltaTail: SyncTerminalDeltaFrame[];
   deltaBytes: number;
 }
 
 export interface SyncTerminalSessionLane {
   streamId: string;
   cursor: SyncTerminalSnapshotCursor | null;
-  /** Terminal view-states awaiting the domain queue. Bounded by
-   *  V2_DOMAIN_MAX_QUEUED_FRAMES with oldest-first shedding — see
-   *  enqueueTerminalState (sync-ws-v2-terminal.ts). */
-  readonly pendingStates: FirehoseFrame[];
+  /** Terminal view-states awaiting transfer into the domain queue. */
+  readonly pendingStates: SyncV2RetainedFrame[];
   /** Deadline-clock time of the latest snapshot install; gates whether the
-   *  cursor's snapshot frames may jump other sessions' queued deltas. */
+   * cursor's snapshot frames may jump other sessions' queued deltas. */
   snapshotStartedAtMs: number | null;
 }
 
@@ -97,11 +115,13 @@ export interface SyncV2SocketState {
   readonly announcedSessions: Set<string>;
   readonly pendingSessionAnnouncements: Map<string, bigint>;
   readonly terminalSessions: Map<string, SyncTerminalSessionLane>;
+  /** Aggregate payload ownership across domain queues and terminal auxiliaries. */
   queuedFrames: number;
   queuedBytes: number;
   laneCursor: number;
   schedulerPending: boolean;
   schedulerYieldTimer: Timer | null;
+  terminalProgressTimer: Timer | null;
   snapshotDispose: (() => void) | null;
   closeNotified: boolean;
 }
@@ -129,10 +149,76 @@ export function createSyncV2SocketState(): SyncV2SocketState {
     laneCursor: 0,
     schedulerPending: false,
     schedulerYieldTimer: null,
+    terminalProgressTimer: null,
     snapshotDispose: null,
     closeNotified: false,
   };
 }
+export function ownV2ApplicationFrame(
+  frame: FirehoseFrame,
+  domain: SyncDomain,
+  generation: bigint,
+): SyncV2OwnedFrame {
+  const owned = clone(FirehoseFrameSchema, frame);
+  owned.deliverySeq = 0n;
+  owned.domain = domain;
+  owned.domainGeneration = generation;
+  return {
+    frame: owned,
+    estimatedBytes: toBinary(FirehoseFrameSchema, owned).byteLength + 10,
+  };
+}
+
+export function tryRetainV2AggregateFrame(
+  v2: SyncV2SocketState,
+  owned: SyncV2OwnedFrame,
+): SyncV2RetainedFrame | null {
+  if (
+    v2.queuedFrames + 1 > V2_AGGREGATE_MAX_QUEUED_FRAMES
+    || v2.queuedBytes + owned.estimatedBytes > V2_AGGREGATE_MAX_QUEUED_BYTES
+  ) return null;
+  const aggregateCharge: SyncV2AggregateCharge = {
+    estimatedBytes: owned.estimatedBytes,
+    retained: true,
+  };
+  v2.queuedFrames++;
+  v2.queuedBytes += owned.estimatedBytes;
+  return { ...owned, aggregateCharge };
+}
+
+export function releaseV2AggregateFrame(
+  v2: SyncV2SocketState,
+  retained: Pick<SyncV2RetainedFrame, "aggregateCharge">,
+): void {
+  const charge = retained.aggregateCharge;
+  if (!charge.retained) return;
+  charge.retained = false;
+  v2.queuedFrames--;
+  v2.queuedBytes -= charge.estimatedBytes;
+}
+
+export function releaseV2TerminalCursor(
+  v2: SyncV2SocketState,
+  lane: SyncTerminalSessionLane,
+): void {
+  const cursor = lane.cursor;
+  if (!cursor) return;
+  for (const frame of cursor.frames) releaseV2AggregateFrame(v2, frame);
+  for (const delta of cursor.deltaTail) releaseV2AggregateFrame(v2, delta);
+  cursor.deltaTail.length = 0;
+  cursor.deltaBytes = 0;
+  lane.cursor = null;
+}
+
+export function releaseV2TerminalLane(
+  v2: SyncV2SocketState,
+  lane: SyncTerminalSessionLane,
+): void {
+  for (const state of lane.pendingStates) releaseV2AggregateFrame(v2, state);
+  lane.pendingStates.length = 0;
+  releaseV2TerminalCursor(v2, lane);
+}
+
 
 export const clearV2State = (
   ws: ServerWebSocket<SyncWsData>,
@@ -145,17 +231,25 @@ export const clearV2State = (
     clearTimer(v2.schedulerYieldTimer);
     v2.schedulerYieldTimer = null;
   }
-  v2.queuedFrames = 0;
-  v2.queuedBytes = 0;
-  v2.announcedSessions.clear();
-  v2.pendingSessionAnnouncements.clear();
-  v2.terminalSessions.clear();
+  if (v2.terminalProgressTimer !== null) {
+    clearTimer(v2.terminalProgressTimer);
+    v2.terminalProgressTimer = null;
+  }
   for (const domain of v2.domains.values()) {
+    for (const item of domain.queue) releaseV2AggregateFrame(v2, item);
     domain.queue.length = 0;
     domain.queuedBytes = 0;
     domain.seedInsertIndex = 0;
     domain.ready = false;
   }
+  for (const lane of v2.terminalSessions.values()) {
+    releaseV2TerminalLane(v2, lane);
+  }
+  v2.queuedFrames = 0;
+  v2.queuedBytes = 0;
+  v2.announcedSessions.clear();
+  v2.pendingSessionAnnouncements.clear();
+  v2.terminalSessions.clear();
   v2.snapshotDispose?.();
   v2.snapshotDispose = null;
 };
@@ -166,14 +260,9 @@ export const clearV2DomainQueue = (
   domain: SyncV2DomainState,
 ): void => {
   const v2 = ws.data.v2;
-  if (!v2 || domain.queue.length === 0) {
-    domain.queue.length = 0;
-    domain.queuedBytes = 0;
-    domain.seedInsertIndex = 0;
-    return;
+  if (v2) {
+    for (const item of domain.queue) releaseV2AggregateFrame(v2, item);
   }
-  v2.queuedFrames -= domain.queue.length;
-  v2.queuedBytes -= domain.queuedBytes;
   domain.queue.length = 0;
   domain.queuedBytes = 0;
   domain.seedInsertIndex = 0;
@@ -192,8 +281,7 @@ export const removeQueuedV2Cells = (
     if (index < terminal.seedInsertIndex) terminal.seedInsertIndex -= 1;
     terminal.queue.splice(index, 1);
     terminal.queuedBytes -= item.estimatedBytes;
-    v2.queuedFrames -= 1;
-    v2.queuedBytes -= item.estimatedBytes;
+    releaseV2AggregateFrame(v2, item);
   }
 };
 

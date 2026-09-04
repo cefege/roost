@@ -15,6 +15,20 @@ import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
 
 import type * as TerminalStreamModule from "../../src/store/terminal-stream.ts";
 import type { TerminalViewHandleStatus } from "../../src/store/terminal-stream-types.ts";
+type TerminalStreamFixtureModule = Omit<
+  typeof TerminalStreamModule,
+  "dispatchTerminalCellFrame" | "dispatchTerminalCellChunk" | "dispatchTerminalViewState"
+> & {
+  dispatchTerminalCellFrame(
+    frame: Parameters<typeof TerminalStreamModule.dispatchTerminalCellFrame>[0],
+  ): void;
+  dispatchTerminalCellChunk(
+    frame: Parameters<typeof TerminalStreamModule.dispatchTerminalCellChunk>[0],
+  ): void;
+  dispatchTerminalViewState(
+    frame: Parameters<typeof TerminalStreamModule.dispatchTerminalViewState>[0],
+  ): void;
+};
 interface TestSyncState {
   socketGeneration: number;
   socketId: string;
@@ -36,12 +50,33 @@ let syncState: TestSyncState | null = {
 };
 let generationHandler: ((state: TestSyncState | null) => void) | null = null;
 const sent: TestCommand[] = [];
+const generationRecoveries: Array<{
+  expected: Omit<TestSyncState, "ready">;
+  reason: string;
+}> = [];
+let visible = true;
 
 mock.module("../../src/store/sync.ts", () => ({
   currentSyncV2TerminalState: () => syncState,
   sendSyncV2Command: (value: TestCommand) => {
     sent.push(value);
     return syncState?.ready === true;
+  },
+  requestSyncGenerationRecovery: (
+    expected: Omit<TestSyncState, "ready">,
+    reason: string,
+  ) => {
+    if (
+      !syncState
+      || syncState.socketGeneration !== expected.socketGeneration
+      || syncState.socketId !== expected.socketId
+      || syncState.processEpoch !== expected.processEpoch
+      || syncState.domainGeneration !== expected.domainGeneration
+    ) return false;
+    generationRecoveries.push({ expected: { ...expected }, reason });
+    syncState = null;
+    generationHandler?.(null);
+    return true;
   },
   registerSyncV2GenerationHandler: (
     handler: (state: TestSyncState | null) => void,
@@ -59,14 +94,32 @@ mock.module("../../src/lib/diag.ts", () => ({
   recordCellLag: () => undefined,
 }));
 
+mock.module("../../src/lib/pageVisible.ts", () => ({
+  isPageVisible: () => visible,
+  pageVisible: () => visible,
+}));
 // The transport mock must be installed before this singleton registers its
 // generation callback; defer loading until Bun has finished evaluating this
 // fixture so the reloaded module cannot observe this fixture's export TDZ.
 let loadedTerminalStream: typeof TerminalStreamModule | null = null;
-const terminalStream = new Proxy({} as typeof TerminalStreamModule, {
+const terminalStream = new Proxy({} as TerminalStreamFixtureModule, {
   get: (_target, property) => {
     if (!loadedTerminalStream) throw new Error("terminal stream fixture is not initialized");
-    return Reflect.get(loadedTerminalStream, property);
+    const value = Reflect.get(loadedTerminalStream, property);
+    if (
+      property === "dispatchTerminalCellFrame"
+      || property === "dispatchTerminalCellChunk"
+      || property === "dispatchTerminalViewState"
+    ) {
+      return (frame: unknown): unknown => {
+        if (!syncState) return undefined;
+        return Reflect.apply(value as (...args: unknown[]) => unknown, undefined, [
+          frame,
+          syncState,
+        ]);
+      };
+    }
+    return value;
   },
 });
 beforeAll(async () => {
@@ -224,11 +277,25 @@ function updateSyncState(next: TestSyncState | null): void {
   generationHandler?.(syncState);
 }
 
+function setPageVisible(next: boolean): void {
+  visible = next;
+}
+function dispatchTerminalCellFrameFrom(
+  owner: Omit<TestSyncState, "ready">,
+  frame: Parameters<typeof TerminalStreamModule.dispatchTerminalCellFrame>[0],
+): void {
+  if (!loadedTerminalStream) throw new Error("terminal stream fixture is not initialized");
+  loadedTerminalStream.dispatchTerminalCellFrame(frame, owner);
+}
+
+
 
 beforeEach(() => {
   vi.useFakeTimers();
   terminalStream._resetTerminalStreamForTest();
   sent.length = 0;
+  generationRecoveries.length = 0;
+  visible = true;
   syncState = {
     socketGeneration: 1,
     socketId: "socket-1",
@@ -254,13 +321,16 @@ export {
   acceptView,
   cellFrameToProto,
   chunkCellGridFrame,
+  dispatchTerminalCellFrameFrom,
   delta,
   full,
+  generationRecoveries,
   latestViewCommand,
   rejectView,
   renderer,
   resyncCommands,
   row,
+  setPageVisible,
   terminalStream,
   updateSyncState,
   viewCommands,

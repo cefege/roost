@@ -1,0 +1,22 @@
+[Unit]
+Description=Reconcile Roost managed coordinators
+After=docker.service network-online.target roost-saas-auth.service roost-saas-origin-isolation.service roost-saas-resolver.service roost-saas-resolver-bridge.service
+Wants=network-online.target
+Requires=docker.service roost-saas-auth.service roost-saas-origin-isolation.service roost-saas-resolver.service roost-saas-resolver-bridge.service
+RequiresMountsFor=/srv/data/roost
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=/etc/roost/saas.env
+ExecStart=/usr/local/bin/roost saas reconcile
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/data/roost /srv/infra/edge/conf.d
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

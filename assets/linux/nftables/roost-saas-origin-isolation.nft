@@ -1,0 +1,15 @@
+table inet roost_saas_origin {
+	chain output {
+		type filter hook output priority filter; policy accept;
+
+		oifname "lo" tcp dport 8080 meta skuid 0 accept
+		oifname "lo" tcp dport 8080 meta skuid "cloudflared" accept
+		oifname "lo" tcp dport 8080 reject with tcp reset
+
+		oifname "lo" tcp dport 4108 meta skuid 0 accept
+		oifname "lo" tcp dport 4108 reject with tcp reset
+
+		oifname "lo" tcp dport 4107 meta skuid 0 accept
+		oifname "lo" tcp dport 4107 reject with tcp reset
+	}
+}

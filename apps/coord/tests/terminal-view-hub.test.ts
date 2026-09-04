@@ -146,6 +146,10 @@ describe("TerminalViewHub membership ownership", () => {
     const clock = { value: 0 };
     const { hub, sent } = makeHarness({ clock });
     const sink = register(hub);
+    const expired: Array<[string, string, string]> = [];
+    hub.setOnLiveViewExpired((socketId, viewId, sessionId) => {
+      expired.push([socketId, viewId, sessionId]);
+    });
     hub.handleViewCommand("socket-a", viewCommand(VIEW_A, 1n, { cols: 80, rows: 24 }));
     await settle();
 
@@ -158,6 +162,9 @@ describe("TerminalViewHub membership ownership", () => {
     await settle();
     expect(hub.snapshot(SESSION)).toMatchObject({ activeViews: 0, effective: null });
     expect(sent.at(-1)?.enabled).toBe(false);
+    expect(expired).toEqual([["socket-a", VIEW_A, SESSION]]);
+    sweep(hub);
+    expect(expired).toHaveLength(1);
 
     hub.handleViewCommand("socket-a", viewCommand(VIEW_A, 1n, { cols: 81, rows: 24 }));
     expect(statesFor(sink, VIEW_A).at(-1)?.status).toBe(TerminalViewStatus.REJECTED);
@@ -168,6 +175,33 @@ describe("TerminalViewHub membership ownership", () => {
     await settle();
     expect(statesFor(sink, VIEW_A).at(-1)?.status).toBe(TerminalViewStatus.ACCEPTED);
     expect(hub.snapshot(SESSION)?.effective).toEqual({ cols: 81, rows: 24 });
+  });
+
+  test("parked and explicitly inactive views never report live lease expiry", async () => {
+    const clock = { value: 0 };
+    const { hub } = makeHarness({ clock });
+    const expired: Array<[string, string, string]> = [];
+    hub.setOnLiveViewExpired((socketId, viewId, sessionId) => {
+      expired.push([socketId, viewId, sessionId]);
+    });
+    register(hub);
+    hub.handleViewCommand("socket-a", viewCommand(VIEW_A, 1n));
+    await settle();
+    hub.closeSocket("socket-a");
+    clock.value = TERMINAL_VIEW_LEASE_MS;
+    sweep(hub);
+    expect(expired).toEqual([]);
+
+    register(hub, "socket-b");
+    hub.handleViewCommand("socket-b", viewCommand(VIEW_B, 1n));
+    hub.handleViewCommand("socket-b", viewCommand(VIEW_B, 2n, {
+      active: false,
+      cols: 0,
+      rows: 0,
+    }));
+    clock.value += TERMINAL_VIEW_LEASE_MS;
+    sweep(hub);
+    expect(expired).toEqual([]);
   });
 
   test("enforces command bounds without creating worker ownership", async () => {

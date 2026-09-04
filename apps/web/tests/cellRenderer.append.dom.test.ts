@@ -109,7 +109,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect((c.style as any)["--cell-cols"]).toBe("80");
   });
 
-  test("selection enters reading; release stays frozen until admitted input resumes live", () => {
+  test("selection freezes canonical paint and reconciles when its last hold releases", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const viewportEl = vpEl(c);
@@ -138,9 +138,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(r.presentationSnapshot().hold_mask).toEqual({ selection: true, link: false });
     expect(r.gridText()).toBe("v0-again");
 
-    expect(r.setSelectionHold(false)).toEqual({ reconciled: false, anchorChanged: false });
-    expect(viewportEl.children[0]).toBe(heldRow);
-    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
+    expect(r.setSelectionHold(false)).toEqual({ reconciled: true, anchorChanged: true });
     expect(viewportEl.children[0]).not.toBe(heldRow);
     expect(sbRows(scrollbackEl).length).toBe(2);
     expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 4 });

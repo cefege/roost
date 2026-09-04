@@ -21,6 +21,8 @@ import { folderKeyOf } from "../lib/folderKey.ts";
 import { signal } from "@roost/shared/diag";
 import { TerminalDeck } from "./TerminalDeck.tsx";
 import { Button } from "./Settings/md/Button.tsx";
+import { EmptyState } from "./Settings/md/EmptyState.tsx";
+import { Surface } from "./Settings/md/Surface.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import type { Session } from "@roost/shared/wire";
@@ -224,10 +226,21 @@ export function MainPane() {
       </Show>
 
       <Show when={isSearch()}>
-        <div style={{ padding: "20px", color: "var(--text-hi)" }}>
-          {/* TODO R4.3: Global search */}
-          <p>Search</p>
-        </div>
+        <Surface
+          level={0}
+          style={{
+            flex: "1",
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "center",
+          }}
+        >
+          <EmptyState
+            icon="search"
+            title="Global search (beta)"
+            supporting="Global search is not available in v0.5.0. Use sidebar filtering or terminal find."
+          />
+        </Surface>
       </Show>
 
       {/* Persistent terminal deck — mounts every open terminal once and keeps
@@ -237,8 +250,7 @@ export function MainPane() {
           survive the trip; returning is a pure restyle — no remount, no WASM
           init, no claim storm). Children opt back in with visibility:"inherit"
           (TerminalDeck termStyle) — a literal "visible" would bleed through
-          the hidden host. FileViewerSheet is position:fixed z-index:50, above
-          this un-z-indexed host; the search view is static text under a fully
+          this un-z-indexed host; the search EmptyState sits under a fully
           hidden, pointer-transparent host. */}
       <div
         style={{

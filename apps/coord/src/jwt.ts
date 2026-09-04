@@ -128,6 +128,7 @@ export interface Caller {
   label: string;
   scopes?: string[];
   keyGeneration: number;
+  validUntilMs: number;
 }
 
 export interface VerifyOpts {
@@ -182,7 +183,7 @@ export async function verifyJwt(token: string, opts: VerifyOpts): Promise<Caller
   }
   if (!ok) throw Object.assign(new Error("signature invalid"), { status: 401 });
 
-  let payload: { iat?: number; aud?: string | string[]; sub?: string };
+  let payload: { iat?: number; exp?: number; aud?: string | string[]; sub?: string };
   try {
     payload = JSON.parse(b64urlToUtf8(payloadB64));
   } catch {
@@ -195,11 +196,24 @@ export async function verifyJwt(token: string, opts: VerifyOpts): Promise<Caller
     throw Object.assign(new Error(`wrong aud: ${payload.aud}`), { status: 401 });
   }
 
-  // iat freshness
-  const nowSecs = Math.floor(Date.now() / 1000);
-  if (typeof payload.iat !== "number") throw Object.assign(new Error("missing iat"), { status: 401 });
+  // The subject is the authorized key selected by `kid`; callers cannot use a
+  // valid signature to claim another principal. Both timestamps are bounded by
+  // this verifier: `exp` is the credential's explicit deadline and max-age
+  // remains a server-side ceiling even when a signer asks for longer.
+  const nowMs = Date.now();
+  const nowSecs = Math.floor(nowMs / 1000);
+  if (payload.sub !== kid) throw Object.assign(new Error("subject does not match kid"), { status: 401 });
+  if (typeof payload.iat !== "number" || !Number.isFinite(payload.iat)) {
+    throw Object.assign(new Error("missing iat"), { status: 401 });
+  }
+  if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) {
+    throw Object.assign(new Error("missing exp"), { status: 401 });
+  }
+  if (payload.exp * 1000 <= nowMs) {
+    throw Object.assign(new Error("token expired"), { status: 401 });
+  }
   if (payload.iat + opts.jwtMaxAgeSecs < nowSecs) {
-    throw Object.assign(new Error(`token too old`), { status: 401 });
+    throw Object.assign(new Error("token too old"), { status: 401 });
   }
   if (payload.iat > nowSecs + 30) {
     throw Object.assign(new Error("token from the future"), { status: 401 });
@@ -208,8 +222,12 @@ export async function verifyJwt(token: string, opts: VerifyOpts): Promise<Caller
   if (jwtKeyGeneration(opts.cache, kid) !== generation) {
     throw Object.assign(new Error(`unknown kid ${kid}`), { status: 401 });
   }
+  const validUntilMs = Math.min(
+    payload.exp * 1000,
+    (payload.iat + opts.jwtMaxAgeSecs) * 1000,
+  );
   log.debug("jwt", "verified", { trace_id: undefined, fp: kid, label });
-  return { fingerprint: kid, label, keyGeneration: generation };
+  return { fingerprint: kid, label, keyGeneration: generation, validUntilMs };
 }
 
 // ─── sign (for coord-minted worker-direct JWTs) ────────────────────────

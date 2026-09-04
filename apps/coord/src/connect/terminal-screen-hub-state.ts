@@ -24,6 +24,13 @@ export interface ResidentCache {
 export interface ChunkState {
   assembler: CellGridChunkAssembler;
   timer: ReturnType<typeof setTimeout> | null;
+  timerGeneration: number | null;
+}
+
+export interface SnapshotRepairState {
+  generation: number;
+  requestAttempt: number;
+  requestTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export interface SessionScreen {
@@ -31,6 +38,7 @@ export interface SessionScreen {
   cache: ResidentCache | null;
   chunks: ChunkState;
   resyncLatched: boolean;
+  repair: SnapshotRepairState;
   hold: TerminalAssemblyHold;
 }
 

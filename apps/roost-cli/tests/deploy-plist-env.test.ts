@@ -19,7 +19,6 @@ import {
   _resolveDeployEnvValue,
   parsePosixServiceEnvironment,
 } from "../src/deploy-plist-env.ts";
-import { posixShellQuote } from "../src/shell-quote.ts";
 import { WORKER_UNIT } from "../src/service-ctl.ts";
 
 const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL", "HOME"] as const;
@@ -213,25 +212,6 @@ describe("_backfillEnvFromPlist — parsing", () => {
       ROOST_REACHABLE_ADDR: "worker%blue",
     });
   });
-});
-
-describe("posixShellQuote", () => {
-  test("preserves remote-shell metacharacters without executing them", () => {
-    const commandSubstitution = join(root, "command-substitution");
-    const backtickSubstitution = join(root, "backtick-substitution");
-    const value = `$(touch ${commandSubstitution}) \`touch ${backtickSubstitution}\` $HOME O'Reilly`;
-    const proc = Bun.spawnSync([
-      "bash",
-      "-c",
-      `VALUE=${posixShellQuote(value)}; printf '%s' "$VALUE"`,
-    ]);
-
-    expect(proc.exitCode).toBe(0);
-    expect(proc.stdout.toString()).toBe(value);
-    expect(fs.existsSync(commandSubstitution)).toBe(false);
-    expect(fs.existsSync(backtickSubstitution)).toBe(false);
-  });
-
 });
 
 describe("worker installer environment precedence", () => {

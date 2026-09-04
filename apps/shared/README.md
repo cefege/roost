@@ -17,7 +17,7 @@ silently resolved for some symbols and failed for others — worker code mixed b
 styles on adjacent lines. One import style is now correct instead of two.
 
 `@roost/shared` is still the valid **package** name, so
-`bun --filter @roost/shared run proto:gen` remains correct. It is only the `"."`
+`bun run --filter='@roost/shared' proto:gen` remains correct. It is only the `"."`
 *export* that is gone.
 
 | Subpath | Supplies |
@@ -58,7 +58,7 @@ reached through `@roost/shared/service-health`, which re-exports it.
 
 1. Edit the `.proto` under `proto/roost/v1/` (`wire.proto`, `coordinator.proto`,
    `sync.proto`, `events.proto`, `cell.proto`, `worker_transport.proto`).
-2. `bun --filter @roost/shared run proto:gen` (`buf generate`; config in
+2. `bun run --filter='@roost/shared' proto:gen` (`buf generate`; config in
    `buf.gen.yaml` + `proto/buf.yaml`). Output lands in `src/gen/roost/v1/`, one
    `_pb.ts` per proto — 9,649 generated lines, never hand-edited, excluded from
    the line-cap lint.
@@ -73,7 +73,7 @@ The `JsonEvent` fallback path was retired in PR-7g. Do not reintroduce it.
   `src/wire/session.ts`, `src/wire/agent-status.ts`, `src/wire/event.ts` (`foldEvent`, consumed by BOTH the
   coord projector and the web projector, so the two projections agree by
   construction), `src/wire/control.ts`, `src/wire/coord-worker.ts`, `src/wire/workspace.ts`, `src/wire/task.ts`,
-  `src/wire/webhook.ts`, `src/wire/permission.ts`, `src/wire/mcp.ts`, plus the `*-proto.ts` adapters.
+  `src/wire/mcp.ts`, plus the `*-proto.ts` adapters.
 - **Terminal cell model** — `src/cell/types.ts`, `src/cell/grid-to-cells.ts`,
   `src/cell/diff-grid.ts`, `src/cell/emitter.ts`, `src/cell/cell-proto.ts`.
 - **Config** — `src/config.ts`: coord schema + loader only.

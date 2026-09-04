@@ -1,0 +1,68 @@
+[Unit]
+Description=Roost unprivileged signup and identity gateway
+Requires=roost-saas-provisioner.service roost-saas-origin-isolation.service
+After=local-fs.target network-online.target roost-saas-provisioner.service roost-saas-origin-isolation.service
+Wants=network-online.target
+ConditionPathIsDirectory=/etc/roost/saas-auth
+
+[Service]
+Type=simple
+User=roost-signup
+Group=roost-signup
+UMask=0077
+StateDirectory=roost-signup
+StateDirectoryMode=0700
+# Keep both public gates disabled until provider consoles and support forwarding work live.
+# Google project "Roost Dashboard Production"; Web client "Roost dashboard production".
+# Provider homepage https://roosttt.com/
+# Provider privacy https://roosttt.com/privacy/
+# Provider terms https://roosttt.com/terms/
+# Provider support/developer contact support@roosttt.com
+# Google client has no JavaScript origins.
+# Google redirect https://dashboard.roosttt.com/auth/google/callback
+# Google scopes "openid email".
+# Turnstile Managed widget "Roost dashboard signup production".
+# Turnstile hostname dashboard.roosttt.com; action signup.
+Environment=ROOST_SIGNUP_ENABLED=0
+Environment=ROOST_GOOGLE_ENABLED=0
+Environment=ROOST_GOOGLE_OIDC_CLIENT_ID=
+Environment=ROOST_TURNSTILE_SITE_KEY=
+Environment="ROOST_SIGNUP_EMAIL_FROM=Roost <noreply@roosttt.com>"
+LoadCredential=google-client-secret:/etc/roost/saas-auth/google-client-secret
+LoadCredential=turnstile-secret:/etc/roost/saas-auth/turnstile-secret
+LoadCredential=resend-api-key:/etc/roost/saas-auth/resend-api-key
+LoadCredential=email-outbox-key:/etc/roost/saas-auth/email-outbox-key
+LoadCredential=oauth-state-key:/etc/roost/saas-auth/oauth-state-key
+LoadCredential=assertion-signing-key:/etc/roost/saas-auth/assertion-signing-key
+ExecStart=/usr/local/bin/roost __saas-auth serve
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+InaccessiblePaths=/run/docker.sock /srv/data/roost /srv/infra/edge
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SocketBindAllow=tcp:4108
+SocketBindDeny=any
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

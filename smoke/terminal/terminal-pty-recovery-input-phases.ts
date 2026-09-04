@@ -239,6 +239,7 @@ export async function proveCursorAndImeRecovery({
 
   // Native wheel is explicit reading. Its next frame remains canonical-only;
   // committed IME input resumes live in the input event that admits its bytes.
+
   const gridBox = await grid.boundingBox();
   if (!gridBox) throw new Error("terminal grid geometry disappeared");
   await page.mouse.move(gridBox.x + gridBox.width / 2, gridBox.y + gridBox.height / 2);

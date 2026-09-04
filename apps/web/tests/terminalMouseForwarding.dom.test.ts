@@ -7,6 +7,7 @@ import type * as SolidApi from "solid-js";
 import type { MouseTracking } from "@roost/shared/cell";
 import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
 import type { TerminalMouseForwarding } from "../src/lib/terminalMouseForwarding.ts";
+import { terminalLinkModifierKey } from "../src/lib/browserPlatform.ts";
 
 // Bun resolves solid-js to its SSR build, where effects do not run. Use the real
 // client implementation so bindWheelAndTouchMove owns listeners as it does in
@@ -90,6 +91,7 @@ interface Harness {
 	display: FakeDisplay;
 	readerReasons: string[];
 	sent: Uint8Array[];
+	setNativeScrollFallback(): void;
 	fireWheel(deltaY: number, shiftKey?: boolean): WheelStub;
 	fireTouch(startY: number, endY: number): TouchStub;
 }
@@ -103,8 +105,16 @@ function makeHarness(tracking = 0): Harness {
 	const display = new FakeDisplay();
 	const readerReasons: string[] = [];
 	const sent: Uint8Array[] = [];
+	let readerIntent: "live" | "reading" = "live";
+	let readerReason: string | null = null;
 	const renderer = {
-		enterReading: (reason: string) => { readerReasons.push(reason); },
+		enterReading: (reason: string) => {
+			readerReasons.push(reason);
+			readerIntent = "reading";
+			readerReason = reason;
+		},
+		get readerIntent() { return readerIntent; },
+		get readerReason() { return readerReason; },
 		viewportCellGeometry: () => ({
 			left: 0,
 			top: 0,
@@ -141,6 +151,10 @@ function makeHarness(tracking = 0): Harness {
 		display,
 		readerReasons,
 		sent,
+		setNativeScrollFallback(): void {
+			readerIntent = "reading";
+			readerReason = "native_scroll";
+		},
 		fireWheel(deltaY: number, shiftKey = false): WheelStub {
 			const event = wheelEvent(deltaY, shiftKey);
 			display.dispatch("wheel", event);
@@ -222,6 +236,19 @@ describe("terminal mouse native reader intent", () => {
 		expect(h.readerReasons).toEqual([]);
 	});
 
+	test("upgrades a passive native-scroll fallback to wheel intent", () => {
+		const h = makeHarness();
+		h.display.scrollHeight = 300;
+		h.display.clientHeight = 100;
+		// Chromium can scroll a passive wheel to the top before the listener
+		// runs. The fallback proves that the same gesture really moved.
+		h.display.scrollTop = 0;
+		h.setNativeScrollFallback();
+		h.fireWheel(-1_200);
+
+		expect(h.readerReasons).toEqual(["wheel"]);
+	});
+
 	test("a native wheel bypass is guarded by the same scroll feasibility", () => {
 		const h = makeHarness(1002);
 		h.display.scrollHeight = 300;
@@ -235,5 +262,37 @@ describe("terminal mouse native reader intent", () => {
 		const scrollable = h.fireWheel(-20, true);
 		expect(scrollable.defaultPrevented).toBe(false);
 		expect(h.readerReasons).toEqual(["wheel"]);
+	});
+
+	test("modified terminal links bypass PTY bytes while bare clicks still forward", () => {
+		const h = makeHarness(1002);
+		const anchor = {};
+		const target = {
+			closest: (selector: string) => selector === "a.wterm-link" ? anchor : null,
+		};
+		const mouseDown = (modified: boolean) => {
+			const event = {
+				defaultPrevented: false,
+				target,
+				button: 0,
+				clientX: 4,
+				clientY: 4,
+				shiftKey: false,
+				altKey: false,
+				ctrlKey: modified && terminalLinkModifierKey() === "Control",
+				metaKey: modified && terminalLinkModifierKey() === "Meta",
+				preventDefault() { event.defaultPrevented = true; },
+			};
+			h.display.dispatch("mousedown", event);
+			return event;
+		};
+
+		const modified = mouseDown(true);
+		expect(modified.defaultPrevented).toBe(false);
+		expect(h.sent).toHaveLength(0);
+
+		const bare = mouseDown(false);
+		expect(bare.defaultPrevented).toBe(true);
+		expect(h.sent).toHaveLength(1);
 	});
 });

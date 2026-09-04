@@ -2,8 +2,8 @@
 // Lets an automation client read a terminal's grid/scrollback, list the sidebar
 // (sessions/workers/workspaces), inject input, spawn/kill, manage workspaces
 // + tasks, and SEE/DRIVE the browser's pane tiling (ui-state / ui verbs).
-// Reuses the worker's headless auth (loadWorkerKey + mintJwt) +
-// createCoordClient wholesale; adds zero coord/worker/proto code.
+// Uses a path-isolated ~/.roost/cli-key and scopes every request to the
+// dashboard selected by AuthDashboardAccess.
 // Callers: apps/roost-cli/src/main.ts (the `api` subcommand).
 //
 // Boundary: this sees the coord DB projection + the worker's serialized grid.
@@ -11,71 +11,47 @@
 // offscreen-textarea focus-dead bug and client-side render corruption still
 // need window.__smoke DOM probes, driven by the terminal tier (smoke/terminal/).
 
-import { Code, ConnectError } from "@connectrpc/connect";
-import { basename, join } from "node:path";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { basename } from "node:path";
 import { loadWorkerConfig } from "../../worker/src/config.ts";
 import { loadWorkerKey, mintJwt } from "../../worker/src/jwt.ts";
 import {
   createCoordClient,
   createUnauthenticatedCoordClient,
-  type CoordClient,
 } from "../../worker/src/coord-client.ts";
+import type { CoordClient } from "../../worker/src/coord-client.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import { diag } from "@roost/shared/diag";
-export type AuthorizedApiClient = CoordClient;
+import {
+  buildDashboardScopedCliContext,
+  withDashboardScope,
+} from "./cli-auth.ts";
 import { openSyncWs } from "./sync-ws.ts";
 
-// Self-authorization hook, armed by buildApiClient once the key is loaded.
-// A closure (not a stored key) so jwt.ts's LoadedKey stays private to that
-// module. api() invokes it on an Unauthenticated dispatch: registers our raw
-// 32-byte ed25519 pubkey via AuthAuthorizeBrowser — a PUBLIC endpoint gated
-// loopback-or-tailnet on coord (handlers-auth.ts:47-61) — then retries once.
-let _authorizeSelf: ((c: CoordClient) => Promise<string>) | null = null;
+export type AuthorizedApiClient = CoordClient;
 
-// Exported for smoke/api_smoke.test.ts (headless E2E harness contract).
-export async function buildApiClient(): Promise<CoordClient> {
-  const cfg = loadWorkerConfig();
-  // Harness/agent override: ROOST_COORD_URL beats the worker-config
-  // coordinatorUrl (which itself defaults from ROOST_COORDINATOR_URL).
-  if (process.env.ROOST_COORD_URL) cfg.coordinatorUrl = process.env.ROOST_COORD_URL;
-  // The worker's key is already in coord's authorized_keys → this JWT passes
-  // requireAuth for free. A Mac with NO worker installed must not write into
-  // the worker's support dir — fall back to ~/.roost/cli-key instead.
-  // loadWorkerKey generates a fresh OpenSSH ed25519 key when the path is
-  // missing (and memoizes module-level → one key per process, fine for a
-  // oneshot CLI). A fresh key is unknown to coord → Unauthenticated → api()
-  // self-authorizes via the hook above and retries once.
-  const keyPath = existsSync(cfg.workerKeyPath) ? cfg.workerKeyPath : join(homedir(), ".roost", "cli-key");
-  const key = await loadWorkerKey(keyPath);
-  _authorizeSelf = async (client) =>
-    (await client.authAuthorizeBrowser({
-      // decodeEd25519Pubkey on coord accepts base64 of the raw 32-byte pubkey.
-      sshPubkeyB64: Buffer.from(key.pubKey).toString("base64"),
-      label: "roost-cli",
-    })).fingerprint;
-  return createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
+/** Build the production CLI client with only ~/.roost/cli-key. */
+export async function buildApiClient(
+  options: { coordinatorUrl?: string } = {},
+): Promise<CoordClient> {
+  return (await buildDashboardScopedCliContext(options)).client;
+}
+/** Historical caller name; enrollment is now the normal buildApiClient path. */
+export function buildSelfAuthorizedApiClient(): Promise<CoordClient> {
+  return buildApiClient();
 }
 
-/** Build the CLI's normal client and authorize a fresh key once when allowed. */
-export async function buildSelfAuthorizedApiClient(): Promise<CoordClient> {
-  const client = await buildApiClient();
-  try {
-    await client.workersList({});
-  } catch (error) {
-    if (!/unauthenticated/i.test(String(error)) || !_authorizeSelf) throw error;
-    await _authorizeSelf(client);
-    await client.workersList({});
-  }
-  return client;
-}
 
+/**
+ * Fixture-only client builder. Production CLI paths must use buildApiClient so
+ * they cannot nominate a worker key. Smoke stacks seed their own isolated key.
+ */
 export async function buildAuthorizedApiClient(options: {
   coordinatorUrl: string;
   keyPath: string;
   label: string;
+  /** Caller seeded the key and will attach tenant headers itself. */
+  skipTenantProbe?: boolean;
 }): Promise<AuthorizedApiClient> {
   const cfg = loadWorkerConfig({
     ROOST_COORDINATOR_URL: options.coordinatorUrl,
@@ -83,53 +59,24 @@ export async function buildAuthorizedApiClient(options: {
     ROOST_WORKER_LABEL: options.label,
   });
   const key = await loadWorkerKey(options.keyPath);
-  const client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
-
-  try {
-    await client.workersList({});
-  } catch (error) {
-    if (!(error instanceof ConnectError) || error.code !== Code.Unauthenticated) throw error;
-    await client.authAuthorizeBrowser({
-      sshPubkeyB64: Buffer.from(key.pubKey).toString("base64"),
-      label: options.label,
-    });
-    await client.workersList({});
-  }
-
-  return client;
+  const client = createCoordClient({
+    cfg,
+    getJwt: () => mintJwt(key, "roost-coordinator"),
+  });
+  if (options.skipTenantProbe) return client;
+  const access = await client.authDashboardAccess({});
+  return withDashboardScope(client, access.selectedDashboardId);
 }
 
-/** Mint a one-shot worker bootstrap token from the coord — the primitive
- *  behind `roost add-machine` / the web "Add machine" dialog. Reuses the same
- *  self-authorize-and-retry as api(): on a coord-only host the quickstart
- *  worker key is already authorized so the first attempt succeeds; a bare
- *  coord with only a fresh cli-key self-authorizes over loopback/tailnet. */
+/** Mint a scoped one-shot worker grant using the enrolled CLI device. */
 export async function mintWorkerBootstrap(
   label: string,
   coordinatorUrl?: string,
 ): Promise<string> {
-  if (coordinatorUrl) {
-    const cfg = loadWorkerConfig({ ROOST_COORDINATOR_URL: coordinatorUrl });
-    const keyPath = existsSync(cfg.workerKeyPath)
-      ? cfg.workerKeyPath
-      : join(homedir(), ".roost", "cli-key");
-    const c = await buildAuthorizedApiClient({
-      coordinatorUrl,
-      keyPath,
-      label: "roost-cli",
-    });
-    return (await c.authMintBootstrap({ kind: "worker", label })).token;
-  }
-  const c = await buildApiClient();
-  const attempt = () => c.authMintBootstrap({ kind: "worker", label });
-  try { return (await attempt()).token; }
-  catch (e) {
-    if (/unauthenticated/i.test(String(e)) && _authorizeSelf) {
-      await _authorizeSelf(c);
-      return (await attempt()).token;
-    }
-    throw e;
-  }
+  const client = await buildApiClient(
+    coordinatorUrl ? { coordinatorUrl } : {},
+  );
+  return (await client.authMintBootstrap({ kind: "worker", label })).token;
 }
 
 /** Numeric flag: `--cols 200` → 200, else fallback. */
@@ -251,29 +198,9 @@ export async function api(args: string[]): Promise<void> {
     try { c = await buildApiClient(); } finally { console.log = realLog; }
     await dispatch(c, verb, rest);
   } catch (e) {
-    // Duck-type the Connect Unauthenticated error by its "[unauthenticated]"
-    // message tag — avoids depending on @connectrpc/connect (a worker-only dep
-    // not resolvable from the roost-cli package).
-    if (/unauthenticated/i.test(String(e)) && c && _authorizeSelf) {
-      try {
-        const fp = await _authorizeSelf(c);
-        console.error(`roost api: key unknown to coord — self-authorized as ${fp.slice(0, 8)} (label roost-cli), retrying`);
-      } catch {
-        console.error(
-          "roost api: unauthenticated, and self-authorization was refused.\n" +
-          "  AuthAuthorizeBrowser only accepts loopback or tailnet callers — run this\n" +
-          "  from the coordinator machine or a tailnet peer (or on a machine with a registered worker).",
-        );
-        process.exit(1);
-      }
-      try {
-        await dispatch(c, verb, rest); // retry ONCE with the now-authorized key
-        return;
-      } catch (e2) {
-        console.error(`roost api: ${e2 instanceof Error ? e2.message : String(e2)}`);
-        process.exit(1);
-      }
-    }
+    // Enrollment happens while building the client. Remote and managed fresh
+    // keys therefore surface their explicit pairing guidance without a retry
+    // that could execute a mutating command twice.
     console.error(`roost api: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(1);
   }
@@ -340,16 +267,17 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
     }
     case "attach": {
       // Upload local file(s) to a session's worker over the chunked
-      // AttachFileChunk RPC, print each abs_path (one per line), optionally
-      // inject the path into the PTY. Reference copy of the chunk loop:
-      // apps/web/src/lib/attachments.ts:44-78 (uploadId/seq/last/0-byte
-      // semantics). No shared extraction — the web copy carries SPA-only
-      // concerns (serial queue, progress store) two ~15-line loops don't justify.
-      // Usage: roost api attach <sessionId> <file...> [--inject] [--short-path]
+      // AttachFileChunk RPC and print each abs_path (one per line). Reference
+      // copy of the chunk loop: apps/web/src/lib/attachments.ts:44-78
+      // (uploadId/seq/last/0-byte semantics). No shared extraction — the web
+      // copy carries SPA-only concerns (serial queue, progress store) and two
+      // ~15-line loops don't justify it.
+      // Usage: roost api attach <sessionId> <file...> [--short-path]
       const sid = requireArg(rest[0], "sessionId");
+      const unknownOption = rest.find((a) => a.startsWith("--") && a !== "--short-path");
+      if (unknownOption) throw new Error(`attach: unknown option ${unknownOption}`);
       const paths = rest.slice(1).filter((a) => !a.startsWith("--"));
       requireArg(paths[0], "file");
-      const inject = rest.includes("--inject");
       const shortPath = rest.includes("--short-path");
       const CHUNK_BYTES = 4 * 1024 * 1024; // keep in sync w/ web attachments.ts
       // Serial, argv order — the worker refuses out-of-order seq and this
@@ -372,10 +300,6 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
           else console.error(`${basename(path)}: ${offset + CHUNK_BYTES}/${f.size} bytes`); // progress → stderr, stdout stays machine-clean
         }
         console.log(absPath); // stdout = one abs_path per line, nothing else
-        if (inject) {
-          // trailing space matches the UI's enqueueAttachment (attachments.ts:87)
-          await c.sessionsInput({ sessionId: sid, data: new TextEncoder().encode(`${absPath} `) });
-        }
       }
       break;
     }
@@ -404,9 +328,13 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       // lifecycle history use the `sessions` projection or read the events table.
       const sid = requireArg(rest[0], "sessionId");
       const secs = numFlag(rest, "--secs", 5);
+      const dashboardId = strFlag(rest, "--dashboard");
       const SKIP = new Set(["bytes", "cellGrid"]); // high-volume binary — use `cells` or `events`
       try {
-        for await (const frame of await openSyncWs({ signal: AbortSignal.timeout(secs * 1000) })) {
+        for await (const frame of await openSyncWs({
+          ...(dashboardId ? { dashboardId } : {}),
+          signal: AbortSignal.timeout(secs * 1000),
+        })) {
           const fc = frame.frame.case;
           if (!fc || SKIP.has(fc)) continue;
           const val = frame.frame.value as Record<string, unknown>;

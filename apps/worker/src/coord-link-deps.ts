@@ -28,6 +28,7 @@ import type { SessionManager } from "./session-manager.ts";
 import type { AgentStatusRegistry } from "./agent-status/registry.ts";
 import type { TerminalStreamFailure } from "./session-terminal-state.ts";
 import type { CoordLink, CoordLinkDeps } from "./transport/coord-link.ts";
+import type { SessionEventStore } from "./transport/session-event-store.ts";
 
 const _workerSha8 = (b: Uint8Array): string =>
 	createHash("sha256").update(b).digest("hex").slice(0, 8);
@@ -95,11 +96,10 @@ export interface CoordLinkDepsCtx {
 	coordHttpUrl: string;
 	workerFp: WorkerFp;
 	mintJwt: () => Promise<string>;
+	sessionEventStore: SessionEventStore;
 	coordTarget: CoordTarget;
 	relocation: WorkerCoordRelocation;
 	setCoordinatorEndpoint: (url: string) => void;
-	/** Re-announces live sessions once the link settles on the new coordinator. */
-	reannounceAfterRelocation: (targetUrl: string) => void;
 	refs: CoordLinkRefs;
 }
 
@@ -117,6 +117,7 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		coordHttpUrl: ctx.coordHttpUrl,
 		workerFp: ctx.workerFp,
 		workerVersion: "v2",
+		sessionEventStore: ctx.sessionEventStore,
 		mintJwt: ctx.mintJwt,
 		onHelloAck: ({ reconnected }) => {
 			if (reconnected) refs.sessionMgr?.invalidateTerminalStreamsForReconnect();
@@ -124,11 +125,12 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		onWritable: () => {
 			refs.sessionMgr?.resumeTerminalSnapshots();
 		},
-		onOpen: (reconnected) => {
-			if (reconnected) refs.agentRegistry?.resend();
+		onSnapshotReady: ({ reconnected }) => {
+			refs.agentRegistry?.resend();
 			void replayDurableWindowsUpdateProgress(link()).catch((error) => {
 				log.warn("windows-update", "progress_replay_failed", { error: String(error) });
 			});
+			log.info("coord-link", "snapshot_ready", { reconnected });
 		},
 		// The wire `phase` is derived from the session manager's status under a
 		// single invariant: "rejected" is returned only from a stage that
@@ -286,7 +288,6 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 					// No-op on every worker but the new host: only the move target
 					// has a handoffs/<id>/ staging + rollback directory.
 					await coordTarget.finalizeCommit(request.handoff_id);
-					ctx.reannounceAfterRelocation(request.target_url);
 					return;
 				}
 				if (request.action === "ABORT") {

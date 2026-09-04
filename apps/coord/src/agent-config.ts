@@ -17,34 +17,36 @@ export interface AgentConfigShape {
   autoLaunch: boolean;
 }
 
-async function readAll(db: Kysely<DB>): Promise<Record<string, string>> {
+async function readAll(db: Kysely<DB>, dashboardId: string): Promise<Record<string, string>> {
   const rows = await db
     .selectFrom("app_settings")
     .select(["key", "value"])
+    .where("dashboard_id", "=", dashboardId)
     .where("key", "like", "agent.%")
     .execute();
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
 }
 
-async function put(db: Kysely<DB>, key: string, value: string): Promise<void> {
+async function put(db: Kysely<DB>, dashboardId: string, key: string, value: string): Promise<void> {
   const now = Date.now();
   await db
     .insertInto("app_settings")
-    .values({ key, value, updated_at_ms: now })
-    .onConflict((oc) => oc.column("key").doUpdateSet({ value, updated_at_ms: now }))
+    .values({ dashboard_id: dashboardId, key, value, updated_at_ms: now })
+    .onConflict((oc) => oc.columns(["dashboard_id", "key"]).doUpdateSet({ value, updated_at_ms: now }))
     .execute();
 }
-export async function getAgentConfig(db: Kysely<DB>): Promise<AgentConfigShape> {
-  const s = await readAll(db);
+export async function getAgentConfig(db: Kysely<DB>, dashboardId: string): Promise<AgentConfigShape> {
+  const s = await readAll(db, dashboardId);
   return { selected: s[K.selected] || DEFAULT_SELECTED, customCommand: s[K.custom] ?? "", autoLaunch: s[K.autoLaunch] === "true" };
 }
 
 export async function setAgentConfig(
   db: Kysely<DB>,
+  dashboardId: string,
   input: { selected: string; customCommand: string; autoLaunch: boolean },
 ): Promise<AgentConfigShape> {
-  await put(db, K.selected, input.selected.trim() || DEFAULT_SELECTED);
-  await put(db, K.custom, input.customCommand); // may be ""
-  await put(db, K.autoLaunch, String(input.autoLaunch));
-  return getAgentConfig(db);
+  await put(db, dashboardId, K.selected, input.selected.trim() || DEFAULT_SELECTED);
+  await put(db, dashboardId, K.custom, input.customCommand); // may be ""
+  await put(db, dashboardId, K.autoLaunch, String(input.autoLaunch));
+  return getAgentConfig(db, dashboardId);
 }

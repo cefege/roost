@@ -52,16 +52,13 @@ let closeDb: () => Promise<void>;
 let handlers: PairHandlers;
 let pubkeyB64: string;
 let testDb: KyselyDB;
-
-// requireAuth only reads ctx.values.get(callerKey); a fake caller suffices —
-// building a real HandlerContext would drag in the whole transport.
+// Pairing remains available to legacy browser principals in self-hosted mode.
 const authCtx = {
-  values: { get: () => ({ fingerprint: "fp-test" }) },
+  values: { get: () => ({ kind: "legacy-self-hosted", fingerprint: "fp-test", label: "test" }) },
 } as unknown as HandlerContext;
 
 // Unauthenticated ctx with a real ContextValues bag: callerKey stays at its
-// default (null) so optionalAuth() returns null and the handler falls back to
-// the loopback check on remoteAddressKey.
+// default (null), so the handler falls back to the loopback trust check.
 function remoteCtx(addr: string | undefined, onHost = false): HandlerContext {
   const values = createContextValues();
   if (addr !== undefined) values.set(remoteAddressKey, addr);
@@ -86,6 +83,7 @@ beforeAll(async () => {
   handlers = makeAuthHandlers({
     db,
     jwtCache: newJwtCache(),
+    cfg: { saasMode: false },
   } as unknown as ConnectDeps) as unknown as PairHandlers;
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -171,11 +169,15 @@ describe("pair loopback API trust path", () => {
     await handlers.pairDeny(create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1", true));
   });
 
-  test("unauthenticated tailnet addr is rejected (no self-approval)", async () => {
+  test("unauthenticated tailnet address cannot approve its own pairing request", async () => {
     const eid = await createRequest("tailnet-reject-me");
     await expect(handlers.pairApprove(
       create(PairApproveRequestSchema, { ephemeralId: eid }), remoteCtx("100.101.102.103", false),
     ).catch((e: ConnectError) => e.code)).resolves.toBe(Code.PermissionDenied);
+    expect(await testDb.selectFrom("authorized_keys").select("fingerprint")
+      .where("label", "=", "tailnet-reject-me").executeTakeFirst()).toBeUndefined();
+    expect(await testDb.selectFrom("pair_requests").select("status")
+      .where("ephemeral_id", "=", eid).executeTakeFirst()).toEqual({ status: "pending" });
     await handlers.pairDeny(create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1", true));
   });
 

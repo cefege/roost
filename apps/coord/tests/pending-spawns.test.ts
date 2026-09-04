@@ -1,3 +1,7 @@
+// Covers global session UUID reservation and dashboard-bound reconciliation.
+// The registry must reject cross-dashboard collisions before worker dispatch
+// while allowing exact retries to share one durable-open result.
+
 import { afterEach, expect, test } from "bun:test";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
@@ -13,6 +17,7 @@ const SID = "00000000-0000-4000-8000-000000000616";
 const signature: PendingSpawnSignature = {
   callerKey: "browser:tab-a",
   workerFp: "aa".repeat(32),
+  dashboardId: "pending-spawns-dashboard",
   kind: "shell",
   folder: "/work",
   cols: 100,
@@ -30,11 +35,17 @@ test("exact caller and parameters join one caller-minted spawn", async () => {
   if (joined.kind === "conflict" || joined.kind === "capacity") throw new Error("join failed");
   expect(joined.promise).toBe(first.promise);
 
-  expect(resolvePendingSpawnOpened(signature.workerFp, SID, 17)).toBe(true);
+  expect(resolvePendingSpawnOpened(
+    signature.dashboardId,
+    signature.workerFp,
+    SID,
+    17,
+  )).toBe(true);
   // Durable opened is recorded, but normal success still waits for rpc-ok so
   // the worker's first full remains ahead of the HTTP response.
   expect(pendingSpawnStats().pending).toBe(1);
   rejectPendingSpawn(
+    signature.dashboardId,
     SID,
     new ConnectError("rpc reply lost", Code.Unavailable),
     false,
@@ -58,6 +69,16 @@ test("conflicting caller or parameters fail before sharing the pending result", 
   }).kind).toBe("conflict");
 });
 
+test("one global session UUID cannot dispatch into two dashboards", () => {
+  reservePendingSpawn(SID, signature);
+  expect(reservePendingSpawn(SID, {
+    ...signature,
+    callerKey: "browser-b:tab-a",
+    workerFp: "bb".repeat(32),
+    dashboardId: "another-dashboard",
+  }).kind).toBe("conflict");
+});
+
 test("ambiguous failures reconcile with durable opened while definite failures reject", async () => {
   const ambiguousReservation = reservePendingSpawn(SID, signature);
   if (ambiguousReservation.kind === "conflict" || ambiguousReservation.kind === "capacity") {
@@ -65,9 +86,19 @@ test("ambiguous failures reconcile with durable opened while definite failures r
   }
 
   const ambiguous = new ConnectError("worker disconnected", Code.Unavailable);
-  expect(rejectPendingSpawn(SID, ambiguous, false)).toBe(true);
+  expect(rejectPendingSpawn(
+    signature.dashboardId,
+    SID,
+    ambiguous,
+    false,
+  )).toBe(true);
   expect(pendingSpawnStats().pending).toBe(1);
-  expect(resolvePendingSpawnOpened(signature.workerFp, SID, 23)).toBe(true);
+  expect(resolvePendingSpawnOpened(
+    signature.dashboardId,
+    signature.workerFp,
+    SID,
+    23,
+  )).toBe(true);
   await expect(ambiguousReservation.promise).resolves.toEqual({
     sessionId: SID,
     channelId: 23,
@@ -79,6 +110,11 @@ test("ambiguous failures reconcile with durable opened while definite failures r
     throw new Error("reservation failed");
   }
   const definite = new ConnectError("keeper rejected spawn", Code.Internal);
-  expect(rejectPendingSpawn(definiteSession, definite, true)).toBe(true);
+  expect(rejectPendingSpawn(
+    signature.dashboardId,
+    definiteSession,
+    definite,
+    true,
+  )).toBe(true);
   await expect(definiteReservation.promise).rejects.toThrow("keeper rejected spawn");
 });

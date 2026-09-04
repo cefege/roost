@@ -11,9 +11,10 @@
 // dead expando the OS picker never sees. The first test asserts that absence,
 // so the fake cannot quietly grow a `capture` property and retire the tripwire.
 
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Session } from "@roost/shared/wire";
 import type { PickOptions } from "../src/lib/attachments.ts";
+import { setRootStore } from "../src/store/root.ts";
 
 interface FakeInput {
   type: string;
@@ -73,11 +74,15 @@ Object.defineProperty(globalThis, "document", {
   },
 });
 
-const sendInput = mock((_sessionId: string, _bytes: Uint8Array) => ({
-  accepted: true as const,
-  inputSeq: 1n,
-  result: Promise.resolve({ status: "accepted" as const, inputSeq: 1n, writtenBytes: _bytes.byteLength }),
-}));
+let inputSent = Promise.withResolvers<void>();
+const sendInput = mock((_sessionId: string, _bytes: Uint8Array) => {
+  inputSent.resolve();
+  return {
+    accepted: true as const,
+    inputSeq: 1n,
+    result: Promise.resolve({ status: "accepted" as const, inputSeq: 1n, writtenBytes: _bytes.byteLength }),
+  };
+});
 const attachmentProbe = mock(async (_request: {
   sessionId: string;
   sha256: string;
@@ -106,9 +111,24 @@ mock.module("../src/store/transfers.ts", () => ({
 // Dynamic import is REQUIRED: a static import binds the real transport modules
 // before mock.module can replace them, dialing Connect/Sync at module load.
 // The `import type` above is erased, so it does not defeat the mocks.
-const { pickFilesTo, injectPath, enqueueAttachmentTo } = await import("../src/lib/attachments.ts");
+const {
+  enqueueAttachment,
+  enqueueAttachmentTo,
+  injectPath,
+  pickAndAttachFiles,
+  pickFilesTo,
+} = await import("../src/lib/attachments.ts");
 
-const session = { id: "s1", channel: 1 } as unknown as Session;
+const session = {
+  id: "s1",
+  channel: 1,
+  worker_fp: "worker-linux",
+} as unknown as Session;
+const windowsSession = {
+  id: "s-win",
+  channel: 1,
+  worker_fp: "worker-windows",
+} as unknown as Session;
 
 function pick(opts?: PickOptions): FakeInput {
   pickFilesTo(session, () => {}, opts);
@@ -117,16 +137,23 @@ function pick(opts?: PickOptions): FakeInput {
   return el;
 }
 
+
 beforeEach(() => {
   created = [];
   appended = [];
   sendInput.mockClear();
+  inputSent = Promise.withResolvers<void>();
   attachmentProbe.mockReset();
   attachmentProbe.mockImplementation(async () => ({ hit: false, absPath: "" }));
   attachFileChunk.mockReset();
   attachFileChunk.mockImplementation(async (request) => ({
     absPath: request.last ? `/tmp/${request.filename}` : "",
   }));
+  setRootStore("workers", {});
+});
+
+afterEach(() => {
+  setRootStore("workers", {});
 });
 
 describe("pickFilesTo", () => {
@@ -179,6 +206,21 @@ describe("pickFilesTo", () => {
     expect(cancelled.removed).toBe(true);
     expect(cancelled.removeCount).toBe(1);
     expect(appended).not.toContain(cancelled);
+  });
+
+  test("the native picker still uploads and injects each chosen file", async () => {
+    pickAndAttachFiles(session, { multiple: false });
+    const el = created.at(-1);
+    if (!el) throw new Error("pickAndAttachFiles created no input");
+    el.files = [new File([new Uint8Array([1, 2, 3])], "picker's file.txt")];
+
+    el.onchange?.();
+    await inputSent.promise;
+
+    expect(el.removed).toBe(true);
+    expect(attachFileChunk).toHaveBeenCalled();
+    expect(new TextDecoder().decode(sendInput.mock.calls[0]![1]))
+      .toBe("'/tmp/picker'\"'\"'s file.txt' ");
   });
 
 });
@@ -271,14 +313,77 @@ describe("enqueueAttachmentTo", () => {
     expect(sink).not.toHaveBeenCalled();
   });
 
+  test("the default upload sink still injects the uploaded path", async () => {
+    await enqueueAttachment(
+      session,
+      new File([new Uint8Array([1])], "drop $(literal).txt"),
+    );
+
+    expect(attachFileChunk).toHaveBeenCalled();
+    expect(sendInput).toHaveBeenCalledTimes(1);
+    expect(new TextDecoder().decode(sendInput.mock.calls[0]![1]))
+      .toBe("'/tmp/drop $(literal).txt' ");
+  });
+
+  test("Windows still uploads but sends no terminal bytes", async () => {
+    setRootStore("workers", {
+      "worker-windows": { os: "win32" } as never,
+    });
+
+    await enqueueAttachment(
+      windowsSession,
+      new File([new Uint8Array([1])], "windows upload.txt"),
+    );
+
+    expect(attachFileChunk).toHaveBeenCalled();
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
 });
 
 describe("injectPath", () => {
-  test("types the absolute path into the PTY with one trailing space", () => {
-    injectPath(session, "/tmp/a b.txt");
-    expect(sendInput).toHaveBeenCalledTimes(1);
-    const [sessionId, bytes] = sendInput.mock.calls[0]!;
-    expect(sessionId).toBe("s1");
-    expect(new TextDecoder().decode(bytes)).toBe("/tmp/a b.txt ");
+  test("sends one quoted POSIX argument followed by exactly one ASCII space", () => {
+    const cases = [
+      ["/tmp/a b.txt", "'/tmp/a b.txt' "],
+      ["/tmp/it's.txt", "'/tmp/it'\"'\"'s.txt' "],
+      ["/tmp/$(printf exploited)", "'/tmp/$(printf exploited)' "],
+      ["/tmp/`printf exploited`", "'/tmp/`printf exploited`' "],
+      ["/tmp/你好 🐓.txt", "'/tmp/你好 🐓.txt' "],
+    ] as const;
+
+    for (const [absPath, expected] of cases) injectPath(session, absPath);
+
+    expect(sendInput).toHaveBeenCalledTimes(cases.length);
+    for (const [index, [, expected]] of cases.entries()) {
+      const [sessionId, bytes] = sendInput.mock.calls[index]!;
+      expect(sessionId).toBe("s1");
+      expect(new TextDecoder().decode(bytes)).toBe(expected);
+      expect(bytes.at(-1)).toBe(0x20);
+      expect(bytes.includes(0x0a)).toBe(false);
+      expect(bytes.includes(0x0d)).toBe(false);
+    }
+  });
+
+  test("sends nothing for every C0, DEL, and C1 control character", () => {
+    const controls = [
+      ...Array.from({ length: 0x20 }, (_, codePoint) => codePoint),
+      ...Array.from({ length: 0x21 }, (_, offset) => 0x7f + offset),
+    ];
+
+    for (const codePoint of controls) {
+      injectPath(session, `/tmp/before${String.fromCodePoint(codePoint)}after`);
+    }
+
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
+  test("uses the session worker platform and sends nothing on Windows", () => {
+    setRootStore("workers", {
+      "worker-windows": { os: "win32" } as never,
+    });
+
+    injectPath(windowsSession, "/posix-looking/path.txt");
+
+    expect(sendInput).not.toHaveBeenCalled();
   });
 });

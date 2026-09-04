@@ -1,3 +1,7 @@
+// Per-session scrollback backfill diagnostics and proven retention floors.
+// Terminal history controllers update it while dashboard boundaries clear it.
+// Wire floor enums remain the authority for the recorded reason.
+
 import { ScrollbackHistoryFloor as PbScrollbackHistoryFloor } from "@roost/shared/proto/coordinator_pb";
 import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 
@@ -40,6 +44,11 @@ export function scrollbackHistoryFloor(
   const state = stateBySession.get(sessionId);
   if (state === undefined || state.floorReason === "none") return null;
   return { row: state.floor, reason: state.floorReason };
+}
+
+/** Drop session identifiers and history floors from the previous dashboard. */
+export function resetScrollbackBackfillState(): void {
+  stateBySession.clear();
 }
 
 /** The get-scrollback-cells response's proto enum in the vocabulary the rest of

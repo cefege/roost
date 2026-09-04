@@ -6,13 +6,17 @@
 // #L<n> fragment support: scrolls to line on mount; "copy link" per line.
 
 import { Show, createSignal, createEffect, createMemo, onCleanup, For, Index } from "solid-js";
-import { useLocation, useParams } from "@solidjs/router";
+import { useLocation, useNavigate, useParams } from "@solidjs/router";
 import { coordClient } from "../connect.ts";
 import { tokenizeLines, shouldHighlight, extFromPath, type Token } from "../lib/syntaxLite.ts";
 import "../styles/syntax-vars.css";
 import { decodeWorkerPathRoute } from "../lib/nativePath.ts";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
+import { rootStore } from "../store/root.ts";
+import { sessionsHydrated } from "../store/sync-bootstrap.ts";
+import { Button } from "./Settings/md/Button.tsx";
+import { EmptyState } from "./Settings/md/EmptyState.tsx";
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
@@ -78,8 +82,12 @@ function PlainLine(props: { text: string }) {
 export function FileViewerSheet() {
   const params = useParams<{ workerFp?: string; path?: string }>();
   const route = useLocation();
+  const navigate = useNavigate();
 
   const workerFp = createMemo(() => params.workerFp ?? "");
+  const scopedWorker = createMemo(() => !rootStore.browser_unauthorized && !!rootStore.workers[workerFp()]);
+  const scopePending = createMemo(() => !scopedWorker() && !sessionsHydrated() && !rootStore.browser_unauthorized);
+  const scopeUnavailable = createMemo(() => !scopedWorker() && (sessionsHydrated() || rootStore.browser_unauthorized));
   const filePath = createMemo(() => {
     const fp = workerFp();
     const encoded = route.pathname.match(/^\/file\/[^/]+\/(.+)$/)?.[1];
@@ -107,11 +115,14 @@ export function FileViewerSheet() {
   createEffect(() => {
     const fp = workerFp();
     const path = filePath();
+    const scoped = scopedWorker();
     const mine = ++fetchToken;
-    if (!fp || !path) {
+    if (!fp || !path || !scoped) {
       setLines([]);
       setTokenGrid(null);
       setIsBinary(false);
+      setByteSize(0);
+      setLoading(false);
       setFetchError(null);
       return;
     }
@@ -224,7 +235,7 @@ export function FileViewerSheet() {
             >
               {workerFp().slice(0, 8)}
             </span>
-            <Show when={byteSize() > 0}>
+            <Show when={scopedWorker() && byteSize() > 0}>
               <span
                 data-testid="file-viewer-sheet-size"
                 style={{ "font-size": "10px", color: "var(--text-lo)", "font-family": "ui-monospace, monospace" }}
@@ -234,13 +245,28 @@ export function FileViewerSheet() {
             </Show>
           </div>
 
-          {/* Loading */}
-          <Show when={loading()}>
-            <span style={{ color: "var(--text-lo)", "font-size": "var(--md-body-s-size)" }}>Loading…</span>
+          <Show when={scopePending() || (scopedWorker() && loading())}>
+            <span style={{ color: "var(--text-lo)", "font-size": "var(--md-body-s-size)" }}>
+              Loading file…
+            </span>
+          </Show>
+
+          <Show when={scopeUnavailable()}>
+            <EmptyState
+              icon="draft"
+              title="File unavailable"
+              supporting="This file isn't available in the current dashboard."
+              action={
+                <Button variant="tonal" data-testid="file-viewer-unavailable-home"
+                  onClick={() => navigate("/", { replace: true })}>
+                  Go home
+                </Button>
+              }
+            />
           </Show>
 
           {/* Error */}
-          <Show when={fetchError()}>
+          <Show when={scopedWorker() && fetchError()}>
             <span
               data-testid="file-viewer-sheet-error"
               style={{ color: "var(--color-err)", "font-size": "var(--md-body-s-size)" }}
@@ -250,7 +276,7 @@ export function FileViewerSheet() {
           </Show>
 
           {/* Binary notice */}
-          <Show when={isBinary()}>
+          <Show when={scopedWorker() && isBinary()}>
             <span
               data-testid="file-viewer-sheet-binary"
               style={{ color: "var(--color-warn)", "font-size": "var(--md-body-s-size)" }}
@@ -260,7 +286,7 @@ export function FileViewerSheet() {
           </Show>
 
           {/* Line listing */}
-          <Show when={lines().length > 0}>
+          <Show when={scopedWorker() && lines().length > 0}>
             <div
               ref={scrollRef}
               data-testid="file-viewer-sheet-body"

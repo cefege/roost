@@ -1,0 +1,16 @@
+[Unit]
+Description=Expose Roost signup gateway only to edge Caddy
+After=local-fs.target
+
+[Socket]
+ListenStream=/run/roost-edge/auth.sock
+Accept=no
+SocketUser=root
+SocketGroup=root
+SocketMode=0600
+DirectoryMode=0755
+RemoveOnStop=yes
+NoDelay=yes
+
+[Install]
+WantedBy=sockets.target

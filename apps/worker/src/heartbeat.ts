@@ -38,13 +38,11 @@ switch (HOST_PLATFORM) {
 		assertNeverPlatform(HOST_PLATFORM);
 }
 
-const HEARTBEAT_INTERVAL_MS = 30_000;
-// Consecutive heartbeat failures. Reset to 0 on a successful beat; when
-// it crosses the stall threshold the worker is effectively invisible to
-// the fleet, so we surface it once (cooldown-gated) — the per-tick
-// log.warn still fires every miss.
+export const HEARTBEAT_INTERVAL_MS = 30_000;
+export const HEARTBEAT_RPC_TIMEOUT_MS = 10_000;
+// Consecutive failures belong to one loop instance. signal() owns cooldown
+// after the threshold while the per-attempt warning remains visible.
 const HEARTBEAT_STALL_AFTER = 3;
-let _consecutiveMisses = 0;
 // reachable_addr = the LIVE tailnet MagicDNS name, sent every beat so a machine
 // rename self-heals in coord within 30s (not only at boot via install.ts). The
 // worker label is the Tailscale HostName (e.g. worker-host) which does NOT
@@ -181,56 +179,115 @@ function getGitSha(): string | undefined {
 	return ROOST_BUILD_SHA === "dev" ? undefined : ROOST_BUILD_SHA;
 }
 
-/** Start the 30s heartbeat loop. Resolves after the first successful beat. */
+export interface HeartbeatSources {
+	collectHostMetrics(): Promise<HostMetrics>;
+	getGitSha(): string | undefined;
+	getRunningKeeperStamp(): string | null;
+	getReachableAddr(): string | undefined;
+}
+
+export type HeartbeatDisposer = () => void;
+
+const DEFAULT_HEARTBEAT_SOURCES: HeartbeatSources = {
+	collectHostMetrics,
+	getGitSha,
+	getRunningKeeperStamp: () => getMultiplexedPool().getRunningKeeperStamp(),
+	getReachableAddr: currentReachableAddr,
+};
+
+/**
+ * Start one completion-scheduled heartbeat loop. The first bounded RPC attempt
+ * settles before this returns; each later attempt starts 30 seconds after the
+ * preceding attempt settles, so sampling and RPC calls cannot overlap.
+ */
 export async function startHeartbeat(opts: {
 	client: () => CoordClient;
-}): Promise<void> {
-	const { client } = opts;
-	const beat = async () => {
+	sources?: HeartbeatSources;
+}): Promise<HeartbeatDisposer> {
+	const { client, sources = DEFAULT_HEARTBEAT_SOURCES } = opts;
+	let consecutiveMisses = 0;
+	let stopped = false;
+	let nextTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastGoodHostMetrics: HostMetrics | undefined;
+
+	const beat = async (): Promise<void> => {
+		let hostMetrics = lastGoodHostMetrics;
 		try {
-			const host_metrics = await collectHostMetrics();
-			const git_sha = getGitSha();
+			hostMetrics = await sources.collectHostMetrics();
+			lastGoodHostMetrics = hostMetrics;
+		} catch (error) {
+			// Sampling is metadata, not liveness. Retain the last complete sample
+			// (or omit it before the first success) and still contact coord.
+			log.warn("heartbeat", "host metrics sample failed", {
+				error: String(error),
+			});
+		}
+
+		try {
+			const git_sha = sources.getGitSha();
 			// keeper_stale: the running keeper's stamp when it differs from ours
 			// (keeper running stale code), "" when current, undefined until known.
-			const runningKeeperStamp = getMultiplexedPool().getRunningKeeperStamp();
+			const runningKeeperStamp = sources.getRunningKeeperStamp();
 			const keeper_stale =
 				runningKeeperStamp === null
 					? undefined
 					: runningKeeperStamp !== KEEPER_BUILD_STAMP
 						? runningKeeperStamp
 						: "";
-			const reachable_addr = currentReachableAddr();
+			const reachable_addr = sources.getReachableAddr();
 			await client().workersHeartbeat({
-				hostMetrics: host_metrics
+				hostMetrics: hostMetrics
 					? {
-							cpuPct: host_metrics.cpu_pct,
-							memUsedBytes: BigInt(host_metrics.mem_used_bytes),
-							memTotalBytes: BigInt(host_metrics.mem_total_bytes),
-							diskUsedBytes: BigInt(host_metrics.disk_used_bytes),
-							diskTotalBytes: BigInt(host_metrics.disk_total_bytes),
-							netRxBps: BigInt(host_metrics.net_rx_bps),
-							netTxBps: BigInt(host_metrics.net_tx_bps),
-							sampledAtMs: BigInt(host_metrics.sampled_at_ms),
+							cpuPct: hostMetrics.cpu_pct,
+							memUsedBytes: BigInt(hostMetrics.mem_used_bytes),
+							memTotalBytes: BigInt(hostMetrics.mem_total_bytes),
+							diskUsedBytes: BigInt(hostMetrics.disk_used_bytes),
+							diskTotalBytes: BigInt(hostMetrics.disk_total_bytes),
+							netRxBps: BigInt(hostMetrics.net_rx_bps),
+							netTxBps: BigInt(hostMetrics.net_tx_bps),
+							sampledAtMs: BigInt(hostMetrics.sampled_at_ms),
 						}
 					: undefined,
 				...(git_sha ? { gitSha: git_sha } : {}),
 				...(keeper_stale !== undefined ? { keeperStale: keeper_stale } : {}),
 				...(reachable_addr ? { reachableAddr: reachable_addr } : {}),
-			});
+			}, { timeoutMs: HEARTBEAT_RPC_TIMEOUT_MS });
 			log.debug("heartbeat", "beat sent", { reachable_addr });
-			_consecutiveMisses = 0;
-		} catch (e) {
-			log.warn("heartbeat", "beat failed", { error: String(e) });
-			_consecutiveMisses += 1;
-			if (_consecutiveMisses >= HEARTBEAT_STALL_AFTER) {
-				signal("heartbeat.stalled", { misses: _consecutiveMisses, cooldownKey: "heartbeat" });
+			consecutiveMisses = 0;
+		} catch (error) {
+			consecutiveMisses += 1;
+			log.warn("heartbeat", "beat failed", { error: String(error) });
+			if (consecutiveMisses >= HEARTBEAT_STALL_AFTER) {
+				signal("heartbeat.stalled", {
+					misses: consecutiveMisses,
+					cooldownKey: "heartbeat",
+				});
 			}
 		}
 	};
 
-	// First beat — awaited so caller knows coord sees us before continuing.
-	await beat();
+	const scheduleNext = (): void => {
+		if (stopped) return;
+		nextTimer = setTimeout(() => {
+			nextTimer = null;
+			void runScheduledBeat();
+		}, HEARTBEAT_INTERVAL_MS);
+	};
 
-	// Recurring loop.
-	setInterval(beat, HEARTBEAT_INTERVAL_MS);
+	async function runScheduledBeat(): Promise<void> {
+		await beat();
+		scheduleNext();
+	}
+
+	await beat();
+	scheduleNext();
+
+	return () => {
+		if (stopped) return;
+		stopped = true;
+		if (nextTimer !== null) {
+			clearTimeout(nextTimer);
+			nextTimer = null;
+		}
+	};
 }

@@ -21,6 +21,7 @@ export const OTHER_SESSION = "10000000-0000-4000-8000-000000000002";
 export const VIEW_A = "20000000-0000-4000-8000-000000000001";
 export const VIEW_B = "20000000-0000-4000-8000-000000000002";
 export const WORKER = "worker-a";
+export const DASHBOARD = "terminal-view-test-dashboard";
 export const MAX_U64 = (1n << 64n) - 1n;
 
 type StreamSender = NonNullable<TerminalViewHubOptions["sendStreamState"]>;
@@ -60,9 +61,13 @@ export class TestSink implements TerminalScreenSocketSink {
     this.snapshots.push({ sessionId, streamId, frames });
   }
 
-  enqueueTerminalDelta(sessionId: string, streamId: string, frame: FirehoseFrame): boolean {
+  enqueueTerminalDelta(
+    sessionId: string,
+    streamId: string,
+    frame: FirehoseFrame,
+  ): "queued" {
     this.deltas.push({ sessionId, streamId, frame });
-    return true;
+    return "queued";
   }
 
   dropTerminalSession(sessionId: string): void {
@@ -157,25 +162,26 @@ export function makeHarness(options: HarnessOptions = {}) {
   const routeCalls: string[] = [];
   const snapshotRequests: Array<{ workerFp: string; sessionId: string; streamId: string }> = [];
   const resolveRoute: ResolveRoute = options.resolveRoute
-    ?? (async () => ({ workerFp: WORKER, channel: 7 }));
+    ?? (async (dashboardId) => ({ workerFp: WORKER, channel: 7, dashboardId }));
   const sendStreamState: StreamSender = options.sendStreamState
     ?? ((_workerFp, state) => admitted(Promise.resolve(resultFor(state))));
   const sendSnapshot = options.sendSnapshot
-    ?? ((_workerFp: string, _sessionId: string, _streamId: string) => true);
+    ?? ((_workerFp: string, _sessionId: string, _streamId: string, _dashboardId: string) => true);
   const hub = new TerminalViewHub({
     db: undefined as never,
     now: () => clock.value,
-    resolveRoute: async (sessionId) => {
+    resolveRoute: async (dashboardId, sessionId) => {
       routeCalls.push(sessionId);
-      return resolveRoute(sessionId);
+      const route = await resolveRoute(dashboardId, sessionId);
+      return route && { ...route, dashboardId: route.dashboardId ?? dashboardId };
     },
     sendStreamState: (workerFp, state) => {
       sent.push({ workerFp, ...state });
       return sendStreamState(workerFp, state);
     },
-    sendSnapshot: (workerFp, sessionId, streamId) => {
+    sendSnapshot: (workerFp, sessionId, streamId, dashboardId) => {
       snapshotRequests.push({ workerFp, sessionId, streamId });
-      return sendSnapshot(workerFp, sessionId, streamId);
+      return sendSnapshot(workerFp, sessionId, streamId, dashboardId);
     },
   });
   liveHubs.push(hub);
@@ -189,7 +195,14 @@ export function register(
   fingerprint = "fingerprint-a",
 ): TestSink {
   const sink = new TestSink();
-  hub.registerSocket({ socketId, viewerKey, callerFingerprint: fingerprint, sink });
+  hub.registerSocket({
+    socketId,
+    viewerKey,
+    callerFingerprint: fingerprint,
+    dashboardId: DASHBOARD,
+    allowsSession: () => true,
+    sink,
+  });
   return sink;
 }
 

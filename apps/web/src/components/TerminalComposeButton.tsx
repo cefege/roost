@@ -1,21 +1,8 @@
-// TerminalComposeButton — a terminal session's permanent composer.
-// Non-compact layouts keep the attachment, field, mic, and send controls in
-// one row. Compact layouts use a stable two-row grid: a full-width field above
-// attachment, mic, and send actions, so multiline text never loses action width.
-// The dock follows --kb-offset without opening the soft keyboard on mount.
-//
-// The compact field grows within its full-width row while the action row stays
-// stable. Plain Enter submits on non-touch devices; Shift+Enter and touch
-// Return insert newlines. Sending clears the per-session retained draft and
-// leaves the composer mounted. Escape only blurs the textarea.
-//
-// The inline MobileVoiceInput streams finalized and interim speech into the
-// same draft; an explicit ✕ is the only action that reverts to the baseline.
-// The viewport composer owns activeComposeSessionId for its entire lifetime;
-// inline pane composers claim it while focus is inside their dock so terminal
-// autofocus never competes with their controls. AppShell reserves the viewport
-// composer's resting surface, turning measured excess height into a paint-only
-// TerminalDeck shift that keeps grid dimensions stable.
+// Owns the permanent terminal composer: drafts, submit, attachments, voice,
+// native selection handoff, and compact/desktop layout.
+// Pane composers claim native focus while editing; releasing that ownership
+// synchronously blurs the field so terminal shortcuts can route trusted keys.
+// AppShell reserves the viewport dock without resizing the terminal deck.
 
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -53,22 +40,24 @@ interface Props {
   captureTerminalSelection?: () => TerminalSelectionGuard | undefined;
 }
 
-type ComposeOwner = { sessionId: string; token: number };
+type ComposeOwner = { sessionId: string; token: number; blurOwnedFocus: () => void };
 let nextComposeOwnerToken = 0;
 const [activeComposeOwner, setActiveComposeOwner] = createSignal<ComposeOwner | null>(null);
 export const activeComposeSessionId = () => activeComposeOwner()?.sessionId ?? null;
-export const releaseActiveComposeFocus = () => setActiveComposeOwner(null);
+export const releaseActiveComposeFocus = () => {
+  const owner = activeComposeOwner();
+  owner?.blurOwnedFocus();
+  if (owner && activeComposeOwner() === owner) setActiveComposeOwner(null);
+};
 
-// AppShell reserves only the body-portaled viewport composer. Keep its lifetime
-// token independent from focus ownership: responsive swaps can mount the pane
-// replacement before disposing the viewport instance, or vice versa.
+// Track the body-portaled viewport composer separately from focus ownership:
+// responsive replacements can mount before the previous instance disposes.
 let activeViewportToken: number | null = null;
 export const [composerActive, setComposerActive] = createSignal(false);
 export const [composerHeightPx, setComposerHeightPx] = createSignal(0);
 
 export function TerminalComposeButton(props: Props) {
-  // Captured once at body scope: retention and cleanup must not read props from
-  // deferred callbacks.
+  // Capture once: deferred retention and cleanup must not read live props.
   const placement = props.placement;
   const viewportPlacement = placement === "viewport";
   const sessionId = props.session.id;
@@ -77,13 +66,15 @@ export function TerminalComposeButton(props: Props) {
   const [pendingSubmission, setPendingSubmission] = createSignal<string | null>(null);
   const [submissionStatus, setSubmissionStatus] = createSignal<string | null>(null);
   const unsubscribeDraft = subscribeComposerDraft(sessionId, setDraft);
+  let inputEl: HTMLTextAreaElement | undefined;
+  let dockEl: HTMLDivElement | undefined;
   const ownsComposeFocus = () => activeComposeOwner()?.token === ownerToken;
-  const claimComposeFocus = () => setActiveComposeOwner({ sessionId, token: ownerToken });
+  const claimComposeFocus = () => setActiveComposeOwner({
+    sessionId, token: ownerToken, blurOwnedFocus: () => inputEl?.blur(),
+  });
   const releaseComposeFocus = () => {
     if (ownsComposeFocus()) setActiveComposeOwner(null);
   };
-  let inputEl: HTMLTextAreaElement | undefined;
-  let dockEl: HTMLDivElement | undefined;
   let dockObserver: ResizeObserver | undefined;
   let dockMutationObserver: MutationObserver | undefined;
   const terminalSelection = createTerminalComposeSelection({
@@ -93,7 +84,6 @@ export function TerminalComposeButton(props: Props) {
     input: () => inputEl,
     afterInputMount: () => growAndFollow(),
   });
-
 
   // Claim the viewport input surface synchronously with the component mount so
   // terminal autofocus cannot race the portaled composer into the DOM.

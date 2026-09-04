@@ -9,6 +9,33 @@ import { Database } from "bun:sqlite";
 import type { DB } from "./schema.ts";
 
 export type KyselyDB = Kysely<DB>;
+export const MANAGED_SQLITE_MAX_BYTES = 1_024 * 1_024 * 1_024;
+
+export interface OpenDbOptions {
+  managedContainer?: boolean;
+}
+
+function applyManagedPageCeiling(sqlite: Database): void {
+  const pageSizeRow = sqlite
+    .query<{ page_size: number }, []>("PRAGMA page_size")
+    .get();
+  const pageSize = Number(pageSizeRow?.page_size);
+  if (!Number.isSafeInteger(pageSize) || pageSize <= 0) {
+    throw new Error("SQLite returned an invalid page_size");
+  }
+  const pageCap = Math.floor(MANAGED_SQLITE_MAX_BYTES / pageSize);
+  const appliedRow = sqlite
+    .query<{ max_page_count: number }, []>(
+      `PRAGMA max_page_count = ${pageCap}`,
+    )
+    .get();
+  if (Number(appliedRow?.max_page_count) !== pageCap) {
+    throw new Error(
+      `SQLite could not apply managed max_page_count=${pageCap}`,
+    );
+  }
+}
+
 
 export interface DbHandle {
   db: KyselyDB;
@@ -17,8 +44,22 @@ export interface DbHandle {
   close(): Promise<void>;
 }
 
-export function openDb(dbPath: string): DbHandle {
+export function openDb(
+  dbPath: string,
+  options: OpenDbOptions = {},
+): DbHandle {
   const sqlite = new Database(dbPath, { create: true });
+  // Install the managed-container hard ceiling before migrations or any
+  // application write can grow the file. Generic/self-hosted opens never
+  // mutate max_page_count.
+  if (options.managedContainer) {
+    try {
+      applyManagedPageCeiling(sqlite);
+    } catch (error) {
+      sqlite.close(true);
+      throw error;
+    }
+  }
   // WAL mode: concurrent readers don't block writers.
   sqlite.exec("PRAGMA journal_mode=WAL");
   // 5s busy timeout: prevents SQLITE_BUSY under light write contention.

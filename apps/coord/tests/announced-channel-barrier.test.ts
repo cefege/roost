@@ -22,6 +22,7 @@ import {
   AnnouncedChannelBarrier,
   type AnnouncedDrop,
 } from "../src/connect/announced-channel-barrier.ts";
+import { WorkerRetainedWorkBudget } from "../src/connect/worker-frame-queue.ts";
 
 const SESSION = "00000000-0000-4000-8000-000000000717";
 
@@ -73,7 +74,10 @@ let barrier: AnnouncedChannelBarrier;
 
 beforeEach(() => {
   drops = [];
-  barrier = new AnnouncedChannelBarrier((drop) => { drops.push(drop); });
+  const budget = new WorkerRetainedWorkBudget(() => {
+    throw new Error("unexpected socket-wide overflow");
+  });
+  barrier = new AnnouncedChannelBarrier((drop) => { drops.push(drop); }, budget);
 });
 
 afterEach(() => {

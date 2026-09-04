@@ -4,9 +4,8 @@
 import { describe, test, expect } from "bun:test";
 import {
   Worker, Session, SessionEvent, ClientControlFrame,
-  Workspace, Task, WebhookToken, PermissionRule, McpRelay,
-  WorkerPresenceEvent, WorkspaceDelta, TaskDelta, WebhookTokenDelta,
-  PermissionRuleDelta, McpRelayEvent,
+  Workspace, Task, McpRelay,
+  WorkerPresenceEvent, WorkspaceDelta, TaskDelta, McpRelayEvent,
   CoordWorkerUpstream, CoordWorkerDownstream,
   foldAll, foldEvent,
 } from "../src/wire/index.ts";
@@ -45,6 +44,24 @@ function rt<T>(schema: { parse: (x: unknown) => T }, value: T): void {
 describe("R5.1 schema round-trip", () => {
   test("Worker", () => rt(Worker, FIXTURE_WORKER));
   test("Session", () => rt(Session, FIXTURE_SESSION));
+
+  test("McpRelay", () => {
+    rt(McpRelay, {
+      id: "00000000-0000-4000-8000-000000000010" as McpRelay["id"],
+      label: "Local tools",
+      kind: "stdio",
+      config: { command: "bun", args: ["run", "mcp"] },
+      created_at_ms: 1717000000000,
+    });
+  });
+
+  test("McpRelayEvent", () => {
+    rt(McpRelayEvent, {
+      relay_id: "00000000-0000-4000-8000-000000000010" as McpRelayEvent["relay_id"],
+      payload: { method: "tools/list" },
+      ts: 1717000000001,
+    });
+  });
 
   test("SessionEvent opened", () => {
     rt(SessionEvent, {
@@ -98,8 +115,6 @@ describe("R5.1 schema round-trip", () => {
   test("CoordWorkerDownstream hello-ack", () => {
     rt(CoordWorkerDownstream, {
       kind: "hello-ack",
-      coord_pubkey_b64: "AAAA",
-      coord_pubkey_kid: "0".repeat(64),
     });
   });
   test("CoordWorkerDownstream browser-command(attach)", () => {

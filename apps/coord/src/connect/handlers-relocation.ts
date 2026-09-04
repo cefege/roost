@@ -18,10 +18,11 @@ import {
   AuthMintCoordinatorRelocationRequestSchema, AuthMintCoordinatorRelocationResponseSchema,
   AuthRedeemCoordinatorRelocationResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
-import { requireAuth, authorizationKey } from "./auth-interceptor.ts";
+import { requireAccountDevice, authorizationKey } from "./auth-interceptor.ts";
 import { fingerprintOf } from "@roost/shared/fingerprint";
-import { decodeEd25519Pubkey, isAuthorizedKeyRevoked } from "../authorized-keys.ts";
+import { decodeEd25519Pubkey } from "../authorized-keys.ts";
 import { refreshJwtKey } from "../jwt.ts";
+import { log } from "@roost/shared/log";
 import type { ConnectDeps } from "./router.ts";
 
 type RelocationMethods =
@@ -34,6 +35,18 @@ function relocationErrorCode(status: number): Code {
   if (status === 403) return Code.PermissionDenied;
   if (status === 404) return Code.NotFound;
   return Code.FailedPrecondition;
+}
+
+function invalidRelocationToken(): never {
+  throw new ConnectError("invalid or expired relocation token", Code.Unauthenticated);
+}
+
+function publicKeysEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
 }
 
 async function postCoordinatorRpc(
@@ -89,6 +102,7 @@ export function makeRelocationHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, RelocationMethods> {
   return {
     async authMintCoordinatorRelocation(req, ctx) {
+      const caller = requireAccountDevice(ctx.values);
       const handoff = deps.move?.current();
       const sourceCommitted = handoff?.role === "SOURCE" && handoff.phase === "COMMITTED";
       if (sourceCommitted) {
@@ -115,7 +129,6 @@ export function makeRelocationHandlers(
           targetUrl: minted.targetUrl,
         });
       }
-      const caller = requireAuth(ctx.values);
       if (!handoff || handoff.handoff_id !== req.handoffId || deps.move?.gate.mode !== "active") {
         throw new ConnectError("coordinator relocation is not available", Code.FailedPrecondition);
       }
@@ -133,60 +146,127 @@ export function makeRelocationHandlers(
     },
 
     async authRedeemCoordinatorRelocation(req, _ctx) {
-      const handoff = deps.move?.current();
-      if (!handoff || handoff.role !== "TARGET" || handoff.phase !== "COMMITTED") {
-        throw new ConnectError("coordinator relocation is not committed", Code.FailedPrecondition);
-      }
-      let claims;
-      try {
-        claims = await deps.coordKey.verifyRelocation(req.token);
-      } catch (error) {
-        throw new ConnectError((error as Error).message, Code.Unauthenticated);
-      }
-      if (claims.handoff_id !== handoff.handoff_id || claims.target_url !== handoff.target_url) {
-        throw new ConnectError("relocation token targets a different coordinator", Code.Unauthenticated);
-      }
       const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
       if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
       const fingerprint = await fingerprintOf(pubkey);
-      if (await isAuthorizedKeyRevoked(deps.db, fingerprint)) {
-        throw new ConnectError("authorized key was revoked", Code.Unauthenticated);
+
+      const handoff = deps.move?.current();
+      if (!handoff || handoff.role !== "TARGET" || handoff.phase !== "COMMITTED") {
+        invalidRelocationToken();
+      }
+      let claims: {
+        aud: string;
+        sub: string;
+        iat: number;
+        exp: number;
+        handoff_id: string;
+        target_url: string;
+        jti: string;
+      };
+      try {
+        claims = await deps.coordKey.verifyRelocation(req.token);
+      } catch {
+        invalidRelocationToken();
       }
       const now = Date.now();
+      const expiresAtMs = claims.exp * 1_000;
+      if (
+        claims.handoff_id !== handoff.handoff_id
+        || claims.target_url !== handoff.target_url
+        || claims.jti.length === 0
+        || claims.sub.length === 0
+        || !Number.isSafeInteger(expiresAtMs)
+        || expiresAtMs <= now
+      ) {
+        invalidRelocationToken();
+      }
       try {
         await deps.db.transaction().execute(async (trx) => {
-          const replay = await sql`
-            INSERT INTO bootstrap_tokens (
-              token, kind, label, created_at_ms, expires_at_ms,
-              used_at_ms, used_by_fp, minted_by_fp
+          const inserted = await sql<{ accountId: string }>`
+            INSERT INTO coordinator_relocation_redemptions (
+              jti, account_id, redeemed_at_ms, expires_at_ms,
+              used_by_fp, delegated_by_fp
             )
-            SELECT ${`roost_move_${claims.jti}`}, 'browser', ${req.label}, ${now},
-                   ${claims.exp * 1000}, ${now}, ${fingerprint}, ${claims.sub}
-            WHERE EXISTS (
-              SELECT 1 FROM authorized_keys WHERE fingerprint = ${claims.sub}
-            ) AND NOT EXISTS (
-              SELECT 1 FROM authorized_key_revocations WHERE fingerprint = ${claims.sub}
-            )
+            SELECT ${claims.jti}, delegator_device.account_id, ${now}, ${expiresAtMs},
+                   ${fingerprint}, ${claims.sub}
+            FROM authorized_keys AS delegator_key
+            JOIN account_devices AS delegator_device
+              ON delegator_device.fingerprint = delegator_key.fingerprint
+            JOIN accounts AS delegator_account
+              ON delegator_account.id = delegator_device.account_id
+            WHERE delegator_key.fingerprint = ${claims.sub}
+              AND delegator_account.status = 'active'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM authorized_key_revocations AS delegator_revocation
+                WHERE delegator_revocation.fingerprint = delegator_key.fingerprint
+              )
+            ON CONFLICT(jti) DO NOTHING
+            RETURNING account_id AS accountId
           `.execute(trx);
-          if (replay.numAffectedRows !== 1n) {
-            throw new ConnectError("relocation delegator is not authorized", Code.Unauthenticated);
+          const redemption = inserted.rows[0];
+          if (!redemption) invalidRelocationToken();
+
+          const revocation = await trx.selectFrom("authorized_key_revocations")
+            .select("fingerprint")
+            .where("fingerprint", "=", fingerprint)
+            .executeTakeFirst();
+          if (revocation) invalidRelocationToken();
+
+          const worker = await trx.selectFrom("workers")
+            .select("fp")
+            .where("fp", "=", fingerprint)
+            .executeTakeFirst();
+          if (worker) invalidRelocationToken();
+
+          const existingKey = await trx.selectFrom("authorized_keys")
+            .select("public_key")
+            .where("fingerprint", "=", fingerprint)
+            .executeTakeFirst();
+          const existingDevice = await trx.selectFrom("account_devices")
+            .select("account_id")
+            .where("fingerprint", "=", fingerprint)
+            .executeTakeFirst();
+          if (
+            Boolean(existingKey) !== Boolean(existingDevice)
+            || (
+              existingKey
+              && existingDevice
+              && (
+                !publicKeysEqual(existingKey.public_key, pubkey)
+                || existingDevice.account_id !== redemption.accountId
+              )
+            )
+          ) {
+            invalidRelocationToken();
           }
+
           await trx.insertInto("authorized_keys").values({
-            fingerprint, public_key: pubkey, label: req.label, added_at: now,
-          }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
+            fingerprint,
+            public_key: pubkey,
+            label: req.label,
+            added_at: now,
+          }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({
+            label: req.label,
+          })).execute();
+          await trx.insertInto("account_devices").values({
+            fingerprint,
+            account_id: redemption.accountId,
+            added_at_ms: now,
+            last_seen_at_ms: now,
+          }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({
+            last_seen_at_ms: now,
+          })).execute();
         });
-        refreshJwtKey(deps.jwtCache, fingerprint);
       } catch (error) {
         if (error instanceof ConnectError) throw error;
-        const message = String((error as Error)?.message ?? error);
-        if (/UNIQUE|PRIMARY KEY|constraint failed: bootstrap_tokens/i.test(message)) {
-          throw new ConnectError("relocation token already used", Code.Unauthenticated);
-        }
-        if (/bootstrap minter revoked|authorized key revoked/i.test(message)) {
-          throw new ConnectError("relocation key was revoked", Code.Unauthenticated);
-        }
-        throw new ConnectError(`relocation redeem failed: ${message}`, Code.Unavailable);
+        log.error("auth.connect", "relocation_redeem_failed", {
+          fingerprint,
+          error: String(error),
+        });
+        throw new ConnectError("relocation redemption unavailable", Code.Unavailable);
       }
+      refreshJwtKey(deps.jwtCache, fingerprint);
       return create(AuthRedeemCoordinatorRelocationResponseSchema, { fingerprint, label: req.label });
     },
   };

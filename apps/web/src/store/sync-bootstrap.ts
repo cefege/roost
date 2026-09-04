@@ -1,19 +1,14 @@
-// Bootstrap + auth/pair + worker refresh — the "before the live stream opens"
-// half of sync. Split out of store/sync.ts (400-line cap). One-directional:
-// imports the firehose entry points (_runConnectSync, installSyncLifecycleWake)
-// from sync.ts; sync.ts imports nothing back. Consumers import bootstrapSync /
-// refreshCoordAndWorkers from here (App.tsx is the entry point).
+// Bootstrap orders authorization and snapshots behind the subscribed Sync barrier.
+// That ordering prevents cold-start events from falling between a list RPC and the socket.
+// This module owns retries and worker/identity refresh while sync.ts owns the live tube.
+// Snapshot conversion lives in sync-bootstrap-hydration.ts so this lifecycle stays readable.
+// Existing callers enter through bootstrapSync and refreshCoordAndWorkers.
 
-import { batch, createSignal } from "solid-js";
+import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import { setRootStore, rootStore } from "./root.ts";
-import type { PairRequest } from "./root.ts";
-import { signal, diag } from "@roost/shared/diag";
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
-import type { SessionsListResponse } from "@roost/shared/proto/coordinator_pb";
-import { sessionFromProto } from "@roost/shared/wire/session-proto";
-import type { Worker, Session, Workspace, Task, PermissionRule, McpRelay } from "@roost/shared/wire";
-import { getPublicKeyB64, persistedWebKeyAtStartup } from "../auth/web-key.ts";
+import { signal } from "@roost/shared/diag";
+import type { Worker } from "@roost/shared/wire";
 import { claimTabIdentity } from "../auth/tab-id.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
@@ -21,26 +16,25 @@ import {
   _runConnectSync,
   forceSyncReconnect,
   installSyncLifecycleWake,
-  registerSyncDomainHydrator,
-  resumeSyncNow,
+  registerSyncAuthRejectionHandler,
   waitForSyncSubscribed,
 } from "./sync.ts";
 import { createSingleSyncLoopStarter } from "./sync-flow.ts";
-import { mcpRelayProtoToWire, taskProtoToWire } from "./sync-proto-adapters.ts";
-import { applySessionsSnapshot } from "./projector.ts";
-import { _dispatchFragmentCredential } from "./sync-bootstrap.pair.ts";
+import { _dispatchCapturedFragmentCredential } from "./sync-bootstrap.pair.ts";
 import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
-import { setSessionsHydrated, setTerminalBootstrapStage } from "./sync-hydrated.ts";
+import { setTerminalBootstrapStage } from "./sync-hydrated.ts";
 import { markPhase } from "../lib/diag.ts";
+import { _installBootstrapDomainHydrators } from "./sync-bootstrap-hydration.ts";
+import {
+  bootstrapDashboardAccess,
+  captureDashboardResourceToken,
+  isCurrentDashboardResourceToken,
+  refreshDashboardAccess,
+  suspendDashboardScopedClientState,
+} from "./dashboard-selection.ts";
 
-// Set browser_unauthorized; emit the auth.relogin_401 signal ONLY on the
-// rising edge (authed → unauth) so a persistently-unpaired browser doesn't
-// re-signal on every visibility-regain poll. The daily digest then shows
-// how often a device drops to unpaired (the iOS key-eviction churn).
-function setBrowserUnauthorized(next: boolean): void {
-  if (next && !rootStore.browser_unauthorized) signal("auth.relogin_401", {});
-  setRootStore("browser_unauthorized", next);
-}
+
+registerSyncAuthRejectionHandler(() => setBrowserUnauthorized(true));
 
 let synced = false;
 
@@ -53,32 +47,6 @@ const SYNC_SUBSCRIBED_WAIT_MS = 3000;
 // firehose import cycle.
 export { sessionsHydrated, terminalBootstrapStage, type TerminalBootstrapStage } from "./sync-hydrated.ts";
 
-// ─── self-register ────────────────────────────────────────────────────────────
-async function _attemptSelfRegister(): Promise<void> {
-  markPhase("self_register_start");
-  try {
-    const ssh_pubkey_b64 = await getPublicKeyB64();
-    const { coordClient } = await import("../connect.ts");
-    await coordClient.authAuthorizeBrowser({ sshPubkeyB64: ssh_pubkey_b64, label: "web-browser" });
-    markPhase("self_register_complete", { status: "fulfilled" });
-  } catch (err) {
-    // PermissionDenied = non-loopback caller → expected; Onboarding
-    // handles the explicit-token redeem flow. Any other code (coord
-    // down, IDB failed, WebCrypto unavailable, malformed response) is
-    // surprising and should surface so it's diagnosable from console.
-    // Connect-ES throws ConnectError with `.code`, not the tRPC-era
-    // `err.data.httpStatus` — checking the latter never matched and
-    // every loopback-deny showed up as a noisy warn in console.
-    const { ConnectError, Code } = await import("@connectrpc/connect");
-    const isExpected = err instanceof ConnectError && err.code === Code.PermissionDenied;
-    markPhase("self_register_complete", {
-      status: isExpected ? "denied" : "rejected",
-    });
-    if (!isExpected) {
-      console.warn("[sync] self-register failed (unexpected)", err);
-    }
-  }
-}
 
 export function bootstrapSync(): void {
   if (synced) return;
@@ -97,7 +65,23 @@ export function bootstrapSync(): void {
  *  reconnect — Promise.allSettled keeps either fetch's failure from
  *  blocking the other. */
 export async function refreshCoordAndWorkers(): Promise<void> {
+  if (rootStore.coord_identity === null) return;
   const { classifyAuthFailure, coordClient } = await import("../connect.ts");
+  const dashboardAccess = await Promise.resolve(refreshDashboardAccess()).then(
+    (value) => ({ status: "fulfilled" as const, value }),
+    (reason) => ({ status: "rejected" as const, reason }),
+  );
+  if (dashboardAccess.status === "rejected") {
+    setBrowserUnauthorized(
+      classifyAuthFailure(
+        dashboardAccess.reason,
+        "/roost.v1.CoordinatorService/AuthDashboardAccess",
+      ) === "device",
+    );
+    return;
+  }
+  if (!dashboardAccess.value) return;
+  const dashboardToken = captureDashboardResourceToken();
   const identity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
@@ -107,19 +91,20 @@ export async function refreshCoordAndWorkers(): Promise<void> {
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
   );
+  if (!isCurrentDashboardResourceToken(dashboardToken)) return;
   if (identity.status === "fulfilled") {
     setRootStore("coord_identity", {
-      fingerprint_hex: identity.value.fingerprintHex,
       git_sha: identity.value.gitSha,
       public_url: identity.value.publicUrl,
       public_listener: identity.value.publicListener,
+      saas_mode: identity.value.saasMode,
       relocated_to_url: identity.value.relocatedToUrl,
       handoff_id: identity.value.handoffId,
     });
   }
   // Refresh path mirror of bootstrap's unauth detection: clear or
   // set browser_unauthorized so the sidebar empty-state kind tracks
-  // current trust. Runs on visibility regain + post-deploy + after
+  // current authorization. Runs on visibility regain + post-deploy + after
   // a pair-approval reload, so the user sees the right empty state.
   setBrowserUnauthorized(
     workers.status === "rejected"
@@ -173,11 +158,35 @@ export async function refreshCoordAndWorkers(): Promise<void> {
 // Retry with backoff until coord answers. Unauthenticated is NOT retried (it's
 // a real auth state → Onboarding).
 let _bootstrapRetries = 0;
-let _bootstrapRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let _bootstrapRetryTimer: Timer | null = null;
 let _hydratorsInstalled = false;
 // `_runConnectSync` owns an infinite reconnect loop. Bootstrap retries share
 // this one starter instead of creating competing socket generations.
 const _startSyncLoop = createSingleSyncLoopStarter(() => { void _runConnectSync(); });
+
+/** Continue the one bootstrap pipeline immediately after a public password RPC
+ * binds this browser key. The single-loop starter still prevents duplicate
+ * Sync sockets if a scheduled retry wins the race. */
+export function resumeBootstrapAfterDeviceAuthorization(): void {
+  setBrowserUnauthorized(false);
+  _bootstrapRetries = 0;
+  if (_bootstrapRetryTimer) {
+    clearTimeout(_bootstrapRetryTimer);
+    _bootstrapRetryTimer = null;
+  }
+  void _bootstrap();
+}
+
+function setBrowserUnauthorized(next: boolean): void {
+  // Signal only the authorization loss edge; a persistently unknown browser
+  // must not emit another relogin event on every visibility refresh.
+  if (next && !rootStore.browser_unauthorized) {
+    signal("auth.relogin_401", {});
+    suspendDashboardScopedClientState();
+  }
+  setRootStore("browser_unauthorized", next);
+}
+
 function _scheduleBootstrapRetry(): void {
   if (_bootstrapRetryTimer) return;
   const delay = Math.min(1000 * 2 ** _bootstrapRetries, 10_000);
@@ -193,47 +202,71 @@ function _scheduleBootstrapRetry(): void {
 async function _bootstrap(): Promise<void> {
   await claimTabIdentity();
   setTerminalBootstrapStage("identity");
-  _startCoordHealthPoller();
-  const firstUseWebKey = !persistedWebKeyAtStartup;
   try {
     // Fragment credential redemption and identity remain the only serial
     // prerequisites. Every authoritative domain list starts after the v2
     // subscribed control installs this socket's generation tokens.
-    if (await _dispatchFragmentCredential()) return;
     // Kept dynamic to preserve the deliberate bootstrap → sync one-way edge:
     // connect.ts reaches the root store and eagerly importing it here creates
     // an initialization cycle during cold module evaluation.
-    const { classifyAuthFailure, coordClient } = await import("../connect.ts");
-    const initialIdentity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
+    const {
+      classifyAuthFailure,
+      coordClient,
+      publicCoordClient,
+      reconcileCoordinatorOverrideAfterDiscovery,
+    } = await import("../connect.ts");
+    const initialIdentity = await Promise.resolve(publicCoordClient.authCoordIdentity({})).then(
       (value) => ({ status: "fulfilled" as const, value }),
       (reason) => ({ status: "rejected" as const, reason }),
     );
     markPhase("identity_complete", { status: initialIdentity.status });
     if (
       initialIdentity.status === "fulfilled"
+      && reconcileCoordinatorOverrideAfterDiscovery(initialIdentity.value.saasMode)
+    ) {
+      location.reload();
+      return;
+    }
+    const selfHosted = initialIdentity.status === "fulfilled"
+      && !initialIdentity.value.saasMode;
+    if (
+      initialIdentity.status === "fulfilled"
       && await relocateRetiredBrowser(initialIdentity.value) !== "failed"
     ) return;
     if (initialIdentity.status === "fulfilled") {
       setRootStore("coord_identity", {
-        fingerprint_hex: initialIdentity.value.fingerprintHex,
         git_sha: initialIdentity.value.gitSha,
         public_url: initialIdentity.value.publicUrl,
         public_listener: initialIdentity.value.publicListener,
+        saas_mode: initialIdentity.value.saasMode,
         relocated_to_url: initialIdentity.value.relocatedToUrl,
         handoff_id: initialIdentity.value.handoffId,
       });
+      if (selfHosted) _startCoordHealthPoller();
     }
-    // A loopback coordinator can authorize a first-use browser immediately.
-    // Do it before opening Sync: otherwise the guaranteed 401 consumes the
-    // three-second subscribed timeout before bootstrap performs this same RPC.
-    markPhase("self_register_gate", {
-      firstUseWebKey,
-      identityStatus: initialIdentity.status,
-    });
-    if (firstUseWebKey && initialIdentity.status === "fulfilled") {
-      setTerminalBootstrapStage("authorization");
-      await _attemptSelfRegister();
+    if (selfHosted && await _dispatchCapturedFragmentCredential()) return;
+    setTerminalBootstrapStage("authorization");
+    const dashboardAccess = await Promise.resolve(bootstrapDashboardAccess()).then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason) => ({ status: "rejected" as const, reason }),
+    );
+    if (dashboardAccess.status === "rejected") {
+      const deviceRejected = classifyAuthFailure(
+        dashboardAccess.reason,
+        "/roost.v1.CoordinatorService/AuthDashboardAccess",
+      ) === "device";
+      if (deviceRejected) {
+        setBrowserUnauthorized(true);
+        return;
+      }
+      _scheduleBootstrapRetry();
+      return;
     }
+    if (!dashboardAccess.value) {
+      throw new Error("coordinator returned invalid dashboard access");
+    }
+    setBrowserUnauthorized(false);
+    _startCoordHealthPoller();
     setTerminalBootstrapStage("sync");
     _startSyncLoop();
     const subscribed = await waitForSyncSubscribed(SYNC_SUBSCRIBED_WAIT_MS);
@@ -252,11 +285,9 @@ async function _bootstrap(): Promise<void> {
         ) === "device"
       ) {
         setBrowserUnauthorized(true);
-        await _attemptSelfRegister();
-        resumeSyncNow();
-      } else if (probe.status === "fulfilled") {
-        setBrowserUnauthorized(false);
+        return;
       }
+      if (probe.status === "fulfilled") setBrowserUnauthorized(false);
       _startCoordHealthPoller();
       _scheduleBootstrapRetry();
       return;
@@ -272,170 +303,33 @@ async function _bootstrap(): Promise<void> {
       );
       if (authFailure === "device") {
         setBrowserUnauthorized(true);
-        await _attemptSelfRegister();
-        resumeSyncNow();
-        forceSyncReconnect();
         return;
       }
       _startCoordHealthPoller();
       _scheduleBootstrapRetry();
     };
 
-    // Registering a hydrator synchronously starts it for the current token.
-    // Terminal goes first, but all calls are in flight before any can settle.
-    registerSyncDomainHydrator(SyncDomain.TERMINAL, async (token) => {
-      let response: SessionsListResponse;
-      try {
-        response = await coordClient.sessionsList({ syncSocketId: token.socketId });
-      } catch (reason) {
-        await terminalFailure(reason);
-        return null;
-      }
-      if (!response.syncSnapshotToken) {
-        diag("sync.snapshot_token_missing", { domain: "terminal" });
-        forceSyncReconnect();
-        return null;
-      }
-      const sessions: Record<string, Session> = {};
-      for (const session of response.sessions) {
-        try {
-          sessions[session.id] = sessionFromProto(session);
-        } catch (error) {
-          console.warn("[sync.bootstrap] session_from_proto_failed", session.id, error);
-          diag("sync.session_from_proto_failed", {
-            error: String(error),
-            sid: session.id,
-          });
+    // Registration starts every current-generation hydrator synchronously;
+    // terminal remains first while all list calls overlap.
+    _installBootstrapDomainHydrators({
+      coordClient,
+      selfHosted,
+      onTerminalFailure: terminalFailure,
+      requestReconnect: forceSyncReconnect,
+      onTerminalSnapshotApplied: (token, sessionCount) => {
+        setBrowserUnauthorized(false);
+        markPhase("sessions_list_publish", {
+          socketGeneration: token.socketGeneration,
+          domainGeneration: token.domainGeneration,
+          sessions: sessionCount,
+        });
+        _bootstrapRetries = 0;
+        if (_bootstrapRetryTimer) {
+          clearTimeout(_bootstrapRetryTimer);
+          _bootstrapRetryTimer = null;
         }
-      }
-      return {
-        snapshotToken: response.syncSnapshotToken,
-        apply: () => {
-          // Per-id reconcile, not a whole-record write: every re-hydration (each
-          // reconnect raises a fresh domain generation) must leave the existing
-          // session proxies — and the terminals mounted against them — in place.
-          applySessionsSnapshot(sessions);
-          setSessionsHydrated(true);
-          setTerminalBootstrapStage("ready");
-          setBrowserUnauthorized(false);
-          markPhase("sessions_list_publish", {
-            socketGeneration: token.socketGeneration,
-            domainGeneration: token.domainGeneration,
-            sessions: Object.keys(sessions).length,
-          });
-          _bootstrapRetries = 0;
-          if (_bootstrapRetryTimer) {
-            clearTimeout(_bootstrapRetryTimer);
-            _bootstrapRetryTimer = null;
-          }
-          _startCoordHealthPoller();
-        },
-      };
-    });
-
-    registerSyncDomainHydrator(SyncDomain.WORKERS, async () => {
-      const response = await coordClient.workersList({});
-      const workers: Record<string, Worker> = {};
-      for (const worker of response.workers) {
-        workers[worker.fp] = {
-          fp: worker.fp as never,
-          label: worker.label,
-          os: worker.os as never,
-          git_sha: worker.gitSha ?? null,
-          host_metrics: worker.hostMetrics ? {
-            cpu_pct: worker.hostMetrics.cpuPct,
-            mem_used_bytes: Number(worker.hostMetrics.memUsedBytes),
-            mem_total_bytes: Number(worker.hostMetrics.memTotalBytes),
-            disk_used_bytes: Number(worker.hostMetrics.diskUsedBytes),
-            disk_total_bytes: Number(worker.hostMetrics.diskTotalBytes),
-            net_rx_bps: Number(worker.hostMetrics.netRxBps),
-            net_tx_bps: Number(worker.hostMetrics.netTxBps),
-            sampled_at_ms: Number(worker.hostMetrics.sampledAtMs),
-          } : null,
-          registered_at_ms: Number(worker.registeredAtMs),
-          last_seen_ms: Number(worker.lastSeenMs),
-          reachable_addr: worker.reachableAddr ?? null,
-          keeper_stale: worker.keeperStale ?? null,
-        };
-      }
-      return {
-        apply: () => {
-          setRoutableFps(new Set(response.routableFps));
-          setRootStore("workers", workers);
-        },
-      };
-    });
-
-    registerSyncDomainHydrator(SyncDomain.WORKSPACES, async () => {
-      const response = await coordClient.workspacesList({});
-      const workspaces: Record<string, Workspace> = {};
-      for (const workspace of response.workspaces) {
-        workspaces[workspace.id] = {
-          id: workspace.id as never,
-          worker_fp: workspace.workerFp as never,
-          name: workspace.name,
-          folder_path: workspace.folderPath,
-          color: workspace.color ?? null,
-          position: workspace.position,
-          version: Number(workspace.version),
-          created_at_ms: Number(workspace.createdAtMs),
-          updated_at_ms: Number(workspace.updatedAtMs),
-          session_ids: workspace.sessionIds as never,
-        };
-      }
-      return { apply: () => setRootStore("workspaces", workspaces) };
-    });
-
-    registerSyncDomainHydrator(SyncDomain.TASKS, async () => {
-      const response = await coordClient.tasksList({});
-      const tasks: Record<string, Task> = {};
-      for (const task of response.tasks) {
-        // Same decoder as the live-delta path: a malformed *_json column
-        // drops its row (after the sync_json_parse signal) instead of
-        // failing the whole domain hydration into an endless retry.
-        const wire = taskProtoToWire(task);
-        if (wire) tasks[task.id] = wire;
-      }
-      return { apply: () => setRootStore("tasks", tasks) };
-    });
-
-    registerSyncDomainHydrator(SyncDomain.PERMISSIONS, async () => {
-      const response = await coordClient.permissionsList({});
-      const rules: Record<string, PermissionRule> = {};
-      for (const rule of response.rules) {
-        rules[rule.id] = {
-          id: rule.id as never,
-          tool_pattern: rule.toolPattern,
-          folder_glob: rule.folderGlob,
-          decision: rule.decision as never,
-          enabled: rule.enabled,
-          created_at_ms: Number(rule.createdAtMs),
-        };
-      }
-      return { apply: () => setRootStore("permission_rules", rules) };
-    });
-
-    registerSyncDomainHydrator(SyncDomain.MCP, async () => {
-      const response = await coordClient.mcpList({});
-      const relays: Record<string, McpRelay> = {};
-      for (const relay of response.relays) {
-        const wire = mcpRelayProtoToWire(relay);
-        if (wire) relays[relay.id] = wire;
-      }
-      return { apply: () => setRootStore("mcp_relays", relays) };
-    });
-
-    registerSyncDomainHydrator(SyncDomain.PAIR, async () => {
-      const response = await coordClient.pairList({});
-      const requests: Record<string, PairRequest> = {};
-      for (const request of response.requests) {
-        requests[request.ephemeralId] = {
-          ephemeral_id: request.ephemeralId,
-          label: request.label,
-          created_at_ms: Number(request.createdAtMs),
-        };
-      }
-      return { apply: () => setRootStore("pair_requests", requests) };
+        _startCoordHealthPoller();
+      },
     });
   } catch (error) {
     console.error("[sync] bootstrap failed", error);

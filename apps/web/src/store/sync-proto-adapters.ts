@@ -18,9 +18,7 @@ import type { McpRelay as McpRelayWire, Task as TaskWire } from "@roost/shared/w
 import type { HostMetrics, McpRelay, Task, Workspace } from "@roost/shared/proto/wire_pb";
 import type {
   McpStreamMessageProto,
-  PermissionRuleDeltaProto,
   TaskDeltaProto,
-  WebhookTokenDeltaProto,
   WorkerPresenceProto,
   WorkspaceDeltaProto,
 } from "@roost/shared/proto/events_pb";
@@ -116,36 +114,6 @@ export function _taskProtoToWire(d: TaskDeltaProto) {
   switch (d.kind.case) {
     case "created": return { kind: "created", task: taskWire };
     case "state":   return { kind: "state",   task: taskWire };
-  }
-  return null;
-}
-
-export function _webhookProtoToWire(d: WebhookTokenDeltaProto): unknown {
-  switch (d.kind.case) {
-    case "created": {
-      const v = d.kind.value;
-      return { kind: "created", token: {
-        id: v.id, label: v.label, last4: v.last4, scopes: v.scopes,
-        created_at_ms: Number(v.createdAtMs),
-        last_used_at_ms: v.lastUsedAtMs != null ? Number(v.lastUsedAtMs) : null,
-      }};
-    }
-    case "deletedId": return { kind: "deleted", id: d.kind.value };
-  }
-  return null;
-}
-
-export function _permProtoToWire(d: PermissionRuleDeltaProto) {
-  switch (d.kind.case) {
-    case "created":
-    case "updated": {
-      const v = d.kind.value;
-      return { kind: d.kind.case, rule: {
-        id: v.id, tool_pattern: v.toolPattern, folder_glob: v.folderGlob,
-        decision: v.decision, enabled: v.enabled, created_at_ms: Number(v.createdAtMs),
-      }};
-    }
-    case "deletedId": return { kind: "deleted", id: d.kind.value };
   }
   return null;
 }

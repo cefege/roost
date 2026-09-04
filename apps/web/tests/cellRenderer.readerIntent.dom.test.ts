@@ -166,7 +166,7 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     expect(r.readerIntent).toBe("live");
   });
 
-  test("an incompatible full installs atomically while retaining the reader anchor", () => {
+  test("an incompatible full stays off-DOM during native reading and reconciles on resume", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const viewportEl = vpEl(c);
@@ -194,12 +194,12 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
 
     expect(r.readerIntent).toBe("reading");
     expect(r.readerReason).toBe("native_scroll");
-    expect(r.currentFrame!.gridEpoch).toBe("test-grid:1");
-    expect(r.canonicalFrameSeq()).toBe(4);
-    expect(viewportEl.children[0]).not.toBe(heldRow);
+    expect(r.currentFrame!.gridEpoch).toBe("test-grid:0");
+    expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:1", seq: 4 });
+    expect(viewportEl.children[0]).toBe(heldRow);
     expect(c.scrollTop).toBe(PAD_TOP + 50 * ROW_PX);
     expect(c.scrollTopWrites).toBe(0);
-    expect(r.readerAnchorForBackfill()?.row).toBe(50);
+    expect(r.backfillAnchor()).toBeNull();
     expect(r.presentationSnapshot().mode).toEqual({
       canonical: {
         alt_screen: true,
@@ -207,11 +207,94 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
         bracketed_paste: true,
       },
       reconciled: {
-        alt_screen: true,
-        cursor_keys_app: true,
-        bracketed_paste: true,
+        alt_screen: false,
+        cursor_keys_app: false,
+        bracketed_paste: false,
       },
     });
+
+    expect(r.prepareLiveInteraction()).toEqual({
+      reconciled: true,
+      anchorChanged: true,
+    });
+    expect(viewportEl.children[0]).not.toBe(heldRow);
+    expect(r.currentFrame!.gridEpoch).toBe("test-grid:1");
+    expect(r.currentFrame!.seq).toBe(4);
+    expect(r.readerIntent).toBe("live");
+    expect(r.reconciledEpochSeq()).toEqual(r.canonicalEpochSeq());
+    expect(r.presentationSnapshot().mode.reconciled).toEqual({
+      alt_screen: true,
+      cursor_keys_app: true,
+      bracketed_paste: true,
+    });
+  });
+
+  test("native selection keeps an incompatible full off-DOM until selection release", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "selected-old")], nRows(400));
+    const heldRow = viewportEl.children[0];
+
+    expect(r.setSelectionHold(true)).toEqual({
+      reconciled: false,
+      anchorChanged: false,
+    });
+    expect(r.apply({
+      ...altFullFrame(100, [row(0, "selected-canonical")], []),
+      seq: 3,
+      scrollbackTotal: 410,
+      sbBase: 410,
+    })).toBe(true);
+    expect(r.apply({
+      ...altDeltaFrame(100, 1, [row(0, "selected-latest")], 4),
+      scrollbackAppend: [row(410, "live-410")],
+      scrollbackTotal: 411,
+    })).toBe(true);
+
+    expect(r.readerReason).toBe("selection");
+    expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:1", seq: 4 });
+    expect(r.gridText()).toBe("selected-latest");
+    expect(spansText(r.currentFrame!.viewportRows[0]!.spans)).toBe("selected-old");
+    expect(viewportEl.children[0]).toBe(heldRow);
+
+    expect(r.setSelectionHold(false)).toEqual({
+      reconciled: true,
+      anchorChanged: true,
+    });
+    expect(r.readerIntent).toBe("live");
+    expect(r.currentFrame!.seq).toBe(4);
+    expect(spansText(r.currentFrame!.viewportRows[0]!.spans)).toBe("selected-latest");
+    expect(viewportEl.children[0]).not.toBe(heldRow);
+    expect(r.reconciledEpochSeq()).toEqual(r.canonicalEpochSeq());
+  });
+
+  test("selection release preserves an independent wheel reader interval", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "wheel-old")], nRows(400));
+    const heldRow = viewportEl.children[0];
+    r.enterReading("wheel");
+    r.setSelectionHold(true);
+    expect(r.readerReason).toBe("wheel");
+
+    expect(r.apply({
+      ...altFullFrame(80, [row(0, "wheel-new")], []),
+      seq: 3,
+    })).toBe(true);
+    expect(r.setSelectionHold(false)).toEqual({
+      reconciled: false,
+      anchorChanged: false,
+    });
+    expect(r.readerReason).toBe("wheel");
+    expect(viewportEl.children[0]).toBe(heldRow);
+
+    expect(r.prepareLiveInteraction()).toEqual({
+      reconciled: true,
+      anchorChanged: true,
+    });
+    expect(viewportEl.children[0]).not.toBe(heldRow);
   });
 
   test("a genuine return to literal bottom reconciles pending canonical state", () => {

@@ -1,11 +1,42 @@
 // `roost test <profile>` — canonical local and CI test entry points.
-// Profiles keep hermetic unit/terminal coverage distinct from the live-tailnet
-// API canary, whose network prerequisite must never appear as a green skip.
+// Profiles keep hermetic unit/terminal coverage, root-owned managed
+// qualification, and the live-tailnet API canary behind distinct prerequisites.
 
 import { spawn } from "bun";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const PROFILES = ["unit", "worker", "terminal", "live-api", "all"] as const;
+const PROFILES = ["unit", "worker", "terminal", "managed", "live-api", "all"] as const;
 type TestProfile = (typeof PROFILES)[number];
+const PLAYWRIGHT_CLI = "node_modules/@playwright/test/cli.js";
+const MANAGED_E2E_GIT_SHA_ZERO = "0".repeat(40);
+const MANAGED_IMAGE_ID_RE = /^sha256:[0-9a-f]{64}$/;
+const MANAGED_E2E_FILES = [
+  "apps/roost-cli/tests/managed-browser.e2e.test.ts",
+  "apps/roost-cli/tests/saas-provisioning.e2e.test.ts",
+  "apps/roost-cli/tests/saas-backup-restore.e2e.test.ts",
+  "apps/roost-cli/tests/saas-open-signup.e2e.test.ts",
+] as const;
+
+interface CapturedCommand {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+interface ManagedProfileDependencies {
+  platform: NodeJS.Platform;
+  getuid(): number | undefined;
+  which(name: string): string | null;
+  chromiumExecutablePath(): Promise<string>;
+  pathExists(path: string): boolean;
+  createTempRoot(): string;
+  removeTempRoot(path: string): void;
+  uniqueSuffix(): string;
+  command(cmd: string[]): CapturedCommand;
+  run(name: string, cmd: string[], env?: Record<string, string>): Promise<void>;
+}
 
 async function run(name: string, cmd: string[], env?: Record<string, string>): Promise<void> {
   console.log(`>> ${name}`);
@@ -16,6 +47,177 @@ async function run(name: string, cmd: string[], env?: Record<string, string>): P
   });
   const exitCode = await process.exited;
   if (exitCode !== 0) throw new Error(`${name} failed (exit ${exitCode ?? 1})`);
+}
+
+function captureCommand(cmd: string[]): CapturedCommand {
+  const result = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
+  return {
+    exitCode: result.exitCode,
+    stdout: result.stdout.toString().trim(),
+    stderr: result.stderr.toString().trim(),
+  };
+}
+
+function managedE2eGitSha(env: NodeJS.ProcessEnv): string {
+  const configured = env.ROOST_SAAS_E2E_GIT_SHA;
+  if (configured === undefined) return MANAGED_E2E_GIT_SHA_ZERO;
+  if (!/^[0-9a-f]{40}$/i.test(configured)) {
+    throw new Error(
+      "managed test profile requires ROOST_SAAS_E2E_GIT_SHA to be exactly 40 hexadecimal characters",
+    );
+  }
+  return configured.toLowerCase();
+}
+
+function commandFailure(result: CapturedCommand): string {
+  return result.stderr || result.stdout || `exit ${result.exitCode}`;
+}
+
+async function assertManagedPrerequisites(deps: ManagedProfileDependencies): Promise<void> {
+  if (deps.platform !== "linux") throw new Error("managed test profile requires Linux");
+  if (deps.getuid() !== 0) throw new Error("managed test profile requires root");
+  for (const executable of ["docker", "age", "age-keygen"]) {
+    if (!deps.which(executable)) throw new Error(`managed test profile requires ${executable}`);
+  }
+  const dockerInfo = deps.command(["docker", "info", "--format", "{{.ServerVersion}}"]);
+  if (dockerInfo.exitCode !== 0) {
+    throw new Error(`managed test profile requires a reachable Docker daemon: ${commandFailure(dockerInfo)}`);
+  }
+  let chromiumPath: string;
+  try {
+    chromiumPath = await deps.chromiumExecutablePath();
+  } catch {
+    throw new Error("managed test profile requires Playwright Chromium; run bunx playwright install chromium");
+  }
+  if (!chromiumPath || !deps.pathExists(chromiumPath)) {
+    throw new Error("managed test profile requires Playwright Chromium; run bunx playwright install chromium");
+  }
+}
+
+function systemManagedProfileDependencies(): ManagedProfileDependencies {
+  return {
+    platform: process.platform,
+    getuid: () => typeof process.getuid === "function" ? process.getuid() : undefined,
+    which: (name) => Bun.which(name),
+    // Probe in a child process so production compilation never follows Playwright.
+    chromiumExecutablePath: async () => {
+      const result = captureCommand([
+        process.execPath, "-e",
+        "import { chromium } from '@playwright/test'; process.stdout.write(chromium.executablePath())",
+      ]);
+      if (result.exitCode !== 0) throw new Error(commandFailure(result));
+      return result.stdout;
+    },
+    pathExists: existsSync,
+    createTempRoot: () => mkdtempSync(join(tmpdir(), "roost-managed-profile-")),
+    removeTempRoot: (path) => rmSync(path, { recursive: true, force: true }),
+    uniqueSuffix: () => `${process.pid}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`,
+    command: captureCommand,
+    run,
+  };
+}
+
+function recordCleanupFailure(
+  failures: string[],
+  label: string,
+  result: CapturedCommand,
+): void {
+  if (result.exitCode !== 0) failures.push(`${label}: ${commandFailure(result)}`);
+}
+
+async function runManagedProfile(
+  env: NodeJS.ProcessEnv = process.env,
+  deps: ManagedProfileDependencies = systemManagedProfileDependencies(),
+): Promise<void> {
+  await assertManagedPrerequisites(deps);
+  const gitSha = managedE2eGitSha(env);
+
+  const tempRoot = deps.createTempRoot();
+  const suffix = deps.uniqueSuffix();
+  const imageTag = `roost-managed-e2e:${suffix}`;
+  const network = `roost-managed-e2e-${suffix}`;
+  const imageIdFile = join(tempRoot, "coordinator-image.id");
+  let imageTagOwned = false;
+  let networkOwned = false;
+  let profileFailed = false;
+  let profileFailure: unknown;
+
+  try {
+    await deps.run("managed coordinator image", [
+      "docker",
+      "build",
+      "--iidfile",
+      imageIdFile,
+      "--tag",
+      imageTag,
+      "--build-arg",
+      "ROOST_VERSION=0.0.0-managed-e2e",
+      "--build-arg",
+      `ROOST_GIT_SHA=${gitSha}`,
+      "--file",
+      "Dockerfile.coord",
+      ".",
+    ]);
+    imageTagOwned = true;
+    const imageId = readFileSync(imageIdFile, "utf8").trim();
+    if (!MANAGED_IMAGE_ID_RE.test(imageId)) {
+      throw new Error("managed coordinator build did not export an immutable image ID");
+    }
+    const inspectedImage = deps.command(["docker", "image", "inspect", "--format", "{{.Id}}", imageTag]);
+    if (inspectedImage.exitCode !== 0) {
+      throw new Error(`managed coordinator image inspection failed: ${commandFailure(inspectedImage)}`);
+    }
+    if (inspectedImage.stdout !== imageId) {
+      throw new Error("managed coordinator image tag does not resolve to the exported immutable image ID");
+    }
+
+    await deps.run("managed Docker network", [
+      "docker",
+      "network",
+      "create",
+      "--label",
+      `com.roost.test-managed=${suffix}`,
+      network,
+    ]);
+    networkOwned = true;
+    await deps.run("managed", [process.execPath, "test", ...MANAGED_E2E_FILES], {
+      ROOST_SAAS_E2E: "1",
+      ROOST_SIGNUP_E2E: "1",
+      ROOST_SAAS_E2E_IMAGE: imageId,
+      ROOST_SAAS_E2E_NETWORK: network,
+      ROOST_SAAS_E2E_GIT_SHA: gitSha,
+    });
+  } catch (error) {
+    profileFailed = true;
+    profileFailure = error;
+  }
+
+  const cleanupFailures: string[] = [];
+  if (networkOwned) {
+    recordCleanupFailure(
+      cleanupFailures,
+      "managed Docker network cleanup",
+      deps.command(["docker", "network", "rm", network]),
+    );
+  }
+  if (imageTagOwned) {
+    recordCleanupFailure(
+      cleanupFailures,
+      "managed coordinator image cleanup",
+      deps.command(["docker", "image", "rm", imageTag]),
+    );
+  }
+  try {
+    deps.removeTempRoot(tempRoot);
+  } catch (error) {
+    cleanupFailures.push(`managed temporary directory cleanup: ${String(error)}`);
+  }
+
+  if (profileFailed) {
+    for (const failure of cleanupFailures) console.error(`>> ${failure}`);
+    throw profileFailure;
+  }
+  if (cleanupFailures.length > 0) throw new Error(cleanupFailures.join("\n"));
 }
 
 async function runUnit(): Promise<void> {
@@ -66,7 +268,7 @@ async function runTerminal(): Promise<void> {
     await run(
       "terminal",
       [
-        "bunx", "playwright", "test", "--config=playwright.config.ts",
+        process.execPath, PLAYWRIGHT_CLI, "test", "--config=playwright.config.ts",
         ...(process.platform === "darwin"
           ? ["--project=chromium-desktop", "--project=webkit-iphone"]
           : ["--project=chromium-desktop"]),
@@ -78,7 +280,7 @@ async function runTerminal(): Promise<void> {
     await run(
       "terminal perf",
       [
-        "bunx", "playwright", "test", "--config=playwright.config.ts",
+        process.execPath, PLAYWRIGHT_CLI, "test", "--config=playwright.config.ts",
         "--project=chromium-serial", "--workers=1",
       ],
       { ROOST_TEST_BUN: process.execPath },
@@ -104,6 +306,9 @@ export async function test(args: string[]): Promise<void> {
     case "terminal":
       await runTerminal();
       return;
+    case "managed":
+      await runManagedProfile();
+      return;
     case "live-api":
       if (!process.env.ROOST_COORD_URL) {
         throw new Error(
@@ -120,3 +325,9 @@ export async function test(args: string[]): Promise<void> {
       await runTerminal();
   }
 }
+
+export const _managedTestInternals = {
+  assertManagedPrerequisites,
+  managedE2eGitSha,
+  runManagedProfile,
+};

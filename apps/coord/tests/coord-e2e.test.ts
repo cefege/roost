@@ -12,6 +12,7 @@ import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { newJwtCache } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
+import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import type { CoordConfig } from "@roost/shared/config";
 
 let workdir: string;
@@ -31,6 +32,9 @@ beforeAll(async () => {
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
+  saasMode: false,
+  managedContainer: false,
+  pushAllowedOrigins: [],
   dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
   webDistPath: "",
   tlsCertPath: undefined, tlsKeyPath: undefined,
@@ -41,7 +45,14 @@ beforeAll(async () => {
   logDir: workdir,
   publicUrl: undefined,
   handoffPath: join(workdir, "coord-handoff.json"), }
-  coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
+  coord = createCoord({
+    db,
+    sqlite,
+    coordKey,
+    cfg,
+    jwtCache,
+    passwordWorkGate: new PasswordWorkGate(),
+  });
   cleanup = async () => {
     coord.dispose();
     try { await opened.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
@@ -86,9 +97,13 @@ describe("coord-factory fetch handler", () => {
     expect(publicResp.status).toBe(200);
     const privateBody = await privateResp.json();
     const publicBody = await publicResp.json();
-    expect(privateBody.fingerprintHex).toMatch(/^[0-9a-f]{64}$/);
+    expect("fingerprintHex" in privateBody).toBe(false);
     expect(privateBody.publicListener ?? false).toBe(false);
     expect(publicBody.publicListener).toBe(true);
+    expect(privateBody.saasMode ?? false).toBe(false);
+    expect(privateBody.instanceId ?? "").toBe("");
+    expect(publicBody.saasMode ?? false).toBe(false);
+    expect(publicBody.instanceId ?? "").toBe("");
   });
 
   test("WorkersList without JWT → 401 unauthenticated", async () => {
@@ -117,6 +132,35 @@ describe("coord-factory fetch handler", () => {
     expect(resp.status).toBe(404);
   });
 
+  test("retired settings and transfer RPC POSTs return exact 404 before SPA fallback", async () => {
+    const methods = [
+      ["Web", "hookTokensList"].join(""),
+      ["Web", "hookTokensMint"].join(""),
+      ["Web", "hookTokensDelete"].join(""),
+      ["Permis", "sionsList"].join(""),
+      ["Permis", "sionsCreate"].join(""),
+      ["Permis", "sionsUpdate"].join(""),
+      ["Permis", "sionsDelete"].join(""),
+      ["Transfers", "Start"].join(""),
+      ["Transfers", "Output"].join(""),
+    ];
+    for (const method of methods) {
+      const response = await coord.fetch(new Request(
+        `http://t/roost.v1.CoordinatorService/${method}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        },
+      ), {
+        origin: { listener: "direct", clientIp: "127.0.0.1", onHost: true },
+        spa: () => new Response("<html>SPA fallback</html>", { status: 200 }),
+      });
+      expect(response.status, method).toBe(404);
+      expect(await response.text(), method).toBe("not found");
+    }
+  });
+
   test("CSP + frame-options + nosniff headers on every response", async () => {
     const resp = await coord.fetch(new Request("http://t/roost.v1.CoordinatorService/MiscHealth", {
       method: "POST",
@@ -128,11 +172,11 @@ describe("coord-factory fetch handler", () => {
     expect(resp.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
-  test("rate limit: 100 AuthAuthorizeBrowser POSTs from same IP → 101st returns 429", async () => {
-    // Burn through the 100/min budget for a rate-limited route. Loopback-only
-    // mutation; the body is invalid but rate-limit fires before parse.
+  test("rate limit: 100 AuthRedeemBrowser POSTs from same IP → 101st returns 429", async () => {
+    // Burn through the 100/min budget for a credential-consumption route. The
+    // body is invalid, but rate limiting runs before request parsing.
     const fire = () => coord.fetch(
-      new Request("http://t/roost.v1.CoordinatorService/AuthAuthorizeBrowser", {
+      new Request("http://t/roost.v1.CoordinatorService/AuthRedeemBrowser", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",

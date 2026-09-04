@@ -10,6 +10,4 @@ export * from "./control.ts";
 export * from "./coord-worker.ts";
 export * from "./workspace.ts";
 export * from "./task.ts";
-export * from "./webhook.ts";
-export * from "./permission.ts";
 export * from "./mcp.ts";

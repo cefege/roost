@@ -70,15 +70,25 @@ export async function subscribeToPush(): Promise<void> {
   await upsertSubscription(subscription);
 }
 
-export async function unsubscribeFromPush(): Promise<void> {
+export interface PushUnsubscribeClient {
+  pushUnsubscribe(request: { endpoint: string }): Promise<unknown>;
+}
+
+export async function unsubscribeFromPush(
+  options: {
+    waitForRegistration?: boolean;
+    client?: PushUnsubscribeClient;
+  } = {},
+): Promise<void> {
   if (!("serviceWorker" in navigator)) return;
-  const registration = await navigator.serviceWorker.getRegistration(SERVICE_WORKER_URL)
-    ?? await navigator.serviceWorker.ready;
+  const existing = await navigator.serviceWorker.getRegistration(SERVICE_WORKER_URL);
+  const registration = existing
+    ?? (options.waitForRegistration === false ? undefined : await navigator.serviceWorker.ready);
   const subscription = await registration?.pushManager.getSubscription();
   if (!subscription) return;
   const endpoint = subscription.endpoint;
   try { await subscription.unsubscribe(); } catch { /* best effort */ }
-  try { await coordClient.pushUnsubscribe({ endpoint }); } catch { /* best effort */ }
+  try { await (options.client ?? coordClient).pushUnsubscribe({ endpoint }); } catch { /* best effort */ }
 }
 
 /** Repair an enabled subscription after browser storage or server pruning. */

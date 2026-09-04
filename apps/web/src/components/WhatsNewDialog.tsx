@@ -2,7 +2,7 @@
 // Compares import.meta.env.VITE_APP_VERSION against
 // localStorage["roost.whatsNew.lastSeenVersion"]. When different, fetches
 // /whatsnew.json and renders the dialog for the matching version entry.
-// Callers: App.tsx (always mounted; internal Show gate).
+// Callers: App.tsx (mounted inside the protected overlay shell; internal Show gate).
 // Depends on: @roost/shared/log (warn on fetch failure).
 //
 // whatsnew.json shape: array of { version, date, title, items[] }.

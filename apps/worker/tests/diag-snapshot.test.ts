@@ -8,6 +8,7 @@ import {
   createSbRing,
 } from "../src/session-scrollback-ring.ts";
 import { monoNowMs } from "../src/util/mono.ts";
+import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
 const WORKER_FP = asWorkerFp("d".repeat(64));
 const SESSION_ID = asSessionId("11111111-2222-4333-8444-555555555555");
@@ -17,7 +18,7 @@ describe("worker diagnostic snapshot", () => {
   test("reports bounded authoritative session state and leaves unknown values explicit", () => {
     const manager = new SessionManager({
       workerFp: WORKER_FP,
-      sink: { emit: () => {} },
+      sink: new LifecycleTestSink(),
     });
     const cellEmit = initCellEmitState("diag-grid", "00000000-0000-4000-8000-000000000001");
     cellEmit.seq = 17;

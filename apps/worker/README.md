@@ -34,8 +34,8 @@ race. Add a callback here, not in `src/main.ts`.
 ## Transport — outbound only
 
 `src/transport/coord-link.ts` is the composer: it dials a long-lived raw Bun `WebSocket` at
-`<coordinatorUrl>/ws/coord-worker/<fp>?token=<jwt>` and owns the FSM (`idle → connecting → open → reconnecting →
-…`, plus `closed` on `dispose()`), the hello, the stale-link watchdog, in-band JWT refresh, relocate, and `state()`.
+`<coordinatorUrl>/ws/coord-worker/<fp>` and authenticates with the exact `roost-worker-auth` marker plus JWT
+subprotocol pair. It owns the FSM (`idle → connecting → open → reconnecting → …`, plus `closed` on `dispose()`).
 Every browser command arrives *downstream* on this one socket. Frames are proto-typed `CoordWorkerUp` /
 `CoordWorkerDown` oneofs (`@roost/shared/proto/worker_transport_pb`), serialized binary — no JSON on the hot path.
 The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL, so one stream stays open for hours.

@@ -49,3 +49,8 @@ export function getInputText(sessionId: string): string {
 export function clearInput(sessionId: string): void {
   history.delete(sessionId);
 }
+
+/** Drop typed terminal context retained for dictation across all sessions. */
+export function clearInputHistoryForLogout(): void {
+  history.clear();
+}

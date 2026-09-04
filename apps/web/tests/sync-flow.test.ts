@@ -149,6 +149,7 @@ describe("Sync reconnect ownership", () => {
     expect(isSyncBackpressureClose(1013, "other")).toBe(false);
     expect(isSyncBackpressureClose(1006, "sync backpressure")).toBe(false);
     expect(isImmediateSyncRedial("flow")).toBe(true);
+    expect(isImmediateSyncRedial("terminal-liveness")).toBe(true);
     expect(isImmediateSyncRedial(null)).toBe(false);
   });
 

@@ -7,6 +7,7 @@ import { ParentProps, Show, onMount, onCleanup, createEffect, on } from "solid-j
 import { useLocation } from "@solidjs/router";
 import { SidebarRoot } from "../sidebar/SidebarRoot.tsx";
 import { MobileTopBar } from "./MobileTopBar.tsx";
+import { DashboardScopeSelector } from "./DashboardScopeSelector.tsx";
 import { uiStore, closeSidebar, toggleSidebarCollapsed, setSidebarWidth } from "../../store/uiStore.ts";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { keyboardResize } from "../../lib/keyboardResizePref.ts";
@@ -16,6 +17,7 @@ import { registerDrawer, dragDrawer, settleDrawerOpen, settleDrawerClose } from 
 import { attachElasticOverscroll } from "../../lib/overscroll.ts";
 import { composerActive, composerHeightPx } from "../TerminalComposeButton.tsx";
 import { matchesPlatformShortcut } from "../../lib/browserPlatform.ts";
+import { ROUTES } from "../../routes.ts";
 
 // ─── inline CSS helpers ─────────────────────────────────────────────────
 // Style objects are evaluated once; any dynamic value must live in JSX
@@ -311,6 +313,9 @@ export function AppShell(props: ParentProps) {
           ref={(el) => onCleanup(attachElasticOverscroll(el))}
           style={desktopSidebarStyle()}
         >
+          <Show when={!uiStore.sidebarCollapsed}>
+            <DashboardScopeSelector />
+          </Show>
           <SidebarRoot />
         </aside>
         <Show when={!uiStore.sidebarCollapsed}>
@@ -338,15 +343,16 @@ export function AppShell(props: ParentProps) {
           data-open={uiStore.sidebarOpen ? "true" : "false"}
           aria-hidden={!uiStore.sidebarOpen}
         >
+          <DashboardScopeSelector />
           <SidebarRoot />
         </aside>
       </Show>
 
       {/* ── Main content (mobile top bar stacks above it in the column) ── */}
       <main style={mainStyle()}>
-        {/* Home ("/") and terminal routes own their own header + bar; suppress
-            the redundant MobileTopBar there. Every other mobile route keeps it. */}
-        <Show when={isMobile() && location.pathname !== "/" && !location.pathname.startsWith("/browse") && !(location.pathname.startsWith("/s/") || location.pathname.startsWith("/t/") || location.pathname.startsWith("/w/"))}>
+        {/* Both home routes and terminal routes own their own header + bar;
+            suppress the redundant MobileTopBar there. Other mobile routes keep it. */}
+        <Show when={isMobile() && location.pathname !== ROUTES.ROOT && location.pathname !== ROUTES.APP && !location.pathname.startsWith("/browse") && !(location.pathname.startsWith("/s/") || location.pathname.startsWith("/t/") || location.pathname.startsWith("/w/"))}>
           <MobileTopBar />
         </Show>
         {props.children}

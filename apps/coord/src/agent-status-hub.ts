@@ -26,6 +26,8 @@ export type AgentStatusAcceptance =
 
 export interface AgentStatusHubDeps {
   db: KyselyDB;
+  pushAllowedOrigins: readonly string[];
+  tenantRouteKey?: string;
   dispatchPush?: typeof firePushForTransition;
 }
 
@@ -70,7 +72,7 @@ function schedulePush(
   next: AgentStatusUpdateValue,
   carriedKind: PushTransition | undefined,
 ): void {
-  if (!pushDeps || !next.active) return;
+  if (!pushDeps || pushDeps.pushAllowedOrigins.length === 0 || !next.active) return;
   let kind = classifyTransition(previous, next);
   if (
     !kind
@@ -94,7 +96,14 @@ function schedulePush(
     if (kind === "done" && current.state !== "idle") return;
     const dispatch = pushDeps?.dispatchPush ?? firePushForTransition;
     if (!pushDeps || !dispatch) return;
-    void dispatch(pushDeps.db, sessionId, kind).catch((error) => {
+    void dispatch(
+      pushDeps.db,
+      sessionId,
+      kind,
+      pushDeps.pushAllowedOrigins,
+      undefined,
+      pushDeps.tenantRouteKey,
+    ).catch((error) => {
       log.warn("agent-status", "push_failed", {
         session_id: sessionId,
         kind,
@@ -200,18 +209,4 @@ export function stopAgentStatusHub(): void {
 
 export function getAgentStatusSnapshot(): AgentStatusValue[] {
   return [...activeBySession.values()];
-}
-
-export function getAgentStatusDiagnostics(): {
-  active: number;
-  revision_floors: number;
-  subscribers: number;
-  pending_pushes: number;
-} {
-  return {
-    active: activeBySession.size,
-    revision_floors: latestRevisionBySession.size,
-    subscribers: agentStatusBus.subscriberCount,
-    pending_pushes: pendingPushBySession.size,
-  };
 }

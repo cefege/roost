@@ -64,6 +64,7 @@ export interface TerminalBrowserStreamSnapshot {
   wire_received: TerminalStreamDiagnosticSnapshot["wire_received"];
   replica: TerminalStreamDiagnosticSnapshot["replica"];
   view: TerminalStreamDiagnosticSnapshot["view"];
+  faults: TerminalStreamDiagnosticSnapshot["faults"];
   /** Retained name for adjacent probes; this is the browser replica watermark. */
   handler_canonical: RendererEpochSeq;
   dom_reconciled: RendererEpochSeq;
@@ -146,6 +147,7 @@ export function terminalBrowserStreamSnapshot(sessionId: string): TerminalBrowse
     wire_received: stream.wire_received,
     replica: stream.replica,
     view: stream.view,
+    faults: stream.faults,
     handler_canonical: {
       grid_epoch: stream.replica.grid_epoch,
       seq: stream.replica.seq,

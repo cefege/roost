@@ -161,22 +161,17 @@ export function foldEvent(
       // (This mirrors coord's SQL snapshot reconcile in event-log.ts — both stop
       // pruning ghosts, keeping the SPA + coord projections in agreement.)
       for (const s of e.sessions) {
-        // workspace_id and custom_title are coord/DB-owned: the worker
-        // announces null in every snapshot. Preserve prior values so a worker
-        // restart does not drop a rename or collapse sidebar grouping.
         const before = prev.get(s.id);
-        // workspace_id AND custom_title are coord/DB-owned — the worker
-        // announces them null in every snapshot. Preserve prior values so a
-        // worker restart doesn't drop a rename or collapse sidebar grouping.
+        // These fields are coordinator/DB-owned or immutable creation facts.
+        // A reconnect snapshot refreshes the live worker state without
+        // rewriting history or user organization.
         next.set(s.id, before
           ? {
               ...s,
-              workspace_id: s.workspace_id ?? before.workspace_id,
-              custom_title: s.custom_title ?? before.custom_title,
-              // spawn_cwd is set once at `opened` and coord/DB-owned — the
-              // worker snapshot doesn't carry it, so preserve the prior value
-              // (same treatment as workspace_id/custom_title).
-              spawn_cwd: s.spawn_cwd ?? before.spawn_cwd,
+              created_at: before.created_at,
+              workspace_id: before.workspace_id,
+              custom_title: before.custom_title,
+              spawn_cwd: before.spawn_cwd,
             }
           : s);
       }

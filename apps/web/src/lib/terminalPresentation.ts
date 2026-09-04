@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 import type { CellGridFrame } from "@roost/shared/cell";
 import type { CellGridRenderer } from "./cellRenderer.ts";
-import { pageVisible } from "./pageVisible.ts";
+import { isPageVisible, pageVisible } from "./pageVisible.ts";
 import type { TerminalViewHandleStatus } from "../store/terminal-stream-types.ts";
 import {
   deriveTerminalPresentationState,
@@ -18,6 +18,20 @@ import {
   type TerminalPresentationActivity,
   type TerminalPresentationState,
 } from "../store/terminal-stream-types.ts";
+import type {
+  ReaderIntentReason,
+  RendererEpochSeq,
+} from "./cellRendererPresentation.ts";
+export const FOREGROUND_DOM_STALL_MS = 10_000;
+export function preservesForegroundReaderHold(
+  reason: ReaderIntentReason | null,
+): boolean {
+  return reason === "native_scroll"
+    || reason === "wheel"
+    || reason === "touch"
+    || reason === "selection"
+    || reason === "find";
+}
 
 export interface TerminalPresentationController {
   readonly state: Accessor<TerminalPresentationState>;
@@ -33,12 +47,74 @@ export function createTerminalPresentationController(options: {
   focused: Accessor<boolean>;
   status: Accessor<TerminalViewHandleStatus | null>;
   renderer: Accessor<CellGridRenderer | null>;
+  onCatchUpStalled(watermark: RendererEpochSeq): void;
 }): TerminalPresentationController {
   const [state, setState] = createSignal<TerminalPresentationState>("idle");
   let activityTimer: number | null = null;
   let activityAt: number | null = null;
   let activityEpoch: string | null = null;
   let activitySeq: number | null = null;
+  let catchUpTimer: ReturnType<typeof setTimeout> | null = null;
+  let catchUpWatermark: RendererEpochSeq | null = null;
+  let notifiedCatchUpWatermark: string | null = null;
+
+  const watermarkKey = (watermark: RendererEpochSeq): string =>
+    `${watermark.grid_epoch ?? ""}\u0000${watermark.seq ?? ""}`;
+
+  function clearCatchUpStall(resetNotification: boolean): void {
+    clearTimeout(catchUpTimer ?? undefined);
+    catchUpTimer = null;
+    catchUpWatermark = null;
+    if (resetNotification) notifiedCatchUpWatermark = null;
+  }
+
+  function armCatchUpStall(watermark: RendererEpochSeq): void {
+    const key = watermarkKey(watermark);
+    if (notifiedCatchUpWatermark === key) return;
+    if (catchUpTimer !== null && catchUpWatermark !== null) {
+      const sameEpoch = catchUpWatermark.grid_epoch === watermark.grid_epoch;
+      const stillAhead = catchUpWatermark.seq !== null
+        && watermark.seq !== null
+        && watermark.seq >= catchUpWatermark.seq;
+      if (sameEpoch && stillAhead) return;
+      clearCatchUpStall(false);
+    }
+    const captured = { ...watermark };
+    catchUpWatermark = captured;
+    const timer = setTimeout(() => {
+      if (catchUpTimer !== timer || catchUpWatermark !== captured) return;
+      catchUpTimer = null;
+      catchUpWatermark = null;
+      const renderer = options.renderer();
+      const status = options.status();
+      const current = renderer?.canonicalEpochSeq();
+      const reconciled = renderer?.reconciledEpochSeq();
+      const stillActive = options.active()
+        && isPageVisible()
+        && status?.status === "accepted"
+        && status.active
+        && status.baselineReady;
+      const stillOwnsWatermark = current?.grid_epoch === captured.grid_epoch
+        && current.seq !== null
+        && captured.seq !== null
+        && current.seq >= captured.seq;
+      const remainsUnreconciled = reconciled?.grid_epoch !== captured.grid_epoch
+        || reconciled.seq === null
+        || captured.seq === null
+        || reconciled.seq < captured.seq;
+      if (!renderer || !stillActive || !stillOwnsWatermark || !remainsUnreconciled) {
+        refreshTerminalPresentation();
+        return;
+      }
+      if (preservesForegroundReaderHold(renderer.readerReason)) {
+        refreshTerminalPresentation();
+        return;
+      }
+      notifiedCatchUpWatermark = key;
+      options.onCatchUpStalled(captured);
+    }, FOREGROUND_DOM_STALL_MS);
+    catchUpTimer = timer;
+  }
 
   function clearFrameActivity(): void {
     clearTimeout(activityTimer ?? undefined);
@@ -46,6 +122,7 @@ export function createTerminalPresentationController(options: {
     activityAt = null;
     activityEpoch = null;
     activitySeq = null;
+    clearCatchUpStall(true);
   }
 
   function armActivityExpiry(delayMs: number): void {
@@ -91,8 +168,10 @@ export function createTerminalPresentationController(options: {
       clearTimeout(activityTimer ?? undefined);
       activityTimer = null;
       setState(nextState);
+      armCatchUpStall(canonical);
       return;
     }
+    clearCatchUpStall(true);
     if (nextState === "receiving" && activity !== null) {
       setState(nextState);
       armActivityExpiry(Math.max(
@@ -140,6 +219,7 @@ export function createTerminalPresentationController(options: {
   onCleanup(() => {
     clearFrameActivity();
     clearCursorBlink();
+    clearCatchUpStall(true);
   });
 
   return {

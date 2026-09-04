@@ -11,7 +11,7 @@ import {
   workerServiceMatchesRelease,
 } from "./deploy-exec.ts";
 import { launchdBootstrapWithRetryCmd, verifyWorkerCmd } from "./service-ctl.ts";
-import { posixShellQuote } from "./shell-quote.ts";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 import { MACOS_DEPLOY_JOURNAL_PROGRAM } from "./macos-deploy-journal-program.ts";
 import {
   MACOS_WORKER_LABEL,

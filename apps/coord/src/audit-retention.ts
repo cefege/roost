@@ -21,7 +21,7 @@ const BATCH_SIZE = 10_000;
 // The ONLY methods this sweep is allowed to delete. Deliberately an explicit
 // allowlist rather than a predicate or a blanket age cutoff: audit_log also
 // holds the low-volume, high-forensic-value rows — PairApprove,
-// AuthAuthorizeBrowser, WorkersDelete, WorkspacesDelete, SessionsKill,
+// AuthRedeemBrowser, WorkersDelete, WorkspacesDelete, SessionsKill,
 // SessionsSpawn — and "when was this device authorised, and by whom" is exactly
 // the question someone asks a year later. Those must survive regardless of age;
 // deleting them reclaims kilobytes and costs the whole point of the table.
@@ -51,6 +51,45 @@ export interface AuditSweepOptions {
   now?: number;
   batchSize?: number;
 }
+/** Removes the pre-hardening backlog of anonymous successful SPA/static reads.
+ * Explicit API/export, internal lifecycle, WebSocket, and Connect paths are
+ * excluded even if an old row happens to use GET or HEAD. */
+export async function cleanupAnonymousStaticAuditLog(
+  sqlite: Database,
+  batchSize = BATCH_SIZE,
+): Promise<number> {
+  const stmt = sqlite.prepare(
+    `DELETE FROM audit_log WHERE id IN (
+       SELECT id FROM audit_log
+       WHERE caller_fp IS NULL
+         AND method IN ('GET', 'HEAD')
+         AND status >= 200
+         AND status < 400
+         AND path <> '/api/db-export'
+         AND path NOT LIKE '/api/%'
+         AND path <> '/internal'
+         AND path NOT LIKE '/internal/%'
+         AND path <> '/ws'
+         AND path NOT LIKE '/ws/%'
+         AND path NOT LIKE '/roost.%'
+       ORDER BY id
+       LIMIT ?
+     )`,
+  );
+  let deleted = 0;
+  try {
+    for (;;) {
+      const { changes } = stmt.run(batchSize);
+      deleted += changes;
+      if (changes < batchSize) break;
+      await Bun.sleep(0);
+    }
+  } finally {
+    stmt.finalize();
+  }
+  return deleted;
+}
+
 
 // Deletes swept-method audit_log rows older than the window. Returns the count.
 export async function sweepAuditLog(sqlite: Database, opts: AuditSweepOptions): Promise<number> {
@@ -101,6 +140,19 @@ export async function sweepAuditLog(sqlite: Database, opts: AuditSweepOptions): 
   return deleted;
 }
 
+async function runInitialCleanup(sqlite: Database): Promise<void> {
+  try {
+    const deleted = await cleanupAnonymousStaticAuditLog(sqlite);
+    if (deleted > 0) {
+      log.info("audit-retention", "anonymous_static_audit_cleaned", { deleted });
+    }
+  } catch (err) {
+    log.error("audit-retention", "anonymous_static_audit_cleanup_failed", {
+      error: (err as Error).message,
+    });
+  }
+}
+
 async function runSweep(sqlite: Database, retentionDays: number): Promise<void> {
   try {
     const deleted = await sweepAuditLog(sqlite, { retentionDays });
@@ -113,12 +165,13 @@ async function runSweep(sqlite: Database, retentionDays: number): Promise<void> 
   }
 }
 
-// Schedules a 24h recurring sweep. Runs one immediately at startup: unlike
-// backups there is no on-disk staleness marker to check, and the sweep itself
-// is the cheap check — an index range scan that deletes nothing and logs
-// nothing when there is nothing to age out.
+// The anonymous static backlog cleanup is deliberately startup-only. The
+// recurring task retains the narrow forensic retention sweep.
 export function scheduleAuditRetention(sqlite: Database, retentionDays: number): void {
-  void runSweep(sqlite, retentionDays);
+  void (async () => {
+    await runInitialCleanup(sqlite);
+    await runSweep(sqlite, retentionDays);
+  })();
 
   setInterval(() => {
     void runSweep(sqlite, retentionDays);

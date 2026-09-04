@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test, vi } from "bun:test";
 import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
 import {
   TerminalStreamFailureKind,
   TerminalStreamStatus,
 } from "@roost/shared/proto/worker_transport_pb";
 import {
+  DASHBOARD,
   SESSION,
   VIEW_A,
   WORKER,
@@ -19,6 +20,8 @@ import {
   statesFor,
   viewCommand,
 } from "./terminal-view-hub-harness.ts";
+import { deltaFrame } from "./terminal-screen-hub-harness.ts";
+import { TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS } from "../src/connect/terminal-screen-hub.ts";
 
 afterEach(disposeHubs);
 
@@ -55,7 +58,7 @@ describe("TerminalViewHub worker transition ownership", () => {
     expect(new Set(desiredStreams).size).toBe(3);
     expect(sent).toHaveLength(0);
 
-    route.resolve({ workerFp: WORKER, channel: 7 });
+    route.resolve({ workerFp: WORKER, channel: 7, dashboardId: DASHBOARD });
     await settle();
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ enabled: true, cols: 100, rows: 40 });
@@ -186,5 +189,53 @@ describe("TerminalViewHub worker transition ownership", () => {
     await settle();
     expect(sent).toHaveLength(1);
     expect(statesFor(sink, VIEW_A).at(-1)?.status).toBe(TerminalViewStatus.UNAVAILABLE);
+  });
+
+  test("no-first-byte repair mints a fresh stream and publishes redrive failure", async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    try {
+      const { hub, sent, snapshotRequests } = makeHarness({
+        sendStreamState: (_workerFp, state) => {
+          attempts++;
+          if (attempts === 1) {
+            return admitted(Promise.resolve(resultFor(state)));
+          }
+          return {
+            admitted: false,
+            expired: false,
+            requestId: null,
+            result: Promise.reject(new Error("redrive transport unavailable")),
+          };
+        },
+      });
+      const sink = register(hub);
+      hub.handleViewCommand("socket-a", viewCommand(VIEW_A, 1n));
+      await settle();
+      const firstStream = sent[0]!.streamId;
+
+      hub.screen.publishFrame(SESSION, deltaFrame({
+        streamId: firstStream,
+        cols: 80,
+        rows: 24,
+      }));
+      await settle();
+      expect(snapshotRequests).toHaveLength(1);
+
+      vi.advanceTimersByTime(TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS);
+      await settle();
+      expect(snapshotRequests).toHaveLength(2);
+      vi.advanceTimersByTime(TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS);
+      await settle();
+
+      expect(sent).toHaveLength(2);
+      expect(sent[1]!.streamId).not.toBe(firstStream);
+      expect(hub.snapshot(SESSION)?.streamId).toBe(sent[1]!.streamId);
+      expect(statesFor(sink, VIEW_A).at(-1)?.status)
+        .toBe(TerminalViewStatus.UNAVAILABLE);
+    } finally {
+      disposeHubs();
+      vi.useRealTimers();
+    }
   });
 });

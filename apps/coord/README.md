@@ -11,9 +11,11 @@ Path references are relative to `apps/coord/` unless they start at the repo root
 ## Entry point — two layers
 
 **`src/main.ts` — the Bun-specific wrapper.** Loads `CoordConfig`, opens `bun:sqlite`, runs `src/db/migrate.ts`
-(backing up first if the DB already existed), runs the closed-session and orphan-workspace janitor, loads the coord
-ed25519 key (`src/coord-key.ts`), imports `authorized_keys.roost`, builds the `CoordinatorMoveOrchestrator`, calls
-`createCoord`, then `Bun.serve`. Everything Bun-only lives here and nowhere else: TLS from `cfg.tlsCertPath`/
+(backing up first if the DB already existed), and, in self-hosted mode, creates or validates the sole internal
+account/organization/dashboard before scoped-credential enforcement. It then imports `authorized_keys.roost`,
+validates and associates those keys with the tenant, runs the startup janitor, loads the coord Ed25519 key
+(`src/coord-key.ts`), builds the `CoordinatorMoveOrchestrator`, calls `createCoord`, then `Bun.serve`. Everything
+Bun-only lives here and nowhere else: TLS from `cfg.tlsCertPath`/
 `cfg.tlsKeyPath`, `server.requestIP()` → `resolveCallerOrigin`, the SPA static fallback (`src/spa.ts` +
 `src/web-embed.generated.ts`), `server.upgrade` for both WebSockets, the ONE multiplexed Bun `websocket` object
 dispatching on `ws.data.kind`, `idleTimeout: 120`, and SIGTERM/SIGINT shutdown.
@@ -28,11 +30,11 @@ runtime that cannot read the filesystem injects `ctx.spa`/`ctx.dbExport`.
 Listeners: the main one binds `cfg.bind`, default `0.0.0.0:4102` (`ROOST_COORDINATOR_BIND`), with TLS only when both
 cert and key paths are set; under `ROOST_TRUST_PROXY=1` that bind must be `127.0.0.1:<port>`, because tailscale
 serve fronts it and is then the only trusted source of `X-Forwarded-For`. An optional public edge binds
-`cfg.publicBind` (`ROOST_PUBLIC_BIND`), also forced to loopback, required to differ from `bind`, and only started
-with Cloudflare Access configured — its handler is `src/middleware/public-surface.ts` and it reuses the same
-`websocket` object. Both listeners hijack the two WS paths before `coord.fetch` sees them, and
-`/internal/coord-handoff/*` is handled above even the retired-coordinator gate because it carries its own
-constant-time secret and executes commit/abort side effects.
+`cfg.publicBind` (`ROOST_PUBLIC_BIND`), differs from `bind`, and runs either the exact Cloudflare Access policy or
+the managed default-deny policy. Public binds are loopback-only except for `ROOST_MANAGED_CONTAINER=1`, whose
+strict profile requires `0.0.0.0:4104` inside an unpublished Docker network so only Caddy can reach it. Both
+listeners reuse one 4 MiB-bounded WebSocket handler and hijack the two WS paths before `coord.fetch` sees them.
+Managed containers reject relocation, export, and deploy at both routing and handler layers.
 
 ## The 14 handler domains
 
@@ -49,8 +51,8 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | transcription | `src/connect/handlers-transcription.ts` | Deepgram voice-dictation config + short-lived token grant |
 | agent-config | `src/connect/handlers-agent-config.ts` | default launch-button agent command, `app_settings`-backed, universal across devices |
 | attachments | `src/connect/handlers-attachments.ts` | file read / list-dir + attachment save/list/delete, forwarded to the session's worker |
-| settings | `src/connect/handlers-settings.ts` | webhook tokens, permission rules, MCP relays — DB CRUD plus a bus delta per mutation |
-| auth | `src/connect/handlers-auth.ts` | coord identity, browser/worker key authorization, bootstrap-token mint/redeem, pairing flow |
+| mcp | `src/connect/handlers-mcp.ts` | MCP relay CRUD and publication, with a bus delta per mutation |
+| auth | `src/connect/handlers-auth.ts` | coord identity, scoped browser/worker grant mint/redeem, pairing flow |
 | system | `src/connect/handlers-system.ts` | health, db-export URL, metrics, the SPA diag-log batch sink, state snapshot, audit-log query |
 | workspaces | `src/connect/handlers-workspaces.ts` | version-CAS workspace rows, set-sessions, orphan GC |
 | tasks | `src/connect/handlers-tasks.ts` | claimable task queue: list/enqueue/next-pending/set-state/cancel |
@@ -132,6 +134,8 @@ the worker-WS registry that server populates.
   fetch layer so Connect never opens the stream. The feed is `src/connect/sync-feed.ts` (bus subscription + durable
   event paging), `src/connect/sync-feed-frames.ts` (stateless payload→`FirehoseFrame` adapters + lane metadata) and
   `src/connect/sync-feed-seed.ts` (retained-snapshot seeding).
+- Sync v2 advertises exactly seven application domains: terminal, workers, workspaces, tasks, MCP, pair, and audit.
+  Audit alone is lazy; every other domain is subscribed at socket creation.
 - `src/connect/session-control.ts` is a **re-export barrel** over
   `src/connect/terminal-control-lane.ts` (per-session ordering and generation cancellation)
   and `src/connect/input-control.ts` (including its bounded audit queue). Terminal view
@@ -151,8 +155,8 @@ the worker-WS registry that server populates.
   or mutate the channel index.
 - **Every mutation whose domain has a `*Bus` must publish after its DB write**, in that domain's own
   `handlers-<domain>.ts`: `publishTaskState(row)` in `src/connect/handlers-tasks.ts`, `workspaceBus.publish` in
-  `src/connect/handlers-workspaces.ts`, `webhookBus`/`permissionBus`/`mcpBus` in `src/connect/handlers-settings.ts`. Omit it and the write
-  lands while every other browser shows stale state until reload.
+  `src/connect/handlers-workspaces.ts`, and `mcpBus` in `src/connect/handlers-mcp.ts`. Omit it and the write lands
+  while every other browser shows stale state until reload.
 - **`writeAuditLog` runs inside the auth interceptor's `try/finally`.** `src/connect/auth-interceptor.ts` is the
   only place a verified `caller_fp` exists, so the per-RPC row must be written there; the same `finally` releases
   the coordinator write lease. Non-Connect paths audit in `src/coord-factory.ts` with `callerFp: null`.

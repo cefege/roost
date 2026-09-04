@@ -33,6 +33,7 @@ import { newJwtCache } from "../src/jwt.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
+import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import { processInputControl } from "../src/connect/input-control.ts";
 import type { TerminalViewerIdentity } from "../src/connect/terminal-control-lane.ts";
 import {
@@ -43,6 +44,8 @@ import {
 
 const WORKER_FP = "abadcafe".repeat(8);
 const CALLER_FP = "feedface".repeat(8);
+const DASHBOARD_ID = "terminal-hop-deadline-dashboard";
+const ORGANIZATION_ID = "terminal-hop-deadline-organization";
 
 let workdir: string;
 let db: KyselyDB;
@@ -58,6 +61,9 @@ beforeAll(async () => {
   db = opened.db;
   await runMigrations(opened.sqlite);
   const cfg: CoordConfig = {
+    saasMode: false,
+    managedContainer: false,
+    pushAllowedOrigins: [],
     trustProxy: false, bind: "127.0.0.1:0", dbPath: join(workdir, "test.db"),
     coordKeyPath: keyPath, authorizedKeysPath: authPath, webDistPath: "",
     tlsCertPath: undefined, tlsKeyPath: undefined, jwtMaxAgeSecs: 300,
@@ -71,11 +77,29 @@ beforeAll(async () => {
     coordKey: await loadOrCreateCoordKey(keyPath),
     cfg,
     jwtCache: newJwtCache(),
+    passwordWorkGate: new PasswordWorkGate(),
   };
+  const now = Date.now();
+  await db.insertInto("organizations").values({
+    id: ORGANIZATION_ID,
+    slug: "terminal-hop-deadline",
+    name: "Terminal hop deadline",
+    status: "active",
+    created_at_ms: now,
+  }).execute();
+  await db.insertInto("dashboards").values({
+    id: DASHBOARD_ID,
+    organization_id: ORGANIZATION_ID,
+    slug: "terminal-hop-deadline",
+    name: "Terminal hop deadline",
+    status: "active",
+    created_at_ms: now,
+  }).execute();
   await db.insertInto("workers").values({
+    dashboard_id: DASHBOARD_ID,
     fp: WORKER_FP, label: "hop", os: "linux", reachable_addr: "127.0.0.1",
     git_sha: null, host_metrics_json: null,
-    registered_at_ms: Date.now(), last_seen_ms: Date.now(),
+    registered_at_ms: now, last_seen_ms: now,
   }).execute();
 
   cleanup = async () => {
@@ -92,13 +116,14 @@ async function seedSession(): Promise<string> {
   const id = `hop00000-0000-4000-8000-${String(sessionCounter).padStart(12, "0")}`;
   await db.insertInto("sessions").values({
     id, worker_fp: WORKER_FP, channel: 1, kind: "shell",
+    dashboard_id: DASHBOARD_ID,
     cwd: "/tmp", status: "open", created_at: Date.now(),
   }).execute();
   return id;
 }
 
 function identity(tabId: string): TerminalViewerIdentity {
-  return { viewerKey: `${CALLER_FP}:${tabId}`, callerFingerprint: CALLER_FP };
+  return { viewerKey: `${CALLER_FP}:${tabId}`, callerFingerprint: CALLER_FP, dashboardId: DASHBOARD_ID };
 }
 
 /** A deadline frozen at `remainingMs`. Nothing here reads a clock, so a test
@@ -108,7 +133,7 @@ function frozenDeadline(totalMs: number, remainingMs: number): HopDeadline {
 }
 
 function attachWorker(send: (frame: CoordWorkerDown) => number): void {
-  __setConnectWorkerForTest(WORKER_FP, { workerFp: WORKER_FP, send });
+  __setConnectWorkerForTest(WORKER_FP, { workerFp: WORKER_FP, dashboardId: DASHBOARD_ID, send });
 }
 
 describe("pre-send expiry is a definite rejection", () => {

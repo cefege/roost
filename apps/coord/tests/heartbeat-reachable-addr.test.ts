@@ -16,6 +16,7 @@ import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
+import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import { presenceBus } from "../src/buses.ts";
 import type { CoordConfig } from "@roost/shared/config";
 
@@ -25,6 +26,7 @@ let cleanup: () => Promise<void>;
 let workerJwt: string;
 let workerFp: string;
 let db: KyselyDB;
+const DASHBOARD_ID = "heartbeat-reachable-dashboard";
 
 beforeAll(async () => {
 	workdir = mkdtempSync(join(tmpdir(), "roost-hb-reachable-"));
@@ -37,9 +39,27 @@ beforeAll(async () => {
 	db = opened.db;
 	const sqlite = opened.sqlite;
 	await runMigrations(sqlite);
+	await db.insertInto("organizations").values({
+		id: "heartbeat-reachable-organization",
+		slug: "heartbeat-reachable",
+		name: "Heartbeat reachable",
+		status: "active",
+		created_at_ms: Date.now(),
+	}).execute();
+	await db.insertInto("dashboards").values({
+		id: DASHBOARD_ID,
+		organization_id: "heartbeat-reachable-organization",
+		slug: "default",
+		name: "Default",
+		status: "active",
+		created_at_ms: Date.now(),
+	}).execute();
 	const coordKey = await loadOrCreateCoordKey(keyPath);
 	const jwtCache = newJwtCache();
 	const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
+		saasMode: false,
+		managedContainer: false,
+		pushAllowedOrigins: [],
 		dbPath,
 		coordKeyPath: keyPath,
 		authorizedKeysPath: authPath,
@@ -53,7 +73,14 @@ beforeAll(async () => {
 		logDir: workdir,
 		publicUrl: undefined,
 		handoffPath: join(workdir, "coord-handoff.json"), }
-	coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
+	coord = createCoord({
+		db,
+		sqlite,
+		coordKey,
+		cfg,
+		jwtCache,
+		passwordWorkGate: new PasswordWorkGate(),
+	});
 
 	// Mint a worker keypair, authorize it, seed its workers row (register-time
 	// reachable_addr intentionally null to prove the heartbeat backfills it).
@@ -79,6 +106,7 @@ beforeAll(async () => {
 		.insertInto("workers")
 		.values({
 			fp: workerFp,
+			dashboard_id: DASHBOARD_ID,
 			label: "worker-host",
 			os: "darwin",
 			registered_at_ms: Date.now(),

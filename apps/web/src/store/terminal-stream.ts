@@ -12,6 +12,9 @@ export {
   dispatchTerminalViewState,
 } from "./terminal-stream-view.ts";
 export {
+  blackholeTerminalFramesForCurrentGeneration,
+  consumeTerminalSmokeFrameFault,
+  dropNextTerminalWireDelta,
   _resetTerminalStreamForTest,
   cellFrameCount,
   cellFrameCountSize,
@@ -21,6 +24,7 @@ export {
   droppedCellFrameCount,
   lastFullFrameSbRows,
   pruneTerminalSession,
+  resetTerminalStream,
   terminalStreamDiagnosticSnapshot,
 } from "./terminal-stream-diagnostics.ts";
 export type {

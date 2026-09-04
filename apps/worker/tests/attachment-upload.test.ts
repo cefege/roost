@@ -6,7 +6,7 @@
 import { test, expect, afterAll } from "bun:test";
 import fs from "node:fs";
 import { handleAttachmentChunk, probeAttachment, recordAttachmentHash } from "../src/attachment-upload.ts";
-import { attachmentSessionDir } from "../src/attachment-reaper.ts";
+import { attachmentSessionDir, sanitizeAttachmentName } from "../src/attachment-reaper.ts";
 
 const SID = `test-upload-${crypto.randomUUID()}`;
 const dir = attachmentSessionDir(SID);
@@ -24,6 +24,37 @@ function feed(reqId: string, filename: string, slices: Uint8Array[], shortPath =
     });
   });
 }
+
+test("filename sanitizer removes every C0, DEL, and C1 control before parsing", () => {
+  const controls = String.fromCodePoint(
+    ...Array.from({ length: 0x20 }, (_, codePoint) => codePoint),
+    ...Array.from({ length: 0x21 }, (_, offset) => 0x7f + offset),
+  );
+  const inert = "safe name ' $() `tick` 雪";
+
+  expect(sanitizeAttachmentName(`ignored/${controls}${inert}${controls}.tar${controls}.gz${controls}`, "linux"))
+    .toBe(`${inert}.tar.gz`);
+  expect(sanitizeAttachmentName(`ignored\\${controls}${inert}${controls}.tar${controls}.gz${controls}`, "win32"))
+    .toBe(`${inert}.tar.gz`);
+});
+
+test("POSIX filename sanitizer preserves inert spaces, quotes, shell syntax, and Unicode", () => {
+  const filename = "ordinary name ' \" $() `backticks` 文.txt";
+  expect(sanitizeAttachmentName(filename, "linux")).toBe(filename);
+  expect(sanitizeAttachmentName(filename, "darwin")).toBe(filename);
+});
+
+test("upload strips controls without changing basename or compound extension parsing", async () => {
+  const inert = "report ' \"$() `tick` 雪";
+  const absPath = await feed(
+    crypto.randomUUID(),
+    `ignored/\r\n\u001b${inert}\u0085\u007f.tar\u009f.gz\u0001`,
+    [new TextEncoder().encode("safe")],
+  );
+  expect(absPath.endsWith(`/${inert}.tar.gz`)).toBe(true);
+  expect(absPath).not.toMatch(/[\x00-\x1F\x7F-\x9F]/);
+  expect(fs.readFileSync(absPath, "utf8")).toBe("safe");
+});
 
 test("multi-chunk assembles byte-exact in order", async () => {
   // 2.5 MiB across 1 MiB chunks → distinct bytes per chunk so reorder shows.

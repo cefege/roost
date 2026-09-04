@@ -99,10 +99,15 @@ export function startAgentSeenPersistence(): () => void {
   };
 }
 
-export function resetAgentSeenForTest(): void {
-  if (persistTimer) clearTimeout(persistTimer);
+/** Clear account-scoped session notification acknowledgements. */
+export function clearAgentSeenForLogout(): void {
+  clearTimeout(persistTimer ?? undefined);
   persistTimer = null;
   seen.clear();
   setVersion((value) => value + 1);
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
+}
+
+export function resetAgentSeenForTest(): void {
+  clearAgentSeenForLogout();
 }

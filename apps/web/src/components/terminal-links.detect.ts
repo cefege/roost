@@ -1,16 +1,31 @@
-// Pure (DOM-free) link detection for the terminal linkifier. Regex patterns,
-// OSC-8 + regex match collection, and the soft-wrap → row-segment algorithm.
-// Unit-tested in terminal-links.test.ts (computeRowLinks); the DOM applier that
-// consumes these lives in terminal-links.ts.
-//
-// URL regex is adapted verbatim from a terminal emulator's default regex
-// (Oniguruma → ECMAScript).
-// Same scheme list, same `(?<![,.])` trailing-punctuation lookbehind,
-// same `[(\[]\w*[)\]]` bracketed-suffix branch so URLs with a
-// matching paren pair stay intact (Wikipedia-style trailing `_(disambig)`).
+// Detects inferred terminal links across rendered rows, including soft wraps.
+// The DOM linkifier consumes these pure row segments while target validation
+// stays centralized in terminal-links.target.ts for painted and inferred links.
+// Tests exercise this module without requiring browser DOM state.
 
-// The source scheme list.
-const URL_SCHEMES = "https?:\\/\\/|mailto:|ftp:\\/\\/|file:|ssh:\\/\\/|git:\\/\\/|tel:|magnet:|ipfs:\\/\\/|gemini:\\/\\/|gopher:\\/\\/|news:";
+import {
+  classifyTerminalLinkTarget,
+  FILE_NAME_RE,
+  WINDOWS_DRIVE_ABS_RE,
+  type ResolveFile,
+} from "./terminal-links.target.ts";
+
+export {
+  classifyTerminalLinkTarget,
+  isWorkerFileHref,
+} from "./terminal-links.target.ts";
+export type {
+  ExternalTerminalLinkTarget,
+  ResolveFile,
+  TerminalLinkTarget,
+  WorkerFileTerminalLinkTarget,
+} from "./terminal-links.target.ts";
+
+// Detect every explicit URI scheme so rejected/custom protocols still occupy
+// their printed range and cannot be reinterpreted as a worker file path. The
+// classifier below is the authority: only absolute HTTP(S) and worker-local
+// file targets survive as links.
+const URI_SCHEME_SOURCE = "(?:[A-Za-z][A-Za-z0-9+.-]*:\\/\\/|(?:mailto|javascript|data|vbscript|tel|magnet|news):)";
 // Char class for scheme-branch URL body.
 const SCHEME_URL_CHARS = "[\\w\\-.~:/?#@!$&*+,;=%]";
 // Runtime boundary character test used while joining soft-wrapped rows. It is
@@ -27,7 +42,7 @@ const BRACKETED_SUFFIX = "(?:[\\(\\[]\\w*[\\)\\]])?";
 const NO_TRAILING_PUNCT = "(?<![,.])";
 
 const URL_RE_SOURCE =
-  `(?:${URL_SCHEMES})(?:${IPV6_BODY}|${SCHEME_URL_CHARS}+${BRACKETED_SUFFIX})+${NO_TRAILING_PUNCT}`;
+  `(?:${URI_SCHEME_SOURCE})(?:${IPV6_BODY}|${SCHEME_URL_CHARS}+${BRACKETED_SUFFIX})+${NO_TRAILING_PUNCT}`;
 
 // Scheme-less dev-server URLs: localhost / loopback with an explicit :PORT
 // (port required so bare "localhost" in prose isn't linkified). Rendered as
@@ -68,17 +83,6 @@ const FILE_RE_SOURCE =
  * below can match, so nothing could contest an already-painted anchor. */
 export const ROW_LINK_HINT = /[:/.#\\]|[0-9a-f]{7}/;
 
-/** Resolve a raw file path (+ optional 1-based line) from terminal output into
- *  an internal `/file/<workerFp>/…#L<line>` href, or null to skip linkifying it
- *  (e.g. `~`-relative paths we can't resolve). Provided by the Terminal, which
- *  knows the session's worker + cwd. */
-export type ResolveFile = (rawPath: string, line: number | null) => string | null;
-
-/** Split a trailing `:line[:col]` off a file candidate. */
-function _splitPathLine(raw: string): { path: string; line: number | null } {
-  const m = raw.match(/^(.*?):(\d+)(?::\d+)?$/);
-  return m ? { path: m[1], line: parseInt(m[2], 10) } : { path: raw, line: null };
-}
 
 /** One PAINTED producer link — an OSC 8 hyperlink the renderer already wrapped
  *  in an anchor at the exact cells the core says carry it (cellRow.ts). Offsets
@@ -103,12 +107,26 @@ export interface RowLinkInput {
 }
 
 // One link segment to apply to a single visual row (row-local offsets).
-// kind/hint are set ONLY for file links (internal nav + a friendly hover
-// label); url links omit them so they stay `{row,start,end,url}` (test shape).
-export interface RowLinkSegment { row: number; start: number; end: number; url: string; kind?: "file"; hint?: string }
+// kind/hint/source are set ONLY for file links. `source` is the exact
+// terminal-authored target; keeping it separate from the authenticated route
+// lets activation reclassify instead of trusting mutable anchor attributes.
+export interface RowLinkSegment {
+  row: number;
+  start: number;
+  end: number;
+  url: string;
+  kind?: "file";
+  hint?: string;
+  source?: string;
+}
 
 interface Match {
-  start: number; end: number; url: string; kind: "url" | "file"; hint?: string;
+  start: number;
+  end: number;
+  url: string;
+  kind: "url" | "file" | "blocked";
+  hint?: string;
+  source?: string;
   /** Already in the DOM as a painted anchor — seeded for precedence, never
    *  returned as a segment to wrap. */
   painted?: true;
@@ -132,8 +150,12 @@ function _findMatches(
   const evictStrictSubstrings = (start: number, end: number) => {
     for (let k = matches.length - 1; k >= 0; k--) {
       const x = matches[k];
-      if (x.start >= start && x.end <= end && !(x.start === start && x.end === end))
-        matches.splice(k, 1);
+      if (
+        x.painted === undefined
+        && x.start >= start
+        && x.end <= end
+        && !(x.start === start && x.end === end)
+      ) matches.splice(k, 1);
     }
   };
   // 1. Producer links, at the columns the core authored them on. No text
@@ -141,15 +163,47 @@ function _findMatches(
   for (const p of painted) {
     matches.push({ start: p.start, end: p.end, url: p.uri, kind: "url", painted: true });
   }
-  // 2. Scheme URLs (the regex above) + scheme-less localhost:PORT dev URLs.
+  // 2. Explicit-scheme targets + scheme-less localhost:PORT dev URLs. Invalid
+  //    or custom schemes stay as blocked ranges so a path-looking suffix cannot
+  //    be reinterpreted as an authenticated worker file.
   if (text.indexOf(":") !== -1) {
     const re = new RegExp(URL_RE_SOURCE, "g");
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
-      const start = m.index, end = m.index + m[0].length;
+      const raw = m[0], start = m.index, end = m.index + raw.length;
       if (matches.some(x => x.start === start && x.end === end)) continue;
       evictStrictSubstrings(start, end);
-      if (!overlaps(start, end)) matches.push({ start, end, url: m[0], kind: "url", hint: m[0] });
+      if (overlaps(start, end)) continue;
+      const target = classifyTerminalLinkTarget(raw, resolveFile);
+      if (target?.kind === "external") {
+        matches.push({ start, end, url: target.href, kind: "url", hint: target.display });
+      } else if (target?.kind === "file" && target.href) {
+        matches.push({
+          start,
+          end,
+          url: target.href,
+          kind: "file",
+          hint: `Open ${target.display}`,
+          source: raw,
+        });
+      } else {
+        matches.push({ start, end, url: raw, kind: "blocked" });
+      }
+    }
+    // URI schemes without `//` (for example vscode:file/a.ts) are not external
+    // links, but their path-looking suffix must not become a worker-file link.
+    // A boundary prevents the `ts:9` suffix of foo.ts:9 from looking like one.
+    const schemeToken = /(?<![\w.])[A-Za-z][A-Za-z0-9+.-]*:[^\s]*/g;
+    while ((m = schemeToken.exec(text)) !== null) {
+      const raw = m[0], start = m.index, end = m.index + raw.length;
+      if (
+        FILE_NAME_RE.test(raw)
+        || WINDOWS_DRIVE_ABS_RE.test(raw)
+        || /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+(?:\/|$)/.test(raw)
+        || matches.some(x => x.start === start && x.end === end)
+        || overlaps(start, end)
+      ) continue;
+      matches.push({ start, end, url: raw, kind: "blocked" });
     }
     const lre = new RegExp(LOCALHOST_RE_SOURCE, "g");
     while ((m = lre.exec(text)) !== null) {
@@ -157,8 +211,11 @@ function _findMatches(
       if (matches.some(x => x.start === start && x.end === end)) continue;
       evictStrictSubstrings(start, end);
       if (!overlaps(start, end)) {
-        const url = "http://" + m[0];
-        matches.push({ start, end, url, kind: "url", hint: url });
+        const raw = "http://" + m[0];
+        const target = classifyTerminalLinkTarget(raw);
+        if (target?.kind === "external") {
+          matches.push({ start, end, url: target.href, kind: "url", hint: target.display });
+        }
       }
     }
   }
@@ -192,30 +249,24 @@ function _findMatches(
     let m: RegExpExecArray | null;
     while ((m = fre.exec(text)) !== null) {
       const raw = m[0], start = m.index, end = m.index + raw.length;
-      // Evict ONLY file:/// hyperlinks that overlap — these come from
-      // `ls --hyperlink` and are useless in a browser (file:// is blocked).
-      // Scheme URLs (https://, etc.) are preserved — they're valid links.
-      for (let i = matches.length - 1; i >= 0; i--) {
-        const x = matches[i];
-        if (x.kind === "url" && x.url.startsWith("file://") &&
-            !(x.end <= start || x.start >= end)) {
-          matches.splice(i, 1);
-        }
-      }
-      // Still skip if a non-file:// URL or another match overlaps (scheme URLs
-      // and producer links to other targets stay intact).
       if (matches.some(x => !(x.end <= start || x.start >= end))) continue;
-      const { path, line } = _splitPathLine(raw);
-      const href = resolveFile(path, line);
-      if (href) matches.push({ start, end, url: href, kind: "file", hint: `Open ${raw}` });
+      const target = classifyTerminalLinkTarget(raw, resolveFile);
+      if (target?.kind === "file" && target.href) {
+        matches.push({
+          start,
+          end,
+          url: target.href,
+          kind: "file",
+          hint: `Open ${raw}`,
+          source: raw,
+        });
+      }
     }
   }
   matches.sort((a, b) => a.start - b.start);
-  // Painted links are already anchors in the DOM, so only what the DOM still
-  // needs is returned. A painted match that is MISSING here lost to a regex
-  // match above; the applier sees a returned segment overlapping a painted
-  // anchor and dissolves that anchor before wrapping the winner.
-  return matches.filter((m) => m.painted === undefined);
+  // Painted links already exist. Blocked schemes exist only to reserve their
+  // text range against the file detector; neither category gets wrapped.
+  return matches.filter((m) => m.painted === undefined && m.kind !== "blocked");
 }
 
 // PURE wrapped-URL algorithm (DOM-free, unit-tested in terminal-links.test.ts).
@@ -307,7 +358,10 @@ export function computeRowLinks(
           if (s < e) {
             const off = leadSkip[k - i];
             out.push(m.kind === "file"
-              ? { row: k, start: s - base + off, end: e - base + off, url: m.url, kind: "file", hint: m.hint }
+              ? {
+                  row: k, start: s - base + off, end: e - base + off,
+                  url: m.url, kind: "file", hint: m.hint, source: m.source,
+                }
               : { row: k, start: s - base + off, end: e - base + off, url: m.url });
           }
         }

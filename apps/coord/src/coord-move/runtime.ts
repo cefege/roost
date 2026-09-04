@@ -15,14 +15,14 @@ export interface MoveWorker {
 }
 
 export interface CoordinatorMoveRuntime {
-  checkTarget(target: MoveWorker, expectedGitSha: string, estimatedDbSize: number): Promise<string | null>;
+  checkTarget(dashboardId: string, target: MoveWorker, expectedGitSha: string, estimatedDbSize: number): Promise<string | null>;
   prepareTarget(state: MoveSnapshot): Promise<void>;
   stageWorker(worker: MoveWorker, state: MoveSnapshot): Promise<void>;
   activateWorker(worker: MoveWorker, state: MoveSnapshot): Promise<void>;
   commitWorker(worker: MoveWorker, state: MoveSnapshot): Promise<void>;
   abortWorker(worker: MoveWorker, state: MoveSnapshot): Promise<void>;
   copySnapshot(state: MoveSnapshot): Promise<void>;
-  reconnectWorkers(workers: MoveWorker[], timeoutMs: number): Promise<void>;
+  reconnectWorkers(dashboardId: string, workers: MoveWorker[], timeoutMs: number): Promise<void>;
   waitForWorkers(state: MoveSnapshot, timeoutMs: number): Promise<void>;
   targetStatus(state: MoveSnapshot): Promise<MovePhase | null>;
   commitTarget(state: MoveSnapshot): Promise<void>;
@@ -37,6 +37,7 @@ export interface MoveSnapshot {
   sourceUrl: string;
   targetUrl: string;
   targetWorkerFp: string;
+  dashboardId: string;
   expectedWorkerFps: string[];
   expectedCoordKid: string;
   expectedGitSha: string;

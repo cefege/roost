@@ -7,7 +7,7 @@
 
 import { posix } from "node:path";
 import { verifyWorkerCmd, WORKER_UNIT } from "./service-ctl.ts";
-import { posixShellQuote } from "./shell-quote.ts";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 import {
   assertFixedLinuxJournalPath,
   assertLinuxDeployJournal,

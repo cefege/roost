@@ -1,18 +1,7 @@
-// M3 primitives shared across the settings panes. Class-based, so the
-// CSS lives in tokens.css and the JSX stays terse. Anything more
-// component-shaped (dialog, switch, ripple) defers to @material/web
-// custom elements imported lazily by the consuming pane.
-//
-// Owners: SettingsRoot.tsx + every pane under Settings/.
-// Depends on: ./tokens.css for the class definitions.
-//
-// Barrel: one-component-per-file (CLAUDE.md L376). Each primitive lives in its
-// own sibling under ./md/; this file re-exports them so
-// `import { Card, ... } from "./md/primitives.tsx"` resolves unchanged. The
-// @material/web registrations stay here too so importing ANY primitive from the
-// barrel registers every md custom element, exactly as the single-file version
-// did (ES-module singletons → no double-define even though each sibling also
-// imports the ones it uses).
+// M3 primitive barrel shared across settings and the wider SPA.
+// Each component lives in its own sibling and retains this stable re-export surface.
+// SettingsRoot owns shell utilities; component-owned CSS travels with its primitive.
+// Importing the barrel registers every Material custom element exactly once.
 
 import "@material/web/switch/switch.js";
 import "@material/web/checkbox/checkbox.js";

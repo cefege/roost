@@ -6,6 +6,7 @@
 import type { SessionManager } from "./session-manager.ts";
 import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
 import type { SessionRecord } from "./session-record.ts";
+import type { LifecycleReservation } from "./event-sink.ts";
 import type { SessionId, ChannelId } from "@roost/shared/wire";
 import { diag, signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
@@ -97,13 +98,24 @@ export async function reapStrayKeeperChannels(this: SessionManager): Promise<num
  *  coord keeps the session `open` forever (unkillable). Emit a `closed`
  *  tombstone so coord projects it closed: kill is idempotent, an orphan can
  *  never get stuck open. The PTY is already gone, so closing is correct. */
-export function emitClosedTombstone(this: SessionManager, sessionId: SessionId): void {
-	this.emitEvent({
-		kind: "closed",
-		session_id: sessionId,
-		exit_code: null,
-		ts: Date.now(),
-	});
+export function emitClosedTombstone(
+	this: SessionManager,
+	sessionId: SessionId,
+	reservation?: LifecycleReservation,
+): void {
+	const ownedReservation =
+		reservation ?? this.reserveLifecycleEvent("closed");
+	try {
+		this.emitEvent({
+			kind: "closed",
+			session_id: sessionId,
+			exit_code: null,
+			ts: Date.now(),
+		}, ownedReservation);
+	} catch (error) {
+		this.releaseLifecycleEvent(ownedReservation);
+		throw error;
+	}
 }
 
 export function kill(this: SessionManager, channelId: number): void {
@@ -136,8 +148,19 @@ export function closedByKeeper(this: SessionManager, channelId: number, exitCode
 	const r = this.sessions.get(channelId);
 	if (!r) return;
 	this._checkDeadBirth(r);
-	r.fsm.send({ kind: "close", exitCode });
-	// _onTransition fires the coord event.
+	try {
+		const transition = r.fsm.send({ kind: "close", exitCode });
+		if (!transition.ok) {
+			throw new Error(
+				`live session ${r.sessionId} rejected close transition: ${transition.reason}`,
+			);
+		}
+	} catch (error) {
+		this.releaseLifecycleEvent(r.closeReservation);
+		this._dropChannelState(channelId);
+		throw error;
+	}
+	// _onTransition durably records the close before this state disappears.
 	// @wterm/core has no dispose — WASM memory is GC'd with the bridge ref.
 	this._dropChannelState(channelId);
 }
@@ -256,20 +279,31 @@ export function _onTransition(
 	});
 	if (to === "closed") {
 		const exitCode = event.kind === "close" ? event.exitCode : null;
+		const record = this.sessions.get(channelId);
+		if (!record) {
+			throw new Error(
+				`closed transition for untracked session ${sessionId}`,
+			);
+		}
 		this.emitEvent({
 			kind: "closed",
 			session_id: sessionId,
 			exit_code: exitCode,
 			ts: Date.now(),
-		});
+		}, record.closeReservation);
 	}
 }
 
 
-/** Stop the class-level reaper interval. Per-record timers clear on close. */
+/** Stop lifecycle producers and release unconsumed eventual-close capacity.
+ * Survivor keeper PTYs remain alive for the next worker process to adopt. */
 export function dispose(this: SessionManager): void {
 	if (this.strayReaperTimer !== null) {
 		clearInterval(this.strayReaperTimer);
 		this.strayReaperTimer = null;
+	}
+	for (const record of [...this.sessions.values()]) {
+		this.releaseLifecycleEvent(record.closeReservation);
+		this._dropChannelState(record.channelId);
 	}
 }

@@ -148,11 +148,10 @@ export async function cutover(args: string[]): Promise<void> {
 
   // ─── authorized_keys-pinned tables (skip — drift too large) ───────
   // bootstrap_tokens (different column shapes), pair_requests, tasks,
-  // permission_rules, webhook_tokens, mcp_relays, feature_flags all
-  // diverged enough that a fresh start is safer. Workers re-pair via
-  // bootstrap tokens; permission rules / webhook tokens / etc are
-  // operator-recreated.
-  console.log(">> bootstrap_tokens / pair_requests / tasks / permission_rules / webhook_tokens / mcp_relays / feature_flags: skipped (operator recreates after cutover)");
+  // mcp_relays, and feature_flags all diverged enough that a fresh start
+  // is safer. Workers re-pair via bootstrap tokens; remaining settings
+  // are operator-recreated.
+  console.log(">> bootstrap_tokens / pair_requests / tasks / mcp_relays / feature_flags: skipped (operator recreates after cutover)");
 
   // Open sessions: NOT carried. Workers emit `snapshot` events on
   // coord reconnect (R3.1) which reconciles live sessions through the

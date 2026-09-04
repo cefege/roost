@@ -20,6 +20,13 @@ const [terminalBootstrapStage, setTerminalBootstrapStage] =
   createSignal<TerminalBootstrapStage>("identity");
 
 const [sessionsHydrated, setSessionsHydrated] = createSignal(false);
+/** A dashboard switch has no valid terminal snapshot until the next selected
+ * scope finishes Sync hydration. */
+export function resetSyncHydration(): void {
+  setSessionsHydrated(false);
+  setTerminalBootstrapStage("sync");
+}
+
 
 export {
   sessionsHydrated,

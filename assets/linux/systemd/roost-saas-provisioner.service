@@ -1,0 +1,46 @@
+[Unit]
+Description=Provision Roost managed accounts through private IPC
+After=docker.service network-online.target roost-saas-origin-isolation.service roost-saas-resolver.service roost-saas-resolver-bridge.service
+Wants=network-online.target
+Requires=docker.service roost-saas-origin-isolation.service roost-saas-resolver.service roost-saas-resolver-bridge.service
+RequiresMountsFor=/srv/data/roost /srv/infra/edge
+ConditionFileNotEmpty=/etc/roost/saas.env
+ConditionFileNotEmpty=/etc/roost/saas-auth/assertion-verify-key
+
+[Service]
+Type=simple
+User=root
+Group=roost-signup
+UMask=0007
+EnvironmentFile=/etc/roost/saas.env
+Environment=ROOST_SAAS_AUTH_VERIFY_KEY_FILE=/etc/roost/saas-auth/assertion-verify-key
+Environment=ROOST_SAAS_CONTROL_DB=/srv/data/roost/control.db
+Environment=ROOST_SAAS_MAX_ACCOUNTS=8
+RuntimeDirectory=roost-saas-private
+RuntimeDirectoryMode=0750
+ExecStart=/usr/local/bin/roost __saas-provisioner serve
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/data/roost /srv/infra/edge/conf.d /run/roost-saas-private /run/docker.sock
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SocketBindDeny=ipv4:tcp
+SocketBindDeny=ipv6:tcp
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

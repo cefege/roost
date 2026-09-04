@@ -151,12 +151,13 @@ export function sanitizeAttachmentName(
   raw: string,
   platform: SupportedHostPlatform = HOST_PLATFORM,
 ): string {
+  const cleanRaw = raw.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
   switch (platform) {
     case "darwin":
     case "linux": {
-      const ext = path.posix.extname(raw);
+      const ext = path.posix.extname(cleanRaw);
       const stemMax = Math.max(1, 80 - ext.length);
-      let stem = path.posix.basename(raw, ext)
+      let stem = path.posix.basename(cleanRaw, ext)
         .replace(/[\/\x00]/g, "")
         .replace(/^\.+/, "")
         .slice(0, stemMax);
@@ -164,7 +165,7 @@ export function sanitizeAttachmentName(
       return `${stem}${ext}`;
     }
     case "win32": {
-      let leaf = path.win32.basename(raw)
+      let leaf = path.win32.basename(cleanRaw)
         .replace(/[<>:"/\\|?*\x00]/g, "")
         .replace(/[. ]+$/g, "");
       if (!leaf) leaf = "file";

@@ -13,6 +13,7 @@ import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import {
   TerminalScreenHub,
   type TerminalScreenHubOptions,
+  type TerminalDeltaEnqueueResult,
   type TerminalScreenSocketSink,
 } from "../src/connect/terminal-screen-hub.ts";
 
@@ -35,8 +36,9 @@ export class TestSink implements TerminalScreenSocketSink {
   readonly deltas: Array<{ sessionId: string; streamId: string; frame: FirehoseFrame }> = [];
   readonly drops: string[] = [];
   private readonly lanes = new Map<string, string>();
-
-  constructor(private readonly acceptDelta = true) {}
+  constructor(
+    private readonly deltaResult: boolean | TerminalDeltaEnqueueResult = true,
+  ) {}
 
   beginTerminalStream(sessionId: string, streamId: string): boolean {
     if (this.lanes.get(sessionId) === streamId) return false;
@@ -60,10 +62,16 @@ export class TestSink implements TerminalScreenSocketSink {
     this.snapshots.push({ sessionId, streamId, frames });
   }
 
-  enqueueTerminalDelta(sessionId: string, streamId: string, frame: FirehoseFrame): boolean {
+  enqueueTerminalDelta(
+    sessionId: string,
+    streamId: string,
+    frame: FirehoseFrame,
+  ): TerminalDeltaEnqueueResult {
     this.events.push(`delta:${streamId}`);
     this.deltas.push({ sessionId, streamId, frame });
-    return this.acceptDelta;
+    return typeof this.deltaResult === "boolean"
+      ? (this.deltaResult ? "queued" : "needs_snapshot")
+      : this.deltaResult;
   }
 
   dropTerminalSession(sessionId: string): void {
@@ -224,11 +232,19 @@ interface TimerEntry {
 export function makeHarness(clock = { value: 0 }) {
   const requests: Array<[sessionId: string, streamId: string]> = [];
   const unavailable: Array<[sessionId: string, reason: string]> = [];
+  const freshStreams: Array<[
+    sessionId: string,
+    expectedStreamId: string,
+    reason: string,
+  ]> = [];
   const timers = new Map<number, TimerEntry>();
   let nextTimer = 1;
   const options: TerminalScreenHubOptions = {
     requestSnapshot: (sessionId, streamId) => requests.push([sessionId, streamId]),
     unavailable: (sessionId, reason) => unavailable.push([sessionId, reason]),
+    requestFreshStream: (sessionId, streamId, reason) => {
+      freshStreams.push([sessionId, streamId, reason]);
+    },
     now: () => clock.value,
     setTimer: (callback, delayMs) => {
       const timer = nextTimer++;
@@ -246,7 +262,15 @@ export function makeHarness(clock = { value: 0 }) {
     timers.delete(timer);
     entry.callback();
   };
-  return { hub, clock, requests, unavailable, timers, fireTimer };
+  return {
+    hub,
+    clock,
+    requests,
+    freshStreams,
+    unavailable,
+    timers,
+    fireTimer,
+  };
 }
 
 export function watch(hub: TerminalScreenHub, sink: TestSink, socketId = "socket-a"): void {

@@ -7,6 +7,14 @@ import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 
 export type CoordinatorRole = "yes" | "no" | "unknown";
 
+/** Host-managed coordinators are moved and rolled out only by the operator.
+ * Their SPA must not render, poll, or resume the self-hosted move workflow. */
+export function coordinatorMoveControlsVisible(
+  coordIdentity: { saas_mode?: boolean | null } | null | undefined,
+): boolean {
+  return coordIdentity?.saas_mode !== true;
+}
+
 /** Is this worker the machine currently hosting the coordinator?
  *
  *  "unknown" is a real answer, not a failure: `public_url` is optional on the

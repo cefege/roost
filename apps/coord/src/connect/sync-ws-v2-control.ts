@@ -8,12 +8,12 @@ import {
   type FirehoseFrame,
 } from "@roost/shared/proto/sync_pb";
 import { log } from "@roost/shared/log";
-import type { SyncDeadlineClock } from "./sync-ws-deadline.ts";
+import type { WsDeadlineClock } from "./ws-auth-deadline.ts";
 import type { SyncBackpressureReason } from "./sync-ws-v1-delivery.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 
 interface SyncV2ControlSenderDeps {
-  readonly deadlineClock: SyncDeadlineClock;
+  readonly deadlineClock: WsDeadlineClock;
   readonly backpressureLimitBytes: number;
   readonly backpressureTimeoutMs: number;
   closeForBackpressure(

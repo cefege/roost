@@ -1,6 +1,6 @@
-// Task queue (worker pull-claim model). Tasks live in coord SQL; coord
-// hands them to workers via /tasks.nextPending tRPC query. Webhook-
-// minted tokens can enqueue via the .enqueue mutation.
+// Task queue (worker pull-claim model). Tasks live in coordinator SQL and
+// workers claim them through the task RPCs.
+// No webhook or permission-rule surface participates in task admission.
 
 import { z } from "zod";
 import { TaskId, WorkerFp } from "./brand.ts";

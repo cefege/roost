@@ -32,7 +32,7 @@ import type {
 interface EncodedPending {
   bytes: Uint8Array;
   queuedAtMs: number;
-  kind: "control" | "raw";
+  kind: "liveness" | "control" | "raw";
 }
 
 export function createCoordLinkOutbox(
@@ -47,16 +47,22 @@ export function createCoordLinkOutbox(
   let drainTimer: NodeJS.Timeout | null = null;
   let pendingFrameCount = 0;
   let pendingEncodedBytes = 0;
+  const livenessPending: EncodedPending[] = [];
   const controlPending: EncodedPending[] = [];
   const rawPending: EncodedPending[] = [];
   let writableNotificationPending = false;
   let notifyingWritable = false;
-  const events = createCoordLinkUnacked({
+  const events = createCoordLinkUnacked(deps.sessionEventStore, {
     isDisposed,
     encodeUpstream: (frame) => encodeUpstream(frame),
     tryWriteEncoded: (bytes) => tryWriteEncoded(bytes),
     isAttached: () => writer !== null,
     kick: () => { drainQueues(); },
+    onLive: (reconnected) => {
+      linkReady = true;
+      deps.onSnapshotReady?.({ reconnected });
+      drainQueues();
+    },
   });
 
   function clearDrainTimer(): void {
@@ -127,7 +133,7 @@ export function createCoordLinkOutbox(
       return false;
     }
     const item: EncodedPending = { bytes, queuedAtMs: Date.now(), kind };
-    (kind === "raw" ? rawPending : controlPending).push(item);
+    (kind === "raw" ? rawPending : kind === "liveness" ? livenessPending : controlPending).push(item);
     pendingFrameCount += 1;
     pendingEncodedBytes += bytes.byteLength;
     scheduleDrain();
@@ -145,6 +151,14 @@ export function createCoordLinkOutbox(
   function rawMetadataAged(now = Date.now()): boolean {
     const oldest = rawPending[0];
     return oldest !== undefined && now - oldest.queuedAtMs >= RAW_METADATA_MAX_AGE_MS;
+  }
+
+  function drainLiveness(): void {
+    while (livenessPending.length > 0) {
+      const item = livenessPending[0]!;
+      if (!tryWriteEncoded(item.bytes)) return;
+      removePendingHead(livenessPending);
+    }
   }
 
   function drainControls(): void {
@@ -186,31 +200,27 @@ export function createCoordLinkOutbox(
   function drainQueues(): void {
     clearDrainTimer();
     if (isDisposed() || !writer) return;
-    // Durable/control chronology always fences cells and raw metadata. This is
-    // what preserves opened -> first full when native buffering is saturated.
+    drainLiveness();
+    if (livenessPending.length > 0) {
+      scheduleDrain();
+      return;
+    }
     events.drainUnsent();
     if (events.unsentCount() > 0) {
       scheduleDrain();
       return;
     }
-    // A cell that was dropped behind an earlier durable event is repaired
-    // before later RPC/control replies. This preserves opened -> first full ->
-    // spawn result even when the native socket was saturated at opened.
-    if (linkReady) {
-      maybeNotifyWritable();
-      if (writableNotificationPending) {
-        scheduleDrain();
-        return;
-      }
+    if (!linkReady) return;
+    maybeNotifyWritable();
+    if (writableNotificationPending) {
+      scheduleDrain();
+      return;
     }
     drainControls();
     if (controlPending.length > 0) {
       scheduleDrain();
       return;
     }
-    // Raw frames are held until helloAck. Authoritative repairs above lead the
-    // reconnect backlog.
-    if (!linkReady) return;
     if (rawMetadataAged()) drainOneRaw();
     while (rawPending.length > 0 && drainOneRaw()) { /* FIFO */ }
     if (rawPending.length > 0 || writableNotificationPending) scheduleDrain();
@@ -220,6 +230,7 @@ export function createCoordLinkOutbox(
     const bytes = encodeUpstream(frame);
     if (!bytes) return "dropped";
     if (
+      linkReady &&
       events.unsentCount() === 0 &&
       controlPending.length === 0 &&
       tryWriteEncoded(bytes)
@@ -227,11 +238,21 @@ export function createCoordLinkOutbox(
     return enqueueEncoded("control", bytes) ? "queued" : "dropped";
   }
 
+  function sendLivenessProto(frame: CoordWorkerUp): TransportSendResult {
+    const bytes = encodeUpstream(frame);
+    if (!bytes) return "dropped";
+    if (livenessPending.length === 0 && tryWriteEncoded(bytes)) return "sent";
+    return enqueueEncoded("liveness", bytes) ? "queued" : "dropped";
+  }
+
   function send(frame: UpstreamFrame): boolean {
     if (isDisposed()) return false;
-    if (frame.kind === "event") return events.send(frame.event);
+    if (frame.kind === "event") {
+      return events.send(frame.event, frame.clientSeq, frame.eventClass, frame.metadataKey);
+    }
     const proto = frameToProto(frame);
-    return proto ? sendControlProto(proto) === "sent" : false;
+    if (!proto) return false;
+    return (frame.kind === "pong" ? sendLivenessProto(proto) : sendControlProto(proto)) === "sent";
   }
 
   function sendBinary(
@@ -315,6 +336,7 @@ export function createCoordLinkOutbox(
   function sendAgentStatus(status: AgentStatusUpdate): boolean {
     if (
       isDisposed() ||
+      !linkReady ||
       !writer ||
       events.unsentCount() > 0 ||
       controlPending.length > 0
@@ -338,13 +360,15 @@ export function createCoordLinkOutbox(
     writer = null;
     activeWs = null;
     linkReady = false;
-    // Anything still awaiting an application ACK may have been lost with
-    // the native socket. Re-admit it on the next dial; coordinator dedup
-    // makes replay safe.
-    events.requeueAll();
+    while (livenessPending.length > 0) removePendingHead(livenessPending);
+    while (controlPending.length > 0) removePendingHead(controlPending);
+    while (rawPending.length > 0) removePendingHead(rawPending);
+    writableNotificationPending = false;
+    events.disconnect();
   }
 
   function reset(): void {
+    livenessPending.length = 0;
     controlPending.length = 0;
     rawPending.length = 0;
     pendingFrameCount = 0;
@@ -353,15 +377,19 @@ export function createCoordLinkOutbox(
   }
 
   return {
-    send, sendBinary, sendCellGrid, sendCellGridChunk, sendAgentStatus, sendControlProto,
+    send, sendBinary, sendCellGrid, sendCellGridChunk, sendAgentStatus,
+    sendControlProto, sendLivenessProto,
     encodeUpstream, detachSocket, reset, drainQueues, clearDrainTimer,
     forceWrite: (bytes) => { if (!writer) return false; writer(bytes); return true; },
     attachSocket: (socket, write) => { linkReady = false; activeWs = socket; writer = write; },
-    markLinkReady: () => { linkReady = true; },
+    acceptHelloAck: (reconnected) => { events.acceptHelloAck(reconnected); drainQueues(); },
+    activateSnapshotProvider: (provider) => { events.activateSnapshotProvider(provider); drainQueues(); },
+    snapshotStateChanged: () => { events.snapshotStateChanged(); drainQueues(); },
+    protocolPhase: () => events.phase(),
+    ready: () => events.ready(),
     isAttached: () => writer !== null,
     activeSocket: () => activeWs,
-    replayUnacked: () => { events.replay(); },
-    ackEvent: (seq) => { events.ack(seq); },
+    ackEvent: (seq) => { events.ack(seq); drainQueues(); },
     unackedCount: () => events.count(),
   };
 }

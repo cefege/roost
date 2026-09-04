@@ -12,6 +12,7 @@ import { Button } from "./Settings/md/primitives.tsx";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import { createOverlayPresence } from "../lib/overlayMotion.ts";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";
+import { credentialFreeUrl } from "../auth/fragment-credential.ts";
 
 // ── Static shortcut catalogue ─────────────────────────────────────────────────
 
@@ -248,7 +249,7 @@ function BindingChip(props: { children: JSX.Element }) {
 
 async function copyDiagnostic(): Promise<void> {
   const payload = {
-    url: typeof window !== "undefined" ? window.location.href : "",
+    url: typeof window !== "undefined" ? credentialFreeUrl(window.location) : "",
     ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
     time: new Date().toISOString(),
   };

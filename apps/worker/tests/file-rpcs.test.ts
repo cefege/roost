@@ -82,8 +82,8 @@ test("read at EOF returns empty + eof (no over-read)", async () => {
   expect(c.size).toBe(5);
 });
 
-test("oversized chunk request is capped at 4 MiB", async () => {
-  const maxChunk = 4 * 1024 * 1024;
+test("oversized chunk request is capped below the worker WebSocket payload ceiling", async () => {
+  const maxChunk = 2 * 1024 * 1024;
   const p = writeFile("oversized.bin", new Uint8Array(maxChunk + 1).fill(9));
   const c = await readOne(p, 0, Number.MAX_SAFE_INTEGER);
   expect(c.data.length).toBe(maxChunk);

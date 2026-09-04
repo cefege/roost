@@ -9,6 +9,9 @@ import { runMigrations } from "../src/db/migrate.ts";
 import { appendEvent } from "../src/event-log.ts";
 import { SessionEvent, asSessionId, asWorkerFp, asChannelId } from "@roost/shared/wire";
 
+const ORGANIZATION_ID = "event-log-d4b-organization";
+const DASHBOARD_ID = "event-log-d4b-dashboard";
+
 let workdir: string;
 let db: KyselyDB;
 let handle: DbHandle;
@@ -18,9 +21,25 @@ beforeAll(async () => {
   handle = openDb(join(workdir, "test.db"));
   db = handle.db;
   await runMigrations(handle.sqlite);
+  await db.insertInto("organizations").values({
+    id: ORGANIZATION_ID,
+    slug: "event-log-d4b",
+    name: "Event log D-4b",
+    status: "active",
+    created_at_ms: 1,
+  }).execute();
+  await db.insertInto("dashboards").values({
+    id: DASHBOARD_ID,
+    organization_id: ORGANIZATION_ID,
+    slug: "event-log-d4b",
+    name: "Event log D-4b",
+    status: "active",
+    created_at_ms: 1,
+  }).execute();
   // Register worker rows so `opened` events satisfy the FK on sessions.worker_fp.
   for (const fp of ["aa".repeat(32), "bb".repeat(32)]) {
     await db.insertInto("workers").values({
+      dashboard_id: DASHBOARD_ID,
       fp, label: "test", os: "darwin", git_sha: null, host_metrics_json: null,
       registered_at_ms: 1, last_seen_ms: 1,
     }).execute();
@@ -44,8 +63,8 @@ describe("appendEvent dedup (D-4b)", () => {
       ts: 1,
     });
 
-    await appendEvent(db, ev, { worker_fp: wfp, client_seq: 42 });
-    await appendEvent(db, ev, { worker_fp: wfp, client_seq: 42 });
+    await appendEvent(db, ev, { worker_fp: wfp, client_seq: 42, dashboardId: DASHBOARD_ID });
+    await appendEvent(db, ev, { worker_fp: wfp, client_seq: 42, dashboardId: DASHBOARD_ID });
 
     const rows = await db.selectFrom("events")
       .selectAll()
@@ -66,8 +85,12 @@ describe("appendEvent dedup (D-4b)", () => {
       cwd: "/tmp",
       ts: 1,
     });
-    await appendEvent(db, mk("00000000-0000-4000-8000-000000000011"), { worker_fp: wfp, client_seq: 1 });
-    await appendEvent(db, mk("00000000-0000-4000-8000-000000000012"), { worker_fp: wfp, client_seq: 2 });
+    await appendEvent(db, mk("00000000-0000-4000-8000-000000000011"), {
+      worker_fp: wfp, client_seq: 1, dashboardId: DASHBOARD_ID,
+    });
+    await appendEvent(db, mk("00000000-0000-4000-8000-000000000012"), {
+      worker_fp: wfp, client_seq: 2, dashboardId: DASHBOARD_ID,
+    });
 
     const rows = await db.selectFrom("events")
       .select("client_seq")
@@ -89,8 +112,8 @@ describe("appendEvent dedup (D-4b)", () => {
     // Ghost close on a non-existent session is allowed by appendEvent
     // (it warns "session_not_found" but inserts the event row). Both
     // calls should land — no dedup.
-    await appendEvent(db, ev);
-    await appendEvent(db, ev);
+    await appendEvent(db, ev, { worker_fp: null, client_seq: null, dashboardId: DASHBOARD_ID });
+    await appendEvent(db, ev, { worker_fp: null, client_seq: null, dashboardId: DASHBOARD_ID });
     const rows = await db.selectFrom("events")
       .selectAll()
       .where("session_id", "=", "00000000-0000-4000-8000-000000000013")

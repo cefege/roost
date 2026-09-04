@@ -1,8 +1,10 @@
 // Worker↔coord frame handling, shared by the raw-WS transport. This is the
-// stable public facade — the implementation lives in three siblings:
-//   - worker-registry.ts: the connectWorkers registry + routable-set accessors
-//   - worker-send.ts:      getWorkerHubSocket + browser-command / attachment senders
-//   - worker-conn.ts:      makeWorkerConn (per-connection link) + respawn-if-missing
+// stable public facade — the implementation lives in focused siblings:
+//   - worker-registry.ts: connection generations and routable-set accessors
+//   - worker-send.ts: browser-command and attachment senders
+//   - worker-conn.ts: admission/lifecycle orchestration
+//   - worker-frame-dispatch.ts: durable and live upstream frame effects
+//   - worker-conn-keepalive.ts: serialized ping/pong supervision
 // External callers import from THIS file; the exports below re-expose the
 // siblings so no import path changes.
 //
@@ -22,4 +24,4 @@ export {
   sendTerminalSnapshotRequest,
 } from "./worker-send.ts";
 export { makeWorkerConn } from "./worker-conn.ts";
-export type { WorkerServiceDeps, WorkerConn } from "./worker-conn.ts";
+export type { WorkerServiceDeps, WorkerConn } from "./worker-conn-types.ts";

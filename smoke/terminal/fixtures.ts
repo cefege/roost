@@ -6,6 +6,8 @@ type Fixtures = {
   smokePage: Page;
   /** A second page in its own browser context for cross-browser ownership proofs. */
   secondSmokePage: Page;
+  /** Separate browser enrollment with the second active dashboard selected. */
+  secondDashboardSmokePage: Page;
   /** Fresh about:blank context: no Roost HTML/assets/modules have loaded. */
   coldSmokePage: Page;
   mobileSmokePage: Page;
@@ -17,29 +19,77 @@ type WorkerFixtures = {
   secondWorker: TerminalTestWorker;
 };
 
+type SmokePageOptions = {
+  contextOptions?: Parameters<Browser["newContext"]>[0];
+  expectedWorkerFps?: readonly string[];
+  client?: TerminalTestStack["client"];
+  dashboardId?: string;
+};
+
 const { defaultBrowserType: _defaultBrowserType, ...iphone15 } = devices["iPhone 15"];
+
+/**
+ * The selector only renders from the server-confirmed AuthDashboardAccess
+ * snapshot. Waiting for it avoids treating fragment scrubbing as completed
+ * browser enrollment: the dispatcher clears `#pair` before its redeem/reload
+ * has established the selected dashboard.
+ */
+export async function waitForConfirmedDashboardScope(
+  page: Page,
+  expectedDashboardId?: string,
+): Promise<void> {
+  await page.waitForFunction(
+    (expected) =>
+      Array.from(
+        document.querySelectorAll<HTMLSelectElement>('[data-testid="dashboard-selector"]'),
+      ).some((selector) => selector.value !== "" && (expected === null || selector.value === expected)),
+    expectedDashboardId ?? null,
+  );
+}
+
+async function enrollDashboardBrowser(
+  page: Page,
+  stack: TerminalTestStack,
+  client = stack.client,
+  dashboardId = stack.dashboardId,
+): Promise<void> {
+  const token = (await client.authMintBootstrap({
+    kind: "browser",
+    label: "roost-terminal-test-browser",
+  })).token;
+  await page.goto(`${stack.baseUrl}/#pair=${encodeURIComponent(token)}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page.waitForFunction(() => location.hash === "");
+  await waitForConfirmedDashboardScope(page, dashboardId);
+}
 
 async function useSmokePage(
   browser: Browser,
   stack: TerminalTestStack,
   use: (page: Page) => Promise<void>,
   testInfo: TestInfo,
-  contextOptions?: Parameters<Browser["newContext"]>[0],
-  expectedWorkerFps: readonly string[] = [stack.workerFp],
+  options: SmokePageOptions = {},
 ): Promise<void> {
-  const context = await browser.newContext(contextOptions);
-  await context.addInitScript(() => {
+  const dashboardId = options.dashboardId ?? stack.dashboardId;
+  const client = options.client ?? stack.client;
+  const expectedWorkerFps = options.expectedWorkerFps ?? [stack.workerFp];
+  const context = await browser.newContext(options.contextOptions);
+  await context.addInitScript((selectedDashboardId) => {
     localStorage.setItem("roostSmoke", "1");
     localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
-  });
+    localStorage.setItem("roost.dashboardId", selectedDashboardId);
+  }, dashboardId);
   const page = await context.newPage();
   try {
-    await page.goto(stack.baseUrl, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
-    await page.waitForFunction((workerFps) => {
-      const smoke = (window as unknown as Window & { __smoke: { state(): { workers: Record<string, unknown> } } }).__smoke;
-      return workerFps.every((workerFp) => !!smoke.state().workers[workerFp]);
-    }, expectedWorkerFps);
+    await enrollDashboardBrowser(page, stack, client, dashboardId);
+    await page.waitForFunction(() => typeof window.__smoke === "object");
+    await page.waitForFunction(
+      (workerFps) => workerFps.every(
+        (workerFp) => !!window.__smoke.state().workers[workerFp],
+      ),
+      expectedWorkerFps,
+    );
     await expect(page.getByTestId("folder-list")).toBeVisible();
     await expect(page.getByTestId("error-boundary")).toHaveCount(0);
     await use(page);
@@ -59,9 +109,15 @@ async function useSmokePage(
           contentType: "text/plain",
         });
       }
+      if (existsSync(stack.secondDashboardPtyFixtureWorkerLogPath)) {
+        await testInfo.attach("second-dashboard-pty-fixture-worker.log", {
+          body: readFileSync(stack.secondDashboardPtyFixtureWorkerLogPath),
+          contentType: "text/plain",
+        });
+      }
     }
     await page.evaluate(async () => {
-      const smoke = (window as unknown as Window & { __smoke?: { forceVisible(on: boolean): void; cleanupCreated(): Promise<unknown> } }).__smoke;
+      const smoke = window.__smoke;
       smoke?.forceVisible(false);
       await smoke?.cleanupCreated();
     }).catch(() => undefined);
@@ -85,6 +141,9 @@ async function useColdSmokePage(
         .__roostDriverBeforeNavigationEpochMs = driverEpoch;
     }
   });
+  const enrollmentPage = await context.newPage();
+  await enrollDashboardBrowser(enrollmentPage, stack);
+  await enrollmentPage.close();
   const page = await context.newPage();
   try {
     await use(page);
@@ -100,9 +159,7 @@ async function useColdSmokePage(
       }
     }
     await page.evaluate(async () => {
-      const smoke = (window as Window & {
-        __smoke?: { forceVisible(on: boolean): void; cleanupCreated(): Promise<unknown> };
-      }).__smoke;
+      const smoke = window.__smoke;
       smoke?.forceVisible(false);
       await smoke?.cleanupCreated();
     }).catch(() => undefined);
@@ -132,11 +189,21 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
   coldSmokePage: async ({ browser, stack }, use, testInfo) => {
     await useColdSmokePage(browser, stack, use, testInfo);
   },
+  secondDashboardSmokePage: async ({ browser, stack }, use, testInfo) => {
+    const worker = await stack.startSecondDashboardPtyFixtureWorker();
+    await useSmokePage(browser, stack, use, testInfo, {
+      client: stack.secondDashboardClient,
+      dashboardId: stack.secondDashboardId,
+      expectedWorkerFps: [worker.workerFp],
+    });
+  },
   multiWorkerSmokePage: async ({ browser, stack, secondWorker }, use, testInfo) => {
-    await useSmokePage(browser, stack, use, testInfo, undefined, [stack.workerFp, secondWorker.workerFp]);
+    await useSmokePage(browser, stack, use, testInfo, {
+      expectedWorkerFps: [stack.workerFp, secondWorker.workerFp],
+    });
   },
   mobileSmokePage: async ({ browser, stack }, use, testInfo) => {
-    await useSmokePage(browser, stack, use, testInfo, iphone15);
+    await useSmokePage(browser, stack, use, testInfo, { contextOptions: iphone15 });
   },
 });
 

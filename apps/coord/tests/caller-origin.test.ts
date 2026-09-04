@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   assertOnHost,
-  assertOnHostOrTailnet,
   isTailnetAddr,
   resolveCallerOrigin,
 } from "../src/middleware/caller-origin.ts";
@@ -61,11 +60,16 @@ describe("caller origin guards", () => {
     expect(isTailnetAddr("fd7a:115c:a1e0::123")).toBe(true);
   });
 
-  test("on-host and tailnet privileges are distinct", () => {
-    expect(() => assertOnHost({ listener: "direct", clientIp: "127.0.0.1", onHost: true })).not.toThrow();
-    expect(() => assertOnHost({ listener: "direct", clientIp: "127.0.0.1", onHost: false })).toThrow("on-host only");
-    expect(() => assertOnHostOrTailnet({ listener: "tailscale-serve", clientIp: "100.101.102.103", onHost: false })).not.toThrow();
-    expect(() => assertOnHostOrTailnet({ listener: "public-edge", clientIp: "public", onHost: false }))
-      .toThrow("on-host or tailnet only");
+  test("tailnet classification does not confer on-host authority", () => {
+    expect(() => assertOnHost({
+      listener: "direct",
+      clientIp: "127.0.0.1",
+      onHost: true,
+    })).not.toThrow();
+    expect(() => assertOnHost({
+      listener: "tailscale-serve",
+      clientIp: "100.101.102.103",
+      onHost: false,
+    })).toThrow("on-host only");
   });
 });

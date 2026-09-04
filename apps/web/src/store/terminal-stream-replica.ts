@@ -1,4 +1,8 @@
-import { create } from "@bufbuild/protobuf";
+// This replica is the single canonical terminal grid shared by every view of a session.
+// It accepts only generation-matched, contiguous frames before mutating renderer state.
+// Sync dispatch calls it for full frames and chunks, while view handles subscribe to deliveries.
+// Liveness repair is separate but consumes the same stream, epoch, sequence, and viewport facts.
+
 import {
   CELL_GRID_PART_MAX_BYTES,
   applyDelta,
@@ -7,23 +11,23 @@ import {
   type CellGridFrame,
 } from "@roost/shared/cell";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
+import { diag, isDiagEnabled } from "@roost/shared/diag";
 import type {
   PbCellGridChunk,
   PbCellGridFrame,
 } from "@roost/shared/proto/cell_pb";
-import { TerminalResyncCommandSchema } from "@roost/shared/proto/sync_pb";
-import { TERMINAL_VIEW_HEARTBEAT_MS } from "@roost/shared/viewport";
-import { signal, diag, isDiagEnabled } from "@roost/shared/diag";
 import { markPhaseOnce, recordCellLag } from "../lib/diag.ts";
-import {
-  currentSyncV2TerminalState,
-  sendSyncV2Command,
-  type SyncV2TerminalState,
-} from "./sync.ts";
 import {
   clearTerminalChunkTransfer,
   pushTerminalCellChunk,
 } from "./terminal-stream-chunks.ts";
+import {
+  armTerminalForegroundIdleProbe,
+  clearTerminalRepairLatch,
+  clearTerminalSessionLiveness,
+  requestTerminalResync,
+  terminalGenerationMatches,
+} from "./terminal-stream-liveness.ts";
 import {
   emitTerminalViewStatus,
   takePersistedTerminalRendererDrop,
@@ -36,132 +40,22 @@ import {
   terminalSessions,
 } from "./terminal-stream-state.ts";
 import type {
-  TerminalOutboundCommand,
+  TerminalGenerationToken,
   TerminalRendererSubscriber,
   TerminalSessionReplica,
-  TerminalViewRecord,
 } from "./terminal-stream-types.ts";
 
-export function terminalGenerationKey(state: SyncV2TerminalState): string {
-  return `${state.socketId}:${state.domainGeneration}`;
-}
-
-export function activeTerminalResyncView(
-  session: TerminalSessionReplica,
-): TerminalViewRecord | null {
-  for (const view of session.handles.values()) {
-    if (!view.disposed && view.desired?.active) return view;
-  }
-  return null;
-}
-
-export function sendLatchedTerminalResync(
-  session: TerminalSessionReplica,
-  mode: "initial" | "heartbeat-retry" = "initial",
-): void {
-  if (!session.resyncLatched || !session.expectedStreamId) return;
-  const sync = currentSyncV2TerminalState();
-  const view = activeTerminalResyncView(session);
-  if (!sync?.ready || !view) return;
-  const key = terminalGenerationKey(sync);
-  if (session.resyncSentGeneration === key) {
-    if (mode !== "heartbeat-retry") return;
-    const now = Date.now();
-    if (
-      session.resyncRetryGeneration === key
-      && session.resyncRetryAtMs !== null
-      && now - session.resyncRetryAtMs < TERMINAL_VIEW_HEARTBEAT_MS
-    ) return;
-  }
-  const canonical = session.canonical;
-  const outbound: TerminalOutboundCommand = {
-    case: "terminalResync",
-    value: create(TerminalResyncCommandSchema, {
-      viewId: view.viewId,
-      sessionId: session.sessionId,
-      streamId: session.expectedStreamId,
-      gridEpoch: canonical?.gridEpoch ?? "",
-      seq: BigInt(canonical?.seq ?? 0),
-      domainGeneration: sync.domainGeneration,
-    }),
-  };
-  if (sendSyncV2Command(outbound)) {
-    session.resyncSentGeneration = key;
-    session.resyncRetryGeneration = key;
-    session.resyncRetryAtMs = Date.now();
-  }
-}
-
-function requestTerminalResync(
-  session: TerminalSessionReplica,
-  reason: string,
-  mode: "initial" | "heartbeat-retry" = "initial",
-): void {
-  clearTerminalChunkTransfer(session);
-  if (!session.resyncLatched) {
-    session.resyncLatched = true;
-    signal("cell.seq_gap", {
-      sid: session.sessionId,
-      stream_id: session.expectedStreamId,
-      reason: reason.slice(0, 200),
-      cooldownKey: session.sessionId,
-    });
-  }
-  sendLatchedTerminalResync(session, mode);
-}
-
-function suppressNextRendererFrame(session: TerminalSessionReplica): boolean {
-  if (session.subscribers.size === 0) return false;
-  const runtimeDrop = terminalDropNextFrames.delete(session.sessionId);
-  const persistedDrop = takePersistedTerminalRendererDrop(session.sessionId);
-  if (!runtimeDrop && !persistedDrop) return false;
-  terminalDroppedFrameCounts.set(
-    session.sessionId,
-    (terminalDroppedFrameCounts.get(session.sessionId) ?? 0) + 1,
-  );
-  return true;
-}
-
-/** An exact view heartbeat is also the renderer's applied-sequence proof.
- * The session replica may be ahead when a renderer rejected or a smoke probe
- * deliberately suppressed one delivery. Repair through the ordinary
- * coordinator rebaseline path rather than copying around that path locally. */
-export function repairStaleTerminalSubscriberOnHeartbeat(
-  session: TerminalSessionReplica,
-): void {
-  if (session.assembler.activeSnapshotId !== null) return;
-  const canonical = session.canonical;
-  if (!session.baselineReady || !canonical) {
-    requestTerminalResync(
-      session,
-      "terminal baseline was still missing at heartbeat",
-      "heartbeat-retry",
-    );
-    return;
-  }
-  if (session.resyncLatched) {
-    requestTerminalResync(
-      session,
-      "terminal rebaseline remained unanswered at heartbeat",
-      "heartbeat-retry",
-    );
-    return;
-  }
-  for (const subscriber of session.subscribers) {
-    if (
-      subscriber.streamId !== canonical.streamId
-      || subscriber.gridEpoch !== canonical.gridEpoch
-      || subscriber.seq !== canonical.seq
-    ) {
-      requestTerminalResync(
-        session,
-        "terminal renderer applied sequence trailed the canonical replica at heartbeat",
-        "heartbeat-retry",
-      );
-      return;
-    }
-  }
-}
+export {
+  activeTerminalResyncView,
+  armTerminalForegroundIdleProbe,
+  clearTerminalSessionLiveness,
+  repairStaleTerminalSubscriberOnHeartbeat,
+  requestTerminalLivenessChallenge,
+  sendLatchedTerminalResync,
+  terminalGenerationKey,
+  terminalGenerationMatches,
+  terminalGenerationToken,
+} from "./terminal-stream-liveness.ts";
 
 export function installExpectedTerminalStream(
   session: TerminalSessionReplica,
@@ -179,30 +73,15 @@ export function installExpectedTerminalStream(
   session.effectiveCols = cols;
   session.effectiveRows = rows;
   if (streamChanged) {
+    clearTerminalSessionLiveness(session, "stream_replaced");
     session.requiresFreshBaseline = true;
     clearTerminalChunkTransfer(session);
-    session.resyncLatched = false;
-    session.resyncSentGeneration = null;
-    session.resyncRetryGeneration = null;
-    session.resyncRetryAtMs = null;
   }
   session.baselineReady = !session.requiresFreshBaseline
     && !!session.canonical
     && session.canonical.streamId === streamId
     && session.canonical.cols === cols
     && session.canonical.rows === rows;
-}
-
-function notifyBaselineState(session: TerminalSessionReplica): void {
-  for (const view of session.handles.values()) {
-    const status = view.status;
-    if (
-      status?.status !== "accepted"
-      || !status.active
-      || status.streamId !== session.expectedStreamId
-    ) continue;
-    emitTerminalViewStatus(view, { ...status, baselineReady: session.baselineReady });
-  }
 }
 
 export function applyTerminalFrameToSubscriber(
@@ -230,19 +109,77 @@ export function applyTerminalFrameToSubscriber(
   return true;
 }
 
-function deliverFull(session: TerminalSessionReplica): void {
-  const canonical = session.canonical;
-  if (!canonical) return;
-  for (const subscriber of session.subscribers) {
-    applyTerminalFrameToSubscriber(subscriber, cloneCellGridFrame(canonical));
-  }
-}
 export function deliverCanonicalToSubscriber(
   session: TerminalSessionReplica,
   subscriber: TerminalRendererSubscriber,
 ): void {
   if (!session.canonical || suppressNextRendererFrame(session)) return;
   applyTerminalFrameToSubscriber(subscriber, cloneCellGridFrame(session.canonical));
+}
+
+export function dispatchTerminalCellFrame(
+  pb: PbCellGridFrame,
+  owner: TerminalGenerationToken,
+): void {
+  const session = terminalSessions.get(pb.sessionId);
+  if (
+    !session
+    || pb.streamId !== session.expectedStreamId
+    || !terminalGenerationMatches(session.generation, owner)
+  ) return;
+  acceptProtoFrame(session, pb, false, owner);
+}
+
+export function dispatchTerminalCellChunk(
+  chunk: PbCellGridChunk,
+  owner: TerminalGenerationToken,
+): void {
+  const part = chunk.part;
+  if (!part) return;
+  const session = terminalSessions.get(part.sessionId);
+  if (
+    !session
+    || part.streamId !== session.expectedStreamId
+    || !terminalGenerationMatches(session.generation, owner)
+  ) return;
+  pushTerminalCellChunk(
+    session,
+    chunk,
+    (frame) => acceptProtoFrame(session, frame, true, owner),
+    (reason) => requestTerminalResync(session, reason, "initial", owner),
+  );
+}
+
+function suppressNextRendererFrame(session: TerminalSessionReplica): boolean {
+  if (session.subscribers.size === 0) return false;
+  const runtimeDrop = terminalDropNextFrames.delete(session.sessionId);
+  const persistedDrop = takePersistedTerminalRendererDrop(session.sessionId);
+  if (!runtimeDrop && !persistedDrop) return false;
+  terminalDroppedFrameCounts.set(
+    session.sessionId,
+    (terminalDroppedFrameCounts.get(session.sessionId) ?? 0) + 1,
+  );
+  return true;
+}
+
+function notifyBaselineState(session: TerminalSessionReplica): void {
+  for (const view of session.handles.values()) {
+    const status = view.status;
+    if (
+      status?.status !== "accepted"
+      || !status.active
+      || status.streamId !== session.expectedStreamId
+    ) continue;
+    emitTerminalViewStatus(view, { ...status, baselineReady: session.baselineReady });
+  }
+}
+
+function deliverFull(session: TerminalSessionReplica): void {
+  const canonical = session.canonical;
+  if (!canonical) return;
+  for (const subscriber of session.subscribers) {
+    applyTerminalFrameToSubscriber(subscriber, cloneCellGridFrame(canonical));
+  }
 }
 
 function validFull(session: TerminalSessionReplica, frame: CellGridFrame): boolean {
@@ -267,9 +204,36 @@ function validFull(session: TerminalSessionReplica, frame: CellGridFrame): boole
   return true;
 }
 
-function acceptFull(session: TerminalSessionReplica, frame: CellGridFrame): void {
+function recordAcceptedTerminalFrame(
+  session: TerminalSessionReplica,
+  full: boolean,
+  owner: TerminalGenerationToken,
+): void {
+  if (!terminalGenerationMatches(session.generation, owner)) return;
+  session.lastAcceptedFrameAtMs = performance.now();
+  session.lastAcceptedFrameGeneration = session.generation;
+  clearTimeout(session.proofDeadlineTimer ?? undefined);
+  session.proofDeadlineTimer = null;
+  session.proofChallengeAtMs = null;
+  session.proofChallengeGeneration = null;
+  session.repairOutcome = "proved";
+  if (full) {
+    clearTerminalRepairLatch(session);
+  } else if (session.resyncLatched) {
+    // A delta proves the lane is live but cannot repair the canonical gap.
+    // Keep retrying the latch; do not escalate a challenge that received proof.
+    session.resyncLatchedAtMs = null;
+  }
+  armTerminalForegroundIdleProbe(session);
+}
+
+function acceptFull(
+  session: TerminalSessionReplica,
+  frame: CellGridFrame,
+  owner: TerminalGenerationToken,
+): void {
   if (!validFull(session, frame)) {
-    requestTerminalResync(session, "invalid full terminal baseline");
+    requestTerminalResync(session, "invalid full terminal baseline", "initial", owner);
     return;
   }
   frame.full = true;
@@ -282,6 +246,7 @@ function acceptFull(session: TerminalSessionReplica, frame: CellGridFrame): void
   session.resyncSentGeneration = null;
   session.resyncRetryGeneration = null;
   session.resyncRetryAtMs = null;
+  recordAcceptedTerminalFrame(session, true, owner);
   clearTerminalChunkTransfer(session);
   const suppressRendererDelivery = suppressNextRendererFrame(session);
   if (!suppressRendererDelivery) deliverFull(session);
@@ -293,7 +258,11 @@ function acceptFull(session: TerminalSessionReplica, frame: CellGridFrame): void
   });
 }
 
-function acceptDelta(session: TerminalSessionReplica, delta: CellGridFrame): void {
+function acceptDelta(
+  session: TerminalSessionReplica,
+  delta: CellGridFrame,
+  owner: TerminalGenerationToken,
+): void {
   const base = session.canonical;
   if (
     delta.full
@@ -308,7 +277,12 @@ function acceptDelta(session: TerminalSessionReplica, delta: CellGridFrame): voi
     || delta.baseSeq !== base.seq
     || delta.seq !== delta.baseSeq + 1
   ) {
-    requestTerminalResync(session, "terminal delta did not follow the canonical baseline");
+    requestTerminalResync(
+      session,
+      "terminal delta did not follow the canonical baseline",
+      "initial",
+      owner,
+    );
     return;
   }
 
@@ -323,7 +297,12 @@ function acceptDelta(session: TerminalSessionReplica, delta: CellGridFrame): voi
 
   const folded = applyDelta(base, delta);
   if (!folded) {
-    requestTerminalResync(session, "terminal delta fold rejected its canonical base");
+    requestTerminalResync(
+      session,
+      "terminal delta fold rejected its canonical base",
+      "initial",
+      owner,
+    );
     return;
   }
   folded.full = true;
@@ -332,6 +311,7 @@ function acceptDelta(session: TerminalSessionReplica, delta: CellGridFrame): voi
   folded.scrollbackAppend = [];
   folded.sbBase = folded.scrollbackTotal;
   session.canonical = folded;
+  recordAcceptedTerminalFrame(session, false, owner);
 
   if (suppressNextRendererFrame(session)) return;
 
@@ -366,21 +346,28 @@ function acceptProtoFrame(
   session: TerminalSessionReplica,
   pb: PbCellGridFrame,
   assembled: boolean,
+  owner: TerminalGenerationToken,
 ): void {
+  if (!terminalGenerationMatches(session.generation, owner)) return;
   if (pb.sessionId !== session.sessionId) {
-    requestTerminalResync(session, "terminal frame session mismatch");
+    requestTerminalResync(session, "terminal frame session mismatch", "initial", owner);
     return;
   }
   if (pb.streamId !== session.expectedStreamId) return;
   if (!assembled && encodedCellGridFrameSize(pb) > CELL_GRID_PART_MAX_BYTES) {
-    requestTerminalResync(session, "terminal frame exceeded the encoded part ceiling");
+    requestTerminalResync(
+      session,
+      "terminal frame exceeded the encoded part ceiling",
+      "initial",
+      owner,
+    );
     return;
   }
   let frame: CellGridFrame;
   try {
     frame = protoToCellFrame(pb);
   } catch (error) {
-    requestTerminalResync(session, String(error));
+    requestTerminalResync(session, String(error), "initial", owner);
     return;
   }
   noteWireFrame(session, pb);
@@ -390,25 +377,6 @@ function acceptProtoFrame(
     sequence: pb.seq,
     full: pb.full,
   });
-  if (frame.full) acceptFull(session, frame);
-  else acceptDelta(session, frame);
-}
-
-export function dispatchTerminalCellFrame(pb: PbCellGridFrame): void {
-  const session = terminalSessions.get(pb.sessionId);
-  if (!session || pb.streamId !== session.expectedStreamId) return;
-  acceptProtoFrame(session, pb, false);
-}
-
-export function dispatchTerminalCellChunk(chunk: PbCellGridChunk): void {
-  const part = chunk.part;
-  if (!part) return;
-  const session = terminalSessions.get(part.sessionId);
-  if (!session || part.streamId !== session.expectedStreamId) return;
-  pushTerminalCellChunk(
-    session,
-    chunk,
-    (frame) => acceptProtoFrame(session, frame, true),
-    (reason) => requestTerminalResync(session, reason),
-  );
+  if (frame.full) acceptFull(session, frame, owner);
+  else acceptDelta(session, frame, owner);
 }

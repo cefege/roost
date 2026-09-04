@@ -17,7 +17,7 @@ bun run --cwd apps/site typecheck  # astro check
 ```sh
 bun run --cwd apps/site build      # scripts/gen-og.ts, then astro build -> apps/site/dist
 bun run --cwd apps/site preview    # astro preview of the built output
-bun apps/site/scripts/check-links.ts  # every root-relative href resolves in dist
+bun apps/site/scripts/check-links.ts  # verify that root-relative links resolve
 ```
 
 `dist/` is generated output and is not committed.
@@ -40,7 +40,7 @@ Environment:
 | --- | --- | --- |
 | `ROOST_SITE_PORT` | `4180` | listen port |
 | `ROOST_SITE_HOST` | `127.0.0.1` | listen address (`0.0.0.0` to accept tailnet/LAN traffic directly) |
-| `ROOST_SITE_ORIGIN` | `https://ovh1-8c32g.tail67850e.ts.net:4443` | build-time canonical origin for `<link rel="canonical">`, OG URLs, and the sitemap |
+| `ROOST_SITE_ORIGIN` | `https://roosttt.com` | build-time canonical origin for `<link rel="canonical">`, OG URLs, and the sitemap |
 
 ## Run as a service (`systemd --user`)
 
@@ -81,8 +81,8 @@ tailscale serve status
 tailscale serve --bg --https=4443 http://127.0.0.1:4180
 ```
 
-The site is then reachable at `https://ovh1-8c32g.tail67850e.ts.net:4443/`, which is the
-default `ROOST_SITE_ORIGIN`.
+The site is then reachable at `https://ovh1-8c32g.tail67850e.ts.net:4443/`. Set
+`ROOST_SITE_ORIGIN` to that origin for a tailnet-only preview build.
 
 **Fallback** if `tailscale serve --https=4443` is refused (no HTTPS certs provisioned):
 bind the server to the tailnet interface instead and point the origin at it —
@@ -98,55 +98,117 @@ match reality.
 
 ## Publish to roosttt.com
 
-Public hosting reuses this server's existing edge, exactly like the sibling static site
-at `/srv/verdeka/www`: the `caddy` container in `/srv/infra/edge` file_servers the build
-off disk, and the already-running `roost` Cloudflare tunnel carries the hostname to it.
+Production uses two independent origins:
+
+- `https://roosttt.com` (and its `www` redirect) is the fully static Astro
+  marketing and documentation site. Every apex path stays on the static origin.
+- `https://dashboard.roosttt.com` is the managed application. Cloudflared
+  forwards the entire hostname, without path matchers or static fallbacks,
+  directly to the coordinator public listener at `127.0.0.1:4104`.
+
+The apex never proxies SPA routes, RPCs, WebSockets, or coordinator assets.
+Likewise, the dashboard hostname never serves files from the Astro publish
+directory.
+
+### Build and publish order
+
+Build both current browser surfaces before changing any origin routing:
 
 ```sh
+bun run --cwd apps/web build
 ROOST_SITE_ORIGIN=https://roosttt.com bun run --cwd apps/site publish
+bash apps/coord/scripts/install.sh install
 ```
 
-`publish` = `build` + `rsync -a --delete dist/ /srv/roost-site/www/` (override the target
-with `ROOST_SITE_PUBLISH_ROOT`). No container restart: the mount is read-only and live.
+`publish` builds Astro and runs
+`rsync -a --delete dist/ /srv/roost-site/www/` (override the target with
+`ROOST_SITE_PUBLISH_ROOT`). The read-only Caddy mount reflects the published
+files without a container restart. The web build must precede coordinator
+installation so the installed coordinator embeds the current managed SPA.
 
-The three pieces of server config, already in place:
-
-| Piece | Where | What it does |
-|---|---|---|
-| Caddy site | `/srv/infra/edge/conf.d/roost.caddy` | `http://roosttt.com` serves `/srv/roost-site` with gzip/zstd, `try_files … /index.html`, `handle_errors` → `404.html`, immutable caching for `/_astro/*`, CSP/nosniff headers; `www` 301s to the apex |
-| Mount | `/srv/infra/edge/docker-compose.yml` | `/srv/roost-site/www:/srv/roost-site:ro` (a mount change needs `docker compose up -d`, and `admin off` means config edits need `docker restart caddy`) |
-| Tunnel ingress | `/etc/cloudflared/config.yml` | `roosttt.com` and `www.roosttt.com` → `http://127.0.0.1:80`. The unit has no `ExecReload` and cloudflared **exits** on `SIGHUP`, so apply changes with `sudo systemctl restart cloudflared` |
-
-Cloudflare terminates TLS, which is why the Caddy blocks are `http://`: the DNS records are
-tunnel CNAMEs, so ACME HTTP-01 against them would loop back through the tunnel.
-
-### DNS
-
-Both records exist in the `roosttt.com` zone (proxied, so Cloudflare terminates TLS and the
-apex CNAME is flattened):
-
-```
-roosttt.com      CNAME  70b39358-d6da-41bb-8608-87f0e6559803.cfargotunnel.com   (proxied)
-www.roosttt.com  CNAME  70b39358-d6da-41bb-8608-87f0e6559803.cfargotunnel.com   (proxied)
-```
-
-They sit beside the `mihai`/`paul` app hostnames on the same tunnel. The site lives on the
-root domain and nowhere else.
-
-**Do not use `cloudflared tunnel route dns roost roosttt.com` here.** `~/.cloudflared/cert.pem`
-was issued for a different zone, so that command reports success while silently writing the
-record into that other zone instead of `roosttt.com`. Edit the `roosttt.com` zone directly —
-dashboard, or an API credential scoped to it.
-
-Verify from anywhere once DNS resolves:
+Install and run the coordinator as its own persistent service with a dedicated
+service account, data directory, signing key, SQLite database, and backup
+schedule. Its production environment must include:
 
 ```sh
-curl -sI https://roosttt.com/ | head -1
-curl -s https://roosttt.com/robots.txt
-curl -sI https://roosttt.com/alternatives/cmux-vs-roost/ | head -1
+ROOST_SAAS_MODE=1
+ROOST_PUBLIC_BIND=127.0.0.1:4104
+ROOST_WEB_PUBLIC_URL=https://dashboard.roosttt.com
+ROOST_TRUST_PROXY=1
 ```
 
-**Changing the public hostname means setting `ROOST_SITE_ORIGIN` to the new origin and
-rebuilding** — canonical URLs, OG image URLs, `robots.txt`, and the sitemap are all baked
-in at build time.
+Do not set the self-hosted Cloudflare Access variables in managed mode. Email
+delivery is disabled by default. To enable it, configure all four of
+`ROOST_RESEND_ENDPOINT`, `ROOST_RESEND_API_KEY`, `ROOST_EMAIL_FROM`, and
+`ROOST_EMAIL_OUTBOX_KEY`; never configure a partial group.
 
+Provision the initial database once. Supply the password only through
+piped stdin or the temporary `ROOST_OWNER_BOOTSTRAP_PASSWORD` environment
+variable. Never put it in argv, a service definition, this repository, or an
+edge configuration:
+
+```sh
+printf '%s\n' "$ROOST_OWNER_BOOTSTRAP_PASSWORD" \
+  | roost organizations bootstrap-owner \
+      --email <owner-email> --organization roost --dashboard personal
+unset ROOST_OWNER_BOOTSTRAP_PASSWORD
+```
+
+Only after the Astro publish and coordinator installation are current, apply
+the edge topology:
+
+| Host | Caddy behavior | Cloudflare tunnel ingress |
+|---|---|---|
+| `roosttt.com` | Serve `/srv/roost-site` as static files; never proxy coordinator paths | Forward the apex hostname to Caddy at `http://127.0.0.1:80` |
+| `www.roosttt.com` | Redirect to `https://roosttt.com` | Forward the `www` hostname to Caddy at `http://127.0.0.1:80` |
+| `dashboard.roosttt.com` | Not routed through Caddy | Forward the whole dashboard hostname directly to `http://127.0.0.1:4104` |
+
+The static site mount remains
+`/srv/roost-site/www:/srv/roost-site:ro`. Cloudflare terminates public TLS.
+Configure all three DNS records in the `roosttt.com` zone as proxied records
+targeting the existing tunnel. Keep the existing apex and `www` tunnel ingress
+rules pointed at Caddy, and add a separate whole-host dashboard ingress rule
+pointed directly at the coordinator listener. Do not copy tunnel credentials,
+API tokens, coordinator keys, or account passwords into the repository or
+service documentation.
+
+The dashboard cloudflared ingress rule must forward the whole hostname. Do not
+enumerate `/login`, `/app`, deep links, RPC methods, `/assets`, Sync, or worker
+WebSocket paths; all current and future paths on that hostname go directly to
+the managed public listener. Keep the apex Caddy block a static file server with
+no coordinator proxy handlers, and do not add a dashboard Caddy block.
+
+No Caddy change or reload is needed for the dashboard hostname. After updating
+tunnel ingress, restart cloudflared with the installed unit's supported restart
+procedure; do not send it `SIGHUP`.
+
+### Readiness
+
+First confirm that representative marketing paths still come from the static
+apex:
+
+```sh
+curl -sI https://roosttt.com/
+curl -s https://roosttt.com/robots.txt
+curl -sI https://roosttt.com/alternatives/cmux-vs-roost/
+```
+
+Then verify the managed identity/login boundary on the dashboard hostname:
+
+```sh
+curl -sS -X POST -H 'content-type: application/json' --data '{}' \
+  https://dashboard.roosttt.com/roost.v1.CoordinatorService/AuthCoordIdentity
+curl -i -X POST -H 'content-type: application/json' --data '{}' \
+  https://dashboard.roosttt.com/roost.v1.CoordinatorService/AuthPasswordLogin
+```
+
+The identity response must report managed mode. The empty login must reach the
+Roost handler and return its credential failure. A Cloudflare Access
+interstitial, static-site response, or 404 from the apex configuration means
+the dashboard whole-host origin is wired incorrectly.
+
+Changing the static public hostname requires setting `ROOST_SITE_ORIGIN` to the
+new origin and rebuilding; canonical URLs, OG image URLs, `robots.txt`, and the
+sitemap are baked in at build time. Changing the managed public hostname
+requires updating `ROOST_WEB_PUBLIC_URL` and the whole-host edge/DNS routing;
+it does not change the Astro publish.

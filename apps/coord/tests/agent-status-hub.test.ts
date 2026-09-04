@@ -26,13 +26,16 @@ import {
 } from "../src/agent-status-hub.ts";
 import { agentStatusBus, sessionBus } from "../src/buses.ts";
 import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
-import { startSyncFeed } from "../src/connect/sync-feed.ts";
+import { loadSyncDashboardScope, startSyncFeed } from "../src/connect/sync-feed.ts";
 import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
+import { connectWorkers } from "../src/connect/worker-registry.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 
 const SID = asSessionId("11111111-1111-4111-8111-111111111111");
 const WORKER = asWorkerFp("a1".repeat(32));
 const OTHER_WORKER = asWorkerFp("b2".repeat(32));
+const DASHBOARD = "agent-status-dashboard";
+const ORGANIZATION = "agent-status-organization";
 const cleanupDirs: string[] = [];
 
 function status(overrides: Partial<AgentStatusUpdateValue> = {}): AgentStatusUpdateValue {
@@ -96,12 +99,15 @@ describe("coordinator agent status hub", () => {
     const published: AgentStatusUpdateValue[] = [];
     const unsubscribe = agentStatusBus.subscribe((update) => published.push(update));
     try {
-      sessionBus.publish(SessionEvent.parse({
-        kind: "closed",
-        session_id: SID,
-        exit_code: 0,
-        ts: 1_780_000_000_001,
-      }));
+      sessionBus.publish({
+        ...SessionEvent.parse({
+          kind: "closed",
+          session_id: SID,
+          exit_code: 0,
+          ts: 1_780_000_000_001,
+        }),
+        _dashboard_id: DASHBOARD,
+      });
       expect(getAgentStatusSnapshot()).toHaveLength(0);
       expect(published).toHaveLength(1);
       expect(published[0]).toMatchObject({ session_id: SID, revision: 9, active: false });
@@ -119,6 +125,7 @@ describe("coordinator agent status hub", () => {
     const db = {} as KyselyDB;
     startAgentStatusHub({
       db,
+      pushAllowedOrigins: ["https://push.example"],
       dispatchPush: async (_db, sessionId, kind) => {
         deliveries.push({ sessionId, kind });
       },
@@ -172,19 +179,52 @@ describe("coordinator agent status hub", () => {
     cleanupDirs.push(dir);
     const opened = openDb(join(dir, "coord.db"));
     await runMigrations(opened.sqlite);
+    const now = Date.now();
+    await opened.db.insertInto("organizations").values({
+      id: ORGANIZATION,
+      slug: "agent-status",
+      name: "Agent status",
+      status: "active",
+      created_at_ms: now,
+    }).execute();
+    await opened.db.insertInto("dashboards").values({
+      id: DASHBOARD,
+      organization_id: ORGANIZATION,
+      slug: "agent-status",
+      name: "Agent status",
+      status: "active",
+      created_at_ms: now,
+    }).execute();
+    await opened.db.insertInto("workers").values({
+      fp: WORKER,
+      dashboard_id: DASHBOARD,
+      label: "agent-status-worker",
+      os: "linux",
+      git_sha: null,
+      host_metrics_json: null,
+      registered_at_ms: now,
+      last_seen_ms: now,
+    }).execute();
+    await opened.db.insertInto("sessions").values({
+      id: SID,
+      dashboard_id: DASHBOARD,
+      worker_fp: WORKER,
+      channel: 7,
+      kind: "shell",
+      cwd: "/tmp",
+      status: "open",
+      created_at: now,
+    }).execute();
+    const syncScope = await loadSyncDashboardScope(opened.db, DASHBOARD);
     // startSyncFeed reads only db; the remaining router dependencies belong to
     // unrelated RPC handlers and are deliberately absent in this focused test.
     const deps = { db: opened.db } as unknown as ConnectDeps;
-    const syncFrames: Parameters<Parameters<typeof startSyncFeed>[2]>[0][] = [];
-    const pairSeeded = Promise.withResolvers<void>();
-    const feed = startSyncFeed(deps, 0, (frame) => {
+    const syncFrames: Parameters<Parameters<typeof startSyncFeed>[3]>[0][] = [];
+    const feed = startSyncFeed(deps, syncScope, 0, (frame) => {
       syncFrames.push(frame);
-      if (
-        frame.frame.case === "pairRequestDelta"
-        && frame.frame.value.kind.case === "snapshot"
-      ) pairSeeded.resolve();
-    });
+    }, null);
     try {
+      await feed.seeded;
       const seeded = syncFrames.find((frame) => frame.frame.case === "agentStatus");
       expect(seeded?.frame).toMatchObject({
         case: "agentStatus",
@@ -201,7 +241,6 @@ describe("coordinator agent status hub", () => {
         value: { sessionId: SID, revision: 3n, active: false },
       });
     } finally {
-      await pairSeeded.promise;
       feed.dispose();
       await opened.close();
     }
@@ -213,16 +252,31 @@ describe("coordinator agent status hub", () => {
     cleanupDirs.push(dir);
     const opened = openDb(join(dir, "coord.db"));
     await runMigrations(opened.sqlite);
-    // makeWorkerConn uses only these methods in the hello/status path.
     const deps = {
       db: opened.db,
-      coordKey: { verifyingKeyB64: () => "key", verifyingKeyKid: () => "kid" },
     } as unknown as WorkerServiceDeps;
-    const conn = makeWorkerConn(deps, { fingerprint: WORKER }, () => 1, () => {});
+    const conn = makeWorkerConn(deps, { fingerprint: WORKER }, () => 1, () => {}, undefined, DASHBOARD);
     try {
       await conn.handleUpstream(create(CoordWorkerUpSchema, {
         frame: { case: "hello", value: create(WHelloSchema, { workerFp: WORKER, version: "test" }) },
       }));
+      await conn.handleUpstream(create(CoordWorkerUpSchema, {
+        frame: { case: "agentStatus", value: create(WAgentStatusSchema, {
+          sessionId: SID,
+          agentId: "omp",
+          state: "blocked",
+          message: "Approval needed",
+          revision: 4n,
+          completedRevision: 0n,
+          updatedAt: 1_780_000_000_004,
+          active: true,
+        }) },
+      }));
+      expect(getAgentStatusSnapshot()).toEqual([]);
+      const handle = connectWorkers.get(WORKER);
+      if (!handle) throw new Error("hello did not claim worker generation");
+      handle.ready = true;
+      cacheSessionWorker(SID, WORKER, 7);
       await conn.handleUpstream(create(CoordWorkerUpSchema, {
         frame: { case: "agentStatus", value: create(WAgentStatusSchema, {
           sessionId: SID,

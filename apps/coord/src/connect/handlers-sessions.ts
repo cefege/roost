@@ -24,7 +24,16 @@ import { log } from "@roost/shared/log";
 import type { KyselyDB } from "../db/connection.ts";
 import { appendEvent, SESSION_COLUMNS } from "../event-log.ts";
 import { workspaceBus } from "../buses.ts";
-import { requireAuth, tabIdKey, remoteAddressKey } from "./auth-interceptor.ts";
+import { publishPresence } from "../presence-hub.ts";
+import {
+  callerKey,
+  requireAccountDevice,
+  requireDashboardActor,
+  requireDashboardAdmin,
+  requireWorker,
+  tabIdKey,
+  remoteAddressKey,
+} from "./auth-interceptor.ts";
 import { createPendingRpc } from "../router/pending-rpcs.ts";
 import { getWorkerHubSocket } from "./worker-service.ts";
 import { sendBrowserCmd, forwardToSessionWorker, requireSessionWorkerSocket } from "./router-helpers.ts";
@@ -83,14 +92,42 @@ export function makeSessionHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, SessionMethods> {
   return {
     async sessionsList(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      let q = deps.db.selectFrom("sessions").select([...SESSION_COLUMNS]);
+      const principal = ctx.values.get(callerKey);
+      let dashboardId: string;
+      let snapshotCallerFingerprint: string | null = null;
+      if (principal?.kind === "worker") {
+        const worker = requireWorker(ctx.values);
+        if (
+          req.workerFp !== worker.fingerprint
+          || req.status !== "open"
+          || req.syncSocketId !== undefined
+        ) {
+          throw new ConnectError(
+            "worker session listing is restricted to its own open sessions",
+            Code.PermissionDenied,
+          );
+        }
+        dashboardId = worker.dashboardId;
+      } else {
+        const actor = requireDashboardActor(ctx.values);
+        const caller = requireAccountDevice(ctx.values);
+        dashboardId = actor.dashboardId;
+        snapshotCallerFingerprint = caller.fingerprint;
+      }
+      let q = deps.db.selectFrom("sessions")
+        .select([...SESSION_COLUMNS])
+        .where("dashboard_id", "=", dashboardId);
       const status = req.status || "open";
       if (req.workerFp) q = q.where("worker_fp", "=", req.workerFp);
       if (status !== "all") q = q.where("status", "=", sessionStatusOf(status));
       const rows = await q.execute();
-      const syncSnapshotToken = req.syncSocketId
-        ? bindSyncSessionSnapshot(req.syncSocketId, caller.fingerprint, rows.map((row) => row.id))
+      const syncSnapshotToken = req.syncSocketId && snapshotCallerFingerprint
+        ? bindSyncSessionSnapshot(
+          req.syncSocketId,
+          snapshotCallerFingerprint,
+          dashboardId,
+          rows.map((row) => row.id),
+        )
         : null;
       return create(SessionsListResponseSchema, {
         sessions: rows.map(sessionRowToProto),
@@ -99,17 +136,20 @@ export function makeSessionHandlers(
     },
 
     async sessionsSpawn(req, ctx) {
+      const actor = requireDashboardAdmin(ctx.values);
       return handleSessionsSpawn(
         deps,
         req,
-        requireAuth(ctx.values),
+        requireAccountDevice(ctx.values),
+        actor,
         ctx.values.get(tabIdKey),
       );
     },
 
     async sessionsAttach(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, actor, req.sessionId);
       const pending = createPendingRpc<{ replay_offset: number }>(undefined, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "attach" as const,
@@ -121,8 +161,13 @@ export function makeSessionHandlers(
     },
 
     async sessionsKill(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
+      const actor = requireDashboardAdmin(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
+      const row = await deps.db.selectFrom("sessions")
+        .select(["worker_fp"])
+        .where("id", "=", req.sessionId)
+        .where("dashboard_id", "=", actor.dashboardId)
+        .executeTakeFirst();
       if (!row) return create(SessionsKillResponseSchema, { accepted: false });
       const sock = getWorkerHubSocket(row.worker_fp);
       if (!sock) {
@@ -138,6 +183,10 @@ export function makeSessionHandlers(
           await appendEvent(deps.db, {
             kind: "closed" as const, session_id: asSessionId(req.sessionId),
             exit_code: null, ts: Date.now(),
+          }, {
+            worker_fp: null,
+            client_seq: null,
+            dashboardId: actor.dashboardId,
           });
           log.info("connect-router.sessionsKill", "force_closed_offline_worker", {
             session_id: req.sessionId, worker_fp: row.worker_fp,
@@ -160,19 +209,25 @@ export function makeSessionHandlers(
     },
 
     async sessionsRename(req, ctx) {
-      requireAuth(ctx.values);
+      const actor = requireDashboardAdmin(ctx.values);
       // Append a `renamed` event → event-log folds custom_title into the
       // sessions projection + publishes on sessionBus → every SPA updates live.
       // "" clears the override (revert to auto title). Capped so a runaway
       // paste can't bloat the row. Returns ok:false if the session is gone.
       const exists = await deps.db.selectFrom("sessions").select(["id"])
-        .where("id", "=", req.sessionId).executeTakeFirst();
+        .where("id", "=", req.sessionId)
+        .where("dashboard_id", "=", actor.dashboardId)
+        .executeTakeFirst();
       if (!exists) return create(SessionsRenameResponseSchema, { ok: false });
       await appendEvent(deps.db, {
         kind: "renamed" as const,
         session_id: asSessionId(req.sessionId),
         custom_title: req.title.trim().slice(0, 200),
         ts: Date.now(),
+      }, {
+        worker_fp: null,
+        client_seq: null,
+        dashboardId: actor.dashboardId,
       });
       log.info("connect-router.sessionsRename", "renamed", {
         session_id: req.sessionId, cleared: req.title.trim() === "",
@@ -183,12 +238,14 @@ export function makeSessionHandlers(
 
 
     async sessionsInput(req, ctx) {
-      const caller = requireAuth(ctx.values);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
       const result = await processInputControl(deps, {
         identity: terminalViewerIdentity(
           caller.fingerprint,
           ctx.values.get(tabIdKey),
           ctx.values.get(remoteAddressKey) ?? undefined,
+          actor.dashboardId,
         ),
         sessionId: req.sessionId,
         inputSeq: nextCompatibilityInputSeq(),
@@ -200,12 +257,16 @@ export function makeSessionHandlers(
     },
 
     async sessionsCursorPos(req, ctx) {
-      const caller = requireAuth(ctx.values);
+      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
       const tabId = ctx.values.get(tabIdKey);
       const viewerKey = tabId ? `${caller.fingerprint}:${tabId}` : caller.fingerprint;
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp", "channel"]).where("id", "=", req.sessionId).executeTakeFirst();
+      const row = await deps.db.selectFrom("sessions")
+        .select(["worker_fp", "channel"])
+        .where("id", "=", req.sessionId)
+        .where("dashboard_id", "=", actor.dashboardId)
+        .executeTakeFirst();
       if (row) {
-        const { publishPresence } = await import("../presence-hub.ts");
         publishPresence(row.worker_fp, row.channel, {
           kind: "presence-delta",
           channel_id: row.channel,
@@ -214,7 +275,7 @@ export function makeSessionHandlers(
           label: caller.fingerprint.slice(0, 8),
         });
       }
-      const ok = await forwardToSessionWorker(deps.db, req.sessionId, caller, {
+      const ok = await forwardToSessionWorker(deps.db, actor, req.sessionId, caller, {
         kind: "cursor-pos" as const,
         session_id: asSessionId(req.sessionId),
         col: req.col, row: req.row,
@@ -223,19 +284,27 @@ export function makeSessionHandlers(
     },
 
     async sessionsAssignWorkspace(req, ctx) {
-      requireAuth(ctx.values);
+      const actor = requireDashboardAdmin(ctx.values);
       const sessionId = req.sessionId;
       const targetWs = req.workspaceId || null;
+      const session = await deps.db.selectFrom("sessions").select("id")
+        .where("id", "=", sessionId)
+        .where("dashboard_id", "=", actor.dashboardId)
+        .executeTakeFirst();
+      if (!session) return create(SessionsAssignWorkspaceResponseSchema, { ok: false });
+      if (targetWs) {
+        const target = await deps.db.selectFrom("workspaces").select("id")
+          .where("id", "=", targetWs)
+          .where("dashboard_id", "=", actor.dashboardId)
+          .executeTakeFirst();
+        if (!target) return create(SessionsAssignWorkspaceResponseSchema, { ok: false });
+      }
       // B5: session→workspace membership has TWO representations the SPA both
       // reads — sessions.workspace_id (column; AllView/MachineSection/SessionRow)
       // and the workspace_sessions junction (orphanSessions/sessionsForWorkspace).
       // This path historically wrote ONLY the column, so a spawn-assigned session
       // was missing from the junction → orphanSessions double-counted it (shown
       // under its workspace AND Unassigned). Maintain BOTH so all readers agree.
-      // (1) column + (2) junction BOTH fold inside the ONE appendEvent
-      // transaction: the workspace_assigned branch rewrites the junction row,
-      // and extraWork captures the PRIOR memberships in the same tx — a second,
-      // later transaction could commit nothing if it failed after the event.
       const touched = new Set<string>();
       if (targetWs) touched.add(targetWs);
       await appendEvent(deps.db, {
@@ -246,9 +315,19 @@ export function makeSessionHandlers(
       }, {
         worker_fp: null,
         client_seq: null,
+        dashboardId: actor.dashboardId,
         extraWork: async (trx) => {
+          if (targetWs) {
+            const target = await trx.selectFrom("workspaces").select("id")
+              .where("id", "=", targetWs)
+              .where("dashboard_id", "=", actor.dashboardId)
+              .executeTakeFirst();
+            if (!target) throw new ConnectError("not found", Code.NotFound);
+          }
           const prior = (await trx.selectFrom("workspace_sessions").select("workspace_id")
-            .where("session_id", "=", sessionId).execute()).map(r => r.workspace_id as string);
+            .where("session_id", "=", sessionId)
+            .where("dashboard_id", "=", actor.dashboardId)
+            .execute()).map(r => r.workspace_id as string);
           for (const wsId of prior) touched.add(wsId);
         },
       });
@@ -256,11 +335,22 @@ export function makeSessionHandlers(
       // junction-readers update live — strictly AFTER commit (README invariant:
       // no bus delta may precede the durable state it describes).
       for (const wsId of touched) {
-        const ws = await deps.db.selectFrom("workspaces").select("version").where("id", "=", wsId).executeTakeFirst();
+        const ws = await deps.db.selectFrom("workspaces").select("version")
+          .where("id", "=", wsId)
+          .where("dashboard_id", "=", actor.dashboardId)
+          .executeTakeFirst();
         if (!ws) continue;
         const sids = (await deps.db.selectFrom("workspace_sessions").select("session_id")
-          .where("workspace_id", "=", wsId).execute()).map(r => asSessionId(r.session_id));
-        workspaceBus.publish({ kind: "sessions-set", id: asWorkspaceId(wsId), session_ids: sids, version: ws.version });
+          .where("workspace_id", "=", wsId)
+          .where("dashboard_id", "=", actor.dashboardId)
+          .execute()).map(r => asSessionId(r.session_id));
+        workspaceBus.publish({
+          kind: "sessions-set",
+          id: asWorkspaceId(wsId),
+          session_ids: sids,
+          version: ws.version,
+          _dashboard_id: actor.dashboardId,
+        });
       }
       return create(SessionsAssignWorkspaceResponseSchema, { ok: true });
     },

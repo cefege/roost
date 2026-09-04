@@ -1,32 +1,7 @@
-// Raw-WebSocket Sync firehose transport (Bun-native, server→client only).
-// Replaces the Connect server-streaming CoordinatorService.sync, which
-// crashed coord under Bun 1.3.14: a browser aborting the long-lived
-// streaming response tripped a use-after-free in RequestContext.onAbort
-// (bun.report: HttpContext::onClose → Response.onAborted →
-// RequestContext.onAbort → [js abort listener] → bus error). A raw WS close
-// routes through Bun's websocket.close(ws) callback, NEVER through
-// RequestContext.onAbort, so that fault path is unreachable.
-//
-// Carries the SAME FirehoseFrame proto frames as BINARY WS messages
-// (toBinary). Only the transport tube changed — the feed itself lives in
-// startSyncFeed (sync-feed.ts), SHARED so this reader can't diverge
-// from the frames the SPA already decodes. Same move already made for the
-// worker↔coord transport (worker-ws-handler.ts).
-//
-// Auth: the device JWT travels in the standards-compliant `roost-auth`
-// WebSocket subprotocol, never in the URL. Backfill cursor remains in
-// `?since=<eventId>`.
-//
-// Lives in apps/coord (Bun-specific: server.upgrade). main.ts wires the
-// upgrade + multiplexes the single Bun `websocket` handler with the worker WS.
-//
-// This file is the transport ENTRY POINT and the socket wiring only. The three
-// protocols it multiplexes live beside it:
-//   sync-ws-deadline.ts     — reauth deadline scheduler
-//   sync-ws-v1-delivery.ts  — ACK window + backpressure engine, v1 send path
-//   sync-ws-v2-scheduler.ts — v2 weighted-lane egress scheduler
-//   sync-ws-v2-commands.ts  — v2 client-command ingress
-//   sync-ws-v2-state.ts     — v2 per-socket state vocabulary
+// Owns each live Sync WebSocket after authenticated upgrade: feed startup,
+// ACK/backpressure delivery, v2 command scheduling, and deterministic cleanup.
+// Snapshot listeners are installed before the subscribed barrier, so no live
+// terminal frame can escape before the socket has a complete baseline boundary.
 
 import type { ServerWebSocket } from "bun";
 import { clone, create } from "@bufbuild/protobuf";
@@ -40,18 +15,19 @@ import {
   SyncDomain,
   type FirehoseFrame,
 } from "@roost/shared/proto/sync_pb";
-import { jwtKeyGeneration, verifyJwt } from "../jwt.ts";
+import { jwtKeyGeneration } from "../jwt.ts";
 import { log } from "@roost/shared/log";
-import { signal } from "@roost/shared/diag";
-import { startSyncFeed, type SyncFeed } from "./sync-feed.ts";
+import {
+  startSyncFeed,
+  type SyncFeed,
+} from "./sync-feed.ts";
 import { registerSyncSnapshotSocket } from "./sync-snapshot-registry.ts";
 import { makeSyncWsClientIngress } from "./sync-ws-client-ingress.ts";
 import {
-  realDeadlineClock,
-  scheduleDeadline,
-  type SyncDeadlineClock,
-  type SyncDeadlineTimer,
-} from "./sync-ws-deadline.ts";
+  realWsDeadlineClock,
+  scheduleWsAuthDeadline,
+  type WsDeadlineClock,
+} from "./ws-auth-deadline.ts";
 import { makeSyncV1Delivery } from "./sync-ws-v1-delivery.ts";
 import {
   makeSyncV2CommandHandler,
@@ -64,20 +40,17 @@ import {
 import {
   V2_DOMAINS,
   clearV2State,
-  createSyncV2SocketState,
-  type SyncV2SocketState,
 } from "./sync-ws-v2-state.ts";
 import type { ConnectDeps } from "./router.ts";
 import type { TerminalViewHub } from "./terminal-view-hub.ts";
-// Wire protocol values (path/subprotocol/query negotiation) live in
-// @roost/shared/wire/sync-ws so the SPA and CLI dials cannot drift from the
-// upgrade match here.
-import {
-  SYNC_WS_PATH,
-  SYNC_AUTH_SUBPROTOCOL,
-  SYNC_QUERY_FLOW_V1,
-  SYNC_QUERY_V2,
-} from "@roost/shared/wire/sync-ws";
+import type { SyncWsData } from "./sync-ws-upgrade.ts";
+export {
+  handleSyncWsUpgrade,
+  type SyncDashboardActor,
+  type SyncDeliveryRecord,
+  type SyncUpgradeServer,
+  type SyncWsData,
+} from "./sync-ws-upgrade.ts";
 
 /** Coord pushes a keepalive data frame at this cadence on every long-lived
  *  WebSocket — the browser Sync firehose here and the worker transport
@@ -90,146 +63,9 @@ const BACKPRESSURE_LIMIT_BYTES = 8 * 1024 * 1024;
 const BACKPRESSURE_TIMEOUT_MS = 10_000;
 const SYNC_PROCESS_EPOCH = randomUUID();
 
-export interface SyncUpgradeServer {
-  requestIP(req: Request): { address: string } | null;
-  upgrade(
-    req: Request,
-    opts: { data: SyncWsData; headers?: HeadersInit },
-  ): boolean;
-}
-
-function isAllowedWsOrigin(origin: string, host: string, cfg: ConnectDeps["cfg"]): boolean {
-  if (
-    origin === cfg.webPublicUrl
-    || origin === cfg.publicUrl
-    || cfg.corsAllowedOrigins.includes(origin)
-    || origin === `https://${host}`
-  ) return true;
-  return cfg.relaxedCsp && origin === `http://${host}`;
-}
-
-export interface SyncDeliveryRecord {
-  readonly seq: bigint;
-  readonly encodedBytes: number;
-  readonly sentAtMs: number;
-}
-
-export interface SyncWsData {
-  kind: "sync";
-  caller: { fingerprint: string; label?: string; keyGeneration: number };
-  sinceEventId: number;
-  /** `${fingerprint}:${tabId}` identifies the browser tab that owns socket-bound
-   * terminal view handles and attributes typed input. A v2 socket without
-   * `tab=` remains a read-only firehose consumer and cannot issue either. */
-  viewerKey: string | null;
-  remoteAddress?: string | null;
-  feed: SyncFeed | null;
-  keepaliveTimer: Timer | null;
-  reauthAtMs: number | null;
-  reauthTimer: SyncDeadlineTimer | null;
-  pressureTimer: Timer | null;
-  pressureFrame: string | null;
-  pressureClosing: boolean;
-  /** Enabled only by the exact `flow=1` upgrade query value. */
-  flowControl: boolean;
-  /** Present only for the exact `flow=1&sync_v=2` capability negotiation. */
-  v2?: SyncV2SocketState;
-  /** Last sequence accepted by ws.send (not merely encoded or attempted). */
-  lastSentDeliverySeq: bigint;
-  /** Highest cumulative ACK accepted from this socket. */
-  ackDeliverySeq: bigint;
-  unackedEncodedBytes: number;
-  /** Metadata only: payloads and encoded buffers must never enter this queue. */
-  deliveryQueue: SyncDeliveryRecord[];
-  deliveryTimer: Timer | null;
-  /** ACK/close notifications for the single retained-seed pacing phase. */
-  deliveryWaiters: Set<() => void>;
-}
-
-/** Bun fetch-handler hook. Returns:
- *  - null      → not the sync-WS path; caller should continue to coord.fetch.
- *  - undefined → upgrade succeeded (Bun hijacked); return undefined from fetch.
- *  - Response  → reject (401 / 400); return it from fetch. */
-export async function handleSyncWsUpgrade(
-  req: Request,
-  server: SyncUpgradeServer,
-  deps: ConnectDeps,
-  reauthAtMs: number | null = null,
-): Promise<Response | undefined | null> {
-  const url = new URL(req.url);
-  if (url.pathname !== SYNC_WS_PATH) return null;
-  // WS handshakes are GET, so main.ts's retired gate (`req.method !== "GET"`)
-  // cannot see them. Any non-active mode must fail fast here, or a browser
-  // reconnecting mid-move attaches to a frozen DB and gets keepalives forever
-  // instead of falling into the AuthCoordIdentity discovery path.
-  if (deps.move && deps.move.gate.mode !== "active") {
-    return new Response("coordinator move in progress", { status: deps.move.gate.mode === "retired" ? 410 : 503 });
-  }
-  const wsOrigin = req.headers.get("origin");
-  if (wsOrigin && !isAllowedWsOrigin(wsOrigin, url.host, deps.cfg)) {
-    const addr = server.requestIP(req)?.address ?? undefined;
-    signal("sync.auth_rejected", {
-      reason: "origin_rejected",
-      addr,
-      cooldownKey: addr ?? "sync-origin",
-    });
-    return new Response("forbidden origin", { status: 403 });
-  }
-  const addr = server.requestIP(req)?.address ?? undefined;
-  const protocols = (req.headers.get("sec-websocket-protocol") ?? "")
-    .split(",")
-    .map((part) => part.trim());
-  if (protocols.length !== 2 || protocols[0] !== SYNC_AUTH_SUBPROTOCOL || !protocols[1]) {
-    return new Response("unauthorized", { status: 401 });
-  }
-  const token = protocols[1];
-  let caller: { fingerprint: string; label?: string; keyGeneration: number };
-  try {
-    caller = await verifyJwt(token, {
-      db: deps.db, cache: deps.jwtCache, jwtMaxAgeSecs: deps.cfg.jwtMaxAgeSecs,
-    });
-  } catch (e) {
-    log.warn("sync-ws", "upgrade_jwt_failed", { error: String(e) });
-    signal("sync.auth_rejected", { reason: "jwt_invalid", addr, cooldownKey: addr ?? "sync-auth" });
-    return new Response("unauthorized", { status: 401 });
-  }
-  const since = Number(url.searchParams.get("since")) || 0;
-  const tabId = url.searchParams.get("tab");
-  const flowControl = url.searchParams.get("flow") === SYNC_QUERY_FLOW_V1;
-  const syncV2 = flowControl && url.searchParams.get("sync_v") === SYNC_QUERY_V2;
-  const data: SyncWsData = {
-    kind: "sync",
-    caller,
-    sinceEventId: since,
-    viewerKey: tabId ? `${caller.fingerprint}:${tabId}` : null,
-    remoteAddress: addr ?? null,
-    feed: null,
-    keepaliveTimer: null,
-    reauthAtMs,
-    reauthTimer: null,
-    pressureTimer: null,
-    pressureFrame: null,
-    pressureClosing: false,
-    flowControl,
-    v2: syncV2 ? createSyncV2SocketState() : undefined,
-    lastSentDeliverySeq: 0n,
-    ackDeliverySeq: 0n,
-    unackedEncodedBytes: 0,
-    deliveryQueue: [],
-    deliveryTimer: null,
-    deliveryWaiters: new Set(),
-  };
-  const ok = server.upgrade(req, {
-    data,
-    headers: { "Sec-WebSocket-Protocol": SYNC_AUTH_SUBPROTOCOL },
-  });
-  if (ok) return undefined; // hijacked
-  return new Response("upgrade failed", { status: 400 });
-}
-
 export interface SyncWsHandlerOptions {
   keepaliveMs?: number;
-  deadlineClock?: SyncDeadlineClock;
+  deadlineClock?: WsDeadlineClock;
   backpressureLimitBytes?: number;
   backpressureTimeoutMs?: number;
   onV2Command?: (context: SyncV2CommandContext) => void;
@@ -245,10 +81,11 @@ export function makeSyncWsHandler(
   options: SyncWsHandlerOptions = {},
 ) {
   const keepaliveMs = options.keepaliveMs ?? KEEPALIVE_INTERVAL_MS;
-  const deadlineClock = options.deadlineClock ?? realDeadlineClock;
+  const deadlineClock = options.deadlineClock ?? realWsDeadlineClock;
   const backpressureLimitBytes = options.backpressureLimitBytes ?? BACKPRESSURE_LIMIT_BYTES;
   const backpressureTimeoutMs = options.backpressureTimeoutMs ?? BACKPRESSURE_TIMEOUT_MS;
   const sockets = new Set<ServerWebSocket<SyncWsData>>();
+  const leaseExpiredSockets = new Set<string>();
 
   // Construction below is a forward-reference cycle by necessity, resolved the
   // same way this file already resolved the v2 scheduler's own recursion: every
@@ -307,6 +144,27 @@ export function makeSyncWsHandler(
     ws.data.feed?.dispose();
     ws.data.feed = null;
   };
+  options.terminalViews?.setOnLiveViewExpired((socketId) => {
+    if (leaseExpiredSockets.has(socketId)) return;
+    let owner: ServerWebSocket<SyncWsData> | null = null;
+    for (const ws of sockets) {
+      if (ws.data.v2?.socketId === socketId) {
+        owner = ws;
+        break;
+      }
+    }
+    if (!owner || owner.data.pressureClosing) return;
+    leaseExpiredSockets.add(socketId);
+    owner.data.pressureClosing = true;
+    cleanupSocket(owner);
+    try {
+      owner.close(1013, "terminal view lease expired");
+    } catch {
+      // cleanupSocket already retired every owner and timer.
+    }
+    queueMicrotask(() => leaseExpiredSockets.delete(socketId));
+  });
+
 
   return {
     open(ws: ServerWebSocket<SyncWsData>): void {
@@ -319,17 +177,22 @@ export function makeSyncWsHandler(
           ws.close(4003, "reauth required");
           return;
         }
-        ws.data.reauthTimer = scheduleDeadline(ws, ws.data.reauthAtMs, deadlineClock);
+        ws.data.reauthTimer = scheduleWsAuthDeadline(ws, ws.data.reauthAtMs, deadlineClock);
       }
       sockets.add(ws);
       const v2 = ws.data.v2;
       let feed: SyncFeed;
       if (v2) {
-        v2.snapshotDispose = registerSyncSnapshotSocket(v2.socketId, ws.data.caller.fingerprint);
+        v2.snapshotDispose = registerSyncSnapshotSocket(
+          v2.socketId,
+          ws.data.caller.fingerprint,
+          ws.data.actor.dashboardId,
+        );
         // startSyncFeed subscribes synchronously and performs no v2 seeding.
         // Only after every listener exists may the subscribed barrier escape.
         feed = startSyncFeed(
           deps,
+          ws.data.scope,
           ws.data.sinceEventId,
           (frame, meta) => v2Scheduler.enqueueV2Frame(ws, frame, meta),
           ws.data.viewerKey,
@@ -366,6 +229,8 @@ export function makeSyncWsHandler(
         options.terminalViews?.registerSocket({
           socketId: v2.socketId,
           viewerKey: ws.data.viewerKey,
+          dashboardId: ws.data.actor.dashboardId,
+          allowsSession: (sessionId) => ws.data.scope.sessionIds.has(sessionId),
           callerFingerprint: ws.data.caller.fingerprint,
           sink: {
             beginTerminalStream: (sessionId, streamId) =>
@@ -374,8 +239,20 @@ export function makeSyncWsHandler(
               v2Scheduler.enqueueTerminalState(ws, frame, sessionId),
             replaceTerminalSnapshot: (sessionId, streamId, frames) =>
               v2Scheduler.replaceTerminalSnapshot(ws, sessionId, streamId, frames),
-            enqueueTerminalDelta: (sessionId, streamId, frame) =>
-              v2Scheduler.enqueueTerminalDelta(ws, sessionId, streamId, frame),
+            enqueueTerminalDelta: (sessionId, streamId, frame) => {
+              const terminal = ws.data.v2?.domains.get(SyncDomain.TERMINAL);
+              const generation = terminal?.generation;
+              if (v2Scheduler.enqueueTerminalDelta(ws, sessionId, streamId, frame)) {
+                return "queued";
+              }
+              const current = ws.data.v2?.domains.get(SyncDomain.TERMINAL);
+              if (
+                ws.data.pressureClosing
+                || generation === undefined
+                || current?.generation !== generation
+              ) return "handled";
+              return "needs_snapshot";
+            },
             dropTerminalSession: (sessionId) =>
               v2Scheduler.dropTerminalSession(ws, sessionId),
           },
@@ -384,11 +261,16 @@ export function makeSyncWsHandler(
         const push = (frame: FirehoseFrame): void => { delivery.sendGuarded(ws, frame); };
         feed = startSyncFeed(
           deps,
+          ws.data.scope,
           ws.data.sinceEventId,
           push,
           ws.data.viewerKey,
           ws.data.flowControl
-            ? { pacedSeedPush: (frame) => delivery.pushPacedSeed(ws, frame) }
+            ? {
+              pacedSeedPush: (frame) => delivery.pushPacedSeed(ws, frame),
+              onBufferOverflow: (reason, frame) =>
+                delivery.closeForBackpressure(ws, reason, frame),
+            }
             : undefined,
         );
       }
@@ -424,11 +306,33 @@ export function makeSyncWsHandler(
       cleanupSocket(ws);
       log.info("sync-ws", "close", { caller_fp: ws.data.caller.fingerprint });
     },
+    /** Remove a tombstoned worker from every already-open mutable dashboard
+     * scope before the presence delta is published. */
+    removeWorkerFromScopes(dashboardId: string, workerFp: string): void {
+      for (const ws of sockets) {
+        if (ws.data.scope.dashboardId === dashboardId) {
+          ws.data.scope.workerFps.delete(workerFp);
+        }
+      }
+    },
     closeForFingerprint(fingerprint: string): void {
       for (const ws of sockets) {
         if (ws.data.caller.fingerprint === fingerprint) {
           try { ws.close(4001, "revoked"); } catch { /* close handler cleans up */ }
         }
+      }
+    },
+    closeForDashboard(dashboardId: string, fingerprint?: string): void {
+      // A membership-wide revocation removes every scoped view. Device
+      // revocation narrows to the affected fingerprint and preserves peers.
+      if (fingerprint === undefined) options.terminalViews?.removeDashboard(dashboardId);
+      else options.terminalViews?.removeFingerprint(fingerprint);
+      for (const ws of sockets) {
+        if (
+          ws.data.actor.dashboardId !== dashboardId
+          || (fingerprint !== undefined && ws.data.caller.fingerprint !== fingerprint)
+        ) continue;
+        try { ws.close(4001, "dashboard access revoked"); } catch { /* close handler cleans up */ }
       }
     },
     publishRelocation(handoffId: string, sourceUrl: string, targetUrl: string): void {

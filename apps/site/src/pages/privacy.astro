@@ -1,0 +1,158 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="Privacy Policy | Roost"
+  description="How Roost collects, uses, shares, and retains information for the managed dashboard service."
+>
+  <section class="section legal-page">
+    <div class="wrap">
+      <header class="legal-header">
+        <p class="eyebrow">Legal</p>
+        <h1>Privacy Policy</h1>
+        <p class="lede">
+          This policy explains the information handled when you use the Roost website and managed dashboard.
+        </p>
+        <p class="updated">Last updated August 31, 2026</p>
+      </header>
+
+      <article class="prose">
+        <h2>Information Roost handles</h2>
+        <ul>
+          <li>
+            <strong>Account and contact information:</strong> your email address and, when you use Google sign-in,
+            the verified email address, Google subject identifier, and canonical issuer
+            <code>https://accounts.google.com</code>. The issuer and subject identify the Google account; Roost does
+            not use email equality alone to link an existing account.
+          </li>
+          <li>
+            <strong>Credentials and devices:</strong> password hashes if you add a password, browser-generated public
+            keys and their fingerprints, device labels, authorization and revocation records, and sign-in metadata.
+            Browser private keys are designed to remain on your device, and raw passwords are not retained.
+          </li>
+          <li>
+            <strong>Service content:</strong> the terminal sessions, commands or input, session history, account and
+            dashboard settings, machine information, and other content you send to or create through Roost.
+          </li>
+          <li>
+            <strong>Network and security information:</strong> IP addresses, request metadata, rate-limit records,
+            authentication and security events, and operational logs used to protect and run the service.
+          </li>
+          <li>
+            <strong>Human-verification information:</strong> Cloudflare Turnstile responses and validation results
+            when signup requires an anti-abuse check. Roost uses the response to verify the request and does not use it
+            for advertising.
+          </li>
+          <li>
+            <strong>Support information:</strong> messages you send to support, your reply address, and information you
+            include so the issue can be investigated.
+          </li>
+        </ul>
+
+        <h2>How the information is used</h2>
+        <p>Roost uses this information only as needed to:</p>
+        <ul>
+          <li>create and authenticate accounts, link sign-in methods, and authorize devices;</li>
+          <li>provide terminal, dashboard, synchronization, backup, and related service features;</li>
+          <li>send verification, activation, password-reset, security, and support email;</li>
+          <li>prevent abuse, enforce capacity limits, investigate incidents, and keep the service reliable; and</li>
+          <li>respond to support requests and comply with applicable legal obligations.</li>
+        </ul>
+
+        <h2>Google sign-in</h2>
+        <p>
+          Google sign-in requests only the OpenID Connect <code>openid</code> and <code>email</code> scopes. Roost
+          verifies the returned identity token and keeps the canonical Google issuer, subject identifier, and latest
+          verified email needed to recognize the account. Roost does not call Google data APIs or Gmail, request
+          offline access, or retain Google ID tokens, access tokens, or refresh tokens.
+        </p>
+
+        <h2>Service providers</h2>
+        <p>Roost shares information with service providers only to operate the service:</p>
+        <ul>
+          <li><strong>Google</strong> provides optional account authentication.</li>
+          <li>
+            <strong>Cloudflare</strong> provides DNS, network delivery and protection, tunnels, and Turnstile
+            anti-abuse checks. Cloudflare may process IP addresses and request or device signals under its own terms.
+          </li>
+          <li><strong>Resend</strong> delivers transactional account and support-related email.</li>
+          <li>
+            <strong>Hosting infrastructure providers</strong> process account data, service content, logs, and
+            encrypted backups on the systems used to run Roost.
+          </li>
+        </ul>
+        <p>
+          Roost does not sell personal information, show advertising, or share information for cross-context
+          behavioral advertising. The public marketing site does not run analytics.
+        </p>
+
+        <h2>Cookies and browser storage</h2>
+        <p>
+          The dashboard uses strictly necessary cookies and browser storage for sign-in transactions, account routing,
+          security receipts, preferences, and device authorization. Roost does not use advertising cookies. A browser
+          may also keep its non-extractable private device key locally so it can prove authorization on later visits.
+        </p>
+
+        <h2>Retention and deletion</h2>
+        <p>
+          Account identity records, authorized device records, settings, and service content are retained while the
+          account exists. Disabling an account stops its managed access but does not by itself erase its data, so the
+          account can be re-enabled. There is no blanket automatic deletion schedule for all service records.
+        </p>
+        <p>
+          High-volume terminal input audit records are deleted after the configured retention window, which currently
+          defaults to 90 days. Roost keeps the newest 14 daily encrypted account backup snapshots; older snapshots are
+          removed as that set rotates. Information changed or removed from the live service may therefore remain in a
+          backup until its snapshot rotates out. Short-lived verification and sign-in transaction records expire after
+          their security purpose ends. Security records may be retained longer when needed to investigate abuse or
+          protect accounts.
+        </p>
+        <p>
+          Support messages are retained as needed to answer the request and preserve an operational support history.
+          To ask about your information or request account deletion, email
+          <a href="mailto:support@roosttt.com">support@roosttt.com</a>. Some limited records may be kept where required
+          for security, dispute resolution, or legal compliance.
+        </p>
+
+        <h2>Security</h2>
+        <p>
+          Roost uses access controls, isolated account services, signed device requests, and encrypted backups to
+          protect information. No Internet service can guarantee absolute security. Keep control of your email account
+          and devices, and contact support promptly if you suspect unauthorized access.
+        </p>
+
+        <h2>Changes and contact</h2>
+        <p>
+          This policy may change as the beta service develops. The date above will be updated when the policy changes.
+          Questions about this policy can be sent to
+          <a href="mailto:support@roosttt.com">support@roosttt.com</a>.
+        </p>
+      </article>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .legal-page {
+    padding-top: var(--md-space-8);
+  }
+
+  .legal-header {
+    max-width: 72ch;
+    margin-bottom: var(--md-space-8);
+  }
+
+  h1 {
+    margin-bottom: var(--md-space-3);
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+  }
+
+  .updated {
+    margin-top: var(--md-space-4);
+    color: var(--text-lo);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+</style>

@@ -1,24 +1,36 @@
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { once } from "node:events";
+// The terminal smoke stack starts an isolated coordinator, workers, keepers, and API scope.
+// Playwright fixtures call this lifecycle and receive lazy worker factories plus cleanup.
+// Every child gets isolated state and temp roots while the returned stop closes all resources.
+
+import { spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, openSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { setTimeout as delay } from "node:timers/promises";
+import { join } from "node:path";
 import { buildAuthorizedApiClient, type AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import { resolveLocalEndpoint } from "../../apps/shared/src/local-endpoint.ts";
-import { shutdownKeeperAuthenticated } from "../../apps/worker/src/keeper/keeper-probe.ts";
-const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+import { loadWorkerKey } from "../../apps/worker/src/jwt.ts";
+import {
+  REPOSITORY_ROOT,
+  TERMINAL_TEST_DASHBOARD_ID,
+  TERMINAL_TEST_SECOND_DASHBOARD_ID,
+  childEnvironment,
+  logTail,
+  seedTerminalDashboards,
+  stopChild,
+  stopKeeper,
+  waitFor,
+  withTerminalDashboard,
+  type RunningService,
+} from "./stack-runtime.ts";
+import {
+  createPtyFixtureCompiler,
+  createTerminalWorkerStarter,
+  waitForTerminalWorkerRoutable,
+} from "./stack-worker-runtime.ts";
 const WORKER_LABEL = "roost-terminal-test";
 const SECOND_WORKER_LABEL = "roost-terminal-test-second";
 const PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture";
 const COORD_START_TIMEOUT_MS = 20_000;
-const WORKER_READY_TIMEOUT_MS = 30_000;
-
-type RunningService = {
-  child: ChildProcess;
-  logPath: string;
-};
+const SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-dashboard-b-pty-fixture";
 
 export type TerminalTestWorker = {
   workerFp: string;
@@ -35,14 +47,20 @@ export type TerminalTestStack = {
   workerLogPath: string;
   ptyFixtureWorkerLogPath: string;
   secondWorkerLogPath: string;
+  secondDashboardPtyFixtureWorkerLogPath: string;
   // The authorized client the harness already had to mint to bootstrap the
   // worker. Exposed so callers don't build a second (unauthorized) one.
+  dashboardId: string;
+  secondDashboardId: string;
+  secondDashboardClient: AuthorizedApiClient;
   client: AuthorizedApiClient;
   // Lazily start one independent worker with its own HOME, data, key, log, and
   // keeper. Repeated calls return the same running worker.
   startSecondWorker(): Promise<TerminalTestWorker>;
   /** Lazily start a worker whose shell is the compiled portable PTY fixture. */
   startPtyFixtureWorker(): Promise<TerminalTestWorker>;
+  /** Lazily start the portable PTY fixture worker bound to the second dashboard. */
+  startSecondDashboardPtyFixtureWorker(): Promise<TerminalTestWorker>;
   // Bounce the primary worker process, keeping coord and the persisted worker
   // identity. Resolves once the same fingerprint is routable again.
   restartWorker(): Promise<void>;
@@ -58,66 +76,6 @@ export type TerminalTestStackOptions = {
   useRealHome?: boolean;
 };
 
-function logTail(path: string): string {
-  try {
-    return readFileSync(path, "utf8").slice(-8_000);
-  } catch {
-    return "<no log output>";
-  }
-}
-
-function childEnvironment(home: string, tmpDir: string, values: Record<string, string>): NodeJS.ProcessEnv {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key, value]) => value !== undefined && !key.startsWith("ROOST_")),
-  );
-  // Every child gets its own temp namespace. apps/worker/src/shell-spec.ts
-  // materializes the POSIX bootstrap rc at a FIXED tmpdir() path
-  // (roost-bash-osc7/roost.bashrc, roost-zsh-noPROMPT_SP/.zshrc), once per
-  // process, with a truncating write: any two workers sharing a temp root race
-  // there, and a shell that sources the file mid-truncate silently loses its
-  // OSC7 cwd tracking. That is reachable both across concurrent stacks (one
-  // per Playwright worker) and inside one stack, whose primary and second
-  // workers are separate processes. TMP/TEMP carry the same isolation on
-  // Windows, where os.tmpdir() reads those instead of TMPDIR.
-  return { ...env, HOME: home, TMPDIR: tmpDir, TMP: tmpDir, TEMP: tmpDir, ...values };
-}
-
-async function waitFor<T>(label: string, timeoutMs: number, probe: () => T | undefined | Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  let lastError: unknown;
-  while (Date.now() < deadline) {
-    try {
-      const result = await probe();
-      if (result !== undefined) return result;
-      lastError = undefined;
-    } catch (error) {
-      lastError = error;
-    }
-    await delay(100);
-  }
-  throw new Error(`${label} timed out after ${timeoutMs}ms${lastError ? `: ${String(lastError)}` : ""}`);
-}
-
-async function stopChild(service: RunningService | undefined): Promise<void> {
-  if (!service || service.child.exitCode !== null || service.child.killed) return;
-  service.child.kill("SIGTERM");
-  const graceful = await Promise.race([
-    once(service.child, "exit").then(() => true),
-    delay(5_000).then(() => false),
-  ]);
-  if (!graceful && service.child.exitCode === null) {
-    service.child.kill("SIGKILL");
-    await Promise.race([once(service.child, "exit"), delay(2_000)]);
-  }
-}
-
-async function stopKeeper(workerDataDir: string): Promise<void> {
-  await shutdownKeeperAuthenticated(resolveLocalEndpoint({
-    name: "mux-keeper",
-    dataDir: workerDataDir,
-  }));
-}
-
 export async function startTerminalTestStack(
   options: TerminalTestStackOptions = {},
 ): Promise<TerminalTestStack> {
@@ -131,11 +89,15 @@ export async function startTerminalTestStack(
   const home = options.useRealHome ? (process.env.HOME ?? join(root, "home")) : join(root, "home");
   const secondHome = join(root, "second-home");
   const coordLogPath = join(root, "coord.log");
+  const coordDbPath = join(root, "coord.db");
   const workerLogPath = join(root, "worker.log");
   const secondWorkerLogPath = join(root, "second-worker.log");
   const ptyFixtureHome = join(root, "pty-fixture-home");
   const ptyFixtureLogPath = join(root, "pty-fixture-worker.log");
   const ptyFixtureDataDir = join(root, "pty-fixture-worker-data");
+  const secondDashboardPtyFixtureHome = join(root, "dashboard-b-pty-fixture-home");
+  const secondDashboardPtyFixtureLogPath = join(root, "dashboard-b-pty-fixture-worker.log");
+  const secondDashboardPtyFixtureDataDir = join(root, "dashboard-b-pty-fixture-worker-data");
   const ptyFixtureExecutable = join(
     root,
     process.platform === "win32" ? "roost-pty-fixture.exe" : "roost-pty-fixture",
@@ -146,11 +108,13 @@ export async function startTerminalTestStack(
   mkdirSync(home, { recursive: true });
   mkdirSync(secondHome, { recursive: true });
   mkdirSync(ptyFixtureHome, { recursive: true });
+  mkdirSync(secondDashboardPtyFixtureHome, { recursive: true });
   const childTmpDirs = {
     coord: join(root, "coord-tmp"),
     worker: join(root, "worker-tmp"),
     secondWorker: join(root, "second-worker-tmp"),
     ptyFixtureWorker: join(root, "pty-fixture-worker-tmp"),
+    secondDashboardPtyFixtureWorker: join(root, "dashboard-b-pty-fixture-worker-tmp"),
   };
   for (const dir of Object.values(childTmpDirs)) mkdirSync(dir, { recursive: true });
   let coord: RunningService | undefined;
@@ -159,41 +123,50 @@ export async function startTerminalTestStack(
   let secondWorkerStart: Promise<TerminalTestWorker> | undefined;
   let ptyFixtureWorker: RunningService | undefined;
   let ptyFixtureWorkerStart: Promise<TerminalTestWorker> | undefined;
+  let secondDashboardPtyFixtureWorker: RunningService | undefined;
+  let secondDashboardPtyFixtureWorkerStart: Promise<TerminalTestWorker> | undefined;
   let client: AuthorizedApiClient | undefined;
+  let secondDashboardClient: AuthorizedApiClient | undefined;
 
   const stop = async () => {
     const errors: string[] = [];
     try {
-      if (client) {
-        const { sessions } = await client.sessionsList({ status: "all" }).catch((error) => {
-          errors.push(`list sessions: ${String(error)}`);
+      const cleanDashboard = async (scopeClient: AuthorizedApiClient, scopeName: string): Promise<void> => {
+        const { sessions } = await scopeClient.sessionsList({ status: "all" }).catch((error) => {
+          errors.push(`${scopeName}: list sessions: ${String(error)}`);
           return { sessions: [] };
         });
-        await Promise.all(sessions.map((session) => client!.sessionsKill({ sessionId: session.id }).catch((error) => {
-          errors.push(`kill session ${session.id}: ${String(error)}`);
+        await Promise.all(sessions.map((session) => scopeClient.sessionsKill({ sessionId: session.id }).catch((error) => {
+          errors.push(`${scopeName}: kill session ${session.id}: ${String(error)}`);
         })));
-        const { workspaces } = await client.workspacesList({}).catch((error) => {
-          errors.push(`list workspaces: ${String(error)}`);
+        const { workspaces } = await scopeClient.workspacesList({}).catch((error) => {
+          errors.push(`${scopeName}: list workspaces: ${String(error)}`);
           return { workspaces: [] };
         });
         for (const workspace of workspaces) {
           for (let attempt = 0; attempt < 2; attempt++) {
-            const current = await client.workspacesList({}).then((result) => result.workspaces.find((item) => item.id === workspace.id)).catch((error) => {
-              errors.push(`read workspace ${workspace.id}: ${String(error)}`);
+            const current = await scopeClient.workspacesList({}).then((result) =>
+              result.workspaces.find((item) => item.id === workspace.id),
+            ).catch((error) => {
+              errors.push(`${scopeName}: read workspace ${workspace.id}: ${String(error)}`);
               return undefined;
             });
             if (!current) break;
             try {
-              await client.workspacesDelete({ id: current.id, ifVersion: current.version });
+              await scopeClient.workspacesDelete({ id: current.id, ifVersion: current.version });
               break;
             } catch (error) {
-              if (attempt === 1) errors.push(`delete workspace ${current.id}: ${String(error)}`);
+              if (attempt === 1) errors.push(`${scopeName}: delete workspace ${current.id}: ${String(error)}`);
             }
           }
         }
-      }
+      };
+      if (client) await cleanDashboard(client, "primary dashboard");
+      if (secondDashboardClient) await cleanDashboard(secondDashboardClient, "second dashboard");
     } finally {
       await stopChild(secondWorker).catch((error) => errors.push(`stop second worker: ${String(error)}`));
+      await stopChild(secondDashboardPtyFixtureWorker).catch((error) => errors.push(`stop second dashboard PTY fixture worker: ${String(error)}`));
+      await stopKeeper(secondDashboardPtyFixtureDataDir).catch((error) => errors.push(`stop second dashboard PTY fixture keeper: ${String(error)}`));
       await stopChild(ptyFixtureWorker).catch((error) => errors.push(`stop PTY fixture worker: ${String(error)}`));
       await stopKeeper(ptyFixtureDataDir).catch((error) => errors.push(`stop PTY fixture keeper: ${String(error)}`));
       await stopKeeper(secondWorkerDataDir).catch((error) => errors.push(`stop second keeper: ${String(error)}`));
@@ -219,7 +192,7 @@ export async function startTerminalTestStack(
           ROOST_TRUST_PROXY: "0",
           ROOST_PUBLIC_BIND: "",
           ROOST_RELAXED_CSP: "1",
-          ROOST_COORDINATOR_DB: join(root, "coord.db"),
+          ROOST_COORDINATOR_DB: coordDbPath,
           ROOST_COORDINATOR_AUTHORIZED_KEYS: join(root, "authorized_keys.roost"),
           ROOST_COORDINATOR_KEY_PATH: join(root, "coord.key"),
           // Isolate the relocation state too. It defaults under the data dir
@@ -237,46 +210,19 @@ export async function startTerminalTestStack(
       return match ? `http://${match[1]}` : undefined;
     }).catch((error) => { throw new Error(`${error}\ncoord log:\n${logTail(coordLogPath)}`); });
 
-    client = await buildAuthorizedApiClient({
+    const apiKeyPath = join(root, "api.key");
+    const apiKey = await loadWorkerKey(apiKeyPath);
+    seedTerminalDashboards(bunExecutable, coordDbPath, apiKey.fingerprint, apiKey.pubKey);
+    const rawClient = await buildAuthorizedApiClient({
       coordinatorUrl: baseUrl,
-      keyPath: join(root, "api.key"),
+      keyPath: apiKeyPath,
       label: "roost-terminal-test-api",
+      skipTenantProbe: true,
     });
-    const startWorker = (config: {
-      label: string;
-      home: string;
-      logPath: string;
-      dataDir: string;
-      tmpDir: string;
-      bootstrapToken: string;
-      shell?: string;
-    }): RunningService => {
-      const workerLog = openSync(config.logPath, "a");
-      return {
-        logPath: config.logPath,
-        child: spawn(bunExecutable, ["apps/worker/src/main.ts"], {
-          cwd: REPOSITORY_ROOT,
-          env: childEnvironment(config.home, config.tmpDir, {
-            ROOST_COORDINATOR_URL: baseUrl,
-            // Only the first boot redeems the token; persisted data owns the
-            // identity on restart.
-            ROOST_BOOTSTRAP_TOKEN: config.bootstrapToken,
-            ROOST_WORKER_LABEL: config.label,
-            ROOST_WORKER_DATA_DIR: config.dataDir,
-            ROOST_WORKER_KEY_PATH: join(config.dataDir, "worker.key"),
-            ROOST_KEEPER_QUIET: "1",
-            ...(config.shell ? { SHELL: config.shell, ROOST_SHELL: config.shell } : {}),
-          }),
-          stdio: ["ignore", workerLog, workerLog],
-        }),
-      };
-    };
-    const awaitWorkerRoutable = (label: string, logPath: string) =>
-      waitFor(`${label} routable`, WORKER_READY_TIMEOUT_MS, async () => {
-        const result = await client!.workersList({});
-        const candidate = result.workers.find((item) => item.label === label);
-        return candidate && result.routableFps.includes(candidate.fp) ? candidate.fp : undefined;
-      }).catch((error) => { throw new Error(`${error}\nworker log:\n${logTail(logPath)}`); });
+    client = withTerminalDashboard(rawClient, TERMINAL_TEST_DASHBOARD_ID);
+    secondDashboardClient = withTerminalDashboard(rawClient, TERMINAL_TEST_SECOND_DASHBOARD_ID);
+    const startWorker = createTerminalWorkerStarter(bunExecutable, baseUrl);
+    const compilePtyFixture = createPtyFixtureCompiler(bunExecutable, ptyFixtureExecutable);
 
     const bootstrapToken = (await client.authMintBootstrap({ kind: "worker", label: WORKER_LABEL })).token;
     worker = startWorker({
@@ -287,7 +233,7 @@ export async function startTerminalTestStack(
       tmpDir: childTmpDirs.worker,
       bootstrapToken,
     });
-    const workerFp = await awaitWorkerRoutable(WORKER_LABEL, workerLogPath);
+    const workerFp = await waitForTerminalWorkerRoutable(client, WORKER_LABEL, workerLogPath);
 
     const startSecondWorker = (): Promise<TerminalTestWorker> => {
       secondWorkerStart ??= (async () => {
@@ -302,24 +248,18 @@ export async function startTerminalTestStack(
           tmpDir: childTmpDirs.secondWorker,
           bootstrapToken: secondBootstrapToken,
         });
-        const workerFp = await awaitWorkerRoutable(SECOND_WORKER_LABEL, secondWorkerLogPath);
+        const workerFp = await waitForTerminalWorkerRoutable(
+          client!,
+          SECOND_WORKER_LABEL,
+          secondWorkerLogPath,
+        );
         return { workerFp, label: SECOND_WORKER_LABEL, home: secondHome, logPath: secondWorkerLogPath };
       })();
       return secondWorkerStart;
     };
     const startPtyFixtureWorker = (): Promise<TerminalTestWorker> => {
       ptyFixtureWorkerStart ??= (async () => {
-        execFileSync(
-          bunExecutable,
-          [
-            "build",
-            "--compile",
-            join(REPOSITORY_ROOT, "smoke", "terminal", "pty-fixture.ts"),
-            "--outfile",
-            ptyFixtureExecutable,
-          ],
-          { cwd: REPOSITORY_ROOT, stdio: "pipe" },
-        );
+        compilePtyFixture();
         const fixtureBootstrapToken = (
           await client!.authMintBootstrap({ kind: "worker", label: PTY_FIXTURE_WORKER_LABEL })
         ).token;
@@ -332,7 +272,11 @@ export async function startTerminalTestStack(
           bootstrapToken: fixtureBootstrapToken,
           shell: ptyFixtureExecutable,
         });
-        const workerFp = await awaitWorkerRoutable(PTY_FIXTURE_WORKER_LABEL, ptyFixtureLogPath);
+        const workerFp = await waitForTerminalWorkerRoutable(
+          client!,
+          PTY_FIXTURE_WORKER_LABEL,
+          ptyFixtureLogPath,
+        );
         return {
           workerFp,
           label: PTY_FIXTURE_WORKER_LABEL,
@@ -341,6 +285,38 @@ export async function startTerminalTestStack(
         };
       })();
       return ptyFixtureWorkerStart;
+    };
+    const startSecondDashboardPtyFixtureWorker = (): Promise<TerminalTestWorker> => {
+      secondDashboardPtyFixtureWorkerStart ??= (async () => {
+        compilePtyFixture();
+        const fixtureBootstrapToken = (
+          await secondDashboardClient!.authMintBootstrap({
+            kind: "worker",
+            label: SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL,
+          })
+        ).token;
+        secondDashboardPtyFixtureWorker = startWorker({
+          label: SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL,
+          home: secondDashboardPtyFixtureHome,
+          logPath: secondDashboardPtyFixtureLogPath,
+          dataDir: secondDashboardPtyFixtureDataDir,
+          tmpDir: childTmpDirs.secondDashboardPtyFixtureWorker,
+          bootstrapToken: fixtureBootstrapToken,
+          shell: ptyFixtureExecutable,
+        });
+        const workerFp = await waitForTerminalWorkerRoutable(
+          secondDashboardClient!,
+          SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL,
+          secondDashboardPtyFixtureLogPath,
+        );
+        return {
+          workerFp,
+          label: SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL,
+          home: secondDashboardPtyFixtureHome,
+          logPath: secondDashboardPtyFixtureLogPath,
+        };
+      })();
+      return secondDashboardPtyFixtureWorkerStart;
     };
 
 
@@ -357,25 +333,30 @@ export async function startTerminalTestStack(
         tmpDir: childTmpDirs.worker,
         bootstrapToken,
       });
-      await awaitWorkerRoutable(WORKER_LABEL, workerLogPath);
+      await waitForTerminalWorkerRoutable(client!, WORKER_LABEL, workerLogPath);
     };
 
     return {
       baseUrl,
+      dashboardId: TERMINAL_TEST_DASHBOARD_ID,
+      secondDashboardId: TERMINAL_TEST_SECOND_DASHBOARD_ID,
       workerFp,
       workerHome: home,
       coordLogPath,
       workerLogPath,
       secondWorkerLogPath,
       ptyFixtureWorkerLogPath: ptyFixtureLogPath,
+      secondDashboardPtyFixtureWorkerLogPath: secondDashboardPtyFixtureLogPath,
       client,
+      secondDashboardClient,
       startSecondWorker,
       startPtyFixtureWorker,
+      startSecondDashboardPtyFixtureWorker,
       restartWorker,
       stop,
     };
   } catch (error) {
-    const logs = `coord log:\n${logTail(coordLogPath)}\nworker log:\n${logTail(workerLogPath)}\nsecond worker log:\n${logTail(secondWorkerLogPath)}`;
+    const logs = `coord log:\n${logTail(coordLogPath)}\nworker log:\n${logTail(workerLogPath)}\nsecond worker log:\n${logTail(secondWorkerLogPath)}\nsecond dashboard PTY fixture worker log:\n${logTail(secondDashboardPtyFixtureLogPath)}`;
     await stop().catch(() => undefined);
     throw new Error(`${String(error)}\n${logs}`);
   }

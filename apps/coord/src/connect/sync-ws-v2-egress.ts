@@ -1,12 +1,7 @@
-// Sync v2 weighted-lane egress scheduler.
-//
-// One queue per domain, each preserving its own snapshot/live boundary, drained
-// through a fixed weighted lane rotation (8 cell : 4 session : 2 retained : 1
-// nonterminal) with an age escape hatch so a low lane cannot starve. Respects
-// the same application ACK window as the v1 send path.
-//
-// Frame order is load-bearing: we may step past an ineligible fenced cell to
-// reach its opened event, but two eligible items from one domain never reorder.
+// Coordinates Sync v2 domain reset, queue admission, progress deadlines, and
+// bounded writes through the weighted-lane selector. Each domain preserves its
+// snapshot/live boundary, while terminal work without an ACK owner gets a
+// separate deadline so a fenced cell queue cannot stall indefinitely.
 
 import type { ServerWebSocket } from "bun";
 import { clone, create, toBinary } from "@bufbuild/protobuf";
@@ -17,33 +12,34 @@ import {
   type FirehoseFrame,
 } from "@roost/shared/proto/sync_pb";
 import type { SyncFeedFrameMeta } from "./sync-feed.ts";
-import type { SyncDeadlineClock } from "./sync-ws-deadline.ts";
+import type { WsDeadlineClock } from "./ws-auth-deadline.ts";
 import {
   APPLICATION_MAX_UNACKED_BYTES,
+  APPLICATION_ACK_TIMEOUT_MS,
   APPLICATION_MAX_UNACKED_FRAMES,
   type SyncBackpressureReason,
 } from "./sync-ws-v1-delivery.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 import { makeSyncV2ControlSender } from "./sync-ws-v2-control.ts";
 import {
-  V2_AGGREGATE_MAX_QUEUED_BYTES,
-  V2_AGGREGATE_MAX_QUEUED_FRAMES,
   V2_DOMAIN_MAX_QUEUED_BYTES,
   V2_DOMAIN_MAX_QUEUED_FRAMES,
-  V2_LOW_LANE_MAX_AGE_MS,
-  V2_WEIGHTED_LANES,
   allocateDomainGeneration,
   clearV2DomainQueue,
-  isV2SnapshotFrame,
+  ownV2ApplicationFrame,
   queuedV2FrameEligible,
+  releaseV2AggregateFrame,
   removeQueuedV2Cells,
-  type SyncV2DomainState,
+  tryRetainV2AggregateFrame,
+  type SyncV2OwnedFrame,
   type SyncV2QueuedFrame,
+  type SyncV2RetainedFrame,
 } from "./sync-ws-v2-state.ts";
 import { makeSyncV2TerminalScheduler } from "./sync-ws-v2-terminal.ts";
+import { removeTerminalQueued, selectV2Candidate, v2AttachSnapshotInsertIndex } from "./sync-ws-v2-queue.ts";
 
 export interface SyncV2SchedulerDeps {
-  readonly deadlineClock: SyncDeadlineClock;
+  readonly deadlineClock: WsDeadlineClock;
   readonly backpressureLimitBytes: number;
   readonly backpressureTimeoutMs: number;
   closeForBackpressure(
@@ -59,32 +55,6 @@ export interface SyncV2SchedulerDeps {
   ): void;
   rearmApplicationDeadline(ws: ServerWebSocket<SyncWsData>): void;
 }
-
-function isTerminalCellFrame(frame: FirehoseFrame): boolean {
-  return frame.frame.case === "cellGrid" || frame.frame.case === "cellGridChunk";
-}
-// A freshly attached session's baseline may pass other sessions' queued deltas,
-// but never this session's own queued frames (per-session FIFO, view states
-// before chunks) or another session's snapshot (no viewer's baseline waits
-// behind a later attach). Returns the queue position to splice into.
-function v2AttachSnapshotInsertIndex(
-  queue: readonly SyncV2QueuedFrame[],
-  sessionId: string | undefined,
-): number {
-  let insertIndex = queue.length;
-  for (let index = queue.length - 1; index >= 0; index -= 1) {
-    const item = queue[index]!;
-    if (
-      (item.meta.sessionId !== undefined && item.meta.sessionId === sessionId)
-      || isV2SnapshotFrame(item.frame)
-    ) {
-      return index + 1;
-    }
-    insertIndex = index;
-  }
-  return insertIndex;
-}
-
 
 export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
   const {
@@ -105,6 +75,10 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     const v2 = ws.data.v2;
     const domain = v2?.domains.get(domainId);
     if (!v2 || !domain || ws.data.pressureClosing) return;
+    if (domainId === SyncDomain.TERMINAL && v2.terminalProgressTimer !== null) {
+      deadlineClock.clearTimeout(v2.terminalProgressTimer);
+      v2.terminalProgressTimer = null;
+    }
     clearV2DomainQueue(ws, domain);
     domain.generation = allocateDomainGeneration();
     domain.ready = false;
@@ -113,7 +87,7 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
       v2.pendingSessionAnnouncements.clear();
       terminalScheduler.clearSessions(ws);
     }
-    sendV2ControlFrame(ws, create(FirehoseFrameSchema, {
+    const sent = sendV2ControlFrame(ws, create(FirehoseFrameSchema, {
       frame: {
         case: "domainReset",
         value: create(SyncDomainResetFrameSchema, {
@@ -124,75 +98,107 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
         }),
       },
     }));
+    if (!sent && !ws.data.pressureClosing) {
+      closeForDroppedFrame(ws, "domainReset", 0, 0);
+    }
   }
 
-  function selectV2Candidate(
-    ws: ServerWebSocket<SyncWsData>,
-  ): { domain: SyncV2DomainState; index: number; item: SyncV2QueuedFrame } | null {
-    const v2 = ws.data.v2;
-    if (!v2) return null;
-    type Candidate = { domain: SyncV2DomainState; index: number; item: SyncV2QueuedFrame };
-    const heads: Candidate[] = [];
-    // Preserve each domain's snapshot/live boundary. We may step past an
-    // ineligible fenced cell to reach its opened event, but never reorder two
-    // eligible items from the same domain.
-    for (const domain of v2.domains.values()) {
-      if (!domain.subscribed || !domain.ready) continue;
-      for (let index = 0; index < domain.queue.length; index += 1) {
-        const item = domain.queue[index]!;
-        if (!queuedV2FrameEligible(v2, ws.data.ackDeliverySeq, item)) continue;
-        heads.push({ domain, index, item });
-        break;
-      }
-    }
-    if (heads.length === 0) return null;
-
-    const now = deadlineClock.now();
-    let overdue: Candidate | null = null;
-    for (const candidate of heads) {
-      if (
-        candidate.item.meta.lane !== "cell"
-        && now - candidate.item.queuedAtMs >= V2_LOW_LANE_MAX_AGE_MS
-        && (!overdue || candidate.item.queuedAtMs < overdue.item.queuedAtMs)
-      ) overdue = candidate;
-    }
-    if (overdue) return overdue;
-
-    for (let attempt = 0; attempt < V2_WEIGHTED_LANES.length; attempt += 1) {
-      const lane = V2_WEIGHTED_LANES[v2.laneCursor]!;
-      v2.laneCursor = (v2.laneCursor + 1) % V2_WEIGHTED_LANES.length;
-      let selected: Candidate | null = null;
-      for (const candidate of heads) {
-        if (candidate.item.meta.lane !== lane) continue;
-        if (!selected || candidate.item.queuedAtMs < selected.item.queuedAtMs) {
-          selected = candidate;
-        }
-      }
-      if (selected) return selected;
-    }
-    return heads.reduce((oldest, candidate) =>
-      candidate.item.queuedAtMs < oldest.item.queuedAtMs ? candidate : oldest
-    );
-  }
-
-  function removeTerminalQueued(
-    ws: ServerWebSocket<SyncWsData>,
-    sessionId: string,
-    includeState: boolean,
-  ): void {
+  function oldestTerminalWorkWithoutAckOwner(ws: ServerWebSocket<SyncWsData>): number | null {
     const v2 = ws.data.v2;
     const terminal = v2?.domains.get(SyncDomain.TERMINAL);
-    if (!v2 || !terminal) return;
-    for (let index = terminal.queue.length - 1; index >= 0; index--) {
-      const item = terminal.queue[index]!;
-      if (item.meta.sessionId !== sessionId || item.meta.lane !== "cell") continue;
-      if (!includeState && !isTerminalCellFrame(item.frame)) continue;
-      if (index < terminal.seedInsertIndex) terminal.seedInsertIndex--;
-      terminal.queue.splice(index, 1);
-      terminal.queuedBytes -= item.estimatedBytes;
-      v2.queuedFrames--;
-      v2.queuedBytes -= item.estimatedBytes;
+    if (!v2 || !terminal || terminal.queue.length === 0) return null;
+    let oldest: number | null = null;
+    for (const item of terminal.queue) {
+      let ownsQueuedDeadline = !terminal.ready;
+      if (terminal.ready && !queuedV2FrameEligible(v2, ws.data.ackDeliverySeq, item)) {
+        const sessionId = item.meta.sessionId;
+        const announcementSeq = sessionId === undefined
+          ? undefined
+          : v2.pendingSessionAnnouncements.get(sessionId);
+        ownsQueuedDeadline = announcementSeq === undefined
+          || ws.data.ackDeliverySeq >= announcementSeq;
+      }
+      if (!ownsQueuedDeadline) continue;
+      if (oldest === null || item.queuedAtMs < oldest) oldest = item.queuedAtMs;
     }
+    return oldest;
+  }
+
+  function refreshTerminalProgressDeadline(ws: ServerWebSocket<SyncWsData>): void {
+    const v2 = ws.data.v2;
+    if (!v2 || ws.data.pressureClosing) return;
+    const oldest = oldestTerminalWorkWithoutAckOwner(ws);
+    if (oldest === null) {
+      if (v2.terminalProgressTimer !== null) {
+        deadlineClock.clearTimeout(v2.terminalProgressTimer);
+        v2.terminalProgressTimer = null;
+      }
+      return;
+    }
+    if (v2.terminalProgressTimer !== null) return;
+    let timer: Timer | null = null;
+    const onDeadline = (): void => {
+      if (v2.terminalProgressTimer !== timer) return;
+      v2.terminalProgressTimer = null;
+      if (ws.data.v2 !== v2 || ws.data.pressureClosing) return;
+      const currentOldest = oldestTerminalWorkWithoutAckOwner(ws);
+      if (currentOldest === null) return;
+      const remaining = currentOldest + APPLICATION_ACK_TIMEOUT_MS - deadlineClock.now();
+      if (remaining > 0) {
+        refreshTerminalProgressDeadline(ws);
+        return;
+      }
+      resetV2Domain(ws, SyncDomain.TERMINAL, "queued_progress_timeout");
+    };
+    timer = deadlineClock.setTimeout(
+      onDeadline,
+      Math.max(0, oldest + APPLICATION_ACK_TIMEOUT_MS - deadlineClock.now()),
+    );
+    v2.terminalProgressTimer = timer;
+  }
+
+  function enqueuePreparedV2Frame(
+    ws: ServerWebSocket<SyncWsData>,
+    owned: SyncV2OwnedFrame,
+    meta: SyncFeedFrameMeta,
+    retained?: SyncV2RetainedFrame,
+  ): boolean {
+    const v2 = ws.data.v2;
+    if (!v2 || ws.data.pressureClosing || meta.domain === null || meta.lane === "control") {
+      return false;
+    }
+    const domain = v2.domains.get(meta.domain);
+    if (!domain || !domain.subscribed) return false;
+    const exceedsDomain = domain.queue.length + 1 > V2_DOMAIN_MAX_QUEUED_FRAMES
+      || domain.queuedBytes + owned.estimatedBytes > V2_DOMAIN_MAX_QUEUED_BYTES;
+    if (exceedsDomain) {
+      resetV2Domain(ws, meta.domain, "domain_overflow");
+      return false;
+    }
+    const aggregateOwner = retained ?? tryRetainV2AggregateFrame(v2, owned);
+    if (!aggregateOwner) {
+      resetV2Domain(ws, meta.domain, "aggregate_overflow");
+      return false;
+    }
+    const item: SyncV2QueuedFrame = {
+      ...aggregateOwner,
+      meta,
+      queuedAtMs: deadlineClock.now(),
+    };
+    if (meta.beforeBuffered) {
+      domain.queue.splice(domain.seedInsertIndex, 0, item);
+      domain.seedInsertIndex++;
+    } else if (meta.attachSnapshot) {
+      const insertIndex = v2AttachSnapshotInsertIndex(domain.queue, meta.sessionId);
+      domain.queue.splice(insertIndex, 0, item);
+      if (insertIndex < domain.seedInsertIndex) domain.seedInsertIndex++;
+    } else {
+      domain.queue.push(item);
+    }
+    domain.queuedBytes += owned.estimatedBytes;
+    scheduleV2(ws);
+    if (meta.domain === SyncDomain.TERMINAL) refreshTerminalProgressDeadline(ws);
+    return true;
   }
 
   function enqueueV2Frame(
@@ -208,52 +214,36 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     }
     const domain = v2.domains.get(effectiveMeta.domain);
     if (!domain || !domain.subscribed) return false;
-    const owned = clone(FirehoseFrameSchema, frame);
-    owned.deliverySeq = 0n;
-    owned.domain = effectiveMeta.domain;
-    owned.domainGeneration = domain.generation;
-    const estimatedBytes = toBinary(FirehoseFrameSchema, owned).byteLength + 10;
-    const exceedsDomain = domain.queue.length + 1 > V2_DOMAIN_MAX_QUEUED_FRAMES
-      || domain.queuedBytes + estimatedBytes > V2_DOMAIN_MAX_QUEUED_BYTES;
-    const exceedsAggregate = v2.queuedFrames + 1 > V2_AGGREGATE_MAX_QUEUED_FRAMES
-      || v2.queuedBytes + estimatedBytes > V2_AGGREGATE_MAX_QUEUED_BYTES;
-
-    if (exceedsDomain || exceedsAggregate) {
-      if (effectiveMeta.domain !== SyncDomain.TERMINAL) {
-        resetV2Domain(
-          ws,
-          effectiveMeta.domain,
-          exceedsDomain ? "domain_overflow" : "aggregate_overflow",
-        );
-      }
-      return false;
-    }
-    const item: SyncV2QueuedFrame = {
-      frame: owned,
-      meta: effectiveMeta,
-      queuedAtMs: deadlineClock.now(),
-      estimatedBytes,
-    };
-    if (effectiveMeta.beforeBuffered) {
-      domain.queue.splice(domain.seedInsertIndex, 0, item);
-      domain.seedInsertIndex++;
-    } else if (effectiveMeta.attachSnapshot) {
-      const insertIndex = v2AttachSnapshotInsertIndex(domain.queue, effectiveMeta.sessionId);
-      domain.queue.splice(insertIndex, 0, item);
-      if (insertIndex < domain.seedInsertIndex) domain.seedInsertIndex++;
-    } else {
-      domain.queue.push(item);
-    }
-    domain.queuedBytes += estimatedBytes;
-    v2.queuedFrames++;
-    v2.queuedBytes += estimatedBytes;
-    scheduleV2(ws);
-    return true;
+    return enqueuePreparedV2Frame(
+      ws,
+      ownV2ApplicationFrame(frame, effectiveMeta.domain, domain.generation),
+      effectiveMeta,
+    );
   }
+
+  function enqueueRetainedV2Frame(
+    ws: ServerWebSocket<SyncWsData>,
+    retained: SyncV2RetainedFrame,
+    meta: SyncFeedFrameMeta,
+  ): boolean {
+    const v2 = ws.data.v2;
+    const domain = meta.domain === null ? undefined : v2?.domains.get(meta.domain);
+    if (
+      !v2
+      || !domain
+      || !retained.aggregateCharge.retained
+      || retained.frame.domain !== meta.domain
+      || retained.frame.domainGeneration !== domain.generation
+    ) return false;
+    return enqueuePreparedV2Frame(ws, retained, meta, retained);
+  }
+
   const terminalScheduler = makeSyncV2TerminalScheduler({
     deadlineClock,
-    enqueueV2Frame,
+    enqueueRetainedV2Frame,
     removeTerminalQueued,
+    onTerminalOverflow: (ws, reason) =>
+      resetV2Domain(ws, SyncDomain.TERMINAL, reason),
   });
   let scheduleV2: (ws: ServerWebSocket<SyncWsData>) => void;
   const scheduleV2Yield = (
@@ -282,8 +272,11 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     if (!v2 || ws.data.pressureClosing) return;
     v2.schedulerPending = false;
     for (let sentCount = 0; sentCount < 64; sentCount++) {
-      const candidate = selectV2Candidate(ws);
-      if (!candidate) return;
+      const candidate = selectV2Candidate(ws, deadlineClock);
+      if (!candidate) {
+        refreshTerminalProgressDeadline(ws);
+        return;
+      }
       const nextSeq = ws.data.lastSentDeliverySeq + 1n;
       const outbound = clone(FirehoseFrameSchema, candidate.item.frame);
       outbound.deliverySeq = nextSeq;
@@ -291,7 +284,10 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
       if (
         ws.data.deliveryQueue.length >= APPLICATION_MAX_UNACKED_FRAMES
         || ws.data.unackedEncodedBytes + binary.byteLength > APPLICATION_MAX_UNACKED_BYTES
-      ) return;
+      ) {
+        refreshTerminalProgressDeadline(ws);
+        return;
+      }
 
       const sentAtMs = deadlineClock.now();
       const frameKind = outbound.frame.case ?? "application";
@@ -316,8 +312,7 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
         candidate.domain.seedInsertIndex--;
       }
       candidate.domain.queuedBytes -= candidate.item.estimatedBytes;
-      v2.queuedFrames--;
-      v2.queuedBytes -= candidate.item.estimatedBytes;
+      releaseV2AggregateFrame(v2, candidate.item);
       terminalScheduler.pumpSessions(ws);
       ws.data.lastSentDeliverySeq = nextSeq;
       ws.data.unackedEncodedBytes += binary.byteLength;
@@ -345,6 +340,7 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
       }
 
       terminalScheduler.onFrameDelivered(ws, candidate.item.meta);
+      refreshTerminalProgressDeadline(ws);
 
       if (bufferedBytes > backpressureLimitBytes) {
         closeForBackpressure(ws, "high_water", frameKind);
@@ -358,14 +354,16 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
         }, backpressureTimeoutMs);
       }
     }
+    refreshTerminalProgressDeadline(ws);
     const laneCursorBeforeProbe = v2.laneCursor;
-    const hasCandidate = selectV2Candidate(ws) !== null;
+    const hasCandidate = selectV2Candidate(ws, deadlineClock) !== null;
     v2.laneCursor = laneCursorBeforeProbe;
     if (hasCandidate) scheduleV2Yield(ws, v2);
   };
 
   scheduleV2 = (ws): void => {
     const v2 = ws.data.v2;
+    refreshTerminalProgressDeadline(ws);
     if (
       !v2
       || v2.schedulerPending

@@ -294,6 +294,10 @@ export class PredictiveEcho {
     else this.repaint();
   }
 
+  clear(): void {
+    this.resetAll();
+  }
+
   dispose(): void {
     this.overlay.remove();
     this.preds = [];

@@ -45,8 +45,8 @@ message WorkersHeartbeatRequest {
   optional string reachable_addr = 4;
 }
 message WorkersHeartbeatResponse {
-  string coord_pubkey_b64 = 1;
-  string coord_pubkey_kid = 2;
+  reserved 1, 2;
+  reserved "coord_pubkey_b64", "coord_pubkey_kid";
 }
 
 message WorkersRenameRequest { string fp = 1; string label = 2; }
@@ -75,27 +75,9 @@ message WorkersDeployOutputFrame {
   string error = 4;  // optional on kind="done"
 }
 
-message TransfersStartRequest {
-  string src_fp = 1;
-  string src_path = 2;
-  string dst_fp = 3;
-  string dst_path = 4;
-  bool delete_extra = 5;
-  bool dry_run = 6;
-}
-message TransfersStartResponse {
-  bool ok = 1;
-  string job_id = 2;
-  string error = 3;
-}
-
-message TransfersOutputRequest { string job_id = 1; }
-message TransfersOutputFrame {
-  string kind = 1;   // "line" | "done"
-  string text = 2;
-  int32 exit = 3;
-  string error = 4;
-}
+// Cross-worker transfer messages were retired. Proto3 has no package-level
+// reserved declaration, so their message names and message-scoped fields
+// cannot be reserved after the message definitions are removed.
 
 // ─── sessions ─────────────────────────────────────────────────────────────
 
@@ -321,42 +303,6 @@ message TasksSetStateResponse { Task task = 1; }
 message TasksCancelRequest { string id = 1; }
 message TasksCancelResponse { Task task = 1; }
 
-// ─── webhookTokens ────────────────────────────────────────────────────────
-
-message WebhookTokensListRequest {}
-message WebhookTokensListResponse { repeated WebhookToken tokens = 1; }
-
-message WebhookTokensMintRequest { string label = 1; repeated string scopes = 2; }
-message WebhookTokensMintResponse { WebhookTokenMint token = 1; }
-
-message WebhookTokensDeleteRequest { string id = 1; }
-message WebhookTokensDeleteResponse { bool ok = 1; }
-
-// ─── permissions ──────────────────────────────────────────────────────────
-
-message PermissionsListRequest {}
-message PermissionsListResponse { repeated PermissionRule rules = 1; }
-
-message PermissionsCreateRequest {
-  string tool_pattern = 1;
-  string folder_glob = 2;
-  string decision = 3;
-  optional bool enabled = 4;
-}
-message PermissionsCreateResponse { PermissionRule rule = 1; }
-
-message PermissionsUpdateRequest {
-  string id = 1;
-  optional string tool_pattern = 2;
-  optional string folder_glob = 3;
-  optional string decision = 4;
-  optional bool enabled = 5;
-}
-message PermissionsUpdateResponse { PermissionRule rule = 1; }
-
-message PermissionsDeleteRequest { string id = 1; }
-message PermissionsDeleteResponse { bool ok = 1; }
-
 // ─── mcp ──────────────────────────────────────────────────────────────────
 
 message McpListRequest {}
@@ -375,16 +321,105 @@ message McpPublishResponse { bool ok = 1; }
 
 message AuthCoordIdentityRequest {}
 message AuthCoordIdentityResponse {
-  string fingerprint_hex = 1;
+  reserved 1;
+  reserved "fingerprint_hex";
   string git_sha = 2;
   string public_url = 3;
   optional string relocated_to_url = 4;
   optional string handoff_id = 5;
   bool public_listener = 6;
+  // Public deployment-mode discovery. A managed browser uses native password
+  // login before it has a device credential; self-hosted pairing remains the
+  // default when this is false.
+  bool saas_mode = 7;
+  string instance_id = 8;
 }
 
-message AuthAuthorizeBrowserRequest { string ssh_pubkey_b64 = 1; string label = 2; }
-message AuthAuthorizeBrowserResponse { string fingerprint = 1; }
+// The selected dashboard is resolved from the authenticated device and
+// X_ROOST_DASHBOARD_ID; clients cannot nominate arbitrary scopes here.
+message OrganizationAccess {
+  string id = 1;
+  string slug = 2;
+  string name = 3;
+  string role = 4;  // owner|admin|member
+}
+
+message DashboardAccess {
+  string id = 1;
+  string organization_id = 2;
+  string slug = 3;
+  string name = 4;
+  string organization_role = 5;  // owner|admin|member
+  string dashboard_role = 6;  // admin|member
+}
+
+message AuthDashboardAccessRequest {}
+message AuthDashboardAccessResponse {
+  string account_id = 1;
+  repeated OrganizationAccess organizations = 2;
+  repeated DashboardAccess dashboards = 3;
+  string selected_dashboard_id = 4;
+  repeated string capabilities = 5;
+}
+
+message AuthLogoutRequest {}
+message AuthLogoutResponse { bool ok = 1; }
+
+// Owner activation consumes an operator-issued one-time token and binds the
+// coordinator's first and only account to a browser's non-extractable key.
+message AuthOwnerActivateRequest {
+  string token = 1;
+  string new_password = 2;
+  string ssh_pubkey_b64 = 3;
+  string label = 4;
+}
+message AuthOwnerActivateResponse { string dashboard_id = 1; }
+
+// This public acknowledgement deliberately does not disclose whether an
+// address has an active, verified account.
+message AuthPasswordResetStartRequest { string email = 1; }
+message AuthPasswordResetStartResponse {}
+message AuthPasswordResetRedeemRequest {
+  string token = 1;
+  string new_password = 2;
+}
+message AuthPasswordResetRedeemResponse { bool ok = 1; }
+
+// Managed-mode native login authorizes the browser's non-extractable Ed25519
+// key. The browser then signs the existing device JWT locally; no bearer
+// session or private key is returned by this RPC.
+message AuthPasswordLoginRequest {
+  string email = 1;
+  string password = 2;
+  string ssh_pubkey_b64 = 3;
+  string label = 4;
+}
+message AuthPasswordLoginResponse { string dashboard_id = 1; }
+
+// A centrally verified federated assertion authorizes exactly the submitted
+// browser key. Provider tokens never cross the coordinator wire boundary.
+message AuthFederatedContinueRequest {
+  string assertion = 1;
+  string ssh_pubkey_b64 = 2;
+  string label = 3;
+}
+message AuthFederatedContinueResponse { string dashboard_id = 1; }
+
+message AuthCredentialsGetRequest {}
+message AuthCredentialsGetResponse {
+  string email = 1;
+  bool has_password = 2;
+  bool google_linked = 3;
+}
+
+message AuthPasswordAddRequest { string new_password = 1; }
+message AuthPasswordAddResponse { bool ok = 1; }
+
+message AuthFederatedLinkBeginRequest {}
+message AuthFederatedLinkBeginResponse { string link_ticket = 1; }
+
+message AuthFederatedLinkRequest { string assertion = 1; }
+message AuthFederatedLinkResponse { bool ok = 1; }
 
 message AuthMintBootstrapRequest { string kind = 1; string label = 2; }  // kind: worker|browser
 message AuthMintBootstrapResponse { string token = 1; uint64 expires_at_ms = 2; }
@@ -399,11 +434,15 @@ message AuthRedeemWorkerRequest {
 message AuthRedeemWorkerResponse {
   string fingerprint = 1;
   string label = 2;
-  string coord_verifying_key_b64 = 3;
+  reserved 3;
+  reserved "coord_verifying_key_b64";
 }
 
 message AuthRedeemBrowserRequest { string token = 1; string ssh_pubkey_b64 = 2; string label = 3; }
-message AuthRedeemBrowserResponse { string fingerprint = 1; string label = 2; }
+message AuthRedeemBrowserResponse {
+  reserved 1, 2;
+  reserved "fingerprint", "label";
+}
 
 // ─── coordinator move ────────────────────────────────────────────────────
 
@@ -547,7 +586,9 @@ message FilesMkdirRequest { string worker_fp = 1; string path = 2; }
 message FilesMkdirResponse { string resolved_path = 1; }
 
 // ─── transcription (voice dictation) ────────────────────────────────────────
-// The key is returned only masked (last 4 chars); the raw secret never leaves coord.
+// Settings reads expose only the mask. Direct Deepgram mode returns the configured
+// key through TranscriptionGrantToken only to an authenticated dashboard admin
+// (the sole owner in managed mode), whose browser connects to Deepgram directly.
 message TranscriptionConfig {
   bool deepgram_configured = 1;
   string deepgram_key_masked = 2;     // e.g. "····abcd" ("" when unset)
@@ -560,6 +601,7 @@ message TranscriptionSetConfigRequest {
   optional string deepgram_key = 1;
   string deepgram_language = 2;
 }
+// Returns the configured key, not a temporary token; expires_in is zero.
 message TranscriptionGrantTokenRequest {}
 message TranscriptionGrantTokenResponse { string access_token = 1; int32 expires_in = 2; }
 message TranscriptionTestRequest {}
@@ -681,17 +723,6 @@ service CoordinatorService {
   rpc TasksSetState(TasksSetStateRequest) returns (TasksSetStateResponse);
   rpc TasksCancel(TasksCancelRequest) returns (TasksCancelResponse);
 
-  // webhooks
-  rpc WebhookTokensList(WebhookTokensListRequest) returns (WebhookTokensListResponse);
-  rpc WebhookTokensMint(WebhookTokensMintRequest) returns (WebhookTokensMintResponse);
-  rpc WebhookTokensDelete(WebhookTokensDeleteRequest) returns (WebhookTokensDeleteResponse);
-
-  // permissions
-  rpc PermissionsList(PermissionsListRequest) returns (PermissionsListResponse);
-  rpc PermissionsCreate(PermissionsCreateRequest) returns (PermissionsCreateResponse);
-  rpc PermissionsUpdate(PermissionsUpdateRequest) returns (PermissionsUpdateResponse);
-  rpc PermissionsDelete(PermissionsDeleteRequest) returns (PermissionsDeleteResponse);
-
   // mcp
   rpc McpList(McpListRequest) returns (McpListResponse);
   rpc McpCreate(McpCreateRequest) returns (McpCreateResponse);
@@ -700,7 +731,17 @@ service CoordinatorService {
 
   // auth
   rpc AuthCoordIdentity(AuthCoordIdentityRequest) returns (AuthCoordIdentityResponse);
-  rpc AuthAuthorizeBrowser(AuthAuthorizeBrowserRequest) returns (AuthAuthorizeBrowserResponse);
+  rpc AuthDashboardAccess(AuthDashboardAccessRequest) returns (AuthDashboardAccessResponse);
+  rpc AuthLogout(AuthLogoutRequest) returns (AuthLogoutResponse);
+  rpc AuthOwnerActivate(AuthOwnerActivateRequest) returns (AuthOwnerActivateResponse);
+  rpc AuthPasswordResetRequest(AuthPasswordResetStartRequest) returns (AuthPasswordResetStartResponse);
+  rpc AuthPasswordResetRedeem(AuthPasswordResetRedeemRequest) returns (AuthPasswordResetRedeemResponse);
+  rpc AuthPasswordLogin(AuthPasswordLoginRequest) returns (AuthPasswordLoginResponse);
+  rpc AuthFederatedContinue(AuthFederatedContinueRequest) returns (AuthFederatedContinueResponse);
+  rpc AuthCredentialsGet(AuthCredentialsGetRequest) returns (AuthCredentialsGetResponse);
+  rpc AuthPasswordAdd(AuthPasswordAddRequest) returns (AuthPasswordAddResponse);
+  rpc AuthFederatedLinkBegin(AuthFederatedLinkBeginRequest) returns (AuthFederatedLinkBeginResponse);
+  rpc AuthFederatedLink(AuthFederatedLinkRequest) returns (AuthFederatedLinkResponse);
   rpc AuthMintBootstrap(AuthMintBootstrapRequest) returns (AuthMintBootstrapResponse);
   rpc AuthRedeemWorker(AuthRedeemWorkerRequest) returns (AuthRedeemWorkerResponse);
   rpc AuthRedeemBrowser(AuthRedeemBrowserRequest) returns (AuthRedeemBrowserResponse);
@@ -737,8 +778,9 @@ service CoordinatorService {
   rpc FilesListDir(FilesListDirRequest) returns (FilesListDirResponse);
   rpc FilesMkdir(FilesMkdirRequest) returns (FilesMkdirResponse);
 
-  // transcription (voice dictation) — coord holds the Deepgram key so every
-  // device shares one; SPA gets a short-lived token. No key → SPA uses Web Speech.
+  // transcription (voice dictation) — coord stores the Deepgram key. Direct mode
+  // returns that configured key only to the authenticated dashboard-admin/owner
+  // browser; no temporary grant is minted. No key → SPA uses Web Speech.
   rpc TranscriptionGetConfig(TranscriptionGetConfigRequest) returns (TranscriptionConfig);
   rpc TranscriptionSetConfig(TranscriptionSetConfigRequest) returns (TranscriptionConfig);
   rpc TranscriptionGrantToken(TranscriptionGrantTokenRequest) returns (TranscriptionGrantTokenResponse);
@@ -782,9 +824,8 @@ service CoordinatorService {
   rpc ListAttachments(ListAttachmentsRequest) returns (ListAttachmentsResponse);
   rpc DeleteAttachment(DeleteAttachmentRequest) returns (DeleteAttachmentResponse);
 
-  // crpc6 — transfers (cross-worker rsync)
-  rpc TransfersStart(TransfersStartRequest) returns (TransfersStartResponse);
-  rpc TransfersOutput(TransfersOutputRequest) returns (stream TransfersOutputFrame);
+  // Cross-worker transfer RPCs were retired. Proto3 services provide no
+  // reserved-method declaration, so their service method names cannot be reserved.
 
   // diag — comprehensive terminal-corruption diagnostics. Gated by
   // ROOST_DIAG=1 on the LaunchAgent (coord+worker) and

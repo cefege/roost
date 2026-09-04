@@ -22,6 +22,8 @@ import { keeper } from "./keeper.ts";
 import { update } from "./update.ts";
 import { version } from "./version.ts";
 import { expose } from "./expose.ts";
+import { organizations } from "./organizations.ts";
+import { assertSaasEntryAdmission } from "./saas/entry-admission.ts";
 
 const SUBCOMMANDS = {
   quickstart,
@@ -30,6 +32,29 @@ const SUBCOMMANDS = {
     // command-only dependency out of `roost test`, which builds the web bundle.
     const { coord } = await import("./coord.ts");
     return coord(args);
+  },
+  "__saas-instance": async (args: string[]) => {
+    assertSaasEntryAdmission("instance");
+    // Provisioning internals import coordinator SQLite, migrations, and key
+    // code. Keep them out of every public CLI path and out of usage output.
+    const { saasInstance } = await import("./saas-instance.ts");
+    return saasInstance(args);
+  },
+  "__saas-auth": async (args: string[]) => {
+    assertSaasEntryAdmission("auth");
+    const { saasAuth } = await import("./saas-auth/index.ts");
+    return saasAuth(args);
+  },
+  "__saas-provisioner": async (args: string[]) => {
+    assertSaasEntryAdmission("provisioner");
+    const { saasProvisioner } = await import("./saas-provisioner/index.ts");
+    return saasProvisioner(args);
+  },
+  saas: async (args: string[]) => {
+    assertSaasEntryAdmission("operator");
+    // Operator-only Docker/Caddy/age modules stay out of worker and coordinator process startup.
+    const { saas } = await import("./saas/index.ts");
+    return saas(args);
   },
   worker,
   keeper,
@@ -96,6 +121,7 @@ const SUBCOMMANDS = {
   api,
   join,
   "add-machine": addMachine,
+  organizations,
 } as const;
 
 type Subcommand = keyof typeof SUBCOMMANDS;
@@ -103,8 +129,9 @@ type Subcommand = keyof typeof SUBCOMMANDS;
 function usage(): never {
   console.error("Usage: bun run roost <subcommand> [args]");
   console.error("Subcommands:");
-  console.error("  quickstart        one-shot local install (tailscale → coord + worker + browser)");
+  console.error("  quickstart [--coordinator-url https://host:port --tls-cert /abs/cert --tls-key /abs/key]  local coord + worker + browser");
   console.error("  coord             run the coordinator (server mode; used by the compiled binary)");
+  console.error("  saas <command>    provision and reconcile dedicated managed coordinators");
   console.error("  worker            run the worker (server-side; compiled binary / LaunchAgent)");
   console.error("  expose <hostname> --team <team>.cloudflareaccess.com --aud <64-hex> [--config <path>]");
   console.error("  dev               start coord + worker + web dev servers");
@@ -116,8 +143,9 @@ function usage(): never {
   console.error("  reset             nuke local state (DB, keys, lock)");
   console.error("  state             print STATE.md snapshot");
   console.error("  cutover           migrate from coordinator.db → coordinator_v2.db");
-  console.error("  status            health readout (tailscale, agents, coord, workers)");
+  console.error("  status            health readout (endpoint, agents, coord, workers)");
   console.error("  doctor [--since]  daily anomaly digest from err logs (default 24h)");
+  console.error("  organizations bootstrap-owner --email <address> --organization <slug> --dashboard <slug>  provision the managed owner (password via stdin or ROOST_OWNER_BOOTSTRAP_PASSWORD)");
   console.error("  api <verb>        headless introspect/drive (sessions|cells|input|rename|assign|attach|spawn|kill|workers|workspaces|ws-*|tasks|task-*|ui|ui-state|events)");
   console.error("  add-machine --platform <macos|linux|windows> [--label X] [--publisher-sha256 HEX]  print a one-shot enrollment command");
   console.error("  join                install + register this machine's worker (used by join.sh; needs ROOST_COORDINATOR_URL + ROOST_BOOTSTRAP_TOKEN)");

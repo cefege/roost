@@ -37,6 +37,9 @@ export type SyncV2ResultControl = Extract<
 
 export interface SyncV2CommandContext {
   readonly caller: SyncWsData["caller"];
+  /** Persisted selected scope resolved before the WebSocket upgrade. */
+  readonly actor: SyncWsData["actor"];
+  readonly scope: SyncWsData["scope"];
   readonly viewerKey: string | null;
   readonly remoteAddress?: string;
   readonly socketId: string;
@@ -83,10 +86,13 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
           resetV2Domain(ws, SyncDomain.TERMINAL, "snapshot_token_invalid");
           return;
         }
+        const scopedSessionIds = new Set(
+          [...sessionIds].filter((sessionId) => ws.data.scope.sessionIds.has(sessionId)),
+        );
         v2.announcedSessions.clear();
         v2.pendingSessionAnnouncements.clear();
-        for (const sessionId of sessionIds) v2.announcedSessions.add(sessionId);
-        terminalSessionIds = sessionIds;
+        for (const sessionId of scopedSessionIds) v2.announcedSessions.add(sessionId);
+        terminalSessionIds = scopedSessionIds;
       }
       domain.ready = true;
       void ws.data.feed?.seedDomain(command.value.domain, terminalSessionIds);
@@ -120,6 +126,7 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
       }));
       return;
     }
+    if (ws.data.readOnly) return;
     if (
       command.case !== "terminalView"
       && command.case !== "terminalResync"
@@ -138,6 +145,8 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
     ) return;
     deps.onV2Command?.({
       caller: ws.data.caller,
+      actor: ws.data.actor,
+      scope: ws.data.scope,
       viewerKey: ws.data.viewerKey,
       remoteAddress: ws.data.remoteAddress ?? undefined,
       socketId: v2.socketId,

@@ -11,11 +11,13 @@ export const Select: Component<{
   options: { value: string; label: string }[];
   class?: string;
   testId?: string;
+  disabled?: boolean;
 }> = (props) => (
   <Dynamic
     component="md-outlined-select"
     prop:value={props.value}
     label={props.label}
+    prop:disabled={props.disabled ?? false}
     class={props.class}
     attr:data-testid={props.testId}
     on:change={(e: Event) =>

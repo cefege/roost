@@ -60,16 +60,17 @@ const ASSETS: { name: string; host: string }[] = [
 ---
 
 <BaseLayout
-  title="Install Roost — macOS, Linux, Windows"
-  description="Install Roost on macOS, Linux, or Windows x64: a checksum-verified binary installer, Homebrew, or a signed PowerShell bootstrap. Clients need a browser."
+  title="Self-host Roost — macOS, Linux, Windows"
+  description="Install the accountless open-source edition of Roost on macOS, Linux, or Windows x64. Managed Roost is a separate private operator-provisioned service."
 >
   <Hero
-    title="Install Roost"
-    sub="One verified binary per host. macOS and Linux install with a checksum-verified one-liner; Windows x64 uses a signed, certificate-pinned PowerShell bootstrap. The devices you browse from install nothing at all."
-    badges={["GPL-3.0-only", "Bun", "no account", "no telemetry"]}
+    title="Self-host Roost"
+    sub="Run the open-source edition under your own operation, with no Roost account required. macOS and Linux install with a checksum-verified one-liner; Windows x64 uses a signed, certificate-pinned PowerShell bootstrap."
+    badges={["GPL-3.0-only", "accountless self-hosting", "no telemetry"]}
   >
     <a class="btn btn-primary" href="/docs/install/">Full install guide</a>
     <a class="btn" href="/docs/quickstart/">Quickstart</a>
+    <a class="btn" href="https://dashboard.roosttt.com/login">Managed login</a>
   </Hero>
 
   <div class="wrap">

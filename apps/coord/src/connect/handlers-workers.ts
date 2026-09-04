@@ -1,8 +1,7 @@
-// Worker-registry RPC handlers: list/register/heartbeat/rename/delete, the
-// deploy-job start + output stream, and the (not-yet-implemented) transfer
-// stubs. Registration/heartbeat fan worker presence out on presenceBus.
-// Spread into router.ts's single router.service() literal. Split out of
-// router.ts (400-line cap).
+// Owns worker registry RPCs and publishes every persisted presence transition
+// after its database write. Deletion fences the authoritative connection
+// immediately after commit, then isolates each volatile cleanup so one failed
+// projection cannot leave the remaining worker state live.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -15,23 +14,50 @@ import {
 	WorkersHeartbeatResponseSchema,
 	WorkersRenameResponseSchema,
 	WorkersDeleteResponseSchema,
-	WorkersDeployStartResponseSchema,
-	WorkersDeployOutputFrameSchema,
-	TransfersStartResponseSchema,
-	TransfersOutputFrameSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import {
 	workerRowToProto,
 	workerRowToWirePresence,
 } from "@roost/shared/wire/row-proto";
 import { presenceBus } from "../buses.ts";
-import { startDeploy, deployOutput } from "../deploy-jobs.ts";
-import { SseQueueOverflowError } from "../sse.ts";
-import { startWindowsDeploy } from "../windows-update-manifest.ts";
 import { listRoutableFps } from "./worker-service.ts";
-import { requireAuth } from "./auth-interceptor.ts";
+import {
+	requireDashboardActor,
+	requireDashboardAdmin,
+	requireWorker,
+} from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import { invalidateJwtKey } from "../jwt.ts";
+import { truncatePersistedUtf8 } from "../persistence-input.ts";
+import { asWorkerFp } from "@roost/shared/wire";
+import { retireWorkerRoutes } from "../byte-hub.ts";
+import {
+	fenceWorkerCredential,
+	_publishRoutable,
+} from "./worker-registry.ts";
+import { notifyTerminalWorkerRetired } from "./terminal-view-hub.ts";
+import { log } from "@roost/shared/log";
+import { makeWorkerDeployHandlers } from "./handlers-workers-deploy.ts";
+export {
+	resolveWorkerDeployTarget,
+	workerDeployHost,
+	type WorkerDeployRecord,
+	type WorkerDeployTargetResolution,
+} from "./handlers-workers-deploy.ts";
+
+function bestEffortWorkerDeleteCleanup(
+	step: string,
+	work: () => void,
+): void {
+	try {
+		work();
+	} catch (error) {
+		log.warn("workers-delete", "cleanup_failed", {
+			step,
+			error: String(error),
+		});
+	}
+}
 
 type WorkerMethods =
 	| "workersList"
@@ -40,73 +66,25 @@ type WorkerMethods =
 	| "workersRename"
 	| "workersDelete"
 	| "workersDeployOutput"
-	| "transfersStart"
-	| "transfersOutput"
 	| "workersDeployStart";
-
-export type WorkerDeployRecord = {
-	fp: string;
-	os: string | null;
-	label: string;
-	reachable_addr: string | null;
-};
-
-export type WorkerDeployTargetResolution =
-	| { worker: WorkerDeployRecord; error: null }
-	| { worker: undefined; error: null }
-	| { worker: undefined; error: string };
-
-export function resolveWorkerDeployTarget(
-	workers: readonly WorkerDeployRecord[],
-	requestedHost: string,
-): WorkerDeployTargetResolution {
-	const fingerprintMatches = workers.filter((worker) => worker.fp === requestedHost);
-	if (fingerprintMatches.length > 1) {
-		return {
-			worker: undefined,
-			error: `ambiguous deploy target "${requestedHost}" matches multiple worker fingerprints`,
-		};
-	}
-	if (fingerprintMatches[0]) return { worker: fingerprintMatches[0], error: null };
-
-	const aliasMatches = workers.filter((worker) =>
-		worker.label === requestedHost || worker.reachable_addr === requestedHost);
-	if (aliasMatches.length > 1) {
-		return {
-			worker: undefined,
-			error: `ambiguous deploy target "${requestedHost}" matches multiple registered workers; use the worker fingerprint`,
-		};
-	}
-	return { worker: aliasMatches[0], error: null };
-}
-
-export function workerDeployHost(
-	worker: {
-		fp?: string;
-		os?: string | null;
-		label: string;
-		reachable_addr: string | null;
-	} | undefined,
-	requestedHost: string,
-): string {
-	if (worker?.os === "win32" && worker.fp) return worker.fp;
-	const reachableAddr = worker?.reachable_addr?.trim();
-	if (reachableAddr) return reachableAddr;
-	const label = worker?.label.trim();
-	if (label) return label;
-	return requestedHost;
-}
 
 export function makeWorkerHandlers(
 	deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, WorkerMethods> {
+
 	return {
 		async workersList(_req, ctx) {
-			requireAuth(ctx.values);
-			const rows = await deps.db.selectFrom("workers").selectAll().execute();
+			const actor = requireDashboardActor(ctx.values);
+			const rows = await deps.db
+				.selectFrom("workers")
+				.selectAll()
+				.where("dashboard_id", "=", actor.dashboardId)
+				.where("deleted_at_ms", "is", null)
+				.execute();
+			const workerFps = new Set(rows.map((worker) => worker.fp));
 			return create(WorkersListResponseSchema, {
 				workers: rows.map(workerRowToProto),
-				routableFps: listRoutableFps(),
+				routableFps: listRoutableFps().filter((fp) => workerFps.has(fp)),
 			});
 		},
 
@@ -114,12 +92,23 @@ export function makeWorkerHandlers(
 			if (req.os !== undefined && !isSupportedHostPlatform(req.os)) {
 				throw new ConnectError("unsupported worker os", Code.InvalidArgument);
 			}
-			const caller = requireAuth(ctx.values);
+			const caller = requireWorker(ctx.values);
 			const fp = caller.fingerprint;
+			const label = req.label === undefined
+				? undefined
+				: truncatePersistedUtf8(req.label);
+			const gitSha = req.gitSha === undefined
+				? undefined
+				: truncatePersistedUtf8(req.gitSha);
+			const reachableAddr = req.reachableAddr === undefined
+				? undefined
+				: truncatePersistedUtf8(req.reachableAddr);
 			const existing = await deps.db
 				.selectFrom("workers")
 				.selectAll()
 				.where("fp", "=", fp)
+				.where("dashboard_id", "=", caller.dashboardId)
+				.where("deleted_at_ms", "is", null)
 				.executeTakeFirst();
 			if (!existing)
 				throw new ConnectError(
@@ -130,32 +119,52 @@ export function makeWorkerHandlers(
 			const updated = await deps.db
 				.updateTable("workers")
 				.set({
-					label: req.label ?? existing.label,
+					label: label ?? existing.label,
 					os: req.os ?? existing.os,
-					git_sha: req.gitSha ?? existing.git_sha,
-					reachable_addr: req.reachableAddr ?? existing.reachable_addr,
+					git_sha: gitSha ?? existing.git_sha,
+					reachable_addr: reachableAddr ?? existing.reachable_addr,
 					last_seen_ms: now,
 				})
 				.where("fp", "=", fp)
+				.where("dashboard_id", "=", caller.dashboardId)
+				.where("deleted_at_ms", "is", null)
 				.returningAll()
 				.executeTakeFirstOrThrow();
 			const w = workerRowToProto(updated);
 			presenceBus.publish({
 				kind: "registered",
 				worker: workerRowToWirePresence(updated) as any,
+				_dashboard_id: caller.dashboardId,
 			});
 			return create(WorkersRegisterResponseSchema, { worker: w });
 		},
 
 		async workersHeartbeat(req, ctx) {
-			const caller = requireAuth(ctx.values);
+			const caller = requireWorker(ctx.values);
 			const fp = caller.fingerprint;
+			const newKeeperStale = req.keeperStale === undefined
+				? null
+				: truncatePersistedUtf8(req.keeperStale);
+			const newGitSha = req.gitSha === undefined
+				? undefined
+				: truncatePersistedUtf8(req.gitSha);
+			const newReachableAddr =
+				req.reachableAddr && req.reachableAddr.length > 0
+					? truncatePersistedUtf8(req.reachableAddr)
+					: undefined;
 			const now = Date.now();
 			const prior = await deps.db
 				.selectFrom("workers")
-				.select(["git_sha", "keeper_stale", "reachable_addr"])
+				.select(["git_sha", "keeper_stale", "reachable_addr", "dashboard_id"])
 				.where("fp", "=", fp)
+				.where("dashboard_id", "=", caller.dashboardId)
+				.where("deleted_at_ms", "is", null)
 				.executeTakeFirst();
+			if (!prior)
+				throw new ConnectError(
+					"worker not registered; redeem bootstrap token first",
+					Code.Unauthenticated,
+				);
 			const hm = req.hostMetrics
 				? {
 						cpu_pct: req.hostMetrics.cpuPct,
@@ -170,21 +179,16 @@ export function makeWorkerHandlers(
 				: undefined;
 			// Preserve all three states in the existing nullable column:
 			// null = unknown/unreported, "" = current, non-empty = stale build.
-			const newKeeperStale = req.keeperStale ?? null;
 			// reachable_addr self-heals on every beat: the worker re-resolves its
 			// LIVE tailnet DNSName each beat (heartbeat.ts) so a machine rename
 			// corrects within 30s, not only at boot. Only persist a non-empty value
 			// — an absent/empty field (tailscale unreachable this beat) keeps the
 			// prior value rather than nulling a good address.
-			const newReachableAddr =
-				req.reachableAddr && req.reachableAddr.length > 0
-					? req.reachableAddr
-					: undefined;
-			await deps.db
+			const updated = await deps.db
 				.updateTable("workers")
 				.set({
 					last_seen_ms: now,
-					...(req.gitSha !== undefined && { git_sha: req.gitSha }),
+					...(newGitSha !== undefined && { git_sha: newGitSha }),
 					keeper_stale: newKeeperStale,
 					...(hm !== undefined && { host_metrics_json: JSON.stringify(hm) }),
 					...(newReachableAddr !== undefined && {
@@ -192,23 +196,27 @@ export function makeWorkerHandlers(
 					}),
 				})
 				.where("fp", "=", fp)
-				.execute();
+				.where("dashboard_id", "=", caller.dashboardId)
+				.where("deleted_at_ms", "is", null)
+				.returningAll()
+				.executeTakeFirst();
+			if (!updated)
+				throw new ConnectError(
+					"worker not registered; redeem bootstrap token first",
+					Code.Unauthenticated,
+				);
 			const gitShaChanged =
-				req.gitSha !== undefined && prior?.git_sha !== req.gitSha;
+				newGitSha !== undefined && prior?.git_sha !== newGitSha;
 			const keeperStaleChanged =
 				(prior?.keeper_stale ?? null) !== newKeeperStale;
 			const reachableChanged =
 				newReachableAddr !== undefined &&
 				prior?.reachable_addr !== newReachableAddr;
 			if (gitShaChanged || keeperStaleChanged || reachableChanged) {
-				const row = await deps.db
-					.selectFrom("workers")
-					.selectAll()
-					.where("fp", "=", fp)
-					.executeTakeFirstOrThrow();
 				presenceBus.publish({
 					kind: "registered",
-					worker: workerRowToWirePresence(row) as any,
+					worker: workerRowToWirePresence(updated) as any,
+					_dashboard_id: caller.dashboardId,
 				});
 			} else {
 				presenceBus.publish({
@@ -216,31 +224,35 @@ export function makeWorkerHandlers(
 					fp: fp as any,
 					last_seen_ms: now,
 					host_metrics: hm ?? null,
+					_dashboard_id: caller.dashboardId,
 				});
 			}
-			return create(WorkersHeartbeatResponseSchema, {
-				coordPubkeyB64: deps.coordKey.verifyingKeyB64(),
-				coordPubkeyKid: deps.coordKey.verifyingKeyKid(),
-			});
+			return create(WorkersHeartbeatResponseSchema, {});
 		},
 
 		async workersRename(req, ctx) {
-			requireAuth(ctx.values);
+			const actor = requireDashboardAdmin(ctx.values);
+			const label = truncatePersistedUtf8(req.label);
 			const existing = await deps.db
 				.selectFrom("workers")
 				.selectAll()
 				.where("fp", "=", req.fp)
+				.where("dashboard_id", "=", actor.dashboardId)
+				.where("deleted_at_ms", "is", null)
 				.executeTakeFirst();
 			if (!existing) throw new ConnectError("worker not found", Code.NotFound);
 			const updated = await deps.db
 				.updateTable("workers")
-				.set({ label: req.label })
+				.set({ label })
 				.where("fp", "=", req.fp)
+				.where("dashboard_id", "=", actor.dashboardId)
+				.where("deleted_at_ms", "is", null)
 				.returningAll()
 				.executeTakeFirstOrThrow();
 			presenceBus.publish({
 				kind: "registered",
 				worker: workerRowToWirePresence(updated) as any,
+				_dashboard_id: actor.dashboardId,
 			});
 			return create(WorkersRenameResponseSchema, {
 				worker: workerRowToProto(updated),
@@ -248,120 +260,94 @@ export function makeWorkerHandlers(
 		},
 
 		async workersDelete(req, ctx) {
-			const caller = requireAuth(ctx.values);
-			await deps.db.transaction().execute(async (trx) => {
-				const worker = await trx.selectFrom("workers").select("fp")
-					.where("fp", "=", req.fp).executeTakeFirst();
+			const actor = requireDashboardAdmin(ctx.values);
+			const now = Date.now();
+			const persistedSessionIds = await deps.db.transaction().execute(async (trx) => {
+				const worker = await trx
+					.selectFrom("workers")
+					.select("fp")
+					.where("fp", "=", req.fp)
+					.where("dashboard_id", "=", actor.dashboardId)
+					.where("deleted_at_ms", "is", null)
+					.executeTakeFirst();
 				if (!worker) throw new ConnectError("worker not found", Code.NotFound);
+				const sessionRows = await trx.selectFrom("sessions")
+					.select("id")
+					.where("worker_fp", "=", req.fp)
+					.where("dashboard_id", "=", actor.dashboardId)
+					.execute();
 				await trx.insertInto("authorized_key_revocations").values({
 					fingerprint: req.fp,
-					revoked_at_ms: Date.now(),
-					revoked_by_fp: caller.fingerprint,
+					revoked_at_ms: now,
+					revoked_by_fp: actor.deviceFingerprint,
 					reason: "worker-deleted",
 				}).execute();
+				const tombstone = await trx.updateTable("workers")
+					.set({ deleted_at_ms: now })
+					.where("fp", "=", req.fp)
+					.where("dashboard_id", "=", actor.dashboardId)
+					.where("deleted_at_ms", "is", null)
+					.returning("fp")
+					.executeTakeFirst();
+				if (!tombstone) throw new Error("worker tombstone update lost");
 				await trx.deleteFrom("bootstrap_tokens")
 					.where("used_at_ms", "is", null)
-					.where((eb) => eb.or([
-						eb("minted_by_fp", "=", req.fp),
-						eb("minted_by_fp", "is", null),
-					]))
+					.where("dashboard_id", "=", actor.dashboardId)
+					.where("minted_by_fp", "=", req.fp)
 					.execute();
-				await trx.deleteFrom("workers").where("fp", "=", req.fp).execute();
 				await trx.deleteFrom("authorized_keys")
-					.where("fingerprint", "=", req.fp).execute();
+					.where("fingerprint", "=", req.fp)
+					.execute();
+				return sessionRows.map((row) => row.id);
 			});
-			invalidateJwtKey(deps.jwtCache, req.fp);
-			deps.onKeyRevoked?.(req.fp);
-			presenceBus.publish({ kind: "removed", fp: req.fp as any });
+
+			// The commit is irrevocable. Fence synchronously before any
+			// best-effort cleanup can yield, publish, or fail.
+			try {
+				deps.onWorkerDeletedFence?.(req.fp);
+			} catch (error) {
+				log.warn("workers-delete", "fence_callback_failed", {
+					worker_fp: req.fp,
+					error: String(error),
+				});
+			} finally {
+				// Always fence the process-global authoritative handle, including
+				// test/portable runtimes without a Bun WebSocket owner.
+				fenceWorkerCredential(req.fp);
+				deps.pendingPublications?.clearWorker(req.fp);
+			}
+
+			let retiredSessionIds = persistedSessionIds;
+			bestEffortWorkerDeleteCleanup("jwt_cache", () => {
+				invalidateJwtKey(deps.jwtCache, req.fp);
+			});
+			bestEffortWorkerDeleteCleanup("routes", () => {
+				const volatileIds = retireWorkerRoutes(asWorkerFp(req.fp));
+				retiredSessionIds = [...new Set([
+					...persistedSessionIds,
+					...volatileIds,
+				])];
+			});
+			bestEffortWorkerDeleteCleanup("terminal_views", () => {
+				notifyTerminalWorkerRetired(req.fp, retiredSessionIds);
+			});
+			bestEffortWorkerDeleteCleanup("routable_presence", _publishRoutable);
+			bestEffortWorkerDeleteCleanup("sync_scope", () => {
+				deps.onWorkerDeletedSyncScope?.(actor.dashboardId, req.fp);
+			});
+			bestEffortWorkerDeleteCleanup("worker_presence", () => {
+				presenceBus.publish({
+					kind: "removed",
+					fp: asWorkerFp(req.fp),
+					_dashboard_id: actor.dashboardId,
+				});
+			});
+			bestEffortWorkerDeleteCleanup("socket_close", () => {
+				deps.onWorkerDeletedSocketClose?.(req.fp);
+			});
 			return create(WorkersDeleteResponseSchema, { ok: true });
 		},
 
-		async *workersDeployOutput(req, ctx) {
-			requireAuth(ctx.values);
-			try {
-				for await (const msg of deployOutput(req.jobId, ctx.signal)) {
-					if (msg.kind === "line") {
-						yield create(WorkersDeployOutputFrameSchema, {
-							kind: "line",
-							text: msg.text,
-						});
-					} else {
-						yield create(WorkersDeployOutputFrameSchema, {
-							kind: "done",
-							exit: msg.exit ?? -1,
-							error: msg.error ?? "",
-						});
-					}
-				}
-			} catch (e) {
-				// A stalled reader tripped the bounded SSE queue: end with a
-				// terminal done-frame instead of a protocol error so the SPA
-				// sees why the log stopped and can reconnect for the tail.
-				if (e instanceof SseQueueOverflowError) {
-					yield create(WorkersDeployOutputFrameSchema, {
-						kind: "done",
-						exit: -1,
-						error: "deploy output stream overflowed; reopen to resume",
-					});
-					return;
-				}
-				throw e;
-			}
-		},
-
-		async transfersStart(req, _ctx) {
-			requireAuth(_ctx.values);
-			// transfers.start is currently unimplemented server-side; return a
-			// sentinel error so the SPA's TransferDialog can surface it.
-			return create(TransfersStartResponseSchema, {
-				ok: false,
-				jobId: "",
-				error: "transfers not yet implemented",
-			});
-		},
-
-		async *transfersOutput(_req, _ctx) {
-			requireAuth(_ctx.values);
-			// No live transfer jobs; immediately emit a done frame.
-			yield create(TransfersOutputFrameSchema, {
-				kind: "done",
-				exit: 0,
-				error: "transfers not yet implemented",
-			});
-		},
-
-		async workersDeployStart(req, ctx) {
-			requireAuth(ctx.values);
-			const workers = await deps.db.selectFrom("workers")
-				.select(["fp", "os", "label", "reachable_addr"])
-				.where((eb) => eb.or([
-					eb("fp", "=", req.host),
-					eb("label", "=", req.host),
-					eb("reachable_addr", "=", req.host),
-				]))
-				.execute();
-			const target = resolveWorkerDeployTarget(workers, req.host);
-			if (target.error) {
-				return create(WorkersDeployStartResponseSchema, {
-					ok: false,
-					jobId: "",
-					error: target.error,
-				});
-			}
-			const worker = target.worker;
-			const host = workerDeployHost(worker, req.host);
-			const result = worker?.os === "win32"
-				? await startWindowsDeploy(
-					worker.fp,
-					req.expectedGitSha,
-					req.expectedManifestSha256,
-				)
-				: startDeploy(host);
-			return create(WorkersDeployStartResponseSchema, {
-				ok: result.ok,
-				jobId: result.jobId ?? "",
-				error: result.error ?? "",
-			});
-		},
+		...makeWorkerDeployHandlers(deps),
 	};
 }

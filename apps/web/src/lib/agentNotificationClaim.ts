@@ -1,3 +1,7 @@
+// Cross-tab election claims for one agent-state browser notification.
+// Notification delivery writes profile-local leases; account boundaries erase them.
+// Web Locks provide atomic election while storage remains the durable fallback.
+
 import type { AgentNotificationKind } from "./agentNotificationCore.ts";
 
 const CLAIM_PREFIX = "roost.agentNotificationClaim.";
@@ -55,4 +59,17 @@ export async function claimAgentNotification(
     );
   }
   return storageElection(key);
+}
+
+export function clearAgentNotificationClaimsForAccountBoundary(): void {
+  try {
+    const claimKeys: string[] = [];
+    for (let idx = 0; idx < localStorage.length; idx += 1) {
+      const key = localStorage.key(idx);
+      if (key?.startsWith(CLAIM_PREFIX)) claimKeys.push(key);
+    }
+    for (const key of claimKeys) localStorage.removeItem(key);
+  } catch {
+    // Profile storage is optional.
+  }
 }

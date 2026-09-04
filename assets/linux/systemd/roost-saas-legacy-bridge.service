@@ -1,0 +1,21 @@
+[Unit]
+Description=Proxy Docker bridge traffic to legacy Roost coordinator
+Requires=roost-saas-legacy-bridge.socket
+After=roost-saas-legacy-bridge.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:4104
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native

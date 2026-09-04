@@ -12,6 +12,11 @@ import {
   CELL_REVERSE, CELL_INVISIBLE, CELL_STRIKE, DEFAULT_COLOR,
   rowColumns, spanIsAtomic, spansText,
 } from "@roost/shared/cell";
+import {
+  classifyTerminalLinkTarget,
+  type TerminalLinkTarget,
+} from "../components/terminal-links.detect.ts";
+
 
 // xterm 256-palette → CSS. 0..15 map to the themed --term-color-N vars;
 // 16..231 are the 6×6×6 cube; 232..255 are the 24-step grayscale ramp.
@@ -93,6 +98,11 @@ export const TERMINAL_LINK_CLASS = "wterm-link";
  *  different rows, so in different anchors; this attribute re-identifies them. */
 export const LINK_KEY_ATTR = "data-link-key";
 
+/** Exact producer/detector target retained separately from href. File targets
+ *  initially have no browser href; terminal-links resolves them through the
+ *  current worker/cwd before installing an authenticated in-app route. */
+export const TERMINAL_LINK_TARGET_ATTR = "data-terminal-target";
+
 /** The row's true GRID OCCUPANCY, stamped because nothing else can recover it
  *  from the painted DOM: textContent length counts UTF-16 code units, and a
  *  column is neither (a CJK ideograph is 2 columns / 1 unit, a ZWJ emoji
@@ -107,27 +117,30 @@ export const ROW_COLUMNS_ATTR = "data-grid-columns";
  *  for the anchors. Absent means "no painted link on this row", always. */
 export const ROW_HAS_LINKS_ATTR = "data-row-links";
 
-/** Producer-controlled URIs are painted verbatim into `href`, so the schemes a
- *  click could EXECUTE are refused: an application printing OSC 8 must not be
- *  able to run script in the pane. A refused URI loses its LINK and keeps its
- *  TEXT — the same trade MAX_LINK_URI_BYTES makes on the wire. Every other
- *  scheme stays allowed deliberately (ssh:, vscode:, file: … are real terminal
- *  link targets; a file: URI additionally loses to a resolvable path, see
- *  terminal-links.detect.ts). Leading whitespace and C0 controls are skipped
- *  because href parsing skips them too. */
-const UNSAFE_LINK_SCHEME = /^[\s\u0000-\u001f]*(?:javascript|data|vbscript):/i;
-
-function _linkAnchor(doc: Document, uri: string, key: string): HTMLElement {
+/** Build only a pre-classified anchor. Terminal output is untrusted: external
+ *  anchors exist solely for absolute HTTP(S), while file/path targets carry no
+ *  browser-openable href until the worker-aware link attachment resolves them. */
+function _linkAnchor(
+  doc: Document,
+  rawTarget: string,
+  key: string,
+  target: TerminalLinkTarget,
+): HTMLElement {
   const a = doc.createElement("a");
   a.className = TERMINAL_LINK_CLASS;
-  // setAttribute, not the href/target/rel properties: `getAttribute("href")`
-  // must return the producer URI verbatim for the linkifier's overlap test.
-  a.setAttribute("href", uri);
   a.setAttribute(LINK_KEY_ATTR, key);
-  a.setAttribute("target", "_blank");
-  a.setAttribute("rel", "noopener noreferrer");
+  a.setAttribute(TERMINAL_LINK_TARGET_ATTR, rawTarget);
   a.setAttribute("tabindex", "-1");
-  a.setAttribute("data-hint", uri);
+  a.setAttribute("draggable", "false");
+  if (target.kind === "external") {
+    a.setAttribute("href", target.href);
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener noreferrer");
+    a.setAttribute("data-hint", target.display);
+  } else {
+    a.setAttribute("data-kind", "file");
+    a.setAttribute("data-hint", `Open ${target.display}`);
+  }
   return a;
 }
 
@@ -221,18 +234,24 @@ export function renderRow(row: CellRow, doc: Document, hits?: readonly FindHit[]
   let anchorKey = "";
   for (const s of row.spans) {
     const uri = s.linkUri;
-    if (uri === undefined || UNSAFE_LINK_SCHEME.test(uri)) {
+    if (uri === undefined) {
       anchor = null;
       anchorKey = "";
     } else {
       // linkKey is present whenever linkUri is (assertCellRowSpans enforces it);
-      // the URI is a total fallback so a malformed frame still paints one link.
+      // the URI is a total fallback so a malformed frame still has stable runs.
       const key = s.linkKey ?? uri;
       if (anchor === null || key !== anchorKey) {
-        anchor = _linkAnchor(doc, uri, key);
-        el.setAttribute(ROW_HAS_LINKS_ATTR, "1");
-        el.appendChild(anchor);
-        anchorKey = key;
+        const target = classifyTerminalLinkTarget(uri);
+        if (target === null) {
+          anchor = null;
+          anchorKey = "";
+        } else {
+          anchor = _linkAnchor(doc, uri, key, target);
+          el.setAttribute(ROW_HAS_LINKS_ATTR, "1");
+          el.appendChild(anchor);
+          anchorKey = key;
+        }
       }
     }
     col = _paintSpan(s, anchor ?? el, doc, marked ? hits : undefined, activeCol, col);

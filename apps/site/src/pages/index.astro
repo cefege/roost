@@ -9,9 +9,9 @@ import { SHOTS } from "../data/media";
 import { FAQ } from "../data/faq";
 import { clampDescription } from "../lib/seo";
 
-const TITLE = "Roost — one control panel for every machine you own";
+const TITLE = "Roost — one managed dashboard for every machine you own";
 const DESCRIPTION = clampDescription(
-  "Roost is a self-hosted terminal control plane: run any CLI on every macOS, Linux and Windows machine you own, from one browser tab — phone included.",
+  "Run any CLI across your own macOS, Linux and Windows machines from one private operator-provisioned dashboard. Roost is managed first, with self-hosted open source available separately.",
 );
 
 // JSON-LD needs absolute URLs. `site` is set unconditionally in
@@ -53,8 +53,6 @@ const softwareApplication = {
   url: new URL("/", site).href,
   codeRepository: REPO,
   license: "GPL-3.0-only",
-  isAccessibleForFree: true,
-  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
 };
 
 const faqPage = {
@@ -71,12 +69,13 @@ const faqPage = {
 <BaseLayout title={TITLE} description={DESCRIPTION}>
   {/* 1 — Hero */}
   <Hero
-    title="One control panel for every machine you own."
-    sub="Roost is a self-hosted terminal control plane. Run Claude Code, Codex, OMP, or any other CLI on every macOS, Linux, and Windows machine you own — and drive all of it from one browser tab, including your phone."
-    badges={["GPL-3.0-only", "Bun", "no account", "no telemetry"]}
+    title="Your machines. One managed dashboard."
+    sub="Run Claude Code, Codex, OMP, or any other CLI across your macOS, Linux, and Windows machines. Managed Roost is a private operator-provisioned login and dashboard; the accountless open-source edition remains available to self-host."
+    badges={["private managed dashboard", "your machines", "non-extractable device keys"]}
   >
-    <a class="btn btn-primary" href="/install/">Install</a>
-    <a class="btn" href={REPO} rel="noopener">GitHub</a>
+    <a class="btn btn-primary" href="https://dashboard.roosttt.com/login">Log in</a>
+    <a class="btn" href="https://dashboard.roosttt.com/app">Open dashboard</a>
+    <a class="btn" href="/install/">Self-host</a>
   </Hero>
 
   <div class="wrap shot-hero">
@@ -400,35 +399,32 @@ const faqPage = {
       </FeatureRow>
     </div>
 
-    {/* 11 — Yours, not a SaaS */}
+    {/* 11 — Two deployment modes */}
     <div class="section">
       <FeatureRow
-        eyebrow="Ownership"
-        title="Yours, not a SaaS"
+        eyebrow="Deployment"
+        title="Managed first, self-hosted when you want it"
         media={SHOTS.pairQr.src}
         alt={SHOTS.pairQr.alt}
-        caption="Scan the QR; the device signs itself in with nothing to type."
+        caption="Each browser keeps its own non-extractable device key."
         reverse
       >
         <p>
-          There are no accounts and no shared tokens. Each browser mints its own Ed25519
-          key pair with WebCrypto, marked non-extractable and persisted in IndexedDB, so
-          there is no code path — including Roost's own — that can read the private key
-          out and send it anywhere. Every request carries an EdDSA JWT signed by that
-          key, and the device's fingerprint is the SHA-256 of its public key.
+          <strong>Managed Roost is a private operator-provisioned service.</strong> The
+          initial owner signs in to one hosted dashboard and attaches worker machines
+          manually. Account lifecycle and coordinator operations remain under direct
+          operator control.
         </p>
         <p>
-          There are four ways to authorize a device: scan a QR (the one-shot token rides
-          in the URL fragment, which browsers never send, so it cannot land in a log or
-          a <code>Referer</code> header), paste a bootstrap token, self-register from
-          the coordinator machine over loopback, or tap-to-pair and approve from a
-          browser you already trust.
+          <strong>The open-source edition remains accountless and self-hosted.</strong> You
+          operate the coordinator and authorize browsers through QR, a one-shot bootstrap
+          token, loopback registration, or approval from a device you already trust.
         </p>
         <p>
-          Revoking is deleting a row; the key stops verifying immediately. Every
-          authenticated RPC is written to an audit log, and Roost sends nothing anywhere
-          — no analytics, no crash reporting, no phone-home. The
-          <a href="/docs/security/">security model</a> has the details.
+          In either mode, each browser mints an Ed25519 key pair with WebCrypto. The private
+          key is non-extractable and persisted in IndexedDB, and requests are signed with
+          short-lived device JWTs. Read the <a href="/docs/security/">security model</a>,
+          <a href="https://dashboard.roosttt.com/login">log in to managed Roost</a>, or <a href="https://dashboard.roosttt.com/app">open your dashboard</a>.
         </p>
       </FeatureRow>
     </div>
@@ -467,12 +463,13 @@ const faqPage = {
           />
         </div>
       </div>
-      <Callout tone="info" title="Windows x64 and the Tailscale prerequisite">
+      <Callout tone="info" title="Windows x64 and coordinator networking">
         <p>
           Windows x64 hosts install through a signed, certificate-pinned PowerShell
-          bootstrap. The supported production topology puts the coordinator and every
-          worker on a Tailscale tailnet; devices you only browse from need nothing but a
-          browser. Both are covered on <a href="/install/">the install page</a> and in
+          bootstrap. Automatic setup can use Tailscale Serve, while explicit setup
+          can use a browser-trusted coordinator certificate without Tailscale.
+          Browsing devices need only a modern browser. Both modes are covered on
+          <a href="/install/">the install page</a> and in
           <a href="/docs/install/">the install guide</a>.
         </p>
       </Callout>
