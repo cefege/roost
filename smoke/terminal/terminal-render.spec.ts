@@ -343,8 +343,7 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
         dimensionsConverged: coordinator?.effective?.cols === view.effective_cols
           && coordinator.effective?.rows === view.effective_rows,
         reduced: viewGeometry !== null && beforeGeometry !== null
-          && viewGeometry.cols <= beforeGeometry.cols
-          && viewGeometry.rows <= beforeGeometry.rows
+          && viewGeometry.cols <= beforeGeometry.cols && viewGeometry.rows <= beforeGeometry.rows
           && (viewGeometry.cols < beforeGeometry.cols || viewGeometry.rows < beforeGeometry.rows),
         acceptedBaseline: view.status === "accepted"
           && view.active
