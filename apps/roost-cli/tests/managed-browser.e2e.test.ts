@@ -188,11 +188,12 @@ test.skipIf(!enabled)("activates, signs out, logs in, resets, and rejects every 
     });
     const origin = `http://127.0.0.1:${proxy.port}`;
     browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    const context = await browser.newContext();
+    let page = await context.newPage();
     const observed: Array<{ url: string; referer?: string }> = [];
     const responses: Array<{ url: string; status: number }> = [];
-    page.on("response", (response) => responses.push({ url: response.url(), status: response.status() }));
-    page.on("request", (request) => {
+    context.on("response", (response) => responses.push({ url: response.url(), status: response.status() }));
+    context.on("request", (request) => {
       observed.push({ url: request.url(), referer: request.headers()["referer"] });
     });
 
@@ -218,7 +219,9 @@ test.skipIf(!enabled)("activates, signs out, logs in, resets, and rejects every 
     await page.getByTestId("settings-account-pane").waitFor();
     await page.getByTestId("managed-sign-out").evaluate((element: HTMLElement) => element.click());
     await page.waitForURL(`${origin}/login`);
-    await page.reload();
+    await page.close();
+    page = await context.newPage();
+    await page.goto(`${origin}/login`);
     expect(new URL(page.url()).pathname).toBe("/login");
 
     await fillManagedInput(page, "managed-login-email", EMAIL);
