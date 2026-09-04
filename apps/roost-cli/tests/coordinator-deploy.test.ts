@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -65,7 +66,7 @@ async function coordinatorFixture(
   phase: CoordinatorDeployJournalV2["phase"],
   targetWorkerFingerprints: string[] = [WORKER_FP],
 ): Promise<CoordinatorFixture> {
-  const root = mkdtempSync(join(tmpdir(), "roost-coordinator-deploy-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "roost-coordinator-deploy-")));
   const serviceRoot = join(root, "service");
   const releaseRoot = join(serviceRoot, "releases", "coord");
   const transactionRoot = join(serviceRoot, "transactions");
