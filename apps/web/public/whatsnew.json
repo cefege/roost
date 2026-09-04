@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.5.0",
+    "date": "2026-09-04",
+    "title": "Durable self-hosted fleets",
+    "items": [
+      "Terminal lifecycle events now survive worker restarts and reconnects, with bounded liveness repair for stalled foreground streams",
+      "Self-hosted coordinators support automatic Tailscale Serve or explicit direct HTTPS",
+      "Dashboard-scoped state and managed account data are isolated per confirmed account membership",
+      "Managed accounts are operator-created; public signup and the managed service remain off",
+      "Roost v0.5.0 ships self-hosted binaries for macOS and Linux; Windows remains paused"
+    ]
+  },
+  {
     "version": "2.0.0",
     "date": "2026-06-11",
     "title": "Roost v2 — full rewrite",
