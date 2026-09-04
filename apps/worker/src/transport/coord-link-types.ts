@@ -171,8 +171,6 @@ export type UpstreamFrame =
       failure_kind: TerminalStreamFailureKind;
       reason?: string;
     }
-  | { kind: "transfer-line"; job_id: string; text: string }
-  | { kind: "transfer-done"; job_id: string; exit: number | null; error?: string }
   | ({ kind: "update-progress" } & UpdateProgressFrame);
 
 export type CoordLinkState =

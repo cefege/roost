@@ -89,20 +89,6 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     regex: z.boolean(),
     max_matches: z.number().int().positive(),
   }),
-  // Cross-worker rsync: coord asks the SOURCE worker to spawn rsync
-  // sending src_path to dst_host:dst_path. Source worker streams
-  // stdout/stderr back via transfer-line frames and emits
-  // transfer-done on exit. The dst_host is an SSH-reachable hostname
-  // (tailnet FQDN); source worker needs key-based auth to it.
-  Base.extend({
-    kind: z.literal("start-transfer"),
-    job_id: z.string(),
-    src_path: z.string(),
-    dst_host: z.string(),
-    dst_path: z.string(),
-    delete_extra: z.boolean().optional(), // pass --delete
-    dry_run: z.boolean().optional(),       // pass --dry-run
-  }),
   // att1 file upload retired here — uploads stream via the DAttachmentChunk
   // worker-transport frame (coord AttachFileChunk RPC), not this JSON frame.
   // att2b — list a session's attachments. Worker returns entries

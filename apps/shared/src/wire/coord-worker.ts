@@ -58,22 +58,6 @@ export const CoordWorkerUpstream = z.discriminatedUnion("kind", [
     request_id: z.string(),
     message: z.string(),
   }),
-  // Cross-worker transfer streaming — paired with the start-transfer
-  // ControlFrame coord sends downstream. Source worker emits one
-  // transfer-line per rsync output line, then a single transfer-done
-  // when the process exits. Coord fans these to the SPA's
-  // transfers.output subscription.
-  Base.extend({
-    kind: z.literal("transfer-line"),
-    job_id: z.string(),
-    text: z.string(),
-  }),
-  Base.extend({
-    kind: z.literal("transfer-done"),
-    job_id: z.string(),
-    exit: z.number().int().nullable(),
-    error: z.string().optional(),
-  }),
 ]);
 export type CoordWorkerUpstream = z.infer<typeof CoordWorkerUpstream>;
 

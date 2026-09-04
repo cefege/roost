@@ -6,7 +6,7 @@
 import { create } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, WHelloSchema, WPongSchema, WBinarySchema,
-  WRpcOkSchema, WRpcErrorSchema, WTransferLineSchema, WTransferDoneSchema,
+  WRpcOkSchema, WRpcErrorSchema,
   WInputResultSchema, WTerminalStreamResultSchema,
   WUpdateProgressSchema,
 } from "@roost/shared/proto/worker_transport_pb";
@@ -56,14 +56,6 @@ export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
         reason: f.reason ?? "",
         phase: f.phase,
         failureKind: f.failure_kind,
-      })}});
-    case "transfer-line":
-      return create(CoordWorkerUpSchema, { frame: { case: "transferLine", value: create(WTransferLineSchema, {
-        jobId: f.job_id, text: f.text,
-      })}});
-    case "transfer-done":
-      return create(CoordWorkerUpSchema, { frame: { case: "transferDone", value: create(WTransferDoneSchema, {
-        jobId: f.job_id, exit: f.exit ?? -1, error: f.error ?? "",
       })}});
     case "update-progress":
       return create(CoordWorkerUpSchema, { frame: { case: "updateProgress", value: create(WUpdateProgressSchema, {

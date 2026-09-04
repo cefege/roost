@@ -1,7 +1,7 @@
 // Browser->worker RPC dispatch. Every ClientControlFrame variant that arrives
-// over CoordLink downstream (spawn / kill / scrollback / resize / transfer /
-// attachments / diag / file-ops) is handled here and answered via
-// coordLink.send. Extracted from main.ts (CLAUDE.md 400-line cap). Wired by
+// over CoordLink downstream (spawn / kill / scrollback / resize / attachments /
+// diag / file-ops) is handled here and answered via coordLink.send.
+// Extracted from main.ts (CLAUDE.md 400-line cap). Wired by
 // main.ts as CoordLink.onBrowserCommand.
 
 import { log } from "@roost/shared/log";
@@ -11,7 +11,6 @@ import type { SessionManager } from "./session-manager.ts";
 import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnShell } from "./browser-command-spawn.ts";
 import { handleGetHome, handleListDir, handleMkdir, handleReadFile, handleReadFileChunk } from "./browser-command-files.ts";
 import { handleGetScrollbackCells, handleSearchScrollback } from "./browser-command-terminal.ts";
-import { handleStartTransfer } from "./browser-command-transfer.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
 
@@ -68,10 +67,6 @@ export function handleBrowserCommand(
 		}
 		case "search-scrollback": {
 			void handleSearchScrollback(frame, request_id, { coordLink, sessionMgr });
-			return;
-		}
-		case "start-transfer": {
-			handleStartTransfer(frame, { coordLink });
 			return;
 		}
 		// save-attachment (whole-file base64 frame) retired — uploads now

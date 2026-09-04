@@ -119,7 +119,6 @@
   "apps/worker/src/browser-command-attachments.ts": 2,
   "apps/worker/src/browser-command-diag.ts": 2,
   "apps/worker/src/browser-command-files.ts": 2,
-  "apps/worker/src/browser-command-transfer.ts": 2,
   "apps/worker/src/host-sample-types.ts": 2,
   "apps/worker/src/keeper/keeper-pool-config.ts": 2,
   "apps/worker/src/keeper/keeper-probe.ts": 1,
