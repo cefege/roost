@@ -778,6 +778,22 @@ rename/delete/deploy-start. `*List`, identity and health probes are NOT in the s
 **Guard** — `apps/coord/tests/coord-e2e.test.ts` —
 `"rate limit: 100 AuthRedeemBrowser POSTs from same IP → 101st returns 429"`.
 
+### Managed SPA assets exhaust the dynamic public-edge budget
+
+**Symptom** — "managed `/login` URL loads but `managed-login-email` never mounts / a lazy auth chunk returns
+429 after several full-page auth transitions"
+
+**Wrong** — charge every managed request to `managed-public-base`; one normal browser lifecycle fetches enough
+content-hashed SPA assets to exhaust the 100-request dynamic budget before its final login chunk.
+
+**Right** — in `apps/coord/src/middleware/public-surface.ts::makePublicSurface`, exempt the already-classified
+`spa` route from dynamic edge budgets. RPCs and WebSocket upgrades retain their base and endpoint-specific
+limits; SPA routing remains GET/HEAD-only and default-deny for reserved paths.
+
+**Guard** — `apps/coord/tests/public-surface-managed.test.ts` —
+`"serves SPA navigation and assets without spending the dynamic edge budget"`; the managed-browser E2E drives
+activation → logout → login → password reset → re-login without restarting the coordinator.
+
 ### JSON.parse inside a bus publish, after the commit
 
 **Symptom** — "RPC returns 500 but DB row IS persisted, SPA UI keeps showing prior state until manual refresh"

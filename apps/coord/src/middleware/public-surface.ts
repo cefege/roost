@@ -154,7 +154,7 @@ export function makePublicSurface(deps: PublicSurfaceDeps): {
         return finalizePublicResponse(new Response("not found", { status: 404 }), security, req);
       }
     }
-    if (deps.cfg.saasMode) {
+    if (deps.cfg.saasMode && route !== "spa") {
       const baseLimited = customLimit(origin.clientIp, "managed-public-base", 100);
       if (baseLimited) return finalizePublicResponse(baseLimited, security, req);
 

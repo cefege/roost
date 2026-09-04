@@ -254,10 +254,6 @@ test.skipIf(!enabled)("activates, signs out, logs in, resets, and rejects every 
       return `${header}.${payload}.${encoded(signature)}`;
     });
 
-    // Reset the per-process public-edge budget after the asset-heavy first boot.
-    await runtime.stop(spec.coordinator);
-    await runtime.startAndVerify(spec);
-
     await page.goto(`${origin}/forgot-password`);
     await fillManagedInput(page, "managed-forgot-password-email", EMAIL);
     await page.getByTestId("managed-forgot-password").locator("form")

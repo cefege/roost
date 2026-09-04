@@ -49,6 +49,21 @@ describe("managed public surface without Cloudflare Access", () => {
     }
   });
 
+  test("serves SPA navigation and assets without spending the dynamic edge budget", async () => {
+    const { surface, coordCalls, rateCalls } = makeHarness({
+      customLimit: () => new Response("rate limited", { status: 429 }),
+    });
+    for (const path of ["/login", "/assets/ManagedLogin-content-hash.js"]) {
+      const response = await surface.fetch(managedRequest(path), publicServer);
+      expect(response?.status, path).toBe(200);
+    }
+    expect(coordCalls.map((call) => call.path)).toEqual([
+      "/login",
+      "/assets/ManagedLogin-content-hash.js",
+    ]);
+    expect(rateCalls).toEqual([]);
+  });
+
   test("applies the base budget before malformed bearer dispatch", async () => {
     const { surface, coordCalls, rateCalls } = makeHarness();
     const response = await surface.fetch(managedRequest(
