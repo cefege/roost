@@ -312,6 +312,7 @@ export async function proveFindPasteRecovery({
   await pressPlatformShortcut(page, "terminalFind", "F");
   const findInput = page.getByTestId("terminal-find-input");
   await expect(findInput).toBeVisible();
+  const findOpenRows = await waitForSettledTerminalRowsBelow(page, sessionId, preFindRows);
   const findMarker = `${historyPrefix}20`;
   await findInput.fill(findMarker);
   await expect(page.getByTestId("terminal-find-count")).toHaveText("1/1", { timeout: 10_000 });
@@ -324,7 +325,6 @@ export async function proveFindPasteRecovery({
     const presentation = (await readTerminalStreamProbe(page, sessionId)).browser.presentation;
     return { intent: presentation?.reader_intent, reason: presentation?.reader_reason };
   }).toEqual({ intent: "reading", reason: "find" });
-  const findOpenRows = await waitForSettledTerminalRowsBelow(page, sessionId, preFindRows);
   await findInput.press("Escape");
   await expect(findInput).toHaveCount(0);
   await expect.poll(async () => {
