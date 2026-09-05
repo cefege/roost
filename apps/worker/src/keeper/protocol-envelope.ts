@@ -33,18 +33,11 @@ export const enum MuxFrameType {
   ListChannels     = 0xE0, // client → keeper: no payload (channel=0)
   ListChannelsResp = 0xE1, // keeper → client: JSON {channels:[{channel_id,pid}]}
 
-  // Version handshake — fresh worker probes a survivor keeper for
-  // protocol compatibility before trusting it for resume. Keepers from
-  // a prior commit either pre-date this frame (silent drop → handshake
-  // timeout → treat as incompatible) or reply with a stale version
-  // number. See KEEPER_PROTOCOL_VERSION below + apps/worker/src/main.ts
-  // killStaleKeeper gate.
-  Hello            = 0xE2, // client → keeper: JSON {version:number} (channel=0)
-  HelloResp        = 0xE3, // keeper → client: JSON {version:number, build?:string}
-  // `build` = KEEPER_BUILD_STAMP (keeper-stamp.ts), ADDITIVE + NON-gating: it
-  // surfaces stale keeper CODE (probeKeeperCompatible reports it) but does NOT
-  // enter the kill gate, so a pre-stamp keeper (no `build`) is not killed —
-  // only flagged. Adding it needs NO version bump (absence is detectable).
+  // Authenticated version handshake. The complete KeeperContractV1 and current
+  // process/channel observation are returned separately from negotiated wire
+  // compatibility; an absent implementation digest can never prove equality.
+  Hello            = 0xE2, // client → keeper: capability-bearing hello (channel=0)
+  HelloResp        = 0xE3, // keeper → client: contract + process/channel observation
 
   // Cross-process history resume. GetHistory remains only for draining a
   // deployed keeper that predates ordered resize records.
@@ -59,10 +52,14 @@ export const enum MuxFrameType {
   GetTerminalState     = 0xEA, // client → keeper: no payload (per channel)
   GetTerminalStateResp = 0xEB, // keeper → client: authoritative resize state
 
-  // Authenticated administrative shutdown. The endpoint layer authenticates
-  // Hello before either frame can be dispatched.
-  Shutdown          = 0xE8, // client → keeper: empty payload (channel=0)
-  ShutdownAck       = 0xE9, // keeper → client: empty payload (channel=0)
+  // Authenticated administrative shutdown. Plain Shutdown is the deliberate
+  // offline maintenance path. Automatic boot replacement uses ShutdownIfEmpty,
+  // whose keeper-side channel check is atomic with admitting the shutdown.
+  Shutdown              = 0xE8, // client → keeper: empty payload (channel=0)
+  ShutdownAck           = 0xE9, // keeper → client: empty payload (channel=0)
+  ShutdownIfEmpty       = 0xEC, // client → keeper: empty payload (channel=0)
+  ShutdownIfEmptyAck    = 0xED, // keeper → client: empty payload (channel=0)
+  ShutdownIfEmptyReject = 0xEE, // keeper → client: empty payload (channel=0)
 }
 
 export interface MuxFrame {

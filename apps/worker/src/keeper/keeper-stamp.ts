@@ -1,58 +1,79 @@
-// KEEPER_BUILD_STAMP — a code-version stamp for the multiplexed keeper.
-//
-// The keeper is spawned detached and OUTLIVES a worker deploy, so a
-// behavior-only change ships dormant until the keeper process is replaced.
-// KEEPER_PROTOCOL_VERSION (protocol.ts) only catches WIRE changes; this
-// stamp catches CODE changes so a stale keeper can be surfaced + refreshed.
-//
-// It is a content hash of the keeper's OWN runtime source files — NOT the repo
-// git sha (which over-triggers: every unrelated SPA/coord commit would force a
-// DESTRUCTIVE keeper replacement) and NOT process.env.GIT_SHA (stale after a
-// plain rsync deploy — the coord DriftBadge bug, coord/git-sha.ts). Only a
-// change to a file below moves the stamp. Worker + keeper import this module
-// and compute it identically from disk; the keeper freezes its value at spawn
-// and echoes it in HelloResp, the freshly-booted worker computes the current
-// value and compares (multiplexed-client.ts probeKeeperCompatible).
+// KeeperContractV1 is the worker/keeper artifact identity used during survivor
+// admission. Its implementation digest is generated from the transitive keeper
+// bundle; protocol compatibility and exact artifact equality remain separate.
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+import { supportedHostPlatform } from "@roost/shared/platform";
+import { GENERATED_KEEPER_IMPLEMENTATION_DIGEST } from "./keeper-contract.generated.ts";
+import {
+  KEEPER_PROTOCOL_VERSION,
+  KeeperContractV1Schema,
+  REQUIRED_KEEPER_FEATURES,
+  SUPPORTED_KEEPER_FEATURES,
+  type KeeperContractV1,
+} from "./protocol.ts";
 
-// The files the keeper PROCESS actually runs. multiplexed-client.ts is
-// worker-side (not loaded by the keeper) and is deliberately excluded — a
-// client-only change must not flag every keeper stale.
-export const _KEEPER_SOURCE_FILES = [
-  "multiplexed-main.ts", "protocol.ts", "histfile.ts", "keeper-input-queue.ts",
-  // The keeper protocol module was renamed and split by message family
-  // 2026-08-18; protocol.ts is now only the version record + re-exports, so the
-  // family modules holding the actual keeper-side codec must be listed too or a
-  // wire-codec change stops moving the stamp.
-  "protocol-envelope.ts", "protocol-io.ts", "protocol-terminal.ts",
-  // multiplexed-main.ts was split 2026-07-10; these siblings hold keeper
-  // runtime code (log/types/reaping/frame-dispatch) that must stay covered
-  // so a keeper behavior change in any of them still moves the stamp.
-  "keeper-log.ts", "keeper-types.ts", "keeper-process-reap.ts", "keeper-frame-handler.ts",
-  // keeper-frame-handler.ts imports the worker's fixed-capacity byte ring for
-  // its per-channel outRing, so a change there changes keeper RUNTIME
-  // behaviour. A detached keeper outlives a worker deploy: without this entry
-  // a stale keeper keeps running the old grow-and-slice copy and reports
-  // itself fresh.
-  "../session-scrollback-ring.ts", "../shell-spec.ts",
-  "../../../shared/src/platform.ts", "../../../shared/src/native-path.ts",
-  "../../../shared/src/local-endpoint.ts", "../../../shared/src/windows-helper.ts",
-];
+export type { KeeperContractV1 } from "./protocol.ts";
+declare const __ROOST_KEEPER_IMPLEMENTATION_DIGEST__: string | undefined;
 
-function computeKeeperBuildStamp(): string {
-  try {
-    const hasher = new Bun.CryptoHasher("sha256");
-    for (const name of _KEEPER_SOURCE_FILES) {
-      hasher.update(readFileSync(join(import.meta.dir, name)));
-    }
-    return hasher.digest("hex").slice(0, 12);
-  } catch {
-    // Read failure (unexpected deploy layout) → stable sentinel. Worker AND
-    // keeper both get "unknown" → equal → no false staleness, just no signal.
-    return "unknown";
-  }
+const SHA256_DIGEST = /^[0-9a-f]{64}$/;
+
+function implementationDigest(): string | null {
+  const compiledDigest =
+    typeof __ROOST_KEEPER_IMPLEMENTATION_DIGEST__ === "string"
+      ? __ROOST_KEEPER_IMPLEMENTATION_DIGEST__
+      : null;
+  const candidate = compiledDigest ?? GENERATED_KEEPER_IMPLEMENTATION_DIGEST;
+  return candidate !== null && SHA256_DIGEST.test(candidate) ? candidate : null;
 }
 
-export const KEEPER_BUILD_STAMP = computeKeeperBuildStamp();
+export const KEEPER_TARGET_CONTRACT: KeeperContractV1 =
+  KeeperContractV1Schema.parse({
+    protocol_version: KEEPER_PROTOCOL_VERSION,
+    supported_features: [...SUPPORTED_KEEPER_FEATURES].sort(),
+    required_features: [...REQUIRED_KEEPER_FEATURES].sort(),
+    implementation_digest: implementationDigest(),
+    bun_abi: Bun.version,
+    platform: supportedHostPlatform(),
+    arch: process.arch,
+    build_sha: ROOST_BUILD_SHA,
+  });
+
+export function keeperContractsProtocolCompatible(
+  target: KeeperContractV1,
+  running: KeeperContractV1,
+): boolean {
+  if (target.protocol_version !== running.protocol_version) return false;
+  const targetSupported = new Set(target.supported_features);
+  const runningSupported = new Set(running.supported_features);
+  return target.required_features.every(feature => runningSupported.has(feature))
+    && running.required_features.every(feature => targetSupported.has(feature));
+}
+
+export function keeperContractsSameImplementation(
+  target: KeeperContractV1,
+  running: KeeperContractV1,
+): boolean {
+  return target.implementation_digest !== null
+    && running.implementation_digest !== null
+    && target.implementation_digest === running.implementation_digest
+    && target.bun_abi === running.bun_abi
+    && target.platform === running.platform
+    && target.arch === running.arch
+    && sameStrings(target.supported_features, running.supported_features)
+    && sameStrings(target.required_features, running.required_features)
+    && target.protocol_version === running.protocol_version;
+}
+
+export function keeperContractsExactlyEqual(
+  target: KeeperContractV1,
+  running: KeeperContractV1,
+): boolean {
+  return keeperContractsSameImplementation(target, running)
+    && target.build_sha === running.build_sha;
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}

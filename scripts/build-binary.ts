@@ -10,6 +10,7 @@
 // consumed by scripts/windows/package-windows.ps1.
 import { $ } from "bun";
 import { copyFile } from "node:fs/promises";
+import { buildKeeperImplementationDigest } from "./keeper-bundle-digest.ts";
 
 const OUT = "dist/roost";
 // Asset names must match releaseAssetName() in apps/roost-cli/src/update.ts and
@@ -43,17 +44,23 @@ if (dirty) {
   throw new Error("cannot build release artifacts from a dirty working tree");
 }
 const VERSION = gitSha ? `${pkg.version}+${gitSha.slice(0, 8)}` : `${pkg.version}`;
+const keeperImplementationDigest = await buildKeeperImplementationDigest();
+const embedEnvironment = {
+  ...process.env,
+  ROOST_GENERATED_KEEPER_IMPLEMENTATION_DIGEST: keeperImplementationDigest,
+};
 
 console.log(">> vite build (apps/web)");
 await $`bun x vite build`.env({ ...process.env, ROOST_GIT_SHA: gitSha }).cwd("apps/web");
 
 try {
   console.log(">> gen-embed (baking SPA + migrations)");
-  await $`bun scripts/gen-embed.ts`;
+  await $`bun scripts/gen-embed.ts`.env(embedEnvironment);
 
   const defineArgs = [
     "--define", `__ROOST_VERSION__=${JSON.stringify(VERSION)}`,
     "--define", `__ROOST_GIT_SHA__=${JSON.stringify(gitSha)}`,
+    "--define", `__ROOST_KEEPER_IMPLEMENTATION_DIGEST__=${JSON.stringify(keeperImplementationDigest)}`,
   ];
   if (hostOnly) {
     console.log(`>> bun build --compile → ${OUT} (host, version ${VERSION})`);
@@ -73,7 +80,7 @@ try {
   }
 } finally {
   console.log(">> restore embed stubs");
-  await $`bun scripts/gen-embed.ts --stub`;
+  await $`bun scripts/gen-embed.ts --stub`.env(embedEnvironment);
 }
 
 const built = hostOnly

@@ -32,6 +32,7 @@ import {
 } from "./keeper-pool-io.ts";
 import type { KeeperCommand } from "./keeper-pool-io.ts";
 import type {
+  KeeperContractV1,
   KeeperHistoryRecords,
   KeeperInputResult,
   KeeperResizeResult,
@@ -39,9 +40,14 @@ import type {
 } from "./protocol.ts";
 import type { ShellSpec } from "../shell-spec.ts";
 
-export { probeKeeperCompatible, shutdownKeeperAuthenticated } from "./keeper-probe.ts";
+export {
+  probeKeeperCompatible,
+  shutdownEmptyKeeperAuthenticated,
+  shutdownKeeperAuthenticated,
+} from "./keeper-probe.ts";
 export type { KeeperCommand, KeeperWriteAdmission, KeeperWriteRejection } from "./keeper-pool-io.ts";
 export type {
+  KeeperContractV1,
   KeeperHistoryRecord,
   KeeperHistoryRecords,
   KeeperInputResult,
@@ -125,15 +131,16 @@ export class MultiplexedKeeperPool {
   // → socket close → _onKeeperDeath → reconcile → ensure() spawns a fresh one.
   _keeperProc: Bun.Subprocess | null = null;
 
-  // KEEPER_BUILD_STAMP the RUNNING keeper reports. Set to our own stamp when
-  // we spawn a fresh keeper (= current code); set by the worker to a survivor's
-  // reported stamp when it adopts one at boot (may be older code). Heartbeat
-  // reads it to flag a stale keeper. null until the first keeper is known.
-  _runningKeeperStamp: string | null = null;
-  getRunningKeeperStamp(): string | null { return this._runningKeeperStamp; }
-  /** Record the stamp of a keeper the worker ADOPTED (compatible survivor at
-   *  boot). Fresh spawns set the stamp themselves in ensure(). */
-  setRunningKeeperStamp(stamp: string): void { this._runningKeeperStamp = stamp; }
+  // Full contract reported by the RUNNING keeper. Fresh spawns and compatible
+  // survivors both populate it from their authenticated Hello; null means no
+  // keeper identity has been observed during this worker process.
+  _runningKeeperContract: KeeperContractV1 | null = null;
+  getRunningKeeperContract(): KeeperContractV1 | null {
+    return this._runningKeeperContract;
+  }
+  setRunningKeeperContract(contract: KeeperContractV1): void {
+    this._runningKeeperContract = contract;
+  }
   /** Features returned by the authenticated Hello for this exact socket. */
   keeperFeatures = new Set<string>();
   setKeeperFeatures(features: readonly string[]): void {

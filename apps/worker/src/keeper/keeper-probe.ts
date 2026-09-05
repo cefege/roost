@@ -1,29 +1,43 @@
-// Authenticated worker-side Hello probe for the multiplexed keeper.
+// Authenticated worker-side keeper Hello probe and administrative shutdown.
+// Probe facts keep transport reachability, authentication, wire compatibility,
+// and exact KeeperContractV1 target equality independent.
 
 import { Socket } from "node:net";
 import type { LocalEndpoint } from "@roost/shared/local-endpoint";
 import {
   MuxFrameType,
   KEEPER_PROTOCOL_VERSION,
-  REQUIRED_KEEPER_FEATURES,
   SUPPORTED_KEEPER_FEATURES,
   decodeKeeperHelloResponse,
   decodeMuxFrames,
   encodeKeeperHelloRequest,
   encodeMuxFrame,
   isEmptyKeeperPayload,
+  type KeeperChannelBindingV1,
+  type KeeperContractV1,
   type KeeperFeature,
   type MuxFrame,
 } from "./protocol.ts";
+import {
+  KEEPER_TARGET_CONTRACT,
+  keeperContractsExactlyEqual,
+  keeperContractsProtocolCompatible,
+} from "./keeper-stamp.ts";
 
 export interface KeeperProbeResult {
   /** The endpoint accepted a transport connection. */
   reachable: boolean;
   /** The peer returned the strict post-capability-auth Hello response. */
   authenticated: boolean;
-  /** Authentication, wire version, and every required feature matched. */
-  compatible: boolean;
-  keeperStamp?: string;
+  /** Wire version and every worker-required feature matched. */
+  protocolCompatible: boolean;
+  /** Every target contract field matched; a missing digest is never exact. */
+  exactTarget: boolean;
+  contract?: KeeperContractV1;
+  keeperPid?: number;
+  processEpoch?: string;
+  bindings?: readonly KeeperChannelBindingV1[];
+  spawningChannels?: readonly number[];
   features: readonly KeeperFeature[];
 }
 
@@ -44,14 +58,15 @@ interface FailedKeeperConnection extends KeeperProbeResult {
   remaining?: never;
 }
 
-export type KeeperConnectionAttempt = AuthenticatedKeeperConnection | FailedKeeperConnection;
-
-function hasRequiredFeatures(features: readonly string[]): boolean {
-  const available = new Set(features);
-  // REQUIRED, not SUPPORTED: an incompatible keeper is killed along with every
-  // PTY it hosts, so only features the worker cannot degrade without belong here.
-  return REQUIRED_KEEPER_FEATURES.every(feature => available.has(feature));
+export interface EmptyKeeperShutdownExpectation {
+  keeperPid: number;
+  processEpoch: string;
 }
+
+export type KeeperConnectionAttempt =
+  | AuthenticatedKeeperConnection
+  | FailedKeeperConnection;
+
 
 /** Connect and perform the capability-bearing Hello as the first frame.
  * Successful sockets are returned paused so the caller can install its
@@ -78,7 +93,8 @@ export function connectKeeperAuthenticated(
       resolve({
         reachable,
         authenticated: false,
-        compatible: !reachable,
+        protocolCompatible: false,
+        exactTarget: false,
         features: [],
       });
     };
@@ -116,7 +132,10 @@ export function connectKeeperAuthenticated(
         return;
       }
       const helloFrame = frames[0];
-      if (helloFrame.type !== MuxFrameType.HelloResp || helloFrame.channelId !== 0) {
+      if (
+        helloFrame.type !== MuxFrameType.HelloResp
+        || helloFrame.channelId !== 0
+      ) {
         finishFailure(true);
         return;
       }
@@ -131,15 +150,38 @@ export function connectKeeperAuthenticated(
       socket.removeListener("connect", onConnect);
       socket.removeListener("close", onClose);
       socket.removeListener("error", onError);
+      const availableFeatures = new Set(hello.features);
       socket.pause();
-      const features = hello.features.filter((feature): feature is KeeperFeature =>
-        SUPPORTED_KEEPER_FEATURES.includes(feature as KeeperFeature));
+      const features = hello.features.filter(
+        (feature): feature is KeeperFeature =>
+          SUPPORTED_KEEPER_FEATURES.includes(feature as KeeperFeature),
+      );
+      const protocolCompatible =
+        hello.version === KEEPER_PROTOCOL_VERSION
+        && KEEPER_TARGET_CONTRACT.required_features.every(
+          feature => availableFeatures.has(feature),
+        )
+        && (
+          hello.contract === undefined
+          || keeperContractsProtocolCompatible(
+            KEEPER_TARGET_CONTRACT,
+            hello.contract,
+          )
+        );
       resolve({
         reachable: true,
         authenticated: true,
-        compatible: hello.version === KEEPER_PROTOCOL_VERSION
-          && hasRequiredFeatures(hello.features),
-        keeperStamp: hello.build,
+        protocolCompatible,
+        exactTarget: hello.contract !== undefined
+          && keeperContractsExactlyEqual(
+            KEEPER_TARGET_CONTRACT,
+            hello.contract,
+          ),
+        contract: hello.contract,
+        keeperPid: hello.pid,
+        processEpoch: hello.process_epoch,
+        bindings: hello.bindings,
+        spawningChannels: hello.spawning_channels,
         features,
         socket,
         pendingFrames: frames.slice(1),
@@ -174,21 +216,62 @@ export async function probeKeeperCompatible(
   return {
     reachable: attempt.reachable,
     authenticated: attempt.authenticated,
-    compatible: attempt.compatible,
-    keeperStamp: attempt.keeperStamp,
+    protocolCompatible: attempt.protocolCompatible,
+    exactTarget: attempt.exactTarget,
+    contract: attempt.contract,
+    keeperPid: attempt.keeperPid,
+    processEpoch: attempt.processEpoch,
+    bindings: attempt.bindings,
+    spawningChannels: attempt.spawningChannels,
     features: attempt.features,
   };
 }
 
-/** Ask an authenticated keeper to shut down. Version compatibility is not
- * required: this is the drain path for an old but capability-aware keeper. */
+/** Deliberate offline maintenance shutdown. Live-channel policy belongs to the
+ * caller; automatic survivor replacement must use the empty-only operation. */
 export async function shutdownKeeperAuthenticated(
   endpoint: LocalEndpoint,
   timeoutMs: number = 2_000,
 ): Promise<boolean> {
+  return requestKeeperShutdown(endpoint, timeoutMs);
+}
+
+/** Identity-fenced automatic replacement. Emptiness is checked in this fresh
+ * Hello and atomically again by the keeper when it dispatches the request. */
+export async function shutdownEmptyKeeperAuthenticated(
+  endpoint: LocalEndpoint,
+  expected: EmptyKeeperShutdownExpectation,
+  timeoutMs: number = 2_000,
+): Promise<boolean> {
+  return requestKeeperShutdown(endpoint, timeoutMs, expected);
+}
+
+async function requestKeeperShutdown(
+  endpoint: LocalEndpoint,
+  timeoutMs: number,
+  expected?: EmptyKeeperShutdownExpectation,
+): Promise<boolean> {
   const attempt = await connectKeeperAuthenticated(endpoint, timeoutMs);
   if (!attempt.authenticated) return false;
   const socket = attempt.socket;
+  if (
+    expected
+    && (
+      attempt.keeperPid !== expected.keeperPid
+      || attempt.processEpoch !== expected.processEpoch
+      || attempt.bindings?.length !== 0
+      || attempt.spawningChannels?.length !== 0
+    )
+  ) {
+    try { socket.destroy(); } catch { /* already closed */ }
+    return false;
+  }
+  const requestType = expected
+    ? MuxFrameType.ShutdownIfEmpty
+    : MuxFrameType.Shutdown;
+  const acknowledgementType = expected
+    ? MuxFrameType.ShutdownIfEmptyAck
+    : MuxFrameType.ShutdownAck;
   return new Promise<boolean>((resolve) => {
     let settled = false;
     let rxBuf = attempt.remaining;
@@ -212,10 +295,16 @@ export async function shutdownKeeperAuthenticated(
         return;
       }
       for (const frame of frames) {
-        if (frame.type === MuxFrameType.ShutdownAck
-            && frame.channelId === 0
-            && isEmptyKeeperPayload(frame.payload)) {
+        if (
+          frame.channelId !== 0
+          || !isEmptyKeeperPayload(frame.payload)
+        ) continue;
+        if (frame.type === acknowledgementType) {
           finish(true);
+          return;
+        }
+        if (frame.type === MuxFrameType.ShutdownIfEmptyReject) {
+          finish(false);
           return;
         }
       }
@@ -227,7 +316,7 @@ export async function shutdownKeeperAuthenticated(
     socket.once("close", onClose);
     socket.once("error", onError);
     try {
-      socket.write(encodeMuxFrame(MuxFrameType.Shutdown, 0, new Uint8Array(0)));
+      socket.write(encodeMuxFrame(requestType, 0, new Uint8Array(0)));
       socket.resume();
     } catch {
       finish(false);

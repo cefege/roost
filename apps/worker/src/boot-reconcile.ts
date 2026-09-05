@@ -39,7 +39,9 @@ export function setupReconcile(deps: {
 	client: () => CoordClient;
 	workerFp: WorkerFp;
 	sessionMgr: SessionManager;
-	prepareKeeper: () => Promise<void>;
+	prepareKeeper: (
+		coordinatorOpenSessionIds: ReadonlySet<string>,
+	) => Promise<void>;
 }): {
 	reconcileOpenSessions: (
 		reason: string,
@@ -59,6 +61,9 @@ export function setupReconcile(deps: {
 				{ timeoutMs: BOOT_SESSION_ADMISSION_TIMEOUT_MS },
 			);
 			const shellRows = response.sessions;
+			const coordinatorOpenSessionIds = new Set(
+				shellRows.map((session) => String(session.id)),
+			);
 			const admissions: Array<{
 				session: (typeof shellRows)[number];
 				shellSpec: ShellSpec;
@@ -132,7 +137,7 @@ export function setupReconcile(deps: {
 			try {
 				// Survivor retirement, keeper creation, and periodic reaping are
 				// all downstream of the complete lifecycle reservation batch.
-				await prepareKeeper();
+				await prepareKeeper(coordinatorOpenSessionIds);
 				await sessionMgr.startPostAdmissionMaintenance();
 				await sessionMgr.advanceChannelCounterPastKeeper();
 

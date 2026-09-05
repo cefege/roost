@@ -5,6 +5,7 @@
 // self-exec `roost keeper <endpoint>`, and supervised
 // `roost keeper --service`. The body is side-effect-free on import.
 
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import {
@@ -27,9 +28,11 @@ import {
   encodeMuxFrame,
   isEmptyKeeperPayload,
   negotiateKeeperFeatures,
+  type KeeperContractV1,
+  type KeeperChannelBindingV1,
   type MuxFrame,
 } from "./protocol.ts";
-import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
+import { KEEPER_TARGET_CONTRACT } from "./keeper-stamp.ts";
 import { _log } from "./keeper-log.ts";
 import { reapAllChannels } from "./keeper-process-reap.ts";
 import { handleFrame, type FrameHandlerCtx } from "./keeper-frame-handler.ts";
@@ -60,14 +63,20 @@ function endpointForKeeper(argument: string): LocalEndpoint {
   return endpoint;
 }
 
-export function runKeeper(endpointArgument: string): void {
-  void startKeeper(endpointArgument).catch((error) => {
+export function runKeeper(
+  endpointArgument: string,
+  keeperContract: KeeperContractV1 = KEEPER_TARGET_CONTRACT,
+): void {
+  void startKeeper(endpointArgument, keeperContract).catch((error) => {
     _log("error", "multiplexed-keeper", "startup_failed", { error: String(error) });
     process.exit(1);
   });
 }
 
-async function startKeeper(endpointArgument: string): Promise<void> {
+async function startKeeper(
+  endpointArgument: string,
+  keeperContract: KeeperContractV1,
+): Promise<void> {
   const endpoint = endpointForKeeper(endpointArgument);
   await prepareLocalEndpoint(endpoint);
 
@@ -80,10 +89,12 @@ async function startKeeper(endpointArgument: string): Promise<void> {
   process.once("exit", removePidFile);
 
   const channels = new Map<number, Channel>();
+  const spawningChannels = new Set<number>();
   // Only authenticated clients enter this set: broadcast must never leak PTY
   // output to a peer that merely connected to the local transport.
   const clients = new Set<KeeperClientState>();
   const unauthenticatedClients = new Set<KeeperClientState>();
+  const processEpoch = randomUUID();
   let shuttingDown = false;
 
   function broadcast(frame: Buffer): void {
@@ -92,7 +103,7 @@ async function startKeeper(endpointArgument: string): Promise<void> {
     }
   }
 
-  const frameCtx: FrameHandlerCtx = { channels, spawningChannels: new Set<number>(), broadcast };
+  const frameCtx: FrameHandlerCtx = { channels, spawningChannels, broadcast };
 
   function removeClient(client: KeeperClientState): void {
     if (client.authenticationTimer) {
@@ -110,7 +121,11 @@ async function startKeeper(endpointArgument: string): Promise<void> {
 
   let server: net.Server;
 
-  async function shutdown(reason: string, acknowledge?: net.Socket): Promise<void> {
+  async function shutdown(
+    reason: string,
+    acknowledge?: net.Socket,
+    acknowledgementType: MuxFrameType = MuxFrameType.ShutdownAck,
+  ): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     _log("info", "multiplexed-keeper", "shutting_down", {
@@ -129,7 +144,7 @@ async function startKeeper(endpointArgument: string): Promise<void> {
         const timer = setTimeout(finish, 250);
         try {
           acknowledge.end(
-            encodeMuxFrame(MuxFrameType.ShutdownAck, 0, new Uint8Array(0)),
+            encodeMuxFrame(acknowledgementType, 0, new Uint8Array(0)),
             finish,
           );
         } catch {
@@ -210,16 +225,27 @@ async function startKeeper(endpointArgument: string): Promise<void> {
             return;
           }
           const features = negotiateKeeperFeatures(hello.features);
+          const bindings: KeeperChannelBindingV1[] = [];
+          for (const [channelId, channel] of channels) {
+            if (!channel.exited) {
+              bindings.push({ channel_id: channelId, pid: channel.childPid });
+            }
+          }
+          bindings.sort((left, right) => left.channel_id - right.channel_id);
+          const spawning = [...spawningChannels].sort((left, right) => left - right);
           try {
             socket.write(encodeMuxFrame(
               MuxFrameType.HelloResp,
               0,
               encodeKeeperHelloResponse({
-                version: KEEPER_PROTOCOL_VERSION,
+                version: keeperContract.protocol_version,
                 authenticated: true,
                 features,
-                build: KEEPER_BUILD_STAMP,
+                contract: keeperContract,
                 pid: process.pid,
+                process_epoch: processEpoch,
+                bindings,
+                spawning_channels: spawning,
               }),
             ));
           } catch {
@@ -227,7 +253,8 @@ async function startKeeper(endpointArgument: string): Promise<void> {
             return;
           }
           client.authenticated = true;
-          client.protocolCompatible = hello.version === KEEPER_PROTOCOL_VERSION;
+          client.protocolCompatible =
+            hello.version === keeperContract.protocol_version;
           clearTimeout(client.authenticationTimer ?? undefined);
           client.authenticationTimer = null;
           unauthenticatedClients.delete(client);
@@ -235,12 +262,38 @@ async function startKeeper(endpointArgument: string): Promise<void> {
           continue;
         }
 
-        if (frame.type === MuxFrameType.Shutdown) {
+        if (
+          frame.type === MuxFrameType.Shutdown
+          || frame.type === MuxFrameType.ShutdownIfEmpty
+        ) {
           if (frame.channelId !== 0 || !isEmptyKeeperPayload(frame.payload)) {
             rejectClient(client);
             return;
           }
-          void shutdown("authenticated_shutdown", socket);
+          if (
+            frame.type === MuxFrameType.ShutdownIfEmpty
+            && (channels.size > 0 || spawningChannels.size > 0)
+          ) {
+            socket.write(encodeMuxFrame(
+              MuxFrameType.ShutdownIfEmptyReject,
+              0,
+              new Uint8Array(0),
+            ));
+            _log("warn", "multiplexed-keeper", "shutdown_if_empty_rejected", {
+              channels: channels.size,
+              spawning_channels: spawningChannels.size,
+            });
+            continue;
+          }
+          void shutdown(
+            frame.type === MuxFrameType.Shutdown
+              ? "authenticated_shutdown"
+              : "authenticated_empty_shutdown",
+            socket,
+            frame.type === MuxFrameType.Shutdown
+              ? MuxFrameType.ShutdownAck
+              : MuxFrameType.ShutdownIfEmptyAck,
+          );
           return;
         }
         if (!client.protocolCompatible) {

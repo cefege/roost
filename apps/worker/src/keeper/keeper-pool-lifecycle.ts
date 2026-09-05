@@ -16,7 +16,6 @@ import {
   decodeResizeResult,
   encodeMuxFrame,
 } from "./protocol.ts";
-import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { muxLocalEndpoint, MUX_KEEPER_MAIN_TS, BUN_BIN } from "./keeper-pool-config.ts";
 import { connectKeeperAuthenticated } from "./keeper-probe.ts";
 import type { MultiplexedKeeperPool } from "./multiplexed-client.ts";
@@ -39,14 +38,12 @@ export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<voi
     let attempt = await connectKeeperAuthenticated(endpoint);
 
     if (!attempt.reachable) {
-      // POSIX removes a dead socket here; named-pipe preparation is
-      // deliberately a no-op because pipe names are not filesystem entries.
-      // This happens only after the authenticated adoption dial failed.
+      // Remove only a dead POSIX socket; named-pipe preparation is a no-op.
+      // The authenticated adoption dial has already failed.
       await prepareLocalEndpoint(endpoint);
 
-      // Discriminator: from source, process.execPath is bun/bun.exe and we
-      // run the keeper .ts. A compiled roost binary self-execs its keeper
-      // subcommand because the source path is synthetic inside the binary.
+      // Source mode runs the keeper TS; a compiled binary self-execs its
+      // keeper subcommand because source paths are synthetic in the artifact.
       const execName = basename(process.execPath).toLowerCase();
       const fromSource = execName === "bun" || execName === "bun.exe";
       if (fromSource && !existsSync(MUX_KEEPER_MAIN_TS)) {
@@ -74,7 +71,6 @@ export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<voi
         env: keeperEnv,
       });
       pool._keeperProc = proc;
-      pool._runningKeeperStamp = KEEPER_BUILD_STAMP;
       if (typeof keeperStderr === "number") {
         try { closeSync(keeperStderr); } catch { /* child owns its duplicate */ }
       }
@@ -104,7 +100,7 @@ export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<voi
         : "did not become ready";
       throw new Error(`multiplexed-keeper: endpoint ${reason} at ${endpoint.address}`);
     }
-    if (!attempt.compatible) {
+    if (!attempt.protocolCompatible) {
       try { attempt.socket.destroy(); } catch { /* already closed */ }
       throw new Error(`multiplexed-keeper: incompatible keeper at ${endpoint.address}`);
     }
@@ -170,6 +166,9 @@ export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<voi
     });
     pool.socket = s;
     pool.setKeeperFeatures(connection.features);
+    if (connection.contract) {
+      pool.setRunningKeeperContract(connection.contract);
+    }
     pool.buf = Buffer.alloc(0);
     for (const frame of connection.pendingFrames) {
       handleFrameData(pool, encodeMuxFrame(frame.type, frame.channelId, frame.payload));

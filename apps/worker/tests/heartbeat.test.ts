@@ -27,7 +27,7 @@ function sources(
 	return {
 		collectHostMetrics,
 		getGitSha: () => "test-sha",
-		getRunningKeeperStamp: () => null,
+		getRunningKeeperContract: () => null,
 		getReachableAddr: () => "worker.test",
 	};
 }

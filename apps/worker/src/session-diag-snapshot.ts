@@ -245,7 +245,7 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 		worker_fp: String(this.workerFp),
 		keeper: {
 			connected: Boolean(keeper.socket && !keeper.socket.destroyed),
-			build: keeper.getRunningKeeperStamp(),
+			contract: keeper.getRunningKeeperContract(),
 			pending_spawns: keeper.pendingSpawns.size,
 			pending_list_channels: keeper.pendingListChannels.length,
 			pending_history_reads: keeper.pendingGetHistory.length,

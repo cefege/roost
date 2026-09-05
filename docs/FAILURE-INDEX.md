@@ -155,10 +155,12 @@ per-channel history → the SPA's persisted lastSeq goes stale-high → seq-epoc
 
 **Right** — **the keeper retains a per-channel `outRing`+`headSeq`**
 (`apps/worker/src/keeper/keeper-frame-handler.ts`, advanced in the same callback that broadcasts so it matches
-the worker count); `GetHistory`/`GetHistoryResp` frames are additive with NO version bump so they can't trip
-killStaleKeeper; `resume()` re-reads via the pool's history call
-(`apps/worker/src/keeper/keeper-pool-channels.ts`) and seeds `scrollback`+`head_seq`. A pre-RC2 keeper hits a 3s
-timeout → graceful fallback. Activates only on keeper REPLACEMENT (reboot), not a plain worker kickstart.
+the worker count); `GetHistory`/`GetHistoryResp` are represented by the authenticated
+`KeeperContractV1` feature sets. Boot adopts a protocol-compatible survivor, but an
+incompatible survivor blocks replacement while coordinator sessions or keeper bindings
+remain live. `resume()` re-reads via the pool's history call
+(`apps/worker/src/keeper/keeper-pool-channels.ts`) and seeds
+`scrollback`+`head_seq`; only a proven-empty incompatible keeper may be replaced.
 
 **Guard** — `apps/worker/tests/keeper-history-resume.test.ts`.
 

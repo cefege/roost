@@ -22,11 +22,10 @@ export const SUPPORTED_KEEPER_FEATURES: readonly KeeperFeature[] = [
   KeeperFeature.TerminalState,
 ];
 
-/** Features whose ABSENCE makes a surviving keeper unusable. Deliberately NOT
- *  the same list as above: an incompatible keeper is KILLED, taking every live
- *  PTY with it, so a feature the worker can degrade gracefully must never appear
- *  here. `TerminalState` is absent because the resize owner falls back to a
- *  status probe of the last written sequence when the keeper predates it. */
+/** Features whose absence makes a surviving keeper unusable. This is narrower
+ * than the supported list: boot may retire an incompatible keeper only after
+ * both coordinator sessions and keeper bindings prove empty. `TerminalState`
+ * is absent because resize can fall back to the last-written sequence probe. */
 export const REQUIRED_KEEPER_FEATURES: readonly KeeperFeature[] = [
   KeeperFeature.OrderedHistory,
   KeeperFeature.AcknowledgedInput,
@@ -36,6 +35,53 @@ export const REQUIRED_KEEPER_FEATURES: readonly KeeperFeature[] = [
 const HelloFeatureList = z.array(z.string().min(1).max(64))
   .max(32)
   .refine(features => new Set(features).size === features.length);
+
+const SortedContractFeatureList = z.array(z.string().min(1).max(64))
+  .max(32)
+  .refine(
+    features => features.every((feature, index) =>
+      index === 0 || features[index - 1]! < feature),
+    "keeper contract features must be sorted and unique",
+  )
+  .readonly();
+export const KeeperContractV1Schema = z.object({
+  protocol_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  supported_features: SortedContractFeatureList,
+  required_features: SortedContractFeatureList,
+  implementation_digest: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  bun_abi: z.string().min(1).max(128),
+  platform: z.enum(["darwin", "linux", "win32"]),
+  arch: z.string().min(1).max(64),
+  build_sha: z.string().min(1).max(128),
+}).strict().readonly();
+export type KeeperContractV1 = z.infer<typeof KeeperContractV1Schema>;
+
+export const KeeperChannelBindingV1Schema = z.object({
+  channel_id: z.number().int().positive().max(0xffff),
+  pid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+}).strict();
+
+const KeeperChannelBindingsV1Schema = z.array(KeeperChannelBindingV1Schema)
+  .max(0xffff)
+  .refine(
+    bindings => bindings.every((binding, index) =>
+      index === 0 || bindings[index - 1]!.channel_id < binding.channel_id),
+    "keeper channel bindings must be sorted and unique",
+  )
+  .readonly();
+
+const KeeperSpawningChannelsV1Schema = z.array(
+  z.number().int().positive().max(0xffff),
+)
+  .max(0xffff)
+  .refine(
+    channels => channels.every((channelId, index) =>
+      index === 0 || channels[index - 1]! < channelId),
+    "keeper spawning channels must be sorted and unique",
+  )
+  .readonly();
+
+export type KeeperChannelBindingV1 = z.infer<typeof KeeperChannelBindingV1Schema>;
 
 export const KeeperHelloRequestSchema = z.object({
   version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -51,9 +97,13 @@ export const KeeperHelloResponseSchema = z.object({
   version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   authenticated: z.literal(true),
   features: HelloFeatureList,
-  build: z.string().max(256).optional(),
+  contract: KeeperContractV1Schema.optional(),
   pid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-  process_epoch: z.string().min(1).max(128).optional(),
+  process_epoch: z.string().uuid().optional(),
+  bindings: KeeperChannelBindingsV1Schema.optional(),
+  spawning_channels: KeeperSpawningChannelsV1Schema.optional(),
+  // Decode-only compatibility for authenticated v2 keepers.
+  build: z.string().max(256).optional(),
 }).strict();
 
 export type KeeperHelloResponse = z.infer<typeof KeeperHelloResponseSchema>;

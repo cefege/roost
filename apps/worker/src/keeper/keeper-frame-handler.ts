@@ -6,7 +6,6 @@
 import {
   KEEPER_MAX_INPUT_BYTES,
   KEEPER_MAX_TERMINAL_DIMENSION,
-  KEEPER_PROTOCOL_VERSION,
   MuxFrameType,
   decodePtyInRequest,
   decodeResizeRequest,
@@ -24,7 +23,6 @@ import {
   trimEvictedResizeHistory,
 } from "./keeper-history.ts";
 import { enqueueInput, sendPtyInResult } from "./keeper-input-queue.ts";
-import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { _log, _keeperOpenFdCount } from "./keeper-log.ts";
 import { reapChannelTree } from "./keeper-process-reap.ts";
 import type { Channel, ClientState } from "./keeper-types.ts";
@@ -483,13 +481,6 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
       client.socket.write(encodeMuxFrame(
         MuxFrameType.ListChannelsResp, 0,
         JSON.stringify({ channels: list }),
-      ));
-      return;
-    }
-    case MuxFrameType.Hello: {
-      client.socket.write(encodeMuxFrame(
-        MuxFrameType.HelloResp, 0,
-        JSON.stringify({ version: KEEPER_PROTOCOL_VERSION, build: KEEPER_BUILD_STAMP }),
       ));
       return;
     }

@@ -1,7 +1,7 @@
 // 30-second heartbeat loop. Samples host metrics (CPU / memory / disk / network
 // via the platform sampler in host-sample-{darwin,linux}.ts) and sends them to
-// coord via Connect workersHeartbeat, along with git sha, the keeper-stale
-// stamp, and the live tailnet reachable_addr.
+// coord via Connect workersHeartbeat, along with git sha, the transitional
+// keeper implementation signal, and the live tailnet reachable_addr.
 // Callers: main.ts (started after runInstall completes).
 
 import type { CoordClient } from "./coord-client.ts";
@@ -11,7 +11,11 @@ import { log } from "@roost/shared/log";
 import type { HostMetrics } from "@roost/shared/wire";
 import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
-import { KEEPER_BUILD_STAMP } from "./keeper/keeper-stamp.ts";
+import {
+	KEEPER_TARGET_CONTRACT,
+	keeperContractsSameImplementation,
+	type KeeperContractV1,
+} from "./keeper/keeper-stamp.ts";
 import { resolveTailnetDnsName } from "./install.ts";
 import { sampleHost as sampleDarwin } from "./host-sample-darwin.ts";
 import { sampleHost as sampleLinux, sampleCgroupPressure } from "./host-sample-linux.ts";
@@ -182,7 +186,7 @@ function getGitSha(): string | undefined {
 export interface HeartbeatSources {
 	collectHostMetrics(): Promise<HostMetrics>;
 	getGitSha(): string | undefined;
-	getRunningKeeperStamp(): string | null;
+	getRunningKeeperContract(): KeeperContractV1 | null;
 	getReachableAddr(): string | undefined;
 }
 
@@ -191,7 +195,8 @@ export type HeartbeatDisposer = () => void;
 const DEFAULT_HEARTBEAT_SOURCES: HeartbeatSources = {
 	collectHostMetrics,
 	getGitSha,
-	getRunningKeeperStamp: () => getMultiplexedPool().getRunningKeeperStamp(),
+	getRunningKeeperContract: () =>
+		getMultiplexedPool().getRunningKeeperContract(),
 	getReachableAddr: currentReachableAddr,
 };
 
@@ -225,15 +230,19 @@ export async function startHeartbeat(opts: {
 
 		try {
 			const git_sha = sources.getGitSha();
-			// keeper_stale: the running keeper's stamp when it differs from ours
-			// (keeper running stale code), "" when current, undefined until known.
-			const runningKeeperStamp = sources.getRunningKeeperStamp();
+			// keeper_stale retains the current coordinator wire shape until the
+			// runtime observation cutover: empty = same implementation, a digest
+			// = stale, "unproven" = no bundle digest.
+			const runningKeeperContract = sources.getRunningKeeperContract();
 			const keeper_stale =
-				runningKeeperStamp === null
+				runningKeeperContract === null
 					? undefined
-					: runningKeeperStamp !== KEEPER_BUILD_STAMP
-						? runningKeeperStamp
-						: "";
+					: keeperContractsSameImplementation(
+							KEEPER_TARGET_CONTRACT,
+							runningKeeperContract,
+						)
+						? ""
+						: runningKeeperContract.implementation_digest ?? "unproven";
 			const reachable_addr = sources.getReachableAddr();
 			await client().workersHeartbeat({
 				hostMetrics: hostMetrics

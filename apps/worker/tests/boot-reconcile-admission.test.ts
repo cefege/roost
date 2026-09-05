@@ -132,6 +132,7 @@ describe("worker boot reconciliation admission", () => {
 			candidates: 0,
 		});
 		expect(prepareKeeper).toHaveBeenCalledTimes(1);
+		expect(prepareKeeper).toHaveBeenCalledWith(new Set());
 		expect(keeper.ensure).toHaveBeenCalledTimes(1);
 		expect(keeper.list).toHaveBeenCalledTimes(1);
 		expect(keeper.listFresh).toHaveBeenCalledTimes(1);
@@ -194,6 +195,9 @@ describe("worker boot reconciliation admission", () => {
 			resumed: 2,
 		});
 		expect(admittedReservationCounts).toEqual([6]);
+		expect(prepareKeeper).toHaveBeenCalledWith(
+			new Set(OPEN_SESSIONS.map((session) => String(session.id))),
+		);
 		expect(operations.resume.mock.calls.map(([options]) => options.sessionId))
 			.toEqual(OPEN_SESSIONS.map((session) => session.id));
 		expect(sink.active.size).toBe(0);
@@ -243,6 +247,9 @@ describe("worker boot reconciliation admission", () => {
 			resumed: 2,
 		});
 		expect(admittedReservationCounts).toEqual([6]);
+		expect(prepareKeeper).toHaveBeenCalledWith(
+			new Set(OPEN_SESSIONS.map((session) => String(session.id))),
+		);
 		expect(operations.resume).toHaveBeenCalledTimes(2);
 		expect(sink.active.size).toBe(0);
 		expect(activation.activateSnapshotProvider).toHaveBeenCalledTimes(1);

@@ -71,8 +71,9 @@ All filenames are kebab-case; do not add a parallel PascalCase entry.
 
 **One** multiplexed Bun subprocess per worker hosts **all** PTYs over one local endpoint (UDS on POSIX, named pipe
 on Windows — `@roost/shared/local-endpoint`). It is spawned `detached`, so PTYs survive a worker restart or deploy:
-boot re-probes the endpoint, adopts a build-compatible survivor (`src/boot-keeper.ts`,
-`src/keeper/keeper-probe.ts`, `src/keeper/keeper-stamp.ts`) and resumes its channels (`src/session-resume.ts`). A
+boot re-probes the endpoint, adopts a protocol-compatible survivor after a generated
+`KeeperContractV1` probe (`src/boot-keeper.ts`, `src/keeper/keeper-probe.ts`,
+`src/keeper/keeper-stamp.ts`) and resumes its channels (`src/session-resume.ts`). A
 POSIX keeper shuts itself down when its endpoint file is removed. Bun 1.3's native `Bun.spawn({terminal})` is the
 PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 
@@ -210,7 +211,7 @@ an agent API. All under `src/agent-status/`.
 ## Run, test, deploy
 
 - **Run from source** — `bun apps/worker/src/main.ts`, or `bun --filter @roost/worker run dev` to watch.
-- **Test: `bun run test:worker`.** That is `scripts/test-worker.ts`: it globs the 53
+- **Test: `bun run test:worker`.** That is `scripts/test-worker.ts`: it globs the 54
   `apps/worker/tests/**/*.test.ts` files and runs **each one in its own `bun test` child** with an isolated temp
   root (`TMPDIR` plus a fresh `ROOST_WORKER_DATA_DIR` inside it, every inherited `ROOST_*` var stripped), so each
   file gets its own keeper subprocess, keeper socket dir and sqlite. The default

@@ -30,5 +30,6 @@ export * from "./protocol-terminal.ts";
  *
  *  Bump log:
  *    1 — initial Hello/HelloResp handshake (2026-06-18)
- *    2 — authenticated Hello, ShellSpec Spawn, ordered history and typed IO */
-export const KEEPER_PROTOCOL_VERSION = 2;
+ *    2 — authenticated Hello, ShellSpec Spawn, ordered history and typed IO
+ *    3 — KeeperContractV1 process/binding proof and conditional empty shutdown */
+export const KEEPER_PROTOCOL_VERSION = 3;
