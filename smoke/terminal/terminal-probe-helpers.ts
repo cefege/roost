@@ -1,3 +1,7 @@
+// Shared assertions for terminal stream, viewport, and recovery smoke probes.
+// Real-stack Playwright scenarios call these helpers to compare browser,
+// coordinator, and worker state without duplicating null and sequence guards.
+
 import { expect } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
 import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
@@ -24,6 +28,7 @@ export async function waitForSettledTerminalRowsBelow(
     const canonicalRows = browser.presentation?.rows.canonical ?? null;
     const effectiveRows = acceptedGeometry(browser.view)?.rows ?? null;
     return domRows !== null
+      && browser.view.active
       && domRows < rowCeiling
       && canonicalRows === domRows
       && effectiveRows === domRows

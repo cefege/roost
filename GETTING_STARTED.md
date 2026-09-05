@@ -1,8 +1,9 @@
 <!-- AUDIENCE: human -->
 # Getting started with Roost
 
-The v0.5.0 self-hosted coordinator/worker runtime is released and deployed on
-macOS arm64/x64 and Linux arm64/x64. Quickstart supports two production modes:
+The v0.5.0 self-hosted coordinator/worker runtime is released for macOS
+arm64/x64 and Linux arm64/x64. Production fleet rollout remains pending.
+Quickstart supports two production modes:
 automatic Tailscale Serve and operator-managed direct HTTPS. Direct
 coordinator quickstart is Tailscale-free; the current extra-worker installer
 still requires a running Tailscale daemon and is called out below.
