@@ -139,7 +139,7 @@ describe("owner activation instance state", () => {
       sqlite.query(
         `INSERT INTO accounts
           (id, email_normalized, password_hash, status, created_at_ms, password_changed_at_ms)
-         VALUES (?, ?, NULL, 'active', 5_000, NULL)`,
+         VALUES (?, ?, NULL, 'active', 5000, NULL)`,
       ).run(ACCOUNT_ID, EMAIL);
       expect(() => seedOwnerActivation(sqlite, {
         accountId: ACCOUNT_ID,
@@ -175,38 +175,38 @@ describe("owner activation instance state", () => {
 
       sqlite.exec("BEGIN IMMEDIATE");
       sqlite.query(
-        "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) VALUES ('owner-device', ?, 'Owner browser', 11_000)",
+        "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) VALUES ('owner-device', ?, 'Owner browser', 11000)",
       ).run(Buffer.alloc(32, 9));
       sqlite.query(
         `INSERT INTO accounts
           (id, email_normalized, password_hash, status, created_at_ms, password_changed_at_ms)
-         VALUES (?, ?, 'argon2id-fixture', 'active', 11_000, 11_000)`,
+         VALUES (?, ?, 'argon2id-fixture', 'active', 11000, 11000)`,
       ).run(ACCOUNT_ID, EMAIL);
       sqlite.query(
         `INSERT INTO account_identities (
            account_id, issuer, subject, email_normalized, linked_at_ms,
            last_authenticated_at_ms, revoked_at_ms
-         ) VALUES (?, 'native', ?, ?, 11_000, NULL, NULL)`,
+         ) VALUES (?, 'native', ?, ?, 11000, NULL, NULL)`,
       ).run(ACCOUNT_ID, ACCOUNT_ID, EMAIL);
       sqlite.query(
-        "INSERT INTO organizations (id, slug, name, status, created_at_ms) VALUES (?, 'personal', ?, 'active', 11_000)",
+        "INSERT INTO organizations (id, slug, name, status, created_at_ms) VALUES (?, 'personal', ?, 'active', 11000)",
       ).run(ACCOUNT_ID, EMAIL);
       sqlite.query(
-        "INSERT INTO organization_memberships (organization_id, account_id, role, created_at_ms) VALUES (?, ?, 'owner', 11_000)",
+        "INSERT INTO organization_memberships (organization_id, account_id, role, created_at_ms) VALUES (?, ?, 'owner', 11000)",
       ).run(ACCOUNT_ID, ACCOUNT_ID);
       sqlite.query(
         `INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms)
-         VALUES (?, ?, 'default', 'Personal', 'active', 11_000)`,
+         VALUES (?, ?, 'default', 'Personal', 'active', 11000)`,
       ).run(COORDINATOR_ID, ACCOUNT_ID);
       sqlite.query(
-        "INSERT INTO dashboard_memberships (dashboard_id, account_id, role, created_at_ms) VALUES (?, ?, 'admin', 11_000)",
+        "INSERT INTO dashboard_memberships (dashboard_id, account_id, role, created_at_ms) VALUES (?, ?, 'admin', 11000)",
       ).run(COORDINATOR_ID, ACCOUNT_ID);
       sqlite.query(
         `INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms)
-         VALUES ('owner-device', ?, 11_000, 11_000)`,
+         VALUES ('owner-device', ?, 11000, 11000)`,
       ).run(ACCOUNT_ID);
       sqlite.query(
-        "UPDATE owner_activation_tokens SET accepted_at_ms = 11_000 WHERE coordinator_id = ?",
+        "UPDATE owner_activation_tokens SET accepted_at_ms = 11000 WHERE coordinator_id = ?",
       ).run(COORDINATOR_ID);
       sqlite.exec("COMMIT");
 
