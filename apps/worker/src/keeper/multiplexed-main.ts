@@ -13,11 +13,9 @@ import {
   LOCAL_ENDPOINT_UNAUTHENTICATED_MAX_BYTES,
   LOCAL_ENDPOINT_UNAUTHENTICATED_TIMEOUT_MS,
   cleanupLocalEndpoint,
-  localEndpointFromEnv,
   prepareLocalEndpoint,
   secureLocalEndpoint,
   verifyLocalEndpointCapability,
-  type LocalEndpoint,
 } from "@roost/shared/local-endpoint";
 import {
   KEEPER_PROTOCOL_VERSION,
@@ -36,7 +34,7 @@ import { KEEPER_TARGET_CONTRACT } from "./keeper-stamp.ts";
 import { _log } from "./keeper-log.ts";
 import { reapAllChannels } from "./keeper-process-reap.ts";
 import { handleFrame, type FrameHandlerCtx } from "./keeper-frame-handler.ts";
-import { muxLocalEndpoint } from "./keeper-pool-config.ts";
+import { keeperEndpointFromArgument } from "./keeper-pool-config.ts";
 import type { Channel, ClientState } from "./keeper-types.ts";
 
 interface KeeperClientState extends ClientState {
@@ -46,22 +44,6 @@ interface KeeperClientState extends ClientState {
   authenticationTimer: NodeJS.Timeout | null;
 }
 
-function endpointForKeeper(argument: string): LocalEndpoint {
-  if (argument === "--service") return muxLocalEndpoint();
-  const hasSpawnHandoff = [
-    "ROOST_KEEPER_ENDPOINT",
-    "ROOST_KEEPER_CAPABILITY",
-    "ROOST_KEEPER_ENDPOINT_KIND",
-    "ROOST_KEEPER_CAPABILITY_PATH",
-  ].some(name => process.env[name] !== undefined);
-  const endpoint = hasSpawnHandoff
-    ? localEndpointFromEnv(process.env, "ROOST_KEEPER")
-    : muxLocalEndpoint();
-  if (endpoint.address !== argument) {
-    throw new Error("keeper endpoint argument does not match protected endpoint state");
-  }
-  return endpoint;
-}
 
 export function runKeeper(
   endpointArgument: string,
@@ -77,7 +59,7 @@ async function startKeeper(
   endpointArgument: string,
   keeperContract: KeeperContractV1,
 ): Promise<void> {
-  const endpoint = endpointForKeeper(endpointArgument);
+  const endpoint = keeperEndpointFromArgument(endpointArgument);
   await prepareLocalEndpoint(endpoint);
 
   const pidPath = endpoint.isFilesystemPath ? `${endpoint.address}.pid` : null;
@@ -128,6 +110,14 @@ async function startKeeper(
   ): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
+    // Stop every admission path before acknowledging an empty shutdown. The
+    // channel map proved empty in the caller; no later Spawn may cross that
+    // proof boundary while the acknowledgement drains.
+    try { server.close(); } catch { /* not listening or already closed */ }
+    for (const client of unauthenticatedClients) rejectClient(client);
+    for (const client of clients) {
+      if (client.socket !== acknowledge) rejectClient(client);
+    }
     _log("info", "multiplexed-keeper", "shutting_down", {
       reason,
       channels: channels.size,
@@ -152,9 +142,12 @@ async function startKeeper(
         }
       });
     }
-    try { server.close(); } catch { /* not listening or already closed */ }
-    for (const client of unauthenticatedClients) rejectClient(client);
-    for (const client of clients) rejectClient(client);
+    if (acknowledge) {
+      const acknowledgedClient = [...clients].find(
+        client => client.socket === acknowledge,
+      );
+      if (acknowledgedClient) rejectClient(acknowledgedClient);
+    }
     try {
       await reapAllChannels(channels);
     } catch (error) {
@@ -175,6 +168,10 @@ async function startKeeper(
   }
 
   server = net.createServer((socket) => {
+    if (shuttingDown) {
+      socket.destroy();
+      return;
+    }
     if (unauthenticatedClients.size >= LOCAL_ENDPOINT_MAX_UNAUTHENTICATED_CONNECTIONS) {
       socket.destroy();
       return;
@@ -194,6 +191,10 @@ async function startKeeper(
     );
 
     socket.on("data", (chunk: Buffer | Uint8Array) => {
+      if (shuttingDown) {
+        rejectClient(client);
+        return;
+      }
       if (!client.authenticated) {
         client.unauthenticatedBytes += chunk.byteLength;
         if (client.unauthenticatedBytes > LOCAL_ENDPOINT_UNAUTHENTICATED_MAX_BYTES) {

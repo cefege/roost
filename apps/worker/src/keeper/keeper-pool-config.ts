@@ -2,7 +2,11 @@
 // Internal-only — not part of the public import surface.
 
 import { fileURLToPath } from "node:url";
-import { resolveLocalEndpoint, type LocalEndpoint } from "@roost/shared/local-endpoint";
+import {
+  localEndpointFromEnv,
+  resolveLocalEndpoint,
+  type LocalEndpoint,
+} from "@roost/shared/local-endpoint";
 import { workerDataDir } from "@roost/shared/paths";
 
 export const MUX_KEEPER_ENDPOINT_NAME = "mux-keeper";
@@ -20,6 +24,24 @@ export function muxLocalEndpoint(): LocalEndpoint {
   }
   return resolvedMuxEndpoint;
 }
+/** Resolve a service/source spawn argument against capability-protected state. */
+export function keeperEndpointFromArgument(argument: string): LocalEndpoint {
+  if (argument === "--service") return muxLocalEndpoint();
+  const hasSpawnHandoff = [
+    "ROOST_KEEPER_ENDPOINT",
+    "ROOST_KEEPER_CAPABILITY",
+    "ROOST_KEEPER_ENDPOINT_KIND",
+    "ROOST_KEEPER_CAPABILITY_PATH",
+  ].some(name => process.env[name] !== undefined);
+  const endpoint = hasSpawnHandoff
+    ? localEndpointFromEnv(process.env, "ROOST_KEEPER")
+    : muxLocalEndpoint();
+  if (endpoint.address !== argument) {
+    throw new Error("keeper endpoint argument does not match protected endpoint state");
+  }
+  return endpoint;
+}
+
 
 // Bun runs .ts directly (no transpile step). multiplexed-main.ts is the
 // keeper entry — same source the worker imports types from, no build
