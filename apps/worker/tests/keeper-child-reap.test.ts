@@ -104,7 +104,7 @@ describe("keeper-child-reap — closing a channel kills the whole process tree",
     });
 
     pool.input(channelId, new TextEncoder().encode(
-      "bash --norc -c \"trap 'echo WINCH:\\$(stty size)' WINCH; echo CHILD_READY; while :; do sleep 1; done\"\n",
+      "bash --norc -c \"trap 'echo WINCH:\\$(stty size)' WINCH; printf 'CHILD_%s\\n' READY; while :; do sleep 1; done\"\n",
     ));
     expect(await waitFor(() => output.includes("CHILD_READY"), 4000)).toBe(true);
     expect(output).not.toContain("no job control in this shell");
@@ -112,7 +112,7 @@ describe("keeper-child-reap — closing a channel kills the whole process tree",
     const resize = pool.beginResize(channelId, 1, 70, 20);
     expect(resize.admission.written).toBe(true);
     expect(await resize.result).toEqual({ kind: "ack", seq: 1, cols: 70, rows: 20 });
-    expect(await waitFor(() => output.includes("WINCH:20 70"), 10_000)).toBe(true);
+    expect(await waitFor(() => output.includes("WINCH:20 70"), 4000)).toBe(true);
 
     pool.kill(channelId);
     expect(await waitFor(() => !isAlive(shellPid), 6000)).toBe(true);
