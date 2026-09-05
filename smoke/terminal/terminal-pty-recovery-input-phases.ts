@@ -304,9 +304,7 @@ export async function proveFindPasteRecovery({
   suffix,
   historyPrefix,
 }: FindPasteRecoveryOptions): Promise<void> {
-  // Find is another explicit reader action. Closing the bar is passive; a real
-  // one-line clipboard paste is the admitted interaction that adopts its pending
-  // frame and returns to live.
+  // A real one-line paste, not closing Find, adopts its pending frame.
   await pressPlatformShortcut(page, "terminalFind", "F");
   const findInput = page.getByTestId("terminal-find-input");
   await expect(findInput).toBeVisible();
