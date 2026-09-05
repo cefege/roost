@@ -199,10 +199,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					altScreen={altScreen()}
 					onDismiss={() => {
 						input.find.closeFind();
-						requestAnimationFrame(() => {
-							viewport.publishViewportNow();
-							viewport.scheduleViewport();
-						});
+						requestAnimationFrame(() => viewport.publishViewportNow());
 						runtime.inputController?.forceFocus();
 					}}
 				/>

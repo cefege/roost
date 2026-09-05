@@ -13,6 +13,27 @@ export async function readTerminalStreamProbe(page: Page, sessionId: string): Pr
   }, sessionId);
 }
 
+export async function waitForSettledTerminalRowsBelow(
+  page: Page,
+  sessionId: string,
+  rowCeiling: number,
+): Promise<number> {
+  await expect.poll(async () => {
+    const browser = (await readTerminalStreamProbe(page, sessionId)).browser;
+    const domRows = browser.presentation?.rows.dom ?? null;
+    const canonicalRows = browser.presentation?.rows.canonical ?? null;
+    const effectiveRows = acceptedGeometry(browser.view)?.rows ?? null;
+    return domRows !== null
+      && domRows < rowCeiling
+      && canonicalRows === domRows
+      && effectiveRows === domRows
+      && browser.replica.baseline_ready;
+  }).toBe(true);
+  const settledRows = (await readTerminalStreamProbe(page, sessionId)).browser.presentation?.rows.dom;
+  if (settledRows === undefined) throw new Error("settled presentation omitted DOM rows");
+  return settledRows;
+}
+
 export async function waitForCanonicalAdvance(
   page: Page,
   sessionId: string,

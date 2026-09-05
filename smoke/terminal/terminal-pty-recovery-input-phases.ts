@@ -20,6 +20,7 @@ import {
 } from "./terminal-paint-helpers.ts";
 import {
   readTerminalStreamProbe,
+  waitForSettledTerminalRowsBelow,
   waitForCanonicalAdvance,
   expectCanonicalAdvanceHeld,
   expectRecoveredLive,
@@ -304,6 +305,9 @@ export async function proveFindPasteRecovery({
   suffix,
   historyPrefix,
 }: FindPasteRecoveryOptions): Promise<void> {
+  const preFindRows = (await readTerminalStreamProbe(page, sessionId))
+    .browser.presentation?.rows.dom;
+  if (preFindRows === undefined) throw new Error("pre-find presentation omitted DOM rows");
   // A real one-line paste, not closing Find, adopts its pending frame.
   await pressPlatformShortcut(page, "terminalFind", "F");
   const findInput = page.getByTestId("terminal-find-input");
@@ -320,9 +324,7 @@ export async function proveFindPasteRecovery({
     const presentation = (await readTerminalStreamProbe(page, sessionId)).browser.presentation;
     return { intent: presentation?.reader_intent, reason: presentation?.reader_reason };
   }).toEqual({ intent: "reading", reason: "find" });
-  const findOpenRows = (await readTerminalStreamProbe(page, sessionId))
-    .browser.presentation?.rows.dom;
-  if (findOpenRows === undefined) throw new Error("find presentation omitted DOM rows");
+  const findOpenRows = await waitForSettledTerminalRowsBelow(page, sessionId, preFindRows);
   await findInput.press("Escape");
   await expect(findInput).toHaveCount(0);
   await expect.poll(async () => {
