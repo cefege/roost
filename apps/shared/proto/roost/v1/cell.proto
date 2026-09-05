@@ -56,12 +56,12 @@ message PbCellGridFrame {
   bool alt_screen = 7;
   bool full = 8;            // full snapshot vs delta
   repeated PbCellRow viewport_rows = 9;       // full: all; delta: changed only
-  repeated PbCellRow scrollback_rows = 10;    // full only; authoritative frames leave empty
+  repeated PbCellRow scrollback_rows = 10;    // full only; empty or bounded same-grid renewal tail
   repeated PbCellRow scrollback_append = 11;  // delta only: appended lines
   uint64 scrollback_total = 12;
   uint64 seq = 13;
-  // Absolute index represented before scrollback_rows. Authoritative full
-  // frames set this to scrollback_total and ship no historical rows.
+  // Absolute index represented before scrollback_rows. Fresh/incompatible full
+  // frames set this to scrollback_total; compatible renewals may include a tail.
   uint64 sb_base = 14;
   bool cursor_keys_app = 15;   // DECCKM (application cursor keys); SPA input encoder reads this
   bool bracketed_paste = 16;   // DECSET 2004 (bracketed paste); SPA wraps pastes when set

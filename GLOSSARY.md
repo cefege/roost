@@ -63,9 +63,10 @@ wins.
   Source: `apps/coord/src/connect/handlers-streaming.ts`,
   `apps/web/src/store/sync.ts`.
 
-- **scrollback** — a session's history. The live cell frame carries only the
-  visible grid; retained history is fetched separately, on explicit demand, by
-  absolute row range.
+- **scrollback** — a session's history. Fresh and grid-incompatible full frames
+  carry only the visible grid; a compatible same-grid renewal may carry a
+  bounded recent tail. Older retained history is fetched separately, on
+  explicit demand, by absolute row range.
   Source: `apps/worker/src/browser-command-terminal.ts`
   (`handleGetScrollbackCells`).
 

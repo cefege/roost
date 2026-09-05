@@ -8,9 +8,9 @@
 //
 // A "span" is a run of consecutive cells sharing one style. A "row" is an
 // ordered list of spans (right-trimmed: trailing default-style spaces emit
-// no span, so a blank row = empty spans[]). A frame is either FULL (whole
-// viewport, no historical rows) or a DELTA (changed viewport rows plus newly
-// appended scrollback rows).
+// no span, so a blank row = empty spans[]). A frame is either FULL (the whole
+// viewport plus an optional bounded same-grid renewal tail) or a DELTA (changed
+// viewport rows plus newly appended scrollback rows).
 //
 // COLUMN OCCUPANCY. `CellSpan.columns` — not `text.length` — is the terminal
 // width of a span, because the core's cell model is neither one column per
@@ -146,13 +146,13 @@ export interface CellGridFrame {
   mouseSgr: boolean;
   /** DECSET 1004; the SPA reports real textarea focus/blur as CSI I / CSI O. */
   focusEvents: boolean;
-  /** true = full snapshot (viewportRows = all rows, scrollbackRows empty).
-   *  false = delta (viewportRows = changed only, scrollbackAppend = lines
-   *  pushed since the prior frame). */
+  /** true = full snapshot (viewportRows = all rows; scrollbackRows is empty
+   *  except for a bounded compatible same-grid renewal tail). false = delta
+   *  (viewportRows = changed only, scrollbackAppend = newly pushed lines). */
   full: boolean;
   viewportRows: CellRow[];
-  /** Full frames carry no retained history. sbBase still represents the full
-   *  scrollback depth so history remains available through explicit paging. */
+  /** Full frames carry either no retained history or a bounded compatible
+   *  renewal tail. Older history remains available through explicit paging. */
   scrollbackRows: CellRow[];
   /** Delta frames only: scrollback lines appended since the prior frame,
    *  oldest → newest, index = absolute line number. */
