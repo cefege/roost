@@ -1,6 +1,6 @@
 ---
 title: "The roost CLI"
-description: "Every roost subcommand and every roost api verb, including the headless verbs that drive live panes, and how roost api authorizes itself."
+description: "Every roost subcommand, the release-matched agent skill, every roost api verb, and how roost api authorizes itself."
 order: 8
 section: "Reference"
 ---
@@ -29,6 +29,7 @@ standalone release binary (it contains no Git checkout).
 | `keeper` | Run the keeper subprocess that hosts this machine's PTYs |
 | `update` | Self-update a supported macOS or Linux binary from the latest GitHub release |
 | `version` | Print the Roost version |
+| `skill` | Write the exact release-matched ROOST agent skill to stdout; accepts no arguments and performs no installation |
 | `expose <hostname>` | Configure Cloudflare Access browser entry — `--team <team>.cloudflareaccess.com --aud <64-hex> [--config <path>]` |
 | `dev` | Start coordinator, worker, and web dev servers |
 | `test` | Run all tests in dependency order |
@@ -60,6 +61,25 @@ Windows-specific host options that remain in the CLI are non-actionable in
 payload is published. Windows host install, enrollment, and update are paused,
 and a registered Windows worker blocks `push`. A Windows browser client remains
 supported.
+
+## Release-matched agent skill
+
+`roost skill` writes only the canonical `SKILL.md` bytes bundled with that
+release. A source invocation reads `skills/roost/SKILL.md` directly; a compiled
+binary emits the byte-identical generated text embed. The command accepts no
+arguments and never edits agent configuration.
+
+Install or update it manually. For OMP's default user profile:
+
+```sh
+mkdir -p "$HOME/.omp/agent/skills/roost"
+roost skill > "$HOME/.omp/agent/skills/roost/SKILL.md"
+```
+
+Restart OMP afterward so it discovers the file. For one project instead, write
+the output to `.omp/skills/roost/SKILL.md`. Updating the Roost binary does not
+replace either copy automatically; rerun the redirection when you choose to
+update the installed instructions.
 
 ## `roost api`
 

@@ -15,9 +15,10 @@ for the command surface: `src/main.ts` looks the argv up in that object, so a co
 exists exactly when it has a key there. `--version` / `-v` alias to `version`; an
 unknown key prints `usage()` and exits 1.
 
-`SUBCOMMANDS` has **27 keys**: `usage()` prints 22; the five internal
-self-exec/service entries `keeper`, `__windows-updater-broker`,
-`__saas-instance`, `__saas-auth`, and `__saas-provisioner` are omitted.
+`SUBCOMMANDS` has **29 keys**: `usage()` prints 23; the six internal
+self-exec/service entries `keeper`, `__keeper-contract`,
+`__windows-updater-broker`, `__saas-instance`, `__saas-auth`, and
+`__saas-provisioner` are omitted.
 
 | Command | Purpose |
 | --- | --- |
@@ -32,6 +33,7 @@ self-exec/service entries `keeper`, `__windows-updater-broker`,
 | `update` | Self-update the binary from the latest GitHub release |
 | `__windows-updater-broker` | **Internal, win32-only.** See below — its name and argv are a contract |
 | `version` | Print the version / build identity (`--version`, `-v`) |
+| `skill` | Write the canonical release-matched `skills/roost/SKILL.md` bytes to stdout; accepts no arguments and never installs or edits agent configuration |
 | `expose <hostname>` | Put the coordinator behind Cloudflare Access (`--team`, `--aud`, `--config`) |
 | `dev` | Boot coord (:4102) + outbound-only worker + web dev server (:5174) in parallel |
 | `test [profile]` | Canonical entry point: `unit`, `worker`, `terminal`, `managed` qualification, `live-api` optional monitor, or `all` |
@@ -175,7 +177,9 @@ code never enters a POSIX command path. It drains pending relocation requests
 - **Managed root provisioner** — `src/saas-provisioner/index.ts`,
   `src/saas-provisioner/runtime.ts`, `src/saas-provisioner/server.ts`, and
   `src/saas-provisioner/replay-store.ts`.
-- **Release** — `src/update.ts`, `src/version.ts`.
+- **Release / skill** — `src/update.ts`, `src/version.ts`; `src/skill.ts`
+  chooses the generated text embed in compiled binaries and the canonical
+  repository file in source mode.
 - **Diagnostics** — `src/status.ts` is the facade over
   `src/status-native-probes.ts`, `src/status-report.ts`,
   `src/status-output.ts`, and `src/status-types.ts`; `src/doctor.ts`,
@@ -183,9 +187,29 @@ code never enters a POSIX command path. It drains pending relocation requests
 - **Headless API** — `src/api.ts` owns authenticated API dispatch,
   `src/api-agent-status.ts` owns stable agent-status reads and exact-occupant
   waits, and `src/api-agent-prompt.ts` owns guarded prompt parsing, status
-  pinning, and outcome formatting.
+  pinning, and outcome formatting. `src/api-command-registry.ts` composes the
+  canonical metadata used to validate the API examples in the bundled skill.
 - **Local loop** — `src/dev.ts`, `src/test.ts`, `src/reset.ts`, `src/cutover.ts`.
 - **Server modes** — `src/coord.ts`, `src/worker.ts`, `src/keeper.ts`.
+
+### `roost skill`
+
+`roost skill` accepts no arguments and writes only the canonical
+`skills/roost/SKILL.md` bytes to stdout. Source mode reads that file directly;
+release binaries carry the same text through the generated Bun embed. The
+command never installs the skill or changes agent configuration.
+
+Installation is an explicit user action. For OMP's default user profile:
+
+```sh
+mkdir -p "$HOME/.omp/agent/skills/roost"
+roost skill > "$HOME/.omp/agent/skills/roost/SKILL.md"
+```
+
+Restart OMP after installing or replacing the file. A project-local OMP
+installation uses `.omp/skills/roost/SKILL.md` instead. Rerun the same manual
+redirection after updating Roost when you want the installed instructions to
+match the new binary.
 
 ### `roost api agent-prompt`
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
-// roost CLI — single entry-point for dev, test, deploy, logs, reset,
-// state, cutover. Replaces the 7+ scattered shell scripts.
+// Single `roost` CLI entry point for operator commands and server modes.
+// Owns subcommand dispatch and the public usage list; focused behavior lives
+// in sibling modules so compiled coord, worker, and keeper modes share it.
 
 import { dev } from "./dev.ts";
 import { test } from "./test.ts";
@@ -11,6 +12,7 @@ import { keeperContractCommand } from "./keeper-contract-command.ts";
 import { logs } from "./logs.ts";
 import { reset } from "./reset.ts";
 import { state } from "./state.ts";
+import { skill } from "./skill.ts";
 import { cutover } from "./cutover.ts";
 import { status } from "./status.ts";
 import { quickstart } from "./quickstart.ts";
@@ -118,6 +120,7 @@ const SUBCOMMANDS = {
   reset,
   state,
   cutover,
+  skill,
   status,
   doctor,
   api,
@@ -145,6 +148,7 @@ function usage(): never {
   console.error("  reset             nuke local state (DB, keys, lock)");
   console.error("  state             print STATE.md snapshot");
   console.error("  cutover           migrate from coordinator.db → coordinator_v2.db");
+  console.error("  skill             print the exact release-matched ROOST agent skill");
   console.error("  status            health readout (endpoint, agents, coord, workers)");
   console.error("  doctor [--since]  daily anomaly digest from err logs (default 24h)");
   console.error("  organizations bootstrap-owner --email <address> --organization <slug> --dashboard <slug>  provision the managed owner (password via stdin or ROOST_OWNER_BOOTSTRAP_PASSWORD)");

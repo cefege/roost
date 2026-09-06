@@ -134,6 +134,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
           name: release-candidates
@@ -164,6 +165,19 @@ jobs:
           ROOST_LOCAL_BIN="$PWD/$ASSET" ROOST_BIN_DIR="$INSTALL_DIR" bash ../install-binary.sh
           INSTALLED_VERSION="$("$INSTALL_DIR/roost" version)"
           test "$INSTALLED_VERSION" = "$CANDIDATE_VERSION"
+
+      - name: Compare canonical, source, and candidate skill bytes
+        env:
+          ASSET: ${{ matrix.asset }}
+        run: |
+          set -euo pipefail
+          source_skill="$(mktemp)"
+          candidate_skill="$(mktemp)"
+          trap 'rm -f "$source_skill" "$candidate_skill"' EXIT
+          bun apps/roost-cli/src/main.ts skill > "$source_skill"
+          "./dist/$ASSET" skill > "$candidate_skill"
+          cmp skills/roost/SKILL.md "$source_skill"
+          cmp "$source_skill" "$candidate_skill"
 
   publish:
     name: publish GitHub Release
