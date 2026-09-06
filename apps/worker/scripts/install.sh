@@ -10,6 +10,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 # enrolled worker identity this way; a checkout-local coordinator URL must
 # never overwrite it. Variables absent from the caller still come from the
 # host-local file.
+_ROOST_CALLER_CONVERSATION_RESTORE_SET="${ROOST_AGENT_CONVERSATION_RESTORE+x}"
 _ROOST_CALLER_ENV="$(export -p)"
 set -a; [ -f "$REPO_ROOT/.env.local" ] && source "$REPO_ROOT/.env.local"; set +a
 eval "$_ROOST_CALLER_ENV"
@@ -49,6 +50,26 @@ else
   DATA_DIR="${ROOST_WORKER_DATA_DIR:-$HOME/Library/Application Support/RoostWorkerV2}"
   LOG_DIR="${ROOST_WORKER_LOG_DIR:-$HOME/Library/Logs/RoostWorker}"
 fi
+# Re-running the canonical installer is also the compiled-binary update path.
+# Preserve the installed restore choice unless this invocation explicitly replaces it.
+if [[ "$_ROOST_CALLER_CONVERSATION_RESTORE_SET" != "x" ]]; then
+  INSTALLED_CONVERSATION_RESTORE=""
+  if [[ "$OS" == "Linux" && -f "$UNIT" ]]; then
+    INSTALLED_CONVERSATION_RESTORE=$(sed -n \
+      -e 's/^Environment="ROOST_AGENT_CONVERSATION_RESTORE=\([01]\)"$/\1/p' \
+      -e 's/^Environment=ROOST_AGENT_CONVERSATION_RESTORE=\([01]\)$/\1/p' \
+      "$UNIT" | tail -1)
+  elif [[ "$OS" != "Linux" && -f "$PLIST" ]]; then
+    INSTALLED_CONVERSATION_RESTORE=$(/usr/libexec/PlistBuddy \
+      -c "Print :EnvironmentVariables:ROOST_AGENT_CONVERSATION_RESTORE" \
+      "$PLIST" 2>/dev/null || true)
+  fi
+  if [[ "$INSTALLED_CONVERSATION_RESTORE" == "0" || "$INSTALLED_CONVERSATION_RESTORE" == "1" ]]; then
+    export ROOST_AGENT_CONVERSATION_RESTORE="$INSTALLED_CONVERSATION_RESTORE"
+  fi
+  unset INSTALLED_CONVERSATION_RESTORE
+fi
+unset _ROOST_CALLER_CONVERSATION_RESTORE_SET
 # Resolve a runtime binary by searching in order: explicit env override,
 # `command -v`, then a fallback list including ~/.bun/bin and ~/.node/bin
 # so a tarball install on a fresh Mac without Homebrew also works. If
@@ -117,7 +138,8 @@ systemd_env() {
 
 # Required env: ROOST_COORDINATOR_URL — http(s)://coord-host:4102
 # Optional env: ROOST_BOOTSTRAP_TOKEN (one-shot, cleared after redeem),
-#               ROOST_WORKER_LABEL, ROOST_REACHABLE_ADDR
+#               ROOST_WORKER_LABEL, ROOST_REACHABLE_ADDR,
+#               ROOST_AGENT_CONVERSATION_RESTORE (strict 0|1)
 ROOST_COORDINATOR_URL="${ROOST_COORDINATOR_URL:-}"
 if [[ -z "$ROOST_COORDINATOR_URL" && "${1:-status}" == "install" ]]; then
   echo "ERROR: ROOST_COORDINATOR_URL env var is required for install" >&2
@@ -129,6 +151,7 @@ fi
 BOOTSTRAP_TOKEN_PLIST=""
 LABEL_PLIST=""
 REACHABLE_ADDR_PLIST=""
+CONVERSATION_RESTORE_PLIST=""
 if [[ -n "${ROOST_BOOTSTRAP_TOKEN:-}" ]]; then
   BOOTSTRAP_TOKEN_PLIST=$'\n    <key>ROOST_BOOTSTRAP_TOKEN</key>\n    <string>'"$(xml_escape "${ROOST_BOOTSTRAP_TOKEN}")"$'</string>'
 fi
@@ -137,6 +160,9 @@ if [[ -n "${ROOST_WORKER_LABEL:-}" ]]; then
 fi
 if [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]; then
   REACHABLE_ADDR_PLIST=$'\n    <key>ROOST_REACHABLE_ADDR</key>\n    <string>'"$(xml_escape "${ROOST_REACHABLE_ADDR}")"$'</string>'
+fi
+if [[ "${ROOST_AGENT_CONVERSATION_RESTORE+x}" == "x" ]]; then
+  CONVERSATION_RESTORE_PLIST=$'\n    <key>ROOST_AGENT_CONVERSATION_RESTORE</key>\n    <string>'"$(xml_escape "${ROOST_AGENT_CONVERSATION_RESTORE}")"$'</string>'
 fi
 
 # Stamp the current repo HEAD into the LaunchAgent so the running worker
@@ -212,7 +238,7 @@ write_plist() {
     <key>ROOST_DIAG</key>
     <string>${diag_xml}</string>
     <key>ROOST_WORKER_SERVICE_PATH</key>
-    <string>${plist_xml}</string>${BOOTSTRAP_TOKEN_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
+    <string>${plist_xml}</string>${BOOTSTRAP_TOKEN_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${CONVERSATION_RESTORE_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -293,6 +319,7 @@ EOF
     [[ -n "${ROOST_BOOTSTRAP_TOKEN:-}" ]] && systemd_env "ROOST_BOOTSTRAP_TOKEN" "$ROOST_BOOTSTRAP_TOKEN"
     [[ -n "${ROOST_WORKER_LABEL:-}" ]]    && systemd_env "ROOST_WORKER_LABEL" "$ROOST_WORKER_LABEL"
     [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]  && systemd_env "ROOST_REACHABLE_ADDR" "$ROOST_REACHABLE_ADDR"
+    [[ "${ROOST_AGENT_CONVERSATION_RESTORE+x}" == "x" ]] && systemd_env "ROOST_AGENT_CONVERSATION_RESTORE" "$ROOST_AGENT_CONVERSATION_RESTORE"
     [[ -n "$GIT_SHA_RESOLVED" ]]          && systemd_env "GIT_SHA" "$GIT_SHA_RESOLVED"
     [[ -n "${ROOST_EXEC_BIN:-}" ]]        && systemd_env "ROOST_EXEC_BIN" "$ROOST_EXEC_BIN"
     [[ -n "${ROOST_WORKDIR:-}" ]]         && systemd_env "ROOST_WORKDIR" "$ROOST_WORKDIR"

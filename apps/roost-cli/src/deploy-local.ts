@@ -29,6 +29,7 @@ import {
 } from "./deploy-exec.ts";
 import { linuxWorkerResourceEnvironment } from "./linux-deploy-journal-commands.ts";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
+import { workerInstallEnvironmentValues } from "./deploy-worker-environment.ts";
 import { readLocalWorkerPriorState } from "./deploy-local-service-lifecycle.ts";
 import {
   _recoverLocalWorkerDeployJournal,
@@ -182,34 +183,27 @@ export async function _deployLocal(
       );
     }
 
-    const installEnv: Record<string, string> = {
-      ...hostEnv,
-      ...(os === "linux" ? linuxWorkerResourceEnvironment(priorText) : {}),
-    };
-    for (const key of ["GIT_SHA", "ROOST_GIT_SHA", "ROOST_WORKDIR", "ROOST_EXEC_BIN", "ROOST_BOOTSTRAP_TOKEN"]) {
-      delete installEnv[key];
-    }
-    for (const key of [
-      "ROOST_COORDINATOR_URL",
-      "ROOST_WORKER_LABEL",
-      "ROOST_REACHABLE_ADDR",
-    ]) {
-      const value = _resolveDeployEnvValue(
-        key,
-        hostEnv,
-        key === "ROOST_COORDINATOR_URL" ? options.coordinatorUrl : undefined,
-      );
-      if (value === undefined) delete installEnv[key];
-      else installEnv[key] = value;
-    }
-    if (process.env.ROOST_BOOTSTRAP_TOKEN) {
-      installEnv.ROOST_BOOTSTRAP_TOKEN = process.env.ROOST_BOOTSTRAP_TOKEN;
-    }
+    const installEnv = workerInstallEnvironmentValues(
+      {
+        ...hostEnv,
+        ...(os === "linux" ? linuxWorkerResourceEnvironment(priorText) : {}),
+      },
+      {
+        ROOST_COORDINATOR_URL: _resolveDeployEnvValue(
+          "ROOST_COORDINATOR_URL",
+          hostEnv,
+          options.coordinatorUrl,
+        ),
+        ROOST_WORKER_LABEL: _resolveDeployEnvValue("ROOST_WORKER_LABEL", hostEnv),
+        ROOST_REACHABLE_ADDR: _resolveDeployEnvValue("ROOST_REACHABLE_ADDR", hostEnv),
+        ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN || undefined,
+      },
+      localGitSha,
+    );
     if (!installEnv.ROOST_COORDINATOR_URL) {
       failDeploy(6, "ROOST_COORDINATOR_URL env var required (no prior service definition to reuse)");
     }
     installEnv.BUN_BIN = bunBin;
-    installEnv.GIT_SHA = localGitSha;
 
     mkdirSync(releaseRoot, { recursive: true, mode: 0o700 });
     if (realpathSync(releaseRoot) !== releaseRoot) {

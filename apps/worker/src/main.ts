@@ -29,6 +29,9 @@ import { AgentStatusRegistry } from "./agent-status/registry.ts";
 import { installAgentIntegrations } from "./agent-status/install-integrations.ts";
 import { startAgentReportServer, type AgentReportServer } from "./agent-status/report-server.ts";
 import { AgentReferenceAdmissionGate } from "./agent-status/reference-admission.ts";
+import {
+	restoreAgentConversationAfterRespawn,
+} from "./agent-conversation-restore.ts";
 import { serveServiceHealth } from "@roost/shared/service-health";
 import { asWorkerFp } from "@roost/shared/wire";
 import { diag, signal } from "@roost/shared/diag";
@@ -275,6 +278,12 @@ export async function runWorker() {
 		sessionMgr,
 		prepareKeeper: handleKeeperSurvivor,
 		referenceAdmission,
+		restoreAgentConversation: (sessionId, reference, resumedReferenceKeys) =>
+			restoreAgentConversationAfterRespawn({
+				enabled: cfg.agentConversationRestore,
+				sessionMgr,
+				resumedReferenceKeys,
+			}, sessionId, reference),
 		beforeRecoveryRead: () =>
 			coordLink.waitForDurableSessionEventReplay(),
 		onReconcileStarted: () => {

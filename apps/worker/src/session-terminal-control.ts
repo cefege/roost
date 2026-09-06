@@ -1,8 +1,7 @@
-// Entry points for coordinator terminal-control RPCs (stream open/close/
-// resize): validates geometry, acquires the keeper admission lane so one
-// control can never starve input, then delegates the core mutation to
-// session-terminal-txn. This is where every downstream request's budget is
-// enforced before any work is queued.
+// Entry points for coordinator terminal control and worker-owned terminal
+// input. Both input origins share one acknowledged keeper truth model, while
+// stream state validates geometry and delegates mutation to terminal-txn.
+// Every downstream request budget is enforced before queued keeper work.
 import { initCellEmitState } from "@roost/shared/cell";
 import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS } from "@roost/shared/viewport";
 import { newTraceId } from "@roost/shared/trace";
@@ -44,16 +43,42 @@ export async function writeTerminalInput(
 	budget?: TerminalRequestBudget,
 ): Promise<WorkerInputResult> {
 	const rec = this.getBySessionId(sessionId);
-	if (!rec) return { status: "rejected", writtenBytes: 0, reason: "session is not live" };
-	if (inputSeq <= 0n) return { status: "rejected", writtenBytes: 0, reason: "input sequence must be positive" };
+	if (!rec) {
+		return { status: "rejected", writtenBytes: 0, reason: "session is not live" };
+	}
+	if (inputSeq <= 0n) {
+		return { status: "rejected", writtenBytes: 0, reason: "input sequence must be positive" };
+	}
+	return writeAcknowledgedInputBatch(this, rec.channelId, bytes, budget);
+}
+
+/** Write one worker-originated batch without manufacturing a coordinator input
+ * sequence. Keeper correlation remains private to beginInput(). */
+export async function writeWorkerOwnedTerminalInput(
+	this: SessionManager,
+	sessionId: string,
+	bytes: Uint8Array,
+): Promise<WorkerInputResult> {
+	const rec = this.getBySessionId(sessionId);
+	if (!rec) {
+		return { status: "rejected", writtenBytes: 0, reason: "session is not live" };
+	}
+	return writeAcknowledgedInputBatch(this, rec.channelId, bytes);
+}
+
+async function writeAcknowledgedInputBatch(
+	manager: SessionManager,
+	channelId: number,
+	bytes: Uint8Array,
+	budget?: TerminalRequestBudget,
+): Promise<WorkerInputResult> {
 	if (bytes.byteLength === 0) return { status: "accepted", writtenBytes: 0 };
-	const channelId = rec.channelId;
-	const ticket = acquireKeeperAdmission(this, channelId, "terminal_input");
+	const ticket = acquireKeeperAdmission(manager, channelId, "terminal_input");
 	const owned = bytes.slice();
 	let command;
 	try {
 		await ticket.granted;
-		if (!this.sessions.has(channelId)) {
+		if (!manager.sessions.has(channelId)) {
 			return { status: "rejected", writtenBytes: 0, reason: "session closed before the keeper write" };
 		}
 		if (budget && !budget.isCurrentConnection()) {
@@ -62,7 +87,7 @@ export async function writeTerminalInput(
 		if (budget && budget.remainingMs() <= 0) {
 			return { status: "rejected", writtenBytes: 0, reason: "input budget expired before the keeper write" };
 		}
-		this.markInputSensitive(channelId);
+		manager.markInputSensitive(channelId);
 		command = getMultiplexedPool().beginInput(channelId, owned);
 		if (!command.admission.written) {
 			return { status: "rejected", writtenBytes: 0, reason: `keeper did not accept the input: ${command.admission.reason}` };

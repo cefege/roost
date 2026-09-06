@@ -1,6 +1,6 @@
-// Serializes durable agent-reference reports with coordinator recovery reads.
-// A queued reporter is process-revalidated only after recovery releases the
-// gate, while ordinary session respawn/lifecycle admission stays independent.
+// Serializes durable agent-reference reports with complete boot reconciliation.
+// A queued reporter is process-revalidated only after adoption/respawn/restore,
+// while ordinary session lifecycle admission stays independent.
 
 export class AgentReferenceAdmissionGate {
   private tail: Promise<void> = Promise.resolve();

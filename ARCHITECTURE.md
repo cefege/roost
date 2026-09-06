@@ -216,7 +216,7 @@ without page reload.
 
 Every session remains a shell PTY; agent CLIs such as `omp`, Claude Code, or Codex run inside it manually or through terminal launcher configuration.
 Roost never spawns, supervises, or owns an agent process, conversation, transcript, tool call, or approval model.
-It may expose volatile worker-observed state, accept occupant-fenced text for the same ordinary PTY, and retain an integration-supplied opaque conversation reference as private recovery metadata. None of these surfaces creates a structured agent session.
+It may expose volatile worker-observed state, accept occupant-fenced text for the same ordinary PTY, retain an integration-supplied opaque conversation reference as private recovery metadata, and use that reference for one narrowly fenced worker-owned restore input after involuntary PTY loss. None of these surfaces creates a structured agent session.
 
 ## Agent conversation references (private recovery metadata)
 
@@ -237,9 +237,31 @@ owning worker receives one recovery row for each open session; browsers,
 device/CLI session listings, Sync live/backfill lanes, search, logs, and audit
 never receive the opaque value.
 
-This layer records durable recovery metadata only. It does not issue a resume
-command or add a restoration setting; automatic restoration remains deferred
-until the separate POSIX real-stack qualification is complete.
+An involuntary-loss restore is worker-local and OMP-specific. Keeper adoption
+always runs first, and successful adoption sends zero resume input. Only after
+adoption fails, the ordinary replacement shell exists, and its `respawned`
+event is durably admitted may `apps/worker/src/agent-conversation-restore.ts`
+resolve the stored reference through its versioned, fixed OMP descriptor. The
+descriptor supplies the `omp` executable and the `--resume=` option form
+(OMP has no `--session` flag); the stored opaque value only ever completes
+that one argv element, quoted with the canonical POSIX shell quoting utility.
+The worker submits the rendered command plus one CR as exactly one
+acknowledged input batch to the replacement shell. A reference already claimed
+by an earlier session in the same reconciliation pass is skipped, so two panes
+cannot resume one conversation. Neither the opaque value nor the rendered
+command enters structured logs.
+
+Integration data cannot choose executable or template text. Accepted,
+rejected, and ambiguous input results are terminal for that boot attempt and
+are never retried or routed back through respawn/tombstone handling. Every
+outcome retains the reference until the integration later replaces or clears
+it.
+
+`ROOST_AGENT_CONVERSATION_RESTORE` is a strict worker-local `0|1` setting.
+Absent and `0` mean disabled on every platform. `1` enables the path only on
+POSIX; Windows rejects it as unsupported. The default remains disabled pending
+actual official-OMP POSIX real-stack qualification—implementation and unit
+coverage are not that qualification and do not justify a default-on claim.
 
 ## Agent status (volatile, metadata only)
 

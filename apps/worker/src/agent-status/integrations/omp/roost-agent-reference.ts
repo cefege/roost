@@ -1,4 +1,4 @@
-// Roost-owned OMP v18.1.10 conversation-reference integration.
+// Roost-owned OMP v18.1.12 conversation-reference integration.
 // ROOST_INTEGRATION_ID=omp-reference ROOST_INTEGRATION_VERSION=1
 // Uses only official session hooks/getters, prefers the opaque session path,
 // and awaits one durable local report attempt without reading transcript data.

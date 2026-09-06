@@ -6,10 +6,11 @@ one authoritative terminal grid, and relays PTY bytes both ways over a single
 **outbound** WebSocket. Agent CLIs are ordinary programs launched inside those
 PTYs; the worker never interprets agent output and owns no agent process,
 conversation, transcript, tool call, or approval model. It may persist an
-official opaque conversation reference as private recovery metadata, but does
-not display it or issue a resume command. Worker-observed status and a guarded
-prompt are metadata plus one fenced write to that same PTY, never a separate
-agent-control channel. The worker owns **no listener** — no inbound HTTP or WS surface exists.
+official opaque conversation reference as private recovery metadata. With the
+explicit POSIX-only restore gate enabled, involuntary loss may produce one
+worker-owned OMP resume input only after ordinary shell respawn; this does not
+turn the reference into public state or an agent-control channel. The worker
+owns **no listener** — no inbound HTTP or WS surface exists.
 
 Path references are relative to `apps/worker/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
 
@@ -33,6 +34,9 @@ Path references are relative to `apps/worker/` unless they start at the repo roo
 5. `completeWorkerBootAdmission()` invokes `handleKeeperSurvivor()` only after
    coordinator admission has reserved every durable session outcome. Success
    activates the `src/snapshot.ts` provider and marks health ready.
+   Failed adoption follows the ordinary replacement-shell path; only after its
+   durable `respawned` admission may the opt-in restore path submit one input.
+   Successful adoption submits none.
    SIGTERM/SIGINT close the long-lived owners and event store but deliberately
    do **not** kill the keeper.
 
@@ -147,11 +151,12 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/browser-command-diag.ts`, answering upstream as `rpc-ok` / `rpc-error`.
   Cross-worker transfer has no worker command or result frame in v0.5.0; the
   beta web item is informational. Attachment upload/download remains supported.
-- **Agent observation, private reference capture, and guarded input** —
+- **Agent observation, private reference capture, guarded input, and restore** —
   `src/agent-status/` owns volatile per-session state, the PID-attested local
   report protocol, typed integration assets, and reference admission gate;
   `src/agent-prompt-control.ts` owns the prompt-only status/process fence and
-  single keeper write. **`src/util/`** —
+  single keeper write. `src/agent-conversation-restore.ts` owns the fixed,
+  versioned OMP resume descriptor and post-respawn one-input policy. **`src/util/`** —
   `src/util/mono.ts` is the monotonic clock behind every terminal-control
   deadline; `src/util/path.ts` owns worker-native path handling.
 - **Host + coord plumbing** — `src/heartbeat.ts` with
@@ -230,6 +235,16 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   encoded once through `@roost/shared/terminal-input`, gets one trailing CR,
   and is written once; an ambiguous boundary is never retried. Prompt text and
   status messages never enter worker logs or durable storage.
+- **Conversation restore is post-respawn and at-most-once.** Keeper adoption
+  always precedes restore and writes no resume input when it succeeds. After
+  failed adoption, the normal replacement shell and durable `respawned`
+  admission precede the fixed `omp --resume=<reference>` descriptor.
+  Integration data supplies only the opaque value, which the canonical POSIX
+  quoting utility renders as exactly one argv element; the worker types that
+  command plus one CR as a single acknowledged batch. A reference already
+  claimed earlier in the same pass is skipped. Accepted, rejected, and
+  ambiguous outcomes never retry, re-enter respawn/tombstone handling, or
+  clear the stored reference.
 - **Keeper input correlation is worker-owned.** Browser-local `input_seq` and
   worker request IDs correlate their respective hops only. The keeper receives
   a monotonically increasing per-channel/connection key allocated by the
@@ -304,3 +319,9 @@ PTY. Status code lives under `src/agent-status/`; prompt admission lives in
   `@roost/shared/viewport`) — there is no barrel.
 - **Install as a service** — `bash apps/worker/scripts/install.sh install` (macOS launchd LaunchAgent, Linux
   systemd `--user` unit). **Deploy to a fleet host** — `bun apps/roost-cli/src/main.ts deploy <host>`.
+- **Conversation restore configuration** —
+  `ROOST_AGENT_CONVERSATION_RESTORE` accepts exactly `0` or `1`. Absent and
+  `0` are disabled everywhere; `1` is POSIX-only and fails on Windows. The
+  service installer persists explicit values, and source deploys preserve an
+  installed override. Default-on remains blocked pending actual official-OMP
+  POSIX real-stack qualification.

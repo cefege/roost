@@ -433,6 +433,27 @@ The machine appears in **Settings → Machines** within a few seconds. macOS
 uses launchd and Linux uses `systemd --user`. The server-side bootstrap token
 is one-shot and expires after 24 hours.
 
+### OMP conversation restoration remains opt-in
+
+Automatic OMP conversation restoration is disabled by default while the
+official-OMP POSIX real-stack qualification is still outstanding. Unit and
+integration coverage do not substitute for that qualification. On macOS or
+Linux, an operator may explicitly add
+`ROOST_AGENT_CONVERSATION_RESTORE=1` to the worker's first install or generated
+join command. The setting accepts exactly `0` or `1`; an installed explicit
+value is preserved by later source deployments, including an explicit `0`
+opt-out. Windows rejects explicit `1` as unsupported.
+
+The switch applies only when keeper adoption fails after involuntary PTY loss.
+After the ordinary replacement shell is created and `respawned` is durably
+admitted, the worker may type exactly one fixed resume command —
+`omp --resume=<reference>`, canonically quoted — as one CR-terminated input
+batch. Successful adoption sends no resume input, a duplicate reference is
+skipped, and a rejected or ambiguous input is never retried.
+The opaque reference remains private recovery metadata until the OMP
+integration replaces or clears it; Roost still owns no agent conversation or
+transcript.
+
 To update a source-installed coordinator and its registered fleet from a clean
 Roost checkout, run:
 

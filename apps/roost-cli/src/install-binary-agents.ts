@@ -35,6 +35,10 @@ import {
   type WindowsServiceManager,
   type WindowsServiceSnapshotSet,
 } from "./service-ctl.ts";
+import {
+  assertWindowsConversationRestoreDisabled,
+  buildPosixWorkerInstallEnvironment,
+} from "./worker-conversation-restore-policy.ts";
 
 type Cmd = "install" | "write-plist";
 export const WINDOWS_ROLE_STATE_PROFILES = [
@@ -859,13 +863,7 @@ export async function installWorkerAgent(opts: {
     case "darwin":
     case "linux": {
       const script = extractScript("worker-install.sh", WORKER_INSTALL_SH);
-      const env: Record<string, string> = {
-        ROOST_EXEC_BIN: opts.execPath,
-        ROOST_WORKDIR: homedir(),
-        ROOST_COORDINATOR_URL: opts.coordUrl,
-        GIT_SHA: opts.gitSha,
-        ...(opts.bootstrapToken ? { ROOST_BOOTSTRAP_TOKEN: opts.bootstrapToken } : {}),
-      };
+      const env = buildPosixWorkerInstallEnvironment(opts);
       if (cmd === "write-plist") {
         const dir = mkdtempSync(join(tmpdir(), "roost-dryrun-worker-"));
         env.ROOST_WORKER_AGENT_LABEL = "com.roost.worker-dryrun";
@@ -880,6 +878,7 @@ export async function installWorkerAgent(opts: {
     }
     case "win32": {
       const env = windowsEnvironment(opts.env);
+      assertWindowsConversationRestoreDisabled(env);
       const credentials = opts.credentials ?? (cmd === "write-plist"
         ? { account: requireWindowsValue(env, "ROOST_SERVICE_ACCOUNT"), password: "" }
         : undefined);

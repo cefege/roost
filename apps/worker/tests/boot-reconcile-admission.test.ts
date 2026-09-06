@@ -60,6 +60,10 @@ function freshManager(sink: SessionEventTestSink): SessionManager {
 function referenceReconcileDependencies() {
 	return {
 		referenceAdmission: new AgentReferenceAdmissionGate(),
+		restoreAgentConversation: async () => ({
+			status: "skipped" as const,
+			reason: "disabled" as const,
+		}),
 		beforeRecoveryRead: async () => {},
 	};
 }

@@ -35,10 +35,17 @@ function withReference(sessionId: string) {
 }
 
 test("recovery metadata is exact, private, and sequence-valid", () => {
-  expect(() => _assertExactRecoveryMetadata(
+  const references = _assertExactRecoveryMetadata(
     [first, second],
     [withReference(first), neverSet(second)],
-  )).not.toThrow();
+  );
+  expect(references.get(first)).toEqual({
+    schema_version: 1,
+    agent_id: "omp",
+    kind: "id",
+    value: "opaque",
+  });
+  expect(references.get(second)).toBeNull();
   expect(() => _assertExactRecoveryMetadata(
     [first, second],
     [neverSet(first)],

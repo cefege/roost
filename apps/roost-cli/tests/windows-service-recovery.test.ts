@@ -59,7 +59,7 @@ describe("Windows service recovery topology", () => {
   });
 
 
-  test("Windows join persists the requested worker label without persisting the token", () => {
+  test("Windows join persists public worker settings without persisting the token", () => {
     const root = resolve(import.meta.dir, "../../..");
     const script = `
       Object.defineProperty(process, "platform", { value: "win32" });
@@ -75,6 +75,7 @@ describe("Windows service recovery topology", () => {
           ROOST_SERVICE_ACCOUNT: ".\\\\roost-operator",
           ROOST_WINDOWS_PUBLISHER_SHA256: "${"a".repeat(64)}",
           ROOST_WORKER_LABEL: "Build PC",
+          ROOST_AGENT_CONVERSATION_RESTORE: "0",
         },
         log: (message) => logs.push(message),
       });
@@ -97,6 +98,7 @@ describe("Windows service recovery topology", () => {
       worker: { environment: Record<string, string> };
     };
     expect(definitions.worker.environment.ROOST_WORKER_LABEL).toBe("Build PC");
+    expect(definitions.worker.environment.ROOST_AGENT_CONVERSATION_RESTORE).toBe("0");
     expect(definitions.worker.environment.ROOST_BOOTSTRAP_TOKEN).toBeUndefined();
     const serviceHome = definitions.worker.environment.USERPROFILE.replaceAll("\\", "/");
     expect(serviceHome).toBe("C:/ProgramData/Roost/service/home");
@@ -105,6 +107,57 @@ describe("Windows service recovery topology", () => {
     expect(definitions.worker.environment.LOCALAPPDATA.replaceAll("\\", "/")).toBe(`${serviceHome}/AppData/Local`);
     expect(definitions.worker.environment.TEMP.replaceAll("\\", "/")).toBe(`${serviceHome}/AppData/Local/Temp`);
     expect(definitions.worker.environment.TMP.replaceAll("\\", "/")).toBe(`${serviceHome}/AppData/Local/Temp`);
+  });
+
+  test("Windows worker installation rejects case-insensitive restore enablement", () => {
+    const root = resolve(import.meta.dir, "../../..");
+    for (const key of [
+      "ROOST_AGENT_CONVERSATION_RESTORE",
+      "ROOST_AGENT_CONVERSATION_restore",
+    ]) {
+      const script = `
+        Object.defineProperty(process, "platform", { value: "win32" });
+        // Import after the platform override so this subprocess exercises Windows-only installation.
+        const { installWorkerAgent } = await import("./apps/roost-cli/src/install-binary-agents.ts");
+        await installWorkerAgent({
+          execPath: "C:\\\\Roost\\\\versions\\\\2.0.0\\\\roost.exe",
+          coordUrl: "https://coord.tail.example:4102",
+          gitSha: "2.0.0+abcdef12",
+          cmd: "write-plist",
+          env: { [${JSON.stringify(key)}]: "1" },
+          log: () => {},
+        });
+      `;
+      const result = Bun.spawnSync(["bun", "-e", script], { cwd: root });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString())
+        .toContain("ROOST_AGENT_CONVERSATION_RESTORE=1 is unsupported on Windows");
+    }
+  });
+
+  test("Windows worker installation rejects case-folded restore duplicates", () => {
+    const root = resolve(import.meta.dir, "../../..");
+    const script = `
+      Object.defineProperty(process, "platform", { value: "win32" });
+      const { installWorkerAgent } = await import("./apps/roost-cli/src/install-binary-agents.ts");
+      await installWorkerAgent({
+        execPath: "C:\\\\Roost\\\\versions\\\\2.0.0\\\\roost.exe",
+        coordUrl: "https://coord.tail.example:4102",
+        gitSha: "2.0.0+abcdef12",
+        cmd: "write-plist",
+        env: {
+          ROOST_AGENT_CONVERSATION_RESTORE: "0",
+          ROOST_AGENT_CONVERSATION_restore: "0",
+        },
+        log: () => {},
+      });
+    `;
+    const result = Bun.spawnSync(["bun", "-e", script], { cwd: root });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString())
+      .toContain("Windows worker environment contains duplicate conversation restore settings");
   });
 
   test("boot-time updater exits cleanly when no transaction needs recovery", async () => {

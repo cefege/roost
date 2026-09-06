@@ -1,6 +1,6 @@
 // Coordinator session reconciliation reserves every durable session outcome
-// before keeper or SessionManager mutation. boot-reconcile serializes calls
-// and supplies keeper preparation plus the successful-admission timestamp hook.
+// before keeper or SessionManager mutation. boot-reconcile serializes calls;
+// failed adoption restores only after replacement-shell admission returns.
 
 import type {
 	SessionRecoveryMetadata as SessionRecoveryMetadataProto,
@@ -8,10 +8,17 @@ import type {
 import {
 	sessionRecoveryMetadataFromProto,
 } from "@roost/shared/agent-conversation-reference-proto";
+import type {
+	AgentConversationReferenceV1,
+} from "@roost/shared/agent-conversation-reference";
 import { log } from "@roost/shared/log";
 import type { WorkerFp } from "@roost/shared/wire";
 import type { CoordClient } from "./coord-client.ts";
 import type { SessionEventReservation } from "./event-sink.ts";
+import {
+	conversationRestoreDedupeKey,
+	type AgentConversationRestoreOutcome,
+} from "./agent-conversation-restore.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import {
 	isSessionEventOutboxFullError,
@@ -22,9 +29,6 @@ import { resolveShellSpec, type ShellSpec } from "./shell-spec.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 
 const BOOT_SESSION_ADMISSION_TIMEOUT_MS = 10_000;
-type CoordinatorRecoveryResponse = Awaited<
-	ReturnType<CoordClient["sessionsList"]>
->;
 
 export interface ReconcileAdmissionSuccess {
 	admitted: true;
@@ -47,12 +51,17 @@ export interface CoordinatorSessionReconcileDeps {
 	client: () => CoordClient;
 	workerFp: WorkerFp;
 	sessionMgr: SessionManager;
-	referenceRecoveryAdmission: (
-		read: () => Promise<CoordinatorRecoveryResponse>,
-	) => Promise<CoordinatorRecoveryResponse>;
+	referenceRecoveryAdmission: <Result>(
+		read: () => Promise<Result>,
+	) => Promise<Result>;
 	prepareKeeper: (
 		coordinatorOpenSessionIds: ReadonlySet<string>,
 	) => Promise<void>;
+	restoreAgentConversation: (
+		sessionId: string,
+		reference: AgentConversationReferenceV1 | null,
+		resumedReferenceKeys: Set<string>,
+	) => Promise<AgentConversationRestoreOutcome>;
 	onReconciled?: (reconciledAtMs: number) => void;
 }
 
@@ -66,20 +75,22 @@ export async function reconcileCoordinatorSessions(
 		sessionMgr,
 		prepareKeeper,
 		referenceRecoveryAdmission,
+		restoreAgentConversation,
 		onReconciled,
 	} = deps;
 	try {
-		const response = await referenceRecoveryAdmission(async () => {
-			const loaded = await client().sessionsList(
+		const recovery = await referenceRecoveryAdmission(async () => {
+			const response = await client().sessionsList(
 				{ workerFp, status: "open" },
 				{ timeoutMs: BOOT_SESSION_ADMISSION_TIMEOUT_MS },
 			);
-			_assertExactRecoveryMetadata(
-				loaded.sessions.map((session) => String(session.id)),
-				loaded.recoveryMetadata,
+			const referencesBySessionId = _assertExactRecoveryMetadata(
+				response.sessions.map((session) => String(session.id)),
+				response.recoveryMetadata,
 			);
-			return loaded;
+			return { response, referencesBySessionId };
 		});
+		const response = recovery.response;
 		const shellRows = response.sessions;
 		const coordinatorOpenSessionIds = new Set(
 			shellRows.map((session) => String(session.id)),
@@ -87,6 +98,7 @@ export async function reconcileCoordinatorSessions(
 		const admissions: Array<{
 			session: (typeof shellRows)[number];
 			shellSpec: ShellSpec;
+			agentReference: AgentConversationReferenceV1 | null;
 			resumeClose: SessionEventReservation;
 			respawnEvent: SessionEventReservation;
 			futureClose: SessionEventReservation;
@@ -99,13 +111,13 @@ export async function reconcileCoordinatorSessions(
 		// for every durable path in the coordinator's complete open set.
 		try {
 			for (const session of shellRows) {
+				const sessionId = String(session.id);
+				const agentReference =
+					recovery.referencesBySessionId.get(sessionId) ?? null;
 				const shellSpec = resolveShellSpec({
 					cwd: session.cwd,
-					sessionId: String(session.id),
-					envOverlay: withAgentStatusEnvironment(
-						{},
-						String(session.id),
-					),
+					sessionId,
+					envOverlay: withAgentStatusEnvironment({}, sessionId),
 				});
 				let resumeClose: SessionEventReservation | null = null;
 				let respawnEvent: SessionEventReservation | null = null;
@@ -129,6 +141,7 @@ export async function reconcileCoordinatorSessions(
 				}
 				admissions.push({
 					session,
+					agentReference,
 					shellSpec,
 					resumeClose,
 					respawnEvent,
@@ -153,6 +166,7 @@ export async function reconcileCoordinatorSessions(
 		let resumed = 0;
 		let respawned = 0;
 		let respawnFailed = 0;
+		const resumedReferenceKeys = new Set<string>();
 		try {
 			// Survivor retirement, keeper creation, and periodic reaping are
 			// all downstream of the complete session-event reservation batch.
@@ -171,6 +185,15 @@ export async function reconcileCoordinatorSessions(
 				}, admission.resumeClose);
 				if (didResume) {
 					resumed++;
+					// The adopted PTY still runs an agent on this reference,
+					// so no other session may resume the same conversation.
+					if (admission.agentReference) {
+						resumedReferenceKeys.add(
+							conversationRestoreDedupeKey(
+								admission.agentReference,
+							),
+						);
+					}
 					sessionMgr.releaseSessionEvent(
 						admission.respawnEvent,
 					);
@@ -249,6 +272,22 @@ export async function reconcileCoordinatorSessions(
 				}
 				if (ok) {
 					respawned++;
+					try {
+						await restoreAgentConversation(
+							String(admission.session.id),
+							admission.agentReference,
+							resumedReferenceKeys,
+						);
+					} catch {
+						log.warn(
+							"worker",
+							"agent_conversation_restore_transition",
+							{
+								sessionId: admission.session.id,
+								outcome: "ambiguous",
+							},
+						);
+					}
 				} else {
 					if (admission.respawnEventOwned) {
 						sessionMgr.releaseSessionEvent(
@@ -323,16 +362,20 @@ export async function reconcileCoordinatorSessions(
 export function _assertExactRecoveryMetadata(
 	sessionIds: readonly string[],
 	rows: readonly SessionRecoveryMetadataProto[],
-): void {
+): ReadonlyMap<string, AgentConversationReferenceV1 | null> {
 	if (rows.length !== sessionIds.length) {
 		throw new Error("coordinator recovery metadata set is incomplete");
 	}
 	const expected = new Set(sessionIds);
 	const seen = new Set<string>();
+	const references = new Map<string, AgentConversationReferenceV1 | null>();
 	for (const row of rows) {
 		let sessionId: string;
+		let reference: AgentConversationReferenceV1 | null;
 		try {
-			sessionId = String(sessionRecoveryMetadataFromProto(row).session_id);
+			const metadata = sessionRecoveryMetadataFromProto(row);
+			sessionId = String(metadata.session_id);
+			reference = metadata.agent_reference;
 		} catch {
 			throw new Error("coordinator recovery metadata is invalid");
 		}
@@ -340,8 +383,10 @@ export function _assertExactRecoveryMetadata(
 			throw new Error("coordinator recovery metadata set does not match sessions");
 		}
 		seen.add(sessionId);
+		references.set(sessionId, reference);
 	}
 	if (seen.size !== expected.size) {
 		throw new Error("coordinator recovery metadata set is incomplete");
 	}
+	return references;
 }

@@ -11,6 +11,7 @@ import type { SessionManager } from "./session-manager.ts";
 import type { AgentReferenceAdmissionGate } from "./agent-status/reference-admission.ts";
 import {
 	reconcileCoordinatorSessions,
+	type CoordinatorSessionReconcileDeps,
 	type ReconcileAdmissionOutcome,
 } from "./boot-session-reconcile.ts";
 export type {
@@ -28,6 +29,8 @@ export function setupReconcile(deps: {
 		coordinatorOpenSessionIds: ReadonlySet<string>,
 	) => Promise<void>;
 	referenceAdmission: Pick<AgentReferenceAdmissionGate, "runExclusive">;
+	restoreAgentConversation:
+		CoordinatorSessionReconcileDeps["restoreAgentConversation"];
 	beforeRecoveryRead: () => Promise<void>;
 	onReconciled?: (reconciledAtMs: number) => void;
 	onReconcileStarted?: () => void;
@@ -43,6 +46,7 @@ export function setupReconcile(deps: {
 		sessionMgr,
 		prepareKeeper,
 		referenceAdmission,
+		restoreAgentConversation,
 		beforeRecoveryRead,
 		onReconcileStarted,
 		onReconciled,
@@ -62,22 +66,22 @@ export function setupReconcile(deps: {
 	): Promise<ReconcileAdmissionOutcome> => {
 		reconcileAdmitted = false;
 		onReconcileStarted?.();
-		return reconcileCoordinatorSessions({
-			client,
-			workerFp,
-			sessionMgr,
-			prepareKeeper,
-			referenceRecoveryAdmission: (read) =>
-				referenceAdmission.runExclusive(async () => {
-					await beforeRecoveryRead();
-					return read();
-				}),
-			onReconciled: (reconciledAtMs) => {
-				reconcileAdmitted = true;
-				lastReconcileMs = reconciledAtMs;
-				onReconciled?.(reconciledAtMs);
-			},
-		}, reason);
+		return referenceAdmission.runExclusive(async () => {
+			await beforeRecoveryRead();
+			return reconcileCoordinatorSessions({
+				client,
+				workerFp,
+				sessionMgr,
+				prepareKeeper,
+				restoreAgentConversation,
+				referenceRecoveryAdmission: (read) => read(),
+				onReconciled: (reconciledAtMs) => {
+					reconcileAdmitted = true;
+					lastReconcileMs = reconciledAtMs;
+					onReconciled?.(reconciledAtMs);
+				},
+			}, reason);
+		});
 	};
 
 	const reconcileOpenSessions = (
