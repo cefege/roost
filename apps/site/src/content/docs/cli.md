@@ -88,10 +88,11 @@ status reads project the same in-memory hub that feeds browser Sync.
 |---|---|
 | `agent-status` | `<session> [--json]` — reads one authorized session |
 | `agents` | `[--json]` — lists current status rows, sorted by session id |
+| `agent-wait` | `<session> --until <comma-states> --timeout <duration>` — waits on the exact current occupant |
 
-Both verbs use the CLI identity's selected-dashboard authority. Missing and
-foreign sessions share the coordinator's not-found response. Human output is
-headered TSV; its `source` column renders an absent legacy source as `legacy`,
+All three verbs use the CLI identity's selected-dashboard authority. Missing and
+foreign sessions share the coordinator's not-found response. The two read
+verbs use headered TSV; their `source` column renders an absent legacy source as `legacy`,
 so screen and legacy rows visibly retain `promptable=false`.
 
 JSON is an explicit stable projection rather than a protobuf dump. Its exact
@@ -103,6 +104,13 @@ source are volatile observation and fencing state only: they do not identify a
 conversation or grant agent control. Roost owns no agent process, conversation,
 transcript, tool call, or approval model. See
 [Agents and status](/docs/agents/) for detection and precedence.
+
+`agent-wait` accepts unique states from `blocked,idle,working` and an integral
+`ms`, `s`, or `m` timeout capped at five minutes. It first reads the current
+identified occupant, then performs one event-driven RPC. Output is exactly
+`matched`, `timed_out`, `occupant_changed`, or `session_closed`; every outcome
+except `matched` sets a nonzero exit code. The coordinator never polls or
+scrapes terminal output.
 
 ### Workers
 

@@ -346,6 +346,16 @@ message AgentStatusGetRequest { string session_id = 1; }
 message AgentStatusGetResponse { AgentStatusView status = 1; }
 message AgentStatusListRequest {}
 message AgentStatusListResponse { repeated AgentStatusView statuses = 1; }
+message AgentStatusWaitRequest {
+  string session_id = 1;
+  string status_epoch = 2;
+  string occupant_id = 3;
+  repeated string desired_states = 4;
+  optional uint64 after_revision = 5;
+  uint32 timeout_ms = 6;
+}
+message AgentStatusWaitResponse { string outcome = 1; }
+
 
 
 // ─── workspaces ───────────────────────────────────────────────────────────
@@ -820,6 +830,7 @@ service CoordinatorService {
   // dashboard-authorized observed agent state
   rpc AgentStatusGet(AgentStatusGetRequest) returns (AgentStatusGetResponse);
   rpc AgentStatusList(AgentStatusListRequest) returns (AgentStatusListResponse);
+  rpc AgentStatusWait(AgentStatusWaitRequest) returns (AgentStatusWaitResponse);
 
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

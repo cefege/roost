@@ -108,6 +108,7 @@ const MANAGED_PROTECTED_RPC_METHODS: Record<string, true | undefined> = {
   SessionsCancelGlobalSearch: true,
   AgentStatusGet: true,
   AgentStatusList: true,
+  AgentStatusWait: true,
   WorkspacesList: true,
   WorkspacesCreate: true,
   WorkspacesUpdate: true,

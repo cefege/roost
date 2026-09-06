@@ -44,7 +44,7 @@ self-exec/service entries `keeper`, `__windows-updater-broker`,
 | `cutover` | Migrate `coordinator.db` → `coordinator_v2.db` |
 | `status` | ✓/✗ health readout: configured endpoint/TLS mode, conditional Tailscale state, both services, coordinator liveness, workers; each failing line carries its remedy |
 | `doctor [--since 24h]` | Anomaly digest from the low-volume Tier-1 channel (`main.err.log` + rotated `.N.gz`) |
-| `api <verb>` | Dashboard-authorized headless introspection/control over coordinator RPCs: `sessions`, `agent-status`, `agents`, `cells`, `input`, `rename`, `assign`, `attach`, `spawn`, `kill`, `workers`, `workspaces`, `ws-*`, `tasks`, `task-*`, `ui`, `ui-state`, `events` |
+| `api <verb>` | Dashboard-authorized headless introspection/control over coordinator RPCs: `sessions`, `agent-status`, `agent-wait`, `agents`, `cells`, `input`, `rename`, `assign`, `attach`, `spawn`, `kill`, `workers`, `workspaces`, `ws-*`, `tasks`, `task-*`, `ui`, `ui-state`, `events` |
 | `join` | Install + register this machine's worker from a one-shot bootstrap token (driven by the repo-root `join.sh`; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN`) |
 | `add-machine --platform <macos\|linux\|windows>` | Mint one worker token and print the platform-specific enrollment command. Coordinator-only |
 | `organizations bootstrap-owner` | Managed-only atomic initial owner/organization/dashboard bootstrap; password accepted only through stdin or `ROOST_OWNER_BOOTSTRAP_PASSWORD` |
@@ -180,8 +180,8 @@ code never enters a POSIX command path. It drains pending relocation requests
   `src/status-native-probes.ts`, `src/status-report.ts`,
   `src/status-output.ts`, and `src/status-types.ts`; `src/doctor.ts`,
   `src/logs.ts`, `src/sync-ws.ts` (headless firehose), and `src/state.ts`.
-  `src/api.ts` owns authenticated API dispatch, while
-  `src/api-agent-status.ts` owns the stable agent-status read projection.
+- **Headless API** — `src/api.ts` owns authenticated API dispatch, while
+  `src/api-agent-status.ts` owns stable agent-status reads and exact-occupant waits.
 - **Local loop** — `src/dev.ts`, `src/test.ts`, `src/reset.ts`, `src/cutover.ts`.
 - **Server modes** — `src/coord.ts`, `src/worker.ts`, `src/keeper.ts`.
 
@@ -229,9 +229,10 @@ and `src/windows/windows-update-broker.ts`.
 
 `bun test apps/roost-cli/tests/` runs the `*.test.ts` files with platform
 operations driven through injected fakes. `tests/api-agent-status.test.ts`
-pins the public JSON and TSV status contracts; `tests/coordinator-deploy.test.ts`
-pins atomic fleet rollback; `tests/update.test.ts` pins release verification;
-`tests/machine-transaction.test.ts` pins the machine lock.
+pins the public JSON and TSV status contracts; `tests/api-agent-wait.test.ts`
+pins wait parsing, occupant pinning, outcomes, and exit behavior;
+`tests/coordinator-deploy.test.ts` pins atomic fleet rollback; `tests/update.test.ts`
+pins release verification; `tests/machine-transaction.test.ts` pins the machine lock.
 
 The repo's test scripts run through this CLI: `bun run test:unit`,
 `bun run test:terminal`, `bun run test:managed`, and

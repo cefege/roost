@@ -168,7 +168,7 @@ async function revokeLocalDevice(args: string[]): Promise<void> {
 export async function api(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (!verb) {
-    console.error("roost api <verb>: sessions | agent-status | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | events | watch");
+    console.error("roost api <verb>: sessions | agent-status | agent-wait | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | events | watch");
     process.exit(1);
   }
   if (verb === "device-revoke-local") {
@@ -563,7 +563,7 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       break;
     }
     default:
-      console.error(`roost api: unknown verb "${verb}" — sessions | agent-status | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | events | watch`);
+      console.error(`roost api: unknown verb "${verb}" — sessions | agent-status | agent-wait | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | events | watch`);
       process.exit(1);
   }
 }

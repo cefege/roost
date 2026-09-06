@@ -217,7 +217,7 @@ Roost never spawns, supervises, or owns an agent process, conversation, transcri
 ## Agent status (volatile, metadata only)
 
 Roost labels a shell PTY `working`, `blocked` (needs input), or `idle`. This is terminal metadata, not a structured agent session or execution model.
-Dashboard-authorized RPCs can read it; they do not control the agent.
+Dashboard-authorized RPCs can read it or await an observed state transition; they do not control the agent.
 
 Detection lives entirely on the **worker**:
 
@@ -233,8 +233,8 @@ Only a fully identified integration row is `promptable`; screen and identityless
 Nothing about status is persisted. Frames travel worker → coordinator (`WAgentStatus`) → an in-memory hub ordered by epoch, occupant, and revision → `Sync` (`AgentStatusFrame`) → browser.
 A fresh `Sync` connection gets the hub snapshot, and session close drops its row, so worker, coordinator, and browser restarts converge without stale badges.
 
-`AgentStatusGet` and `AgentStatusList` authorize the dashboard actor before reading the hub; missing and foreign sessions share not-found behavior.
-`roost api agent-status <session> [--json]` and `roost api agents [--json]` expose an explicit PID-free projection, never generated-message stringify.
+`AgentStatusGet`, `AgentStatusList`, and `AgentStatusWait` authorize the dashboard actor before reading or entering the hub; missing and foreign sessions share not-found behavior. Waits are registered before current-state inspection, pin an exact epoch and occupant, and resolve from that inspection or an accepted hub update, timeout, replacement, or session close—never output scraping or polling. The registry caps waits at 32 per session and 2,048 process-wide.
+`roost api agent-status <session> [--json]`, `roost api agents [--json]`, and `roost api agent-wait <session> --until <states> --timeout <duration>` expose the PID-free surface; waits return nonzero unless their terminal outcome is `matched`.
 
 **Notification boundary.** The coordinator classifies background `working → blocked` and `working|blocked → idle` transitions and, after a 1 s cancellable delay, sends Web Push to subscribed devices not viewing that session.
 Push subscriptions are the one persisted piece (`push_subscriptions`); in-app toast, unseen title badge, optional sound, and per-browser-profile claim remain browser-local.

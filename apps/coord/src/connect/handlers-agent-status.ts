@@ -1,6 +1,7 @@
-// Dashboard-scoped observed-agent read handlers authorize against durable open
-// session rows before consulting the coordinator's volatile status registry.
-// They project an explicit public view and never depend on worker routability.
+// Dashboard-scoped observed-agent handlers authorize durable open-session
+// membership before consulting volatile status or registering bounded waits.
+// They expose PID-free projections and preserve one not-found response for
+// missing and foreign sessions.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
@@ -8,6 +9,7 @@ import {
   AgentStatusGetResponseSchema,
   AgentStatusListResponseSchema,
   AgentStatusViewSchema,
+  AgentStatusWaitResponseSchema,
   CoordinatorService,
   type AgentStatusView,
 } from "@roost/shared/proto/coordinator_pb";
@@ -15,11 +17,15 @@ import {
   isIdentifiedAgentStatus,
   type AgentStatus,
 } from "@roost/shared/wire";
-import { getAgentStatusSnapshot } from "../agent-status-hub.ts";
+import {
+  AgentStatusWaitError,
+  getAgentStatusSnapshot,
+  waitForAgentStatus,
+} from "../agent-status-hub.ts";
 import { requireDashboardActor } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 
-type AgentStatusMethods = "agentStatusGet" | "agentStatusList";
+type AgentStatusMethods = "agentStatusGet" | "agentStatusList" | "agentStatusWait";
 
 export type AgentStatusHandlers = Pick<
   ServiceImpl<typeof CoordinatorService>,
@@ -30,16 +36,13 @@ export function makeAgentStatusHandlers(deps: ConnectDeps): AgentStatusHandlers 
   return {
     async agentStatusGet(request, context) {
       const actor = requireDashboardActor(context.values);
-      const session = await deps.db.selectFrom("sessions")
-        .select("id")
-        .where("id", "=", request.sessionId)
-        .where("dashboard_id", "=", actor.dashboardId)
-        .where("status", "=", "open")
-        .executeTakeFirst();
-      if (!session) agentStatusNotFound();
-
+      const sessionId = await requireOpenAgentStatusSession(
+        deps,
+        actor.dashboardId,
+        request.sessionId,
+      );
       const status = getAgentStatusSnapshot()
-        .find((candidate) => candidate.session_id === session.id);
+        .find((candidate) => candidate.session_id === sessionId);
       if (!status) agentStatusNotFound();
 
       return create(AgentStatusGetResponseSchema, {
@@ -62,7 +65,66 @@ export function makeAgentStatusHandlers(deps: ConnectDeps): AgentStatusHandlers 
 
       return create(AgentStatusListResponseSchema, { statuses });
     },
+
+    async agentStatusWait(request, context) {
+      const actor = requireDashboardActor(context.values);
+      const sessionId = await requireOpenAgentStatusSession(
+        deps,
+        actor.dashboardId,
+        request.sessionId,
+      );
+      let afterRevision: number | undefined;
+      if (request.afterRevision !== undefined) {
+        if (request.afterRevision > BigInt(Number.MAX_SAFE_INTEGER)) {
+          throw new ConnectError(
+            "invalid agent status wait request",
+            Code.InvalidArgument,
+          );
+        }
+        afterRevision = Number(request.afterRevision);
+      }
+      try {
+        const result = await waitForAgentStatus({
+          sessionId,
+          statusEpoch: request.statusEpoch,
+          occupantId: request.occupantId,
+          desiredStates: request.desiredStates,
+          afterRevision,
+          timeoutMs: request.timeoutMs,
+        }, context.signal);
+        return create(AgentStatusWaitResponseSchema, {
+          outcome: result.outcome,
+        });
+      } catch (error) {
+        remapAgentStatusWaitError(error);
+      }
+    },
   };
+}
+
+async function requireOpenAgentStatusSession(
+  deps: ConnectDeps,
+  dashboardId: string,
+  sessionId: string,
+): Promise<string> {
+  const session = await deps.db.selectFrom("sessions")
+    .select("id")
+    .where("id", "=", sessionId)
+    .where("dashboard_id", "=", dashboardId)
+    .where("status", "=", "open")
+    .executeTakeFirst();
+  if (!session) agentStatusNotFound();
+  return session.id;
+}
+
+function remapAgentStatusWaitError(error: unknown): never {
+  if (!(error instanceof AgentStatusWaitError)) throw error;
+  const code = error.kind === "invalid"
+    ? Code.InvalidArgument
+    : error.kind === "capacity"
+      ? Code.ResourceExhausted
+      : Code.Canceled;
+  throw new ConnectError(error.message, code);
 }
 
 function agentStatusNotFound(): never {

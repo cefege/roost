@@ -120,8 +120,9 @@ import { SHOTS } from "../data/media";
   <FeatureRow eyebrow="Agents" title="Any agent, any CLI">
     <p>
       Roost never spawns, supervises, or owns an agent. There is no wrapper
-      process, no transcript store, and no agent-specific RPC — the CLI is an
-      ordinary command in a shell PTY. That boundary is what makes
+      process, no transcript store, and no agent execution RPC — the CLI is an
+      ordinary command in a shell PTY. Status reads and event waits observe that
+      terminal without changing the boundary. That is what makes
       &ldquo;any CLI&rdquo; true rather than aspirational: a shell, a REPL,
       <code>vim</code>, <code>htop</code>, a build, <code>ssh</code>, tmux, and any
       coding agent, including Claude Code.

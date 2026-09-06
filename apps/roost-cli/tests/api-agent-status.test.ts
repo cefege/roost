@@ -11,7 +11,7 @@ import {
 } from "@roost/shared/proto/coordinator_pb";
 import {
   dispatchAgentStatusApi,
-  type AgentStatusReadClient,
+  type AgentStatusApiClient,
 } from "../src/api-agent-status.ts";
 
 const IDENTIFIED = create(AgentStatusViewSchema, {
@@ -71,7 +71,7 @@ const CONTROL_MESSAGE_STATUS = create(AgentStatusViewSchema, {
   promptable: true,
 });
 
-function fakeClient(statuses: AgentStatusView[], calls: string[] = []): AgentStatusReadClient {
+function fakeClient(statuses: AgentStatusView[], calls: string[] = []): AgentStatusApiClient {
   return {
     async agentStatusGet({ sessionId }) {
       calls.push(`get:${sessionId}`);
@@ -81,11 +81,15 @@ function fakeClient(statuses: AgentStatusView[], calls: string[] = []): AgentSta
       calls.push("list");
       return { statuses };
     },
+    async agentStatusWait() {
+      calls.push("wait");
+      return { outcome: "matched" };
+    },
   };
 }
 
 async function capture(
-  client: AgentStatusReadClient,
+  client: AgentStatusApiClient,
   verb: string,
   args: string[],
 ): Promise<{ handled: boolean; output: string }> {

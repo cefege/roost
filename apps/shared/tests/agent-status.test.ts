@@ -1,6 +1,6 @@
 // Pins legacy and identified agent-status validation across Zod and protobuf.
-// The tests cover worker, Sync, and coordinator read projections without
-// inventing process provenance for identityless rolling-deployment frames.
+// The tests cover worker/Sync transport plus coordinator read and wait DTOs
+// without inventing process provenance for identityless deployment frames.
 
 import { describe, expect, test } from "bun:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
@@ -22,6 +22,8 @@ import {
   AgentStatusListRequestSchema,
   AgentStatusListResponseSchema,
   AgentStatusViewSchema,
+  AgentStatusWaitRequestSchema,
+  AgentStatusWaitResponseSchema,
   CoordinatorService,
 } from "../src/gen/roost/v1/coordinator_pb.ts";
 import {
@@ -223,9 +225,9 @@ describe("agent status protobuf contract", () => {
     }
   });
 
-  test("exposes explicit coordinator read DTOs and service methods", () => {
+  test("exposes explicit coordinator status DTOs and service methods", () => {
     expect(CoordinatorService.methods.map((method) => method.localName)).toEqual(
-      expect.arrayContaining(["agentStatusGet", "agentStatusList"]),
+      expect.arrayContaining(["agentStatusGet", "agentStatusList", "agentStatusWait"]),
     );
     const view = create(AgentStatusViewSchema, {
       sessionId,
@@ -256,6 +258,17 @@ describe("agent status protobuf contract", () => {
     const listResponse = create(AgentStatusListResponseSchema, {
       statuses: [view, legacyView],
     });
+    const waitRequest = create(AgentStatusWaitRequestSchema, {
+      sessionId,
+      statusEpoch,
+      occupantId,
+      desiredStates: ["blocked", "idle"],
+      afterRevision: 9n,
+      timeoutMs: 30_000,
+    });
+    const waitResponse = create(AgentStatusWaitResponseSchema, {
+      outcome: "matched",
+    });
 
     expect(fromBinary(
       AgentStatusGetRequestSchema,
@@ -278,5 +291,20 @@ describe("agent status protobuf contract", () => {
     expect(roundTripStatuses[1]?.statusEpoch).toBeUndefined();
     expect(roundTripStatuses[1]?.occupantId).toBeUndefined();
     expect(roundTripStatuses[1]?.source).toBeUndefined();
+    expect(fromBinary(
+      AgentStatusWaitRequestSchema,
+      toBinary(AgentStatusWaitRequestSchema, waitRequest),
+    )).toMatchObject({
+      sessionId,
+      statusEpoch,
+      occupantId,
+      desiredStates: ["blocked", "idle"],
+      afterRevision: 9n,
+      timeoutMs: 30_000,
+    });
+    expect(fromBinary(
+      AgentStatusWaitResponseSchema,
+      toBinary(AgentStatusWaitResponseSchema, waitResponse),
+    ).outcome).toBe("matched");
   });
 });

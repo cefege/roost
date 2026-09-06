@@ -148,7 +148,7 @@ function usage(): never {
   console.error("  status            health readout (endpoint, agents, coord, workers)");
   console.error("  doctor [--since]  daily anomaly digest from err logs (default 24h)");
   console.error("  organizations bootstrap-owner --email <address> --organization <slug> --dashboard <slug>  provision the managed owner (password via stdin or ROOST_OWNER_BOOTSTRAP_PASSWORD)");
-  console.error("  api <verb>        headless introspect/drive (sessions|cells|input|rename|assign|attach|spawn|kill|workers|workspaces|ws-*|tasks|task-*|ui|ui-state|events)");
+  console.error("  api <verb>        headless introspect/drive (sessions|agent-status|agent-wait|agents|cells|input|rename|assign|attach|spawn|kill|workers|workspaces|ws-*|tasks|task-*|ui|ui-state|events)");
   console.error("  add-machine --platform <macos|linux|windows> [--label X] [--publisher-sha256 HEX]  print a one-shot enrollment command");
   console.error("  join                install + register this machine's worker (used by join.sh; needs ROOST_COORDINATOR_URL + ROOST_BOOTSTRAP_TOKEN)");
   console.error("  update            self-update the binary from the latest GitHub release");

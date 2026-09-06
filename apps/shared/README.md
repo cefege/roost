@@ -136,6 +136,13 @@ producers and consumers.
   wire. `promptable` exists only in the coordinator read projection and is true
   only for an identified integration source.
 
+- **Agent-status waits carry exact identity.** `AgentStatusWait` names one
+  `status_epoch` and `occupant_id`, a non-empty unique desired-state list, an
+  optional exclusive revision fence, and a mandatory timeout no longer than
+  five minutes. Its terminal outcomes are `matched`, `timed_out`,
+  `occupant_changed`, and `session_closed`; transport cancellation is an RPC
+  error, not another outcome.
+
 - **`src/fingerprint.ts` is the only pubkey fingerprint.** Hex SHA-256 of a raw
   32-byte ed25519 pubkey, and all three ends of the protocol must agree
   byte-for-byte forever — it is the JWT `kid`, the authorized-keys match, and the

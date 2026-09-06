@@ -43,10 +43,10 @@ handler layers. This per-account profile is qualification-only in v0.5.0; the
 managed service is not publicly launched. Accounts are operator-created; open
 signup and production managed image publication are off.
 
-## The 18 handler domains
+## The 19 handler domains
 
 `src/connect/router.ts` is **pure wiring**: it installs the auth interceptor and
-spreads 18 domain factories into a **single**
+spreads 19 domain factories into a **single**
 `router.service(CoordinatorService, {…})` literal. No handler logic or
 per-domain state lives there.
 
@@ -58,6 +58,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | --- | --- | --- |
 | transcription | `src/connect/handlers-transcription.ts` | dashboard-admin Deepgram config/get/set/test + stored-key handoff |
 | agent-config | `src/connect/handlers-agent-config.ts` | default launch-button agent command, `app_settings`-backed, universal across devices |
+| agent-status | `src/connect/handlers-agent-status.ts` | dashboard-authorized volatile status Get/List and occupant-pinned event waits |
 | attachments | `src/connect/handlers-attachments.ts` | worker-forwarded read/read-chunk/list/mkdir + attachment upload/probe/list/delete |
 | mcp | `src/connect/handlers-mcp.ts` | MCP relay CRUD and publication, with a bus delta per mutation |
 | auth | `src/connect/handlers-auth.ts` | facade over `src/connect/handlers-auth-bootstrap.ts`, `src/connect/handlers-pairing.ts`, and `src/connect/handlers-devices.ts`: identity/access, bootstrap redemption, pairing, device rotation/revocation, logout |
@@ -77,7 +78,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 
 ## Module map
 
-- `src/connect/` — everything protocol-facing: the 18 handler domains and
+- `src/connect/` — everything protocol-facing: the 19 handler domains and
   focused facade leaves, auth interceptor, both split WS transports, Sync
   feed/scheduler, terminal view/screen hubs, terminal input lane, worker
   facade, announced-channel barrier, and pending spawns.
@@ -110,8 +111,9 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/connect/terminal-screen-hub.ts` (canonical cell replica and resumable
   per-socket cursors), `src/buses.ts` (`BoundedBus<T>`, one per non-terminal
   domain), `src/jwt.ts`, `src/coord-key.ts`, `src/authorized-keys.ts`,
-  `src/agent-status-hub.ts` (live projection and push timers), and
-  `src/agent-status-order.ts` (epoch/occupant admission and retirement).
+  `src/agent-status-hub.ts` (live projection and bounded occupant waiters),
+  `src/agent-status-order.ts` (epoch/occupant admission and retirement), and
+  `src/agent-status-push-scheduler.ts` (debounced transition pushes).
   Web Push owners are `src/push-dispatch.ts`, `src/push-sender.ts`, and
   `src/vapid.ts`. `src/deploy-jobs.ts` owns the
   generic job registry + POSIX `roost deploy` subprocess; remaining owners are
@@ -223,10 +225,14 @@ the worker-WS registry that server populates.
   revision; displaced epochs/occupants are equality-fenced against late active
   and inactive frames. Identityless rollout frames never replace an identified
   status, and source is mutable provenance rather than an ordering token.
+- **Agent-status waits are exact and event-driven.** A waiter is registered
+  before the hub inspects current state, is fenced to one status epoch and
+  occupant, and is removed on match, timeout, replacement, close, cancellation,
+  or hub stop. The registry admits at most 32 waits per session and 2,048 total.
 
 ## Testing
 
-- `bun test apps/coord/tests/` — 111 `**/*.test.ts` files, 498 registered
+- `bun test apps/coord/tests/` — 113 `**/*.test.ts` files, 511 registered
   tests. `tests/coord-e2e.test.ts` boots a coordinator through `createCoord`
   against in-memory SQLite and drives `coord.fetch(...)` directly: no
   `Bun.serve`, port allocation, or network.

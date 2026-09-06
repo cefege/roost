@@ -1,15 +1,23 @@
-// Formats and dispatches dashboard-scoped agent-status read commands.
-// Called by api.ts before the remaining API verb switch.
-// Keeps JSON stable by projecting protobuf messages field by field.
+// Formats and dispatches dashboard-scoped agent-status read and wait commands.
+// Read JSON remains an explicit stable projection; waits pin the exact current
+// occupant and print only their terminal outcome.
 
 import type { AgentStatusView } from "@roost/shared/proto/coordinator_pb";
 
-export interface AgentStatusReadClient {
+export interface AgentStatusApiClient {
   agentStatusGet(request: { sessionId: string }): Promise<{ status?: AgentStatusView }>;
   agentStatusList(request: Record<string, never>): Promise<{ statuses: AgentStatusView[] }>;
+  agentStatusWait(request: {
+    sessionId: string;
+    statusEpoch: string;
+    occupantId: string;
+    desiredStates: string[];
+    timeoutMs: number;
+  }): Promise<{ outcome: string }>;
 }
 
 export type AgentStatusLineWriter = (line: string) => void;
+export type AgentStatusExitWriter = (code: number) => void;
 
 type PublicAgentStatus = {
   session_id: string;
@@ -40,10 +48,13 @@ const TSV_HEADER = [
 ].join("\t");
 
 export async function dispatchAgentStatusApi(
-  client: AgentStatusReadClient,
+  client: AgentStatusApiClient,
   verb: string,
   args: readonly string[],
   writeLine: AgentStatusLineWriter = (line) => console.log(line),
+  writeExitCode: AgentStatusExitWriter = (code) => {
+    process.exitCode = code;
+  },
 ): Promise<boolean> {
   if (verb === "agent-status") {
     const sessionId = args[0];
@@ -58,6 +69,30 @@ export async function dispatchAgentStatusApi(
     return true;
   }
 
+  if (verb === "agent-wait") {
+    const parsed = parseAgentWaitArgs(args);
+    const current = await client.agentStatusGet({ sessionId: parsed.sessionId });
+    if (!current.status) {
+      throw new Error("agent-wait: coordinator returned an empty status response");
+    }
+    if (!current.status.statusEpoch || !current.status.occupantId) {
+      throw new Error("agent-wait: current agent status has no occupant identity");
+    }
+    const response = await client.agentStatusWait({
+      sessionId: parsed.sessionId,
+      statusEpoch: current.status.statusEpoch,
+      occupantId: current.status.occupantId,
+      desiredStates: parsed.desiredStates,
+      timeoutMs: parsed.timeoutMs,
+    });
+    if (AGENT_WAIT_OUTCOMES[response.outcome] !== true) {
+      throw new Error("agent-wait: coordinator returned an invalid outcome");
+    }
+    writeLine(response.outcome);
+    if (response.outcome !== "matched") writeExitCode(1);
+    return true;
+  }
+
   if (verb !== "agents") return false;
   const response = await client.agentStatusList({});
   const statuses = [...response.statuses]
@@ -65,6 +100,91 @@ export async function dispatchAgentStatusApi(
     .map(projectAgentStatus);
   printStatuses(statuses, args.includes("--json"), true, writeLine);
   return true;
+}
+
+interface ParsedAgentWaitArgs {
+  sessionId: string;
+  desiredStates: string[];
+  timeoutMs: number;
+}
+
+const AGENT_WAIT_STATES: Record<string, true | undefined> = {
+  blocked: true,
+  idle: true,
+  working: true,
+};
+const AGENT_WAIT_OUTCOMES: Record<string, true | undefined> = {
+  matched: true,
+  timed_out: true,
+  occupant_changed: true,
+  session_closed: true,
+};
+const AGENT_WAIT_MAX_TIMEOUT_MS = 300_000n;
+
+function parseAgentWaitArgs(args: readonly string[]): ParsedAgentWaitArgs {
+  const sessionId = args[0];
+  if (!sessionId || sessionId.startsWith("--")) {
+    throw new Error("agent-wait: missing <session>");
+  }
+  let untilValue: string | undefined;
+  let timeoutValue: string | undefined;
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (argument === "--until" || argument === "--timeout") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error(`agent-wait: ${argument} requires a value`);
+      }
+      if (argument === "--until") {
+        if (untilValue !== undefined) throw new Error("agent-wait: duplicate --until");
+        untilValue = value;
+      } else {
+        if (timeoutValue !== undefined) throw new Error("agent-wait: duplicate --timeout");
+        timeoutValue = value;
+      }
+      index += 1;
+    } else if (argument.startsWith("--until=")) {
+      if (untilValue !== undefined) throw new Error("agent-wait: duplicate --until");
+      untilValue = argument.slice("--until=".length);
+    } else if (argument.startsWith("--timeout=")) {
+      if (timeoutValue !== undefined) throw new Error("agent-wait: duplicate --timeout");
+      timeoutValue = argument.slice("--timeout=".length);
+    } else {
+      throw new Error(`agent-wait: unexpected argument ${JSON.stringify(argument)}`);
+    }
+  }
+  if (untilValue === undefined) throw new Error("agent-wait: missing --until");
+  if (timeoutValue === undefined) throw new Error("agent-wait: missing --timeout");
+  const desiredStates = untilValue.split(",");
+  if (
+    desiredStates.length === 0
+    || desiredStates.some((state) => AGENT_WAIT_STATES[state] !== true)
+    || new Set(desiredStates).size !== desiredStates.length
+  ) {
+    throw new Error("agent-wait: --until must be a unique comma-list of blocked,idle,working");
+  }
+  return {
+    sessionId,
+    desiredStates,
+    timeoutMs: parseAgentWaitDuration(timeoutValue),
+  };
+}
+
+function parseAgentWaitDuration(value: string): number {
+  const match = /^([1-9][0-9]*)(ms|s|m)$/.exec(value);
+  if (!match) invalidAgentWaitDuration();
+  const multiplier = match[2] === "m" ? 60_000n : match[2] === "s" ? 1_000n : 1n;
+  const timeoutMs = BigInt(match[1]!) * multiplier;
+  if (timeoutMs < 1n || timeoutMs > AGENT_WAIT_MAX_TIMEOUT_MS) {
+    invalidAgentWaitDuration();
+  }
+  return Number(timeoutMs);
+}
+
+function invalidAgentWaitDuration(): never {
+  throw new Error(
+    "agent-wait: --timeout must be an integer duration from 1ms to 5m (for example 30s)",
+  );
 }
 
 function projectAgentStatus(status: AgentStatusView): PublicAgentStatus {

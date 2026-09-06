@@ -90,6 +90,7 @@ describe("managed public surface without Cloudflare Access", () => {
       `${RPC}SessionsList`,
       `${RPC}AgentStatusGet`,
       `${RPC}AgentStatusList`,
+      `${RPC}AgentStatusWait`,
       `${RPC}WorkersRegister`,
       `${RPC}WorkersHeartbeat`,
     ]) {
@@ -113,6 +114,7 @@ describe("managed public surface without Cloudflare Access", () => {
       `${RPC}SessionsList`,
       `${RPC}AgentStatusGet`,
       `${RPC}AgentStatusList`,
+      `${RPC}AgentStatusWait`,
       `${RPC}AuthMintBootstrap`,
       `${RPC}DevicesList`,
       `${RPC}DevicesRevoke`,

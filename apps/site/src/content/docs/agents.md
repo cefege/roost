@@ -61,6 +61,7 @@ dashboard without opening a browser:
 ```sh
 roost api agent-status <session> [--json]
 roost api agents [--json]
+roost api agent-wait <session> --until <blocked,idle,working> --timeout <duration>
 ```
 
 The first command reads one authorized session; a missing or foreign session
@@ -79,6 +80,14 @@ observation and fencing state, not process handles, agent credentials, or
 conversation identifiers. Process IDs never leave the worker. Only a complete
 integration identity is `promptable`; screen and legacy rows remain readable
 with `promptable=false`.
+
+`agent-wait` first reads and pins the current `status_epoch` and `occupant_id`,
+then registers an event-driven wait at the coordinator. `--until` is a unique
+comma-list of `blocked`, `idle`, and `working`; `--timeout` accepts an integral
+`ms`, `s`, or `m` duration through five minutes. It prints exactly one terminal
+outcome: `matched`, `timed_out`, `occupant_changed`, or `session_closed`.
+Only `matched` exits successfully. Replacement, close, and fast transitions are
+observed in the status hub; the command does not poll or scrape terminal output.
 
 ## Three detection tiers
 

@@ -1,32 +1,33 @@
-// The coordinator's single registry of live agent status: validates each
-// worker frame, fences replacements by observed occupant identity, and
-// debounces transition pushes by 1s instead of firing per update.
-// Module-global Maps mean one hub per process; ownership comes exclusively
-// from the coordinator's session cache. Retired identity tombstones survive
-// close/open boundaries, and their UUIDs are never ordered by text.
+// The coordinator's single registry of live agent status validates worker
+// frames, fences occupant replacement, and owns bounded event-driven waits.
+// Module-global maps mean one hub per process; session cache and session-bus
+// events remain the only authority for worker ownership and terminal closure.
 import {
+  AgentOccupantId,
+  AgentRuntimeState,
   AgentStatus,
   AgentStatusUpdate,
+  SessionId,
+  StatusEpoch,
   isIdentifiedAgentStatus,
-  type AgentOccupantId,
+  type AgentOccupantId as AgentOccupantIdValue,
+  type AgentRuntimeState as AgentRuntimeStateValue,
   type AgentStatus as AgentStatusValue,
   type AgentStatusUpdate as AgentStatusUpdateValue,
-  type StatusEpoch,
+  type StatusEpoch as StatusEpochValue,
 } from "@roost/shared/wire";
 import { diag, signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import { agentStatusBus, sessionBus } from "./buses.ts";
 import { getCachedSessionWorker } from "./byte-hub.ts";
-import type { KyselyDB } from "./db/connection.ts";
 import {
-  firePushForTransition,
-  type AgentPushTransition,
-  type PushTransition,
-} from "./push-dispatch.ts";
-import {
-  AgentStatusOrder,
-  sameAgentStatusOccupant,
-} from "./agent-status-order.ts";
+  acceptAgentStatusPush,
+  cancelAgentStatusPush,
+  configureAgentStatusPush,
+  stopAgentStatusPush,
+  type AgentStatusPushDeps,
+} from "./agent-status-push-scheduler.ts";
+import { AgentStatusOrder } from "./agent-status-order.ts";
 
 export type AgentStatusAcceptance =
   | "accepted"
@@ -35,147 +36,241 @@ export type AgentStatusAcceptance =
   | "unknown-session"
   | "wrong-worker";
 
-export interface AgentStatusHubDeps {
-  db: KyselyDB;
-  pushAllowedOrigins: readonly string[];
-  tenantRouteKey?: string;
-  dispatchPush?: typeof firePushForTransition;
+export type AgentStatusHubDeps = AgentStatusPushDeps;
+export type AgentStatusWaitOutcome =
+  | "matched"
+  | "timed_out"
+  | "occupant_changed"
+  | "session_closed";
+
+export interface AgentStatusWaitRequest {
+  readonly sessionId: string;
+  readonly statusEpoch: string;
+  readonly occupantId: string;
+  readonly desiredStates: readonly string[];
+  readonly afterRevision?: number;
+  readonly timeoutMs: number;
 }
 
-interface PendingPush {
-  currentRevision: number;
-  triggerRevision: number;
-  statusEpoch: StatusEpoch;
-  occupantId: AgentOccupantId;
-  kind: PushTransition;
-  timer: Timer;
+export interface AgentStatusWaitResult {
+  readonly outcome: AgentStatusWaitOutcome;
 }
 
-const PUSH_DELAY_MS = 1_000;
+export type AgentStatusWaitErrorKind = "invalid" | "capacity" | "canceled";
+
+export class AgentStatusWaitError extends Error {
+  constructor(
+    readonly kind: AgentStatusWaitErrorKind,
+    message: string,
+    readonly capacity?: "session" | "global",
+  ) {
+    super(message);
+    this.name = "AgentStatusWaitError";
+  }
+}
+
+interface PreparedAgentStatusWaitRequest {
+  sessionId: string;
+  statusEpoch: StatusEpochValue;
+  occupantId: AgentOccupantIdValue;
+  desiredStates: Set<AgentRuntimeStateValue>;
+  afterRevision?: number;
+  timeoutMs: number;
+}
+
+interface AgentStatusWaiter extends PreparedAgentStatusWaitRequest {
+  signal: AbortSignal;
+  abortListener: () => void;
+  timer?: Timer;
+  settled: boolean;
+  resolve: (result: AgentStatusWaitResult) => void;
+  reject: (error: AgentStatusWaitError) => void;
+}
+
+export const AGENT_STATUS_WAIT_MAX_TIMEOUT_MS = 300_000;
+export const AGENT_STATUS_WAIT_MAX_PER_SESSION = 32;
+export const AGENT_STATUS_WAIT_MAX_GLOBAL = 2_048;
 
 const activeBySession = new Map<string, AgentStatusValue>();
 const statusOrderBySession = new Map<string, AgentStatusOrder>();
 const closedSessionIds = new Set<string>();
+const waitersBySession = new Map<string, Set<AgentStatusWaiter>>();
+let totalAgentStatusWaiters = 0;
 let unsubscribeSessionBus: (() => void) | undefined;
-const pendingPushBySession = new Map<string, PendingPush>();
-let pushDeps: AgentStatusHubDeps | undefined;
 
-function cancelPendingPush(sessionId: string): PendingPush | undefined {
-  const pending = pendingPushBySession.get(sessionId);
-  if (!pending) return undefined;
-  clearTimeout(pending.timer);
-  pendingPushBySession.delete(sessionId);
-  return pending;
+export async function waitForAgentStatus(
+  request: AgentStatusWaitRequest,
+  signal: AbortSignal,
+): Promise<AgentStatusWaitResult> {
+  const prepared = validateAgentStatusWaitRequest(request);
+  if (signal.aborted) {
+    throw new AgentStatusWaitError("canceled", "agent status wait canceled");
+  }
+  const existing = waitersBySession.get(prepared.sessionId);
+  if ((existing?.size ?? 0) >= AGENT_STATUS_WAIT_MAX_PER_SESSION) {
+    throw new AgentStatusWaitError(
+      "capacity",
+      "agent status wait capacity exhausted",
+      "session",
+    );
+  }
+  if (totalAgentStatusWaiters >= AGENT_STATUS_WAIT_MAX_GLOBAL) {
+    throw new AgentStatusWaitError(
+      "capacity",
+      "agent status wait capacity exhausted",
+      "global",
+    );
+  }
+
+  const { promise, resolve, reject } = Promise.withResolvers<AgentStatusWaitResult>();
+  const waiter: AgentStatusWaiter = {
+    ...prepared,
+    signal,
+    settled: false,
+    abortListener: () => rejectAgentStatusWaiter(
+      waiter,
+      new AgentStatusWaitError("canceled", "agent status wait canceled"),
+    ),
+    resolve,
+    reject,
+  };
+  const sessionWaiters = existing ?? new Set<AgentStatusWaiter>();
+  if (!existing) waitersBySession.set(prepared.sessionId, sessionWaiters);
+  sessionWaiters.add(waiter);
+  totalAgentStatusWaiters += 1;
+  signal.addEventListener("abort", waiter.abortListener, { once: true });
+  const timer = setTimeout(
+    () => resolveAgentStatusWaiter(waiter, "timed_out"),
+    prepared.timeoutMs,
+  );
+  timer.unref?.();
+  waiter.timer = timer;
+  log.debug("agent-status", "wait_registered", {
+    session_id: prepared.sessionId,
+    status_epoch: prepared.statusEpoch,
+    occupant_id: prepared.occupantId,
+  });
+
+  if (signal.aborted) waiter.abortListener();
+  else evaluateAgentStatusWaiter(waiter);
+  return promise;
 }
 
-function pendingMatchesOccupant(
-  pending: PendingPush,
-  status: AgentStatusValue | AgentStatusUpdateValue,
-): boolean {
-  return isIdentifiedAgentStatus(status)
-    && pending.statusEpoch === status.status_epoch
-    && pending.occupantId === status.occupant_id;
+export function _agentStatusWaiterStats(): {
+  total: number;
+  sessions: number;
+} {
+  return {
+    total: totalAgentStatusWaiters,
+    sessions: waitersBySession.size,
+  };
 }
 
-function pendingMatchesCurrentStatus(
-  pending: PendingPush,
-  status: AgentStatusValue | undefined,
-): boolean {
+function validateAgentStatusWaitRequest(
+  request: AgentStatusWaitRequest,
+): PreparedAgentStatusWaitRequest {
+  const sessionId = SessionId.safeParse(request.sessionId);
+  const statusEpoch = StatusEpoch.safeParse(request.statusEpoch);
+  const occupantId = AgentOccupantId.safeParse(request.occupantId);
+  const desiredStates = request.desiredStates.map((state) => AgentRuntimeState.safeParse(state));
+  const uniqueStates = new Set(request.desiredStates);
   if (
-    !status
-    || status.revision !== pending.currentRevision
-    || !pendingMatchesOccupant(pending, status)
-  ) return false;
-  return pending.kind === "blocked" ? status.state === "blocked" : status.state === "idle";
-}
-
-function classifyTransition(
-  previous: AgentStatusValue | undefined,
-  next: AgentStatusUpdateValue,
-): PushTransition | undefined {
-  if (!next.active || !previous || !sameAgentStatusOccupant(previous, next)) return undefined;
-  if (previous.state === "working" && next.state === "blocked") return "blocked";
-  if (
-    (previous.state === "working" || previous.state === "blocked")
-    && next.state === "idle"
-    && next.completed_revision > previous.completed_revision
-  ) return "done";
-  return undefined;
-}
-
-function schedulePush(
-  previous: AgentStatusValue | undefined,
-  next: AgentStatusUpdateValue,
-  carried: PendingPush | undefined,
-): void {
-  if (
-    !pushDeps
-    || pushDeps.pushAllowedOrigins.length === 0
-    || !next.active
-    || !isIdentifiedAgentStatus(next)
-  ) return;
-  let kind = classifyTransition(previous, next);
-  let triggerRevision = next.revision;
-  if (
-    !kind
-    && carried
-    && pendingMatchesOccupant(carried, next)
-    && (
-      (carried.kind === "blocked" && next.state === "blocked")
-      || (carried.kind === "done" && next.state === "idle")
+    !sessionId.success
+    || !statusEpoch.success
+    || !occupantId.success
+    || request.desiredStates.length === 0
+    || uniqueStates.size !== request.desiredStates.length
+    || desiredStates.some((state) => !state.success)
+    || !Number.isSafeInteger(request.timeoutMs)
+    || request.timeoutMs < 1
+    || request.timeoutMs > AGENT_STATUS_WAIT_MAX_TIMEOUT_MS
+    || (
+      request.afterRevision !== undefined
+      && (
+        !Number.isSafeInteger(request.afterRevision)
+        || request.afterRevision < 0
+      )
     )
   ) {
-    kind = carried.kind;
-    triggerRevision = carried.triggerRevision;
+    throw new AgentStatusWaitError("invalid", "invalid agent status wait request");
   }
-  if (!kind) return;
-
-  const sessionId = next.session_id;
-  const currentRevision = next.revision;
-  const transitionKind = kind;
-  let pending: PendingPush;
-  const timer = setTimeout(() => {
-    if (pendingPushBySession.get(sessionId) !== pending) return;
-    pendingPushBySession.delete(sessionId);
-    if (!pendingMatchesCurrentStatus(pending, activeBySession.get(sessionId))) return;
-    const deps = pushDeps;
-    const dispatch = deps?.dispatchPush ?? firePushForTransition;
-    if (!deps || !dispatch) return;
-    const transition: AgentPushTransition = {
-      sessionId,
-      kind: transitionKind,
-      statusEpoch: pending.statusEpoch,
-      occupantId: pending.occupantId,
-      revision: pending.triggerRevision,
-    };
-    void dispatch(
-      deps.db,
-      transition,
-      deps.pushAllowedOrigins,
-      () => pendingMatchesCurrentStatus(pending, activeBySession.get(sessionId)),
-      undefined,
-      deps.tenantRouteKey,
-    ).catch((error) => {
-      log.warn("agent-status", "push_failed", {
-        session_id: sessionId,
-        kind: transitionKind,
-        status_epoch: pending.statusEpoch,
-        occupant_id: pending.occupantId,
-        revision: pending.triggerRevision,
-        error: String(error),
-      });
-    });
-  }, PUSH_DELAY_MS);
-  timer.unref?.();
-  pending = {
-    currentRevision,
-    triggerRevision,
-    kind: transitionKind,
-    timer,
-    statusEpoch: next.status_epoch,
-    occupantId: next.occupant_id,
+  return {
+    sessionId: sessionId.data,
+    statusEpoch: statusEpoch.data,
+    occupantId: occupantId.data,
+    desiredStates: new Set(desiredStates.map((state) => state.data!)),
+    afterRevision: request.afterRevision,
+    timeoutMs: request.timeoutMs,
   };
-  pendingPushBySession.set(sessionId, pending);
+}
+
+function evaluateAgentStatusWaiters(sessionId: string): void {
+  const waiters = waitersBySession.get(sessionId);
+  if (!waiters) return;
+  for (const waiter of [...waiters]) evaluateAgentStatusWaiter(waiter);
+}
+
+function evaluateAgentStatusWaiter(waiter: AgentStatusWaiter): void {
+  if (closedSessionIds.has(waiter.sessionId)) {
+    resolveAgentStatusWaiter(waiter, "session_closed");
+    return;
+  }
+  const status = activeBySession.get(waiter.sessionId);
+  if (
+    !status
+    || !isIdentifiedAgentStatus(status)
+    || status.status_epoch !== waiter.statusEpoch
+    || status.occupant_id !== waiter.occupantId
+  ) {
+    resolveAgentStatusWaiter(waiter, "occupant_changed");
+    return;
+  }
+  if (
+    waiter.desiredStates.has(status.state)
+    && (waiter.afterRevision === undefined || status.revision > waiter.afterRevision)
+  ) {
+    resolveAgentStatusWaiter(waiter, "matched");
+  }
+}
+
+function resolveAgentStatusWaiter(
+  waiter: AgentStatusWaiter,
+  outcome: AgentStatusWaitOutcome,
+): void {
+  if (!removeAgentStatusWaiter(waiter)) return;
+  log.debug("agent-status", "wait_resolved", {
+    session_id: waiter.sessionId,
+    status_epoch: waiter.statusEpoch,
+    occupant_id: waiter.occupantId,
+    outcome,
+  });
+  waiter.resolve({ outcome });
+}
+
+function rejectAgentStatusWaiter(
+  waiter: AgentStatusWaiter,
+  error: AgentStatusWaitError,
+): void {
+  if (!removeAgentStatusWaiter(waiter)) return;
+  log.debug("agent-status", "wait_rejected", {
+    session_id: waiter.sessionId,
+    status_epoch: waiter.statusEpoch,
+    occupant_id: waiter.occupantId,
+    reason: error.kind,
+  });
+  waiter.reject(error);
+}
+
+function removeAgentStatusWaiter(waiter: AgentStatusWaiter): boolean {
+  if (waiter.settled) return false;
+  waiter.settled = true;
+  clearTimeout(waiter.timer);
+  waiter.signal.removeEventListener("abort", waiter.abortListener);
+  const sessionWaiters = waitersBySession.get(waiter.sessionId);
+  sessionWaiters?.delete(waiter);
+  if (sessionWaiters?.size === 0) waitersBySession.delete(waiter.sessionId);
+  totalAgentStatusWaiters -= 1;
+  return true;
 }
 
 /**
@@ -226,7 +321,6 @@ export function handleWorkerAgentStatus(
   const order = statusOrderBySession.get(update.session_id) ?? new AgentStatusOrder();
   if (!order.accepts(previous, update)) return "stale";
 
-  const carriedPush = cancelPendingPush(update.session_id);
   order.record(update);
   statusOrderBySession.set(update.session_id, order);
   if (update.active) {
@@ -234,16 +328,27 @@ export function handleWorkerAgentStatus(
   } else {
     activeBySession.delete(update.session_id);
   }
+  evaluateAgentStatusWaiters(update.session_id);
   agentStatusBus.publish(update);
-  schedulePush(previous, update, carriedPush);
+  acceptAgentStatusPush(
+    previous,
+    update,
+    (sessionId) => activeBySession.get(sessionId),
+  );
   return "accepted";
 }
 
 function clearClosedSession(sessionId: string): void {
-  cancelPendingPush(sessionId);
+  closedSessionIds.add(sessionId);
+  const waiters = waitersBySession.get(sessionId);
+  if (waiters) {
+    for (const waiter of [...waiters]) {
+      resolveAgentStatusWaiter(waiter, "session_closed");
+    }
+  }
+  cancelAgentStatusPush(sessionId);
   const current = activeBySession.get(sessionId);
   activeBySession.delete(sessionId);
-  closedSessionIds.add(sessionId);
   if (!current) return;
 
   const inactive: AgentStatusUpdateValue = {
@@ -259,7 +364,7 @@ function clearClosedSession(sessionId: string): void {
 }
 
 export function startAgentStatusHub(deps?: AgentStatusHubDeps): void {
-  if (deps) pushDeps = deps;
+  configureAgentStatusPush(deps);
   if (unsubscribeSessionBus) return;
   unsubscribeSessionBus = sessionBus.subscribe((event) => {
     if (event.kind === "closed") {
@@ -271,9 +376,17 @@ export function startAgentStatusHub(deps?: AgentStatusHubDeps): void {
 }
 
 export function stopAgentStatusHub(): void {
-  for (const pending of pendingPushBySession.values()) clearTimeout(pending.timer);
-  pendingPushBySession.clear();
-  pushDeps = undefined;
+  for (const waiters of [...waitersBySession.values()]) {
+    for (const waiter of [...waiters]) {
+      rejectAgentStatusWaiter(
+        waiter,
+        new AgentStatusWaitError("canceled", "agent status hub stopped"),
+      );
+    }
+  }
+  waitersBySession.clear();
+  totalAgentStatusWaiters = 0;
+  stopAgentStatusPush();
   unsubscribeSessionBus?.();
   unsubscribeSessionBus = undefined;
   activeBySession.clear();
