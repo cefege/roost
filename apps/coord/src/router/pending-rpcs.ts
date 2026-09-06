@@ -189,6 +189,17 @@ export function rejectPendingRpcUnavailable(
   return true;
 }
 
+/** Cancel one browser-abandoned worker RPC and release its timer immediately. */
+export function cancelPendingRpc(
+  request_id: string,
+  workerFp?: string,
+): boolean {
+  const entry = takePending(request_id, workerFp);
+  if (!entry) return false;
+  entry.reject(new ConnectError("browser request cancelled", Code.Canceled));
+  return true;
+}
+
 export function _pendingRpcStats(): { pending: number } {
   return { pending: _pending.size };
 }

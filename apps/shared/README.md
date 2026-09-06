@@ -29,6 +29,7 @@ import style is now correct instead of two.
 | `@roost/shared/wire/row-proto` | scrollback row ↔ proto |
 | `@roost/shared/wire/sync-ws` | Sync WebSocket path, auth subprotocol, negotiation query constants |
 | `@roost/shared/wire/headers` | shared `x-roost-*` header names and listener-trust sentinel values |
+| `@roost/shared/terminal-search` | bounded paging limits, Unicode code-point utilities, stop reasons, worker-result validation |
 | `@roost/shared/cell` | cell-grid model, emitter, delta apply, bounded snapshot chunking/assembly (R11) |
 | `@roost/shared/cell/cell-proto` | cell frame ↔ proto |
 | `@roost/shared/proto/*` | every generated `_pb.ts` (`…/proto/coordinator_pb`) |
@@ -87,6 +88,9 @@ producers and consumers.
   projectors), `src/wire/control.ts`, `src/wire/coord-worker.ts`,
   `src/wire/sync-ws.ts`, `src/wire/headers.ts`, `src/wire/workspace.ts`,
   `src/wire/task.ts`, `src/wire/mcp.ts`, plus the `*-proto.ts` adapters.
+- **Terminal search** — `src/terminal-search.ts` owns query/row/match/preview
+  limits, exclusive-cursor result validation, and Unicode code-point
+  counting/truncation shared by every search hop.
 - **Terminal cell model** — public barrel `src/cell/index.ts`;
   `src/cell/types.ts`, `src/cell/grid-to-cells.ts`, `src/cell/diff-grid.ts`,
   `src/cell/emitter.ts`, `src/cell/cell-proto.ts`, and snapshot owners
@@ -110,6 +114,15 @@ producers and consumers.
   `src/wterm-wasm-embed.generated.ts`.
 
 ## Invariants
+
+- **Terminal-search limits reject rather than clamp.** Queries may be empty
+  and are capped at 256 Unicode code points, caller-generated cancellation IDs
+  at 64 characters, pages at 4,096 complete rows, chains at 32 pages, results
+  at 256 matches, previews at 512 Unicode code points, and the outer worker RPC
+  at 8,000 ms.
+  Worker JSON row indices stay nonnegative safe integers until the coordinator
+  converts them to proto `uint64`; `before_row` and `next_before_row` are
+  exclusive cursors; only `row_limit` returns a continuation.
 
 - **`src/fingerprint.ts` is the only pubkey fingerprint.** Hex SHA-256 of a raw
   32-byte ed25519 pubkey, and all three ends of the protocol must agree
@@ -144,7 +157,7 @@ producers and consumers.
 
 ## Test
 
-`bun test apps/shared/tests/` — 27 `**/*.test.ts` files, 218 registered
+`bun test apps/shared/tests/` — 27 `**/*.test.ts` files, 225 registered
 tests. `tests/trace-oracle.ts` is the differential VT trace oracle that gates
 the pinned WASM; it is a helper, not a spec, and is driven by
 `tests/core-trace-oracle.test.ts`.

@@ -65,7 +65,10 @@ async function requestWorkerDiagSnapshot(
         browserId: "coordinator-diag",
         viewerId: "coordinator-diag",
         requestId: pending.request_id,
-        frameJson: JSON.stringify({ kind: "diag-snapshot" }),
+        frameJson: JSON.stringify({
+          kind: "diag-snapshot",
+          request_id: pending.request_id,
+        }),
       }) },
     }));
     if (sent === 0) {

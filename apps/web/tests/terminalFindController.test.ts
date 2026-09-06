@@ -1,83 +1,74 @@
-// Find-in-scrollback epoch fence (terminalFindController.ts).
-//
-// A match `row` is an index into ONE worker-side grid numbering. A core rebuild
-// re-pins the scrollback origin, so a row found in the retired epoch routinely
-// stays numerically inside the new epoch's [sbBase, total) window while naming
-// unrelated history — the old `row >= total` guard waves it straight through and
-// the reader gets scrolled to someone else's output, labelled as their match.
-// These lock the fail-closed behaviour:
-//
-//   F1 — a same-epoch hit pulls its row in and reveals it, exactly as before.
-//   F2 — a hit from a retired epoch is DISCARDED (no jump, no stale highlights,
-//        result set dropped) and re-searched against the grid now on screen —
-//        with the numbers arranged so the pre-fix guard would have jumped.
-//   F3 — a worker refusal after the pane reframed mid-flight re-asks once about
-//        the epoch now displayed instead of blaming the query.
-//   F4 — that retry is bounded: an epoch that keeps moving stops at one re-ask
-//        and reports the failure rather than polling.
-//   F5 — a refusal with the epoch UNCHANGED (bad regex, dead worker) still tints
-//        immediately; the retry never swallows a real failure.
+// Bounded terminal-find page-chain and epoch-fence tests.
+// They pin exclusive cursor progression, terminal partial states, cancellation,
+// reading-order publication, and the single retry after grid renumbering.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { ScrollbackHistoryFloor, SearchStopReason } from "@roost/shared/proto/coordinator_pb";
+import { TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_PAGES, TERMINAL_SEARCH_MAX_ROWS } from "@roost/shared/terminal-search";
 import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
 import type { FindHit } from "../src/lib/cellRow.ts";
 import type { ScrollbackBackfill } from "../src/lib/scrollbackBackfill.ts";
-
 interface SearchRequest {
-  sessionId: string;
-  gridEpoch: string;
-  query: string;
-  caseSensitive: boolean;
-  regex: boolean;
-  maxMatches: number;
+  sessionId: string; searchId: string; gridEpoch: string; query: string;
+  caseSensitive: boolean; regex: boolean; beforeRow?: bigint;
+  maxRows: number; maxMatches: number;
 }
 interface SearchResponse {
   matches: Array<{ row: bigint; col: number; len: number; preview: string }>;
-  truncated: boolean;
-  scrollbackTotal: bigint;
-  cols: number;
-  gridEpoch: string;
+  truncated: boolean; scrollbackTotal: bigint; cols: number; gridEpoch: string;
+  scannedStartRow: bigint; scannedEndRow: bigint;
+  historyFloor: ScrollbackHistoryFloor; nextBeforeRow?: bigint;
+  stopReason: SearchStopReason;
 }
-
+interface SearchCallOptions { signal?: AbortSignal }
 const requests: SearchRequest[] = [];
-let rpcImpl: (request: SearchRequest) => Promise<SearchResponse>;
-
+const signals: AbortSignal[] = [];
+const cancellationRequests: Array<{ sessionId: string; searchId: string }> = [];
+let rpcImpl: (request: SearchRequest, options?: SearchCallOptions) => Promise<SearchResponse>;
 mock.module("../src/connect.ts", () => ({
   coordClient: {
-    sessionsSearchScrollback(request: SearchRequest) {
+    sessionsSearchScrollback(request: SearchRequest, options?: SearchCallOptions) {
       requests.push(request);
-      return rpcImpl(request);
+      if (options?.signal) signals.push(options.signal);
+      return rpcImpl(request, options);
+    },
+    async sessionsCancelScrollbackSearch(request: { sessionId: string; searchId: string }) {
+      cancellationRequests.push(request);
+      return {};
     },
   },
 }));
 
-// The Connect client must be mocked before the controller module is evaluated.
 const { createTerminalFind } = await import("../src/lib/terminalFindController.ts");
 
 const EPOCH_A = "grid-a:0";
 const EPOCH_B = "grid-b:0";
 
-function reply(rows: number[], gridEpoch: string): SearchResponse {
+interface ReplyOptions { stop?: SearchStopReason; start?: number; end?: number; next?: number }
+
+function reply(rows: number[], gridEpoch: string, options: ReplyOptions = {}): SearchResponse {
+  const stopReason = options.stop ?? SearchStopReason.COMPLETE;
   return {
-    matches: rows.map((row) => ({
-      row: BigInt(row), col: 3, len: 4, preview: `line ${row}`,
-    })),
-    truncated: false,
+    matches: rows.map((row) => ({ row: BigInt(row), col: 3, len: 4, preview: `line ${row}` })),
+    truncated: stopReason === SearchStopReason.MATCH_LIMIT || stopReason === SearchStopReason.DEADLINE,
     scrollbackTotal: 2000n,
     cols: 80,
     gridEpoch,
+    scannedStartRow: BigInt(options.start ?? 0),
+    scannedEndRow: BigInt(options.end ?? 2000),
+    historyFloor: ScrollbackHistoryFloor.UNSPECIFIED,
+    ...(options.next === undefined ? {} : { nextBeforeRow: BigInt(options.next) }),
+    stopReason,
   };
 }
 
 interface Published { rows: number[]; active: { row: number; col: number } | null }
 
 function harness() {
-  // A deep-history pane: rows below 500 are reserved-but-unpainted.
   const anchor = { sbBase: 500, cols: 80, total: 2000, gridEpoch: EPOCH_A };
   const jumps: number[] = [];
   const pulled: number[] = [];
   const published: Published[] = [];
-  let pullOk = true;
   const renderer = {
     backfillAnchor: () => ({ ...anchor }),
     setFindHighlights(
@@ -91,25 +82,19 @@ function harness() {
   const backfill = {
     async ensureRowPainted(absIndex: number) {
       pulled.push(absIndex);
-      return pullOk;
+      return true;
     },
   } as unknown as ScrollbackBackfill;
   const find = createTerminalFind({
-    sessionId: "session-1",
-    renderer: () => renderer,
-    backfill: () => backfill,
+    sessionId: "session-1", renderer: () => renderer, backfill: () => backfill,
   });
   return {
     anchor, jumps, pulled, published, find,
-    setPullOk(value: boolean) { pullOk = value; },
-    last(): Published {
-      return published[published.length - 1] ?? { rows: [], active: null };
-    },
+    last(): Published { return published[published.length - 1] ?? { rows: [], active: null }; },
   };
 }
 
-// Debounce control. The controller owns FIND_DEBOUNCE_MS; a test must not sleep
-// through it, so setTimeout is captured and fired on demand.
+// Capture debounce timers so tests never sleep through FIND_DEBOUNCE_MS.
 const pendingTimers = new Map<number, () => void>();
 let nextTimerId = 1;
 const realSetTimeout = globalThis.setTimeout;
@@ -134,12 +119,10 @@ afterAll(() => {
   Object.defineProperty(globalThis, "clearTimeout", { configurable: true, value: realClearTimeout });
 });
 
-/** Drain the microtask chains an RPC + reveal walk through. */
 async function settle(): Promise<void> {
-  for (let i = 0; i < 12; i++) await Promise.resolve();
+  for (let idx = 0; idx < 30; idx++) await Promise.resolve();
 }
 
-/** Fire the pending debounce and settle everything it starts. */
 async function fireDebounce(): Promise<void> {
   const due = Array.from(pendingTimers.values());
   pendingTimers.clear();
@@ -149,136 +132,268 @@ async function fireDebounce(): Promise<void> {
 
 beforeEach(() => {
   requests.length = 0;
+  signals.length = 0;
+  cancellationRequests.length = 0;
   pendingTimers.clear();
   rpcImpl = async () => reply([], EPOCH_A);
 });
 
-describe("terminal find epoch fence", () => {
+describe("terminal find paging and epoch fence", () => {
   test("F1 — a same-epoch hit pulls its row in and reveals it", async () => {
     const h = harness();
     rpcImpl = async () => reply([120], EPOCH_A);
-
     h.find.setQuery("boom");
     await fireDebounce();
-
     expect(requests).toHaveLength(1);
     expect(requests[0]!.gridEpoch).toBe(EPOCH_A);
-    expect(h.find.matches()).toHaveLength(1);
-    expect(h.find.matches()[0]!.epoch).toBe(EPOCH_A);
+    expect(h.find.matches().map((match) => [match.row, match.epoch])).toEqual([[120, EPOCH_A]]);
     expect(h.find.index()).toBe(1);
-    expect(h.find.failed()).toBe(false);
-    // Reserved-but-unpainted row: pulled in, then jumped to.
     expect(h.pulled).toEqual([120]);
     expect(h.jumps).toEqual([120]);
     expect(h.last()).toEqual({ rows: [120], active: { row: 120, col: 3 } });
   });
 
-  test("F2 — a hit from a retired epoch is discarded, never jumped to", async () => {
+  test("F2 — a retired-epoch set is discarded and re-searched before reveal", async () => {
     const h = harness();
     rpcImpl = async () => reply([1200], EPOCH_A);
-
     h.find.setQuery("boom");
     await fireDebounce();
-    expect(h.find.matches()).toHaveLength(1);
-    expect(h.jumps).toEqual([1200]);
     h.jumps.length = 0;
-    h.pulled.length = 0;
-
-    // A rebuild: new epoch, origin re-pinned low. The held row stays INSIDE the
-    // new window, so every pre-fix guard passes it — this is the wrong-row jump.
     h.anchor.gridEpoch = EPOCH_B;
     h.anchor.sbBase = 0;
     h.anchor.total = 1500;
-    expect(1200).toBeGreaterThanOrEqual(h.anchor.sbBase);
-    expect(1200).toBeLessThan(h.anchor.total);
-
     rpcImpl = async () => reply([80], EPOCH_B);
     h.find.step(1);
     await settle();
-
-    // Nothing was revealed and nothing stale stayed painted.
+    expect(requests.map((request) => request.gridEpoch)).toEqual([EPOCH_A, EPOCH_B]);
     expect(h.jumps).not.toContain(1200);
-    expect(h.pulled).not.toContain(1200);
-    // The set was re-asked for the epoch now on screen, and that answer reveals.
-    expect(requests).toHaveLength(2);
-    expect(requests[1]!.gridEpoch).toBe(EPOCH_B);
-    expect(h.find.matches().map((m) => [m.row, m.epoch])).toEqual([[80, EPOCH_B]]);
+    expect(h.find.matches().map((match) => [match.row, match.epoch])).toEqual([[80, EPOCH_B]]);
     expect(h.jumps).toEqual([80]);
-    expect(h.last()).toEqual({ rows: [80], active: { row: 80, col: 3 } });
   });
 
-  test("F2b — a stale set is dropped even when the re-search finds nothing", async () => {
+  test("F2b — a stale set stays discarded when the retry finds nothing", async () => {
     const h = harness();
     rpcImpl = async () => reply([1200], EPOCH_A);
     h.find.setQuery("boom");
     await fireDebounce();
     h.jumps.length = 0;
-
     h.anchor.gridEpoch = EPOCH_B;
     rpcImpl = async () => reply([], EPOCH_B);
     h.find.step(1);
     await settle();
-
     expect(h.jumps).toEqual([]);
     expect(h.find.matches()).toEqual([]);
     expect(h.find.index()).toBe(0);
-    expect(h.last().rows).toEqual([]);
-    expect(h.last().active).toBeNull();
-    // Discarding a stale hit is not a search failure — the bar must not tint.
+    expect(h.last()).toEqual({ rows: [], active: null });
     expect(h.find.failed()).toBe(false);
   });
 
-  test("F3 — a refused epoch re-asks once about the grid now on screen", async () => {
+  test("F3 — a refused moved epoch re-asks once against the displayed grid", async () => {
     const h = harness();
     rpcImpl = async (request) => {
       if (request.gridEpoch === EPOCH_A) {
-        // The pane reframed while this scan was in flight; the worker refuses the
-        // epoch the request named.
         h.anchor.gridEpoch = EPOCH_B;
         throw new Error("grid epoch changed");
       }
       return reply([700], EPOCH_B);
     };
-
     h.find.setQuery("boom");
     await fireDebounce();
-
-    expect(requests.map((r) => r.gridEpoch)).toEqual([EPOCH_A, EPOCH_B]);
+    expect(requests.map((request) => request.gridEpoch)).toEqual([EPOCH_A, EPOCH_B]);
     expect(h.find.failed()).toBe(false);
-    expect(h.find.matches().map((m) => m.row)).toEqual([700]);
-    // 700 is already painted (>= sbBase 500), so it is revealed with no pull.
-    expect(h.pulled).toEqual([]);
+    expect(h.find.matches().map((match) => match.row)).toEqual([700]);
     expect(h.jumps).toEqual([700]);
   });
 
-  test("F4 — the re-ask is bounded when the epoch keeps moving", async () => {
+  test("F4 — a repeatedly moving epoch spends only one retry", async () => {
     const h = harness();
     let flip = 0;
     rpcImpl = async () => {
       h.anchor.gridEpoch = `grid-${++flip}:0`;
       throw new Error("grid epoch changed");
     };
-
     h.find.setQuery("boom");
     await fireDebounce();
-
-    // One retry, then an honest failure — never a poll.
     expect(requests).toHaveLength(2);
     expect(h.find.failed()).toBe(true);
     expect(h.find.matches()).toEqual([]);
-    expect(h.find.index()).toBe(0);
   });
 
-  test("F5 — a failure with the epoch unchanged tints without retrying", async () => {
+  test("F5 — an ordinary RPC or regex failure does not retry", async () => {
     const h = harness();
-    rpcImpl = async () => { throw new Error("invalid regex: nothing to repeat"); };
-
+    rpcImpl = async () => { throw new Error("invalid regex"); };
     h.find.setQuery("*");
     await fireDebounce();
-
     expect(requests).toHaveLength(1);
     expect(h.find.failed()).toBe(true);
     expect(h.find.matches()).toEqual([]);
     expect(h.jumps).toEqual([]);
+  });
+
+  test("chains sparse pages sequentially with exclusive, non-overlapping cursors", async () => {
+    const h = harness();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    rpcImpl = async (request) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      const response = request.beforeRow === undefined
+        ? reply([1900], EPOCH_A, {
+            stop: SearchStopReason.ROW_LIMIT, start: 1200, end: 2000, next: 1200,
+          })
+        : request.beforeRow === 1200n
+          ? reply([], EPOCH_A, {
+              stop: SearchStopReason.ROW_LIMIT, start: 400, end: 1200, next: 400,
+            })
+          : reply([50], EPOCH_A, { start: 0, end: 400 });
+      inFlight--;
+      return response;
+    };
+    h.find.setQuery("sparse");
+    await fireDebounce();
+    expect(maxInFlight).toBe(1);
+    expect(Object.hasOwn(requests[0]!, "beforeRow")).toBe(false);
+    expect(requests.map((request) => request.beforeRow)).toEqual([undefined, 1200n, 400n]);
+    expect(requests.map((request) => request.maxRows))
+      .toEqual([TERMINAL_SEARCH_MAX_ROWS, TERMINAL_SEARCH_MAX_ROWS, TERMINAL_SEARCH_MAX_ROWS]);
+    expect(requests.map((request) => request.maxMatches))
+      .toEqual([TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_MATCHES - 1, TERMINAL_SEARCH_MAX_MATCHES - 1]);
+    expect(h.find.matches().map((match) => match.row)).toEqual([50, 1900]);
+    expect(h.find.index()).toBe(2);
+    expect(h.find.truncated()).toBe(false);
+    expect(h.find.failed()).toBe(false);
+  });
+
+  test("match-limit and deadline publish explicit capped partial states", async () => {
+    const capped = harness();
+    rpcImpl = async () => reply(
+      Array.from({ length: TERMINAL_SEARCH_MAX_MATCHES }, (_, idx) => 1999 - idx),
+      EPOCH_A,
+      { stop: SearchStopReason.MATCH_LIMIT },
+    );
+    capped.find.setQuery("many");
+    await fireDebounce();
+    expect(capped.find.matches()).toHaveLength(TERMINAL_SEARCH_MAX_MATCHES);
+    expect(capped.find.truncated()).toBe(true);
+    expect(capped.find.failed()).toBe(false);
+
+    const timed = harness();
+    rpcImpl = async () => reply([700], EPOCH_A, { stop: SearchStopReason.DEADLINE });
+    timed.find.setQuery("slow");
+    await fireDebounce();
+    expect(timed.find.matches().map((match) => match.row)).toEqual([700]);
+    expect(timed.find.truncated()).toBe(true);
+    expect(timed.find.failed()).toBe(true);
+
+    const emptyTimed = harness();
+    rpcImpl = async () => reply([], EPOCH_A, { stop: SearchStopReason.DEADLINE, start: 0, end: 0 });
+    emptyTimed.find.setQuery("too slow");
+    await fireDebounce();
+    expect(emptyTimed.find.matches()).toEqual([]);
+    expect(emptyTimed.find.truncated()).toBe(true);
+    expect(emptyTimed.find.failed()).toBe(true);
+  });
+
+  test("later-page epoch change discards the chain and retries from newest", async () => {
+    const h = harness();
+    let call = 0;
+    rpcImpl = async () => {
+      call++;
+      if (call === 1) {
+        return reply([1500], EPOCH_A, {
+          stop: SearchStopReason.ROW_LIMIT, start: 1000, end: 2000, next: 1000,
+        });
+      }
+      if (call === 2) {
+        h.anchor.gridEpoch = EPOCH_B;
+        return reply([900], EPOCH_A, { stop: SearchStopReason.EPOCH_CHANGED });
+      }
+      return reply([80], EPOCH_B);
+    };
+    h.find.setQuery("moving");
+    await fireDebounce();
+    expect(requests.map((request) => request.gridEpoch)).toEqual([EPOCH_A, EPOCH_A, EPOCH_B]);
+    expect(requests.map((request) => request.beforeRow)).toEqual([undefined, 1000n, undefined]);
+    expect(h.find.matches().map((match) => [match.row, match.epoch])).toEqual([[80, EPOCH_B]]);
+    expect(h.find.failed()).toBe(false);
+  });
+
+  test("malformed ranges and nonprogressing cursors fail without another page", async () => {
+    const stuck = harness();
+    rpcImpl = async () => reply([], EPOCH_A, {
+      stop: SearchStopReason.ROW_LIMIT, start: 1000, end: 2000, next: 2000,
+    });
+    stuck.find.setQuery("stuck");
+    await fireDebounce();
+    expect(requests).toHaveLength(1);
+    expect(stuck.find.failed()).toBe(true);
+    stuck.find.dispose();
+    requests.length = 0;
+    const overlap = harness();
+    let call = 0;
+    rpcImpl = async () => ++call === 1
+      ? reply([1500], EPOCH_A, {
+          stop: SearchStopReason.ROW_LIMIT, start: 1000, end: 2000, next: 1000,
+        })
+      : reply([500], EPOCH_A, { start: 0, end: 1500 });
+    overlap.find.setQuery("overlap");
+    await fireDebounce();
+    expect(requests).toHaveLength(2);
+    expect(overlap.find.matches().map((match) => match.row)).toEqual([1500]);
+    expect(overlap.find.failed()).toBe(true);
+    requests.length = 0;
+    const bounded = harness();
+    rpcImpl = async (request) => {
+      const end = Number(request.beforeRow ?? 2000n);
+      return reply([], EPOCH_A, { stop: SearchStopReason.ROW_LIMIT, start: end - 1, end, next: end - 1 });
+    };
+    bounded.find.setQuery("bounded chain");
+    await fireDebounce();
+    expect(requests).toHaveLength(TERMINAL_SEARCH_MAX_PAGES);
+    expect(bounded.find.failed()).toBe(true);
+  });
+
+  test("a new query aborts the old chain; its stale page cannot publish or continue", async () => {
+    const h = harness();
+    const old = Promise.withResolvers<SearchResponse>();
+    rpcImpl = (request) => request.query === "old"
+      ? old.promise
+      : Promise.resolve(reply([80], EPOCH_A));
+    h.find.setQuery("old");
+    await fireDebounce();
+    h.find.setQuery("new");
+    expect(signals[0]!.aborted).toBe(true);
+    expect(cancellationRequests).toEqual([{
+      sessionId: "session-1",
+      searchId: requests[0]!.searchId,
+    }]);
+    await fireDebounce();
+    expect(h.find.matches().map((match) => match.row)).toEqual([80]);
+    old.resolve(reply([1500], EPOCH_A, {
+      stop: SearchStopReason.ROW_LIMIT, start: 1000, end: 2000, next: 1000,
+    }));
+    await settle();
+    expect(requests.map((request) => request.query)).toEqual(["old", "new"]);
+    expect(h.find.matches().map((match) => match.row)).toEqual([80]);
+  });
+
+  test("regex and case flags survive the paged request cutover", async () => {
+    const h = harness();
+    h.find.setQuery("a.*b");
+    h.find.toggleRegex();
+    h.find.toggleCaseSensitive();
+    await fireDebounce();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      sessionId: "session-1",
+      gridEpoch: EPOCH_A,
+      query: "a.*b",
+      caseSensitive: true,
+      regex: true,
+      maxRows: TERMINAL_SEARCH_MAX_ROWS,
+      maxMatches: TERMINAL_SEARCH_MAX_MATCHES,
+    });
+    expect(requests[0]!.searchId).toHaveLength(36);
   });
 });

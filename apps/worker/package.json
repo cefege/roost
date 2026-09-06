@@ -15,6 +15,7 @@
     "@connectrpc/connect-node": "^2.1.2",
     "@roost/shared": "workspace:*",
     "@wterm/core": "0.3.4",
+    "re2js": "2.8.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {

@@ -1,45 +1,24 @@
-// Find-in-scrollback state machine for one pane: debounced query → one in-flight
-// SessionsSearchScrollback per pane → highlights on the renderer → jump to the
-// active match.
-//
-// The search runs on the WORKER's grid because the client holds at most
-// MAX_HELD_SCROLLBACK_ROWS of the worker's retained history. A match can
-// therefore name a row that is reserved-but-unpainted, so a jump first pulls that
-// row in (ScrollbackBackfill.ensureRowPainted) and re-searches if the epoch moved.
-//
-// EPOCH FENCE. A match row means nothing outside the grid numbering it was found
-// in: a core rebuild re-pins the scrollback origin, so a row from the previous
-// epoch routinely falls back inside the new epoch's valid range while naming
-// unrelated history. Every leg is therefore fenced — the request names the epoch
-// this pane displays, the worker refuses to answer from any other, the reply
-// stamps the epoch it served, and each hit carries that stamp so highlighting and
-// jumping fail CLOSED. Dropping a stale hit costs the reader one keystroke;
-// jumping to a row the index no longer names shows them someone else's output and
-// calls it their match.
-//
-// Owner: CellTerminal (one controller per pane); the UI is TerminalFindBar.tsx.
+// Bounded find-in-scrollback state for one terminal pane.
+// A debounced cancellable page chain accumulates newest-first matches within
+// one grid epoch; deep matches backfill before reveal. CellTerminal owns it.
 
 import { createSignal } from "solid-js";
+import { SearchStopReason } from "@roost/shared/proto/coordinator_pb";
+import { TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_PAGES, TERMINAL_SEARCH_MAX_ROWS } from "@roost/shared/terminal-search";
+import { diag } from "@roost/shared/diag";
 import { coordClient } from "../connect.ts";
 import type { CellGridRenderer } from "./cellRenderer.ts";
 import type { FindHit } from "./cellRow.ts";
+import {
+  decodePageMatches,
+  searchContinuationIsValid,
+  searchPageRangeIsValid,
+  type FindMatch,
+} from "./terminalFindPaging.ts";
 import type { ScrollbackBackfill } from "./scrollbackBackfill.ts";
 
+export type { FindMatch } from "./terminalFindPaging.ts";
 export const FIND_DEBOUNCE_MS = 300;
-// What we ASK for; the worker clamps to its own ceiling and reports `truncated`.
-// Sending 0 would be read as "zero matches", and the worker-leg frame schema
-// requires a positive value.
-export const FIND_MAX_MATCHES = 500;
-
-export interface FindMatch {
-  row: number;
-  col: number;
-  len: number;
-  preview: string;
-  /** Grid numbering `row` is an index into. Usable only while the pane's
-   *  authoritative frame still names this epoch. */
-  epoch: string;
-}
 
 export interface TerminalFind {
   open: () => boolean;
@@ -48,7 +27,7 @@ export interface TerminalFind {
   /** 1-based position of the active match, 0 when there is none. */
   index: () => number;
   truncated: () => boolean;
-  /** A rejected regex, or a failed RPC — shown on the input, never as a toast. */
+  /** Invalid/incomplete search — shown on the input, never as a toast. */
   failed: () => boolean;
   caseSensitive: () => boolean;
   regex: () => boolean;
@@ -80,6 +59,7 @@ export function createTerminalFind(opts: {
   // otherwise overwrites highlights the user has already moved past.
   let token = 0;
   let disposed = false;
+  let activeSearch: { controller: AbortController; searchId: string } | null = null;
 
   /** Current grid numbering of this pane's authoritative frame, "" before the
    *  first frame lands. */
@@ -87,10 +67,7 @@ export function createTerminalFind(opts: {
     return opts.renderer()?.backfillAnchor()?.gridEpoch ?? "";
   }
 
-  /** Install highlights, fenced on the epoch the hits were found in. One
-   *  comparison covers the whole set: the worker never mixes two numberings into
-   *  one reply, so a list belongs to exactly one epoch. Painting rows from a
-   *  numbering the pane no longer holds would mark unrelated lines. */
+  /** Paint only hits owned by the pane's current grid numbering. */
   function publish(list: readonly FindMatch[], active: number): void {
     const renderer = opts.renderer();
     if (!renderer) return;
@@ -120,105 +97,239 @@ export function createTerminalFind(opts: {
     publish([], 0);
   }
 
-  /** One search, debounced callers aside. `refence` is the budget for
-   *  re-running against a grid that re-numbered under this attempt — exactly
-   *  one re-search per user action, so a resize storm can never turn find
-   *  into a polling loop. */
-  async function searchNow(refence = 1): Promise<void> {
-    const q = query();
-    const mine = ++token;
-    if (q.length === 0) { clear(); return; }
-    // Fence the scan to the numbering this pane DISPLAYS. "" only before the
-    // first frame lands: the worker then binds the scan to its current epoch and
-    // names it in the reply, which is what every hit is stamped with.
-    const asked = paneEpoch();
-    let res;
-    try {
-      res = await coordClient.sessionsSearchScrollback({
-        sessionId: opts.sessionId,
-        gridEpoch: asked,
-        query: q,
-        caseSensitive: caseSensitive(),
-        regex: regex(),
-        maxMatches: FIND_MAX_MATCHES,
+  function currentSearch(mine: number, cancellation: AbortController): boolean {
+    return !disposed && mine === token && !cancellation.signal.aborted;
+  }
+
+  function cancelActiveSearch(): void {
+    const active = activeSearch;
+    if (!active) return;
+    activeSearch = null;
+    active.controller.abort();
+    void coordClient.sessionsCancelScrollbackSearch({
+      sessionId: opts.sessionId,
+      searchId: active.searchId,
+    }).catch((error) => {
+      diag("scrollback.search_cancel_failed", {
+        sid: opts.sessionId,
+        error: String(error),
       });
-    } catch {
-      if (disposed || mine !== token) return;
-      // The worker refuses an epoch it no longer serves. When OUR epoch has moved
-      // too the refusal is stale news — the pane reframed mid-flight — so ask
-      // again about the grid now on screen instead of blaming the query.
-      if (refence > 0 && paneEpoch() !== asked) { void searchNow(refence - 1); return; }
-      // A bad regex and an unreachable worker look the same to the user here:
-      // the input tints and the count reads 0. Nothing is silently wrong.
-      setMatches([]);
-      setIndex(0);
-      setFailed(true);
-      publish([], 0);
-      return;
-    }
-    if (disposed || mine !== token) return;
-    // The worker scans NEWEST-first so truncation keeps the matches nearest the
-    // live tail (and its viewport-row segment lands last). Re-sort into reading
-    // order here so "next" walks DOWN the history like any editor, then start on
-    // the LAST entry — the newest match, closest to where the reader already is,
-    // which also avoids an immediate deep backfill pull.
-    const epoch = res.gridEpoch;
-    const list: FindMatch[] = res.matches
-      .map((m) => ({ row: Number(m.row), col: m.col, len: m.len, preview: m.preview, epoch }))
-      .sort((a, b) => (a.row - b.row) || (a.col - b.col));
+    });
+  }
+
+  function stopActiveSearch(): void {
+    token++;
+    cancelActiveSearch();
+  }
+
+  /** Convert the worker's newest-first traversal to UI reading order. */
+  function installResult(
+    newestFirst: readonly FindMatch[],
+    incomplete: boolean,
+    didFail: boolean,
+    epochRetryBudget: number,
+  ): void {
+    const list = [...newestFirst]
+      .sort((left, right) => (left.row - right.row) || (left.col - right.col));
     setMatches(list);
-    setTruncated(res.truncated);
-    setFailed(false);
+    setTruncated(incomplete);
+    setFailed(didFail);
     const active = list.length;
     setIndex(active);
     publish(list, active);
-    if (active > 0) void reveal(list[active - 1]!, refence);
+    if (active > 0) void reveal(list[active - 1]!, epochRetryBudget);
   }
 
-  /** Drop a result set whose numbering the pane no longer holds. Every hit in it
-   *  shares that epoch, so one stale hit condemns the set; clearing also takes
-   *  the highlights down, which is the only way stale marks stop being painted.
-   *  Spends the caller's `refence` budget on re-asking the same question about
-   *  the grid now on screen. */
-  function invalidate(refence: number): void {
-    setMatches([]);
-    setIndex(0);
-    setTruncated(false);
-    publish([], 0);
-    if (refence > 0 && query().length > 0) void searchNow(refence - 1);
+  function installFailedPartial(newestFirst: readonly FindMatch[], epochRetryBudget: number): void {
+    installResult(newestFirst, newestFirst.length > 0, true, epochRetryBudget);
   }
 
-  /** Land the reader on a match. Fails CLOSED on a re-numbered grid: a hit found
-   *  in another epoch names a row that no longer exists as such, and after a
-   *  rebuild re-pins the scrollback origin it frequently lands INSIDE the new
-   *  valid range — so `row < total` proves nothing on its own. A row inside the
-   *  unpainted [0, sbBase) region is pulled in first; that pull awaits, so both
-   *  the search token and the epoch are re-checked before the one owned scroll
-   *  write — a newer query must not be dragged to an older query's row. */
-  async function reveal(match: FindMatch, refence: number): Promise<void> {
+  function retryAfterEpochChange(
+    mine: number,
+    cancellation: AbortController,
+    epochRetryBudget: number,
+  ): void {
+    if (!currentSearch(mine, cancellation)) return;
+    clear();
+    if (epochRetryBudget > 0 && query().length > 0) {
+      void searchNow(epochRetryBudget - 1);
+      return;
+    }
+    setFailed(true);
+  }
+
+  /** Run one chain; the retry budget covers one grid re-numbering through reveal. */
+  async function searchNow(epochRetryBudget = 1): Promise<void> {
+    const q = query();
+    cancelActiveSearch();
+    const mine = ++token;
+    if (q.length === 0) {
+      activeSearch = null;
+      clear();
+      return;
+    }
+
+    const cancellation = new AbortController();
+    const searchId = crypto.randomUUID();
+    activeSearch = { controller: cancellation, searchId };
+    const initialEpoch = paneEpoch();
+    let requestedEpoch = initialEpoch;
+    let beforeRow: bigint | undefined;
+    const newestFirst: FindMatch[] = [];
+    let pages = 0;
+    const paneAcceptsEpoch = (epoch: string): boolean => (
+      paneEpoch() === epoch || (initialEpoch === "" && paneEpoch() === "" && epoch !== "")
+    );
+
+    try {
+      for (;;) {
+        if (!currentSearch(mine, cancellation)) return;
+        if (pages >= TERMINAL_SEARCH_MAX_PAGES) {
+          installFailedPartial(newestFirst, epochRetryBudget);
+          return;
+        }
+        if (!paneAcceptsEpoch(requestedEpoch)) {
+          retryAfterEpochChange(mine, cancellation, epochRetryBudget);
+          return;
+        }
+
+        const remainingMatches = TERMINAL_SEARCH_MAX_MATCHES - newestFirst.length;
+        if (remainingMatches <= 0) {
+          installResult(newestFirst, true, false, epochRetryBudget);
+          return;
+        }
+        const res = await coordClient.sessionsSearchScrollback({
+          sessionId: opts.sessionId,
+          searchId,
+          gridEpoch: requestedEpoch,
+          query: q,
+          caseSensitive: caseSensitive(),
+          regex: regex(),
+          maxRows: TERMINAL_SEARCH_MAX_ROWS,
+          maxMatches: remainingMatches,
+          ...(beforeRow === undefined ? {} : { beforeRow }),
+        }, { signal: cancellation.signal });
+        pages++;
+
+        if (!currentSearch(mine, cancellation)) return;
+        if (res.stopReason === SearchStopReason.EPOCH_CHANGED) {
+          retryAfterEpochChange(mine, cancellation, epochRetryBudget);
+          return;
+        }
+        if (requestedEpoch === "") {
+          if (res.gridEpoch === "") {
+            installFailedPartial(newestFirst, epochRetryBudget);
+            return;
+          }
+          requestedEpoch = res.gridEpoch;
+        } else if (res.gridEpoch !== requestedEpoch) {
+          retryAfterEpochChange(mine, cancellation, epochRetryBudget);
+          return;
+        }
+        if (!paneAcceptsEpoch(requestedEpoch)) {
+          retryAfterEpochChange(mine, cancellation, epochRetryBudget);
+          return;
+        }
+        if (!searchPageRangeIsValid(res, beforeRow)) {
+          installFailedPartial(newestFirst, epochRetryBudget);
+          return;
+        }
+
+        const pageMatches = decodePageMatches(res, requestedEpoch);
+        if (pageMatches === null || pageMatches.length > remainingMatches) {
+          installFailedPartial(newestFirst, epochRetryBudget);
+          return;
+        }
+        newestFirst.push(...pageMatches);
+
+        if (
+          res.stopReason !== SearchStopReason.ROW_LIMIT
+          && res.nextBeforeRow !== undefined
+        ) {
+          installFailedPartial(newestFirst, epochRetryBudget);
+          return;
+        }
+        if (res.stopReason === SearchStopReason.COMPLETE) {
+          installResult(newestFirst, false, false, epochRetryBudget);
+          return;
+        }
+        if (res.stopReason === SearchStopReason.MATCH_LIMIT) {
+          installResult(
+            newestFirst.slice(0, TERMINAL_SEARCH_MAX_MATCHES),
+            true, false, epochRetryBudget,
+          );
+          return;
+        }
+        if (res.stopReason === SearchStopReason.DEADLINE) {
+          installResult(newestFirst, true, true, epochRetryBudget);
+          return;
+        }
+        if (
+          res.stopReason !== SearchStopReason.ROW_LIMIT
+          || !searchContinuationIsValid(res, beforeRow)
+        ) {
+          installFailedPartial(newestFirst, epochRetryBudget);
+          return;
+        }
+        if (newestFirst.length >= TERMINAL_SEARCH_MAX_MATCHES) {
+          installResult(newestFirst, true, false, epochRetryBudget);
+          return;
+        }
+        beforeRow = res.nextBeforeRow;
+      }
+    } catch {
+      if (!currentSearch(mine, cancellation)) return;
+      if (!paneAcceptsEpoch(requestedEpoch)) {
+        retryAfterEpochChange(mine, cancellation, epochRetryBudget);
+        return;
+      }
+      installFailedPartial(newestFirst, epochRetryBudget);
+    } finally {
+      if (activeSearch?.controller === cancellation) activeSearch = null;
+    }
+  }
+
+  /** Drop stale numbering, then spend the one retry against the live pane. */
+  function invalidate(epochRetryBudget: number): void {
+    clear();
+    if (epochRetryBudget > 0 && query().length > 0) {
+      void searchNow(epochRetryBudget - 1);
+    } else {
+      setFailed(true);
+    }
+  }
+
+  /** Reveal only inside the match's epoch. A deep row is pulled in first, with
+   *  token and epoch rechecked after that await so stale work cannot scroll. */
+  async function reveal(match: FindMatch, epochRetryBudget: number): Promise<void> {
     const mine = token;
     const renderer = opts.renderer();
     if (!renderer) return;
     const anchor = renderer.backfillAnchor();
     if (!anchor) return;
-    if (anchor.gridEpoch !== match.epoch) { invalidate(refence); return; }
-    // Alt-screen and live-viewport matches are already on screen; there is
-    // nothing above them to scroll to.
+    if (anchor.gridEpoch !== match.epoch) { invalidate(epochRetryBudget); return; }
+    // Viewport matches need no scrollback jump.
     if (match.row >= anchor.total) return;
     if (match.row < anchor.sbBase) {
       const ok = await opts.backfill()?.ensureRowPainted(match.row);
       if (disposed || mine !== token) return;
-      // The pull gave up: either the row is genuinely evicted or the page it
-      // needed was rejected. Re-search once, then stop — never loop.
-      if (!ok) { if (refence > 0) void searchNow(refence - 1); return; }
-      if (paneEpoch() !== match.epoch) { invalidate(refence); return; }
+      // A rejected/evicted pull gets at most the remaining epoch retry.
+      if (!ok) {
+        if (epochRetryBudget > 0) void searchNow(epochRetryBudget - 1);
+        return;
+      }
+      if (paneEpoch() !== match.epoch) { invalidate(epochRetryBudget); return; }
     }
     opts.renderer()?.scrollToScrollbackRow(match.row);
   }
 
   function schedule(): void {
     clearTimeout(debounce ?? undefined);
-    debounce = setTimeout(() => { debounce = null; void searchNow(); }, FIND_DEBOUNCE_MS);
+    stopActiveSearch();
+    debounce = setTimeout(() => {
+      debounce = null;
+      void searchNow();
+    }, FIND_DEBOUNCE_MS);
   }
 
   return {
@@ -227,17 +338,22 @@ export function createTerminalFind(opts: {
     closeFind(): void {
       setOpen(false);
       if (debounce) { clearTimeout(debounce); debounce = null; }
-      token++;
+      stopActiveSearch();
       setQueryRaw("");
       clear();
     },
     setQuery(next: string): void {
       setQueryRaw(next);
-      if (next.length === 0) { token++; clear(); return; }
+      if (next.length === 0) {
+        if (debounce) { clearTimeout(debounce); debounce = null; }
+        stopActiveSearch();
+        clear();
+        return;
+      }
       schedule();
     },
-    toggleCaseSensitive(): void { setCaseSensitive((v) => !v); if (query()) schedule(); },
-    toggleRegex(): void { setRegex((v) => !v); if (query()) schedule(); },
+    toggleCaseSensitive(): void { setCaseSensitive((value) => !value); if (query()) schedule(); },
+    toggleRegex(): void { setRegex((value) => !value); if (query()) schedule(); },
     step(delta: number): void {
       const list = matches();
       if (list.length === 0) return;
@@ -248,8 +364,9 @@ export function createTerminalFind(opts: {
     },
     dispose(): void {
       disposed = true;
-      token++;
       if (debounce) { clearTimeout(debounce); debounce = null; }
+      stopActiveSearch();
     },
   };
 }
+

@@ -29,7 +29,7 @@ import {
   makeWorkerWsHandler,
 } from "../src/connect/worker-ws-handler.ts";
 import type { WorkerServiceDeps } from "../src/connect/worker-service.ts";
-import { callerKey, dashboardActorKey } from "../src/connect/auth-interceptor.ts";
+import { callerKey, dashboardActorKey, tabIdKey } from "../src/connect/auth-interceptor.ts";
 import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { PendingEventPublicationStore } from "../src/pending-event-publications.ts";
@@ -291,7 +291,7 @@ export async function startWorkerWsTransportFixture() {
     );
   }
 
-  function browserAuthContext(): HandlerContext {
+  function browserAuthContext(signal = new AbortController().signal): HandlerContext {
     const caller = {
       kind: "account-device" as const,
       fingerprint: "browser-fp",
@@ -307,12 +307,15 @@ export async function startWorkerWsTransportFixture() {
       deviceFingerprint: "browser-fp",
     };
     return {
+      signal,
       values: {
         get: (key: unknown) => key === callerKey
           ? caller
           : key === dashboardActorKey
             ? actor
-            : null,
+            : key === tabIdKey
+              ? "test-tab"
+              : null,
       },
     } as unknown as HandlerContext;
   }

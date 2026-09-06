@@ -1,396 +1,395 @@
-// These tests exercise complete find-in-scrollback scans against a real terminal core.
-// They cross-check monotonic row indices through the same reader used by browser backfill.
-// Cases cover limits, regex errors, event-loop yielding, wide glyphs, and epoch fencing.
-// Runtime-derived core depth keeps the assertions valid across retained-history capacities.
+// Bounded scrollback-search tests over terminal cores and one cell fixture.
+// Pins cursor seams, structured stop reasons, history floors, Unicode,
+// regex progress, cell columns, terminal settling, and boundary validation.
 
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import type { CellData, TerminalCore } from "@wterm/core";
+import {
+	cellGridEpoch, DEFAULT_COLOR, initCellEmitState, readScrollbackRangeCells,
+	scrollbackOrigin, spansText, viewportRowSpans,
+} from "@roost/shared/cell";
+import {
+	TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_ROWS,
+	countUnicodeCodePoints, type WorkerSearchScrollbackResult,
+} from "@roost/shared/terminal-search";
+import { ClientControlFrame, asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
+import { createWtermCore } from "@roost/shared/wterm-core-factory";
 import { SessionManager } from "../src/session-manager.ts";
-import { handleSearchScrollback } from "../src/browser-command-terminal.ts";
-import type { CoordLink } from "../src/transport/coord-link.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import type { FsmChannel } from "../src/fsm.ts";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
-import type { ClientControlFrame } from "@roost/shared/wire";
-import {
-  cellGridEpoch, initCellEmitState, readScrollbackRangeCells, type CellRow,
-} from "@roost/shared/cell";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
+import {
+	cancelSearchScrollback,
+	handleSearchScrollback,
+	type _SearchScrollbackRuntime,
+} from "../src/terminal-search.ts";
+import type { CoordLink } from "../src/transport/coord-link-types.ts";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
-const SID = asSessionId("00000000-0000-0000-0000-000000000001");
-const CID = 1;
-const COLS = 80, ROWS = 24;
-const LINE_COUNT = 3000;
-// 3000 short numbered lines: more rows than several SEARCH_SLICE_ROWS (500)
-// slices on either core depth, so S4 exercises the real yield path.
-const SEED = new TextEncoder().encode(
-  Array.from({ length: LINE_COUNT }, (_, i) => `FINDLINE-${i}`).join("\r\n") + "\r\n",
-);
-
-const rowTextOf = (r: CellRow): string => r.spans.map((s) => s.text).join("");
-
-interface SearchMatch { row: number; col: number; len: number; preview: string }
+const SESSION_ID = asSessionId("00000000-0000-0000-0000-000000000001");
+const CHANNEL_ID = asChannelId(1);
+const COLS = 80;
+const ROWS = 24;
+const LINE_COUNT = 720;
+const SEED_TEXT = Array.from({ length: LINE_COUNT }, (_, index) => `FINDLINE-${index}`).join("\r\n") + "\r\n";
+const FIXED_RUNTIME: _SearchScrollbackRuntime = {
+	nowMs: () => 0,
+	yieldNow: async () => {},
+};
 interface RpcOk {
-  kind: "rpc-ok";
-  request_id: string;
-  data: {
-    matches: SearchMatch[]; truncated: boolean; total: number; cols: number;
-    grid_epoch: string;
-  };
+	kind: "rpc-ok";
+	request_id: string;
+	data: WorkerSearchScrollbackResult;
 }
-interface RpcErr { kind: "rpc-error"; request_id: string; message: string }
-
-function freshMgr(): SessionManager {
-  return new SessionManager({ workerFp: asWorkerFp("00".repeat(32)), sink: new LifecycleTestSink() });
+interface RpcError { kind: "rpc-error"; request_id: string; message: string }
+type SearchReply = RpcOk | RpcError;
+function freshManager(): SessionManager {
+	return new SessionManager({
+		workerFp: asWorkerFp("00".repeat(32)),
+		sink: new LifecycleTestSink(),
+	});
 }
-
-async function injectSession(mgr: SessionManager): Promise<SessionShellRecord> {
-  const wtermCore = await createWtermCore(COLS, ROWS);
-  wtermCore.writeRaw(SEED);
-  // Test double: nothing on the search path touches the FSM.
-  const fsm = {} as unknown as FsmChannel;
-  const record: SessionShellRecord = {
-    sessionId: SID,
-    channelId: asChannelId(CID),
-    socketPath: "/dev/null",
-    kind: "shell",
-    cwd: "/",
-    shellSpec: keeperTestShellSpec({ executable: process.execPath, cwd: "/" }),
-    fsm,
-    scrollback: createSbRing(new Uint8Array(SEED)),
-    head_seq: SEED.length,
-    alt_mode: false,
-    mode_carry: new Uint8Array(0),
-    osc7_carry: new Uint8Array(0),
-    query_carry: new Uint8Array(0),
-    ...initAgentOscState(),
-    wtermCore,
-    session_trace_id: "sbfind00",
-    cell_emit: initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"),
-    lastPtyOutMs: 0,
-    sb_origin_pin: null,
-    spawnedAtMs: Date.now(),
-    closeReservation: mgr.reserveLifecycleEvent("closed"),
-  };
-  mgr.sessions.set(CID, record);
-  return record;
+async function injectSession(
+	manager: SessionManager,
+	options: { cols?: number; rows?: number; text?: string } = {},
+): Promise<SessionShellRecord> {
+	const cols = options.cols ?? COLS;
+	const rows = options.rows ?? ROWS;
+	const text = options.text ?? SEED_TEXT;
+	const bytes = new TextEncoder().encode(text);
+	const wtermCore = await createWtermCore(cols, rows);
+	wtermCore.writeRaw(bytes);
+	const record: SessionShellRecord = {
+		sessionId: SESSION_ID,
+		channelId: CHANNEL_ID,
+		socketPath: "/dev/null",
+		kind: "shell",
+		cwd: "/",
+		shellSpec: keeperTestShellSpec({ executable: process.execPath, cwd: "/" }),
+		fsm: {} as FsmChannel,
+		scrollback: createSbRing(new Uint8Array(bytes)),
+		head_seq: bytes.length,
+		alt_mode: false,
+		mode_carry: new Uint8Array(0),
+		osc7_carry: new Uint8Array(0),
+		query_carry: new Uint8Array(0),
+		...initAgentOscState(),
+		wtermCore,
+		session_trace_id: "sbfind00",
+		cell_emit: initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"),
+		lastPtyOutMs: 0,
+		sb_origin_pin: null,
+		spawnedAtMs: Date.now(),
+		closeReservation: manager.reserveLifecycleEvent("closed"),
+	};
+	manager.sessions.set(CHANNEL_ID, record);
+	return record;
 }
-
-function makeLinkCapture(): { coordLink: CoordLink; sent: Array<RpcOk | RpcErr> } {
-  const sent: Array<RpcOk | RpcErr> = [];
-  const stub = { send: (f: RpcOk | RpcErr) => { sent.push(f); } };
-  // Test double: handleSearchScrollback only calls coordLink.send.
-  const coordLink = stub as unknown as CoordLink;
-  return { coordLink, sent };
+function captureLink(): { coordLink: CoordLink; sent: SearchReply[] } {
+	const sent: SearchReply[] = [];
+	return {
+		coordLink: { send: (frame: SearchReply) => { sent.push(frame); return true; } } as unknown as CoordLink,
+		sent,
+	};
 }
 
 function searchFrame(
-  query: string,
-  opts: {
-    caseSensitive?: boolean; regex?: boolean; maxMatches?: number; gridEpoch?: string;
-  } = {},
+	query: string,
+	options: {
+		beforeRow?: number;
+		maxRows?: number;
+		maxMatches?: number;
+		gridEpoch?: string;
+		caseSensitive?: boolean;
+		regex?: boolean;
+		searchId?: string;
+	} = {},
 ): Extract<ClientControlFrame, { kind: "search-scrollback" }> {
-  return {
-    kind: "search-scrollback",
-    request_id: "req",
-    session_id: SID,
-    // "" binds to the worker's current epoch — the headless/API path. Tests that
-    // care about the fence name an epoch explicitly.
-    grid_epoch: opts.gridEpoch ?? "",
-    query,
-    case_sensitive: opts.caseSensitive ?? false,
-    regex: opts.regex ?? false,
-    max_matches: opts.maxMatches ?? 500,
-  };
+	return {
+		kind: "search-scrollback",
+		request_id: "inner-request",
+		session_id: SESSION_ID,
+		search_id: options.searchId ?? "search-id",
+		grid_epoch: options.gridEpoch ?? "",
+		query,
+		case_sensitive: options.caseSensitive ?? false,
+		regex: options.regex ?? false,
+		...(options.beforeRow === undefined ? {} : { before_row: options.beforeRow }),
+		max_rows: options.maxRows ?? TERMINAL_SEARCH_MAX_ROWS,
+		max_matches: options.maxMatches ?? TERMINAL_SEARCH_MAX_MATCHES,
+	};
 }
 
-/** Plain text of one scrollback row by MONOTONIC absolute index, through the
- *  same reader the SPA's backfill uses. */
-function readRowText(rec: SessionShellRecord, absIndex: number): string {
-  const [row] = readScrollbackRangeCells(
-    rec.wtermCore, absIndex, absIndex + 1, rec.cell_emit.sbDropped,
-  );
-  expect(row!.index).toBe(absIndex);
-  return rowTextOf(row!).trimEnd();
+async function search(
+	manager: SessionManager,
+	frame: Extract<ClientControlFrame, { kind: "search-scrollback" }>,
+	runtime: _SearchScrollbackRuntime = FIXED_RUNTIME,
+): Promise<WorkerSearchScrollbackResult> {
+	const { coordLink, sent } = captureLink();
+	await handleSearchScrollback(frame, "outer-request", {
+		coordLink, sessionMgr: manager, searchOwnerId: "browser-a",
+	}, runtime);
+	expect(sent).toHaveLength(1);
+	expect(sent[0]!.kind).toBe("rpc-ok");
+	return (sent[0] as RpcOk).data;
 }
 
-const markerNumber = (text: string): number => Number(text.slice("FINDLINE-".length));
+function geometry(record: SessionShellRecord): { floor: number; total: number; newest: number } {
+	const floor = scrollbackOrigin(record.wtermCore, record.cell_emit);
+	const total = floor + record.wtermCore.getScrollbackCount();
+	return { floor, total, newest: total + record.wtermCore.getRows() };
+}
 
-describe("search-scrollback", () => {
-  test("S1 — a mid-history marker returns its exact absolute index", async () => {
-    const mgr = freshMgr();
-    const rec = await injectSession(mgr);
-    const { coordLink, sent } = makeLinkCapture();
-    const sbDropped = rec.cell_emit.sbDropped;
-    const retained = rec.wtermCore.getScrollbackCount();
-    const monoTotal = sbDropped + retained;
-    // Several slices deep, whichever wasm depth the factory produced.
-    expect(retained).toBeGreaterThan(900);
+function rowText(record: SessionShellRecord, absoluteRow: number): string {
+	const { floor, total } = geometry(record);
+	if (absoluteRow < total) {
+		const [row] = readScrollbackRangeCells(record.wtermCore, absoluteRow, absoluteRow + 1, floor);
+		expect(row!.index).toBe(absoluteRow);
+		return row!.spans.map((span) => span.text).join("").trimEnd();
+	}
+	return spansText(viewportRowSpans(record.wtermCore, absoluteRow - total, record.wtermCore.getCols())).trimEnd();
+}
 
-    // Take the query FROM the grid so the assertion cannot drift with the
-    // ring's retention depth: the middle retained line is unique history.
-    const midIndex = sbDropped + Math.floor(retained / 2);
-    const marker = readRowText(rec, midIndex);
-    const oldest = markerNumber(readRowText(rec, sbDropped));
+function installFloor(record: SessionShellRecord, kind: "evicted" | "resize_replay"): number {
+	record.cell_emit = { ...record.cell_emit, sbOrigin: 37 };
+	const floor = scrollbackOrigin(record.wtermCore, record.cell_emit);
+	if (kind === "resize_replay") {
+		// The classifier reads only the current replay floor; the remaining pin
+		// fields describe rebuild telemetry and do not participate in search.
+		record.sb_origin_pin = {
+			replay_floor: floor,
+		} as NonNullable<SessionShellRecord["sb_origin_pin"]>;
+	}
+	return floor;
+}
 
-    await handleSearchScrollback(searchFrame(marker), "req", { coordLink, sessionMgr: mgr });
-    expect(sent[0]!.kind).toBe("rpc-ok");
-    const ok = sent[0] as RpcOk;
-    expect(ok.data.total).toBe(monoTotal);
-    expect(ok.data.cols).toBe(COLS);
-    expect(ok.data.truncated).toBe(false);
-    // "FINDLINE-<n>" is not a prefix of any other line below LINE_COUNT.
-    expect(ok.data.matches.length).toBe(1);
+describe("bounded search-scrollback", () => {
+	test("complete scans include viewport and return newest matches first", async () => {
+		const manager = freshManager();
+		const record = await injectSession(manager);
+		const { floor, total, newest } = geometry(record);
+		const middleRow = floor + Math.floor(record.wtermCore.getScrollbackCount() / 2);
+		const marker = rowText(record, middleRow);
+		const complete = await search(manager, searchFrame(marker));
+		expect(complete.stop_reason).toBe("complete");
+		expect(complete.truncated).toBe(false);
+		expect(complete.next_before_row).toBeUndefined();
+		expect([complete.scanned_start_row, complete.scanned_end_row]).toEqual([floor, newest]);
+		expect(complete.matches.map((match) => match.row)).toEqual([middleRow]);
+		expect(complete.total).toBe(total);
 
-    const hit = ok.data.matches[0]!;
-    expect(hit.row).toBe(midIndex);
-    expect(hit.col).toBe(0);
-    expect(hit.len).toBe(marker.length);
-    expect(hit.preview).toContain(marker);
-    // Independent arithmetic check of the SAME index, not routed through the
-    // reader: consecutive markers occupy consecutive absolute indices.
-    expect(hit.row).toBe(sbDropped + (markerNumber(marker) - oldest));
-    // Neighbours confirm it is not off by one in either direction.
-    expect(markerNumber(readRowText(rec, hit.row - 1))).toBe(markerNumber(marker) - 1);
-    expect(markerNumber(readRowText(rec, hit.row + 1))).toBe(markerNumber(marker) + 1);
-  });
+		const empty = await search(manager, searchFrame(""));
+		expect(empty.stop_reason).toBe("complete");
+		expect(empty.matches).toEqual([]);
+		expect([empty.scanned_start_row, empty.scanned_end_row]).toEqual([0, 0]);
 
-  test("S2 — max_matches clamps the result set and reports truncated", async () => {
-    const mgr = freshMgr();
-    const rec = await injectSession(mgr);
-    const { coordLink, sent } = makeLinkCapture();
-    const newestScrollback = rec.cell_emit.sbDropped + rec.wtermCore.getScrollbackCount() - 1;
+		const limited = await search(manager, searchFrame("FINDLINE-", { maxMatches: 3 }));
+		expect(limited.stop_reason).toBe("match_limit");
+		expect(limited.truncated).toBe(true);
+		expect(limited.matches).toHaveLength(3);
+		expect(limited.matches[0]!.row).toBeGreaterThanOrEqual(total);
+		expect(limited.matches[0]!.row).toBeGreaterThan(limited.matches[1]!.row);
+		expect(limited.matches[1]!.row).toBeGreaterThan(limited.matches[2]!.row);
+		expect(limited.next_before_row).toBeUndefined();
+	});
 
-    await handleSearchScrollback(
-      searchFrame("FINDLINE-", { maxMatches: 10 }), "req", { coordLink, sessionMgr: mgr },
-    );
-    const ok = sent[0] as RpcOk;
-    expect(ok.kind).toBe("rpc-ok");
-    expect(ok.data.matches.length).toBe(10);
-    expect(ok.data.truncated).toBe(true);
-    // Newest-first through the ring, so an early cutoff keeps recent history:
-    // the first hit is the newest RETAINED SCROLLBACK line (the viewport is
-    // scanned last and never reached under a cutoff) and indices descend.
-    expect(ok.data.matches[0]!.row).toBe(newestScrollback);
-    expect(ok.data.matches[0]!.preview).toBe(readRowText(rec, newestScrollback));
-    for (let i = 1; i < ok.data.matches.length; i++) {
-      expect(ok.data.matches[i]!.row).toBe(newestScrollback - i);
-    }
-  });
+	test("row-limit pages join at exclusive cursors without duplicate or skipped rows", async () => {
+		const manager = freshManager();
+		const record = await injectSession(manager);
+		const { floor, newest } = geometry(record);
+		const pages: WorkerSearchScrollbackResult[] = [];
+		let beforeRow: number | undefined;
+		for (;;) {
+			const page = await search(manager, searchFrame("NO-SUCH-MARKER", {
+				beforeRow,
+				maxRows: 37,
+			}));
+			pages.push(page);
+			if (page.stop_reason === "complete") break;
+			expect(page.stop_reason).toBe("row_limit");
+			expect(page.scanned_end_row - page.scanned_start_row).toBe(37);
+			expect(page.next_before_row).toBe(page.scanned_start_row);
+			expect(page.truncated).toBe(false);
+			beforeRow = page.next_before_row;
+		}
+		expect(pages[0]!.scanned_end_row).toBe(newest);
+		expect(pages.at(-1)!.scanned_start_row).toBe(floor);
+		for (let index = 1; index < pages.length; index++) {
+			expect(pages[index]!.scanned_end_row).toBe(pages[index - 1]!.scanned_start_row);
+		}
+		const scannedRows = pages.reduce(
+			(count, page) => count + page.scanned_end_row - page.scanned_start_row,
+			0,
+		);
+		expect(scannedRows).toBe(newest - floor);
+	});
 
-  test("S3 — an invalid regex rejects with the invalid regex: prefix", async () => {
-    const mgr = freshMgr();
-    const rec = await injectSession(mgr);
-    const { coordLink, sent } = makeLinkCapture();
+	test("a cap reached exactly at the retained floor is complete, not a false continuation", async () => {
+		for (const floorKind of ["evicted", "resize_replay"] as const) {
+			const manager = freshManager();
+			const record = await injectSession(manager);
+			const floor = installFloor(record, floorKind);
+			const page = await search(manager, searchFrame(rowText(record, floor), {
+				beforeRow: floor + 1,
+				maxRows: 1,
+				maxMatches: 1,
+			}));
+			expect(page.stop_reason).toBe("complete");
+			expect(page.truncated).toBe(false);
+			expect(page.matches).toHaveLength(1);
+			expect(page.next_before_row).toBeUndefined();
+			expect([page.scanned_start_row, page.scanned_end_row]).toEqual([floor, floor + 1]);
+			expect(page.history_floor).toBe(floorKind);
+			let timeReads = 0;
+			const exhausted = await search(manager, searchFrame("none", { beforeRow: floor }), {
+				...FIXED_RUNTIME, nowMs: () => timeReads++ === 0 ? 0 : 8_000,
+			});
+			expect([exhausted.stop_reason, exhausted.truncated, exhausted.history_floor])
+				.toEqual(["complete", false, floorKind]);
+			const overflow = await search(manager, searchFrame(".", {
+				regex: true, beforeRow: floor + 1, maxRows: 1, maxMatches: 1,
+			}));
+			expect(overflow.matches).toHaveLength(1);
+			expect([overflow.stop_reason, overflow.truncated, overflow.history_floor])
+				.toEqual(["match_limit", true, floorKind]);
+		}
+	});
 
-    await handleSearchScrollback(
-      searchFrame("[", { regex: true }), "req", { coordLink, sessionMgr: mgr },
-    );
-    expect(sent.length).toBe(1);
-    expect(sent[0]!.kind).toBe("rpc-error");
-    expect((sent[0] as RpcErr).message.startsWith("invalid regex: ")).toBe(true);
+	test("deadline stops after the last yielded complete row", async () => {
+		const manager = freshManager();
+		await injectSession(manager);
+		let expired = false;
+		let yields = 0;
+		const page = await search(manager, searchFrame("NO-SUCH-MARKER"), {
+			nowMs: () => expired ? Number.MAX_SAFE_INTEGER : 0,
+			yieldNow: async () => { yields++; expired = true; },
+		});
+		expect(page.stop_reason).toBe("deadline");
+		expect(page.truncated).toBe(true);
+		expect(page.scanned_end_row - page.scanned_start_row).toBe(500);
+		expect(page.next_before_row).toBeUndefined();
+		expect(yields).toBe(1);
+	});
 
-    // A valid pattern over the same grid still answers, at the same index.
-    // `(\D|$)` not `$`: wterm reports a padded length for a retained line, so
-    // the row text usually carries trailing spaces and a bare `$` would never
-    // anchor. This form pins the exact marker under either behaviour.
-    const midIndex = rec.cell_emit.sbDropped + Math.floor(rec.wtermCore.getScrollbackCount() / 2);
-    const marker = readRowText(rec, midIndex);
-    sent.length = 0;
-    await handleSearchScrollback(
-      searchFrame(`^FINDLINE-${markerNumber(marker)}(\\D|$)`, { regex: true }),
-      "req", { coordLink, sessionMgr: mgr },
-    );
-    const ok = sent[0] as RpcOk;
-    expect(ok.kind).toBe("rpc-ok");
-    expect(ok.data.matches.length).toBe(1);
-    expect(ok.data.matches[0]!.row).toBe(midIndex);
-    expect(ok.data.matches[0]!.col).toBe(0);
-  });
+	test("epoch change returns structured incomplete work and never a continuation", async () => {
+		const manager = freshManager();
+		const record = await injectSession(manager);
+		const servingEpoch = cellGridEpoch(record.cell_emit);
+		const partial = await search(manager, searchFrame("NO-SUCH-MARKER", { gridEpoch: servingEpoch }), {
+			nowMs: () => 0,
+			yieldNow: async () => {
+				record.cell_emit = {
+					...record.cell_emit,
+					gridEpochRevision: record.cell_emit.gridEpochRevision + 1,
+				};
+			},
+		});
+		expect(partial.stop_reason).toBe("epoch_changed");
+		expect(partial.truncated).toBe(false);
+		expect(partial.scanned_end_row - partial.scanned_start_row).toBe(500);
+		expect(partial.grid_epoch).toBe(servingEpoch);
+		expect(partial.next_before_row).toBeUndefined();
 
-  test("S4 — the slice yield keeps the event loop serving other sessions", async () => {
-    const mgr = freshMgr();
-    await injectSession(mgr);
-    const { coordLink, sent } = makeLinkCapture();
+		const stale = await search(manager, searchFrame("FINDLINE", { gridEpoch: servingEpoch }));
+		expect(stale.stop_reason).toBe("epoch_changed");
+		expect(stale.scanned_start_row).toBe(stale.scanned_end_row);
+		expect(stale.grid_epoch).toBe(cellGridEpoch(record.cell_emit));
+	});
 
-    // A full-depth scan with no early cutoff (nothing matches) crosses several
-    // SEARCH_SLICE_ROWS boundaries. Work queued once the search is already
-    // running must land BEFORE it resolves, or the scan monopolised the loop.
-    const order: string[] = [];
-    const search = handleSearchScrollback(
-      searchFrame("NO-SUCH-MARKER"), "req", { coordLink, sessionMgr: mgr },
-    ).then(() => { order.push("search"); });
-    const racer = new Promise<void>((resolve) => { setImmediate(resolve); })
-      .then(() => { order.push("racer"); });
+	test("Unicode query and preview bounds count code points without splitting astral text", async () => {
+		const manager = freshManager();
+		const record = await injectSession(manager, { text: "" });
+		const text = "a".repeat(511) + "🐙TARGET";
+		// A CellData cluster can contain more code points than grid columns; this
+		// isolates the 512-point preview boundary from the core's 256-column cap.
+		const cell: CellData = {
+			char: 0x61, chars: text, width: 1,
+			fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, flags: 0,
+			fgRgb: undefined, bgRgb: undefined,
+		};
+		record.wtermCore = {
+			getCols: () => 1, getRows: () => 1, getCell: () => cell,
+			getScrollbackCount: () => 0, getScrollbackDiscardedCount: () => 0,
+		} as unknown as TerminalCore;
+		const page = await search(manager, searchFrame("🐙TARGET", { maxMatches: 1 }));
+		expect(page.matches).toHaveLength(1);
+		expect(countUnicodeCodePoints(page.matches[0]!.preview)).toBe(512);
+		expect(page.matches[0]!.preview.endsWith("🐙")).toBe(true);
+		expect(ClientControlFrame.safeParse(searchFrame("🐙".repeat(256))).success).toBe(true);
+	});
 
-    await Promise.all([search, racer]);
-    expect(order).toEqual(["racer", "search"]);
-    const ok = sent[0] as RpcOk;
-    expect(ok.kind).toBe("rpc-ok");
-    expect(ok.data.matches.length).toBe(0);
-    expect(ok.data.truncated).toBe(false);
-  });
+	test("linear regex zero-width progress and wide glyph matches use painted columns", async () => {
+		const manager = freshManager();
+		const record = await injectSession(manager);
+		record.wtermCore.writeRaw(new TextEncoder().encode("开始 中文 end\r\n"));
+		const wide = await search(manager, searchFrame("中文"));
+		expect(wide.matches).toHaveLength(1);
+		expect([wide.matches[0]!.col, wide.matches[0]!.len]).toEqual([5, 4]);
 
-  test("S5 — a live viewport match indexes above scrollbackTotal", async () => {
-    const mgr = freshMgr();
-    const rec = await injectSession(mgr);
-    const { coordLink, sent } = makeLinkCapture();
-    const core = rec.wtermCore;
-    const monoTotal = rec.cell_emit.sbDropped + core.getScrollbackCount();
+		record.wtermCore.writeRaw(new TextEncoder().encode("İTARGET\r\n"));
+		const foldedOffset = await search(manager, searchFrame("TARGET"));
+		expect(foldedOffset.matches).toHaveLength(1);
+		expect(foldedOffset.matches[0]!.col).toBe(1);
 
-    // The newest markers never entered the ring — they are still on the live
-    // grid. Locate one directly so the expected index is built from the core,
-    // not from the handler's own arithmetic.
-    const newest = `FINDLINE-${LINE_COUNT - 1}`;
-    let viewportRow = -1;
-    for (let row = 0; row < ROWS && viewportRow < 0; row++) {
-      let text = "";
-      for (let col = 0; col < COLS; col++) {
-        const cp = core.getCell(row, col).char;
-        text += cp === 0 ? " " : String.fromCodePoint(cp);
-      }
-      if (text.trimEnd() === newest) viewportRow = row;
-    }
-    expect(viewportRow).toBeGreaterThanOrEqual(0);
+		const zeroWidth = await search(manager, searchFrame("^", {
+			regex: true,
+			beforeRow: wide.matches[0]!.row + 1,
+			maxRows: 1,
+		}));
+		expect(zeroWidth.matches).toHaveLength(1);
+		expect([zeroWidth.matches[0]!.col, zeroWidth.matches[0]!.len]).toEqual([0, 0]);
+		expect(zeroWidth.stop_reason).toBe("row_limit");
 
-    await handleSearchScrollback(searchFrame(newest), "req", { coordLink, sessionMgr: mgr });
-    const ok = sent[0] as RpcOk;
-    expect(ok.kind).toBe("rpc-ok");
-    expect(ok.data.matches.length).toBe(1);
-    const hit = ok.data.matches[0]!;
-    // The client tests `row >= scrollbackTotal` to decide a match is already
-    // on screen and needs no scroll; a viewport row landing inside the
-    // scrollback range would send it scrolling to a row that does not exist.
-    expect(hit.row).toBe(monoTotal + viewportRow);
-    expect(hit.row).toBeGreaterThanOrEqual(ok.data.total);
-    expect(hit.preview).toContain(newest);
-  });
+		const { coordLink, sent } = captureLink();
+		await handleSearchScrollback(searchFrame("[", { regex: true }), "bad-regex", {
+			coordLink,
+			sessionMgr: manager,
+			searchOwnerId: "browser-a",
+		}, FIXED_RUNTIME);
+		expect(sent).toHaveLength(1);
+		expect(sent[0]!.kind).toBe("rpc-error");
+		expect((sent[0] as RpcError).message.startsWith("invalid regex: ")).toBe(true);
+	});
 
-  test("S6 — matches on a row with wide glyphs are reported in GRID columns", async () => {
-    const mgr = freshMgr();
-    const rec = await injectSession(mgr);
-    const { coordLink, sent } = makeLinkCapture();
-    // Grid columns of this row: 开=0-1 始=2-3 ' '=4 中=5-6 文=7-8 ' '=9 e=10 n=11 d=12.
-    rec.wtermCore.writeRaw(new TextEncoder().encode("开始 中文 end\r\n"));
-
-    await handleSearchScrollback(searchFrame("中文"), "req", { coordLink, sessionMgr: mgr });
-    const ok = sent[0] as RpcOk;
-    expect(ok.kind).toBe("rpc-ok");
-    expect(ok.data.matches.length).toBe(1);
-    const hit = ok.data.matches[0]!;
-    // Text offset 3, but grid column 5 — and two characters occupying FOUR
-    // columns. The SPA highlights `len` columns from `col`, so reporting the
-    // text offsets here would mark "始 中" instead.
-    expect(hit.col).toBe(5);
-    expect(hit.len).toBe(4);
-
-    // Tripwire for the continuation-as-space regression: if a wide glyph's
-    // width-0 cell were read as a blank column again, the row's text would be
-    // "开始  中 文  end" and THIS is what would match instead.
-    const phantom = makeLinkCapture();
-    await handleSearchScrollback(
-      searchFrame("中 文"), "req", { coordLink: phantom.coordLink, sessionMgr: mgr },
-    );
-    expect((phantom.sent[0] as RpcOk).data.matches.length).toBe(0);
-
-    // A match that starts on a narrow cell and ends inside a wide one still
-    // names whole columns: "始 中" is offsets 1..4 → columns 2 through 7.
-    const spanning = makeLinkCapture();
-    await handleSearchScrollback(
-      searchFrame("始 中"), "req", { coordLink: spanning.coordLink, sessionMgr: mgr },
-    );
-    const spanHit = (spanning.sent[0] as RpcOk).data.matches[0]!;
-    expect([spanHit.col, spanHit.len]).toEqual([2, 5]);
-  });
-
-  test("S7 — a stale epoch is refused, not answered from the rebuilt core", async () => {
-    const mgr = freshMgr();
-    const rec = await injectSession(mgr);
-    const heldEpoch = cellGridEpoch(rec.cell_emit);
-
-    // The hit a client holds, found under the numbering it displays.
-    const midIndex = rec.cell_emit.sbDropped + Math.floor(rec.wtermCore.getScrollbackCount() / 2);
-    const marker = readRowText(rec, midIndex);
-    const held = makeLinkCapture();
-    await handleSearchScrollback(
-      searchFrame(marker, { gridEpoch: heldEpoch }), "req",
-      { coordLink: held.coordLink, sessionMgr: mgr },
-    );
-    const first = held.sent[0] as RpcOk;
-    expect(first.kind).toBe("rpc-ok");
-    expect(first.data.grid_epoch).toBe(heldEpoch);
-    expect(first.data.matches[0]!.row).toBe(midIndex);
-
-    // A resize rebuild: fresh core, fresh epoch base, origin pinned at 0 — what
-    // session-resize-capture.ts produces. Different content, same index space.
-    const rebuilt = await createWtermCore(COLS, ROWS);
-    rebuilt.writeRaw(new TextEncoder().encode(
-      Array.from({ length: LINE_COUNT }, (_, i) => `REBUILT-${i}`).join("\r\n") + "\r\n",
-    ));
-    rec.wtermCore = rebuilt;
-    rec.cell_emit = initCellEmitState("rebuilt-grid", "00000000-0000-4000-8000-000000000001");
-    const freshEpoch = cellGridEpoch(rec.cell_emit);
-    expect(freshEpoch).not.toBe(heldEpoch);
-
-    // The row the client holds is INSIDE the rebuilt core's valid range, naming
-    // unrelated content — the precondition for the silent wrong-row jump.
-    const rebuiltIndex = rec.cell_emit.sbDropped + Math.floor(rebuilt.getScrollbackCount() / 2);
-    expect(midIndex).toBeLessThan(rec.cell_emit.sbDropped + rebuilt.getScrollbackCount());
-    const rebuiltMarker = readRowText(rec, rebuiltIndex);
-    expect(rebuiltMarker).not.toBe(marker);
-
-    // The exact query the rebuilt core WOULD answer, carrying the stale epoch.
-    const stale = makeLinkCapture();
-    await handleSearchScrollback(
-      searchFrame(rebuiltMarker, { gridEpoch: heldEpoch }), "req",
-      { coordLink: stale.coordLink, sessionMgr: mgr },
-    );
-    expect(stale.sent.length).toBe(1);
-    expect(stale.sent[0]!.kind).toBe("rpc-error");
-    expect((stale.sent[0] as RpcErr).message).toBe("grid epoch changed");
-
-    // Not a blanket refusal: the numbering now being served answers normally.
-    const current = makeLinkCapture();
-    await handleSearchScrollback(
-      searchFrame(rebuiltMarker, { gridEpoch: freshEpoch }), "req",
-      { coordLink: current.coordLink, sessionMgr: mgr },
-    );
-    const ok = current.sent[0] as RpcOk;
-    expect(ok.kind).toBe("rpc-ok");
-    expect(ok.data.grid_epoch).toBe(freshEpoch);
-    expect(ok.data.matches.length).toBe(1);
-    expect(ok.data.matches[0]!.row).toBe(rebuiltIndex);
-  });
-
-  test("S8 — a reframe mid-scan stops the walk instead of mixing numberings", async () => {
-    const mgr = freshMgr();
-    const rec = await injectSession(mgr);
-    const { coordLink, sent } = makeLinkCapture();
-    const servingEpoch = cellGridEpoch(rec.cell_emit);
-
-    // A full-depth scan for a marker that does not exist crosses several
-    // SEARCH_SLICE_ROWS boundaries and, undisturbed, reports truncated:false (S4).
-    const search = handleSearchScrollback(
-      searchFrame("NO-SUCH-MARKER", { gridEpoch: servingEpoch }), "req",
-      { coordLink, sessionMgr: mgr },
-    );
-    // Land a semantic reframe on a slice boundary: revision bump, SAME core, so
-    // only the epoch comparison can catch it.
-    await new Promise<void>((resolve) => { setImmediate(resolve); });
-    rec.cell_emit = {
-      ...rec.cell_emit,
-      gridEpochRevision: rec.cell_emit.gridEpochRevision + 1,
-    };
-    await search;
-
-    const ok = sent[0] as RpcOk;
-    expect(ok.kind).toBe("rpc-ok");
-    expect(ok.data.truncated).toBe(true);
-    // Whatever it scanned belongs to the epoch it names, never the new one.
-    expect(ok.data.grid_epoch).toBe(servingEpoch);
-    expect(cellGridEpoch(rec.cell_emit)).not.toBe(servingEpoch);
-  });
+	test("search cancellation is isolated by viewer and request identity", async () => {
+		const manager = freshManager();
+		const record = await injectSession(manager);
+		const { promise, resolve } = Promise.withResolvers<void>();
+		manager.terminalControlChains.set(CHANNEL_ID, {
+			tail: promise, depth: 0,
+			running: "terminal_stream", runningSinceMonoMs: 0,
+		});
+		const firstCapture = captureLink();
+		const first = handleSearchScrollback(searchFrame("old", { searchId: "old" }), "old", {
+			coordLink: firstCapture.coordLink, sessionMgr: manager, searchOwnerId: "browser-a",
+		}, FIXED_RUNTIME);
+		await Promise.resolve();
+		const otherCapture = captureLink();
+		const other = handleSearchScrollback(searchFrame("SETTLED-MARKER", { searchId: "other" }), "other", {
+			coordLink: otherCapture.coordLink, sessionMgr: manager, searchOwnerId: "browser-b",
+		}, FIXED_RUNTIME);
+		await Promise.resolve();
+		expect(firstCapture.sent).toHaveLength(0);
+		const replacementCapture = captureLink();
+		const replacement = handleSearchScrollback(searchFrame("SETTLED-MARKER", { searchId: "replacement" }), "replacement", {
+			coordLink: replacementCapture.coordLink, sessionMgr: manager, searchOwnerId: "browser-a",
+		}, FIXED_RUNTIME);
+		await first;
+		expect((firstCapture.sent[0] as RpcError).message).toBe("scrollback search superseded");
+		expect(otherCapture.sent).toHaveLength(0);
+		cancelSearchScrollback({
+			kind: "cancel-scrollback-search",
+			request_id: "cancel-other",
+			session_id: SESSION_ID,
+			search_request_id: "other",
+		}, "browser-b", manager);
+		await other;
+		expect((otherCapture.sent[0] as RpcError).message).toBe("scrollback search superseded");
+		record.wtermCore.writeRaw(new TextEncoder().encode("SETTLED-MARKER\r\n"));
+		resolve();
+		await replacement;
+		expect((replacementCapture.sent[0] as RpcOk).data.matches).toHaveLength(1);
+	});
 });

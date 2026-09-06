@@ -225,6 +225,16 @@ message SessionsGetScrollbackCellsResponse {
 }
 
 
+// Why a bounded scan stopped after its last complete row.
+enum SearchStopReason {
+  SEARCH_STOP_REASON_UNSPECIFIED = 0;
+  SEARCH_STOP_REASON_COMPLETE = 1;
+  SEARCH_STOP_REASON_ROW_LIMIT = 2;
+  SEARCH_STOP_REASON_MATCH_LIMIT = 3;
+  SEARCH_STOP_REASON_DEADLINE = 4;
+  SEARCH_STOP_REASON_EPOCH_CHANGED = 5;
+}
+
 // Find in scrollback. Runs on the WORKER's authoritative grid, not on the
 // client's held window: the SPA keeps at most MAX_HELD_SCROLLBACK_ROWS of the
 // worker's 10k retained rows, so a client-only find would silently miss most of
@@ -244,22 +254,35 @@ message SessionsSearchScrollbackRequest {
   string query = 2;
   bool case_sensitive = 3;
   bool regex = 4;
-  uint32 max_matches = 5;         // clamped server-side to SEARCH_MAX_MATCHES
+  uint32 max_matches = 5;         // must be within the shared search match limit
   string grid_epoch = 6;          // required of browsers; "" = bind to the worker's current epoch
+  optional uint64 before_row = 7; // exclusive; omitted = begin at the newest row boundary
+  uint32 max_rows = 8;            // maximum complete rows to scan on this page
+  string search_id = 9;           // caller-generated cancellation identity, unique within one browser tab
 }
 message SessionsSearchScrollbackMatch {
   uint64 row = 1;                 // MONOTONIC absolute index — same space as PbCellRow.index and sb_base, in the response's grid_epoch
   uint32 col = 2;                 // start column in the row's plain text
   uint32 len = 3;                 // match length in columns
-  string preview = 4;             // row plain text, first 200 chars, for the result list
+  string preview = 4;             // row plain text, bounded by shared Unicode code-point limit
 }
 message SessionsSearchScrollbackResponse {
   repeated SessionsSearchScrollbackMatch matches = 1;  // newest row first
-  bool truncated = 2;             // hit SEARCH_MAX_MATCHES or the deadline
+  bool truncated = 2;             // MATCH_LIMIT or DEADLINE ended an otherwise incomplete search
   uint64 scrollback_total = 3;    // monotonic total at scan time; a match at or above it is a LIVE VIEWPORT row
   uint32 cols = 4;
   string grid_epoch = 5;          // epoch every `row` above is numbered in — one per response, never per match
+  uint64 scanned_start_row = 6;   // inclusive; this page scanned [start, end)
+  uint64 scanned_end_row = 7;     // exclusive; pages always end between complete rows
+  ScrollbackHistoryFloor history_floor = 8;
+  optional uint64 next_before_row = 9; // exclusive continuation cursor; row-limit pages use scanned_start_row
+  SearchStopReason stop_reason = 10;
 }
+message SessionsCancelScrollbackSearchRequest {
+  string session_id = 1;
+  string search_id = 2;
+}
+message SessionsCancelScrollbackSearchResponse {}
 
 
 // ─── workspaces ───────────────────────────────────────────────────────────
@@ -727,6 +750,7 @@ service CoordinatorService {
   rpc SessionsGetScrollbackSince(SessionsGetScrollbackSinceRequest) returns (SessionsGetScrollbackSinceResponse);
   rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
   rpc SessionsSearchScrollback(SessionsSearchScrollbackRequest) returns (SessionsSearchScrollbackResponse);
+  rpc SessionsCancelScrollbackSearch(SessionsCancelScrollbackSearchRequest) returns (SessionsCancelScrollbackSearchResponse);
 
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

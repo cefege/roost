@@ -18,7 +18,10 @@ const OFFLINE_FP = "c".repeat(64);
 function diagnosticRequestId(frame: CoordWorkerDown): string {
   expect(frame.frame.case).toBe("browserCommand");
   if (frame.frame.case !== "browserCommand") throw new Error("expected browser command");
-  expect(JSON.parse(frame.frame.value.frameJson)).toEqual({ kind: "diag-snapshot" });
+  expect(JSON.parse(frame.frame.value.frameJson)).toEqual({
+    kind: "diag-snapshot",
+    request_id: frame.frame.value.requestId,
+  });
   return frame.frame.value.requestId;
 }
 

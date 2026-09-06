@@ -57,6 +57,11 @@ export abstract class SessionManagerState {
 	postAdmissionMaintenancePromise: Promise<void> | null = null;
 	strayStrikes = new Map<number, number>();
 	terminalControlChains = new Map<number, TerminalControlLane>();
+	terminalSearches = new Map<string, {
+		searchId: string;
+		controller: AbortController;
+	}>();
+	terminalSearchCancellations = new Map<string, number>();
 	keeperAdmissionLane = new Map<number, KeeperAdmissionLane>();
 	channelResizeSeq = new Map<number, number>();
 	cellEmissionGates = new Set<number>();

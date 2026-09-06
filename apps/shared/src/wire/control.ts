@@ -4,6 +4,15 @@
 
 import { z } from "zod";
 import { ChannelId, SessionId, TraceId } from "./brand.ts";
+import {
+  ScrollbackHistoryFloorSchema,
+  TerminalSearchGridEpochSchema,
+  TerminalSearchIdSchema,
+  TerminalSearchMaxMatchesSchema,
+  TerminalSearchMaxRowsSchema,
+  TerminalSearchQuerySchema,
+  TerminalSearchRowSchema,
+} from "../terminal-search.ts";
 
 /** Why a get-scrollback-cells page came back short of the requested range —
  *  which history floor the caller hit. Mirrors roost.v1.ScrollbackHistoryFloor
@@ -15,7 +24,7 @@ import { ChannelId, SessionId, TraceId } from "./brand.ts";
  *  "resize_replay" lost to the bounded keeper history available during worker
  *                  adoption, where no in-memory core survived. Ordinary live
  *                  resize is in place and never creates this floor. */
-export type ScrollbackHistoryFloor = "none" | "evicted" | "resize_replay";
+export type ScrollbackHistoryFloor = z.infer<typeof ScrollbackHistoryFloorSchema>;
 
 const Base = z.object({ trace_id: TraceId.optional() });
 // ─── client → worker ───────────────────────────────────────────────────
@@ -69,25 +78,28 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     end_row: z.number().int().nonnegative(),
     max_rows: z.number().int().positive(),
   }),
-  // Find-in-scrollback (G): the SPA holds at most MAX_HELD_SCROLLBACK_ROWS of
-  // the worker's retained history, so the search runs against the worker's
-  // authoritative grid instead. rpc-ok data:
-  // { matches: [{ row, col, len, preview }], truncated, total, cols, grid_epoch }
-  // — `row` is the MONOTONIC absolute index (same space as PbCellRow.index /
-  // sbBase) IN `grid_epoch`, newest row first. Epoch-fenced like
-  // get-scrollback-cells: a named epoch that is no longer current rejects with
-  // "grid epoch changed" rather than answering from a re-numbered grid; an empty
-  // headless/API epoch binds to the worker's current one. Invalid `query` under
-  // regex → rpc-error "invalid regex: …".
+  // Bounded, exclusive-cursor search over the worker's authoritative grid.
+  // rpc-ok data is validated by WorkerSearchScrollbackResultSchema before the
+  // coordinator maps it to protobuf. Rows are absolute indices inside one grid
+  // epoch; before_row is exclusive and omission starts at the newest boundary.
   Base.extend({
     kind: z.literal("search-scrollback"),
     request_id: z.string(),
     session_id: SessionId,
-    grid_epoch: z.string(),
-    query: z.string(),
+    search_id: TerminalSearchIdSchema,
+    grid_epoch: TerminalSearchGridEpochSchema,
+    query: TerminalSearchQuerySchema,
     case_sensitive: z.boolean(),
     regex: z.boolean(),
-    max_matches: z.number().int().positive(),
+    before_row: TerminalSearchRowSchema.optional(),
+    max_rows: TerminalSearchMaxRowsSchema,
+    max_matches: TerminalSearchMaxMatchesSchema,
+  }),
+  Base.extend({
+    kind: z.literal("cancel-scrollback-search"),
+    request_id: z.string(),
+    session_id: SessionId,
+    search_request_id: TerminalSearchIdSchema,
   }),
   // att1 file upload retired here — uploads stream via the DAttachmentChunk
   // worker-transport frame (coord AttachFileChunk RPC), not this JSON frame.

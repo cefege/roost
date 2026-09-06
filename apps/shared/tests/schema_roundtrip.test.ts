@@ -1,5 +1,6 @@
-// R5.1 invariant: every Zod schema round-trips. Catches schema-drift
-// silently breaking the SPA after a worker/coord ships a new variant.
+// Behavioral round-trips for shared wire schemas.
+// Event-fold cases keep replay projection deterministic across all
+// coordinator event variants and deletion transitions.
 
 import { describe, test, expect } from "bun:test";
 import {
@@ -127,6 +128,7 @@ describe("R5.1 schema round-trip", () => {
     });
   });
 });
+
 
 describe("R5.2 event-log fold determinism", () => {
   test("fold(opened, closed) deletes the session (no closed limbo)", () => {

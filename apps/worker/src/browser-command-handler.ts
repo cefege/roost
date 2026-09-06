@@ -10,7 +10,8 @@ import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
 import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnShell } from "./browser-command-spawn.ts";
 import { handleGetHome, handleListDir, handleMkdir, handleReadFile, handleReadFileChunk } from "./browser-command-files.ts";
-import { handleGetScrollbackCells, handleSearchScrollback } from "./browser-command-terminal.ts";
+import { handleGetScrollbackCells } from "./browser-command-terminal.ts";
+import { cancelSearchScrollback, handleSearchScrollback } from "./terminal-search.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
 
@@ -65,8 +66,16 @@ export function handleBrowserCommand(
 			void handleGetScrollbackCells(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
+		case "cancel-scrollback-search": {
+			cancelSearchScrollback(frame, msg.browser_id, sessionMgr);
+			return;
+		}
 		case "search-scrollback": {
-			void handleSearchScrollback(frame, request_id, { coordLink, sessionMgr });
+			void handleSearchScrollback(frame, request_id, {
+				coordLink,
+				sessionMgr,
+				searchOwnerId: msg.browser_id,
+			});
 			return;
 		}
 		// save-attachment (whole-file base64 frame) retired — uploads now

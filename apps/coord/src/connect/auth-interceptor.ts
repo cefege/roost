@@ -166,12 +166,15 @@ const WRITE_METHODS: Record<string, true | undefined> = {
 const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
   AuthCoordIdentity: true, DiagDebugLogBatch: true, MiscHealth: true, WorkersHeartbeat: true,
   PairList: true, SessionsCursorPos: true,
-  // Non-mutating SPA polling. These were briefly handled by the retention
-  // sweep instead, which meant paying an INSERT per RPC to delete the row
-  // days later. Never writing them is strictly cheaper and leaves the sweep
-  // doing the one job it is actually needed for: aging out SessionsInput,
-  // which IS real audit data and cannot simply be skipped.
-  UiReportState: true, SessionsGetScrollbackCells: true, TranscriptionGetConfig: true,
+  // High-frequency SPA state reports, terminal reads, and read cancellation.
+  // These were briefly handled by the retention sweep instead, which meant
+  // paying an INSERT per RPC to delete the row days later. Never writing them
+  // is strictly cheaper and leaves the sweep doing the one job it is actually
+  // needed for: aging out SessionsInput, which IS real audit data and cannot
+  // simply be skipped.
+  UiReportState: true, SessionsGetScrollbackCells: true,
+  SessionsSearchScrollback: true, SessionsCancelScrollbackSearch: true,
+  TranscriptionGetConfig: true,
 };
 
 export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {

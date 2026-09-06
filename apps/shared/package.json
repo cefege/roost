@@ -11,6 +11,7 @@
     "./wire/row-proto": "./src/wire/row-proto.ts",
     "./wire/sync-ws": "./src/wire/sync-ws.ts",
     "./wire/headers": "./src/wire/headers.ts",
+    "./terminal-search": "./src/terminal-search.ts",
     "./keeper-update": "./src/keeper-update.ts",
     "./keeper-update-proto": "./src/keeper-update-proto.ts",
     "./config": "./src/config.ts",

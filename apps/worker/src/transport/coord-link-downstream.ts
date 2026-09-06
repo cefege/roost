@@ -18,7 +18,7 @@ import type {
   DTerminalStreamState,
   DKeeperUpdatePrepare,
 } from "@roost/shared/proto/worker_transport_pb";
-import type { ClientControlFrame } from "@roost/shared/wire";
+import { ClientControlFrame } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import {
@@ -76,10 +76,15 @@ export function createCoordLinkDownstream(
         const bc = v as { browserId: string; viewerId: string; requestId: string; frameJson: string };
         let command: ClientControlFrame;
         try {
-          command = JSON.parse(bc.frameJson) as ClientControlFrame;
-        } catch (error) {
-          log.warn("coord-link", "browser_command_parse", { error: String(error) });
-          diag("transport.cmd_parse_failed", {});
+          command = ClientControlFrame.parse(JSON.parse(bc.frameJson));
+        } catch {
+          log.warn("coord-link", "browser_command_parse", { request_id: bc.requestId });
+          diag("transport.cmd_parse_failed", { request_id: bc.requestId });
+          send({
+            kind: "rpc-error",
+            request_id: bc.requestId,
+            message: "invalid browser command",
+          });
           return;
         }
         // Producer/durable-store failures are intentionally outside the parse

@@ -244,6 +244,12 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 	this.markRecentlyClosed(channelId);
 	this.terminalStreams.delete(channelId);
 	this.lastAppliedSize.delete(channelId);
+	const searchPrefix = `${channelId}:`;
+	for (const [searchKey, search] of this.terminalSearches) {
+		if (!searchKey.startsWith(searchPrefix)) continue;
+		search.controller.abort();
+		this.terminalSearches.delete(searchKey);
+	}
 	this.terminalControlChains.delete(channelId);
 	this.keeperAdmissionLane.delete(channelId);
 	this.channelResizeSeq.delete(channelId);

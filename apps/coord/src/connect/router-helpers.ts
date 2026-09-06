@@ -62,14 +62,12 @@ export function sendBrowserCmd(
   caller: AccountDeviceCaller,
   requestId: string,
   frame: ClientControlFrame,
+  viewerId = caller.fingerprint,
 ): void {
   const downstream = {
     kind: "browser-command" as const,
-    browser_id: caller.fingerprint,
-    // Legacy JSON worker commands retain sender attribution only; terminal
-    // input has its own proof-carrying transport and terminal views never pass
-    // through this envelope.
-    viewer_id: caller.fingerprint,
+    browser_id: viewerId,
+    viewer_id: viewerId,
     request_id: requestId,
     frame,
   };

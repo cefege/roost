@@ -85,7 +85,8 @@ type SessionMethods =
   | "sessionsList" | "sessionsSpawn" | "sessionsAttach" | "sessionsKill"
   | "sessionsRename" | "sessionsInput" | "sessionsCursorPos"
   | "sessionsAssignWorkspace"
-  | "sessionsGetScrollbackCells" | "sessionsSearchScrollback";
+  | "sessionsGetScrollbackCells" | "sessionsSearchScrollback"
+  | "sessionsCancelScrollbackSearch";
 
 export function makeSessionHandlers(
   deps: ConnectDeps,

@@ -69,7 +69,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | workspaces | `src/connect/handlers-workspaces.ts` | version-CAS workspace rows, set-sessions, orphan GC |
 | tasks | `src/connect/handlers-tasks.ts` | claimable task queue: list/enqueue/next-pending/set-state/cancel |
 | workers | `src/connect/handlers-workers.ts` | registry lifecycle; composes deploy start/output from `src/connect/handlers-workers-deploy.ts` |
-| sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment; composes spawn from `src/connect/handler-session-spawn.ts` and two reads from `src/connect/handlers-sessions-scrollback.ts`; resize is socket-bound |
+| sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment; composes spawn from `src/connect/handler-session-spawn.ts` and terminal cell/search/cancel RPCs from `src/connect/handlers-sessions-scrollback.ts`; resize is socket-bound |
 | streaming | `src/connect/handlers-streaming.ts` | only the `sync` stub (below) |
 | ui | `src/connect/handlers-ui.ts` | ui-cc relay: `uiReportState`/`uiListStates`/`uiDispatch`. The spatial model stays browser-local; coord relays, never interprets |
 | coordinator-move | `src/connect/handlers-coordinator-move.ts` | preflight/start/status over `coord-move/`; plain `Error` from the orchestrator is translated to `ConnectError` here, at the RPC boundary |
