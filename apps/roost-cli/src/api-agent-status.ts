@@ -3,6 +3,7 @@
 // occupant and print only their terminal outcome.
 
 import type { AgentStatusView } from "@roost/shared/proto/coordinator_pb";
+import { AgentPromptWaitTimeoutMsSchema } from "@roost/shared/terminal-input";
 
 export interface AgentStatusApiClient {
   agentStatusGet(request: { sessionId: string }): Promise<{ status?: AgentStatusView }>;
@@ -119,7 +120,6 @@ const AGENT_WAIT_OUTCOMES: Record<string, true | undefined> = {
   occupant_changed: true,
   session_closed: true,
 };
-const AGENT_WAIT_MAX_TIMEOUT_MS = 300_000n;
 
 function parseAgentWaitArgs(args: readonly string[]): ParsedAgentWaitArgs {
   const sessionId = args[0];
@@ -155,14 +155,7 @@ function parseAgentWaitArgs(args: readonly string[]): ParsedAgentWaitArgs {
   }
   if (untilValue === undefined) throw new Error("agent-wait: missing --until");
   if (timeoutValue === undefined) throw new Error("agent-wait: missing --timeout");
-  const desiredStates = untilValue.split(",");
-  if (
-    desiredStates.length === 0
-    || desiredStates.some((state) => AGENT_WAIT_STATES[state] !== true)
-    || new Set(desiredStates).size !== desiredStates.length
-  ) {
-    throw new Error("agent-wait: --until must be a unique comma-list of blocked,idle,working");
-  }
+  const desiredStates = parseAgentWaitStates(untilValue);
   return {
     sessionId,
     desiredStates,
@@ -170,20 +163,38 @@ function parseAgentWaitArgs(args: readonly string[]): ParsedAgentWaitArgs {
   };
 }
 
-function parseAgentWaitDuration(value: string): number {
+export function parseAgentWaitDuration(
+  value: string,
+  command = "agent-wait",
+): number {
   const match = /^([1-9][0-9]*)(ms|s|m)$/.exec(value);
-  if (!match) invalidAgentWaitDuration();
+  if (!match) invalidAgentWaitDuration(command);
   const multiplier = match[2] === "m" ? 60_000n : match[2] === "s" ? 1_000n : 1n;
-  const timeoutMs = BigInt(match[1]!) * multiplier;
-  if (timeoutMs < 1n || timeoutMs > AGENT_WAIT_MAX_TIMEOUT_MS) {
-    invalidAgentWaitDuration();
+  const timeoutMs = Number(BigInt(match[1]!) * multiplier);
+  if (!AgentPromptWaitTimeoutMsSchema.safeParse(timeoutMs).success) {
+    invalidAgentWaitDuration(command);
   }
-  return Number(timeoutMs);
+  return timeoutMs;
 }
 
-function invalidAgentWaitDuration(): never {
+export function parseAgentWaitStates(
+  value: string,
+  command = "agent-wait",
+): string[] {
+  const desiredStates = value.split(",");
+  if (
+    desiredStates.length === 0
+    || desiredStates.some((state) => AGENT_WAIT_STATES[state] !== true)
+    || new Set(desiredStates).size !== desiredStates.length
+  ) {
+    throw new Error(`${command}: --until must be a unique comma-list of blocked,idle,working`);
+  }
+  return desiredStates;
+}
+
+function invalidAgentWaitDuration(command: string): never {
   throw new Error(
-    "agent-wait: --timeout must be an integer duration from 1ms to 5m (for example 30s)",
+    `${command}: --timeout must be an integer duration from 1ms to 5m (for example 30s)`,
   );
 }
 

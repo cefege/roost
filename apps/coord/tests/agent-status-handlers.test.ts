@@ -370,7 +370,12 @@ describe("agent status read handlers", () => {
       cfg: { saasMode: false },
     } as unknown as ConnectDeps);
     const connectHandler = makeConnectBunHandler(router);
-    for (const rpcMethod of ["AgentStatusGet", "AgentStatusList", "AgentStatusWait"]) {
+    for (const rpcMethod of [
+      "AgentStatusGet",
+      "AgentStatusList",
+      "AgentStatusWait",
+      "SessionsPrompt",
+    ]) {
       const path = `/roost.v1.CoordinatorService/${rpcMethod}`;
       expect(connectHandler.matches(path)).toBe(true);
       expect([...router.handlers].filter((handler) => handler.requestPath === path))

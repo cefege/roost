@@ -43,10 +43,10 @@ handler layers. This per-account profile is qualification-only in v0.5.0; the
 managed service is not publicly launched. Accounts are operator-created; open
 signup and production managed image publication are off.
 
-## The 19 handler domains
+## The 20 handler domains
 
 `src/connect/router.ts` is **pure wiring**: it installs the auth interceptor and
-spreads 19 domain factories into a **single**
+spreads 20 domain factories into a **single**
 `router.service(CoordinatorService, {…})` literal. No handler logic or
 per-domain state lives there.
 
@@ -59,6 +59,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | transcription | `src/connect/handlers-transcription.ts` | dashboard-admin Deepgram config/get/set/test + stored-key handoff |
 | agent-config | `src/connect/handlers-agent-config.ts` | default launch-button agent command, `app_settings`-backed, universal across devices |
 | agent-status | `src/connect/handlers-agent-status.ts` | dashboard-authorized volatile status Get/List and occupant-pinned event waits |
+| agent-prompt | `src/connect/handlers-agent-prompt.ts` | dashboard-authorized `SessionsPrompt`, exact observed-status admission, and optional post-input status wait |
 | attachments | `src/connect/handlers-attachments.ts` | worker-forwarded read/read-chunk/list/mkdir + attachment upload/probe/list/delete |
 | mcp | `src/connect/handlers-mcp.ts` | MCP relay CRUD and publication, with a bus delta per mutation |
 | auth | `src/connect/handlers-auth.ts` | facade over `src/connect/handlers-auth-bootstrap.ts`, `src/connect/handlers-pairing.ts`, and `src/connect/handlers-devices.ts`: identity/access, bootstrap redemption, pairing, device rotation/revocation, logout |
@@ -78,10 +79,11 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 
 ## Module map
 
-- `src/connect/` — everything protocol-facing: the 19 handler domains and
+- `src/connect/` — everything protocol-facing: the 20 handler domains and
   focused facade leaves, auth interceptor, both split WS transports, Sync
-  feed/scheduler, terminal view/screen hubs, terminal input lane, worker
-  facade, announced-channel barrier, and pending spawns.
+  feed/scheduler, terminal view/screen hubs, raw terminal input lane, guarded
+  agent-prompt orchestration, worker facade, announced-channel barrier, and
+  pending spawns.
 - SQLite access — `src/db/connection.ts` (Kysely over `kysely-bun-sqlite`, WAL + busy timeout), `src/db/schema.ts` (the `DB`
   interface), `src/db/migrate.ts` (custom runner over `apps/coord/migrations/*.sql`, throws on any failure), `src/db/snapshot.ts`
   (online SQLite copy for db-export and coord move).
@@ -193,6 +195,14 @@ the worker-WS registry that server populates.
   membership lives only in `src/connect/terminal-view-hub.ts`; terminal cell continuity
   lives only in `src/connect/terminal-screen-hub.ts`. The barrel owns no session lifecycle.
 
+`src/connect/agent-prompt-control.ts` owns guarded prompt orchestration. It
+validates the exact status fence, registers `waitForAgentStatus` before sending
+one `DAgentPrompt`, aborts and consumes that waiter only for a definite
+pre-write rejection, and awaits it for accepted or ambiguous input. It returns
+input and optional wait outcomes separately; it never retries an ambiguous
+write. Raw `SessionsInput` remains in `src/connect/input-control.ts` and keeps
+its byte-for-byte semantics.
+
 ## Invariants
 
 - **Post-commit publication order is load-bearing.**
@@ -213,6 +223,11 @@ the worker-WS registry that server populates.
 - **`writeAuditLog` runs inside the auth interceptor's `try/finally`.** `src/connect/auth-interceptor.ts` is the
   only place a verified `caller_fp` exists, so the per-RPC row must be written there; the same `finally` releases
   the coordinator write lease. Non-Connect paths audit in `src/coord-factory.ts` with `callerFp: null`.
+- **Prompt content is never coordinator telemetry or storage.** `SessionsPrompt`
+  may log only non-content session, fence, and outcome metadata; prompt text and
+  agent status messages are never logged, placed in `audit_log`, persisted, or
+  echoed in its response. The request is capped at 16,384 UTF-8 bytes, and its
+  optional wait is all-or-none with a `1..300000` ms timeout.
 - **Rate limiting matches exact mutation routes, never a path prefix.** `src/middleware/rate-limit.ts` keys on a `ReadonlySet` of
   full RPC paths, so `*List`/`*Read` calls cannot burn the mutation budget. Connect emits every unary RPC as POST,
   so the GET/HEAD/OPTIONS early return in `checkRateLimit` never fires for an RPC — the exact-name set is the guard.
@@ -232,8 +247,8 @@ the worker-WS registry that server populates.
 
 ## Testing
 
-- `bun test apps/coord/tests/` — 113 `**/*.test.ts` files, 511 registered
-  tests. `tests/coord-e2e.test.ts` boots a coordinator through `createCoord`
+- `bun test apps/coord/tests/` runs the recursive `**/*.test.ts` suites.
+  `tests/coord-e2e.test.ts` boots a coordinator through `createCoord`
   against in-memory SQLite and drives `coord.fetch(...)` directly: no
   `Bun.serve`, port allocation, or network.
 - The coordinator half of the terminal flow is pinned by

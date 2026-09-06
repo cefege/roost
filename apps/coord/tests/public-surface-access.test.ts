@@ -65,7 +65,12 @@ describe("configured Cloudflare Access compatibility", () => {
 
   test("preserves the Access-fronted delegated and denied surfaces", async () => {
     const { surface, coordCalls } = makeHarness({ access: "valid" });
-    for (const path of ["/", `${RPC}PairCreate`, `${RPC}SessionsInput`]) {
+    for (const path of [
+      "/",
+      `${RPC}PairCreate`,
+      `${RPC}SessionsInput`,
+      `${RPC}SessionsPrompt`,
+    ]) {
       const response = await surface.fetch(accessRequest(
         path,
         { method: path === "/" ? "GET" : "POST" },
@@ -77,6 +82,7 @@ describe("configured Cloudflare Access compatibility", () => {
       "/",
       `${RPC}PairCreate`,
       `${RPC}SessionsInput`,
+      `${RPC}SessionsPrompt`,
     ]);
     expect(coordCalls[0]?.origin).toEqual({
       listener: "public-edge",

@@ -13,7 +13,7 @@ import {
   type AgentStatusUpdate as AgentStatusUpdateType,
 } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
-import type { BuiltinAgentId } from "./process-scan.ts";
+import type { AgentProcessIdentity, BuiltinAgentId } from "./process-scan.ts";
 
 export const INTEGRATION_LEASE_MS = 30_000;
 
@@ -31,6 +31,18 @@ export interface ScreenStatusReport {
   agentId: BuiltinAgentId;
   processId: number;
   state: AgentRuntimeState;
+}
+
+/** Exact status fence plus the process identity that proved it. Process IDs
+ * never leave the worker; prompt admission compares this proof twice around
+ * the shared keeper-input queue. */
+export interface AgentStatusPrivateProof {
+  statusEpoch: StatusEpoch;
+  occupantId: AgentOccupantId;
+  revision: number;
+  state: AgentRuntimeState;
+  source: AgentStatusSource;
+  process: AgentProcessIdentity;
 }
 
 interface ProcessCandidate {
@@ -309,6 +321,25 @@ export class AgentStatusRegistry {
     for (const sessionId of this.entries.keys()) {
       if (!sessionIds.has(sessionId)) this.closeSession(sessionId);
     }
+  }
+
+  currentPrivateProof(sessionId: string): AgentStatusPrivateProof | null {
+    // A prompt cannot use an integration row during the lease timer's
+    // one-second sweep gap.
+    this.recompute(sessionId);
+    const effective = this.entries.get(sessionId)?.effective;
+    if (!effective) return null;
+    return {
+      statusEpoch: this.statusEpoch,
+      occupantId: effective.occupantId,
+      revision: effective.revision,
+      state: effective.state,
+      source: effective.source,
+      process: {
+        agentId: effective.agentId,
+        pid: effective.processId,
+      },
+    };
   }
 
   resend(): void {

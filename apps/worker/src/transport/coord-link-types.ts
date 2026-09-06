@@ -5,6 +5,7 @@
 import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { CoordWorkerUp, CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import type {
+  DAgentPrompt,
   DInputRequest,
   DTerminalSnapshotRequest,
   DTerminalStreamState,
@@ -70,6 +71,7 @@ export interface CoordLinkDeps {
   onBrowserCommand?: (msg: { browser_id: string; viewer_id: string; request_id: string; frame: ClientControlFrame }) => void;
   onBinary?: (channelId: number, dir: number, bytes: Uint8Array) => void;
   onInputRequest?: (request: DInputRequest, budget: TerminalRequestBudget) => Promise<void> | void;
+  onAgentPrompt?: (request: DAgentPrompt, budget: TerminalRequestBudget) => Promise<void> | void;
   onTerminalStreamState?: (request: DTerminalStreamState, budget: TerminalRequestBudget) => Promise<void> | void;
   onTerminalSnapshotRequest?: (request: DTerminalSnapshotRequest) => Promise<void> | void;
   onKeeperUpdatePrepare?: (

@@ -1,6 +1,6 @@
-// IP+endpoint sliding-window rate limiter. 100 req/min per IP per route group.
-// Applied to Connect mutation routes that mint/mutate sensitive state:
-// auth.*, workspaces.*, tasks.*, and MCP mutations.
+// IP+endpoint sliding-window rate limiter. Exact sensitive mutation routes
+// receive independent 100-request/minute buckets; reads and unrelated Connect
+// procedures never spend those budgets.
 
 import { log } from "@roost/shared/log";
 
@@ -62,6 +62,8 @@ const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   // tombstones; bound authenticated callers as defense beyond owner caps.
   "/roost.v1.CoordinatorService/SessionsSearchGlobal",
   "/roost.v1.CoordinatorService/SessionsCancelGlobalSearch",
+  // Status-fenced prompting mutates a live PTY and may retain a status waiter.
+  "/roost.v1.CoordinatorService/SessionsPrompt",
 ]);
 
 const TOKENS_PER_WINDOW = 100;

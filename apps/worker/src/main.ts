@@ -161,6 +161,7 @@ export async function runWorker() {
 		link: null,
 		sessionMgr: null,
 		agentRegistry: null,
+		agentDetector: null,
 		acquireKeeperUpdateBoundary: null,
 	};
 	const lifecycleStore = openSessionEventStore();
@@ -227,6 +228,7 @@ export async function runWorker() {
 	});
 	refs.agentRegistry = agentRegistry;
 	const agentDetector = new AgentScreenDetector(sessionMgr, agentRegistry);
+	refs.agentDetector = agentDetector;
 	sessionMgr.setAgentStatusHooks({
 		terminalChanged: (channelId) => agentDetector.schedule(channelId),
 		sessionClosed: (sessionId) => agentDetector.closeSession(sessionId),

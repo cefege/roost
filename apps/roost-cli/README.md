@@ -44,7 +44,7 @@ self-exec/service entries `keeper`, `__windows-updater-broker`,
 | `cutover` | Migrate `coordinator.db` → `coordinator_v2.db` |
 | `status` | ✓/✗ health readout: configured endpoint/TLS mode, conditional Tailscale state, both services, coordinator liveness, workers; each failing line carries its remedy |
 | `doctor [--since 24h]` | Anomaly digest from the low-volume Tier-1 channel (`main.err.log` + rotated `.N.gz`) |
-| `api <verb>` | Dashboard-authorized headless introspection/control over coordinator RPCs: `sessions`, `agent-status`, `agent-wait`, `agents`, `cells`, `input`, `rename`, `assign`, `attach`, `spawn`, `kill`, `workers`, `workspaces`, `ws-*`, `tasks`, `task-*`, `ui`, `ui-state`, `events` |
+| `api <verb>` | Dashboard-authorized headless introspection/control over coordinator RPCs: `sessions`, `agent-status`, `agent-wait`, `agent-prompt`, `agents`, `cells`, `input`, `rename`, `assign`, `attach`, `spawn`, `kill`, `workers`, `workspaces`, `ws-*`, `tasks`, `task-*`, `ui`, `ui-state`, `events` |
 | `join` | Install + register this machine's worker from a one-shot bootstrap token (driven by the repo-root `join.sh`; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN`) |
 | `add-machine --platform <macos\|linux\|windows>` | Mint one worker token and print the platform-specific enrollment command. Coordinator-only |
 | `organizations bootstrap-owner` | Managed-only atomic initial owner/organization/dashboard bootstrap; password accepted only through stdin or `ROOST_OWNER_BOOTSTRAP_PASSWORD` |
@@ -180,10 +180,35 @@ code never enters a POSIX command path. It drains pending relocation requests
   `src/status-native-probes.ts`, `src/status-report.ts`,
   `src/status-output.ts`, and `src/status-types.ts`; `src/doctor.ts`,
   `src/logs.ts`, `src/sync-ws.ts` (headless firehose), and `src/state.ts`.
-- **Headless API** — `src/api.ts` owns authenticated API dispatch, while
-  `src/api-agent-status.ts` owns stable agent-status reads and exact-occupant waits.
+- **Headless API** — `src/api.ts` owns authenticated API dispatch,
+  `src/api-agent-status.ts` owns stable agent-status reads and exact-occupant
+  waits, and `src/api-agent-prompt.ts` owns guarded prompt parsing, status
+  pinning, and outcome formatting.
 - **Local loop** — `src/dev.ts`, `src/test.ts`, `src/reset.ts`, `src/cutover.ts`.
 - **Server modes** — `src/coord.ts`, `src/worker.ts`, `src/keeper.ts`.
+
+### `roost api agent-prompt`
+
+`roost api agent-prompt <session> <text> [--wait --until <states> --timeout
+<duration>]` reads the current promptable status, pins its exact epoch,
+occupant, and revision, then asks `SessionsPrompt` for one fenced input to that
+same shell PTY. `<text>` is the exact single argv value—unlike `api input`, the
+CLI does not expand `\n`, `\t`, or `\r` spellings—and must be nonempty and at
+most 16,384 UTF-8 bytes.
+
+The wait flags are all-or-none. `<states>` is a unique comma-list drawn from
+`idle,working,blocked`; duration is an integral `ms`, `s`, or `m` value from
+1 ms through 5 minutes. Output begins
+`input<TAB><accepted|rejected|ambiguous><TAB><written_bytes><TAB><reason-or->`;
+the reason is at most 200 characters and `written_bytes` at most 16,397. When
+`--wait` is set and input is accepted or ambiguous, a second line is
+`wait<TAB><matched|timed_out|occupant_changed|session_closed>`; definite
+rejection prints only the input line. Rejected or ambiguous input and every
+non-matched wait set a nonzero exit code. Neither component retries ambiguous
+input or prints/logs the prompt text.
+
+`roost api input <session> <text> [--enter]` remains the unfenced raw-input
+surface: its documented backslash expansion and optional CR are unchanged.
 
 `src/machine-transaction.ts` serializes install/update/relocation/
 keeper-refresh/deploy against one lock per machine. Importers are

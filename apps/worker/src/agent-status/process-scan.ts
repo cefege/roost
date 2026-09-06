@@ -1,5 +1,6 @@
 // Adapted from Herdr process-backed agent detection at commit
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
+// Forced proof refreshes abort the snapshot and terminate a spawned ps process.
 
 import { log } from "@roost/shared/log";
 import {
@@ -232,23 +233,32 @@ function findExactAgentProcessIdentity(
 }
 
 interface HeldIdentity extends AgentProcessIdentity { misses: number }
+export type ProcessSnapshotReader = (signal?: AbortSignal) => Promise<ProcessRecord[]>;
 
-export type ProcessSnapshotReader = () => Promise<ProcessRecord[]>;
-
-async function readProcessSnapshot(): Promise<ProcessRecord[]> {
+export async function _readProcessSnapshot(signal?: AbortSignal): Promise<ProcessRecord[]> {
+  if (signal?.aborted) throw new Error("process snapshot aborted");
   switch (HOST_PLATFORM) {
     case "darwin":
     case "linux": {
       const proc = Bun.spawn([
         "ps", "-A", "-o", "pid=,ppid=,pgid=,tpgid=,comm=,args=",
       ], { stdout: "pipe", stderr: "pipe" });
-      const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]);
-      if (exitCode !== 0) throw new Error(stderr.trim() || `ps exited ${exitCode}`);
-      return parsePsSnapshot(stdout);
+      const terminate = () => {
+        try { proc.kill("SIGKILL"); } catch { /* already exited */ }
+      };
+      signal?.addEventListener("abort", terminate, { once: true });
+      try {
+        const [stdout, stderr, exitCode] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        if (signal?.aborted) throw new Error("process snapshot aborted");
+        if (exitCode !== 0) throw new Error(stderr.trim() || `ps exited ${exitCode}`);
+        return parsePsSnapshot(stdout);
+      } finally {
+        signal?.removeEventListener("abort", terminate);
+      }
     }
     case "win32":
       return windowsProcessSnapshot();
@@ -261,28 +271,75 @@ export class AgentProcessScanner {
   private records: ProcessRecord[] = [];
   private scannedAt = 0;
   private scanPromise: Promise<boolean> | null = null;
+  private scanController: AbortController | null = null;
   private heldBySession = new Map<string, HeldIdentity>();
   constructor(
-    private readonly readSnapshot: ProcessSnapshotReader = readProcessSnapshot,
+    private readonly readSnapshot: ProcessSnapshotReader = _readProcessSnapshot,
     private readonly throttleMs = SCAN_THROTTLE_MS,
   ) {}
 
-  private async refresh(now = Date.now(), force = false): Promise<boolean> {
+  private async awaitScan(
+    scan: Promise<boolean>,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (!signal) return scan;
+    const abortCurrentScan = () => {
+      if (this.scanPromise !== scan) return;
+      const controller = this.scanController;
+      this.scanPromise = null;
+      this.scanController = null;
+      controller?.abort();
+    };
+    if (signal.aborted) {
+      abortCurrentScan();
+      return false;
+    }
+    const { promise: aborted, resolve: resolveAborted } = Promise.withResolvers<boolean>();
+    const onAbort = () => {
+      abortCurrentScan();
+      resolveAborted(false);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await Promise.race([scan, aborted]);
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  private async refresh(
+    now = Date.now(),
+    force = false,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (signal?.aborted) return false;
     if (!force && now - this.scannedAt < this.throttleMs) return true;
-    if (this.scanPromise) return this.scanPromise;
-    this.scanPromise = (async () => {
+    if (this.scanPromise) return this.awaitScan(this.scanPromise, signal);
+    const controller = new AbortController();
+    const scan: Promise<boolean> = (async () => {
       try {
-        this.records = await this.readSnapshot();
+        const records = await Promise.resolve().then(
+          () => this.readSnapshot(controller.signal),
+        );
+        if (controller.signal.aborted) return false;
+        this.records = records;
         this.scannedAt = Date.now();
         return true;
       } catch (error) {
-        log.warn("agent-status", "process_scan_failed", { error: String(error) });
+        if (!controller.signal.aborted) {
+          log.warn("agent-status", "process_scan_failed", { error: String(error) });
+        }
         return false;
       } finally {
-        this.scanPromise = null;
+        if (this.scanController === controller) {
+          this.scanPromise = null;
+          this.scanController = null;
+        }
       }
     })();
-    return this.scanPromise;
+    this.scanPromise = scan;
+    this.scanController = controller;
+    return this.awaitScan(scan, signal);
   }
 
   async scanAgents(roots: readonly SessionProcessRoot[]): Promise<Map<string, AgentProcessIdentity>> {
@@ -325,9 +382,11 @@ export class AgentProcessScanner {
   async scanReportingAgent(
     root: SessionProcessRoot,
     reporterPid: number,
+    signal?: AbortSignal,
   ): Promise<AgentProcessIdentity | null> {
-    if (this.scanPromise) await this.scanPromise;
-    const refreshed = await this.refresh(Date.now(), true);
+    const activeScan = this.scanPromise;
+    if (activeScan && !(await this.awaitScan(activeScan, signal))) return null;
+    const refreshed = await this.refresh(Date.now(), true, signal);
     if (!refreshed) return null;
     const held = this.heldBySession.get(root.sessionId);
     if (held) {

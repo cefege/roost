@@ -1,6 +1,6 @@
 ---
 title: "Agents and status"
-description: "Roost never owns the agent process. How ten CLIs get first-class status detection, the three detection tiers, and why nothing about status is persisted."
+description: "How Roost observes agent state and sends occupant-fenced text to the same ordinary shell PTY without owning an agent process or conversation."
 order: 5
 section: "Concepts"
 ---
@@ -10,8 +10,9 @@ section: "Concepts"
 Every Roost session is a shell PTY, and an agent CLI is an ordinary command
 running inside it. Roost does not spawn, supervise, or own an agent process,
 conversation, transcript, tool call, or approval model. There is no wrapper
-process or composer. Authenticated agent-specific RPCs only read worker-observed
-status; they do not control the agent.
+process or second agent channel. Authenticated RPCs may expose worker-observed
+state and use that exact observation to fence one text input to the same PTY;
+they do not turn the terminal into a structured conversation.
 
 That is a deliberate boundary, and it is what makes "any CLI" true rather than
 aspirational. Anything that runs in a terminal runs in Roost: a shell, a REPL,
@@ -53,15 +54,16 @@ mobile, and a rollup on the folder that contains it — for example
 `2 working · 1 needs input`. Plain shells stay unmarked; an unlabelled terminal is
 the normal case, not a failure.
 
-## Read status from the CLI
+## Read status or send a fenced prompt from the CLI
 
-An authorized CLI identity can read the current status rows in its selected
-dashboard without opening a browser:
+An authorized CLI identity can read current status rows, await one exact
+occupant, or send text only if that observed occupant is still current:
 
 ```sh
 roost api agent-status <session> [--json]
 roost api agents [--json]
 roost api agent-wait <session> --until <blocked,idle,working> --timeout <duration>
+roost api agent-prompt <session> <text> [--wait --until <states> --timeout <duration>]
 ```
 
 The first command reads one authorized session; a missing or foreign session
@@ -88,6 +90,34 @@ comma-list of `blocked`, `idle`, and `working`; `--timeout` accepts an integral
 outcome: `matched`, `timed_out`, `occupant_changed`, or `session_closed`.
 Only `matched` exits successfully. Replacement, close, and fast transitions are
 observed in the status hub; the command does not poll or scrape terminal output.
+
+`agent-prompt` first reads a complete integration status and pins its
+`status_epoch`, `occupant_id`, and `revision`. `SessionsPrompt` accepts one
+nonempty text value only while that exact process proof and `idle` or `working`
+state still hold. A replaced occupant, changed status epoch, newer revision,
+`blocked` state, screen-only observation, closed session, or deadline already
+expired at the final pre-`beginInput` check is a pre-write rejection: no prompt
+byte reaches the keeper. A timeout after admission can instead be ambiguous.
+This is prompt input, not an approval API.
+
+Text is capped at 16,384 UTF-8 bytes. The optional wait flags are all-or-none:
+`--until` is a nonempty unique comma-list drawn from
+`idle,working,blocked`, and `--timeout` is an integral `ms`, `s`, or `m`
+duration from 1 ms through 5 minutes. Without `--wait`, no wait fields are
+sent. With it, the input outcome is always reported. A definite rejection
+aborts the waiter and omits the wait outcome; accepted or ambiguous input
+awaits and reports `matched`, `timed_out`, `occupant_changed`, or
+`session_closed`.
+The response reason is at most 200 characters and `written_bytes` at most
+16,397; it never contains the prompt text.
+
+The worker encodes accepted text exactly like the terminal composer: it
+normalizes newlines, strips ESC and wraps the text when bracketed paste is
+active, appends one Enter, and writes once. An ambiguous result is never
+retried. Neither prompt text nor agent status messages are logged, audited, or
+stored.
+
+`roost api input` remains the independent, unfenced raw-byte surface.
 
 ## Three detection tiers
 

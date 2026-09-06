@@ -100,20 +100,23 @@ export function acquireKeeperAdmission(
   mgr.keeperAdmissionLane.set(channelId, lane);
   const prior = lane.tail;
   const { promise: released, resolve: releaseLane } = Promise.withResolvers<void>();
+  let releasedOnce = false;
+  let ownsLane = false;
   lane.tail = prior.then(() => released);
   const granted = prior.then(() => {
     lane.depth--;
+    if (releasedOnce) return;
+    ownsLane = true;
     lane.holder = kind;
     lane.heldSinceMonoMs = monoNowMs();
   });
-  let releasedOnce = false;
   return {
     granted,
     kind,
     release: () => {
       if (releasedOnce) return;
       releasedOnce = true;
-      if (lane.holder === kind) lane.holder = null;
+      if (ownsLane && lane.holder === kind) lane.holder = null;
       releaseLane();
       void lane.tail.then(() => {
         if (mgr.keeperAdmissionLane.get(channelId) === lane

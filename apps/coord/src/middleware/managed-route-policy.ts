@@ -99,6 +99,7 @@ const MANAGED_PROTECTED_RPC_METHODS: Record<string, true | undefined> = {
   SessionsKill: true,
   SessionsRename: true,
   SessionsInput: true,
+  SessionsPrompt: true,
   SessionsCursorPos: true,
   SessionsAssignWorkspace: true,
   SessionsGetScrollbackCells: true,

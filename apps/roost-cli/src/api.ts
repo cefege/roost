@@ -19,6 +19,7 @@ import {
   withDashboardScope,
 } from "./cli-auth.ts";
 import { dispatchAgentStatusApi } from "./api-agent-status.ts";
+import { dispatchAgentPromptApi } from "./api-agent-prompt.ts";
 import { openSyncWs } from "./sync-ws.ts";
 
 export type AuthorizedApiClient = CoordClient;
@@ -33,7 +34,6 @@ export async function buildApiClient(
 export function buildSelfAuthorizedApiClient(): Promise<CoordClient> {
   return buildApiClient();
 }
-
 
 /**
  * Fixture-only client builder. Production CLI paths must use buildApiClient so
@@ -168,7 +168,7 @@ async function revokeLocalDevice(args: string[]): Promise<void> {
 export async function api(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (!verb) {
-    console.error("roost api <verb>: sessions | agent-status | agent-wait | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | events | watch");
+    console.error("roost api <verb>: sessions | agent-status | agent-wait | agent-prompt | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | events | watch");
     process.exit(1);
   }
   if (verb === "device-revoke-local") {
@@ -200,6 +200,7 @@ export async function api(args: string[]): Promise<void> {
 }
 
 async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<void> {
+  if (await dispatchAgentPromptApi(c, verb, rest)) return;
   if (await dispatchAgentStatusApi(c, verb, rest)) return;
   switch (verb) {
     case "sessions": {
@@ -563,11 +564,10 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       break;
     }
     default:
-      console.error(`roost api: unknown verb "${verb}" — sessions | agent-status | agent-wait | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | events | watch`);
+      console.error(`roost api: unknown verb "${verb}" — sessions | agent-status | agent-wait | agent-prompt | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | events | watch`);
       process.exit(1);
   }
 }
-
 
 /** Coarse human age for ui-state rows: "42s" / "3m" / "2h". */
 function humanAge(ms: number): string {

@@ -226,8 +226,8 @@ describe("agent status occupant waits", () => {
       waitRequest({ timeoutMs: 0 }),
       waitRequest({ timeoutMs: 300_001 }),
     ]) {
-      await expect(waitForAgentStatus(request, new AbortController().signal))
-        .rejects.toBeInstanceOf(AgentStatusWaitError);
+      expect(() => waitForAgentStatus(request, new AbortController().signal))
+        .toThrow(AgentStatusWaitError);
     }
     expect(_agentStatusWaiterStats()).toEqual({ total: 0, sessions: 0 });
   });

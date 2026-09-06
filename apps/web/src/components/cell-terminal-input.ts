@@ -5,6 +5,12 @@
 
 import { createSignal, type Accessor, type Setter } from "solid-js";
 import { signal } from "@roost/shared/diag";
+import {
+	buildPtyPayload,
+	countLineBreaks,
+	CR_BYTES,
+	MULTILINE_PASTE_MIN_NEWLINES,
+} from "@roost/shared/terminal-input";
 import { enqueueAttachment, pickAndAttachFiles } from "../lib/attachments.ts";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import type { TerminalContext } from "../lib/keytermContext.ts";
@@ -13,12 +19,6 @@ import {
 	workerFileHref,
 	workerPathPlatform,
 } from "../lib/nativePath.ts";
-import {
-	buildPtyPayload,
-	countLineBreaks,
-	CR_BYTES,
-	MULTILINE_PASTE_MIN_NEWLINES,
-} from "../lib/ptyPaste.ts";
 import { applyCtrlModifier } from "../lib/terminalInput.ts";
 import {
 	clearInput,

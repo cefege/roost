@@ -138,8 +138,9 @@ export interface AuthInterceptorDeps {
 const WRITE_METHODS: Record<string, true | undefined> = {
   WorkersRegister: true, WorkersHeartbeat: true, WorkersRename: true, WorkersDelete: true, WorkersDeployStart: true,
   SessionsSpawn: true, SessionsAttach: true, SessionsKill: true, SessionsRename: true,
-  // SessionsInput acquires its lease only after entering the per-session FIFO.
-  // Taking one here would let queued input hold the move drain open.
+  // Terminal writes acquire their lease only after entering the per-sender/
+  // session FIFO. Taking one here would let queued input or a prompt hold the
+  // move drain open.
   SessionsCursorPos: true, SessionsAssignWorkspace: true,
   TasksEnqueue: true, TasksNextPending: true, TasksSetState: true, TasksCancel: true,
   WorkspacesCreate: true, WorkspacesUpdate: true, WorkspacesDelete: true, WorkspacesSetSessions: true,

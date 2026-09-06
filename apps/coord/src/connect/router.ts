@@ -11,6 +11,7 @@ import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
 import { makeTranscriptionHandlers } from "./handlers-transcription.ts";
 import { makeAgentConfigHandlers } from "./handlers-agent-config.ts";
 import { makeAgentStatusHandlers } from "./handlers-agent-status.ts";
+import { makeAgentPromptHandlers } from "./handlers-agent-prompt.ts";
 import { makeAttachmentHandlers } from "./handlers-attachments.ts";
 import { makeMcpHandlers } from "./handlers-mcp.ts";
 import { makeAuthHandlers } from "./handlers-auth.ts";
@@ -96,6 +97,7 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeWorkerUpdateHandlers(deps),
     ...makeSessionHandlers(deps),
     ...makeAgentStatusHandlers(deps),
+    ...makeAgentPromptHandlers(deps),
     ...makeWorkspaceHandlers(deps),
     ...makeTaskHandlers(deps),
     ...makeMcpHandlers(deps),

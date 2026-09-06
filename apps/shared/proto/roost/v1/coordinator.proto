@@ -818,6 +818,7 @@ service CoordinatorService {
   rpc SessionsKill(SessionsKillRequest) returns (SessionsKillResponse);
   rpc SessionsRename(SessionsRenameRequest) returns (SessionsRenameResponse);
   rpc SessionsInput(SessionsInputRequest) returns (SessionsInputResponse);
+  rpc SessionsPrompt(SessionsPromptRequest) returns (SessionsPromptResponse);
   rpc SessionsCursorPos(SessionsCursorPosRequest) returns (SessionsCursorPosResponse);
   rpc SessionsAssignWorkspace(SessionsAssignWorkspaceRequest) returns (SessionsAssignWorkspaceResponse);
   rpc SessionsGetScrollbackSince(SessionsGetScrollbackSinceRequest) returns (SessionsGetScrollbackSinceResponse);
@@ -1066,4 +1067,36 @@ message DiagSnapshotRequest {
 }
 message DiagSnapshotResponse {
   string snapshot_json = 1;      // dump of coord + worker state
+}
+
+enum AgentPromptInputOutcome {
+  AGENT_PROMPT_INPUT_OUTCOME_UNSPECIFIED = 0;
+  AGENT_PROMPT_INPUT_OUTCOME_ACCEPTED = 1;
+  AGENT_PROMPT_INPUT_OUTCOME_REJECTED = 2;
+  AGENT_PROMPT_INPUT_OUTCOME_AMBIGUOUS = 3;
+}
+
+enum AgentPromptWaitOutcome {
+  AGENT_PROMPT_WAIT_OUTCOME_UNSPECIFIED = 0;
+  AGENT_PROMPT_WAIT_OUTCOME_MATCHED = 1;
+  AGENT_PROMPT_WAIT_OUTCOME_TIMED_OUT = 2;
+  AGENT_PROMPT_WAIT_OUTCOME_OCCUPANT_CHANGED = 3;
+  AGENT_PROMPT_WAIT_OUTCOME_SESSION_CLOSED = 4;
+}
+
+message SessionsPromptRequest {
+  string session_id = 1;
+  string expected_status_epoch = 2;
+  string expected_occupant_id = 3;
+  uint64 expected_revision = 4;
+  string text = 5;
+  repeated string wait_states = 6;
+  optional uint32 wait_timeout_ms = 7;
+}
+
+message SessionsPromptResponse {
+  AgentPromptInputOutcome input_outcome = 1;
+  uint32 written_bytes = 2;
+  string reason = 3;
+  optional AgentPromptWaitOutcome wait_outcome = 4;
 }

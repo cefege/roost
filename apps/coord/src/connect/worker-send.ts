@@ -7,8 +7,8 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
   CoordWorkerDownSchema, DBrowserCommandSchema, DBinarySchema, DAttachmentChunkSchema,
-  DInputRequestSchema, DTerminalStreamStateSchema, DTerminalSnapshotRequestSchema,
-  type WInputResult, type WTerminalStreamResult,
+  DAgentPromptSchema, DInputRequestSchema, DTerminalStreamStateSchema,
+  DTerminalSnapshotRequestSchema, type WInputResult, type WTerminalStreamResult,
 } from "@roost/shared/proto/worker_transport_pb";
 import { connectWorkers } from "./worker-registry.ts";
 import { createPendingRpc, rejectPendingRpcUnavailable } from "../router/pending-rpcs.ts";
@@ -222,6 +222,67 @@ export function sendTerminalInputRequest(
     rejectPendingRpcUnavailable(
       pending.request_id,
       error instanceof Error ? error.message : "worker transport failed terminal input",
+      workerFp,
+    );
+  }
+  return {
+    admitted,
+    expired: false,
+    requestId: pending.request_id,
+    result: pending.promise,
+  };
+}
+
+/** Send one status-fenced agent prompt through its dedicated downstream frame.
+ * WInputResult remains the only write truth; transport admission is not an ACK. */
+export function sendAgentPromptRequest(
+  workerFp: string,
+  message: {
+    sessionId: string;
+    inputSeq: bigint;
+    expectedStatusEpoch: string;
+    expectedOccupantId: string;
+    expectedRevision: bigint;
+    text: string;
+    dashboardId?: string;
+  },
+  deadline: HopDeadline = startHopDeadline(INPUT_CONTROL_TIMEOUT_MS),
+): TerminalWorkerRequest<WInputResult> {
+  const worker = currentRoutableWorker(workerFp);
+  if (!worker || worker.dashboardId !== message.dashboardId) {
+    return unsentRequest("worker offline", false);
+  }
+  const budgetMs = workerBudgetMs(deadline);
+  if (budgetMs === null) return unsentRequest("agent prompt budget expired before send", true);
+  const pending = createPendingRpc<WInputResult>(
+    Math.max(1, Math.ceil(deadline.remainingMs())),
+    workerFp,
+  );
+  let admitted = false;
+  try {
+    admitted = worker.send(create(CoordWorkerDownSchema, {
+      frame: { case: "agentPrompt", value: create(DAgentPromptSchema, {
+        requestId: pending.request_id,
+        sessionId: message.sessionId,
+        inputSeq: message.inputSeq,
+        expectedStatusEpoch: message.expectedStatusEpoch,
+        expectedOccupantId: message.expectedOccupantId,
+        expectedRevision: message.expectedRevision,
+        text: message.text,
+        budgetMs,
+      }) },
+    })) !== 0;
+    if (!admitted) {
+      rejectPendingRpcUnavailable(
+        pending.request_id,
+        "worker transport dropped agent prompt",
+        workerFp,
+      );
+    }
+  } catch {
+    rejectPendingRpcUnavailable(
+      pending.request_id,
+      "worker transport failed agent prompt",
       workerFp,
     );
   }

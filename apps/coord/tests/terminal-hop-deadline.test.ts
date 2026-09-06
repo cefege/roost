@@ -290,3 +290,45 @@ describe("wall-clock skew cannot change expiry semantics", () => {
     expect(frames).toHaveLength(0);
   });
 });
+
+describe("queued input owns its decoded bytes", () => {
+  test("caller buffer mutation cannot change a same-lane queued request", async () => {
+    const sessionId = await seedSession();
+    const sentPayloads: number[][] = [];
+    attachWorker((frame) => {
+      if (frame.frame.case !== "inputRequest") return 1;
+      const request = frame.frame.value;
+      sentPayloads.push(Array.from(request.data));
+      resolvePendingRpc(request.requestId, create(WInputResultSchema, {
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        inputSeq: request.inputSeq,
+        status: TerminalInputStatus.ACCEPTED,
+        writtenBytes: request.data.byteLength,
+        phase: TerminalWritePhase.WRITTEN,
+      }));
+      return 1;
+    });
+    const viewer = identity("tab-owned-input");
+    const first = processInputControl(deps, {
+      identity: viewer,
+      sessionId,
+      inputSeq: 1n,
+      data: Uint8Array.of(0x61),
+    });
+    const borrowed = Uint8Array.of(0x62, 0x63);
+    const second = processInputControl(deps, {
+      identity: viewer,
+      sessionId,
+      inputSeq: 2n,
+      data: borrowed,
+    });
+    borrowed.fill(0x7a);
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ status: "accepted", writtenBytes: 1 }),
+      expect.objectContaining({ status: "accepted", writtenBytes: 2 }),
+    ]);
+    expect(sentPayloads).toEqual([[0x61], [0x62, 0x63]]);
+  });
+});

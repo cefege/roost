@@ -2,12 +2,16 @@
 // arbitration tests for worker-observed agent status. Durable occupant identity
 // edge cases live in agent-status-registry-identity.test.ts.
 
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { AgentStatusUpdate } from "@roost/shared/wire";
 import { evaluateManifest, type ManifestDetection } from "../src/agent-status/manifest-engine.ts";
 import { AGENT_MANIFESTS } from "../src/agent-status/manifests.ts";
 import {
   AgentProcessScanner,
+  _readProcessSnapshot,
   BUILTIN_AGENT_COMMANDS,
   findAgentProcessIdentity,
   identifyAgentProcess,
@@ -138,6 +142,51 @@ describe("agent process identity", () => {
 
     expect(await scanner.scanReportingAgent(roots[0]!, 30)).toBeNull();
     expect(snapshots).toBe(2);
+  });
+
+  test("cancels and detaches a stalled forced snapshot", async () => {
+    const root = processRecord({ pid: 10, ppid: 1 });
+    const records = [root, processRecord({ pid: 30, ppid: 10, comm: "omp", args: "omp" })];
+    const stalled = Promise.withResolvers<void>();
+    let reads = 0;
+    let scanAborted = false;
+    const scanner = new AgentProcessScanner((signal) => {
+      reads++;
+      if (reads !== 2) return Promise.resolve(records);
+      signal?.addEventListener("abort", () => { scanAborted = true; }, { once: true });
+      stalled.resolve();
+      return new Promise<ProcessRecord[]>(() => {});
+    }, 0);
+    const sessionRoot = { sessionId, childPid: 10 };
+    await scanner.scanAgents([sessionRoot]);
+    const controller = new AbortController();
+    const forced = scanner.scanReportingAgent(sessionRoot, 30, controller.signal);
+    await stalled.promise;
+    controller.abort();
+
+    expect(await forced).toBeNull();
+    expect(scanAborted).toBe(true);
+    expect(await scanner.scanReportingAgent(sessionRoot, 30))
+      .toEqual({ agentId: "omp", pid: 30 });
+  });
+
+  test("terminates the spawned ps process when its snapshot is aborted", async () => {
+    if (process.platform === "win32") return;
+    const dir = await mkdtemp(join(tmpdir(), "roost-process-scan-"));
+    const fakePs = join(dir, "ps");
+    const originalPath = process.env.PATH;
+    await writeFile(fakePs, "#!/bin/sh\nexec /bin/sleep 60\n", { mode: 0o700 });
+    process.env.PATH = `${dir}:${originalPath ?? ""}`;
+    try {
+      const controller = new AbortController();
+      const snapshot = _readProcessSnapshot(controller.signal);
+      controller.abort();
+      await expect(snapshot).rejects.toThrow("process snapshot aborted");
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

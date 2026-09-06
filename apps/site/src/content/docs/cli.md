@@ -65,8 +65,9 @@ supported.
 
 `roost api` is the headless surface: it introspects and drives a live
 coordinator without a browser through the authenticated Connect service. It is
-useful both for scripting and for reproducing a UI bug from a shell; agent
-status reads project the same in-memory hub that feeds browser Sync.
+useful both for scripting and for reproducing a UI bug from a shell; observed
+agent reads, waits, and fenced prompts use the same volatile status hub that
+feeds browser Sync.
 
 ### Sessions and terminals
 
@@ -75,22 +76,23 @@ status reads project the same in-memory hub that feeds browser Sync.
 | `sessions` | — lists every session |
 | `spawn` | `<workerFp> <folder>` |
 | `kill` | `<sessionId>` |
-| `input` | `<sessionId> <text>` — `\n`, `\t`, `\r` escapes are expanded |
+| `input` | `<sessionId> <text> [--enter]` — raw bytes after `\n`, `\t`, `\r` escape expansion; optional Enter |
 | `cells` | `<sessionId>` — structured scrollback rows |
 | `events` | `<sessionId> [--secs N]` — live wire-delta monitor, default 5 s |
 | `rename` | `<sessionId> [title…]` — an empty title clears the override |
 | `assign` | `<sessionId> <workspaceId\|-->` — `--` clears the assignment |
 | `attach` | upload local files into a session and print each absolute path |
 
-### Observed agent status
+### Observed agent status and fenced prompts
 
 | Verb | Arguments |
 |---|---|
 | `agent-status` | `<session> [--json]` — reads one authorized session |
 | `agents` | `[--json]` — lists current status rows, sorted by session id |
 | `agent-wait` | `<session> --until <comma-states> --timeout <duration>` — waits on the exact current occupant |
+| `agent-prompt` | `<session> <text> [--wait --until <comma-states> --timeout <duration>]` — sends one occupant-fenced input |
 
-All three verbs use the CLI identity's selected-dashboard authority. Missing and
+All four verbs use the CLI identity's selected-dashboard authority. Missing and
 foreign sessions share the coordinator's not-found response. The two read
 verbs use headered TSV; their `source` column renders an absent legacy source as `legacy`,
 so screen and legacy rows visibly retain `promptable=false`.
@@ -111,6 +113,39 @@ identified occupant, then performs one event-driven RPC. Output is exactly
 `matched`, `timed_out`, `occupant_changed`, or `session_closed`; every outcome
 except `matched` sets a nonzero exit code. The coordinator never polls or
 scrapes terminal output.
+
+`agent-prompt` reads one promptable integration status, pins its exact epoch,
+occupant and revision, and calls `SessionsPrompt`. Text is the exact single
+argv value: it does **not** expand the backslash escapes accepted by `input`.
+It must be nonempty and at most 16,384 UTF-8 bytes. Quote shell whitespace as
+usual.
+
+The three wait flags are all-or-none. States must be a nonempty unique
+comma-list drawn from `blocked,idle,working`; timeout uses the same integral
+`ms`, `s`, or `m` syntax and 1 ms through 5 minute bound as `agent-wait`.
+Output is:
+
+```text
+input	<accepted|rejected|ambiguous>	<written_bytes>	<reason-or->
+wait	<matched|timed_out|occupant_changed|session_closed>
+```
+
+The reason is at most 200 characters and `written_bytes` at most 16,397.
+
+The second line appears only when `--wait` was requested and input was accepted
+or ambiguous; a definite rejection prints only the input line. Rejected or
+ambiguous input, or a non-matched wait, sets a nonzero exit code. Input and wait
+outcomes stay separate because an ambiguous PTY write may still be followed by
+an observed status transition. The CLI and coordinator never retry it.
+
+This command does not address an agent through a hidden API. The worker accepts
+text only if the same integration process is still proved and its exact status
+is `idle` or `working`. At the final pre-`beginInput` check, a `blocked`,
+replaced, screen-only, closed, expired, or newer-revision target rejects before
+any keeper write; failure after admission can instead be ambiguous. The shared
+terminal encoder normalizes newlines and, when bracketed paste is active,
+strips ESC from the text and wraps it before appending one CR. `input` remains
+unfenced raw input with its existing escape expansion and optional `--enter`.
 
 ### Workers
 

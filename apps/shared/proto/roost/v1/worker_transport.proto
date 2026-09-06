@@ -298,7 +298,19 @@ message CoordWorkerDown {
     DTerminalSnapshotRequest terminal_snapshot_request = 14;
     DUpdateBroker update_broker = 30;
     DKeeperUpdatePrepare keeper_update_prepare = 15;
+    DAgentPrompt agent_prompt = 16;
   }
+}
+
+message DAgentPrompt {
+  string request_id = 1;
+  string session_id = 2;
+  uint64 input_seq = 3;
+  string expected_status_epoch = 4;
+  string expected_occupant_id = 5;
+  uint64 expected_revision = 6;
+  string text = 7;
+  uint32 budget_ms = 8;
 }
 
 service WorkerService {

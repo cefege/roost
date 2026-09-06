@@ -1,6 +1,6 @@
 ---
 title: "Terminal fidelity"
-description: "Cell-authoritative frames, resume by sequence, on-demand scrollback, a pinned verified WASM VT core, predictive echo, mouse modes, and real hyperlinks."
+description: "Cell-authoritative frames, raw versus status-fenced input, bounded recovery, a pinned VT core, predictive echo, mouse modes, and real hyperlinks."
 order: 4
 section: "Concepts"
 ---
@@ -129,6 +129,28 @@ it: the holds clear, the pending frame is adopted, and the bottom is re-pinned a
 a single transition, so an admitted input causes at most one repair. Leaving the
 surface ends the reading interval, so a pane you come back to shows the newest
 canonical frame.
+
+## Raw input and guarded prompts are different
+
+`SessionsInput` is the raw terminal surface: its bytes reach the existing input
+lane without status fencing, newline conversion, paste framing, an implicit
+Enter, or automatic retry. Browser keystrokes and `roost api input` depend on
+that contract, and guarded prompts do not change it.
+
+`SessionsPrompt` instead accepts text for one exact worker-observed integration
+occupant. After the worker re-proves the same process, epoch, occupant,
+revision, live channel, connection, deadline, and `idle|working` state, it uses
+`apps/shared/src/terminal-input.ts`—the browser composer's encoder—to normalize
+newlines and, when bracketed paste is active, strip ESC from the text and wrap
+it. It appends one CR and issues one keeper write. Every stale, blocked,
+screen-only, expired, or closed target observed at the final pre-`beginInput`
+check rejects before that write; failure after admission is ambiguous and never
+retried.
+
+The text limit is 16,384 UTF-8 bytes. An optional post-input wait must name a
+nonempty unique subset of `idle|working|blocked` and a timeout from 1 ms through
+5 minutes. Input and wait outcomes remain separate, and no response, log, audit
+row, or stored status contains prompt text.
 
 ## Control operations are proven and bounded
 

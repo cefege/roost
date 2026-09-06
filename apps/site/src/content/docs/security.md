@@ -99,11 +99,13 @@ exposes no inbound port to attack.
 
 ## The audit log
 
-Every Connect RPC is audited in the authentication interceptor — the only layer
-that has both the verified caller fingerprint and the response status. Each row
-records the method, path, status, trace id, and caller fingerprint. Non-Connect
-paths are audited in the outer request wrapper with a null caller, because there
-is no JWT context there.
+Every Connect RPC is audited in the authentication interceptor—the only layer
+that has both the verified caller fingerprint and response status. Each row
+records method, path, status, trace id, and caller fingerprint, never request
+payloads. A `SessionsPrompt` row therefore proves that the RPC occurred but
+contains no prompt text. Agent status messages are likewise excluded from
+audit rows and operational logs. Non-Connect paths are audited in the outer
+request wrapper with a null caller, because there is no JWT context there.
 
 High-frequency, zero-signal methods are skipped **only when they succeed**: health
 probes, worker heartbeats, pair-list polling, resize and cursor chatter, the
@@ -151,9 +153,10 @@ The self-hosted edition has no analytics, crash reporting, or phone-home, and no
 Roost vendor account is involved. Diagnostics are local files: always-on signal
 events land in the coordinator's and worker's own error logs, and
 `roost doctor --since <window>` summarizes them from disk. Agent status is not
-persisted at all, so there is not even a local history of what you were running.
-Data leaves your hardware only through integrations you deliberately configure —
-for example dictation sent to Deepgram or a Cloudflare tunnel you operate.
+persisted at all, and neither status messages nor guarded-prompt text are
+logged, audited as payload, or stored. Data leaves your hardware only through
+integrations you deliberately configure—for example dictation sent to
+Deepgram or a Cloudflare tunnel you operate.
 
 ## Next
 

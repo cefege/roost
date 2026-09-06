@@ -4,6 +4,8 @@
 // The primary listener must be live before runCoord starts move recovery.
 
 import type { CoordConfig } from "@roost/shared/config";
+import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
+import { AGENT_PROMPT_WAIT_TIMEOUT_MAX_MS } from "@roost/shared/terminal-input";
 import { log } from "@roost/shared/log";
 import type { Server, ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
@@ -30,6 +32,19 @@ import { makeCfAccessVerifier } from "./middleware/cf-access.ts";
 import { coordinatorAvailabilityResponse } from "./middleware/coordinator-availability.ts";
 import { makePublicSurface } from "./middleware/public-surface.ts";
 
+const COORDINATOR_HTTP_IDLE_TIMEOUT_SECONDS = 120;
+const BUN_MAX_FINITE_IDLE_TIMEOUT_SECONDS = 255;
+const CONNECT_UNARY_RESPONSE_GRACE_SECONDS = 1;
+const SESSIONS_PROMPT_REQUIRED_IDLE_TIMEOUT_SECONDS =
+  Math.ceil(AGENT_PROMPT_WAIT_TIMEOUT_MAX_MS / 1_000)
+  + CONNECT_UNARY_RESPONSE_GRACE_SECONDS;
+const SESSIONS_PROMPT_IDLE_TIMEOUT_SECONDS =
+  SESSIONS_PROMPT_REQUIRED_IDLE_TIMEOUT_SECONDS <= BUN_MAX_FINITE_IDLE_TIMEOUT_SECONDS
+    ? SESSIONS_PROMPT_REQUIRED_IDLE_TIMEOUT_SECONDS
+    : 0;
+const SESSIONS_PROMPT_RPC_PATH =
+  `/${CoordinatorService.typeName}/${CoordinatorService.method.sessionsPrompt.name}`;
+
 interface WorkerWebSocketDispatch {
   open(ws: ServerWebSocket<WorkerWsData>): void;
   message(ws: ServerWebSocket<WorkerWsData>, message: string | Buffer): void;
@@ -53,6 +68,8 @@ interface BunCoordinatorListenerDeps {
   workerWs: WorkerWebSocketDispatch;
   syncWs: SyncWebSocketDispatch;
   spa: (url: URL, method: string, acceptEncoding: string) => Promise<Response> | Response;
+  /** Listener construction seam for focused Bun request-policy tests. */
+  _serve?: typeof Bun.serve;
 }
 
 interface BunCoordinatorListeners {
@@ -60,6 +77,30 @@ interface BunCoordinatorListeners {
   publicServer: Server<WorkerWsData | SyncWsData> | undefined;
   host: string;
   tlsEnabled: boolean;
+}
+
+interface BunRequestTimeoutServer {
+  timeout(request: Request, seconds: number): void;
+}
+
+/** Apply the one route-specific Bun transport policy before dispatch. Bun caps
+ * finite idle timeouts at 255 seconds, so a five-minute prompt wait must disable
+ * this request's timer and rely on the handler's validated 300-second bound. */
+function withCoordinatorRequestIdleTimeout<
+  ServerType extends BunRequestTimeoutServer,
+  Result,
+>(
+  dispatch: (request: Request, server: ServerType) => Result,
+): (request: Request, server: ServerType) => Result {
+  return (request, server) => {
+    if (
+      request.method === "POST"
+      && new URL(request.url).pathname === SESSIONS_PROMPT_RPC_PATH
+    ) {
+      server.timeout(request, SESSIONS_PROMPT_IDLE_TIMEOUT_SECONDS);
+    }
+    return dispatch(request, server);
+  };
 }
 
 export function startBunCoordinatorListeners(
@@ -76,6 +117,7 @@ export function startBunCoordinatorListeners(
     syncWs,
     spa,
   } = deps;
+  const serve = deps._serve ?? Bun.serve;
 
   // ONE Bun websocket handler multiplexing both raw-WS transports. Dispatch on
   // the discriminant stamped at upgrade (ws.data.kind). ServerWebSocket is
@@ -183,7 +225,7 @@ export function startBunCoordinatorListeners(
     }
   }
 
-  const server = Bun.serve({
+  const server = serve({
     hostname: host, port, tls,
     // idleTimeout reaps connections with no traffic for N seconds. This is
     // the fix for "internet blipped → browser can't reconnect, even reload
@@ -205,12 +247,15 @@ export function startBunCoordinatorListeners(
     // Healthy browsers also poll coord health every 5s (sync.ts
     // HEALTH_POLL_INTERVAL_MS), so they're never idle either — only
     // genuinely dead connections hit the cap.
-    idleTimeout: 120,
+    idleTimeout: COORDINATOR_HTTP_IDLE_TIMEOUT_SECONDS,
     // The worker link is a long-lived request carrying events and PTY bytes.
     // Its body grows without bound, so use a request cap above any realistic
     // connection volume to avoid terminating the stream mid-session.
     maxRequestBodySize: 1024 * 1024 * 1024 * 256, // 256 GiB
-    async fetch(req, listenerServer) {
+    fetch: withCoordinatorRequestIdleTimeout(async (
+      req: Request,
+      listenerServer: Server<WorkerWsData | SyncWsData>,
+    ) => {
       const internal = await handleInternalHandoffRequest(req, move);
       // Above the retired gate: this route carries its own constant-time
       // secret auth and executes internalCommit/internalAbort side effects,
@@ -250,7 +295,7 @@ export function startBunCoordinatorListeners(
         dbExport: dbExportResponse,
         hsts: Boolean(tls) || trustProxy,
       });
-    },
+    }),
     websocket,
     error(err: Error & { code?: string; errno?: number; syscall?: string; address?: string; port?: number }) {
       if (err.code === "ECONNRESET") {
@@ -270,13 +315,16 @@ export function startBunCoordinatorListeners(
   let publicServer: Server<WorkerWsData | SyncWsData> | undefined;
   if (cfg.publicBind && publicSurface) {
     const [publicHost, publicPortStr] = cfg.publicBind.split(":") as [string, string];
-    publicServer = Bun.serve({
+    publicServer = serve({
       hostname: publicHost,
       port: Number(publicPortStr),
-      idleTimeout: 120,
+      idleTimeout: COORDINATOR_HTTP_IDLE_TIMEOUT_SECONDS,
       maxRequestBodySize: 16 * 1024 * 1024,
       websocket,
-      fetch: publicSurface.fetch,
+      fetch: withCoordinatorRequestIdleTimeout((
+        req: Request,
+        listenerServer: Server<WorkerWsData | SyncWsData>,
+      ) => publicSurface.fetch(req, listenerServer)),
       error: publicSurface.error,
     });
     log.info("main", "public_listening", {

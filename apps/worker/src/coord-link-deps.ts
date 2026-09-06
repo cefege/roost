@@ -12,14 +12,17 @@ import {
 	TerminalStreamStatus,
 	TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
+import { writeAgentPrompt } from "./agent-prompt-control.ts";
 import { createKeeperUpdatePrepareHandler } from "./coord-link-keeper-update.ts";
 import { handleAttachmentChunk } from "./attachment-upload.ts";
 import { handleBrowserCommand } from "./browser-command-handler.ts";
 import type { CoordTarget } from "./coord-target.ts";
 import type { WorkerCoordRelocation } from "./coord-relocation.ts";
 import type { SessionManager } from "./session-manager.ts";
+import type { AgentScreenDetector } from "./agent-status/detector.ts";
 import type { AgentStatusRegistry } from "./agent-status/registry.ts";
 import type { TerminalStreamFailure } from "./session-terminal-state.ts";
+import type { WorkerInputResult } from "./session-terminal-control.ts";
 import type { CoordLink, CoordLinkDeps } from "./transport/coord-link.ts";
 import type { SessionEventStore } from "./transport/session-event-store.ts";
 
@@ -82,6 +85,7 @@ export interface CoordLinkRefs {
 	link: CoordLink | null;
 	sessionMgr: SessionManager | null;
 	agentRegistry: AgentStatusRegistry | null;
+	agentDetector: Pick<AgentScreenDetector, "reportingAgentForSession"> | null;
 	acquireKeeperUpdateBoundary: (() => Promise<() => void>) | null;
 }
 
@@ -105,6 +109,32 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 	const link = (): CoordLink => {
 		if (!refs.link) throw new Error("coord-link deps used before the link was bound");
 		return refs.link;
+	};
+	const sendInputResult = (
+		request: { requestId: string; sessionId: string; inputSeq: bigint },
+		result: WorkerInputResult,
+		boundReason: boolean,
+	): void => {
+		link().send({
+			kind: "input-result",
+			request_id: request.requestId,
+			session_id: request.sessionId,
+			input_seq: request.inputSeq,
+			status: result.status === "accepted"
+				? TerminalInputStatus.ACCEPTED
+				: result.status === "rejected"
+					? TerminalInputStatus.REJECTED
+					: TerminalInputStatus.AMBIGUOUS,
+			written_bytes: result.writtenBytes,
+			phase: result.status === "accepted"
+				? TerminalWritePhase.WRITTEN
+				: result.status === "rejected"
+					? TerminalWritePhase.PRE_WRITE
+					: TerminalWritePhase.UNKNOWN,
+			reason: result.status === "accepted"
+				? undefined
+				: (boundReason ? boundedTerminalReason(result.reason) : result.reason),
+		});
 	};
 	const onKeeperUpdatePrepare = createKeeperUpdatePrepareHandler({
 		sessionManager: mgr,
@@ -142,24 +172,20 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 				request.data,
 				budget,
 			);
-			link().send({
-				kind: "input-result",
-				request_id: request.requestId,
-				session_id: request.sessionId,
-				input_seq: request.inputSeq,
-				status: result.status === "accepted"
-					? TerminalInputStatus.ACCEPTED
-					: result.status === "rejected"
-						? TerminalInputStatus.REJECTED
-						: TerminalInputStatus.AMBIGUOUS,
-				written_bytes: result.writtenBytes,
-				phase: result.status === "accepted"
-					? TerminalWritePhase.WRITTEN
-					: result.status === "rejected"
-						? TerminalWritePhase.PRE_WRITE
-						: TerminalWritePhase.UNKNOWN,
-				reason: result.status === "accepted" ? undefined : result.reason,
+			sendInputResult(request, result, false);
+		},
+		onAgentPrompt: async (request, budget) => {
+			const registry = refs.agentRegistry;
+			const detector = refs.agentDetector;
+			if (!registry || !detector) {
+				throw new Error("agent prompt control used before status detection was bound");
+			}
+			const result = await writeAgentPrompt(request, budget, {
+				sessions: mgr(),
+				registry,
+				detector,
 			});
+			sendInputResult(request, result, true);
 		},
 		onTerminalStreamState: async (request, budget) => {
 			const result = await mgr().applyTerminalStreamState({

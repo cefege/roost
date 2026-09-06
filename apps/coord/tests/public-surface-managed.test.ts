@@ -88,6 +88,7 @@ describe("managed public surface without Cloudflare Access", () => {
     const { surface, coordCalls } = makeHarness();
     for (const path of [
       `${RPC}SessionsList`,
+      `${RPC}SessionsPrompt`,
       `${RPC}AgentStatusGet`,
       `${RPC}AgentStatusList`,
       `${RPC}AgentStatusWait`,
@@ -112,6 +113,7 @@ describe("managed public surface without Cloudflare Access", () => {
     const { surface, coordCalls } = makeHarness();
     const paths = [
       `${RPC}SessionsList`,
+      `${RPC}SessionsPrompt`,
       `${RPC}AgentStatusGet`,
       `${RPC}AgentStatusList`,
       `${RPC}AgentStatusWait`,

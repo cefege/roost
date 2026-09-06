@@ -92,7 +92,6 @@
   "apps/web/src/lib/folderKey.ts": 2,
   "apps/web/src/lib/folderPalette.ts": 2,
   "apps/web/src/lib/format.ts": 2,
-  "apps/web/src/lib/ptyPaste.ts": 2,
   "apps/web/src/lib/quickChat.ts": 2,
   "apps/web/src/lib/resizeDrag.ts": 0,
   "apps/web/src/lib/scrollbackBackfillState.ts": 0,

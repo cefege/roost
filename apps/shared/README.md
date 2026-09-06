@@ -30,6 +30,7 @@ import style is now correct instead of two.
 | `@roost/shared/wire/sync-ws` | Sync WebSocket path, auth subprotocol, negotiation query constants |
 | `@roost/shared/wire/headers` | shared `x-roost-*` header names and listener-trust sentinel values |
 | `@roost/shared/terminal-search` | bounded paging limits, Unicode code-point utilities, stop reasons, worker-result validation |
+| `@roost/shared/terminal-input` | terminal newline/paste encoding plus guarded-prompt byte and wait bounds |
 | `@roost/shared/cell` | cell-grid model, emitter, delta apply, bounded snapshot chunking/assembly (R11) |
 | `@roost/shared/cell/cell-proto` | cell frame ↔ proto |
 | `@roost/shared/proto/*` | every generated `_pb.ts` (`…/proto/coordinator_pb`) |
@@ -88,6 +89,10 @@ producers and consumers.
   projectors), `src/wire/control.ts`, `src/wire/coord-worker.ts`,
   `src/wire/sync-ws.ts`, `src/wire/headers.ts`, `src/wire/workspace.ts`,
   `src/wire/task.ts`, `src/wire/mcp.ts`, plus the `*-proto.ts` adapters.
+- **Terminal input** — `src/terminal-input.ts` is the single encoder and limit
+  owner shared by the browser composer and the worker's guarded prompt path.
+  It normalizes every newline spelling to CR and, when bracketed paste is
+  active, strips ESC from the text and wraps it; `CR_BYTES` supplies submit.
 - **Terminal search** — `src/terminal-search.ts` owns query/row/match/preview
   limits, exclusive-cursor result validation, and Unicode code-point
   counting/truncation shared by every search hop.
@@ -143,6 +148,24 @@ producers and consumers.
   `occupant_changed`, and `session_closed`; transport cancellation is an RPC
   error, not another outcome.
 
+- **Agent prompts carry a complete status fence.** `SessionsPrompt` in
+  `proto/roost/v1/coordinator.proto` requires session, status epoch, occupant,
+  safe-`uint64` revision, and nonempty text of at most 16,384 UTF-8 bytes.
+  Wait configuration is either wholly absent or a nonempty unique list drawn
+  from `idle|working|blocked` plus a timeout in `1..300000` ms. Its response
+  separates `accepted|rejected|ambiguous` input from optional
+  `matched|timed_out|occupant_changed|session_closed` wait outcome and carries
+  only a reason of at most 200 characters and `written_bytes` of at most
+  16,397, never the text.
+
+- **Text encoding does not change raw input.** `DAgentPrompt` is the dedicated
+  `CoordWorkerDown` oneof tag 16. It carries `request_id`, `session_id`,
+  `input_seq`, exact status epoch/occupant/revision, original `text`, and
+  relative `budget_ms`. The worker's guarded path calls
+  `src/terminal-input.ts` and appends CR; `SessionsInput` and `DInputRequest`
+  remain caller-supplied bytes with no normalization, paste wrapper, implicit
+  Enter, or retry.
+
 - **`src/fingerprint.ts` is the only pubkey fingerprint.** Hex SHA-256 of a raw
   32-byte ed25519 pubkey, and all three ends of the protocol must agree
   byte-for-byte forever — it is the JWT `kid`, the authorized-keys match, and the
@@ -176,8 +199,8 @@ producers and consumers.
 
 ## Test
 
-`bun test apps/shared/tests/` — 27 `**/*.test.ts` files, 230 registered
-tests. `tests/trace-oracle.ts` is the differential VT trace oracle that gates
+`bun test apps/shared/tests/` runs the recursive `**/*.test.ts` suites.
+`tests/trace-oracle.ts` is the differential VT trace oracle that gates
 the pinned WASM; it is a helper, not a spec, and is driven by
 `tests/core-trace-oracle.test.ts`.
 `tests/coordinator-transfer-retirement.test.ts` pins the absence of

@@ -15,7 +15,12 @@ import {
   decodeResizeRequest,
   decodeResizeStatusQuery,
 } from "../src/keeper/protocol.ts";
-import type { KeeperResizeResult, KeeperTerminalState } from "../src/keeper/protocol.ts";
+import type {
+  KeeperResizeResult,
+  KeeperTerminalState,
+  PtyInAmbiguousReason,
+  PtyInFailureReason,
+} from "../src/keeper/protocol.ts";
 import {
   settlePendingInput,
   settlePendingResize,
@@ -23,6 +28,13 @@ import {
 } from "../src/keeper/keeper-pool-io.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import type { MultiplexedKeeperPool } from "../src/keeper/multiplexed-client.ts";
+
+type FakeInputAmbiguous =
+  | { writtenBytes: number; reason: PtyInAmbiguousReason }
+  | {
+      writtenBytes: null;
+      reason: "disconnected" | "timeout" | "protocol_error";
+    };
 
 
 /** `MuxFrameType` is a const enum, so it has no runtime reverse map. Only the
@@ -61,6 +73,12 @@ export interface FakeKeeper {
   /** A result the worker cannot interpret: proves nothing about the PTY. */
   resizeUnknown(channelId: number, seq: number): void;
   inputAck(channelId: number, seq: number, writtenBytes: number): void;
+  inputReject(channelId: number, seq: number, reason: PtyInFailureReason): void;
+  inputAmbiguous(
+    channelId: number,
+    seq: number,
+    result: FakeInputAmbiguous,
+  ): void;
   terminalState(channelId: number, state: KeeperTerminalState | null): void;
   restore(): void;
 }
@@ -156,6 +174,22 @@ export function installFakeKeeper(opts: FakeKeeperOptions = {}): FakeKeeper {
       settleResize(channelId, { kind: "unknown", seq, reason: "protocol_error" }),
     inputAck: (channelId, seq, writtenBytes) => {
       settlePendingInput(pool, channelId, seq, { kind: "ack", inputSeq: seq, writtenBytes });
+    },
+    inputReject: (channelId, seq, reason) => {
+      settlePendingInput(pool, channelId, seq, {
+        kind: "reject", inputSeq: seq, writtenBytes: 0, reason,
+      });
+    },
+    inputAmbiguous: (channelId, seq, result) => {
+      if (result.writtenBytes === null) {
+        settlePendingInput(pool, channelId, seq, {
+          kind: "ambiguous", inputSeq: seq, ...result,
+        });
+        return;
+      }
+      settlePendingInput(pool, channelId, seq, {
+        kind: "ambiguous", inputSeq: seq, ...result,
+      });
     },
     terminalState: (channelId, state) => {
       settlePendingTerminalState(pool, channelId, state);

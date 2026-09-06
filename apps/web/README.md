@@ -54,7 +54,7 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
 | `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
-| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts` owns bounded dashboard search paging, `globalContentSearchResults.ts` reconciles cursor results, `globalContentSearchRuntime.ts` fences dashboard cutovers, and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun clicked results in pane-local current-epoch find (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
+| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts` owns bounded dashboard search paging, `globalContentSearchResults.ts` reconciles cursor results, `globalContentSearchRuntime.ts` fences dashboard cutovers, and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun clicked results in pane-local current-epoch find (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, fragment credentials, pairing/tab identity/relocation; `tenant-routing.ts`, `managed-routes.ts`, `managed-auth-gateway.ts`, `managed-login.ts`, `managed-account.ts`, `managed-credentials.ts`, and `managed-logout.ts` own managed policy/transitions | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | six global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules | component-local one-offs |
 | `apps/web/tests/` | 121 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
@@ -129,6 +129,13 @@ Break one of these and you get back the history-corruption class this repo keeps
   renderer/stream. Hidden panes receive no cells, but detach or tab switching
   cannot delete the session replica; reactivation receives a complete baseline
   before deltas.
+- **Text composition and raw input are distinct contracts.** The browser
+  composer imports `buildPtyPayload`, newline normalization, bracketed-paste
+  framing, and CR from `@roost/shared/terminal-input`; when bracketed paste is
+  active, that owner strips ESC from the text before wrapping it. The worker's
+  guarded prompt uses the same owner. Sync input and public `SessionsInput`
+  still carry caller-encoded raw bytes and never acquire a status fence,
+  transformation, implicit Enter, or retry.
 - **Design system: no raw values in components.** No hex, `rgb()`, or px font-size outside the
   token-declaration files — `apps/web/src/styles/theme-vars.css`,
   `apps/web/src/styles/syntax-vars.css`, `apps/web/src/styles/voice-input.css`,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildPtyPayload } from "../src/lib/ptyPaste.ts";
+import { buildPtyPayload } from "@roost/shared/terminal-input";
 import {
 	applyCtrlModifier,
 	isAltGraphKey,

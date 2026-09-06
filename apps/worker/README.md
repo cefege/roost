@@ -4,8 +4,10 @@ The Bun process on every released fleet machine (macOS or Linux; the retained
 Windows implementation is paused). It owns every session's shell PTY, holds the
 one authoritative terminal grid, and relays PTY bytes both ways over a single
 **outbound** WebSocket. Agent CLIs are ordinary programs launched inside those
-PTYs; the worker never interprets agent output and exposes no transcript, tool,
-or approval state. It owns **no listener** — no inbound HTTP or WS surface exists.
+PTYs; the worker never interprets agent output and exposes no conversation,
+transcript, tool-call, or approval model. Worker-observed status and a guarded
+prompt are metadata plus one fenced write to that same PTY, never a separate
+agent-control channel. The worker owns **no listener** — no inbound HTTP or WS surface exists.
 
 Path references are relative to `apps/worker/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
 
@@ -59,9 +61,11 @@ The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL
   retired.
 - `src/transport/coord-link-reconnect.ts` — backoff ladder (500 ms → 30 s, escalating to 5 min only on a real
   non-open streak). A worker is a daemon; nothing here ever gives up.
-- `src/transport/coord-link-downstream.ts` — dispatch for every `CoordWorkerDown` variant, the per-kind
-  terminal-control admission slots (input and viewport hold independent budgets, so a viewport flood cannot starve
-  typing), and the monotonic budget from coord's *relative* `budget_ms`.
+- `src/transport/coord-link-downstream.ts` — dispatch for every
+  `CoordWorkerDown` variant, including dedicated `DAgentPrompt`, the per-kind
+  terminal-control admission slots, and the monotonic budget from coord's
+  *relative* `budget_ms`. Raw input and viewport retain independent budgets, so
+  a viewport flood cannot starve typing.
   Codecs, tuning knobs, and the type surface are in
   `src/transport/coord-link-codec.ts`,
   `src/transport/coord-link-constants.ts`, and
@@ -132,8 +136,11 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/browser-command-diag.ts`, answering upstream as `rpc-ok` / `rpc-error`.
   Cross-worker transfer has no worker command or result frame in v0.5.0; the
   beta web item is informational. Attachment upload/download remains supported.
-- **`src/agent-status/`** — volatile per-session agent state (below). **`src/util/`** — `src/util/mono.ts` (monotonic ms
-  behind every terminal-control deadline), `src/util/path.ts`.
+- **Agent observation and guarded input** — `src/agent-status/` owns volatile
+  per-session state (below); `src/agent-prompt-control.ts` owns the prompt-only
+  status/process fence and single keeper write. **`src/util/`** —
+  `src/util/mono.ts` is the monotonic clock behind every terminal-control
+  deadline; `src/util/path.ts` owns worker-native path handling.
 - **Host + coord plumbing** — `src/heartbeat.ts` with
   `src/host-sample-darwin.ts`, `src/host-sample-linux.ts`,
   `src/host-sample-win32.ts`, and `src/host-sample-types.ts`;
@@ -199,6 +206,16 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   in-memory status lane preserves required inactive→active ordering while
   coalescing unseen intermediate occupants. Session close drops the entry, and
   worker restart changes the epoch and re-derives every status.
+- **A prompt is admitted against the live process, not a stale badge.**
+  `src/agent-prompt-control.ts` forces a private process-proof refresh before
+  terminal-input admission. Immediately before `beginInput`, while holding the
+  keeper admission, it rechecks the live session/channel and deadline, current
+  coordinator connection, integration source, exact epoch/occupant/revision,
+  unchanged refreshed process proof, and `idle|working` state. Every mismatch
+  is a rejected pre-write result with zero keeper writes. Accepted text is
+  encoded once through `@roost/shared/terminal-input`, gets one trailing CR,
+  and is written once; an ambiguous boundary is never retried. Prompt text and
+  status messages never enter worker logs or durable storage.
 - **Keeper input correlation is worker-owned.** Browser-local `input_seq` and
   worker request IDs correlate their respective hops only. The keeper receives
   a monotonically increasing per-channel/connection key allocated by the
@@ -209,8 +226,10 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 
 Labels each shell PTY `working` / `blocked` / `idle` for whichever coding
 agent runs inside it. This is observed metadata: the worker owns no agent
-process, conversation, transcript, tool, or approval state. All implementation
-lives under `src/agent-status/`.
+process, conversation, transcript, tool call, or approval state. A guarded
+prompt uses that observation only as a fence for input to the same ordinary
+PTY. Status code lives under `src/agent-status/`; prompt admission lives in
+`src/agent-prompt-control.ts`.
 
 - `src/agent-status/process-scan.ts` — throttled (250 ms) `ps -A` snapshot
   finds a known agent plus its PID in the session process tree; identity
@@ -244,8 +263,8 @@ lives under `src/agent-status/`.
 ## Run, test, deploy
 
 - **Run from source** — `bun apps/worker/src/main.ts`, or `bun --filter @roost/worker run dev` to watch.
-- **Test: `bun run test:worker`.** That is `scripts/test-worker.ts`: it globs the 63
-  `apps/worker/tests/**/*.test.ts` files and runs **each one in its own `bun test` child** with an isolated temp
+- **Test: `bun run test:worker`.** That is `scripts/test-worker.ts`: it globs
+  `apps/worker/tests/**/*.test.ts` and runs **each one in its own `bun test` child** with an isolated temp
   root (`TMPDIR` plus a fresh `ROOST_WORKER_DATA_DIR` inside it, every inherited `ROOST_*` var stripped), so each
   file gets its own keeper subprocess, keeper socket dir and sqlite. The default
   pool is 4 children; `ROOST_WORKER_TEST_JOBS` is clamped to
@@ -254,7 +273,7 @@ lives under `src/agent-status/`.
   Every file runs even after one fails; the run exits with the first failure's code.
   `apps/worker/tests/session-event-store.test.ts` pins reopen/ACK durability,
   sequence-block reservation, capacity release, and fail-closed corruption.
-- **Do not run `bun test apps/worker/tests/`.** That executes all 53 files in **one** process sharing one temp root,
+- **Do not run `bun test apps/worker/tests/`.** That executes every file in **one** process sharing one temp root,
   one keeper socket dir and one data dir; the files then contend over the same keeper, PTYs and sqlite, producing
   load-dependent failures unrelated to your change. That is a property of the command, not of the code — never
   "fix" a test because of it. To iterate on one file, reproduce the isolation by hand, other `ROOST_*` unset:

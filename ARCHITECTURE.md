@@ -213,11 +213,12 @@ without page reload.
 
 Every session remains a shell PTY; agent CLIs such as `omp`, Claude Code, or Codex run inside it manually or through terminal launcher configuration.
 Roost never spawns, supervises, or owns an agent process, conversation, transcript, tool call, or approval model.
+It may expose volatile worker-observed state and accept occupant-fenced text for that same ordinary PTY; neither surface creates a structured agent session.
 
 ## Agent status (volatile, metadata only)
 
 Roost labels a shell PTY `working`, `blocked` (needs input), or `idle`. This is terminal metadata, not a structured agent session or execution model.
-Dashboard-authorized RPCs can read it or await an observed state transition; they do not control the agent.
+Dashboard-authorized RPCs can read it, await an observed state transition, or use it as the exact fence for one PTY input; they never control an agent through a separate channel.
 
 Detection lives entirely on the **worker**:
 
@@ -233,8 +234,13 @@ Only a fully identified integration row is `promptable`; screen and identityless
 Nothing about status is persisted. Frames travel worker → coordinator (`WAgentStatus`) → an in-memory hub ordered by epoch, occupant, and revision → `Sync` (`AgentStatusFrame`) → browser.
 A fresh `Sync` connection gets the hub snapshot, and session close drops its row, so worker, coordinator, and browser restarts converge without stale badges.
 
-`AgentStatusGet`, `AgentStatusList`, and `AgentStatusWait` authorize the dashboard actor before reading or entering the hub; missing and foreign sessions share not-found behavior. Waits are registered before current-state inspection, pin an exact epoch and occupant, and resolve from that inspection or an accepted hub update, timeout, replacement, or session close—never output scraping or polling. The registry caps waits at 32 per session and 2,048 process-wide.
-`roost api agent-status <session> [--json]`, `roost api agents [--json]`, and `roost api agent-wait <session> --until <states> --timeout <duration>` expose the PID-free surface; waits return nonzero unless their terminal outcome is `matched`.
+`AgentStatusGet`, `AgentStatusList`, and `AgentStatusWait` authorize the dashboard actor before reading or entering the hub; missing and foreign sessions share not-found behavior. Waits register before current-state inspection, pin an exact epoch and occupant, and resolve from that inspection or an accepted hub update, timeout, replacement, or session close—never output scraping or polling. The registry caps waits at 32 per session and 2,048 process-wide.
+`SessionsPrompt` names `session_id`, exact `expected_status_epoch`, `expected_occupant_id`, and safe-`uint64` `expected_revision`, plus nonempty `text` and optional wait configuration. Text is capped at 16,384 UTF-8 bytes. Wait configuration is all absent or a nonempty unique subset of `idle|working|blocked` plus `wait_timeout_ms` in `1..300000`.
+The coordinator's `apps/coord/src/connect/agent-prompt-control.ts` registers `waitForAgentStatus` before enqueueing dedicated `DAgentPrompt` tag 16 with request/session/input sequence, exact identity and revision, original text, and relative budget. `WInputResult` remains the upstream write truth; the coordinator consumes the waiter only after a definite rejection and awaits it after accepted or ambiguous input.
+`apps/worker/src/agent-prompt-control.ts` refreshes private process proof before admission, then immediately before `beginInput` rechecks the live session/channel, deadline and current connection, integration source, exact epoch/occupant/revision, the same refreshed process, and state `idle|working`.
+All fence failures at the final pre-`beginInput` check are rejections with zero keeper writes; a failure after admission is ambiguous. The worker uses `apps/shared/src/terminal-input.ts`, matching the browser's newline normalization and, when bracketed paste is active, its ESC-stripping wrapper; it then appends one CR and performs one keeper write. `SessionsInput` remains raw bytes with no fence, transformation, implicit Enter, or semantic change.
+The response keeps exact input outcome (`accepted|rejected|ambiguous`) separate from optional wait outcome (`matched|timed_out|occupant_changed|session_closed`) and exposes only a reason of at most 200 characters and `written_bytes` of at most 16,397. Prompt text and agent status messages are never logged, audited, or stored, and an ambiguous write is never retried.
+`roost api agent-status <session> [--json]`, `roost api agents [--json]`, `roost api agent-wait <session> --until <states> --timeout <duration>`, and `roost api agent-prompt <session> <text> [--wait --until <states> --timeout <duration>]` expose this PID-free surface.
 
 **Notification boundary.** The coordinator classifies background `working → blocked` and `working|blocked → idle` transitions and, after a 1 s cancellable delay, sends Web Push to subscribed devices not viewing that session.
 Push subscriptions are the one persisted piece (`push_subscriptions`); in-app toast, unseen title badge, optional sound, and per-browser-profile claim remain browser-local.

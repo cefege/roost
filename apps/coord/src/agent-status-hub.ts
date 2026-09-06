@@ -98,13 +98,13 @@ const waitersBySession = new Map<string, Set<AgentStatusWaiter>>();
 let totalAgentStatusWaiters = 0;
 let unsubscribeSessionBus: (() => void) | undefined;
 
-export async function waitForAgentStatus(
+export function waitForAgentStatus(
   request: AgentStatusWaitRequest,
   signal: AbortSignal,
 ): Promise<AgentStatusWaitResult> {
   const prepared = validateAgentStatusWaitRequest(request);
   if (signal.aborted) {
-    throw new AgentStatusWaitError("canceled", "agent status wait canceled");
+    return Promise.reject(new AgentStatusWaitError("canceled", "agent status wait canceled"));
   }
   const existing = waitersBySession.get(prepared.sessionId);
   if ((existing?.size ?? 0) >= AGENT_STATUS_WAIT_MAX_PER_SESSION) {

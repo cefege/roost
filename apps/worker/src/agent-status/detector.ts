@@ -145,6 +145,7 @@ export class AgentScreenDetector {
   async reportingAgentForSession(
     sessionId: string,
     reporterPid: number,
+    signal?: AbortSignal,
   ): Promise<AgentProcessIdentity | null> {
     const record = this.sessions.getBySessionId(sessionId);
     const childPid = record?.childPid;
@@ -152,6 +153,7 @@ export class AgentScreenDetector {
     const identity = await this.scanner.scanReportingAgent(
       { sessionId, childPid },
       reporterPid,
+      signal,
     );
     const current = this.sessions.getBySessionId(sessionId);
     return current?.childPid === childPid ? identity : null;

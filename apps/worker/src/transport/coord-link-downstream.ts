@@ -12,6 +12,7 @@ import {
   TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
 import type {
+  DAgentPrompt,
   CoordWorkerDown,
   DInputRequest,
   DTerminalSnapshotRequest,
@@ -54,6 +55,24 @@ export function createCoordLinkDownstream(
       remainingMs: () => allowedMs - (performance.now() - receivedAtMono),
       isCurrentConnection: () => outbox.activeSocket() === socket,
     };
+  }
+
+  function sendImmediateInputResult(
+    request: { requestId: string; sessionId: string; inputSeq: bigint },
+    status: TerminalInputStatus,
+    phase: TerminalWritePhase,
+    reason: string,
+  ): void {
+    send({
+      kind: "input-result",
+      request_id: request.requestId,
+      session_id: request.sessionId,
+      input_seq: request.inputSeq,
+      status,
+      written_bytes: 0,
+      phase,
+      reason,
+    });
   }
 
   function handleDownstream(frame: CoordWorkerDown, reconnected: boolean, socket: WebSocket): void {
@@ -106,52 +125,82 @@ export function createCoordLinkDownstream(
       case "inputRequest": {
         const request = v as DInputRequest;
         if (inputRequestsInFlight >= INPUT_REQUEST_INFLIGHT_CAP) {
-          // Fail closed with proof rather than dropping: nothing was handed to
-          // the session manager, so the coordinator may reject definitely and
-          // the browser may retry without risking a duplicate write.
+          // Nothing reached the session manager, so retry remains safe.
           diag("transport.terminal_admission_full", {
             kind: "input",
             in_flight: inputRequestsInFlight,
           });
-          send({
-            kind: "input-result",
-            request_id: request.requestId,
-            session_id: request.sessionId,
-            input_seq: request.inputSeq,
-            status: TerminalInputStatus.REJECTED,
-            written_bytes: 0,
-            phase: TerminalWritePhase.PRE_WRITE,
-            reason: "worker input admission is full",
-          });
+          sendImmediateInputResult(
+            request,
+            TerminalInputStatus.REJECTED,
+            TerminalWritePhase.PRE_WRITE,
+            "worker input admission is full",
+          );
           return;
         }
         inputRequestsInFlight += 1;
-        // The async IIFE keeps the handler call synchronous — receive order
-        // into the keeper-admission lane is preserved — while turning a
-        // synchronous throw into a rejection this catch can answer, rather
-        // than letting it escape through ws.onmessage and strand the request.
+        // Invoke synchronously to preserve receive order into keeper admission;
+        // the IIFE turns a synchronous throw into a correlated result.
         void (async () => deps.onInputRequest?.(request, terminalBudget(socket, request.budgetMs)))()
           .catch((error: unknown) => {
-            // A thrown handler cannot say which side of the keeper write it
-            // died on, so the batch is reported unknown, never "unsent" —
-            // presenting it as unsent is what would license a duplicate.
+            // A thrown handler cannot prove which side of the write it reached.
             const message = error instanceof Error ? error.message : String(error);
             log.warn("coord-link", "input_request_failed", {
               request_id: request.requestId,
               error: message,
             });
-            send({
-              kind: "input-result",
-              request_id: request.requestId,
-              session_id: request.sessionId,
-              input_seq: request.inputSeq,
-              status: TerminalInputStatus.AMBIGUOUS,
-              written_bytes: 0,
-              phase: TerminalWritePhase.UNKNOWN,
-              reason: message,
-            });
+            sendImmediateInputResult(
+              request,
+              TerminalInputStatus.AMBIGUOUS,
+              TerminalWritePhase.UNKNOWN,
+              message,
+            );
           })
           .finally(() => { inputRequestsInFlight -= 1; });
+        return;
+      }
+      case "agentPrompt": {
+        const request = v as DAgentPrompt;
+        if (!deps.onAgentPrompt) {
+          sendImmediateInputResult(
+            request,
+            TerminalInputStatus.REJECTED,
+            TerminalWritePhase.PRE_WRITE,
+            "worker agent prompt handler is unavailable",
+          );
+          return;
+        }
+        if (inputRequestsInFlight >= INPUT_REQUEST_INFLIGHT_CAP) {
+          diag("transport.terminal_admission_full", {
+            kind: "agent_prompt",
+            in_flight: inputRequestsInFlight,
+          });
+          sendImmediateInputResult(
+            request,
+            TerminalInputStatus.REJECTED,
+            TerminalWritePhase.PRE_WRITE,
+            "worker agent prompt admission is full",
+          );
+          return;
+        }
+        inputRequestsInFlight += 1;
+        void (async () => deps.onAgentPrompt!(
+          request,
+          terminalBudget(socket, request.budgetMs),
+        ))().catch(() => {
+          log.warn("coord-link", "agent_prompt_failed", {
+            request_id: request.requestId,
+            session_id: request.sessionId,
+            occupant_id: request.expectedOccupantId,
+            outcome: "ambiguous",
+          });
+          sendImmediateInputResult(
+            request,
+            TerminalInputStatus.AMBIGUOUS,
+            TerminalWritePhase.UNKNOWN,
+            "worker agent prompt handler failed",
+          );
+        }).finally(() => { inputRequestsInFlight -= 1; });
         return;
       }
       case "terminalStreamState": {
