@@ -212,7 +212,6 @@ describe("owner activation", () => {
               registered_at_ms: Date.now(),
               last_seen_ms: Date.now(),
               reachable_addr: null,
-              keeper_stale: null,
             }).execute();
           } finally {
             h.sqlite.exec("PRAGMA foreign_keys = ON");

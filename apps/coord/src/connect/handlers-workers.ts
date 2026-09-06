@@ -19,6 +19,7 @@ import {
 	workerRowToProto,
 	workerRowToWirePresence,
 } from "@roost/shared/wire/row-proto";
+import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
 import { presenceBus } from "../buses.ts";
 import { listRoutableFps } from "./worker-service.ts";
 import {
@@ -28,8 +29,7 @@ import {
 } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import { invalidateJwtKey } from "../jwt.ts";
-import { truncatePersistedUtf8 } from "../persistence-input.ts";
-import { asWorkerFp } from "@roost/shared/wire";
+import { asWorkerFp, type Worker as WireWorker } from "@roost/shared/wire";
 import { retireWorkerRoutes } from "../byte-hub.ts";
 import {
 	fenceWorkerCredential,
@@ -38,6 +38,7 @@ import {
 import { notifyTerminalWorkerRetired } from "./terminal-view-hub.ts";
 import { log } from "@roost/shared/log";
 import { makeWorkerDeployHandlers } from "./handlers-workers-deploy.ts";
+import { truncatePersistedUtf8 } from "../persistence-input.ts";
 export {
 	resolveWorkerDeployTarget,
 	workerDeployHost,
@@ -123,6 +124,7 @@ export function makeWorkerHandlers(
 					os: req.os ?? existing.os,
 					git_sha: gitSha ?? existing.git_sha,
 					reachable_addr: reachableAddr ?? existing.reachable_addr,
+					keeper_runtime_json: null,
 					last_seen_ms: now,
 				})
 				.where("fp", "=", fp)
@@ -142,9 +144,17 @@ export function makeWorkerHandlers(
 		async workersHeartbeat(req, ctx) {
 			const caller = requireWorker(ctx.values);
 			const fp = caller.fingerprint;
-			const newKeeperStale = req.keeperStale === undefined
-				? null
-				: truncatePersistedUtf8(req.keeperStale);
+			let newKeeperRuntimeJson: string | null = null;
+			let keeperRuntimeMalformed = false;
+			if (req.keeperRuntime) {
+				try {
+					newKeeperRuntimeJson = JSON.stringify(
+						keeperRuntimeObservationFromProto(req.keeperRuntime),
+					);
+				} catch {
+					keeperRuntimeMalformed = true;
+				}
+			}
 			const newGitSha = req.gitSha === undefined
 				? undefined
 				: truncatePersistedUtf8(req.gitSha);
@@ -155,7 +165,12 @@ export function makeWorkerHandlers(
 			const now = Date.now();
 			const prior = await deps.db
 				.selectFrom("workers")
-				.select(["git_sha", "keeper_stale", "reachable_addr", "dashboard_id"])
+				.select([
+					"git_sha",
+					"keeper_runtime_json",
+					"reachable_addr",
+					"dashboard_id",
+				])
 				.where("fp", "=", fp)
 				.where("dashboard_id", "=", caller.dashboardId)
 				.where("deleted_at_ms", "is", null)
@@ -165,6 +180,28 @@ export function makeWorkerHandlers(
 					"worker not registered; redeem bootstrap token first",
 					Code.Unauthenticated,
 				);
+			if (keeperRuntimeMalformed) {
+				const cleared = await deps.db
+					.updateTable("workers")
+					.set({
+						last_seen_ms: now,
+						keeper_runtime_json: null,
+					})
+					.where("fp", "=", fp)
+					.where("dashboard_id", "=", caller.dashboardId)
+					.where("deleted_at_ms", "is", null)
+					.returningAll()
+					.executeTakeFirstOrThrow();
+				presenceBus.publish({
+					kind: "registered",
+					worker: workerRowToWirePresence(cleared) as unknown as WireWorker,
+					_dashboard_id: caller.dashboardId,
+				});
+				throw new ConnectError(
+					"keeper runtime observation is malformed",
+					Code.InvalidArgument,
+				);
+			}
 			const hm = req.hostMetrics
 				? {
 						cpu_pct: req.hostMetrics.cpuPct,
@@ -177,8 +214,6 @@ export function makeWorkerHandlers(
 						sampled_at_ms: Number(req.hostMetrics.sampledAtMs),
 					}
 				: undefined;
-			// Preserve all three states in the existing nullable column:
-			// null = unknown/unreported, "" = current, non-empty = stale build.
 			// reachable_addr self-heals on every beat: the worker re-resolves its
 			// LIVE tailnet DNSName each beat (heartbeat.ts) so a machine rename
 			// corrects within 30s, not only at boot. Only persist a non-empty value
@@ -189,7 +224,7 @@ export function makeWorkerHandlers(
 				.set({
 					last_seen_ms: now,
 					...(newGitSha !== undefined && { git_sha: newGitSha }),
-					keeper_stale: newKeeperStale,
+					keeper_runtime_json: newKeeperRuntimeJson,
 					...(hm !== undefined && { host_metrics_json: JSON.stringify(hm) }),
 					...(newReachableAddr !== undefined && {
 						reachable_addr: newReachableAddr,
@@ -207,12 +242,16 @@ export function makeWorkerHandlers(
 				);
 			const gitShaChanged =
 				newGitSha !== undefined && prior?.git_sha !== newGitSha;
-			const keeperStaleChanged =
-				(prior?.keeper_stale ?? null) !== newKeeperStale;
+			const keeperRuntimeChanged =
+				(prior?.keeper_runtime_json ?? null) !== newKeeperRuntimeJson;
 			const reachableChanged =
 				newReachableAddr !== undefined &&
 				prior?.reachable_addr !== newReachableAddr;
-			if (gitShaChanged || keeperStaleChanged || reachableChanged) {
+			if (
+				gitShaChanged
+				|| keeperRuntimeChanged
+				|| reachableChanged
+			) {
 				presenceBus.publish({
 					kind: "registered",
 					worker: workerRowToWirePresence(updated) as any,

@@ -12,6 +12,7 @@ import {
 } from "../src/boot-reconcile.ts";
 import { completeWorkerBootAdmission } from "../src/main.ts";
 import { SessionManager } from "../src/session-manager.ts";
+import { SessionEventStoreFatalError } from "../src/event-sink.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
@@ -99,6 +100,7 @@ function bootActivation(reconcile: () => Promise<ReconcileAdmissionOutcome>) {
 describe("worker boot reconciliation admission", () => {
 	test("overlapping callers join the delayed boot reconcile and maintenance stays dormant", async () => {
 		const keeper = spyOnKeeperMutation();
+		const restartKeeper = vi.spyOn(pool, "restartKeeper").mockImplementation(() => {});
 		const sessionsGate = Promise.withResolvers<{ sessions: [] }>();
 		const sessionsList = vi.fn(() => sessionsGate.promise);
 		const manager = freshManager(new LifecycleTestSink());
@@ -113,6 +115,8 @@ describe("worker boot reconciliation admission", () => {
 		const first = reconcileOpenSessions("boot");
 		const overlapping = reconcileOpenSessions("keeper_death");
 		expect(overlapping).toBe(first);
+		manager.onKeeperDegraded?.();
+		expect(restartKeeper).not.toHaveBeenCalled();
 		const activation = bootActivation(() => first);
 		const boot = activation.complete();
 
@@ -143,6 +147,46 @@ describe("worker boot reconciliation admission", () => {
 		expect(keeper.ensure).toHaveBeenCalledTimes(1);
 		expect(activation.activateSnapshotProvider).toHaveBeenCalledTimes(1);
 		expect(activation.markReady).toHaveBeenCalledTimes(1);
+	});
+
+	test("defers a latched degraded signal until reconcile admission succeeds", async () => {
+		spyOnKeeperMutation();
+		const restartKeeper = vi.spyOn(pool, "restartKeeper").mockImplementation(() => {});
+		const sessionsGate = Promise.withResolvers<{ sessions: [] }>();
+		const laterGate = Promise.withResolvers<{ sessions: [] }>();
+		let attempts = 0;
+		const manager = freshManager(new LifecycleTestSink());
+		const { reconcileOpenSessions } = setupReconcile({
+			client: () => clientWithSessionsList(() => {
+				attempts++;
+				if (attempts === 1) return sessionsGate.promise;
+				if (attempts === 3) return laterGate.promise;
+				return Promise.resolve({ sessions: [] });
+			}),
+			workerFp: WORKER_FP,
+			sessionMgr: manager,
+			prepareKeeper: async () => {},
+		});
+
+		const reconciliation = reconcileOpenSessions("boot");
+		manager.onKeeperDegraded?.();
+		expect(restartKeeper).not.toHaveBeenCalled();
+		sessionsGate.reject(new Error("coordinator admission unavailable"));
+		await expect(reconciliation).resolves.toMatchObject({ admitted: false });
+		await Promise.resolve();
+		expect(restartKeeper).not.toHaveBeenCalled();
+		manager.onKeeperDegraded?.();
+		await Bun.sleep(0);
+		expect(attempts).toBe(2);
+		expect(restartKeeper).not.toHaveBeenCalled();
+		const laterReconciliation = reconcileOpenSessions("keeper_death");
+		manager.onKeeperDegraded?.();
+		laterGate.reject(new Error("coordinator admission unavailable"));
+		await expect(laterReconciliation).resolves.toMatchObject({ admitted: false });
+		manager.onKeeperDegraded?.();
+		await Bun.sleep(0);
+		expect(attempts).toBe(4);
+		expect(restartKeeper).not.toHaveBeenCalled();
 	});
 
 	test("a failed SessionsList cannot activate keeper, provider, or readiness and a later complete set succeeds", async () => {
@@ -254,5 +298,61 @@ describe("worker boot reconciliation admission", () => {
 		expect(sink.active.size).toBe(0);
 		expect(activation.activateSnapshotProvider).toHaveBeenCalledTimes(1);
 		expect(activation.markReady).toHaveBeenCalledTimes(1);
+	});
+
+	test("a rejected in-flight reconcile atomically reopens its keeper update boundary", async () => {
+		const keeper = spyOnKeeperMutation();
+		const sink = new LifecycleTestSink();
+		const reserveLifecycleEvent = sink.reserveLifecycleEvent.bind(sink);
+		let rejectNextReservation = true;
+		sink.reserveLifecycleEvent = (kind) => {
+			if (rejectNextReservation) {
+				rejectNextReservation = false;
+				throw new SessionEventStoreFatalError(
+					"injected fatal reconcile failure",
+				);
+			}
+			return reserveLifecycleEvent(kind);
+		};
+		const manager = freshManager(sink);
+		const operations = stubSessionAdmission(manager);
+		const sessionsGate = Promise.withResolvers<{
+			sessions: typeof OPEN_SESSIONS;
+		}>();
+		const sessionsList = vi.fn(() => sessionsGate.promise);
+		const prepareKeeper = vi.fn(async () => {});
+		const {
+			reconcileOpenSessions,
+			acquireKeeperUpdateBoundary,
+		} = setupReconcile({
+			client: () => clientWithSessionsList(sessionsList),
+			workerFp: WORKER_FP,
+			sessionMgr: manager,
+			prepareKeeper,
+		});
+
+		const reconcile = reconcileOpenSessions("keeper_death");
+		const boundary = acquireKeeperUpdateBoundary();
+		const reconcileFailure = reconcile.catch((error) => error);
+		const boundaryFailure = boundary.catch((error) => error);
+		sessionsGate.resolve({ sessions: OPEN_SESSIONS });
+		expect(String(await reconcileFailure)).toContain(
+			"injected fatal reconcile failure",
+		);
+		expect(String(await boundaryFailure)).toContain(
+			"injected fatal reconcile failure",
+		);
+		expect(prepareKeeper).not.toHaveBeenCalled();
+		expect(operations.resume).not.toHaveBeenCalled();
+
+		await expect(reconcileOpenSessions("retry")).resolves.toMatchObject({
+			admitted: true,
+			candidates: 2,
+			resumed: 2,
+		});
+		expect(sessionsList).toHaveBeenCalledTimes(2);
+		expect(operations.resume).toHaveBeenCalledTimes(2);
+		expect(keeper.ensure).toHaveBeenCalledTimes(1);
+		expect(sink.active.size).toBe(0);
 	});
 });

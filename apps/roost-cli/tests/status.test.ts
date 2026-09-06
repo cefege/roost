@@ -11,6 +11,7 @@ import {
   resolveTlsMode,
   statusReportIsHealthy,
   workerInventory,
+  workerInventoryForUpdateAdmission,
   type StatusReport,
 } from "../src/status.ts";
 
@@ -232,8 +233,77 @@ describe("status coordinator database discovery", () => {
 });
 
 describe("status worker inventory", () => {
-  test("reports active workers and excludes referential tombstones", () => {
+  test("projects runtime proof and open sessions for active workers only", () => {
     const root = mkdtempSync(join(tmpdir(), "roost-status-workers-"));
+    try {
+      const databasePath = join(root, "coordinator.db");
+      const keeperRuntime = {
+        schema_version: 1,
+        running_contract: {
+          protocol_version: 1,
+          supported_features: [],
+          required_features: [],
+          implementation_digest: "a".repeat(64),
+          bun_abi: "bun-1",
+          platform: "linux",
+          arch: "x64",
+          build_sha: "abc",
+        },
+        keeper_pid: 42,
+        keeper_epoch: "00000000-0000-4000-8000-000000000001",
+        channel_count: 2,
+        binding_digest: "b".repeat(64),
+        reconciled_at_ms: 1,
+      } as const;
+      const sqlite = new Database(databasePath);
+      try {
+        sqlite.exec(`
+          CREATE TABLE workers (
+            fp TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            os TEXT NOT NULL,
+            reachable_addr TEXT,
+            git_sha TEXT,
+            keeper_runtime_json TEXT,
+            last_seen_ms INTEGER NOT NULL,
+            deleted_at_ms INTEGER
+          );
+          CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            worker_fp TEXT NOT NULL,
+            status TEXT NOT NULL
+          );
+          INSERT INTO workers (
+            fp, label, os, reachable_addr, git_sha, keeper_runtime_json,
+            last_seen_ms, deleted_at_ms
+          ) VALUES
+            ('active-fp', 'active', 'linux', 'active.test', 'abc', NULL, 1000, NULL),
+            ('deleted-fp', 'deleted', 'darwin', 'deleted.test', 'def', NULL, 2000, 3000);
+          INSERT INTO sessions (id, worker_fp, status) VALUES
+            ('z-open', 'active-fp', 'open'),
+            ('a-open', 'active-fp', 'open'),
+            ('closed', 'active-fp', 'closed'),
+            ('deleted-open', 'deleted-fp', 'open');
+        `);
+        sqlite.query(
+          "UPDATE workers SET keeper_runtime_json = ? WHERE fp = 'active-fp'",
+        ).run(JSON.stringify(keeperRuntime));
+      } finally {
+        sqlite.close();
+      }
+
+      const inventory = workerInventoryForUpdateAdmission(databasePath);
+      expect(inventory).toHaveLength(1);
+      expect(inventory[0]?.fingerprint).toBe("active-fp");
+      expect(inventory[0]?.keeperRuntime).toEqual(keeperRuntime);
+      expect(inventory[0]?.coordinatorOpenSessionIds).toEqual(["a-open", "z-open"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reads pre-runtime worker schemas as unproven admission rows", () => {
+    const root = mkdtempSync(join(tmpdir(), "roost-status-legacy-workers-"));
     try {
       const databasePath = join(root, "coordinator.db");
       const sqlite = new Database(databasePath);
@@ -245,20 +315,52 @@ describe("status worker inventory", () => {
             os TEXT NOT NULL,
             reachable_addr TEXT,
             git_sha TEXT,
-            keeper_stale TEXT,
             last_seen_ms INTEGER NOT NULL,
             deleted_at_ms INTEGER
           );
-          INSERT INTO workers VALUES
-            ('active-fp', 'active', 'linux', 'active.test', 'abc', '', 1000, NULL),
-            ('deleted-fp', 'deleted', 'darwin', 'deleted.test', 'def', '', 2000, 3000);
+          CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            worker_fp TEXT NOT NULL,
+            status TEXT NOT NULL
+          );
+          INSERT INTO workers (
+            fp, label, os, reachable_addr, git_sha, last_seen_ms, deleted_at_ms
+          ) VALUES ('legacy-fp', 'legacy', 'linux', 'legacy.test', 'abc', 1000, NULL);
+          INSERT INTO sessions (id, worker_fp, status)
+          VALUES ('legacy-open', 'legacy-fp', 'open');
         `);
       } finally {
         sqlite.close();
       }
 
-      expect(workerInventory(databasePath).map((worker) => worker.fingerprint))
-        .toEqual(["active-fp"]);
+      expect(workerInventoryForUpdateAdmission(databasePath)).toEqual([
+        expect.objectContaining({
+          fingerprint: "legacy-fp",
+          keeperRuntime: null,
+          coordinatorOpenSessionIds: ["legacy-open"],
+        }),
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps display fallback separate from update-admission failures", () => {
+    const root = mkdtempSync(join(tmpdir(), "roost-status-missing-"));
+    try {
+      const databasePath = join(root, "coordinator.db");
+      expect(workerInventory(databasePath)).toEqual([]);
+      expect(() => workerInventoryForUpdateAdmission(databasePath))
+        .toThrow("coordinator database not found");
+
+      const sqlite = new Database(databasePath);
+      try {
+        sqlite.exec("CREATE TABLE workers (fp TEXT PRIMARY KEY)");
+      } finally {
+        sqlite.close();
+      }
+      expect(workerInventory(databasePath)).toEqual([]);
+      expect(() => workerInventoryForUpdateAdmission(databasePath)).toThrow();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

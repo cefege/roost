@@ -8,6 +8,11 @@
 import { posix } from "node:path";
 import { verifyWorkerCmd, WORKER_UNIT } from "./service-ctl.ts";
 import { posixShellQuote } from "@roost/shared/shell-quote";
+import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import {
+  parsePosixServiceEnvironment,
+  parseSystemdServiceDirective,
+} from "./deploy-plist-env.ts";
 import {
   assertFixedLinuxJournalPath,
   assertLinuxDeployJournal,
@@ -16,9 +21,73 @@ import {
   LINUX_DEPLOY_JOURNAL_SCHEMA,
   linuxWorkerReleaseRoot,
   malformedLinuxJournal,
+  serializeLinuxKeeperUpdate,
   type LinuxDeployJournal,
   type LinuxDeployJournalPhase,
 } from "./linux-deploy-journal.ts";
+export function linuxWorkerResourceEnvironment(definition: string): Record<string, string> {
+  const installed = parsePosixServiceEnvironment(definition, "linux");
+  const environment: Record<string, string> = {};
+  for (const key of [
+    "ROOST_WORKER_MEMORY_HIGH",
+    "ROOST_WORKER_TASKS_MAX",
+    "ROOST_WORKER_LOGROTATE_CONF",
+  ] as const) {
+    if (installed[key]) environment[key] = installed[key];
+  }
+  for (const [directive, key] of [
+    ["MemoryHigh", "ROOST_WORKER_MEMORY_HIGH"],
+    ["TasksMax", "ROOST_WORKER_TASKS_MAX"],
+  ] as const) {
+    const value = parseSystemdServiceDirective(definition, directive);
+    if (value) environment[key] = value;
+  }
+  return environment;
+}
+
+export function linuxWorkerActivationEnvironment(
+  definition: string,
+  passthroughEnvironment: string,
+): string {
+  const resourceAssignments = Object.entries(linuxWorkerResourceEnvironment(definition))
+    .map(([key, value]) => `${key}=${posixShellQuote(value)}`)
+    .join(" ");
+  return [passthroughEnvironment, resourceAssignments].filter(Boolean).join(" ");
+}
+
+export function _linuxWorkerCheckoutProbeCommand(): string {
+  return `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
+    `unit_dir=$(systemctl --user show ${WORKER_UNIT} --property=WorkingDirectory --value 2>/dev/null || true); ` +
+    `for directory in "$unit_dir" "$HOME/Roost" /srv/roost; do ` +
+    `[ -n "$directory" ] && git -C "$directory" rev-parse --git-dir >/dev/null 2>&1 ` +
+    `&& echo "$directory" && break; done`;
+}
+
+export function _linuxStageWorkerReleaseCommand(
+  repository: string,
+  releaseRoot: string,
+  releasePath: string,
+  gitSha: string,
+): string {
+  return `set -e; mkdir -p ${posixShellQuote(releaseRoot)}; ` +
+    `git -C ${posixShellQuote(repository)} fetch --quiet origin; ` +
+    `git -C ${posixShellQuote(repository)} worktree add --quiet --force --detach ` +
+    `${posixShellQuote(releasePath)} ${posixShellQuote(gitSha)}`;
+}
+
+export function _linuxInstallWorkerDependenciesCommand(releasePath: string): string {
+  return `set -eo pipefail; cd ${posixShellQuote(releasePath)} && ` +
+    `bun install --frozen-lockfile 2>&1 | tail -25`;
+}
+
+export function _linuxActivateWorkerReleaseCommand(
+  releasePath: string,
+  activationEnvironment: string,
+): string {
+  return `${activationEnvironment} bash ` +
+    `${posixShellQuote(posix.join(releasePath, "apps/worker/scripts/install.sh"))} install 2>&1`;
+}
+
 
 export function _linuxLoadDeployJournalCommand(journalPath: string): string {
   assertFixedLinuxJournalPath(journalPath);
@@ -26,9 +95,8 @@ export function _linuxLoadDeployJournalCommand(journalPath: string): string {
     `if test ! -e "$journal" && test ! -L "$journal"; then printf 'absent\\n'; exit 0; fi; ` +
     `test -d "$journal" && test ! -L "$journal"; ` +
     `test -f "$journal/schema" && test ! -L "$journal/schema"; schema=$(cat "$journal/schema"); ` +
-    `case "$schema" in 2) fields='schema phase target-sha target-release prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid';; ` +
-    `${LINUX_DEPLOY_JOURNAL_SCHEMA}) fields='schema phase target-sha target-release rollout-id prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid';; ` +
-    `*) exit 65;; esac; ` +
+    `test "$schema" = ${LINUX_DEPLOY_JOURNAL_SCHEMA}; ` +
+    `fields='schema phase target-sha target-release rollout-id worker-fingerprint keeper-update prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid'; ` +
     `for name in $fields; do test -f "$journal/$name" && test ! -L "$journal/$name"; done; ` +
     `prior_unit_state=$(cat "$journal/prior-unit-state"); ` +
     `case "$prior_unit_state" in ` +
@@ -47,33 +115,56 @@ export interface LinuxPrepareJournalInput {
   targetReleasePath: string;
   home: string;
   rolloutId: string | null;
+  workerFingerprint: string | null;
+  keeperUpdate: JournaledKeeperUpdateV1 | null;
 }
 
 export function _linuxPrepareDeployJournalCommand(
   input: LinuxPrepareJournalInput,
 ): string {
-  const { journalPath, unitPath, targetSha, targetReleasePath, rolloutId, home } = input;
+  const {
+    journalPath,
+    unitPath,
+    targetSha,
+    targetReleasePath,
+    rolloutId,
+    workerFingerprint,
+    keeperUpdate,
+    home,
+  } = input;
   assertFixedLinuxJournalPath(journalPath);
   const candidate: LinuxDeployJournal = {
     phase: "prepared",
     targetSha,
     targetReleasePath,
     rolloutId,
-    priorUnit: "",
-    priorUnitMode: 0o600,
+    workerFingerprint,
+    keeperUpdate,
+    priorUnit: keeperUpdate === null ? null : "",
+    priorUnitMode: keeperUpdate === null ? null : 0o600,
     priorLifecycle: "stopped",
-    priorEnablement: "enabled",
+    priorEnablement: keeperUpdate === null ? "absent" : "enabled",
     priorPid: 0,
   };
   assertLinuxDeployJournal(candidate, home);
+  const keeperUpdateJson = serializeLinuxKeeperUpdate(keeperUpdate);
   const parent = posix.dirname(journalPath);
   return `set -e; umask 077; ` +
     `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
     `journal=${posixShellQuote(journalPath)}; parent=${posixShellQuote(parent)}; unit=${posixShellQuote(unitPath)}; ` +
     `target_sha=${posixShellQuote(targetSha)}; target_release=${posixShellQuote(targetReleasePath)}; ` +
     `rollout_id=${posixShellQuote(rolloutId ?? "")}; ` +
+    `worker_fingerprint=${posixShellQuote(workerFingerprint ?? "")}; ` +
+    `keeper_update=${posixShellQuote(keeperUpdateJson)}; ` +
     `test "$(basename -- "$journal")" = ${LINUX_DEPLOY_JOURNAL_NAME}; ` +
     `test ! -e "$journal" && test ! -L "$journal"; ` +
+    `if test "$keeper_update" != null; then test -f "$unit" && test ! -L "$unit"; ` +
+    `prior_sha=$(sed -n -e 's/^Environment="GIT_SHA=\\([0-9A-Fa-f]*\\)"$/\\1/p' ` +
+    `-e 's/^Environment=GIT_SHA=\\([0-9A-Fa-f]*\\)$/\\1/p' ` +
+    `-e 's/^Environment="ROOST_GIT_SHA=\\([0-9A-Fa-f]*\\)"$/\\1/p' ` +
+    `-e 's/^Environment=ROOST_GIT_SHA=\\([0-9A-Fa-f]*\\)$/\\1/p' "$unit"); ` +
+    `test "$(printf '%s\\n' "$prior_sha" | wc -l)" -eq 1; ` +
+    `printf '%s\\n' "$prior_sha" | grep -Eq '^([0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})$'; fi; ` +
     `new="$journal.new"; rm -rf -- "$new"; mkdir "$new"; ` +
     `if test -L "$unit"; then exit 65; ` +
     `elif test -f "$unit"; then unit_state=present; unit_mode=$(stat -c '%a' "$unit"); ` +
@@ -89,11 +180,17 @@ export function _linuxPrepareDeployJournalCommand(
     `case "$enablement" in enabled|disabled|masked) ;; *) exit 65;; esac; ` +
     `else enablement=absent; fi; ` +
     `if test "$unit_state" = absent && test "$lifecycle" = running; then exit 65; fi; ` +
+    `if test "$unit_state" = present; then test "$keeper_update" != null; ` +
+    `else test "$keeper_update" = null; fi; ` +
+    `if test "$keeper_update" != null; then test -n "$worker_fingerprint"; ` +
+    `else test -z "$worker_fingerprint"; fi; ` +
     `write_metadata() { name="$1"; value="$2"; printf '%s' "$value" > "$new/$name"; ` +
     `chmod 600 "$new/$name"; sync -f "$new/$name"; }; ` +
     `write_metadata schema ${LINUX_DEPLOY_JOURNAL_SCHEMA}; ` +
     `write_metadata phase prepared; write_metadata target-sha "$target_sha"; ` +
     `write_metadata target-release "$target_release"; write_metadata rollout-id "$rollout_id"; ` +
+    `write_metadata worker-fingerprint "$worker_fingerprint"; ` +
+    `write_metadata keeper-update "$keeper_update"; ` +
     `write_metadata prior-unit-state "$unit_state"; ` +
     `write_metadata prior-unit-mode "$(if test "$unit_state" = present; then printf '%s' "$unit_mode"; fi)"; ` +
     `write_metadata prior-lifecycle "$lifecycle"; write_metadata prior-enablement "$enablement"; ` +
@@ -109,7 +206,9 @@ export function _linuxCheckpointDeployJournalCommand(
 ): string {
   assertFixedLinuxJournalPath(journalPath);
   if (!((from === "prepared" && to === "activating")
-    || (from === "activating" && to === "activated"))) {
+    || (from === "activating" && to === "activated")
+    || (to === "committing" && (from === "activating" || from === "activated"))
+    || (to === "rolling-back" && from !== "rolling-back" && from !== "committing"))) {
     throw new Error(`invalid Linux deployment journal transition: ${from} -> ${to}`);
   }
   return `set -e; umask 077; journal=${posixShellQuote(journalPath)}; ` +
@@ -119,6 +218,28 @@ export function _linuxCheckpointDeployJournalCommand(
     `rm -f -- "$next"; printf '%s' ${to} > "$next"; chmod 600 "$next"; ` +
     `sync -f "$next"; mv -- "$next" "$journal/phase"; sync -f "$journal"`;
 }
+export function _linuxStopWorkerServiceCommand(journalPath: string): string {
+  assertFixedLinuxJournalPath(journalPath);
+  return `set -e; export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
+    `journal=${posixShellQuote(journalPath)}; ` +
+    `test -d "$journal" && test ! -L "$journal"; ` +
+    `systemctl --user stop ${WORKER_UNIT} 2>/dev/null || true; ` +
+    `load_state=$(systemctl --user show ${WORKER_UNIT} --property=LoadState --value); ` +
+    `active_state=$(systemctl --user show ${WORKER_UNIT} --property=ActiveState --value); ` +
+    `pid=$(systemctl --user show ${WORKER_UNIT} --property=MainPID --value); ` +
+    `case "$load_state:$active_state:$pid" in ` +
+    `loaded:inactive:0|loaded:failed:0|masked:inactive:0|not-found:inactive:0) exit 0;; ` +
+    `*) exit 1;; esac`;
+}
+
+export function _linuxStartWorkerServiceCommand(journalPath: string): string {
+  assertFixedLinuxJournalPath(journalPath);
+  return `set -e; export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
+    `journal=${posixShellQuote(journalPath)}; ` +
+    `test -d "$journal" && test ! -L "$journal"; ` +
+    `systemctl --user start ${WORKER_UNIT}`;
+}
+
 
 export function _linuxClearDeployJournalCommand(journalPath: string): string {
   assertFixedLinuxJournalPath(journalPath);
@@ -194,26 +315,39 @@ export function _linuxRestorePriorServiceCommand(
   assertLinuxDeployJournal(journal, home);
   assertFixedLinuxJournalPath(journalPath);
   const restore = journal.priorUnit === null
-    ? `rm -f -- "$unit"`
+    ? `rm -f -- "$unit"; systemctl --user daemon-reload`
     : `test -f "$journal/prior-unit" && test ! -L "$journal/prior-unit"; ` +
+      `systemctl --user unmask ${WORKER_UNIT} 2>/dev/null || true; ` +
       `mkdir -p "$(dirname -- "$unit")"; rm -f -- "$unit"; cp -- "$journal/prior-unit" "$unit"; ` +
-      `chmod ${journal.priorUnitMode!.toString(8).padStart(3, "0")} "$unit"`;
+      `chmod ${journal.priorUnitMode!.toString(8).padStart(3, "0")} "$unit"; ` +
+      `systemctl --user daemon-reload; ` +
+      `systemctl --user reset-failed ${WORKER_UNIT} 2>/dev/null || true; ` +
+      `systemctl --user start ${WORKER_UNIT}`;
+  return `set -e; export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
+    `journal=${posixShellQuote(journalPath)}; unit=${posixShellQuote(unitPath)}; ` +
+    `test -d "$journal" && test ! -L "$journal"; ${restore}`;
+}
+
+export function _linuxSettlePriorServiceCommand(
+  journal: LinuxDeployJournal,
+  journalPath: string,
+  home: string,
+): string {
+  assertLinuxDeployJournal(journal, home);
+  assertFixedLinuxJournalPath(journalPath);
+  const lifecycle = journal.priorLifecycle === "stopped"
+    ? `systemctl --user stop ${WORKER_UNIT}; `
+    : "";
   const enablement = journal.priorEnablement === "enabled"
     ? `systemctl --user enable ${WORKER_UNIT}`
     : journal.priorEnablement === "masked"
       ? `systemctl --user mask --runtime ${WORKER_UNIT}`
-      : `systemctl --user disable ${WORKER_UNIT} 2>/dev/null || true`;
-  const restart = journal.priorLifecycle === "running"
-    ? `; systemctl --user start ${WORKER_UNIT}`
-    : "";
+      : journal.priorEnablement === "disabled"
+        ? `systemctl --user disable ${WORKER_UNIT}`
+        : ":";
   return `set -e; export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-    `journal=${posixShellQuote(journalPath)}; unit=${posixShellQuote(unitPath)}; ` +
-    `test -d "$journal" && test ! -L "$journal"; ` +
-    `systemctl --user stop ${WORKER_UNIT} 2>/dev/null || true; ` +
-    `systemctl --user disable ${WORKER_UNIT} 2>/dev/null || true; ` +
-    `systemctl --user unmask ${WORKER_UNIT} 2>/dev/null || true; ` +
-    `systemctl --user reset-failed ${WORKER_UNIT} 2>/dev/null || true; ` +
-    `${restore}; systemctl --user daemon-reload; ${enablement}${restart}`;
+    `journal=${posixShellQuote(journalPath)}; test -d "$journal" && test ! -L "$journal"; ` +
+    `${lifecycle}${enablement}`;
 }
 
 export function _linuxPriorServiceProofCommand(

@@ -1,388 +1,266 @@
+// Local worker journal tests pin routable source replay and crash reentry.
+// They exercise the production coordinator callback adapter against a fake
+// worker generation rather than replacing the RPC boundary with event stubs.
+
 import { describe, expect, test } from "bun:test";
+import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/shared/keeper-update";
+import { createJournaledKeeperUpdateCallbacks } from "../src/direct-keeper-update.ts";
 import {
   _recoverLocalWorkerDeployJournal,
-  localWorkerDeployJournalPath,
-  localWorkerDeployStageIsConfined,
-  parseLocalWorkerDeployJournal,
-  type LocalWorkerDeployConfinement,
   type LocalWorkerDeployJournal,
   type LocalWorkerDeployRecoveryDeps,
-  type LocalWorkerLifecycle,
-  type LocalWorkerServiceSnapshot,
 } from "../src/local-worker-deploy-journal.ts";
-import { coordinatorJournalAllowsLocalWorkerRollout } from "../src/local-worker-rollout-coordinator.ts";
-import type { CoordinatorDeployJournalV2 } from "../src/coordinator-deploy-journal.ts";
+import {
+  LOCAL_CONFINEMENT,
+  LOCAL_KEEPER_UPDATE,
+  PRIOR_SERVICE,
+  PRIOR_SHA,
+  ROLLOUT_ID,
+  TARGET_SERVICE,
+  TARGET_SHA,
+  WORKER_FINGERPRINT,
+  localWorkerJournal,
+} from "./deploy-local-journal-fixture.ts";
 
-const TARGET_SHA = "a".repeat(40);
-const PRIOR_SHA = "b".repeat(40);
-const ROLLOUT_ID = "11111111-1111-4111-8111-111111111111";
-const SOURCE_ROOT = "/srv/roost/source";
-const RELEASE_ROOT = "/srv/roost/service/releases/worker";
-const STAGED_RELEASE = `${RELEASE_ROOT}/${TARGET_SHA}-11111111-1111-4111-8111-111111111111`;
-const PRIOR_RELEASE = `${RELEASE_ROOT}/${PRIOR_SHA}-prior`;
-const CONFINEMENT: LocalWorkerDeployConfinement = {
-  os: "linux",
-  sourceRoot: SOURCE_ROOT,
-  releaseRoot: RELEASE_ROOT,
-};
-
-function snapshot(definition: string, mode = 0o600): LocalWorkerServiceSnapshot {
-  return { definitionBase64: Buffer.from(definition).toString("base64"), mode };
-}
-
-const PRIOR_SERVICE = snapshot([
-  "[Service]",
-  `WorkingDirectory=\"${PRIOR_RELEASE}\"`,
-  `Environment=\"GIT_SHA=${PRIOR_SHA}\"`,
-].join("\n"), 0o640);
-const TARGET_SERVICE = snapshot([
-  "[Service]",
-  `WorkingDirectory=\"${STAGED_RELEASE}\"`,
-  `Environment=\"GIT_SHA=${TARGET_SHA}\"`,
-].join("\n"), 0o640);
-
-function journal(
-  overrides: Partial<LocalWorkerDeployJournal> = {},
-): LocalWorkerDeployJournal {
-  return {
-    schemaVersion: 2,
-    phase: "prepared",
-    os: "linux",
-    sourceRoot: SOURCE_ROOT,
-    releaseRoot: RELEASE_ROOT,
-    stagedReleasePath: STAGED_RELEASE,
-    targetSha: TARGET_SHA,
-    rolloutId: null,
-    priorService: PRIOR_SERVICE,
-    priorWasRunning: true,
-    priorWorkingDirectory: PRIOR_RELEASE,
-    priorGitSha: PRIOR_SHA,
-    targetService: null,
-    ...overrides,
-  };
-}
-
-function unusedRecoveryDeps(onMutation: () => void): LocalWorkerDeployRecoveryDeps {
-  return {
-    readService: () => {
-      onMutation();
-      throw new Error("unexpected service read");
+function rollbackFixture(failFirstProof = false): {
+  deps: LocalWorkerDeployRecoveryDeps;
+  events: string[];
+  rollingJournal: () => LocalWorkerDeployJournal | null;
+} {
+  const events: string[] = [];
+  let service = { ...TARGET_SERVICE, mode: 0o600 };
+  let lifecycle: "running" | "stopped" = "running";
+  let reconciliation = 10;
+  let coordinatorLastSeen = 200;
+  let proofFailures = failFirstProof ? 1 : 0;
+  let checkpoint: LocalWorkerDeployJournal | null = null;
+  const callbacks = createJournaledKeeperUpdateCallbacks({
+    attempts: 1,
+    sleep: async () => {},
+    routable: async () => lifecycle === "running",
+    prepare: async request => {
+      expect(lifecycle).toBe("running");
+      events.push(`rpc:${request.direction}`);
+      return { outcome: "already-converged" };
     },
-    probeLifecycle: () => {
-      onMutation();
-      throw new Error("unexpected lifecycle probe");
+    inventory: () => [{
+      fingerprint: WORKER_FINGERPRINT,
+      label: "local",
+      os: "linux",
+      reachableAddr: null,
+      gitSha: PRIOR_SHA,
+      coordinatorOpenSessionIds: [],
+      lastSeenMs: coordinatorLastSeen,
+      ageMs: 0,
+      stale: false,
+      keeperRuntime: {
+        schema_version: 1,
+        running_contract: {
+          ...LOCAL_KEEPER_UPDATE.source_contract,
+          build_sha: PRIOR_SHA,
+        },
+        keeper_pid: 800,
+        keeper_epoch: "33333333-3333-4333-8333-333333333333",
+        channel_count: 0,
+        binding_digest: KEEPER_EMPTY_BINDING_DIGEST,
+        reconciled_at_ms: reconciliation,
+      },
+    }],
+  });
+  const deps: LocalWorkerDeployRecoveryDeps = {
+    readService: () => service,
+    probeLifecycle: () => lifecycle,
+    probeStartupPolicy: () => "enabled",
+    checkpointRollback: async journal => {
+      checkpoint = { ...journal };
+      events.push("checkpoint-rollback");
     },
-    restorePrior: async () => {
-      onMutation();
-      throw new Error("unexpected rollback");
+    checkpointCommit: async () => { events.push("checkpoint-commit"); },
+    stopWorker: async () => { lifecycle = "stopped"; events.push("stop"); },
+    restorePriorDefinition: async () => { service = PRIOR_SERVICE; events.push("restore"); },
+    startPrior: async () => {
+      lifecycle = "running";
+      reconciliation += 1;
+      coordinatorLastSeen += 1;
+      events.push("start-prior");
     },
-    cleanupStage: async () => {
-      onMutation();
-      throw new Error("unexpected cleanup");
+    restorePriorLifecycle: async () => { events.push("settle-prior"); },
+    activateTarget: async () => { lifecycle = "running"; events.push("start-target"); },
+    applyKeeperUpdate: callbacks.apply,
+    proveKeeperUpdate: async (...args) => {
+      if (proofFailures > 0) {
+        proofFailures -= 1;
+        throw new Error("injected proof crash");
+      }
+      await callbacks.prove(...args);
+      events.push("prove-keeper");
     },
-    commitTarget: async () => {
-      onMutation();
-      throw new Error("unexpected commit");
-    },
-    clearJournal: async () => {
-      onMutation();
-      throw new Error("unexpected journal clear");
-    },
+    cleanupStage: async () => { events.push("cleanup"); },
+    commitTarget: async () => { events.push("commit"); },
+    clearJournal: async () => { events.push("clear"); },
     proofAttempts: 1,
+    now: () => 5,
+  };
+  return { deps, events, rollingJournal: () => checkpoint };
+}
+
+function preparedFixture(): {
+  deps: LocalWorkerDeployRecoveryDeps;
+  events: string[];
+} {
+  const fixture = rollbackFixture();
+  return {
+    events: fixture.events,
+    deps: {
+      ...fixture.deps,
+      readService: () => {
+        fixture.events.push("read-service");
+        return null;
+      },
+      probeLifecycle: () => {
+        fixture.events.push("probe-lifecycle");
+        return "stopped";
+      },
+      probeStartupPolicy: () => {
+        fixture.events.push("probe-startup-policy");
+        return "disabled";
+      },
+      applyKeeperUpdate: async () => {
+        fixture.events.push("keeper-action");
+      },
+      proveKeeperUpdate: async () => {
+        fixture.events.push("keeper-proof");
+      },
+    },
   };
 }
 
 describe("localhost worker deploy journal", () => {
-  test("uses one fixed transaction journal outside unique release paths", () => {
-    expect(localWorkerDeployJournalPath("/srv/roost/service")).toBe(
-      "/srv/roost/service/transactions/worker-deploy.json",
-    );
-  });
-
-
-  test("allows only the matching coordinator phase to coexist on localhost", () => {
-    const directive = {
-      action: "hold" as const,
-      rolloutId: ROLLOUT_ID,
-      priorSha: PRIOR_SHA,
-      targetSha: TARGET_SHA,
-    };
-    const load = () => ({
-      phase: "fleet-converging",
-      rolloutId: ROLLOUT_ID,
-      priorSha: PRIOR_SHA,
-      targetSha: TARGET_SHA,
-    }) as CoordinatorDeployJournalV2;
-    expect(coordinatorJournalAllowsLocalWorkerRollout(
-      "/srv/roost/service",
-      "linux",
-      directive,
-      load,
-    )).toBeTrue();
-    expect(coordinatorJournalAllowsLocalWorkerRollout(
-      "/srv/roost/service",
-      "linux",
-      { ...directive, action: "finalize" },
-      load,
-    )).toBeFalse();
-    expect(coordinatorJournalAllowsLocalWorkerRollout(
-      "/srv/roost/service",
-      "linux",
-      { ...directive, rolloutId: "22222222-2222-4222-8222-222222222222" },
-      load,
-    )).toBeFalse();
-  });
-
-  test("prepared recovery only removes the confined stage before clearing", async () => {
-    const events: string[] = [];
-    const deps: LocalWorkerDeployRecoveryDeps = {
-      ...unusedRecoveryDeps(() => {
-        throw new Error("unexpected recovery operation");
-      }),
-      cleanupStage: async () => { events.push("cleanup"); },
-      clearJournal: async () => { events.push("clear"); },
-    };
-
+  test("prepared recovery removes only the partial stage and clears the journal", async () => {
+    const fixture = preparedFixture();
+    const journal = localWorkerJournal({
+      priorLifecycle: "stopped",
+      priorStartupPolicy: "disabled",
+    });
     await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(journal()),
-      CONFINEMENT,
-      deps,
+      JSON.stringify(journal), LOCAL_CONFINEMENT, fixture.deps,
     )).resolves.toBe("prepared-cleaned");
-    expect(events).toEqual(["cleanup", "clear"]);
+    expect(fixture.events).toEqual(["cleanup", "clear"]);
   });
 
-  test("activating recovery commits only the exact target definition and healthy lifecycle", async () => {
-    const events: string[] = [];
-    const activating = journal({ phase: "activating", targetService: TARGET_SERVICE });
-    const deps: LocalWorkerDeployRecoveryDeps = {
-      ...unusedRecoveryDeps(() => {
-        throw new Error("unexpected rollback operation");
-      }),
-      readService: () => { events.push("read"); return TARGET_SERVICE; },
-      probeLifecycle: () => { events.push("probe"); return "running"; },
-      commitTarget: async () => { events.push("commit"); },
-      clearJournal: async () => { events.push("clear"); },
-    };
-
-    await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(activating),
-      CONFINEMENT,
-      deps,
-    )).resolves.toBe("target-committed");
-    expect(events).toEqual(["read", "probe", "commit", "clear"]);
-  });
-
-  test("activated recovery restores and proves a prior running service before stage removal", async () => {
-    const events: string[] = [];
-    let activeService: LocalWorkerServiceSnapshot | null = {
-      ...TARGET_SERVICE,
-      mode: 0o600,
-    };
-    let lifecycle: LocalWorkerLifecycle = "running";
-    const activated = journal({ phase: "activated", targetService: TARGET_SERVICE });
-    const deps: LocalWorkerDeployRecoveryDeps = {
-      readService: () => { events.push("read"); return activeService; },
-      probeLifecycle: () => { events.push("probe"); return lifecycle; },
-      restorePrior: async () => {
-        events.push("restore");
-        activeService = PRIOR_SERVICE;
-        lifecycle = "running";
-      },
-      cleanupStage: async () => { events.push("cleanup"); },
-      commitTarget: async () => { events.push("commit"); },
-      clearJournal: async () => { events.push("clear"); },
-      proofAttempts: 1,
-    };
-
-    await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(activated),
-      CONFINEMENT,
-      deps,
-    )).resolves.toBe("prior-restored");
-    expect(events).toEqual(["read", "restore", "read", "probe", "cleanup", "clear"]);
-  });
-
-  test("rollback with no prior service proves absent definition and stopped lifecycle", async () => {
-    const events: string[] = [];
-    let activeService: LocalWorkerServiceSnapshot | null = TARGET_SERVICE;
-    let lifecycle: LocalWorkerLifecycle = "running";
-    const absentPrior = journal({
-      phase: "activating",
-      priorService: null,
-      priorWasRunning: false,
-      priorWorkingDirectory: null,
-      priorGitSha: null,
-      targetService: null,
-    });
-    const deps: LocalWorkerDeployRecoveryDeps = {
-      readService: () => { events.push("read"); return activeService; },
-      probeLifecycle: () => { events.push("probe"); return lifecycle; },
-      restorePrior: async () => {
-        events.push("restore-absent");
-        activeService = null;
-        lifecycle = "stopped";
-      },
-      cleanupStage: async () => { events.push("cleanup"); },
-      commitTarget: async () => { events.push("commit"); },
-      clearJournal: async () => { events.push("clear"); },
-      proofAttempts: 1,
-    };
-
-    await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(absentPrior),
-      CONFINEMENT,
-      deps,
-    )).resolves.toBe("prior-restored");
-    expect(events).toEqual(["restore-absent", "read", "probe", "cleanup", "clear"]);
-  });
-
-  test("unproven rollback retains both target stage and journal", async () => {
-    const events: string[] = [];
-    const deps: LocalWorkerDeployRecoveryDeps = {
-      readService: () => null,
-      probeLifecycle: () => "unknown",
-      restorePrior: async () => { events.push("restore"); },
-      cleanupStage: async () => { events.push("cleanup"); },
-      commitTarget: async () => { events.push("commit"); },
-      clearJournal: async () => { events.push("clear"); },
-      proofAttempts: 1,
-    };
-
-    await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(journal({ phase: "activating" })),
-      CONFINEMENT,
-      deps,
-    )).rejects.toThrow("could not be proven");
-    expect(events).toEqual(["restore"]);
-  });
-
-  test("fleet target remains held until its exact rollout finalizes", async () => {
-    const events: string[] = [];
-    const fleetJournal = journal({
-      phase: "activated",
+  test("prepared fleet rollback cleans an originally stopped worker without service or keeper calls", async () => {
+    const fixture = preparedFixture();
+    const journal = localWorkerJournal({
       rolloutId: ROLLOUT_ID,
-      targetService: TARGET_SERVICE,
+      priorLifecycle: "stopped",
+      priorStartupPolicy: "disabled",
     });
-    const deps: LocalWorkerDeployRecoveryDeps = {
-      readService: () => { events.push("read"); return TARGET_SERVICE; },
-      probeLifecycle: () => { events.push("probe"); return "running"; },
-      restorePrior: async () => { events.push("restore"); },
-      cleanupStage: async () => { events.push("cleanup"); },
-      commitTarget: async () => { events.push("commit"); },
-      clearJournal: async () => { events.push("clear"); },
-      proofAttempts: 1,
-    };
     const directive = {
+      action: "rollback" as const,
       rolloutId: ROLLOUT_ID,
       priorSha: PRIOR_SHA,
+      workerFingerprint: WORKER_FINGERPRINT,
       targetSha: TARGET_SHA,
+      keeperUpdate: LOCAL_KEEPER_UPDATE,
     };
     await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(fleetJournal),
-      CONFINEMENT,
-      deps,
-      { ...directive, action: "hold" },
-    )).resolves.toBe("target-held");
-    expect(events).toEqual(["read", "probe"]);
-
-    events.length = 0;
-    await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(fleetJournal),
-      CONFINEMENT,
-      deps,
-      { ...directive, action: "finalize" },
-    )).resolves.toBe("target-committed");
-    expect(events).toEqual(["read", "probe", "commit", "clear"]);
+      JSON.stringify(journal), LOCAL_CONFINEMENT, fixture.deps, directive,
+    )).resolves.toBe("prepared-cleaned");
+    expect(fixture.events).toEqual(["cleanup", "clear"]);
   });
 
-  test("fleet journal rejects standalone recovery and explicitly restores prior", async () => {
-    const events: string[] = [];
-    let activeService: LocalWorkerServiceSnapshot | null = TARGET_SERVICE;
-    const fleetJournal = journal({
-      phase: "activated",
+  test("prepared fleet finalization and invalid ownership fail before cleanup", async () => {
+    const journal = localWorkerJournal({ rolloutId: ROLLOUT_ID });
+    const directive = {
+      action: "finalize" as const,
       rolloutId: ROLLOUT_ID,
-      targetService: TARGET_SERVICE,
-    });
-    const deps: LocalWorkerDeployRecoveryDeps = {
-      readService: () => { events.push("read"); return activeService; },
-      probeLifecycle: () => { events.push("probe"); return "running"; },
-      restorePrior: async () => {
-        events.push("restore");
-        activeService = PRIOR_SERVICE;
+      priorSha: PRIOR_SHA,
+      workerFingerprint: WORKER_FINGERPRINT,
+      targetSha: TARGET_SHA,
+      keeperUpdate: LOCAL_KEEPER_UPDATE,
+    };
+    const finalizeFixture = preparedFixture();
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(journal), LOCAL_CONFINEMENT, finalizeFixture.deps, directive,
+    )).rejects.toThrow("before activation");
+    expect(finalizeFixture.events).toEqual([]);
+
+    const unownedFixture = preparedFixture();
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(journal), LOCAL_CONFINEMENT, unownedFixture.deps,
+    )).rejects.toThrow("fleet rollout still owns");
+    expect(unownedFixture.events).toEqual([]);
+
+    const foreignFixture = preparedFixture();
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(journal),
+      LOCAL_CONFINEMENT,
+      foreignFixture.deps,
+      {
+        ...directive,
+        action: "rollback",
+        rolloutId: "22222222-2222-4222-8222-222222222222",
       },
-      cleanupStage: async () => { events.push("cleanup"); },
-      commitTarget: async () => { events.push("commit"); },
+    )).rejects.toThrow("does not match the requested fleet rollout");
+    expect(foreignFixture.events).toEqual([]);
+
+    const wrongPriorFixture = preparedFixture();
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(journal),
+      LOCAL_CONFINEMENT,
+      wrongPriorFixture.deps,
+      { ...directive, action: "rollback", priorSha: "d".repeat(40) },
+    )).rejects.toThrow("does not prove the fleet rollout prior identity");
+    expect(wrongPriorFixture.events).toEqual([]);
+  });
+
+  test("rollback restores a routable source, replays action, restarts, and proves before clear", async () => {
+    const fixture = rollbackFixture();
+    const journal = localWorkerJournal({ phase: "activated", targetService: TARGET_SERVICE });
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(journal), LOCAL_CONFINEMENT, fixture.deps,
+    )).resolves.toBe("prior-restored");
+    expect(fixture.events).toEqual([
+      "checkpoint-rollback", "stop", "restore", "start-prior", "rpc:source",
+      "stop", "start-prior", "prove-keeper", "settle-prior", "cleanup", "clear",
+    ]);
+  });
+
+  test("crash reentry retains rolling-back and repeats the recorded source action", async () => {
+    const fixture = rollbackFixture(true);
+    const journal = localWorkerJournal({ phase: "activated", targetService: TARGET_SERVICE });
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(journal), LOCAL_CONFINEMENT, fixture.deps,
+    )).rejects.toThrow("injected proof crash");
+    expect(fixture.rollingJournal()?.phase).toBe("rolling-back");
+    const firstActions = fixture.events.filter(event => event === "rpc:source").length;
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(fixture.rollingJournal()), LOCAL_CONFINEMENT, fixture.deps,
+    )).resolves.toBe("prior-restored");
+    expect(fixture.events.filter(event => event === "rpc:source")).toHaveLength(firstActions + 1);
+    expect(fixture.events.at(-1)).toBe("clear");
+  });
+
+  test("commit cleanup is durably irreversible and retries target proof", async () => {
+    const events: string[] = [];
+    const journal = localWorkerJournal({ phase: "committing", targetService: TARGET_SERVICE });
+    const fixture = rollbackFixture();
+    const deps = {
+      ...fixture.deps,
+      readService: () => TARGET_SERVICE,
+      probeLifecycle: () => "running" as const,
+      applyKeeperUpdate: async () => { events.push("target-action"); },
+      stopWorker: async () => { events.push("stop"); },
+      activateTarget: async () => { events.push("start"); },
+      proveKeeperUpdate: async () => { events.push("prove"); },
+      commitTarget: async () => { events.push("cleanup-prior"); },
       clearJournal: async () => { events.push("clear"); },
-      proofAttempts: 1,
     };
     await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(fleetJournal),
-      CONFINEMENT,
-      deps,
-    )).rejects.toThrow("fleet rollout still owns");
-    expect(events).toEqual([]);
-
-    await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(fleetJournal),
-      CONFINEMENT,
-      deps,
-      {
-        action: "rollback",
-        rolloutId: ROLLOUT_ID,
-        priorSha: PRIOR_SHA,
-        targetSha: TARGET_SHA,
-      },
-    )).resolves.toBe("prior-restored");
-    expect(events).toEqual(["read", "probe", "restore", "read", "probe", "cleanup", "clear"]);
-  });
-
-  test("journal path confinement rejects traversal, nesting, and foreign roots", () => {
-    expect(localWorkerDeployStageIsConfined(RELEASE_ROOT, STAGED_RELEASE)).toBe(true);
-    for (const unsafe of [
-      RELEASE_ROOT,
-      `${RELEASE_ROOT}/nested/release`,
-      `${RELEASE_ROOT}/../escape`,
-      "/srv/roost/service/releases/escape",
-      "relative-release",
-    ]) {
-      expect(localWorkerDeployStageIsConfined(RELEASE_ROOT, unsafe)).toBe(false);
-      expect(() => parseLocalWorkerDeployJournal(
-        JSON.stringify(journal({ stagedReleasePath: unsafe })),
-        CONFINEMENT,
-      )).toThrow();
-    }
-    expect(localWorkerDeployStageIsConfined(RELEASE_ROOT, `${RELEASE_ROOT}/unrelated`)).toBe(true);
-    expect(() => parseLocalWorkerDeployJournal(
-      JSON.stringify(journal({ stagedReleasePath: `${RELEASE_ROOT}/unrelated` })),
-      CONFINEMENT,
-    )).toThrow("staged release identifier is invalid");
-    expect(() => parseLocalWorkerDeployJournal(
-      JSON.stringify(journal({ sourceRoot: "/foreign/source" })),
-      CONFINEMENT,
-    )).toThrow("source root does not match");
-    expect(() => parseLocalWorkerDeployJournal(
-      JSON.stringify(journal({ releaseRoot: "/foreign/releases" })),
-      CONFINEMENT,
-    )).toThrow("release root does not match");
-  });
-
-  test("malformed journal fails before any recovery mutation", async () => {
-    let mutations = 0;
-    await expect(_recoverLocalWorkerDeployJournal(
-      "{not-json",
-      CONFINEMENT,
-      unusedRecoveryDeps(() => { mutations += 1; }),
-    )).rejects.toThrow("malformed JSON");
-    await expect(_recoverLocalWorkerDeployJournal(
-      JSON.stringify(journal({
-        priorService: null,
-        priorWasRunning: true,
-        priorWorkingDirectory: null,
-        priorGitSha: null,
-      })),
-      CONFINEMENT,
-      unusedRecoveryDeps(() => { mutations += 1; }),
-    )).rejects.toThrow("absent prior service as running");
-    expect(mutations).toBe(0);
+      JSON.stringify(journal), LOCAL_CONFINEMENT, deps,
+    )).resolves.toBe("target-committed");
+    expect(events).toEqual([
+      "stop", "start", "target-action", "stop", "start", "prove", "cleanup-prior", "clear",
+    ]);
   });
 });

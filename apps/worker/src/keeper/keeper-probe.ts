@@ -3,7 +3,12 @@
 // and exact KeeperContractV1 target equality independent.
 
 import { Socket } from "node:net";
+import { createHash } from "node:crypto";
 import type { LocalEndpoint } from "@roost/shared/local-endpoint";
+import {
+  keeperBindingDigestInput,
+  type KeeperContractV1,
+} from "@roost/shared/keeper-update";
 import {
   MuxFrameType,
   KEEPER_PROTOCOL_VERSION,
@@ -14,7 +19,6 @@ import {
   encodeMuxFrame,
   isEmptyKeeperPayload,
   type KeeperChannelBindingV1,
-  type KeeperContractV1,
   type KeeperFeature,
   type MuxFrame,
 } from "./protocol.ts";
@@ -61,6 +65,7 @@ interface FailedKeeperConnection extends KeeperProbeResult {
 export interface EmptyKeeperShutdownExpectation {
   keeperPid: number;
   processEpoch: string;
+  bindingDigest: string;
 }
 
 export type KeeperConnectionAttempt =
@@ -254,17 +259,19 @@ async function requestKeeperShutdown(
   const attempt = await connectKeeperAuthenticated(endpoint, timeoutMs);
   if (!attempt.authenticated) return false;
   const socket = attempt.socket;
-  if (
-    expected
-    && (
-      attempt.keeperPid !== expected.keeperPid
+  if (expected) {
+    const bindingDigest = createHash("sha256").update(keeperBindingDigestInput(
+      attempt.bindings ?? [],
+      attempt.spawningChannels ?? [],
+    )).digest("hex");
+    if (attempt.keeperPid !== expected.keeperPid
       || attempt.processEpoch !== expected.processEpoch
+      || bindingDigest !== expected.bindingDigest
       || attempt.bindings?.length !== 0
-      || attempt.spawningChannels?.length !== 0
-    )
-  ) {
-    try { socket.destroy(); } catch { /* already closed */ }
-    return false;
+      || attempt.spawningChannels?.length !== 0) {
+      try { socket.destroy(); } catch { /* already closed */ }
+      return false;
+    }
   }
   const requestType = expected
     ? MuxFrameType.ShutdownIfEmpty

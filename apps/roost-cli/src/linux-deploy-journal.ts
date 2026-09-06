@@ -7,17 +7,29 @@
 
 import { posix } from "node:path";
 import {
+  JournaledKeeperUpdateV1Schema,
+  type JournaledKeeperUpdateV1,
+} from "@roost/shared/keeper-update";
+import {
   POSIX_FULL_GIT_SHA_RE,
   posixDeployJournalDecision,
 } from "./posix-deploy-journal.ts";
 import { failDeploy } from "./deploy-exec.ts";
-import { workerRolloutIdOrNull } from "./worker-deploy-rollout.ts";
+import {
+  workerRolloutFingerprintOrNull,
+  workerRolloutIdOrNull,
+} from "./worker-deploy-rollout.ts";
 
 export const LINUX_WORKER_RELEASE_RELATIVE_ROOT = ".local/share/roost/releases/worker";
 export const LINUX_DEPLOY_JOURNAL_NAME = "worker-deploy-journal";
-export const LINUX_DEPLOY_JOURNAL_SCHEMA = "3";
+export const LINUX_DEPLOY_JOURNAL_SCHEMA = "4";
 
-export type LinuxDeployJournalPhase = "prepared" | "activating" | "activated";
+export type LinuxDeployJournalPhase =
+  | "prepared"
+  | "activating"
+  | "activated"
+  | "committing"
+  | "rolling-back";
 export type LinuxDeployPriorLifecycle = "running" | "stopped";
 export type LinuxDeployPriorEnablement = "enabled" | "disabled" | "masked" | "absent";
 
@@ -25,6 +37,8 @@ export interface LinuxDeployJournal {
   phase: LinuxDeployJournalPhase;
   targetSha: string;
   rolloutId: string | null;
+  workerFingerprint: string | null;
+  keeperUpdate: JournaledKeeperUpdateV1 | null;
   targetReleasePath: string;
   priorUnit: string | null;
   priorUnitMode: number | null;
@@ -46,6 +60,37 @@ export type LinuxDeployRecoveryPlan =
 export function malformedLinuxJournal(detail: string): never {
   failDeploy(5, `Linux worker deployment journal is malformed: ${detail}`);
 }
+export function serializeLinuxKeeperUpdate(
+  keeperUpdate: JournaledKeeperUpdateV1 | null,
+): string {
+  return keeperUpdate === null
+    ? "null"
+    : JSON.stringify(JournaledKeeperUpdateV1Schema.parse(keeperUpdate));
+}
+
+function parseLinuxKeeperUpdate(value: string): JournaledKeeperUpdateV1 | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    malformedLinuxJournal("keeper update is not JSON");
+  }
+  if (parsed === null) {
+    if (value !== "null") {
+      malformedLinuxJournal("keeper update is not canonical JSON");
+    }
+    return null;
+  }
+  const checked = JournaledKeeperUpdateV1Schema.safeParse(parsed);
+  if (!checked.success) {
+    malformedLinuxJournal("keeper update is malformed");
+  }
+  if (serializeLinuxKeeperUpdate(checked.data) !== value) {
+    malformedLinuxJournal("keeper update is not canonical JSON");
+  }
+  return checked.data;
+}
+
 
 export function linuxWorkerReleaseRoot(home: string): string {
   if (!posix.isAbsolute(home) || /[\r\n\0]/.test(home)) {
@@ -100,13 +145,26 @@ export function assertLinuxDeployJournal(
 ): void {
   if (journal.phase !== "prepared"
     && journal.phase !== "activating"
-    && journal.phase !== "activated") {
+    && journal.phase !== "activated"
+    && journal.phase !== "committing"
+    && journal.phase !== "rolling-back") {
     malformedLinuxJournal(`invalid phase ${JSON.stringify(journal.phase)}`);
   }
   if (!POSIX_FULL_GIT_SHA_RE.test(journal.targetSha)) {
     malformedLinuxJournal("target SHA is not a full hexadecimal object id");
   }
   workerRolloutIdOrNull(journal.rolloutId, "Linux worker rollout ID");
+  workerRolloutFingerprintOrNull(
+    journal.workerFingerprint,
+    "Linux worker rollout fingerprint",
+  );
+  if (journal.keeperUpdate !== null
+    && !JournaledKeeperUpdateV1Schema.safeParse(journal.keeperUpdate).success) {
+    malformedLinuxJournal("keeper update is malformed");
+  }
+  if ((journal.keeperUpdate === null) !== (journal.workerFingerprint === null)) {
+    malformedLinuxJournal("keeper update and worker fingerprint disagree");
+  }
   if (!isManagedLinuxWorkerReleasePath(journal.targetReleasePath, home)) {
     malformedLinuxJournal(
       `target release path is outside the managed worker release root: ${JSON.stringify(journal.targetReleasePath)}`,
@@ -123,6 +181,9 @@ export function assertLinuxDeployJournal(
   }
   if (journal.priorUnit === null && journal.priorLifecycle === "running") {
     malformedLinuxJournal("an absent prior unit cannot have a running lifecycle");
+  }
+  if ((journal.priorUnit === null) !== (journal.keeperUpdate === null)) {
+    malformedLinuxJournal("prior worker presence and keeper update disagree");
   }
   if (journal.priorUnit === null) {
     if (journal.priorUnitMode !== null) {
@@ -175,11 +236,14 @@ export function parseLinuxDeployJournalSnapshot(
     if (encoded.has(name)) malformedLinuxJournal(`duplicate ${name} field`);
     encoded.set(name, line.slice(separator + 1));
   }
-  const baseFields = [
+  const expected = [
     "schema",
     "phase",
     "target-sha",
     "target-release",
+    "rollout-id",
+    "worker-fingerprint",
+    "keeper-update",
     "prior-unit-state",
     "prior-unit-mode",
     "prior-lifecycle",
@@ -190,7 +254,9 @@ export function parseLinuxDeployJournalSnapshot(
   const schema = encoded.has("schema")
     ? decodeJournalField("schema", encoded.get("schema")!).toString("utf8")
     : "";
-  const expected = schema === "2" ? baseFields : [...baseFields, "rollout-id"];
+  if (schema !== LINUX_DEPLOY_JOURNAL_SCHEMA) {
+    malformedLinuxJournal("unsupported schema");
+  }
   if (encoded.size !== expected.length || expected.some((name) => !encoded.has(name))) {
     malformedLinuxJournal("snapshot fields are incomplete or unexpected");
   }
@@ -202,16 +268,18 @@ export function parseLinuxDeployJournalSnapshot(
     }
     return decoded;
   };
-  if (schema !== "2" && schema !== LINUX_DEPLOY_JOURNAL_SCHEMA) {
-    malformedLinuxJournal("unsupported schema");
-  }
   const phase = text("phase") as LinuxDeployJournalPhase;
   const targetSha = text("target-sha");
   const targetReleasePath = text("target-release");
   const rolloutId = workerRolloutIdOrNull(
-    schema === "2" ? null : text("rollout-id"),
+    text("rollout-id"),
     "Linux worker rollout ID",
   );
+  const workerFingerprint = workerRolloutFingerprintOrNull(
+    text("worker-fingerprint"),
+    "Linux worker rollout fingerprint",
+  );
+  const keeperUpdate = parseLinuxKeeperUpdate(text("keeper-update"));
   const priorUnitState = text("prior-unit-state");
   const priorUnitModeText = text("prior-unit-mode");
   const priorLifecycle = text("prior-lifecycle") as LinuxDeployPriorLifecycle;
@@ -239,6 +307,8 @@ export function parseLinuxDeployJournalSnapshot(
     targetSha,
     targetReleasePath,
     rolloutId,
+    workerFingerprint,
+    keeperUpdate,
     priorUnit: priorUnitState === "present"
       ? priorUnitBytes.toString("utf8")
       : null,

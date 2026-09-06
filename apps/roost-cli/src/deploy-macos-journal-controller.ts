@@ -1,138 +1,78 @@
-// ssh command builders and the remote journal controller for the macOS worker
-// deploy: envelope parsing of the remote bun -e program's output (see
-// macos-deploy-journal-program.ts), the per-action utility commands, target/
-// prior lifecycle proof commands, and the recovery remote handed to
-// _recoverMacosDeployJournal in deploy-macos-journal.ts. deploy.ts is the
-// runtime caller; tests pin command strings — bodies are byte-stable.
+// Remote journal controller for macOS worker deployment and recovery.
+// Command construction and envelope parsing live in the byte-stable command module.
+// deploy.ts supplies the SSH executor; deploy-macos-journal.ts owns decisions.
 
+import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import {
+  MACOS_PRIOR_LIFECYCLE_PROOF_COMMAND,
+  MACOS_WORKER_PLIST_RELATIVE,
+  macosJournalUtilityCommand,
+  macosTargetVerificationCommand,
+  parseMacosJournalEnvelope,
+} from "./deploy-macos-journal-commands.ts";
+import type { MacosJournalTarget } from "./deploy-macos-journal-commands.ts";
+import { MACOS_WORKER_LABEL } from "./deploy-macos-journal.ts";
+import type {
+  MacosDeployJournalV2,
+  MacosDeployRecoveryRemote,
+} from "./deploy-macos-journal.ts";
 import {
   DeployFailure,
   workerServiceIsRunning,
   workerServiceMatchesRelease,
 } from "./deploy-exec.ts";
-import { launchdBootstrapWithRetryCmd, verifyWorkerCmd } from "./service-ctl.ts";
-import { posixShellQuote } from "@roost/shared/shell-quote";
-import { MACOS_DEPLOY_JOURNAL_PROGRAM } from "./macos-deploy-journal-program.ts";
-import {
-  MACOS_WORKER_LABEL,
-  _parseMacosDeployJournal,
-  type MacosDeployJournalV1,
-  type MacosDeployRecoveryRemote,
-} from "./deploy-macos-journal.ts";
-import { isCanonicalAbsolutePosixPath } from "./posix-deploy-journal.ts";
-
-const MACOS_WORKER_PLIST_RELATIVE = `Library/LaunchAgents/${MACOS_WORKER_LABEL}.plist`;
-const MACOS_RELEASE_ROOT_RELATIVE = "RoostWorkerV2-releases";
-const MACOS_DEPLOY_JOURNAL_OUTPUT = "RoostMacDeployJournal=";
-
-interface MacosJournalEnvelopeCandidate {
-  releaseRoot?: unknown;
-  journal?: unknown;
-}
-
-type MacosJournalTarget = {
-  gitSha: string;
-  rolloutId: string | null;
-} & ({ remoteDir: string } | { targetPath: string });
-
-function macosJournalUtilityCommand(
-  journalPath: string,
-  action: "load" | "prepare" | "checkpoint-activating" | "checkpoint-activated"
-    | "restore-prior" | "prove-prior-definition" | "remove-target"
-    | "cleanup-prior" | "clear",
-  target?: MacosJournalTarget,
-): string {
-  if (target && "remoteDir" in target && !target.remoteDir.startsWith("~/")) {
-    throw new Error("macOS staged release must be relative to the remote home");
-  }
-  if (target && "targetPath" in target && !isCanonicalAbsolutePosixPath(target.targetPath)) {
-    throw new Error("macOS staged release must be a canonical absolute path");
-  }
-  const targetDirectory = !target
-    ? `target_path=''; `
-    : "remoteDir" in target
-      ? `target_spec=${posixShellQuote(target.remoteDir.slice(2))}; ` +
-        `target_path=$(cd "$HOME/$target_spec" && pwd -P); `
-      : `target_path=${posixShellQuote(target.targetPath)}; `;
-  return `set -e; umask 077; journal_spec=${posixShellQuote(journalPath)}; ` +
-    `case "$journal_spec" in /*) journal="$journal_spec";; *) journal="$HOME/$journal_spec";; esac; ` +
-    `release_root="$HOME/${MACOS_RELEASE_ROOT_RELATIVE}"; ` +
-    `if test -d "$release_root"; then release_root=$(cd "$release_root" && pwd -P); fi; ` +
-    `plist="$HOME/${MACOS_WORKER_PLIST_RELATIVE}"; ${targetDirectory}` +
-    `ROOST_MAC_DEPLOY_ACTION=${posixShellQuote(action)} ` +
-    `ROOST_MAC_DEPLOY_JOURNAL="$journal" ROOST_MAC_DEPLOY_RELEASE_ROOT="$release_root" ` +
-    `ROOST_MAC_DEPLOY_PLIST="$plist" ROOST_MAC_DEPLOY_LABEL=${posixShellQuote(MACOS_WORKER_LABEL)} ` +
-    `ROOST_MAC_DEPLOY_TARGET_SHA=${posixShellQuote(target?.gitSha ?? "")} ` +
-    `ROOST_MAC_DEPLOY_ROLLOUT_ID=${posixShellQuote(target?.rolloutId ?? "")} ` +
-    `ROOST_MAC_DEPLOY_TARGET_PATH="$target_path" bun -e ${posixShellQuote(MACOS_DEPLOY_JOURNAL_PROGRAM)}`;
-}
-
-function parseMacosJournalEnvelope(stdout: string): {
-  releaseRoot: string;
-  journal: MacosDeployJournalV1 | null;
-} {
-  const encoded = stdout.split(/\r?\n/)
-    .find((line) => line.startsWith(MACOS_DEPLOY_JOURNAL_OUTPUT))
-    ?.slice(MACOS_DEPLOY_JOURNAL_OUTPUT.length);
-  if (!encoded) throw new Error("remote macOS deploy journal returned no state");
-  let value: unknown;
-  try {
-    value = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
-  } catch {
-    throw new Error("remote macOS deploy journal returned malformed state");
-  }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("remote macOS deploy journal envelope is malformed");
-  }
-  const candidate = value as MacosJournalEnvelopeCandidate;
-  if (typeof candidate.releaseRoot !== "string"
-    || !isCanonicalAbsolutePosixPath(candidate.releaseRoot)) {
-    throw new Error("remote macOS deploy release root is malformed");
-  }
-  return {
-    releaseRoot: candidate.releaseRoot,
-    journal: candidate.journal === null
-      ? null
-      : _parseMacosDeployJournal(candidate.journal, candidate.releaseRoot),
-  };
-}
+import { launchdBootstrapWithRetryCmd } from "./service-ctl.ts";
 
 type MacosRemoteExecutor = (
   command: string,
 ) => Promise<{ exit: number; stdout: string; stderr: string }>;
 
+export type MacosApplyKeeperUpdate = (
+  workerFingerprint: string,
+  update: JournaledKeeperUpdateV1,
+  direction: "source" | "target",
+  actionReleasePath: string,
+) => Promise<void>;
+export type MacosProveKeeperUpdate = (
+  workerFingerprint: string,
+  update: JournaledKeeperUpdateV1,
+  direction: "source" | "target",
+  expectedWorkerSha: string,
+  heartbeatNotBeforeMs: number,
+  actionReleasePath: string,
+) => Promise<void>;
+
+export interface MacosDeployJournalControllerOptions {
+  signal?: AbortSignal;
+  applyKeeperUpdate?: MacosApplyKeeperUpdate;
+  proveKeeperUpdate?: MacosProveKeeperUpdate;
+}
+
 export interface MacosDeployJournalController {
   recovery: MacosDeployRecoveryRemote;
-  prepare(gitSha: string, remoteDir: string, rolloutId?: string | null): Promise<MacosDeployJournalV1>;
-  checkpointActivating(gitSha: string, remoteDir: string, rolloutId?: string | null): Promise<MacosDeployJournalV1>;
+  prepare(
+    gitSha: string,
+    remoteDir: string,
+    rolloutId: string | null,
+    workerFingerprint: string | null,
+    keeperUpdate: JournaledKeeperUpdateV1 | null,
+  ): Promise<MacosDeployJournalV2>;
+  checkpointActivating(
+    gitSha: string,
+    remoteDir: string,
+    rolloutId: string | null,
+    workerFingerprint: string | null,
+    keeperUpdate: JournaledKeeperUpdateV1 | null,
+  ): Promise<MacosDeployJournalV2>;
+  activateTarget(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
 }
-
-function macosTargetVerificationCommand(journal: Readonly<MacosDeployJournalV1>): string {
-  return `${verifyWorkerCmd("darwin")}; verify_status=$?; ` +
-    `actual=$(/usr/libexec/PlistBuddy -c 'Print :WorkingDirectory' "$HOME/${MACOS_WORKER_PLIST_RELATIVE}" 2>/dev/null || true); ` +
-    `sha=$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:GIT_SHA' "$HOME/${MACOS_WORKER_PLIST_RELATIVE}" 2>/dev/null || true); ` +
-    `if test "$actual" = ${posixShellQuote(journal.targetReleasePath)} ` +
-    `&& test "$sha" = ${posixShellQuote(journal.targetGitSha)}; then echo RoostReleaseMatch=yes; fi; ` +
-    `exit "$verify_status"`;
-}
-
-const MACOS_PRIOR_LIFECYCLE_PROOF_COMMAND =
-  `uid=$(id -u); launch_output=$(launchctl print gui/$uid/${MACOS_WORKER_LABEL} 2>&1); launch_status=$?; ` +
-  `printf '%s\\n' "$launch_output"; ` +
-  `if test "$launch_status" -eq 0; then echo RoostLaunchdLoaded=yes; else echo RoostLaunchdLoaded=no; fi; ` +
-  `disabled_output=$(launchctl print-disabled gui/$uid 2>&1); disabled_status=$?; ` +
-  `printf '%s\\n' "$disabled_output"; test "$disabled_status" -eq 0 || exit "$disabled_status"; ` +
-  `if printf '%s\\n' "$disabled_output" | ` +
-  // Both launchctl shapes mean disabled: the legacy boolean and the current
-  // word form (macOS 15 prints "com.roost.worker-v2" => enabled|disabled).
-  `grep -Eq '"com[.]roost[.]worker-v2"[[:space:]]*=>[[:space:]]*(true|disabled)'; ` +
-  `then echo RoostLaunchdDisabled=yes; else echo RoostLaunchdDisabled=no; fi`;
 
 export function createMacosDeployJournalController(
   execute: MacosRemoteExecutor,
   journalPath: string,
-  signal?: AbortSignal,
+  options: Readonly<MacosDeployJournalControllerOptions> = {},
 ): MacosDeployJournalController {
+  const { signal, applyKeeperUpdate, proveKeeperUpdate } = options;
   const transportFailure = (
     result: { exit: number; stdout: string; stderr: string },
     operation: string,
@@ -163,7 +103,7 @@ export function createMacosDeployJournalController(
   const parseEnvelope = (
     result: { stdout: string },
     operation: string,
-  ): { releaseRoot: string; journal: MacosDeployJournalV1 | null } => {
+  ): { releaseRoot: string; journal: MacosDeployJournalV2 | null } => {
     try {
       return parseMacosJournalEnvelope(result.stdout);
     } catch (error) {
@@ -178,6 +118,15 @@ export function createMacosDeployJournalController(
     action: Parameters<typeof macosJournalUtilityCommand>[1],
     target?: MacosJournalTarget,
   ) => macosJournalUtilityCommand(journalPath, action, target);
+  const assertKeeperActionAvailable = (
+    direction: "source" | "target",
+  ): void => {
+    if (applyKeeperUpdate) return;
+    throw new DeployFailure(
+      5,
+      `macOS keeper update ${direction} action is unavailable; durable deploy journal retained`,
+    );
+  };
 
   const recovery: MacosDeployRecoveryRemote = {
     async load() {
@@ -191,6 +140,8 @@ export function createMacosDeployJournalController(
           gitSha: journal.targetGitSha,
           targetPath: journal.targetReleasePath,
           rolloutId: journal.rolloutId,
+          keeperUpdate: journal.keeperUpdate,
+          workerFingerprint: journal.workerFingerprint,
         }),
       );
       const checkpointedJournal = parseEnvelope(result, "checkpoint activated macOS deploy").journal;
@@ -198,6 +149,12 @@ export function createMacosDeployJournalController(
         throw new DeployFailure(5, "remote Mac did not durably checkpoint activated state");
       }
       return checkpointedJournal;
+    },
+    async checkpointRollback() {
+      await checked("checkpoint macOS worker rollback", utility("checkpoint-rollback"));
+    },
+    async checkpointCommit() {
+      await checked("checkpoint macOS target commit", utility("checkpoint-commit"));
     },
     async proveTarget(journal) {
       const result = await execute(macosTargetVerificationCommand(journal));
@@ -222,26 +179,50 @@ export function createMacosDeployJournalController(
           `sleep 0.25; done; echo 'launchd bootout did not settle' >&2; exit 1`,
       );
     },
+    async applyKeeperUpdate(workerFingerprint, update, direction, actionReleasePath) {
+      assertKeeperActionAvailable(direction);
+      await applyKeeperUpdate!(workerFingerprint, update, direction, actionReleasePath);
+    },
+    async proveKeeperUpdate(
+      workerFingerprint,
+      update,
+      direction,
+      expectedWorkerSha,
+      heartbeatNotBeforeMs,
+      actionReleasePath,
+    ) {
+      if (!proveKeeperUpdate) {
+        throw new DeployFailure(5, "macOS keeper convergence proof is unavailable");
+      }
+      await proveKeeperUpdate(
+        workerFingerprint,
+        update,
+        direction,
+        expectedWorkerSha,
+        heartbeatNotBeforeMs,
+        actionReleasePath,
+      );
+    },
     async restorePriorDefinition() {
       await checked("restore prior macOS worker plist", utility("restore-prior"));
     },
     async setDisabled(_journal, disabled) {
       await checked(
-        `restore macOS worker ${disabled ? "disabled" : "enabled"} override`,
+        `set macOS worker ${disabled ? "disabled" : "enabled"} override`,
         `launchctl ${disabled ? "disable" : "enable"} gui/$(id -u)/${MACOS_WORKER_LABEL}`,
       );
     },
     async bootstrap() {
       await checked(
-        "bootstrap prior macOS worker",
+        "bootstrap macOS worker",
         launchdBootstrapWithRetryCmd(MACOS_WORKER_LABEL, MACOS_WORKER_PLIST_RELATIVE, {
-          role: "prior launchd", reload: false, homeRelative: true,
+          role: "launchd worker", reload: false, homeRelative: true,
         }),
       );
     },
     async kickstart() {
       await checked(
-        "kickstart prior macOS worker",
+        "kickstart macOS worker",
         `launchctl kickstart -k gui/$(id -u)/${MACOS_WORKER_LABEL}`,
       );
     },
@@ -301,10 +282,10 @@ export function createMacosDeployJournalController(
 
   return {
     recovery,
-    async prepare(gitSha, remoteDir, rolloutId = null) {
+    async prepare(gitSha, remoteDir, rolloutId, workerFingerprint, keeperUpdate) {
       const result = await checked(
         "prepare macOS deploy journal",
-        utility("prepare", { gitSha, remoteDir, rolloutId }),
+        utility("prepare", { gitSha, remoteDir, rolloutId, workerFingerprint, keeperUpdate }),
       );
       const journal = parseEnvelope(result, "prepare macOS deploy journal").journal;
       if (!journal || journal.phase !== "prepared") {
@@ -312,16 +293,37 @@ export function createMacosDeployJournalController(
       }
       return journal;
     },
-    async checkpointActivating(gitSha, remoteDir, rolloutId = null) {
+    async checkpointActivating(gitSha, remoteDir, rolloutId, workerFingerprint, keeperUpdate) {
       const result = await checked(
         "checkpoint activating macOS deploy",
-        utility("checkpoint-activating", { gitSha, remoteDir, rolloutId }),
+        utility("checkpoint-activating", {
+          gitSha,
+          remoteDir,
+          rolloutId,
+          workerFingerprint,
+          keeperUpdate,
+        }),
       );
       const journal = parseEnvelope(result, "checkpoint activating macOS deploy").journal;
       if (!journal || journal.phase !== "activating") {
         throw new DeployFailure(5, "remote Mac did not durably checkpoint activation");
       }
       return journal;
+    },
+    async activateTarget(journal) {
+      if (journal.keeperUpdate) {
+        assertKeeperActionAvailable("target");
+        await recovery.applyKeeperUpdate(
+          journal.workerFingerprint!,
+          journal.keeperUpdate,
+          "target",
+          journal.targetReleasePath,
+        );
+      }
+      await recovery.bootout(journal);
+      await recovery.setDisabled(journal, false);
+      await recovery.bootstrap(journal);
+      await recovery.kickstart(journal);
     },
   };
 }

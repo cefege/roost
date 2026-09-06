@@ -33,9 +33,8 @@ message WorkersRegisterResponse { Worker worker = 1; }
 message WorkersHeartbeatRequest {
   optional HostMetrics host_metrics = 1;
   optional string git_sha = 2;
-  // Tri-state keeper build proof: absent = unknown/unreported, empty = current,
-  // non-empty = stale running build stamp. Applied via `roost keeper-refresh`.
-  optional string keeper_stale = 3;
+  reserved 3;
+  reserved "keeper_stale";
   // LIVE tailnet MagicDNS name (Self.DNSName from `tailscale status`),
   // re-resolved each beat so a machine rename self-heals within 30s instead of
   // only at boot. Coord persists it to workers.reachable_addr; the SPA composes
@@ -43,6 +42,9 @@ message WorkersHeartbeatRequest {
   // (coord keeps the prior value). Never the worker label (that's the Tailscale
   // HostName, which is NOT a resolvable DNS name on this tailnet).
   optional string reachable_addr = 4;
+  // Complete authenticated keeper proof; absent means update admission is
+  // unproven. Workers emit it only after boot reconciliation succeeds.
+  optional KeeperRuntimeObservationV1 keeper_runtime = 5;
 }
 message WorkersHeartbeatResponse {
   reserved 1, 2;
@@ -73,6 +75,22 @@ message WorkersDeployOutputFrame {
   string text = 2;   // present on kind="line"
   int32 exit = 3;    // present on kind="done"; -1 if null
   string error = 4;  // optional on kind="done"
+}
+
+// Coordinator-owned keeper mutation boundary. The handler drains every
+// channel-creating coordinator command before it asks the authenticated worker
+// to perform one journaled empty replacement or deliberate empty maintenance.
+message WorkersPrepareKeeperUpdateRequest {
+  string worker_fp = 1;
+  optional string journaled_update_json = 2;
+  string direction = 3; // source | target; empty for maintenance
+  bool maintenance = 4;
+}
+message WorkersPrepareKeeperUpdateResponse {
+  string outcome = 1;
+  optional uint64 keeper_pid = 2;
+  optional string keeper_epoch = 3;
+  optional string binding_digest = 4;
 }
 
 // Cross-worker transfer messages were retired. Proto3 has no package-level
@@ -695,6 +713,7 @@ service CoordinatorService {
   rpc WorkersDelete(WorkersDeleteRequest) returns (WorkersDeleteResponse);
   rpc WorkersDeployStart(WorkersDeployStartRequest) returns (WorkersDeployStartResponse);
   rpc WorkersDeployOutput(WorkersDeployOutputRequest) returns (stream WorkersDeployOutputFrame);
+  rpc WorkersPrepareKeeperUpdate(WorkersPrepareKeeperUpdateRequest) returns (WorkersPrepareKeeperUpdateResponse);
 
   // sessions
   rpc SessionsList(SessionsListRequest) returns (SessionsListResponse);

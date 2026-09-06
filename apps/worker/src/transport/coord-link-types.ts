@@ -8,6 +8,7 @@ import type {
   DInputRequest,
   DTerminalSnapshotRequest,
   DTerminalStreamState,
+  DKeeperUpdatePrepare,
   TerminalInputStatus,
   TerminalStreamFailureKind,
   TerminalStreamStatus,
@@ -71,6 +72,19 @@ export interface CoordLinkDeps {
   onInputRequest?: (request: DInputRequest, budget: TerminalRequestBudget) => Promise<void> | void;
   onTerminalStreamState?: (request: DTerminalStreamState, budget: TerminalRequestBudget) => Promise<void> | void;
   onTerminalSnapshotRequest?: (request: DTerminalSnapshotRequest) => Promise<void> | void;
+  onKeeperUpdatePrepare?: (
+    request: DKeeperUpdatePrepare,
+  ) => Promise<{
+    outcome: string;
+    keeper_pid?: number;
+    keeper_epoch?: string;
+    binding_digest?: string;
+  }> | {
+    outcome: string;
+    keeper_pid?: number;
+    keeper_epoch?: string;
+    binding_digest?: string;
+  };
   onAttachmentChunk?: (msg: { request_id: string; session_id: string; filename: string; short_path: boolean; data: Uint8Array; last: boolean; seq: number }) => void;
   onCoordMovePrepare?: (msg: {
     request_id: string; handoff_id: string; source_url: string; target_url: string;

@@ -2,16 +2,22 @@
 // Push supplies concrete deploy/proof and coordinator journal operations; this
 // module owns the irreversible decision boundary and exhaustive fan-out rules.
 
+import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
 import { DeployFailure } from "./deploy-exec.ts";
 import type { WorkerRolloutAction, WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 
-export interface FleetRolloutWorker {
+export interface FleetRolloutTarget {
   fingerprint: string;
   host: string;
 }
 
+export interface FleetRolloutWorker extends FleetRolloutTarget {
+  keeperUpdate: JournaledKeeperUpdateV1;
+}
+
 export interface FleetRolloutPlan {
   rolloutId: string;
+  admissionRecordedAtMs: number;
   priorSha: string;
   targetSha: string;
   workers: readonly FleetRolloutWorker[];
@@ -51,13 +57,16 @@ export function interruptedFleetRecoveryAction(
 
 function directiveFor(
   plan: FleetRolloutPlan,
+  worker: FleetRolloutWorker,
   action: WorkerRolloutAction,
 ): WorkerRolloutDirective {
   return {
     action,
     rolloutId: plan.rolloutId,
     priorSha: plan.priorSha,
+    workerFingerprint: worker.fingerprint,
     targetSha: plan.targetSha,
+    keeperUpdate: worker.keeperUpdate,
   };
 }
 
@@ -66,8 +75,8 @@ async function settleEveryWorker(
   action: WorkerRolloutAction,
   deps: AtomicFleetRolloutDeps,
 ): Promise<string[]> {
-  const directive = directiveFor(plan, action);
   const outcomes = await Promise.all(plan.workers.map(async (worker) => {
+    const directive = directiveFor(plan, worker, action);
     try {
       await deps.deployWorker(worker, directive);
       return null;
@@ -169,7 +178,7 @@ export async function convergeAtomicFleet(
     }
     throw new DeployFailure(
       8,
-      `fleet rollout failed and every participant was restored to ${plan.priorSha}:\n` +
+      `fleet rollout failed; prior worker and keeper convergence was re-proven at ${plan.priorSha}:\n` +
         `${forwardError instanceof Error ? forwardError.message : String(forwardError)}`,
     );
   }

@@ -133,7 +133,6 @@ describe("Web Push delivery", () => {
       registered_at_ms: Date.now(),
       last_seen_ms: Date.now(),
       reachable_addr: null,
-      keeper_stale: null,
     }).onConflict((conflict) => conflict.column("fp").doNothing()).execute();
     await db.insertInto("sessions").values({
       id: SESSION_ID,

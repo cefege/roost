@@ -82,7 +82,6 @@ describe("managed native password login", () => {
       registered_at_ms: NOW,
       last_seen_ms: NOW,
       reachable_addr: null,
-      keeper_stale: null,
     }).execute();
     await expectInvalidCredentials(() => worker.handlers.authPasswordLogin(
       loginRequest(workerKey.b64),

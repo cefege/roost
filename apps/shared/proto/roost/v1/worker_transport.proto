@@ -265,6 +265,17 @@ message DUpdateBroker {
   string publisher_sha256 = 7;
 }
 
+// Runs only under the coordinator's exclusive channel-creation drain. A
+// journaled action carries its complete immutable envelope; maintenance is the
+// explicit empty-only refresh path. Both reply through WRpcOk/WRpcError.
+message DKeeperUpdatePrepare {
+  string request_id = 1;
+  optional string journaled_update_json = 2;
+  string direction = 3;
+  bool maintenance = 4;
+  repeated string coordinator_open_session_ids = 5;
+}
+
 message CoordWorkerDown {
   reserved 11;
   reserved "viewport_request";
@@ -283,6 +294,7 @@ message CoordWorkerDown {
     DTerminalStreamState terminal_stream_state = 13;
     DTerminalSnapshotRequest terminal_snapshot_request = 14;
     DUpdateBroker update_broker = 30;
+    DKeeperUpdatePrepare keeper_update_prepare = 15;
   }
 }
 

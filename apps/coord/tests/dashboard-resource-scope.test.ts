@@ -130,7 +130,6 @@ beforeAll(async () => {
       registered_at_ms: now,
       last_seen_ms: now,
       reachable_addr: null,
-      keeper_stale: null,
     },
     {
       fp: workerB,
@@ -142,7 +141,6 @@ beforeAll(async () => {
       registered_at_ms: now,
       last_seen_ms: now,
       reachable_addr: null,
-      keeper_stale: null,
     },
   ]).execute();
   await db.insertInto("sessions").values([

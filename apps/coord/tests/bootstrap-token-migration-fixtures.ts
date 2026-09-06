@@ -158,8 +158,8 @@ function insertWorker(
   sqlite.query(`
     INSERT INTO workers
       (fp, dashboard_id, label, os, git_sha, host_metrics_json,
-       registered_at_ms, last_seen_ms, reachable_addr, keeper_stale)
-    VALUES (?, ?, ?, 'linux', NULL, NULL, 1, 1, NULL, NULL)
+       registered_at_ms, last_seen_ms, reachable_addr)
+    VALUES (?, ?, ?, 'linux', NULL, NULL, 1, 1, NULL)
   `).run(fingerprint, dashboardId, fingerprint);
 }
 

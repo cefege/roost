@@ -21,7 +21,7 @@ import {
 	type KeeperHistoryRecords,
 } from "./keeper/multiplexed-client.ts";
 import { ALT_ENTER_SEQS, _scanAltModeTransitions, initAgentOscState } from "./terminal-stream-scan.ts";
-import { _createWtermCore, RESUME_STAGE_CAP_BYTES } from "./session-constants.ts";
+import { RESUME_STAGE_CAP_BYTES } from "./session-constants.ts";
 import { drainCoreReplies } from "./terminal-query-reply.ts";
 import { appendToRing, createSbRing, readRing } from "./session-scrollback-ring.ts";
 import { skipOrphanSequencePrefix } from "./terminal-replay-align.ts";
@@ -129,7 +129,7 @@ export async function resume(
 		if (!isTerminalGeometry({ cols: baseCols, rows: baseRows })) {
 			throw new Error("keeper history reported invalid base terminal geometry");
 		}
-		const wtermCore = await _createWtermCore(baseCols, baseRows);
+		const wtermCore = await this.createTerminalCore(baseCols, baseRows);
 		if (wtermCore.getCols() !== baseCols || wtermCore.getRows() !== baseRows) {
 			throw new Error("terminal core did not retain keeper history base geometry");
 		}

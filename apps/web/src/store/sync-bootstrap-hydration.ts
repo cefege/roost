@@ -7,6 +7,7 @@ import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import type { Client } from "@connectrpc/connect";
 import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
 import type {
   CoordinatorService,
   SessionsListResponse,
@@ -109,7 +110,9 @@ export function _installBootstrapDomainHydrators(
         registered_at_ms: Number(worker.registeredAtMs),
         last_seen_ms: Number(worker.lastSeenMs),
         reachable_addr: worker.reachableAddr ?? null,
-        keeper_stale: worker.keeperStale ?? null,
+        keeper_runtime: worker.keeperRuntime
+          ? keeperRuntimeObservationFromProto(worker.keeperRuntime)
+          : null,
       };
     }
     return {

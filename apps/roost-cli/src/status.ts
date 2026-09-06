@@ -16,12 +16,14 @@ export {
   resolveStatusEndpoint,
   resolveTlsMode,
   workerInventory,
+  workerInventoryForUpdateAdmission,
 } from "./status-report.ts";
 export {
   printStatusReport,
   statusReport,
   statusReportIsHealthy,
 };
+export { routableWorkerFingerprints } from "./status-routability.ts";
 export type {
   HandoffStatus,
   ResolvedStatusEndpoint,

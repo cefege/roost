@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/shared/keeper-update";
 import {
   ambiguousPushTargets,
   deployCoordinatorForPlatform,
@@ -24,8 +25,25 @@ function worker(label: string, os: string, reachableAddr: string, gitSha: string
     os,
     reachableAddr,
     gitSha,
-    keeperState: "current",
-    keeperBuild: null,
+    keeperRuntime: {
+      schema_version: 1,
+      running_contract: {
+        protocol_version: 2,
+        supported_features: ["keeper-contract-v1"],
+        required_features: ["keeper-contract-v1"],
+        implementation_digest: "c".repeat(64),
+        bun_abi: "1.2.3",
+        platform: os === "darwin" ? "darwin" : os === "win32" ? "win32" : "linux",
+        arch: "x64",
+        build_sha: gitSha ?? "dev",
+      },
+      keeper_pid: 41,
+      keeper_epoch: "00000000-0000-4000-8000-000000000002",
+      channel_count: 0,
+      binding_digest: KEEPER_EMPTY_BINDING_DIGEST,
+      reconciled_at_ms: 1,
+    },
+    coordinatorOpenSessionIds: [],
     lastSeenMs: Date.now(),
     ageMs: 0,
     stale: false,
@@ -87,18 +105,17 @@ describe("fleet push inventory", () => {
     ]);
   });
 
-  test("rejects a stale surviving keeper after worker convergence", () => {
-    const staleKeeper = {
+  test("rejects missing keeper runtime proof after worker convergence", () => {
+    const unprovenKeeper = {
       ...workers[0],
-      keeperState: "stale" as const,
-      keeperBuild: "deadbeef0000",
+      keeperRuntime: null,
     };
     expect(workerVersionProblems(
       ["linux-worker.tailnet.ts.net"],
-      [staleKeeper],
+      [unprovenKeeper],
       "abc1234",
     )).toEqual([
-      "linux-worker: keeper reports stale build deadbeef0000",
+      "linux-worker: keeper runtime proof is unavailable",
     ]);
   });
 
@@ -122,14 +139,19 @@ describe("fleet push inventory", () => {
     )).toEqual([]);
   });
 
-  test("records every convergence boundary after coordinator activation", () => {
-    const activatedAt = 1_765_843_200_000;
+  test("records convergence baselines in the coordinator's clock domain", () => {
+    const candidates = [
+      worker("worker-a", "linux", "worker-a.tailnet.ts.net", "abc1234"),
+      worker("worker-b", "linux", "worker-b.tailnet.ts.net", "abc1234"),
+    ];
+    candidates[0]!.lastSeenMs = 101;
+    candidates[1]!.lastSeenMs = 202;
     expect([...workerConvergenceThresholds([
       "WORKER-A.tailnet.ts.net.",
       "worker-b.tailnet.ts.net",
-    ], activatedAt)]).toEqual([
-      ["worker-a.tailnet.ts.net", activatedAt],
-      ["worker-b.tailnet.ts.net", activatedAt],
+    ], candidates)]).toEqual([
+      ["worker-a.tailnet.ts.net", 101],
+      ["worker-b.tailnet.ts.net", 202],
     ]);
   });
 });

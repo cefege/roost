@@ -6,6 +6,10 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { log } from "@roost/shared/log";
+import {
+  KeeperRuntimeObservationV1Schema,
+  type KeeperRuntimeObservationV1,
+} from "@roost/shared/keeper-update";
 import { coordDataDir, coordServicePath } from "@roost/shared/paths";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
@@ -71,50 +75,106 @@ export async function _probeCoordinatorIdentity(
     return { reachable: false, gitSha: null };
   }
 }
-
-/** Read the coord DB read-only for the active worker roster. Tombstones remain
- * in SQLite solely as credential and session/workspace history. */
-export function workerInventory(databasePath: string = installedCoordinatorDbPath()): WorkerStatus[] {
-  if (!existsSync(databasePath)) return [];
-  let db: Database | null = null;
+export function parseKeeperRuntimeJson(
+  serialized: string | null,
+): KeeperRuntimeObservationV1 | null {
+  if (!serialized) return null;
   try {
-    db = new Database(databasePath, { readonly: true });
+    const parsed = KeeperRuntimeObservationV1Schema.safeParse(
+      JSON.parse(serialized),
+    );
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+
+interface WorkerInventoryRow {
+  fp: string;
+  label: string;
+  os: string;
+  reachable_addr: string | null;
+  git_sha: string | null;
+  keeper_runtime_json: string | null;
+  last_seen_ms: number;
+}
+
+function readWorkerInventorySnapshot(db: Database): WorkerStatus[] {
+  return db.transaction(() => {
+    const keeperRuntimeColumn = db.query(
+      `SELECT name FROM pragma_table_info('workers')
+       WHERE name = 'keeper_runtime_json'`,
+    ).get();
+    const keeperRuntimeProjection = keeperRuntimeColumn
+      ? "keeper_runtime_json"
+      : "NULL AS keeper_runtime_json";
     const rows = db.query(
-      `SELECT fp, label, os, reachable_addr, git_sha, keeper_stale, last_seen_ms
+      `SELECT fp, label, os, reachable_addr, git_sha,
+              ${keeperRuntimeProjection}, last_seen_ms
        FROM workers
        WHERE deleted_at_ms IS NULL`,
-    ).all() as {
-      fp: string;
-      label: string;
-      os: string;
-      reachable_addr: string | null;
-      git_sha: string | null;
-      keeper_stale: string | null;
-      last_seen_ms: number;
-    }[];
+    ).all() as WorkerInventoryRow[];
+    const sessions = db.query(
+      `SELECT id, worker_fp
+       FROM sessions
+       WHERE status = 'open'`,
+    ).all() as Array<{ id: string; worker_fp: string }>;
+    const openSessionIdsByWorker = new Map<string, string[]>();
+    for (const session of sessions) {
+      const workerSessions = openSessionIdsByWorker.get(session.worker_fp) ?? [];
+      workerSessions.push(session.id);
+      openSessionIdsByWorker.set(session.worker_fp, workerSessions);
+    }
     const now = Date.now();
-    return rows.map((r) => {
-      const ageMs = now - r.last_seen_ms;
+    return rows.map((row) => {
+      const ageMs = now - row.last_seen_ms;
       return {
-        fingerprint: r.fp,
-        label: r.label,
-        os: r.os,
-        reachableAddr: r.reachable_addr,
-        gitSha: r.git_sha,
-        keeperState: r.keeper_stale === null
-          ? "unknown"
-          : r.keeper_stale.length === 0 ? "current" : "stale",
-        keeperBuild: r.keeper_stale && r.keeper_stale.length > 0 ? r.keeper_stale : null,
-        lastSeenMs: r.last_seen_ms,
+        fingerprint: row.fp,
+        label: row.label,
+        os: row.os,
+        reachableAddr: row.reachable_addr,
+        gitSha: row.git_sha,
+        keeperRuntime: parseKeeperRuntimeJson(row.keeper_runtime_json),
+        coordinatorOpenSessionIds: (
+          openSessionIdsByWorker.get(row.fp) ?? []
+        ).sort(),
+        lastSeenMs: row.last_seen_ms,
         ageMs,
         stale: ageMs > WORKER_STALE_MS,
       };
     });
+  })();
+}
+
+/** Read one admission snapshot or throw when the coordinator database cannot
+ * prove both its active workers and their open sessions. */
+export function workerInventoryForUpdateAdmission(
+  databasePath: string = installedCoordinatorDbPath(),
+): WorkerStatus[] {
+  if (!existsSync(databasePath)) {
+    throw new Error(`coordinator database not found: ${databasePath}`);
+  }
+  const db = new Database(databasePath, { readonly: true });
+  try {
+    return readWorkerInventorySnapshot(db);
+  } finally {
+    db.close();
+  }
+}
+
+
+/** Read the coord DB read-only for the status display. Missing or incompatible
+ * databases render as an empty roster rather than failing the whole command. */
+export function workerInventory(
+  databasePath: string = installedCoordinatorDbPath(),
+): WorkerStatus[] {
+  if (!existsSync(databasePath)) return [];
+  try {
+    return workerInventoryForUpdateAdmission(databasePath);
   } catch (error) {
     log.warn("status", "worker_inventory_failed", { error: String(error) });
     return [];
-  } finally {
-    db?.close();
   }
 }
 

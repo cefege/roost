@@ -129,7 +129,6 @@ beforeAll(async () => {
     registered_at_ms: now,
     last_seen_ms: now,
     reachable_addr: null,
-    keeper_stale: null,
   }).execute();
   await db.insertInto("dashboard_memberships").values([
     { dashboard_id: dashboardA, account_id: accountA, role: "admin", created_at_ms: now },

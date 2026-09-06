@@ -42,10 +42,10 @@ function seedPre0020RuntimeRows(sqlite: Database): void {
   sqlite.exec(`
     INSERT INTO workers
       (fp, label, os, git_sha, host_metrics_json, registered_at_ms,
-       last_seen_ms, reachable_addr, keeper_stale)
+       last_seen_ms, reachable_addr)
     VALUES (
       'worker-key', 'Legacy worker', 'linux', NULL, NULL, 1, 1,
-      'worker.example', NULL
+      'worker.example'
     );
     INSERT INTO bootstrap_tokens
       (token, kind, label, created_at_ms, expires_at_ms, used_at_ms,

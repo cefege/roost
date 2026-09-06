@@ -4,6 +4,7 @@
 import { resolve } from "node:path";
 import { _deployLocal } from "./deploy-local.ts";
 import { resolvePublishedGitShaOrDie } from "./deploy-exec.ts";
+import { createJournaledKeeperUpdateCallbacks } from "./direct-keeper-update.ts";
 import {
   installWorkerAgent,
   readWindowsServiceCredentials,
@@ -25,6 +26,7 @@ export async function join(args: string[]): Promise<void> {
     console.error("  `roost add-machine --platform windows` on your coordinator (or Settings → Machines → Add machine).");
     process.exit(1);
   }
+  const keeperCallbacks = createJournaledKeeperUpdateCallbacks();
 
   switch (process.platform) {
     case "darwin":
@@ -32,6 +34,9 @@ export async function join(args: string[]): Promise<void> {
       await _deployLocal("this machine", {
         sourceRoot: REPO_ROOT,
         gitSha: resolvePublishedGitShaOrDie(REPO_ROOT),
+        keeperUpdate: null,
+        workerFingerprint: null,
+        keeperCallbacks,
       });
       break;
     case "win32": {

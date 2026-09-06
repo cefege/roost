@@ -156,6 +156,7 @@ const MANAGED_PRIVATE_RPC_METHODS: Record<string, true | undefined> = {
   AuthRedeemCoordinatorRelocation: true,
   WorkersDeployStart: true,
   WorkersDeployOutput: true,
+  WorkersPrepareKeeperUpdate: true,
   DevicesRotateCurrent: true,
   CoordinatorMovePreflight: true,
   CoordinatorMoveStart: true,

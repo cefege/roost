@@ -155,7 +155,6 @@ beforeAll(async () => {
     host_metrics_json: null,
     registered_at_ms: fixtureNow,
     last_seen_ms: fixtureNow,
-    keeper_stale: null,
   }).execute();
   const now = Math.floor(Date.now() / 1000);
   browserJwt = await signJwt(

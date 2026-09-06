@@ -16,7 +16,12 @@
 
 import { isAbsolute, posix, resolve } from "node:path";
 
-export type PosixDeployJournalPhase = "prepared" | "activating" | "activated";
+export type PosixDeployJournalPhase =
+  | "prepared"
+  | "activating"
+  | "activated"
+  | "committing"
+  | "rolling-back";
 
 /** Release-id suffix `<8hex>-<4hex>-4<3hex>-[89ab]<3hex>-<12hex>` (v4 UUID).
  * Byte-identical in the macOS and coordinator journals; the localhost worker
@@ -58,14 +63,13 @@ export function isResolvedCanonicalAbsolutePath(value: string): boolean {
   return isAbsolute(value) && resolve(value) === value;
 }
 
-/** The one recovery decision every POSIX deploy journal encodes: a prepared
- * journal is always discarded, otherwise target health alone decides between
- * commit and rollback. Platforms map "commit"/"rollback" onto their own
- * labels (commit-target / rollback-prior / plan kinds / decisions). */
+/** Prepared and rollback choices recover source; committing is irreversible. */
 export function posixDeployJournalDecision(
   phase: PosixDeployJournalPhase,
   targetHealthy: boolean,
 ): "clean-prepared" | "commit" | "rollback" {
   if (phase === "prepared") return "clean-prepared";
+  if (phase === "rolling-back") return "rollback";
+  if (phase === "committing") return "commit";
   return targetHealthy ? "commit" : "rollback";
 }

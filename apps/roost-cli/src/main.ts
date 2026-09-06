@@ -7,6 +7,7 @@ import { test } from "./test.ts";
 import { deploy } from "./deploy.ts";
 import { push } from "./push.ts";
 import { keeperRefresh } from "./keeper-refresh.ts";
+import { keeperContractCommand } from "./keeper-contract-command.ts";
 import { logs } from "./logs.ts";
 import { reset } from "./reset.ts";
 import { state } from "./state.ts";
@@ -59,6 +60,7 @@ const SUBCOMMANDS = {
   worker,
   keeper,
   update,
+  "__keeper-contract": keeperContractCommand,
   "__windows-updater-broker": async (args: string[]) => {
     if (process.platform !== "win32" || args.length !== 0) {
       throw new Error("internal Windows updater broker dispatch refused");
@@ -138,7 +140,7 @@ function usage(): never {
   console.error("  test              run all tests in dep order");
   console.error("  deploy <host>     deploy worker to a tailnet host");
   console.error("  push              git push + deploy fleet + kickstart local coord");
-  console.error("  keeper-refresh <host> --yes   re-spawn a host's keeper on current code (destructive)");
+  console.error("  keeper-refresh <host> --yes   re-spawn an authenticated empty keeper; live channels refuse");
   console.error("  logs <app>        tail an app's logs (coord|worker) [--tail N]");
   console.error("  reset             nuke local state (DB, keys, lock)");
   console.error("  state             print STATE.md snapshot");

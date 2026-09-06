@@ -10,6 +10,7 @@ import {
   AgentStatusFrameSchema, SyncDomain,
 } from "@roost/shared/proto/sync_pb";
 import { eventToProto } from "@roost/shared/wire/event-proto";
+import { keeperRuntimeObservationToProto } from "@roost/shared/keeper-update-proto";
 import {
   WorkspaceDeltaProtoSchema, WorkspaceSessionsSetSchema,
   TaskDeltaProtoSchema, McpStreamMessageProtoSchema,
@@ -237,6 +238,10 @@ export const presenceFrame = (e: WorkerPresenceEvent): FirehoseFrame | null => {
         hostMetrics: e.worker.host_metrics ? hm(e.worker.host_metrics) : undefined,
         registeredAtMs: BigInt(e.worker.registered_at_ms),
         lastSeenMs: BigInt(e.worker.last_seen_ms),
+        reachableAddr: e.worker.reachable_addr ?? undefined,
+        keeperRuntime: e.worker.keeper_runtime
+          ? keeperRuntimeObservationToProto(e.worker.keeper_runtime)
+          : undefined,
       }) },
     })}});
   }

@@ -27,8 +27,8 @@ test("normalizes open legacy PTY kinds while preserving closed history", async (
   try {
     await runMigrations(sqlite, migrationsBefore(MIGRATION_NAME));
     sqlite.run(
-      "INSERT INTO workers (fp, label, os, git_sha, host_metrics_json, registered_at_ms, last_seen_ms, reachable_addr, keeper_stale) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [WORKER_FP, "test", "darwin", null, null, 1, 1, null, null],
+      "INSERT INTO workers (fp, label, os, git_sha, host_metrics_json, registered_at_ms, last_seen_ms, reachable_addr) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [WORKER_FP, "test", "darwin", null, null, 1, 1, null],
     );
     sqlite.run(
       "INSERT INTO sessions (id, worker_fp, channel, kind, cwd, workspace_id, status, agent_json, created_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -67,8 +67,8 @@ test("retires structured sessions before normalizing all history to shell", asyn
   try {
     await runMigrations(sqlite, migrationsBefore(RETIRE_MIGRATION_NAME));
     sqlite.run(
-      "INSERT INTO workers (fp, label, os, git_sha, host_metrics_json, registered_at_ms, last_seen_ms, reachable_addr, keeper_stale) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [WORKER_FP, "test", "darwin", null, null, 1, 1, null, null],
+      "INSERT INTO workers (fp, label, os, git_sha, host_metrics_json, registered_at_ms, last_seen_ms, reachable_addr) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [WORKER_FP, "test", "darwin", null, null, 1, 1, null],
     );
     sqlite.run(
       "UPDATE _migrations SET applied_at = ? WHERE name = ?",

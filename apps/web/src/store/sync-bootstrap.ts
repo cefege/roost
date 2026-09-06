@@ -8,6 +8,7 @@ import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import { setRootStore, rootStore } from "./root.ts";
 import { signal } from "@roost/shared/diag";
+import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
 import type { Worker } from "@roost/shared/wire";
 import { claimTabIdentity } from "../auth/tab-id.ts";
 import { setRoutableFps } from "./sync-routable.ts";
@@ -140,7 +141,9 @@ export async function refreshCoordAndWorkers(): Promise<void> {
         registered_at_ms: Number(w.registeredAtMs),
         last_seen_ms: Number(w.lastSeenMs),
         reachable_addr: w.reachableAddr ?? null,
-        keeper_stale: w.keeperStale ?? null,
+        keeper_runtime: w.keeperRuntime
+          ? keeperRuntimeObservationFromProto(w.keeperRuntime)
+          : null,
       };
       rec[wire.fp] = wire;
     }

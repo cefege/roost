@@ -2,326 +2,58 @@
 // activation. The deploy router supplies exact source and optional atomic
 // fleet directives; platform service writers remain owned by install.sh.
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, type Stats } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { durableRemove, durableWriteFile, flushDurablePath } from "@roost/shared/durability";
-import { acquireMachineTransaction } from "./machine-transaction.ts";
+import { mkdirSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { JournaledKeeperUpdateV1Schema } from "@roost/shared/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import { roostServiceDir, workerServicePath } from "@roost/shared/paths";
 import {
-  coordServicePath,
-  roostServiceDir,
-  workerServicePath,
-} from "@roost/shared/paths";
+  checkpointLocalWorkerDeployJournal,
+  createLocalWorkerDeployRecoveryDeps,
+  readLocalWorkerServiceSnapshot,
+  settleLocalWorkerDeployJournal,
+} from "./deploy-local-journal-runtime.ts";
+import {
+  _activateLocalWorker,
+  startLocalWorkerForActivation,
+  stopLocalWorkerForActivation,
+} from "./deploy-local-activation.ts";
+import type {
+  LocalWorkerCommandResult as CommandResult,
+} from "./deploy-local-activation.ts";
 import {
   DeployFailure,
   failDeploy,
   finishWorkerDeploy,
-  POSIX_WORKER_DEPLOY_JOURNAL_PATHS,
   run,
-  workerServiceIsRunning,
 } from "./deploy-exec.ts";
+import { linuxWorkerResourceEnvironment } from "./linux-deploy-journal-commands.ts";
+import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
+import { readLocalWorkerPriorState } from "./deploy-local-service-lifecycle.ts";
 import {
-  _activateLocalWorker,
-  type LocalWorkerCommandResult as CommandResult,
-} from "./deploy-local-activation.ts";
-import {
-  _backfillEnvFromPlist,
-  _resolveDeployEnvValue,
-} from "./deploy-plist-env.ts";
-import { linuxWorkerResourceEnvironment } from "./deploy-linux.ts";
-import {
+  _recoverLocalWorkerDeployJournal,
+  _rollbackLocalWorkerDeployJournal,
   decodeServiceSnapshot,
   localWorkerDeployJournalPath,
-  localWorkerDeployStageIsConfined,
   localWorkerReleaseMatches,
   LOCAL_WORKER_DEPLOY_JOURNAL_SCHEMA_VERSION,
   normalizedMetadataPath,
-  parseLocalWorkerDeployJournal,
-  priorServiceIsProven,
   serviceGitSha,
   serviceSnapshotMatches,
   serviceWorkingDirectory,
-  _recoverLocalWorkerDeployJournal,
-  type LocalWorkerDeployConfinement,
-  type LocalWorkerDeployJournal,
-  type LocalWorkerDeployRecoveryDeps,
-  type LocalWorkerLifecycle,
-  type LocalWorkerServiceSnapshot,
 } from "./local-worker-deploy-journal.ts";
-import { coordinatorJournalAllowsLocalWorkerRollout } from "./local-worker-rollout-coordinator.ts";
-import {
-  launchdBootstrapWithRetryCmd,
-  restartWorkerCmd,
-  verifyWorkerCmd,
-  WORKER_AGENT,
-  WORKER_UNIT,
-} from "./service-ctl.ts";
-import {
-  assertWorkerRolloutDirective,
-  type WorkerRolloutDirective,
-} from "./worker-deploy-rollout.ts";
-
-
-
-function restoreCommand(
-  os: "linux" | "darwin",
-  servicePath: string,
-  shouldRun: boolean,
-): string {
-  if (os === "linux") {
-    const runtime = `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}";`;
-    return shouldRun
-      ? `${runtime} systemctl --user daemon-reload && systemctl --user restart ${WORKER_UNIT}`
-      : `${runtime} systemctl --user stop ${WORKER_UNIT} 2>/dev/null || true; ` +
-        `systemctl --user daemon-reload`;
-  }
-  if (!shouldRun) {
-    return `launchctl bootout gui/$(id -u)/${WORKER_AGENT} 2>/dev/null || true`;
-  }
-  return launchdBootstrapWithRetryCmd(WORKER_AGENT, servicePath, { role: "worker rollback" });
-}
-
-function lstatIfPresent(path: string): Stats | null {
-  try {
-    return lstatSync(path);
-  } catch (error) {
-    if (
-      error instanceof Error
-      && "code" in error
-      && (error as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
-      return null;
-    }
-    throw error;
-  }
-}
-
-
-function readLocalWorkerServiceSnapshot(servicePath: string): LocalWorkerServiceSnapshot | null {
-  const entry = lstatIfPresent(servicePath);
-  if (!entry) return null;
-  if (!entry.isFile() || entry.isSymbolicLink()) {
-    throw new Error("worker service definition must be a regular file");
-  }
-  return {
-    definitionBase64: readFileSync(servicePath).toString("base64"),
-    mode: entry.mode & 0o777,
-  };
-}
-
-async function checkpointLocalWorkerDeployJournal(
-  journalPath: string,
-  journal: Readonly<LocalWorkerDeployJournal>,
-  confinement: Readonly<LocalWorkerDeployConfinement>,
-): Promise<void> {
-  const serialized = `${JSON.stringify(journal)}\n`;
-  parseLocalWorkerDeployJournal(serialized, confinement);
-  await durableWriteFile(journalPath, serialized, { mode: 0o600 });
-}
-
-function readLocalWorkerDeployJournal(journalPath: string): string | null {
-  const entry = lstatIfPresent(journalPath);
-  if (!entry) return null;
-  if (!entry.isFile() || entry.isSymbolicLink()) {
-    throw new Error("worker deploy journal must be a regular file");
-  }
-  try {
-    return readFileSync(journalPath, "utf8");
-  } catch (error) {
-    if (
-      error instanceof Error
-      && "code" in error
-      && (error as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
-      return null;
-    }
-    throw error;
-  }
-}
-
-async function probeLocalWorkerLifecycle(
-  os: "linux" | "darwin",
-): Promise<LocalWorkerLifecycle> {
-  const status = await run(["bash", "-lc", verifyWorkerCmd(os)], { quiet: true });
-  if (status.exit === 0 && workerServiceIsRunning(status.stdout, os)) return "running";
-  if (os === "darwin") return status.exit === 0 || status.exit === 1 ? "stopped" : "unknown";
-  if (status.exit === 0) return "stopped";
-  const active = await run(
-    [
-      "bash",
-      "-lc",
-      `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; ` +
-        `systemctl --user is-active ${WORKER_UNIT} 2>/dev/null`,
-    ],
-    { quiet: true },
-  );
-  return ["inactive", "failed", "unknown", "deactivating"].includes(active.stdout.trim())
-    ? "stopped"
-    : "unknown";
-}
-
-async function localWorkerStartupPolicyIsEnabled(os: "linux" | "darwin"): Promise<boolean> {
-  if (os === "linux") {
-    const result = await run([
-      "bash",
-      "-lc",
-      `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; ` +
-        `systemctl --user is-enabled ${WORKER_UNIT}`,
-    ], { quiet: true });
-    return result.exit === 0 && result.stdout.trim() === "enabled";
-  }
-  const result = await run([
-    "bash",
-    "-lc",
-    `launchctl print-disabled gui/$(id -u)`,
-  ], { quiet: true });
-  return result.exit === 0
-    && !new RegExp(`"${WORKER_AGENT.replaceAll(".", "[.]")}"\\s*=>\\s*true`).test(result.stdout);
-}
-
-function localCoordinatorWorkingDirectory(): string | null {
-  const servicePath = coordServicePath();
-  if (!existsSync(servicePath)) return null;
-  try {
-    const workingDirectory = serviceWorkingDirectory(
-      readFileSync(servicePath, "utf8"),
-      process.platform as "linux" | "darwin",
-    );
-    if (!workingDirectory) throw new Error("missing WorkingDirectory");
-    return workingDirectory;
-  } catch (error) {
-    throw new Error(
-      `cannot prove coordinator release use before worker cleanup: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-async function cleanupLocalWorkerStage(
-  journal: Readonly<LocalWorkerDeployJournal>,
-  confinement: Readonly<LocalWorkerDeployConfinement>,
-): Promise<void> {
-  if (
-    journal.sourceRoot !== confinement.sourceRoot
-    || journal.releaseRoot !== confinement.releaseRoot
-    || !localWorkerDeployStageIsConfined(journal.releaseRoot, journal.stagedReleasePath)
-  ) {
-    throw new Error("refusing to clean an unconfined worker deploy stage");
-  }
-  const entry = lstatIfPresent(journal.stagedReleasePath);
-  if (!entry) return;
-  let removedByGit = false;
-  if (entry.isDirectory() && !entry.isSymbolicLink()) {
-    const canonicalRoot = realpathSync(journal.releaseRoot);
-    const canonicalStage = realpathSync(journal.stagedReleasePath);
-    if (
-      canonicalRoot !== journal.releaseRoot
-      || !localWorkerDeployStageIsConfined(canonicalRoot, canonicalStage)
-    ) {
-      throw new Error("refusing to clean a worker deploy stage outside its release root");
-    }
-    try {
-      const removed = await run(
-        ["git", "worktree", "remove", "--force", journal.stagedReleasePath],
-        { cwd: journal.sourceRoot, quiet: true },
-      );
-      removedByGit = removed.exit === 0;
-    } catch {
-      // Recursive removal below remains confined and handles a missing source checkout.
-    }
-  }
-  if (!removedByGit) {
-    rmSync(journal.stagedReleasePath, { recursive: true, force: true });
-  }
-  await flushDurablePath(journal.releaseRoot);
-}
-
-async function removeManagedPriorRelease(
-  sourceRepo: string,
-  releaseRoot: string,
-  priorWorkingDirectory: string | null,
-): Promise<void> {
-  if (!priorWorkingDirectory || !localWorkerDeployStageIsConfined(releaseRoot, priorWorkingDirectory)) {
-    return;
-  }
-  const entry = lstatIfPresent(priorWorkingDirectory);
-  if (!entry) return;
-  if (entry) {
-    if (entry.isSymbolicLink()) {
-      throw new Error("refusing to remove a symlinked prior worker release");
-    }
-    const canonicalRoot = realpathSync(releaseRoot);
-    const canonicalPrior = realpathSync(priorWorkingDirectory);
-    if (
-      canonicalRoot !== releaseRoot
-      || !localWorkerDeployStageIsConfined(canonicalRoot, canonicalPrior)
-    ) {
-      throw new Error("refusing to remove a prior worker release outside its release root");
-    }
-  }
-  if (localCoordinatorWorkingDirectory() === priorWorkingDirectory) return;
-  const removed = await run(["git", "worktree", "remove", "--force", priorWorkingDirectory], {
-    cwd: sourceRepo,
-    quiet: true,
-  });
-  if (removed.exit !== 0) {
-    throw new Error(
-      `cannot retire prior worker release ${priorWorkingDirectory}: ${removed.stderr.trim() || `exit ${removed.exit}`}`,
-    );
-  }
-  if (removed.exit === 0 && existsSync(releaseRoot)) await flushDurablePath(releaseRoot);
-}
-
-function createLocalWorkerDeployRecoveryDeps(
-  servicePath: string,
-  journalPath: string,
-  confinement: Readonly<LocalWorkerDeployConfinement>,
-): LocalWorkerDeployRecoveryDeps {
-  return {
-    readService: () => readLocalWorkerServiceSnapshot(servicePath),
-    probeLifecycle: (journal) => probeLocalWorkerLifecycle(journal.os),
-    restorePrior: async (journal) => {
-      if (journal.priorService) {
-        await durableWriteFile(
-          servicePath,
-          decodeServiceSnapshot(journal.priorService),
-          { mode: journal.priorService.mode },
-        );
-      } else if (lstatIfPresent(servicePath)) {
-        await durableRemove(servicePath);
-      }
-      const restored = await run(
-        ["bash", "-lc", restoreCommand(journal.os, servicePath, journal.priorWasRunning)],
-        { cwd: journal.sourceRoot, quiet: true },
-      );
-      if (restored.exit !== 0) {
-        throw new Error(
-          `rollback failed (exit ${restored.exit})\n${restored.stdout}\n${restored.stderr}`,
-        );
-      }
-    },
-    cleanupStage: (journal) => cleanupLocalWorkerStage(journal, confinement),
-    commitTarget: (journal) => removeManagedPriorRelease(
-      journal.sourceRoot,
-      journal.releaseRoot,
-      journal.priorWorkingDirectory,
-    ),
-    clearJournal: async () => {
-      if (lstatIfPresent(journalPath)) await durableRemove(journalPath);
-    },
-  };
-}
-async function localWorkerIsRunningAtSha(
-  servicePath: string,
-  os: "linux" | "darwin",
-  expectedSha: string,
-): Promise<boolean> {
-  const service = readLocalWorkerServiceSnapshot(servicePath);
-  if (!service || serviceGitSha(decodeServiceSnapshot(service).toString("utf8"), os) !== expectedSha) {
-    return false;
-  }
-  const status = await run(["bash", "-lc", verifyWorkerCmd(os)], { quiet: true });
-  return status.exit === 0 && workerServiceIsRunning(status.stdout, os);
-}
-
+import type {
+  LocalWorkerDeployConfinement,
+  LocalWorkerDeployJournal,
+} from "./local-worker-deploy-journal.ts";
+import { acquireMachineTransaction } from "./machine-transaction.ts";
+import { verifyWorkerCmd, WORKER_AGENT, WORKER_UNIT } from "./service-ctl.ts";
+import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
+import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
+import type {
+  DirectKeeperAdmission,
+  JournaledKeeperUpdateCallbacks,
+} from "./direct-keeper-update.ts";
 
 /** Localhost source deployment uses the same immutable stage, service
  * snapshot, activation proof, and rollback contract as remote POSIX deploys. */
@@ -332,6 +64,10 @@ export async function _deployLocal(
     gitSha: string;
     rollout?: WorkerRolloutDirective;
     coordinatorUrl?: string;
+    keeperUpdate?: JournaledKeeperUpdateV1 | null;
+    workerFingerprint: string | null;
+    resolveKeeperAdmission?: () => Promise<DirectKeeperAdmission | null>;
+    keeperCallbacks: JournaledKeeperUpdateCallbacks;
   },
 ): Promise<void> {
   const os: "linux" | "darwin" = process.platform === "linux" ? "linux" : "darwin";
@@ -365,73 +101,19 @@ export async function _deployLocal(
     servicePath,
     journalPath,
     confinement,
+    options.keeperCallbacks,
   );
   const transaction = await acquireMachineTransaction("deploy", journalPath);
   try {
-    for (const relative of [
-      POSIX_WORKER_DEPLOY_JOURNAL_PATHS.linux,
-      POSIX_WORKER_DEPLOY_JOURNAL_PATHS.darwin,
-      POSIX_WORKER_DEPLOY_JOURNAL_PATHS.coordinator,
-    ]) {
-      const foreignJournal = join(serviceDir, relative);
-      if (!lstatIfPresent(foreignJournal)) continue;
-      if (relative === POSIX_WORKER_DEPLOY_JOURNAL_PATHS.coordinator
-        && rollout
-        && coordinatorJournalAllowsLocalWorkerRollout(serviceDir, os, rollout)) {
-        continue;
-      }
-      throw new DeployFailure(
-        5,
-        `cannot mutate past unsettled foreign worker deploy journal: ${foreignJournal}`,
-      );
-    }
-    const existingJournal = readLocalWorkerDeployJournal(journalPath);
-    if (existingJournal) {
-      try {
-        let loaded = parseLocalWorkerDeployJournal(existingJournal, confinement);
-        if (loaded.rolloutId !== null && loaded.rolloutId !== rollout?.rolloutId) {
-          throw new Error("another fleet rollout still owns the local worker deploy journal");
-        }
-        const decision = await _recoverLocalWorkerDeployJournal(
-          existingJournal,
-          confinement,
-          recoveryDeps,
-          rollout ?? undefined,
-        );
-        if (decision === "target-held") {
-          if (rollout?.action !== "hold") {
-            throw new Error("a fleet-held local worker requires its owning rollout");
-          }
-          if (loaded.phase === "activating") {
-            loaded = { ...loaded, phase: "activated" };
-            await checkpointLocalWorkerDeployJournal(journalPath, loaded, confinement);
-          }
-          console.log(`>> local worker target already held for fleet rollout ${rollout.rolloutId}`);
-          return;
-        }
-        console.log(`>> recovered interrupted local worker deploy (${decision})`);
-        if (rollout?.action === "finalize") {
-          if (decision !== "target-committed") throw new Error("local worker target was not finalized");
-          return;
-        }
-        if (rollout?.action === "rollback") {
-          if (decision !== "prior-restored" && decision !== "prepared-cleaned") {
-            throw new Error("local worker prior state was not restored");
-          }
-          return;
-        }
-      } catch (error) {
-        throw new DeployFailure(
-          5,
-          `cannot settle local worker deploy: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    } else if (rollout?.action === "finalize" || rollout?.action === "rollback") {
-      const expectedSha = rollout.action === "finalize" ? rollout.targetSha : rollout.priorSha;
-      if (!await localWorkerIsRunningAtSha(servicePath, os, expectedSha)) {
-        throw new DeployFailure(5, `local worker has no journal and does not prove ${expectedSha}`);
-      }
-      console.log(`>> local worker already ${rollout.action === "finalize" ? "finalized" : "rolled back"}`);
+    if (await settleLocalWorkerDeployJournal({
+      serviceDir,
+      journalPath,
+      confinement,
+      recoveryDeps,
+      rollout,
+      servicePath,
+      os,
+    })) {
       return;
     }
     const bunBin = Bun.which("bun") ?? process.execPath;
@@ -452,23 +134,51 @@ export async function _deployLocal(
       ? normalizedMetadataPath(serviceWorkingDirectory(priorText, os))
       : null;
     const priorGitSha = priorService ? serviceGitSha(priorText, os) : null;
-    const priorStatus = priorService
-      ? await run(["bash", "-lc", verifyWorkerCmd(os)], { quiet: true })
-      : { exit: 1, stdout: "", stderr: "" };
-    if (priorService && os === "linux" && priorStatus.exit !== 0) {
-      failDeploy(5, `cannot snapshot ${service} active state before activation`);
-    }
-    const priorWasRunning = priorService !== null
-      && priorStatus.exit === 0
-      && workerServiceIsRunning(priorStatus.stdout, os);
+    const priorState = await readLocalWorkerPriorState(os, priorService !== null);
     if (rollout?.action === "hold"
-      && (!priorWasRunning || priorGitSha?.toLowerCase() !== rollout.priorSha)) {
+      && (priorState.lifecycle !== "running"
+        || priorGitSha?.toLowerCase() !== rollout.priorSha)) {
       failDeploy(5, `local worker does not match rollout prior SHA ${rollout.priorSha}`);
     }
-    if (priorService && (!priorWasRunning || !await localWorkerStartupPolicyIsEnabled(os))) {
+    if (priorService
+      && (priorState.lifecycle !== "running" || priorState.startupPolicy !== "enabled")) {
       failDeploy(
         5,
         "the existing local worker must be running with its normal automatic startup policy before update",
+      );
+    }
+    if (priorService && !priorGitSha) {
+      failDeploy(5, "the existing local worker service does not prove its build identity");
+    }
+    const resolvedAdmission = options.resolveKeeperAdmission
+      ? await options.resolveKeeperAdmission()
+      : {
+          keeperUpdate: options.keeperUpdate ?? null,
+          workerFingerprint: options.workerFingerprint,
+        };
+    let suppliedKeeperUpdate: JournaledKeeperUpdateV1 | null = null;
+    try {
+      suppliedKeeperUpdate = resolvedAdmission?.keeperUpdate == null
+        ? null
+        : JournaledKeeperUpdateV1Schema.parse(resolvedAdmission.keeperUpdate);
+    } catch (error) {
+      failDeploy(5, `local worker keeper update proof is invalid: ${String(error)}`);
+    }
+    if (rollout && suppliedKeeperUpdate
+      && JSON.stringify(suppliedKeeperUpdate) !== JSON.stringify(rollout.keeperUpdate)) {
+      failDeploy(5, "local worker keeper update does not match its rollout directive");
+    }
+    const suppliedWorkerFingerprint = resolvedAdmission?.workerFingerprint ?? null;
+    const workerFingerprint = rollout?.workerFingerprint ?? suppliedWorkerFingerprint;
+    if (rollout && suppliedWorkerFingerprint !== rollout.workerFingerprint) {
+      failDeploy(5, "local worker fingerprint does not match its rollout directive");
+    }
+    const keeperUpdate = rollout?.keeperUpdate ?? suppliedKeeperUpdate;
+    if ((priorService === null) !== (keeperUpdate === null)
+      || (keeperUpdate === null) !== (workerFingerprint === null)) {
+      failDeploy(
+        5,
+        "local worker keeper update and fingerprint must be absent exactly when no prior service is installed",
       );
     }
 
@@ -514,8 +224,11 @@ export async function _deployLocal(
       stagedReleasePath: releaseDir,
       targetSha: localGitSha,
       rolloutId: rollout?.action === "hold" ? rollout.rolloutId : null,
+      workerFingerprint,
+      keeperUpdate,
       priorService,
-      priorWasRunning,
+      priorLifecycle: priorState.lifecycle,
+      priorStartupPolicy: priorState.startupPolicy,
       priorWorkingDirectory,
       priorGitSha,
       targetService: null,
@@ -560,11 +273,8 @@ export async function _deployLocal(
     await checkpointLocalWorkerDeployJournal(journalPath, journal, confinement);
     const rollback = async (): Promise<string | null> => {
       try {
-        await recoveryDeps.restorePrior(journal);
-        if (await priorServiceIsProven(journal, recoveryDeps)) return null;
-        return priorWasRunning
-          ? "rollback service did not become healthy with its exact prior definition"
-          : "rollback could not prove the prior stopped lifecycle and exact definition";
+        await _rollbackLocalWorkerDeployJournal(journal, recoveryDeps);
+        return null;
       } catch (error) {
         return `rollback failed: ${error instanceof Error ? error.message : String(error)}`;
       }
@@ -574,7 +284,7 @@ export async function _deployLocal(
     const activated = await _activateLocalWorker({
       install: async () => {
         const result = await run(
-          ["bash", join(expectedRelease, "apps", "worker", "scripts", "install.sh"), "install"],
+          ["bash", join(expectedRelease, "apps", "worker", "scripts", "install.sh"), "write-plist"],
           { cwd: expectedRelease, quiet: true, env: installEnv },
         );
         if (result.exit !== 0) return result;
@@ -588,10 +298,16 @@ export async function _deployLocal(
         await checkpointLocalWorkerDeployJournal(journalPath, journal, confinement);
         return result;
       },
-      restart: () => run(["bash", "-lc", restartWorkerCmd(os)], {
-        cwd: expectedRelease,
-        quiet: true,
-      }),
+      stop: () => stopLocalWorkerForActivation(os, expectedRelease),
+      keeperUpdate: journal.keeperUpdate,
+      workerFingerprint: journal.workerFingerprint,
+      applyKeeperUpdate: options.keeperCallbacks.apply,
+      restart: () => priorService
+        ? startLocalWorkerForActivation(os, servicePath, expectedRelease, "worker target")
+        : run(
+            ["bash", join(expectedRelease, "apps", "worker", "scripts", "install.sh"), "install"],
+            { cwd: expectedRelease, quiet: true, env: installEnv },
+          ),
       verify: async () => {
         const result = await run(["bash", "-lc", verifyWorkerCmd(os)], { quiet: true });
         try {
@@ -622,12 +338,19 @@ export async function _deployLocal(
     }
     journal = { ...journal, phase: "activated" };
     await checkpointLocalWorkerDeployJournal(journalPath, journal, confinement);
+    const recoveryDecision = await _recoverLocalWorkerDeployJournal(
+      JSON.stringify(journal),
+      confinement,
+      recoveryDeps,
+      rollout ?? undefined,
+    );
+    if (recoveryDecision === "prior-restored") {
+      failDeploy(5, "target keeper convergence failed; the prior worker was restored");
+    }
     if (rollout?.action === "hold") {
       console.log(`>> held ${host} v2 worker for fleet rollout ${rollout.rolloutId}`);
       return;
     }
-    await recoveryDeps.commitTarget(journal);
-    await recoveryDeps.clearJournal();
     finishWorkerDeploy(
       activated.verify,
       `>> done — ${host} v2 worker deployed (local)`,

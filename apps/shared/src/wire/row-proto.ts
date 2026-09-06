@@ -14,6 +14,13 @@ import {
   type McpRelay as PbMcpRelay,
 } from "../gen/roost/v1/wire_pb.ts";
 import { safeJsonParse } from "../json.ts";
+import {
+  keeperRuntimeObservationToProto,
+} from "../keeper-update-proto.ts";
+import {
+  KeeperRuntimeObservationV1Schema,
+  type KeeperRuntimeObservationV1,
+} from "../keeper-update.ts";
 
 // Wire-shape (Zod) Worker payload for presenceBus.publish. Used by
 // workersRegister / workersHeartbeat / workersRename — three near-
@@ -24,14 +31,14 @@ export interface WireWorkerPresence {
   host_metrics: unknown;
   registered_at_ms: number; last_seen_ms: number;
   reachable_addr: string | null;
-  keeper_stale: string | null;
+  keeper_runtime: KeeperRuntimeObservationV1 | null;
 }
 export function workerRowToWirePresence(row: {
   fp: string; label: string; os: string; git_sha: string | null;
   host_metrics_json: string | null;
   registered_at_ms: number; last_seen_ms: number;
   reachable_addr: string | null;
-  keeper_stale: string | null;
+  keeper_runtime_json?: string | null;
 }): WireWorkerPresence {
   return {
     fp: row.fp, label: row.label, os: row.os,
@@ -40,7 +47,7 @@ export function workerRowToWirePresence(row: {
     registered_at_ms: row.registered_at_ms,
     last_seen_ms: row.last_seen_ms,
     reachable_addr: row.reachable_addr ?? null,
-    keeper_stale: row.keeper_stale,
+    keeper_runtime: keeperRuntimeFromJson(row.keeper_runtime_json),
   };
 }
 
@@ -49,9 +56,10 @@ export function workerRowToProto(row: {
   host_metrics_json: string | null;
   registered_at_ms: number; last_seen_ms: number;
   reachable_addr: string | null;
-  keeper_stale: string | null;
+  keeper_runtime_json?: string | null;
 }): PbWorker {
   const hostMetricsRaw: any = safeJsonParse(row.host_metrics_json, null, "host_metrics_json");
+  const keeperRuntime = keeperRuntimeFromJson(row.keeper_runtime_json);
   return create(WorkerSchema, {
     fp: row.fp,
     label: row.label,
@@ -70,8 +78,19 @@ export function workerRowToProto(row: {
     registeredAtMs: BigInt(row.registered_at_ms),
     lastSeenMs: BigInt(row.last_seen_ms),
     reachableAddr: row.reachable_addr ?? undefined,
-    keeperStale: row.keeper_stale ?? undefined,
+    keeperRuntime: keeperRuntime
+      ? keeperRuntimeObservationToProto(keeperRuntime)
+      : undefined,
   });
+}
+
+function keeperRuntimeFromJson(
+  serialized: string | null | undefined,
+): KeeperRuntimeObservationV1 | null {
+  if (!serialized) return null;
+  const candidate = safeJsonParse(serialized, null, "keeper_runtime_json");
+  const parsed = KeeperRuntimeObservationV1Schema.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
 }
 
 export function taskRowToProto(row: {

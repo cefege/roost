@@ -1,6 +1,7 @@
 // Session respawn replaces a missing keeper PTY without replacing its logical session.
 // SessionManager delegates here after reserving durable respawn and close events.
 // Admission remains atomic so failed replacement cannot discard the prior live record.
+// SessionManager holds its shared channel-creation lease through final cleanup.
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
@@ -16,7 +17,6 @@ import { FsmChannel } from "./fsm.ts";
 import { canonicalSessionCwd } from "./util/path.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { initAgentOscState } from "./terminal-stream-scan.ts";
-import { _createWtermCore } from "./session-constants.ts";
 import { createSbRing } from "./session-scrollback-ring.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 import { resolveShellSpec, type ShellSpec } from "./shell-spec.ts";
@@ -71,7 +71,7 @@ export async function respawn(
 		const fsm = new FsmChannel((from, to, event) =>
 			this._onTransition(opts.oldSessionId, channelId!, from, to, event),
 		);
-		const wtermCore = await _createWtermCore(cols, rows);
+		const wtermCore = await this.createTerminalCore(cols, rows);
 		if (wtermCore.getCols() !== cols || wtermCore.getRows() !== rows) {
 			throw new Error("terminal core did not retain validated respawn geometry");
 		}

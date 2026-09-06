@@ -14,6 +14,7 @@
 // socket, which one bad DB row must never cause.
 
 import { signal } from "@roost/shared/diag";
+import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
 import type { McpRelay as McpRelayWire, Task as TaskWire } from "@roost/shared/wire";
 import type { HostMetrics, McpRelay, Task, Workspace } from "@roost/shared/proto/wire_pb";
 import type {
@@ -164,7 +165,9 @@ export function _presenceProtoToWire(d: WorkerPresenceProto) {
           registered_at_ms: Number(v.registeredAtMs),
           last_seen_ms: Number(v.lastSeenMs),
           reachable_addr: v.reachableAddr ?? null,
-          keeper_stale: v.keeperStale ?? null,
+          keeper_runtime: v.keeperRuntime
+            ? keeperRuntimeObservationFromProto(v.keeperRuntime)
+            : null,
         },
       };
     }

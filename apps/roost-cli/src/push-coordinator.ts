@@ -3,38 +3,29 @@
 // only after the coordinator journal is durably held at fleet-converging.
 
 import {
-  cpSync,
   existsSync,
   lstatSync,
-  mkdirSync,
   readFileSync,
   realpathSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { coordServicePath, roostServiceDir } from "@roost/shared/paths";
+import { dirname, join, resolve } from "node:path";
 import { durableRemove } from "@roost/shared/durability";
 import { acquireMachineTransaction } from "./machine-transaction.ts";
-import type {
-  AcquireMachineTransactionOptions,
-  MachineTransactionLock,
-} from "./machine-transaction.ts";
 import {
   DeployFailure,
   failDeploy,
-  POSIX_WORKER_DEPLOY_JOURNAL_PATHS,
   runOrDie,
 } from "./deploy-exec.ts";
 import {
   COORDINATOR_DEPLOY_JOURNAL_SCHEMA_VERSION,
   canonicalCoordinatorTargetWorkers,
   coordinatorDatabaseSnapshotPath,
-  coordinatorDeployJournalPath,
   loadCoordinatorDeployJournal,
   parseCoordinatorDeployJournal,
   writeCoordinatorDeployJournal,
   writeCoordinatorDeployPhase,
-  type CoordinatorDeployJournalContext,
   type CoordinatorDeployJournalV2,
+  type CoordinatorWorkerKeeperPlanV1,
 } from "./coordinator-deploy-journal.ts";
 import {
   coordinatorInstallEnvironment,
@@ -49,121 +40,27 @@ import {
   rollbackCoordinatorDeploy,
 } from "./coordinator-deploy-recovery.ts";
 import { createCoordinatorRollbackSnapshot } from "./coordinator-deploy-snapshot.ts";
+import {
+  foreignWorkerDeployJournalForCoordinator,
+  prepareCoordinatorDeployLocation,
+  preserveWebDistForNoBuild,
+  resolveCoordinatorRepo,
+  type CoordinatorDeployLocation,
+} from "./push-coordinator-location.ts";
 import { statusReport } from "./status.ts";
-import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
+import { assertWorkerRolloutId } from "./worker-deploy-rollout.ts";
+import { POSIX_FULL_GIT_SHA_RE } from "./posix-deploy-journal.ts";
 
-const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
-export interface CoordinatorDeployLocation {
-  journalPath: string;
-  context: CoordinatorDeployJournalContext;
-}
+export {
+  foreignWorkerDeployJournalForCoordinator,
+  prepareCoordinatorDeployLocation,
+  preserveWebDistForNoBuild,
+};
+export { acquireFleetPushTransaction } from "./push-coordinator-location.ts";
+export type { CoordinatorDeployLocation } from "./push-coordinator-location.ts";
+
 export interface HeldCoordinatorDeploy extends CoordinatorDeployLocation {
   journal: CoordinatorDeployJournalV2;
-}
-
-function coordinatorPlatform(): "darwin" | "linux" {
-  if (process.platform !== "linux" && process.platform !== "darwin") {
-    failDeploy(2, "atomic fleet push requires a source-installed POSIX coordinator");
-  }
-  return process.platform;
-}
-
-export async function acquireFleetPushTransaction(
-  location: CoordinatorDeployLocation,
-  options: Pick<AcquireMachineTransactionOptions, "env" | "platform"> = {},
-): Promise<MachineTransactionLock> {
-  return acquireMachineTransaction("deploy", location.journalPath, {
-    ...options,
-    lockPath: join(location.context.transactionRoot, "fleet-push-transaction.sqlite"),
-  });
-}
-
-export function prepareCoordinatorDeployLocation(): CoordinatorDeployLocation {
-  const platform = coordinatorPlatform();
-  const configuredServiceRoot = resolve(roostServiceDir());
-  mkdirSync(configuredServiceRoot, { recursive: true, mode: 0o700 });
-  const serviceRoot = realpathSync(configuredServiceRoot);
-  const releaseRoot = join(serviceRoot, "releases", "coord");
-  const transactionRoot = join(serviceRoot, "transactions");
-  mkdirSync(releaseRoot, { recursive: true, mode: 0o700 });
-  mkdirSync(transactionRoot, { recursive: true, mode: 0o700 });
-  if (realpathSync(releaseRoot) !== releaseRoot
-    || realpathSync(transactionRoot) !== transactionRoot) {
-    failDeploy(5, "coordinator deployment directories must not traverse symbolic links");
-  }
-  return {
-    journalPath: coordinatorDeployJournalPath(transactionRoot),
-    context: {
-      servicePath: resolve(coordServicePath()),
-      releaseRoot,
-      transactionRoot,
-      platform,
-    },
-  };
-}
-
-function resolveCoordinatorRepo(): string {
-  const platform = coordinatorPlatform();
-  const override = process.env.ROOST_COORD_REPO_DIR?.trim();
-  const servicePath = coordServicePath();
-  const installed = existsSync(servicePath)
-    ? coordinatorRepoFromService(readFileSync(servicePath, "utf8"), platform)
-    : null;
-  for (const candidate of [override, installed, REPO_ROOT]) {
-    if (!candidate) continue;
-    const absolute = resolve(candidate);
-    if (existsSync(join(absolute, ".git"))
-      && existsSync(join(absolute, "apps", "coord", "scripts", "install.sh"))) {
-      return realpathSync(absolute);
-    }
-  }
-  failDeploy(2, `cannot locate the coordinator source checkout from ${servicePath}; set ROOST_COORD_REPO_DIR`);
-}
-
-export function foreignWorkerDeployJournalForCoordinator(serviceRoot: string): string | null {
-  for (const relativePath of [
-    POSIX_WORKER_DEPLOY_JOURNAL_PATHS.local,
-    POSIX_WORKER_DEPLOY_JOURNAL_PATHS.linux,
-    POSIX_WORKER_DEPLOY_JOURNAL_PATHS.darwin,
-  ]) {
-    const candidate = join(serviceRoot, relativePath);
-    try {
-      lstatSync(candidate);
-      return candidate;
-    } catch (error) {
-      if (!(error instanceof Error
-        && "code" in error
-        && (error as NodeJS.ErrnoException).code === "ENOENT")) throw error;
-    }
-  }
-  return null;
-}
-
-function hasWebDist(path: string): boolean {
-  return existsSync(join(path, "index.html"));
-}
-
-export function preserveWebDistForNoBuild(
-  releaseDir: string,
-  installedEnvironment: Readonly<Record<string, string>>,
-  priorRepo: string,
-): string {
-  const destination = join(releaseDir, "apps", "web", "dist");
-  if (hasWebDist(destination)) return destination;
-  const configured = installedEnvironment.ROOST_WEB_DIST_PATH;
-  for (const candidate of [
-    configured ? (isAbsolute(configured) ? configured : resolve(priorRepo, configured)) : undefined,
-    join(priorRepo, "apps", "web", "dist"),
-  ]) {
-    if (!candidate || resolve(candidate) === resolve(destination) || !hasWebDist(candidate)) continue;
-    mkdirSync(dirname(destination), { recursive: true });
-    cpSync(candidate, destination, { recursive: true, dereference: true });
-    return destination;
-  }
-  throw new DeployFailure(
-    5,
-    "--no-web requested but neither the staged commit nor the installed coordinator has apps/web/dist",
-  );
 }
 
 async function removeUnjournaledStage(
@@ -237,6 +134,7 @@ export async function deployLocalCoordinatorHeld(options: {
   priorSha: string;
   rolloutId: string;
   targetWorkerFingerprints: readonly string[];
+  workerKeeperPlans: readonly CoordinatorWorkerKeeperPlanV1[];
   buildWeb: boolean;
 }): Promise<HeldCoordinatorDeploy> {
   const location = prepareCoordinatorDeployLocation();
@@ -250,8 +148,13 @@ export async function deployLocalCoordinatorHeld(options: {
     if (loadCoordinatorDeployJournal(location.journalPath, location.context)) {
       failDeploy(5, "an unsettled coordinator rollout must be recovered before staging a new release");
     }
-    const rollout = assertWorkerRolloutDirective({ ...options, action: "hold" });
-    const { targetSha, priorSha, rolloutId } = rollout;
+    const targetSha = options.targetSha.toLowerCase();
+    const priorSha = options.priorSha.toLowerCase();
+    const rolloutId = assertWorkerRolloutId(options.rolloutId);
+    if (!POSIX_FULL_GIT_SHA_RE.test(targetSha)
+      || !POSIX_FULL_GIT_SHA_RE.test(priorSha)) {
+      failDeploy(7, "coordinator rollout SHA identities must be full hexadecimal object IDs");
+    }
     const { buildWeb } = options;
     const coordinatorRepo = resolveCoordinatorRepo();
     const stagedReleasePath = join(location.context.releaseRoot, `${targetSha}-${rolloutId}`);
@@ -338,8 +241,11 @@ export async function deployLocalCoordinatorHeld(options: {
       journal = parseCoordinatorDeployJournal(JSON.stringify({
         schemaVersion: COORDINATOR_DEPLOY_JOURNAL_SCHEMA_VERSION,
         phase: "prepared",
+        admissionRecordedAtMs: Date.now(),
         rolloutId,
         targetWorkerFingerprints: canonicalCoordinatorTargetWorkers(options.targetWorkerFingerprints),
+        workerKeeperPlans: [...options.workerKeeperPlans].sort((left, right) =>
+          left.fingerprint.localeCompare(right.fingerprint)),
         priorDefinitionBase64: priorDefinition.toString("base64"),
         priorDefinitionMode,
         priorSha,

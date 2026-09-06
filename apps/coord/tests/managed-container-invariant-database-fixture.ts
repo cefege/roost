@@ -123,8 +123,8 @@ export function ensureWorker(sqlite: Database): void {
   sqlite.query(`
     INSERT OR IGNORE INTO workers (
       fp, dashboard_id, label, os, git_sha, host_metrics_json,
-      registered_at_ms, last_seen_ms, reachable_addr, keeper_stale
-    ) VALUES (?, ?, 'Worker', 'linux', NULL, NULL, ?, ?, NULL, NULL)
+      registered_at_ms, last_seen_ms, reachable_addr
+    ) VALUES (?, ?, 'Worker', 'linux', NULL, NULL, ?, ?, NULL)
   `).run(WORKER_FP, INSTANCE_ID, NOW, NOW);
 }
 
@@ -144,8 +144,8 @@ export function insertRuntimeRow(
         sqlite.query(`
           INSERT INTO workers (
             fp, dashboard_id, label, os, git_sha, host_metrics_json,
-            registered_at_ms, last_seen_ms, reachable_addr, keeper_stale
-          ) VALUES (?, ?, 'Worker', 'linux', NULL, NULL, ?, ?, NULL, NULL)
+            registered_at_ms, last_seen_ms, reachable_addr
+          ) VALUES (?, ?, 'Worker', 'linux', NULL, NULL, ?, ?, NULL)
         `).run(WORKER_FP, dashboardId, NOW, NOW);
         break;
       case "bootstrap_tokens":

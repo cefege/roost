@@ -52,6 +52,8 @@ export interface CoordDeps {
   passwordWorkGate: PasswordWorkGate;
   move?: CoordinatorMoveService;
   pendingPublications?: PendingEventPublicationStore;
+  /** Test observation point forwarded to the keeper-update handler. */
+  _onKeeperUpdateFinalEmptyRecheck?: () => void;
   onKeyRevoked?: (fingerprint: string) => void;
   onWorkerDeletedFence?: (fingerprint: string) => void;
   onWorkerDeletedSyncScope?: (dashboardId: string, fingerprint: string) => void;

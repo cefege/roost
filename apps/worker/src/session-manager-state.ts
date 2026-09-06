@@ -10,9 +10,13 @@ import type { TerminalCellSendResult, TransportSendResult } from "./transport/co
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { log } from "@roost/shared/log";
 import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { TerminalCore } from "@wterm/core";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { SessionId, WorkerFp } from "@roost/shared/wire";
-import { STRAY_REAP_INTERVAL_MS } from "./session-constants.ts";
+import {
+	_createWtermCore,
+	STRAY_REAP_INTERVAL_MS,
+} from "./session-constants.ts";
 import type { SessionRecord } from "./session-record.ts";
 
 interface PendingRawMetadataFrame {
@@ -34,6 +38,10 @@ export abstract class SessionManagerState {
 	protected pendingSnapshotSessionAdmissions = 0;
 	readonly workerFp: WorkerFp;
 	readonly sink: SessionEventSink;
+	readonly createTerminalCore: (
+		cols: number,
+		rows: number,
+	) => Promise<TerminalCore>;
 	terminalStreams = new Map<number, TerminalStreamState>();
 	protected terminalStreamVersion = 0;
 	lastAppliedSize = new Map<number, { cols: number; rows: number }>();
@@ -119,6 +127,10 @@ export abstract class SessionManagerState {
 	constructor(opts: {
 		workerFp: WorkerFp;
 		sink: SessionEventSink;
+		createTerminalCore?: (
+			cols: number,
+			rows: number,
+		) => Promise<TerminalCore>;
 		sendBinaryUpstream?: (
 			channelId: number,
 			direction: number,
@@ -136,6 +148,7 @@ export abstract class SessionManagerState {
 	}) {
 		this.workerFp = opts.workerFp;
 		this.sink = opts.sink;
+		this.createTerminalCore = opts.createTerminalCore ?? _createWtermCore;
 		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
 		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
 		this.sendCellGridChunkUpstream = opts.sendCellGridChunkUpstream ?? null;

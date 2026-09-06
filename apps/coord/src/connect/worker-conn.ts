@@ -147,7 +147,7 @@ export function makeWorkerConn(
       respawnTimer = setTimeout(() => {
         respawnTimer = null;
         if (done || !_isReady()) return;
-        respawnMissingForWorker(deps.db, fp, myHandle).catch((error) => {
+        respawnMissingForWorker(deps.db, fp, myHandle, deps.move?.gate).catch((error) => {
           log.warn("worker-service", "respawn_missing_failed", {
             error: String(error),
             worker_fp: fp,

@@ -68,6 +68,12 @@ export function printStatusReport(r: StatusReport): void {
     for (const w of r.workers) {
       const age = Math.round(w.ageMs / 1000);
       console.log(`    ${mark(!w.stale)} ${w.label} — last seen ${age}s ago${w.stale ? " (STALE)" : ""}`);
+      const keeper = w.keeperRuntime;
+      console.log(keeper
+        ? `      keeper: pid ${keeper.keeper_pid}, epoch ${keeper.keeper_epoch}, ` +
+          `${keeper.channel_count} channel(s), bindings ${keeper.binding_digest.slice(0, 12)}, ` +
+          `reconciled ${Math.max(0, Math.round((Date.now() - keeper.reconciled_at_ms) / 1000))}s ago`
+        : "      keeper: update admission unproven");
     }
   }
 

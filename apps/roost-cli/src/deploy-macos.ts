@@ -6,6 +6,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 import { posixShellQuote } from "@roost/shared/shell-quote";
+import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
 import {
   acquireRemoteDeployLock,
   DeployFailure,
@@ -25,13 +26,18 @@ import { workerInstallEnvironment } from "./deploy-worker-environment.ts";
 import {
   MACOS_WORKER_LABEL,
   _macosDeployJournalPath,
-  _recoverMacosDeployJournal,
 } from "./deploy-macos-journal.ts";
 import type { MacosDeployRecoveryResult } from "./deploy-macos-journal.ts";
-import { createMacosDeployJournalController } from "./deploy-macos-journal-controller.ts";
+import { _recoverMacosDeployJournal } from "./deploy-macos-recovery.ts";
+import {
+  createMacosDeployJournalController,
+  type MacosApplyKeeperUpdate,
+  type MacosProveKeeperUpdate,
+} from "./deploy-macos-journal-controller.ts";
 import { settleMacosWorkerRollout } from "./deploy-macos-rollout.ts";
 import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
+import type { DirectKeeperAdmission } from "./direct-keeper-update.ts";
 
 const REMOTE_DIR = "~/RoostWorkerV2";
 
@@ -40,19 +46,38 @@ export interface MacosDeployOptions {
   gitSha: string;
   coordinatorUrl?: string;
   rollout?: WorkerRolloutDirective;
+  keeperUpdate?: JournaledKeeperUpdateV1 | null;
+  workerFingerprint: string | null;
+  resolveKeeperAdmission?: () => Promise<DirectKeeperAdmission | null>;
+  applyKeeperUpdate?: MacosApplyKeeperUpdate;
+  proveKeeperUpdate?: MacosProveKeeperUpdate;
 }
 
 export async function deployMacosWorker(host: string, options: MacosDeployOptions): Promise<void> {
   const rollout = options.rollout ? assertWorkerRolloutDirective(options.rollout) : null;
+  let keeperUpdate = rollout?.keeperUpdate ?? options.keeperUpdate ?? null;
+  let workerFingerprint = rollout?.workerFingerprint ?? options.workerFingerprint;
   const localGitSha = options.gitSha;
   if (rollout && rollout.targetSha !== localGitSha.toLowerCase()) {
     failDeploy(7, "worker rollout target does not match the macOS deployment SHA");
+  }
+  if (rollout && options.workerFingerprint !== rollout.workerFingerprint) {
+    failDeploy(7, "worker fingerprint does not match the macOS rollout directive");
+  }
+  if ((keeperUpdate === null) !== (workerFingerprint === null)) {
+    failDeploy(7, "macOS keeper update and worker fingerprint must be present together");
   }
   const { env: hostEnv, filled } = await _backfillEnvFromPlist(host);
   if (filled.length > 0) console.log(`>> reused from existing plist on ${host}: ${filled.join(", ")}`);
   const deployLock = remoteMachineTransactionPath("darwin", hostEnv);
   if (rollout && rollout.action !== "hold") {
-    await settleMacosWorkerRollout(host, deployLock, rollout);
+    await settleMacosWorkerRollout(
+      host,
+      deployLock,
+      rollout,
+      options.applyKeeperUpdate,
+      options.proveKeeperUpdate,
+    );
     return;
   }
   const resolved = (key: string, invocationValue?: string): string | undefined =>
@@ -103,7 +128,11 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
       const journalController = createMacosDeployJournalController(
         deploySsh,
         _macosDeployJournalPath(deployLock),
-        deployLease.signal,
+        {
+          signal: deployLease.signal,
+          applyKeeperUpdate: options.applyKeeperUpdate,
+          proveKeeperUpdate: options.proveKeeperUpdate,
+        },
       );
       const interrupted = await _recoverMacosDeployJournal(
         journalController.recovery,
@@ -120,6 +149,26 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
       if (interrupted.outcome === "prepared-cleaned") console.log(">> cleaned an interrupted prepared macOS release");
       else if (interrupted.outcome === "rolled-back") console.log(">> restored the prior macOS worker from an interrupted activation");
       else if (interrupted.outcome === "committed") console.log(">> committed a previously activated healthy macOS worker");
+      if (options.resolveKeeperAdmission) {
+        const admission = await options.resolveKeeperAdmission();
+        keeperUpdate = admission?.keeperUpdate ?? null;
+        workerFingerprint = admission?.workerFingerprint ?? null;
+      }
+      if ((keeperUpdate === null) !== (workerFingerprint === null)) {
+        failDeploy(7, "macOS keeper update and worker fingerprint must be present together");
+      }
+      if (keeperUpdate === null) {
+        const absentPlist = await deploySsh(
+          `test ! -e "$HOME/Library/LaunchAgents/com.roost.worker-v2.plist" ` +
+            `&& test ! -L "$HOME/Library/LaunchAgents/com.roost.worker-v2.plist"`,
+        );
+        if (absentPlist.exit !== 0) {
+          failDeploy(
+            5,
+            "existing macOS worker requires keeper update admission before staging",
+          );
+        }
+      }
 
       console.log(`>> ensure staged release ${remoteDir}/ on ${host}`);
       const manifestOnly = manifestOnlyWorkspaces(sourceRoot);
@@ -158,7 +207,13 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
         ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN,
         ROOST_REACHABLE_ADDR: resolved("ROOST_REACHABLE_ADDR"),
       }, localGitSha);
-      const preparedJournal = await journalController.prepare(localGitSha, remoteDir, rollout?.rolloutId);
+      const preparedJournal = await journalController.prepare(
+        localGitSha,
+        remoteDir,
+        rollout?.rolloutId ?? null,
+        workerFingerprint,
+        keeperUpdate,
+      );
       if (rollout) {
         const priorEnvironment = preparedJournal.priorPlistBase64 === null
           ? {}
@@ -170,8 +225,13 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
           failDeploy(5, `macOS worker does not match rollout prior SHA ${rollout.priorSha}`);
         }
       }
-      await journalController.checkpointActivating(localGitSha, remoteDir, rollout?.rolloutId);
-
+      const activatingJournal = await journalController.checkpointActivating(
+        localGitSha,
+        remoteDir,
+        rollout?.rolloutId ?? null,
+        workerFingerprint,
+        keeperUpdate,
+      );
       const throwIfActivationTransportLost = (
         result: { exit: number; stdout: string; stderr: string },
         operation: string,
@@ -204,20 +264,34 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
         failDeploy(exitCode, `${failure}\nmacOS deploy journal disappeared before recovery`);
       };
 
-      const installSh = await deploySsh(`${passthroughEnv} bash ${remoteDir}/apps/worker/scripts/install.sh install 2>&1`);
-      if (installSh.exit !== 0) {
-        throwIfActivationTransportLost(installSh, "install macOS worker");
-        await recoverFailedActivation(5, `install.sh failed\n${installSh.stdout}\n${installSh.stderr}`);
+      const writePlist = await deploySsh(
+        `${passthroughEnv} bash ${remoteDir}/apps/worker/scripts/install.sh write-plist 2>&1`,
+      );
+      if (writePlist.exit !== 0) {
+        throwIfActivationTransportLost(writePlist, "write macOS worker plist");
+        await recoverFailedActivation(
+          5,
+          `install.sh write-plist failed\n${writePlist.stdout}\n${writePlist.stderr}`,
+        );
         return;
       }
-      const installOutput = installSh.stdout.trim();
-      if (installOutput) console.log(installOutput.split("\n").map((line) => `   ${line}`).join("\n"));
-
-      console.log(`>> kickstart ${MACOS_WORKER_LABEL} on ${host}`);
-      const kick = await deploySsh(`launchctl kickstart -k gui/$(id -u)/${MACOS_WORKER_LABEL} 2>&1`);
-      if (kick.exit !== 0) {
-        throwIfActivationTransportLost(kick, "kickstart macOS worker");
-        await recoverFailedActivation(4, `kickstart failed (exit ${kick.exit})\n${kick.stdout}\n${kick.stderr}`);
+      const installOutput = writePlist.stdout.trim();
+      if (installOutput) {
+        console.log(installOutput.split("\n").map((line) => `   ${line}`).join("\n"));
+      }
+      console.log(`>> activate ${MACOS_WORKER_LABEL} on ${host}`);
+      try {
+        await journalController.activateTarget(activatingJournal);
+      } catch (error) {
+        if (error instanceof DeployFailure
+          && (deployLease.signal.aborted || error.exitCode === 255 || error.exitCode >= 128)) {
+          throw error;
+        }
+        const exitCode = error instanceof DeployFailure ? error.exitCode : 5;
+        await recoverFailedActivation(
+          exitCode,
+          `macOS worker activation failed\n${error instanceof Error ? error.message : String(error)}`,
+        );
         return;
       }
       console.log(`>> verifying service is up on ${host}`);

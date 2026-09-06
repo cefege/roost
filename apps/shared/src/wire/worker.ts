@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { WorkerFp } from "./brand.ts";
+import { KeeperRuntimeObservationV1Schema } from "../keeper-update.ts";
 
 export const HostMetrics = z.object({
   cpu_pct: z.number().min(0).max(100),
@@ -29,9 +30,7 @@ export const Worker = z.object({
   // surface — it dials coord). Nullable for workers registered before
   // the field was added.
   reachable_addr: z.string().nullable(),
-  // Tri-state keeper build proof: null = unknown/unreported, "" = current,
-  // non-empty = stale running build stamp.
-  keeper_stale: z.string().nullable(),
+  keeper_runtime: KeeperRuntimeObservationV1Schema.nullable(),
 });
 export type Worker = z.infer<typeof Worker>;
 

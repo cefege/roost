@@ -77,7 +77,6 @@ describe("authorized device lifecycle", () => {
       registered_at_ms: 1,
       last_seen_ms: 1,
       reachable_addr: null,
-      keeper_stale: null,
     }).execute();
     const sessionId = asSessionId("00000000-0000-4000-8000-000000000601");
     const workspaceId = "00000000-0000-4000-8000-000000000602";

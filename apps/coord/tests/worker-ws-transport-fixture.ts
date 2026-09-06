@@ -141,7 +141,6 @@ export async function startWorkerWsTransportFixture() {
     registered_at_ms: Date.now(),
     last_seen_ms: Date.now(),
     reachable_addr: null,
-    keeper_stale: null,
   }).execute();
   const now = Math.floor(Date.now() / 1000);
   const workerJwt = await signJwt(

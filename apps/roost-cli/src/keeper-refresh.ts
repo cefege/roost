@@ -1,71 +1,84 @@
-// `roost keeper-refresh <host> --yes` is the only workflow authorized to
-// stop a keeper. It is destructive, explicitly confirmed, and serialized
-// with update/coordinator-relocation through the machine transaction lock.
-import { acquireMachineTransaction } from "./machine-transaction.ts";
-import { roostServiceDir } from "@roost/shared/paths";
+// `roost keeper-refresh <host> --yes` performs coordinator-fenced empty-only
+// maintenance. The machine transaction serializes deploys while the
+// coordinator drains every channel-creating command and authorizes the worker.
+
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { _isSelfHost, sshExec } from "./deploy.ts";
+import { roostServiceDir } from "@roost/shared/paths";
+import {
+  acquireRemoteDeployLock,
+  releaseRemoteDeployLock,
+  remoteMachineTransactionPath,
+  sshExec,
+} from "./deploy-exec.ts";
+import { _isSelfHost } from "./deploy-self-host.ts";
+import { _backfillEnvFromPlist } from "./deploy-plist-env.ts";
+import {
+  localUpdateWorker,
+  prepareKeeperMaintenance,
+  workerForDirectKeeperTarget,
+} from "./direct-keeper-update.ts";
+import { acquireMachineTransaction } from "./machine-transaction.ts";
 
-const KEEPER_PROC_PATTERN = "multiplexed-main.ts";
+function keeperRefreshJournalPath(platform: "darwin" | "linux"): string {
+  return join(
+    roostServiceDir(undefined, platform),
+    "transactions",
+    "keeper-refresh.json",
+  );
+}
 
 export async function keeperRefresh(args: string[]): Promise<void> {
-  const host = args.find((argument) => !argument.startsWith("--"));
+  const localPlatform = process.platform;
+  const host = args.find(argument => !argument.startsWith("--"));
   if (!host) {
     console.error("usage: roost keeper-refresh <host> --yes");
     process.exit(2);
   }
   if (!args.includes("--yes")) {
-    console.error(`Refreshing the keeper on ${host} will re-spawn every live session there,`);
-    console.error("losing its scrollback and running subprocesses");
-    console.error("(session ids + cwd survive). Re-run with --yes to proceed.");
+    console.error(`Refreshing the empty keeper on ${host} requires confirmation.`);
+    console.error("Keepers with live channels are always refused. Re-run with --yes.");
     process.exit(1);
   }
-
-  if (process.platform === "win32") {
+  if (localPlatform === "win32") {
     throw new Error(
       "Windows keeper-refresh is disabled outside RoostUpdaterV2; direct SCM mutation is not authorized",
     );
   }
-  if (process.platform !== "darwin" && process.platform !== "linux") {
-    throw new Error(`unsupported keeper-refresh platform: ${process.platform}`);
+  if (localPlatform !== "darwin" && localPlatform !== "linux") {
+    throw new Error(`unsupported keeper-refresh platform: ${localPlatform}`);
   }
+  const selfHost = await _isSelfHost(host);
+  const worker = selfHost
+    ? await localUpdateWorker()
+    : workerForDirectKeeperTarget(host);
+  if (worker.stale) throw new Error(`${worker.label}: keeper runtime proof is stale`);
 
-  const journalPath = join(
-    roostServiceDir(undefined, process.platform),
-    "transactions",
-    "keeper-refresh.json",
-  );
-  mkdirSync(dirname(journalPath), { recursive: true });
-  const transaction = await acquireMachineTransaction("keeper-refresh", journalPath);
+  let release: () => Promise<void>;
+  if (selfHost) {
+    const journalPath = keeperRefreshJournalPath(localPlatform);
+    mkdirSync(dirname(journalPath), { recursive: true });
+    const transaction = await acquireMachineTransaction("keeper-refresh", journalPath);
+    release = () => transaction.release();
+  } else {
+    const platformProbe = await sshExec(host, "uname -s");
+    const platform = platformProbe.stdout.trim();
+    if (platformProbe.exit !== 0 || (platform !== "Darwin" && platform !== "Linux")) {
+      throw new Error(
+        `cannot identify keeper-refresh target platform: ${platformProbe.stderr.trim()}`,
+      );
+    }
+    const { env } = await _backfillEnvFromPlist(host);
+    const deployPlatform = platform === "Linux" ? "linux" : "darwin";
+    const lockPath = remoteMachineTransactionPath(deployPlatform, env);
+    const lockOwner = `keeper-refresh-${crypto.randomUUID()}`;
+    await acquireRemoteDeployLock(host, lockPath, lockOwner);
+    release = () => releaseRemoteDeployLock(host, lockPath, lockOwner);
+  }
   try {
-    const self = await _isSelfHost(host);
-
-    const remoteCmd = `pkill -TERM -f ${KEEPER_PROC_PATTERN}`;
-    if (self) {
-      console.log(`>> local keeper-refresh (pkill -TERM -f ${KEEPER_PROC_PATTERN})`);
-      const proc = Bun.spawn({
-        cmd: ["pkill", "-TERM", "-f", KEEPER_PROC_PATTERN],
-        stdio: ["inherit", "inherit", "inherit"],
-      });
-      await proc.exited;
-      // pkill 0 = signalled; 1 = no match. Both retain the existing behavior.
-      console.log(proc.exitCode === 0
-        ? ">> keeper signalled; worker will re-spawn it on current code"
-        : ">> no running keeper matched (a fresh one spawns on next use)");
-      return;
-    }
-
-    console.log(`>> ssh ${host} '${remoteCmd}'`);
-    const result = await sshExec(host, remoteCmd);
-    if (result.exit === 0) {
-      console.log(">> keeper signalled; worker will re-spawn it on current code");
-    } else if (result.exit === 1) {
-      console.log(">> no running keeper matched (a fresh one spawns on next use)");
-    } else {
-      throw new Error(`ssh pkill failed (exit ${result.exit}): ${result.stderr.trim()}`);
-    }
+    const outcome = await prepareKeeperMaintenance(worker.fingerprint);
+    console.log(JSON.stringify({ outcome }));
   } finally {
-    await transaction.release();
+    await release();
   }
 }

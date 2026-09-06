@@ -19,7 +19,7 @@ const FIXTURE_WORKER: Worker = {
   registered_at_ms: 1717000000000,
   last_seen_ms: 1717000000000,
   reachable_addr: null,
-  keeper_stale: null,
+  keeper_runtime: null,
 };
 
 const FIXTURE_SESSION: Session = {

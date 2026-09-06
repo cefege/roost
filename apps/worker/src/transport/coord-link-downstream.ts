@@ -16,6 +16,7 @@ import type {
   DInputRequest,
   DTerminalSnapshotRequest,
   DTerminalStreamState,
+  DKeeperUpdatePrepare,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
@@ -202,6 +203,29 @@ export function createCoordLinkDownstream(
       }
       case "terminalSnapshotRequest": {
         deps.onTerminalSnapshotRequest?.(v as DTerminalSnapshotRequest);
+        return;
+      }
+      case "keeperUpdatePrepare": {
+        const request = v as DKeeperUpdatePrepare;
+        if (!deps.onKeeperUpdatePrepare) {
+          send({
+            kind: "rpc-error",
+            request_id: request.requestId,
+            message: "keeper update preparation unsupported by this worker",
+          });
+          return;
+        }
+        void Promise.resolve(deps.onKeeperUpdatePrepare(request))
+          .then((result) => send({
+            kind: "rpc-ok",
+            request_id: request.requestId,
+            data: result,
+          }))
+          .catch((error) => send({
+            kind: "rpc-error",
+            request_id: request.requestId,
+            message: error instanceof Error ? error.message : String(error),
+          }));
         return;
       }
       case "attachmentChunk": {

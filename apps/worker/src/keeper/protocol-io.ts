@@ -2,6 +2,10 @@
 // frames. Wire format and version history: ./protocol.ts.
 import { z } from "zod";
 import {
+  KeeperContractV1Schema,
+  type KeeperContractV1,
+} from "@roost/shared/keeper-update";
+import {
   allocateMuxFrame, isSafeSequence, KEEPER_MAX_INPUT_BYTES, MuxFrameType,
   readSequence, writeSequence,
 } from "./protocol-envelope.ts";
@@ -36,25 +40,8 @@ const HelloFeatureList = z.array(z.string().min(1).max(64))
   .max(32)
   .refine(features => new Set(features).size === features.length);
 
-const SortedContractFeatureList = z.array(z.string().min(1).max(64))
-  .max(32)
-  .refine(
-    features => features.every((feature, index) =>
-      index === 0 || features[index - 1]! < feature),
-    "keeper contract features must be sorted and unique",
-  )
-  .readonly();
-export const KeeperContractV1Schema = z.object({
-  protocol_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  supported_features: SortedContractFeatureList,
-  required_features: SortedContractFeatureList,
-  implementation_digest: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
-  bun_abi: z.string().min(1).max(128),
-  platform: z.enum(["darwin", "linux", "win32"]),
-  arch: z.string().min(1).max(64),
-  build_sha: z.string().min(1).max(128),
-}).strict().readonly();
-export type KeeperContractV1 = z.infer<typeof KeeperContractV1Schema>;
+export { KeeperContractV1Schema };
+export type { KeeperContractV1 };
 
 export const KeeperChannelBindingV1Schema = z.object({
   channel_id: z.number().int().positive().max(0xffff),

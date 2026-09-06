@@ -14,10 +14,14 @@ import {
 } from "./deploy-exec.ts";
 import {
   _macosDeployJournalPath,
-  _recoverMacosDeployJournal,
   MACOS_WORKER_LABEL,
 } from "./deploy-macos-journal.ts";
-import { createMacosDeployJournalController } from "./deploy-macos-journal-controller.ts";
+import { _recoverMacosDeployJournal } from "./deploy-macos-recovery.ts";
+import {
+  createMacosDeployJournalController,
+  type MacosApplyKeeperUpdate,
+  type MacosProveKeeperUpdate,
+} from "./deploy-macos-journal-controller.ts";
 import { verifyWorkerCmd } from "./service-ctl.ts";
 import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
@@ -36,6 +40,8 @@ export async function settleMacosWorkerRollout(
   host: string,
   machineTransactionPath: string,
   rawDirective: Readonly<WorkerRolloutDirective>,
+  applyKeeperUpdate?: MacosApplyKeeperUpdate,
+  proveKeeperUpdate?: MacosProveKeeperUpdate,
 ): Promise<void> {
   const directive = assertWorkerRolloutDirective(rawDirective);
   if (directive.action === "hold") {
@@ -46,7 +52,11 @@ export async function settleMacosWorkerRollout(
   const execute = (command: string) => sshExec(host, command, lease.signal);
   try {
     const journalPath = _macosDeployJournalPath(machineTransactionPath);
-    const controller = createMacosDeployJournalController(execute, journalPath, lease.signal);
+    const controller = createMacosDeployJournalController(execute, journalPath, {
+      signal: lease.signal,
+      applyKeeperUpdate,
+      proveKeeperUpdate,
+    });
     const result = await _recoverMacosDeployJournal(controller.recovery, directive);
     if (result.outcome === "none") {
       const expectedSha = directive.action === "finalize" ? directive.targetSha : directive.priorSha;

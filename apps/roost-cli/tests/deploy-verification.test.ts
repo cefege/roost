@@ -1,17 +1,46 @@
+// Verifies worker deployment proof, confinement, and generated Linux shell behavior.
+// Hermetic process fixtures exercise the same service output parsed by deploy drivers.
+// Journal literals include the keeper admission required before installed-worker updates.
+
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
 import { EventEmitter } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { _remoteDeployLockCommands, _startRemoteDeployLockRefreshForTest, DeployFailure, finishWorkerDeploy, REMOTE_MACHINE_TRANSACTION_PATHS, remoteMachineTransactionPath, run, workerServiceIsRunning, workerServiceMatchesRelease } from "../src/deploy-exec.ts";
-import { _linuxTargetVerificationCommand } from "../src/linux-deploy-journal-commands.ts";
-import type { LinuxDeployJournal } from "../src/linux-deploy-journal.ts";
-import { linuxWorkerResourceEnvironment } from "../src/deploy-linux.ts";
+import { _linuxLoadDeployJournalCommand, _linuxStopWorkerServiceCommand, _linuxTargetVerificationCommand, linuxWorkerResourceEnvironment } from "../src/linux-deploy-journal-commands.ts";
 import {
   linuxCoordinatorWorkingDirectoryCommand,
   shouldRemovePriorWorkerRelease,
 } from "../src/deploy-linux-recovery.ts";
+import type { LinuxDeployJournal } from "../src/linux-deploy-journal.ts";
+const KEEPER_DIGEST = "1".repeat(64);
+const LINUX_KEEPER_CONTRACT = {
+  protocol_version: 1,
+  supported_features: ["history-v1"],
+  required_features: [],
+  implementation_digest: KEEPER_DIGEST,
+  bun_abi: "bun-linux-x64-v1",
+  platform: "linux",
+  arch: "x64",
+  build_sha: "source",
+} as const;
+const LINUX_KEEPER_UPDATE = {
+  admission: {
+    classification: "worker-only-safe",
+    source_contract_digest: KEEPER_DIGEST,
+    target_contract_digest: KEEPER_DIGEST,
+    expected_keeper_pid: 700,
+    expected_keeper_epoch: "22222222-2222-4222-8222-222222222222",
+    expected_binding_digest: "3".repeat(64),
+    required_action: "preserve",
+  },
+  source_contract: LINUX_KEEPER_CONTRACT,
+  target_contract: { ...LINUX_KEEPER_CONTRACT, build_sha: "target" },
+} as const satisfies JournaledKeeperUpdateV1;
+
 
 describe("worker deployment verification", () => {
   test("a failed verification preserves output and never prints success", () => {
@@ -292,6 +321,8 @@ describe("worker deployment verification", () => {
       phase: "activating",
       targetSha: "a".repeat(40),
       rolloutId: null,
+      workerFingerprint: "f".repeat(64),
+      keeperUpdate: LINUX_KEEPER_UPDATE,
       targetReleasePath: target,
       priorUnit: "[Service]\n",
       priorUnitMode: 0o600,
@@ -333,6 +364,16 @@ describe("worker deployment verification", () => {
       ROOST_WORKER_TASKS_MAX: "8192",
       ROOST_WORKER_LOGROTATE_CONF: "/srv/worker%logs/worker.conf",
     });
+  });
+  test("Linux journal loading and worker stop share the fixed schema boundary", () => {
+    const journalPath = "/home/worker/service/worker-deploy-journal";
+    const load = _linuxLoadDeployJournalCommand(journalPath);
+    expect(load).toContain('test "$schema" = 4');
+    expect(load).toContain("rollout-id worker-fingerprint keeper-update prior-unit-state");
+    const stop = _linuxStopWorkerServiceCommand(journalPath);
+    expect(stop).toContain("systemctl --user stop roost-worker");
+    expect(stop).toContain("--property=MainPID");
+    expect(stop).not.toContain("pkill");
   });
 
   test("aborted deployment signals refuse new processes and stop active ones", async () => {

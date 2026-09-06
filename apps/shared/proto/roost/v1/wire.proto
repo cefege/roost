@@ -18,6 +18,29 @@ message HostMetrics {
   uint64 sampled_at_ms = 8;
 }
 
+// Keeper artifact identity and post-reconciliation runtime proof. build_sha is
+// provenance only; update admission compares every other contract field.
+message KeeperContractV1 {
+  uint32 protocol_version = 1;
+  repeated string supported_features = 2;
+  repeated string required_features = 3;
+  optional string implementation_digest = 4;
+  string bun_abi = 5;
+  string platform = 6;
+  string arch = 7;
+  string build_sha = 8;
+}
+
+message KeeperRuntimeObservationV1 {
+  uint32 schema_version = 1;
+  KeeperContractV1 running_contract = 2;
+  uint64 keeper_pid = 3;
+  string keeper_epoch = 4;
+  uint32 channel_count = 5;
+  string binding_digest = 6;
+  uint64 reconciled_at_ms = 7;
+}
+
 message Worker {
   string fp = 1;
   string label = 2;
@@ -32,9 +55,10 @@ message Worker {
   // URLs. Not used for the worker's outbound coord link (the worker
   // dials coord, not the other way around).
   optional string reachable_addr = 8;
-  // Tri-state keeper build proof: absent = unknown/unreported, empty = current,
-  // non-empty = stale running build stamp.
-  optional string keeper_stale = 9;
+  reserved 9;
+  reserved "keeper_stale";
+  // Authenticated keeper identity emitted only after boot reconciliation.
+  optional KeeperRuntimeObservationV1 keeper_runtime = 10;
 }
 
 // ─── Session ────────────────────────────────────────────────────────────

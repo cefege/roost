@@ -46,7 +46,6 @@ describe("authorized device lifecycle", () => {
       registered_at_ms: 1,
       last_seen_ms: 1,
       reachable_addr: null,
-      keeper_stale: null,
     }).execute();
 
     const response = await h.handlers.devicesList(

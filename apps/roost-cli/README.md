@@ -199,6 +199,13 @@ and `src/windows/windows-update-broker.ts`.
   `src/coordinator-service-definition.ts`, `src/deploy-local.ts`, and
   `src/deploy-macos-journal-controller.ts` through that facade. Do not fork
   identifiers or bootout → bootstrap → enable → kickstart ordering by OS/caller.
+- **Keeper update admission is fail closed.** `push`, direct POSIX `deploy`,
+  and self-update require authenticated runtime proof before they mutate a
+  registered worker. A release that predates keeper-runtime reporting cannot
+  be live-upgraded through the new orchestrator: drain its PTYs and install the
+  reporting release with that release's updater first. Missing legacy database
+  columns project as unproven rows so the attempt reports the blocked worker
+  with zero coordinator, repository, worker, or keeper mutation.
 - **Release assets are verified in exactly one place.**
   `fetchAndVerifyReleaseAsset` in `src/update.ts` is the only download path — self
   update, Windows fleet preflight, and Windows coordinator update all resolve

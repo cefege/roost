@@ -9,8 +9,20 @@ import { createWriteStream, renameSync } from "node:fs";
 import { chmod, rm } from "node:fs/promises";
 import { basename } from "node:path";
 import { finished } from "node:stream/promises";
-import { ROOST_VERSION } from "./version.ts";
+import { acquireMachineTransaction } from "./machine-transaction.ts";
+import {
+  checkpointPosixSelfUpdate,
+  loadPosixSelfUpdateJournal,
+  posixSelfUpdateJournalPath,
+} from "./posix-self-update-journal.ts";
 import { currentServiceOs, restartCoordCmd, restartWorkerCmd } from "./service-ctl.ts";
+import {
+  _continueAfterPosixSelfUpdateRecovery,
+  admitPosixSelfUpdateCandidate,
+  canonicalReleaseVersion,
+  recoverPosixSelfUpdateJournal,
+} from "./update-posix-rollout.ts";
+import { ROOST_VERSION } from "./version.ts";
 
 const REPO = "cefege/roost";
 export const WINDOWS_RELEASE_ASSET = "roost-windows-x64.zip";
@@ -167,9 +179,9 @@ export async function fetchAndVerifyReleaseAsset(
  *  doesn't self-update forever. Empty tag (no release yet) → never. */
 export function needsUpdate(current: string, latestTag: string): boolean {
   if (!latestTag) return false;
+  const latestVersion = canonicalReleaseVersion(latestTag);
   if (current === "dev") return true;
-  const norm = (s: string) => s.replace(/^v/, "").split("+")[0];
-  return norm(current) !== norm(latestTag);
+  return canonicalReleaseVersion(current) !== latestVersion;
 }
 
 export interface UpdateDeps {
@@ -178,6 +190,8 @@ export interface UpdateDeps {
   fetchLatestTag: () => Promise<string>;
   downloadBinary: (destPath: string) => Promise<void>;
   replaceSelf: (fromPath: string) => void;
+  admitCandidate?: (candidatePath: string, targetVersion: string) => Promise<void>;
+  didReplace?: (targetVersion: string) => Promise<void>;
   log: (m: string) => void;
 }
 
@@ -195,7 +209,14 @@ export async function runUpdate(deps: UpdateDeps): Promise<{ updated: boolean; t
   deps.log(`updating ${deps.currentVersion} → ${latest} …`);
   const tmp = `${deps.execPath}.new`;
   await deps.downloadBinary(tmp);
-  deps.replaceSelf(tmp);
+  try {
+    await deps.admitCandidate?.(tmp, latest);
+    deps.replaceSelf(tmp);
+    await deps.didReplace?.(latest);
+  } catch (error) {
+    await rm(tmp, { force: true });
+    throw error;
+  }
   const os = currentServiceOs();
   deps.log(`updated to ${latest}. Restart the services to apply:`);
   deps.log(`  ${restartCoordCmd(os)}`);
@@ -246,16 +267,44 @@ export async function update(_args: string[]): Promise<void> {
   if (process.platform !== "darwin" && process.platform !== "linux") {
     throw new Error(`self-update is unsupported on ${process.platform}`);
   }
-  await runUpdate({
-    currentVersion: ROOST_VERSION,
-    execPath: process.execPath,
-    log: (m) => console.log(`>> ${m}`),
-    fetchLatestTag: async () => (await fetchLatestRelease()).tag,
-    downloadBinary: async (dest) => {
-      await fetchAndVerifyReleaseAsset(releaseAssetName(), { destPath: dest });
-    },
-    replaceSelf: (from) => { renameSync(from, process.execPath); },
-  });
+  const journalPath = posixSelfUpdateJournalPath();
+  const transaction = await acquireMachineTransaction("update", journalPath);
+  try {
+    try {
+      await _continueAfterPosixSelfUpdateRecovery(
+        recoverPosixSelfUpdateJournal,
+        async () => runUpdate({
+          currentVersion: ROOST_VERSION,
+          execPath: process.execPath,
+          log: (message) => console.log(`>> ${message}`),
+          fetchLatestTag: async () => (await fetchLatestRelease()).tag,
+          downloadBinary: async (destination) => {
+            await fetchAndVerifyReleaseAsset(releaseAssetName(), {
+              destPath: destination,
+            });
+          },
+          admitCandidate: admitPosixSelfUpdateCandidate,
+          replaceSelf: (source) => { renameSync(source, process.execPath); },
+          didReplace: async () => {
+            const journal = loadPosixSelfUpdateJournal(journalPath);
+            if (!journal) throw new Error("self-update admission journal disappeared");
+            await checkpointPosixSelfUpdate(journal, "installed", journalPath);
+            const outcome = await recoverPosixSelfUpdateJournal();
+            if (outcome !== "target-committed") {
+              throw new Error(
+                "self-update target failed convergence and the source executable was restored",
+              );
+            }
+          },
+        }),
+      );
+    } catch (error) {
+      if (loadPosixSelfUpdateJournal(journalPath)) await recoverPosixSelfUpdateJournal();
+      throw error;
+    }
+  } finally {
+    await transaction.release();
+  }
 }
 
 async function fetchLatestRelease(): Promise<{ tag: string }> {

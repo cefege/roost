@@ -22,7 +22,7 @@ function worker(fp: string, label: string): Worker {
     registered_at_ms: 1,
     last_seen_ms: Date.now(),
     reachable_addr: null,
-    keeper_stale: null,
+    keeper_runtime: null,
   } as Worker;
 }
 

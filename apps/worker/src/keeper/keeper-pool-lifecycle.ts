@@ -110,6 +110,7 @@ export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<voi
     s.on("data", (chunk: Buffer | Uint8Array) => handleFrameData(pool, Buffer.from(chunk)));
     s.on("close", () => {
         pool.socket = null;
+        pool._runningKeeperContract = null;
         // Adopted (survivor) keeper: this pool connected to a pre-existing
         // socket without spawning, so no proc.exited above owns its death.
         // Socket close therefore = the adopted keeper died — surface it
@@ -166,9 +167,7 @@ export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<voi
     });
     pool.socket = s;
     pool.setKeeperFeatures(connection.features);
-    if (connection.contract) {
-      pool.setRunningKeeperContract(connection.contract);
-    }
+    pool._runningKeeperContract = connection.contract ?? null;
     pool.buf = Buffer.alloc(0);
     for (const frame of connection.pendingFrames) {
       handleFrameData(pool, encodeMuxFrame(frame.type, frame.channelId, frame.payload));

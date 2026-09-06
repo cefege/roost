@@ -63,8 +63,8 @@ export function insertWorker(
   sqlite.query(`
     INSERT INTO workers
       (fp, label, os, git_sha, host_metrics_json, registered_at_ms,
-       last_seen_ms, reachable_addr, keeper_stale, dashboard_id)
-    VALUES (?, ?, 'linux', NULL, NULL, 1, 1, ?, NULL, ?)
+       last_seen_ms, reachable_addr, dashboard_id)
+    VALUES (?, ?, 'linux', NULL, NULL, 1, 1, ?, ?)
   `).run(fingerprint, fingerprint, `${fingerprint}.example`, dashboardId);
 }
 

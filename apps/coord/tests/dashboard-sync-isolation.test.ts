@@ -47,8 +47,8 @@ beforeAll(async () => {
     { id: dashboardB, organization_id: "sync-isolation-org", slug: "b", name: "B", status: "active", created_at_ms: now },
   ]).execute();
   await db.insertInto("workers").values([
-    { fp: workerA, dashboard_id: dashboardA, label: "A", os: "linux", git_sha: null, host_metrics_json: null, registered_at_ms: now, last_seen_ms: now, reachable_addr: null, keeper_stale: null },
-    { fp: workerB, dashboard_id: dashboardB, label: "B", os: "linux", git_sha: null, host_metrics_json: null, registered_at_ms: now, last_seen_ms: now, reachable_addr: null, keeper_stale: null },
+    { fp: workerA, dashboard_id: dashboardA, label: "A", os: "linux", git_sha: null, host_metrics_json: null, registered_at_ms: now, last_seen_ms: now, reachable_addr: null },
+    { fp: workerB, dashboard_id: dashboardB, label: "B", os: "linux", git_sha: null, host_metrics_json: null, registered_at_ms: now, last_seen_ms: now, reachable_addr: null },
   ]).execute();
   await db.insertInto("sessions").values([
     { id: sessionA, dashboard_id: dashboardA, worker_fp: workerA, channel: 1, kind: "shell", cwd: "/a", workspace_id: null, status: "open", agent_json: sql<undefined>`NULL`, created_at: now, closed_at: null, custom_title: null, git_branch: null, git_remote: null, pr_number: null, pr_state: null, pr_checks: null, pr_url: null, ports_json: null, spawn_cwd: null },

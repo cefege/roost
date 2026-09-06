@@ -1,14 +1,6 @@
-// The startCoordLink() dependency object for the worker process. Every
-// coordinator→worker callback the worker answers lives here: terminal input and
-// viewport writes, PTY byte demux, attachment chunks, browser commands, the
-// coordinator-move handshake and the Windows update broker. Extracted verbatim
-// from main.ts (CLAUDE.md 400-line cap); main.ts keeps boot orchestration.
-//
-// Why forward refs instead of closures: the CoordLink, the SessionManager and
-// the AgentStatusRegistry are all constructed FROM this object, so none of them
-// exists when it is built. main.ts already solved that for two callbacks with
-// `sessionMgrForResnapshot` / `agentRegistryForReconnect`; CoordLinkRefs is the
-// same pattern generalised so the whole object can live in its own module.
+// Builds the coordinator-link dependency object for the worker process.
+// Forward refs preserve construction order for the link, SessionManager, and
+// agent registry; focused handlers own stateful downstream protocols.
 
 import { randomUUID, createHash } from "node:crypto";
 import { diag, isDiagEnabled, signal } from "@roost/shared/diag";
@@ -20,6 +12,7 @@ import {
 	TerminalStreamStatus,
 	TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
+import { createKeeperUpdatePrepareHandler } from "./coord-link-keeper-update.ts";
 import { handleAttachmentChunk } from "./attachment-upload.ts";
 import { handleBrowserCommand } from "./browser-command-handler.ts";
 import type { CoordTarget } from "./coord-target.ts";
@@ -83,13 +76,13 @@ async function replayDurableWindowsUpdateProgress(coordLink: CoordLink): Promise
 	}
 }
 
-/** Forward refs to the three objects built FROM these deps. runWorker assigns
- * each one the instant it exists; every downstream frame arrives strictly after
- * that, so a null read here is a boot-wiring bug rather than a race. */
+/** Forward refs to the objects built FROM these deps. runWorker assigns each
+ * one the instant it exists; downstream frames arrive only after binding. */
 export interface CoordLinkRefs {
 	link: CoordLink | null;
 	sessionMgr: SessionManager | null;
 	agentRegistry: AgentStatusRegistry | null;
+	acquireKeeperUpdateBoundary: (() => Promise<() => void>) | null;
 }
 
 export interface CoordLinkDepsCtx {
@@ -113,6 +106,10 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		if (!refs.link) throw new Error("coord-link deps used before the link was bound");
 		return refs.link;
 	};
+	const onKeeperUpdatePrepare = createKeeperUpdatePrepareHandler({
+		sessionManager: mgr,
+		acquireKeeperUpdateBoundary: () => refs.acquireKeeperUpdateBoundary,
+	});
 	return {
 		coordHttpUrl: ctx.coordHttpUrl,
 		workerFp: ctx.workerFp,
@@ -202,6 +199,7 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 				),
 			});
 		},
+		onKeeperUpdatePrepare,
 		onTerminalSnapshotRequest: (request) => {
 			mgr().requestTerminalSnapshot(request.sessionId, request.streamId);
 		},

@@ -1,12 +1,12 @@
-// Schema, confinement, parsing, decision, and the recovery state machine for
-// the macOS worker deploy journal (macos-worker-deploy-v1.json beside the
-// machine-transaction database). Pure TypeScript only: the remote bun -e
-// program lives in macos-deploy-journal-program.ts and the ssh command
-// builders/controller live in deploy-macos-journal-controller.ts. Tests pin
-// the `_`-prefixed surface; the remote program mirrors this module's
-// validation, so change them together. Built on posix-deploy-journal.ts.
+// Schema, strict parsing, and pure decisions for the macOS worker journal.
+// The remote Bun program and SSH controller mirror this byte contract.
+// Recovery choreography lives in deploy-macos-recovery.ts.
 
 import { posix } from "node:path";
+import {
+  JournaledKeeperUpdateV1Schema,
+  type JournaledKeeperUpdateV1,
+} from "@roost/shared/keeper-update";
 import {
   POSIX_RELEASE_ID_SUFFIX_RE,
   isCanonicalAbsolutePosixPath,
@@ -15,25 +15,30 @@ import {
 } from "./posix-deploy-journal.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import {
-  assertWorkerRolloutDirective,
-  assertWorkerRolloutMatches,
   workerRolloutIdOrNull,
-  type WorkerRolloutDirective,
+  workerRolloutFingerprintOrNull,
 } from "./worker-deploy-rollout.ts";
 
 export const MACOS_WORKER_LABEL = "com.roost.worker-v2";
 const MACOS_DEPLOY_JOURNAL_FILE = "macos-worker-deploy-v1.json";
-const MACOS_GIT_SHA_RE = /^[a-f0-9]{40,64}$/;
+export const MACOS_GIT_SHA_RE = /^[a-f0-9]{40,64}$/;
 
 export type MacosWorkerLifecycle = "unloaded" | "loaded" | "running";
-export type MacosDeployJournalPhase = "prepared" | "activating" | "activated";
+export type MacosDeployJournalPhase =
+  | "prepared"
+  | "activating"
+  | "activated"
+  | "committing"
+  | "rolling-back";
 
-export interface MacosDeployJournalV1 {
-  schemaVersion: 1;
+export interface MacosDeployJournalV2 {
+  schemaVersion: 2;
   phase: MacosDeployJournalPhase;
   targetGitSha: string;
   targetReleasePath: string;
   rolloutId: string | null;
+  workerFingerprint: string | null;
+  keeperUpdate: JournaledKeeperUpdateV1 | null;
   priorPlistBase64: string | null;
   priorPlistMode: number | null;
   priorLifecycle: MacosWorkerLifecycle;
@@ -49,6 +54,8 @@ interface MacosDeployJournalCandidate {
   targetGitSha?: unknown;
   targetReleasePath?: unknown;
   rolloutId?: unknown;
+  workerFingerprint?: unknown;
+  keeperUpdate?: unknown;
   priorPlistBase64?: unknown;
   priorPlistMode?: unknown;
   priorLifecycle?: unknown;
@@ -65,27 +72,44 @@ export interface MacosDeployTargetProof {
 }
 
 export interface MacosDeployRecoveryRemote {
-  load(): Promise<MacosDeployJournalV1 | null>;
-  checkpointActivated(journal: Readonly<MacosDeployJournalV1>): Promise<MacosDeployJournalV1>;
-  proveTarget(journal: Readonly<MacosDeployJournalV1>): Promise<MacosDeployTargetProof>;
-  bootout(journal: Readonly<MacosDeployJournalV1>): Promise<void>;
-  restorePriorDefinition(journal: Readonly<MacosDeployJournalV1>): Promise<void>;
-  setDisabled(journal: Readonly<MacosDeployJournalV1>, disabled: boolean): Promise<void>;
-  bootstrap(journal: Readonly<MacosDeployJournalV1>): Promise<void>;
-  kickstart(journal: Readonly<MacosDeployJournalV1>): Promise<void>;
-  stop(journal: Readonly<MacosDeployJournalV1>): Promise<void>;
-  provePrior(journal: Readonly<MacosDeployJournalV1>): Promise<void>;
-  removeTarget(journal: Readonly<MacosDeployJournalV1>): Promise<void>;
-  cleanupPriorRelease(journal: Readonly<MacosDeployJournalV1>): Promise<void>;
-  clear(journal: Readonly<MacosDeployJournalV1>): Promise<void>;
+  load(): Promise<MacosDeployJournalV2 | null>;
+  checkpointActivated(journal: Readonly<MacosDeployJournalV2>): Promise<MacosDeployJournalV2>;
+  checkpointRollback(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  checkpointCommit(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  proveTarget(journal: Readonly<MacosDeployJournalV2>): Promise<MacosDeployTargetProof>;
+  bootout(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  restorePriorDefinition(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  setDisabled(journal: Readonly<MacosDeployJournalV2>, disabled: boolean): Promise<void>;
+  applyKeeperUpdate(
+    workerFingerprint: string,
+    update: JournaledKeeperUpdateV1,
+    direction: "source" | "target",
+    actionReleasePath: string,
+  ): Promise<void>;
+  proveKeeperUpdate(
+    workerFingerprint: string,
+    update: JournaledKeeperUpdateV1,
+    direction: "source" | "target",
+    expectedWorkerSha: string,
+    heartbeatNotBeforeMs: number,
+    actionReleasePath: string,
+  ): Promise<void>;
+  bootstrap(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  kickstart(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  stop(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  provePrior(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  removeTarget(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  cleanupPriorRelease(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  clear(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  now?: () => number;
 }
 
 export type MacosDeployRecoveryResult =
   | { outcome: "none" }
-  | { outcome: "prepared-cleaned"; journal: MacosDeployJournalV1 }
-  | { outcome: "held"; journal: MacosDeployJournalV1; targetProof: MacosDeployTargetProof }
-  | { outcome: "committed"; journal: MacosDeployJournalV1; targetProof: MacosDeployTargetProof }
-  | { outcome: "rolled-back"; journal: MacosDeployJournalV1; targetProof: MacosDeployTargetProof | null };
+  | { outcome: "prepared-cleaned"; journal: MacosDeployJournalV2 }
+  | { outcome: "held"; journal: MacosDeployJournalV2; targetProof: MacosDeployTargetProof }
+  | { outcome: "committed"; journal: MacosDeployJournalV2; targetProof: MacosDeployTargetProof }
+  | { outcome: "rolled-back"; journal: MacosDeployJournalV2; targetProof: MacosDeployTargetProof | null };
 
 
 /** The journal is fixed beside the renewable machine-transaction database. */
@@ -117,7 +141,7 @@ export function _isConfinedMacosReleasePath(
 export function _parseMacosDeployJournal(
   value: unknown,
   releaseRoot: string,
-): MacosDeployJournalV1 {
+): MacosDeployJournalV2 {
   const candidate = posixJournalObjectValue(
     value,
     "macOS deploy journal is not an object",
@@ -128,6 +152,8 @@ export function _parseMacosDeployJournal(
     targetGitSha,
     targetReleasePath,
     rolloutId,
+    workerFingerprint,
+    keeperUpdate,
     priorPlistBase64,
     priorPlistMode,
     priorLifecycle,
@@ -136,8 +162,20 @@ export function _parseMacosDeployJournal(
     createdAt,
     updatedAt,
   } = candidate;
-  if (schemaVersion !== 1) throw new Error("macOS deploy journal schema is unsupported");
-  if (phase !== "prepared" && phase !== "activating" && phase !== "activated") {
+  const journalFields = [
+    "schemaVersion", "phase", "targetGitSha", "targetReleasePath", "rolloutId",
+    "workerFingerprint", "keeperUpdate", "priorPlistBase64", "priorPlistMode",
+    "priorLifecycle", "priorPid", "priorDisabled", "createdAt", "updatedAt",
+  ];
+  const presentFields = Object.keys(candidate);
+  if (presentFields.length !== journalFields.length
+    || presentFields.some(field => !journalFields.includes(field))) {
+    throw new Error("macOS deploy journal fields are malformed");
+  }
+  if (schemaVersion !== 2) throw new Error("macOS deploy journal schema is unsupported");
+  if (phase !== "prepared" && phase !== "activating"
+    && phase !== "activated" && phase !== "committing"
+    && phase !== "rolling-back") {
     throw new Error("macOS deploy journal phase is malformed");
   }
   if (typeof targetGitSha !== "string"
@@ -146,6 +184,19 @@ export function _parseMacosDeployJournal(
     throw new Error("macOS deploy journal target path or identity is malformed");
   }
   const parsedRolloutId = workerRolloutIdOrNull(rolloutId, "macOS worker rollout ID");
+  const parsedWorkerFingerprint = workerRolloutFingerprintOrNull(
+    workerFingerprint,
+    "macOS worker fingerprint",
+  );
+  const parsedKeeperUpdate = keeperUpdate === null
+    ? null
+    : JournaledKeeperUpdateV1Schema.safeParse(keeperUpdate);
+  if (parsedKeeperUpdate !== null && !parsedKeeperUpdate.success) {
+    throw new Error("macOS deploy journal keeper update is malformed");
+  }
+  if ((parsedKeeperUpdate === null) !== (parsedWorkerFingerprint === null)) {
+    throw new Error("macOS deploy journal keeper update and worker fingerprint disagree");
+  }
   if (priorLifecycle !== "unloaded" && priorLifecycle !== "loaded" && priorLifecycle !== "running") {
     throw new Error("macOS deploy journal prior lifecycle is malformed");
   }
@@ -158,6 +209,9 @@ export function _parseMacosDeployJournal(
   }
   if (typeof priorDisabled !== "boolean") {
     throw new Error("macOS deploy journal disabled override is malformed");
+  }
+  if (priorLifecycle === "loaded" && !priorDisabled) {
+    throw new Error("enabled KeepAlive worker cannot have a durable loaded lifecycle");
   }
   if (priorPlistBase64 !== null) {
     if (typeof priorPlistBase64 !== "string" || priorPlistBase64.length > 2 * 1024 * 1024) {
@@ -181,6 +235,24 @@ export function _parseMacosDeployJournal(
     || priorPlistMode > 0o777) {
     throw new Error("macOS deploy journal prior plist mode is malformed");
   }
+  const checkedKeeperUpdate = parsedKeeperUpdate === null
+    ? null
+    : parsedKeeperUpdate.data;
+  if ((priorPlistBase64 === null) !== (checkedKeeperUpdate === null)) {
+    throw new Error(
+      "macOS deploy journal keeper update must be null only for an absent prior service",
+    );
+  }
+  if (checkedKeeperUpdate && priorPlistBase64) {
+    const priorEnvironment = parsePosixServiceEnvironment(
+      Buffer.from(priorPlistBase64, "base64").toString("utf8"),
+      "darwin",
+    );
+    const priorSha = priorEnvironment.GIT_SHA ?? priorEnvironment.ROOST_GIT_SHA;
+    if (!priorSha || !MACOS_GIT_SHA_RE.test(priorSha)) {
+      throw new Error("macOS deploy journal cannot prove the prior worker identity");
+    }
+  }
   if (typeof createdAt !== "string"
     || typeof updatedAt !== "string"
     || !Number.isFinite(Date.parse(createdAt))
@@ -188,16 +260,18 @@ export function _parseMacosDeployJournal(
     throw new Error("macOS deploy journal timestamps are malformed");
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     phase,
     targetGitSha,
     targetReleasePath,
     rolloutId: parsedRolloutId,
+    workerFingerprint: parsedWorkerFingerprint,
+    keeperUpdate: checkedKeeperUpdate,
     priorPlistBase64,
     priorPlistMode,
     priorLifecycle,
-    priorDisabled,
     priorPid,
+    priorDisabled,
     createdAt,
     updatedAt,
   };
@@ -215,91 +289,3 @@ export function _decideMacosDeployRecovery(
   );
 }
 
-/**
- * Recover one journal while its caller holds the remote deployment lease.
- * Clear is deliberately last in every branch: a dead CLI or failed proof
- * leaves an idempotent transaction for the next deploy to resume.
- */
-export async function _recoverMacosDeployJournal(
-  remote: MacosDeployRecoveryRemote,
-  directive?: Readonly<WorkerRolloutDirective>,
-): Promise<MacosDeployRecoveryResult> {
-  const journal = await remote.load();
-  if (!journal) return { outcome: "none" };
-  const requested = directive ? assertWorkerRolloutDirective(directive) : null;
-  if (requested) {
-    assertWorkerRolloutMatches({
-      rolloutId: journal.rolloutId,
-      targetSha: journal.targetGitSha,
-    }, requested);
-    const priorEnvironment = journal.priorPlistBase64 === null
-      ? {}
-      : parsePosixServiceEnvironment(
-          Buffer.from(journal.priorPlistBase64, "base64").toString("utf8"),
-          "darwin",
-        );
-    const priorSha = priorEnvironment.GIT_SHA ?? priorEnvironment.ROOST_GIT_SHA;
-    if (journal.priorLifecycle !== "running" || priorSha?.toLowerCase() !== requested.priorSha) {
-      throw new Error("macOS worker journal does not prove the fleet rollout prior identity");
-    }
-  }
-  if (journal.rolloutId !== null && !requested) {
-    throw new Error("a fleet rollout still owns the macOS worker deploy journal");
-  }
-  const rollback = async (
-    targetProof: MacosDeployTargetProof | null,
-  ): Promise<MacosDeployRecoveryResult> => {
-    await remote.bootout(journal);
-    await remote.restorePriorDefinition(journal);
-    if (journal.priorLifecycle === "running") {
-      await remote.setDisabled(journal, false);
-      await remote.bootstrap(journal);
-      await remote.kickstart(journal);
-      await remote.setDisabled(journal, journal.priorDisabled);
-    } else if (journal.priorLifecycle === "loaded") {
-      await remote.setDisabled(journal, false);
-      await remote.bootstrap(journal);
-      await remote.setDisabled(journal, true);
-      await remote.stop(journal);
-      await remote.setDisabled(journal, journal.priorDisabled);
-    } else {
-      await remote.setDisabled(journal, journal.priorDisabled);
-    }
-    await remote.provePrior(journal);
-    await remote.removeTarget(journal);
-    await remote.clear(journal);
-    return { outcome: "rolled-back", journal, targetProof };
-  };
-  if (journal.phase === "prepared") {
-    if (requested?.action === "finalize") {
-      throw new Error("cannot finalize a macOS worker before activation");
-    }
-    await remote.removeTarget(journal);
-    await remote.clear(journal);
-    return { outcome: "prepared-cleaned", journal };
-  }
-  if (requested?.action === "rollback") return await rollback(null);
-  const targetProof = await remote.proveTarget(journal);
-  const targetHealthy = targetProof.definitionMatches && targetProof.running;
-  if (journal.rolloutId !== null) {
-    if (requested?.action === "finalize") {
-      if (journal.phase !== "activated" || !targetHealthy) {
-        throw new Error("cannot finalize an unproven macOS worker target");
-      }
-      await remote.cleanupPriorRelease(journal);
-      await remote.clear(journal);
-      return { outcome: "committed", journal, targetProof };
-    }
-    if (!targetHealthy) return await rollback(targetProof);
-    const heldJournal = journal.phase === "activating"
-      ? await remote.checkpointActivated(journal)
-      : journal;
-    return { outcome: "held", journal: heldJournal, targetProof };
-  }
-  if (_decideMacosDeployRecovery(journal.phase, targetProof) === "commit") {
-    await remote.cleanupPriorRelease(journal);
-    await remote.clear(journal);
-    return { outcome: "committed", journal, targetProof };
-  }
-  return await rollback(targetProof);
-}

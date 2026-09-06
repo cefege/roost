@@ -2,14 +2,16 @@
 // Keeping these types dependency-free prevents the extracted status concerns
 // from reaching through one another just to describe the same report.
 
+import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
+
 export interface WorkerStatus {
   fingerprint: string;
   label: string;
   os: string;
   reachableAddr: string | null;
   gitSha: string | null;
-  keeperState: "current" | "unknown" | "stale";
-  keeperBuild: string | null;
+  keeperRuntime: KeeperRuntimeObservationV1 | null;
+  coordinatorOpenSessionIds: readonly string[];
   lastSeenMs: number;
   ageMs: number;
   stale: boolean;

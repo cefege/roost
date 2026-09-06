@@ -6,11 +6,12 @@ import * as emit from "./session-emit.ts";
 import * as gitPorts from "./session-git-ports.ts";
 import * as spawnFns from "./session-spawn.ts";
 import * as resumeFns from "./session-resume.ts";
-import * as respawnFns from "./session-respawn.ts";
+import * as respawnAdmission from "./session-respawn-admission.ts";
 import * as lifecycle from "./session-lifecycle.ts";
 import * as terminalControl from "./session-terminal-control.ts";
 import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
 import { SessionManagerState } from "./session-manager-state.ts";
+import { SessionChannelCreationGate } from "./session-channel-creation-gate.ts";
 import { releaseSyncOutputHold } from "./session-sync-output.ts";
 import { diagSnapshot } from "./session-diag-snapshot.ts";
 import { _enqueueRawMetadata } from "./session-raw-metadata.ts";
@@ -42,6 +43,36 @@ export function isSessionLifecycleDurabilityError(error: unknown): boolean {
 
 
 export class SessionManager extends SessionManagerState {
+	readonly #channelCreationGate = new SessionChannelCreationGate();
+
+	get keeperUpdatePrepared(): boolean {
+		return this.#channelCreationGate.preparationActive;
+	}
+
+	/** Close channel creation synchronously, then wait for every creation that
+	 * already held a lease. Rollback releases only this preparation attempt. */
+	beginKeeperUpdatePreparation(): Promise<() => void> {
+		return this.#channelCreationGate.beginPreparation();
+	}
+
+	#executeAdmittedChannelCreation<Result>(
+		create: () => Promise<Result>,
+	): Promise<Result> {
+		const lease = this.#channelCreationGate.tryAcquire();
+		if (!lease) {
+			return Promise.reject(
+				new Error("worker keeper update preparation blocks channel creation"),
+			);
+		}
+		let creation: Promise<Result>;
+		try {
+			creation = create();
+		} catch (error) {
+			lease.release();
+			throw error;
+		}
+		return creation.finally(lease.release);
+	}
 	nextTerminalStreamVersion(): number {
 		return ++this.terminalStreamVersion;
 	}
@@ -223,84 +254,75 @@ export class SessionManager extends SessionManagerState {
 		targetSessionId?: SessionId,
 		existingLogicalSession = false,
 	): Promise<SessionRecord> {
-		if (
-			targetSessionId
-			&& (
-				this.getBySessionId(targetSessionId)
-				|| this.pendingSpawnSessionIds.has(targetSessionId)
-			)
-		) {
-			return Promise.reject(new Error(`session ${targetSessionId} is already live or spawning`));
-		}
-		if (
-			!existingLogicalSession
-			&& this.sessions.size + this.pendingSnapshotSessionAdmissions >= WORKER_SNAPSHOT_MAX_SESSIONS
-		) {
-			return Promise.reject(new Error("worker session snapshot limit reached"));
-		}
-		const countedAdmission = !existingLogicalSession;
-		if (countedAdmission) this.pendingSnapshotSessionAdmissions += 1;
-		let openedReservation: LifecycleReservation;
-		try {
-			openedReservation = this.reserveLifecycleEvent("opened");
-		} catch (error) {
-			if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
-			throw error;
-		}
-		let closeReservation: LifecycleReservation;
-		try {
-			closeReservation = this.reserveLifecycleEvent("closed");
-		} catch (error) {
-			this.releaseLifecycleEvent(openedReservation);
-			if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
-			throw error;
-		}
-		if (targetSessionId) this.pendingSpawnSessionIds.add(targetSessionId);
-		return spawnFns.spawnShell.call(
-			this,
-			cwd,
-			cols,
-			rows,
-			targetSessionId,
-			openedReservation,
-			closeReservation,
-		).finally(() => {
-			if (targetSessionId) this.pendingSpawnSessionIds.delete(targetSessionId);
-			if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
+		return this.#executeAdmittedChannelCreation(() => {
+			if (
+				targetSessionId
+				&& (
+					this.getBySessionId(targetSessionId)
+					|| this.pendingSpawnSessionIds.has(targetSessionId)
+				)
+			) {
+				return Promise.reject(
+					new Error(`session ${targetSessionId} is already live or spawning`),
+				);
+			}
+			if (
+				!existingLogicalSession
+				&& this.sessions.size + this.pendingSnapshotSessionAdmissions
+					>= WORKER_SNAPSHOT_MAX_SESSIONS
+			) {
+				return Promise.reject(new Error("worker session snapshot limit reached"));
+			}
+			const countedAdmission = !existingLogicalSession;
+			if (countedAdmission) this.pendingSnapshotSessionAdmissions += 1;
+			let openedReservation: LifecycleReservation;
+			try {
+				openedReservation = this.reserveLifecycleEvent("opened");
+			} catch (error) {
+				if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
+				throw error;
+			}
+			let closeReservation: LifecycleReservation;
+			try {
+				closeReservation = this.reserveLifecycleEvent("closed");
+			} catch (error) {
+				this.releaseLifecycleEvent(openedReservation);
+				if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
+				throw error;
+			}
+			if (targetSessionId) this.pendingSpawnSessionIds.add(targetSessionId);
+			return spawnFns.spawnShell.call(
+				this,
+				cwd,
+				cols,
+				rows,
+				targetSessionId,
+				openedReservation,
+				closeReservation,
+			).finally(() => {
+				if (targetSessionId) this.pendingSpawnSessionIds.delete(targetSessionId);
+				if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
+			});
 		});
 	}
 
 
 
 
-	async respawnIfMissing(
+	respawnIfMissing(
 		sessionId: SessionId,
 		cwd: string,
 		cols: number,
 		rows: number,
 	): Promise<SessionRecord> {
-		const existing = this.getBySessionId(sessionId);
-		if (existing) return existing;
-		if (this.pendingSpawnSessionIds.has(sessionId)) {
-			throw new Error(`session ${sessionId} is already live or spawning`);
-		}
-		this.pendingSpawnSessionIds.add(sessionId);
-		try {
-			await this.respawn({
-				oldSessionId: sessionId,
-				cwd,
-				kind: "shell",
-				cols,
-				rows,
-			});
-			const respawned = this.getBySessionId(sessionId);
-			if (!respawned) {
-				throw new Error(`respawned session ${sessionId} is not live`);
-			}
-			return respawned;
-		} finally {
-			this.pendingSpawnSessionIds.delete(sessionId);
-		}
+		return respawnAdmission.respawnIfMissing.call(
+			this,
+			this.pendingSpawnSessionIds,
+			sessionId,
+			cwd,
+			cols,
+			rows,
+		);
 	}
 
 	resume(
@@ -315,35 +337,11 @@ export class SessionManager extends SessionManagerState {
 	}
 
 	respawn(
-		opts: { oldSessionId: SessionId; cwd: string; kind: "shell"; cols?: number; rows?: number; shellSpec?: ShellSpec },
-		reservations?: {
-			event: LifecycleReservation;
-			close: LifecycleReservation;
-		},
+		opts: respawnAdmission.SessionRespawnOptions,
+		reservations?: respawnAdmission.SessionRespawnReservations,
 	): Promise<void> {
-		if (reservations) {
-			return respawnFns.respawn.call(
-				this,
-				opts,
-				reservations.event,
-				reservations.close,
-				false,
-			);
-		}
-		const eventReservation = this.reserveLifecycleEvent("respawned");
-		let closeReservation: LifecycleReservation;
-		try {
-			closeReservation = this.reserveLifecycleEvent("closed");
-		} catch (error) {
-			this.releaseLifecycleEvent(eventReservation);
-			throw error;
-		}
-		return respawnFns.respawn.call(
-			this,
-			opts,
-			eventReservation,
-			closeReservation,
-			true,
+		return this.#executeAdmittedChannelCreation(() =>
+			respawnAdmission.respawn.call(this, opts, reservations)
 		);
 	}
 

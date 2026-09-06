@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/shared/keeper-update";
 import {
   convergeAtomicFleet,
   interruptedFleetRecoveryAction,
@@ -28,13 +29,45 @@ import type { WorkerStatus } from "../src/status.ts";
 
 const PRIOR_SHA = "a".repeat(40);
 const TARGET_SHA = "b".repeat(40);
+const KEEPER_DIGEST = "c".repeat(64);
+const KEEPER_EPOCH = "00000000-0000-4000-8000-000000000002";
+
+function keeperContract(buildSha: string) {
+  return {
+    protocol_version: 2,
+    supported_features: ["keeper-contract-v1"],
+    required_features: ["keeper-contract-v1"],
+    implementation_digest: KEEPER_DIGEST,
+    bun_abi: "1.2.3",
+    platform: "linux" as const,
+    arch: "x64",
+    build_sha: buildSha,
+  };
+}
+
+function keeperUpdate() {
+  return {
+    admission: {
+      classification: "worker-only-safe" as const,
+      source_contract_digest: KEEPER_DIGEST,
+      target_contract_digest: KEEPER_DIGEST,
+      expected_keeper_pid: 41,
+      expected_keeper_epoch: KEEPER_EPOCH,
+      expected_binding_digest: KEEPER_EMPTY_BINDING_DIGEST,
+      required_action: "preserve" as const,
+    },
+    source_contract: keeperContract(PRIOR_SHA),
+    target_contract: keeperContract(TARGET_SHA),
+  };
+}
 const plan: FleetRolloutPlan = {
   rolloutId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  admissionRecordedAtMs: 1,
   priorSha: PRIOR_SHA,
   targetSha: TARGET_SHA,
   workers: [
-    { fingerprint: "1".repeat(64), host: "alpha.example" },
-    { fingerprint: "2".repeat(64), host: "beta.example" },
+    { fingerprint: "1".repeat(64), host: "alpha.example", keeperUpdate: keeperUpdate() },
+    { fingerprint: "2".repeat(64), host: "beta.example", keeperUpdate: keeperUpdate() },
   ],
 };
 
@@ -86,8 +119,16 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
     os: "linux",
     reachableAddr: "alpha.example",
     gitSha: PRIOR_SHA,
-    keeperState: "current",
-    keeperBuild: null,
+    keeperRuntime: {
+      schema_version: 1,
+      running_contract: keeperContract(PRIOR_SHA),
+      keeper_pid: 41,
+      keeper_epoch: KEEPER_EPOCH,
+      channel_count: 0,
+      binding_digest: KEEPER_EMPTY_BINDING_DIGEST,
+      reconciled_at_ms: 1,
+    },
+    coordinatorOpenSessionIds: [],
     lastSeenMs: 10,
     ageMs: 0,
     stale: false,
@@ -127,7 +168,7 @@ describe("atomic fleet decision", () => {
       decisionStillConverging: true,
     });
     await expect(convergeAtomicFleet(plan, deps))
-      .rejects.toThrow("every participant was restored");
+      .rejects.toThrow("prior worker and keeper convergence was re-proven");
     expect(events).toContain("rollback:alpha.example");
     expect(events).toContain("rollback:beta.example");
   });
@@ -141,7 +182,7 @@ describe("atomic fleet decision", () => {
 
   test("one worker failure dispatches rollback to every target before coordinator rollback", async () => {
     const { events, deps } = rolloutDriver({ fail: "hold:beta.example" });
-    await expect(convergeAtomicFleet(plan, deps)).rejects.toThrow("every participant was restored");
+    await expect(convergeAtomicFleet(plan, deps)).rejects.toThrow("prior worker and keeper convergence was re-proven");
     expect(events).toContain("hold:alpha.example");
     expect(events).toContain("hold:beta.example");
     expect(events).toContain("rollback:alpha.example");
@@ -155,7 +196,7 @@ describe("atomic fleet decision", () => {
 
   test("failed exact convergence rolls every worker back instead of committing a subset", async () => {
     const { events, deps } = rolloutDriver({ targetProblems: ["beta: stale"] });
-    await expect(convergeAtomicFleet(plan, deps)).rejects.toThrow("every participant was restored");
+    await expect(convergeAtomicFleet(plan, deps)).rejects.toThrow("prior worker and keeper convergence was re-proven");
     expect(events).toContain("rollback:alpha.example");
     expect(events).toContain("rollback:beta.example");
     expect(events).not.toContain("coordinator:begin-finalization");
@@ -206,10 +247,10 @@ describe("uniform fleet prior preflight", () => {
     ]);
   });
 
-  test("requires every prior keeper proof to be current", () => {
+  test("leaves keeper validity to the shared update classifier", () => {
     expect(atomicFleetPriorProblems([
-      status({ keeperState: "unknown" }),
-    ], PRIOR_SHA)).toEqual(["alpha: keeper is unknown before rollout"]);
+      status({ keeperRuntime: null }),
+    ], PRIOR_SHA)).toEqual([]);
   });
 });
 
@@ -238,7 +279,7 @@ describe("fleet journal participant proof", () => {
       PRIOR_SHA,
       "rollback",
       new Map(),
-    )).toContain(`later: reports ${TARGET_SHA}, expected ${PRIOR_SHA}`);
+    )).toContain(`later: unjournaled worker did not remain at ${PRIOR_SHA}`);
     const targetWorkers = workers.map((worker) => ({ ...worker, gitSha: TARGET_SHA }));
     expect(_atomicFleetConvergenceProblems(
       targetWorkers,
@@ -255,6 +296,27 @@ describe("fleet journal participant proof", () => {
       new Map(),
     )).toContain("registered worker set does not exactly match the rollout journal");
   });
+
+  test("uses coordinator heartbeat baselines instead of CLI wall-clock time", () => {
+    const targetWorker = { ...status(), gitSha: TARGET_SHA, lastSeenMs: 101 };
+    expect(_atomicFleetConvergenceProblems(
+      [targetWorker],
+      [plan.workers[0]!],
+      TARGET_SHA,
+      "finalize",
+      new Map([[targetWorker.fingerprint, 100]]),
+      10_000,
+    )).toEqual([]);
+    expect(_atomicFleetConvergenceProblems(
+      [{ ...targetWorker, lastSeenMs: 100 }],
+      [plan.workers[0]!],
+      TARGET_SHA,
+      "finalize",
+      new Map([[targetWorker.fingerprint, 100]]),
+      0,
+    )).toContain("alpha: awaiting a post-rollout heartbeat");
+  });
+
 });
 
 describe("fleet push admission", () => {

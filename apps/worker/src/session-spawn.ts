@@ -1,5 +1,6 @@
 // Fresh shell spawn implementation split out of SessionManager.
 // The manager reserves durable open and future-close capacity before calling it.
+// SessionManager holds its shared channel-creation lease across this promise.
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
@@ -15,7 +16,6 @@ import { isTerminalGeometry } from "@roost/shared/viewport";
 import { FsmChannel } from "./fsm.ts";
 import { canonicalSessionCwd } from "./util/path.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
-import { _createWtermCore } from "./session-constants.ts";
 import { createSbRing } from "./session-scrollback-ring.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 import { initAgentOscState } from "./terminal-stream-scan.ts";
@@ -62,7 +62,7 @@ export async function spawnShell(
 		const socketPath = `mux:${channelId}`;
 		// Register before keeper spawn so prompt bytes emitted immediately after
 		// SpawnAck already have terminal state to receive them.
-		const wtermCore = await _createWtermCore(spawnCols, spawnRows);
+		const wtermCore = await this.createTerminalCore(spawnCols, spawnRows);
 		if (wtermCore.getCols() !== spawnCols || wtermCore.getRows() !== spawnRows) {
 			throw new Error("terminal core did not retain validated spawn geometry");
 		}

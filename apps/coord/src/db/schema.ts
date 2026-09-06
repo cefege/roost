@@ -27,10 +27,13 @@ export interface WorkersTable {
   // worker no longer has an inbound surface so this is informational
   // only (not used by coord to dial the worker).
   reachable_addr: string | null;
-  // Non-null = this worker's keeper is running stale code (value = the running
-  // keeper's short build stamp); null = current. Set from heartbeat; drives the
-  // MachinesPane badge. Added migration 0006.
-  keeper_stale: string | null;
+  // Authenticated post-reconciliation KeeperRuntimeObservationV1. Heartbeats
+  // clear it to NULL whenever fresh complete proof is unavailable.
+  keeper_runtime_json: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
 }
 
 export interface EventsTable {

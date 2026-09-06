@@ -1,18 +1,11 @@
-// `roost deploy <linux-host>` — update an in-place git checkout instead of
-// rsyncing a slim tree. A Linux worker is enrolled by join.sh, which clones
-// the repo (${ROOST_DIR:-$HOME/Roost}; /srv/roost is the other layout in the
-// wild) and pins it to the coordinator's sha, so the box already has the full
-// source + .git. Updating it is: fetch, checkout the local HEAD sha, bun
-// install, re-run install.sh, verify the systemd unit.
-//
-// No `tailscale cert` step: the worker has had no inbound TLS surface since
-// phase-25e, and no rsync: the checkout is the source of truth.
-
+// Linux remote worker deployment stages an exact git release, journals the
+// installed systemd unit, and activates it while holding the host lease.
+// join.sh owns enrollment; this driver owns update and crash settlement.
 import { posix } from "node:path";
 import {
-  parsePosixServiceEnvironment,
-  parseSystemdServiceDirective,
-} from "./deploy-plist-env.ts";
+  JournaledKeeperUpdateV1Schema,
+  type JournaledKeeperUpdateV1,
+} from "@roost/shared/keeper-update";
 import {
   acquireRemoteDeployLock,
   DeployFailure,
@@ -20,9 +13,9 @@ import {
   finishWorkerDeploy,
   POSIX_WORKER_DEPLOY_JOURNAL_PATHS,
   releaseRemoteDeployLock,
-  workerServiceIsRunning,
   sshExec,
 } from "./deploy-exec.ts";
+import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import { WORKER_UNIT } from "./service-ctl.ts";
 import { posixShellQuote } from "@roost/shared/shell-quote";
 import {
@@ -30,48 +23,36 @@ import {
   linuxDeployJournalPath,
   linuxWorkerReleaseRoot,
   malformedLinuxJournal,
+  serializeLinuxKeeperUpdate,
 } from "./linux-deploy-journal.ts";
-import type { LinuxDeployJournal } from "./linux-deploy-journal.ts";
 import {
+  _linuxActivateWorkerReleaseCommand,
   _linuxCheckpointDeployJournalCommand,
+  linuxWorkerActivationEnvironment,
   _linuxClearDeployJournalCommand,
+  _linuxInstallWorkerDependenciesCommand,
   _linuxPrepareDeployJournalCommand,
-  _linuxWorkerShaProofCommand,
+  _linuxStopWorkerServiceCommand,
+  _linuxStageWorkerReleaseCommand,
+  _linuxWorkerCheckoutProbeCommand,
 } from "./linux-deploy-journal-commands.ts";
 import {
   loadLinuxDeployJournal,
   proveLinuxTargetRelease,
-  recoverLinuxDeployJournal,
+  settleInitialLinuxRecovery,
   removeManagedLinuxWorkerRelease,
 } from "./deploy-linux-recovery.ts";
-import type { LinuxDeploySsh as DeploySsh, LinuxRecoveryOutcome } from "./deploy-linux-recovery.ts";
+import { recoverLinuxDeployJournal } from "./deploy-linux-recovery-runtime.ts";
+import type {
+  ApplyLinuxKeeperUpdate, LinuxDeploySsh as DeploySsh, LinuxRecoveryOutcome,
+  ProveLinuxKeeperUpdate,
+} from "./deploy-linux-recovery.ts";
 import { POSIX_FULL_GIT_SHA_RE } from "./posix-deploy-journal.ts";
-import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
-import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
-
-
-
-
-export function linuxWorkerResourceEnvironment(definition: string): Record<string, string> {
-  const installed = parsePosixServiceEnvironment(definition, "linux");
-  const environment: Record<string, string> = {};
-  for (const key of [
-    "ROOST_WORKER_MEMORY_HIGH",
-    "ROOST_WORKER_TASKS_MAX",
-    "ROOST_WORKER_LOGROTATE_CONF",
-  ] as const) {
-    if (installed[key]) environment[key] = installed[key];
-  }
-  for (const [directive, key] of [
-    ["MemoryHigh", "ROOST_WORKER_MEMORY_HIGH"],
-    ["TasksMax", "ROOST_WORKER_TASKS_MAX"],
-  ] as const) {
-    const value = parseSystemdServiceDirective(definition, directive);
-    if (value) environment[key] = value;
-  }
-  return environment;
-}
-
+import {
+  assertWorkerRolloutDirective, assertWorkerRolloutMatches,
+  type WorkerRolloutDirective,
+} from "./worker-deploy-rollout.ts";
+import type { DirectKeeperAdmission } from "./direct-keeper-update.ts";
 
 export async function deployLinux(
   host: string,
@@ -80,20 +61,42 @@ export async function deployLinux(
     passthroughEnv: string;
     machineTransactionPath: string;
     rollout?: WorkerRolloutDirective;
+    keeperUpdate: JournaledKeeperUpdateV1 | null;
+    workerFingerprint: string | null;
+    resolveKeeperAdmission?: () => Promise<DirectKeeperAdmission | null>;
+    applyKeeperUpdate: ApplyLinuxKeeperUpdate;
+    proveKeeperUpdate: ProveLinuxKeeperUpdate;
   },
 ): Promise<void> {
-  const { gitSha, passthroughEnv, machineTransactionPath } = opts;
+  const {
+    gitSha,
+    passthroughEnv,
+    machineTransactionPath,
+    applyKeeperUpdate,
+    proveKeeperUpdate,
+  } = opts;
+  let keeperUpdate = opts.keeperUpdate === null
+    ? null
+    : JournaledKeeperUpdateV1Schema.parse(opts.keeperUpdate);
+  let workerFingerprint = opts.workerFingerprint;
   const rollout = opts.rollout ? assertWorkerRolloutDirective(opts.rollout) : null;
   if (rollout && rollout.targetSha !== gitSha.toLowerCase()) {
     failDeploy(7, "worker rollout target does not match the Linux deployment SHA");
   }
-
-  // The caller has refreshed and proved the source upstream before acquiring
-  // any target lease; retain only the exact clean identity at this boundary.
+  if (rollout && workerFingerprint !== rollout.workerFingerprint) {
+    failDeploy(7, "worker fingerprint does not match the Linux rollout directive");
+  }
+  if (rollout) {
+    assertWorkerRolloutMatches({
+      rolloutId: rollout.rolloutId,
+      workerFingerprint: rollout.workerFingerprint,
+      targetSha: gitSha,
+      keeperUpdate,
+    }, rollout);
+  }
   if (!POSIX_FULL_GIT_SHA_RE.test(gitSha) || gitSha.endsWith("-dirty")) {
     failDeploy(7, "a Linux deploy requires a clean pushed commit");
   }
-
   const releaseId = `${gitSha}-${crypto.randomUUID()}`;
   const deployLease = await acquireRemoteDeployLock(host, machineTransactionPath, releaseId);
   const deploySsh: DeploySsh = (command) => sshExec(host, command, deployLease.signal);
@@ -126,87 +129,45 @@ export async function deployLinux(
       );
     }
     const unitPath = posix.join(home, ".config", "systemd", "user", WORKER_UNIT);
-
-    // A fixed journal is always settled while holding the renewable machine
-    // lease and before inspecting or staging the next release.
     const initialRecovery = await recoverLinuxDeployJournal(
       deploySsh,
       journalPath,
       unitPath,
       home,
       deployLease.signal,
+      applyKeeperUpdate,
+      proveKeeperUpdate,
       rollout ?? undefined,
     );
-    if (initialRecovery.kind === "target-held") {
-      if (rollout?.action !== "hold") {
-        failDeploy(5, "a fleet-held Linux worker requires its owning rollout");
-      }
-      if (initialRecovery.journal.phase === "activating") {
-        const checkpoint = await deploySsh(
-          _linuxCheckpointDeployJournalCommand(journalPath, "activating", "activated"),
+    if (await settleInitialLinuxRecovery(
+      host,
+      initialRecovery,
+      rollout,
+      deploySsh,
+      journalPath,
+    )) return;
+    if (opts.resolveKeeperAdmission) {
+      const admission = await opts.resolveKeeperAdmission();
+      keeperUpdate = admission?.keeperUpdate ?? null;
+      workerFingerprint = admission?.workerFingerprint ?? null;
+    }
+    if ((keeperUpdate === null) !== (workerFingerprint === null)) {
+      failDeploy(7, "Linux keeper update and worker fingerprint must be present together");
+    }
+    if (keeperUpdate === null) {
+      const absentUnit = await deploySsh(
+        `test ! -e ${posixShellQuote(unitPath)} && test ! -L ${posixShellQuote(unitPath)}`,
+      );
+      if (absentUnit.exit !== 0) {
+        failDeploy(
+          5,
+          "existing Linux worker requires keeper update admission before staging",
         );
-        if (checkpoint.exit !== 0) {
-          failDeploy(checkpoint.exit || 5, "cannot checkpoint recovered Linux fleet activation");
-        }
       }
-      finishWorkerDeploy(
-        initialRecovery.verification,
-        `>> held ${host} v2 worker for fleet rollout ${rollout.rolloutId}`,
-        "linux",
-      );
-      return;
     }
-    if (initialRecovery.kind === "none"
-      && (rollout?.action === "finalize" || rollout?.action === "rollback")) {
-      const expectedSha = rollout.action === "finalize" ? rollout.targetSha : rollout.priorSha;
-      const proof = await deploySsh(_linuxWorkerShaProofCommand(expectedSha));
-      if (proof.exit !== 0 || !workerServiceIsRunning(proof.stdout, "linux")
-        || !/^RoostGitShaMatch=yes$/m.test(proof.stdout)) {
-        failDeploy(proof.exit || 5, `Linux worker has no journal and does not prove ${expectedSha}`);
-      }
-      const settlement = rollout.action === "finalize" ? "finalized" : "rolled back";
-      finishWorkerDeploy(proof, `>> Linux worker already ${settlement} on ${host}`, "linux");
-      return;
-    }
-    if (rollout?.action === "finalize") {
-      if (initialRecovery.kind !== "target-committed") {
-        failDeploy(5, "Linux worker target was not finalized");
-      }
-      finishWorkerDeploy(
-        initialRecovery.verification,
-        `>> finalized fleet worker ${host}`,
-        "linux",
-      );
-      return;
-    }
-    if (rollout?.action === "rollback") {
-      if (initialRecovery.kind !== "prior-restored"
-        && initialRecovery.kind !== "prepared-cleaned") {
-        failDeploy(5, "Linux worker prior state was not restored");
-      }
-      console.log(`>> rolled back fleet worker ${host}`);
-      return;
-    }
-    if (initialRecovery.kind === "prepared-cleaned") {
-      console.log(">> recovered interrupted Linux deploy (discarded prepared stage)");
-    } else if (initialRecovery.kind === "target-committed") {
-      console.log(">> recovered interrupted Linux deploy (verified activated target)");
-    } else if (initialRecovery.kind === "prior-restored") {
-      console.log(">> recovered interrupted Linux deploy (restored prior service)");
-    }
-
-    // The installed unit is authoritative. Accept both a primary checkout
-    // (`.git/`) and a staged linked worktree (`.git` file). This discovery is
-    // deliberately after journal recovery so a broken activation cannot
-    // prevent the next lease owner from repairing the service.
     let remoteRepo = process.env.ROOST_LINUX_REPO_DIR?.trim() ?? "";
     if (!remoteRepo) {
-      const probe = await deploySsh(
-        `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-          `unit_dir=$(systemctl --user show ${WORKER_UNIT} --property=WorkingDirectory --value 2>/dev/null || true); ` +
-          `for d in "$unit_dir" "$HOME/Roost" /srv/roost; do ` +
-          `[ -n "$d" ] && git -C "$d" rev-parse --git-dir >/dev/null 2>&1 && echo "$d" && break; done`,
-      );
+      const probe = await deploySsh(_linuxWorkerCheckoutProbeCommand());
       remoteRepo = probe.stdout.trim();
     }
     if (!remoteRepo) {
@@ -218,26 +179,20 @@ export async function deployLinux(
     if (!posix.isAbsolute(remoteRepo) || /[\r\n\0]/.test(remoteRepo)) {
       failDeploy(2, `worker checkout path from ${host} is unsafe: ${JSON.stringify(remoteRepo)}`);
     }
-
     const releaseDir = posix.join(releaseRoot, releaseId);
     if (!isManagedLinuxWorkerReleasePath(releaseDir, home)) {
       failDeploy(2, `generated Linux worker release path is unsafe: ${releaseDir}`);
     }
     const cleanupStage = () =>
       removeManagedLinuxWorkerRelease(deploySsh, releaseDir, home);
-
     console.log(`>> stage ${gitSha.slice(0, 8)} in ${host}:${releaseDir}`);
     const stage = await deploySsh(
-      `set -e; mkdir -p ${posixShellQuote(releaseRoot)}; ` +
-        `git -C ${posixShellQuote(remoteRepo)} fetch --quiet origin; ` +
-        `git -C ${posixShellQuote(remoteRepo)} worktree add --quiet --force --detach ` +
-        `${posixShellQuote(releaseDir)} ${posixShellQuote(gitSha)}`,
+      _linuxStageWorkerReleaseCommand(remoteRepo, releaseRoot, releaseDir, gitSha),
     );
     if (stage.exit !== 0) {
       if (!deployLease.signal.aborted) await cleanupStage();
       failDeploy(stage.exit || 2, `git worktree staging failed\n${stage.stdout}\n${stage.stderr}`);
     }
-
     const prepared = await deploySsh(_linuxPrepareDeployJournalCommand({
       journalPath,
       unitPath,
@@ -245,6 +200,8 @@ export async function deployLinux(
       targetReleasePath: releaseDir,
       home,
       rolloutId: rollout?.action === "hold" ? rollout.rolloutId : null,
+      workerFingerprint,
+      keeperUpdate,
     }));
     if (prepared.exit !== 0) {
       try {
@@ -254,6 +211,8 @@ export async function deployLinux(
           unitPath,
           home,
           deployLease.signal,
+          applyKeeperUpdate,
+          proveKeeperUpdate,
           rollout?.action === "hold" ? rollout : undefined,
         );
         if (recovered.kind === "none") await cleanupStage();
@@ -273,12 +232,14 @@ export async function deployLinux(
         `cannot durably snapshot ${WORKER_UNIT} before activation\n${prepared.stdout}\n${prepared.stderr}`,
       );
     }
-
     const journal = await loadLinuxDeployJournal(deploySsh, journalPath, home);
     if (journal === null
       || journal.phase !== "prepared"
       || journal.targetSha !== gitSha
-      || journal.targetReleasePath !== releaseDir) {
+      || journal.workerFingerprint !== workerFingerprint
+      || journal.targetReleasePath !== releaseDir
+      || serializeLinuxKeeperUpdate(journal.keeperUpdate)
+        !== serializeLinuxKeeperUpdate(keeperUpdate)) {
       malformedLinuxJournal("prepared checkpoint does not identify the staged target");
     }
     if (rollout?.action === "hold") {
@@ -295,15 +256,10 @@ export async function deployLinux(
         failDeploy(5, `Linux worker does not match rollout prior SHA ${rollout.priorSha}`);
       }
     }
-    const priorDefinition = journal.priorUnit ?? "";
-    const preservedResources = linuxWorkerResourceEnvironment(priorDefinition);
-    const resourceAssignments = Object.entries(preservedResources)
-      .map(([key, value]) => `${key}=${posixShellQuote(value)}`)
-      .join(" ");
-    const activationEnvironment = [passthroughEnv, resourceAssignments]
-      .filter(Boolean)
-      .join(" ");
-
+    const activationEnvironment = linuxWorkerActivationEnvironment(
+      journal.priorUnit ?? "",
+      passthroughEnv,
+    );
     const settleActivationFailure = async (
       summary: string,
       failed: { exit: number; stdout: string; stderr: string },
@@ -316,6 +272,8 @@ export async function deployLinux(
           unitPath,
           home,
           deployLease.signal,
+          applyKeeperUpdate,
+          proveKeeperUpdate,
           rollout?.action === "hold" ? rollout : undefined,
         );
       } catch (recoveryError) {
@@ -354,28 +312,47 @@ export async function deployLinux(
         `${summary}\n${failed.stdout}\n${failed.stderr}\n${recoveryDetail}`,
       );
     };
-
     console.log(`>> frozen bun install on ${host}`);
-    const install = await deploySsh(
-      `set -eo pipefail; cd ${posixShellQuote(releaseDir)} && ` +
-        `bun install --frozen-lockfile 2>&1 | tail -25`,
-    );
+    const install = await deploySsh(_linuxInstallWorkerDependenciesCommand(releaseDir));
     if (install.exit !== 0) {
       await settleActivationFailure("bun install failed", install);
     }
     console.log("   bun install ok");
-
     const activating = await deploySsh(
       _linuxCheckpointDeployJournalCommand(journalPath, "prepared", "activating"),
     );
     if (activating.exit !== 0) {
       await settleActivationFailure("cannot checkpoint Linux activation", activating);
     }
-
+    if (journal.keeperUpdate) {
+      try {
+        await applyKeeperUpdate(
+          journal.workerFingerprint!,
+          journal.keeperUpdate,
+          "target",
+          journal.targetReleasePath,
+        );
+      } catch (error) {
+        const keeperFailure = {
+          exit: error instanceof DeployFailure ? error.exitCode : 5,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+        };
+        await settleActivationFailure("keeper update action failed", keeperFailure);
+        throw error;
+      }
+    }
+    const stopped = await deploySsh(_linuxStopWorkerServiceCommand(journalPath));
+    if (stopped.exit !== 0) {
+      await settleActivationFailure("cannot stop Linux worker for keeper update", stopped);
+      failDeploy(
+        stopped.exit || 5,
+        "Linux worker stop boundary could not be proved after keeper preparation",
+      );
+    }
     console.log(`>> activate staged systemd unit (${WORKER_UNIT}) on ${host}`);
     const installSh = await deploySsh(
-      `${activationEnvironment} bash ` +
-        `${posixShellQuote(posix.join(releaseDir, "apps/worker/scripts/install.sh"))} install 2>&1`,
+      _linuxActivateWorkerReleaseCommand(releaseDir, activationEnvironment),
     );
     if (installSh.exit !== 0) {
       const committed = await settleActivationFailure("install.sh failed", installSh);
@@ -386,7 +363,6 @@ export async function deployLinux(
       );
       return;
     }
-
     console.log(`>> verifying service is up on ${host}`);
     const target = await proveLinuxTargetRelease(deploySsh, journal, home);
     if (!target.healthy) {
@@ -401,7 +377,6 @@ export async function deployLinux(
       );
       return;
     }
-
     const activated = await deploySsh(
       _linuxCheckpointDeployJournalCommand(journalPath, "activating", "activated"),
     );
@@ -417,13 +392,14 @@ export async function deployLinux(
       );
       return;
     }
-
     const settlement = await recoverLinuxDeployJournal(
       deploySsh,
       journalPath,
       unitPath,
       home,
       deployLease.signal,
+      applyKeeperUpdate,
+      proveKeeperUpdate,
       rollout?.action === "hold" ? rollout : undefined,
     );
     if ((settlement.kind !== "target-held" && settlement.kind !== "target-committed")

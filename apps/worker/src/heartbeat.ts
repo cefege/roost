@@ -1,21 +1,22 @@
-// 30-second heartbeat loop. Samples host metrics (CPU / memory / disk / network
-// via the platform sampler in host-sample-{darwin,linux}.ts) and sends them to
-// coord via Connect workersHeartbeat, along with git sha, the transitional
-// keeper implementation signal, and the live tailnet reachable_addr.
-// Callers: main.ts (started after runInstall completes).
+// Completion-scheduled 30-second heartbeat loop. Host metrics and the live
+// tailnet address remain best-effort metadata; authenticated keeper runtime
+// proof is emitted only after a successful boot reconciliation.
 
+import { createHash } from "node:crypto";
 import type { CoordClient } from "./coord-client.ts";
 import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
 import { signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
+import {
+	keeperBindingDigestInput,
+	KeeperRuntimeObservationV1Schema,
+	type KeeperRuntimeObservationV1,
+} from "@roost/shared/keeper-update";
+import { keeperRuntimeObservationToProto } from "@roost/shared/keeper-update-proto";
 import type { HostMetrics } from "@roost/shared/wire";
 import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
-import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
-import {
-	KEEPER_TARGET_CONTRACT,
-	keeperContractsSameImplementation,
-	type KeeperContractV1,
-} from "./keeper/keeper-stamp.ts";
+import { probeKeeperCompatible } from "./keeper/keeper-probe.ts";
+import { muxLocalEndpoint } from "./keeper/keeper-pool-config.ts";
 import { resolveTailnetDnsName } from "./install.ts";
 import { sampleHost as sampleDarwin } from "./host-sample-darwin.ts";
 import { sampleHost as sampleLinux, sampleCgroupPressure } from "./host-sample-linux.ts";
@@ -186,17 +187,43 @@ function getGitSha(): string | undefined {
 export interface HeartbeatSources {
 	collectHostMetrics(): Promise<HostMetrics>;
 	getGitSha(): string | undefined;
-	getRunningKeeperContract(): KeeperContractV1 | null;
+	observeKeeperRuntime(reconciledAtMs: number): Promise<KeeperRuntimeObservationV1 | null>;
 	getReachableAddr(): string | undefined;
 }
 
 export type HeartbeatDisposer = () => void;
 
+export async function observeKeeperRuntime(
+	reconciledAtMs: number,
+): Promise<KeeperRuntimeObservationV1 | null> {
+	const probe = await probeKeeperCompatible(muxLocalEndpoint());
+	if (!probe.authenticated
+		|| !probe.contract
+		|| probe.keeperPid === undefined
+		|| probe.processEpoch === undefined
+		|| probe.bindings === undefined
+		|| probe.spawningChannels === undefined) {
+		return null;
+	}
+	const bindingInput = keeperBindingDigestInput(
+		probe.bindings,
+		probe.spawningChannels,
+	);
+	return KeeperRuntimeObservationV1Schema.parse({
+		schema_version: 1,
+		running_contract: probe.contract,
+		keeper_pid: probe.keeperPid,
+		keeper_epoch: probe.processEpoch,
+		channel_count: probe.bindings.length + probe.spawningChannels.length,
+		binding_digest: createHash("sha256").update(bindingInput).digest("hex"),
+		reconciled_at_ms: reconciledAtMs,
+	});
+}
+
 const DEFAULT_HEARTBEAT_SOURCES: HeartbeatSources = {
 	collectHostMetrics,
 	getGitSha,
-	getRunningKeeperContract: () =>
-		getMultiplexedPool().getRunningKeeperContract(),
+	observeKeeperRuntime,
 	getReachableAddr: currentReachableAddr,
 };
 
@@ -207,9 +234,10 @@ const DEFAULT_HEARTBEAT_SOURCES: HeartbeatSources = {
  */
 export async function startHeartbeat(opts: {
 	client: () => CoordClient;
+	reconciledAtMs: () => number | null;
 	sources?: HeartbeatSources;
 }): Promise<HeartbeatDisposer> {
-	const { client, sources = DEFAULT_HEARTBEAT_SOURCES } = opts;
+	const { client, reconciledAtMs, sources = DEFAULT_HEARTBEAT_SOURCES } = opts;
 	let consecutiveMisses = 0;
 	let stopped = false;
 	let nextTimer: ReturnType<typeof setTimeout> | null = null;
@@ -230,19 +258,22 @@ export async function startHeartbeat(opts: {
 
 		try {
 			const git_sha = sources.getGitSha();
-			// keeper_stale retains the current coordinator wire shape until the
-			// runtime observation cutover: empty = same implementation, a digest
-			// = stale, "unproven" = no bundle digest.
-			const runningKeeperContract = sources.getRunningKeeperContract();
-			const keeper_stale =
-				runningKeeperContract === null
-					? undefined
-					: keeperContractsSameImplementation(
-							KEEPER_TARGET_CONTRACT,
-							runningKeeperContract,
-						)
-						? ""
-						: runningKeeperContract.implementation_digest ?? "unproven";
+			const reconciliationTimestamp = reconciledAtMs();
+			let keeperRuntime: KeeperRuntimeObservationV1 | null = null;
+			if (reconciliationTimestamp !== null) {
+				try {
+					keeperRuntime = await sources.observeKeeperRuntime(
+						reconciliationTimestamp,
+					);
+				} catch (error) {
+					log.warn("heartbeat", "keeper_runtime_observation_failed", {
+						error: String(error),
+					});
+				}
+			}
+			if (reconciledAtMs() !== reconciliationTimestamp) {
+				keeperRuntime = null;
+			}
 			const reachable_addr = sources.getReachableAddr();
 			await client().workersHeartbeat({
 				hostMetrics: hostMetrics
@@ -258,7 +289,9 @@ export async function startHeartbeat(opts: {
 						}
 					: undefined,
 				...(git_sha ? { gitSha: git_sha } : {}),
-				...(keeper_stale !== undefined ? { keeperStale: keeper_stale } : {}),
+				...(keeperRuntime
+					? { keeperRuntime: keeperRuntimeObservationToProto(keeperRuntime) }
+					: {}),
 				...(reachable_addr ? { reachableAddr: reachable_addr } : {}),
 			}, { timeoutMs: HEARTBEAT_RPC_TIMEOUT_MS });
 			log.debug("heartbeat", "beat sent", { reachable_addr });

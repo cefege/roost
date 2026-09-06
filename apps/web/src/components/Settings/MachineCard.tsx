@@ -191,13 +191,6 @@ export function MachineCard(props: { worker: Worker }) {
                   <span style={{ "font-family": "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{w().git_sha!.slice(0, 8)}</span>
                 </Show>
               </div>
-              <Show when={w().keeper_stale}>
-                {(stale) => (
-                  <div class="md-body-s" style={{ color: "var(--md-sys-color-error)", "margin-top": "var(--md-space-1)" }}>
-                    ⚠ keeper running stale code ({stale().slice(0, 8)}) — run <span style={{ "font-family": "ui-monospace, SFMono-Regular, Menlo, monospace" }}>roost keeper-refresh</span>
-                  </div>
-                )}
-              </Show>
               <Show when={w().git_sha && rootStore.coord_identity?.git_sha && w().git_sha !== rootStore.coord_identity!.git_sha}>
                 <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", "margin-top": "var(--md-space-1)" }}>
                   ⚠ worker sha drifts from coord ({rootStore.coord_identity!.git_sha.slice(0, 8)})

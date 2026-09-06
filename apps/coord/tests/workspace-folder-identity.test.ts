@@ -64,7 +64,6 @@ async function registerWorker(fp: string, os: string): Promise<void> {
     dashboard_id: DASHBOARD_ID,
     fp, label: fp, os, git_sha: null, host_metrics_json: null,
     registered_at_ms: Date.now(), last_seen_ms: Date.now(), reachable_addr: null,
-    keeper_stale: null,
   }).execute();
 }
 

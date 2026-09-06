@@ -33,7 +33,7 @@ function recordingWorkerDb(): {
     registered_at_ms: 1,
     last_seen_ms: 1,
     reachable_addr: null,
-    keeper_stale: null,
+    keeper_runtime_json: null,
   };
   const patches: WorkerPatch[] = [];
   const selectQuery = {
@@ -131,13 +131,11 @@ test("worker register, heartbeat, and rename cap every persisted string at a UTF
 
   const heartbeat = await handlers.workersHeartbeat(create(WorkersHeartbeatRequestSchema, {
     gitSha: "é".repeat(3000),
-    keeperStale: "k".repeat(5000),
     reachableAddr: `${"a".repeat(4094)}éz`,
   }), workerContext());
   expect(heartbeat).toEqual(create(WorkersHeartbeatResponseSchema, {}));
   expect(database.patches[1]).toMatchObject({
     git_sha: "é".repeat(2048),
-    keeper_stale: "k".repeat(4096),
     reachable_addr: `${"a".repeat(4094)}é`,
   });
 

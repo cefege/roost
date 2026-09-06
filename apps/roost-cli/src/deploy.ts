@@ -21,6 +21,17 @@ import { workerInstallEnvironment } from "./deploy-worker-environment.ts";
 import { tryCoordinatorWindowsDeploy } from "./deploy-windows-channel.ts";
 import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
+import {
+  createJournaledKeeperUpdateCallbacks,
+  directKeeperUpdateAdmission,
+  localUpdateWorkerForAdmission,
+  type DirectKeeperAdmission,
+} from "./direct-keeper-update.ts";
+import {
+  loadSourceKeeperContract,
+  probeTargetKeeperContract,
+  targetKeeperContractForWorker,
+} from "./push-keeper-admission.ts";
 
 export { sshExec, _isSelfHost };
 
@@ -80,12 +91,42 @@ export async function deploy(
     : allowUnpublishedLocal
       ? resolveLocalGitShaOrDie(sourceCheckout)
       : resolvePublishedGitShaOrDie(sourceCheckout, expectedGitSha);
+  const sourceKeeperContract = rollout
+    ? null
+    : await loadSourceKeeperContract(sourceCheckout);
+  const bootstrapAllowed = allowUnpublishedLocal
+    || process.env.ROOST_BOOTSTRAP_TOKEN !== undefined;
+  const keeperCallbacks = createJournaledKeeperUpdateCallbacks();
+  let keeperAdmission: DirectKeeperAdmission | null = rollout
+    ? {
+        workerFingerprint: rollout.workerFingerprint,
+        keeperUpdate: rollout.keeperUpdate,
+      }
+    : null;
   if (selfHost) {
     await _deployLocal(host, {
       sourceRoot: sourceCheckout,
       gitSha: sourceGitSha,
       coordinatorUrl: options.coordinatorUrl,
       rollout: rollout ?? undefined,
+      keeperUpdate: keeperAdmission?.keeperUpdate ?? null,
+      workerFingerprint: keeperAdmission?.workerFingerprint ?? null,
+      resolveKeeperAdmission: rollout
+        ? undefined
+        : async () => {
+            const localWorker = await localUpdateWorkerForAdmission(bootstrapAllowed);
+            if (!localWorker) return null;
+            return directKeeperUpdateAdmission(
+              localWorker.fingerprint,
+              targetKeeperContractForWorker(sourceKeeperContract!, sourceGitSha, {
+                bun_abi: Bun.version,
+                platform: process.platform as "darwin" | "linux",
+                arch: process.arch,
+              }),
+              false,
+            );
+          },
+      keeperCallbacks,
     });
     return;
   }
@@ -99,7 +140,18 @@ export async function deploy(
     failDeploy(3, `bun not found in remote login shell. Install: curl -fsSL https://bun.sh/install | bash\n${bunCheck.stderr}`);
   }
   console.log(`   bun: ${bunCheck.stdout.trim().split("\n").slice(-2).join(" @ ")}`);
-
+  const resolveRemoteKeeperAdmission = rollout
+    ? undefined
+    : async (): Promise<DirectKeeperAdmission | null> =>
+      directKeeperUpdateAdmission(
+        host,
+        await probeTargetKeeperContract(
+          host,
+          sourceGitSha,
+          sourceKeeperContract!,
+        ),
+        bootstrapAllowed,
+      );
   const unameOut = await sshExec(host, "uname -s");
   if (unameOut.stdout.trim() === "Linux") {
     const { env: hostEnv, filled } = await _backfillEnvFromPlist(host);
@@ -123,6 +175,31 @@ export async function deploy(
       passthroughEnv,
       machineTransactionPath: remoteMachineTransactionPath("linux", hostEnv),
       rollout: rollout ?? undefined,
+      keeperUpdate: keeperAdmission?.keeperUpdate ?? null,
+      workerFingerprint: keeperAdmission?.workerFingerprint ?? null,
+      resolveKeeperAdmission: resolveRemoteKeeperAdmission,
+      applyKeeperUpdate: async (
+        workerFingerprint,
+        update,
+        direction,
+      ) => {
+        await keeperCallbacks.apply(workerFingerprint, update, direction);
+      },
+      proveKeeperUpdate: async (
+        workerFingerprint,
+        update,
+        direction,
+        expectedWorkerSha,
+        heartbeatNotBeforeMs,
+      ) => {
+        await keeperCallbacks.prove(
+          workerFingerprint,
+          update,
+          direction,
+          expectedWorkerSha,
+          heartbeatNotBeforeMs,
+        );
+      },
     });
     return;
   }
@@ -134,5 +211,30 @@ export async function deploy(
     gitSha: sourceGitSha,
     coordinatorUrl: options.coordinatorUrl,
     rollout: rollout ?? undefined,
+    keeperUpdate: keeperAdmission?.keeperUpdate ?? null,
+    workerFingerprint: keeperAdmission?.workerFingerprint ?? null,
+    resolveKeeperAdmission: resolveRemoteKeeperAdmission,
+    applyKeeperUpdate: async (
+      workerFingerprint,
+      update,
+      direction,
+    ) => {
+      await keeperCallbacks.apply(workerFingerprint, update, direction);
+    },
+    proveKeeperUpdate: async (
+      workerFingerprint,
+      update,
+      direction,
+      expectedWorkerSha,
+      heartbeatNotBeforeMs,
+    ) => {
+      await keeperCallbacks.prove(
+        workerFingerprint,
+        update,
+        direction,
+        expectedWorkerSha,
+        heartbeatNotBeforeMs,
+      );
+    },
   });
 }

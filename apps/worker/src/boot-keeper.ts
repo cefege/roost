@@ -7,6 +7,7 @@ import {
   type LocalEndpoint,
 } from "@roost/shared/local-endpoint";
 import { log } from "@roost/shared/log";
+import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/shared/keeper-update";
 import {
   getMultiplexedPool,
   probeKeeperCompatible,
@@ -89,6 +90,7 @@ export async function handleKeeperSurvivor(
   const stopped = await shutdownEmptyKeeperAuthenticated(endpoint, {
     keeperPid: probe.keeperPid!,
     processEpoch: probe.processEpoch!,
+    bindingDigest: KEEPER_EMPTY_BINDING_DIGEST,
   });
   if (!stopped) {
     throw new Error(KEEPER_REPLACEMENT_BLOCKED_ERROR);

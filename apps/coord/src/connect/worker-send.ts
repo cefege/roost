@@ -16,6 +16,7 @@ import { log } from "@roost/shared/log";
 import { currentRoutableWorker } from "./worker-send-target.ts";
 export {
   sendCoordinatorMovePrepare,
+  sendKeeperUpdatePreparation,
   sendCoordinatorRelocate,
   sendCoordinatorSnapshotChunk,
   sendCoordinatorSnapshotStart,

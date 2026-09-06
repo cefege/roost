@@ -27,7 +27,7 @@ function sources(
 	return {
 		collectHostMetrics,
 		getGitSha: () => "test-sha",
-		getRunningKeeperContract: () => null,
+		observeKeeperRuntime: async () => null,
 		getReachableAddr: () => "worker.test",
 	};
 }
@@ -58,7 +58,7 @@ describe("worker heartbeat supervision", () => {
 		setSystemTime(new Date(1_000_000));
 		const gate = Promise.withResolvers<unknown>();
 		const rpc = vi.fn((_request: unknown, _options: unknown) => gate.promise);
-		const starting = startHeartbeat({ client: () => clientWith(rpc), sources: sources() });
+		const starting = startHeartbeat({ reconciledAtMs: () => 100, client: () => clientWith(rpc), sources: sources() });
 		let returned = false;
 		void starting.then(() => { returned = true; });
 		await settle();
@@ -82,7 +82,7 @@ describe("worker heartbeat supervision", () => {
 			attempts += 1;
 			return attempts === 2 ? second.promise : Promise.resolve({});
 		});
-		const dispose = await startHeartbeat({ client: () => clientWith(rpc), sources: sources() });
+		const dispose = await startHeartbeat({ reconciledAtMs: () => 100, client: () => clientWith(rpc), sources: sources() });
 		vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
 		await settle();
 		expect(rpc).toHaveBeenCalledTimes(2);
@@ -107,6 +107,7 @@ describe("worker heartbeat supervision", () => {
 		let samples = 0;
 		const rpc = vi.fn(async (_request: unknown, _options: { timeoutMs: number }) => ({}));
 		const dispose = await startHeartbeat({
+			reconciledAtMs: () => 100,
 			client: () => clientWith(rpc),
 			sources: sources(async () => {
 				samples += 1;
@@ -130,8 +131,8 @@ describe("worker heartbeat supervision", () => {
 		const rejected = () => Promise.reject(new ConnectError("deadline", Code.DeadlineExceeded));
 		const firstRpc = vi.fn(rejected);
 		const secondRpc = vi.fn(rejected);
-		const stopFirst = await startHeartbeat({ client: () => clientWith(firstRpc), sources: sources() });
-		const stopSecond = await startHeartbeat({ client: () => clientWith(secondRpc), sources: sources() });
+		const stopFirst = await startHeartbeat({ reconciledAtMs: () => 100, client: () => clientWith(firstRpc), sources: sources() });
+		const stopSecond = await startHeartbeat({ reconciledAtMs: () => 100, client: () => clientWith(secondRpc), sources: sources() });
 		vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
 		await settle();
 		expect(signals).toEqual([]);
@@ -142,7 +143,7 @@ describe("worker heartbeat supervision", () => {
 			attempt += 1;
 			return attempt === 3 ? Promise.resolve({}) : rejected();
 		});
-		const stopReset = await startHeartbeat({ client: () => clientWith(resetRpc), sources: sources() });
+		const stopReset = await startHeartbeat({ reconciledAtMs: () => 100, client: () => clientWith(resetRpc), sources: sources() });
 		for (let i = 0; i < 5; i++) {
 			vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
 			await settle();

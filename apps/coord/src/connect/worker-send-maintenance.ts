@@ -5,6 +5,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { KeeperCoordinatorOpenSessionIdsSchema } from "@roost/shared/keeper-update";
 import {
   CoordWorkerDownSchema,
   DCoordMovePrepareSchema,
@@ -12,6 +13,7 @@ import {
   DCoordMoveSnapshotChunkSchema,
   DCoordRelocateSchema,
   DUpdateBrokerSchema,
+  DKeeperUpdatePrepareSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import {
   createPendingRpc,
@@ -97,4 +99,40 @@ export function sendWindowsUpdateBroker(workerFp: string, message: {
     );
   }
   return { requestId: pending.request_id, promise: pending.promise };
+}
+
+export function sendKeeperUpdatePreparation(workerFp: string, message: {
+  journaledUpdateJson?: string;
+  direction?: "source" | "target";
+  maintenance: boolean;
+  coordinatorOpenSessionIds: readonly string[];
+}, timeoutMs = 10_000): Promise<unknown> {
+  const coordinatorOpenSessionIds = KeeperCoordinatorOpenSessionIdsSchema.parse(
+    message.coordinatorOpenSessionIds,
+  );
+  const worker = currentRoutableWorker(workerFp);
+  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
+  const pending = createPendingRpc(timeoutMs, workerFp);
+  try {
+    const sent = worker.send(create(CoordWorkerDownSchema, {
+      frame: {
+        case: "keeperUpdatePrepare",
+        value: create(DKeeperUpdatePrepareSchema, {
+          requestId: pending.request_id,
+          journaledUpdateJson: message.journaledUpdateJson,
+          direction: message.direction ?? "",
+          maintenance: message.maintenance,
+          coordinatorOpenSessionIds: [...coordinatorOpenSessionIds],
+        }),
+      },
+    }));
+    if (sent === 0) throw new Error("worker keeper update preparation was dropped");
+  } catch (error) {
+    rejectPendingRpcUnavailable(
+      pending.request_id,
+      error instanceof Error ? error.message : String(error),
+      workerFp,
+    );
+  }
+  return pending.promise;
 }

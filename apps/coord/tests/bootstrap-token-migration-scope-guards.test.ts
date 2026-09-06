@@ -43,8 +43,8 @@ describe("0024 auth and tenancy stabilization migration", () => {
       const nullScopeInserts = [
         `INSERT INTO workers
           (fp, dashboard_id, label, os, git_sha, host_metrics_json,
-           registered_at_ms, last_seen_ms, reachable_addr, keeper_stale)
-         VALUES ('null-worker', NULL, 'null', 'linux', NULL, NULL, 1, 1, NULL, NULL)`,
+           registered_at_ms, last_seen_ms, reachable_addr)
+         VALUES ('null-worker', NULL, 'null', 'linux', NULL, NULL, 1, 1, NULL)`,
         `INSERT INTO events
           (dashboard_id, kind, session_id, worker_fp, payload_json, ts, client_seq)
          VALUES (NULL, 'snapshot', NULL, NULL, '{}', 1, NULL)`,

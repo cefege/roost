@@ -8,7 +8,7 @@ import { loadWorkerConfig } from "./config.ts";
 import { loadWorkerKey, mintJwt } from "./jwt.ts";
 import { createCoordClient } from "./coord-client.ts";
 import { runInstall } from "./install.ts";
-import { startHeartbeat } from "./heartbeat.ts";
+import { startHeartbeat, type HeartbeatDisposer } from "./heartbeat.ts";
 import { SessionManager } from "./session-manager.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { startCoordLink } from "./transport/coord-link.ts";
@@ -100,6 +100,8 @@ export async function runWorker() {
 	const healthBuild = ROOST_BUILD_SHA;
 	const processEpoch = randomUUID();
 	let workerReady = false;
+	let keeperReconciledAtMs: number | null = null;
+	let stopHeartbeat: HeartbeatDisposer = () => {};
 
 	diag("worker.boot", { step: "key" });
 	const key = await loadWorkerKey(cfg.workerKeyPath);
@@ -155,7 +157,12 @@ export async function runWorker() {
 	// routes ALL non-snapshot SessionEvents through it via `sink` below.
 	// 24a-5 will move snapshot here as well + retire `client.sessions.emit`.
 	diag("worker.boot", { step: "link" });
-	const refs: CoordLinkRefs = { link: null, sessionMgr: null, agentRegistry: null };
+	const refs: CoordLinkRefs = {
+		link: null,
+		sessionMgr: null,
+		agentRegistry: null,
+		acquireKeeperUpdateBoundary: null,
+	};
 	const lifecycleStore = openSessionEventStore();
 	const coordLink = startCoordLink(buildCoordLinkDeps({
 		coordHttpUrl: cfg.coordinatorUrl,
@@ -251,17 +258,24 @@ export async function runWorker() {
 	} catch (error) {
 		log.warn("agent-status", "report_server_start_failed", { error: String(error) });
 	}
-	// Start heartbeat (first beat registers/updates worker row).
-	diag("worker.boot", { step: "heartbeat" });
-	const stopHeartbeat = await startHeartbeat({ client: () => client });
 
 	diag("worker.boot", { step: "reconcile" });
-	const { reconcileOpenSessions } = setupReconcile({
+	const {
+		reconcileOpenSessions,
+		acquireKeeperUpdateBoundary,
+	} = setupReconcile({
 		client: () => client,
 		workerFp,
 		sessionMgr,
 		prepareKeeper: handleKeeperSurvivor,
+		onReconcileStarted: () => {
+			keeperReconciledAtMs = null;
+		},
+		onReconciled: (reconciledAtMs) => {
+			keeperReconciledAtMs = reconciledAtMs;
+		},
 	});
+	refs.acquireKeeperUpdateBoundary = acquireKeeperUpdateBoundary;
 
 	await completeWorkerBootAdmission({
 		reconcile: () => reconcileOpenSessions("boot"),
@@ -276,6 +290,10 @@ export async function runWorker() {
 		markReady: () => {
 			workerReady = true;
 		},
+	});
+	stopHeartbeat = await startHeartbeat({
+		client: () => client,
+		reconciledAtMs: () => keeperReconciledAtMs,
 	});
 	log.info("worker", "ready", {
 		fingerprint: workerFp,

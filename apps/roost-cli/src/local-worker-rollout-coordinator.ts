@@ -36,6 +36,14 @@ export function coordinatorJournalAllowsLocalWorkerRollout(
     || journal.priorSha !== directive.priorSha) {
     return false;
   }
+  const keeperPlan = journal.workerKeeperPlans.find(
+    candidate => candidate.fingerprint === directive.workerFingerprint,
+  );
+  if (!keeperPlan
+    || JSON.stringify(keeperPlan.keeperUpdate)
+      !== JSON.stringify(directive.keeperUpdate)) {
+    return false;
+  }
   return directive.action === "finalize"
     ? journal.phase === "finalizing"
     : journal.phase === "fleet-converging";

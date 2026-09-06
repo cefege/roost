@@ -28,6 +28,7 @@ import {
   resolvePendingSpawnOpened,
 } from "./pending-spawns.ts";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
+import type { WriteLease } from "../coord-move/write-gate.ts";
 
 interface WorkerFrameDispatcherOptions {
   deps: WorkerServiceDeps;
@@ -116,13 +117,23 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
     }
     if (
       options.deps.move?.gate.mode !== undefined
-      && options.deps.move.gate.mode !== "active"
+      && (
+        options.deps.move.gate.mode !== "active"
+        || options.deps.move.gate.exclusiveHeld
+      )
     ) {
-      // Pending targets and draining/retired sources keep the worker link alive
-      // but withhold the ACK so CoordLink replays this preserved entry later.
+      // Pending targets, draining/retired sources, and keeper-update exclusive
+      // holds withhold the ACK so CoordLink replays the preserved entry later.
       return;
     }
-    const lease = options.deps.move?.gate.acquire();
+    const gate = options.deps.move?.gate;
+    let lease: WriteLease | undefined;
+    try {
+      lease = gate?.acquireCompletion();
+    } catch (error) {
+      if (gate?.exclusiveHeld) return;
+      throw error;
+    }
     let appendResult;
     try {
       appendResult = await appendEvent(options.deps.db, event, {

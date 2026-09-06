@@ -8,7 +8,12 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { durableRemove, flushDurablePath } from "@roost/shared/durability";
 import { DeployFailure, run, type RunOptions } from "./deploy-exec.ts";
-import { statusReport, type StatusReport } from "./status.ts";
+import {
+  routableWorkerFingerprints,
+  statusReport,
+  workerInventoryForUpdateAdmission,
+  type StatusReport,
+} from "./status.ts";
 import {
   checkpointCoordinatorFinalizationDecision,
   coordinatorInstallEnvironment,
@@ -20,6 +25,7 @@ import {
   type CoordinatorDeployJournalV2,
 } from "./coordinator-deploy-journal.ts";
 import { retirePriorCoordinatorRelease } from "./coordinator-deploy-release.ts";
+import { keeperUpdateConvergenceProblem } from "./keeper-update-convergence.ts";
 
 export const VERIFY_TIMEOUT_MS = 60_000;
 export const VERIFY_POLL_MS = 1_000;
@@ -32,6 +38,7 @@ export type CoordinatorCommandRunner = (
 export interface CoordinatorDeployRuntimeOptions {
   runCommand?: CoordinatorCommandRunner;
   readStatus?: () => Promise<StatusReport>;
+  readRoutableWorkers?: () => Promise<ReadonlySet<string>>;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
   verifyTimeoutMs?: number;
@@ -40,9 +47,15 @@ export interface CoordinatorDeployRuntimeOptions {
 export interface CoordinatorDeployRuntime {
   runCommand: CoordinatorCommandRunner;
   readStatus: () => Promise<StatusReport>;
+  readRoutableWorkers: () => Promise<ReadonlySet<string>>;
   sleep: (milliseconds: number) => Promise<void>;
   now: () => number;
   verifyTimeoutMs: number;
+}
+
+async function updateAdmissionStatusReport(): Promise<StatusReport> {
+  const report = await statusReport();
+  return { ...report, workers: workerInventoryForUpdateAdmission() };
 }
 
 export function coordinatorDeployRuntime(
@@ -50,7 +63,9 @@ export function coordinatorDeployRuntime(
 ): CoordinatorDeployRuntime {
   return {
     runCommand: options.runCommand ?? run,
-    readStatus: options.readStatus ?? statusReport,
+    readStatus: options.readStatus ?? updateAdmissionStatusReport,
+    readRoutableWorkers:
+      options.readRoutableWorkers ?? routableWorkerFingerprints,
     sleep: options.sleep ?? Bun.sleep,
     now: options.now ?? Date.now,
     verifyTimeoutMs: options.verifyTimeoutMs ?? VERIFY_TIMEOUT_MS,
@@ -180,6 +195,7 @@ export function coordinatorFleetConvergenceProblems(
   journal: CoordinatorDeployJournalV2,
   context: CoordinatorDeployJournalContext,
   report: StatusReport,
+  routableFingerprints: ReadonlySet<string> | null = null,
 ): string[] {
   const problems: string[] = [];
   if (!currentServiceTargetsRelease(journal, context.platform)
@@ -200,13 +216,32 @@ export function coordinatorFleetConvergenceProblems(
       continue;
     }
     seen.add(worker.fingerprint);
-    if (worker.stale) problems.push(`worker ${worker.fingerprint} is stale`);
+    if (routableFingerprints
+      && !routableFingerprints.has(worker.fingerprint)) {
+      problems.push(`worker ${worker.fingerprint} is not coordinator-routable`);
+      continue;
+    }
     if (worker.gitSha !== journal.targetSha) {
       problems.push(`worker ${worker.fingerprint} does not report ${journal.targetSha}`);
+      continue;
     }
-    if (worker.keeperState !== "current") {
-      problems.push(`worker ${worker.fingerprint} keeper is ${worker.keeperState}`);
+    const keeperPlan = journal.workerKeeperPlans.find(
+      candidate => candidate.fingerprint === worker.fingerprint,
+    );
+    if (!keeperPlan) {
+      problems.push(`worker ${worker.fingerprint} has no journaled keeper plan`);
+      continue;
     }
+    const keeperProblem = keeperUpdateConvergenceProblem(
+      worker,
+      keeperPlan.keeperUpdate,
+      "target",
+      undefined,
+      undefined,
+      true,
+      false,
+    );
+    if (keeperProblem) problems.push(keeperProblem);
   }
   return problems;
 }
@@ -221,8 +256,16 @@ export async function beginCoordinatorDeployFinalization(
     throw new DeployFailure(5, "coordinator finalization requires fleet-converging state");
   }
   const runtime = coordinatorDeployRuntime(options);
-  const report = await runtime.readStatus();
-  const problems = coordinatorFleetConvergenceProblems(journal, context, report);
+  const [report, routableFingerprints] = await Promise.all([
+    runtime.readStatus(),
+    runtime.readRoutableWorkers(),
+  ]);
+  const problems = coordinatorFleetConvergenceProblems(
+    journal,
+    context,
+    report,
+    routableFingerprints,
+  );
   if (!await coordinatorStartupPolicyIsEnabled(
     context.platform,
     coordServiceLabel(process.env, context.platform),

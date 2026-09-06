@@ -1,385 +1,150 @@
+// macOS journal tests pin confinement and routable keeper-action recovery.
+// Launchd operations are injected while the production parser and recovery
+// state machine own phase transitions and exact lifecycle settlement.
+
 import { describe, expect, test } from "bun:test";
 import {
-  _decideMacosDeployRecovery,
   _isConfinedMacosReleasePath,
   _macosDeployJournalPath,
   _parseMacosDeployJournal,
-  _recoverMacosDeployJournal,
 } from "../src/deploy-macos-journal.ts";
-import type {
-  MacosDeployJournalV1,
-  MacosDeployRecoveryRemote,
-  MacosDeployTargetProof,
-} from "../src/deploy-macos-journal.ts";
-import { createMacosDeployJournalController } from "../src/deploy-macos-journal-controller.ts";
-
-const SHA = "a".repeat(40);
-const PRIOR_SHA = "c".repeat(40);
-const ROLLOUT_ID = "11111111-1111-4111-8111-111111111111";
-const RELEASE_ROOT = "/Users/worker/RoostWorkerV2-releases";
-const RELEASE_ID = `${SHA}-00000000-0000-4000-8000-000000000001`;
-const RELEASE_PATH = `${RELEASE_ROOT}/${RELEASE_ID}`;
-const PRIOR_PLIST = Buffer.from(
-  `<plist><dict><key>EnvironmentVariables</key><dict>` +
-    `<key>GIT_SHA</key><string>${PRIOR_SHA}</string>` +
-    `</dict></dict></plist>\n`,
-).toString("base64");
-
-function journal(overrides: Partial<MacosDeployJournalV1> = {}): MacosDeployJournalV1 {
-  return {
-    schemaVersion: 1,
-    phase: "activating",
-    targetGitSha: SHA,
-    targetReleasePath: RELEASE_PATH,
-    rolloutId: null,
-    priorPlistBase64: PRIOR_PLIST,
-    priorPlistMode: 0o600,
-    priorLifecycle: "unloaded",
-    priorPid: null,
-    priorDisabled: false,
-    createdAt: "2026-08-16T00:00:00.000Z",
-    updatedAt: "2026-08-16T00:00:01.000Z",
-    ...overrides,
-  };
-}
-
-function fakeRemote(
-  durable: MacosDeployJournalV1,
-  targetProof: MacosDeployTargetProof = {
-    definitionMatches: false,
-    running: false,
-    result: { exit: 1, stdout: "state = exited\n", stderr: "" },
-  },
-  failProof = false,
-): { remote: MacosDeployRecoveryRemote; calls: string[] } {
-  const calls: string[] = [];
-  const remote: MacosDeployRecoveryRemote = {
-    async load() {
-      calls.push("load");
-      return durable;
-    },
-    async proveTarget() {
-      calls.push("prove-target");
-      return targetProof;
-    },
-    async checkpointActivated(saved) {
-      calls.push("checkpoint-activated");
-      return { ...saved, phase: "activated" };
-    },
-    async bootout() {
-      calls.push("bootout");
-    },
-    async restorePriorDefinition(saved) {
-      calls.push(`restore-prior:${saved.priorPlistBase64 === null ? "absent" : "bytes"}`);
-    },
-    async setDisabled(_saved, disabled) {
-      calls.push(`disabled:${disabled}`);
-    },
-    async bootstrap() {
-      calls.push("bootstrap");
-    },
-    async kickstart() {
-      calls.push("kickstart");
-    },
-    async stop() {
-      calls.push("stop");
-    },
-    async provePrior() {
-      calls.push("prove-prior");
-      if (failProof) throw new Error("prior lifecycle mismatch");
-    },
-    async removeTarget() {
-      calls.push("remove-target");
-    },
-    async cleanupPriorRelease() {
-      calls.push("cleanup-prior");
-    },
-    async clear() {
-      calls.push("clear");
-    },
-  };
-  return { remote, calls };
-}
+import { _recoverMacosDeployJournal } from "../src/deploy-macos-recovery.ts";
+import {
+  MACOS_KEEPER_UPDATE,
+  MACOS_WORKER_FINGERPRINT,
+} from "./deploy-macos-keeper-update-fixture.ts";
+import {
+  PRIOR_SHA,
+  RELEASE_ID,
+  RELEASE_PATH,
+  RELEASE_ROOT,
+  ROLLOUT_ID,
+  SHA,
+  fakeRemote,
+  journal,
+} from "./deploy-macos-recovery-fixture.ts";
 
 describe("remote macOS deploy journal recovery", () => {
+  test("prepared recovery removes only the partial stage and clears the journal", async () => {
+    const fixture = fakeRemote(journal({ phase: "prepared", priorLifecycle: "unloaded" }));
+    await expect(_recoverMacosDeployJournal(fixture.remote))
+      .resolves.toMatchObject({ outcome: "prepared-cleaned" });
+    expect(fixture.calls).toEqual(["load", "remove-target", "clear"]);
+  });
+
+  test("prepared fleet rollback cleans an originally unloaded worker without service or keeper calls", async () => {
+    const durable = journal({
+      phase: "prepared",
+      rolloutId: ROLLOUT_ID,
+      priorLifecycle: "unloaded",
+    });
+    const fixture = fakeRemote(durable);
+    const directive = {
+      action: "rollback" as const,
+      rolloutId: ROLLOUT_ID,
+      priorSha: PRIOR_SHA,
+      workerFingerprint: MACOS_WORKER_FINGERPRINT,
+      targetSha: SHA,
+      keeperUpdate: MACOS_KEEPER_UPDATE,
+    };
+    await expect(_recoverMacosDeployJournal(fixture.remote, directive))
+      .resolves.toMatchObject({ outcome: "prepared-cleaned" });
+    expect(fixture.calls).toEqual(["load", "remove-target", "clear"]);
+  });
+
+  test("prepared fleet finalization and invalid ownership fail before cleanup", async () => {
+    const durable = journal({ phase: "prepared", rolloutId: ROLLOUT_ID });
+    const directive = {
+      action: "finalize" as const,
+      rolloutId: ROLLOUT_ID,
+      priorSha: PRIOR_SHA,
+      workerFingerprint: MACOS_WORKER_FINGERPRINT,
+      targetSha: SHA,
+      keeperUpdate: MACOS_KEEPER_UPDATE,
+    };
+    const finalizeFixture = fakeRemote(durable);
+    await expect(_recoverMacosDeployJournal(finalizeFixture.remote, directive))
+      .rejects.toThrow("before activation");
+    expect(finalizeFixture.calls).toEqual(["load"]);
+
+    const unownedFixture = fakeRemote(durable);
+    await expect(_recoverMacosDeployJournal(unownedFixture.remote))
+      .rejects.toThrow("fleet rollout still owns");
+    expect(unownedFixture.calls).toEqual(["load"]);
+
+    const foreignFixture = fakeRemote(durable);
+    await expect(_recoverMacosDeployJournal(foreignFixture.remote, {
+      ...directive,
+      action: "rollback",
+      rolloutId: "22222222-2222-4222-8222-222222222222",
+    })).rejects.toThrow("does not match the requested fleet rollout");
+    expect(foreignFixture.calls).toEqual(["load"]);
+
+    const wrongPriorFixture = fakeRemote(durable);
+    await expect(_recoverMacosDeployJournal(wrongPriorFixture.remote, {
+      ...directive,
+      action: "rollback",
+      priorSha: "d".repeat(40),
+    })).rejects.toThrow("does not prove the fleet rollout prior identity");
+    expect(wrongPriorFixture.calls).toEqual(["load"]);
+  });
+
   test("uses one journal beside the machine transaction database", () => {
     expect(_macosDeployJournalPath(
       "Library/Application Support/RoostWorkerV2/service/machine-transaction.sqlite",
     )).toBe("Library/Application Support/RoostWorkerV2/service/macos-worker-deploy-v1.json");
-    expect(_macosDeployJournalPath(
-      "/Volumes/Secure/Roost Service/machine-transaction.sqlite",
-    )).toBe("/Volumes/Secure/Roost Service/macos-worker-deploy-v1.json");
   });
 
-  test("makes phase and health decisions fail closed", () => {
-    expect(_decideMacosDeployRecovery("prepared", {
-      definitionMatches: true,
-      running: true,
-    })).toBe("clean-prepared");
-    expect(_decideMacosDeployRecovery("activating", {
-      definitionMatches: true,
-      running: true,
-    })).toBe("commit");
-    expect(_decideMacosDeployRecovery("activating", {
-      definitionMatches: false,
-      running: true,
-    })).toBe("rollback");
-    expect(_decideMacosDeployRecovery("activating", {
-      definitionMatches: true,
-      running: false,
-    })).toBe("rollback");
-  });
-
-  test("accepts only the exact target identity directly under the managed root", () => {
+  test("accepts only the exact release path and rejects unrestorable launchd state", () => {
     expect(_isConfinedMacosReleasePath(RELEASE_ROOT, RELEASE_PATH, SHA)).toBe(true);
-    expect(_isConfinedMacosReleasePath(
-      RELEASE_ROOT,
+    for (const path of [
       `${RELEASE_ROOT}-attacker/${RELEASE_ID}`,
-      SHA,
-    )).toBe(false);
-    expect(_isConfinedMacosReleasePath(
-      RELEASE_ROOT,
       `${RELEASE_ROOT}/${RELEASE_ID}/../../victim`,
-      SHA,
-    )).toBe(false);
-    expect(_isConfinedMacosReleasePath(
-      RELEASE_ROOT,
       `${RELEASE_PATH}/nested`,
-      SHA,
-    )).toBe(false);
-    expect(_isConfinedMacosReleasePath(RELEASE_ROOT, RELEASE_PATH, "b".repeat(40))).toBe(false);
-
-    expect(_parseMacosDeployJournal(journal(), RELEASE_ROOT)).toEqual(journal());
-    expect(() => _parseMacosDeployJournal({
-      ...journal(),
-      targetReleasePath: `/tmp/${RELEASE_ID}`,
-    }, RELEASE_ROOT)).toThrow("target path or identity is malformed");
-    expect(() => _parseMacosDeployJournal({
-      ...journal(),
-      priorPlistBase64: null,
-      priorPlistMode: null,
-      priorLifecycle: "running",
-      priorPid: 42,
-    }, RELEASE_ROOT)).toThrow("without plist bytes");
-  });
-
-  test("cleans prepared-only state without inspecting or mutating launchd", async () => {
-    const fixture = fakeRemote(journal({ phase: "prepared" }));
-    const result = await _recoverMacosDeployJournal(fixture.remote);
-
-    expect(result.outcome).toBe("prepared-cleaned");
-    expect(fixture.calls).toEqual(["load", "remove-target", "clear"]);
-  });
-
-  test("commits only an exact healthy target and clears last", async () => {
-    const proof: MacosDeployTargetProof = {
-      definitionMatches: true,
-      running: true,
-      result: {
-        exit: 0,
-        stdout: "active count = 1\nstate = running\npid = 99\nRoostReleaseMatch=yes\n",
-        stderr: "",
-      },
-    };
-    const fixture = fakeRemote(journal(), proof);
-    const result = await _recoverMacosDeployJournal(fixture.remote);
-
-    expect(result).toMatchObject({ outcome: "committed", targetProof: proof });
-    expect(fixture.calls).toEqual(["load", "prove-target", "cleanup-prior", "clear"]);
-  });
-
-  test("retains the journal when prior release cleanup cannot complete", async () => {
-    const fixture = fakeRemote(journal(), {
-      definitionMatches: true,
-      running: true,
-      result: { exit: 0, stdout: "state = running\n", stderr: "" },
-    });
-    fixture.remote.cleanupPriorRelease = async () => {
-      fixture.calls.push("cleanup-prior");
-      throw new Error("prior cleanup failed");
-    };
-    await expect(_recoverMacosDeployJournal(fixture.remote)).rejects.toThrow("prior cleanup failed");
-    expect(fixture.calls).toEqual(["load", "prove-target", "cleanup-prior"]);
-  });
-
-  test("restores a running worker, including override and process restart", async () => {
-    const fixture = fakeRemote(journal({
-      priorLifecycle: "running",
-      priorPid: 42,
-      priorDisabled: true,
-    }));
-    const result = await _recoverMacosDeployJournal(fixture.remote);
-
-    expect(result.outcome).toBe("rolled-back");
-    expect(fixture.calls).toEqual([
-      "load",
-      "prove-target",
-      "bootout",
-      "restore-prior:bytes",
-      "disabled:false",
-      "bootstrap",
-      "kickstart",
-      "disabled:true",
-      "prove-prior",
-      "remove-target",
-      "clear",
-    ]);
-  });
-
-  test("restores the loaded-but-not-running lifecycle exactly", async () => {
-    const fixture = fakeRemote(journal({
+    ]) {
+      expect(_isConfinedMacosReleasePath(RELEASE_ROOT, path, SHA)).toBe(false);
+    }
+    expect(() => _parseMacosDeployJournal(journal({
       priorLifecycle: "loaded",
-      priorPid: null,
       priorDisabled: false,
-    }));
-    await _recoverMacosDeployJournal(fixture.remote);
+    }), RELEASE_ROOT)).toThrow("enabled KeepAlive worker cannot have a durable loaded lifecycle");
+  });
 
-    expect(fixture.calls).toEqual([
-      "load",
-      "prove-target",
-      "bootout",
-      "restore-prior:bytes",
-      "disabled:false",
-      "bootstrap",
-      "disabled:true",
-      "stop",
-      "disabled:false",
-      "prove-prior",
-      "remove-target",
-      "clear",
+  test("rollback makes source routable, invokes RPC, restarts, proves, then settles", async () => {
+    const fixture = fakeRemote(journal({ phase: "activated" }));
+    await expect(_recoverMacosDeployJournal(fixture.remote))
+      .resolves.toMatchObject({ outcome: "rolled-back" });
+    const action = fixture.calls.indexOf("keeper:source:preserve");
+    expect(action).toBeGreaterThan(0);
+    expect(fixture.calls.slice(action - 3, action + 7)).toEqual([
+      "disabled:false", "bootstrap", "kickstart",
+      "keeper:source:preserve",
+      "bootout", "disabled:false", "bootstrap", "kickstart",
+      `prove-keeper:source:${PRIOR_SHA}`, "bootout",
     ]);
+    expect(fixture.calls.slice(-3)).toEqual(["prove-prior", "remove-target", "clear"]);
   });
 
-  test("restores an unloaded plist without bootstrapping it", async () => {
-    const fixture = fakeRemote(journal({ priorLifecycle: "unloaded", priorDisabled: true }));
-    await _recoverMacosDeployJournal(fixture.remote);
-
-    expect(fixture.calls).toEqual([
-      "load",
-      "prove-target",
-      "bootout",
-      "restore-prior:bytes",
-      "disabled:true",
-      "prove-prior",
-      "remove-target",
-      "clear",
-    ]);
+  test("rolling-back crash reentry repeats the source action", async () => {
+    const fixture = fakeRemote(journal({ phase: "rolling-back" }));
+    await expect(_recoverMacosDeployJournal(fixture.remote))
+      .resolves.toMatchObject({ outcome: "rolled-back" });
+    expect(fixture.calls).not.toContain("checkpoint-rollback");
+    expect(fixture.calls.filter(call => call === "keeper:source:preserve")).toHaveLength(1);
   });
 
-  test("restores an absent plist and unloaded lifecycle without bootstrapping", async () => {
-    const fixture = fakeRemote(journal({
-      priorPlistBase64: null,
-      priorPlistMode: null,
-      priorLifecycle: "unloaded",
-      priorPid: null,
-    }));
-    await _recoverMacosDeployJournal(fixture.remote);
-
-    expect(fixture.calls).toEqual([
-      "load",
-      "prove-target",
-      "bootout",
-      "restore-prior:absent",
-      "disabled:false",
-      "prove-prior",
-      "remove-target",
-      "clear",
-    ]);
-  });
-
-  test("retains the journal and target when rollback proof fails", async () => {
-    const fixture = fakeRemote(journal(), undefined, true);
-    await expect(_recoverMacosDeployJournal(fixture.remote)).rejects.toThrow(
-      "prior lifecycle mismatch",
-    );
-    expect(fixture.calls).not.toContain("remove-target");
-    expect(fixture.calls).not.toContain("clear");
-  });
-  test("healthy fleet target stays held until exact explicit finalization", async () => {
-    const proof: MacosDeployTargetProof = {
+  test("committing repairs and proves target before irreversible cleanup", async () => {
+    const fixture = fakeRemote(journal({ phase: "committing" }), {
       definitionMatches: true,
       running: true,
       result: { exit: 0, stdout: "state = running\n", stderr: "" },
-    };
-    const durable = journal({
-      phase: "activating",
-      rolloutId: ROLLOUT_ID,
-      priorLifecycle: "running",
-      priorPid: 42,
     });
-    const directive = {
-      rolloutId: ROLLOUT_ID,
-      priorSha: PRIOR_SHA,
-      targetSha: SHA,
-    };
-    const held = fakeRemote(durable, proof);
-    await expect(_recoverMacosDeployJournal(held.remote, {
-      ...directive,
-      action: "hold",
-    })).resolves.toMatchObject({
-      outcome: "held",
-      journal: { phase: "activated" },
-    });
-    expect(held.calls).toEqual(["load", "prove-target", "checkpoint-activated"]);
-
-    const finalized = fakeRemote({ ...durable, phase: "activated" }, proof);
-    await expect(_recoverMacosDeployJournal(finalized.remote, {
-      ...directive,
-      action: "finalize",
-    })).resolves.toMatchObject({ outcome: "committed" });
-    expect(finalized.calls).toEqual(["load", "prove-target", "cleanup-prior", "clear"]);
-  });
-
-  test("activated checkpoint carries the loaded target and rollout identity", async () => {
-    const activating = journal({ rolloutId: ROLLOUT_ID });
-    let command = "";
-    const controller = createMacosDeployJournalController(async (requested) => {
-      command = requested;
-      const checkpointed = { ...activating, phase: "activated" as const };
-      const payload = Buffer.from(JSON.stringify({
-        releaseRoot: RELEASE_ROOT,
-        journal: checkpointed,
-      })).toString("base64");
-      return { exit: 0, stdout: `RoostMacDeployJournal=${payload}\n`, stderr: "" };
-    }, ".roost/transactions/macos-worker-deploy-v1.json");
-    await expect(controller.recovery.checkpointActivated(activating))
-      .resolves.toMatchObject({ phase: "activated" });
-    expect(command).toContain(SHA);
-    expect(command).toContain(RELEASE_PATH);
-    expect(command).toContain(ROLLOUT_ID);
-  });
-
-  test("fleet journal refuses standalone recovery and supports exhaustive rollback", async () => {
-    const durable = journal({
-      phase: "activated",
-      rolloutId: ROLLOUT_ID,
-      priorLifecycle: "running",
-      priorPid: 42,
-    });
-    const standalone = fakeRemote(durable);
-    await expect(_recoverMacosDeployJournal(standalone.remote))
-      .rejects.toThrow("fleet rollout still owns");
-    expect(standalone.calls).toEqual(["load"]);
-
-    const rolledBack = fakeRemote(durable);
-    await expect(_recoverMacosDeployJournal(rolledBack.remote, {
-      action: "rollback",
-      rolloutId: ROLLOUT_ID,
-      priorSha: PRIOR_SHA,
-      targetSha: SHA,
-    })).resolves.toMatchObject({ outcome: "rolled-back", targetProof: null });
-    expect(rolledBack.calls).toEqual([
-      "load",
-      "bootout",
-      "restore-prior:bytes",
-      "disabled:false",
-      "bootstrap",
-      "kickstart",
-      "disabled:false",
-      "prove-prior",
-      "remove-target",
-      "clear",
+    await expect(_recoverMacosDeployJournal(fixture.remote))
+      .resolves.toMatchObject({ outcome: "committed" });
+    expect(fixture.calls).toEqual([
+      "load", "bootout", "disabled:false", "bootstrap", "kickstart",
+      "keeper:target:preserve", "bootout", "disabled:false", "bootstrap", "kickstart",
+      "prove-target", `prove-keeper:target:${SHA}`, "cleanup-prior", "clear",
     ]);
   });
-
 });

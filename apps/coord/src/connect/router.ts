@@ -21,6 +21,7 @@ import { makeSystemHandlers } from "./handlers-system.ts";
 import { makeWorkspaceHandlers } from "./handlers-workspaces.ts";
 import { makeTaskHandlers } from "./handlers-tasks.ts";
 import { makeWorkerHandlers } from "./handlers-workers.ts";
+import { makeWorkerUpdateHandlers } from "./handlers-workers-update.ts";
 import { makeSessionHandlers } from "./handlers-sessions.ts";
 import { makeStreamingHandlers } from "./handlers-streaming.ts";
 import { makeUiHandlers } from "./handlers-ui.ts";
@@ -49,6 +50,9 @@ export interface ConnectDeps {
   passwordWorkGate: PasswordWorkGate;
   move?: CoordinatorMoveService;
   pendingPublications?: PendingEventPublicationStore;
+  /** Deterministic observation point immediately before the keeper-update
+   * handler's final empty-session query. */
+  _onKeeperUpdateFinalEmptyRecheck?: () => void;
   onKeyRevoked?: (fingerprint: string) => void;
   /** Synchronous post-commit worker fence: revoke every admitted generation,
    * detach its ordered inbound queue, then unregister the current handle. */
@@ -88,6 +92,7 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     // router.service() call per domain shadows the rest with unimplemented-
     // throws (connect stubs every absent method).
     ...makeWorkerHandlers(deps),
+    ...makeWorkerUpdateHandlers(deps),
     ...makeSessionHandlers(deps),
     ...makeWorkspaceHandlers(deps),
     ...makeTaskHandlers(deps),
