@@ -326,6 +326,27 @@ message SessionsSearchGlobalResponse {
 message SessionsCancelGlobalSearchRequest { string search_id = 1; }
 message SessionsCancelGlobalSearchResponse {}
 
+// Current coordinator-observed agent state. The identity triple is absent only
+// for legacy worker frames; promptable is a coordinator-derived capability.
+message AgentStatusView {
+  string session_id = 1;
+  string agent_id = 2;
+  string state = 3;
+  optional string message = 4;
+  uint64 revision = 5;
+  uint64 completed_revision = 6;
+  double updated_at = 7;
+  bool active = 8;
+  optional string status_epoch = 9;
+  optional string occupant_id = 10;
+  optional string source = 11;
+  bool promptable = 12;
+}
+message AgentStatusGetRequest { string session_id = 1; }
+message AgentStatusGetResponse { AgentStatusView status = 1; }
+message AgentStatusListRequest {}
+message AgentStatusListResponse { repeated AgentStatusView statuses = 1; }
+
 
 // ─── workspaces ───────────────────────────────────────────────────────────
 
@@ -795,6 +816,10 @@ service CoordinatorService {
   rpc SessionsCancelScrollbackSearch(SessionsCancelScrollbackSearchRequest) returns (SessionsCancelScrollbackSearchResponse);
   rpc SessionsSearchGlobal(SessionsSearchGlobalRequest) returns (SessionsSearchGlobalResponse);
   rpc SessionsCancelGlobalSearch(SessionsCancelGlobalSearchRequest) returns (SessionsCancelGlobalSearchResponse);
+
+  // dashboard-authorized observed agent state
+  rpc AgentStatusGet(AgentStatusGetRequest) returns (AgentStatusGetResponse);
+  rpc AgentStatusList(AgentStatusListRequest) returns (AgentStatusListResponse);
 
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

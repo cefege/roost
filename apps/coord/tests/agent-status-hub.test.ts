@@ -1,23 +1,19 @@
+// Coordinator agent-status hub tests cover legacy revision compatibility,
+// worker/session ownership validation, close cleanup, and baseline push
+// debounce behavior. Identity ordering and transport projection stay focused.
+
 import { afterEach, beforeEach, describe, expect, test, vi } from "bun:test";
-import { create } from "@bufbuild/protobuf";
 import {
+  AgentOccupantId,
   AgentStatus,
   AgentStatusUpdate,
   SessionEvent,
+  StatusEpoch,
   asSessionId,
   asWorkerFp,
   type AgentStatusUpdate as AgentStatusUpdateValue,
 } from "@roost/shared/wire";
-import {
-  CoordWorkerUpSchema,
-  WAgentStatusSchema,
-  WHelloSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { openDb, type KyselyDB } from "../src/db/connection.ts";
-import { runMigrations } from "../src/db/migrate.ts";
+import type { KyselyDB } from "../src/db/connection.ts";
 import {
   getAgentStatusSnapshot,
   handleWorkerAgentStatus,
@@ -26,17 +22,13 @@ import {
 } from "../src/agent-status-hub.ts";
 import { agentStatusBus, sessionBus } from "../src/buses.ts";
 import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
-import { loadSyncDashboardScope, startSyncFeed } from "../src/connect/sync-feed.ts";
-import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
-import { connectWorkers } from "../src/connect/worker-registry.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
 
 const SID = asSessionId("11111111-1111-4111-8111-111111111111");
 const WORKER = asWorkerFp("a1".repeat(32));
 const OTHER_WORKER = asWorkerFp("b2".repeat(32));
 const DASHBOARD = "agent-status-dashboard";
-const ORGANIZATION = "agent-status-organization";
-const cleanupDirs: string[] = [];
+const STATUS_EPOCH = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const OCCUPANT_ID = AgentOccupantId.parse("11111111-aaaa-4aaa-8aaa-111111111111");
 
 function status(overrides: Partial<AgentStatusUpdateValue> = {}): AgentStatusUpdateValue {
   return AgentStatusUpdate.parse({
@@ -51,17 +43,27 @@ function status(overrides: Partial<AgentStatusUpdateValue> = {}): AgentStatusUpd
   });
 }
 
+function identifiedStatus(
+  overrides: Partial<AgentStatusUpdateValue> = {},
+): AgentStatusUpdateValue {
+  return status({
+    status_epoch: STATUS_EPOCH,
+    occupant_id: OCCUPANT_ID,
+    source: "integration",
+    ...overrides,
+  });
+}
+
 beforeEach(() => {
   stopAgentStatusHub();
   startAgentStatusHub();
   cacheSessionWorker(SID, WORKER, 7);
 });
 
-afterEach(async () => {
+afterEach(() => {
   stopAgentStatusHub();
   evictSessionWorker(SID);
   vi.useRealTimers();
-  await Promise.all(cleanupDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
 describe("coordinator agent status hub", () => {
@@ -126,13 +128,13 @@ describe("coordinator agent status hub", () => {
     startAgentStatusHub({
       db,
       pushAllowedOrigins: ["https://push.example"],
-      dispatchPush: async (_db, sessionId, kind) => {
-        deliveries.push({ sessionId, kind });
+      dispatchPush: async (_db, transition) => {
+        deliveries.push({ sessionId: transition.sessionId, kind: transition.kind });
       },
     });
 
-    expect(handleWorkerAgentStatus(WORKER, status())).toBe("accepted");
-    expect(handleWorkerAgentStatus(WORKER, status({
+    expect(handleWorkerAgentStatus(WORKER, identifiedStatus())).toBe("accepted");
+    expect(handleWorkerAgentStatus(WORKER, identifiedStatus({
       revision: 2,
       state: "blocked",
       message: "Approval needed",
@@ -143,15 +145,15 @@ describe("coordinator agent status hub", () => {
     await Promise.resolve();
     expect(deliveries).toEqual([{ sessionId: SID, kind: "blocked" }]);
 
-    expect(handleWorkerAgentStatus(WORKER, status({
+    expect(handleWorkerAgentStatus(WORKER, identifiedStatus({
       revision: 3,
       state: "working",
     }))).toBe("accepted");
-    expect(handleWorkerAgentStatus(WORKER, status({
+    expect(handleWorkerAgentStatus(WORKER, identifiedStatus({
       revision: 4,
       state: "blocked",
     }))).toBe("accepted");
-    expect(handleWorkerAgentStatus(WORKER, status({
+    expect(handleWorkerAgentStatus(WORKER, identifiedStatus({
       revision: 5,
       state: "working",
     }))).toBe("accepted");
@@ -159,11 +161,11 @@ describe("coordinator agent status hub", () => {
     await Promise.resolve();
     expect(deliveries).toHaveLength(1);
 
-    expect(handleWorkerAgentStatus(WORKER, status({
+    expect(handleWorkerAgentStatus(WORKER, identifiedStatus({
       revision: 6,
       state: "blocked",
     }))).toBe("accepted");
-    expect(handleWorkerAgentStatus(WORKER, status({
+    expect(handleWorkerAgentStatus(WORKER, identifiedStatus({
       revision: 7,
       state: "idle",
       completed_revision: 1,
@@ -173,133 +175,4 @@ describe("coordinator agent status hub", () => {
     expect(deliveries.at(-1)).toEqual({ sessionId: SID, kind: "done" });
   });
 
-  test("seeds Sync and fans out live updates and deletion", async () => {
-    expect(handleWorkerAgentStatus(WORKER, status())).toBe("accepted");
-    const dir = await mkdtemp(join(tmpdir(), "roost-agent-sync-"));
-    cleanupDirs.push(dir);
-    const opened = openDb(join(dir, "coord.db"));
-    await runMigrations(opened.sqlite);
-    const now = Date.now();
-    await opened.db.insertInto("organizations").values({
-      id: ORGANIZATION,
-      slug: "agent-status",
-      name: "Agent status",
-      status: "active",
-      created_at_ms: now,
-    }).execute();
-    await opened.db.insertInto("dashboards").values({
-      id: DASHBOARD,
-      organization_id: ORGANIZATION,
-      slug: "agent-status",
-      name: "Agent status",
-      status: "active",
-      created_at_ms: now,
-    }).execute();
-    await opened.db.insertInto("workers").values({
-      fp: WORKER,
-      dashboard_id: DASHBOARD,
-      label: "agent-status-worker",
-      os: "linux",
-      git_sha: null,
-      host_metrics_json: null,
-      registered_at_ms: now,
-      last_seen_ms: now,
-    }).execute();
-    await opened.db.insertInto("sessions").values({
-      id: SID,
-      dashboard_id: DASHBOARD,
-      worker_fp: WORKER,
-      channel: 7,
-      kind: "shell",
-      cwd: "/tmp",
-      status: "open",
-      created_at: now,
-    }).execute();
-    const syncScope = await loadSyncDashboardScope(opened.db, DASHBOARD);
-    // startSyncFeed reads only db; the remaining router dependencies belong to
-    // unrelated RPC handlers and are deliberately absent in this focused test.
-    const deps = { db: opened.db } as unknown as ConnectDeps;
-    const syncFrames: Parameters<Parameters<typeof startSyncFeed>[3]>[0][] = [];
-    const feed = startSyncFeed(deps, syncScope, 0, (frame) => {
-      syncFrames.push(frame);
-    }, null);
-    try {
-      await feed.seeded;
-      const seeded = syncFrames.find((frame) => frame.frame.case === "agentStatus");
-      expect(seeded?.frame).toMatchObject({
-        case: "agentStatus",
-        value: { sessionId: SID, agentId: "omp", state: "working", revision: 1n, active: true },
-      });
-      expect(handleWorkerAgentStatus(WORKER, status({ revision: 2, state: "blocked" }))).toBe("accepted");
-      expect(syncFrames.at(-1)?.frame).toMatchObject({
-        case: "agentStatus",
-        value: { sessionId: SID, state: "blocked", revision: 2n, active: true },
-      });
-      expect(handleWorkerAgentStatus(WORKER, status({ revision: 3, active: false }))).toBe("accepted");
-      expect(syncFrames.at(-1)?.frame).toMatchObject({
-        case: "agentStatus",
-        value: { sessionId: SID, revision: 3n, active: false },
-      });
-    } finally {
-      feed.dispose();
-      await opened.close();
-    }
-  });
-
-  test("decodes authenticated worker transport frames", async () => {
-    vi.useFakeTimers();
-    const dir = await mkdtemp(join(tmpdir(), "roost-agent-worker-frame-"));
-    cleanupDirs.push(dir);
-    const opened = openDb(join(dir, "coord.db"));
-    await runMigrations(opened.sqlite);
-    const deps = {
-      db: opened.db,
-    } as unknown as WorkerServiceDeps;
-    const conn = makeWorkerConn(deps, { fingerprint: WORKER }, () => 1, () => {}, undefined, DASHBOARD);
-    try {
-      await conn.handleUpstream(create(CoordWorkerUpSchema, {
-        frame: { case: "hello", value: create(WHelloSchema, { workerFp: WORKER, version: "test" }) },
-      }));
-      await conn.handleUpstream(create(CoordWorkerUpSchema, {
-        frame: { case: "agentStatus", value: create(WAgentStatusSchema, {
-          sessionId: SID,
-          agentId: "omp",
-          state: "blocked",
-          message: "Approval needed",
-          revision: 4n,
-          completedRevision: 0n,
-          updatedAt: 1_780_000_000_004,
-          active: true,
-        }) },
-      }));
-      expect(getAgentStatusSnapshot()).toEqual([]);
-      const handle = connectWorkers.get(WORKER);
-      if (!handle) throw new Error("hello did not claim worker generation");
-      handle.ready = true;
-      cacheSessionWorker(SID, WORKER, 7);
-      await conn.handleUpstream(create(CoordWorkerUpSchema, {
-        frame: { case: "agentStatus", value: create(WAgentStatusSchema, {
-          sessionId: SID,
-          agentId: "omp",
-          state: "blocked",
-          message: "Approval needed",
-          revision: 4n,
-          completedRevision: 0n,
-          updatedAt: 1_780_000_000_004,
-          active: true,
-        }) },
-      }));
-      expect(getAgentStatusSnapshot()).toEqual([
-        AgentStatus.parse(status({
-          state: "blocked",
-          message: "Approval needed",
-          revision: 4,
-          updated_at: 1_780_000_000_004,
-        })),
-      ]);
-    } finally {
-      conn.close();
-      await opened.close();
-    }
-  });
 });

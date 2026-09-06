@@ -26,6 +26,10 @@ describe("managed public route classification", () => {
       .toBe("denied");
     expect(classifyManagedPublicRoute(`${RPC}SessionsList`, "POST"))
       .toBe("protected-rpc");
+    expect(classifyManagedPublicRoute(`${RPC}AgentStatusGet`, "POST"))
+      .toBe("protected-rpc");
+    expect(classifyManagedPublicRoute(`${RPC}AgentStatusList`, "POST"))
+      .toBe("protected-rpc");
     expect(classifyManagedPublicRoute(`${RPC}SessionsCancelScrollbackSearch`, "POST"))
       .toBe("protected-rpc");
     expect(classifyManagedPublicRoute(`${RPC}SessionsSearchGlobal`, "POST"))

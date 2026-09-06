@@ -52,12 +52,12 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
 | `apps/web/src/components/Settings/` | settings shell/panes; `OrganizationPane.tsx` and `DashboardPane.tsx` project confirmed scope, `MachinesPane.tsx` owns workers, `settingsNavigation.ts` hides self-hosted-only scope controls in managed mode | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
-| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
+| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
-| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters; `globalContentSearchController.ts` owns bounded dashboard search paging, `globalContentSearchResults.ts` reconciles cursor results, `globalContentSearchRuntime.ts` fences dashboard cutovers, and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun clicked results in pane-local current-epoch find (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
+| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts` owns bounded dashboard search paging, `globalContentSearchResults.ts` reconciles cursor results, `globalContentSearchRuntime.ts` fences dashboard cutovers, and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun clicked results in pane-local current-epoch find (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, fragment credentials, pairing/tab identity/relocation; `tenant-routing.ts`, `managed-routes.ts`, `managed-auth-gateway.ts`, `managed-login.ts`, `managed-account.ts`, `managed-credentials.ts`, and `managed-logout.ts` own managed policy/transitions | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | six global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules | component-local one-offs |
-| `apps/web/tests/` | 118 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
+| `apps/web/tests/` | 121 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
 | `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
 
@@ -109,6 +109,12 @@ Break one of these and you get back the history-corruption class this repo keeps
   named functions in `apps/web/src/store/mutations.ts`. New UI adds a selector and a JSX line; it does
   not add a store. `apps/web/src/store/projector.ts` folds `SessionEvent` with the same `foldEvent`
   coord uses (`@roost/shared/wire`), so SPA and coord projections agree by construction.
+- **Observed-agent status is occupant-fenced.** Identified Sync frames compare
+  `status_epoch` and `occupant_id` only by equality; `source` is mutable
+  provenance. Replaced occupants and epochs stay retired, and seen state,
+  notification timers, cross-tab claims, badges, and attention rows use the
+  exact occupant revision. Identityless rolling-deployment frames remain
+  displayable but cannot supersede an identified occupant.
 - **The Sync generation set is exact.** The browser accepts terminal, workers, workspaces, tasks,
   MCP, pair, and audit generations, with audit as the only lazy domain. Missing or extra domains are
   a protocol mismatch that requires the current SPA to reload; there are no tombstone domains or

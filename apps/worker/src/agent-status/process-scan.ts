@@ -220,6 +220,17 @@ export function findAgentProcessIdentity(
   return best?.identity ?? null;
 }
 
+function findExactAgentProcessIdentity(
+  records: readonly ProcessRecord[],
+  rootPid: number,
+  processId: number,
+): AgentProcessIdentity | null {
+  const record = descendants(records, rootPid).find((candidate) => candidate.pid === processId);
+  if (!record) return null;
+  const agentId = identifyAgentProcess(record, HOST_PLATFORM);
+  return agentId ? { agentId, pid: processId } : null;
+}
+
 interface HeldIdentity extends AgentProcessIdentity { misses: number }
 
 export type ProcessSnapshotReader = () => Promise<ProcessRecord[]>;
@@ -282,16 +293,28 @@ export class AgentProcessScanner {
     }
     const result = new Map<string, AgentProcessIdentity>();
     for (const root of roots) {
-      const detected = findAgentProcessIdentity(this.records, root.childPid);
       const held = this.heldBySession.get(root.sessionId);
+      const liveHeld = held
+        ? findExactAgentProcessIdentity(this.records, root.childPid, held.pid)
+        : null;
+      if (held && liveHeld?.agentId === held.agentId) {
+        held.misses = 0;
+        result.set(root.sessionId, liveHeld);
+        continue;
+      }
+      if (!refreshed && held) {
+        result.set(root.sessionId, held);
+        continue;
+      }
+      if (held && held.misses < 1) {
+        held.misses++;
+        result.set(root.sessionId, held);
+        continue;
+      }
+      const detected = findAgentProcessIdentity(this.records, root.childPid);
       if (detected) {
         this.heldBySession.set(root.sessionId, { ...detected, misses: 0 });
         result.set(root.sessionId, detected);
-      } else if (!refreshed && held) {
-        result.set(root.sessionId, held);
-      } else if (held && held.misses < 1) {
-        held.misses++;
-        result.set(root.sessionId, held);
       } else {
         this.heldBySession.delete(root.sessionId);
       }
@@ -299,28 +322,22 @@ export class AgentProcessScanner {
     return result;
   }
 
-  async sessionForPid(pid: number, roots: readonly SessionProcessRoot[]): Promise<string | null> {
-    const resolve = (): string | null => {
-      const rootByPid = new Map(roots.map((root) => [root.childPid, root.sessionId]));
-      const byPid = new Map(this.records.map((record) => [record.pid, record]));
-      const visited = new Set<number>();
-      let current = pid;
-      while (current > 0 && !visited.has(current)) {
-        const sessionId = rootByPid.get(current);
-        if (sessionId) return sessionId;
-        visited.add(current);
-        current = byPid.get(current)?.ppid ?? 0;
-      }
-      return null;
-    };
-
-    await this.refresh();
-    const resolved = resolve();
-    if (resolved) return resolved;
-    // A reporter can start in the 250 ms after the detector's last global
-    // snapshot. One on-demand retry closes that race; reports are rare, while
-    // the hot screen detector remains throttled to one `ps` per interval.
-    await this.refresh(Date.now(), true);
-    return resolve();
+  async scanReportingAgent(
+    root: SessionProcessRoot,
+    reporterPid: number,
+  ): Promise<AgentProcessIdentity | null> {
+    if (this.scanPromise) await this.scanPromise;
+    const refreshed = await this.refresh(Date.now(), true);
+    if (!refreshed) return null;
+    const held = this.heldBySession.get(root.sessionId);
+    if (held) {
+      const liveHeld = findExactAgentProcessIdentity(this.records, root.childPid, held.pid);
+      if (!liveHeld || liveHeld.agentId !== held.agentId) return null;
+      return liveHeld.pid === reporterPid ? liveHeld : null;
+    }
+    const current = findAgentProcessIdentity(this.records, root.childPid);
+    if (!current || current.pid !== reporterPid) return null;
+    this.heldBySession.set(root.sessionId, { ...current, misses: 0 });
+    return current;
   }
 }

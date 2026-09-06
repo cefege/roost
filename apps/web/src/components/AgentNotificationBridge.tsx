@@ -74,35 +74,35 @@ export function AgentNotificationBridge() {
     navigate(session ? terminalHref(session) : `/s/${sessionId}`);
   };
 
-  const deliver = async (
-    sessionId: string,
-    pending: Pick<AgentNotificationDelivery, "revision" | "kind">,
-  ): Promise<void> => {
-    const status = rootStore.agent_status[sessionId] as AgentStatus | undefined;
-    if (!matchesAgentNotification(status, pending)) return;
+  const deliver = async (delivery: AgentNotificationDelivery): Promise<void> => {
+    const { sessionId } = delivery;
+    let status = rootStore.agent_status[sessionId] as AgentStatus | undefined;
+    if (!matchesAgentNotification(status, delivery)) return;
     const active = activeSessionForPath(location.pathname);
     if (isPageVisible() && active?.id === sessionId) {
-      markAgentSeen(sessionId, status.revision);
+      markAgentSeen(status);
       return;
     }
-    if (seenAgentRevision(sessionId) >= pending.revision) return;
+    if (seenAgentRevision(status) >= delivery.token.revision) return;
 
     const prefs = notifyPrefs();
-    const soundEnabled = pending.kind === "blocked" ? prefs.blockedSound : prefs.doneSound;
+    const soundEnabled = delivery.kind === "blocked" ? prefs.blockedSound : prefs.doneSound;
     if (!prefs.inApp && !soundEnabled) return;
-    if (!await claimAgentNotification(sessionId, pending.revision, pending.kind)) return;
-    if (seenAgentRevision(sessionId) >= pending.revision) return;
+    if (!await claimAgentNotification(delivery)) return;
+    status = rootStore.agent_status[sessionId] as AgentStatus | undefined;
+    if (!matchesAgentNotification(status, delivery)) return;
+    if (seenAgentRevision(status) >= delivery.token.revision) return;
 
     const session = rootStore.sessions[sessionId];
     const title = session ? sessionTitle(session) : "Terminal";
     if (prefs.inApp) {
       let dismiss = () => {};
       dismiss = addToast(
-        pending.kind === "blocked" ? `${title} needs your input` : `${title} finished`,
-        pending.kind === "blocked" ? "warn" : "ok",
+        delivery.kind === "blocked" ? `${title} needs your input` : `${title} finished`,
+        delivery.kind === "blocked" ? "warn" : "ok",
         {
           details: status.message,
-          ttlMs: pending.kind === "blocked" ? 8_000 : 5_000,
+          ttlMs: delivery.kind === "blocked" ? 8_000 : 5_000,
           action: {
             label: "View",
             onClick: () => {
@@ -113,7 +113,7 @@ export function AgentNotificationBridge() {
         },
       );
     }
-    if (soundEnabled) playCue(pending.kind);
+    if (soundEnabled) playCue(delivery.kind);
   };
 
   const scheduler = new AgentNotificationScheduler({
@@ -121,8 +121,8 @@ export function AgentNotificationBridge() {
       rootStore.agent_status[sessionId] as AgentStatus | undefined,
     isViewed: (sessionId) =>
       isPageVisible() && activeSessionForPath(location.pathname)?.id === sessionId,
-    markSeen: (sessionId, revision) => { markAgentSeen(sessionId, revision); },
-    deliver: (delivery) => { void deliver(delivery.sessionId, delivery); },
+    markSeen: (status) => { markAgentSeen(status); },
+    deliver: (delivery) => { void deliver(delivery); },
   });
 
   createEffect(() => {
@@ -132,7 +132,7 @@ export function AgentNotificationBridge() {
     if (!session) return;
     const status = rootStore.agent_status[session.id] as AgentStatus | undefined;
     if (!status) return;
-    scheduler.view(session.id, status.revision);
+    scheduler.view(status);
   });
 
   createEffect(() => {

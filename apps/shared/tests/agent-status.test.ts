@@ -1,12 +1,29 @@
+// Pins legacy and identified agent-status validation across Zod and protobuf.
+// The tests cover worker, Sync, and coordinator read projections without
+// inventing process provenance for identityless rolling-deployment frames.
+
 import { describe, expect, test } from "bun:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AGENT_ID_MAX_LENGTH,
   AGENT_STATUS_MESSAGE_MAX_LENGTH,
   AgentId,
+  AgentOccupantId,
   AgentStatus,
+  AgentStatusSource,
   AgentStatusUpdate,
+  StatusEpoch,
+  isIdentifiedAgentStatus,
+  type AgentStatusIdentity,
 } from "../src/wire/agent-status.ts";
+import {
+  AgentStatusGetRequestSchema,
+  AgentStatusGetResponseSchema,
+  AgentStatusListRequestSchema,
+  AgentStatusListResponseSchema,
+  AgentStatusViewSchema,
+  CoordinatorService,
+} from "../src/gen/roost/v1/coordinator_pb.ts";
 import {
   CoordWorkerUpSchema,
   WAgentStatusSchema,
@@ -17,6 +34,13 @@ import {
 } from "../src/gen/roost/v1/sync_pb.ts";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
+const statusEpoch = "22222222-2222-4222-8222-222222222222";
+const occupantId = "33333333-3333-4333-8333-333333333333";
+const identity = {
+  status_epoch: statusEpoch,
+  occupant_id: occupantId,
+  source: "integration",
+} as const;
 const base = {
   session_id: sessionId,
   agent_id: "omp",
@@ -27,9 +51,15 @@ const base = {
 } as const;
 
 describe("agent status wire schema", () => {
-  test("accepts active status and inactive deletion updates", () => {
-    expect(AgentStatus.parse({ ...base, active: true })).toMatchObject(base);
-    expect(AgentStatusUpdate.parse({ ...base, active: false })).toMatchObject({ active: false });
+  test("accepts active status and inactive deletion updates without legacy provenance", () => {
+    const legacyStatus = AgentStatus.parse({ ...base, active: true });
+    const legacyDeletion = AgentStatusUpdate.parse({ ...base, active: false });
+    expect(legacyStatus).toMatchObject(base);
+    expect(legacyDeletion).toMatchObject({ active: false });
+    expect(legacyStatus.status_epoch).toBeUndefined();
+    expect(legacyStatus.occupant_id).toBeUndefined();
+    expect(legacyStatus.source).toBeUndefined();
+    expect(isIdentifiedAgentStatus(legacyStatus)).toBe(false);
   });
 
   test("bounds agent ids and messages", () => {
@@ -40,6 +70,23 @@ describe("agent status wire schema", () => {
     expect(AgentStatusUpdate.safeParse({
       ...base,
       message: "x".repeat(AGENT_STATUS_MESSAGE_MAX_LENGTH + 1),
+      active: true,
+    }).success).toBe(false);
+  });
+
+  test("validates identity UUIDs and observed source", () => {
+    for (const schema of [StatusEpoch, AgentOccupantId]) {
+      expect(schema.safeParse(statusEpoch).success).toBe(true);
+      expect(schema.safeParse("not-a-uuid").success).toBe(false);
+    }
+    expect(AgentStatusSource.safeParse("integration").success).toBe(true);
+    expect(AgentStatusSource.safeParse("screen").success).toBe(true);
+    expect(AgentStatusSource.safeParse("worker").success).toBe(false);
+
+    expect(AgentStatus.safeParse({
+      ...base,
+      ...identity,
+      status_epoch: "not-a-uuid",
       active: true,
     }).success).toBe(false);
   });
@@ -55,10 +102,52 @@ describe("agent status wire schema", () => {
       expect(AgentStatusUpdate.safeParse({ ...base, ...patch, active: true }).success).toBe(false);
     }
   });
+
+  test("rejects every partial identity triple", () => {
+    for (const partialIdentity of [
+      { status_epoch: statusEpoch },
+      { occupant_id: occupantId },
+      { source: "integration" },
+      { status_epoch: statusEpoch, occupant_id: occupantId },
+      { status_epoch: statusEpoch, source: "integration" },
+      { occupant_id: occupantId, source: "integration" },
+    ]) {
+      expect(AgentStatus.safeParse({
+        ...base,
+        ...partialIdentity,
+        active: true,
+      }).success).toBe(false);
+      expect(AgentStatusUpdate.safeParse({
+        ...base,
+        ...partialIdentity,
+        active: false,
+      }).success).toBe(false);
+    }
+  });
+
+  test("narrows only complete identified statuses", () => {
+    const identifiedStatus = AgentStatus.parse({
+      ...base,
+      ...identity,
+      active: true,
+    });
+    expect(isIdentifiedAgentStatus(identifiedStatus)).toBe(true);
+    if (!isIdentifiedAgentStatus(identifiedStatus)) {
+      throw new Error("identified status did not narrow");
+    }
+    const narrowedIdentity: AgentStatusIdentity = identifiedStatus;
+    expect(narrowedIdentity).toMatchObject(identity);
+    const identifiedDeletion = AgentStatusUpdate.parse({
+      ...base,
+      ...identity,
+      active: false,
+    });
+    expect(isIdentifiedAgentStatus(identifiedDeletion)).toBe(true);
+  });
 });
 
 describe("agent status protobuf contract", () => {
-  test("round-trips worker and Sync frames without loss", () => {
+  test("round-trips identified worker and Sync frames without loss", () => {
     const protoStatus = {
       sessionId,
       agentId: "omp",
@@ -68,6 +157,9 @@ describe("agent status protobuf contract", () => {
       completedRevision: 3n,
       updatedAt: 5678,
       active: true,
+      statusEpoch,
+      occupantId,
+      source: "integration",
     };
     const workerStatus = create(WAgentStatusSchema, protoStatus);
     const workerFrame = create(CoordWorkerUpSchema, {
@@ -79,7 +171,12 @@ describe("agent status protobuf contract", () => {
     );
     expect(workerRoundTrip.frame).toMatchObject({
       case: "agentStatus",
-      value: { message: "Approval required", revision: 7n, completedRevision: 3n },
+      value: {
+        revision: 7n,
+        statusEpoch,
+        occupantId,
+        source: "integration",
+      },
     });
 
     const syncStatus = create(AgentStatusFrameSchema, protoStatus);
@@ -92,7 +189,94 @@ describe("agent status protobuf contract", () => {
     );
     expect(syncRoundTrip.frame).toMatchObject({
       case: "agentStatus",
-      value: { agentId: "omp", state: "blocked", updatedAt: 5678, active: true },
+      value: {
+        agentId: "omp",
+        statusEpoch,
+        occupantId,
+        source: "integration",
+      },
     });
+  });
+
+  test("round-trips fully legacy identityless transports without fabrication", () => {
+    const legacyStatus = {
+      sessionId,
+      agentId: "omp",
+      state: "idle",
+      revision: 1n,
+      completedRevision: 0n,
+      updatedAt: 100,
+      active: true,
+    };
+    const workerRoundTrip = fromBinary(
+      WAgentStatusSchema,
+      toBinary(WAgentStatusSchema, create(WAgentStatusSchema, legacyStatus)),
+    );
+    const syncRoundTrip = fromBinary(
+      AgentStatusFrameSchema,
+      toBinary(AgentStatusFrameSchema, create(AgentStatusFrameSchema, legacyStatus)),
+    );
+    for (const roundTripStatus of [workerRoundTrip, syncRoundTrip]) {
+      expect(roundTripStatus.statusEpoch).toBeUndefined();
+      expect(roundTripStatus.occupantId).toBeUndefined();
+      expect(roundTripStatus.source).toBeUndefined();
+    }
+  });
+
+  test("exposes explicit coordinator read DTOs and service methods", () => {
+    expect(CoordinatorService.methods.map((method) => method.localName)).toEqual(
+      expect.arrayContaining(["agentStatusGet", "agentStatusList"]),
+    );
+    const view = create(AgentStatusViewSchema, {
+      sessionId,
+      agentId: "omp",
+      state: "working",
+      revision: 9n,
+      completedRevision: 4n,
+      updatedAt: 9000,
+      active: true,
+      statusEpoch,
+      occupantId,
+      source: "integration",
+      promptable: true,
+    });
+    const legacyView = create(AgentStatusViewSchema, {
+      sessionId,
+      agentId: "omp",
+      state: "idle",
+      revision: 2n,
+      completedRevision: 1n,
+      updatedAt: 8000,
+      active: true,
+      promptable: false,
+    });
+    const getRequest = create(AgentStatusGetRequestSchema, { sessionId });
+    const getResponse = create(AgentStatusGetResponseSchema, { status: view });
+    const listRequest = create(AgentStatusListRequestSchema);
+    const listResponse = create(AgentStatusListResponseSchema, {
+      statuses: [view, legacyView],
+    });
+
+    expect(fromBinary(
+      AgentStatusGetRequestSchema,
+      toBinary(AgentStatusGetRequestSchema, getRequest),
+    )).toMatchObject({ sessionId });
+    expect(fromBinary(
+      AgentStatusGetResponseSchema,
+      toBinary(AgentStatusGetResponseSchema, getResponse),
+    ).status).toMatchObject({ statusEpoch, occupantId, promptable: true });
+    expect(fromBinary(
+      AgentStatusListRequestSchema,
+      toBinary(AgentStatusListRequestSchema, listRequest),
+    )).toBeDefined();
+    const roundTripStatuses = fromBinary(
+      AgentStatusListResponseSchema,
+      toBinary(AgentStatusListResponseSchema, listResponse),
+    ).statuses;
+    expect(roundTripStatuses[0]).toMatchObject({ sessionId, source: "integration" });
+    expect(roundTripStatuses[1]).toMatchObject({ promptable: false });
+    expect(roundTripStatuses[1]?.statusEpoch).toBeUndefined();
+    expect(roundTripStatuses[1]?.occupantId).toBeUndefined();
+    expect(roundTripStatuses[1]?.source).toBeUndefined();
   });
 });

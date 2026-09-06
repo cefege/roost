@@ -36,7 +36,7 @@ import {
   type SyncV2RetainedFrame,
 } from "./sync-ws-v2-state.ts";
 import { makeSyncV2TerminalScheduler } from "./sync-ws-v2-terminal.ts";
-import { removeTerminalQueued, selectV2Candidate, v2AttachSnapshotInsertIndex } from "./sync-ws-v2-queue.ts";
+import { coalesceV2BufferedFrame, removeTerminalQueued, selectV2Candidate, v2AttachSnapshotInsertIndex } from "./sync-ws-v2-queue.ts";
 
 export interface SyncV2SchedulerDeps {
   readonly deadlineClock: WsDeadlineClock;
@@ -169,6 +169,7 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     }
     const domain = v2.domains.get(meta.domain);
     if (!domain || !domain.subscribed) return false;
+    if (meta.beforeBuffered) coalesceV2BufferedFrame(v2, domain, owned.frame);
     const exceedsDomain = domain.queue.length + 1 > V2_DOMAIN_MAX_QUEUED_FRAMES
       || domain.queuedBytes + owned.estimatedBytes > V2_DOMAIN_MAX_QUEUED_BYTES;
     if (exceedsDomain) {

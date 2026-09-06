@@ -1,5 +1,6 @@
 // RFC 8291/8292 Web Push delivery. Dead subscriptions are pruned; every
 // other delivery failure is isolated so one endpoint cannot block the batch.
+// Exact-status revalidation and RFC 8030 topic fencing occur at transport.
 
 import { createHash } from "node:crypto";
 import type { Kysely } from "kysely";
@@ -41,6 +42,11 @@ export interface PushDeliveryResult {
   failed: number;
 }
 
+export interface PushDeliveryOptions {
+  readonly deduplicationToken?: string;
+  readonly isCurrent?: () => boolean;
+}
+
 export type PushNotificationTransport = Pick<typeof webpush, "sendNotification">;
 
 function pushStatusCode(error: unknown): number | null {
@@ -59,6 +65,7 @@ export async function sendPushToSubscriptions(
   db: Kysely<DB>,
   subscriptions: PushSubscriptionsTable[],
   payload: object,
+  options: PushDeliveryOptions = {},
   transport: PushNotificationTransport = webpush,
 ): Promise<PushDeliveryResult> {
   if (subscriptions.length === 0) return { delivered: 0, expired: 0, failed: 0 };
@@ -67,6 +74,9 @@ export async function sendPushToSubscriptions(
   } catch (error) {
     log.warn("push", "vapid_config_failed", { error: String(error) });
     return { delivered: 0, expired: 0, failed: subscriptions.length };
+  }
+  if (options.isCurrent && !options.isCurrent()) {
+    return { delivered: 0, expired: 0, failed: 0 };
   }
 
   const body = JSON.stringify(payload);
@@ -82,6 +92,7 @@ export async function sendPushToSubscriptions(
         if (index >= subscriptions.length) return;
         const subscription = subscriptions[index]!;
         const endpoint = subscription.endpoint;
+        if (options.isCurrent && !options.isCurrent()) return;
         try {
           // web-push issues one node:https request and rejects every non-2xx
           // response; there is deliberately no redirect replay.
@@ -91,7 +102,13 @@ export async function sendPushToSubscriptions(
               keys: { p256dh: subscription.p256dh, auth: subscription.auth },
             },
             body,
-            { TTL: TTL_SECONDS, timeout: REQUEST_TIMEOUT_MS },
+            {
+              TTL: TTL_SECONDS,
+              timeout: REQUEST_TIMEOUT_MS,
+              ...(options.deduplicationToken
+                ? { topic: options.deduplicationToken }
+                : {}),
+            },
           );
           delivered++;
         } catch (error) {

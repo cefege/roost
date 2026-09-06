@@ -89,12 +89,10 @@ export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup
     const worker = rootStore.workers[head.worker_fp];
     const latestActivity = Math.max(...sessions.map(recencyOf));
     const online = worker ? workerOnline(worker) : false;
-    const agentStatus = foldAgentStatusLevels(sessions.map((session) =>
-      deriveAgentStatusLevel(
-        rootStore.agent_status[session.id],
-        seenAgentRevision(session.id),
-      )
-    ));
+    const agentStatus = foldAgentStatusLevels(sessions.map((session) => {
+      const status = rootStore.agent_status[session.id];
+      return deriveAgentStatusLevel(status, seenAgentRevision(status));
+    }));
     out.push({
       key,
       name: folderDisplayName(head),

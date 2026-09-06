@@ -4,11 +4,14 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  AgentOccupantId,
+  StatusEpoch,
   asChannelId,
   asSessionId,
   asWorkerFp,
   asWorkspaceId,
   type AgentStatus,
+  type AgentStatusIdentity,
   type Session,
   type Worker,
   type Workspace,
@@ -22,7 +25,7 @@ import {
   matchesNavigationSearchDocument,
   normalizeNavigationSearchQuery,
 } from "../src/store/navigation-search.ts";
-import { clearDashboardScopedRootData, setRootStore } from "../src/store/root.ts";
+import { clearDashboardScopedRootData, rootStore, setRootStore } from "../src/store/root.ts";
 import { setRoutableFps } from "../src/store/sync-routable.ts";
 
 const ONLINE_FP = asWorkerFp("a".repeat(64));
@@ -33,6 +36,19 @@ const SESSION_B = asSessionId("20000000-0000-4000-8000-000000000002");
 const SESSION_C = asSessionId("20000000-0000-4000-8000-000000000003");
 const SESSION_D = asSessionId("20000000-0000-4000-8000-000000000004");
 const SESSION_E = asSessionId("20000000-0000-4000-8000-000000000005");
+const STATUS_EPOCH = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const FIRST_OCCUPANT = AgentOccupantId.parse("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa");
+const NEXT_OCCUPANT = AgentOccupantId.parse("bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb");
+const FIRST_IDENTITY: AgentStatusIdentity = {
+  status_epoch: STATUS_EPOCH,
+  occupant_id: FIRST_OCCUPANT,
+  source: "integration",
+};
+const NEXT_IDENTITY: AgentStatusIdentity = {
+  status_epoch: STATUS_EPOCH,
+  occupant_id: NEXT_OCCUPANT,
+  source: "integration",
+};
 
 function worker(fp: typeof ONLINE_FP, label: string): Worker {
   return {
@@ -90,6 +106,7 @@ function agentStatus(
   completedRevision: number,
   updatedAt: number,
   message?: string,
+  identity?: AgentStatusIdentity,
 ): AgentStatus {
   return {
     session_id: sessionId,
@@ -100,6 +117,7 @@ function agentStatus(
     completed_revision: completedRevision,
     updated_at: updatedAt,
     active: true,
+    ...identity,
   };
 }
 
@@ -249,7 +267,7 @@ describe("navigation attention", () => {
       agentStatus(SESSION_D, "idle", 4, 4, 1_000),
       agentStatus(SESSION_E, "working", 3, 0, 2_000),
     ]);
-    markAgentSeen(SESSION_B, 7);
+    markAgentSeen(rootStore.agent_status[SESSION_B]!);
 
     const attention = attentionNavigationDocuments(_projectNavigationSearchDocuments());
     expect(attention.map((document) => document.sessionId)).toEqual([
@@ -286,8 +304,8 @@ describe("navigation attention", () => {
       { id: SESSION_B, available: false, attention: "done" },
     ]);
 
-    markAgentSeen(SESSION_A, 8);
-    markAgentSeen(SESSION_B, 9);
+    markAgentSeen(rootStore.agent_status[SESSION_A]!);
+    markAgentSeen(rootStore.agent_status[SESSION_B]!);
     expect(attentionNavigationDocuments(_projectNavigationSearchDocuments()).map((document) => ({
       id: document.sessionId,
       unseen: document.agentUnseen,
@@ -295,5 +313,26 @@ describe("navigation attention", () => {
     }))).toEqual([
       { id: SESSION_A, unseen: false, attention: "blocked" },
     ]);
+  });
+
+  test("treats a lower revision from a replacement occupant as unseen", () => {
+    setRootStore("workers", ONLINE_FP, worker(ONLINE_FP, "Online"));
+    seedSessions([session(SESSION_A)]);
+    const completed = agentStatus(
+      SESSION_A, "idle", 9, 9, 900, undefined, FIRST_IDENTITY,
+    );
+    seedAgentStatuses([completed]);
+    markAgentSeen(completed);
+    expect(attentionNavigationDocuments(_projectNavigationSearchDocuments())).toEqual([]);
+
+    const replacement = agentStatus(
+      SESSION_A, "idle", 1, 1, 1_000, undefined, NEXT_IDENTITY,
+    );
+    seedAgentStatuses([replacement]);
+    expect(attentionNavigationDocuments(_projectNavigationSearchDocuments())).toMatchObject([{
+      sessionId: SESSION_A,
+      agentAttention: "done",
+      agentUnseen: true,
+    }]);
   });
 });

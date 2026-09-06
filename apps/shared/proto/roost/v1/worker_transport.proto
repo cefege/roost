@@ -50,6 +50,9 @@ message WAgentStatus {
   uint64 completed_revision = 6;
   double updated_at = 7;
   bool active = 8;
+  optional string status_epoch = 9;
+  optional string occupant_id = 10;
+  optional string source = 11;
 }
 // Durable Windows update-broker progress. Progress is journal-backed on the
 // worker host and replayed after a worker reconnect; sequence is monotonic per

@@ -24,7 +24,10 @@ import { isPendingSpawn } from "./optimisticSpawn.ts";
 import { pruneTerminalSession } from "./terminal-stream.ts";
 import { pruneTerminalInput } from "../ws/sync-outbound.ts";
 import { pruneSessionTrace } from "../lib/diag.ts";
-import { clearAgentStatusForSession } from "./agent-status.ts";
+import {
+  clearAgentStatusForSession,
+  markAgentStatusSessionOpen,
+} from "./agent-status.ts";
 
 /** session_ids whose store entry this event could change — the slice we
  *  must hand foldEvent so its result is correct. snapshot replaces every
@@ -132,6 +135,7 @@ export function foldEventIntoStore(event: SessionEvent): void {
       if (prev.get(id) === s) continue;
       _upsertSession(id, s);
     }
+    if (valid.kind === "opened") markAgentStatusSessionOpen(valid.session_id);
   });
   } catch (e) {
     // A fold throw must NOT unwind into the sync stream (it would be mislabeled

@@ -1,9 +1,7 @@
-// Encoded-outbox + native-backpressure engine for coord-link.ts. Owns every
-// byte that leaves the worker: the two bounded pending lanes (control and raw
-// metadata) and the byte admission that decides whether a frame goes straight
-// onto the native socket or waits. The at-least-once SessionEvent ledger sits
-// behind it in coord-link-unacked.ts. Extracted from coord-link.ts as pure
-// code motion; the factory is per-link, so all state stays per-socket.
+// Encoded-outbox and pending-lane engine for coord-link.ts. It orders durable
+// replay, agent status, controls, cells, and raw metadata around the native
+// byte writer in coord-link-native-writer.ts. The factory is per link, so all
+// volatile queue state stays with one coordinator connection owner.
 //
 // drainQueues()'s ordering is load-bearing and documented inline: durable and
 // control chronology always fences cells and raw metadata, which is what
@@ -12,7 +10,7 @@
 
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
-  CoordWorkerUpSchema, WCellGridSchema, WCellGridChunkSchema, WAgentStatusSchema,
+  CoordWorkerUpSchema, WCellGridSchema, WCellGridChunkSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
 import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
@@ -20,11 +18,12 @@ import type { AgentStatusUpdate } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import { frameToProto, binaryFrameToProto } from "./coord-link-codec.ts";
+import { createCoordLinkAgentStatusOutbox } from "./coord-link-agent-status.ts";
 import { createCoordLinkUnacked } from "./coord-link-unacked.ts";
 import {
-  PENDING_CAP, PENDING_BYTES_CAP, RAW_METADATA_MAX_AGE_MS,
-  WS_BUFFERED_HIGH_WATER_BYTES, WS_DRAIN_RETRY_MS,
+  PENDING_CAP, PENDING_BYTES_CAP, RAW_METADATA_MAX_AGE_MS, WS_DRAIN_RETRY_MS,
 } from "./coord-link-constants.ts";
+import { createCoordLinkNativeWriter } from "./coord-link-native-writer.ts";
 import type {
   CoordLinkDeps, CoordLinkOutbox, TerminalCellSendResult, TransportSendResult, UpstreamFrame,
 } from "./coord-link-types.ts";
@@ -39,10 +38,7 @@ export function createCoordLinkOutbox(
   deps: CoordLinkDeps,
   isDisposed: () => boolean,
 ): CoordLinkOutbox {
-  // `writer` accepts already-encoded bytes. Admission/backpressure checks live
-  // in tryWriteEncoded(), so every queued byte is counted exactly once.
-  let writer: ((bytes: Uint8Array) => void) | null = null;
-  let activeWs: WebSocket | null = null;
+  const nativeWriter = createCoordLinkNativeWriter();
   let linkReady = false;
   let drainTimer: NodeJS.Timeout | null = null;
   let pendingFrameCount = 0;
@@ -55,14 +51,19 @@ export function createCoordLinkOutbox(
   const events = createCoordLinkUnacked(deps.sessionEventStore, {
     isDisposed,
     encodeUpstream: (frame) => encodeUpstream(frame),
-    tryWriteEncoded: (bytes) => tryWriteEncoded(bytes),
-    isAttached: () => writer !== null,
+    tryWriteEncoded: nativeWriter.tryWrite,
+    isAttached: nativeWriter.isAttached,
     kick: () => { drainQueues(); },
     onLive: (reconnected) => {
       linkReady = true;
       deps.onSnapshotReady?.({ reconnected });
       drainQueues();
     },
+  });
+  const agentStatuses = createCoordLinkAgentStatusOutbox({
+    encodeUpstream,
+    tryWriteEncoded: nativeWriter.tryWrite,
+    scheduleDrain,
   });
 
   function clearDrainTimer(): void {
@@ -80,41 +81,9 @@ export function createCoordLinkOutbox(
     }
   }
 
-  function nativeHasCapacity(byteLength: number): boolean {
-    if (
-      !writer ||
-      !activeWs ||
-      activeWs.readyState !== WebSocket.OPEN ||
-      byteLength > PENDING_BYTES_CAP
-    ) return false;
-    const buffered = activeWs.bufferedAmount;
-    // Permit one large (but bounded) frame when the native queue is empty.
-    // Otherwise stop before crossing the high-water mark.
-    return buffered === 0
-      ? byteLength <= PENDING_BYTES_CAP
-      : buffered + byteLength <= WS_BUFFERED_HIGH_WATER_BYTES;
-  }
-
-  function tryWriteEncoded(bytes: Uint8Array): boolean {
-    if (!nativeHasCapacity(bytes.byteLength) || !writer) return false;
-    try {
-      writer(bytes);
-      return true;
-    } catch (error) {
-      diag("transport.frame_dropped", {
-        reason: "writer_throw",
-        kind: "encoded",
-        bytes: bytes.byteLength,
-      });
-      log.warn("coord-link", "writer_throw", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return false;
-    }
-  }
 
   function scheduleDrain(): void {
-    if (isDisposed() || !writer || drainTimer !== null) return;
+    if (isDisposed() || !nativeWriter.isAttached() || drainTimer !== null) return;
     drainTimer = setTimeout(drainQueues, WS_DRAIN_RETRY_MS);
   }
 
@@ -156,7 +125,7 @@ export function createCoordLinkOutbox(
   function drainLiveness(): void {
     while (livenessPending.length > 0) {
       const item = livenessPending[0]!;
-      if (!tryWriteEncoded(item.bytes)) return;
+      if (!nativeWriter.tryWrite(item.bytes)) return;
       removePendingHead(livenessPending);
     }
   }
@@ -164,14 +133,14 @@ export function createCoordLinkOutbox(
   function drainControls(): void {
     while (controlPending.length > 0) {
       const item = controlPending[0]!;
-      if (!tryWriteEncoded(item.bytes)) return;
+      if (!nativeWriter.tryWrite(item.bytes)) return;
       removePendingHead(controlPending);
     }
   }
 
   function drainOneRaw(): boolean {
     const item = rawPending[0];
-    if (!item || !tryWriteEncoded(item.bytes)) return false;
+    if (!item || !nativeWriter.tryWrite(item.bytes)) return false;
     removePendingHead(rawPending);
     return true;
   }
@@ -182,7 +151,7 @@ export function createCoordLinkOutbox(
       notifyingWritable ||
       !linkReady ||
       events.unsentCount() > 0 ||
-      !nativeHasCapacity(0)
+      !nativeWriter.hasCapacity(0)
     ) return;
     writableNotificationPending = false;
     notifyingWritable = true;
@@ -199,7 +168,7 @@ export function createCoordLinkOutbox(
 
   function drainQueues(): void {
     clearDrainTimer();
-    if (isDisposed() || !writer) return;
+    if (isDisposed() || !nativeWriter.isAttached()) return;
     drainLiveness();
     if (livenessPending.length > 0) {
       scheduleDrain();
@@ -213,6 +182,11 @@ export function createCoordLinkOutbox(
     if (!linkReady) return;
     maybeNotifyWritable();
     if (writableNotificationPending) {
+      scheduleDrain();
+      return;
+    }
+    agentStatuses.drain();
+    if (agentStatuses.hasPending()) {
       scheduleDrain();
       return;
     }
@@ -233,7 +207,8 @@ export function createCoordLinkOutbox(
       linkReady &&
       events.unsentCount() === 0 &&
       controlPending.length === 0 &&
-      tryWriteEncoded(bytes)
+      !agentStatuses.hasPending() &&
+      nativeWriter.tryWrite(bytes)
     ) return "sent";
     return enqueueEncoded("control", bytes) ? "queued" : "dropped";
   }
@@ -241,7 +216,7 @@ export function createCoordLinkOutbox(
   function sendLivenessProto(frame: CoordWorkerUp): TransportSendResult {
     const bytes = encodeUpstream(frame);
     if (!bytes) return "dropped";
-    if (livenessPending.length === 0 && tryWriteEncoded(bytes)) return "sent";
+    if (livenessPending.length === 0 && nativeWriter.tryWrite(bytes)) return "sent";
     return enqueueEncoded("liveness", bytes) ? "queued" : "dropped";
   }
 
@@ -268,8 +243,9 @@ export function createCoordLinkOutbox(
       linkReady &&
       events.unsentCount() === 0 &&
       controlPending.length === 0 &&
+      !agentStatuses.hasPending() &&
       rawPending.length === 0 &&
-      tryWriteEncoded(bytes)
+      nativeWriter.tryWrite(bytes)
     ) return "sent";
     return enqueueEncoded("raw", bytes) ? "queued" : "dropped";
   }
@@ -278,9 +254,9 @@ export function createCoordLinkOutbox(
     if (isDisposed()) return "dropped";
     if (
       !linkReady ||
-      !writer ||
+      !nativeWriter.isAttached() ||
       events.unsentCount() > 0 ||
-      (controlPending.length > 0 && !notifyingWritable)
+      ((controlPending.length > 0 || agentStatuses.hasPending()) && !notifyingWritable)
     ) {
       writableNotificationPending = true;
       scheduleDrain();
@@ -297,7 +273,7 @@ export function createCoordLinkOutbox(
     const bytes = encodeUpstream(create(CoordWorkerUpSchema, {
       frame: { case: "cellGrid", value: create(WCellGridSchema, { channelId, frame }) },
     }));
-    if (bytes && tryWriteEncoded(bytes)) return "sent";
+    if (bytes && nativeWriter.tryWrite(bytes)) return "sent";
     writableNotificationPending = true;
     scheduleDrain();
     diag("transport.frame_dropped", {
@@ -311,9 +287,9 @@ export function createCoordLinkOutbox(
     if (
       isDisposed() ||
       !linkReady ||
-      !writer ||
+      !nativeWriter.isAttached() ||
       events.unsentCount() > 0 ||
-      (controlPending.length > 0 && !notifyingWritable)
+      ((controlPending.length > 0 || agentStatuses.hasPending()) && !notifyingWritable)
     ) {
       writableNotificationPending = true;
       scheduleDrain();
@@ -322,7 +298,7 @@ export function createCoordLinkOutbox(
     const bytes = encodeUpstream(create(CoordWorkerUpSchema, {
       frame: { case: "cellGridChunk", value: create(WCellGridChunkSchema, { channelId, chunk }) },
     }));
-    if (bytes && tryWriteEncoded(bytes)) return "sent";
+    if (bytes && nativeWriter.tryWrite(bytes)) return "sent";
     writableNotificationPending = true;
     scheduleDrain();
     diag("transport.frame_dropped", {
@@ -334,37 +310,24 @@ export function createCoordLinkOutbox(
   }
 
   function sendAgentStatus(status: AgentStatusUpdate): boolean {
-    if (
-      isDisposed() ||
-      !linkReady ||
-      !writer ||
-      events.unsentCount() > 0 ||
-      controlPending.length > 0
-    ) return false;
-    const bytes = encodeUpstream(create(CoordWorkerUpSchema, {
-      frame: { case: "agentStatus", value: create(WAgentStatusSchema, {
-        sessionId: status.session_id,
-        agentId: status.agent_id,
-        state: status.state,
-        message: status.message,
-        revision: BigInt(status.revision),
-        completedRevision: BigInt(status.completed_revision),
-        updatedAt: status.updated_at,
-        active: status.active,
-      }) },
-    }));
-    return bytes ? tryWriteEncoded(bytes) : false;
+    if (isDisposed()) return false;
+    return agentStatuses.send(status,
+      linkReady
+      && nativeWriter.isAttached()
+      && events.unsentCount() === 0
+      && controlPending.length === 0
+      && !writableNotificationPending);
   }
 
   function detachSocket(): void {
-    writer = null;
-    activeWs = null;
+    nativeWriter.detach();
     linkReady = false;
     while (livenessPending.length > 0) removePendingHead(livenessPending);
     while (controlPending.length > 0) removePendingHead(controlPending);
     while (rawPending.length > 0) removePendingHead(rawPending);
     writableNotificationPending = false;
     events.disconnect();
+    agentStatuses.disconnect();
   }
 
   function reset(): void {
@@ -374,21 +337,22 @@ export function createCoordLinkOutbox(
     pendingFrameCount = 0;
     pendingEncodedBytes = 0;
     events.clear();
+    agentStatuses.clear();
   }
 
   return {
     send, sendBinary, sendCellGrid, sendCellGridChunk, sendAgentStatus,
     sendControlProto, sendLivenessProto,
     encodeUpstream, detachSocket, reset, drainQueues, clearDrainTimer,
-    forceWrite: (bytes) => { if (!writer) return false; writer(bytes); return true; },
-    attachSocket: (socket, write) => { linkReady = false; activeWs = socket; writer = write; },
+    forceWrite: nativeWriter.forceWrite,
+    attachSocket: (socket, write) => { linkReady = false; nativeWriter.attach(socket, write); },
     acceptHelloAck: (reconnected) => { events.acceptHelloAck(reconnected); drainQueues(); },
     activateSnapshotProvider: (provider) => { events.activateSnapshotProvider(provider); drainQueues(); },
     snapshotStateChanged: () => { events.snapshotStateChanged(); drainQueues(); },
     protocolPhase: () => events.phase(),
     ready: () => events.ready(),
-    isAttached: () => writer !== null,
-    activeSocket: () => activeWs,
+    isAttached: nativeWriter.isAttached,
+    activeSocket: nativeWriter.activeSocket,
     ackEvent: (seq) => { events.ack(seq); drainQueues(); },
     unackedCount: () => events.count(),
   };

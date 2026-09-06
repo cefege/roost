@@ -8,9 +8,10 @@ section: "Concepts"
 ## Roost never owns the agent
 
 Every Roost session is a shell PTY, and an agent CLI is an ordinary command
-running inside it. Roost does not spawn, supervise, or own an agent session. There
-is no wrapper process, no transcript store, no composer, and no agent-specific
-RPC.
+running inside it. Roost does not spawn, supervise, or own an agent process,
+conversation, transcript, tool call, or approval model. There is no wrapper
+process or composer. Authenticated agent-specific RPCs only read worker-observed
+status; they do not control the agent.
 
 That is a deliberate boundary, and it is what makes "any CLI" true rather than
 aspirational. Anything that runs in a terminal runs in Roost: a shell, a REPL,
@@ -52,6 +53,33 @@ mobile, and a rollup on the folder that contains it — for example
 `2 working · 1 needs input`. Plain shells stay unmarked; an unlabelled terminal is
 the normal case, not a failure.
 
+## Read status from the CLI
+
+An authorized CLI identity can read the current status rows in its selected
+dashboard without opening a browser:
+
+```sh
+roost api agent-status <session> [--json]
+roost api agents [--json]
+```
+
+The first command reads one authorized session; a missing or foreign session
+has the same not-found result. The second lists current rows in `session_id`
+order. Human output is headered TSV. In that view an absent legacy source is
+shown as `legacy`; `--json` instead returns an explicit machine projection with
+exactly `session_id`, `agent_id`, `state`, `message`, `status_epoch`,
+`occupant_id`, `source`, `revision`, `completed_revision`, `updated_at`, and
+`promptable`. Missing message and identity fields are JSON `null`, while
+revision and timestamp fields are numbers.
+
+`status_epoch` identifies one worker status-registry lifetime, `occupant_id`
+identifies one worker-verified process incarnation, and `source` records whether
+the state came from an integration or screen observation. They are volatile
+observation and fencing state, not process handles, agent credentials, or
+conversation identifiers. Process IDs never leave the worker. Only a complete
+integration identity is `promptable`; screen and legacy rows remain readable
+with `promptable=false`.
+
 ## Three detection tiers
 
 Detection lives entirely on the worker, next to the PTY it is describing.
@@ -61,11 +89,12 @@ session's process tree. This is what makes an agent you started by hand — not
 through the launcher — still get recognised.
 
 **2. Integration reports.** OMP and Pi report their own lifecycle, including
-"waiting on you" and retry grace, over a per-worker Unix socket. Every spawned PTY
-receives `ROOST_AGENT_SOCKET_PATH` and `ROOST_SESSION_ID` in its environment, and
-the report server validates that the reporting process id genuinely belongs to
-that session before accepting a report. An agent cannot claim to be a session it
-does not own.
+"waiting on you" and retry grace, over a per-worker local endpoint. Every
+spawned PTY receives the endpoint and `ROOST_SESSION_ID` in its environment.
+The server kernel-attests the accepted socket's peer process ID, then a fresh
+process-tree scan must prove that exact process is the current known agent
+under the capability's session. Process identity and ordering never come from
+report fields.
 
 **3. Screen and title manifests.** Terminals with no integration — the other
 agents, and sessions that predate an install — fall back to scanning their own
@@ -87,15 +116,18 @@ expires after 30 seconds, at which point the session falls back to screen
 detection automatically — so a crashed reporter degrades instead of freezing a
 badge.
 
-The worker publishes exactly one *effective* state per session, carrying a
-monotonic revision so out-of-order frames cannot regress it.
+The worker publishes exactly one *effective* state per session. A status epoch
+identifies the worker registry lifetime, an occupant identifies the observed
+process incarnation, and revisions are monotonic within that identity. The
+coordinator scopes staleness checks to all three values, so a replacement worker
+or process can begin at a lower revision without an older frame taking over.
 
 ## Nothing about status is persisted
 
-Status frames travel worker to coordinator, into an in-memory revision-ordered
-hub, out over the sync stream, and into the browser store. A fresh sync
-connection is seeded from the hub snapshot, and closing a session drops its
-record.
+Status frames travel worker to coordinator, into an in-memory hub ordered by
+status epoch, occupant, and revision, out over the sync stream, and into the
+browser store. A fresh sync connection is seeded from the hub snapshot, and
+closing a session drops its record.
 
 Because there is no persistence, a worker, coordinator, or browser restart
 *converges* rather than leaving a stale badge behind. There is no cache to

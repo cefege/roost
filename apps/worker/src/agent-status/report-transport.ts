@@ -1,8 +1,8 @@
 // Shared delivery transport for the agent-status integrations (omp + pi).
-// Both integrations post {version, capability, method:"agent.report", params}
-// frames over the local report-server socket with a 500ms→1500ms two-attempt
-// ladder and a latest-report-wins drain loop; these were two byte-identical
-// copies until pi's froze with @ts-nocheck while omp evolved.
+// Both integrations post only session-authorized state over the local
+// report-server socket with a 500ms→1500ms two-attempt ladder and a
+// latest-report-wins drain loop. Process identity and report ordering are
+// worker-owned at admission.
 //
 // DEPLOYMENT CONSTRAINT: the integration sources are shipped VERBATIM as
 // standalone extension files into user config dirs (install-integrations.ts /
@@ -19,26 +19,22 @@ export interface QueuedAgentReport {
 	state: AgentReportState;
 	message?: string;
 	active: boolean;
-	seq: number;
 }
 
 export interface AgentReporterConfig {
-	/** Value of params.agent on every frame ("omp" / "pi"). */
-	agent: string;
 	endpoint: string;
 	capability: string;
 	sessionId: string;
 }
 
 /** Build the fire-and-forget reporter an integration publishes state through.
- *  Every call queues the newest report (seq-monotonic) and drains in the
- *  background: delivery attempts never block the host agent, a failed attempt
- *  is retried once at the longer timeout, and only the LAST queued state ever
- *  matters because the server keeps no history. */
+ *  Every call queues the newest report and drains in the background: delivery
+ *  attempts never block the host agent, a failed attempt is retried once at
+ *  the longer timeout, and only the LAST queued state matters because the
+ *  server keeps no history. */
 export function createAgentReporter(
 	config: AgentReporterConfig,
 ): ((state: AgentReportState, message?: string, active?: boolean) => void) {
-	let reportSeq = Date.now() * 1_000;
 	let queuedReport: QueuedAgentReport | undefined;
 	let sendInFlight = false;
 
@@ -49,11 +45,8 @@ export function createAgentReporter(
 			method: "agent.report",
 			params: {
 				session_id: config.sessionId,
-				pid: process.pid,
-				agent: config.agent,
 				state: report.state,
 				message: report.message,
-				seq: report.seq,
 				active: report.active,
 			},
 		};
@@ -95,7 +88,7 @@ export function createAgentReporter(
 		}
 	};
 	return (state, message, active = true) => {
-		queuedReport = { state, message, active, seq: ++reportSeq };
+		queuedReport = { state, message, active };
 		if (!sendInFlight) void drain();
 	};
 }

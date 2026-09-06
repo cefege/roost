@@ -129,6 +129,13 @@ producers and consumers.
   Caller-requested global session/row/match limits are normalized down to those
   caps before cursor binding; worker-bound limits reject any out-of-range value.
 
+- **Agent-status identity is an all-or-none fencing triple.** New statuses carry
+  `status_epoch`, `occupant_id`, and worker-assigned `source` together; only
+  legacy statuses may omit all three, and partial triples are invalid. The UUIDs
+  are equality tokens, never ordering keys, and no process PID crosses a public
+  wire. `promptable` exists only in the coordinator read projection and is true
+  only for an identified integration source.
+
 - **`src/fingerprint.ts` is the only pubkey fingerprint.** Hex SHA-256 of a raw
   32-byte ed25519 pubkey, and all three ends of the protocol must agree
   byte-for-byte forever — it is the JWT `kid`, the authorized-keys match, and the
@@ -162,7 +169,7 @@ producers and consumers.
 
 ## Test
 
-`bun test apps/shared/tests/` — 27 `**/*.test.ts` files, 225 registered
+`bun test apps/shared/tests/` — 27 `**/*.test.ts` files, 230 registered
 tests. `tests/trace-oracle.ts` is the differential VT trace oracle that gates
 the pinned WASM; it is a helper, not a spec, and is driven by
 `tests/core-trace-oracle.test.ts`.

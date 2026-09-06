@@ -1,3 +1,7 @@
+// Managed logout tests pin revocation order and destruction of account-scoped
+// browser state. In-memory storage proves credentials, drafts, notification
+// identity tokens, and selection hints cannot survive an account boundary.
+
 import { describe, expect, test } from "bun:test";
 
 const local = new Map<string, string>([
@@ -8,6 +12,7 @@ const local = new Map<string, string>([
   ["roost.sidebar.recent", JSON.stringify(["session-a"])],
   ["roost.paneLayout.v1", JSON.stringify({})],
   ["roost.agentSeen.v1", JSON.stringify({ "session-a": 4 })],
+  ["roost.agentSeen.v2", JSON.stringify({ schema_version: 2, tokens: [] })],
   ["roost.notifications.prefs.v2", JSON.stringify({ desktop: true })],
   ["roost.keytermLexicon.v1", JSON.stringify({ "private-project": 8 })],
   ["roost.dashboardId", "dashboard-a"],
@@ -112,8 +117,8 @@ describe("managed browser logout", () => {
     for (const key of [
       "roost.composerDrafts.v1", "roost.lastTerminalPath", "roost.lastSessionByFolder",
       "roost.lastWorkspaceId.worker-a", "roost.sidebar.recent", "roost.paneLayout.v1",
-      "roost.agentSeen.v1", "roost.notifications.prefs.v2", "roost.keytermLexicon.v1",
-      "roost.dashboardId", "roost.syncLastEventId",
+      "roost.agentSeen.v1", "roost.agentSeen.v2", "roost.notifications.prefs.v2",
+      "roost.keytermLexicon.v1", "roost.dashboardId", "roost.syncLastEventId",
     ]) expect(local.has(key)).toBe(false);
     expect(local.get("roost.theme")).toBe("dark");
   });

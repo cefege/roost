@@ -130,6 +130,7 @@ export interface CoordLink {
   send(frame: UpstreamFrame): boolean;
   sendBinary(channelId: number, direction: number, endSeq: number, data: Uint8Array): TransportSendResult;
   sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult;
+  /** True when written or retained by the ordered in-memory status repair lane. */
   sendAgentStatus(status: AgentStatusUpdate): boolean;
   state(): CoordLinkState;
   protocolPhase(): CoordLinkProtocolPhase;
@@ -207,6 +208,7 @@ export interface CoordLinkOutbox {
   send(frame: UpstreamFrame): boolean;
   sendBinary(channelId: number, direction: number, endSeq: number, data: Uint8Array): TransportSendResult;
   sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult;
+  /** True when written or retained by the ordered in-memory status repair lane. */
   sendAgentStatus(status: AgentStatusUpdate): boolean;
   sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TerminalCellSendResult;
   sendControlProto(frame: CoordWorkerUp): TransportSendResult;

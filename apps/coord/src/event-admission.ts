@@ -100,6 +100,18 @@ export async function resolveEventAdmission(
     if (event.sessions.some((session) => session.worker_fp !== options.worker_fp)) {
       return rejected(dashboardId, sessionId);
     }
+    const announcedIds = [...new Set(event.sessions.map((session) => session.id))];
+    const currentRows = announcedIds.length === 0
+      ? []
+      : await db.selectFrom("sessions")
+        .select(["id", "worker_fp"])
+        .where("dashboard_id", "=", dashboardId)
+        .where("id", "in", announcedIds)
+        .execute();
+    if (currentRows.some((row) => row.worker_fp !== options.worker_fp)) {
+      return rejected(dashboardId, sessionId);
+    }
+
     const workspaceIds = [...new Set(
       event.sessions.flatMap((session) =>
         session.workspace_id === null ? [] : [session.workspace_id]
@@ -118,13 +130,6 @@ export async function resolveEventAdmission(
     if (!options.requireExistingWorkerSessions || event.sessions.length === 0) {
       return { admitted: true, dashboardId, sessionId, sessionExists: false };
     }
-    const announcedIds = [...new Set(event.sessions.map((session) => session.id))];
-    const currentRows = await db.selectFrom("sessions")
-      .select("id")
-      .where("dashboard_id", "=", dashboardId)
-      .where("worker_fp", "=", options.worker_fp)
-      .where("id", "in", announcedIds)
-      .execute();
     const provenIds = new Set(currentRows.map((row) => row.id));
     const missingIds = announcedIds.filter((id) => !provenIds.has(id));
     if (missingIds.length > 0) {

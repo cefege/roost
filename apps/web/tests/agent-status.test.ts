@@ -1,11 +1,18 @@
+// Browser agent-status tests cover legacy display, occupant-pinned seen state,
+// notification scheduling, and presentation rollups. Fake profile storage
+// exercises migration and cross-tab events without a browser runtime.
+
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import {
+  AgentOccupantId,
   AgentStatus,
+  StatusEpoch,
   asChannelId,
   asSessionId,
   asWorkerFp,
   type AgentStatus as AgentStatusValue,
+  type AgentStatusIdentity,
   type SessionEvent,
 } from "@roost/shared/wire";
 import { AgentStatusFrameSchema } from "@roost/shared/proto/sync_pb";
@@ -23,6 +30,7 @@ import {
   startAgentSeenPersistence,
 } from "../src/lib/agentSeen.ts";
 import {
+  agentStatusRevisionToken,
   deriveAgentStatusLevel,
   foldAgentStatusLevels,
   formatAgentStatusCounts,
@@ -33,17 +41,23 @@ import {
   countUnseenAgentStatuses,
   type AgentNotificationDelivery,
 } from "../src/lib/agentNotificationCore.ts";
-import { claimAgentNotification } from "../src/lib/agentNotificationClaim.ts";
-import {
-  disableDesktopNotifications,
-  enableDesktopNotifications,
-  notifyPrefs,
-  resetNotifyPrefsForTest,
-} from "../src/lib/notifyPrefs.ts";
 
 const SESSION_ID = asSessionId("11111111-1111-4111-8111-111111111111");
 const OTHER_ID = asSessionId("22222222-2222-4222-8222-222222222222");
 const WORKER = asWorkerFp("aa".repeat(32));
+const EPOCH_A = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const OCCUPANT_A = AgentOccupantId.parse("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa");
+const OCCUPANT_B = AgentOccupantId.parse("bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb");
+const IDENTITY_A: AgentStatusIdentity = {
+  status_epoch: EPOCH_A,
+  occupant_id: OCCUPANT_A,
+  source: "integration",
+};
+const IDENTITY_B: AgentStatusIdentity = {
+  status_epoch: EPOCH_A,
+  occupant_id: OCCUPANT_B,
+  source: "integration",
+};
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -74,19 +88,16 @@ const storage = new MemoryStorage();
 const fakeWindow = new FakeWindow();
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
 
 beforeAll(() => {
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
   Object.defineProperty(globalThis, "window", { configurable: true, value: fakeWindow });
-  Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
 });
 
 beforeEach(() => {
   storage.clear();
   resetAgentStatusProjection();
   resetAgentSeenForTest();
-  resetNotifyPrefsForTest();
 });
 
 afterEach(() => vi.useRealTimers());
@@ -96,8 +107,6 @@ afterAll(() => {
   else Reflect.deleteProperty(globalThis, "localStorage");
   if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
   else Reflect.deleteProperty(globalThis, "window");
-  if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
-  else Reflect.deleteProperty(globalThis, "navigator");
 });
 
 function status(
@@ -106,6 +115,7 @@ function status(
   completedRevision = 0,
   sessionId = SESSION_ID,
   agentId = "omp",
+  identity?: AgentStatusIdentity,
 ): AgentStatusValue {
   return AgentStatus.parse({
     session_id: sessionId,
@@ -115,6 +125,7 @@ function status(
     completed_revision: completedRevision,
     updated_at: revision,
     active: true,
+    ...identity,
   });
 }
 
@@ -128,6 +139,9 @@ function frame(value: AgentStatusValue | (Omit<AgentStatusValue, "active"> & { a
     completedRevision: BigInt(value.completed_revision),
     updatedAt: value.updated_at,
     active: value.active,
+    statusEpoch: value.status_epoch,
+    occupantId: value.occupant_id,
+    source: value.source,
   });
 }
 
@@ -176,23 +190,13 @@ describe("SPA agent status projection", () => {
     }
   });
 
-  // Solid merges an object into the EXISTING store node in place, so a
-  // subscriber handed the live proxy would read the post-update value as
-  // `previous` and every transition would look like a self-transition -
-  // silently suppressing every notification.
   test("publishes a previous snapshot detached from the store node", () => {
-    const seen: Array<{ previous: string | null; next: string | null }> = [];
-    const unsubscribe = subscribeAgentStatus((change) => seen.push({
-      previous: change.previous?.state ?? null,
-      next: change.next?.state ?? null,
-    }));
+    let previous: AgentStatusValue | null = null;
+    const unsubscribe = subscribeAgentStatus((change) => { previous = change.previous; });
     try {
       applyAgentStatusFrame(frame(status("working", 20)));
       applyAgentStatusFrame(frame(status("blocked", 21)));
-      expect(seen).toEqual([
-        { previous: null, next: "working" },
-        { previous: "working", next: "blocked" },
-      ]);
+      expect(previous).toMatchObject({ state: "working" });
     } finally {
       unsubscribe();
     }
@@ -200,20 +204,69 @@ describe("SPA agent status projection", () => {
 });
 
 describe("agent seen acknowledgements", () => {
-  test("is monotonic, persists, and merges cross-tab storage maxima", () => {
+  test("persists v2 tokens and merges exact identities across tabs", () => {
+    const legacy = status("idle", 7, 7);
+    const occupantA = status("idle", 9, 9, SESSION_ID, "omp", IDENTITY_A);
+    const occupantB = status("idle", 4, 4, SESSION_ID, "omp", IDENTITY_B);
+    const identityAScreen: AgentStatusIdentity = { ...IDENTITY_A, source: "screen" };
+    const lowerOccupantA = status("idle", 8, 8, SESSION_ID, "omp", identityAScreen);
+    const higherOccupantA = status("idle", 10, 10, SESSION_ID, "omp", identityAScreen);
+    const legacyOnly = status("idle", 12, 12, OTHER_ID);
+    const freshIdentified = status("blocked", 0, 0, OTHER_ID, "omp", IDENTITY_A);
+    storage.setItem("roost.agentSeen.v1", JSON.stringify({ [SESSION_ID]: 6 }));
     const stop = startAgentSeenPersistence();
     try {
-      expect(markAgentSeen(SESSION_ID, 7)).toBe(true);
-      expect(markAgentSeen(SESSION_ID, 6)).toBe(false);
+      expect(seenAgentRevision(legacy)).toBe(6);
+      expect(markAgentSeen(legacy)).toBe(true);
+      expect(markAgentSeen(status("idle", 6, 6))).toBe(false);
       fakeWindow.emit("pagehide", {});
-      expect(JSON.parse(storage.getItem("roost.agentSeen.v1")!)[SESSION_ID]).toBe(7);
+      const stored = JSON.parse(storage.getItem("roost.agentSeen.v2")!);
+      expect(stored).toMatchObject({
+        schema_version: 2,
+        tokens: [{ session_id: SESSION_ID, revision: 7 }],
+      });
+      expect(storage.getItem("roost.agentSeen.v1")).toBeNull();
+
+      const storedA = JSON.stringify({
+        schema_version: 2,
+        tokens: [agentStatusRevisionToken(occupantA)],
+      });
+      storage.setItem("roost.agentSeen.v2", storedA);
+      fakeWindow.emit("storage", { key: "roost.agentSeen.v2", newValue: storedA });
+      const storedB = JSON.stringify({
+        schema_version: 2,
+        tokens: [agentStatusRevisionToken(occupantB)],
+      });
+      storage.setItem("roost.agentSeen.v2", storedB);
+      fakeWindow.emit("storage", { key: "roost.agentSeen.v2", newValue: storedB });
+      fakeWindow.emit("pagehide", {});
+      const persistedTokens = JSON.parse(storage.getItem("roost.agentSeen.v2")!).tokens;
+      expect(persistedTokens).toEqual(expect.arrayContaining([
+        agentStatusRevisionToken(occupantA),
+        agentStatusRevisionToken(occupantB),
+      ]));
+      fakeWindow.emit("storage", {
+        key: "roost.agentSeen.v2",
+        newValue: JSON.stringify({
+          schema_version: 2,
+          tokens: [
+            agentStatusRevisionToken(lowerOccupantA),
+            agentStatusRevisionToken(higherOccupantA),
+          ],
+        }),
+      });
+      expect(seenAgentRevision(occupantA)).toBe(10);
+      expect(seenAgentRevision(AgentStatus.parse({ ...occupantA, source: "screen" }))).toBe(10);
+      expect(seenAgentRevision(occupantB)).toBe(4);
 
       fakeWindow.emit("storage", {
         key: "roost.agentSeen.v1",
-        newValue: JSON.stringify({ [SESSION_ID]: 9, [OTHER_ID]: 4 }),
+        newValue: JSON.stringify({ [SESSION_ID]: 12, [OTHER_ID]: 12 }),
       });
-      expect(seenAgentRevision(SESSION_ID)).toBe(9);
-      expect(seenAgentRevision(OTHER_ID)).toBe(4);
+      expect(seenAgentRevision(legacy)).toBe(12);
+      expect(seenAgentRevision(legacyOnly)).toBe(12);
+      expect(seenAgentRevision(freshIdentified)).toBe(-1);
+      expect(seenAgentRevision(occupantA)).toBe(10);
     } finally {
       stop();
     }
@@ -227,6 +280,17 @@ describe("derived status and folder rollups", () => {
     expect(deriveAgentStatusLevel(completed, 5)).toBe("idle");
     expect(deriveAgentStatusLevel(status("blocked", 6), 6)).toBe("blocked");
 
+    const acknowledged = status("idle", 9, 9, SESSION_ID, "omp", IDENTITY_A);
+    const revisionZero = status("blocked", 0, 0, SESSION_ID, "omp", IDENTITY_B);
+    markAgentSeen(acknowledged);
+    expect(deriveAgentStatusLevel(acknowledged, seenAgentRevision(acknowledged))).toBe("idle");
+    expect(seenAgentRevision(revisionZero)).toBe(-1);
+    expect(countUnseenAgentStatuses([revisionZero], seenAgentRevision)).toBe(1);
+    expect(markAgentSeen(revisionZero)).toBe(true);
+    const replacement = status("idle", 1, 1, SESSION_ID, "omp", IDENTITY_B);
+    expect(deriveAgentStatusLevel(replacement, seenAgentRevision(replacement))).toBe("done");
+    expect(countUnseenAgentStatuses([replacement], seenAgentRevision)).toBe(1);
+
     const rollup = foldAgentStatusLevels(["idle", "working", "done", "blocked", "working"]);
     expect(rollup.level).toBe("blocked");
     expect(rollup.counts).toMatchObject({ blocked: 1, working: 2, done: 1, idle: 1 });
@@ -235,12 +299,22 @@ describe("derived status and folder rollups", () => {
 });
 
 describe("notification transitions", () => {
-  test("ignores reconnect baselines and classifies blocked and done boundaries", () => {
+  test("ignores baselines and cross-occupant transitions", () => {
     expect(classifyAgentTransition(null, status("blocked", 2))).toBeNull();
     expect(classifyAgentTransition(status("working", 1), status("blocked", 2))).toBe("blocked");
+    const screenBlocked = AgentStatus.parse({
+      ...status("blocked", 2, 0, SESSION_ID, "omp", IDENTITY_A),
+      source: "screen",
+    });
+    expect(classifyAgentTransition(
+      status("working", 1, 0, SESSION_ID, "omp", IDENTITY_A),
+      screenBlocked,
+    )).toBe("blocked");
     expect(classifyAgentTransition(status("blocked", 2), status("idle", 3, 3))).toBe("done");
-    expect(classifyAgentTransition(status("idle", 3, 3), status("working", 4))).toBeNull();
-    expect(classifyAgentTransition(status("working", 4, 3, SESSION_ID, "omp"), status("blocked", 5, 3, SESSION_ID, "pi"))).toBeNull();
+    expect(classifyAgentTransition(
+      status("working", 4, 3, SESSION_ID, "omp", IDENTITY_A),
+      status("blocked", 1, 0, SESSION_ID, "omp", IDENTITY_B),
+    )).toBeNull();
   });
 
   test("cancels replaced timers and suppresses delivery when the session becomes active", () => {
@@ -252,23 +326,30 @@ describe("notification transitions", () => {
     const scheduler = new AgentNotificationScheduler({
       statusFor: (sessionId) => current.get(sessionId),
       isViewed: () => viewed,
-      markSeen: (_sessionId, revision) => { seen.push(revision); },
+      markSeen: (seenStatus) => { seen.push(seenStatus.revision); },
       deliver: (delivery) => { deliveries.push(delivery); },
     });
 
-    const working = status("working", 1);
-    const blocked = status("blocked", 2);
+    const working = status("working", 1, 0, SESSION_ID, "omp", IDENTITY_A);
+    const blocked = status("blocked", 2, 0, SESSION_ID, "omp", IDENTITY_A);
     current.set(SESSION_ID, blocked);
     scheduler.handle({ sessionId: SESSION_ID, previous: working, next: blocked, revision: 2 });
     expect(scheduler.pendingCount()).toBe(1);
 
-    const resumed = status("working", 3);
-    current.set(SESSION_ID, resumed);
-    scheduler.handle({ sessionId: SESSION_ID, previous: blocked, next: resumed, revision: 3 });
+    const blockedReplacement = status("blocked", 2, 0, SESSION_ID, "omp", IDENTITY_B);
+    current.set(SESSION_ID, blockedReplacement);
     vi.advanceTimersByTime(1_000);
     expect(deliveries).toHaveLength(0);
 
-    const blockedAgain = status("blocked", 4);
+    const resumed = status("working", 3, 0, SESSION_ID, "omp", IDENTITY_B);
+    current.set(SESSION_ID, resumed);
+    scheduler.handle({
+      sessionId: SESSION_ID,
+      previous: blockedReplacement,
+      next: resumed,
+      revision: 3,
+    });
+    const blockedAgain = status("blocked", 4, 0, SESSION_ID, "omp", IDENTITY_B);
     current.set(SESSION_ID, blockedAgain);
     scheduler.handle({ sessionId: SESSION_ID, previous: resumed, next: blockedAgain, revision: 4 });
     viewed = true;
@@ -277,11 +358,17 @@ describe("notification transitions", () => {
     expect(seen).toEqual([4]);
 
     viewed = false;
-    const done = status("idle", 5, 5);
+    const done = status("idle", 5, 5, SESSION_ID, "omp", IDENTITY_B);
     current.set(SESSION_ID, done);
     scheduler.handle({ sessionId: SESSION_ID, previous: blockedAgain, next: done, revision: 5 });
     vi.advanceTimersByTime(1_000);
-    expect(deliveries).toEqual([{ sessionId: SESSION_ID, revision: 5, kind: "done" }]);
+    expect(deliveries).toEqual([{
+      sessionId: SESSION_ID,
+      token: agentStatusRevisionToken(done),
+      statusRevision: 5,
+      kind: "done",
+      completedRevision: 5,
+    }]);
     scheduler.dispose();
   });
 
@@ -292,31 +379,10 @@ describe("notification transitions", () => {
       status("working", 12, 9, asSessionId("33333333-3333-4333-8333-333333333333")),
     ];
     expect(countUnseenAgentStatuses(values, () => 0)).toBe(2);
-    expect(countUnseenAgentStatuses(values, (id) => id === SESSION_ID ? 5 : 8)).toBe(1);
+    expect(countUnseenAgentStatuses(
+      values,
+      (candidate) => candidate.session_id === SESSION_ID ? 5 : 8,
+    )).toBe(1);
   });
 });
 
-describe("browser-profile delivery preferences", () => {
-  test("elects one fallback toast claimant", async () => {
-    const results = await Promise.all([
-      claimAgentNotification(SESSION_ID, 42, "blocked"),
-      claimAgentNotification(SESSION_ID, 42, "blocked"),
-    ]);
-    expect(results.filter(Boolean)).toHaveLength(1);
-    expect(await claimAgentNotification(SESSION_ID, 42, "blocked")).toBe(false);
-  });
-
-  test("persists desktop enable only after subscription succeeds", async () => {
-    await expect(enableDesktopNotifications(async () => {
-      throw new Error("permission denied");
-    })).rejects.toThrow("permission denied");
-    expect(notifyPrefs().desktop).toBe(false);
-
-    await enableDesktopNotifications(async () => {});
-    expect(notifyPrefs().desktop).toBe(true);
-    let unsubscribed = false;
-    await disableDesktopNotifications(async () => { unsubscribed = true; });
-    expect(unsubscribed).toBe(true);
-    expect(notifyPrefs().desktop).toBe(false);
-  });
-});

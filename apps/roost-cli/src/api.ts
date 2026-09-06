@@ -1,15 +1,7 @@
-// roost api — headless introspection + drive over the coord Connect RPCs.
-// Lets an automation client read a terminal's grid/scrollback, list the sidebar
-// (sessions/workers/workspaces), inject input, spawn/kill, manage workspaces
-// + tasks, and SEE/DRIVE the browser's pane tiling (ui-state / ui verbs).
-// Uses a path-isolated ~/.roost/cli-key and scopes every request to the
-// dashboard selected by AuthDashboardAccess.
-// Callers: apps/roost-cli/src/main.ts (the `api` subcommand).
-//
-// Boundary: this sees the coord DB projection + the worker's serialized grid.
-// It does NOT run the SPA, so it is blind to browser DOM/render/focus — the
-// offscreen-textarea focus-dead bug and client-side render corruption still
-// need window.__smoke DOM probes, driven by the terminal tier (smoke/terminal/).
+// roost api — headless introspection and control over coordinator Connect RPCs.
+// Owns authenticated client setup and dispatches the general API verb surface.
+// Focused verb families and formatters live in sibling api-* modules.
+// Called by main.ts; every request uses the selected dashboard's CLI identity.
 
 import { basename } from "node:path";
 import { loadWorkerConfig } from "../../worker/src/config.ts";
@@ -26,6 +18,7 @@ import {
   buildDashboardScopedCliContext,
   withDashboardScope,
 } from "./cli-auth.ts";
+import { dispatchAgentStatusApi } from "./api-agent-status.ts";
 import { openSyncWs } from "./sync-ws.ts";
 
 export type AuthorizedApiClient = CoordClient;
@@ -175,7 +168,7 @@ async function revokeLocalDevice(args: string[]): Promise<void> {
 export async function api(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (!verb) {
-    console.error("roost api <verb>: sessions | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | events | watch");
+    console.error("roost api <verb>: sessions | agent-status | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | events | watch");
     process.exit(1);
   }
   if (verb === "device-revoke-local") {
@@ -207,6 +200,7 @@ export async function api(args: string[]): Promise<void> {
 }
 
 async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<void> {
+  if (await dispatchAgentStatusApi(c, verb, rest)) return;
   switch (verb) {
     case "sessions": {
       const { sessions } = await c.sessionsList({ status: "all" });
@@ -569,7 +563,7 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       break;
     }
     default:
-      console.error(`roost api: unknown verb "${verb}" — sessions | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | events | watch`);
+      console.error(`roost api: unknown verb "${verb}" — sessions | agent-status | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | events | watch`);
       process.exit(1);
   }
 }

@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { TerminalViewCommandSchema } from "@roost/shared/proto/sync_pb";
+import { AgentOccupantId, StatusEpoch } from "@roost/shared/wire";
 import type { KyselyDB } from "../src/db/connection.ts";
 import { firePushForTransition } from "../src/push-dispatch.ts";
 import {
@@ -28,6 +29,8 @@ let fixture: PushDeliveryFixture;
 let db: KyselyDB;
 let terminalViews: TerminalViewHub;
 let viewerFp: string;
+const STATUS_EPOCH = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const OCCUPANT_ID = AgentOccupantId.parse("11111111-aaaa-4aaa-8aaa-111111111111");
 
 beforeAll(async () => {
   fixture = await createPushDeliveryFixture();
@@ -56,7 +59,13 @@ describe("Web Push delivery", () => {
     const goneTransport: PushNotificationTransport = {
       sendNotification: async () => { throw { statusCode: 410 }; },
     };
-    const result = await sendPushToSubscriptions(db, [subscription], { test: true }, goneTransport);
+    const result = await sendPushToSubscriptions(
+      db,
+      [subscription],
+      { test: true },
+      {},
+      goneTransport,
+    );
     expect(result).toEqual({ delivered: 0, expired: 1, failed: 0 });
     expect(await db.selectFrom("push_subscriptions").selectAll().execute()).toHaveLength(0);
   });
@@ -96,6 +105,7 @@ describe("Web Push delivery", () => {
       db,
       subscriptions,
       { test: true },
+      {},
       boundedTransport,
     );
     await fourStarted;
@@ -116,6 +126,7 @@ describe("Web Push delivery", () => {
       db,
       [subscriptions[0]!],
       { test: true },
+      {},
       redirectTransport,
     )).toEqual({ delivered: 0, expired: 0, failed: 1 });
     expect(redirectCalls).toBe(1);
@@ -198,27 +209,63 @@ describe("Web Push delivery", () => {
       }),
     );
 
-    const deliveries: Array<{ viewerFps: string[]; payload: object }> = [];
-    const sender: typeof sendPushToSubscriptions = async (_db, subscriptions, payload) => {
-      deliveries.push({ viewerFps: subscriptions.map((value) => value.viewer_fp), payload });
+    const deliveries: Array<{
+      viewerFps: string[];
+      payload: object;
+      deduplicationToken?: string;
+    }> = [];
+    const sender: typeof sendPushToSubscriptions = async (
+      _db,
+      subscriptions,
+      payload,
+      options,
+    ) => {
+      deliveries.push({
+        viewerFps: subscriptions.map((value) => value.viewer_fp),
+        payload,
+        deduplicationToken: options?.deduplicationToken,
+      });
       return { delivered: subscriptions.length, expired: 0, failed: 0 };
     };
-    await firePushForTransition(db, SESSION_ID, "blocked", PUSH_ORIGINS, sender, "a".repeat(64));
-    expect(deliveries).toEqual([{
+    await firePushForTransition(db, {
+      sessionId: SESSION_ID,
+      kind: "blocked",
+      statusEpoch: STATUS_EPOCH,
+      occupantId: OCCUPANT_ID,
+      revision: 7,
+    }, PUSH_ORIGINS, () => true, sender, "a".repeat(64));
+    expect(deliveries).toHaveLength(1);
+    const payload = deliveries[0]!.payload as { deduplicationToken: string };
+    const deduplicationToken = payload.deduplicationToken;
+    expect(typeof deduplicationToken).toBe("string");
+    expect(deliveries[0]!.deduplicationToken).toBe(deduplicationToken);
+    expect(deliveries[0]).toMatchObject({
       viewerFps: [otherFp],
       payload: {
         sessionId: SESSION_ID,
         kind: "blocked",
         title: "project",
         body: "Needs your input",
+        statusEpoch: STATUS_EPOCH,
+        occupantId: OCCUPANT_ID,
+        revision: 7,
         routeKey: "a".repeat(64),
+        deduplicationToken,
       },
-    }]);
+      deduplicationToken,
+    });
+    expect(payload.deduplicationToken).toMatch(/^[A-Za-z0-9_-]{32}$/);
 
     // Removing only the live account-device association leaves a legacy Push
     // row behind; dispatch must prune it and must not deliver to it.
     await db.deleteFrom("account_devices").where("fingerprint", "=", otherFp).execute();
-    await firePushForTransition(db, SESSION_ID, "done", PUSH_ORIGINS, sender);
+    await firePushForTransition(db, {
+      sessionId: SESSION_ID,
+      kind: "done",
+      statusEpoch: STATUS_EPOCH,
+      occupantId: OCCUPANT_ID,
+      revision: 8,
+    }, PUSH_ORIGINS, () => true, sender);
     expect(deliveries).toHaveLength(1);
     expect(await db.selectFrom("push_subscriptions").select("viewer_fp")
       .where("viewer_fp", "=", otherFp).execute()).toHaveLength(0);
@@ -229,7 +276,13 @@ describe("Web Push delivery", () => {
       .where("id", "=", ACCOUNT_ID).execute();
     try {
       terminalViews.closeSession(SESSION_ID);
-      await firePushForTransition(db, SESSION_ID, "done", PUSH_ORIGINS, sender);
+      await firePushForTransition(db, {
+        sessionId: SESSION_ID,
+        kind: "done",
+        statusEpoch: STATUS_EPOCH,
+        occupantId: OCCUPANT_ID,
+        revision: 9,
+      }, PUSH_ORIGINS, () => true, sender);
       expect(deliveries).toHaveLength(1);
     } finally {
       await db.updateTable("accounts").set({ status: "active" })

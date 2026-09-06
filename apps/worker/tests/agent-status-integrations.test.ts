@@ -1,3 +1,6 @@
+// Focused lifecycle tests for the installed OMP and Pi status integrations.
+// A local collector observes only session-authorized state fields while event
+// mappings retain their debounce, blocker, heartbeat, and shutdown behavior.
 import { afterEach, describe, expect, test, vi } from "bun:test";
 import net from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -11,12 +14,9 @@ interface HarnessApi {
 }
 interface IntegrationModule { default(api: HarnessApi): void }
 interface StatusParams {
-  session_id?: string;
-  pid: number;
-  agent: "omp" | "pi";
+  session_id: string;
   state: "working" | "blocked" | "idle";
   message?: string;
-  seq: number;
   active: boolean;
 }
 
@@ -132,7 +132,10 @@ describe("OMP lifecycle integration", () => {
 
     handlers.get("session_start")?.({}, context);
     await waitFor(1);
-    expect(reports.at(-1)).toMatchObject({ agent: "omp", state: "idle", active: true });
+    expect(reports.at(-1)).toMatchObject({ state: "idle", active: true });
+    expect(Object.keys(reports.at(-1)!)).not.toContain("pid");
+    expect(Object.keys(reports.at(-1)!)).not.toContain("agent");
+    expect(Object.keys(reports.at(-1)!)).not.toContain("seq");
     handlers.get("agent_start")?.({}, context);
     await waitFor(2);
     expect(reports.at(-1)?.state).toBe("working");

@@ -1,6 +1,6 @@
 // Roost-owned integration adapted from Herdr at commit
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
-// ROOST_INTEGRATION_ID=omp ROOST_INTEGRATION_VERSION=2
+// ROOST_INTEGRATION_ID=omp ROOST_INTEGRATION_VERSION=3
 //
 // Owns ONLY the omp event→state mapping (debounce, retry grace, nested
 // blockers). Delivery is the shared report transport; this source ships as a
@@ -34,7 +34,7 @@ function createReporter(): (state: AgentState, message?: string, active?: boolea
   // An incomplete endpoint triple means agent status was never provisioned on
   // this machine; degrade to a no-op rather than crash the host agent.
   if (!endpoint || !capability || !sessionId) return () => {};
-  return createAgentReporter({ agent: "omp", endpoint, capability, sessionId });
+  return createAgentReporter({ endpoint, capability, sessionId });
 }
 
 function lastAssistantMessage(messages: unknown[]): AssistantMessage | undefined {

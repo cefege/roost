@@ -1,25 +1,50 @@
-// Per-device Web Push dispatch for delayed coding-agent transitions. A device
-// actively viewing the session is suppressed; other subscribed devices receive
-// one coalescing notification payload.
+// Per-device Web Push preparation for delayed coding-agent transitions.
+// Async database filtering revalidates the exact triggering identity before
+// transport, and each payload carries its identity-derived deduplication token.
 
+import { createHash } from "node:crypto";
 import { log } from "@roost/shared/log";
 import { sql } from "kysely";
 import type { KyselyDB } from "./db/connection.ts";
 import { activeTerminalViewerFingerprints } from "./connect/terminal-view-hub.ts";
 import { sendPushToSubscriptions } from "./push-sender.ts";
+import type { AgentOccupantId, StatusEpoch } from "@roost/shared/wire";
 
 export type PushTransition = "blocked" | "done";
+export interface AgentPushTransition {
+  readonly sessionId: string;
+  readonly kind: PushTransition;
+  readonly statusEpoch: StatusEpoch;
+  readonly occupantId: AgentOccupantId;
+  /** Revision that produced the transition, retained across same-state updates. */
+  readonly revision: number;
+}
 type PushSender = typeof sendPushToSubscriptions;
+
+function pushDeduplicationToken(transition: AgentPushTransition): string {
+  return createHash("sha256")
+    .update(JSON.stringify([
+      transition.sessionId,
+      transition.kind,
+      transition.statusEpoch,
+      transition.occupantId,
+      transition.revision,
+    ]))
+    .digest("base64url")
+    .slice(0, 32);
+}
+
 export async function firePushForTransition(
   db: KyselyDB,
-  sessionId: string,
-  kind: PushTransition,
+  transition: AgentPushTransition,
   allowedOrigins: readonly string[],
+  isCurrent: () => boolean,
   send: PushSender = sendPushToSubscriptions,
   tenantRouteKey?: string,
 ): Promise<void> {
+  const { sessionId, kind } = transition;
   try {
-    if (allowedOrigins.length === 0) return;
+    if (allowedOrigins.length === 0 || !isCurrent()) return;
     const allowedOriginSet = new Set(allowedOrigins);
     const session = await db
       .selectFrom("sessions")
@@ -104,16 +129,38 @@ export async function firePushForTransition(
     const leaf = session.cwd.split(/[\\/]/).filter(Boolean).pop() ?? session.cwd;
     const title = session.custom_title || leaf || "Roost";
     const body = kind === "blocked" ? "Needs your input" : "Finished";
-    const result = await send(db, targets, {
+    const deduplicationToken = pushDeduplicationToken(transition);
+    const payload = {
       sessionId,
       kind,
       title,
       body,
+      statusEpoch: transition.statusEpoch,
+      occupantId: transition.occupantId,
+      revision: transition.revision,
+      deduplicationToken,
       ...(tenantRouteKey ? { routeKey: tenantRouteKey } : {}),
+    };
+    if (!isCurrent()) {
+      log.info("push", "status_superseded", {
+        session_id: sessionId,
+        kind,
+        status_epoch: transition.statusEpoch,
+        occupant_id: transition.occupantId,
+        revision: transition.revision,
+      });
+      return;
+    }
+    const result = await send(db, targets, payload, {
+      deduplicationToken,
+      isCurrent,
     });
     log.info("push", "dispatched", {
       session_id: sessionId,
       kind,
+      status_epoch: transition.statusEpoch,
+      occupant_id: transition.occupantId,
+      revision: transition.revision,
       subscriptions: subscriptions.length,
       suppressed,
       targeted: targets.length,
@@ -126,6 +173,9 @@ export async function firePushForTransition(
     log.warn("push", "dispatch_failed", {
       session_id: sessionId,
       kind,
+      status_epoch: transition.statusEpoch,
+      occupant_id: transition.occupantId,
+      revision: transition.revision,
       error: String(error),
     });
   }

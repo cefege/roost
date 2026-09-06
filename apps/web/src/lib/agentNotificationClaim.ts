@@ -1,14 +1,16 @@
-// Cross-tab election claims for one agent-state browser notification.
-// Notification delivery writes profile-local leases; account boundaries erase them.
-// Web Locks provide atomic election while storage remains the durable fallback.
+// Cross-tab election claims for one exact agent occupant/revision notification.
+// Profile-local leases include the identity fence; account boundaries erase
+// both current and older claim keys. Web Locks provide atomic election.
 
-import type { AgentNotificationKind } from "./agentNotificationCore.ts";
+import type { AgentNotificationDelivery } from "./agentNotificationCore.ts";
+import { agentStatusOccupantKey } from "./agentStatus.ts";
 
 const CLAIM_PREFIX = "roost.agentNotificationClaim.";
 const CLAIM_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 
-function claimStorageKey(sessionId: string, revision: number, kind: AgentNotificationKind): string {
-  return `${CLAIM_PREFIX}${sessionId}.${revision}.${kind}`;
+function claimStorageKey(delivery: AgentNotificationDelivery): string {
+  const occupant = agentStatusOccupantKey(delivery.token) ?? "legacy";
+  return `${CLAIM_PREFIX}v2.${delivery.sessionId}.${occupant}.${delivery.token.revision}.${delivery.kind}`;
 }
 
 function existingClaim(key: string, now: number): boolean {
@@ -38,15 +40,13 @@ async function storageElection(key: string): Promise<boolean> {
 /** Claim one browser-profile delivery. Web Locks makes the storage check atomic;
  *  the delayed last-writer election is the fallback on browsers without locks. */
 export async function claimAgentNotification(
-  sessionId: string,
-  revision: number,
-  kind: AgentNotificationKind,
+  delivery: AgentNotificationDelivery,
 ): Promise<boolean> {
-  const key = claimStorageKey(sessionId, revision, kind);
+  const key = claimStorageKey(delivery);
   const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
   if (locks) {
     return locks.request(
-      `roost-agent-notification:${sessionId}:${revision}:${kind}`,
+      `roost-agent-notification:${key}`,
       { mode: "exclusive", ifAvailable: true },
       async (lock) => {
         if (!lock) return false;

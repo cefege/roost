@@ -296,9 +296,23 @@ export const agentStatusFrame = (status: AgentStatusUpdate): FirehoseFrame =>
         completedRevision: BigInt(status.completed_revision),
         updatedAt: status.updated_at,
         active: status.active,
+        statusEpoch: status.status_epoch,
+        occupantId: status.occupant_id,
+        source: status.source,
       }),
     },
   });
+// Agent status is a current-value projection: its retained sample is the
+// cutover for that session, while every other retained/live domain keeps FIFO.
+export function retainedFrameSupersedesBuffered(
+  retained: FirehoseFrame,
+  buffered: FirehoseFrame,
+): boolean {
+  return retained.frame.case === "agentStatus"
+    && buffered.frame.case === "agentStatus"
+    && retained.frame.value.sessionId === buffered.frame.value.sessionId;
+}
+
 
 export const sessionMeta = (event: SessionEvent): SyncFeedFrameMeta => {
   const announces = event.kind === "opened"

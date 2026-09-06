@@ -63,9 +63,10 @@ supported.
 
 ## `roost api`
 
-`roost api` is the headless surface: it introspects and drives a live coordinator
-without a browser. It is the same RPC surface the web app uses, which is why it is
-useful both for scripting and for reproducing a UI bug from a shell.
+`roost api` is the headless surface: it introspects and drives a live
+coordinator without a browser through the authenticated Connect service. It is
+useful both for scripting and for reproducing a UI bug from a shell; agent
+status reads project the same in-memory hub that feeds browser Sync.
 
 ### Sessions and terminals
 
@@ -80,6 +81,28 @@ useful both for scripting and for reproducing a UI bug from a shell.
 | `rename` | `<sessionId> [title…]` — an empty title clears the override |
 | `assign` | `<sessionId> <workspaceId\|-->` — `--` clears the assignment |
 | `attach` | upload local files into a session and print each absolute path |
+
+### Observed agent status
+
+| Verb | Arguments |
+|---|---|
+| `agent-status` | `<session> [--json]` — reads one authorized session |
+| `agents` | `[--json]` — lists current status rows, sorted by session id |
+
+Both verbs use the CLI identity's selected-dashboard authority. Missing and
+foreign sessions share the coordinator's not-found response. Human output is
+headered TSV; its `source` column renders an absent legacy source as `legacy`,
+so screen and legacy rows visibly retain `promptable=false`.
+
+JSON is an explicit stable projection rather than a protobuf dump. Its exact
+keys are `session_id`, `agent_id`, `state`, `message`, `status_epoch`,
+`occupant_id`, `source`, `revision`, `completed_revision`, `updated_at`, and
+`promptable`; absent message, identity, and source values are `null`, and the
+revision/timestamp values are numbers. No PID is exposed. Epoch, occupant, and
+source are volatile observation and fencing state only: they do not identify a
+conversation or grant agent control. Roost owns no agent process, conversation,
+transcript, tool call, or approval model. See
+[Agents and status](/docs/agents/) for detection and precedence.
 
 ### Workers
 

@@ -1,3 +1,7 @@
+// Local agent-report socket authentication and admission tests. The caller
+// supplies only session-authorized state; a fresh detector identity and the
+// server's serialized monotonic sequence are the registry input.
+
 import { afterEach, describe, expect, test } from "bun:test";
 import net from "node:net";
 import { mkdtemp, rm, stat } from "node:fs/promises";
@@ -5,7 +9,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentStatusUpdate } from "@roost/shared/wire";
 import { startAgentReportServer, type AgentReportServer } from "../src/agent-status/report-server.ts";
-import { AgentStatusRegistry } from "../src/agent-status/registry.ts";
+import {
+  AgentStatusRegistry,
+  type IntegrationStatusReport,
+} from "../src/agent-status/registry.ts";
 import { withAgentStatusEnvironment } from "../src/agent-status/environment.ts";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -36,14 +43,11 @@ async function request(path: string, body: string): Promise<Record<string, unkno
   return promise;
 }
 
-function report(seq: number, patch: Record<string, unknown> = {}): string {
+function report(patch: Record<string, unknown> = {}): string {
   if (!server) throw new Error("agent report server is not running");
   const params = {
     session_id: sessionId,
-    pid: 42,
-    agent: "omp",
     state: "working",
-    seq,
     active: true,
     ...patch,
   };
@@ -74,43 +78,159 @@ describe("agent report environment", () => {
 });
 
 describe("agent report server", () => {
-  test("creates a 0600 socket and accepts owned pid reports", async () => {
+  test("accepts state with fresh worker-derived identity and ordering", async () => {
     const dir = await mkdtemp(join(tmpdir(), "roost-agent-report-"));
     cleanupDirs.push(dir);
     const published: AgentStatusUpdate[] = [];
+    const received: IntegrationStatusReport[] = [];
+    let identity: { agentId: "omp" | "pi"; pid: number } = {
+      agentId: "omp",
+      pid: 42,
+    };
+    let peerPid = identity.pid;
     const registry = new AgentStatusRegistry({
       publish: (status) => published.push(status), startLeaseTimer: false,
     });
     server = await startAgentReportServer({
       socketPath: join(dir, "agent.sock"),
-      detector: { sessionForPid: async (pid) => pid === 42 ? sessionId : null },
-      registry,
+      detector: {
+        reportingAgentForSession: async (claimed, attestedPid) => (
+          claimed === sessionId && attestedPid === identity.pid ? identity : null
+        ),
+      },
+      peerProcessIdReader: { read: () => peerPid },
+      registry: {
+        reportIntegration: (candidate) => {
+          received.push(candidate);
+          return registry.reportIntegration(candidate);
+        },
+      },
     });
     expect((await stat(server.path)).mode & 0o777).toBe(0o600);
-    expect(await request(server.path, report(1))).toEqual({ ok: true });
+    expect(await request(server.path, report())).toEqual({ ok: true });
+    identity = { agentId: "pi", pid: 84 };
+    peerPid = identity.pid;
+    expect(await request(server.path, report({ state: "blocked" }))).toEqual({ ok: true });
+    expect(received.map(({ agentId, processId }) => [agentId, processId])).toEqual([
+      ["omp", 42],
+      ["pi", 84],
+    ]);
+    expect(received[1]!.seq).toBeGreaterThan(received[0]!.seq);
     expect(published.at(-1)).toMatchObject({
-      session_id: sessionId, agent_id: "omp", state: "working", active: true,
+      session_id: sessionId,
+      agent_id: "pi",
+      state: "blocked",
+      active: true,
+      source: "integration",
     });
     registry.dispose();
   });
 
-  test("rejects malformed, mismatched, and stale requests without escaping", async () => {
+  test("rejects unavailable identity, caller-selected identity, and malformed state", async () => {
     const dir = await mkdtemp(join(tmpdir(), "roost-agent-report-"));
     cleanupDirs.push(dir);
-    const registry = new AgentStatusRegistry({ publish: () => undefined, startLeaseTimer: false });
+    const received: IntegrationStatusReport[] = [];
+    let identityAvailable = false;
+    let peerPid = 42;
     server = await startAgentReportServer({
       socketPath: join(dir, "agent.sock"),
-      detector: { sessionForPid: async (pid) => pid === 42 ? sessionId : null },
-      registry,
+      detector: {
+        reportingAgentForSession: async (claimed, attestedPid) => (
+          identityAvailable && claimed === sessionId && attestedPid === 42
+            ? { agentId: "omp", pid: 42 }
+            : null
+        ),
+      },
+      peerProcessIdReader: { read: () => peerPid },
+      registry: {
+        reportIntegration: (candidate) => {
+          received.push(candidate);
+          return true;
+        },
+      },
     });
-    expect(await request(server.path, "not json\n")).toMatchObject({ ok: false, error: "invalid_json" });
-    expect(await request(server.path, report(1, { session_id: "22222222-2222-4222-8222-222222222222" })))
-      .toMatchObject({ ok: false, error: "pid_session_mismatch" });
-    expect(await request(server.path, report(2))).toEqual({ ok: true });
-    expect(await request(server.path, report(2))).toMatchObject({ ok: false, error: "stale_seq" });
-    expect(await request(server.path, report(3, { message: "x".repeat(513) })))
+    expect(await request(server.path, "not json\n")).toMatchObject({
+      ok: false,
+      error: "invalid_json",
+    });
+    expect(await request(server.path, report())).toMatchObject({
+      ok: false,
+      error: "reporter_identity_mismatch",
+    });
+    expect(await request(server.path, report({
+      session_id: "22222222-2222-4222-8222-222222222222",
+    }))).toMatchObject({ ok: false, error: "reporter_identity_mismatch" });
+    identityAvailable = true;
+    peerPid = 7;
+    expect(await request(server.path, report())).toMatchObject({
+      ok: false,
+      error: "reporter_identity_mismatch",
+    });
+    peerPid = 42;
+    expect(await request(server.path, report({
+      pid: 7,
+      agent: "pi",
+      seq: Number.MAX_SAFE_INTEGER,
+    }))).toMatchObject({ ok: false, error: "invalid_request" });
+    expect(await request(server.path, report({ message: "x".repeat(513) })))
       .toMatchObject({ ok: false, error: "invalid_request" });
-    registry.dispose();
+    expect(received).toEqual([]);
+  });
+
+  test("rejects a different peer process reporting for the live agent", async () => {
+    if (process.platform === "win32") return;
+    const dir = await mkdtemp(join(tmpdir(), "roost-agent-report-"));
+    cleanupDirs.push(dir);
+    let attestedPeerPid: number | undefined;
+    let registryCalls = 0;
+    server = await startAgentReportServer({
+      socketPath: join(dir, "agent.sock"),
+      detector: {
+        reportingAgentForSession: async (_claimed, peerPid) => {
+          attestedPeerPid = peerPid;
+          return peerPid === process.pid ? { agentId: "omp", pid: peerPid } : null;
+        },
+      },
+      registry: {
+        reportIntegration: () => {
+          registryCalls++;
+          return true;
+        },
+      },
+    });
+    const child = Bun.spawn([
+      process.execPath,
+      "-e",
+      [
+        'const net = require("node:net");',
+        'const socket = net.createConnection(process.env.ROOST_TEST_ENDPOINT);',
+        'socket.setEncoding("utf8");',
+        'socket.on("connect", () => socket.write(',
+        'Buffer.from(process.env.ROOST_TEST_BODY, "base64").toString("utf8")));',
+        'socket.on("data", (chunk) => { process.stdout.write(chunk); socket.end(); });',
+        'socket.on("error", () => process.exit(2));',
+      ].join(""),
+    ], {
+      env: {
+        ...process.env,
+        ROOST_TEST_ENDPOINT: server.path,
+        ROOST_TEST_BODY: Buffer.from(report()).toString("base64"),
+      },
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+
+    const [output, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      child.exited,
+    ]);
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(output.trim())).toEqual({
+      ok: false,
+      error: "reporter_identity_mismatch",
+    });
+    expect(attestedPeerPid).toBe(child.pid);
+    expect(registryCalls).toBe(0);
   });
 
   test("caps oversized local input", async () => {
@@ -118,7 +238,12 @@ describe("agent report server", () => {
     cleanupDirs.push(dir);
     server = await startAgentReportServer({
       socketPath: join(dir, "agent.sock"),
-      detector: { sessionForPid: async () => sessionId },
+      detector: {
+        reportingAgentForSession: async (_claimed, attestedPid) => (
+          attestedPid === 42 ? { agentId: "omp", pid: 42 } : null
+        ),
+      },
+      peerProcessIdReader: { read: () => 42 },
       registry: { reportIntegration: () => true },
     });
     expect(await request(server.path, `${"x".repeat(8_300)}\n`))

@@ -110,8 +110,10 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/connect/terminal-screen-hub.ts` (canonical cell replica and resumable
   per-socket cursors), `src/buses.ts` (`BoundedBus<T>`, one per non-terminal
   domain), `src/jwt.ts`, `src/coord-key.ts`, `src/authorized-keys.ts`,
-  `src/agent-status-hub.ts`; Web Push owners are `src/push-dispatch.ts`,
-  `src/push-sender.ts`, and `src/vapid.ts`. `src/deploy-jobs.ts` owns the
+  `src/agent-status-hub.ts` (live projection and push timers), and
+  `src/agent-status-order.ts` (epoch/occupant admission and retirement).
+  Web Push owners are `src/push-dispatch.ts`, `src/push-sender.ts`, and
+  `src/vapid.ts`. `src/deploy-jobs.ts` owns the
   generic job registry + POSIX `roost deploy` subprocess; remaining owners are
   `src/backup.ts`, `src/audit-retention.ts`, `src/sse.ts`
   (`busToAsyncIterable`, consumed by the deploy-output stream),
@@ -158,6 +160,8 @@ the worker-WS registry that server populates.
   `src/connect/worker-ws-handler.ts` owns live admission, reauth, and teardown.
   Ping/pong liveness deadlines remain separate in
   `src/connect/worker-conn-keepalive.ts`.
+  `src/connect/worker-agent-status-frame.ts` preserves the optional observed
+  identity triple when the admitted worker frame enters the status hub.
 - Browser delivery leaves: `src/connect/sync-ws-client-ingress.ts` decodes
   client frames; `src/connect/sync-ws-v1-delivery.ts` owns ACK/backpressure
   windows; `src/connect/sync-ws-v2-scheduler.ts` is the stable facade over
@@ -214,6 +218,11 @@ the worker-WS registry that server populates.
   appending an event and letting `foldEvent` (shared with the SPA through `@roost/shared/wire`) recompute the row,
   so browser and coordinator projections agree by construction. Closed sessions are deleted, not parked; live `open`
   rows are never reaped on a wall-clock cutoff.
+- **Agent-status revisions are scoped to one exact observed occupant.** A
+  different non-retired `(status_epoch, occupant_id)` may start at a lower
+  revision; displaced epochs/occupants are equality-fenced against late active
+  and inactive frames. Identityless rollout frames never replace an identified
+  status, and source is mutable provenance rather than an ordering token.
 
 ## Testing
 

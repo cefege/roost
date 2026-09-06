@@ -15,7 +15,7 @@ import { asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { log } from "@roost/shared/log";
 import { diag, signal } from "@roost/shared/diag";
-import { handleWorkerAgentStatus } from "../agent-status-hub.ts";
+import { dispatchWorkerAgentStatusFrame } from "./worker-agent-status-frame.ts";
 import {
   publishBytes,
   publishCellGrid,
@@ -299,17 +299,7 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
           return true;
         }
         if (options.fenced("agent_status")) return true;
-        const status = frame.frame.value;
-        handleWorkerAgentStatus(workerFp, {
-          session_id: status.sessionId,
-          agent_id: status.agentId,
-          state: status.state,
-          message: status.message,
-          revision: Number(status.revision),
-          completed_revision: Number(status.completedRevision),
-          updated_at: status.updatedAt,
-          active: status.active,
-        });
+        dispatchWorkerAgentStatusFrame(workerFp, frame.frame.value);
         return true;
       }
       case "terminalStreamResult": {

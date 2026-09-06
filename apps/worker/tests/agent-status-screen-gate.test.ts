@@ -6,6 +6,7 @@
 // starving PTY parsing and baseline emission.
 import { describe, expect, test, vi } from "bun:test";
 import { DEFAULT_COLOR } from "@roost/shared/cell";
+import type { AgentStatusUpdate } from "@roost/shared/wire";
 import type { CellData, TerminalCore } from "@wterm/core";
 import type { SessionManager } from "../src/session-manager.ts";
 import { AgentScreenDetector } from "../src/agent-status/detector.ts";
@@ -47,6 +48,7 @@ function makeGridCore(reads: { count: number }): TerminalCore {
 
 function makeDetector(nowMs: { value: number }) {
   const reads = { count: 0 };
+  const published: AgentStatusUpdate[] = [];
   const scans = { count: 0 };
   const records: Array<Record<string, unknown>> = [];
   const addSession = () => {
@@ -64,23 +66,25 @@ function makeDetector(nowMs: { value: number }) {
     getBySessionId: (id: string) => records.find((r) => r.sessionId === id),
   } as unknown as SessionManager;
   const registry = new AgentStatusRegistry({
-    publish: () => {},
+    publish: (status) => { published.push(status); },
     startLeaseTimer: false,
   });
-  const identities = new Map<string, { agentId: BuiltinAgentId }>([
-    [SESSION_ID, { agentId: "omp" }],
+  const identities = new Map<string, { agentId: BuiltinAgentId; pid: number }>([
+    [SESSION_ID, { agentId: "omp", pid: 4_321 }],
   ]);
   const scanner = {
     scanAgents: async () => {
       scans.count++;
       return identities;
     },
-    sessionForPid: async () => null,
+    scanReportingAgent: async () => null,
   } as unknown as AgentProcessScanner;
   const detector = new AgentScreenDetector(sessions, registry, scanner, {
     now: () => nowMs.value,
   });
   return {
+    identities,
+    published,
     detector,
     reads,
     scans,
@@ -106,6 +110,24 @@ describe("agent-status screen-read gate", () => {
     now.value += 1;
     await detector.scanNow();
     expect(reads.count).toBe(2);
+    detector.dispose();
+  });
+
+  test("same-kind process replacement reaches the registry with the verified PID", async () => {
+    const now = { value: 1_000 };
+    const { detector, identities, published, addSession } = makeDetector(now);
+    addSession();
+    await detector.scanNow();
+    const first = published.at(-1)!;
+
+    identities.set(SESSION_ID, { agentId: "omp", pid: 4_322 });
+    now.value += 200;
+    await detector.scanNow();
+
+    expect(published.slice(-2).map((status) => status.active)).toEqual([false, true]);
+    expect(published.at(-2)?.occupant_id).toBe(first.occupant_id);
+    expect(published.at(-1)?.occupant_id).not.toBe(first.occupant_id);
+    expect(published.at(-1)?.status_epoch).toBe(first.status_epoch);
     detector.dispose();
   });
 

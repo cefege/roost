@@ -1,8 +1,9 @@
-// Adapted from Herdr src/pane/agent_detection.rs at commit
-// eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
+// Stabilizes screen-derived state for one observed agent process. The process
+// identity is part of the key so PID replacement cannot inherit pending idle
+// confirmation or disappear behind an unchanged agent kind and state.
 
 import type { AgentRuntimeState } from "@roost/shared/wire";
-import type { BuiltinAgentId } from "./process-scan.ts";
+import type { AgentProcessIdentity, BuiltinAgentId } from "./process-scan.ts";
 import type { ManifestDetection } from "./manifest-engine.ts";
 
 const PENDING_IDLE_CONFIRMATIONS = 3;
@@ -11,6 +12,7 @@ const PENDING_IDLE_CAP_MS = 700;
 export interface StableScreenReport {
   agentId: BuiltinAgentId;
   state: AgentRuntimeState;
+  processId: number;
 }
 
 interface StableEntry extends StableScreenReport {
@@ -26,19 +28,21 @@ export class StableScreenDetector {
 
   observe(
     sessionId: string,
-    agentId: BuiltinAgentId,
+    identity: AgentProcessIdentity,
     detection: ManifestDetection,
     now = Date.now(),
   ): StableScreenReport | null {
     const previous = this.entries.get(sessionId);
-    const agentChanged = previous !== undefined && previous.agentId !== agentId;
+    const identityChanged = previous !== undefined
+      && (previous.agentId !== identity.agentId || previous.processId !== identity.pid);
     if (detection.skipStateUpdate || detection.state === "unknown") {
-      if (agentChanged) this.entries.delete(sessionId);
+      if (identityChanged) this.entries.delete(sessionId);
       return null;
     }
 
     const next: StableEntry = {
-      agentId,
+      agentId: identity.agentId,
+      processId: identity.pid,
       state: detection.state,
       visibleIdle: detection.visibleIdle,
       visibleBlocker: detection.visibleBlocker,
@@ -46,9 +50,9 @@ export class StableScreenDetector {
       pendingIdleStartedAt: null,
       pendingIdleConfirmations: 0,
     };
-    if (!previous || agentChanged) {
+    if (!previous || identityChanged) {
       this.entries.set(sessionId, next);
-      return { agentId, state: next.state };
+      return { agentId: identity.agentId, processId: identity.pid, state: next.state };
     }
 
     const plainWorkingToIdle = previous.state === "working"
@@ -72,12 +76,16 @@ export class StableScreenDetector {
       || previous.visibleBlocker !== next.visibleBlocker
       || previous.visibleWorking !== next.visibleWorking;
     this.entries.set(sessionId, next);
-    return changed ? { agentId, state: next.state } : null;
+    return changed
+      ? { agentId: identity.agentId, processId: identity.pid, state: next.state }
+      : null;
   }
 
   current(sessionId: string): StableScreenReport | null {
     const entry = this.entries.get(sessionId);
-    return entry ? { agentId: entry.agentId, state: entry.state } : null;
+    return entry
+      ? { agentId: entry.agentId, processId: entry.processId, state: entry.state }
+      : null;
   }
 
   release(sessionId: string): void {

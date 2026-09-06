@@ -1,7 +1,7 @@
-// Local socket server the installed omp/pi extensions report into. Enforces
-// the shared local-endpoint bounds (connection count, unauthenticated byte
-// cap, timeout) and zod-validates every frame before it may influence agent
-// status — this surface is reachable by anything running as the same user.
+// Local socket server the installed omp/pi extensions report into. A
+// session capability authorizes state only; the kernel-attested socket peer
+// and a fresh process scan own agent identity, while one server-wide lane owns
+// admission order. The bounded endpoint is reachable by the same user.
 import net from "node:net";
 import { z } from "zod";
 import {
@@ -17,19 +17,18 @@ import { log } from "@roost/shared/log";
 import { AGENT_STATUS_MESSAGE_MAX_LENGTH, AgentRuntimeState, SessionId } from "@roost/shared/wire";
 import { supportedHostPlatform } from "@roost/shared/platform";
 import type { AgentScreenDetector } from "./detector.ts";
-import type { BuiltinAgentId } from "./process-scan.ts";
 import type { AgentStatusRegistry } from "./registry.ts";
+import {
+  createLocalPeerProcessIdReader,
+  type LocalPeerProcessIdReader,
+} from "./peer-process-id.ts";
 import {
   resolveAgentReportEndpoint,
   verifyAgentReportCapability,
 } from "./environment.ts";
 
 const MAX_LINE_BYTES = 4_096;
-const MAX_REQUESTS_PER_CONNECTION = 32;
-const BuiltinAgent = z.enum([
-  "codex", "gemini", "opencode", "cursor", "amp",
-  "copilot", "droid", "grok", "pi", "omp",
-]);
+const MAX_REQUESTS_PER_CONNECTION = 1;
 
 export const AgentReportRequest = z.object({
   version: z.literal(1),
@@ -37,20 +36,18 @@ export const AgentReportRequest = z.object({
   capability: z.string().regex(/^[a-f0-9]{64}$/),
   params: z.object({
     session_id: SessionId,
-    pid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-    agent: BuiltinAgent,
     state: AgentRuntimeState,
     message: z.string().max(AGENT_STATUS_MESSAGE_MAX_LENGTH).optional(),
-    seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     active: z.boolean(),
-  }),
-});
+  }).strict(),
+}).strict();
 export type AgentReportRequest = z.infer<typeof AgentReportRequest>;
 
 
 export interface AgentReportServerOptions {
-  detector: Pick<AgentScreenDetector, "sessionForPid">;
+  detector: Pick<AgentScreenDetector, "reportingAgentForSession">;
   registry: Pick<AgentStatusRegistry, "reportIntegration">;
+  peerProcessIdReader?: Pick<LocalPeerProcessIdReader, "read">;
   endpoint?: LocalEndpoint;
   /** POSIX-only explicit address seam for isolated callers. */
   socketPath?: string;
@@ -82,8 +79,60 @@ export async function startAgentReportServer(
     };
   }
   await prepareLocalEndpoint(endpoint);
+  const ownedPeerProcessIdReader = options.peerProcessIdReader
+    ? null
+    : createLocalPeerProcessIdReader({ platform: endpoint.platform });
+  const peerProcessIdReader = options.peerProcessIdReader ?? ownedPeerProcessIdReader!;
+  if (ownedPeerProcessIdReader && !ownedPeerProcessIdReader.available) {
+    log.warn("agent-status", "peer_process_attestation_unavailable", {
+      platform: endpoint.platform,
+    });
+  }
+  let integrationSeq = Math.floor(Date.now() * 1_000);
+  let admissionTail: Promise<void> = Promise.resolve();
+  const admitReport = (
+    request: AgentReportRequest,
+    reporterPid: number,
+  ): Promise<string | undefined> => {
+    const admitted = admissionTail.then(async () => {
+      const sessionId = request.params.session_id;
+      const identity = await options.detector.reportingAgentForSession(
+        sessionId,
+        reporterPid,
+      );
+      if (!identity) return "reporter_identity_mismatch";
+      const nextSeq = Math.max(integrationSeq + 1, Math.floor(Date.now() * 1_000));
+      if (!Number.isSafeInteger(nextSeq)) throw new Error("agent report sequence exhausted");
+      integrationSeq = nextSeq;
+      const accepted = options.registry.reportIntegration({
+        sessionId,
+        agentId: identity.agentId,
+        state: request.params.state,
+        processId: identity.pid,
+        message: request.params.message,
+        seq: nextSeq,
+        active: request.params.active,
+      });
+      return accepted ? undefined : "stale_report";
+    });
+    admissionTail = admitted.then(() => undefined, () => undefined);
+    return admitted;
+  };
   let unauthenticatedConnections = 0;
   const server = net.createServer((socket) => {
+    let reporterPid: number | null = null;
+    try {
+      reporterPid = peerProcessIdReader.read(socket);
+    } catch {
+      // An injected or platform-native reader failure is an authentication failure.
+    }
+    if (reporterPid === null) {
+      log.warn("agent-status", "peer_process_attestation_failed", {
+        platform: endpoint.platform,
+      });
+      socket.destroy();
+      return;
+    }
     if (
       unauthenticatedConnections >=
       LOCAL_ENDPOINT_MAX_UNAUTHENTICATED_CONNECTIONS
@@ -124,12 +173,12 @@ export async function startAgentReportServer(
       let raw: unknown;
       try { raw = JSON.parse(line); }
       catch {
-        send(response(false, "invalid_json"));
+        socket.end(response(false, "invalid_json"));
         return;
       }
       const parsed = AgentReportRequest.safeParse(raw);
       if (!parsed.success) {
-        send(response(false, "invalid_request"));
+        socket.end(response(false, "invalid_request"));
         return;
       }
       const claimed = parsed.data.params.session_id;
@@ -151,23 +200,11 @@ export async function startAgentReportServer(
         return;
       }
       try {
-        const resolved = await options.detector.sessionForPid(parsed.data.params.pid);
-        if (!resolved || claimed !== resolved) {
-          send(response(false, "pid_session_mismatch"));
-          return;
-        }
-        const accepted = options.registry.reportIntegration({
-          sessionId: resolved,
-          agentId: parsed.data.params.agent as BuiltinAgentId,
-          state: parsed.data.params.state,
-          message: parsed.data.params.message,
-          seq: parsed.data.params.seq,
-          active: parsed.data.params.active,
-        });
-        send(accepted ? response(true) : response(false, "stale_seq"));
+        const admissionError = await admitReport(parsed.data, reporterPid);
+        socket.end(admissionError ? response(false, admissionError) : response(true));
       } catch (error) {
         log.warn("agent-status", "report_request_failed", { error: String(error) });
-        send(response(false, "internal_error"));
+        socket.end(response(false, "internal_error"));
       }
     };
     socket.on("data", (chunk: string) => {
@@ -217,6 +254,7 @@ export async function startAgentReportServer(
     });
     await secureLocalEndpoint(endpoint);
   } catch (error) {
+    ownedPeerProcessIdReader?.close();
     try { server.close(); } catch { /* listen failed before binding */ }
     await cleanupLocalEndpoint(endpoint);
     throw error;
@@ -228,6 +266,7 @@ export async function startAgentReportServer(
       const closed = Promise.withResolvers<void>();
       server.close(() => closed.resolve());
       await closed.promise;
+      ownedPeerProcessIdReader?.close();
       await cleanupLocalEndpoint(endpoint);
     },
   };

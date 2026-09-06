@@ -1,62 +1,155 @@
-// Browser-profile acknowledgement state for coding-agent revisions. Revisions
-// only move forward; storage events merge maxima so viewing a session in one
-// tab clears its unseen marker in every tab in the profile.
+// Browser-profile acknowledgement state for exact coding-agent occupants.
+// Revisions advance only within one epoch/occupant pair; storage merges each
+// identity independently so another tab cannot acknowledge a replacement.
 
 import { createSignal } from "solid-js";
+import {
+  AgentOccupantId,
+  AgentStatusSource,
+  SessionId,
+  StatusEpoch,
+  type AgentStatus,
+} from "@roost/shared/wire";
+import {
+  agentStatusOccupantKey,
+  agentStatusRevisionToken,
+  type AgentStatusRevisionToken,
+} from "./agentStatus.ts";
 
-const STORAGE_KEY = "roost.agentSeen.v1";
+const STORAGE_KEY = "roost.agentSeen.v2";
+const LEGACY_STORAGE_KEY = "roost.agentSeen.v1";
+const LEGACY_IDENTITY_KEY = "legacy";
 const PERSIST_DEBOUNCE_MS = 250;
 
-function parseStored(raw: string | null): Map<string, number> {
-  const result = new Map<string, number>();
-  if (!raw) return result;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return result;
-    for (const [sessionId, revision] of Object.entries(parsed)) {
-      if (Number.isSafeInteger(revision) && (revision as number) >= 0) {
-        result.set(sessionId, revision as number);
-      }
-    }
-  } catch { /* malformed profile state starts empty */ }
-  return result;
+interface StoredAgentSeenV2 {
+  schema_version: 2;
+  tokens: AgentStatusRevisionToken[];
 }
 
-function readStorage(): Map<string, number> {
+function validRevision(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function parseStoredV2(raw: string | null): AgentStatusRevisionToken[] {
+  if (!raw) return [];
   try {
-    return typeof localStorage === "undefined"
-      ? new Map<string, number>()
-      : parseStored(localStorage.getItem(STORAGE_KEY));
+    const parsed = JSON.parse(raw) as {
+      schema_version?: unknown;
+      tokens?: unknown;
+    };
+    if (parsed?.schema_version !== 2 || !Array.isArray(parsed.tokens)) return [];
+    const tokens: AgentStatusRevisionToken[] = [];
+    for (const candidate of parsed.tokens) {
+      if (!candidate || typeof candidate !== "object") continue;
+      const value = candidate as Record<string, unknown>;
+      const sessionId = SessionId.safeParse(value.session_id);
+      if (!sessionId.success || !validRevision(value.revision)) continue;
+      const identityAbsent = value.status_epoch === undefined
+        && value.occupant_id === undefined
+        && value.source === undefined;
+      if (identityAbsent) {
+        tokens.push({
+          session_id: sessionId.data,
+          revision: value.revision,
+        });
+        continue;
+      }
+      const statusEpoch = StatusEpoch.safeParse(value.status_epoch);
+      const occupantId = AgentOccupantId.safeParse(value.occupant_id);
+      const source = AgentStatusSource.safeParse(value.source);
+      if (!statusEpoch.success || !occupantId.success || !source.success) continue;
+      tokens.push({
+        session_id: sessionId.data,
+        revision: value.revision,
+        status_epoch: statusEpoch.data,
+        occupant_id: occupantId.data,
+        source: source.data,
+      });
+    }
+    return tokens;
   } catch {
-    return new Map<string, number>();
+    return [];
   }
 }
 
-const seen = readStorage();
+function parseLegacyStored(raw: string | null): AgentStatusRevisionToken[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+    const tokens: AgentStatusRevisionToken[] = [];
+    for (const [candidateSessionId, revision] of Object.entries(parsed)) {
+      const sessionId = SessionId.safeParse(candidateSessionId);
+      if (!sessionId.success || !validRevision(revision)) continue;
+      tokens.push({ session_id: sessionId.data, revision });
+    }
+    return tokens;
+  } catch {
+    return [];
+  }
+}
+
+function readStoredTokens(): AgentStatusRevisionToken[] {
+  try {
+    if (typeof localStorage === "undefined") return [];
+    return [
+      ...parseStoredV2(localStorage.getItem(STORAGE_KEY)),
+      ...parseLegacyStored(localStorage.getItem(LEGACY_STORAGE_KEY)),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+const seenBySession = new Map<string, Map<string, AgentStatusRevisionToken>>();
 const [version, setVersion] = createSignal(0);
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
-function mergeStored(incoming: ReadonlyMap<string, number>): boolean {
+function tokenIdentityKey(token: AgentStatusRevisionToken): string {
+  return agentStatusOccupantKey(token) ?? LEGACY_IDENTITY_KEY;
+}
+
+function mergeStored(tokens: readonly AgentStatusRevisionToken[], notify = true): boolean {
   let changed = false;
-  for (const [sessionId, revision] of incoming) {
-    if (revision <= (seen.get(sessionId) ?? -1)) continue;
-    seen.set(sessionId, revision);
+  for (const token of tokens) {
+    const identityKey = tokenIdentityKey(token);
+    let sessionTokens = seenBySession.get(token.session_id);
+    if (!sessionTokens) {
+      sessionTokens = new Map();
+      seenBySession.set(token.session_id, sessionTokens);
+    }
+    const current = sessionTokens.get(identityKey);
+    if (current && current.revision >= token.revision) continue;
+    sessionTokens.set(identityKey, { ...token });
     changed = true;
   }
-  if (changed) setVersion((value) => value + 1);
+  if (changed && notify) setVersion((value) => value + 1);
   return changed;
 }
 
-export function seenAgentRevision(sessionId: string): number {
+mergeStored(readStoredTokens(), false);
+
+export function seenAgentRevision(status: AgentStatus | null | undefined): number {
   version();
-  return seen.get(sessionId) ?? 0;
+  if (!status) return 0;
+  const occupantKey = agentStatusOccupantKey(status);
+  const identityKey = occupantKey ?? LEGACY_IDENTITY_KEY;
+  return seenBySession
+    .get(status.session_id)
+    ?.get(identityKey)
+    ?.revision ?? (occupantKey === null ? 0 : -1);
 }
 
-export function markAgentSeen(sessionId: string, revision: number): boolean {
-  if (!Number.isSafeInteger(revision) || revision < 0) return false;
-  if (revision <= (seen.get(sessionId) ?? 0)) return false;
-  seen.set(sessionId, revision);
-  setVersion((value) => value + 1);
+export function markAgentSeen(status: AgentStatus): boolean {
+  const revision = status.revision;
+  const token = agentStatusRevisionToken(status);
+  const occupantKey = agentStatusOccupantKey(token);
+  const currentRevision = seenBySession
+    .get(status.session_id)
+    ?.get(occupantKey ?? LEGACY_IDENTITY_KEY)
+    ?.revision ?? (occupantKey === null ? 0 : -1);
+  if (revision <= currentRevision) return false;
+  mergeStored([token]);
   schedulePersist();
   return true;
 }
@@ -69,7 +162,7 @@ function schedulePersist(): void {
   }, PERSIST_DEBOUNCE_MS);
 }
 
-/** Merge before writing so independent sessions acknowledged by two tabs survive. */
+/** Merge before writing so acknowledgements made independently by two tabs survive. */
 export function flushAgentSeen(): void {
   if (persistTimer) {
     clearTimeout(persistTimer);
@@ -77,17 +170,33 @@ export function flushAgentSeen(): void {
   }
   try {
     if (typeof localStorage === "undefined") return;
-    mergeStored(parseStored(localStorage.getItem(STORAGE_KEY)));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(seen)));
-  } catch { /* private mode / quota: keep the in-memory acknowledgement */ }
+    mergeStored(parseStoredV2(localStorage.getItem(STORAGE_KEY)));
+    mergeStored(parseLegacyStored(localStorage.getItem(LEGACY_STORAGE_KEY)));
+    const tokens = [...seenBySession.values()].flatMap((sessionTokens) =>
+      [...sessionTokens.values()]
+    );
+    const stored: StoredAgentSeenV2 = { schema_version: 2, tokens };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // Private mode and quota failures leave the in-memory acknowledgement intact.
+  }
 }
 
 /** Install cross-tab merge and last-chance pagehide persistence. */
 export function startAgentSeenPersistence(): () => void {
   if (typeof window === "undefined") return () => {};
+  try {
+    if (localStorage.getItem(LEGACY_STORAGE_KEY) !== null) flushAgentSeen();
+  } catch {
+    // Profile storage is optional.
+  }
   const onStorage = (event: StorageEvent) => {
-    if (event.key !== STORAGE_KEY) return;
-    mergeStored(parseStored(event.newValue));
+    if (event.key === STORAGE_KEY) {
+      if (mergeStored(parseStoredV2(event.newValue))) schedulePersist();
+    } else if (event.key === LEGACY_STORAGE_KEY) {
+      if (mergeStored(parseLegacyStored(event.newValue))) schedulePersist();
+    }
   };
   const onPageHide = () => flushAgentSeen();
   window.addEventListener("storage", onStorage);
@@ -103,9 +212,14 @@ export function startAgentSeenPersistence(): () => void {
 export function clearAgentSeenForLogout(): void {
   clearTimeout(persistTimer ?? undefined);
   persistTimer = null;
-  seen.clear();
+  seenBySession.clear();
   setVersion((value) => value + 1);
-  try { localStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // Profile storage is optional.
+  }
 }
 
 export function resetAgentSeenForTest(): void {

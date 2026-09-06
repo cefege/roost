@@ -95,7 +95,7 @@ function projectSession(session: Session): NavigationSearchDocument {
   const workspace = workspaceForFolder(session.worker_fp, session.cwd);
   const worker = rootStore.workers[session.worker_fp];
   const status = rootStore.agent_status[session.id] as AgentStatus | undefined;
-  const acknowledgedRevision = seenAgentRevision(session.id);
+  const acknowledgedRevision = seenAgentRevision(status);
   const agentStatus = deriveAgentStatusLevel(status, acknowledgedRevision);
   const agentAttention: NavigationSearchAttention | null = status?.state === "blocked"
     ? "blocked"

@@ -10,6 +10,7 @@ import { evaluateManifest } from "./manifest-engine.ts";
 import { AGENT_MANIFESTS } from "./manifests.ts";
 import {
   AgentProcessScanner,
+  type AgentProcessIdentity,
   type SessionProcessRoot,
 } from "./process-scan.ts";
 import { AgentStatusRegistry } from "./registry.ts";
@@ -125,8 +126,12 @@ export class AgentScreenDetector {
           oscTitle: record.rawOscTitle,
           oscProgress: record.rawOscProgress,
         });
-        const report = this.stable.observe(sessionId, identity.agentId, detection);
-        if (report) this.registry.reportScreen(sessionId, report);
+        const report = this.stable.observe(sessionId, identity, detection);
+        if (report) {
+          this.registry.reportScreen(sessionId, report);
+        } else if (!this.stable.current(sessionId)) {
+          this.registry.clearScreen(sessionId);
+        }
       } catch (error) {
         log.warn("agent-status", "screen_detection_failed", {
           session_id: sessionId,
@@ -137,14 +142,19 @@ export class AgentScreenDetector {
     }
   }
 
-  sessionForPid(pid: number): Promise<string | null> {
-    const roots: SessionProcessRoot[] = [];
-    for (const record of this.sessions.allSessions()) {
-      if (record.childPid && record.childPid > 0) {
-        roots.push({ sessionId: String(record.sessionId), childPid: record.childPid });
-      }
-    }
-    return this.scanner.sessionForPid(pid, roots);
+  async reportingAgentForSession(
+    sessionId: string,
+    reporterPid: number,
+  ): Promise<AgentProcessIdentity | null> {
+    const record = this.sessions.getBySessionId(sessionId);
+    const childPid = record?.childPid;
+    if (!childPid || childPid <= 0) return null;
+    const identity = await this.scanner.scanReportingAgent(
+      { sessionId, childPid },
+      reporterPid,
+    );
+    const current = this.sessions.getBySessionId(sessionId);
+    return current?.childPid === childPid ? identity : null;
   }
 
   closeSession(sessionId: string): void {

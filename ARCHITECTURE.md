@@ -211,48 +211,34 @@ the route is announced; it never fabricates a browser view. Browser flow
 control still uses cumulative delivery ACKs, bounded queues and reconnect
 without page reload.
 
-Every session remains a shell PTY. Agent CLIs such as `omp`, Claude Code, or
-Codex may be launched inside it, manually or through terminal launcher
-configuration. Roost never spawns, supervises, or owns an agent session.
+Every session remains a shell PTY; agent CLIs such as `omp`, Claude Code, or Codex run inside it manually or through terminal launcher configuration.
+Roost never spawns, supervises, or owns an agent process, conversation, transcript, tool call, or approval model.
 
 ## Agent status (volatile, metadata only)
 
-Roost labels a shell PTY with the state of whatever coding agent happens to be
-running inside it — `working`, `blocked` (needs input), `idle`. This is
-metadata about a terminal, not a structured agent session: no transcript, no
-composer, no agent RPC.
+Roost labels a shell PTY `working`, `blocked` (needs input), or `idle`. This is terminal metadata, not a structured agent session or execution model.
+Dashboard-authorized RPCs can read it; they do not control the agent.
 
 Detection lives entirely on the **worker**:
 
-- A periodic `ps` scan identifies a known agent binary in a session's process
-  tree (`apps/worker/src/agent-status/process-scan.ts`).
-- Agents Roost owns an integration for (OMP, Pi) report their own lifecycle —
-  including "needs input" and retry grace — over a per-worker Unix socket. Every
-  spawned PTY gets `ROOST_AGENT_SOCKET_PATH` + `ROOST_SESSION_ID`, and the
-  server validates that the reporting pid really belongs to that session
-  (`apps/worker/src/agent-status/report-server.ts`).
-- Terminals with no integration (other agents, sessions that predate an
-  install) fall back to scanning the session's own screen and OSC title/progress
-  against pinned per-agent manifests (`apps/worker/src/agent-status/manifests.ts`).
+- A periodic `ps` scan identifies known agent binaries in the session process tree (`apps/worker/src/agent-status/process-scan.ts`).
+- OMP and Pi report lifecycle, including "needs input" and retry grace, over a per-worker local endpoint. The server kernel-attests the accepted socket's peer PID, then a fresh process-tree scan must prove that exact process is the current known agent under the capability's session; process identity and ordering never come from report fields (`apps/worker/src/agent-status/report-server.ts`).
+- Sessions without an integration fall back to their own screen and OSC title/progress against pinned manifests (`apps/worker/src/agent-status/manifests.ts`).
 
-An integration report beats the screen; a silent integration's lease expires
-after 30 s and the session falls back automatically. The worker publishes one
-*effective* state per session with a monotonic revision.
+An integration report beats the screen; a silent integration's lease expires after 30 s and the session falls back automatically.
+The worker publishes one effective row per session. `status_epoch` identifies a registry lifetime, `occupant_id` a verified process incarnation, and `source` an integration or screen observation; revisions are monotonic within that identity.
+PID stays worker-private. Identity fields are volatile observation and fencing state, not process handles, credentials, or conversation identifiers.
+Only a fully identified integration row is `promptable`; screen and identityless legacy rows remain readable with `promptable=false`.
 
-Nothing about status is persisted. Frames travel worker → coordinator
-(`WAgentStatus`) → an in-memory, revision-ordered hub → the `Sync` stream
-(`AgentStatusFrame`) → the browser store. A fresh `Sync` connection is seeded
-from the hub snapshot, and a session close drops the record, so a worker,
-coordinator, or browser restart converges instead of leaving a stale badge.
+Nothing about status is persisted. Frames travel worker → coordinator (`WAgentStatus`) → an in-memory hub ordered by epoch, occupant, and revision → `Sync` (`AgentStatusFrame`) → browser.
+A fresh `Sync` connection gets the hub snapshot, and session close drops its row, so worker, coordinator, and browser restarts converge without stale badges.
 
-**Notification boundary.** The coordinator classifies only background
-transitions (`working → blocked`, `working|blocked → idle`) and, after a 1 s
-cancellable delay, sends Web Push to subscribed devices that are not currently
-viewing that session; push subscriptions are the one persisted piece
-(`push_subscriptions`). Everything else is browser-local: the in-app toast,
-the unseen title badge, the optional sound, and a per-browser-profile claim so
-two tabs of the same profile deliver one notification. Opening the session
-cancels a pending notification and acknowledges its revision.
+`AgentStatusGet` and `AgentStatusList` authorize the dashboard actor before reading the hub; missing and foreign sessions share not-found behavior.
+`roost api agent-status <session> [--json]` and `roost api agents [--json]` expose an explicit PID-free projection, never generated-message stringify.
+
+**Notification boundary.** The coordinator classifies background `working → blocked` and `working|blocked → idle` transitions and, after a 1 s cancellable delay, sends Web Push to subscribed devices not viewing that session.
+Push subscriptions are the one persisted piece (`push_subscriptions`); in-app toast, unseen title badge, optional sound, and per-browser-profile claim remain browser-local.
+Opening the session cancels a pending notification and acknowledges its revision.
 
 ## Terminal fidelity (the hard part)
 

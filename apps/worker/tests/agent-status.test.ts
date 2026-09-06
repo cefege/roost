@@ -1,3 +1,7 @@
+// Process recognition, screen-state stabilization, and baseline registry
+// arbitration tests for worker-observed agent status. Durable occupant identity
+// edge cases live in agent-status-registry-identity.test.ts.
+
 import { describe, expect, test } from "bun:test";
 import type { AgentStatusUpdate } from "@roost/shared/wire";
 import { evaluateManifest, type ManifestDetection } from "../src/agent-status/manifest-engine.ts";
@@ -7,6 +11,7 @@ import {
   BUILTIN_AGENT_COMMANDS,
   findAgentProcessIdentity,
   identifyAgentProcess,
+  type AgentProcessIdentity,
   type BuiltinAgentId,
   type ProcessRecord,
 } from "../src/agent-status/process-scan.ts";
@@ -29,6 +34,12 @@ function detection(state: "working" | "blocked" | "idle", visible = false): Mani
     skipStateUpdate: false,
     matchedRuleId: visible ? "visible" : null,
   };
+}
+function agentIdentity(
+  agentId: BuiltinAgentId,
+  pid = 20,
+): AgentProcessIdentity {
+  return { agentId, pid };
 }
 
 describe("agent process identity", () => {
@@ -64,30 +75,65 @@ describe("agent process identity", () => {
     expect((await scanner.scanAgents(roots)).has(sessionId)).toBe(false);
   });
 
-  test("maps a reporter pid to its open session root", async () => {
+  test("freshly resolves the detected agent under a claimed session root", async () => {
+    const root = processRecord({ pid: 10, ppid: 1 });
     const records = [
-      processRecord({ pid: 10, ppid: 1 }),
-      processRecord({ pid: 20, ppid: 10 }),
-      processRecord({ pid: 30, ppid: 20 }),
+      root,
+      processRecord({ pid: 20, ppid: 10, comm: "pi", args: "pi" }),
+      processRecord({ pid: 30, ppid: 20, comm: "omp", args: "omp" }),
     ];
     const scanner = new AgentProcessScanner(async () => records, 0);
-    expect(await scanner.sessionForPid(30, [{ sessionId, childPid: 10 }])).toBe(sessionId);
-    expect(await scanner.sessionForPid(99, [{ sessionId, childPid: 10 }])).toBeNull();
+    expect(await scanner.scanReportingAgent({ sessionId, childPid: 10 }, 30))
+      .toEqual({ agentId: "omp", pid: 30 });
+    expect(await scanner.scanReportingAgent({ sessionId, childPid: 10 }, 20))
+      .toBeNull();
   });
 
-  test("refreshes a throttled snapshot for a newly started reporter", async () => {
+  test("keeps a live incumbent ahead of a newly named descendant reporter", async () => {
     const root = processRecord({ pid: 10, ppid: 1 });
-    let records: ProcessRecord[] = [root];
+    const incumbent = processRecord({
+      pid: 20,
+      ppid: 10,
+      comm: "bun",
+      args: "bun /home/me/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js",
+    });
+    let records = [root, incumbent];
+    const scanner = new AgentProcessScanner(async () => records, 0);
+    const sessionRoot = { sessionId, childPid: 10 };
+    expect((await scanner.scanAgents([sessionRoot])).get(sessionId))
+      .toEqual({ agentId: "omp", pid: 20 });
+
+    records = [
+      root,
+      incumbent,
+      processRecord({ pid: 30, ppid: 20, comm: "omp", args: "omp" }),
+    ];
+    expect((await scanner.scanAgents([sessionRoot])).get(sessionId))
+      .toEqual({ agentId: "omp", pid: 20 });
+    expect(await scanner.scanReportingAgent(sessionRoot, 30)).toBeNull();
+    expect(await scanner.scanReportingAgent(sessionRoot, 20))
+      .toEqual({ agentId: "omp", pid: 20 });
+  });
+
+  test("forces a fresh snapshot instead of admitting a held screen identity", async () => {
+    const root = processRecord({ pid: 10, ppid: 1 });
+    let records: ProcessRecord[] = [
+      root,
+      processRecord({ pid: 30, ppid: 10, comm: "omp", args: "omp" }),
+    ];
     let snapshots = 0;
     const scanner = new AgentProcessScanner(async () => {
       snapshots++;
       return records;
     }, 10_000);
     const roots = [{ sessionId, childPid: 10 }];
-    await scanner.scanAgents(roots);
-    records = [root, processRecord({ pid: 30, ppid: 10 })];
+    expect((await scanner.scanAgents(roots)).get(sessionId)).toEqual({
+      agentId: "omp",
+      pid: 30,
+    });
+    records = [root];
 
-    expect(await scanner.sessionForPid(30, roots)).toBe(sessionId);
+    expect(await scanner.scanReportingAgent(roots[0]!, 30)).toBeNull();
     expect(snapshots).toBe(2);
   });
 });
@@ -140,29 +186,32 @@ describe("pinned manifest engine", () => {
 describe("stable screen transitions", () => {
   test("holds transient working-to-plain-idle spinner loss", () => {
     const stable = new StableScreenDetector();
-    expect(stable.observe(sessionId, "codex", detection("working", true), 0)).toEqual({ agentId: "codex", state: "working" });
-    expect(stable.observe(sessionId, "codex", detection("idle"), 100)).toBeNull();
-    expect(stable.observe(sessionId, "codex", detection("idle"), 200)).toBeNull();
-    expect(stable.observe(sessionId, "codex", detection("working", true), 250)).toBeNull();
+    expect(stable.observe(sessionId, agentIdentity("codex"), detection("working", true), 0))
+      .toEqual({ agentId: "codex", processId: 20, state: "working" });
+    expect(stable.observe(sessionId, agentIdentity("codex"), detection("idle"), 100)).toBeNull();
+    expect(stable.observe(sessionId, agentIdentity("codex"), detection("idle"), 200)).toBeNull();
+    expect(stable.observe(sessionId, agentIdentity("codex"), detection("working", true), 250)).toBeNull();
     expect(stable.current(sessionId)?.state).toBe("working");
   });
 
   test("confirms sustained plain idle but accepts visible idle immediately", () => {
     const stable = new StableScreenDetector();
-    stable.observe(sessionId, "codex", detection("working", true), 0);
-    expect(stable.observe(sessionId, "codex", detection("idle"), 100)).toBeNull();
-    expect(stable.observe(sessionId, "codex", detection("idle"), 200)).toBeNull();
-    expect(stable.observe(sessionId, "codex", detection("idle"), 300)).toBeNull();
-    expect(stable.observe(sessionId, "codex", detection("idle"), 400)).toEqual({ agentId: "codex", state: "idle" });
+    stable.observe(sessionId, agentIdentity("codex"), detection("working", true), 0);
+    expect(stable.observe(sessionId, agentIdentity("codex"), detection("idle"), 100)).toBeNull();
+    expect(stable.observe(sessionId, agentIdentity("codex"), detection("idle"), 200)).toBeNull();
+    expect(stable.observe(sessionId, agentIdentity("codex"), detection("idle"), 300)).toBeNull();
+    expect(stable.observe(sessionId, agentIdentity("codex"), detection("idle"), 400))
+      .toEqual({ agentId: "codex", processId: 20, state: "idle" });
 
-    stable.observe(sessionId, "codex", detection("working", true), 500);
-    expect(stable.observe(sessionId, "codex", detection("idle", true), 501)).toEqual({ agentId: "codex", state: "idle" });
+    stable.observe(sessionId, agentIdentity("codex"), detection("working", true), 500);
+    expect(stable.observe(sessionId, agentIdentity("codex"), detection("idle", true), 501))
+      .toEqual({ agentId: "codex", processId: 20, state: "idle" });
   });
 
   test("holds the previous state on skip-state screens", () => {
     const stable = new StableScreenDetector();
-    stable.observe(sessionId, "codex", detection("working", true), 0);
-    expect(stable.observe(sessionId, "codex", {
+    stable.observe(sessionId, agentIdentity("codex"), detection("working", true), 0);
+    expect(stable.observe(sessionId, agentIdentity("codex"), {
       ...detection("idle"), state: "unknown", skipStateUpdate: true,
     }, 100)).toBeNull();
     expect(stable.current(sessionId)?.state).toBe("working");
@@ -177,14 +226,14 @@ describe("integration and screen arbitration", () => {
       publish: (status) => published.push(status), now: () => now,
       leaseMs: 100, startLeaseTimer: false,
     });
-    registry.reportScreen(sessionId, { agentId: "omp", state: "working" });
+    registry.reportScreen(sessionId, { agentId: "omp", processId: 20, state: "working" });
     expect(registry.reportIntegration({
-      sessionId, agentId: "omp", state: "blocked", seq: 1, active: true,
+      sessionId, agentId: "omp", processId: 20, state: "blocked", seq: 1, active: true,
     })).toBe(true);
-    registry.reportScreen(sessionId, { agentId: "omp", state: "idle" });
+    registry.reportScreen(sessionId, { agentId: "omp", processId: 20, state: "idle" });
     expect(published.at(-1)?.state).toBe("blocked");
     expect(registry.reportIntegration({
-      sessionId, agentId: "omp", state: "working", seq: 1, active: true,
+      sessionId, agentId: "omp", processId: 20, state: "working", seq: 1, active: true,
     })).toBe(false);
     now += 101;
     registry.expireLeases();
@@ -201,10 +250,14 @@ describe("integration and screen arbitration", () => {
       publish: (status) => published.push(status), now: () => now,
       startLeaseTimer: false,
     });
-    registry.reportIntegration({ sessionId, agentId: "pi", state: "working", seq: 1, active: true });
+    registry.reportIntegration({
+      sessionId, agentId: "pi", processId: 20, state: "working", seq: 1, active: true,
+    });
     const revision = published[0]!.revision;
     now++;
-    registry.reportIntegration({ sessionId, agentId: "pi", state: "working", seq: 2, active: true });
+    registry.reportIntegration({
+      sessionId, agentId: "pi", processId: 20, state: "working", seq: 2, active: true,
+    });
     expect(published).toHaveLength(1);
     registry.resend();
     expect(published).toHaveLength(2);

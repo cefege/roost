@@ -86,7 +86,13 @@ describe("managed public surface without Cloudflare Access", () => {
 
   test("denies anonymous browser and worker-principal RPCs before coordinator dispatch", async () => {
     const { surface, coordCalls } = makeHarness();
-    for (const path of [`${RPC}SessionsList`, `${RPC}WorkersRegister`, `${RPC}WorkersHeartbeat`]) {
+    for (const path of [
+      `${RPC}SessionsList`,
+      `${RPC}AgentStatusGet`,
+      `${RPC}AgentStatusList`,
+      `${RPC}WorkersRegister`,
+      `${RPC}WorkersHeartbeat`,
+    ]) {
       for (const authorization of [undefined, "Basic forged", "Bearer "]) {
         const headers = authorization ? { authorization } : undefined;
         const response = await surface.fetch(managedRequest(
@@ -105,6 +111,8 @@ describe("managed public surface without Cloudflare Access", () => {
     const { surface, coordCalls } = makeHarness();
     const paths = [
       `${RPC}SessionsList`,
+      `${RPC}AgentStatusGet`,
+      `${RPC}AgentStatusList`,
       `${RPC}AuthMintBootstrap`,
       `${RPC}DevicesList`,
       `${RPC}DevicesRevoke`,

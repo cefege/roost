@@ -1,12 +1,13 @@
-// Encapsulates Sync v2 queue ordering and weighted-lane candidate selection.
-// These mutations preserve each domain's snapshot boundary while allowing an
-// eligible opened event to pass its fenced terminal cells, and enforce the age
-// escape hatch without coupling policy to socket writes.
+// Encapsulates Sync v2 queue ordering, current-state seed cutovers, and
+// weighted-lane candidate selection. Mutations preserve each domain's
+// snapshot boundary while allowing an eligible opened event to pass its
+// fenced terminal cells without coupling policy to socket writes.
 
 import type { ServerWebSocket } from "bun";
 import { SyncDomain, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 import type { WsDeadlineClock } from "./ws-auth-deadline.ts";
+import { retainedFrameSupersedesBuffered } from "./sync-feed-frames.ts";
 import {
   V2_LOW_LANE_MAX_AGE_MS,
   V2_WEIGHTED_LANES,
@@ -15,6 +16,7 @@ import {
   releaseV2AggregateFrame,
   type SyncV2DomainState,
   type SyncV2QueuedFrame,
+  type SyncV2SocketState,
 } from "./sync-ws-v2-state.ts";
 
 function isTerminalCellFrame(frame: FirehoseFrame): boolean {
@@ -39,6 +41,20 @@ export function v2AttachSnapshotInsertIndex(
     insertIndex = index;
   }
   return insertIndex;
+}
+
+export function coalesceV2BufferedFrame(
+  v2: SyncV2SocketState,
+  domain: SyncV2DomainState,
+  retained: FirehoseFrame,
+): void {
+  for (let index = domain.queue.length - 1; index >= domain.seedInsertIndex; index--) {
+    const buffered = domain.queue[index]!;
+    if (!retainedFrameSupersedesBuffered(retained, buffered.frame)) continue;
+    domain.queue.splice(index, 1);
+    domain.queuedBytes -= buffered.estimatedBytes;
+    releaseV2AggregateFrame(v2, buffered);
+  }
 }
 
 interface SyncV2Candidate {

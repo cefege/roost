@@ -1,6 +1,6 @@
 // Roost-owned integration adapted from Herdr at commit
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
-// ROOST_INTEGRATION_ID=pi ROOST_INTEGRATION_VERSION=2
+// ROOST_INTEGRATION_ID=pi ROOST_INTEGRATION_VERSION=3
 //
 // Owns ONLY the pi event→state mapping (root-session gate, blocked counter,
 // heartbeat). Delivery is the shared report transport; this source ships as a
@@ -33,7 +33,7 @@ export default function install(pi: PiApi): void {
   let lastMessage: string | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
-  const queueReport = createAgentReporter({ agent: "pi", endpoint, capability, sessionId });
+  const queueReport = createAgentReporter({ endpoint, capability, sessionId });
   const desiredState = (): { state: AgentState; message?: string } => {
     if (blockedCount > 0) return { state: "blocked", message: blockedMessage };
     return { state: agentActive ? "working" : "idle" };

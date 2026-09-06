@@ -1,7 +1,76 @@
-// Shared coding-agent presentation policy. Every surface uses the same derived
-// level, priority, copy, and color; connection/offline state remains separate.
+// Browser coding-agent identity and presentation policy. Identity comparisons
+// use epoch plus occupant UUID; source is mutable provenance. Every visual
+// surface shares the same derived level, priority, copy, and color.
 
-import type { AgentStatus } from "@roost/shared/wire";
+import {
+  isIdentifiedAgentStatus,
+  type AgentOccupantId,
+  type AgentStatus,
+  type AgentStatusIdentity,
+  type AgentStatusSource,
+  type StatusEpoch,
+} from "@roost/shared/wire";
+
+type AgentStatusIdentityLike = {
+  status_epoch?: StatusEpoch;
+  occupant_id?: AgentOccupantId;
+  source?: AgentStatusSource;
+};
+
+export type AgentStatusRevisionToken =
+  | ({
+    session_id: AgentStatus["session_id"];
+    revision: number;
+  } & AgentStatusIdentity)
+  | {
+    session_id: AgentStatus["session_id"];
+    revision: number;
+    status_epoch?: undefined;
+    occupant_id?: undefined;
+    source?: undefined;
+  };
+
+/** Source may change while the same process occupant remains current. */
+export function sameAgentStatusOccupant(
+  left: AgentStatusIdentityLike,
+  right: AgentStatusIdentityLike,
+): boolean {
+  const leftIdentified = isIdentifiedAgentStatus(left);
+  const rightIdentified = isIdentifiedAgentStatus(right);
+  if (!leftIdentified || !rightIdentified) return leftIdentified === rightIdentified;
+  return left.status_epoch === right.status_epoch
+    && left.occupant_id === right.occupant_id;
+}
+
+export function agentStatusOccupantKey(status: AgentStatusIdentityLike): string | null {
+  if (!isIdentifiedAgentStatus(status)) return null;
+  return `${status.status_epoch}:${status.occupant_id}`;
+}
+
+export function agentStatusRevisionToken(
+  status: AgentStatus,
+): AgentStatusRevisionToken {
+  const revision = status.revision;
+  if (!isIdentifiedAgentStatus(status)) {
+    return { session_id: status.session_id, revision };
+  }
+  return {
+    session_id: status.session_id,
+    revision,
+    status_epoch: status.status_epoch,
+    occupant_id: status.occupant_id,
+    source: status.source,
+  };
+}
+
+export function matchesAgentStatusRevisionToken(
+  status: AgentStatus,
+  token: AgentStatusRevisionToken,
+): boolean {
+  return status.session_id === token.session_id
+    && status.revision === token.revision
+    && sameAgentStatusOccupant(status, token);
+}
 
 export type AgentStatusLevel = "blocked" | "done" | "working" | "idle" | "unknown";
 
@@ -51,21 +120,27 @@ export const AGENT_STATUS_PRESENTATION: Readonly<Record<AgentStatusLevel, AgentS
   },
 };
 
-/** Idle becomes Done only while its completion revision remains unseen. */
+/** Idle becomes Done only while a real completion revision remains unseen. */
 export function deriveAgentStatusLevel(
   status: AgentStatus | null | undefined,
-  acknowledgedRevision = 0,
+  acknowledgedRevision?: number,
 ): AgentStatusLevel {
   if (!status) return "unknown";
   if (status.state === "blocked") return "blocked";
   if (status.state === "working") return "working";
-  if (status.state === "idle" && status.completed_revision > acknowledgedRevision) return "done";
+  const seenRevision = acknowledgedRevision
+    ?? (agentStatusOccupantKey(status) === null ? 0 : -1);
+  if (
+    status.state === "idle"
+    && status.completed_revision > 0
+    && status.completed_revision > seenRevision
+  ) return "done";
   return "idle";
 }
 
 export function agentStatusTooltip(
   status: AgentStatus,
-  acknowledgedRevision = 0,
+  acknowledgedRevision?: number,
 ): string {
   const presentation = AGENT_STATUS_PRESENTATION[
     deriveAgentStatusLevel(status, acknowledgedRevision)

@@ -18,7 +18,7 @@ export function AgentStatusIndicator(props: {
   );
   const level = createMemo(() => {
     const current = status();
-    return deriveAgentStatusLevel(current, seenAgentRevision(props.sessionId));
+    return deriveAgentStatusLevel(current, seenAgentRevision(current));
   });
   const presentation = createMemo(() => AGENT_STATUS_PRESENTATION[level()]);
 
@@ -29,7 +29,7 @@ export function AgentStatusIndicator(props: {
           class={`agent-status ${props.compact ? "agent-status--compact" : ""} ${props.class ?? ""}`.trim()}
           data-testid={`agent-status-${props.sessionId}`}
           data-level={level()}
-          title={agentStatusTooltip(current(), seenAgentRevision(props.sessionId))}
+          title={agentStatusTooltip(current(), seenAgentRevision(current()))}
           aria-label={presentation().label}
         >
           <span class="agent-status__dot" aria-hidden="true" />

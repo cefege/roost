@@ -44,9 +44,11 @@ Every browser command arrives *downstream* on this one socket. Frames are proto-
 `CoordWorkerDown` oneofs (`@roost/shared/proto/worker_transport_pb`), serialized binary — no JSON on the hot path.
 The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL, so one stream stays open for hours.
 
-- `src/transport/coord-link-outbox.ts` — encoded outbox and native-backpressure
-  admission. Lifecycle replay and the snapshot barrier fence control, cells,
-  and replaceable metadata.
+- `src/transport/coord-link-outbox.ts` — protocol-barrier ordering for the
+  pending transport lanes; `src/transport/coord-link-native-writer.ts` owns
+  native WebSocket byte admission. `src/transport/coord-link-agent-status.ts`
+  retains the last possibly-sent occupant retirement plus the latest active
+  occupant per session, so backpressure cannot invert a replacement.
 - `src/transport/coord-link-unacked.ts` — one-at-a-time
   hello → durable replay → snapshot → live protocol driver. It coalesces
   metadata in memory and hands exact lifecycle ACKs to the durable store.
@@ -188,9 +190,15 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/keeper/keeper-frame-handler.ts` sets `TERM: "xterm-256color"` explicitly. Guard: lint rule `L11: keeper
   Bun.spawn env must set TERM explicitly (deployed-only ncurses $TERM=unknown)` in `scripts/lint-roost.ts`. A test
   that passes `TERM` in itself falsely covers this.
-- **`agent-status` is volatile metadata on a shell PTY.** No SQLite row, no event-log variant, no `session.kind`.
-  It ships as `CoordWorkerUp.agent_status`, is resent after every CoordLink reopen, and is dropped when the session
-  closes; a restart must re-derive it. Do not persist it and do not promote it to a session kind.
+- **`agent-status` is volatile, process-observed metadata on a shell PTY.** No
+  SQLite row, event-log variant, or `session.kind`. One registry construction
+  owns one `status_epoch`; an uninterrupted agent-kind/PID incarnation owns one
+  `occupant_id` across integration/screen source changes. PID never leaves
+  worker-private detection and registry state. Identified frames are resent
+  with their exact identity and revision after every CoordLink reopen; the
+  in-memory status lane preserves required inactive→active ordering while
+  coalescing unseen intermediate occupants. Session close drops the entry, and
+  worker restart changes the epoch and re-derives every status.
 - **Keeper input correlation is worker-owned.** Browser-local `input_seq` and
   worker request IDs correlate their respective hops only. The keeper receives
   a monotonically increasing per-channel/connection key allocated by the
@@ -199,29 +207,44 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 
 ## Agent status
 
-Labels each shell PTY `working` / `blocked` / `idle` for whatever coding agent runs inside it. Metadata only, never
-an agent API. All under `src/agent-status/`.
+Labels each shell PTY `working` / `blocked` / `idle` for whichever coding
+agent runs inside it. This is observed metadata: the worker owns no agent
+process, conversation, transcript, tool, or approval state. All implementation
+lives under `src/agent-status/`.
 
-- `src/agent-status/process-scan.ts` — throttled (250 ms) `ps -A` snapshot finds a known agent in the session's process tree;
-  identity survives one missed scan so a momentary miss cannot flap. `src/agent-status/detector.ts` wires the pieces together.
-- `src/agent-status/report-server.ts` — authoritative reports on `$ROOST_AGENT_SOCKET_PATH` (default `~/.roost/agent-report.sock`,
-  dir `0700`, socket `0600`): one `agent.report` JSON line per request, ≤4 KiB, 32 per connection, `seq` monotonic,
-  `active:false` withdraws, `pid` resolved to its owning session with a mismatch rejected
-  (`pid_session_mismatch`) so a report cannot claim another terminal. `src/agent-status/environment.ts` injects
-  `ROOST_AGENT_SOCKET_PATH` + `ROOST_SESSION_ID` into every spawned shell.
+- `src/agent-status/process-scan.ts` — throttled (250 ms) `ps -A` snapshot
+  finds a known agent plus its PID in the session process tree; identity
+  survives one missed scan so a momentary miss cannot flap.
+  `src/agent-status/detector.ts` carries that verified private PID through
+  screen stabilization into the registry.
+- `src/agent-status/report-server.ts` — authoritative reports on
+  `$ROOST_AGENT_SOCKET_PATH` (default `~/.roost/agent-report.sock`, dir `0700`,
+  socket `0600`): exactly one `agent.report` JSON line per connection, ≤4 KiB.
+  The payload supplies only session-authorized state. The server
+  kernel-attests the accepted socket's peer PID, then a fresh process-tree scan
+  must prove that exact process is the current agent under the claimed session
+  before the server allocates report ordering. `active:false` withdraws only
+  that proven process incarnation.
+  `src/agent-status/environment.ts` injects `ROOST_AGENT_SOCKET_PATH` and
+  `ROOST_SESSION_ID` into every spawned shell.
 - `src/agent-status/install-integrations.ts` — the two owned `roost-agent-state.ts` extensions (mode `0600`, temp-file + rename,
   idempotent) under `${PI_CONFIG_DIR:-~/.omp}/agent/extensions` and `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions`;
   one lacking a `ROOST_INTEGRATION_ID=<id>` marker is a user file and is never overwritten, and
   `ROOST_AGENT_STATUS_DISABLED=1` makes an installed one inert.
-- `src/agent-status/registry.ts` — an integration report wins while its 30 s lease is fresh, else the screen fallback
-  (`src/agent-status/manifests.ts` + `src/agent-status/manifest-engine.ts` + `src/agent-status/stable-detection.ts`, pinned from Herdr `eacea2da`, Apache-2.0), where
-  a plain `working → idle` needs repeated confirmation so a redraw cannot flicker a completion. Changes carry a
-  monotonic revision; `working|blocked → idle` also stamps the completion revision the SPA's badge keys on.
+- `src/agent-status/registry.ts` — an integration report wins while its 30 s
+  lease is fresh, else the screen fallback
+  (`src/agent-status/manifests.ts` + `src/agent-status/manifest-engine.ts` +
+  `src/agent-status/stable-detection.ts`, pinned from Herdr `eacea2da`,
+  Apache-2.0). A plain `working → idle` needs repeated confirmation so a redraw
+  cannot flicker a completion. Same-process changes preserve the occupant;
+  replacement publishes the old occupant inactive before a fresh occupant
+  whose completion revision starts at zero, and retired reporters cannot
+  reclaim the session.
 
 ## Run, test, deploy
 
 - **Run from source** — `bun apps/worker/src/main.ts`, or `bun --filter @roost/worker run dev` to watch.
-- **Test: `bun run test:worker`.** That is `scripts/test-worker.ts`: it globs the 54
+- **Test: `bun run test:worker`.** That is `scripts/test-worker.ts`: it globs the 63
   `apps/worker/tests/**/*.test.ts` files and runs **each one in its own `bun test` child** with an isolated temp
   root (`TMPDIR` plus a fresh `ROOST_WORKER_DATA_DIR` inside it, every inherited `ROOST_*` var stripped), so each
   file gets its own keeper subprocess, keeper socket dir and sqlite. The default
