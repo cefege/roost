@@ -81,25 +81,28 @@ Durable session state is an ordered event log, not a replaceable standalone
 snapshot.
 
 1. The **worker** emits typed lifecycle and metadata events.
-2. For `opened`, `closed`, and `respawned`, the worker reserves capacity before
-   mutating the keeper and commits the event to its SQLite
-   `SessionEventStore` with full synchronization.
+2. `opened`, `closed`, `respawned`, and private `agent_reference` updates enter
+   the worker's bounded, fully synchronized SQLite `SessionEventStore`.
+   Lifecycle capacity is reserved before keeper mutation; a locally
+   acknowledged reference report returns success only after its append.
 3. The coordinator link performs one ordered barrier on every connection:
-   protocol hello → durable lifecycle replay, one exact ACK at a time →
-   authoritative worker snapshot → live traffic. Replaceable metadata is
-   bounded and coalescible rather than written to the durable outbox.
-4. The **coordinator** validates sequence/identity, appends the event and
-   updates its `sessions` projection in one SQLite transaction, then publishes
-   the committed event.
-5. The **browser** folds that event into the Solid store using the same
-   `foldEvent()` function as the coordinator projection.
+   protocol hello → durable session-event replay, one exact ACK at a time →
+   authoritative worker snapshot → live traffic. Ordinary replaceable metadata
+   remains bounded and coalescible rather than entering the durable outbox.
+4. The **coordinator** validates sequence/identity and appends each event in one
+   SQLite transaction. Public events also update the public `sessions`
+   projection and publish after commit; `agent_reference` updates only a
+   sequence-aware private recovery projection.
+5. The **browser** receives and folds public events into the Solid store using
+   the same `foldEvent()` function as the coordinator projection. Private
+   reference events are excluded from live delivery, backfill, and its cutoff.
 6. On cold start or a recovery reset, the browser hydrates a socket-bound
-   current-state snapshot. Reconnect backfill then replays ordered events above
-   its last persisted folded event id before switching to live delivery.
+   current-state snapshot. Reconnect backfill then replays ordered public events
+   above its last persisted folded event id before switching to live delivery.
 
 The snapshot in the worker barrier is itself a sequenced reconciliation event.
 It repairs coordinator drift after downtime; it is not an out-of-band database
-replacement.
+replacement and cannot erase private conversation recovery state.
 
 ## The terminal data plane
 
@@ -213,7 +216,30 @@ without page reload.
 
 Every session remains a shell PTY; agent CLIs such as `omp`, Claude Code, or Codex run inside it manually or through terminal launcher configuration.
 Roost never spawns, supervises, or owns an agent process, conversation, transcript, tool call, or approval model.
-It may expose volatile worker-observed state and accept occupant-fenced text for that same ordinary PTY; neither surface creates a structured agent session.
+It may expose volatile worker-observed state, accept occupant-fenced text for the same ordinary PTY, and retain an integration-supplied opaque conversation reference as private recovery metadata. None of these surfaces creates a structured agent session.
+
+## Agent conversation references (private recovery metadata)
+
+The official OMP integration reports a versioned opaque reference through a
+separate acknowledged local method. The worker revalidates the session
+capability, kernel peer PID, and fresh agent-process ancestry before accepting
+it; the report cannot choose a provider or executable. A nonempty official
+`session_file` is stored as kind `path`, otherwise the official `session_id` is
+stored as kind `id`. Values are well-formed, NUL-free Unicode limited to 4,096
+UTF-8 bytes and are never opened, normalized, indexed, rendered, or logged.
+
+Set, replacement, and explicit clear are private durable `SessionEvent`s
+ordered by the worker outbox `client_seq`, independently of volatile agent
+status. The coordinator persists the newest reference and sequence in private
+session recovery columns. Snapshots cannot erase them, lower or duplicate
+sequences cannot change them, and closing the session deletes them. The exact
+owning worker receives one recovery row for each open session; browsers,
+device/CLI session listings, Sync live/backfill lanes, search, logs, and audit
+never receive the opaque value.
+
+This layer records durable recovery metadata only. It does not issue a resume
+command or add a restoration setting; automatic restoration remains deferred
+until the separate POSIX real-stack qualification is complete.
 
 ## Agent status (volatile, metadata only)
 

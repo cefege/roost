@@ -5,7 +5,7 @@
 // deploy paths (from-source install and gen-embed's baked text) splice the
 // transport source through here so there is exactly one transport definition.
 
-const TRANSPORT_MARKER = /^import .*report-transport\.ts";$/m;
+const TRANSPORT_MARKER = /^import\s*\{[^}]+\}\s*from\s*"[^"\r\n]*report-transport\.ts";$/m;
 
 /** Replace an integration source's report-transport import with the transport
  *  module body itself. Throws if the marker is gone: that means someone
@@ -18,9 +18,5 @@ export function composeStandaloneIntegration(
 	if (!TRANSPORT_MARKER.test(integrationSource)) {
 		throw new Error("integration source lost its report-transport import marker");
 	}
-	const markerRemoved = integrationSource.replace(
-		TRANSPORT_MARKER,
-		"// (the shared report transport above replaces this import at embed/install time)",
-	);
-	return `${transportSource}\n\n${markerRemoved}`;
+	return integrationSource.replace(TRANSPORT_MARKER, transportSource);
 }

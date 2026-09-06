@@ -14,7 +14,8 @@ import { completeWorkerBootAdmission } from "../src/main.ts";
 import { SessionManager } from "../src/session-manager.ts";
 import { SessionEventStoreFatalError } from "../src/event-sink.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
+import { AgentReferenceAdmissionGate } from "../src/agent-status/reference-admission.ts";
 
 const WORKER_FP = asWorkerFp("42".repeat(32));
 const OPEN_SESSIONS = [
@@ -50,10 +51,30 @@ function clientWithSessionsList(
 	return { sessionsList } as unknown as CoordClient;
 }
 
-function freshManager(sink: LifecycleTestSink): SessionManager {
+function freshManager(sink: SessionEventTestSink): SessionManager {
 	const manager = new SessionManager({ workerFp: WORKER_FP, sink });
 	managers.push(manager);
 	return manager;
+}
+
+function referenceReconcileDependencies() {
+	return {
+		referenceAdmission: new AgentReferenceAdmissionGate(),
+		beforeRecoveryRead: async () => {},
+	};
+}
+
+function sessionsResponse<
+	const Sessions extends readonly { id: string }[],
+>(sessions: Sessions) {
+	return {
+		sessions,
+		recoveryMetadata: sessions.map((session) => ({
+			sessionId: session.id,
+			agentReference: undefined,
+			agentReferenceClientSeq: 0n,
+		})),
+	};
 }
 
 function stubSessionAdmission(manager: SessionManager) {
@@ -63,7 +84,7 @@ function stubSessionAdmission(manager: SessionManager) {
 		reservation: Parameters<SessionManager["resume"]>[1],
 	) => {
 		if (!reservation) throw new Error("test reconcile omitted close reservation");
-		manager.releaseLifecycleEvent(reservation);
+		manager.releaseSessionEvent(reservation);
 		return true;
 	});
 	const respawn = vi.fn(async () => {});
@@ -101,11 +122,14 @@ describe("worker boot reconciliation admission", () => {
 	test("overlapping callers join the delayed boot reconcile and maintenance stays dormant", async () => {
 		const keeper = spyOnKeeperMutation();
 		const restartKeeper = vi.spyOn(pool, "restartKeeper").mockImplementation(() => {});
-		const sessionsGate = Promise.withResolvers<{ sessions: [] }>();
+		const sessionsGate = Promise.withResolvers<unknown>();
+		const replayGate = Promise.withResolvers<void>();
 		const sessionsList = vi.fn(() => sessionsGate.promise);
-		const manager = freshManager(new LifecycleTestSink());
+		const manager = freshManager(new SessionEventTestSink());
 		const prepareKeeper = vi.fn(async () => {});
 		const { reconcileOpenSessions } = setupReconcile({
+			...referenceReconcileDependencies(),
+			beforeRecoveryRead: () => replayGate.promise,
 			client: () => clientWithSessionsList(sessionsList),
 			workerFp: WORKER_FP,
 			sessionMgr: manager,
@@ -120,6 +144,10 @@ describe("worker boot reconciliation admission", () => {
 		const activation = bootActivation(() => first);
 		const boot = activation.complete();
 
+		expect(sessionsList).not.toHaveBeenCalled();
+		replayGate.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
 		expect(sessionsList).toHaveBeenCalledTimes(1);
 		expect(prepareKeeper).not.toHaveBeenCalled();
 		expect(keeper.ensure).not.toHaveBeenCalled();
@@ -130,7 +158,7 @@ describe("worker boot reconciliation admission", () => {
 		expect(activation.activateSnapshotProvider).not.toHaveBeenCalled();
 		expect(activation.markReady).not.toHaveBeenCalled();
 
-		sessionsGate.resolve({ sessions: [] });
+		sessionsGate.resolve(sessionsResponse([]));
 		await expect(boot).resolves.toMatchObject({
 			admitted: true,
 			candidates: 0,
@@ -152,16 +180,17 @@ describe("worker boot reconciliation admission", () => {
 	test("defers a latched degraded signal until reconcile admission succeeds", async () => {
 		spyOnKeeperMutation();
 		const restartKeeper = vi.spyOn(pool, "restartKeeper").mockImplementation(() => {});
-		const sessionsGate = Promise.withResolvers<{ sessions: [] }>();
-		const laterGate = Promise.withResolvers<{ sessions: [] }>();
+		const sessionsGate = Promise.withResolvers<unknown>();
+		const laterGate = Promise.withResolvers<unknown>();
 		let attempts = 0;
-		const manager = freshManager(new LifecycleTestSink());
+		const manager = freshManager(new SessionEventTestSink());
 		const { reconcileOpenSessions } = setupReconcile({
+			...referenceReconcileDependencies(),
 			client: () => clientWithSessionsList(() => {
 				attempts++;
 				if (attempts === 1) return sessionsGate.promise;
 				if (attempts === 3) return laterGate.promise;
-				return Promise.resolve({ sessions: [] });
+				return Promise.resolve(sessionsResponse([]));
 			}),
 			workerFp: WORKER_FP,
 			sessionMgr: manager,
@@ -191,7 +220,7 @@ describe("worker boot reconciliation admission", () => {
 
 	test("a failed SessionsList cannot activate keeper, provider, or readiness and a later complete set succeeds", async () => {
 		const keeper = spyOnKeeperMutation();
-		const sink = new LifecycleTestSink();
+		const sink = new SessionEventTestSink();
 		const manager = freshManager(sink);
 		const operations = stubSessionAdmission(manager);
 		let sessionsListAttempts = 0;
@@ -202,13 +231,14 @@ describe("worker boot reconciliation admission", () => {
 			if (sessionsListAttempts === 1) {
 				throw new Error("coordinator admission unavailable");
 			}
-			return { sessions: OPEN_SESSIONS };
+			return sessionsResponse(OPEN_SESSIONS);
 		});
 		const admittedReservationCounts: number[] = [];
 		const prepareKeeper = vi.fn(async () => {
 			admittedReservationCounts.push(sink.active.size);
 		});
 		const { reconcileOpenSessions } = setupReconcile({
+			...referenceReconcileDependencies(),
 			client: () => clientWithSessionsList(sessionsList),
 			workerFp: WORKER_FP,
 			sessionMgr: manager,
@@ -251,15 +281,16 @@ describe("worker boot reconciliation admission", () => {
 
 	test("reservation exhaustion touches no keeper or session state and releases the whole batch for retry", async () => {
 		const keeper = spyOnKeeperMutation();
-		const sink = new LifecycleTestSink(5);
+		const sink = new SessionEventTestSink(5);
 		const manager = freshManager(sink);
 		const operations = stubSessionAdmission(manager);
-		const sessionsList = vi.fn(async () => ({ sessions: OPEN_SESSIONS }));
+		const sessionsList = vi.fn(async () => sessionsResponse(OPEN_SESSIONS));
 		const admittedReservationCounts: number[] = [];
 		const prepareKeeper = vi.fn(async () => {
 			admittedReservationCounts.push(sink.active.size);
 		});
 		const { reconcileOpenSessions } = setupReconcile({
+			...referenceReconcileDependencies(),
 			client: () => clientWithSessionsList(sessionsList),
 			workerFp: WORKER_FP,
 			sessionMgr: manager,
@@ -268,7 +299,7 @@ describe("worker boot reconciliation admission", () => {
 		const activation = bootActivation(() => reconcileOpenSessions("boot"));
 
 		await expect(activation.complete()).rejects.toThrow(
-			"session lifecycle outbox full",
+			"session event outbox full",
 		);
 		expect(sink.active.size).toBe(0);
 		expect(prepareKeeper).not.toHaveBeenCalled();
@@ -302,29 +333,28 @@ describe("worker boot reconciliation admission", () => {
 
 	test("a rejected in-flight reconcile atomically reopens its keeper update boundary", async () => {
 		const keeper = spyOnKeeperMutation();
-		const sink = new LifecycleTestSink();
-		const reserveLifecycleEvent = sink.reserveLifecycleEvent.bind(sink);
+		const sink = new SessionEventTestSink();
+		const reserveSessionEvent = sink.reserveSessionEvent.bind(sink);
 		let rejectNextReservation = true;
-		sink.reserveLifecycleEvent = (kind) => {
+		sink.reserveSessionEvent = (kind) => {
 			if (rejectNextReservation) {
 				rejectNextReservation = false;
 				throw new SessionEventStoreFatalError(
 					"injected fatal reconcile failure",
 				);
 			}
-			return reserveLifecycleEvent(kind);
+			return reserveSessionEvent(kind);
 		};
 		const manager = freshManager(sink);
 		const operations = stubSessionAdmission(manager);
-		const sessionsGate = Promise.withResolvers<{
-			sessions: typeof OPEN_SESSIONS;
-		}>();
+		const sessionsGate = Promise.withResolvers<unknown>();
 		const sessionsList = vi.fn(() => sessionsGate.promise);
 		const prepareKeeper = vi.fn(async () => {});
 		const {
 			reconcileOpenSessions,
 			acquireKeeperUpdateBoundary,
 		} = setupReconcile({
+			...referenceReconcileDependencies(),
 			client: () => clientWithSessionsList(sessionsList),
 			workerFp: WORKER_FP,
 			sessionMgr: manager,
@@ -335,7 +365,7 @@ describe("worker boot reconciliation admission", () => {
 		const boundary = acquireKeeperUpdateBoundary();
 		const reconcileFailure = reconcile.catch((error) => error);
 		const boundaryFailure = boundary.catch((error) => error);
-		sessionsGate.resolve({ sessions: OPEN_SESSIONS });
+		sessionsGate.resolve(sessionsResponse(OPEN_SESSIONS));
 		expect(String(await reconcileFailure)).toContain(
 			"injected fatal reconcile failure",
 		);

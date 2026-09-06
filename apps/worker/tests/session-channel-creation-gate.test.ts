@@ -14,7 +14,7 @@ import { asSessionId, asWorkerFp } from "@roost/shared/wire";
 import { createKeeperUpdatePrepareHandler } from "../src/coord-link-keeper-update.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionManager } from "../src/session-manager.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const SOURCE_DIGEST = "1".repeat(64);
 const TARGET_DIGEST = "2".repeat(64);
@@ -78,7 +78,7 @@ const managers: SessionManager[] = [];
 function freshManager(): SessionManager {
 	const manager = new SessionManager({
 		workerFp: WORKER_FP,
-		sink: new LifecycleTestSink(),
+		sink: new SessionEventTestSink(),
 		createTerminalCore: async (cols, rows) => ({
 			getCols: () => cols,
 			getRows: () => rows,

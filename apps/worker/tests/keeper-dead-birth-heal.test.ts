@@ -13,11 +13,11 @@ import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 function freshMgr(): { mgr: SessionManager; calls: { n: number } } {
   const calls = { n: 0 };
-  const sink = new LifecycleTestSink();
+  const sink = new SessionEventTestSink();
   const mgr = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink,
@@ -50,7 +50,7 @@ function injectSession(mgr: SessionManager, channelId: number, headSeq: number, 
     session_trace_id: "t",
     cell_emit: initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"),
     spawnedAtMs: Date.now() - ageMs,
-    closeReservation: mgr.reserveLifecycleEvent("closed"),
+    closeReservation: mgr.reserveSessionEvent("closed"),
   };
   (mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(channelId, record);
 }

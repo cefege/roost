@@ -7,8 +7,8 @@ import type { ClientControlFrame } from "@roost/shared/wire";
 import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
 import {
-	isLifecycleOutboxFullError,
-	isSessionLifecycleDurabilityError,
+	isSessionEventOutboxFullError,
+	isSessionEventDurabilityError,
 } from "./session-manager.ts";
 
 export function handleKill(
@@ -26,12 +26,12 @@ export function handleKill(
 		try {
 			sessionMgr.emitClosedTombstone(frame.session_id);
 		} catch (error) {
-			if (isSessionLifecycleDurabilityError(error)) throw error;
-			if (!isLifecycleOutboxFullError(error)) throw error;
+			if (isSessionEventDurabilityError(error)) throw error;
+			if (!isSessionEventOutboxFullError(error)) throw error;
 			coordLink.send({
 				kind: "rpc-error",
 				request_id,
-				message: "session lifecycle outbox full",
+				message: "session event outbox full",
 			});
 		}
 		return;
@@ -62,7 +62,7 @@ export function handleSpawnShell(
 				},
 			});
 		} catch (err) {
-			if (isSessionLifecycleDurabilityError(err)) throw err;
+			if (isSessionEventDurabilityError(err)) throw err;
 			coordLink.send({
 				kind: "rpc-error",
 				request_id,
@@ -117,7 +117,7 @@ export function handleRespawnIfMissing(
 				},
 			});
 		} catch (err) {
-			if (isSessionLifecycleDurabilityError(err)) throw err;
+			if (isSessionEventDurabilityError(err)) throw err;
 			coordLink.send({
 				kind: "rpc-error",
 				request_id,

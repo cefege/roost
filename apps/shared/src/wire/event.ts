@@ -1,8 +1,13 @@
-// SessionEvent = append-only log row. Coord's `events` table is the
-// source of truth; Session projections = fold(events). Browser folds
-// the same events from the SSE stream. R0.3, R3.1.
+// SessionEvent is the append-only worker/coordinator event contract.
+// Public session state is the deterministic fold shared by coordinator and browser.
+// Private recovery variants are explicit no-ops in that public fold.
 
 import { z } from "zod";
+import {
+  AgentConversationReferenceV1Schema,
+  AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES,
+  isAgentConversationReferenceEventEnvelopeBounded,
+} from "../agent-conversation-reference.ts";
 import { Session, SessionKind } from "./session.ts";
 import { ChannelId, SessionId, WorkerFp, WorkspaceId, TraceId } from "./brand.ts";
 
@@ -97,7 +102,24 @@ export const SessionEvent = z.discriminatedUnion("kind", [
     session_id: SessionId,
     ports: z.array(z.number().int()),
   }),
-]);
+  Base.extend({
+    // Private recovery metadata. This event is durable and ordered by the
+    // worker envelope's client_seq, but is never projected into public Session.
+    kind: z.literal("agent_reference"),
+    session_id: SessionId,
+    reference: AgentConversationReferenceV1Schema.nullable(),
+  }),
+]).superRefine((event, context) => {
+  if (
+    event.kind === "agent_reference"
+    && !isAgentConversationReferenceEventEnvelopeBounded(event)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `agent conversation reference event must not exceed ${AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES} UTF-8 bytes`,
+    });
+  }
+});
 export type SessionEvent = z.infer<typeof SessionEvent>;
 
 // Fold one event into a session map. Pure function — replay is
@@ -106,6 +128,11 @@ export function foldEvent(
   prev: Map<string, Session>,
   e: SessionEvent,
 ): Map<string, Session> {
+  if (
+    e.kind === "attached"
+    || e.kind === "detached"
+    || e.kind === "agent_reference"
+  ) return prev;
   const next = new Map(prev);
   switch (e.kind) {
     case "opened":
@@ -136,9 +163,6 @@ export function foldEvent(
       next.delete(e.session_id);
       return next;
     }
-    case "attached":
-    case "detached":
-      return prev; // pure liveness; no projection change yet
     case "cwd": {
       const s = prev.get(e.session_id);
       if (!s) return prev;

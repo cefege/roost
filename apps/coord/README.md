@@ -71,7 +71,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | workspaces | `src/connect/handlers-workspaces.ts` | version-CAS workspace rows, set-sessions, orphan GC |
 | tasks | `src/connect/handlers-tasks.ts` | claimable task queue: list/enqueue/next-pending/set-state/cancel |
 | workers | `src/connect/handlers-workers.ts` | registry lifecycle; composes deploy start/output from `src/connect/handlers-workers-deploy.ts` |
-| sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment; composes spawn from `src/connect/handler-session-spawn.ts`, terminal cell/search/cancel RPCs from `src/connect/handlers-sessions-scrollback.ts`, and authorized global terminal search from `src/connect/handlers-sessions-global-search.ts`; resize is socket-bound |
+| sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment plus owning-worker-only private recovery metadata; composes spawn from `src/connect/handler-session-spawn.ts`, terminal cell/search/cancel RPCs from `src/connect/handlers-sessions-scrollback.ts`, and authorized global terminal search from `src/connect/handlers-sessions-global-search.ts`; resize is socket-bound |
 | streaming | `src/connect/handlers-streaming.ts` | only the `sync` stub (below) |
 | ui | `src/connect/handlers-ui.ts` | typed per-tab reports/listing, bounded composition-owned TTL retention in `ui-state-owner.ts`, canonical legacy-command admission in `ui-legacy-command.ts`, and exact bounded fingerprint/tab apply admission in `ui-layout-apply-owner.ts`; the spatial model stays browser-local |
 | coordinator-move | `src/connect/handlers-coordinator-move.ts` | preflight/start/status over `coord-move/`; plain `Error` from the orchestrator is translated to `ConnectError` here, at the RPC boundary |
@@ -113,6 +113,10 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/event-transaction.ts` (durable append/projection transaction),
   `src/pending-event-publications.ts` (bounded post-commit recovery and ordered
   publication), `src/byte-hub.ts` (durable worker/channel routing),
+  `src/agent-conversation-recovery.ts` (sequence-aware private reference
+  projection), `src/session-event-visibility.ts` (the fail-closed public/private
+  event boundary), `src/connect/session-list-projection.ts` (separate public and
+  owning-worker recovery queries),
   `src/connect/terminal-view-hub.ts` (browser membership and SCD geometry),
   `src/connect/terminal-screen-hub.ts` (canonical cell replica and resumable
   per-socket cursors), `src/buses.ts` (`BoundedBus<T>`, one per non-terminal
@@ -217,6 +221,15 @@ its byte-for-byte semantics.
   cascade workspace deltas. Publishing inside the transaction or bus-first can
   expose `opened`/`respawned`/`snapshot` before a worker/channel route exists.
   `src/event-log.ts` is only the stable facade.
+- **Agent conversation references commit privately.** An authenticated
+  `agent_reference` event is deduplicated and updates its session recovery JSON
+  and worker `client_seq` in the same transaction, but never enters
+  `sessionBus`. Every durable browser query and its maximum cutoff exclude the
+  event, and the final Sync frame adapter refuses it. Snapshots omit both
+  private columns, lower/equal sequences cannot replace or clear newer state,
+  and session close deletes the row. Only the exact owning worker's restricted
+  `SessionsList(worker_fp=self,status=open)` response contains one recovery row
+  per returned session; browser/device callers receive none.
 - **`_channelToSession` is private to `src/byte-hub.ts`.** Terminal hubs receive an
   already-resolved session ID through their narrow routing APIs; they never read
   or mutate the channel index.
@@ -268,10 +281,13 @@ its byte-for-byte semantics.
 - **Rate limiting matches exact mutation routes, never a path prefix.** `src/middleware/rate-limit.ts` keys on a `ReadonlySet` of
   full RPC paths, so `*List`/`*Read` calls cannot burn the mutation budget. Connect emits every unary RPC as POST,
   so the GET/HEAD/OPTIONS early return in `checkRateLimit` never fires for an RPC — the exact-name set is the guard.
-- **`events` is append-only; `sessions` is a projection of it.** Never edit an event row. Session state changes by
-  appending an event and letting `foldEvent` (shared with the SPA through `@roost/shared/wire`) recompute the row,
-  so browser and coordinator projections agree by construction. Closed sessions are deleted, not parked; live `open`
-  rows are never reaped on a wall-clock cutoff.
+- **`events` is append-only; public `sessions` is a projection of public
+  events.** Never edit an event row. Public session state changes by appending
+  an event and letting `foldEvent` (shared with the SPA through
+  `@roost/shared/wire`) recompute the row, so browser and coordinator
+  projections agree by construction. Private `agent_reference` uses its
+  focused recovery projection above. Closed sessions are deleted, not parked;
+  live `open` rows are never reaped on a wall-clock cutoff.
 - **Agent-status revisions are scoped to one exact observed occupant.** A
   different non-retired `(status_epoch, occupant_id)` may start at a lower
   revision; displaced epochs/occupants are equality-fenced against late active

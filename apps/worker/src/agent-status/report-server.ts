@@ -1,9 +1,7 @@
-// Local socket server the installed omp/pi extensions report into. A
-// session capability authorizes state only; the kernel-attested socket peer
-// and a fresh process scan own agent identity, while one server-wide lane owns
-// admission order. The bounded endpoint is reachable by the same user.
+// Local socket server installed omp/pi extensions report into. Session
+// capabilities authorize claims; kernel peer PID plus a fresh process scan own
+// identity. Durable reference ACK follows SQLite append, never mere receipt.
 import net from "node:net";
-import { z } from "zod";
 import {
   cleanupLocalEndpoint,
   LOCAL_ENDPOINT_MAX_UNAUTHENTICATED_CONNECTIONS,
@@ -14,7 +12,6 @@ import {
   type LocalEndpoint,
 } from "@roost/shared/local-endpoint";
 import { log } from "@roost/shared/log";
-import { AGENT_STATUS_MESSAGE_MAX_LENGTH, AgentRuntimeState, SessionId } from "@roost/shared/wire";
 import { supportedHostPlatform } from "@roost/shared/platform";
 import type { AgentScreenDetector } from "./detector.ts";
 import type { AgentStatusRegistry } from "./registry.ts";
@@ -26,27 +23,26 @@ import {
   resolveAgentReportEndpoint,
   verifyAgentReportCapability,
 } from "./environment.ts";
+import type { SessionEventSink } from "../event-sink.ts";
+import type { AgentReferenceAdmissionGate } from "./reference-admission.ts";
+import {
+  AGENT_REPORT_MAX_LINE_BYTES,
+  AgentIntegrationRequestSchema,
+  type AgentReferenceReportRequest,
+  type AgentStatusReportRequest,
+} from "./report-protocol.ts";
 
-const MAX_LINE_BYTES = 4_096;
 const MAX_REQUESTS_PER_CONNECTION = 1;
-
-export const AgentReportRequest = z.object({
-  version: z.literal(1),
-  method: z.literal("agent.report"),
-  capability: z.string().regex(/^[a-f0-9]{64}$/),
-  params: z.object({
-    session_id: SessionId,
-    state: AgentRuntimeState,
-    message: z.string().max(AGENT_STATUS_MESSAGE_MAX_LENGTH).optional(),
-    active: z.boolean(),
-  }).strict(),
-}).strict();
-export type AgentReportRequest = z.infer<typeof AgentReportRequest>;
 
 
 export interface AgentReportServerOptions {
   detector: Pick<AgentScreenDetector, "reportingAgentForSession">;
   registry: Pick<AgentStatusRegistry, "reportIntegration">;
+  eventSink: Pick<
+    SessionEventSink,
+    "reserveSessionEvent" | "releaseSessionEvent" | "emit"
+  >;
+  referenceAdmission: Pick<AgentReferenceAdmissionGate, "runExclusive">;
   peerProcessIdReader?: Pick<LocalPeerProcessIdReader, "read">;
   endpoint?: LocalEndpoint;
   /** POSIX-only explicit address seam for isolated callers. */
@@ -91,7 +87,7 @@ export async function startAgentReportServer(
   let integrationSeq = Math.floor(Date.now() * 1_000);
   let admissionTail: Promise<void> = Promise.resolve();
   const admitReport = (
-    request: AgentReportRequest,
+    request: AgentStatusReportRequest,
     reporterPid: number,
   ): Promise<string | undefined> => {
     const admitted = admissionTail.then(async () => {
@@ -118,6 +114,44 @@ export async function startAgentReportServer(
     admissionTail = admitted.then(() => undefined, () => undefined);
     return admitted;
   };
+  const admitReference = (
+    request: AgentReferenceReportRequest,
+    reporterPid: number,
+  ): Promise<string | undefined> => options.referenceAdmission.runExclusive(
+    async () => {
+      const sessionId = request.params.session_id;
+      const identity = await options.detector.reportingAgentForSession(
+        sessionId,
+        reporterPid,
+      );
+      if (!identity) return "reporter_identity_mismatch";
+      if (identity.agentId !== "omp") return "unsupported_agent";
+      const reservation = options.eventSink.reserveSessionEvent(
+        "agent_reference",
+      );
+      try {
+        options.eventSink.emit({
+          kind: "agent_reference",
+          session_id: sessionId,
+          reference: request.params.reference,
+          ts: Date.now(),
+        }, reservation);
+      } catch (error) {
+        try {
+          options.eventSink.releaseSessionEvent(reservation);
+        } catch {
+          // Append may have consumed the reservation before transport failed.
+        }
+        throw error;
+      }
+      log.info("agent-reference", "reference_report_committed", {
+        session_id: sessionId,
+        agent_id: identity.agentId,
+        action: request.params.reference === null ? "clear" : "set",
+      });
+      return undefined;
+    },
+  );
   let unauthenticatedConnections = 0;
   const server = net.createServer((socket) => {
     let reporterPid: number | null = null;
@@ -165,7 +199,7 @@ export async function startAgentReportServer(
       if (!socket.destroyed && socket.writable) socket.write(body);
     };
     const handleLine = async (line: string) => {
-      if (Buffer.byteLength(line) > MAX_LINE_BYTES) {
+      if (Buffer.byteLength(line) > AGENT_REPORT_MAX_LINE_BYTES) {
         send(response(false, "request_too_large"));
         socket.destroy();
         return;
@@ -176,7 +210,7 @@ export async function startAgentReportServer(
         socket.end(response(false, "invalid_json"));
         return;
       }
-      const parsed = AgentReportRequest.safeParse(raw);
+      const parsed = AgentIntegrationRequestSchema.safeParse(raw);
       if (!parsed.success) {
         socket.end(response(false, "invalid_request"));
         return;
@@ -200,11 +234,23 @@ export async function startAgentReportServer(
         return;
       }
       try {
-        const admissionError = await admitReport(parsed.data, reporterPid);
+        const admissionError = parsed.data.method === "agent.report"
+          ? await admitReport(parsed.data, reporterPid)
+          : await admitReference(parsed.data, reporterPid);
         socket.end(admissionError ? response(false, admissionError) : response(true));
-      } catch (error) {
-        log.warn("agent-status", "report_request_failed", { error: String(error) });
-        socket.end(response(false, "internal_error"));
+      } catch {
+        if (parsed.data.method === "agent.reference") {
+          log.warn("agent-reference", "reference_report_failed", {
+            session_id: claimed,
+            outcome: "ambiguous",
+          });
+          socket.destroy();
+        } else {
+          log.warn("agent-status", "report_request_failed", {
+            outcome: "internal_error",
+          });
+          socket.end(response(false, "internal_error"));
+        }
       }
     };
     socket.on("data", (chunk: string) => {
@@ -218,7 +264,7 @@ export async function startAgentReportServer(
           }
         }
         buffer += chunk;
-        if (Buffer.byteLength(buffer) > MAX_LINE_BYTES * 2) {
+        if (Buffer.byteLength(buffer) > AGENT_REPORT_MAX_LINE_BYTES * 2) {
           send(response(false, "request_too_large"));
           socket.destroy();
           return;

@@ -8,6 +8,7 @@ import type { WorkerFp } from "@roost/shared/wire";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import type { CoordClient } from "./coord-client.ts";
 import type { SessionManager } from "./session-manager.ts";
+import type { AgentReferenceAdmissionGate } from "./agent-status/reference-admission.ts";
 import {
 	reconcileCoordinatorSessions,
 	type ReconcileAdmissionOutcome,
@@ -26,6 +27,8 @@ export function setupReconcile(deps: {
 	prepareKeeper: (
 		coordinatorOpenSessionIds: ReadonlySet<string>,
 	) => Promise<void>;
+	referenceAdmission: Pick<AgentReferenceAdmissionGate, "runExclusive">;
+	beforeRecoveryRead: () => Promise<void>;
 	onReconciled?: (reconciledAtMs: number) => void;
 	onReconcileStarted?: () => void;
 }): {
@@ -39,6 +42,8 @@ export function setupReconcile(deps: {
 		workerFp,
 		sessionMgr,
 		prepareKeeper,
+		referenceAdmission,
+		beforeRecoveryRead,
 		onReconcileStarted,
 		onReconciled,
 	} = deps;
@@ -62,6 +67,11 @@ export function setupReconcile(deps: {
 			workerFp,
 			sessionMgr,
 			prepareKeeper,
+			referenceRecoveryAdmission: (read) =>
+				referenceAdmission.runExclusive(async () => {
+					await beforeRecoveryRead();
+					return read();
+				}),
 			onReconciled: (reconciledAtMs) => {
 				reconcileAdmitted = true;
 				lastReconcileMs = reconciledAtMs;

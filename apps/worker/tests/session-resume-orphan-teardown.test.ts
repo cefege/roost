@@ -27,7 +27,7 @@ import type {
 } from "../src/keeper/multiplexed-client.ts";
 import { installAutoKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import type { ShellSpec } from "../src/shell-spec.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const SESSION_ID = asSessionId("9d2e6c31-4444-4555-9666-777788889999");
 const CHANNEL_ID = 23;
@@ -83,7 +83,7 @@ async function resumeFixture(opts: {
 	const priorGetHistoryRecords = pool.getHistoryRecords;
 	const priorGetTerminalState = pool.getTerminalState;
 	pool.listChannels = async () => [{ channelId: CHANNEL_ID, pid: CHILD_PID }];
-	const sink = new LifecycleTestSink();
+	const sink = new SessionEventTestSink();
 	const events = sink.events;
 	const state = { degradedCalls: 0 };
 	pool.reattach = (channelId, callbacks) => {

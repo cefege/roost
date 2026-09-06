@@ -5,6 +5,7 @@
 
 import type { SessionEvent } from "@roost/shared/wire";
 import type { KyselyDB } from "./db/connection.ts";
+import { PRIVATE_SESSION_EVENT_KIND } from "./session-event-visibility.ts";
 
 /** Read back events with id > sinceId for one dashboard's reconnect backfill. */
 export async function getEventsSince(
@@ -18,6 +19,7 @@ export async function getEventsSince(
     .select(["id", "payload_json"])
     .where("dashboard_id", "=", dashboardId)
     .where("id", ">", sinceId)
+    .where("kind", "!=", PRIVATE_SESSION_EVENT_KIND)
     .orderBy("id", "asc")
     .limit(limit)
     .execute();
@@ -33,6 +35,7 @@ export async function getEventMaxId(db: KyselyDB, dashboardId: string): Promise<
     .selectFrom("events")
     .select(({ fn }) => fn.max<number>("id").as("max_id"))
     .where("dashboard_id", "=", dashboardId)
+    .where("kind", "!=", PRIVATE_SESSION_EVENT_KIND)
     .executeTakeFirst();
   return Number(row?.max_id ?? 0);
 }
@@ -51,6 +54,7 @@ export async function getEventsThrough(
     .where("dashboard_id", "=", dashboardId)
     .where("id", ">", cursor)
     .where("id", "<=", cutoff)
+    .where("kind", "!=", PRIVATE_SESSION_EVENT_KIND)
     .orderBy("id", "asc")
     .limit(limit)
     .execute();

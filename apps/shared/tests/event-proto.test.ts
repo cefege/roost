@@ -1,5 +1,6 @@
-// T1.2 — round-trip test: eventToProto then protoToEvent should preserve
-// the SessionEvent shape across all typed variants.
+// Round-trip every SessionEvent variant through the shared protobuf adapter.
+// Property cases cover public events; focused cases pin snapshots and private references.
+// Event IDs stay transport metadata rather than part of the durable event value.
 
 import { describe, it, expect } from "bun:test";
 import fc from "fast-check";
@@ -110,8 +111,14 @@ describe("eventToProto round-trip", () => {
         custom_title: null,
       },
     ];
-    const e = SessionEvent.parse({ kind: "snapshot", worker_fp: wfp, sessions, ts: 1781500003 });
-    const back = protoToEvent(eventToProto(e, 7)!) as any;
+    const event = SessionEvent.parse({
+      kind: "snapshot",
+      worker_fp: wfp,
+      sessions,
+      ts: 1781500003,
+    });
+    const back = protoToEvent(eventToProto(event, 7));
+    if (back?.kind !== "snapshot") throw new Error("expected snapshot round-trip");
     expect(back._event_id).toBe(7);
     expect(back.sessions.length).toBe(2);
     expect(back.sessions[0]).toEqual(sessions[0]);
@@ -151,5 +158,34 @@ describe("eventToProto round-trip", () => {
     const empty = SessionEvent.parse({ kind: "ports", session_id: sid, ports: [], ts: 1781500031 });
     const back2 = protoToEvent(eventToProto(empty, 6)!) as Record<string, unknown>;
     expect(stripEventId(back2)).toEqual(empty as unknown as Record<string, unknown>);
+  });
+  it("agent_reference — set and clear round-trip without interpreting value", () => {
+    const sid = asSessionId("00000000-0000-4000-8000-0000000000d0");
+    const events = [
+      SessionEvent.parse({
+        kind: "agent_reference",
+        session_id: sid,
+        reference: {
+          schema_version: 1,
+          agent_id: "omp",
+          kind: "path",
+          value: "/tmp/a path/'$opaque.json",
+        },
+        ts: 1781500040,
+        trace_id: "0123456789abcdef",
+      }),
+      SessionEvent.parse({
+        kind: "agent_reference",
+        session_id: sid,
+        reference: null,
+        ts: 1781500041,
+      }),
+    ];
+    for (const [index, event] of events.entries()) {
+      const back = protoToEvent(eventToProto(event, index + 10));
+      expect(back?._event_id).toBe(index + 10);
+      expect(stripEventId(back as Record<string, unknown> & { _event_id: number }))
+        .toEqual(event as unknown as Record<string, unknown>);
+    }
   });
 });

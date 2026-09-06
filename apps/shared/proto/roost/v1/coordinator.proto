@@ -107,9 +107,18 @@ message SessionsListRequest {
   // and returns an opaque snapshot token for terminal domain_ready.
   optional string sync_socket_id = 3;
 }
+// Private recovery row returned only to the authenticated owning worker.
+// A missing reference with a positive sequence records a durable clear.
+message SessionRecoveryMetadata {
+  string session_id = 1;
+  AgentConversationReferenceV1 agent_reference = 2;
+  uint64 agent_reference_client_seq = 3;
+}
+
 message SessionsListResponse {
   repeated Session sessions = 1;
   optional string sync_snapshot_token = 2;
+  repeated SessionRecoveryMetadata recovery_metadata = 3;
 }
 
 message SessionsSpawnRequest {

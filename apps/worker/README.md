@@ -4,8 +4,10 @@ The Bun process on every released fleet machine (macOS or Linux; the retained
 Windows implementation is paused). It owns every session's shell PTY, holds the
 one authoritative terminal grid, and relays PTY bytes both ways over a single
 **outbound** WebSocket. Agent CLIs are ordinary programs launched inside those
-PTYs; the worker never interprets agent output and exposes no conversation,
-transcript, tool-call, or approval model. Worker-observed status and a guarded
+PTYs; the worker never interprets agent output and owns no agent process,
+conversation, transcript, tool call, or approval model. It may persist an
+official opaque conversation reference as private recovery metadata, but does
+not display it or issue a resume command. Worker-observed status and a guarded
 prompt are metadata plus one fenced write to that same PTY, never a separate
 agent-control channel. The worker owns **no listener** — no inbound HTTP or WS surface exists.
 
@@ -24,11 +26,15 @@ Path references are relative to `apps/worker/` unless they start at the repo roo
 3. Open `SessionEventStore`, pass it through `src/coord-link-deps.ts` into
    `startCoordLink()`, bind `coordLinkSink()`, then construct `SessionManager`,
    agent status, local health/report servers, and heartbeat.
-4. `completeWorkerBootAdmission()` runs `reconcileOpenSessions("boot")`;
-   reconciliation invokes `handleKeeperSurvivor()` only after coordinator
-   admission has reserved every lifecycle outcome. Success activates the
-   `src/snapshot.ts` provider and marks health ready. SIGTERM/SIGINT close the
-   long-lived owners and event store but deliberately do **not** kill the keeper.
+4. Reconciliation serializes reference reports while the CoordLink exactly
+   replays and ACKs all durable session events, then reads the coordinator's
+   worker-only recovery rows. This replay barrier does not wait for snapshot
+   activation and does not gate ordinary respawn work.
+5. `completeWorkerBootAdmission()` invokes `handleKeeperSurvivor()` only after
+   coordinator admission has reserved every durable session outcome. Success
+   activates the `src/snapshot.ts` provider and marks health ready.
+   SIGTERM/SIGINT close the long-lived owners and event store but deliberately
+   do **not** kill the keeper.
 
 `src/coord-link-deps.ts` owns `buildCoordLinkDeps(ctx)`: the whole `startCoordLink()` dependency object, i.e. every
 coord→worker callback the worker answers. It uses a **forward ref** (`CoordLinkRefs`), not closures — the
@@ -53,10 +59,14 @@ The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL
   occupant per session, so backpressure cannot invert a replacement.
 - `src/transport/coord-link-unacked.ts` — one-at-a-time
   hello → durable replay → snapshot → live protocol driver. It coalesces
-  metadata in memory and hands exact lifecycle ACKs to the durable store.
-- `src/transport/session-event-store.ts` — bounded SQLite `SessionEventStore`:
-  crash-safe `opened`/`closed`/`respawned` rows, pre-mutation capacity
-  reservations, exact-ACK deletion, and block-reserved `client_seq`. It imports
+  metadata in memory, hands exact durable-event ACKs to the store, and exposes
+  a replay-drained barrier before snapshot-provider activation.
+- `src/transport/session-event-store.ts` and its focused database/schema/
+  sequence modules — bounded SQLite `SessionEventStore`: crash-safe
+  `opened`/`closed`/`respawned`/`agent_reference` rows, pre-mutation capacity
+  reservations, exact-ACK deletion, and block-reserved `client_seq`. Startup
+  transactionally migrates schema-v1 `lifecycle_events` into schema-v2
+  `session_events` without changing pending rows or sequence state. It imports
   the legacy text watermark once; standalone client-sequence ownership remains
   retired.
 - `src/transport/coord-link-reconnect.ts` — backoff ladder (500 ms → 30 s, escalating to 5 min only on a real
@@ -109,8 +119,9 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 
 - **Boot** — `src/main.ts`, `src/coord-link-deps.ts`, `src/boot-keeper.ts`,
   `src/boot-reconcile.ts`, `src/install.ts`, `src/config.ts`, `src/jwt.ts`.
-  **`src/transport/`** — the outbound link, durable lifecycle store, and replay
-  barrier (above). **`src/keeper/`** — the PTY host (above).
+  **`src/transport/`** — the outbound link, durable session-event store,
+  schema migration, and replay barrier (above). **`src/keeper/`** — the PTY
+  host (above).
 - **Session family**, one owner split across `this`-bound modules:
   `src/session-manager.ts` (facade/delegating wrappers),
   `src/session-manager-state.ts` (channel-keyed maps + event sink),
@@ -136,9 +147,11 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/browser-command-diag.ts`, answering upstream as `rpc-ok` / `rpc-error`.
   Cross-worker transfer has no worker command or result frame in v0.5.0; the
   beta web item is informational. Attachment upload/download remains supported.
-- **Agent observation and guarded input** — `src/agent-status/` owns volatile
-  per-session state (below); `src/agent-prompt-control.ts` owns the prompt-only
-  status/process fence and single keeper write. **`src/util/`** —
+- **Agent observation, private reference capture, and guarded input** —
+  `src/agent-status/` owns volatile per-session state, the PID-attested local
+  report protocol, typed integration assets, and reference admission gate;
+  `src/agent-prompt-control.ts` owns the prompt-only status/process fence and
+  single keeper write. **`src/util/`** —
   `src/util/mono.ts` is the monotonic clock behind every terminal-control
   deadline; `src/util/path.ts` owns worker-native path handling.
 - **Host + coord plumbing** — `src/heartbeat.ts` with
@@ -159,13 +172,14 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 
 ## Invariants
 
-- **Lifecycle publication is durable before local mutation.**
-  `src/event-sink.ts` persists only `opened`/`closed`/`respawned` through
-  `src/transport/session-event-store.ts`; `cwd`/`git`/`pr`/`ports` coalesce in
-  memory, and snapshots belong to the CoordLink barrier. Producers reserve
-  outbox capacity before changing PTY/session state. A disconnect drops
-  volatile metadata, but SQLite lifecycle rows replay after process restart
-  until the exact coordinator ACK deletes them.
+- **Durable session events precede local acknowledgement or mutation.**
+  `src/event-sink.ts` persists `opened`/`closed`/`respawned` and private
+  `agent_reference` events through `src/transport/session-event-store.ts`;
+  `cwd`/`git`/`pr`/`ports` coalesce in memory, and snapshots belong to the
+  CoordLink barrier. Lifecycle producers reserve outbox capacity before
+  changing PTY/session state; reference reports return success only after the
+  local SQLite append. A disconnect drops volatile metadata, but durable rows
+  replay after process restart until the exact coordinator ACK deletes them.
 
 - **`SessionManager`'s live maps are keyed by `channelId`, not `SessionId`** —
   `sessions`, `terminalStreams`, cell emission state and raw metadata queues all
@@ -238,18 +252,24 @@ PTY. Status code lives under `src/agent-status/`; prompt admission lives in
   screen stabilization into the registry.
 - `src/agent-status/report-server.ts` — authoritative reports on
   `$ROOST_AGENT_SOCKET_PATH` (default `~/.roost/agent-report.sock`, dir `0700`,
-  socket `0600`): exactly one `agent.report` JSON line per connection, ≤4 KiB.
-  The payload supplies only session-authorized state. The server
-  kernel-attests the accepted socket's peer PID, then a fresh process-tree scan
-  must prove that exact process is the current agent under the claimed session
-  before the server allocates report ordering. `active:false` withdraws only
-  that proven process incarnation.
-  `src/agent-status/environment.ts` injects `ROOST_AGENT_SOCKET_PATH` and
+  socket `0600`): exactly one bounded JSON request per connection. Volatile
+  `agent.report` supplies only session-authorized state. The separate
+  `agent.reference` method accepts OMP `id|path` set/replace/clear values and
+  returns success only after the durable local append. Both methods use the
+  per-session capability, kernel-attest the accepted socket's peer PID, and
+  require a fresh process-tree scan proving that exact process is the current
+  agent under the claimed session. Reference values are never logged, placed
+  in public session/snapshot state, or retried after an ambiguous response.
+  `src/agent-status/environment.ts` injects the endpoint, capability, and
   `ROOST_SESSION_ID` into every spawned shell.
-- `src/agent-status/install-integrations.ts` — the two owned `roost-agent-state.ts` extensions (mode `0600`, temp-file + rename,
-  idempotent) under `${PI_CONFIG_DIR:-~/.omp}/agent/extensions` and `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions`;
-  one lacking a `ROOST_INTEGRATION_ID=<id>` marker is a user file and is never overwritten, and
-  `ROOST_AGENT_STATUS_DISABLED=1` makes an installed one inert.
+- `src/agent-status/integration-assets.ts` is the canonical typed asset list;
+  `src/agent-status/install-integrations.ts` materializes the OMP status,
+  OMP reference, and Pi status assets (mode `0600`, temp-file + rename,
+  idempotent). It canonicalizes and preflights every destination before any
+  write or owned retirement. OMP/Pi directory collisions, symlink aliases,
+  symlink targets, and unowned target files fail the whole installation with
+  zero mutation. `ROOST_AGENT_STATUS_DISABLED=1` makes status reporting inert
+  without disabling the separate OMP reference asset.
 - `src/agent-status/registry.ts` — an integration report wins while its 30 s
   lease is fresh, else the screen fallback
   (`src/agent-status/manifests.ts` + `src/agent-status/manifest-engine.ts` +

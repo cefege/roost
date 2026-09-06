@@ -14,14 +14,11 @@ import {
   SessionsInputResponseSchema, SessionsCursorPosResponseSchema,
   SessionsAssignWorkspaceResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
-import { sessionToProto } from "@roost/shared/wire/session-proto";
 import { asSessionId, asWorkspaceId, SessionStatus } from "@roost/shared/wire";
 import type { SessionStatus as SessionStatusValue } from "@roost/shared/wire";
-import { safeJsonParse } from "@roost/shared/json";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
-import type { KyselyDB } from "../db/connection.ts";
-import { appendEvent, SESSION_COLUMNS } from "../event-log.ts";
+import { appendEvent } from "../event-log.ts";
 import { workspaceBus } from "../buses.ts";
 import { publishPresence } from "../presence-hub.ts";
 import {
@@ -48,6 +45,7 @@ import {
   processInputControl,
   terminalViewerIdentity,
 } from "./session-control.ts";
+import { readSessionsListProjection } from "./session-list-projection.ts";
 
 // Proto arrives as a bare string; the projection and the SPA both speak the
 // shared SessionStatus union. Narrow once at the boundary.
@@ -59,29 +57,6 @@ function sessionStatusOf(raw: string): SessionStatusValue {
   return parsed.data;
 }
 
-// DB row → proto Session through the shared terminal-session adapter.
-function sessionRowToProto(row: any) {
-  return sessionToProto({
-    id: row.id,
-    worker_fp: row.worker_fp,
-    channel: row.channel,
-    kind: row.kind,
-    cwd: row.cwd,
-    workspace_id: row.workspace_id ?? null,
-    status: row.status,
-    created_at: row.created_at,
-    closed_at: row.closed_at ?? null,
-    custom_title: row.custom_title ?? null,
-    git_branch: row.git_branch ?? null,
-    git_remote: row.git_remote ?? null,
-    pr_number: row.pr_number ?? null,
-    pr_state: (row.pr_state ?? null) as never,
-    pr_checks: (row.pr_checks ?? null) as never,
-    pr_url: row.pr_url ?? null,
-    ports: row.ports_json ? safeJsonParse<number[]>(row.ports_json, [], "session.ports") : [],
-    spawn_cwd: row.spawn_cwd ?? null,
-  });
-}
 
 type SessionMethods =
   | "sessionsList" | "sessionsSpawn" | "sessionsAttach" | "sessionsKill"
@@ -101,6 +76,7 @@ export function makeSessionHandlers(
       const principal = ctx.values.get(callerKey);
       let dashboardId: string;
       let snapshotCallerFingerprint: string | null = null;
+      let recoveryWorkerFp: string | null = null;
       if (principal?.kind === "worker") {
         const worker = requireWorker(ctx.values);
         if (
@@ -114,30 +90,40 @@ export function makeSessionHandlers(
           );
         }
         dashboardId = worker.dashboardId;
+        recoveryWorkerFp = worker.fingerprint;
       } else {
         const actor = requireDashboardActor(ctx.values);
         const caller = requireAccountDevice(ctx.values);
         dashboardId = actor.dashboardId;
         snapshotCallerFingerprint = caller.fingerprint;
       }
-      let q = deps.db.selectFrom("sessions")
-        .select([...SESSION_COLUMNS])
-        .where("dashboard_id", "=", dashboardId);
       const status = req.status || "open";
-      if (req.workerFp) q = q.where("worker_fp", "=", req.workerFp);
-      if (status !== "all") q = q.where("status", "=", sessionStatusOf(status));
-      const rows = await q.execute();
+      const parsedStatus = status === "all" ? null : sessionStatusOf(status);
+      const projection = recoveryWorkerFp === null
+        ? await readSessionsListProjection(deps.db, {
+            dashboardId,
+            ...(req.workerFp ? { workerFp: req.workerFp } : {}),
+            status: parsedStatus,
+            includeRecovery: false,
+          })
+        : await readSessionsListProjection(deps.db, {
+            dashboardId,
+            workerFp: recoveryWorkerFp,
+            status: parsedStatus,
+            includeRecovery: true,
+          });
       const syncSnapshotToken = req.syncSocketId && snapshotCallerFingerprint
         ? bindSyncSessionSnapshot(
           req.syncSocketId,
           snapshotCallerFingerprint,
           dashboardId,
-          rows.map((row) => row.id),
+          projection.sessionIds,
         )
         : null;
       return create(SessionsListResponseSchema, {
-        sessions: rows.map(sessionRowToProto),
+        sessions: [...projection.sessions],
         syncSnapshotToken: syncSnapshotToken ?? undefined,
+        recoveryMetadata: [...projection.recoveryMetadata],
       });
     },
 

@@ -33,6 +33,8 @@ import style is now correct instead of two.
 | `@roost/shared/terminal-input` | terminal newline/paste encoding plus guarded-prompt byte and wait bounds |
 | `@roost/shared/layout-document` | portable v1 pane-tree types, one resource-bounded strict parser, and inclusive split-ratio bounds |
 | `@roost/shared/layout-document-proto` | preflighted, validated `LayoutDocumentV1` ↔ protobuf recursion adapter |
+| `@roost/shared/agent-conversation-reference` | bounded private OMP reference + sequence-aware recovery fold |
+| `@roost/shared/agent-conversation-reference-proto` | strict reference/recovery metadata ↔ protobuf adapters |
 | `@roost/shared/ui-state` | allocation-free UTF-8 measurement plus UI report text, cardinality, and identity-rate limits |
 | `@roost/shared/cell` | cell-grid model, emitter, delta apply, bounded snapshot chunking/assembly (R11) |
 | `@roost/shared/cell/cell-proto` | cell frame ↔ proto |
@@ -101,6 +103,10 @@ producers and consumers.
   bounds; `src/layout-document-preflight.ts` rejects excessive identifiers,
   depth, nodes, slots, and bindings before recursion; and
   `src/layout-document-proto.ts` maps the bounded graph to/from protobuf.
+- **Agent conversation recovery** — `src/agent-conversation-reference.ts` owns
+  the private versioned OMP reference, UTF-8/envelope limits, and
+  `client_seq`-ordered recovery fold; `src/agent-conversation-reference-proto.ts`
+  maps the reference and worker-only recovery row to/from protobuf.
 - **UI state resource contract** — `src/ui-state.ts` owns allocation-free UTF-8
   measurement and the tab/report/cardinality limits used by Sync admission,
   coordinator report/live-target owners, and the CLI human-output formatter.
@@ -131,6 +137,14 @@ producers and consumers.
 
 ## Invariants
 
+- **Conversation references are opaque private recovery state.**
+  `AgentConversationReferenceV1` admits only schema version 1, agent `omp`,
+  kind `id|path`, and a nonempty, well-formed, NUL-free value of at most 4,096
+  UTF-8 bytes;
+  its complete durable event is at most 8 KiB. Worker `client_seq`, not
+  volatile agent status, orders set/replace/clear. The public Session fold is
+  an explicit no-op, and the value never belongs in public Session, browser
+  Sync, CLI session output, logs, or audit data.
 - **Layout documents are strict, total, bounded graphs.** `schema_version` is
   exactly 1; every recursive object rejects unknown fields; split ratios are
   finite and within inclusive `0.1..0.9`; leaf and slot keys are nonempty and

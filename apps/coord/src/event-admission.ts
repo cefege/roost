@@ -153,13 +153,28 @@ export async function resolveEventAdmission(
     return { admitted: true, dashboardId, sessionId, sessionExists: false };
   }
   const existingSession = await db.selectFrom("sessions")
-    .select("id")
+    .select(["id", "worker_fp"])
     .where("id", "=", sessionId)
     .where("dashboard_id", "=", dashboardId)
-    .where("worker_fp", "=", options.worker_fp)
     .executeTakeFirst();
   if (existingSession) {
-    return { admitted: true, dashboardId, sessionId, sessionExists: true };
+    return existingSession.worker_fp === options.worker_fp
+      ? { admitted: true, dashboardId, sessionId, sessionExists: true }
+      : rejected(dashboardId, sessionId);
+  }
+  if (event.kind === "agent_reference") {
+    const priorOwnedSession = await db.selectFrom("events")
+      .select("id")
+      .where("dashboard_id", "=", dashboardId)
+      .where("session_id", "=", sessionId)
+      .where("worker_fp", "=", options.worker_fp)
+      .where("kind", "=", "opened")
+      .executeTakeFirst();
+    if (priorOwnedSession) {
+      // A reference queued before an offline force-close must still be consumed
+      // or it permanently blocks the worker's ordered durable replay.
+      return { admitted: true, dashboardId, sessionId, sessionExists: false };
+    }
   }
   if (event.kind !== "opened") return rejected(dashboardId, sessionId);
   if (

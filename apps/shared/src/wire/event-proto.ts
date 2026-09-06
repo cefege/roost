@@ -1,5 +1,6 @@
-// Adapters between the in-app Zod SessionEvent and the typed
-// proto SessionEventProto oneof.
+// Maps the in-app SessionEvent union to and from its protobuf oneof.
+// Worker transport and browser Sync both depend on this exhaustive adapter.
+// Decoded events are rebuilt through the canonical bounded Zod schema.
 
 import { create } from "@bufbuild/protobuf";
 import {
@@ -9,11 +10,15 @@ import {
   CwdEvtSchema, WorkspaceAssignedEvtSchema,
   SnapshotEvtSchema, RespawnedEvtSchema,
   RenamedEvtSchema, GitEvtSchema, PrEvtSchema, PortsEvtSchema,
-  type SessionEventProto,
+  AgentReferenceEvtSchema, type SessionEventProto,
 } from "../gen/roost/v1/events_pb.ts";
 import { asSessionId, asWorkerFp, asWorkspaceId, asChannelId } from "./brand.ts";
 import { sessionToProto, sessionFromProto } from "./session-proto.ts";
-import type { SessionEvent } from "./event.ts";
+import {
+  agentConversationReferenceFromProto,
+  agentConversationReferenceToProto,
+} from "../agent-conversation-reference-proto.ts";
+import { SessionEvent } from "./event.ts";
 
 
 /** Encode a SessionEvent as its proto oneof. Exhaustive over every kind —
@@ -130,119 +135,145 @@ export function eventToProto(event: SessionEvent, eventId: number): SessionEvent
           ts: BigInt(event.ts),
         })},
       });
+    case "agent_reference": {
+      const checked = SessionEvent.parse(event);
+      if (checked.kind !== "agent_reference") {
+        throw new Error("invalid agent conversation reference event");
+      }
+      return create(SessionEventProtoSchema, {
+        eventId: eid,
+        kind: { case: "agentReference", value: create(AgentReferenceEvtSchema, {
+          sessionId: checked.session_id,
+          reference: checked.reference
+            ? agentConversationReferenceToProto(checked.reference)
+            : undefined,
+          ts: BigInt(checked.ts),
+          traceId: checked.trace_id ?? undefined,
+        })},
+      });
+    }
   }
 }
 
-export function protoToEvent(p: SessionEventProto): (SessionEvent & { _event_id: number }) | null {
-  const eid = Number(p.eventId);
-  const k = p.kind?.case;
-  if (!k) return null;
-  const v = p.kind.value as any;
-  switch (k) {
+export function protoToEvent(
+  eventProto: SessionEventProto,
+): (SessionEvent & { _event_id: number }) | null {
+  const eventId = Number(eventProto.eventId);
+  const kind = eventProto.kind;
+  switch (kind.case) {
     case "opened":
-      return {
+      return decodedEvent(eventId, {
         kind: "opened",
-        session_id: asSessionId(v.sessionId),
-        worker_fp: asWorkerFp(v.workerFp),
-        channel: asChannelId(v.channel),
-        session_kind: v.sessionKind,
-        cwd: v.cwd,
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
+        session_id: asSessionId(kind.value.sessionId),
+        worker_fp: asWorkerFp(kind.value.workerFp),
+        channel: asChannelId(kind.value.channel),
+        session_kind: kind.value.sessionKind,
+        cwd: kind.value.cwd,
+        ts: Number(kind.value.ts),
+      });
     case "closed":
-      return {
+      return decodedEvent(eventId, {
         kind: "closed",
-        session_id: asSessionId(v.sessionId),
-        exit_code: v.exitCode ?? null,
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
+        session_id: asSessionId(kind.value.sessionId),
+        exit_code: kind.value.exitCode ?? null,
+        ts: Number(kind.value.ts),
+      });
     case "attached":
-      return {
+      return decodedEvent(eventId, {
         kind: "attached",
-        session_id: asSessionId(v.sessionId),
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
+        session_id: asSessionId(kind.value.sessionId),
+        ts: Number(kind.value.ts),
+      });
     case "detached":
-      return {
+      return decodedEvent(eventId, {
         kind: "detached",
-        session_id: asSessionId(v.sessionId),
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
+        session_id: asSessionId(kind.value.sessionId),
+        ts: Number(kind.value.ts),
+      });
     case "cwd":
-      return {
+      return decodedEvent(eventId, {
         kind: "cwd",
-        session_id: asSessionId(v.sessionId),
-        cwd: v.cwd,
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
+        session_id: asSessionId(kind.value.sessionId),
+        cwd: kind.value.cwd,
+        ts: Number(kind.value.ts),
+      });
     case "workspaceAssigned":
-      return {
+      return decodedEvent(eventId, {
         kind: "workspace_assigned",
-        session_id: asSessionId(v.sessionId),
-        workspace_id: v.workspaceId ? asWorkspaceId(v.workspaceId) : null,
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
-    case "snapshot": {
-      return {
+        session_id: asSessionId(kind.value.sessionId),
+        workspace_id: kind.value.workspaceId
+          ? asWorkspaceId(kind.value.workspaceId)
+          : null,
+        ts: Number(kind.value.ts),
+      });
+    case "snapshot":
+      return decodedEvent(eventId, {
         kind: "snapshot",
-        worker_fp: asWorkerFp(v.workerFp),
-        sessions: v.sessions.map(sessionFromProto),
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
-    }
+        worker_fp: asWorkerFp(kind.value.workerFp),
+        sessions: kind.value.sessions.map(sessionFromProto),
+        ts: Number(kind.value.ts),
+      });
     case "respawned":
-      return {
+      return decodedEvent(eventId, {
         kind: "respawned",
-        session_id: asSessionId(v.sessionId),
-        new_channel: asChannelId(v.newChannel),
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
+        session_id: asSessionId(kind.value.sessionId),
+        new_channel: asChannelId(kind.value.newChannel),
+        ts: Number(kind.value.ts),
+      });
     case "renamed":
-      return {
+      return decodedEvent(eventId, {
         kind: "renamed",
-        session_id: asSessionId(v.sessionId),
-        custom_title: v.customTitle ?? "",
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
+        session_id: asSessionId(kind.value.sessionId),
+        custom_title: kind.value.customTitle ?? "",
+        ts: Number(kind.value.ts),
+      });
     case "git":
-      return {
+      return decodedEvent(eventId, {
         kind: "git",
-        session_id: asSessionId(v.sessionId),
-        branch: v.branch ?? null,
-        // Only carry remote when the wire had it (absent → preserve prior).
-        ...(v.remote ? { remote: v.remote } : {}),
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
+        session_id: asSessionId(kind.value.sessionId),
+        branch: kind.value.branch ?? null,
+        ...(kind.value.remote !== undefined
+          ? { remote: kind.value.remote }
+          : {}),
+        ts: Number(kind.value.ts),
+      });
     case "pr":
-      return {
+      return decodedEvent(eventId, {
         kind: "pr",
-        session_id: asSessionId(v.sessionId),
-        number: v.number ?? null,
-        state: v.state ?? null,
-        checks: v.checks ?? null,
-        url: v.url ?? null,
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
+        session_id: asSessionId(kind.value.sessionId),
+        number: kind.value.number ?? null,
+        state: kind.value.state ?? null,
+        checks: kind.value.checks ?? null,
+        url: kind.value.url ?? null,
+        ts: Number(kind.value.ts),
+      });
     case "ports":
-      return {
+      return decodedEvent(eventId, {
         kind: "ports",
-        session_id: asSessionId(v.sessionId),
-        ports: v.ports ?? [],
-        ts: Number(v.ts),
-        _event_id: eid,
-      } as never;
-    default:
+        session_id: asSessionId(kind.value.sessionId),
+        ports: kind.value.ports,
+        ts: Number(kind.value.ts),
+      });
+    case "agentReference":
+      return decodedEvent(eventId, {
+        kind: "agent_reference",
+        session_id: asSessionId(kind.value.sessionId),
+        reference: kind.value.reference
+          ? agentConversationReferenceFromProto(kind.value.reference)
+          : null,
+        ...(kind.value.traceId !== undefined
+          ? { trace_id: kind.value.traceId }
+          : {}),
+        ts: Number(kind.value.ts),
+      });
+    case undefined:
       return null;
   }
+}
+
+function decodedEvent(
+  eventId: number,
+  value: unknown,
+): SessionEvent & { _event_id: number } {
+  return { ...SessionEvent.parse(value), _event_id: eventId };
 }

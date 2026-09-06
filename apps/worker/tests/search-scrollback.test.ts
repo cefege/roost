@@ -26,7 +26,7 @@ import {
 } from "../src/terminal-search.ts";
 import type { CoordLink } from "../src/transport/coord-link-types.ts";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const SESSION_ID = asSessionId("00000000-0000-0000-0000-000000000001");
 const CHANNEL_ID = asChannelId(1);
@@ -48,7 +48,7 @@ type SearchReply = RpcOk | RpcError;
 function freshManager(): SessionManager {
 	return new SessionManager({
 		workerFp: asWorkerFp("00".repeat(32)),
-		sink: new LifecycleTestSink(),
+		sink: new SessionEventTestSink(),
 	});
 }
 async function injectSession(
@@ -82,7 +82,7 @@ async function injectSession(
 		lastPtyOutMs: 0,
 		sb_origin_pin: null,
 		spawnedAtMs: Date.now(),
-		closeReservation: manager.reserveLifecycleEvent("closed"),
+		closeReservation: manager.reserveSessionEvent("closed"),
 	};
 	manager.sessions.set(CHANNEL_ID, record);
 	return record;

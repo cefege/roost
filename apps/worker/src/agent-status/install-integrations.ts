@@ -1,29 +1,50 @@
-// Installs the omp/pi extension sources into user agent-config dirs: refuses
-// to touch files it does not own (ROOST_INTEGRATION_ID marker), writes through
-// durableWriteFile, and locks targets to a private DACL on Windows so other
-// local accounts cannot alter what the agents will load as code.
-import { mkdir, readFile } from "node:fs/promises";
+// Plans installation of the complete typed agent-integration asset set.
+// It rejects path aliases and unowned targets before handing an immutable
+// preflight plan to the staged, rollback-capable filesystem transaction.
+
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import {
-  applyPrivateDacl,
-  durableRemove,
-  durableWriteFile,
-} from "@roost/shared/durability";
-import { supportedHostPlatform } from "@roost/shared/platform";
+  supportedHostPlatform,
+  type SupportedHostPlatform,
+} from "@roost/shared/platform";
+import { AGENT_INTEGRATION_ASSETS } from "./integration-assets.generated.ts";
 import {
-  OMP_AGENT_INTEGRATION,
-  PI_AGENT_INTEGRATION,
-} from "./integration-assets.generated.ts";
+  AGENT_INTEGRATION_ASSET_SPECS,
+  RETIRED_AGENT_INTEGRATION_SPECS,
+  type AgentIntegrationAssetId,
+  type AgentIntegrationAssetSpec,
+  type AgentIntegrationRuntime,
+  type EmbeddedAgentIntegrationAsset,
+} from "./integration-assets.ts";
+import {
+  hasIntegrationOwnership,
+  inspectIntegrationTarget,
+  integrationPathComparisonKey,
+  preflightIntegrationDirectory,
+  type IntegrationDirectoryPlan,
+} from "./integration-install-proof.ts";
+import {
+  commitIntegrationInstall,
+  type IntegrationAssetInstallPlan,
+  type IntegrationInstallTestHooks,
+  type IntegrationRetirementPlan,
+} from "./integration-install-transaction.ts";
 import { composeStandaloneIntegration } from "./standalone-integration.ts";
 
-const OMP_INSTALL_NAME = "roost-omp-agent-state.ts";
-const PI_INSTALL_NAME = "roost-pi-agent-state.ts";
+export interface MaterializedAgentIntegrationAsset {
+  spec: AgentIntegrationAssetSpec;
+  content: string;
+}
 
-function expandHome(value: string, home: string): string {
-  if (value === "~") return home;
-  if (value.startsWith("~/") || value.startsWith("~\\")) return join(home, value.slice(2));
-  return value;
+export interface InstalledAgentIntegration {
+  id: AgentIntegrationAssetId;
+  path: string;
+}
+
+export interface AgentIntegrationInstallerTestOptions
+  extends IntegrationInstallTestHooks {
+  platform?: SupportedHostPlatform;
 }
 
 export function resolvePiExtensionDir(
@@ -31,7 +52,9 @@ export function resolvePiExtensionDir(
   home = homedir(),
 ): string {
   const configured = env.PI_CODING_AGENT_DIR?.trim();
-  const agentDir = configured ? expandHome(configured, home) : join(home, ".pi", "agent");
+  const agentDir = configured
+    ? expandHome(configured, home)
+    : join(home, ".pi", "agent");
   return join(agentDir, "extensions");
 }
 
@@ -40,89 +63,192 @@ export function resolveOmpExtensionDir(
   home = homedir(),
 ): string {
   const sharedAgentDir = env.PI_CODING_AGENT_DIR?.trim();
-  if (sharedAgentDir) return join(expandHome(sharedAgentDir, home), "extensions");
+  if (sharedAgentDir) {
+    return join(expandHome(sharedAgentDir, home), "extensions");
+  }
   const configured = expandHome(env.PI_CONFIG_DIR?.trim() || ".omp", home);
-  const configDir = isAbsolute(configured) ? configured : join(home, configured);
+  const configDir = isAbsolute(configured)
+    ? configured
+    : join(home, configured);
   return join(configDir, "agent", "extensions");
 }
 
-async function installOwnedAsset(
-  directory: string,
-  filename: string,
-  integrationId: "omp" | "pi",
-  content: string,
-): Promise<string> {
-  const platform = supportedHostPlatform();
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const target = join(directory, filename);
-  let existing: string | null = null;
-  try { existing = await readFile(target, "utf8"); }
-  catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") throw error;
+export async function _loadAgentIntegrationAssets(): Promise<
+  readonly MaterializedAgentIntegrationAsset[]
+> {
+  if (AGENT_INTEGRATION_ASSETS.length > 0) {
+    return materializeEmbeddedAssets(AGENT_INTEGRATION_ASSETS);
   }
-  if (existing === content) {
-    if (platform === "win32") {
-      await applyPrivateDacl(target, { platform, mode: 0o600, privateDacl: true });
-    }
-    return target;
-  }
-  if (existing !== null && !existing.includes(`ROOST_INTEGRATION_ID=${integrationId}`)) {
-    throw new Error(`refusing to overwrite non-Roost extension: ${target}`);
-  }
-  await durableWriteFile(target, content, {
-    platform,
-    mode: 0o600,
-    privateDacl: true,
-  });
-  return target;
-}
-
-export interface InstalledAgentIntegrations {
-  omp: string;
-  pi: string;
-}
-
-async function integrationAssets(): Promise<{ omp: string; pi: string }> {
-  if (OMP_AGENT_INTEGRATION && PI_AGENT_INTEGRATION) {
-    return { omp: OMP_AGENT_INTEGRATION, pi: PI_AGENT_INTEGRATION };
-  }
-  // From-source: read the in-repo sources and splice the shared transport
-  // into each, producing the same standalone text the embed path bakes.
-  const [transport, omp, pi] = await Promise.all([
-    Bun.file(new URL("./report-transport.ts", import.meta.url)).text(),
-    Bun.file(new URL("./integrations/omp/roost-agent-state.ts", import.meta.url)).text(),
-    Bun.file(new URL("./integrations/pi/roost-agent-state.ts", import.meta.url)).text(),
-  ]);
-  return {
-    omp: composeStandaloneIntegration(omp, transport),
-    pi: composeStandaloneIntegration(pi, transport),
-  };
-}
-
-async function retireOwnedOmpExtension(directory: string): Promise<void> {
-  const target = join(directory, "roost-omp-" + "session-api.ts");
-  let content: string;
-  try {
-    content = await readFile(target, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  if (!content.includes("ROOST_INTEGRATION_ID=omp")) return;
-  await durableRemove(target, { platform: supportedHostPlatform() });
+  const transport = await Bun.file(
+    new URL("./report-transport.ts", import.meta.url),
+  ).text();
+  return Promise.all(AGENT_INTEGRATION_ASSET_SPECS.map(async (spec) => {
+    const source = await Bun.file(
+      new URL(`./${spec.sourcePath}`, import.meta.url),
+    ).text();
+    const content = composeStandaloneIntegration(source, transport);
+    assertOwnedContent(spec, content);
+    return { spec, content };
+  }));
 }
 
 export async function installAgentIntegrations(
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
-): Promise<InstalledAgentIntegrations> {
-  const ompDirectory = resolveOmpExtensionDir(env, home);
-  await retireOwnedOmpExtension(ompDirectory);
-  const assets = await integrationAssets();
-  const [omp, pi] = await Promise.all([
-    installOwnedAsset(ompDirectory, OMP_INSTALL_NAME, "omp", assets.omp),
-    installOwnedAsset(resolvePiExtensionDir(env, home), PI_INSTALL_NAME, "pi", assets.pi),
-  ]);
-  return { omp, pi };
+): Promise<readonly InstalledAgentIntegration[]> {
+  return installAgentIntegrationsWithOptions(env, home, {});
+}
+
+export async function _installAgentIntegrationsForTest(
+  env: NodeJS.ProcessEnv,
+  home: string,
+  options: AgentIntegrationInstallerTestOptions,
+): Promise<readonly InstalledAgentIntegration[]> {
+  return installAgentIntegrationsWithOptions(env, home, options);
+}
+
+async function installAgentIntegrationsWithOptions(
+  env: NodeJS.ProcessEnv,
+  home: string,
+  options: AgentIntegrationInstallerTestOptions,
+): Promise<readonly InstalledAgentIntegration[]> {
+  const assets = await _loadAgentIntegrationAssets();
+  const platform = options.platform ?? supportedHostPlatform();
+  const directoryPaths: Record<AgentIntegrationRuntime, string> = {
+    omp: resolveOmpExtensionDir(env, home),
+    pi: resolvePiExtensionDir(env, home),
+  };
+  const directoryPlans: Record<
+    AgentIntegrationRuntime,
+    IntegrationDirectoryPlan
+  > = {
+    omp: await preflightIntegrationDirectory(directoryPaths.omp),
+    pi: await preflightIntegrationDirectory(directoryPaths.pi),
+  };
+  if (
+    integrationPathComparisonKey(directoryPlans.omp.canonicalPath, platform) ===
+      integrationPathComparisonKey(directoryPlans.pi.canonicalPath, platform)
+  ) {
+    throw new Error(
+      "refusing colliding OMP and Pi integration directories; configure distinct roots",
+    );
+  }
+
+  const plannedAssets: IntegrationAssetInstallPlan[] = await Promise.all(
+    assets.map(async ({ spec, content }) => {
+      const target = join(directoryPaths[spec.runtime], spec.installFilename);
+      const existing = await inspectIntegrationTarget(
+        target,
+        "agent integration target",
+      );
+      if (
+        existing && existing.content !== content &&
+        !hasIntegrationOwnership(existing.content, spec.ownershipMarker)
+      ) {
+        throw new Error(`refusing to overwrite non-Roost extension: ${target}`);
+      }
+      return {
+        id: spec.id,
+        runtime: spec.runtime,
+        target,
+        content,
+        ownershipMarker: spec.ownershipMarker,
+        existing,
+      };
+    }),
+  );
+  const plannedRetirements: IntegrationRetirementPlan[] = await Promise.all(
+    RETIRED_AGENT_INTEGRATION_SPECS.map(async (spec) => {
+      const target = join(directoryPaths[spec.runtime], spec.installFilename);
+      const existing = await inspectIntegrationTarget(
+        target,
+        "retired agent integration",
+      );
+      return {
+        runtime: spec.runtime,
+        target,
+        ownershipMarker: spec.ownershipMarker,
+        existing,
+        remove: !!existing && hasIntegrationOwnership(
+          existing.content,
+          spec.ownershipMarker,
+        ),
+      };
+    }),
+  );
+  assertUniqueTargets(
+    [...plannedAssets, ...plannedRetirements].map(({ runtime, target }) => ({
+      canonicalTarget: join(
+        directoryPlans[runtime].canonicalPath,
+        basename(target),
+      ),
+    })),
+    platform,
+  );
+
+  await commitIntegrationInstall(
+    directoryPlans,
+    plannedAssets,
+    plannedRetirements,
+    platform,
+    options,
+  );
+  return plannedAssets.map(({ id, target }) => ({ id, path: target }));
+}
+
+function expandHome(value: string, home: string): string {
+  if (value === "~") return home;
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return join(home, value.slice(2));
+  }
+  return value;
+}
+
+function materializeEmbeddedAssets(
+  embedded: readonly EmbeddedAgentIntegrationAsset[],
+): readonly MaterializedAgentIntegrationAsset[] {
+  if (embedded.length !== AGENT_INTEGRATION_ASSET_SPECS.length) {
+    throw new Error("generated agent integration asset set is incomplete");
+  }
+  const contentById = new Map<AgentIntegrationAssetId, string>();
+  for (const asset of embedded) {
+    if (contentById.has(asset.id) || asset.content.length === 0) {
+      throw new Error("generated agent integration asset set is invalid");
+    }
+    contentById.set(asset.id, asset.content);
+  }
+  return AGENT_INTEGRATION_ASSET_SPECS.map((spec) => {
+    const content = contentById.get(spec.id);
+    if (content === undefined) {
+      throw new Error("generated agent integration asset set is incomplete");
+    }
+    assertOwnedContent(spec, content);
+    return { spec, content };
+  });
+}
+
+function assertOwnedContent(
+  spec: AgentIntegrationAssetSpec,
+  content: string,
+): void {
+  if (!hasIntegrationOwnership(content, spec.ownershipMarker)) {
+    throw new Error(`agent integration asset ${spec.id} lost its ownership marker`);
+  }
+}
+
+function assertUniqueTargets(
+  targets: readonly { canonicalTarget: string }[],
+  platform: SupportedHostPlatform,
+): void {
+  const seen = new Set<string>();
+  for (const target of targets) {
+    const comparable = integrationPathComparisonKey(
+      target.canonicalTarget,
+      platform,
+    );
+    if (seen.has(comparable)) {
+      throw new Error("refusing colliding agent integration target paths");
+    }
+    seen.add(comparable);
+  }
 }

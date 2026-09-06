@@ -3,11 +3,11 @@
 // SessionManager uses a failed adoption as the signal to respawn the logical session.
 
 import {
-	isSessionLifecycleDurabilityError,
+	isSessionEventDurabilityError,
 	type SessionManager,
 } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
-import type { LifecycleReservation } from "./event-sink.ts";
+import type { SessionEventReservation } from "./event-sink.ts";
 import type { SessionId, ChannelId } from "@roost/shared/wire";
 import { diag, signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
@@ -48,10 +48,10 @@ export async function resume(
 		cwd: string;
 		shellSpec: ShellSpec;
 	},
-	closeReservation: LifecycleReservation,
+	closeReservation: SessionEventReservation,
 ): Promise<boolean> {
 	if (this.sessions.has(opts.channelId)) {
-		this.releaseLifecycleEvent(closeReservation);
+		this.releaseSessionEvent(closeReservation);
 		return false;
 	}
 	if (opts.channelId >= this._nextChannel) this._nextChannel = opts.channelId + 1;
@@ -68,7 +68,7 @@ export async function resume(
 		const live = await pool.listChannels();
 		const liveChannel = live.find((c) => c.channelId === opts.channelId);
 		if (!liveChannel) {
-			this.releaseLifecycleEvent(closeReservation);
+			this.releaseSessionEvent(closeReservation);
 			return false;
 		}
 		// Reattach must precede the history request so the keeper can establish
@@ -261,7 +261,7 @@ export async function resume(
 		// The survivor was found and its real exit was delivered. Report the
 		// reconciliation as handled so boot-reconcile does not respawn it.
 		if (!this.sessions.has(opts.channelId)) return true;
-		this.holdLifecycleEvent(closeReservation);
+		this.holdSessionEvent(closeReservation);
 		this._startGitBranch(record);
 		this._startPorts(record);
 		// OMP bridge state reconnects independently of terminal byte replay.
@@ -278,7 +278,7 @@ export async function resume(
 		});
 		return true;
 	} catch (e) {
-		if (isSessionLifecycleDurabilityError(e)) throw e;
+		if (isSessionEventDurabilityError(e)) throw e;
 		// Adoption failed after the possible reattach. Kill before releasing any
 		// lifecycle capacity so no orphan can race beyond its durable close.
 		pool.kill(opts.channelId);

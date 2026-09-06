@@ -29,6 +29,7 @@ import type {
   SessionEvent, WorkspaceDelta, McpStreamMessage, WorkerPresenceEvent,
   HostMetrics, AgentStatusUpdate,
 } from "@roost/shared/wire";
+import { isPublicSessionEvent } from "../session-event-visibility.ts";
 
 export type SyncFeedLane = "cell" | "session" | "retained" | "nonterminal" | "control";
 
@@ -156,8 +157,17 @@ export function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
 }
 
 // Backfill + live sessionBus both encode SessionEvent through here.
-export const sessionFirehoseFrame = (e: SessionEvent, eventId: number): FirehoseFrame =>
-  create(FirehoseFrameSchema, { frame: { case: "sessionEvent", value: eventToProto(e, eventId) } });
+export function sessionFirehoseFrame(
+  event: SessionEvent,
+  eventId: number,
+): FirehoseFrame {
+  if (!isPublicSessionEvent(event)) {
+    throw new Error("private session event cannot enter a browser frame");
+  }
+  return create(FirehoseFrameSchema, {
+    frame: { case: "sessionEvent", value: eventToProto(event, eventId) },
+  });
+}
 
 // T1.2 part 2 — typed delta adapters. Each returns a proto-shaped
 // FirehoseFrame when the bus payload matches a known shape, else

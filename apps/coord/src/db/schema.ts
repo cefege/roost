@@ -68,6 +68,18 @@ export interface SessionsTable {
   pr_url: string | null;       // PR html_url for click-through
   ports_json: string | null;   // JSON int[] of LISTEN ports (worker lsof); null = none
   spawn_cwd: string | null;    // immutable spawn folder (set on `opened`); backs /t/ URL; null = pre-migration
+  // Private worker-recovery projection. Null JSON with a non-null sequence is
+  // a durable clear; neither column belongs in public Session reads.
+  agent_reference_json: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  agent_reference_client_seq: ColumnType<
+    number | null,
+    number | null | undefined,
+    number | null
+  >;
 }
 
 export interface WorkspacesTable {

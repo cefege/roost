@@ -4,7 +4,7 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
-import type { LifecycleReservation } from "./event-sink.ts";
+import type { SessionEventReservation } from "./event-sink.ts";
 import type { ChannelId, SessionId } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
@@ -30,8 +30,8 @@ export async function spawnShell(
 	cols: number | undefined,
 	rows: number | undefined,
 	targetSessionId: SessionId | undefined,
-	openedReservation: LifecycleReservation,
-	closeReservation: LifecycleReservation,
+	openedReservation: SessionEventReservation,
+	closeReservation: SessionEventReservation,
 ): Promise<SessionRecord> {
 	let openedOwned = true;
 	let closeOwned = true;
@@ -121,7 +121,7 @@ export async function spawnShell(
 			ts: Date.now(),
 		}, openedReservation);
 		openedOwned = false;
-		this.holdLifecycleEvent(closeReservation);
+		this.holdSessionEvent(closeReservation);
 		closeOwned = false;
 	} catch (error) {
 		if (channelId !== null && spawnAttempted) {
@@ -130,8 +130,8 @@ export async function spawnShell(
 		if (channelId !== null && record && this.sessions.get(channelId) === record) {
 			this._dropChannelState(channelId);
 		}
-		if (openedOwned) this.releaseLifecycleEvent(openedReservation);
-		if (closeOwned) this.releaseLifecycleEvent(closeReservation);
+		if (openedOwned) this.releaseSessionEvent(openedReservation);
+		if (closeOwned) this.releaseSessionEvent(closeReservation);
 		throw error;
 	}
 	const admittedRecord = record as SessionRecord;

@@ -1,3 +1,7 @@
+// Exercises dashboard isolation across session and MCP coordinator handlers.
+// Worker-list recovery metadata is covered beside the existing actor scope cases.
+// All fixtures use one migrated database so cross-dashboard leaks are observable.
+
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { createContextValues, Code, ConnectError, type HandlerContext } from "@connectrpc/connect";
@@ -39,10 +43,17 @@ let workerSendCount = 0;
 
 const dashboardA = "dashboard-a";
 const dashboardB = "dashboard-b";
-const workerA = "worker-a";
-const workerB = "worker-b";
+const workerA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const workerB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const sessionA = "00000000-0000-4000-8000-000000000001";
 const sessionB = "00000000-0000-4000-8000-000000000002";
+const privateReferenceValue = "private-dashboard-recovery-value";
+const privateReference = {
+  schema_version: 1,
+  agent_id: "omp",
+  kind: "id",
+  value: privateReferenceValue,
+} as const;
 
 const actorA: DashboardActor = {
   accountId: "account-a",
@@ -74,6 +85,12 @@ function workerContext(fingerprint: string, dashboardId: string): HandlerContext
     dashboardId,
   });
   return { values } as unknown as HandlerContext;
+}
+
+function stringifyTestValue(value: unknown): string {
+  return JSON.stringify(value, (_key, item) =>
+    typeof item === "bigint" ? item.toString() : item
+  ) ?? "";
 }
 
 async function notFoundFrom(operation: () => Promise<unknown>): Promise<{ code: Code; message: string }> {
@@ -189,6 +206,13 @@ beforeAll(async () => {
       spawn_cwd: "/tmp/b",
     },
   ]).execute();
+  await db.updateTable("sessions")
+    .set({
+      agent_reference_json: JSON.stringify(privateReference),
+      agent_reference_client_seq: 23,
+    })
+    .where("id", "=", sessionA)
+    .execute();
   __setConnectWorkerForTest(workerB, {
     workerFp: workerB,
     dashboardId: dashboardB,
@@ -212,8 +236,33 @@ describe("dashboard resource scope", () => {
       create(SessionsListRequestSchema, { workerFp: workerA, status: "open" }),
       workerContext(workerA, dashboardA),
     );
-    expect(response.sessions?.map((session) => session.id)).toEqual([sessionA]);
+    const sessions = response.sessions ?? [];
+    const recoveryMetadata = response.recoveryMetadata ?? [];
+    expect(sessions.map((session) => session.id)).toEqual([sessionA]);
     expect(response.syncSnapshotToken).toBeUndefined();
+    expect(recoveryMetadata).toHaveLength(1);
+    expect(recoveryMetadata[0]).toMatchObject({
+      sessionId: sessionA,
+      agentReference: {
+        schemaVersion: 1,
+        agentId: "omp",
+        kind: "id",
+        value: privateReferenceValue,
+      },
+      agentReferenceClientSeq: 23n,
+    });
+  });
+
+  test("device session lists never receive private worker recovery metadata", async () => {
+    const handlers = makeSessionHandlers({ db } as unknown as ConnectDeps);
+    const response = await handlers.sessionsList(
+      create(SessionsListRequestSchema, { workerFp: workerA, status: "open" }),
+      actorContext(actorA),
+    );
+    const sessions = response.sessions ?? [];
+    expect(sessions.map((session) => session.id)).toEqual([sessionA]);
+    expect(response.recoveryMetadata ?? []).toEqual([]);
+    expect(stringifyTestValue(response)).not.toContain(privateReferenceValue);
   });
 
   test("worker listing rejects every scope broader than its own open sessions", async () => {

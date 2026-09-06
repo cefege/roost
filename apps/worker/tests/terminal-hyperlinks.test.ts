@@ -18,7 +18,7 @@ import { SessionManager } from "../src/session-manager.ts";
 import { serializeWTerm } from "../src/wterm-serialize.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const enc = new TextEncoder();
 
@@ -108,7 +108,7 @@ async function saturationHarness() {
   setSignalSink((record) => signals.push(record));
   const mgr = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
-    sink: new LifecycleTestSink(),
+    sink: new SessionEventTestSink(),
     sendBinaryUpstream: () => "sent",
     sendCellGridUpstream: () => "sent",
   });

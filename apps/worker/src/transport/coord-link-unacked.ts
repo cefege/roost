@@ -1,4 +1,4 @@
-// Drives the hello → lifecycle replay → snapshot → live protocol barrier.
+// Drives the hello → durable replay → snapshot → live protocol barrier.
 // Exactly one SessionEvent is in flight so ACKs cannot skip durable rows or
 // release post-snapshot traffic before the authoritative snapshot commits.
 import { create } from "@bufbuild/protobuf";
@@ -15,9 +15,10 @@ import {
   WORKER_SNAPSHOT_MAX_SESSIONS,
 } from "./coord-link-constants.ts";
 import { SessionEventStoreFatalError, type SessionEventStore } from "./session-event-store.ts";
+import { DurableSessionEventReplayBarrier } from "./coord-link-replay-barrier.ts";
 import type { CoordLinkProtocolPhase, WorkerSnapshotProvider } from "./coord-link-types.ts";
 
-export type UnackedEventClass = "lifecycle" | "metadata";
+export type UnackedEventClass = "durable" | "metadata";
 type InFlightEventClass = UnackedEventClass | "snapshot";
 export interface CoordLinkUnackedHooks {
   isDisposed(): boolean;
@@ -37,6 +38,7 @@ export interface CoordLinkUnacked {
   snapshotStateChanged(): void;
   phase(): CoordLinkProtocolPhase;
   ready(): boolean;
+  waitForDurableSessionEventReplay(signal?: AbortSignal): Promise<void>;
   ack(seq: number): void;
   count(): number;
   clear(): void;
@@ -59,6 +61,7 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
   let snapshotProvider: WorkerSnapshotProvider | null = null;
   let currentReconnected = false;
   let lastSnapshotFailure = "";
+  const replayBarrier = new DurableSessionEventReplayBarrier();
 
   function encodeEvent(event: SessionEvent, clientSeq: number): Uint8Array | null {
     const proto = eventToProto(event, 0);
@@ -121,16 +124,20 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
   function oldestDurable() {
     return store.pendingEvents()[0];
   }
-  function hasReservedLifecycle(): boolean {
+  function hasBlockingSessionEventReservation(): boolean {
     return store.stats().blockingReservedRows > 0;
   }
   function startSnapshotBarrier(): void {
     protocolPhase = "snapshot";
-    if (!snapshotProvider || inFlight || !hooks.isAttached()) return;
-    if (hasReservedLifecycle()) {
+    const pendingDurable = oldestDurable();
+    if (pendingDurable || hasBlockingSessionEventReservation()) {
+      replayBarrier.markPending();
       protocolPhase = "replay";
+      if (pendingDurable) pump();
       return;
     }
+    replayBarrier.markDrained();
+    if (!snapshotProvider || inFlight || !hooks.isAttached()) return;
     let snapshot: ReturnType<WorkerSnapshotProvider>;
     try {
       // Switching phase before the one-copy provider call is the synchronous
@@ -141,9 +148,9 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
       log.warn("coord-link", "snapshot_provider_failed", { error: error instanceof Error ? error.message : String(error) });
       return;
     }
-    if (oldestDurable() || hasReservedLifecycle()) {
+    if (oldestDurable() || hasBlockingSessionEventReservation()) {
+      replayBarrier.markPending();
       protocolPhase = "replay";
-      pump();
       return;
     }
     if (snapshot.sessions.length > WORKER_SNAPSHOT_MAX_SESSIONS) {
@@ -169,20 +176,26 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
     const durable = oldestDurable();
     if (protocolPhase === "replay") {
       if (!durable) {
-        if (hasReservedLifecycle()) return;
+        if (hasBlockingSessionEventReservation()) return;
         return startSnapshotBarrier();
       }
       const bytes = encodeEvent(durable.event, durable.clientSeq);
       if (!bytes) throw new SessionEventStoreFatalError("session event store contains an unencodable event");
-      inFlight = { clientSeq: durable.clientSeq, eventClass: "lifecycle", bytes, sent: false };
+      inFlight = { clientSeq: durable.clientSeq, eventClass: "durable", bytes, sent: false };
       return drainUnsent();
     }
     if (protocolPhase === "snapshot") return startSnapshotBarrier();
     if (durable) {
       const bytes = encodeEvent(durable.event, durable.clientSeq);
       if (!bytes) throw new SessionEventStoreFatalError("session event store contains an unencodable event");
-      inFlight = { clientSeq: durable.clientSeq, eventClass: "lifecycle", bytes, sent: false };
+      inFlight = { clientSeq: durable.clientSeq, eventClass: "durable", bytes, sent: false };
       return drainUnsent();
+    }
+    if (
+      protocolPhase === "live" &&
+      !hasBlockingSessionEventReservation()
+    ) {
+      replayBarrier.markDrained();
     }
     const nextMetadata = metadata.values().next().value as EventEntry | undefined;
     if (nextMetadata) {
@@ -207,8 +220,9 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
       const old = metadataSeqByKey.get(metadataKey!);
       if (old !== undefined && old !== inFlight?.clientSeq) { removeMetadata(old); metadataDiagnostic("replaced"); }
       if (!admitMetadata({ clientSeq, eventClass, metadataKey, bytes, sent: false })) return false;
-    } else if (protocolPhase === "snapshot" && !inFlight) {
-      protocolPhase = "replay";
+    } else {
+      replayBarrier.markPending();
+      if (protocolPhase === "snapshot" && !inFlight) protocolPhase = "replay";
     }
     pump();
     if (hooks.isAttached()) hooks.kick();
@@ -217,6 +231,7 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
   function acceptHelloAck(reconnected: boolean): void {
     if (protocolPhase !== "hello" || !hooks.isAttached()) return;
     currentReconnected = reconnected;
+    replayBarrier.markPending();
     protocolPhase = "replay";
     pump();
   }
@@ -224,7 +239,7 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
     if (!Number.isSafeInteger(seq) || seq <= 0) return;
     const entry = inFlight;
     if (!entry || !entry.sent || entry.clientSeq !== seq) return;
-    if (entry.eventClass === "lifecycle" && !store.acknowledge(seq)) throw new SessionEventStoreFatalError("in-flight lifecycle event disappeared before ACK");
+    if (entry.eventClass === "durable" && !store.acknowledge(seq)) throw new SessionEventStoreFatalError("in-flight durable session event disappeared before ACK");
     if (entry.eventClass === "metadata") removeMetadata(seq);
     inFlight = null;
     if (entry.eventClass === "snapshot") {
@@ -234,6 +249,7 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
     pump();
   }
   function disconnect(): void {
+    replayBarrier.markPending();
     protocolPhase = "hello";
     inFlight = null;
     metadata.clear();
@@ -246,11 +262,20 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
     if (protocolPhase === "snapshot" && !inFlight) pump();
   }
   function snapshotStateChanged(): void {
-    if (inFlight || protocolPhase === "hello" || protocolPhase === "live") return;
-    if (oldestDurable() || hasReservedLifecycle()) protocolPhase = "replay";
+    if (inFlight || protocolPhase === "hello") return;
+    if (oldestDurable() || hasBlockingSessionEventReservation()) {
+      replayBarrier.markPending();
+      if (protocolPhase === "snapshot") protocolPhase = "replay";
+    } else if (protocolPhase === "live") {
+      replayBarrier.markDrained();
+    }
     pump();
   }
-  function clear(): void { disconnect(); snapshotProvider = null; }
+  function clear(): void {
+    disconnect();
+    snapshotProvider = null;
+    replayBarrier.dispose();
+  }
   return {
     send,
     drainUnsent,
@@ -261,6 +286,7 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
     snapshotStateChanged,
     phase: () => protocolPhase,
     ready: () => protocolPhase === "live",
+    waitForDurableSessionEventReplay: (signal) => replayBarrier.wait(signal),
     ack,
     count: () => store.pendingEvents().length + metadata.size + (inFlight?.eventClass === "snapshot" ? 1 : 0),
     clear,

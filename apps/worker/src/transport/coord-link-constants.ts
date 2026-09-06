@@ -46,8 +46,8 @@ export const RAW_METADATA_MAX_AGE_MS = 100;
 // helloAck-then-immediate-drop pattern would otherwise cycle
 // attempt:1 forever, hiding a coord flap pathology from telemetry.
 export const STABLE_SESSION_MS = 30_000;
-// Volatile replaceable-metadata bound. Durable lifecycle capacity is owned by
-// session-event-store; the link never evicts it and ACK-paces one event at a
+// Volatile replaceable-metadata bound. Durable session-event capacity is owned
+// by session-event-store; the link never evicts it and ACK-paces one at a
 // time.
 export const UNACKED_CAP = 8192;
 // Stale-link watchdog. Coord pings every 30s (coord worker-conn.ts keepalive),

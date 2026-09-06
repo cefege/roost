@@ -1,3 +1,6 @@
+// Pins worker reconnect ordering across durable replay, snapshot, and live send.
+// The private reference case proves recovery can wait for exact ACK without
+// waiting for snapshot-provider activation and survives a disconnect.
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,12 +78,12 @@ test("hello gates exact-ACK replay, one fresh snapshot, and post-copy traffic ac
     dbPath: join(root, "outbox.sqlite"),
     legacySequencePath: join(root, "client-seq.txt"),
   });
-  const firstReservation = store.reserveLifecycleEvent("opened");
-  const first = store.appendLifecycleEvent(firstReservation, opened(sessionA, 1));
+  const firstReservation = store.reserveSessionEvent("opened");
+  const first = store.appendSessionEvent(firstReservation, opened(sessionA, 1));
   // A live record intentionally owns this eventual-close reservation for its
   // whole lifetime. Held capacity must not block the reconnect snapshot.
-  const existingLiveClose = store.reserveLifecycleEvent("closed");
-  store.holdLifecycleEvent(existingLiveClose);
+  const existingLiveClose = store.reserveSessionEvent("closed");
+  store.holdSessionEvent(existingLiveClose);
   const sockets: ControlledWebSocket[] = [];
   let snapshotBuilds = 0;
   let readyEdges = 0;
@@ -135,9 +138,9 @@ test("hello gates exact-ACK replay, one fresh snapshot, and post-copy traffic ac
     const secondEvent: Extract<SessionEvent, { kind: "closed" }> = {
       kind: "closed", session_id: sessionA, exit_code: 0, ts: 1_700_000_000_100,
     };
-    const secondReservation = store.reserveLifecycleEvent("closed");
-    const second = store.appendLifecycleEvent(secondReservation, secondEvent);
-    link.send({ kind: "event", event: secondEvent, clientSeq: second.clientSeq, eventClass: "lifecycle" });
+    const secondReservation = store.reserveSessionEvent("closed");
+    const second = store.appendSessionEvent(secondReservation, secondEvent);
+    link.send({ kind: "event", event: secondEvent, clientSeq: second.clientSeq, eventClass: "durable" });
 
     firstSocket.receive(downstream("eventAck", BigInt(second.clientSeq)));
     expect(eventFrames(firstSocket.sent)).toHaveLength(1);
@@ -145,13 +148,13 @@ test("hello gates exact-ACK replay, one fresh snapshot, and post-copy traffic ac
     events = eventFrames(firstSocket.sent);
     expect(events.map((frame) => Number(frame.clientSeq))).toEqual([first.clientSeq, second.clientSeq]);
 
-    // A lifecycle mutation that reserved capacity before its async keeper work
+    // A durable mutation that reserved capacity before its async keeper work
     // must block the snapshot copy even though no durable row exists yet.
-    const startedMutation = store.reserveLifecycleEvent("opened");
+    const startedMutation = store.reserveSessionEvent("opened");
     firstSocket.receive(downstream("eventAck", BigInt(second.clientSeq)));
     expect(eventFrames(firstSocket.sent)).toHaveLength(2);
     expect(link.protocolPhase()).toBe("replay");
-    store.releaseLifecycleEvent(startedMutation);
+    store.releaseSessionEvent(startedMutation);
     link.snapshotStateChanged();
     events = eventFrames(firstSocket.sent);
     const snapshotFrame = events.at(-1)!;
@@ -161,9 +164,9 @@ test("hello gates exact-ACK replay, one fresh snapshot, and post-copy traffic ac
     expect(link.ready()).toBe(false);
 
     const postCopyEvent = opened(sessionB, 2);
-    const postCopyReservation = store.reserveLifecycleEvent("opened");
-    const postCopy = store.appendLifecycleEvent(postCopyReservation, postCopyEvent);
-    link.send({ kind: "event", event: postCopyEvent, clientSeq: postCopy.clientSeq, eventClass: "lifecycle" });
+    const postCopyReservation = store.reserveSessionEvent("opened");
+    const postCopy = store.appendSessionEvent(postCopyReservation, postCopyEvent);
+    link.send({ kind: "event", event: postCopyEvent, clientSeq: postCopy.clientSeq, eventClass: "durable" });
     const metadataSeq = store.nextClientSeq();
     link.send({
       kind: "event",
@@ -198,7 +201,7 @@ test("hello gates exact-ACK replay, one fresh snapshot, and post-copy traffic ac
     expect(snapshotBuilds).toBe(2);
   } finally {
     link.dispose();
-    store.releaseLifecycleEvent(existingLiveClose);
+    store.releaseSessionEvent(existingLiveClose);
     store.close();
   }
 });
@@ -265,6 +268,76 @@ test("oversized snapshots stay unready and become eligible after membership and 
     expect(snapshot).toHaveLength(1);
     socket.receive(downstream("eventAck", snapshot[0]!.clientSeq));
     expect(link.ready()).toBe(true);
+  } finally {
+    link.dispose();
+    store.close();
+  }
+});
+
+test("reference replay drains before snapshot activation across a disconnect", async () => {
+  const root = mkdtempSync(join(tmpdir(), "roost-reference-replay-"));
+  const store = openSessionEventStore({
+    dbPath: join(root, "outbox.sqlite"),
+    legacySequencePath: join(root, "client-seq.txt"),
+  });
+  const event: Extract<SessionEvent, { kind: "agent_reference" }> = {
+    kind: "agent_reference",
+    session_id: sessionA,
+    reference: {
+      schema_version: 1,
+      agent_id: "omp",
+      kind: "path",
+      value: "/opaque/conversation.jsonl",
+    },
+    ts: 1_700_000_003_000,
+  };
+  const reservation = store.reserveSessionEvent("agent_reference");
+  const stored = store.appendSessionEvent(reservation, event);
+  const sockets: ControlledWebSocket[] = [];
+  const link = startCoordLink({
+    coordHttpUrl: "http://coord.test:4102",
+    workerFp,
+    workerVersion: "test",
+    sessionEventStore: store,
+    mintJwt: async () => "jwt",
+    webSocketFactory: () => {
+      const socket = new ControlledWebSocket([]);
+      sockets.push(socket);
+      return socket as unknown as WebSocket;
+    },
+  });
+  let drained = false;
+  const replayDrained = link.waitForDurableSessionEventReplay().then(() => {
+    drained = true;
+  });
+
+  try {
+    await Promise.resolve();
+    await Promise.resolve();
+    const firstSocket = sockets[0]!;
+    firstSocket.open();
+    firstSocket.receive(downstream("helloAck"));
+    expect(eventFrames(firstSocket.sent).at(-1)?.event?.kind.case).toBe(
+      "agentReference",
+    );
+    expect(drained).toBe(false);
+
+    link.relocate("http://coord.test:4102", true);
+    await Promise.resolve();
+    await Promise.resolve();
+    const secondSocket = sockets[1]!;
+    secondSocket.open();
+    secondSocket.receive(downstream("helloAck"));
+    expect(eventFrames(secondSocket.sent).map((frame) =>
+      Number(frame.clientSeq)
+    )).toEqual([stored.clientSeq]);
+    expect(drained).toBe(false);
+
+    secondSocket.receive(downstream("eventAck", BigInt(stored.clientSeq)));
+    await replayDrained;
+    expect(link.protocolPhase()).toBe("snapshot");
+    expect(link.ready()).toBe(false);
+    expect(eventFrames(secondSocket.sent)).toHaveLength(1);
   } finally {
     link.dispose();
     store.close();

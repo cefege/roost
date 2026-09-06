@@ -3,7 +3,7 @@
 // against keeper replacement before this module can reach an asynchronous step.
 
 import type { SessionId } from "@roost/shared/wire";
-import type { LifecycleReservation } from "./event-sink.ts";
+import type { SessionEventReservation } from "./event-sink.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
 import * as respawnFns from "./session-respawn.ts";
@@ -19,8 +19,8 @@ export interface SessionRespawnOptions {
 }
 
 export interface SessionRespawnReservations {
-	event: LifecycleReservation;
-	close: LifecycleReservation;
+	event: SessionEventReservation;
+	close: SessionEventReservation;
 }
 
 export async function respawnIfMissing(
@@ -69,12 +69,12 @@ export function respawn(
 			false,
 		);
 	}
-	const eventReservation = this.reserveLifecycleEvent("respawned");
-	let closeReservation: LifecycleReservation;
+	const eventReservation = this.reserveSessionEvent("respawned");
+	let closeReservation: SessionEventReservation;
 	try {
-		closeReservation = this.reserveLifecycleEvent("closed");
+		closeReservation = this.reserveSessionEvent("closed");
 	} catch (error) {
-		this.releaseLifecycleEvent(eventReservation);
+		this.releaseSessionEvent(eventReservation);
 		throw error;
 	}
 	return respawnFns.respawn.call(

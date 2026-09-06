@@ -23,6 +23,7 @@ function link(relocations: string[]): CoordLink {
     state: () => ({ kind: "reconnecting", nextDialAtMs: 0, backoffMs: 100 }),
     protocolPhase: () => "hello",
     ready: () => false,
+    waitForDurableSessionEventReplay: async () => {},
     activateSnapshotProvider: () => {},
     snapshotStateChanged: () => {},
     relocate: (url) => { relocations.push(url); },

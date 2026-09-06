@@ -103,6 +103,14 @@ message PortsEvt {
   uint64 ts = 3;
 }
 
+
+message AgentReferenceEvt {
+  string session_id = 1;
+  AgentConversationReferenceV1 reference = 2; // absent clears the reference
+  uint64 ts = 3;
+  optional string trace_id = 4;
+}
+
 message SessionEventProto {
   uint64 event_id = 1;
   reserved 16;  // retired field
@@ -119,6 +127,7 @@ message SessionEventProto {
     GitEvt git = 20;
     PrEvt pr = 21;
     PortsEvt ports = 22;
+    AgentReferenceEvt agent_reference = 23;
   }
 }
 

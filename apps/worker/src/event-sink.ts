@@ -1,25 +1,25 @@
 // Classifies worker session events at their durability boundary.
-// Lifecycle events enter the crash-safe store; replaceable metadata coalesces
-// in memory. Snapshot publication belongs exclusively to the coord-link barrier.
+// Durable session events enter the crash-safe store; replaceable metadata
+// coalesces in memory. Snapshot publication belongs to the CoordLink barrier.
 import type { SessionEvent } from "@roost/shared/wire";
 import type { CoordLink } from "./transport/coord-link.ts";
 import {
   SessionEventStoreFatalError,
-  SessionLifecycleOutboxFullError,
-  type DurableLifecycleKind,
-  type LifecycleReservation,
+  SessionEventOutboxFullError,
+  type DurableSessionEventKind,
+  type SessionEventReservation,
   type SessionEventStore,
 } from "./transport/session-event-store.ts";
 
 export {
   SessionEventStoreFatalError,
-  SessionLifecycleOutboxFullError,
-  type DurableLifecycleKind,
-  type LifecycleReservation,
+  SessionEventOutboxFullError,
+  type DurableSessionEventKind,
+  type SessionEventReservation,
 } from "./transport/session-event-store.ts";
 
 export type SessionEventClass =
-  | { readonly kind: "lifecycle"; readonly lifecycleKind: DurableLifecycleKind }
+  | { readonly kind: "durable"; readonly durableKind: DurableSessionEventKind }
   | { readonly kind: "metadata"; readonly key: string }
   | { readonly kind: "programmer-error" };
 
@@ -42,7 +42,8 @@ export function classifySessionEvent(event: SessionEvent): SessionEventClass {
     case "opened":
     case "closed":
     case "respawned":
-      return { kind: "lifecycle", lifecycleKind: event.kind };
+    case "agent_reference":
+      return { kind: "durable", durableKind: event.kind };
     case "snapshot":
       return { kind: "programmer-error" };
     case "cwd":
@@ -59,25 +60,27 @@ export function classifySessionEvent(event: SessionEvent): SessionEventClass {
 }
 
 export interface SessionEventSink {
-  reserveLifecycleEvent(kind: DurableLifecycleKind): LifecycleReservation;
-  holdLifecycleEvent(reservation: LifecycleReservation): void;
-  releaseLifecycleEvent(reservation: LifecycleReservation): void;
-  emit(event: SessionEvent, reservation?: LifecycleReservation): void;
+  reserveSessionEvent(kind: DurableSessionEventKind): SessionEventReservation;
+  holdSessionEvent(reservation: SessionEventReservation): void;
+  releaseSessionEvent(reservation: SessionEventReservation): void;
+  emit(event: SessionEvent, reservation?: SessionEventReservation): void;
 }
 
 /** One synchronous event boundary: the store assigns every sequence, and a
- * lifecycle row is committed before CoordLink can observe it. */
+ * durable row is committed before CoordLink can observe it. */
 export function coordLinkSink(link: CoordLink, store: SessionEventStore): SessionEventSink {
   return {
-    reserveLifecycleEvent(kind) {
-      return store.reserveLifecycleEvent(kind);
+    reserveSessionEvent(kind) {
+      const reservation = store.reserveSessionEvent(kind);
+      link.snapshotStateChanged();
+      return reservation;
     },
-    holdLifecycleEvent(reservation) {
-      store.holdLifecycleEvent(reservation);
+    holdSessionEvent(reservation) {
+      store.holdSessionEvent(reservation);
       link.snapshotStateChanged();
     },
-    releaseLifecycleEvent(reservation) {
-      store.releaseLifecycleEvent(reservation);
+    releaseSessionEvent(reservation) {
+      store.releaseSessionEvent(reservation);
       link.snapshotStateChanged();
     },
     emit(event, reservation) {
@@ -88,19 +91,19 @@ export function coordLinkSink(link: CoordLink, store: SessionEventStore): Sessio
           : `worker must not emit coordinator-authored session event: ${event.kind}`;
         throw new SessionEventSinkProgrammerError(reason);
       }
-      if (classification.kind === "lifecycle") {
+      if (classification.kind === "durable") {
         if (!reservation) {
           throw new SessionEventSinkProgrammerError(
-            `durable lifecycle event requires a reservation: ${event.kind}`,
+            `durable session event requires a reservation: ${event.kind}`,
           );
         }
         let stored;
         try {
-          stored = store.appendLifecycleEvent(reservation, event);
+          stored = store.appendSessionEvent(reservation, event);
         } catch (error) {
           // Capacity was guaranteed at reservation time. Any later failure is
           // a fatal durability failure, including an unexpected SQLITE_FULL.
-          if (error instanceof SessionLifecycleOutboxFullError) {
+          if (error instanceof SessionEventOutboxFullError) {
             throw new SessionEventStoreFatalError(
               "session event store append exhausted reserved capacity",
               { cause: error },
@@ -112,7 +115,7 @@ export function coordLinkSink(link: CoordLink, store: SessionEventStore): Sessio
           kind: "event",
           event: stored.event,
           clientSeq: stored.clientSeq,
-          eventClass: "lifecycle",
+          eventClass: "durable",
         });
         return;
       }

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import type { CoordConfig } from "@roost/shared/config";
+import { AgentConversationReferenceV1Schema } from "@roost/shared/agent-conversation-reference";
 import { sql } from "kysely";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
@@ -19,7 +20,15 @@ import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000101";
 const DASHBOARD_ID = "00000000-0000-4000-8000-000000000102";
 const SESSION_ID = "00000000-0000-4000-8000-000000000103";
+const NEVER_SET_SESSION_ID = "00000000-0000-4000-8000-000000000104";
 const SESSIONS_LIST_PATH = "/roost.v1.CoordinatorService/SessionsList";
+const PRIVATE_REFERENCE_VALUE = "/tmp/private worker/'$conversation.json";
+const PRIVATE_REFERENCE = AgentConversationReferenceV1Schema.parse({
+  schema_version: 1,
+  agent_id: "omp",
+  kind: "path",
+  value: PRIVATE_REFERENCE_VALUE,
+});
 
 let workdir: string;
 let db: KyselyDB;
@@ -113,28 +122,56 @@ beforeAll(async () => {
     last_seen_ms: now,
     reachable_addr: null,
   }).execute();
-  await db.insertInto("sessions").values({
-    id: SESSION_ID,
-    dashboard_id: DASHBOARD_ID,
-    worker_fp: workerFingerprint,
-    channel: 7,
-    kind: "shell",
-    cwd: "/tmp/worker-auth",
-    workspace_id: null,
-    status: "open",
-    agent_json: sql<undefined>`NULL`,
-    created_at: now,
-    closed_at: null,
-    custom_title: null,
-    git_branch: null,
-    git_remote: null,
-    pr_number: null,
-    pr_state: null,
-    pr_checks: null,
-    pr_url: null,
-    ports_json: null,
-    spawn_cwd: "/tmp/worker-auth",
-  }).execute();
+  await db.insertInto("sessions").values([
+    {
+      id: SESSION_ID,
+      dashboard_id: DASHBOARD_ID,
+      worker_fp: workerFingerprint,
+      channel: 7,
+      kind: "shell",
+      cwd: "/tmp/worker-auth",
+      workspace_id: null,
+      status: "open",
+      agent_json: sql<undefined>`NULL`,
+      created_at: now,
+      closed_at: null,
+      custom_title: null,
+      git_branch: null,
+      git_remote: null,
+      pr_number: null,
+      pr_state: null,
+      pr_checks: null,
+      pr_url: null,
+      ports_json: null,
+      spawn_cwd: "/tmp/worker-auth",
+      agent_reference_json: JSON.stringify(PRIVATE_REFERENCE),
+      agent_reference_client_seq: 17,
+    },
+    {
+      id: NEVER_SET_SESSION_ID,
+      dashboard_id: DASHBOARD_ID,
+      worker_fp: workerFingerprint,
+      channel: 8,
+      kind: "shell",
+      cwd: "/tmp/worker-auth-never-set",
+      workspace_id: null,
+      status: "open",
+      agent_json: sql<undefined>`NULL`,
+      created_at: now + 1,
+      closed_at: null,
+      custom_title: null,
+      git_branch: null,
+      git_remote: null,
+      pr_number: null,
+      pr_state: null,
+      pr_checks: null,
+      pr_url: null,
+      ports_json: null,
+      spawn_cwd: "/tmp/worker-auth-never-set",
+      agent_reference_json: null,
+      agent_reference_client_seq: null,
+    },
+  ]).execute();
   const nowSeconds = Math.floor(now / 1_000);
   workerJwt = await signJwt(
     {
@@ -174,12 +211,45 @@ test("worker JWT lists only its own open sessions through coord.fetch", async ()
   const body = await response.json() as {
     sessions?: Array<{ id?: string; workerFp?: string }>;
     syncSnapshotToken?: string;
+    recoveryMetadata?: Array<{
+      sessionId?: string;
+      agentReference?: {
+        schemaVersion?: number;
+        agentId?: string;
+        kind?: string;
+        value?: string;
+      };
+      agentReferenceClientSeq?: string;
+    }>;
   };
-  expect(body.sessions).toEqual([expect.objectContaining({
-    id: SESSION_ID,
-    workerFp: workerFingerprint,
-  })]);
+  expect(body.sessions).toHaveLength(2);
+  expect(body.sessions).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      id: SESSION_ID,
+      workerFp: workerFingerprint,
+    }),
+    expect.objectContaining({
+      id: NEVER_SET_SESSION_ID,
+      workerFp: workerFingerprint,
+    }),
+  ]));
   expect(body.syncSnapshotToken).toBeUndefined();
+  expect(body.recoveryMetadata).toHaveLength(2);
+  expect(body.recoveryMetadata?.find((row) => row.sessionId === SESSION_ID))
+    .toEqual({
+      sessionId: SESSION_ID,
+      agentReference: {
+        schemaVersion: 1,
+        agentId: "omp",
+        kind: "path",
+        value: PRIVATE_REFERENCE_VALUE,
+      },
+      agentReferenceClientSeq: "17",
+    });
+  expect(body.recoveryMetadata?.find((row) =>
+    row.sessionId === NEVER_SET_SESSION_ID
+  )).toEqual({ sessionId: NEVER_SET_SESSION_ID });
+  expect(JSON.stringify(body.sessions)).not.toContain(PRIVATE_REFERENCE_VALUE);
 });
 
 test("worker JWT cannot broaden its session-list scope", async () => {

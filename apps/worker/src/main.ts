@@ -28,6 +28,7 @@ import { AgentScreenDetector } from "./agent-status/detector.ts";
 import { AgentStatusRegistry } from "./agent-status/registry.ts";
 import { installAgentIntegrations } from "./agent-status/install-integrations.ts";
 import { startAgentReportServer, type AgentReportServer } from "./agent-status/report-server.ts";
+import { AgentReferenceAdmissionGate } from "./agent-status/reference-admission.ts";
 import { serveServiceHealth } from "@roost/shared/service-health";
 import { asWorkerFp } from "@roost/shared/wire";
 import { diag, signal } from "@roost/shared/diag";
@@ -164,7 +165,7 @@ export async function runWorker() {
 		agentDetector: null,
 		acquireKeeperUpdateBoundary: null,
 	};
-	const lifecycleStore = openSessionEventStore();
+	const sessionEventStore = openSessionEventStore();
 	const coordLink = startCoordLink(buildCoordLinkDeps({
 		coordHttpUrl: cfg.coordinatorUrl,
 		workerFp,
@@ -173,7 +174,7 @@ export async function runWorker() {
 		relocation,
 		setCoordinatorEndpoint,
 		refs,
-		sessionEventStore: lifecycleStore,
+		sessionEventStore,
 	}));
 	// Bind the forward ref before yielding: startCoordLink's first dial awaits
 	// mintJwt(), so no callback can observe a null link on this tick.
@@ -202,7 +203,8 @@ export async function runWorker() {
 	// phase-25d: teeSink retired. Single emit boundary via CoordLink.
 	// tRPC sessions.emit + the trpcSink branch deleted; CoordLink has
 	// been proven through smoke + multi-restart cycles.
-	const sink = coordLinkSink(coordLink, lifecycleStore);
+	const sink = coordLinkSink(coordLink, sessionEventStore);
+	const referenceAdmission = new AgentReferenceAdmissionGate();
 
 	// att1b — attachment TTL/LRU reaper. 1h sweep interval; 24h TTL;
 	// 1 GB LRU cap on ~/.roost/attachments/.
@@ -256,6 +258,8 @@ export async function runWorker() {
 		agentReportServer = await startAgentReportServer({
 			detector: agentDetector,
 			registry: agentRegistry,
+			eventSink: sink,
+			referenceAdmission,
 		});
 	} catch (error) {
 		log.warn("agent-status", "report_server_start_failed", { error: String(error) });
@@ -270,6 +274,9 @@ export async function runWorker() {
 		workerFp,
 		sessionMgr,
 		prepareKeeper: handleKeeperSurvivor,
+		referenceAdmission,
+		beforeRecoveryRead: () =>
+			coordLink.waitForDurableSessionEventReplay(),
 		onReconcileStarted: () => {
 			keeperReconciledAtMs = null;
 		},
@@ -346,7 +353,7 @@ export async function runWorker() {
 			/* best-effort */
 		}
 		diag("worker.shutdown", { step: "session-event-store" });
-		lifecycleStore.close();
+		sessionEventStore.close();
 		process.exit(0);
 	};
 	process.on("SIGTERM", () => { void shutdown("SIGTERM"); });

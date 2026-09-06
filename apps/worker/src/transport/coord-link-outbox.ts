@@ -351,6 +351,8 @@ export function createCoordLinkOutbox(
     snapshotStateChanged: () => { events.snapshotStateChanged(); drainQueues(); },
     protocolPhase: () => events.phase(),
     ready: () => events.ready(),
+    waitForDurableSessionEventReplay: (signal) =>
+      events.waitForDurableSessionEventReplay(signal),
     isAttached: nativeWriter.isAttached,
     activeSocket: nativeWriter.activeSocket,
     ackEvent: (seq) => { events.ack(seq); drainQueues(); },

@@ -16,6 +16,8 @@
     "./layout-document": "./src/layout-document.ts",
     "./layout-document-proto": "./src/layout-document-proto.ts",
     "./ui-state": "./src/ui-state.ts",
+    "./agent-conversation-reference": "./src/agent-conversation-reference.ts",
+    "./agent-conversation-reference-proto": "./src/agent-conversation-reference-proto.ts",
     "./keeper-update": "./src/keeper-update.ts",
     "./keeper-update-proto": "./src/keeper-update-proto.ts",
     "./config": "./src/config.ts",

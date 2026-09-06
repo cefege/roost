@@ -12,14 +12,14 @@ import {
 } from "../src/terminal-search.ts";
 import { _mapGlobalSearchError } from "../src/terminal-search-batch.ts";
 import type { CoordLink } from "../src/transport/coord-link-types.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const SESSION_ID = asSessionId("00000000-0000-0000-0000-000000000001");
 
 function manager(): SessionManager {
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
-    sink: new LifecycleTestSink(),
+    sink: new SessionEventTestSink(),
   });
 }
 

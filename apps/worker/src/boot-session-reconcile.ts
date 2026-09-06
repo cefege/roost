@@ -1,21 +1,30 @@
-// Coordinator session reconciliation reserves every durable lifecycle outcome
+// Coordinator session reconciliation reserves every durable session outcome
 // before keeper or SessionManager mutation. boot-reconcile serializes calls
 // and supplies keeper preparation plus the successful-admission timestamp hook.
 
+import type {
+	SessionRecoveryMetadata as SessionRecoveryMetadataProto,
+} from "@roost/shared/proto/coordinator_pb";
+import {
+	sessionRecoveryMetadataFromProto,
+} from "@roost/shared/agent-conversation-reference-proto";
 import { log } from "@roost/shared/log";
 import type { WorkerFp } from "@roost/shared/wire";
 import type { CoordClient } from "./coord-client.ts";
-import type { LifecycleReservation } from "./event-sink.ts";
+import type { SessionEventReservation } from "./event-sink.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import {
-	isLifecycleOutboxFullError,
-	isSessionLifecycleDurabilityError,
+	isSessionEventOutboxFullError,
+	isSessionEventDurabilityError,
 	type SessionManager,
 } from "./session-manager.ts";
 import { resolveShellSpec, type ShellSpec } from "./shell-spec.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 
 const BOOT_SESSION_ADMISSION_TIMEOUT_MS = 10_000;
+type CoordinatorRecoveryResponse = Awaited<
+	ReturnType<CoordClient["sessionsList"]>
+>;
 
 export interface ReconcileAdmissionSuccess {
 	admitted: true;
@@ -38,6 +47,9 @@ export interface CoordinatorSessionReconcileDeps {
 	client: () => CoordClient;
 	workerFp: WorkerFp;
 	sessionMgr: SessionManager;
+	referenceRecoveryAdmission: (
+		read: () => Promise<CoordinatorRecoveryResponse>,
+	) => Promise<CoordinatorRecoveryResponse>;
 	prepareKeeper: (
 		coordinatorOpenSessionIds: ReadonlySet<string>,
 	) => Promise<void>;
@@ -48,12 +60,26 @@ export async function reconcileCoordinatorSessions(
 	deps: CoordinatorSessionReconcileDeps,
 	reason: string,
 ): Promise<ReconcileAdmissionOutcome> {
-	const { client, workerFp, sessionMgr, prepareKeeper, onReconciled } = deps;
+	const {
+		client,
+		workerFp,
+		sessionMgr,
+		prepareKeeper,
+		referenceRecoveryAdmission,
+		onReconciled,
+	} = deps;
 	try {
-		const response = await client().sessionsList(
-			{ workerFp, status: "open" },
-			{ timeoutMs: BOOT_SESSION_ADMISSION_TIMEOUT_MS },
-		);
+		const response = await referenceRecoveryAdmission(async () => {
+			const loaded = await client().sessionsList(
+				{ workerFp, status: "open" },
+				{ timeoutMs: BOOT_SESSION_ADMISSION_TIMEOUT_MS },
+			);
+			_assertExactRecoveryMetadata(
+				loaded.sessions.map((session) => String(session.id)),
+				loaded.recoveryMetadata,
+			);
+			return loaded;
+		});
 		const shellRows = response.sessions;
 		const coordinatorOpenSessionIds = new Set(
 			shellRows.map((session) => String(session.id)),
@@ -61,16 +87,16 @@ export async function reconcileCoordinatorSessions(
 		const admissions: Array<{
 			session: (typeof shellRows)[number];
 			shellSpec: ShellSpec;
-			resumeClose: LifecycleReservation;
-			respawnEvent: LifecycleReservation;
-			futureClose: LifecycleReservation;
+			resumeClose: SessionEventReservation;
+			respawnEvent: SessionEventReservation;
+			futureClose: SessionEventReservation;
 			resumeCloseOwned: boolean;
 			respawnEventOwned: boolean;
 			futureCloseOwned: boolean;
 		}> = [];
 
 		// No keeper or SessionManager state can change until capacity exists
-		// for every lifecycle path in the coordinator's complete open set.
+		// for every durable path in the coordinator's complete open set.
 		try {
 			for (const session of shellRows) {
 				const shellSpec = resolveShellSpec({
@@ -81,23 +107,23 @@ export async function reconcileCoordinatorSessions(
 						String(session.id),
 					),
 				});
-				let resumeClose: LifecycleReservation | null = null;
-				let respawnEvent: LifecycleReservation | null = null;
-				let futureClose: LifecycleReservation | null = null;
+				let resumeClose: SessionEventReservation | null = null;
+				let respawnEvent: SessionEventReservation | null = null;
+				let futureClose: SessionEventReservation | null = null;
 				try {
-					resumeClose = sessionMgr.reserveLifecycleEvent("closed");
+					resumeClose = sessionMgr.reserveSessionEvent("closed");
 					respawnEvent =
-						sessionMgr.reserveLifecycleEvent("respawned");
-					futureClose = sessionMgr.reserveLifecycleEvent("closed");
+						sessionMgr.reserveSessionEvent("respawned");
+					futureClose = sessionMgr.reserveSessionEvent("closed");
 				} catch (error) {
 					if (futureClose) {
-						sessionMgr.releaseLifecycleEvent(futureClose);
+						sessionMgr.releaseSessionEvent(futureClose);
 					}
 					if (respawnEvent) {
-						sessionMgr.releaseLifecycleEvent(respawnEvent);
+						sessionMgr.releaseSessionEvent(respawnEvent);
 					}
 					if (resumeClose) {
-						sessionMgr.releaseLifecycleEvent(resumeClose);
+						sessionMgr.releaseSessionEvent(resumeClose);
 					}
 					throw error;
 				}
@@ -114,9 +140,9 @@ export async function reconcileCoordinatorSessions(
 			}
 		} catch (error) {
 			for (const admission of admissions) {
-				sessionMgr.releaseLifecycleEvent(admission.futureClose);
-				sessionMgr.releaseLifecycleEvent(admission.respawnEvent);
-				sessionMgr.releaseLifecycleEvent(admission.resumeClose);
+				sessionMgr.releaseSessionEvent(admission.futureClose);
+				sessionMgr.releaseSessionEvent(admission.respawnEvent);
+				sessionMgr.releaseSessionEvent(admission.resumeClose);
 				admission.futureCloseOwned = false;
 				admission.respawnEventOwned = false;
 				admission.resumeCloseOwned = false;
@@ -129,7 +155,7 @@ export async function reconcileCoordinatorSessions(
 		let respawnFailed = 0;
 		try {
 			// Survivor retirement, keeper creation, and periodic reaping are
-			// all downstream of the complete lifecycle reservation batch.
+			// all downstream of the complete session-event reservation batch.
 			await prepareKeeper(coordinatorOpenSessionIds);
 			await sessionMgr.startPostAdmissionMaintenance();
 			await sessionMgr.advanceChannelCounterPastKeeper();
@@ -145,11 +171,11 @@ export async function reconcileCoordinatorSessions(
 				}, admission.resumeClose);
 				if (didResume) {
 					resumed++;
-					sessionMgr.releaseLifecycleEvent(
+					sessionMgr.releaseSessionEvent(
 						admission.respawnEvent,
 					);
 					admission.respawnEventOwned = false;
-					sessionMgr.releaseLifecycleEvent(
+					sessionMgr.releaseSessionEvent(
 						admission.futureClose,
 					);
 					admission.futureCloseOwned = false;
@@ -174,7 +200,7 @@ export async function reconcileCoordinatorSessions(
 						ok = true;
 						break;
 					} catch (error) {
-						if (isSessionLifecycleDurabilityError(error)) {
+						if (isSessionEventDurabilityError(error)) {
 							throw error;
 						}
 						const errorText = String(error);
@@ -207,7 +233,7 @@ export async function reconcileCoordinatorSessions(
 							after_retry: attempt > 1,
 						});
 						if (!transient) {
-							sessionMgr.releaseLifecycleEvent(
+							sessionMgr.releaseSessionEvent(
 								admission.respawnEvent,
 							);
 							admission.respawnEventOwned = false;
@@ -225,13 +251,13 @@ export async function reconcileCoordinatorSessions(
 					respawned++;
 				} else {
 					if (admission.respawnEventOwned) {
-						sessionMgr.releaseLifecycleEvent(
+						sessionMgr.releaseSessionEvent(
 							admission.respawnEvent,
 						);
 						admission.respawnEventOwned = false;
 					}
 					if (admission.futureCloseOwned) {
-						sessionMgr.releaseLifecycleEvent(
+						sessionMgr.releaseSessionEvent(
 							admission.futureClose,
 						);
 						admission.futureCloseOwned = false;
@@ -266,30 +292,56 @@ export async function reconcileCoordinatorSessions(
 		} finally {
 			for (const admission of admissions) {
 				if (admission.futureCloseOwned) {
-					sessionMgr.releaseLifecycleEvent(
+					sessionMgr.releaseSessionEvent(
 						admission.futureClose,
 					);
 				}
 				if (admission.respawnEventOwned) {
-					sessionMgr.releaseLifecycleEvent(
+					sessionMgr.releaseSessionEvent(
 						admission.respawnEvent,
 					);
 				}
 				if (admission.resumeCloseOwned) {
-					sessionMgr.releaseLifecycleEvent(
+					sessionMgr.releaseSessionEvent(
 						admission.resumeClose,
 					);
 				}
 			}
 		}
 	} catch (error) {
-		if (isSessionLifecycleDurabilityError(error)) throw error;
+		if (isSessionEventDurabilityError(error)) throw error;
 		log.warn("worker", "resume_failed", {
 			reason,
-			error: isLifecycleOutboxFullError(error)
-				? "session lifecycle outbox full"
+			error: isSessionEventOutboxFullError(error)
+				? "session event outbox full"
 				: String(error),
 		});
 		return { admitted: false, error };
+	}
+}
+
+export function _assertExactRecoveryMetadata(
+	sessionIds: readonly string[],
+	rows: readonly SessionRecoveryMetadataProto[],
+): void {
+	if (rows.length !== sessionIds.length) {
+		throw new Error("coordinator recovery metadata set is incomplete");
+	}
+	const expected = new Set(sessionIds);
+	const seen = new Set<string>();
+	for (const row of rows) {
+		let sessionId: string;
+		try {
+			sessionId = String(sessionRecoveryMetadataFromProto(row).session_id);
+		} catch {
+			throw new Error("coordinator recovery metadata is invalid");
+		}
+		if (!expected.has(sessionId) || seen.has(sessionId)) {
+			throw new Error("coordinator recovery metadata set does not match sessions");
+		}
+		seen.add(sessionId);
+	}
+	if (seen.size !== expected.size) {
+		throw new Error("coordinator recovery metadata set is incomplete");
 	}
 }

@@ -5,7 +5,7 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
-import type { LifecycleReservation } from "./event-sink.ts";
+import type { SessionEventReservation } from "./event-sink.ts";
 import type { SessionId, ChannelId } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
@@ -34,8 +34,8 @@ export async function respawn(
 		rows?: number;
 		shellSpec?: ShellSpec;
 	},
-	eventReservation: LifecycleReservation,
-	closeReservation: LifecycleReservation,
+	eventReservation: SessionEventReservation,
+	closeReservation: SessionEventReservation,
 	releaseReservationsOnFailure: boolean,
 ): Promise<void> {
 	let eventOwned = true;
@@ -120,7 +120,7 @@ export async function respawn(
 		});
 		if (this.sessions.get(channelId) !== record) {
 			closeOwned = false;
-			throw new Error("respawned channel exited before lifecycle admission");
+			throw new Error("respawned channel exited before session event admission");
 		}
 		this.channelResizeSeq.set(channelId, 0);
 		this.lastAppliedSize.set(channelId, { cols, rows });
@@ -140,8 +140,8 @@ export async function respawn(
 			this._dropChannelState(channelId);
 		}
 		if (releaseReservationsOnFailure) {
-			if (eventOwned) this.releaseLifecycleEvent(eventReservation);
-			if (closeOwned) this.releaseLifecycleEvent(closeReservation);
+			if (eventOwned) this.releaseSessionEvent(eventReservation);
+			if (closeOwned) this.releaseSessionEvent(closeReservation);
 		}
 		throw error;
 	}
@@ -150,11 +150,11 @@ export async function respawn(
 	// Only the durable respawn event makes replacement authoritative. Until
 	// that commit, the prior record and its eventual-close capacity stay intact.
 	if (existing && this.sessions.get(existing.channelId) === existing) {
-		this.releaseLifecycleEvent(existing.closeReservation);
+		this.releaseSessionEvent(existing.closeReservation);
 		this._dropChannelState(existing.channelId);
 		getMultiplexedPool().kill(existing.channelId);
 	}
-	this.holdLifecycleEvent(closeReservation);
+	this.holdSessionEvent(closeReservation);
 	closeOwned = false;
 	this._startGitBranch(admittedRecord);
 	this._startPorts(admittedRecord);

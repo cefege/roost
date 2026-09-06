@@ -19,7 +19,10 @@ export const SESSION_COLUMNS = [
 export function sessionToRow(
   session: Session,
   dashboardId: string,
-): Omit<SessionsTable, "agent_json"> {
+): Omit<
+  SessionsTable,
+  "agent_json" | "agent_reference_json" | "agent_reference_client_seq"
+> {
   return {
     id: session.id,
     dashboard_id: dashboardId,

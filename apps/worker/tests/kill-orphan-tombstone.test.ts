@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { asSessionId, asWorkerFp } from "@roost/shared/wire";
 import { handleKill } from "../src/browser-command-spawn.ts";
 import { SessionManager } from "../src/session-manager.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const managers: SessionManager[] = [];
 
@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 function fixture(capacity = Number.MAX_SAFE_INTEGER) {
-  const sink = new LifecycleTestSink(capacity);
+  const sink = new SessionEventTestSink(capacity);
   const manager = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink,
@@ -53,21 +53,21 @@ describe("lifecycle close admission", () => {
     expect(sent).toEqual([{
       kind: "rpc-error",
       request_id: "request-1",
-      message: "session lifecycle outbox full",
+      message: "session event outbox full",
     }]);
   });
 
   test("an admitted close commits while unreserved capacity is exhausted", () => {
     const { manager, sink } = fixture(2);
-    const heldClose = manager.reserveLifecycleEvent("closed");
-    const capacityBlocker = manager.reserveLifecycleEvent("opened");
+    const heldClose = manager.reserveSessionEvent("closed");
+    const capacityBlocker = manager.reserveSessionEvent("opened");
     expect(sink.active.size).toBe(2);
 
     manager.emitClosedTombstone(orphanSid, heldClose);
 
     expect(sink.events).toHaveLength(1);
     expect(sink.active.size).toBe(1);
-    manager.releaseLifecycleEvent(capacityBlocker);
+    manager.releaseSessionEvent(capacityBlocker);
     expect(sink.active.size).toBe(0);
   });
 
@@ -76,7 +76,7 @@ describe("lifecycle close admission", () => {
     sink.failNextEmit = true;
 
     expect(() => manager.emitClosedTombstone(orphanSid)).toThrow(
-      "injected lifecycle append failure",
+      "injected session event append failure",
     );
     expect(sink.active.size).toBe(0);
     expect(sink.events).toHaveLength(0);

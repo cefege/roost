@@ -6,7 +6,7 @@
 import type { SessionManager } from "./session-manager.ts";
 import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
 import type { SessionRecord } from "./session-record.ts";
-import type { LifecycleReservation } from "./event-sink.ts";
+import type { SessionEventReservation } from "./event-sink.ts";
 import type { SessionId, ChannelId } from "@roost/shared/wire";
 import { diag, signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
@@ -101,10 +101,10 @@ export async function reapStrayKeeperChannels(this: SessionManager): Promise<num
 export function emitClosedTombstone(
 	this: SessionManager,
 	sessionId: SessionId,
-	reservation?: LifecycleReservation,
+	reservation?: SessionEventReservation,
 ): void {
 	const ownedReservation =
-		reservation ?? this.reserveLifecycleEvent("closed");
+		reservation ?? this.reserveSessionEvent("closed");
 	try {
 		this.emitEvent({
 			kind: "closed",
@@ -113,7 +113,7 @@ export function emitClosedTombstone(
 			ts: Date.now(),
 		}, ownedReservation);
 	} catch (error) {
-		this.releaseLifecycleEvent(ownedReservation);
+		this.releaseSessionEvent(ownedReservation);
 		throw error;
 	}
 }
@@ -156,7 +156,7 @@ export function closedByKeeper(this: SessionManager, channelId: number, exitCode
 			);
 		}
 	} catch (error) {
-		this.releaseLifecycleEvent(r.closeReservation);
+		this.releaseSessionEvent(r.closeReservation);
 		this._dropChannelState(channelId);
 		throw error;
 	}
@@ -309,7 +309,7 @@ export function dispose(this: SessionManager): void {
 		this.strayReaperTimer = null;
 	}
 	for (const record of [...this.sessions.values()]) {
-		this.releaseLifecycleEvent(record.closeReservation);
+		this.releaseSessionEvent(record.closeReservation);
 		this._dropChannelState(record.channelId);
 	}
 }

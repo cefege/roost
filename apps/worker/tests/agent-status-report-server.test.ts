@@ -14,6 +14,8 @@ import {
   type IntegrationStatusReport,
 } from "../src/agent-status/registry.ts";
 import { withAgentStatusEnvironment } from "../src/agent-status/environment.ts";
+import { AgentReferenceAdmissionGate } from "../src/agent-status/reference-admission.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
 const cleanupDirs: string[] = [];
@@ -63,6 +65,29 @@ function report(patch: Record<string, unknown> = {}): string {
   })}\n`;
 }
 
+function referenceReport(
+  reference: { kind: "id" | "path"; value: string } | null,
+): string {
+  if (!server) throw new Error("agent report server is not running");
+  const capability = withAgentStatusEnvironment(
+    {},
+    sessionId,
+  ).ROOST_AGENT_CAPABILITY;
+  return `${JSON.stringify({
+    version: 1,
+    capability,
+    method: "agent.reference",
+    params: { session_id: sessionId, reference },
+  })}\n`;
+}
+
+function referenceDependencies() {
+  return {
+    eventSink: new SessionEventTestSink(),
+    referenceAdmission: new AgentReferenceAdmissionGate(),
+  };
+}
+
 describe("agent report environment", () => {
   test("exports the report endpoint under the documented POSIX socket name", () => {
     const shellEnv = withAgentStatusEnvironment({}, sessionId);
@@ -93,6 +118,7 @@ describe("agent report server", () => {
     });
     server = await startAgentReportServer({
       socketPath: join(dir, "agent.sock"),
+      ...referenceDependencies(),
       detector: {
         reportingAgentForSession: async (claimed, attestedPid) => (
           claimed === sessionId && attestedPid === identity.pid ? identity : null
@@ -134,6 +160,7 @@ describe("agent report server", () => {
     let peerPid = 42;
     server = await startAgentReportServer({
       socketPath: join(dir, "agent.sock"),
+      ...referenceDependencies(),
       detector: {
         reportingAgentForSession: async (claimed, attestedPid) => (
           identityAvailable && claimed === sessionId && attestedPid === 42
@@ -185,6 +212,7 @@ describe("agent report server", () => {
     let registryCalls = 0;
     server = await startAgentReportServer({
       socketPath: join(dir, "agent.sock"),
+      ...referenceDependencies(),
       detector: {
         reportingAgentForSession: async (_claimed, peerPid) => {
           attestedPeerPid = peerPid;
@@ -238,6 +266,7 @@ describe("agent report server", () => {
     cleanupDirs.push(dir);
     server = await startAgentReportServer({
       socketPath: join(dir, "agent.sock"),
+      ...referenceDependencies(),
       detector: {
         reportingAgentForSession: async (_claimed, attestedPid) => (
           attestedPid === 42 ? { agentId: "omp", pid: 42 } : null
@@ -246,7 +275,80 @@ describe("agent report server", () => {
       peerProcessIdReader: { read: () => 42 },
       registry: { reportIntegration: () => true },
     });
-    expect(await request(server.path, `${"x".repeat(8_300)}\n`))
+    expect(await request(server.path, `${"x".repeat(33_000)}\n`))
       .toMatchObject({ ok: false, error: "request_too_large" });
+  });
+
+  test("durably acknowledges OMP set, replace, and clear after fresh PID proof", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "roost-agent-reference-"));
+    cleanupDirs.push(dir);
+    const sink = new SessionEventTestSink();
+    let identity: { agentId: "omp" | "pi"; pid: number } = {
+      agentId: "omp",
+      pid: 42,
+    };
+    let peerPid = 42;
+    server = await startAgentReportServer({
+      socketPath: join(dir, "agent.sock"),
+      detector: {
+        reportingAgentForSession: async (claimed, attestedPid) => (
+          claimed === sessionId && attestedPid === identity.pid ? identity : null
+        ),
+      },
+      peerProcessIdReader: { read: () => peerPid },
+      registry: { reportIntegration: () => true },
+      eventSink: sink,
+      referenceAdmission: new AgentReferenceAdmissionGate(),
+    });
+
+    expect(await request(
+      server.path,
+      referenceReport({ kind: "path", value: "/tmp/first.jsonl" }),
+    )).toEqual({ ok: true });
+    expect(await request(
+      server.path,
+      referenceReport({ kind: "id", value: "second" }),
+    )).toEqual({ ok: true });
+    expect(await request(server.path, referenceReport(null))).toEqual({
+      ok: true,
+    });
+    expect(sink.events).toEqual([
+      expect.objectContaining({
+        kind: "agent_reference",
+        reference: expect.objectContaining({
+          schema_version: 1,
+          agent_id: "omp",
+          kind: "path",
+          value: "/tmp/first.jsonl",
+        }),
+      }),
+      expect.objectContaining({
+        kind: "agent_reference",
+        reference: expect.objectContaining({ kind: "id", value: "second" }),
+      }),
+      expect.objectContaining({ kind: "agent_reference", reference: null }),
+    ]);
+
+    identity = { agentId: "pi", pid: 42 };
+    expect(await request(
+      server.path,
+      referenceReport({ kind: "id", value: "unsupported" }),
+    )).toMatchObject({ ok: false, error: "unsupported_agent" });
+    identity = { agentId: "omp", pid: 84 };
+    peerPid = 42;
+    expect(await request(
+      server.path,
+      referenceReport(null),
+    )).toMatchObject({ ok: false, error: "reporter_identity_mismatch" });
+    identity = { agentId: "omp", pid: 42 };
+    expect(await request(
+      server.path,
+      referenceReport({ kind: "id", value: "x".repeat(4_097) }),
+    )).toMatchObject({ ok: false, error: "invalid_request" });
+    expect(await request(
+      server.path,
+      referenceReport({ kind: "id", value: "bad\u0000reference" }),
+    )).toMatchObject({ ok: false, error: "invalid_request" });
+    expect(sink.events).toHaveLength(3);
   });
 });

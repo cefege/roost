@@ -4,7 +4,7 @@
 // Duplicate delivery and route-before-bus ordering are invariants.
 
 import type { KyselyDB } from "./db/connection.ts";
-import { foldEvent } from "@roost/shared/wire";
+import { foldEvent, SessionEvent as SessionEventSchema } from "@roost/shared/wire";
 import type { Session, SessionEvent, WorkerFp } from "@roost/shared/wire";
 import {
   MAX_WORKER_SNAPSHOT_SESSIONS,
@@ -18,6 +18,7 @@ import {
   projectSnapshotSessions,
   sessionToRow,
 } from "./event-projection.ts";
+import { projectAgentConversationReference } from "./agent-conversation-recovery.ts";
 import {
   reservePendingEventPublication,
   resolveEventPublication,
@@ -46,7 +47,7 @@ export interface AppendEventResult {
   dashboardId: string | null;
   /** A dedupe payload differed from the retained unpublished committed event. */
   replayRejected: boolean;
-  /** The normalized event actually persisted and published. */
+  /** The normalized event selected for this append result. */
   event: SessionEvent;
   /** Force-closed snapshot members omitted from `event` and awaiting reap. */
   snapshotReapIds: readonly string[];
@@ -83,6 +84,13 @@ export async function appendEvent(
     deferSnapshotReap?: boolean;
   } = { worker_fp: null, client_seq: null },
 ): Promise<AppendEventResult> {
+  if (event.kind === "agent_reference") {
+    const parsed = SessionEventSchema.safeParse(event);
+    if (!parsed.success) {
+      throw new Error("invalid agent conversation reference event");
+    }
+    event = parsed.data;
+  }
   if (
     event.kind === "snapshot"
     && event.sessions.length > MAX_WORKER_SNAPSHOT_SESSIONS
@@ -193,6 +201,22 @@ export async function appendEvent(
     if (event.kind === "snapshot") {
       await projectSnapshotSessions(tx, event, resolvedDashboardId);
       publishable = true;
+      return;
+    }
+
+    if (event.kind === "agent_reference") {
+      if (opts.worker_fp === null || opts.client_seq === null) {
+        throw new Error("agent conversation reference requires worker delivery");
+      }
+      await projectAgentConversationReference(
+        tx,
+        event,
+        opts.client_seq,
+        resolvedDashboardId,
+        opts.worker_fp,
+      );
+      // The durable row and private recovery projection commit, but this event
+      // deliberately has no channel-index or browser publication effect.
       return;
     }
 

@@ -62,7 +62,7 @@ export interface CoordLinkDeps {
   // Edge-triggered only after a cell send reported "dropped".
   onWritable?: () => void;
   // Hello only establishes the socket generation. The worker remains unready
-  // while durable lifecycle replay and the snapshot barrier are in progress.
+  // while durable session-event replay and the snapshot barrier are in progress.
   onHelloAck?: (msg: { reconnected: boolean }) => void;
   // Socket-open observation only. Application traffic remains fenced until
   // onSnapshotReady, which fires after the exact snapshot ACK.
@@ -137,6 +137,7 @@ export interface CoordLink {
   state(): CoordLinkState;
   protocolPhase(): CoordLinkProtocolPhase;
   ready(): boolean;
+  waitForDurableSessionEventReplay(signal?: AbortSignal): Promise<void>;
   activateSnapshotProvider(provider: WorkerSnapshotProvider): void;
   snapshotStateChanged(): void;
   sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TerminalCellSendResult;
@@ -155,7 +156,7 @@ export type UpstreamFrame =
       kind: "event";
       event: SessionEvent;
       clientSeq: number;
-      eventClass: "lifecycle" | "metadata";
+      eventClass: "durable" | "metadata";
       metadataKey?: string;
     }
   | { kind: "rpc-ok"; request_id: string; data: unknown }
@@ -225,6 +226,7 @@ export interface CoordLinkOutbox {
   snapshotStateChanged(): void;
   protocolPhase(): CoordLinkProtocolPhase;
   ready(): boolean;
+  waitForDurableSessionEventReplay(signal?: AbortSignal): Promise<void>;
   isAttached(): boolean;
   activeSocket(): WebSocket | null;
   drainQueues(): void;

@@ -20,6 +20,7 @@ interface StatusParams {
   active: boolean;
 }
 
+const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const originalEnv: Record<string, string | undefined> = {};
 const envNames = [
   "ROOST_AGENT_ENDPOINT", "ROOST_AGENT_CAPABILITY", "ROOST_SESSION_ID", "ROOST_AGENT_STATUS_DISABLED",
@@ -96,7 +97,7 @@ async function startCollector(): Promise<{
   await listening.promise;
   process.env.ROOST_AGENT_ENDPOINT = path;
   process.env.ROOST_AGENT_CAPABILITY = "test-capability";
-  process.env.ROOST_SESSION_ID = "11111111-1111-4111-8111-111111111111";
+  process.env.ROOST_SESSION_ID = SESSION_ID;
   return {
     reports,
     path,
@@ -109,12 +110,20 @@ async function startCollector(): Promise<{
   };
 }
 
-
-  // Cache-busted import is intentional: each test must evaluate the installed
-  // extension after setting its process-level socket and timer environment.
+// Cache-busted imports are intentional: each test must evaluate an installed
+// extension after setting its process-level socket and timer environment.
 async function importIntegration(agent: "omp" | "pi"): Promise<IntegrationModule> {
   const url = new URL(
     `../src/agent-status/integrations/${agent}/roost-agent-state.ts?test=${Date.now()}-${Math.random()}`,
+    import.meta.url,
+  );
+  return await import(url.href) as unknown as IntegrationModule;
+}
+
+// The reference asset has the same process-environment evaluation boundary.
+async function importOmpReferenceIntegration(): Promise<IntegrationModule> {
+  const url = new URL(
+    `../src/agent-status/integrations/omp/roost-agent-reference.ts?test=${Date.now()}-${Math.random()}`,
     import.meta.url,
   );
   return await import(url.href) as unknown as IntegrationModule;
@@ -207,6 +216,53 @@ describe("OMP lifecycle integration", () => {
     const disabled = createHarness();
     (await importIntegration("omp")).default(disabled.api);
     expect(disabled.handlers.size).toBe(0);
+  });
+
+  test("reports official path references before IDs independently of status", async () => {
+    const { reports, waitFor } = await startCollector();
+    process.env.ROOST_AGENT_STATUS_DISABLED = "1";
+    const { api, handlers } = createHarness();
+    (await importOmpReferenceIntegration()).default(api);
+    const referenceReports = reports as unknown as Array<{
+      session_id: string;
+      reference: { kind: "id" | "path"; value: string } | null;
+    }>;
+
+    await handlers.get("session_start")?.({}, {
+      sessionManager: {
+        getSessionFile: () => "/opaque/start.jsonl",
+        getSessionId: () => "start-id",
+      },
+    });
+    await waitFor(1);
+    await handlers.get("session_switch")?.({}, {
+      sessionManager: {
+        getSessionFile: () => undefined,
+        getSessionId: () => "switched-id",
+      },
+    });
+    await waitFor(2);
+    await handlers.get("session_stop")?.({
+      session_file: "/opaque/stopped.jsonl",
+      session_id: "stopped-id",
+    }, {});
+    await waitFor(3);
+
+    expect(referenceReports).toEqual([
+      {
+        session_id: SESSION_ID,
+        reference: { kind: "path", value: "/opaque/start.jsonl" },
+      },
+      {
+        session_id: SESSION_ID,
+        reference: { kind: "id", value: "switched-id" },
+      },
+      {
+        session_id: SESSION_ID,
+        reference: { kind: "path", value: "/opaque/stopped.jsonl" },
+      },
+    ]);
+    expect(handlers.size).toBe(3);
   });
 });
 

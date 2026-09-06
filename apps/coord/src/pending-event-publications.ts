@@ -6,6 +6,7 @@
 import { asWorkspaceId, type SessionEvent, type WorkerFp } from "@roost/shared/wire";
 import { sessionBus, workspaceBus, type SessionBusMessage } from "./buses.ts";
 import { applyDurableChannelIndex } from "./byte-hub.ts";
+import { isPublicSessionEvent } from "./session-event-visibility.ts";
 
 export const PENDING_EVENT_PUBLICATION_MAX_ENTRIES = 256;
 
@@ -265,6 +266,7 @@ export async function resolveEventPublication(
 }
 
 function publishCommittedEvent(effect: CommittedEventPublication): void {
+  if (!isPublicSessionEvent(effect.event)) return;
   applyDurableChannelIndex(effect.event, effect.authenticatedWorkerFp);
   const stamped: SessionBusMessage = {
     ...effect.event,

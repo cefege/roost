@@ -61,6 +61,15 @@ message Worker {
   optional KeeperRuntimeObservationV1 keeper_runtime = 10;
 }
 
+// Private opaque continuation metadata. It is carried by durable events and
+// worker-only recovery rows, never by the public Session message below.
+message AgentConversationReferenceV1 {
+  uint32 schema_version = 1;
+  string agent_id = 2;
+  string kind = 3;
+  string value = 4;
+}
+
 // ─── Session ────────────────────────────────────────────────────────────
 
 

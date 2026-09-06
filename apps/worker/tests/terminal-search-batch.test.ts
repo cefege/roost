@@ -33,7 +33,7 @@ import {
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import type { CoordLink, UpstreamFrame } from "../src/transport/coord-link-types.ts";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const SESSION_IDS = [
 	asSessionId("00000000-0000-0000-0000-000000000001"),
@@ -50,7 +50,7 @@ type CancelBatchFrame = Extract<ClientControlFrame, { kind: "cancel-scrollback-s
 function manager(): SessionManager {
 	return new SessionManager({
 		workerFp: asWorkerFp("00".repeat(32)),
-		sink: new LifecycleTestSink(),
+		sink: new SessionEventTestSink(),
 	});
 }
 
@@ -87,7 +87,7 @@ async function injectSession(
 		lastPtyOutMs: 0,
 		sb_origin_pin: null,
 		spawnedAtMs: Date.now(),
-		closeReservation: sessionMgr.reserveLifecycleEvent("closed"),
+		closeReservation: sessionMgr.reserveSessionEvent("closed"),
 	};
 	sessionMgr.sessions.set(asChannelId(channelNumber), record);
 }

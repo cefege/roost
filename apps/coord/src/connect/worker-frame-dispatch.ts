@@ -43,7 +43,6 @@ interface WorkerFrameDispatcherOptions {
   markSnapshotReady(): boolean;
   scheduleRespawn(workerFp: string): void;
 }
-
 export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions) {
   async function handleEvent(workerEvent: WSessionEvent): Promise<void> {
     const workerFp = options.getWorkerFp();
@@ -79,8 +78,16 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
     try {
       event = protoToEvent(rawEvent.event as never);
     } catch (error) {
-      log.warn("worker-service", "event_decode_failed", { error: String(error) });
-      diag("worker.frame_dropped", { reason: "event_decode_failed", worker_fp: workerFp });
+      const isPrivateReference =
+        (rawEvent.event as { kind?: { case?: unknown } } | undefined)
+          ?.kind?.case === "agentReference";
+      log.warn("worker-service", "event_decode_failed", {
+        error: isPrivateReference ? "private event decode failed" : String(error),
+      });
+      diag("worker.frame_dropped", {
+        reason: "event_decode_failed",
+        worker_fp: workerFp,
+      });
       signal("worker.protocol_violation", {
         reason: "event_decode_failed",
         worker_fp: workerFp,
@@ -106,6 +113,7 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
       && event.kind !== "opened"
       && event.kind !== "closed"
       && event.kind !== "respawned"
+      && event.kind !== "agent_reference"
       && event.kind !== "snapshot"
     ) {
       diag("worker.frame_dropped", {
@@ -149,14 +157,17 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
         deferSnapshotReap: event.kind === "snapshot",
       });
     } catch (error) {
+      const safeError = event.kind === "agent_reference"
+        ? "private event append failed"
+        : String(error);
       log.error("worker-service", "event_append_failed", {
         worker_fp: workerFp,
         kind: event.kind,
         client_seq: clientSeq,
-        error: String(error),
+        error: safeError,
       });
       signal("event.append_failed", {
-        error: String(error),
+        error: safeError,
         worker_fp: workerFp,
         cooldownKey: "events",
       });

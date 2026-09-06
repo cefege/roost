@@ -7,6 +7,7 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { composeStandaloneIntegration } from "../apps/worker/src/agent-status/standalone-integration.ts";
+import { AGENT_INTEGRATION_ASSET_SPECS } from "../apps/worker/src/agent-status/integration-assets.ts";
 import { buildKeeperImplementationDigest } from "./keeper-bundle-digest.ts";
 
 const WEB_OUT = "apps/coord/src/web-embed.generated.ts";
@@ -67,7 +68,7 @@ async function generate(): Promise<void> {
     writeFileSync(WEB_OUT, `${HDR}// Empty stub: from-source runs serve the SPA from disk (cfg.webDistPath).\nexport const WEB_ASSETS: Map<string, { raw: string; gzip?: string }> = new Map();\n`);
     writeFileSync(MIGR_OUT, `${HDR}// Empty stub: from-source runs read apps/coord/migrations/*.sql.\nexport const MIGRATIONS: { name: string; sql: string }[] = [];\n`);
     writeFileSync(WASM_OUT, `${HDR}// Empty stub: from-source loads the wasm and its digest sidecar from disk (import.meta.url).\nexport const WTERM_WASM_EMBED: string | null = null;\nexport const WTERM_WASM_SHA256_EMBED: string | null = null;\n`);
-    writeFileSync(AGENT_INTEGRATIONS_OUT, `${HDR}// Empty stub: from-source worker reads integration assets from disk.\nexport const OMP_AGENT_INTEGRATION = "";\nexport const PI_AGENT_INTEGRATION = "";\n`);
+    writeFileSync(AGENT_INTEGRATIONS_OUT, `${HDR}// Empty stub: from-source worker reads integration assets from disk.\nimport type { EmbeddedAgentIntegrationAsset } from "./integration-assets.ts";\nexport const AGENT_INTEGRATION_ASSETS: readonly EmbeddedAgentIntegrationAsset[] = [];\n`);
     writeFileSync(SKILL_OUT, `${HDR}// Empty stub: from-source CLI reads skills/roost/SKILL.md from disk.\nexport const ROOST_SKILL_EMBED: string | null = null;\n`);
     console.log("gen-embed: wrote empty stubs + keeper contract");
     return;
@@ -119,18 +120,29 @@ async function generate(): Promise<void> {
   // ── Canonical skill: type "text" preserves the release-matched UTF-8 bytes.
   writeFileSync(SKILL_OUT, `${HDR}import roostSkill from "../../../skills/roost/SKILL.md" with { type: "text" };\nexport const ROOST_SKILL_EMBED: string | null = roostSkill;\n`);
 
-  // ── OMP/Pi lifecycle extensions: source text installed into user config dirs.
+  // ── OMP/Pi extensions: source text installed into user config dirs.
   // The deployed text must be standalone (no @roost/* imports survive in user
-  // config dirs), so bake the SAME composed asset install-integrations writes.
-  const reportTransport = readFileSync("apps/worker/src/agent-status/report-transport.ts", "utf8");
-  const ompIntegration = composeStandaloneIntegration(readFileSync("apps/worker/src/agent-status/integrations/omp/roost-agent-state.ts", "utf8"), reportTransport);
-  const piIntegration = composeStandaloneIntegration(readFileSync("apps/worker/src/agent-status/integrations/pi/roost-agent-state.ts", "utf8"), reportTransport);
+  // config dirs), so bake the SAME catalog/composition the source installer uses.
+  const reportTransport = readFileSync(
+    "apps/worker/src/agent-status/report-transport.ts",
+    "utf8",
+  );
+  const agentIntegrations = AGENT_INTEGRATION_ASSET_SPECS.map((spec) => ({
+    id: spec.id,
+    content: composeStandaloneIntegration(
+      readFileSync(
+        join("apps/worker/src/agent-status", spec.sourcePath),
+        "utf8",
+      ),
+      reportTransport,
+    ),
+  }));
   writeFileSync(
     AGENT_INTEGRATIONS_OUT,
-    `${HDR}export const OMP_AGENT_INTEGRATION = ${JSON.stringify(ompIntegration)};\nexport const PI_AGENT_INTEGRATION = ${JSON.stringify(piIntegration)};\n`,
+    `${HDR}import type { EmbeddedAgentIntegrationAsset } from "./integration-assets.ts";\nexport const AGENT_INTEGRATION_ASSETS: readonly EmbeddedAgentIntegrationAsset[] = ${JSON.stringify(agentIntegrations)};\n`,
   );
 
-  console.log(`gen-embed: ${webFiles.length} web assets, ${migrFiles.length} migrations, 1 wasm, 2 install scripts, 2 agent integrations, 1 keeper contract, 1 skill`);
+  console.log(`gen-embed: ${webFiles.length} web assets, ${migrFiles.length} migrations, 1 wasm, 2 install scripts, ${agentIntegrations.length} agent integrations, 1 keeper contract, 1 skill`);
 }
 
 if (import.meta.main) await generate();

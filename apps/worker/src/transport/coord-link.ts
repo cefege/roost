@@ -290,6 +290,8 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     state: () => state,
     protocolPhase: outbox.protocolPhase,
     ready: outbox.ready,
+    waitForDurableSessionEventReplay:
+      outbox.waitForDurableSessionEventReplay,
     activateSnapshotProvider: outbox.activateSnapshotProvider,
     snapshotStateChanged: outbox.snapshotStateChanged,
     relocate,

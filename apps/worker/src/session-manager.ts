@@ -21,22 +21,22 @@ import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplex
 import { asChannelId } from "@roost/shared/wire";
 import {
 	isFatalSessionEventError,
-	SessionLifecycleOutboxFullError,
-	type DurableLifecycleKind,
-	type LifecycleReservation,
+	SessionEventOutboxFullError,
+	type DurableSessionEventKind,
+	type SessionEventReservation,
 } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import type { SessionId, ChannelId, SessionEvent } from "@roost/shared/wire";
 import type { SessionRecord, SessionShellRecord } from "./session-record.ts";
 import type { ShellSpec } from "./shell-spec.ts";
 export type { SessionRecord, SessionShellRecord } from "./session-record.ts";
-export function isLifecycleOutboxFullError(
+export function isSessionEventOutboxFullError(
 	error: unknown,
-): error is SessionLifecycleOutboxFullError {
-	return error instanceof SessionLifecycleOutboxFullError;
+): error is SessionEventOutboxFullError {
+	return error instanceof SessionEventOutboxFullError;
 }
 
-export function isSessionLifecycleDurabilityError(error: unknown): boolean {
+export function isSessionEventDurabilityError(error: unknown): boolean {
 	return isFatalSessionEventError(error);
 }
 
@@ -82,19 +82,21 @@ export class SessionManager extends SessionManagerState {
 		return asChannelId(this._nextChannel++);
 	}
 
-	reserveLifecycleEvent(kind: DurableLifecycleKind): LifecycleReservation {
-		return this.sink.reserveLifecycleEvent(kind);
+	reserveSessionEvent(
+		kind: DurableSessionEventKind,
+	): SessionEventReservation {
+		return this.sink.reserveSessionEvent(kind);
 	}
 
-	holdLifecycleEvent(reservation: LifecycleReservation): void {
-		this.sink.holdLifecycleEvent(reservation);
+	holdSessionEvent(reservation: SessionEventReservation): void {
+		this.sink.holdSessionEvent(reservation);
 	}
 
-	releaseLifecycleEvent(reservation: LifecycleReservation): void {
-		this.sink.releaseLifecycleEvent(reservation);
+	releaseSessionEvent(reservation: SessionEventReservation): void {
+		this.sink.releaseSessionEvent(reservation);
 	}
 
-	emitEvent(event: SessionEvent, reservation?: LifecycleReservation): void {
+	emitEvent(event: SessionEvent, reservation?: SessionEventReservation): void {
 		this.sink.emit(event, reservation);
 	}
 
@@ -275,18 +277,18 @@ export class SessionManager extends SessionManagerState {
 			}
 			const countedAdmission = !existingLogicalSession;
 			if (countedAdmission) this.pendingSnapshotSessionAdmissions += 1;
-			let openedReservation: LifecycleReservation;
+			let openedReservation: SessionEventReservation;
 			try {
-				openedReservation = this.reserveLifecycleEvent("opened");
+				openedReservation = this.reserveSessionEvent("opened");
 			} catch (error) {
 				if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
 				throw error;
 			}
-			let closeReservation: LifecycleReservation;
+			let closeReservation: SessionEventReservation;
 			try {
-				closeReservation = this.reserveLifecycleEvent("closed");
+				closeReservation = this.reserveSessionEvent("closed");
 			} catch (error) {
-				this.releaseLifecycleEvent(openedReservation);
+				this.releaseSessionEvent(openedReservation);
 				if (countedAdmission) this.pendingSnapshotSessionAdmissions -= 1;
 				throw error;
 			}
@@ -327,12 +329,12 @@ export class SessionManager extends SessionManagerState {
 
 	resume(
 		opts: { sessionId: SessionId; channelId: ChannelId; kind: "shell"; cwd: string; shellSpec: ShellSpec },
-		closeReservation?: LifecycleReservation,
+		closeReservation?: SessionEventReservation,
 	): Promise<boolean> {
 		return resumeFns.resume.call(
 			this,
 			opts,
-			closeReservation ?? this.reserveLifecycleEvent("closed"),
+			closeReservation ?? this.reserveSessionEvent("closed"),
 		);
 	}
 
@@ -355,7 +357,7 @@ export class SessionManager extends SessionManagerState {
 
 	emitClosedTombstone(
 		sessionId: SessionId,
-		reservation?: LifecycleReservation,
+		reservation?: SessionEventReservation,
 	): void {
 		return lifecycle.emitClosedTombstone.call(this, sessionId, reservation);
 	}

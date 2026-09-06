@@ -5,19 +5,19 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { asSessionId, asWorkerFp } from "@roost/shared/wire";
-import type { DurableLifecycleKind } from "../src/event-sink.ts";
+import type { DurableSessionEventKind } from "../src/event-sink.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionManager } from "../src/session-manager.ts";
-import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 process.env.ROOST_KEEPER_QUIET = "1";
 
-class RecordingLifecycleSink extends LifecycleTestSink {
-	readonly reservationKinds: DurableLifecycleKind[] = [];
+class RecordingSessionEventSink extends SessionEventTestSink {
+	readonly reservationKinds: DurableSessionEventKind[] = [];
 
-	override reserveLifecycleEvent(kind: DurableLifecycleKind) {
+	override reserveSessionEvent(kind: DurableSessionEventKind) {
 		this.reservationKinds.push(kind);
-		return super.reserveLifecycleEvent(kind);
+		return super.reserveSessionEvent(kind);
 	}
 }
 
@@ -45,7 +45,7 @@ afterAll(() => {
 
 describe("SessionManager respawn-if-missing fallback", () => {
 	test("reserves before keeper spawn and durably respawns the existing logical session", async () => {
-		const sink = new RecordingLifecycleSink();
+		const sink = new RecordingSessionEventSink();
 		const manager = new SessionManager({
 			workerFp: asWorkerFp("42".repeat(32)),
 			sink,
@@ -56,7 +56,7 @@ describe("SessionManager respawn-if-missing fallback", () => {
 		const sessionId = asSessionId(randomUUID());
 		const originalSpawn = pool.spawn;
 		let spawnCalls = 0;
-		let reservationKindsAtSpawn: DurableLifecycleKind[] = [];
+		let reservationKindsAtSpawn: DurableSessionEventKind[] = [];
 		let lifecycleEventsAtSpawn = 0;
 		pool.spawn = async function (options) {
 			spawnCalls += 1;
