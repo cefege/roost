@@ -22,15 +22,17 @@ import {
 } from "./TerminalComposeButton.tsx";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { folderKeyOf, folderPathOf } from "../lib/folderKey.ts";
-import { isPendingClose } from "../lib/pendingClose.ts";
+import { liveSessionIdsForFolder } from "../store/selectors.ts";
 import { shortCwd } from "../lib/sidebarFormat.ts";
+import {
+  syncDeckRouteSelection,
+  syncDeckSessionSelection,
+} from "../lib/deckRouteSelection.ts";
 import { commitLayout, seedIfAbsent, resolveLayout } from "../store/paneLayoutStore.ts";
 import {
-  allLeaves,
-  findLeafOfTab,
+  compactLeafForLayout,
   flatTabs,
   layoutView,
-  selectTab,
   setRatio,
   type Layout,
   type PaneView,
@@ -61,7 +63,6 @@ export interface TerminalDeckProps {
   activeSessionId: string | null;
   surfaceVisible: boolean;
 }
-
 
 export function createTerminalDeckModel(
   props: TerminalDeckProps,
@@ -95,11 +96,7 @@ export function createTerminalDeckModel(
   });
   const liveIds = createMemo(() => {
     const currentFolder = folderKey();
-    if (!currentFolder) return [];
-    return openSessions()
-      .filter((session) => folderKeyOf(session) === currentFolder && !isPendingClose(session.id))
-      .sort((left, right) => left.created_at - right.created_at)
-      .map((session) => session.id);
+    return currentFolder ? liveSessionIdsForFolder(currentFolder) : [];
   });
 
   const [size, setSize] = createSignal({ w: 0, h: 0 });
@@ -125,10 +122,9 @@ export function createTerminalDeckModel(
     ([active, currentFolder]) => {
       if (!active || !currentFolder) return;
       const current = resolveLayout(currentFolder, liveIds());
-      const leaf = findLeafOfTab(current.root, active);
-      if (!leaf) return;
-      if (current.focusedPaneId === leaf.paneId && leaf.selectedTab === active) return;
-      commitLayout(currentFolder, selectTab(current, active));
+      syncDeckRouteSelection(current, active, isCompact(), (next) => {
+        commitLayout(currentFolder, next);
+      });
     },
   ));
   createEffect(on(deckSessionId, (active) => {
@@ -155,15 +151,17 @@ export function createTerminalDeckModel(
       current = { ...current, root: setRatio(current.root, id, transientRatios[id]) };
     }
     if (isCompact()) {
-      const leaves = allLeaves(current.root);
-      const leaf = leaves.find((candidate) => candidate.paneId === current!.focusedPaneId) ?? leaves[0];
+      const activeSessionId = deckSessionId();
+      const leaf = compactLeafForLayout(current, activeSessionId);
       if (!leaf) return { panes: [], dividers: [] };
       return {
         panes: [{
           paneId: leaf.paneId,
           rect: { x: 0, y: 0, w: size().w, h: size().h },
           tabIds: leaf.tabs,
-          selectedTab: leaf.selectedTab,
+          selectedTab: activeSessionId && leaf.tabs.includes(activeSessionId)
+            ? activeSessionId
+            : leaf.selectedTab,
           focused: true,
         }],
         dividers: [],
@@ -319,7 +317,12 @@ export function createTerminalDeckModel(
   };
   function selectSession(id: string): void {
     if (activeComposeSessionId() !== id) releaseActiveComposeFocus();
-    selectTabOp(opsCtx, id, spotlightPane()?.paneId ?? null);
+    syncDeckSessionSelection(
+      layout(),
+      isCompact(),
+      () => selectTabOp(opsCtx, id, spotlightPane()?.paneId ?? null),
+      () => navigate(`/s/${id}`),
+    );
   }
 
   return {

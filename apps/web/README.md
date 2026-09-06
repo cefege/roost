@@ -47,17 +47,17 @@ lives in that row's directory; prefixed refs follow the convention above.
 | Directory | Owns | Must not own |
 | --- | --- | --- |
 | `apps/web/src/` (root files) | `entry.ts` (credential scrub + deferred graph load), `main.tsx` (post-scrub bootstrap + mount), `App.tsx` (router + overlay shell), `routes.ts` (URL table), `connect.ts` (Connect-RPC client), `css-imports.d.ts` and `md-elements.d.ts` (ambient imports/elements) | feature-shaped UI |
-| `apps/web/src/components/` | screens/dialogs; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `TerminalDeck.tsx` owns persistent keyed mounting; `ManagedRouteGate.tsx` and `ManagedLogin.tsx`/`ManagedSignup.tsx` own managed gates/routes | direct store writes, wire framing, persistence |
+| `apps/web/src/components/` | screens/dialogs; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets plus local layout transfer and `LayoutDocumentDialog.tsx` owns explicit import preview/apply; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `TerminalDeck.tsx` owns persistent keyed mounting; `ManagedRouteGate.tsx` and `ManagedLogin.tsx`/`ManagedSignup.tsx` own managed gates/routes | direct store writes, wire framing, persistence |
 | `apps/web/src/components/layout/` | `AppShell.tsx` (sidebar + route slot), `MobileTopBar.tsx`, `DashboardScopeSelector.tsx` (server-confirmed organization/dashboard selection) | route-specific content |
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
 | `apps/web/src/components/Settings/` | settings shell/panes; `OrganizationPane.tsx` and `DashboardPane.tsx` project confirmed scope, `MachinesPane.tsx` owns workers, `settingsNavigation.ts` hides self-hosted-only scope controls in managed mode | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
-| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
+| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `paneLayoutDocument.ts` is the strict portable-document adapter over the browser-local pane store; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
-| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts` owns bounded dashboard search paging, `globalContentSearchResults.ts` reconciles cursor results, `globalContentSearchRuntime.ts` fences dashboard cutovers, and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun clicked results in pane-local current-epoch find (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
+| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters; `layoutDocumentControls.ts` fences local copy/download/import/apply and `layoutDocumentFile.ts` owns local JSON file I/O; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts` owns bounded dashboard search paging, `globalContentSearchResults.ts` reconciles cursor results, `globalContentSearchRuntime.ts` fences dashboard cutovers, and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun clicked results in pane-local current-epoch find (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, fragment credentials, pairing/tab identity/relocation; `tenant-routing.ts`, `managed-routes.ts`, `managed-auth-gateway.ts`, `managed-login.ts`, `managed-account.ts`, `managed-credentials.ts`, and `managed-logout.ts` own managed policy/transitions | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | six global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules | component-local one-offs |
-| `apps/web/tests/` | 121 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
+| `apps/web/tests/` | 124 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
 | `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
 
@@ -78,6 +78,15 @@ search RPCs; opening a completed session acknowledges it. Search never inspects
 agent transcripts. Cross-worker transfer remains a beta placeholder: its item
 opens an explanatory dialog without issuing a transfer RPC. Attachment
 upload/download through `TransferStack` remains supported.
+
+Portable layouts remain a browser-local capability. `paneLayoutStore` owns the
+active runtime tree and its private pane/split UUIDs under
+`roost.paneLayout.v1`; `@roost/shared/layout-document` is the strict versioned
+copy/download/import boundary. Export replaces runtime IDs with deterministic
+preorder leaf/slot keys. Import previews before mutation, rechecks the current
+dashboard resource token and canonical folder membership, materializes every
+runtime ID afresh, and performs one commit. No storage event, coordinator
+record, or live cross-tab synchronization applies another tab's layout.
 
 ## Invariants
 
@@ -109,6 +118,19 @@ Break one of these and you get back the history-corruption class this repo keeps
   named functions in `apps/web/src/store/mutations.ts`. New UI adds a selector and a JSX line; it does
   not add a store. `apps/web/src/store/projector.ts` folds `SessionEvent` with the same `foldEvent`
   coord uses (`@roost/shared/wire`), so SPA and coord projections agree by construction.
+- **Portable layout apply is one validated browser-local commit.** The shared
+  V1 parser rejects unknown keys/versions and invalid graph references.
+  `liveSessionIdsForFolder()` is the only folder membership/order selector used
+  by the deck, UI reporter/dispatcher, and import controls. The adapter validates
+  and materializes entirely in locals before `commitLayout()` exactly once;
+  rejection cannot create a pane signal, subscriber call, persistence timer, or
+  localStorage write. Runtime pane/split UUIDs never enter exported JSON, and
+  open browser tabs do not fold each other's storage events. Imported empty
+  leaves survive reconciliation and unrelated mutations; legacy runtime ratios
+  normalize into the shared bounds before rendering/export. Desktop Arrange
+  and the compact workspace-sheet overflow expose the same controls, including
+  for one-session folders. Compact rendering projects the live URL session (or
+  first occupied leaf) without changing the preserved desktop focus/topology.
 - **Observed-agent status is occupant-fenced.** Identified Sync frames compare
   `status_epoch` and `occupant_id` only by equality; `source` is mutable
   provenance. Replaced occupants and epochs stay retired, and seen state,
@@ -162,7 +184,7 @@ Break one of these and you get back the history-corruption class this repo keeps
 - `bun run test:terminal` — the Playwright browser tier, and the only tier that proves paint. It
   builds this app (`vite build`), regenerates the embeds (`scripts/gen-embed.ts`), runs pass 1
   `--project=chromium-desktop` (plus `--project=webkit-iphone` on darwin)
-  across the 36 `smoke/terminal/**/*.spec.ts` files. Repo-root
+  across the 38 `smoke/terminal/**/*.spec.ts` files. Repo-root
   `playwright.config.ts` derives pass-1 workers from available CPUs, capped at
   four. Pass 2 uses `--project=chromium-serial --workers=1` for `@serial` perf
   cases, then the runner restores embed stubs

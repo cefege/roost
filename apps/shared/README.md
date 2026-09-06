@@ -31,6 +31,7 @@ import style is now correct instead of two.
 | `@roost/shared/wire/headers` | shared `x-roost-*` header names and listener-trust sentinel values |
 | `@roost/shared/terminal-search` | bounded paging limits, Unicode code-point utilities, stop reasons, worker-result validation |
 | `@roost/shared/terminal-input` | terminal newline/paste encoding plus guarded-prompt byte and wait bounds |
+| `@roost/shared/layout-document` | portable v1 pane-tree types, strict schema/parser, and inclusive split-ratio bounds |
 | `@roost/shared/cell` | cell-grid model, emitter, delta apply, bounded snapshot chunking/assembly (R11) |
 | `@roost/shared/cell/cell-proto` | cell frame ↔ proto |
 | `@roost/shared/proto/*` | every generated `_pb.ts` (`…/proto/coordinator_pb`) |
@@ -93,6 +94,9 @@ producers and consumers.
   owner shared by the browser composer and the worker's guarded prompt path.
   It normalizes every newline spelling to CR and, when bracketed paste is
   active, strips ESC from the text and wraps it; `CR_BYTES` supplies submit.
+- **Portable layout document** — `src/layout-document.ts` owns the browser-safe
+  v1 pane tree, leaf/slot session bindings, strict parser, and shared ratio
+  bounds used by layout runtimes.
 - **Terminal search** — `src/terminal-search.ts` owns query/row/match/preview
   limits, exclusive-cursor result validation, and Unicode code-point
   counting/truncation shared by every search hop.
@@ -119,6 +123,13 @@ producers and consumers.
   `src/wterm-wasm-embed.generated.ts`.
 
 ## Invariants
+
+- **Layout documents are strict, total graphs.** `schema_version` is exactly 1;
+  every recursive object rejects unknown fields; split ratios are finite and
+  within inclusive `0.1..0.9`; leaf and slot keys are nonempty and globally
+  unique. Focus and selection must reference the owning tree, selection is null
+  exactly for empty leaves, every slot has exactly one binding, and a session
+  can be bound only once.
 
 - **Terminal-search limits reject rather than clamp.** Queries may be empty
   and are capped at 256 Unicode code points, caller-generated cancellation IDs

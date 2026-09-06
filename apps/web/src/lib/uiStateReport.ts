@@ -20,9 +20,8 @@ import { coordClient } from "../connect.ts";
 import { getTabId } from "../auth/tab-id.ts";
 import { onLayoutCommit, resolveLayout } from "../store/paneLayoutStore.ts";
 import { allLeaves } from "../store/paneLayout.ts";
-import { activeSessionForPath } from "../store/selectors.ts";
+import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";
 import { folderKeyOf } from "./folderKey.ts";
-import { liveIdsForFolder } from "./deckOps.ts";
 
 const DEBOUNCE_MS = 300;
 const HEARTBEAT_MS = 60_000;
@@ -40,7 +39,7 @@ function _send(): void {
   const active = activeSessionForPath(path);
   const open = active && active.status === "open" ? active : null;
   const fk = open ? folderKeyOf(open) : null;
-  const layout = fk ? resolveLayout(fk, liveIdsForFolder(fk)) : null;
+  const layout = fk ? resolveLayout(fk, liveSessionIdsForFolder(fk)) : null;
   void coordClient.uiReportState({
     tabId: getTabId(),
     activePath: path,

@@ -5,10 +5,9 @@
 // WorkspaceTabsSheet: a full-screen card grid of the folder's terminals,
 // mirroring the home page's FolderCard grid — tap a card to switch, ✕ to close.
 //
-// Rendered by TerminalDeck at the top of the deck when isCompact(). Same
-// props contract the old MobileTabStrip had; select/close/spawn reuse the
-// deck's doSelect/doClose/doNewTab.
-
+// Rendered by TerminalDeck at the top of the deck when isCompact().
+// Terminal actions reuse the deck operations; the sheet overflow also exposes
+// the same browser-local copy/download/import controls as desktop Arrange.
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { sessionTitle, programSubtitle } from "../lib/sessionTitle.ts";
@@ -18,7 +17,7 @@ import { relTimeSince } from "../lib/relTime.ts";
 import { relTimeTickMs } from "./sidebar/SessionRow.tsx";
 import type { Session } from "@roost/shared/wire";
 import { renderPreview } from "../lib/terminalPreview.ts";
-import { anchoredMenuPosition, anchoredMenuSurfaceStyle, CtxMenuItem, trackFloatingMenuDismiss } from "./contextMenuPrimitives.tsx";
+import { WorkspaceTabsMenu } from "./WorkspaceTabsMenu.tsx";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import { shouldDismissCard, cardSwipeAlpha, CARD_DISMISS_PX } from "../lib/deckSwipe.ts";
 import { flipGrid } from "../lib/gridFlip.ts";
@@ -41,6 +40,9 @@ export interface MobileDeckBarProps {
   onSelect: (id: string) => void;
   onClose: (s: Session) => void;
   onNewTab: () => void;
+  onCopyLayout: () => void;
+  onDownloadLayout: () => void;
+  onImportLayout: () => void;
 }
 
 export function MobileDeckBar(props: MobileDeckBarProps) {
@@ -118,6 +120,9 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
           onClose={props.onClose}
           onNewTab={props.onNewTab}
           onCloseSheet={() => setSheetOpen(false)}
+          onCopyLayout={props.onCopyLayout}
+          onDownloadLayout={props.onDownloadLayout}
+          onImportLayout={props.onImportLayout}
         />
       </Show>
     </>
@@ -141,6 +146,9 @@ interface WorkspaceTabsSheetProps {
   onClose: (s: Session) => void;
   onNewTab: () => void;
   onCloseSheet: () => void;
+  onCopyLayout: () => void;
+  onDownloadLayout: () => void;
+  onImportLayout: () => void;
 }
 
 function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
@@ -246,6 +254,12 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
             onSelectTabs={enterSelection}
             onSelectAll={selectAll}
             onCloseSelected={closeSelected}
+            onCopyLayout={props.onCopyLayout}
+            onDownloadLayout={props.onDownloadLayout}
+            onImportLayout={() => {
+              props.onCloseSheet();
+              props.onImportLayout();
+            }}
           />
         </div>
 
@@ -288,72 +302,6 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
   );
 }
 
-// Right-anchored overflow menu for the tab grid, built on the shared anchored-
-// menu primitives. zIndex 70 clears the sheet (60).
-function WorkspaceTabsMenu(props: {
-  selectionMode: boolean;
-  onCloseAll: () => void;
-  onSelectTabs: () => void;
-  onSelectAll: () => void;
-  onCloseSelected: () => void;
-}) {
-  const [open, setOpen] = createSignal<{ right: number; y: number } | null>(null);
-  let btnEl: HTMLButtonElement | undefined;
-  let menuEl: HTMLDivElement | undefined;
-
-  const toggle = () => {
-    if (open()) { setOpen(null); return; }
-    setOpen(anchoredMenuPosition(btnEl!));
-  };
-
-  const choose = (fn: () => void) => { setOpen(null); fn(); };
-
-  trackFloatingMenuDismiss({ within: [() => btnEl, () => menuEl], onClose: () => setOpen(null) });
-
-  const surfaceStyle = (pos: { right: number; y: number }) =>
-    anchoredMenuSurfaceStyle(pos, { minWidth: "200px", zIndex: 70 });
-
-  return (
-    <>
-      <IconButton
-        ref={btnEl}
-        icon="more_vert"
-        label="More options"
-        data-testid="workspace-tabs-menu"
-        onClick={toggle}
-      />
-      <Show when={open()}>
-        {(pos) => (
-          <Portal>
-            <div
-              ref={menuEl}
-              data-testid="workspace-tabs-menu-popup"
-              class="df-menu-enter"
-              style={surfaceStyle(pos())}
-            >
-              <Show when={!props.selectionMode}>
-                <CtxMenuItem testid="workspace-tabs-close-all" danger onClick={() => choose(props.onCloseAll)}>
-                  Close all tabs
-                </CtxMenuItem>
-                <CtxMenuItem testid="workspace-tabs-select" onClick={() => choose(props.onSelectTabs)}>
-                  Select tabs
-                </CtxMenuItem>
-              </Show>
-              <Show when={props.selectionMode}>
-                <CtxMenuItem testid="workspace-tabs-select-all" onClick={() => choose(props.onSelectAll)}>
-                  Select all
-                </CtxMenuItem>
-                <CtxMenuItem testid="workspace-tabs-close-selected" danger onClick={() => choose(props.onCloseSelected)}>
-                  Close selected tabs
-                </CtxMenuItem>
-              </Show>
-            </div>
-          </Portal>
-        )}
-      </Show>
-    </>
-  );
-}
 // One terminal card — Chrome tab_grid_card_item_layout adapted for terminals.
 // Compact header (favicon + title + truncated subtitle) over a terminal
 // preview area: a real low-quality canvas screenshot of the terminal's

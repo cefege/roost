@@ -1,12 +1,7 @@
-// Shared right-click context-menu primitives. BOTH the terminal-pane menu
-// (TerminalContextMenu) and the sidebar-row menu (SessionRowContextMenu) build
-// from these so they are visually identical — same surface (bg / border /
-// radius / shadow / padding / font), same item shape, same hover, same
-// separators. Neither menu styles items inline (that's what drifted them apart
-// + killed the hover, see sidebar.css:1741 `.df-menu-item:hover`).
-//
-// Desktop floating menus only — the terminal menu's mobile bottom-sheet stays
-// in its own file (different interaction model).
+// Owns shared floating-menu chrome, anchoring, dismissal, and keyboard behavior.
+// Terminal, sidebar, pane, arrange, and compact workspace menus compose it.
+// It depends on Solid lifecycle plus the shared design-token menu CSS.
+// Mobile bottom sheets remain separate; anchored menus may render above them.
 
 import { onCleanup, type JSX } from "solid-js";
 
@@ -37,6 +32,7 @@ export function ctxMenuSurfaceStyle(
 export function CtxMenuSeparator() {
 	return (
 		<div
+			role="separator"
 			style={{
 				height: "1px",
 				background: "var(--border-strong)",
@@ -45,12 +41,9 @@ export function CtxMenuSeparator() {
 		/>
 	);
 }
-
-/** One menu row. `class="df-menu-item"` carries the hover highlight from
- *  sidebar.css — do NOT set an inline background here (it would override it).
- *  `disabled` greys the row + swallows the click (used when an action has no
- *  valid target, e.g. screen-share/finder on a worker with no reachable_addr —
- *  synthesizing a host from the label produces an unresolvable vnc:// URL). */
+/** One native, programmatically focusable menu row. Items stay out of the
+ * sequential tab order; `disabled` makes unreachable actions unavailable to
+ * both roving focus and pointer activation. */
 export function CtxMenuItem(props: {
 	testid: string;
 	onClick: (e: MouseEvent) => void;
@@ -60,30 +53,115 @@ export function CtxMenuItem(props: {
 	children: JSX.Element;
 }) {
 	return (
-		<div
+		<button
+			type="button"
 			data-testid={props.testid}
 			class="df-menu-item"
 			role="menuitem"
+			tabIndex={-1}
+			disabled={props.disabled}
 			aria-disabled={props.disabled ? "true" : undefined}
 			title={props.title}
-			onClick={(e) => {
-				if (props.disabled) {
-					e.stopPropagation();
-					return;
-				}
-				props.onClick(e);
-			}}
+			onClick={props.onClick}
 			style={{
+				display: "block",
+				width: "100%",
 				padding: "6px 10px",
+				border: "none",
 				"border-radius": "var(--md-shape-xs)",
 				cursor: props.disabled ? "default" : "pointer",
 				opacity: props.disabled ? "0.4" : "1",
 				color: props.danger ? "var(--color-err)" : "var(--text-hi)",
+				font: "inherit",
+				"text-align": "left",
 			}}
 		>
 			{props.children}
-		</div>
+		</button>
 	);
+}
+
+export type MenuFocusEdge = "first" | "last";
+
+function enabledMenuItems(menuElement: HTMLElement | undefined): HTMLButtonElement[] {
+	return Array.from(menuElement?.querySelectorAll<HTMLButtonElement>(
+		'[role="menuitem"]:not(:disabled)',
+	) ?? []);
+}
+
+/** Focus after the owning Show/Portal has mounted its menu subtree. A Portal
+ * can miss the first microtask, so disconnected/missing items retry by frame. */
+export function focusMenuEdge(
+	menuElement: () => HTMLElement | undefined,
+	edge: MenuFocusEdge,
+): () => void {
+	let cancelled = false;
+	let animationFrame: number | null = null;
+	let attempts = 0;
+	const focusWhenMounted = () => {
+		if (cancelled) return;
+		const menu = menuElement();
+		const items = menu?.isConnected ? enabledMenuItems(menu) : [];
+		const target = items[edge === "first" ? 0 : items.length - 1];
+		if (target) {
+			target.focus();
+			if (document.activeElement === target) return;
+		}
+		attempts++;
+		if (attempts < 4) animationFrame = requestAnimationFrame(focusWhenMounted);
+	};
+	queueMicrotask(focusWhenMounted);
+	return () => {
+		cancelled = true;
+		if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+	};
+}
+
+/** Shared roving focus and activation semantics for floating menus. */
+export function handleMenuKeyboardNavigation(
+	event: KeyboardEvent,
+	menuElement: HTMLElement | undefined,
+	onEscape: () => void,
+	onTab: () => void,
+): void {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		event.stopPropagation();
+		onEscape();
+		return;
+	}
+	if (event.key === "Tab") {
+		// Let native sequential focus leave the programmatic menu item first.
+		queueMicrotask(onTab);
+		return;
+	}
+	const items = enabledMenuItems(menuElement);
+	if (items.length === 0) return;
+	const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+	let targetIndex: number | null = null;
+	if (event.key === "ArrowDown") {
+		targetIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % items.length;
+	} else if (event.key === "ArrowUp") {
+		targetIndex = currentIndex < 0
+			? items.length - 1
+			: (currentIndex - 1 + items.length) % items.length;
+	} else if (event.key === "Home") {
+		targetIndex = 0;
+	} else if (event.key === "End") {
+		targetIndex = items.length - 1;
+	} else if (event.key === "Enter" || event.key === " ") {
+		const activeItem = items[currentIndex];
+		if (!activeItem) return;
+		event.preventDefault();
+		event.stopPropagation();
+		activeItem.click();
+		return;
+	} else {
+		return;
+	}
+	event.preventDefault();
+	event.stopPropagation();
+	if (targetIndex !== null) items[targetIndex]?.focus();
 }
 
 // ─── right-anchored menus ─────────────────────────────────────────────────────

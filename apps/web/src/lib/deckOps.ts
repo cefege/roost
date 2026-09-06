@@ -18,9 +18,8 @@ import {
 } from "../store/paneLayout.ts";
 import { setSpotlightSessionId } from "../store/spotlight.ts";
 import { isPendingSpawn, abortOptimisticSpawn } from "../store/optimisticSpawn.ts";
-import { scheduleClose, isPendingClose } from "./pendingClose.ts";
+import { scheduleClose } from "./pendingClose.ts";
 import { closeLabelsFor, siblingOrHomeHref, killAfterUndo } from "./closeSession.ts";
-import { folderKeyOf } from "./folderKey.ts";
 
 export interface DeckOpsCtx {
   /** Folder bucket the ops commit into (null = no active folder → no-op). */
@@ -40,16 +39,6 @@ function applyTo(ctx: DeckOpsCtx, fn: (l: Layout) => Layout): void {
   if (fk && l) commitLayout(fk, fn(l));
 }
 
-/** Sessions that belong in a folder's layout — the same live-set filter as
- *  TerminalDeck's liveIds memo (EXCLUDE pending-close so a soft-closed tab's
- *  pane can collapse; see the comment there). Shared by the ui-cc reporter
- *  and dispatcher, which resolve layouts outside the deck. */
-export function liveIdsForFolder(fk: string): string[] {
-  return Object.values(rootStore.sessions)
-    .filter((s) => s.status === "open" && folderKeyOf(s) === fk && !isPendingClose(s.id))
-    .sort((a, b) => a.created_at - b.created_at)
-    .map((s) => s.id);
-}
 
 /** Select a tab (click / agent select_tab): select + focus its pane, navigate
  *  to it. `spotlitPaneId` = the currently floated pane, captured BEFORE the

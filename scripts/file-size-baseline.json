@@ -18,7 +18,7 @@
   "apps/shared/src/service-health.ts": 411,
   "apps/shared/src/windows-helper.ts": 1147,
   "apps/shared/tests/trace-oracle.ts": 1078,
-  "apps/web/src/components/MobileDeckBar.tsx": 550,
+  "apps/web/src/components/MobileDeckBar.tsx": 498,
   "apps/web/src/components/MobileVoiceInput.tsx": 484,
   "apps/web/src/components/PaneStrip.tsx": 476,
   "apps/web/src/components/TerminalComposeButton.tsx": 462,

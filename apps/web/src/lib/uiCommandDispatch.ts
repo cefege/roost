@@ -17,14 +17,14 @@ import { findLeafOfTab, type Layout } from "../store/paneLayout.ts";
 import { commitLayout, resolveLayout } from "../store/paneLayoutStore.ts";
 import { rootStore } from "../store/root.ts";
 import type { Session } from "@roost/shared/wire";
-import { activeSessionForPath } from "../store/selectors.ts";
+import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";
 import { spotlightSessionId, setSpotlightSessionId, clearSpotlight } from "../store/spotlight.ts";
 import { getTabId } from "../auth/tab-id.ts";
 import { isCompact } from "./windowSizeClass.ts";
 import { folderKeyOf } from "./folderKey.ts";
 import { applyUiCommandToLayout, frameAccepted } from "./uiCommandCore.ts";
 import {
-  liveIdsForFolder, selectTabOp, focusPaneOp, closeSessionOp, type DeckOpsCtx,
+  selectTabOp, focusPaneOp, closeSessionOp, type DeckOpsCtx,
 } from "./deckOps.ts";
 
 
@@ -47,7 +47,7 @@ function dropUnknown(kind: string, sid: string): void {
 function ctxFor(fk: string, io: UiCommandIo): DeckOpsCtx {
   return {
     folderKey: () => fk,
-    layout: () => resolveLayout(fk, liveIdsForFolder(fk)),
+    layout: () => resolveLayout(fk, liveSessionIdsForFolder(fk)),
     activeSessionId: () => {
       const s = activeSessionForPath(io.getPath());
       return s && s.status === "open" ? s.id : null;
@@ -101,7 +101,7 @@ export function handleUiCommand(frame: UiCommandFrame, io: UiCommandIo): void {
       // resolveLayout's reconcile folds every open live session in, so the
       // tab is guaranteed present — selectTabOp navigates like a strip click.
       const fk = folderKeyOf(s);
-      const l = resolveLayout(fk, liveIdsForFolder(fk));
+      const l = resolveLayout(fk, liveSessionIdsForFolder(fk));
       selectTabOp(ctxFor(fk, io), s.id, spotlitPaneIdIn(l));
       return;
     }
@@ -109,7 +109,7 @@ export function handleUiCommand(frame: UiCommandFrame, io: UiCommandIo): void {
       const s = openSession(c.value.sessionId);
       if (!s) return dropUnknown(c.case, c.value.sessionId);
       const fk = folderKeyOf(s);
-      const leaf = findLeafOfTab(resolveLayout(fk, liveIdsForFolder(fk)).root, s.id);
+      const leaf = findLeafOfTab(resolveLayout(fk, liveSessionIdsForFolder(fk)).root, s.id);
       if (!leaf) return dropUnknown(c.case, s.id);
       // Deck semantics: focusing a pane navigates to ITS SELECTED tab (which
       // may differ from the addressed session when it's a background tab).
@@ -146,7 +146,7 @@ export function handleUiCommand(frame: UiCommandFrame, io: UiCommandIo): void {
 /** Resolve → pure core → commit; placeSplit keeps the doSelect coupling by
  *  navigating to the freshly placed session (splitLeaf already focused it). */
 function applyPure(fk: string, cmd: UiCommand, kind: string, io: UiCommandIo): void {
-  const liveIds = liveIdsForFolder(fk);
+  const liveIds = liveSessionIdsForFolder(fk);
   const next = applyUiCommandToLayout(resolveLayout(fk, liveIds), cmd, liveIds);
   if (!next) return dropUnknown(kind, "");
   commitLayout(fk, next);

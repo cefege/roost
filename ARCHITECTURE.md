@@ -346,6 +346,12 @@ Accounts are operator-created and production email signup and Google auth
 remain off. There are no production managed containers, published managed
 image, active shared-dashboard route, or public signup surface.
 
+## Portable browser-local pane layouts
+Active pane trees and runtime leaf/split UUIDs persist only in each browser profile under `roost.paneLayout.v1`.
+The strict shared V1 boundary exports deterministic preorder leaf/slot keys, inclusive `0.1..0.9` ratios, focus, and total live-session bindings.
+Explicit import Apply rechecks dashboard/folder membership, materializes fresh runtime IDs and extras locally, then commits once and navigates to the focused selection; rejection cannot touch pane signals, subscribers, timers, or storage.
+Open tabs consume no storage events, so copy/download/import creates no coordinator record or live cross-tab synchronization.
+
 ## Resilience model
 
 - **Browser drops:** Sync resumes from the last persisted folded event id,

@@ -1,25 +1,30 @@
-// Deck-level "Arrange" control: a small top-right button (VS Code layout-button
-// convention) opening a 5-option preset menu. Equalize keeps the current tree
-// (panes/tabs/focus) and only re-balances split ratios; Grid/Columns/Rows/
-// Main+stack rebuild one session per pane. The parent (TerminalDeck) owns the
-// actual layout mutation via onArrange(kind) → arrangeLayout; this file is
-// placement-agnostic UI only. Menu look reuses the shared context-menu
-// primitives; anchoring/dismissal come from the shared anchored-menu helpers.
+// Deck-level pane-layout menu: preset arrangement plus local portable-document
+// copy, download, and import actions. TerminalDeck owns every mutation and I/O
+// callback; this file only anchors and dismisses the shared floating menu.
+// Presets keep their existing pane/tab/focus behavior and disable for a
+// one-session folder while document actions remain available.
 
 import { Show, createSignal, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 import type { ArrangeKind } from "../store/paneLayoutPresets.ts";
 import {
-	anchoredMenuPosition,
-	anchoredMenuSurfaceStyle,
-	CtxMenuItem,
-	CtxMenuSeparator,
-	trackFloatingMenuDismiss,
+  anchoredMenuPosition,
+  anchoredMenuSurfaceStyle,
+  CtxMenuItem,
+  CtxMenuSeparator,
+  focusMenuEdge,
+  handleMenuKeyboardNavigation,
+  trackFloatingMenuDismiss,
 } from "./contextMenuPrimitives.tsx";
+import type { MenuFocusEdge } from "./contextMenuPrimitives.tsx";
 
 interface Props {
+  canArrange: boolean;
   onArrange: (kind: ArrangeKind) => void;
+  onCopyLayout: () => void;
+  onDownloadLayout: () => void;
+  onImportLayout: () => void;
 }
 
 interface Item {
@@ -81,42 +86,95 @@ const GLYPHS: Record<ArrangeKind, () => JSX.Element> = {
 
 export function ArrangeMenu(props: Props) {
   // `right`/`y` = the button's right edge (as an offset from the viewport's
-  // right) + its bottom. The menu CSS-anchors its right edge here and grows
-  // leftward, content-sized — no width measurement, so it can't overflow the
-  // screen (the button always sits at the deck's top-right).
+  // right) + its bottom. The menu grows leftward so it cannot overflow.
   const [open, setOpen] = createSignal<{ right: number; y: number } | null>(null);
-  let btnEl: HTMLButtonElement | undefined;
-  let menuEl: HTMLDivElement | undefined;
+  let triggerElement: HTMLButtonElement | undefined;
+  let menuElement: HTMLDivElement | undefined;
+  let cancelPendingFocus: (() => void) | null = null;
+
+  const openMenu = (edge: MenuFocusEdge = "first") => {
+    if (!triggerElement) return;
+    cancelPendingFocus?.();
+    setOpen(anchoredMenuPosition(triggerElement));
+    cancelPendingFocus = focusMenuEdge(() => menuElement, edge);
+  };
+
+  const closeMenu = (restoreTriggerFocus = false) => {
+    cancelPendingFocus?.();
+    cancelPendingFocus = null;
+    setOpen(null);
+    if (restoreTriggerFocus) queueMicrotask(() => triggerElement?.focus());
+  };
 
   const toggle = () => {
-    if (open()) { setOpen(null); return; }
-    setOpen(anchoredMenuPosition(btnEl!));
+    if (open()) {
+      closeMenu();
+      return;
+    }
+    openMenu();
   };
 
   const choose = (kind: ArrangeKind) => {
+    closeMenu(true);
     props.onArrange(kind);
-    setOpen(null);
+  };
+
+  const chooseAction = (action: () => void) => {
+    closeMenu(true);
+    action();
+  };
+
+  const onTriggerKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    event.stopPropagation();
+    openMenu(event.key === "ArrowDown" ? "first" : "last");
+  };
+
+  const onMenuKeyDown = (event: KeyboardEvent) => {
+    handleMenuKeyboardNavigation(
+      event,
+      menuElement,
+      () => closeMenu(true),
+      () => closeMenu(),
+    );
   };
 
   // ctxMenuSurfaceStyle hardcodes `left` (cursor-anchored); this menu anchors
   // by its RIGHT edge and shrink-fits leftward — the primitive deletes it.
-  const surfaceStyle = (pos: { right: number; y: number }) =>
-    anchoredMenuSurfaceStyle(pos, { minWidth: "224px" });
+  const surfaceStyle = (position: { right: number; y: number }) =>
+    anchoredMenuSurfaceStyle(position, { minWidth: "224px" });
 
-  trackFloatingMenuDismiss({ within: [() => btnEl, () => menuEl], onClose: () => setOpen(null) });
+  trackFloatingMenuDismiss({
+    within: [() => triggerElement, () => menuElement],
+    onClose: () => closeMenu(),
+  });
 
   return (
     <>
       <button
-        ref={btnEl}
+        ref={triggerElement}
+        id="arrange-menu-trigger"
         type="button"
         class="df-arrange-btn"
         data-testid="arrange-btn"
-        aria-label="Arrange panes"
-        title="Arrange panes"
+        aria-label="Arrange or transfer pane layout"
+        aria-haspopup="menu"
+        aria-controls="arrange-menu"
+        aria-expanded={open() !== null}
+        title="Arrange or transfer pane layout"
         onClick={toggle}
+        onKeyDown={onTriggerKeyDown}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
           <rect x="3" y="3" width="7" height="7" rx="1" />
           <rect x="14" y="3" width="7" height="7" rx="1" />
           <rect x="3" y="14" width="7" height="7" rx="1" />
@@ -124,26 +182,47 @@ export function ArrangeMenu(props: Props) {
         </svg>
       </button>
       <Show when={open()}>
-        {(pos) => (
-          // Portal to <body>: an ancestor <main> carries a transform, which
-          // makes position:fixed resolve against <main>'s box instead of the
-          // viewport (see TerminalContextMenu). Portaling escapes it.
+        {(position) => (
+          // Portal escapes the transformed main element so fixed positioning
+          // remains viewport-relative.
           <Portal>
             <div
-              ref={menuEl}
+              ref={menuElement}
+              id="arrange-menu"
+              role="menu"
+              aria-labelledby="arrange-menu-trigger"
               data-testid="arrange-menu"
               class="df-menu-enter"
-              style={surfaceStyle(pos())}
+              style={surfaceStyle(position())}
+              onKeyDown={onMenuKeyDown}
             >
-              <CtxMenuItem testid="arrange-balance" onClick={() => choose("balance")}>
+              <CtxMenuItem
+                testid="arrange-balance"
+                disabled={!props.canArrange}
+                onClick={() => choose("balance")}
+              >
                 <ArrangeRow kind="balance" label="Equalize sizes" hint={platformShortcutLabel("arrangeBalance", "Cmd+Opt+B")} />
               </CtxMenuItem>
               <CtxMenuSeparator />
-              {ITEMS.map((it) => (
-                <CtxMenuItem testid={it.testid} onClick={() => choose(it.kind)}>
-                  <ArrangeRow kind={it.kind} label={it.label} hint={it.hint} />
+              {ITEMS.map((item) => (
+                <CtxMenuItem
+                  testid={item.testid}
+                  disabled={!props.canArrange}
+                  onClick={() => choose(item.kind)}
+                >
+                  <ArrangeRow kind={item.kind} label={item.label} hint={item.hint} />
                 </CtxMenuItem>
               ))}
+              <CtxMenuSeparator />
+              <CtxMenuItem testid="layout-copy" onClick={() => chooseAction(props.onCopyLayout)}>
+                Copy layout
+              </CtxMenuItem>
+              <CtxMenuItem testid="layout-download" onClick={() => chooseAction(props.onDownloadLayout)}>
+                Download layout
+              </CtxMenuItem>
+              <CtxMenuItem testid="layout-import" onClick={() => chooseAction(props.onImportLayout)}>
+                Import layout…
+              </CtxMenuItem>
             </div>
           </Portal>
         )}
@@ -154,7 +233,7 @@ export function ArrangeMenu(props: Props) {
 
 function ArrangeRow(props: { kind: ArrangeKind; label: string; hint: string }) {
   return (
-    <div style={{ display: "flex", "align-items": "center", gap: "8px", "white-space": "nowrap" }}>
+    <span style={{ display: "flex", "align-items": "center", gap: "8px", "white-space": "nowrap" }}>
       <svg
         width="14" height="14" viewBox="0 0 24 24" fill="none"
         stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -164,6 +243,6 @@ function ArrangeRow(props: { kind: ArrangeKind; label: string; hint: string }) {
       </svg>
       <span>{props.label}</span>
       <span style={{ "margin-left": "auto", "padding-left": "16px", color: "var(--text-lo)" }}>{props.hint}</span>
-    </div>
+    </span>
   );
 }

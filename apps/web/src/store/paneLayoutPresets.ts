@@ -11,6 +11,7 @@
 // arrangeLayout is the single dispatcher the UI (ArrangeMenu.tsx) and
 // TerminalDeck's ⌘⌥ keymap call.
 
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
 import { type Layout, type PaneNode, type PaneDir, defaultLayout, allLeaves } from "./paneLayout.ts";
 
 export type PresetKind = "even" | "rows" | "tiled" | "main-vertical";
@@ -56,14 +57,18 @@ export function presetLayout(kind: PresetKind, sessionIds: string[]): Layout {
   return { root, focusedPaneId: allLeaves(root)[0].paneId };
 }
 
-/** Set each split ratio to leafCount(a)/(leafCount(a)+leafCount(b)); this
- *  telescopes to exactly 1/N area per leaf (modulo DIVIDER_PX gutters). Stays
- *  in (0,1) so no RATIO_MIN/MAX clamp — those guard user drags, not balance. */
-function balanceNode(n: PaneNode): PaneNode {
-  if (n.kind === "leaf") return n;
-  const a = balanceNode(n.a), b = balanceNode(n.b);
-  const ca = allLeaves(a).length, cb = allLeaves(b).length;
-  return { ...n, ratio: ca / (ca + cb), a, b };
+/** Set each split ratio to its leaf-count share, clamped to the shared
+ * portable-document bounds. Highly skewed trees trade exact equal areas for
+ * reachable divider geometry and guaranteed exportability. */
+function balanceNode(node: PaneNode): PaneNode {
+  if (node.kind === "leaf") return node;
+  const first = balanceNode(node.a);
+  const second = balanceNode(node.b);
+  const firstLeafCount = allLeaves(first).length;
+  const secondLeafCount = allLeaves(second).length;
+  const targetRatio = firstLeafCount / (firstLeafCount + secondLeafCount);
+  const ratio = Math.max(LAYOUT_RATIO_MIN, Math.min(LAYOUT_RATIO_MAX, targetRatio));
+  return { ...node, ratio, a: first, b: second };
 }
 
 /** Equalize pane areas in place: same tree, same paneIds/tabs/focus, new ratios. */

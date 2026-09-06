@@ -1,6 +1,6 @@
-// Derived selectors over rootStore. All are createMemo — reactive, cached.
-// Components subscribe to selectors, never mutate rootStore directly.
-// R0.4 + R4.3 selector deliverables.
+// Derived read-only selectors over rootStore.
+// App-lifetime global lists use owned memos; parameterized lookups are plain
+// functions so callers can compose them inside their own reactive scopes.
 
 import { createMemo, createRoot } from "solid-js";
 import { rootStore } from "./root.ts";
@@ -19,6 +19,18 @@ import { sameWorkerPath } from "../lib/nativePath.ts";
 export const allSessions = createRoot(() =>
   createMemo(() => Object.values(rootStore.sessions)),
 );
+
+/** Canonical live membership and order for one browser-local folder layout. */
+export function liveSessionIdsForFolder(folderKey: string): string[] {
+  return Object.values(rootStore.sessions)
+    .filter((session) =>
+      session.status === "open"
+      && folderKeyOf(session) === folderKey
+      && !isPendingClose(session.id))
+    .sort((left, right) =>
+      left.created_at - right.created_at || left.id.localeCompare(right.id))
+    .map((session) => session.id);
+}
 
 // Resolve the live session behind a /t/:workerFp/*folderPath URL: the OPEN
 // session on `workerFp` spawned in `folderPath`. Collisions (two terminals in

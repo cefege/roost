@@ -1,6 +1,9 @@
-// Preset tile layouts (store/paneLayoutPresets.ts).
+// Exercises preset pane topology, placement, and balanced geometry.
+// Balance cases pin identity preservation, ordinary equal areas, and the
+// shared portable-document ratio bounds for highly skewed runtime trees.
 
 import { describe, test, expect } from "bun:test";
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
 import { presetLayout, balanceLayout } from "../src/store/paneLayoutPresets.ts";
 import { allLeaves, layoutRects, type Layout, type PaneNode, type PaneSplit } from "../src/store/paneLayout.ts";
 
@@ -59,6 +62,25 @@ describe("balanceLayout", () => {
     focusedPaneId: "A-pane",
   });
 
+  const rightSkewed = (sessionIds: string[]): PaneNode => {
+    const firstSessionId = sessionIds[0];
+    if (!firstSessionId) throw new Error("a skewed tree needs at least one session");
+    if (sessionIds.length === 1) return leaf(firstSessionId);
+    return {
+      kind: "split",
+      id: `split-${firstSessionId}`,
+      dir: "row",
+      ratio: 0.5,
+      a: leaf(firstSessionId),
+      b: rightSkewed(sessionIds.slice(1)),
+    };
+  };
+
+  const splitRatios = (node: PaneNode): number[] =>
+    node.kind === "leaf"
+      ? []
+      : [node.ratio, ...splitRatios(node.a), ...splitRatios(node.b)];
+
   test("ratios become leaf-count shares; tree/panes/focus untouched", () => {
     const out = balanceLayout(skewed());
     const s1 = out.root as PaneSplit;
@@ -72,6 +94,36 @@ describe("balanceLayout", () => {
     expect(leaves.map((p) => p.paneId)).toEqual(["A-pane", "B-pane", "C-pane"]);
     expect(leaves.map((p) => p.tabs.join(","))).toEqual(["A", "B", "C"]);
     expect(leaves.map((p) => p.selectedTab)).toEqual(["A", "B", "C"]);
+  });
+
+  test("clamps highly skewed shares to the portable inclusive bounds", () => {
+    const sessionIds = ids(12);
+    const rightHeavy = balanceLayout({
+      root: rightSkewed(sessionIds),
+      focusedPaneId: "s0-pane",
+    });
+    expect((rightHeavy.root as PaneSplit).ratio).toBe(LAYOUT_RATIO_MIN);
+
+    const leftHeavy = balanceLayout({
+      root: {
+        kind: "split",
+        id: "left-heavy-root",
+        dir: "row",
+        ratio: 0.5,
+        a: rightSkewed(sessionIds.slice(0, 11)),
+        b: leaf("tail"),
+      },
+      focusedPaneId: "s0-pane",
+    });
+    expect((leftHeavy.root as PaneSplit).ratio).toBe(LAYOUT_RATIO_MAX);
+
+    for (const ratio of [
+      ...splitRatios(rightHeavy.root),
+      ...splitRatios(leftHeavy.root),
+    ]) {
+      expect(ratio).toBeGreaterThanOrEqual(LAYOUT_RATIO_MIN);
+      expect(ratio).toBeLessThanOrEqual(LAYOUT_RATIO_MAX);
+    }
   });
 
   test("all pane areas equal within 2% of the mean", () => {

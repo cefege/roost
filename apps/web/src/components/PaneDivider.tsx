@@ -1,15 +1,13 @@
+// Owns one stable draggable seam between pane-layout split children.
+// TerminalDeck supplies geometry and receives frame-coalesced ratio updates;
+// the shared document bounds keep interactive and imported ratios identical.
+
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
 import type { Accessor } from "solid-js";
 import { createSignal, onCleanup } from "solid-js";
 import type { DividerRect } from "../store/paneLayout.ts";
 import { beginPointerResizeDrag } from "../lib/resizeDrag.ts";
 
-// Draggable split divider on the seam between two panes. Under <Index> the
-// node is STABLE across drag frames (only its position updates reactively),
-// so a per-divider `dragging` signal drives a steady highlight and pointer
-// state survives. Ratio updates are coalesced to one per animation frame so
-// a 120Hz+ trackpad can't run the deck layout more than once per paint.
-// Listens on WINDOW (not the element) so the gesture is robust even if the
-// node is ever replaced. Callers: TerminalDeck.tsx (one per split).
 export function PaneDivider(props: {
   divider: Accessor<DividerRect>;
   deckEl: () => HTMLElement | undefined;
@@ -44,7 +42,7 @@ export function PaneDivider(props: {
       geometryFor: (ev) => {
         const pos = d.dir === "row" ? ev.clientX - originX : ev.clientY - originY;
         const raw = d.regionLen > 0 ? (pos - d.regionStart) / d.regionLen : 0.5;
-        return Math.max(0.1, Math.min(0.9, raw));
+        return Math.max(LAYOUT_RATIO_MIN, Math.min(LAYOUT_RATIO_MAX, raw));
       },
       onMove: (ratio) => onDrag(d.splitId, ratio),
       onCommit: (ratio) => onCommit(d.splitId, ratio),

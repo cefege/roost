@@ -62,6 +62,7 @@ import {
 import { pulseArrange } from "../lib/resizeDrag.ts";
 import { arrangeLayout, type ArrangeKind } from "../store/paneLayoutPresets.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
+import { syncDeckPaneFocus } from "../lib/deckRouteSelection.ts";
 import {
   TERMINAL_STRIP_HEIGHT,
 } from "./terminal-deck-geometry.ts";
@@ -110,7 +111,9 @@ export function createTerminalDeckOperations(
   getDeckElement: () => HTMLDivElement | undefined,
 ): TerminalDeckOperations {
   function focusDeckPane(paneId: string): void {
-    focusPaneOp(model.opsCtx, paneId);
+    syncDeckPaneFocus(model.layout(), paneId, isCompact(), () => {
+      focusPaneOp(model.opsCtx, paneId);
+    });
   }
   function closeSession(session: Session): void {
     closeSessionOp(model.opsCtx, session);

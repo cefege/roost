@@ -36,6 +36,8 @@ import {
 } from "./terminal-deck-geometry.ts";
 import { createTerminalDeckOperations } from "./terminal-deck-operations.ts";
 import { bindTerminalDeckSwipe } from "./terminal-deck-swipe.ts";
+import { LayoutDocumentDialog } from "./LayoutDocumentDialog.tsx";
+import { createLayoutDocumentControls } from "../lib/layoutDocumentControls.ts";
 
 export function TerminalDeck(props: TerminalDeckProps) {
   let deckElement: HTMLDivElement | undefined;
@@ -51,6 +53,11 @@ export function TerminalDeck(props: TerminalDeckProps) {
     operations,
     getDeckElement,
   );
+
+  const layoutDocuments = createLayoutDocumentControls({
+    folderKey: model.folderKey,
+    navigate: model.navigate,
+  });
 
   return (
     <div
@@ -139,6 +146,9 @@ export function TerminalDeck(props: TerminalDeckProps) {
             onSelect={operations.select}
             onClose={operations.close}
             onNewTab={() => void operations.newTab(model.layout()?.focusedPaneId ?? "")}
+            onCopyLayout={layoutDocuments.copyLayout}
+            onDownloadLayout={layoutDocuments.downloadLayout}
+            onImportLayout={layoutDocuments.importLayout}
           />
         </div>
         <Show when={model.barNeighborId()}>
@@ -161,6 +171,9 @@ export function TerminalDeck(props: TerminalDeckProps) {
                 onSelect={operations.select}
                 onClose={operations.close}
                 onNewTab={() => void operations.newTab(model.layout()?.focusedPaneId ?? "")}
+                onCopyLayout={layoutDocuments.copyLayout}
+                onDownloadLayout={layoutDocuments.downloadLayout}
+                onImportLayout={layoutDocuments.importLayout}
               />
             </div>
           )}
@@ -246,13 +259,43 @@ export function TerminalDeck(props: TerminalDeckProps) {
             />
           )}
         </Show>
-        <Show when={model.liveIds().length >= 2}>
-          <div style={{ position: "absolute", top: "0", right: "0", height: `${TERMINAL_STRIP_HEIGHT}px`, display: "flex", "align-items": "center", padding: "0 6px", "z-index": "4" }}>
-            <ArrangeMenu onArrange={operations.arrange} />
+        <Show when={model.liveIds().length > 0}>
+          <div
+            style={{
+              position: "absolute",
+              top: "0",
+              right: "0",
+              height: `${TERMINAL_STRIP_HEIGHT}px`,
+              display: "flex",
+              "align-items": "center",
+              padding: "0 var(--md-space-2)",
+              "z-index": "4",
+            }}
+          >
+            <ArrangeMenu
+              canArrange={model.liveIds().length >= 2}
+              onArrange={operations.arrange}
+              onCopyLayout={layoutDocuments.copyLayout}
+              onDownloadLayout={layoutDocuments.downloadLayout}
+              onImportLayout={layoutDocuments.importLayout}
+            />
           </div>
         </Show>
       </Show>
       <TerminalDeckSpotlight rect={model.spotlightRect()} />
+      <Show when={layoutDocuments.preview()}>
+        {(preview) => (
+          <LayoutDocumentDialog
+            open
+            fileName={preview().fileName}
+            document={preview().document}
+            error={preview().error}
+            reading={preview().reading}
+            onClose={layoutDocuments.closeImport}
+            onApply={layoutDocuments.applyImportedLayout}
+          />
+        )}
+      </Show>
     </div>
   );
 }

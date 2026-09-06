@@ -2145,6 +2145,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 /* Menu item state-layer — replaces inline onMouseEnter/Leave JS. */
 .df-menu-item {
+  background: transparent;
   transition: background-color 80ms ease-out;
 }
 .df-menu-item:hover { background: var(--md-state-hover); }

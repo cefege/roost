@@ -63,6 +63,7 @@ function _schedulePersist(): void {
 export function _flushPendingPersist(): void {
   if (_persistTimer !== undefined) _flushPersist();
 }
+
 if (typeof window !== "undefined") {
   window.addEventListener("pagehide", _flushPendingPersist);
 }
@@ -89,6 +90,22 @@ const _commitSubs = new Set<LayoutCommitFn>();
 export function onLayoutCommit(fn: LayoutCommitFn): () => void {
   _commitSubs.add(fn);
   return () => { _commitSubs.delete(fn); };
+}
+
+/** Read-only test/diagnostic seam for proving rejected imports create no
+ * record, signal, or persistence work. It deliberately does not call _sig. */
+export function _paneLayoutStoreDebugSnapshot(): {
+  recordJson: string;
+  signalCount: number;
+  subscriberCount: number;
+  persistScheduled: boolean;
+} {
+  return {
+    recordJson: JSON.stringify(_record),
+    signalCount: _sigs.size,
+    subscriberCount: _commitSubs.size,
+    persistScheduled: _persistTimer !== undefined,
+  };
 }
 
 export function commitLayout(folderKey: string, layout: Layout): void {

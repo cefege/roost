@@ -3,6 +3,7 @@
 // exactly one leaf) guard the SCD-self-clamp rule from the plan.
 
 import { describe, test, expect } from "bun:test";
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
 import {
   defaultLayout,
   splitLeaf,
@@ -11,6 +12,7 @@ import {
   selectTab,
   closeTab,
   setRatio,
+  compactLeafForLayout,
   reconcile,
   allLeaves,
   findLeaf,
@@ -151,7 +153,6 @@ describe("reconcile", () => {
   test("prunes dead tabs, collapses emptied panes, appends orphans to focused pane", () => {
     let l = defaultLayout(["s1", "s2"]);
     l = splitLeaf(l, rootPane(l), "row", "s2", false); // [s1 | s2], focus s2's pane
-    const focused = l.focusedPaneId;
     // s2 died, s9 is new
     l = reconcile(l, ["s1", "s9"]);
     // s2's pane collapsed → single leaf; s9 appended to the (now-fixed) focus pane
@@ -159,18 +160,135 @@ describe("reconcile", () => {
     assertNoDupes(l);
     // focus fell back to a real pane
     expect(findLeaf(l.root, l.focusedPaneId)).not.toBeNull();
-    void focused;
   });
   test("no live sessions → empty leaf, no crash", () => {
     let l = defaultLayout(["s1"]);
     l = reconcile(l, []);
     expect(allTabs(l)).toEqual([]);
   });
-  test("stable when nothing changed", () => {
-    const l = defaultLayout(["s1", "s2"]);
-    const r = reconcile(l, ["s1", "s2"]);
-    expect(tabsOf(r)).toEqual([["s1", "s2"]]);
+
+  test("preserves intentional empty branches across repeated reconciliation", () => {
+    const layout: Layout = {
+      root: {
+        kind: "split",
+        id: "intentional-split",
+        dir: "row",
+        ratio: 0.5,
+        a: { kind: "leaf", paneId: "empty-pane", tabs: [], selectedTab: "" },
+        b: { kind: "leaf", paneId: "live-pane", tabs: ["s1"], selectedTab: "s1" },
+      },
+      focusedPaneId: "empty-pane",
+    };
+    const first = reconcile(layout, ["s1"]);
+    const second = reconcile(first, ["s1"]);
+    expect(first.root.kind).toBe("split");
+    expect(second.root.kind).toBe("split");
+    expect(tabsOf(second)).toEqual([[], ["s1"]]);
+    expect(second.focusedPaneId).toBe("empty-pane");
   });
+
+  test("mutations collapse only the pane they empty, not intentional siblings", () => {
+    const layout: Layout = {
+      root: {
+        kind: "split",
+        id: "outer",
+        dir: "row",
+        ratio: 0.5,
+        a: { kind: "leaf", paneId: "empty-pane", tabs: [], selectedTab: "" },
+        b: {
+          kind: "split",
+          id: "occupied",
+          dir: "col",
+          ratio: 0.5,
+          a: { kind: "leaf", paneId: "b-pane", tabs: ["s1"], selectedTab: "s1" },
+          b: { kind: "leaf", paneId: "c-pane", tabs: ["s2"], selectedTab: "s2" },
+        },
+      },
+      focusedPaneId: "b-pane",
+    };
+    const closed = closeTab(layout, "s2");
+    expect(closed.root.kind).toBe("split");
+    expect(findLeaf(closed.root, "empty-pane")).not.toBeNull();
+    expect(tabsOf(closed)).toEqual([[], ["s1"]]);
+
+    const moved = moveTab(layout, "s2", "b-pane");
+    expect(moved.root.kind).toBe("split");
+    expect(findLeaf(moved.root, "empty-pane")).not.toBeNull();
+    expect(tabsOf(moved)).toEqual([[], ["s1", "s2"]]);
+
+    const split = splitLeaf(layout, "b-pane", "row", "s2", false);
+    expect(findLeaf(split.root, "empty-pane")).not.toBeNull();
+    expect(findLeaf(split.root, "c-pane")).toBeNull();
+  });
+
+  test("normalizes every legacy split ratio into portable bounds", () => {
+    const layout: Layout = {
+      root: {
+        kind: "split",
+        id: "high",
+        dir: "row",
+        ratio: 2,
+        a: {
+          kind: "split",
+          id: "low",
+          dir: "col",
+          ratio: -1,
+          a: { kind: "leaf", paneId: "p1", tabs: ["s1"], selectedTab: "s1" },
+          b: { kind: "leaf", paneId: "p2", tabs: ["s2"], selectedTab: "s2" },
+        },
+        b: {
+          kind: "split",
+          id: "non-finite",
+          dir: "col",
+          ratio: Number.NaN,
+          a: { kind: "leaf", paneId: "p3", tabs: ["s3"], selectedTab: "s3" },
+          b: { kind: "leaf", paneId: "p4", tabs: ["s4"], selectedTab: "s4" },
+        },
+      },
+      focusedPaneId: "p1",
+    };
+    const root = reconcile(layout, ["s1", "s2", "s3", "s4"]).root as PaneSplit;
+    expect(root.ratio).toBe(LAYOUT_RATIO_MAX);
+    expect((root.a as PaneSplit).ratio).toBe(LAYOUT_RATIO_MIN);
+    expect((root.b as PaneSplit).ratio).toBe(
+      (LAYOUT_RATIO_MIN + LAYOUT_RATIO_MAX) / 2,
+    );
+  });
+
+  test("stable when nothing changed", () => {
+    const layout = defaultLayout(["s1", "s2"]);
+    const reconciled = reconcile(layout, ["s1", "s2"]);
+    expect(tabsOf(reconciled)).toEqual([["s1", "s2"]]);
+  });
+});
+
+describe("compactLeafForLayout", () => {
+  test("falls back from focused empty panes without mutating desktop focus", () => {
+    const layout: Layout = {
+      root: {
+        kind: "split",
+        id: "outer",
+        dir: "row",
+        ratio: 0.5,
+        a: { kind: "leaf", paneId: "empty", tabs: [], selectedTab: "" },
+        b: {
+          kind: "split",
+          id: "occupied",
+          dir: "col",
+          ratio: 0.5,
+          a: { kind: "leaf", paneId: "first", tabs: ["s1"], selectedTab: "s1" },
+          b: { kind: "leaf", paneId: "active", tabs: ["s2"], selectedTab: "s2" },
+        },
+      },
+      focusedPaneId: "empty",
+    };
+    const before = structuredClone(layout);
+    expect(compactLeafForLayout(layout, "s2")?.paneId).toBe("active");
+    expect(compactLeafForLayout(layout, null)?.paneId).toBe("first");
+    expect(layout).toEqual(before);
+    expect(layout.focusedPaneId).toBe("empty");
+  });
+
 });
 
 describe("setRatio", () => {

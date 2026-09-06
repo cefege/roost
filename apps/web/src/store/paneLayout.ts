@@ -6,6 +6,7 @@
 // layoutRects/visibleBySession derive pixel rects (ratios are the truth).
 // Persistence + reactivity live in store/paneLayoutStore.ts. Geometry is
 // consumed by MainPane.tsx's TerminalDeck.
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
 
 export type PaneDir = "row" | "col"; // row = left|right; col = top|bottom
 
@@ -19,7 +20,7 @@ export interface PaneSplit {
   kind: "split";
   id: string; // stable id so a divider can address its split
   dir: PaneDir;
-  ratio: number; // 0..1 fraction of the primary axis given to child `a`
+  ratio: number; // inclusive 0.1..0.9 fraction of the primary axis given to child `a`
   a: PaneNode;
   b: PaneNode;
 }
@@ -54,8 +55,6 @@ export interface PaneView {
   focused: boolean;
 }
 
-const RATIO_MIN = 0.1;
-const RATIO_MAX = 0.9;
 /** Gutter reserved between two split children for the drag divider (px). */
 export const DIVIDER_PX = 6;
 
@@ -93,17 +92,34 @@ function firstLeaf(node: PaneNode): PaneLeaf {
   return node.kind === "leaf" ? node : firstLeaf(node.a);
 }
 
-/** Flatten a layout's pane tree into one ordered tab list — the compact/mobile
- *  view. Pane topology is desktop-only: on a phone the deck paints a single
- *  terminal, so every tab across every pane collapses to one scrollable row.
- *  Order = leaf order (allLeaves: a-before-b = left/top before right/bottom),
- *  then tab order within each leaf. Each entry carries its owning paneId so a
- *  tap selects the tab AND focuses the right pane (selectTab focuses the leaf
- *  that owns the tab). Pure + testable. */
+/** Flatten a layout's pane tree into one ordered tab list for compact/mobile.
+ * Pane topology stays desktop-only while the phone paints one terminal.
+ * Order is first-before-second leaf order, then tab order within each leaf.
+ * Compact tab selection normally focuses its owning pane; when an imported
+ * desktop layout intentionally focuses an empty leaf, selection navigates
+ * view-only until an explicit layout mutation changes that preserved focus.
+ * Each entry carries its owning pane ID for the persistent-selection path. */
 export function flatTabs(root: PaneNode): { tabId: string; paneId: string }[] {
   return allLeaves(root).flatMap((leaf) =>
     leaf.tabs.map((tabId) => ({ tabId, paneId: leaf.paneId })),
   );
+}
+
+/** Compact view paints the URL-active session when it belongs to the layout,
+ * otherwise the first occupied leaf, without mutating desktop focus/topology. */
+export function compactLeafForLayout(
+  layout: Layout,
+  activeSessionId: string | null,
+): PaneLeaf | null {
+  const leaves = allLeaves(layout.root);
+  const activeLeaf = activeSessionId
+    ? findLeafOfTab(layout.root, activeSessionId)
+    : null;
+  return activeLeaf
+    ?? leaves.find((leaf) => leaf.tabs.length > 0)
+    ?? findLeaf(layout.root, layout.focusedPaneId)
+    ?? leaves[0]
+    ?? null;
 }
 
 /** Replace the leaf `paneId` with `fn(leaf)` (may return a split → grows tree). */
@@ -112,13 +128,13 @@ function updateLeaf(node: PaneNode, paneId: string, fn: (leaf: PaneLeaf) => Pane
   return { ...node, a: updateLeaf(node.a, paneId, fn), b: updateLeaf(node.b, paneId, fn) };
 }
 
-/** Set the divider ratio of split `splitId` (clamped). */
+/** Set the divider ratio of split `splitId` within the portable bounds. */
 export function setRatio(node: PaneNode, splitId: string, ratio: number): PaneNode {
   if (node.kind === "leaf") return node;
-  const clamped = Math.max(RATIO_MIN, Math.min(RATIO_MAX, ratio));
+  const normalizedRatio = normalizePaneRatio(ratio);
   const next: PaneSplit = {
     ...node,
-    ratio: node.id === splitId ? clamped : node.ratio,
+    ratio: node.id === splitId ? normalizedRatio : node.ratio,
     a: setRatio(node.a, splitId, ratio),
     b: setRatio(node.b, splitId, ratio),
   };
@@ -140,14 +156,41 @@ function removeTabEverywhere(node: PaneNode, tab: string): PaneNode {
   return { ...node, a: removeTabEverywhere(node.a, tab), b: removeTabEverywhere(node.b, tab) };
 }
 
-/** Bottom-up: a split with an empty-leaf child becomes its other child. */
-function collapseEmpties(node: PaneNode): PaneNode {
+/** Bottom-up collapse limited to leaves emptied by the calling operation. */
+function collapseEmpties(
+  node: PaneNode,
+  collapsiblePaneIds: ReadonlySet<string>,
+): PaneNode {
   if (node.kind === "leaf") return node;
-  const a = collapseEmpties(node.a);
-  const b = collapseEmpties(node.b);
-  if (a.kind === "leaf" && a.tabs.length === 0) return b;
-  if (b.kind === "leaf" && b.tabs.length === 0) return a;
-  return { ...node, a, b };
+  const first = collapseEmpties(node.a, collapsiblePaneIds);
+  const second = collapseEmpties(node.b, collapsiblePaneIds);
+  if (first.kind === "leaf" && isCollapsibleEmpty(first, collapsiblePaneIds)) return second;
+  if (second.kind === "leaf" && isCollapsibleEmpty(second, collapsiblePaneIds)) return first;
+  return { ...node, a: first, b: second };
+}
+
+function isCollapsibleEmpty(
+  leaf: PaneLeaf,
+  collapsiblePaneIds: ReadonlySet<string>,
+): boolean {
+  return leaf.tabs.length === 0 && collapsiblePaneIds.has(leaf.paneId);
+}
+
+function normalizePaneRatio(ratio: number): number {
+  if (ratio === Number.POSITIVE_INFINITY) return LAYOUT_RATIO_MAX;
+  if (ratio === Number.NEGATIVE_INFINITY) return LAYOUT_RATIO_MIN;
+  if (!Number.isFinite(ratio)) return (LAYOUT_RATIO_MIN + LAYOUT_RATIO_MAX) / 2;
+  return Math.max(LAYOUT_RATIO_MIN, Math.min(LAYOUT_RATIO_MAX, ratio));
+}
+
+function normalizeSplitRatios(node: PaneNode): PaneNode {
+  if (node.kind === "leaf") return node;
+  return {
+    ...node,
+    ratio: normalizePaneRatio(node.ratio),
+    a: normalizeSplitRatios(node.a),
+    b: normalizeSplitRatios(node.b),
+  };
 }
 
 /** Point focus at a real pane; if `preferred` is gone, fall back to first leaf. */
@@ -157,22 +200,25 @@ function fixFocus(root: PaneNode, preferred: string): string {
 
 // ── mutations (Layout → Layout) ──────────────────────────────────────────────
 
-/** Fold the live session set into a stored layout: prune dead tabs, collapse
- *  emptied panes, append never-placed live sessions to the focused pane. */
+/** Fold the live session set into a stored layout: normalize legacy ratios,
+ * prune dead tabs, collapse only panes emptied by that prune, then append
+ * never-placed live sessions to the focused pane. */
 export function reconcile(layout: Layout, liveIds: string[]): Layout {
   const live = new Set(liveIds);
-  // 1. prune dead tabs from every leaf
-  let root: PaneNode = mapLeaves(layout.root, (leaf) => {
-    const tabs = leaf.tabs.filter((t) => live.has(t));
+  const emptiedByPrune = new Set<string>();
+  let root = normalizeSplitRatios(layout.root);
+  root = mapLeaves(root, (leaf) => {
+    const tabs = leaf.tabs.filter((tabId) => live.has(tabId));
     if (tabs.length === leaf.tabs.length) return leaf;
+    if (leaf.tabs.length > 0 && tabs.length === 0) {
+      emptiedByPrune.add(leaf.paneId);
+    }
     const selectedTab = live.has(leaf.selectedTab) ? leaf.selectedTab : (tabs[0] ?? "");
     return { ...leaf, tabs, selectedTab };
   });
-  // 2. collapse panes emptied by the prune
-  root = collapseEmpties(root);
-  // 3. append live sessions that aren't placed anywhere → focused pane
-  const placed = new Set(allLeaves(root).flatMap((l) => l.tabs));
-  const orphans = liveIds.filter((id) => !placed.has(id));
+  root = collapseEmpties(root, emptiedByPrune);
+  const placed = new Set(allLeaves(root).flatMap((leaf) => leaf.tabs));
+  const orphans = liveIds.filter((sessionId) => !placed.has(sessionId));
   const focusedPaneId = fixFocus(root, layout.focusedPaneId);
   if (orphans.length > 0) {
     root = updateLeaf(root, focusedPaneId, (leaf) => ({
@@ -218,7 +264,10 @@ export function splitLeaf(
     };
     return split;
   });
-  root = collapseEmpties(root);
+  root = collapseEmpties(
+    root,
+    new Set(source ? [source.paneId] : []),
+  );
   return { ...layout, root, focusedPaneId: newLeaf.paneId };
 }
 
@@ -239,7 +288,10 @@ export function moveTab(layout: Layout, tab: string, toPaneId: string, index?: n
     tabs.splice(at, 0, tab);
     return { ...leaf, tabs, selectedTab: tab };
   });
-  root = collapseEmpties(root);
+  root = collapseEmpties(
+    root,
+    new Set(source ? [source.paneId] : []),
+  );
   return { ...layout, root, focusedPaneId: toPaneId };
 }
 
@@ -269,11 +321,15 @@ export function focusPane(layout: Layout, paneId: string): Layout {
   return { ...layout, focusedPaneId: paneId };
 }
 
-/** Close a tab (session already killed elsewhere): drop it, collapse an emptied
- *  pane, keep focus valid. Returns an empty single-leaf layout if nothing left. */
+/** Close a tab (session already killed elsewhere): drop it, collapse only the
+ * pane this close emptied, and keep focus valid. */
 export function closeTab(layout: Layout, tab: string): Layout {
+  const closingLeaf = findLeafOfTab(layout.root, tab);
   let root = removeTabEverywhere(layout.root, tab);
-  root = collapseEmpties(root);
+  root = collapseEmpties(
+    root,
+    new Set(closingLeaf ? [closingLeaf.paneId] : []),
+  );
   const focusedPaneId = fixFocus(root, layout.focusedPaneId);
   return { root, focusedPaneId };
 }
