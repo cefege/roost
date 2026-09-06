@@ -145,6 +145,7 @@ const MANAGED_PROTECTED_RPC_METHODS: Record<string, true | undefined> = {
   UiReportState: true,
   UiListStates: true,
   UiDispatch: true,
+  UiApplyLayout: true,
   PushGetConfig: true,
   PushSubscribe: true,
   PushUnsubscribe: true,

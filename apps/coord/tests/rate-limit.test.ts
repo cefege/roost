@@ -52,11 +52,13 @@ describe("RateLimiter", () => {
     expect(rejected).toHaveLength(2);
   });
 
-  test("limits global search, cancellation, and agent prompt mutation routes", () => {
+  test("limits search, prompt, and live UI mutation routes", () => {
     for (const [method, ip] of [
       ["SessionsSearchGlobal", "198.51.100.40"],
       ["SessionsCancelGlobalSearch", "198.51.100.41"],
       ["SessionsPrompt", "198.51.100.42"],
+      ["UiDispatch", "198.51.100.43"],
+      ["UiApplyLayout", "198.51.100.44"],
     ] as const) {
       const request = new Request(
         `https://coord.test/roost.v1.CoordinatorService/${method}`,

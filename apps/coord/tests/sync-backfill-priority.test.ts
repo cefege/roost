@@ -98,7 +98,7 @@ describe("Sync durable replay priority", () => {
           queuedLiveSession = true;
           queueMicrotask(() => sessionBus.publish(Object.assign(liveEvent, { _dashboard_id: DASHBOARD })));
         }
-      }, null);
+      }, null, false);
       try {
         await feed.backfill();
       } finally {
@@ -173,6 +173,7 @@ describe("Sync durable replay priority", () => {
           }
         },
         null,
+        false,
       );
       const publish = (eventId: number): void => {
         sessionBus.publish(Object.assign(event, {

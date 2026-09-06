@@ -1,12 +1,9 @@
-// optimisticSpawn.test.ts — the client-only placeholder registry behind the
-// "instant +". Asserts: beginOptimisticSpawn inserts an OPEN shell placeholder
-// (worker_fp/cwd copied from the anchor so it lands in the same folder bucket)
-// and marks it pending; endOptimisticSpawn clears pending but leaves the session
-// (the `opened` event owns removal); failOptimisticSpawn removes the session and
-// clears pending; abortOptimisticSpawn marks wasAborted and removes the session.
+// Client-only optimistic spawn registry and authoritative settlement coverage.
+// Tests pin placeholder insertion/removal, bounded mount measurement, abort
+// fencing, and delayed admission: only success schedules a UI state report.
 // See src/store/optimisticSpawn.ts.
 
-import { expect, test, describe, beforeEach, afterEach } from "bun:test";
+import { expect, test, describe, beforeEach, afterEach, mock, vi } from "bun:test";
 import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
 import type { Session } from "@roost/shared/wire";
 import { rootStore, setRootStore } from "../src/store/root.ts";
@@ -16,13 +13,19 @@ import {
   failOptimisticSpawn,
   abortOptimisticSpawn,
   isPendingSpawn,
+  isClientOnlyOptimisticSpawn,
+  projectOptimisticSpawnMembership,
   publishMountedSpawnMeasurement,
   waitForMountedSpawnMeasurement,
+  settleOptimisticSpawnAdmission,
   wasAborted,
   clearAborted,
+  resetOptimisticSpawnState,
 } from "../src/store/optimisticSpawn.ts";
 
 const FP = asWorkerFp("aa".repeat(32));
+const CLIENT_ONLY_RETENTION_LIMIT = 256;
+const REPORT_DEBOUNCE_MS = 300;
 
 function anchor(over: Partial<Session> = {}): Session {
   return {
@@ -51,6 +54,7 @@ describe("optimisticSpawn", () => {
     for (const id of Object.keys(rootStore.sessions)) {
       setRootStore("sessions", id, undefined as unknown as Session);
     }
+    resetOptimisticSpawnState();
   };
   beforeEach(clearSessions);
   afterEach(clearSessions);
@@ -59,6 +63,11 @@ describe("optimisticSpawn", () => {
     const a = anchor();
     const id = beginOptimisticSpawn(a);
     expect(isPendingSpawn(id)).toBe(true);
+    expect(isClientOnlyOptimisticSpawn(id)).toBe(true);
+    expect(projectOptimisticSpawnMembership([id, "authoritative-session"])).toEqual({
+      authoritativeSessionIds: ["authoritative-session"],
+      hasClientOnlySession: true,
+    });
     const s = rootStore.sessions[id];
     expect(s).toBeTruthy();
     expect(s?.status).toBe("open");
@@ -73,6 +82,11 @@ describe("optimisticSpawn", () => {
     const id = beginOptimisticSpawn(anchor());
     endOptimisticSpawn(id);
     expect(isPendingSpawn(id)).toBe(false);
+    expect(isClientOnlyOptimisticSpawn(id)).toBe(false);
+    expect(projectOptimisticSpawnMembership([id])).toEqual({
+      authoritativeSessionIds: [id],
+      hasClientOnlySession: false,
+    });
     // The real `opened` event replaces the value at this key; end must NOT delete it.
     expect(rootStore.sessions[id]).toBeTruthy();
   });
@@ -81,6 +95,7 @@ describe("optimisticSpawn", () => {
     const id = beginOptimisticSpawn(anchor());
     failOptimisticSpawn(id, new Error("boom"));
     expect(isPendingSpawn(id)).toBe(false);
+    expect(isClientOnlyOptimisticSpawn(id)).toBe(true);
     expect(rootStore.sessions[id]).toBeUndefined();
   });
 
@@ -90,6 +105,7 @@ describe("optimisticSpawn", () => {
     expect(wasAborted(id)).toBe(true);
     expect(isPendingSpawn(id)).toBe(false);
     expect(rootStore.sessions[id]).toBeUndefined();
+    expect(isClientOnlyOptimisticSpawn(id)).toBe(true);
     clearAborted(id);
     expect(wasAborted(id)).toBe(false);
   });
@@ -120,6 +136,64 @@ describe("optimisticSpawn", () => {
     expect(await waiting).toEqual({ cols: 101, rows: 37 });
     endOptimisticSpawn(id);
     expect(isPendingSpawn(id)).toBe(false);
+  });
+
+  test("only success schedules after admission exceeds the 300 ms debounce", async () => {
+    vi.useFakeTimers();
+    const scheduleReport = mock(() => {});
+    const settleAdmission = (
+      id: string,
+      admission: Promise<unknown>,
+    ): Promise<void> => admission.then(
+      () => settleOptimisticSpawnAdmission(
+        id,
+        { status: "admitted" },
+        scheduleReport,
+      ),
+      (error) => settleOptimisticSpawnAdmission(
+        id,
+        { status: "rejected", error },
+        scheduleReport,
+      ),
+    );
+    try {
+      const admittedId = beginOptimisticSpawn(anchor());
+      const admitted = Promise.withResolvers<void>();
+      const admittedSettlement = settleAdmission(admittedId, admitted.promise);
+      vi.advanceTimersByTime(REPORT_DEBOUNCE_MS + 1);
+      expect(isPendingSpawn(admittedId)).toBe(true);
+      expect(scheduleReport).not.toHaveBeenCalled();
+      admitted.resolve();
+      await admittedSettlement;
+      expect(isPendingSpawn(admittedId)).toBe(false);
+      expect(isClientOnlyOptimisticSpawn(admittedId)).toBe(false);
+      expect(scheduleReport).toHaveBeenCalledTimes(1);
+
+      const rejectedId = beginOptimisticSpawn(anchor());
+      const rejected = Promise.withResolvers<void>();
+      const rejectedSettlement = settleAdmission(rejectedId, rejected.promise);
+      vi.advanceTimersByTime(REPORT_DEBOUNCE_MS + 1);
+      rejected.reject(new Error("admission rejected"));
+      await rejectedSettlement;
+      expect(isPendingSpawn(rejectedId)).toBe(false);
+      expect(rootStore.sessions[rejectedId]).toBeUndefined();
+      expect(isClientOnlyOptimisticSpawn(rejectedId)).toBe(true);
+      expect(scheduleReport).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("bounds settled client-only spawn identities", () => {
+    const retainedIds: string[] = [];
+    for (let count = 0; count <= CLIENT_ONLY_RETENTION_LIMIT; count++) {
+      const id = beginOptimisticSpawn(anchor());
+      retainedIds.push(id);
+      abortOptimisticSpawn(id);
+      clearAborted(id);
+    }
+    expect(isClientOnlyOptimisticSpawn(retainedIds[0]!)).toBe(false);
+    expect(isClientOnlyOptimisticSpawn(retainedIds.at(-1)!)).toBe(true);
   });
 
   test("aborting resolves an in-flight mount measurement without spawning", async () => {

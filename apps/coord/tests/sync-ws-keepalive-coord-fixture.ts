@@ -14,6 +14,8 @@ import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
+import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
+import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
 
 const ACCOUNT_ID = "sync-keepalive-account";
 const ORGANIZATION_ID = "sync-keepalive-org";
@@ -66,6 +68,8 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     jwtCache,
     cfg,
     passwordWorkGate: new PasswordWorkGate(),
+    uiLayoutApplies: new UiLayoutApplyOwner(),
+    uiStates: new UiStateOwner(),
   };
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -131,6 +135,8 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     fingerprint,
     jwt,
     async close() {
+      deps.uiLayoutApplies.dispose();
+      deps.uiStates.dispose();
       try {
         await opened.close();
       } finally {

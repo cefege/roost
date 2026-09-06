@@ -20,6 +20,7 @@ import {
 } from "./cli-auth.ts";
 import { dispatchAgentStatusApi } from "./api-agent-status.ts";
 import { dispatchAgentPromptApi } from "./api-agent-prompt.ts";
+import { dispatchUiApi, prepareUiApplyLayout, type PreparedUiApplyLayout } from "./api-ui.ts";
 import { openSyncWs } from "./sync-ws.ts";
 
 export type AuthorizedApiClient = CoordClient;
@@ -182,14 +183,18 @@ export async function api(args: string[]): Promise<void> {
   }
 
   let c: CoordClient | undefined;
+  let preparedUiApplyLayout: PreparedUiApplyLayout | undefined;
   try {
+    if (verb === "ui" && rest[0] === "apply-layout") {
+      preparedUiApplyLayout = await prepareUiApplyLayout(rest.slice(1));
+    }
     // Keep stdout clean for machine consumption (jq/grep on our output).
     // loadWorkerKey logs "worker key loaded" via the shared facade to stdout;
     // shunt console.log→stderr just while building the client, then restore.
     const realLog = console.log;
     console.log = ((...a: unknown[]) => console.error(...a)) as typeof console.log;
     try { c = await buildApiClient(); } finally { console.log = realLog; }
-    await dispatch(c, verb, rest);
+    await dispatch(c, verb, rest, preparedUiApplyLayout);
   } catch (e) {
     // Enrollment happens while building the client. Remote and managed fresh
     // keys therefore surface their explicit pairing guidance without a retry
@@ -199,9 +204,15 @@ export async function api(args: string[]): Promise<void> {
   }
 }
 
-async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<void> {
+async function dispatch(
+  c: CoordClient,
+  verb: string,
+  rest: string[],
+  preparedUiApplyLayout?: PreparedUiApplyLayout,
+): Promise<void> {
   if (await dispatchAgentPromptApi(c, verb, rest)) return;
   if (await dispatchAgentStatusApi(c, verb, rest)) return;
+  if (await dispatchUiApi(c, verb, rest, {}, preparedUiApplyLayout)) return;
   switch (verb) {
     case "sessions": {
       const { sessions } = await c.sessionsList({ status: "all" });
@@ -453,84 +464,6 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       console.log(r.task?.state ?? "");
       break;
     }
-    case "ui-state": {
-      // Spatial-model visibility: what each connected browser tab reported
-      // via UiReportState (coord keeps an in-memory TTL map). Empty output =
-      // no browser open → ui commands would no-op (delivered=0).
-      const { tabs } = await c.uiListStates({});
-      if (rest.includes("--json")) { console.log(JSON.stringify(tabs, jsonReplacer, 2)); break; }
-      const now = Date.now();
-      for (const t of tabs) {
-        const s = t.state;
-        console.log([
-          t.fp.slice(0, 8), t.tabId, t.label || "-", humanAge(now - Number(t.lastMs)),
-          s?.activePath ?? "", s?.focusedPaneId ?? "", (s?.visibleSessionIds ?? []).join(","),
-        ].join("\t"));
-        if (s?.layoutJson) printLayoutTree(s.layoutJson, s.focusedPaneId);
-      }
-      break;
-    }
-    case "ui": {
-      // Drive the live SPA's pane tiling: UiDispatch → ui_command frame → the
-      // browser maps it onto store/paneLayout.ts pure ops. Fire-and-forget:
-      // `delivered` is the Sync subscriber count at publish, NOT per-tab acks.
-      const sub = rest[0];
-      const targetTabId = strFlag(rest, "--tab") ?? "";
-      const pos = rest.slice(1).filter((a) => !a.startsWith("--"));
-      const done = (r: { delivered: number }): void => {
-        console.log(`delivered=${r.delivered}`);
-        if (r.delivered === 0) console.error("roost api: delivered=0 — no browser tab connected to coord; spatial commands need a live SPA (check `roost api ui-state`)");
-      };
-      switch (sub) {
-        case "navigate":
-          done(await c.uiDispatch({ targetTabId, command: { command: { case: "navigate", value: { path: requireArg(pos[0], "path") } } } }));
-          break;
-        case "place-split": {
-          const dir = requireArg(pos[2], "row|col");
-          if (dir !== "row" && dir !== "col") { console.error(`roost api: dir must be row|col, got "${dir}"`); process.exit(1); }
-          done(await c.uiDispatch({ targetTabId, command: { command: { case: "placeSplit", value: {
-            sessionId: requireArg(pos[0], "sessionId"),
-            anchorSessionId: requireArg(pos[1], "anchorSessionId"),
-            dir, insertFirst: rest.includes("--first"),
-          } } } }));
-          break;
-        }
-        case "select-tab":
-          done(await c.uiDispatch({ targetTabId, command: { command: { case: "selectTab", value: { sessionId: requireArg(pos[0], "sessionId") } } } }));
-          break;
-        case "focus-pane":
-          // focuses the pane CONTAINING that session (sync.proto UiFocusPane)
-          done(await c.uiDispatch({ targetTabId, command: { command: { case: "focusPane", value: { sessionId: requireArg(pos[0], "sessionId") } } } }));
-          break;
-        case "move-tab":
-          done(await c.uiDispatch({ targetTabId, command: { command: { case: "moveTab", value: { sessionId: requireArg(pos[0], "sessionId"), destSessionId: requireArg(pos[1], "destSessionId") } } } }));
-          break;
-        case "arrange": {
-          const preset = requireArg(pos[0], "preset");
-          if (!["even", "rows", "tiled", "main-vertical", "balance"].includes(preset)) {
-            console.error(`roost api: preset must be even|rows|tiled|main-vertical|balance, got "${preset}"`);
-            process.exit(1);
-          }
-          done(await c.uiDispatch({ targetTabId, command: { command: { case: "arrange", value: { preset } } } }));
-          break;
-        }
-        case "close-tab":
-          // soft-close: SPA honors the pendingClose undo window (doClose path)
-          done(await c.uiDispatch({ targetTabId, command: { command: { case: "closeTab", value: { sessionId: requireArg(pos[0], "sessionId") } } } }));
-          break;
-        case "spotlight":
-          done(await c.uiDispatch({ targetTabId, command: { command: { case: "spotlight", value: { sessionId: requireArg(pos[0], "sessionId"), off: rest.includes("--off") } } } }));
-          break;
-        default:
-          console.error(
-            "roost api ui <cmd> [--tab <tabId>]: navigate <path> | place-split <sid> <anchorSid> <row|col> [--first] | " +
-            "select-tab <sid> | focus-pane <sid> | move-tab <sid> <destSid> | " +
-            "arrange <even|rows|tiled|main-vertical|balance> | close-tab <sid> | spotlight <sid> [--off]",
-          );
-          process.exit(1);
-      }
-      break;
-    }
     // Coordinator relocation. The SPA dialog was the only way to reach these,
     // which made the feature impossible to preflight or drive headlessly —
     // including from an agent doing the testing.
@@ -569,39 +502,3 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
   }
 }
 
-/** Coarse human age for ui-state rows: "42s" / "3m" / "2h". */
-function humanAge(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.round(s / 60)}m`;
-  return `${Math.round(s / 3600)}h`;
-}
-
-/** Indent-nested pane-tree summary parsed from UiReportState.layout_json —
- *  `split row 0.50` / `leaf [sid*,sid2]`, `*` = selectedTab. The JSON is a
- *  foreign, versionless blob (the SPA's store/paneLayout.ts Layout tree,
- *  stringified as-is so the proto doesn't chase the layout model) — walk it
- *  with runtime guards; anything off-shape prints nothing (raw via --json). */
-function printLayoutTree(layoutJson: string, focusedPaneId: string): void {
-  let parsed: unknown;
-  try { parsed = JSON.parse(layoutJson); } catch { return; }
-  if (!parsed || typeof parsed !== "object" || !("root" in parsed)) return;
-  const walk = (n: unknown, indent: string): void => {
-    if (!n || typeof n !== "object" || !("kind" in n)) return;
-    if (n.kind === "split" && "a" in n && "b" in n) {
-      const dir = "dir" in n && typeof n.dir === "string" ? n.dir : "?";
-      const ratio = "ratio" in n && typeof n.ratio === "number" ? n.ratio.toFixed(2) : "?";
-      console.log(`${indent}split ${dir} ${ratio}`);
-      walk(n.a, indent + "  ");
-      walk(n.b, indent + "  ");
-      return;
-    }
-    if (n.kind !== "leaf") return;
-    const tabs = "tabs" in n && Array.isArray(n.tabs) ? n.tabs.filter((t): t is string => typeof t === "string") : [];
-    const selected = "selectedTab" in n && typeof n.selectedTab === "string" ? n.selectedTab : "";
-    const paneId = "paneId" in n && typeof n.paneId === "string" ? n.paneId : "";
-    const marked = tabs.map((t) => (t === selected ? `${t}*` : t));
-    console.log(`${indent}leaf${paneId === focusedPaneId ? " (focused)" : ""} [${marked.join(",")}]`);
-  };
-  walk(parsed.root, "  ");
-}

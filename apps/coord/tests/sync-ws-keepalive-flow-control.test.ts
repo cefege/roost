@@ -12,7 +12,6 @@ import {
 } from "@roost/shared/proto/sync_pb";
 import { makeSyncWsHandler, type SyncWsData } from "../src/connect/sync-ws-handler.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
-import { _uiStatesByTab } from "../src/connect/handlers-ui.ts";
 import {
   APPLICATION_MAX_UNACKED_BYTES,
   APPLICATION_MAX_UNACKED_FRAMES,
@@ -65,16 +64,19 @@ test("ACK-paced retained seed crosses 512 frames and a stalled seed exits at 3 s
   const now = Date.now();
   for (let index = 0; index < 520; index += 1) {
     const tabId = `${seedPrefix}-${index}`;
-    const key = `${dashboardId}:${fingerprint}:${tabId}`;
+    const key = JSON.stringify([dashboardId, fingerprint, tabId]);
     const state = create(UiReportStateRequestSchema, {
       tabId,
       activePath: "/",
       folderKey: "",
-      layoutJson: "{}",
-      focusedPaneId: "",
-      visibleSessionIds: [],
     });
-    _uiStatesByTab.set(key, { dashboardId, fp: fingerprint, tabId, lastMs: now, state });
+    deps.uiStates._statesByTab.set(key, {
+      dashboardId,
+      fp: fingerprint,
+      tabId,
+      lastMs: now,
+      state,
+    });
     seedKeys.push(key);
   }
 
@@ -176,7 +178,7 @@ test("ACK-paced retained seed crosses 512 frames and a stalled seed exits at 3 s
     expect(stalled.data.deliveryWaiters.size).toBe(0);
     expect(clock.timers.size).toBe(0);
   } finally {
-    for (const key of seedKeys) _uiStatesByTab.delete(key);
+    for (const key of seedKeys) deps.uiStates._statesByTab.delete(key);
   }
 });
 

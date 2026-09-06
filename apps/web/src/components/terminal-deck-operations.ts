@@ -20,7 +20,7 @@ import {
   beginOptimisticSpawn,
   clearAborted,
   endOptimisticSpawn,
-  failOptimisticSpawn,
+  settleOptimisticSpawnAdmission,
   waitForMountedSpawnMeasurement,
   wasAborted,
 } from "../store/optimisticSpawn.ts";
@@ -69,6 +69,7 @@ import {
 import type { TerminalDeckProps } from "./terminal-deck-model.ts";
 import { bindTerminalDeckShortcuts } from "./terminal-deck-shortcuts.ts";
 import { folderPathOf } from "../lib/folderKey.ts";
+import { scheduleUiStateReport } from "../lib/uiStateReport.ts";
 
 
 interface DeckOperationModel {
@@ -173,16 +174,35 @@ export function createTerminalDeckOperations(
         void coordClient.sessionsKill({ sessionId });
         return;
       }
-      endOptimisticSpawn(sessionId);
+      settleOptimisticSpawnAdmission(
+        sessionId,
+        { status: "admitted" },
+        scheduleUiStateReport,
+      );
       maybeAutoLaunchAgent(sessionId);
     } catch (error) {
       if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+      if (wasAborted(sessionId)) {
+        clearAborted(sessionId);
+        if ((rootStore.sessions[sessionId]?.channel ?? 0) > 0) {
+          void coordClient.sessionsKill({ sessionId });
+        }
+        return;
+      }
       if ((rootStore.sessions[sessionId]?.channel ?? 0) > 0) {
-        endOptimisticSpawn(sessionId);
+        settleOptimisticSpawnAdmission(
+          sessionId,
+          { status: "admitted" },
+          scheduleUiStateReport,
+        );
         maybeAutoLaunchAgent(sessionId);
         return;
       }
-      failOptimisticSpawn(sessionId, error);
+      settleOptimisticSpawnAdmission(
+        sessionId,
+        { status: "rejected", error },
+        scheduleUiStateReport,
+      );
     }
   }
   async function split(dir: PaneDir): Promise<void> {

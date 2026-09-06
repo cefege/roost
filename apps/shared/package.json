@@ -14,6 +14,8 @@
     "./terminal-search": "./src/terminal-search.ts",
     "./terminal-input": "./src/terminal-input.ts",
     "./layout-document": "./src/layout-document.ts",
+    "./layout-document-proto": "./src/layout-document-proto.ts",
+    "./ui-state": "./src/ui-state.ts",
     "./keeper-update": "./src/keeper-update.ts",
     "./keeper-update-proto": "./src/keeper-update-proto.ts",
     "./config": "./src/config.ts",

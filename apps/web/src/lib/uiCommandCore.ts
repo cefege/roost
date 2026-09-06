@@ -1,11 +1,7 @@
-// ui-cc pure core — UiCommand → Layout mapping with ZERO side-effect imports.
-// Split from lib/uiCommandDispatch.ts so tests (and any future consumer) can
-// load the mapping without dragging in paneLayoutStore/rootStore/connect:
-// paneLayoutStore registers a pagehide flush at import time, and bun's shared
-// module cache means whichever test file loads it first wins — a static
-// handleUiCommand import from a test poisoned paneLayoutStore.test.ts's
-// window-stub capture (full-suite order coupling). Everything here is pure:
-// paneLayout.ts tree ops + paneLayoutPresets.ts, no DOM, no store, no client.
+// Pure mapping from the eight legacy UiCommands to browser-local layouts.
+// Keeping store, transport, and DOM imports out makes this safe to test without
+// triggering paneLayoutStore's page-lifecycle side effects. Acknowledged layout
+// apply is explicitly refused here and owned by uiLayoutApply instead.
 
 import type { UiCommand, UiCommandFrame } from "@roost/shared/proto/sync_pb";
 import {
@@ -16,17 +12,16 @@ import { arrangeLayout, type ArrangeKind } from "../store/paneLayoutPresets.ts";
 
 const ARRANGE_KINDS: Record<string, true> = { "even": true, "rows": true, "tiled": true, "main-vertical": true, "balance": true };
 
-/** Tab targeting: empty targetTabId = broadcast (every tab accepts); set =
- *  only the addressed tab executes. The shell passes its own getTabId(). */
+/** Legacy targeting: an empty targetTabId broadcasts to every tab. The
+ * acknowledged apply path never calls this predicate. */
 export function frameAccepted(frame: UiCommandFrame, ownTabId: string): boolean {
   return !frame.targetTabId || frame.targetTabId === ownTabId;
 }
 
-/** Apply one layout-shaped UiCommand to a Layout. Returns the next Layout, or
- *  null when the command can't apply (session/anchor not in the tree, bad dir
- *  or preset) — the shell drops null with a warn. navigate/closeTab/spotlight
- *  are NOT layout transforms and live in the shell. `liveIds` feeds arrange's
- *  rebuild presets (one pane per live session). */
+/** Apply one legacy layout-shaped UiCommand to a Layout. Returns null for bad
+ * references/arguments and for shell-owned navigate, closeTab, and spotlight.
+ * applyLayout is also refused: only the exact-target acknowledged adapter may
+ * execute it. `liveIds` feeds arrange's one-pane-per-live-session presets. */
 export function applyUiCommandToLayout(layout: Layout, cmd: UiCommand, liveIds: string[]): Layout | null {
   const c = cmd.command;
   switch (c.case) {
@@ -55,6 +50,8 @@ export function applyUiCommandToLayout(layout: Layout, cmd: UiCommand, liveIds: 
       return ARRANGE_KINDS[c.value.preset]
         ? arrangeLayout(c.value.preset as ArrangeKind, layout, liveIds)
         : null;
+    case "applyLayout":
+      return null;
     default:
       return null;
   }

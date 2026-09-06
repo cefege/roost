@@ -1,3 +1,7 @@
+// Owns deterministic Sync-v2 scheduler sockets, domains, and frame assertions.
+// Focused scheduler suites call this harness to exercise queue accounting and delivery.
+// It depends on the production socket-state and scheduler modules plus protobuf codecs.
+
 import { expect } from "bun:test";
 import type { ServerWebSocket } from "bun";
 import { clone, create, fromBinary, toBinary } from "@bufbuild/protobuf";
@@ -134,6 +138,7 @@ export class TestSocket {
       readOnly: false,
       sinceEventId: 0,
       viewerKey,
+      tabId: viewerKey ? "sync-v2-scheduler-tab" : null,
       remoteAddress: null,
       feed: null,
       keepaliveTimer: null,

@@ -43,7 +43,12 @@ import {
 } from "./sync-ws-v2-state.ts";
 import type { ConnectDeps } from "./router.ts";
 import type { TerminalViewHub } from "./terminal-view-hub.ts";
-import type { SyncWsData } from "./sync-ws-upgrade.ts";
+import { UiLayoutApplyCapacityError } from "./ui-layout-apply-owner.ts";
+import {
+  SYNC_CONNECTION_REJECTION_CLOSE_CODE,
+  SYNC_CONNECTION_REJECTION_REASON,
+  type SyncWsData,
+} from "./sync-ws-upgrade.ts";
 export {
   handleSyncWsUpgrade,
   type SyncDashboardActor,
@@ -51,13 +56,9 @@ export {
   type SyncUpgradeServer,
   type SyncWsData,
 } from "./sync-ws-upgrade.ts";
-
-/** Coord pushes a keepalive data frame at this cadence on every long-lived
- *  WebSocket — the browser Sync firehose here and the worker transport
- *  (worker-conn.ts) — because Bun's idleTimeout resets on any RECEIVED
- *  message, so a healthy but quiet connection must be given something to
- *  receive. Both ends share one value: a socket reaped on one side of the
- *  fleet but held on the other is the failure this prevents. */
+/** Coord pushes a keepalive on every long-lived WebSocket because Bun's
+ * idleTimeout resets only on received messages. Browser Sync and worker
+ * transport share one cadence so neither side reaps a healthy quiet socket. */
 export const KEEPALIVE_INTERVAL_MS = 30_000;
 const BACKPRESSURE_LIMIT_BYTES = 8 * 1024 * 1024;
 const BACKPRESSURE_TIMEOUT_MS = 10_000;
@@ -87,11 +88,8 @@ export function makeSyncWsHandler(
   const sockets = new Set<ServerWebSocket<SyncWsData>>();
   const leaseExpiredSockets = new Set<string>();
 
-  // Construction below is a forward-reference cycle by necessity, resolved the
-  // same way this file already resolved the v2 scheduler's own recursion: every
-  // hook crossing a module boundary is invoked per-frame, never during
-  // construction. delivery's close paths need cleanupSocket, cleanupSocket needs
-  // delivery's window teardown, and an accepted ACK reopens the v2 lane window.
+  // Delivery cleanup and ACK scheduling form a deliberate forward-reference
+  // cycle; all cross-module hooks run per frame, never during construction.
   let cleanupSocket: (ws: ServerWebSocket<SyncWsData>) => void;
   let v2Scheduler: SyncV2Scheduler;
   const delivery = makeSyncV1Delivery({
@@ -114,6 +112,14 @@ export function makeSyncWsHandler(
     resetV2Domain: v2Scheduler.resetV2Domain,
     scheduleV2: v2Scheduler.scheduleV2,
     onV2Command: options.onV2Command,
+    onUiApplyLayoutResult: ({ dashboardId, fingerprint, tabId, socketId, result }) => {
+      deps.uiLayoutApplies.acceptResult({
+        dashboardId,
+        fingerprint,
+        tabId,
+        socketId,
+      }, result);
+    },
   });
   const handleClientMessage = makeSyncWsClientIngress({
     closeForInvalidAck: delivery.closeForInvalidAck,
@@ -165,7 +171,6 @@ export function makeSyncWsHandler(
     queueMicrotask(() => leaseExpiredSockets.delete(socketId));
   });
 
-
   return {
     open(ws: ServerWebSocket<SyncWsData>): void {
       if (jwtKeyGeneration(deps.jwtCache, ws.data.caller.fingerprint) !== ws.data.caller.keyGeneration) {
@@ -177,7 +182,13 @@ export function makeSyncWsHandler(
           ws.close(4003, "reauth required");
           return;
         }
-        ws.data.reauthTimer = scheduleWsAuthDeadline(ws, ws.data.reauthAtMs, deadlineClock);
+        ws.data.reauthTimer = scheduleWsAuthDeadline({
+          close: (code, reason) => {
+            ws.data.pressureClosing = true;
+            cleanupSocket(ws);
+            ws.close(code, reason);
+          },
+        }, ws.data.reauthAtMs, deadlineClock);
       }
       sockets.add(ws);
       const v2 = ws.data.v2;
@@ -196,8 +207,10 @@ export function makeSyncWsHandler(
           ws.data.sinceEventId,
           (frame, meta) => v2Scheduler.enqueueV2Frame(ws, frame, meta),
           ws.data.viewerKey,
+          !ws.data.readOnly,
           {
             version: 2,
+            socketId: v2.socketId,
             onRecoveryReset: (reason) => {
               if (ws.data.v2 === v2) v2Scheduler.resetV2Domain(ws, SyncDomain.TERMINAL, reason);
             },
@@ -225,6 +238,25 @@ export function makeSyncWsHandler(
           cleanupSocket(ws);
           try { ws.close(1011, "subscribed send failed"); } catch { /* already closed */ }
           return;
+        }
+        if (!ws.data.readOnly && ws.data.viewerKey !== null && ws.data.tabId !== null) {
+          try {
+            v2.layoutTargetDispose = deps.uiLayoutApplies.registerTarget({
+              dashboardId: ws.data.actor.dashboardId,
+              fingerprint: ws.data.caller.fingerprint,
+              tabId: ws.data.tabId,
+              socketId: v2.socketId,
+            });
+          } catch (error) {
+            feed.dispose();
+            ws.data.pressureClosing = true;
+            cleanupSocket(ws);
+            if (!(error instanceof UiLayoutApplyCapacityError)) throw error;
+            try {
+              ws.close(SYNC_CONNECTION_REJECTION_CLOSE_CODE, SYNC_CONNECTION_REJECTION_REASON);
+            } catch { /* cleanup already completed */ }
+            return;
+          }
         }
         options.terminalViews?.registerSocket({
           socketId: v2.socketId,
@@ -265,6 +297,7 @@ export function makeSyncWsHandler(
           ws.data.sinceEventId,
           push,
           ws.data.viewerKey,
+          !ws.data.readOnly,
           ws.data.flowControl
             ? {
               pacedSeedPush: (frame) => delivery.pushPacedSeed(ws, frame),
@@ -317,9 +350,10 @@ export function makeSyncWsHandler(
     },
     closeForFingerprint(fingerprint: string): void {
       for (const ws of sockets) {
-        if (ws.data.caller.fingerprint === fingerprint) {
-          try { ws.close(4001, "revoked"); } catch { /* close handler cleans up */ }
-        }
+        if (ws.data.caller.fingerprint !== fingerprint) continue;
+        ws.data.pressureClosing = true;
+        cleanupSocket(ws);
+        try { ws.close(4001, "revoked"); } catch { /* cleanup already completed */ }
       }
     },
     closeForDashboard(dashboardId: string, fingerprint?: string): void {
@@ -332,7 +366,9 @@ export function makeSyncWsHandler(
           ws.data.actor.dashboardId !== dashboardId
           || (fingerprint !== undefined && ws.data.caller.fingerprint !== fingerprint)
         ) continue;
-        try { ws.close(4001, "dashboard access revoked"); } catch { /* close handler cleans up */ }
+        ws.data.pressureClosing = true;
+        cleanupSocket(ws);
+        try { ws.close(4001, "dashboard access revoked"); } catch { /* cleanup already completed */ }
       }
     },
     publishRelocation(handoffId: string, sourceUrl: string, targetUrl: string): void {
@@ -342,13 +378,17 @@ export function makeSyncWsHandler(
           value: create(CoordinatorRelocationFrameSchema, { handoffId, sourceUrl, targetUrl }),
         },
       });
-      for (const ws of sockets) {
+      for (const ws of [...sockets]) {
         try {
           const sent = ws.data.v2
             ? v2Scheduler.sendV2ControlFrame(ws, clone(FirehoseFrameSchema, frame))
             : delivery.sendGuarded(ws, frame);
-          if (sent) ws.close();
-        } catch { /* close handler cleans up */ }
+          if (sent) {
+            ws.data.pressureClosing = true;
+            cleanupSocket(ws);
+            ws.close();
+          }
+        } catch { /* cleanup paths retire every owner and timer */ }
       }
     },
   };

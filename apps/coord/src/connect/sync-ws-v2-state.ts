@@ -1,10 +1,7 @@
-// Sync v2 per-socket state vocabulary: the domain-generation allocator, the
-// weighted lane table, the queue-limit constants, and the pure queue mutators
-// that the v2 scheduler and the v2 command handler both operate on.
-//
-// Split out of sync-ws-handler.ts. The generation counter is module-level on
-// purpose: one coord process, one monotonic sequence, so two generations issued
-// inside a single process epoch can never collide.
+// Owns Sync-v2 per-socket domain state, weighted lanes, queue limits, and mutators
+// shared by the scheduler and client-command ingress. Its process-wide generation
+// allocator is intentionally monotonic so two generations inside one process epoch
+// cannot collide; all other mutable state remains owned by the individual socket.
 
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
@@ -123,6 +120,7 @@ export interface SyncV2SocketState {
   schedulerYieldTimer: Timer | null;
   terminalProgressTimer: Timer | null;
   snapshotDispose: (() => void) | null;
+  layoutTargetDispose: (() => void) | null;
   closeNotified: boolean;
 }
 
@@ -151,6 +149,7 @@ export function createSyncV2SocketState(): SyncV2SocketState {
     schedulerYieldTimer: null,
     terminalProgressTimer: null,
     snapshotDispose: null,
+    layoutTargetDispose: null,
     closeNotified: false,
   };
 }
@@ -251,6 +250,8 @@ export const clearV2State = (
   v2.pendingSessionAnnouncements.clear();
   v2.terminalSessions.clear();
   v2.snapshotDispose?.();
+  v2.layoutTargetDispose?.();
+  v2.layoutTargetDispose = null;
   v2.snapshotDispose = null;
 };
 

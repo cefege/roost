@@ -40,6 +40,8 @@ import { assertManagedContainerInvariant } from "./managed-container-invariant.t
 import { ensureSelfHostedTenant } from "./self-hosted-tenant.ts";
 import { startBunCoordinatorListeners } from "./bun-coordinator-listeners.ts";
 import { PendingEventPublicationStore } from "./pending-event-publications.ts";
+import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
+import { UiStateOwner } from "./connect/ui-state-owner.ts";
 
 
 export async function runCoord() {
@@ -140,6 +142,8 @@ export async function runCoord() {
       })),
   });
   const pendingPublications = new PendingEventPublicationStore();
+  const uiLayoutApplies = new UiLayoutApplyOwner();
+  const uiStates = new UiStateOwner();
   let closeRevokedSockets: ((fingerprint: string) => void) | null = null;
   let closeDashboardSockets: ((dashboardId: string, fingerprint?: string) => void) | null = null;
   let fenceDeletedWorker: ((fingerprint: string) => void) | null = null;
@@ -148,7 +152,7 @@ export async function runCoord() {
   let closeDeletedWorkerSockets: ((fingerprint: string) => void) | null = null;
   const coord = createCoord({
     db, sqlite, coordKey, cfg, jwtCache, passwordWorkGate, move, email,
-    pendingPublications,
+    pendingPublications, uiLayoutApplies, uiStates,
     onKeyRevoked: (fingerprint) => {
       pendingPublications.clearWorker(fingerprint);
       closeRevokedSockets?.(fingerprint);
@@ -191,6 +195,8 @@ export async function runCoord() {
     passwordWorkGate,
     cfg,
     move,
+    uiLayoutApplies,
+    uiStates,
   };
   const syncWs = makeSyncWsHandler(
     syncDeps,

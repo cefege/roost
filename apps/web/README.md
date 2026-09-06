@@ -54,10 +54,10 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
 | `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `paneLayoutDocument.ts` is the strict portable-document adapter over the browser-local pane store; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
-| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters; `layoutDocumentControls.ts` fences local copy/download/import/apply and `layoutDocumentFile.ts` owns local JSON file I/O; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts` owns bounded dashboard search paging, `globalContentSearchResults.ts` reconciles cursor results, `globalContentSearchRuntime.ts` fences dashboard cutovers, and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun clicked results in pane-local current-epoch find (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
+| `apps/web/src/lib/` | pure helpers and browser adapters; `layoutDocumentControls.ts` + `layoutDocumentFile.ts` own local transfer, `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, fragment credentials, pairing/tab identity/relocation; `tenant-routing.ts`, `managed-routes.ts`, `managed-auth-gateway.ts`, `managed-login.ts`, `managed-account.ts`, `managed-credentials.ts`, and `managed-logout.ts` own managed policy/transitions | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | six global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules | component-local one-offs |
-| `apps/web/tests/` | 124 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
+| `apps/web/tests/` | recursive `*.test.ts` Bun suites, including the root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
 | `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
 
@@ -79,14 +79,17 @@ agent transcripts. Cross-worker transfer remains a beta placeholder: its item
 opens an explanatory dialog without issuing a transfer RPC. Attachment
 upload/download through `TransferStack` remains supported.
 
-Portable layouts remain a browser-local capability. `paneLayoutStore` owns the
-active runtime tree and its private pane/split UUIDs under
-`roost.paneLayout.v1`; `@roost/shared/layout-document` is the strict versioned
-copy/download/import boundary. Export replaces runtime IDs with deterministic
-preorder leaf/slot keys. Import previews before mutation, rechecks the current
-dashboard resource token and canonical folder membership, materializes every
-runtime ID afresh, and performs one commit. No storage event, coordinator
-record, or live cross-tab synchronization applies another tab's layout.
+Portable layouts remain browser-owned. `paneLayoutStore` keeps the active
+runtime tree and private pane/split UUIDs under `roost.paneLayout.v1`;
+`@roost/shared/layout-document` is the strict versioned boundary. Export and
+folder-scoped `UiReportState` documents replace runtime IDs with deterministic
+preorder leaf/slot keys; reports send typed protobuf rather than embedded
+runtime JSON, and off-folder routes omit the document.
+Local import previews before mutation. The acknowledged remote exception
+targets one page's current Sync socket, but that page still derives the
+URL-active folder and canonical live membership and calls the same
+`applyLayoutDocument`. No coordinator record, storage event, or open peer tab
+owns or live-folds another page's layout.
 
 ## Invariants
 
@@ -119,18 +122,44 @@ Break one of these and you get back the history-corruption class this repo keeps
   not add a store. `apps/web/src/store/projector.ts` folds `SessionEvent` with the same `foldEvent`
   coord uses (`@roost/shared/wire`), so SPA and coord projections agree by construction.
 - **Portable layout apply is one validated browser-local commit.** The shared
-  V1 parser rejects unknown keys/versions and invalid graph references.
+  V1 parser rejects unknown keys/versions, invalid graph references, and
+  excessive identifiers, depth, nodes, slots, or bindings before recursion.
   `liveSessionIdsForFolder()` is the only folder membership/order selector used
-  by the deck, UI reporter/dispatcher, and import controls. The adapter validates
-  and materializes entirely in locals before `commitLayout()` exactly once;
-  rejection cannot create a pane signal, subscriber call, persistence timer, or
-  localStorage write. Runtime pane/split UUIDs never enter exported JSON, and
-  open browser tabs do not fold each other's storage events. Imported empty
+  by the deck, reporter, command adapters, and import controls; the optimistic
+  spawn projection removes client-only identities for reports and exposes their
+  presence so acknowledged apply can fail closed. Export and reporting contain
+  stable leaf/slot keys only; runtime pane/split UUIDs, focused pane IDs, and
+  redundant visible-session lists never cross the wire.
+  The adapter validates and materializes entirely in locals before
+  `commitLayout()` exactly once; rejection cannot create a pane signal,
+  subscriber call, persistence timer, or localStorage write. Imported empty
   leaves survive reconciliation and unrelated mutations; legacy runtime ratios
   normalize into the shared bounds before rendering/export. Desktop Arrange
   and the compact workspace-sheet overflow expose the same controls, including
   for one-session folders. Compact rendering projects the live URL session (or
   first occupied leaf) without changing the preserved desktop focus/topology.
+- **Acknowledged apply never transfers layout ownership.** `uiLayoutApplyCore.ts`
+  accepts only a frame whose nonempty tab, socket, and correlation match the
+  page's current identity and Sync-v2 generation. It rechecks that the URL names
+  an open, coordinator-admitted session in the canonical live set and rejects
+  the whole operation when the active session or any folder sibling is a
+  pending/tombstoned optimistic identity. It decodes through the shared adapter
+  and invokes `applyLayoutDocument` once, then clears spotlight, attempts
+  focused-selection navigation, and attempts to send `applied` on the same
+  socket in a `finally`; `applied` proves the commit, not navigation completion,
+  and a post-commit throw cannot become retry-inviting rejection. Each exact
+  local decision emits one bounded correlation/outcome diagnostic. Invalid
+  current membership or document returns a stable sanitized `rejected` reason
+  without mutation. Wrong/stale frames are ignored; a result unavailable after
+  socket replacement remains coordinator-side `target-gone` ambiguity and is
+  never retried. Open pages still ignore one another's layout storage events.
+- **UI reports wait for authoritative session identity.** A client-only
+  optimistic `/s/:id` is blanked and omitted from layout bindings. Successful
+  admission schedules a fresh report even after the initial debounce elapsed.
+  Failed/aborted identities enter a bounded tombstone set so late rows remain
+  excluded while asynchronous cleanup completes. An unchanged cold session
+  route schedules another report when hydration resolves it, rather than
+  waiting for the minute heartbeat.
 - **Observed-agent status is occupant-fenced.** Identified Sync frames compare
   `status_epoch` and `occupant_id` only by equality; `source` is mutable
   provenance. Replaced occupants and epochs stay retired, and seen state,
@@ -184,7 +213,7 @@ Break one of these and you get back the history-corruption class this repo keeps
 - `bun run test:terminal` — the Playwright browser tier, and the only tier that proves paint. It
   builds this app (`vite build`), regenerates the embeds (`scripts/gen-embed.ts`), runs pass 1
   `--project=chromium-desktop` (plus `--project=webkit-iphone` on darwin)
-  across the 38 `smoke/terminal/**/*.spec.ts` files. Repo-root
+  across `smoke/terminal/**/*.spec.ts`. Repo-root
   `playwright.config.ts` derives pass-1 workers from available CPUs, capped at
   four. Pass 2 uses `--project=chromium-serial --workers=1` for `@serial` perf
   cases, then the runner restores embed stubs

@@ -10,6 +10,7 @@ import {
   FirehoseFrameSchema,
   SyncClientFrameSchema,
   TerminalTitleFrameSchema,
+  type FirehoseFrame,
 } from "@roost/shared/proto/sync_pb";
 import { titleBus } from "../src/buses.ts";
 import {
@@ -85,6 +86,7 @@ export class PressureSocket {
   frameKinds: string[] = [];
   closes: Array<[number | undefined, string | undefined]> = [];
   deliverySeqs: bigint[] = [];
+  readonly frames: FirehoseFrame[] = [];
   dataSendResult = 1;
   dataBufferedBytes = 0;
   sendError: Error | null = null;
@@ -119,6 +121,7 @@ export class PressureSocket {
       },
       sinceEventId: 0,
       viewerKey: null,
+      tabId: null,
       feed: null,
       keepaliveTimer: null,
       reauthAtMs: null,
@@ -141,6 +144,7 @@ export class PressureSocket {
     const frame = fromBinary(FirehoseFrameSchema, payload);
     const frameKind = frame.frame.case ?? "unknown";
     this.lastFrameKind = frameKind;
+    this.frames.push(frame);
     this.frameKinds.push(frameKind);
     this.deliverySeqs.push(frame.deliverySeq);
     this.sendCount += 1;

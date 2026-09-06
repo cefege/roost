@@ -32,6 +32,8 @@ import type { CallerOrigin } from "./middleware/caller-origin.ts";
 import type { EmailDeliveryService } from "./email-delivery.ts";
 import type { PasswordWorkGate } from "./connect/password-work-gate.ts";
 import type { PendingEventPublicationStore } from "./pending-event-publications.ts";
+import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
+import { UiStateOwner } from "./connect/ui-state-owner.ts";
 
 export interface CoordHandlerContext {
   origin: CallerOrigin;
@@ -51,6 +53,8 @@ export interface CoordDeps {
   jwtCache: JwtCache;
   passwordWorkGate: PasswordWorkGate;
   move?: CoordinatorMoveService;
+  uiLayoutApplies?: UiLayoutApplyOwner;
+  uiStates?: UiStateOwner;
   pendingPublications?: PendingEventPublicationStore;
   /** Test observation point forwarded to the keeper-update handler. */
   _onKeeperUpdateFinalEmptyRecheck?: () => void;
@@ -73,7 +77,9 @@ export interface CoordHandle {
 }
 
 export function createCoord(deps: CoordDeps): CoordHandle {
-  const connectRouter = buildConnectRouter(deps);
+  const uiLayoutApplies = deps.uiLayoutApplies ?? new UiLayoutApplyOwner();
+  const uiStates = deps.uiStates ?? new UiStateOwner();
+  const connectRouter = buildConnectRouter({ ...deps, uiLayoutApplies, uiStates });
   const connectHandler = makeConnectBunHandler(connectRouter);
 
   // Coord-authoritative OSC terminal title: parse it off the relayed byte
@@ -165,6 +171,8 @@ export function createCoord(deps: CoordDeps): CoordHandle {
     stopTerminalTitleHub();
     stopLastActivityHub();
     stopAgentStatusHub();
+    uiLayoutApplies.dispose();
+    uiStates.dispose();
   }
 
   return { fetch: fetchHandler, dispose };

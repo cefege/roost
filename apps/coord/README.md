@@ -73,7 +73,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | workers | `src/connect/handlers-workers.ts` | registry lifecycle; composes deploy start/output from `src/connect/handlers-workers-deploy.ts` |
 | sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment; composes spawn from `src/connect/handler-session-spawn.ts`, terminal cell/search/cancel RPCs from `src/connect/handlers-sessions-scrollback.ts`, and authorized global terminal search from `src/connect/handlers-sessions-global-search.ts`; resize is socket-bound |
 | streaming | `src/connect/handlers-streaming.ts` | only the `sync` stub (below) |
-| ui | `src/connect/handlers-ui.ts` | ui-cc relay: `uiReportState`/`uiListStates`/`uiDispatch`. The spatial model stays browser-local; coord relays, never interprets |
+| ui | `src/connect/handlers-ui.ts` | typed per-tab reports/listing, bounded composition-owned TTL retention in `ui-state-owner.ts`, canonical legacy-command admission in `ui-legacy-command.ts`, and exact bounded fingerprint/tab apply admission in `ui-layout-apply-owner.ts`; the spatial model stays browser-local |
 | coordinator-move | `src/connect/handlers-coordinator-move.ts` | preflight/start/status over `coord-move/`; plain `Error` from the orchestrator is translated to `ConnectError` here, at the RPC boundary |
 | push | `src/connect/handlers-push.ts` | VAPID public key + Web Push subscribe/unsubscribe (`push_subscriptions`) |
 
@@ -105,6 +105,10 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   owns authorized session selection, fair one-batch-per-worker partitioning,
   and strict result validation. `src/connect/global-search-cancel.ts` owns the
   tombstone-before-discovery cancellation path.
+- `src/connect/ui-layout-apply-owner.ts` owns the sole acknowledged UI command's
+  exact target-tab/live Sync-v2 socket selection, correlation registration
+  before publication, result fencing, and
+  cancellation/close/replacement/timeout settlement.
 - Top level: `src/event-log.ts` (stable event facade),
   `src/event-transaction.ts` (durable append/projection transaction),
   `src/pending-event-publications.ts` (bounded post-commit recovery and ordered
@@ -228,6 +232,39 @@ its byte-for-byte semantics.
   agent status messages are never logged, placed in `audit_log`, persisted, or
   echoed in its response. The request is capped at 16,384 UTF-8 bytes, and its
   optional wait is all-or-none with a `1..300000` ms timeout.
+- **Acknowledged layout apply has one exact target generation.** `UiApplyLayout`
+  requires a nonempty target fingerprint/tab tuple plus dashboard-owned document
+  bindings. Sync upgrade rejects a tab ID over 256 UTF-8 bytes before it enters
+  socket state. The live-target owner admits at most 32 distinct tuples per
+  fingerprint globally and 256 per dashboard; either exhaustion closes the new
+  socket with the same generic reason, while exact-tuple replacement does not
+  consume another slot. The five-minute UI-state projection is discovery data,
+  not target liveness; an earlier fingerprint remains pinned if another browser
+  reports or opens the same tab ID. Pending state exists before publication to
+  exactly that tuple's current authenticated read/write Sync-v2 socket. Only the
+  same dashboard, fingerprint, tab, socket, and correlation may settle it as
+  `applied` or `rejected`; wrong, stale, duplicate, and late results are ignored.
+  Cancellation removes the pending entry; socket close/replacement or the
+  deadline settles `target-gone`, with no retry. That outcome means an
+  acknowledgement is unavailable, not that the browser did not execute.
+- **UI ingress and report retention are bounded canonical state.** Reports,
+  acknowledged documents, and all eight legacy commands are rebuilt from
+  validated known fields, so retired or nested unknown protobuf fields cannot
+  enter retention or the bus. UTF-8 text/document limits apply before
+  publication, and legacy session/anchor/destination IDs are bounded before
+  set construction or SQLite lookup. A global per-fingerprint cap/rate prevents
+  one device from multiplying identities across dashboards; the independent
+  per-dashboard cap bounds aggregate viewers. Capacity checks follow TTL reap
+  and fail closed.
+  Only successful new identities spend rate budget, while an existing tab's
+  heartbeat remains admissible.
+- **UI Sync frames are browser-only.** Read-only worker principals retain their
+  dashboard Sync subscription for publication-count semantics but receive no
+  live or seeded UI state and no UI command/apply frame.
+- **`UiDispatch` is publication-only.** It refuses `applyLayout`; each of its
+  eight commands returns exactly the selected dashboard's Sync subscriber
+  count at `uiBus.publish`, regardless of targeting or execution. UI command
+  frames are live-only and never enter a Sync seed.
 - **Rate limiting matches exact mutation routes, never a path prefix.** `src/middleware/rate-limit.ts` keys on a `ReadonlySet` of
   full RPC paths, so `*List`/`*Read` calls cannot burn the mutation budget. Connect emits every unary RPC as POST,
   so the GET/HEAD/OPTIONS early return in `checkRateLimit` never fires for an RPC — the exact-name set is the guard.

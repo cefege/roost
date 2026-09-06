@@ -1,12 +1,8 @@
-// Sync v2 client-command ingress: the only path by which a browser frame
-// mutates coordinator state on this socket.
-//
-// Every command is guarded on socket identity AND on the domain generation it
-// was issued against, so a frame composed before a domain reset can never be
-// admitted after it. Terminal view/input commands are handed to the injected
-// onV2Command hook with a reply closure bound to this socket generation.
-//
-// Split out of sync-ws-handler.ts.
+// Owns Sync-v2 client command ingress for each authenticated browser socket.
+// Every command is fenced to the socket generation before terminal commands or
+// layout acknowledgements can mutate coordinator state. Terminal commands also
+// require their domain generation; layout acknowledgements intentionally do not.
+// The Sync handler injects transport replies and acknowledged-apply settlement.
 
 import type { ServerWebSocket } from "bun";
 import { clone, create } from "@bufbuild/protobuf";
@@ -17,6 +13,7 @@ import {
   SyncDomain,
   type FirehoseFrame,
   type SyncClientFrame,
+  type UiApplyLayoutResult,
 } from "@roost/shared/proto/sync_pb";
 import { consumeSyncSessionSnapshot } from "./sync-snapshot-registry.ts";
 import {
@@ -56,6 +53,13 @@ export interface SyncV2CommandDeps {
   ): void;
   scheduleV2(ws: ServerWebSocket<SyncWsData>): void;
   onV2Command?: (context: SyncV2CommandContext) => void;
+  onUiApplyLayoutResult?: (context: {
+    readonly dashboardId: string;
+    readonly fingerprint: string;
+    readonly tabId: string;
+    readonly socketId: string;
+    readonly result: UiApplyLayoutResult;
+  }) => void;
 }
 
 export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
@@ -68,6 +72,18 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
     const v2 = ws.data.v2;
     if (!v2 || clientFrame.socketId !== v2.socketId) return;
     const command = clientFrame.command;
+    if (command.case === "uiApplyLayoutResult") {
+      if (!ws.data.readOnly && ws.data.viewerKey !== null && ws.data.tabId !== null) {
+        deps.onUiApplyLayoutResult?.({
+          dashboardId: ws.data.actor.dashboardId,
+          fingerprint: ws.data.caller.fingerprint,
+          tabId: ws.data.tabId,
+          socketId: v2.socketId,
+          result: command.value,
+        });
+      }
+      return;
+    }
     if (command.case === "domainReady") {
       const domain = v2.domains.get(command.value.domain);
       if (

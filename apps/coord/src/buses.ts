@@ -92,6 +92,8 @@ export class BoundedBus<T> {
   // uiDispatch reports it as `delivered` so a headless caller can tell
   // "command published into the void" (0) from "some browser will act" (>0).
   get subscriberCount(): number { return this.listeners.size; }
+  /** Diagnostics/test seam for owners whose replay retention must be zero. */
+  get retainedCount(): number { return this.ring.length; }
 
   subscriberCountFor(dashboardId: string): number {
     let count = 0;
@@ -164,14 +166,19 @@ export const agentStatusBus = new BoundedBus<DashboardScopedMessage<AgentStatusU
 
 
 
-// ui-cc — browser-tab UI state + command relay (G1/G2). VOLATILE,
-// presence-class, no replay: layout stays browser-local; coord only relays.
-// `state` msgs re-broadcast a tab's UiReportState (also kept in the
-// handlers-ui map, re-seeded to fresh Sync subscribers from there);
-// `command` msgs are fire-and-forget UiDispatch payloads the live SPA
-// tab(s) execute with their existing pure layout ops — never seeded.
+// UI command control is volatile and never replayed. State messages are kept
+// separately for fresh Sync seeds; the first eight legacy commands retain
+// publication-count delivery, while acknowledged apply is socket-generation
+// fenced and filtered by each v2 feed before it reaches a browser.
 export type UiBusMsg = DashboardScopedMessage<
   | { kind: "state"; fp: string; tabId: string; state: UiReportStateRequest }
   | { kind: "command"; targetTabId: string; command: UiCommand }
+  | {
+      kind: "apply";
+      targetTabId: string;
+      targetSocketId: string;
+      correlationId: string;
+      command: UiCommand;
+    }
 >;
-export const uiBus = new BoundedBus<UiBusMsg>(64);
+export const uiBus = new BoundedBus<UiBusMsg>(0);

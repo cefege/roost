@@ -1,8 +1,27 @@
 // Portable layout documents describe pane geometry and session placement.
 // Browser and persistence adapters share this strict versioned boundary.
-// Validation covers both recursive shape and whole-document graph references.
+// Iterative resource preflight precedes recursive shape and graph validation.
 
 import { z } from "zod";
+import {
+  LAYOUT_DOCUMENT_MAX_BINDINGS,
+  LAYOUT_DOCUMENT_MAX_DEPTH,
+  LAYOUT_DOCUMENT_MAX_KEY_UTF8_BYTES,
+  LAYOUT_DOCUMENT_MAX_NODES,
+  LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES,
+  LAYOUT_DOCUMENT_MAX_SLOTS,
+  preflightLayoutDocumentResources,
+} from "./layout-document-preflight.ts";
+import { hasAtMostUtf8Bytes } from "./ui-state.ts";
+
+export {
+  LAYOUT_DOCUMENT_MAX_BINDINGS,
+  LAYOUT_DOCUMENT_MAX_DEPTH,
+  LAYOUT_DOCUMENT_MAX_KEY_UTF8_BYTES,
+  LAYOUT_DOCUMENT_MAX_NODES,
+  LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES,
+  LAYOUT_DOCUMENT_MAX_SLOTS,
+};
 
 export type LayoutDocumentBinding = {
   slot_key: string;
@@ -36,10 +55,16 @@ export type LayoutDocumentV1 = {
 export const LAYOUT_RATIO_MIN = 0.1;
 export const LAYOUT_RATIO_MAX = 0.9;
 
-const LayoutKeySchema = z.string().min(1);
+const LayoutKeySchema = boundedNonemptyUtf8String(
+  LAYOUT_DOCUMENT_MAX_KEY_UTF8_BYTES,
+  "layout key",
+);
 const LayoutDocumentBindingSchema = z.object({
   slot_key: LayoutKeySchema,
-  session_id: z.string().min(1),
+  session_id: boundedNonemptyUtf8String(
+    LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES,
+    "layout session_id",
+  ),
 }).strict();
 const LayoutDocumentLeafSchema = z.object({
   kind: z.literal("leaf"),
@@ -62,12 +87,19 @@ const LayoutDocumentNodeUnionSchema = z.discriminatedUnion("kind", [
   LayoutDocumentSplitSchema,
 ]);
 
-export const LayoutDocumentV1Schema: z.ZodType<LayoutDocumentV1> = z.object({
+const RecursiveLayoutDocumentV1Schema: z.ZodType<LayoutDocumentV1> = z.object({
   schema_version: z.literal(1),
   root: LayoutDocumentNodeSchema,
   focused_leaf_key: LayoutKeySchema,
-  bindings: z.array(LayoutDocumentBindingSchema),
+  bindings: z.array(LayoutDocumentBindingSchema).max(LAYOUT_DOCUMENT_MAX_BINDINGS),
 }).strict().superRefine(validateLayoutDocumentGraph);
+const LayoutDocumentResourcePreflightSchema = z.unknown().superRefine(
+  preflightLayoutDocumentResources,
+);
+
+export const LayoutDocumentV1Schema = LayoutDocumentResourcePreflightSchema.pipe(
+  RecursiveLayoutDocumentV1Schema,
+);
 
 export function parseLayoutDocumentV1(input: unknown): LayoutDocumentV1 {
   return LayoutDocumentV1Schema.parse(input);
@@ -83,6 +115,13 @@ type LayoutLeafRecord = {
   leaf: LayoutDocumentLeaf;
   path: LayoutDocumentPath;
 };
+
+function boundedNonemptyUtf8String(maxBytes: number, field: string) {
+  return z.string().min(1).refine(
+    value => hasAtMostUtf8Bytes(value, maxBytes),
+    `${field} must not exceed ${maxBytes} UTF-8 bytes`,
+  );
+}
 
 function validateLayoutDocumentGraph(
   document: LayoutDocumentV1,

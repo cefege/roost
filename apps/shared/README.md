@@ -31,7 +31,9 @@ import style is now correct instead of two.
 | `@roost/shared/wire/headers` | shared `x-roost-*` header names and listener-trust sentinel values |
 | `@roost/shared/terminal-search` | bounded paging limits, Unicode code-point utilities, stop reasons, worker-result validation |
 | `@roost/shared/terminal-input` | terminal newline/paste encoding plus guarded-prompt byte and wait bounds |
-| `@roost/shared/layout-document` | portable v1 pane-tree types, strict schema/parser, and inclusive split-ratio bounds |
+| `@roost/shared/layout-document` | portable v1 pane-tree types, one resource-bounded strict parser, and inclusive split-ratio bounds |
+| `@roost/shared/layout-document-proto` | preflighted, validated `LayoutDocumentV1` ↔ protobuf recursion adapter |
+| `@roost/shared/ui-state` | allocation-free UTF-8 measurement plus UI report text, cardinality, and identity-rate limits |
 | `@roost/shared/cell` | cell-grid model, emitter, delta apply, bounded snapshot chunking/assembly (R11) |
 | `@roost/shared/cell/cell-proto` | cell frame ↔ proto |
 | `@roost/shared/proto/*` | every generated `_pb.ts` (`…/proto/coordinator_pb`) |
@@ -96,7 +98,12 @@ producers and consumers.
   active, strips ESC from the text and wraps it; `CR_BYTES` supplies submit.
 - **Portable layout document** — `src/layout-document.ts` owns the browser-safe
   v1 pane tree, leaf/slot session bindings, strict parser, and shared ratio
-  bounds used by layout runtimes.
+  bounds; `src/layout-document-preflight.ts` rejects excessive identifiers,
+  depth, nodes, slots, and bindings before recursion; and
+  `src/layout-document-proto.ts` maps the bounded graph to/from protobuf.
+- **UI state resource contract** — `src/ui-state.ts` owns allocation-free UTF-8
+  measurement and the tab/report/cardinality limits used by Sync admission,
+  coordinator report/live-target owners, and the CLI human-output formatter.
 - **Terminal search** — `src/terminal-search.ts` owns query/row/match/preview
   limits, exclusive-cursor result validation, and Unicode code-point
   counting/truncation shared by every search hop.
@@ -124,12 +131,26 @@ producers and consumers.
 
 ## Invariants
 
-- **Layout documents are strict, total graphs.** `schema_version` is exactly 1;
-  every recursive object rejects unknown fields; split ratios are finite and
-  within inclusive `0.1..0.9`; leaf and slot keys are nonempty and globally
-  unique. Focus and selection must reference the owning tree, selection is null
-  exactly for empty leaves, every slot has exactly one binding, and a session
-  can be bound only once.
+- **Layout documents are strict, total, bounded graphs.** `schema_version` is
+  exactly 1; every recursive object rejects unknown fields; split ratios are
+  finite and within inclusive `0.1..0.9`; leaf and slot keys are nonempty and
+  globally unique. Focus and selection must reference the owning tree,
+  selection is null exactly for empty leaves, every slot has exactly one
+  binding, and a session can be bound only once. An iterative preflight runs
+  before recursive JSON or protobuf conversion and caps identifiers at 256
+  UTF-8 bytes, depth at 32, nodes at 255, and slots/bindings at 512.
+- **Portable JSON and protobuf share one validator.** Both directions through
+  `src/layout-document-proto.ts` call `parseLayoutDocumentV1`; recursive oneofs
+  cannot create a second acceptance policy. `UiReportStateRequest` carries the
+  optional typed document, while retired runtime-layout JSON, pane IDs, visible
+  session IDs, and unknown protobuf fields are rebuilt away at admission.
+- **The UI acknowledgement fence is explicit on the wire.** The eight
+  fire-and-forget `UiCommand` variants retain `UiDispatch` publication counts;
+  `apply_layout` is admitted only by `UiApplyLayout`, whose request pins a
+  nonempty browser fingerprint/tab tuple. Its command frame names that exact
+  tab's socket and correlation, and a browser result can claim only `APPLIED`
+  or `REJECTED`; tuple absence, socket close/replacement, or acknowledgement
+  timeout resolves the RPC as `TARGET_GONE` without retry.
 
 - **Terminal-search limits reject rather than clamp.** Queries may be empty
   and are capped at 256 Unicode code points, caller-generated cancellation IDs

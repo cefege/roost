@@ -1,11 +1,7 @@
-// Per-frame firehose dispatch, split out of store/sync.ts: one switch over every
-// wire-frame kind coord can deliver, plus the last-seen event id the reconnect
-// backfill resumes from (the two are coupled — only the sessions/sessionEvent
-// cases advance the watermark, and they do it inside the same batch).
-//
-// The transport hands EVERY frame here: v1 sequenced delivery, v2 application
-// frames, and the four v2 controls that carry no domain. Nothing in this module
-// touches the socket, the handshake, or the redial ladder.
+// Dispatches every decoded firehose application/control frame into browser state.
+// Session events advance the reconnect watermark inside the same reactive batch.
+// The transport supplies socket-generation proof; this module never owns sockets,
+// handshakes, acknowledgements, or redial policy.
 
 import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
@@ -320,11 +316,10 @@ export function _dispatchSyncFrame(
         break;
       }
       case "uiCommand": {
-        // ui-cc — agent-driven UI command (coord UiDispatch → ui_command
-        // frame). Forwarded to the handler UiBridge registered with router
-        // navigate bound; no bridge mounted → the command is deliberately
-        // consumed as a no-op (the agent reads UiDispatch's `delivered`
-        // count instead).
+        // The registry sends legacy UiDispatch commands to the router bridge
+        // with their publication-count semantics unchanged. Dedicated layout
+        // apply frames carry exact tab/socket fences and receive an explicit
+        // rejected result when that bridge is unavailable.
         _dispatchUiCommand(oneof.value);
         break;
       }

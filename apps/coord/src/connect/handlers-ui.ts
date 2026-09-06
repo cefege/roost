@@ -1,17 +1,7 @@
-// ui-cc RPC handlers: uiReportState / uiListStates / uiDispatch. The spatial
-// model (pane-layout tree, active route, focused pane) STAYS browser-local —
-// coord never persists or interprets it, it only relays. Each live SPA tab
-// heartbeats its state here (60s + on layout/route change); agents read the
-// snapshot via uiListStates or the Sync ui_state frames, and drive the UI via
-// uiDispatch → ui_command frames that the live tab executes with its existing
-// pure layout ops. No browser open → commands land nowhere (delivered=0) and
-// the state list is empty; that's the accepted trade of the command-channel
-// design (plan G1 decision — no server-persisted layout, no cross-device merge).
-//
-// Module-level dashboard-scoped state + TTL reap for ephemeral presence-class
-// data. This is an in-memory UI projection, not terminal view membership or a
-// DB table. Its five-minute TTL is generous relative to the SPA heartbeat, so a
-// closed tab ages out without expiring a live one.
+// Browser UI control handlers retain typed tab reports, relay the eight legacy
+// fire-and-forget commands, and publish one socket-fenced acknowledged layout apply.
+// Portable layout validation stays in the shared parser; persisted dashboard
+// session ownership is checked before any report or command enters the live bus.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -19,81 +9,46 @@ import { create } from "@bufbuild/protobuf";
 import {
   CoordinatorService,
   UiReportStateResponseSchema, UiListStatesResponseSchema,
-  UiTabStateSchema, UiDispatchResponseSchema,
+  UiTabStateSchema, UiDispatchResponseSchema, UiApplyLayoutResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
-import type { UiCommand, UiReportStateRequest } from "@roost/shared/proto/sync_pb";
+import {
+  UiApplyLayoutSchema,
+  UiCommandSchema,
+  UiReportStateRequestSchema,
+  type LayoutDocumentV1,
+} from "@roost/shared/proto/sync_pb";
+import {
+  UI_ACTIVE_PATH_MAX_UTF8_BYTES,
+  UI_FOLDER_KEY_MAX_UTF8_BYTES,
+  UI_TAB_ID_MAX_UTF8_BYTES,
+  hasAtMostUtf8Bytes,
+} from "@roost/shared/ui-state";
+import {
+  layoutDocumentFromProto,
+  layoutDocumentToProto,
+} from "@roost/shared/layout-document-proto";
 import { uiBus } from "../buses.ts";
 import { requireDashboardActor, requireDashboardAdmin } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
+import {
+  UiLayoutApplyCanceledError,
+  UiLayoutApplyCapacityError,
+} from "./ui-layout-apply-owner.ts";
+import {
+  canonicalLegacyUiCommand,
+  legacyUiCommandSessionIds,
+} from "./ui-legacy-command.ts";
+import {
+  UiStateCapacityError,
+  UiStateIdentityRateError,
+} from "./ui-state-owner.ts";
 
-export const UI_STATE_TTL_MS = 5 * 60_000;
-const UI_REAP_INTERVAL_MS = 60_000;
-
-interface UiTabEntry {
-  dashboardId: string;
-  fp: string;
-  tabId: string;
-  lastMs: number;
-  state: UiReportStateRequest;
-}
-
-// Keyed `${dashboardId}:${fp}:${tabId}` because the browser-local tab id is
-// not globally unique, including across dashboards. Tests and diagnostics may
-// inspect the underscored map; handlers own it.
-export const _uiStatesByTab = new Map<string, UiTabEntry>();
-
-// Inline reap shared by the interval, uiListStates, and the Sync-connect
-// snapshot — all three must agree on what "live" means or a dead tab could
-// be seeded to a fresh Sync stream yet missing from uiListStates.
-function reapStaleUiStates(now: number): void {
-  for (const [key, e] of _uiStatesByTab) {
-    if (now - e.lastMs > UI_STATE_TTL_MS) _uiStatesByTab.delete(key);
-  }
-}
-
-// Reaper cadence = the SPA heartbeat interval; with TTL at 5× heartbeat a
-// live tab would need 5 consecutive missed reports to be dropped.
-setInterval(() => reapStaleUiStates(Date.now()), UI_REAP_INTERVAL_MS).unref?.();
-
-/** Current live tab states for one Sync dashboard seed (sync-feed.ts).
- *  Skips stale entries the interval reaper hasn't swept yet. */
-export function getUiStateSnapshot(
-  dashboardId: string,
-): Array<{ fp: string; tabId: string; state: UiReportStateRequest }> {
-  const now = Date.now();
-  const out: Array<{ fp: string; tabId: string; state: UiReportStateRequest }> = [];
-  for (const e of _uiStatesByTab.values()) {
-    if (e.dashboardId !== dashboardId || now - e.lastMs > UI_STATE_TTL_MS) continue;
-    out.push({ fp: e.fp, tabId: e.tabId, state: e.state });
-  }
-  return out;
-}
-
-function uiCommandSessionIds(command: UiCommand): string[] {
-  const c = command.command;
-  switch (c.case) {
-    case "placeSplit":
-      return [c.value.sessionId, c.value.anchorSessionId];
-    case "selectTab":
-    case "focusPane":
-    case "closeTab":
-    case "spotlight":
-      return [c.value.sessionId];
-    case "moveTab":
-      return [c.value.sessionId, c.value.destSessionId];
-    case "navigate":
-    case "arrange":
-    case undefined:
-      return [];
-  }
-}
-
-async function requireDashboardCommandSessions(
+async function requireDashboardSessionBindings(
   deps: ConnectDeps,
   dashboardId: string,
-  command: UiCommand,
+  sessionIdsInput: Iterable<string>,
 ): Promise<void> {
-  const sessionIds = [...new Set(uiCommandSessionIds(command))];
+  const sessionIds = [...new Set(sessionIdsInput)];
   if (sessionIds.length === 0) return;
   const rows = await deps.db.selectFrom("sessions").select("id")
     .where("dashboard_id", "=", dashboardId)
@@ -105,7 +60,32 @@ async function requireDashboardCommandSessions(
   }
 }
 
-type UiMethods = "uiReportState" | "uiListStates" | "uiDispatch";
+function validateLayoutDocument(document: LayoutDocumentV1 | undefined) {
+  if (!document) {
+    throw new ConnectError("layout document is required", Code.InvalidArgument);
+  }
+  try {
+    return layoutDocumentFromProto(document);
+  } catch {
+    throw new ConnectError("invalid layout document", Code.InvalidArgument);
+  }
+}
+
+function requireBoundedUiText(
+  value: string,
+  maxBytes: number,
+  field: string,
+  required: boolean,
+): void {
+  if (
+    (required && value.trim().length === 0)
+    || !hasAtMostUtf8Bytes(value, maxBytes)
+  ) {
+    throw new ConnectError(`invalid ${field}`, Code.InvalidArgument);
+  }
+}
+
+type UiMethods = "uiReportState" | "uiListStates" | "uiDispatch" | "uiApplyLayout";
 export type UiHandlers = Pick<ServiceImpl<typeof CoordinatorService>, UiMethods>;
 
 export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
@@ -115,13 +95,59 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
       // selected-dashboard actor; a tab cannot impersonate another browser or
       // overwrite the same browser-local tab in another dashboard.
       const actor = requireDashboardActor(ctx.values);
+      requireBoundedUiText(
+        req.tabId,
+        UI_TAB_ID_MAX_UTF8_BYTES,
+        "UI report tab id",
+        true,
+      );
+      requireBoundedUiText(
+        req.activePath,
+        UI_ACTIVE_PATH_MAX_UTF8_BYTES,
+        "UI report active path",
+        false,
+      );
+      requireBoundedUiText(
+        req.folderKey,
+        UI_FOLDER_KEY_MAX_UTF8_BYTES,
+        "UI report folder key",
+        false,
+      );
+      let canonicalDocument: LayoutDocumentV1 | undefined;
+      if (req.layoutDocument) {
+        const checked = validateLayoutDocument(req.layoutDocument);
+        await requireDashboardSessionBindings(
+          deps,
+          actor.dashboardId,
+          checked.bindings.map((binding) => binding.session_id),
+        );
+        canonicalDocument = layoutDocumentToProto(checked);
+      }
       const fp = actor.deviceFingerprint;
-      _uiStatesByTab.set(`${actor.dashboardId}:${fp}:${req.tabId}`, {
-        dashboardId: actor.dashboardId,
-        fp, tabId: req.tabId, lastMs: Date.now(), state: req,
+      const state = create(UiReportStateRequestSchema, {
+        tabId: req.tabId,
+        activePath: req.activePath,
+        folderKey: req.folderKey,
+        layoutDocument: canonicalDocument,
       });
+      try {
+        deps.uiStates.report({
+          dashboardId: actor.dashboardId,
+          fingerprint: fp,
+          tabId: req.tabId,
+          state,
+        });
+      } catch (error) {
+        if (
+          error instanceof UiStateCapacityError
+          || error instanceof UiStateIdentityRateError
+        ) {
+          throw new ConnectError(error.message, Code.ResourceExhausted);
+        }
+        throw error;
+      }
       uiBus.publish({
-        kind: "state", fp, tabId: req.tabId, state: req,
+        kind: "state", fp, tabId: req.tabId, state,
         _dashboard_id: actor.dashboardId,
       });
       return create(UiReportStateResponseSchema, {});
@@ -129,11 +155,7 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
 
     async uiListStates(_req, ctx) {
       const actor = requireDashboardActor(ctx.values);
-      // Reap inline so a caller polling less often than the interval reaper
-      // still never sees a tab that stopped heartbeating > TTL ago.
-      reapStaleUiStates(Date.now());
-      const entries = [..._uiStatesByTab.values()]
-        .filter((entry) => entry.dashboardId === actor.dashboardId);
+      const entries = deps.uiStates.list(actor.dashboardId);
       // Batch label lookup — one query for all distinct fps (small N: one
       // entry per open browser tab). "" when the fp has no authorized_keys
       // row (e.g. key revoked while the tab was still reporting).
@@ -158,6 +180,12 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
 
     async uiDispatch(req, ctx) {
       const actor = requireDashboardAdmin(ctx.values);
+      requireBoundedUiText(
+        req.targetTabId,
+        UI_TAB_ID_MAX_UTF8_BYTES,
+        "UI dispatch target tab id",
+        false,
+      );
       // A UiCommand with no case set would relay as a no-op every tab
       // silently drops — reject at the wire boundary instead (symmetric to
       // tasksEnqueue's payload validation).
@@ -165,15 +193,91 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
       if (!command?.command.case) {
         throw new ConnectError("uiDispatch requires a command", Code.InvalidArgument);
       }
-      await requireDashboardCommandSessions(deps, actor.dashboardId, command);
+      if (command.command.case === "applyLayout") {
+        throw new ConnectError(
+          "uiDispatch does not accept applyLayout",
+          Code.InvalidArgument,
+        );
+      }
+      if (command.command.case === "navigate") {
+        requireBoundedUiText(
+          command.command.value.path,
+          UI_ACTIVE_PATH_MAX_UTF8_BYTES,
+          "UI navigation path",
+          false,
+        );
+      }
+      const commandSessionIds = legacyUiCommandSessionIds(command);
+      await requireDashboardSessionBindings(deps, actor.dashboardId, commandSessionIds);
+      const canonicalCommand = canonicalLegacyUiCommand(command);
       // Subscriber count AT publish is restricted to the selected dashboard's
       // live Sync streams. 0 tells a headless caller no one can execute this.
       const delivered = uiBus.subscriberCountFor(actor.dashboardId);
       uiBus.publish({
-        kind: "command", targetTabId: req.targetTabId, command,
+        kind: "command", targetTabId: req.targetTabId, command: canonicalCommand,
         _dashboard_id: actor.dashboardId,
       });
       return create(UiDispatchResponseSchema, { delivered });
+    },
+
+    async uiApplyLayout(req, ctx) {
+      const actor = requireDashboardAdmin(ctx.values);
+      requireBoundedUiText(
+        req.targetTabId,
+        UI_TAB_ID_MAX_UTF8_BYTES,
+        "UI apply target tab id",
+        true,
+      );
+      requireBoundedUiText(
+        req.targetFingerprint,
+        UI_TAB_ID_MAX_UTF8_BYTES,
+        "UI apply target fingerprint",
+        true,
+      );
+      const checked = validateLayoutDocument(req.document);
+      await requireDashboardSessionBindings(
+        deps,
+        actor.dashboardId,
+        checked.bindings.map((binding) => binding.session_id),
+      );
+      const document = layoutDocumentToProto(checked);
+      const command = create(UiCommandSchema, {
+        command: {
+          case: "applyLayout",
+          value: create(UiApplyLayoutSchema, { document }),
+        },
+      });
+      try {
+        // The admin-selected reporting fingerprint is pinned into the exact
+        // live socket reservation; another device claiming the same tab id
+        // cannot receive or acknowledge this apply.
+        const pendingResult = deps.uiLayoutApplies.requestApply(
+          actor.dashboardId,
+          req.targetFingerprint,
+          req.targetTabId,
+          ctx.signal,
+          ({ correlationId, socketId }) => {
+            uiBus.publish({
+              kind: "apply",
+              targetTabId: req.targetTabId,
+              targetSocketId: socketId,
+              correlationId,
+              command,
+              _dashboard_id: actor.dashboardId,
+            });
+          },
+        );
+        const result = await pendingResult;
+        return create(UiApplyLayoutResponseSchema, result);
+      } catch (error) {
+        if (error instanceof UiLayoutApplyCanceledError) {
+          throw new ConnectError(error.message, Code.Canceled);
+        }
+        if (error instanceof UiLayoutApplyCapacityError) {
+          throw new ConnectError(error.message, Code.ResourceExhausted);
+        }
+        throw error;
+      }
     },
   };
 }

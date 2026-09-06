@@ -36,6 +36,8 @@ import type { ConnectDeps } from "../src/connect/router.ts";
 import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import { processInputControl } from "../src/connect/input-control.ts";
 import type { TerminalViewerIdentity } from "../src/connect/terminal-control-lane.ts";
+import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
+import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
 import {
   startHopDeadline,
   INPUT_CONTROL_TIMEOUT_MS,
@@ -78,6 +80,8 @@ beforeAll(async () => {
     cfg,
     jwtCache: newJwtCache(),
     passwordWorkGate: new PasswordWorkGate(),
+    uiLayoutApplies: new UiLayoutApplyOwner(),
+    uiStates: new UiStateOwner(),
   };
   const now = Date.now();
   await db.insertInto("organizations").values({
@@ -104,6 +108,8 @@ beforeAll(async () => {
 
   cleanup = async () => {
     __setConnectWorkerForTest(WORKER_FP, null);
+    deps.uiLayoutApplies.dispose();
+    deps.uiStates.dispose();
     try { await opened.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
   };
 });

@@ -40,6 +40,8 @@ import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 import type { EmailDeliveryService } from "../email-delivery.ts";
 import type { PasswordWorkGate } from "./password-work-gate.ts";
 import type { PendingEventPublicationStore } from "../pending-event-publications.ts";
+import type { UiLayoutApplyOwner } from "./ui-layout-apply-owner.ts";
+import type { UiStateOwner } from "./ui-state-owner.ts";
 
 // ─── deps + helpers ───────────────────────────────────────────────────────
 
@@ -50,6 +52,8 @@ export interface ConnectDeps {
   cfg: CoordConfig;
   jwtCache: JwtCache;
   passwordWorkGate: PasswordWorkGate;
+  uiLayoutApplies: UiLayoutApplyOwner;
+  uiStates: UiStateOwner;
   move?: CoordinatorMoveService;
   pendingPublications?: PendingEventPublicationStore;
   /** Deterministic observation point immediately before the keeper-update

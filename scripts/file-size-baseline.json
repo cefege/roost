@@ -1,6 +1,6 @@
 {
   "apps/coord/src/byte-hub.ts": 498,
-  "apps/roost-cli/src/api.ts": 614,
+  "apps/roost-cli/src/api.ts": 505,
   "apps/roost-cli/src/deploy-exec.ts": 507,
   "apps/roost-cli/src/deploy-linux.ts": 669,
   "apps/roost-cli/src/deploy-local.ts": 645,

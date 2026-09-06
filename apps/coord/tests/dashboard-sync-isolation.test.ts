@@ -75,7 +75,14 @@ test("dashboard A feed excludes dashboard B durable, live, and retained frames",
     workspaceIds: new Set(),
   };
   const frames: FirehoseFrame[] = [];
-  const feed = startSyncFeed({ db } as ConnectDeps, scope, 1, (frame) => frames.push(frame), null);
+  const feed = startSyncFeed(
+    { db } as ConnectDeps,
+    scope,
+    1,
+    (frame) => frames.push(frame),
+    null,
+    false,
+  );
   try {
     await feed.backfill();
     titleBus.publish({ session_id: sessionA, title: "A" });

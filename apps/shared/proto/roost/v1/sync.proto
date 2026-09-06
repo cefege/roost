@@ -275,6 +275,7 @@ message SyncClientFrame {
     InputCommand input = 6;
     TerminalViewCommand terminal_view = 7;
     TerminalResyncCommand terminal_resync = 8;
+    UiApplyLayoutResult ui_apply_layout_result = 9;
   }
   // Opaque v2 socket identity from SyncSubscribedFrame. A stale socket id is
   // ignored rather than allowing an old generation to ACK or mutate a new one.
@@ -286,24 +287,58 @@ message KeepaliveFrame {
 }
 
 // ─── ui-cc: browser-tab UI state + command channel ─────────────────────────
-// Layout stays browser-local (localStorage); coord only relays. The tab
-// REPORTS its spatial model (UiReportState) and EXECUTES commands
-// (UiDispatch → ui_command frame → SPA maps onto store/paneLayout.ts pure
-// ops). No browser open → commands no-op; agents detect via UiListStates.
+// Active layout remains browser-local. Reports and targeted apply commands
+// cross the wire only as a strict portable document without runtime pane IDs.
+
+enum LayoutDirection {
+  LAYOUT_DIRECTION_UNSPECIFIED = 0;
+  LAYOUT_DIRECTION_ROW = 1;
+  LAYOUT_DIRECTION_COL = 2;
+}
+
+message LayoutDocumentBinding {
+  string slot_key = 1;
+  string session_id = 2;
+}
+
+message LayoutDocumentLeaf {
+  string leaf_key = 1;
+  repeated string slot_keys = 2;
+  optional string selected_slot_key = 3;
+}
+
+message LayoutDocumentSplit {
+  LayoutDirection direction = 1;
+  double ratio = 2;
+  LayoutDocumentNode first = 3;
+  LayoutDocumentNode second = 4;
+}
+
+message LayoutDocumentNode {
+  oneof node {
+    LayoutDocumentSplit split = 1;
+    LayoutDocumentLeaf leaf = 2;
+  }
+}
+
+message LayoutDocumentV1 {
+  uint32 schema_version = 1;
+  LayoutDocumentNode root = 2;
+  string focused_leaf_key = 3;
+  repeated LayoutDocumentBinding bindings = 4;
+}
 
 message UiReportStateRequest {
   string tab_id = 1;           // sessionStorage roost.tabId (auth/tab-id.ts)
   string active_path = 2;      // router location, e.g. "/s/<sessionId>"
-  string folder_key = 3;       // pane-layout bucket the layout below belongs to
-  // Layout tree serialized as-is (store/paneLayout.ts Layout). JSON string
-  // keeps the proto stable while the layout model evolves — same pattern as
-  // DiagSnapshot.spa_state_json.
-  string layout_json = 4;
-  string focused_pane_id = 5;
-  repeated string visible_session_ids = 6;  // one selectedTab per visible pane
+  string folder_key = 3;       // pane-layout bucket the document belongs to
+  reserved 4, 5, 6;
+  reserved "layout_json", "focused_pane_id", "visible_session_ids";
+  optional LayoutDocumentV1 layout_document = 7;
 }
 
-// Typed command set — unlike layout_json, commands ARE the contract.
+// The first eight variants retain UiDispatch publication-count semantics.
+// apply_layout is admitted only by the dedicated acknowledged UiApplyLayout RPC.
 message UiCommand {
   oneof command {
     UiNavigate navigate = 1;
@@ -314,6 +349,7 @@ message UiCommand {
     UiArrange arrange = 6;
     UiCloseTab close_tab = 7;
     UiSpotlight spotlight = 8;
+    UiApplyLayout apply_layout = 9;
   }
 }
 
@@ -337,6 +373,20 @@ message UiArrange { string preset = 1; }
 // Soft-close honoring the pendingClose undo window (TerminalDeck doClose).
 message UiCloseTab { string session_id = 1; }
 message UiSpotlight { string session_id = 1; bool off = 2; }
+message UiApplyLayout { LayoutDocumentV1 document = 1; }
+
+enum UiApplyLayoutOutcome {
+  UI_APPLY_LAYOUT_OUTCOME_UNSPECIFIED = 0;
+  UI_APPLY_LAYOUT_OUTCOME_APPLIED = 1;
+  UI_APPLY_LAYOUT_OUTCOME_REJECTED = 2;
+  UI_APPLY_LAYOUT_OUTCOME_TARGET_GONE = 3;
+}
+
+message UiApplyLayoutResult {
+  string correlation_id = 1;
+  UiApplyLayoutOutcome outcome = 2;
+  optional string reason = 3;
+}
 
 message UiStateFrame {
   string fp = 1;      // browser key fingerprint (auth identity)
@@ -345,6 +395,8 @@ message UiStateFrame {
 }
 
 message UiCommandFrame {
-  string target_tab_id = 1;  // empty = all tabs
+  string target_tab_id = 1;     // empty = broadcast for legacy commands only
   UiCommand command = 2;
+  string correlation_id = 3;   // nonempty only for acknowledged apply
+  string target_socket_id = 4; // exact Sync-v2 generation for apply
 }

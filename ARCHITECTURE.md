@@ -347,10 +347,10 @@ remain off. There are no production managed containers, published managed
 image, active shared-dashboard route, or public signup surface.
 
 ## Portable browser-local pane layouts
-Active pane trees and runtime leaf/split UUIDs persist only in each browser profile under `roost.paneLayout.v1`.
-The strict shared V1 boundary exports deterministic preorder leaf/slot keys, inclusive `0.1..0.9` ratios, focus, and total live-session bindings.
-Explicit import Apply rechecks dashboard/folder membership, materializes fresh runtime IDs and extras locally, then commits once and navigates to the focused selection; rejection cannot touch pane signals, subscribers, timers, or storage.
-Open tabs consume no storage events, so copy/download/import creates no coordinator record or live cross-tab synchronization.
+Active pane trees and runtime leaf/split UUIDs persist only in each browser profile under `roost.paneLayout.v1`. `UiReportState` exposes an off-terminal route or a route resolved to an open coordinator-admitted session; unresolved and optimistic `/s/:id` route fields are blank until hydration/admission schedules another report. When an open route session identifies a folder, the report also carries its browser-owned folder key plus a typed `LayoutDocumentV1` containing only admitted members, never runtime IDs or a second JSON layout shape.
+Copy, download, and reporting serialize the same strict V1 document with deterministic preorder leaf/slot keys and inclusive `0.1..0.9` ratios. One bounded parser rejects excessive UTF-8 identifiers, recursion, nodes, slots, or bindings before recursive conversion. Local import/apply and remote apply additionally validate current live-folder membership; remote apply rejects any pending/tombstoned optimistic member. Successful application materializes fresh runtime IDs, commits once through `applyLayoutDocument`, and attempts post-commit navigation to the focused selection. Open tabs do not consume storage events or live-fold one another's layouts.
+`UiApplyLayout` is the sole acknowledged exception to browser-local control: its dashboard-authorized caller sends a nonempty browser fingerprint/tab tuple, and the CLI derives exactly one such tuple from `UiListStates` or rejects an absent/ambiguous tab before apply. Sync rejects tab IDs over 256 UTF-8 bytes before socket state, and the coordinator bounds live targets to 32 distinct tuples per fingerprint and 256 per dashboard with one generic capacity rejection. It reserves only the selected tuple's current authenticated read/write Sync-v2 socket plus a fresh correlation ID before publication, so a stale fingerprint cannot redirect to another browser that later reuses the tab ID. The page rechecks the exact tab/socket/correlation and its URL-active live folder, then acknowledges `applied` after the commit and navigation attempt; `applied` proves the commit, not successful navigation completion, while invalid current membership returns `rejected`.
+Wrong, stale, duplicate, and late results are ignored; cancellation removes the pending request, and socket close/replacement or timeout returns `target-gone` without retry. `target-gone` means the acknowledgement is unavailable, not that execution did not occur. UI commands are never seeded, and read-only worker Sync subscribers receive neither UI state nor command frames. The eight `UiDispatch` commands remain fire-and-forget: `delivered` is exactly the dashboard Sync-subscriber count at publication, never an execution or acknowledgement count.
 
 ## Resilience model
 
@@ -394,7 +394,7 @@ progress or triggers bounded recovery.”
   network contracts; `push.ts` and `push-fleet-rollout.ts` own atomic rollout.
   `saas/`, `saas-auth/`, and `saas-provisioner/` own managed operations,
   gateway authentication, and the privilege-separated provisioning bridge.
-- **Shared:** `proto/roost/v1/` and `src/proto/roost/v1/` are the source and
+- **Shared:** `proto/roost/v1/` and `src/gen/roost/v1/` are the source and
   generated contracts; `src/wire/event{,-proto}.ts` own the canonical event
   fold/adapters; `src/cell.ts` owns the grid model. `package.json` is the
   authoritative subpath export map.

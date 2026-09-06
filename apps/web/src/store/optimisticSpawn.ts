@@ -1,6 +1,7 @@
 // Optimistic new-terminal spawn. The browser mints the session id and inserts
 // a client-only shell placeholder so the shared pane deck can paint the tab
-// immediately. The real spawn reuses that id and replaces the placeholder.
+// immediately. The real spawn reuses that id; admission settlement alone may
+// release it and schedule authoritative UI reporting.
 
 import { createSignal } from "solid-js";
 import { asSessionId, asChannelId } from "@roost/shared/wire";
@@ -13,10 +14,21 @@ import { clampTerminalGeometry } from "@roost/shared/viewport";
 // `aborted` needs no reactivity — it is read imperatively in doNewTab's resolve.
 const [pendingIds, setPendingIds] = createSignal<ReadonlySet<string>>(new Set());
 const aborted = new Set<string>();
+const MAX_RETAINED_CLIENT_ONLY_SPAWN_IDS = 256;
+const settledClientOnlyIds = new Set<string>();
 
 export interface MountedSpawnMeasurement {
   cols: number;
   rows: number;
+}
+
+export type OptimisticSpawnAdmissionOutcome =
+  | { readonly status: "admitted" }
+  | { readonly status: "rejected"; readonly error: unknown };
+
+export interface OptimisticSpawnMembership {
+  readonly authoritativeSessionIds: string[];
+  readonly hasClientOnlySession: boolean;
 }
 
 interface MeasurementDeferred {
@@ -33,6 +45,23 @@ const measurementDeferreds = new Map<string, MeasurementDeferred>();
 
 export function isPendingSpawn(id: string): boolean {
   return pendingIds().has(id);
+}
+export function isClientOnlyOptimisticSpawn(id: string): boolean {
+  return pendingIds().has(id) || settledClientOnlyIds.has(id);
+}
+export function projectOptimisticSpawnMembership(
+  sessionIds: readonly string[],
+): OptimisticSpawnMembership {
+  const authoritativeSessionIds: string[] = [];
+  let hasClientOnlySession = false;
+  for (const sessionId of sessionIds) {
+    if (isClientOnlyOptimisticSpawn(sessionId)) {
+      hasClientOnlySession = true;
+    } else {
+      authoritativeSessionIds.push(sessionId);
+    }
+  }
+  return { authoritativeSessionIds, hasClientOnlySession };
 }
 export function wasAborted(id: string): boolean {
   return aborted.has(id);
@@ -54,6 +83,7 @@ export function resetOptimisticSpawnState(): void {
   measurementDeferreds.clear();
   aborted.clear();
   setPendingIds(new Set<string>());
+  settledClientOnlyIds.clear();
 }
 
 
@@ -135,6 +165,21 @@ export function beginOptimisticSpawn(anchor: Session): string {
 export function endOptimisticSpawn(id: string): void {
   closeMeasurementDeferred(id);
   clearPending(id);
+  settledClientOnlyIds.delete(id);
+}
+
+/** Settle admission and report only the identity the coordinator accepted. */
+export function settleOptimisticSpawnAdmission(
+  id: string,
+  outcome: OptimisticSpawnAdmissionOutcome,
+  scheduleAdmittedReport: () => void,
+): void {
+  if (outcome.status === "rejected") {
+    failOptimisticSpawn(id, outcome.error);
+    return;
+  }
+  endOptimisticSpawn(id);
+  scheduleAdmittedReport();
 }
 
 // Spawn failed: remove the placeholder (reconcile prunes the tab) + toast, unless
@@ -144,6 +189,7 @@ export function failOptimisticSpawn(id: string, err: unknown): void {
   removePlaceholder(id);
   clearPending(id);
   closeMeasurementDeferred(id);
+  rememberSettledClientOnlyId(id);
   aborted.delete(id);
   if (!wasAbortedNow) {
     addToast(`New terminal failed: ${err instanceof Error ? err.message : String(err)}`, "err");
@@ -157,6 +203,7 @@ export function abortOptimisticSpawn(id: string): void {
   removePlaceholder(id);
   closeMeasurementDeferred(id);
   clearPending(id);
+  rememberSettledClientOnlyId(id);
 }
 
 function closeMeasurementDeferred(id: string): void {
@@ -180,4 +227,13 @@ function clearPending(id: string): void {
     n.delete(id);
     return n;
   });
+}
+
+function rememberSettledClientOnlyId(id: string): void {
+  settledClientOnlyIds.add(id);
+  while (settledClientOnlyIds.size > MAX_RETAINED_CLIENT_ONLY_SPAWN_IDS) {
+    const oldestId = settledClientOnlyIds.values().next().value;
+    if (oldestId === undefined) break;
+    settledClientOnlyIds.delete(oldestId);
+  }
 }

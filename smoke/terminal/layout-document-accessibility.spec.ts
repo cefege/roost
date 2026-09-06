@@ -2,6 +2,7 @@
 // One live PTY pins one-session availability, menu focus semantics, and the
 // compact workspace-sheet path into the same local import preview.
 
+import { mkdirSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { navigateToSmokeSession } from "./terminal-helpers.ts";
 
@@ -11,8 +12,13 @@ test("layout transfer controls are keyboard and compact reachable", async ({
 }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "Chromium layout control contract");
   await smokePage.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-  const sessionId = await smokePage.evaluate(async (workerFp) =>
-    (await window.__smoke.spawnShell(workerFp, "/tmp")).session_id, stack.workerFp);
+  const isolatedFolder = testInfo.outputPath("layout-accessibility");
+  mkdirSync(isolatedFolder, { recursive: true });
+  const sessionId = await smokePage.evaluate(async ({ workerFp, cwd }) =>
+    (await window.__smoke.spawnShell(workerFp, cwd)).session_id, {
+      workerFp: stack.workerFp,
+      cwd: isolatedFolder,
+    });
   await navigateToSmokeSession(smokePage, sessionId);
   const focusIsOutsideMenu = () => smokePage.evaluate(() =>
     document.activeElement?.closest('[role="menu"]') === null);

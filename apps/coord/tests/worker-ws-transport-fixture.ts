@@ -33,6 +33,8 @@ import { callerKey, dashboardActorKey, tabIdKey } from "../src/connect/auth-inte
 import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { PendingEventPublicationStore } from "../src/pending-event-publications.ts";
+import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
+import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
 
 export interface TestWorkerConnection {
   ws: WebSocket;
@@ -96,6 +98,8 @@ export async function startWorkerWsTransportFixture() {
     sqlite,
     coordKey,
     passwordWorkGate: new PasswordWorkGate(),
+    uiLayoutApplies: new UiLayoutApplyOwner(),
+    uiStates: new UiStateOwner(),
   };
 
   const workerKeys = await crypto.subtle.generateKey(
@@ -328,6 +332,8 @@ export async function startWorkerWsTransportFixture() {
       } catch {
         // A stopped fixture has no remaining server resources.
       }
+      connectDeps.uiLayoutApplies.dispose();
+      connectDeps.uiStates.dispose();
       try {
         await opened.close();
       } finally {

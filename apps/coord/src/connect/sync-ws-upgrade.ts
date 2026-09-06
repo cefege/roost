@@ -7,6 +7,10 @@ import { verifyJwt, type Caller as VerifiedJwtCaller } from "../jwt.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import {
+  UI_TAB_ID_MAX_UTF8_BYTES,
+  hasAtMostUtf8Bytes,
+} from "@roost/shared/ui-state";
+import {
   loadSyncDashboardScope,
   type SyncDashboardScope,
   type SyncFeed,
@@ -27,6 +31,9 @@ import {
   SYNC_QUERY_FLOW_V1,
   SYNC_QUERY_V2,
 } from "@roost/shared/wire/sync-ws";
+
+export const SYNC_CONNECTION_REJECTION_CLOSE_CODE = 1013;
+export const SYNC_CONNECTION_REJECTION_REASON = "connection rejected";
 
 export interface SyncUpgradeServer {
   requestIP(req: Request): { address: string } | null;
@@ -77,6 +84,9 @@ export interface SyncWsData {
    * terminal view handles and attributes typed input. A v2 socket without
    * `tab=` remains a read-only firehose consumer and cannot issue either. */
   viewerKey: string | null;
+  /** Exact browser-local tab id from upgrade admission; null for read-only,
+   * legacy unbound, or explicitly empty query values. */
+  tabId: string | null;
   remoteAddress?: string | null;
   feed: SyncFeed | null;
   keepaliveTimer: Timer | null;
@@ -179,9 +189,13 @@ export async function handleSyncWsUpgrade(
     // key is an account device and therefore follows the membership path above.
     return new Response("not found", { status: 404 });
   }
+  const requestedTabId = url.searchParams.get("tab");
+  const tabId = requestedTabId?.trim() ? requestedTabId : null;
+  if (tabId !== null && !hasAtMostUtf8Bytes(tabId, UI_TAB_ID_MAX_UTF8_BYTES)) {
+    return new Response(SYNC_CONNECTION_REJECTION_REASON, { status: 400 });
+  }
   const scope = await loadSyncDashboardScope(deps.db, actor.dashboardId);
   const since = Number(url.searchParams.get("since")) || 0;
-  const tabId = url.searchParams.get("tab");
   const flowControl = url.searchParams.get("flow") === SYNC_QUERY_FLOW_V1;
   const syncV2 = flowControl && url.searchParams.get("sync_v") === SYNC_QUERY_V2;
   const credentialDeadlineMs = deps.cfg.saasMode ? caller.validUntilMs : null;
@@ -197,7 +211,8 @@ export async function handleSyncWsUpgrade(
     scope,
     readOnly,
     sinceEventId: since,
-    viewerKey: !readOnly && tabId ? `${caller.fingerprint}:${tabId}` : null,
+    viewerKey: !readOnly && tabId !== null ? `${caller.fingerprint}:${tabId}` : null,
+    tabId: !readOnly ? tabId : null,
     remoteAddress: addr ?? null,
     feed: null,
     keepaliveTimer: null,

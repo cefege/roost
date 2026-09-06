@@ -155,6 +155,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   AttachFileChunk: true, DeleteAttachment: true,
   PushSubscribe: true, PushUnsubscribe: true,
   DiagDebugLogBatch: true,
+  UiApplyLayout: true,
 };
 
 // High-frequency methods whose audit rows carry no forensic signal: health
@@ -177,6 +178,8 @@ const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
   SessionsSearchScrollback: true, SessionsCancelScrollbackSearch: true,
   SessionsSearchGlobal: true, SessionsCancelGlobalSearch: true,
   TranscriptionGetConfig: true,
+  // UiApplyLayout is intentionally audited: unlike heartbeat state reports,
+  // it is an admin-authored mutation with a meaningful applied/rejected result.
 };
 
 export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {

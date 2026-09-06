@@ -191,16 +191,53 @@ candidates rather than guessed.
 
 ### Driving the live UI
 
-`ui-state` prints what each connected browser tab reported about its own
-visibility. Empty output means no browser is open, so `ui` commands would no-op.
+`roost api ui-state [--json]` lists each browser page's ephemeral authoritative
+active path; unresolved or client-only optimistic `/s/:id` is blank until
+admission/hydration schedules a fresh report. When an open route session
+identifies a folder, the report also carries a nonempty browser-owned folder
+key and typed portable `LayoutDocumentV1` containing only admitted sessions.
+Human output prints the identity/path columns and a pane tree only when that
+document is present. JSON uses strict snake_case V1 in `layout_document`, or `null`
+off folder routes; runtime pane/split IDs, a second JSON layout string, focused
+pane IDs, and redundant visible-session IDs are not exposed. Human fields are
+bounded and escape terminal/control and bidirectional-format characters; JSON
+preserves each accepted string unchanged. Empty output means no UI report is
+currently retained; it does not inspect live target sockets.
+A recently closed page can remain in this five-minute TTL projection; the
+entry is discovery data, not proof of a live writable Sync socket.
 
-`ui <command>` dispatches a command into the live app: `navigate <path>`,
-`place-split <sessionId> <destSessionId> <row|col>`, `select-tab <sessionId>`,
+`roost api ui <command> [--tab <id>]` accepts eight fire-and-forget commands:
+`navigate <path>`, `place-split <sessionId> <anchorSessionId> <row|col> [--first]`,
+`select-tab <sessionId>`,
 `focus-pane <sessionId>`, `move-tab <sessionId> <destSessionId>`,
 `arrange <even|rows|tiled|main-vertical|balance>`, `close-tab <sessionId>`, and
-`spotlight <sessionId> [--off]`. Dispatch is fire-and-forget: the reported
-`delivered` count is the number of sync subscribers at publish time, not a
-per-tab acknowledgement.
+`spotlight <sessionId> [--off]`. `--tab <id>` may appear anywhere after the
+command name; duplicate/unknown options or wrong positional arity are errors.
+Each command prints exactly `delivered=N`. That number is the selected
+dashboard's Sync-subscriber count at publication time, not an execution or
+per-tab acknowledgement count; targeting does not narrow it.
+One exact reported tab can instead apply a portable layout with acknowledgement:
+
+```sh
+roost api ui apply-layout <file> --tab <id>
+```
+
+The file must contain strict V1 layout JSON, and the nonempty `--tab` is
+required—there is no acknowledged broadcast. The CLI first reads the retained
+UI-state projection: no matching tab prints `target-gone`, while the same tab
+ID reported by multiple browser fingerprints prints `rejected`; neither case
+publishes an apply. One match pins that fingerprint/tab tuple into at most one
+apply RPC, so a later browser reusing the tab ID cannot take over a stale
+request.
+
+Stdout is exactly one of `applied`, `rejected`, or `target-gone`; the latter two
+set a nonzero exit code. A stable sanitized reason, when present, is written to
+stderr. The CLI never retries the apply RPC. `applied` is emitted after the
+commit and a navigation attempt; it proves the commit, not successful
+navigation completion. `target-gone` means the exact fingerprint/tab/socket
+acknowledgement was unavailable after absence, close, replacement, or timeout;
+it does not prove that the browser did not execute before the acknowledgement
+was lost.
 
 ### Coordinator relocation
 

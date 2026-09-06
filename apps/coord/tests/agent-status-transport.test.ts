@@ -152,7 +152,7 @@ test("retained and live Sync status preserve exact identity and source", async (
   expect(handleWorkerAgentStatus(WORKER_FP, identifiedStatus())).toBe("accepted");
   const { opened, scope, deps } = await openStatusFeed();
   const frames: Parameters<Parameters<typeof startSyncFeed>[3]>[0][] = [];
-  const feed = startSyncFeed(deps, scope, 0, (frame) => { frames.push(frame); }, null);
+  const feed = startSyncFeed(deps, scope, 0, (frame) => { frames.push(frame); }, null, false);
   try {
     await feed.seeded;
     expect(frames.find((frame) => frame.frame.case === "agentStatus")?.frame).toMatchObject({
@@ -213,7 +213,8 @@ test("subscription cutover coalesces buffered occupant replacement to the retain
     0,
     (frame, meta) => { harness.scheduler.enqueueV2Frame(harness.ws, frame, meta); },
     null,
-    { version: 2, onRecoveryReset() {} },
+    false,
+    { version: 2, socketId: harness.socket.data.v2!.socketId, onRecoveryReset() {} },
   );
   try {
     titleBus.publish({

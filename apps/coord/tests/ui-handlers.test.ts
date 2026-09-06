@@ -1,7 +1,7 @@
-// ui-cc handler contract: report → list roundtrip, upsert keying, TTL reap,
-// and dispatch relay. Drives the REAL makeUiHandlers + REAL uiBus over an
-// in-memory DB — same direct-handler pattern as task-bus-publish.test.ts
-// (no transport; requireAuth only reads ctx.values.get(callerKey)).
+// UI handler contract: typed report/list state, the eight legacy dispatches,
+// and one acknowledged layout apply with dashboard-bound session authorization.
+// Bun drives the real handlers and UI bus against an isolated in-memory database.
+// Explicit state/apply owners keep retained identities and target generations test-local.
 
 import { describe, test, expect, beforeAll, beforeEach, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -10,11 +10,13 @@ import { join } from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { ConnectError, Code, createContextValues, type HandlerContext } from "@connectrpc/connect";
 import {
-  UiListStatesRequestSchema, UiDispatchRequestSchema,
+  UiListStatesRequestSchema, UiDispatchRequestSchema, UiApplyLayoutRequestSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import {
   UiReportStateRequestSchema, UiCommandSchema, UiSelectTabSchema,
+  UiApplyLayoutSchema, UiApplyLayoutOutcome, UiApplyLayoutResultSchema,
 } from "@roost/shared/proto/sync_pb";
+import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
@@ -23,15 +25,16 @@ import {
   dashboardActorKey,
   type DashboardActor,
 } from "../src/connect/auth-interceptor.ts";
-import {
-  makeUiHandlers, getUiStateSnapshot, _uiStatesByTab, UI_STATE_TTL_MS,
-  type UiHandlers,
-} from "../src/connect/handlers-ui.ts";
+import { makeUiHandlers, type UiHandlers } from "../src/connect/handlers-ui.ts";
 import { uiBus, type UiBusMsg } from "../src/buses.ts";
+import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
+import { UI_STATE_TTL_MS, UiStateOwner } from "../src/connect/ui-state-owner.ts";
 
 let workdir: string;
 let closeDb: () => Promise<void>;
 let handlers: UiHandlers;
+let uiLayoutApplies: UiLayoutApplyOwner;
+let uiStates: UiStateOwner;
 
 const DASHBOARD = "ui-handlers-dashboard";
 
@@ -52,15 +55,30 @@ function fakeAuthCtx(fingerprint: string): HandlerContext {
     accountId: actor.accountId,
   });
   values.set(dashboardActorKey, actor);
-  return { values } as unknown as HandlerContext;
+  return { values, signal: new AbortController().signal } as unknown as HandlerContext;
 }
 const authCtx = fakeAuthCtx("fp-test");
 
+function layoutDocument(sessionId = "sess-9") {
+  return layoutDocumentToProto({
+    schema_version: 1,
+    root: {
+      kind: "leaf",
+      leaf_key: "leaf-1",
+      slot_keys: ["slot-1"],
+      selected_slot_key: "slot-1",
+    },
+    focused_leaf_key: "leaf-1",
+    bindings: [{ slot_key: "slot-1", session_id: sessionId }],
+  });
+}
+
 function reportReq(tabId: string, activePath = "/s/sess-1") {
   return create(UiReportStateRequestSchema, {
-    tabId, activePath, folderKey: "fp:/tmp/proj",
-    layoutJson: `{"root":{"kind":"leaf"}}`,
-    focusedPaneId: "pane-1", visibleSessionIds: ["sess-1"],
+    tabId,
+    activePath,
+    folderKey: "fp:/tmp/proj",
+    layoutDocument: layoutDocument(),
   });
 }
 
@@ -129,17 +147,23 @@ beforeAll(async () => {
     fingerprint: "fp-known", public_key: new Uint8Array(32),
     label: "Chrome — test", added_at: now,
   }).execute();
-  // Handlers only touch deps.db; the rest of ConnectDeps is transport wiring.
-  handlers = makeUiHandlers({ db } as unknown as ConnectDeps);
+  uiLayoutApplies = new UiLayoutApplyOwner();
+  uiStates = new UiStateOwner();
+  handlers = makeUiHandlers({ db, uiLayoutApplies, uiStates } as unknown as ConnectDeps);
 });
 
 afterAll(async () => {
+  uiLayoutApplies?.dispose();
+  uiStates?.dispose();
   await closeDb?.();
   rmSync(workdir, { recursive: true, force: true });
 });
 
-// Module-level singleton map — isolate tests from each other.
-beforeEach(() => { _uiStatesByTab.clear(); });
+// Explicit owner cleanup prevents UI state or pending applies from crossing cases.
+beforeEach(() => {
+  uiStates._statesByTab.clear();
+  uiLayoutApplies.dispose();
+});
 
 describe("uiReportState → uiListStates roundtrip", () => {
   test("state echoed back with sane lastMs and empty label for unknown fp", async () => {
@@ -156,9 +180,10 @@ describe("uiReportState → uiListStates roundtrip", () => {
     expect(tab.label).toBe(""); // fp-test has no authorized_keys row
     expect(Number(tab.lastMs)).toBeGreaterThanOrEqual(before);
     expect(Number(tab.lastMs)).toBeLessThanOrEqual(Date.now());
-    expect(tab.state?.activePath).toBe("/s/sess-1");
-    expect(tab.state?.layoutJson).toBe(`{"root":{"kind":"leaf"}}`);
-    expect(tab.state?.visibleSessionIds).toEqual(["sess-1"]);
+    expect(tab.state?.layoutDocument?.schemaVersion).toBe(1);
+    expect(tab.state?.layoutDocument?.focusedLeafKey).toBe("leaf-1");
+    expect(tab.state?.layoutDocument?.bindings?.map((binding) => binding.sessionId))
+      .toEqual(["sess-9"]);
   });
 
   test("label resolved from authorized_keys for a known fp", async () => {
@@ -181,35 +206,53 @@ describe("uiReportState → uiListStates roundtrip", () => {
       expect(m.state.activePath).toBe("/s/sess-1");
     }
   });
+
+  test("rejects malformed typed documents before retaining or publishing state", async () => {
+    const invalid = reportReq("tab-invalid");
+    invalid.layoutDocument!.schemaVersion = 2;
+    const msgs: UiBusMsg[] = [];
+    const stop = uiBus.subscribe((message) => msgs.push(message), DASHBOARD);
+    await expect(handlers.uiReportState(invalid, authCtx))
+      .rejects.toMatchObject({ code: Code.InvalidArgument });
+    stop();
+    expect(uiStates._statesByTab.size).toBe(0);
+    expect(msgs).toEqual([]);
+  });
+
+  test("rejects report bindings outside the selected dashboard", async () => {
+    const request = reportReq("tab-foreign");
+    request.layoutDocument = layoutDocument("foreign-session");
+    await expect(handlers.uiReportState(request, authCtx))
+      .rejects.toMatchObject({ code: Code.NotFound });
+    expect(uiStates._statesByTab.size).toBe(0);
+  });
 });
 
 describe("upsert keying on fp:tabId", () => {
   test("same fp:tabId upserts (1 entry), different tabId adds (2 entries)", async () => {
     await handlers.uiReportState(reportReq("tab-1", "/s/old"), authCtx);
     await handlers.uiReportState(reportReq("tab-1", "/s/new"), authCtx);
-    expect(_uiStatesByTab.size).toBe(1);
-    expect(_uiStatesByTab.get(`${DASHBOARD}:fp-test:tab-1`)?.state.activePath).toBe("/s/new");
+    expect(uiStates._statesByTab.size).toBe(1);
+    expect(uiStates.list(DASHBOARD)[0]?.state.activePath).toBe("/s/new");
 
     await handlers.uiReportState(reportReq("tab-2"), authCtx);
-    expect(_uiStatesByTab.size).toBe(2);
+    expect(uiStates._statesByTab.size).toBe(2);
   });
 });
 
 describe("TTL reap", () => {
-  test("stale entry excluded from uiListStates and getUiStateSnapshot", async () => {
+  test("stale entry excluded from list and snapshot", async () => {
     await handlers.uiReportState(reportReq("tab-live"), authCtx);
     await handlers.uiReportState(reportReq("tab-dead"), authCtx);
-    // Age the second entry past TTL through the module's explicit test seam.
-    const dead = _uiStatesByTab.get(`${DASHBOARD}:fp-test:tab-dead`)!;
+    const dead = uiStates.list(DASHBOARD).find((entry) => entry.tabId === "tab-dead")!;
     dead.lastMs = Date.now() - UI_STATE_TTL_MS - 1;
 
-    const snap = getUiStateSnapshot(DASHBOARD);
-    expect(snap.map((s) => s.tabId)).toEqual(["tab-live"]);
+    const snap = uiStates.snapshot(DASHBOARD);
+    expect(snap.map((state) => state.tabId)).toEqual(["tab-live"]);
 
     const resp = await handlers.uiListStates(create(UiListStatesRequestSchema, {}), authCtx);
-    expect((resp.tabs ?? []).map((t) => t.tabId)).toEqual(["tab-live"]);
-    // uiListStates reaps inline, not just filters — the map itself shrinks.
-    expect(_uiStatesByTab.size).toBe(1);
+    expect((resp.tabs ?? []).map((tab) => tab.tabId)).toEqual(["tab-live"]);
+    expect(uiStates._statesByTab.size).toBe(1);
   });
 });
 
@@ -251,5 +294,94 @@ describe("uiDispatch", () => {
     }
     stop();
     expect(msgs.length).toBe(0);
+  });
+
+  test("explicitly refuses applyLayout without changing legacy delivery", async () => {
+    const msgs: UiBusMsg[] = [];
+    const stop = uiBus.subscribe((message) => msgs.push(message), DASHBOARD);
+    const command = create(UiCommandSchema, {
+      command: {
+        case: "applyLayout",
+        value: create(UiApplyLayoutSchema, { document: layoutDocument() }),
+      },
+    });
+    await expect(handlers.uiDispatch(create(UiDispatchRequestSchema, {
+      targetTabId: "tab-1",
+      command,
+    }), authCtx)).rejects.toMatchObject({ code: Code.InvalidArgument });
+    stop();
+    expect(msgs).toEqual([]);
+  });
+});
+
+describe("uiApplyLayout", () => {
+  test("registers before publication and returns an immediate applied ACK", async () => {
+    const target = {
+      dashboardId: DASHBOARD,
+      fingerprint: "target-fp",
+      tabId: "target-tab",
+      socketId: "target-socket",
+    };
+    const unregister = uiLayoutApplies.registerTarget(target);
+    const seen: UiBusMsg[] = [];
+    const stop = uiBus.subscribe((message) => {
+      seen.push(message);
+      if (message.kind !== "apply") return;
+      expect(uiLayoutApplies.stats().pending).toBe(1);
+      uiLayoutApplies.acceptResult(target, create(UiApplyLayoutResultSchema, {
+        correlationId: message.correlationId,
+        outcome: UiApplyLayoutOutcome.APPLIED,
+      }));
+    }, DASHBOARD);
+    const response = await handlers.uiApplyLayout(create(UiApplyLayoutRequestSchema, {
+      targetTabId: target.tabId,
+      targetFingerprint: target.fingerprint,
+      document: layoutDocument(),
+    }), authCtx);
+    stop();
+    unregister();
+    expect(response.outcome).toBe(UiApplyLayoutOutcome.APPLIED);
+    expect(response.reason).toBeUndefined();
+    expect(seen.map((message) => message.kind)).toEqual(["apply"]);
+    expect(uiLayoutApplies.stats().pending).toBe(0);
+  });
+
+  test("a retained fresh report without a live socket returns target-gone", async () => {
+    await handlers.uiReportState(reportReq("reported-only"), authCtx);
+    const reportKey = uiStates.list(DASHBOARD)
+      .find((entry) => entry.tabId === "reported-only");
+    expect(reportKey).toBeDefined();
+    const seen: UiBusMsg[] = [];
+    const stop = uiBus.subscribe((message) => seen.push(message), DASHBOARD);
+    const response = await handlers.uiApplyLayout(create(UiApplyLayoutRequestSchema, {
+      targetTabId: "reported-only",
+      targetFingerprint: "fp-test",
+      document: layoutDocument(),
+    }), authCtx);
+    stop();
+    expect(response.outcome).toBe(UiApplyLayoutOutcome.TARGET_GONE);
+    expect(seen.filter((message) => message.kind === "apply")).toEqual([]);
+    expect(uiStates.list(DASHBOARD).some((entry) => entry.tabId === "reported-only")).toBe(true);
+  });
+
+  test("rejects an apply with a binding outside the selected dashboard", async () => {
+    const target = {
+      dashboardId: DASHBOARD,
+      fingerprint: "target-fp",
+      tabId: "target-tab",
+      socketId: "target-socket",
+    };
+    const unregister = uiLayoutApplies.registerTarget(target);
+    const seen: UiBusMsg[] = [];
+    const stop = uiBus.subscribe((message) => seen.push(message), DASHBOARD);
+    await expect(handlers.uiApplyLayout(create(UiApplyLayoutRequestSchema, {
+      targetTabId: target.tabId,
+      targetFingerprint: target.fingerprint,
+      document: layoutDocument("foreign-session"),
+    }), authCtx)).rejects.toMatchObject({ code: Code.NotFound });
+    stop();
+    unregister();
+    expect(seen).toEqual([]);
+    expect(uiLayoutApplies.stats().pending).toBe(0);
   });
 });

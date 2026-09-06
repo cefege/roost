@@ -40,6 +40,8 @@ import type {
   SyncV2ResultControl,
 } from "../src/connect/sync-ws-v2-commands.ts";
 import { TerminalViewHub } from "../src/connect/terminal-view-hub.ts";
+import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
+import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
 
 let workdir: string;
 let coord: CoordHandle;
@@ -88,6 +90,8 @@ beforeAll(async () => {
     cfg,
     jwtCache,
     passwordWorkGate: new PasswordWorkGate(),
+    uiLayoutApplies: new UiLayoutApplyOwner(),
+    uiStates: new UiStateOwner(),
   };
   coord = createCoord(deps);
   terminalViews = new TerminalViewHub({ db });

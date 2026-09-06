@@ -762,6 +762,18 @@ message UiDispatchResponse {
   // UiListStates emptiness instead (only reporting tabs execute commands).
   uint32 delivered = 1;
 }
+
+message UiApplyLayoutRequest {
+  string target_tab_id = 1; // semantically required and nonempty
+  LayoutDocumentV1 document = 2;
+  // Required owner fence: a later browser reusing target_tab_id cannot take over.
+  string target_fingerprint = 3; // semantically required and nonempty
+}
+message UiApplyLayoutResponse {
+  UiApplyLayoutOutcome outcome = 1;
+  string correlation_id = 2;
+  optional string reason = 3;
+}
 // ─── push (web push subscriptions) ────────────────────────────────────────
 message PushGetConfigRequest {}
 message PushGetConfigResponse {
@@ -914,13 +926,13 @@ service CoordinatorService {
   rpc AgentConfigGet(AgentConfigGetRequest) returns (AgentConfig);
   rpc AgentConfigSet(AgentConfigSetRequest) returns (AgentConfig);
 
-  // ui-cc — browser-tab UI state + command channel. The SPA reports its
-  // spatial model (pane layout + active path) and executes dispatched
-  // commands; coord only relays (in-memory presence map + Sync fan-out,
-  // no persistence). Agents: UiListStates to SEE, UiDispatch to DRIVE.
+  // ui-cc — tabs report typed portable state. The first eight UiDispatch
+  // commands retain publication counts; layout apply alone targets one live
+  // Sync-v2 socket generation and waits for its execution acknowledgement.
   rpc UiReportState(UiReportStateRequest) returns (UiReportStateResponse);
   rpc UiListStates(UiListStatesRequest) returns (UiListStatesResponse);
   rpc UiDispatch(UiDispatchRequest) returns (UiDispatchResponse);
+  rpc UiApplyLayout(UiApplyLayoutRequest) returns (UiApplyLayoutResponse);
   // Web Push subscriptions are per authenticated browser fingerprint.
   rpc PushGetConfig(PushGetConfigRequest) returns (PushGetConfigResponse);
   rpc PushSubscribe(PushSubscribeRequest) returns (PushSubscribeResponse);

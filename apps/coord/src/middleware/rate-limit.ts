@@ -54,10 +54,11 @@ const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   "/roost.v1.CoordinatorService/TranscriptionSetConfig",
   "/roost.v1.CoordinatorService/TranscriptionGrantToken",
   "/roost.v1.CoordinatorService/TranscriptionTest",
-  // ui-cc — UiDispatch mutates live browser UI (mutation-class). ReportState
-  // and ListStates stay unlimited: heartbeat/read-frequency traffic, same
-  // reasoning as the *List exclusions above.
+  // ui-cc mutations. ReportState stays outside the IP limiter so bounded
+  // existing-tab heartbeats remain admitted; UiStateOwner separately limits
+  // only new authenticated tab identities. ListStates is read-only.
   "/roost.v1.CoordinatorService/UiDispatch",
+  "/roost.v1.CoordinatorService/UiApplyLayout",
   // Dashboard-global search allocates cursors, worker queues, and cancel
   // tombstones; bound authenticated callers as defense beyond owner caps.
   "/roost.v1.CoordinatorService/SessionsSearchGlobal",

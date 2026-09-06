@@ -5,6 +5,7 @@
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { fingerprintOf } from "@roost/shared/fingerprint";
+import { UI_TAB_ID_MAX_UTF8_BYTES } from "@roost/shared/ui-state";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import {
   handleSyncWsUpgrade,
@@ -103,6 +104,44 @@ test("rejects an unavailable selected dashboard before socket upgrade", async ()
   expect(result?.status).toBe(404);
 });
 
+test("browser Sync bounds a nonblank tab by UTF-8 bytes and preserves unbound semantics", async () => {
+  const upgradedData: SyncWsData[] = [];
+  const fakeServer = {
+    requestIP: () => ({ address: "127.0.0.1" }),
+    upgrade: (_req: Request, options: { data: SyncWsData }) => {
+      upgradedData.push(options.data);
+      return true;
+    },
+  };
+  const headers = {
+    origin: "https://public.example",
+    "sec-websocket-protocol": `roost-auth, ${jwt}`,
+  };
+  const exactTabId = "🙂".repeat(UI_TAB_ID_MAX_UTF8_BYTES / 4);
+  for (const tabQuery of [encodeURIComponent(exactTabId), "%20%09"]) {
+    expect(await handleSyncWsUpgrade(new Request(
+      `https://public.example/ws/coord-sync?dashboard=${dashboardId}&flow=1&sync_v=2&tab=${tabQuery}`,
+      { headers },
+    ), fakeServer, deps)).toBeUndefined();
+  }
+  const rejected = await handleSyncWsUpgrade(new Request(
+    `https://public.example/ws/coord-sync?dashboard=${dashboardId}&tab=${
+      encodeURIComponent(`${exactTabId}x`)
+    }`,
+    { headers },
+  ), fakeServer, deps);
+  expect(rejected?.status).toBe(400);
+  expect(await rejected?.text()).toBe("connection rejected");
+  expect(upgradedData).toHaveLength(2);
+  expect(upgradedData[0]?.readOnly).toBe(false);
+  expect(upgradedData[0]?.tabId).toBe(exactTabId);
+  expect(upgradedData[0]?.viewerKey).toBe(`${fingerprint}:${exactTabId}`);
+  expect(upgradedData[0]?.v2).toBeDefined();
+  expect(upgradedData[1]?.tabId).toBeNull();
+  expect(upgradedData[1]?.viewerKey).toBeNull();
+  expect(deps.uiLayoutApplies.stats().targets).toBe(0);
+});
+
 test("worker Sync derives a read-only scope from its persisted dashboard", async () => {
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
   const raw = new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey));
@@ -155,6 +194,7 @@ test("worker Sync derives a read-only scope from its persisted dashboard", async
   expect(data?.actor.dashboardId).toBe(dashboardId);
   expect(data?.readOnly).toBe(true);
   expect(data?.viewerKey).toBeNull();
+  expect(data?.tabId).toBeNull();
 });
 
 test("only exact flow=1 enables the application window", async () => {

@@ -1,15 +1,7 @@
-// ui-cc dispatcher SHELL — executes agent-driven UiCommand frames (Sync
-// `ui_command`, published by coord's UiDispatch) against the SAME pure layout
-// ops + deckOps helpers that user gestures run, so an agent's "place this
-// split" is indistinguishable from a drag-to-edge. The PURE mapping
-// (applyUiCommandToLayout, frameAccepted) lives in lib/uiCommandCore.ts —
-// unit-tested there without loading this module's store/side-effect imports.
-// This shell owns: tab targeting, folder-bucket resolution from rootStore,
-// commit + the doSelect navigation coupling (selecting a session navigates to
-// it, exactly like a strip click).
-// store/sync.ts forwards frames via _dispatchUiCommand; UiBridge (components/
-// UiBridge.tsx) registers the handler with router navigate bound. Frames are
-// fire-and-forget: invalid ones drop with ONE console.warn, never throw.
+// Executes Sync-delivered UI commands through the same browser operations as
+// user gestures. The eight legacy commands remain broadcast/fire-and-forget;
+// applyLayout delegates to the exact-tab/socket acknowledged adapter.
+// UiBridge supplies router navigation while this shell owns store resolution.
 
 import type { UiCommand, UiCommandFrame } from "@roost/shared/proto/sync_pb";
 import { diag, signal } from "@roost/shared/diag";
@@ -26,6 +18,10 @@ import { applyUiCommandToLayout, frameAccepted } from "./uiCommandCore.ts";
 import {
   selectTabOp, focusPaneOp, closeSessionOp, type DeckOpsCtx,
 } from "./deckOps.ts";
+import {
+  handleUiLayoutApply,
+  rejectUiLayoutApplyWithoutBridge,
+} from "./uiLayoutApply.ts";
 
 
 // ── shell ────────────────────────────────────────────────────────────────────
@@ -72,11 +68,15 @@ function openSession(sid: string): Session | null {
 }
 
 export function handleUiCommand(frame: UiCommandFrame, io: UiCommandIo): void {
-  // Targeted frame for another tab (empty targetTabId = broadcast, accept).
-  if (!frameAccepted(frame, getTabId())) return;
   const cmd = frame.command;
   const c = cmd?.command;
   if (!cmd || !c?.case) return;
+  if (c.case === "applyLayout") {
+    handleUiLayoutApply(frame, io);
+    return;
+  }
+  // Empty targeting remains broadcast only for the eight legacy commands.
+  if (!frameAccepted(frame, getTabId())) return;
   switch (c.case) {
     case "navigate":
       if (c.value.path) io.navigate(c.value.path);
@@ -164,10 +164,13 @@ export function registerUiCommandHandler(fn: (frame: UiCommandFrame) => void): (
   return () => { if (_handler === fn) _handler = null; };
 }
 
-/** sync.ts frame switch entry. No bridge mounted yet → frame drops silently
- *  (coord's `delivered` count tells the agent whether anyone was listening). */
+/** Sync frame entry. A missing bridge rejects only an exact acknowledged
+ * apply target; all legacy commands retain their fire-and-forget no-op. */
 export function _dispatchUiCommand(frame: UiCommandFrame): void {
-  try { _handler?.(frame); } catch (e) {
+  try {
+    if (_handler) _handler(frame);
+    else rejectUiLayoutApplyWithoutBridge(frame);
+  } catch (e) {
     const command = frame.command?.command.case ?? "unknown";
     diag("ui_cc.handler_failed", { command, error: String(e) });
     signal("diag.corruption_signal", { kind: "ui_command_dropped", command, cooldownKey: "ui_cc" });

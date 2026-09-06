@@ -73,6 +73,18 @@ export function _currentLiveSyncLink(): LiveSyncLink | null {
   return liveSyncLink;
 }
 
+/** Exact identity of the current authenticated, writable Sync-v2 socket. */
+export function currentSyncV2SocketId(): string | null {
+  const link = liveSyncLink;
+  if (
+    !link
+    || !link.accepting
+    || link.ws.readyState !== WebSocket.OPEN
+    || !link.v2
+  ) return null;
+  return link.v2.socketId;
+}
+
 export function _installLiveSyncLink(link: LiveSyncLink): void {
   liveSyncLink = link;
 }

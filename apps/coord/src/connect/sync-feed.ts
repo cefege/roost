@@ -6,12 +6,12 @@ import { create } from "@bufbuild/protobuf";
 import {
   FirehoseFrameSchema, type FirehoseFrame, SessionPresenceSchema,
   WorkerRoutableFrameSchema, TerminalTitleFrameSchema, LastActivityFrameSchema,
-  UiStateFrameSchema, UiCommandFrameSchema, SyncDomain,
+  SyncDomain,
 } from "@roost/shared/proto/sync_pb";
 import {
   sessionBus, presenceBus, workspaceBus, taskBus, mcpBus, globalPresenceBus,
   auditBus, titleBus, lastActivityBus, workerRoutableBus, agentStatusBus,
-  pairBus, uiBus,
+  pairBus,
 } from "../buses.ts";
 import { getEventMaxId, getEventsSince, getEventsThrough } from "../event-log.ts";
 import { log } from "@roost/shared/log";
@@ -19,7 +19,6 @@ import { signal } from "@roost/shared/diag";
 import type { SessionEvent } from "@roost/shared/wire";
 import type { KyselyDB } from "../db/connection.ts";
 import type { ConnectDeps } from "./router.ts";
-import { getUiStateSnapshot } from "./handlers-ui.ts";
 import {
   agentStatusFrame, auditFrame, frameMeta, mcpFrame, pairFrame, presenceFrame,
   sessionFirehoseFrame, sessionMeta, taskFrame, workspaceFrame,
@@ -33,6 +32,7 @@ import {
   createSyncFeedV1SeedDelivery,
   type SyncFeedSeedOptions,
 } from "./sync-feed-v1-seed.ts";
+import { subscribeUiFeed, uiStateSeedFrames } from "./sync-feed-ui.ts";
 import {
   APPLICATION_MAX_UNACKED_BYTES,
   APPLICATION_MAX_UNACKED_FRAMES,
@@ -66,6 +66,7 @@ export async function loadSyncDashboardScope(
 
 export interface SyncFeedV2Options {
   readonly version: 2;
+  readonly socketId: string;
   onRecoveryReset: (reason: string) => void;
 }
 
@@ -82,6 +83,7 @@ export function startSyncFeed(
   sinceEventId: number,
   sink: (frame: FirehoseFrame, meta?: SyncFeedFrameMeta) => void,
   viewerKey: string | null,
+  browserUi: boolean,
   seedOptions?: SyncFeedSeedOptions | SyncFeedV2Options,
 ): SyncFeed {
   const v2Options = seedOptions?.version === 2 ? seedOptions : null;
@@ -90,7 +92,7 @@ export function startSyncFeed(
   const v1SeedDelivery = legacySeedOptions
     ? createSyncFeedV1SeedDelivery(
       legacySeedOptions,
-      retainedSeedFrames(scope),
+      retainedSeedFrames(scope, deps.uiStates, browserUi),
       sink,
       APPLICATION_MAX_UNACKED_FRAMES,
       APPLICATION_MAX_UNACKED_BYTES,
@@ -243,25 +245,17 @@ export function startSyncFeed(
     agentStatusBus.subscribe((status) => {
       if (scope.sessionIds.has(status.session_id)) push(agentStatusFrame(status));
     }),
-    uiBus.subscribe((message) => {
-      if (message._dashboard_id !== scope.dashboardId) return;
-      push(message.kind === "state"
-        ? create(FirehoseFrameSchema, {
-          frame: { case: "uiState", value: create(UiStateFrameSchema, {
-            fp: message.fp, tabId: message.tabId, state: message.state,
-          }) },
-        })
-        : create(FirehoseFrameSchema, {
-          frame: { case: "uiCommand", value: create(UiCommandFrameSchema, {
-            targetTabId: message.targetTabId, command: message.command,
-          }) },
-        }));
-    }, scope.dashboardId),
+    subscribeUiFeed({
+      browserUi,
+      dashboardId: scope.dashboardId,
+      targetSocketId: v2Options?.socketId ?? null,
+      push,
+    }),
   ];
 
   let seeded: Promise<void>;
   if (!seedOptions) {
-    for (const frame of retainedSeedFrames(scope)) push(frame);
+    for (const frame of retainedSeedFrames(scope, deps.uiStates, browserUi)) push(frame);
     seeded = Promise.resolve();
   } else if (v1SeedDelivery) {
     seeded = v1SeedDelivery.seeded;
@@ -269,10 +263,9 @@ export function startSyncFeed(
     seeded = Promise.resolve();
     queueMicrotask(() => {
       if (disposed) return;
-      for (const { fp, tabId, state } of getUiStateSnapshot(scope.dashboardId)) {
-        push(create(FirehoseFrameSchema, {
-          frame: { case: "uiState", value: create(UiStateFrameSchema, { fp, tabId, state }) },
-        }), { domain: null, lane: "control" });
+      if (!browserUi) return;
+      for (const frame of uiStateSeedFrames(deps.uiStates, scope.dashboardId)) {
+        push(frame, { domain: null, lane: "control" });
       }
     });
   }

@@ -8,16 +8,17 @@ import { randomUUID } from "node:crypto";
 import {
   FirehoseFrameSchema, type FirehoseFrame, SessionPresenceSchema,
   WorkerRoutableFrameSchema, TerminalTitleFrameSchema, LastActivityFrameSchema,
-  UiStateFrameSchema, SyncDomain,
+  SyncDomain,
 } from "@roost/shared/proto/sync_pb";
 import { listRoutableFps } from "./worker-service.ts";
 import { getTitleSnapshot } from "../terminal-title-hub.ts";
 import { getLastActivitySnapshot } from "../last-activity-hub.ts";
 import { getAgentStatusSnapshot } from "../agent-status-hub.ts";
 import { terminalViewerProjection } from "./terminal-view-hub.ts";
-import { getUiStateSnapshot } from "./handlers-ui.ts";
 import { log } from "@roost/shared/log";
 import { agentStatusFrame, type SyncFeedFrameMeta } from "./sync-feed-frames.ts";
+import type { UiStateOwner } from "./ui-state-owner.ts";
+import { uiStateSeedFrames } from "./sync-feed-ui.ts";
 
 export interface SyncDashboardScope {
   readonly dashboardId: string;
@@ -38,7 +39,11 @@ export interface SyncFeedSeedContext {
   push(frame: FirehoseFrame, meta: SyncFeedFrameMeta): void;
 }
 
-export function* retainedSeedFrames(scope: SyncDashboardScope): Generator<FirehoseFrame> {
+export function* retainedSeedFrames(
+  scope: SyncDashboardScope,
+  uiStates: UiStateOwner,
+  browserUi: boolean,
+): Generator<FirehoseFrame> {
   // Live routable worker membership is volatile, so seed it before the
   // per-session snapshots below.
   yield create(FirehoseFrameSchema, {
@@ -73,11 +78,7 @@ export function* retainedSeedFrames(scope: SyncDashboardScope): Generator<Fireho
   for (const status of getAgentStatusSnapshot()) {
     if (scope.sessionIds.has(status.session_id)) yield agentStatusFrame(status);
   }
-  for (const { fp, tabId, state } of getUiStateSnapshot(scope.dashboardId)) {
-    yield create(FirehoseFrameSchema, {
-      frame: { case: "uiState", value: create(UiStateFrameSchema, { fp, tabId, state }) },
-    });
-  }
+  if (browserUi) yield* uiStateSeedFrames(uiStates, scope.dashboardId);
 }
 
 

@@ -1,25 +1,22 @@
-// ui-cc reporter — tells coord what THIS browser tab is showing (UiReportState)
-// so agents can SEE the spatial model: active path, the active folder's pane
-// tiling (layout_json = the Layout tree as-is, same JSON-string pattern as
-// DiagSnapshot.spa_state_json), focused pane, and the selected tab per pane.
-// Coord keys the report by (fp, tab_id) and re-broadcasts it as a ui_state
-// Sync frame; the SPA never consumes those (its own reflection).
-//
-// Triggers: every layout commit (paneLayoutStore.onLayoutCommit), router
-// location changes (UiBridge's effect → scheduleUiStateReport), tab return to
-// visible, and a 60s heartbeat (coord's per-tab TTL is 5min — the heartbeat
-// keeps live-but-idle tabs listed). All funnel through ONE 300ms trailing
-// debounce, so a burst of focus clicks costs one RPC. Sends are best-effort:
-// coord offline / pre-auth first paint drops silently, next trigger retries.
-//
-// Wired by components/UiBridge.tsx (mounted once in App's RootShell): the reporter
-// needs the router pathname, injected as a plain accessor so this module
-// stays free of router context.
+// Reports this browser tab's route and portable pane layout to the coordinator.
+// Only coordinator-admitted session identities cross terminal routes or
+// LayoutDocumentV1 bindings; runtime pane IDs and placeholders stay local.
+// UiBridge owns lifecycle triggers and supplies the live router pathname.
 
+import { create } from "@bufbuild/protobuf";
+import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
+import {
+  UiReportStateRequestSchema,
+  type UiReportStateRequest,
+} from "@roost/shared/proto/sync_pb";
 import { coordClient } from "../connect.ts";
 import { getTabId } from "../auth/tab-id.ts";
-import { onLayoutCommit, resolveLayout } from "../store/paneLayoutStore.ts";
-import { allLeaves } from "../store/paneLayout.ts";
+import { exportLayoutDocument } from "../store/paneLayoutDocument.ts";
+import { onLayoutCommit } from "../store/paneLayoutStore.ts";
+import {
+  isClientOnlyOptimisticSpawn,
+  projectOptimisticSpawnMembership,
+} from "../store/optimisticSpawn.ts";
 import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";
 import { folderKeyOf } from "./folderKey.ts";
 
@@ -29,27 +26,58 @@ const HEARTBEAT_MS = 60_000;
 let _getPath: (() => string) | null = null;
 let _debounce: Timer | undefined;
 
+/** Resolve only a live coordinator-admitted session for hydration reporting. */
+export function authoritativeUiReportSessionId(path: string): string | null {
+  const activeSession = activeSessionForPath(path);
+  return activeSession?.status === "open"
+    && !isClientOnlyOptimisticSpawn(activeSession.id)
+    ? activeSession.id
+    : null;
+}
+
+/** Re-report when an unchanged active route gains its authoritative session. */
+export function scheduleUiStateReportOnSessionResolution(
+  currentSessionId: string | null,
+  previousSessionId: string | null | undefined,
+  scheduleReport: () => void = scheduleUiStateReport,
+): void {
+  if (
+    currentSessionId
+    && (previousSessionId === null || previousSessionId === undefined)
+  ) scheduleReport();
+}
+
+/** Build the exact typed payload used by both the RPC and focused tests. */
+export function _buildUiStateReport(path: string): UiReportStateRequest {
+  const activeSession = activeSessionForPath(path);
+  const directSessionPath = path.startsWith("/s/");
+  const activeSessionIsAuthoritative = activeSession?.status === "open"
+    && !isClientOnlyOptimisticSpawn(activeSession.id);
+  const openSession = activeSession?.status === "open" ? activeSession : null;
+  const folderKey = openSession ? folderKeyOf(openSession) : null;
+  const liveSessionIds = folderKey
+    ? projectOptimisticSpawnMembership(
+      liveSessionIdsForFolder(folderKey),
+    ).authoritativeSessionIds
+    : [];
+  return create(UiReportStateRequestSchema, {
+    tabId: getTabId(),
+    activePath: directSessionPath && !activeSessionIsAuthoritative ? "" : path,
+    folderKey: folderKey ?? "",
+    layoutDocument: folderKey
+      ? layoutDocumentToProto(exportLayoutDocument(folderKey, liveSessionIds))
+      : undefined,
+  });
+}
+
 function _send(): void {
   if (!_getPath) return;
-  const path = _getPath();
-  // Same folder-bucket derivation as MainPane → TerminalDeck: URL-active OPEN
-  // session → folderKeyOf. Off a terminal route (or session closed) there is
-  // no layout to report — send anyway with empty folderKey/layout so an agent
-  // still learns the tab's navigation state.
-  const active = activeSessionForPath(path);
-  const open = active && active.status === "open" ? active : null;
-  const fk = open ? folderKeyOf(open) : null;
-  const layout = fk ? resolveLayout(fk, liveSessionIdsForFolder(fk)) : null;
-  void coordClient.uiReportState({
-    tabId: getTabId(),
-    activePath: path,
-    folderKey: fk ?? "",
-    layoutJson: layout ? JSON.stringify(layout) : "",
-    focusedPaneId: layout?.focusedPaneId ?? "",
-    visibleSessionIds: layout
-      ? allLeaves(layout.root).map((l) => l.selectedTab).filter(Boolean)
-      : [],
-  }).catch(() => { /* best-effort — see module comment */ });
+  try {
+    void coordClient.uiReportState(_buildUiStateReport(_getPath()))
+      .catch(() => { /* best-effort — the next lifecycle trigger retries */ });
+  } catch {
+    // A malformed local layout remains browser-local and cannot poison a timer.
+  }
 }
 
 /** Coalesce any trigger into one trailing send. Safe to call before init

@@ -1,13 +1,7 @@
-// Unit coverage for the ui-cc PURE core (lib/uiCommandCore.ts): agent
-// UiCommands mapped onto the tiling tree via the same store/paneLayout.ts ops
-// user gestures use, plus the tab-targeting predicate. Contract under test:
-// valid commands transform the layout exactly like the equivalent gesture;
-// anything referencing an unknown session / bad arg returns null (shell drops
-// it). Deliberately imports ONLY uiCommandCore.ts — the dispatcher shell pulls
-// paneLayoutStore (import-time pagehide hook), and loading it here would
-// poison paneLayoutStore.test.ts's window-stub capture via bun's shared module
-// cache (full-suite order coupling). Shell wiring is covered by the live
-// ui-cc E2E (roost api ui …).
+// Legacy UI command tests cover pure layout mapping and tab targeting without
+// importing store or transport side effects. Valid commands mirror user
+// gestures; invalid references are refused without mutating the input layout.
+// Acknowledged layout apply is pinned as outside this legacy mapper.
 
 import { describe, test, expect } from "bun:test";
 import type { UiCommand, UiCommandFrame } from "@roost/shared/proto/sync_pb";
@@ -148,6 +142,14 @@ describe("applyUiCommandToLayout misc", () => {
   test("non-layout command (navigate lives in the shell) → null", () => {
     const { l } = fixture();
     expect(applyUiCommandToLayout(l, cmd({ case: "navigate", value: { path: "/" } }), LIVE)).toBeNull();
+  });
+  test("acknowledged apply never enters the legacy layout mapper", () => {
+    const { l } = fixture();
+    expect(applyUiCommandToLayout(
+      l,
+      cmd({ case: "applyLayout", value: { document: {} } }),
+      LIVE,
+    )).toBeNull();
   });
   test("input layout is never mutated", () => {
     const { l } = fixture();

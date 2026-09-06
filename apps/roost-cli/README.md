@@ -184,11 +184,16 @@ code never enters a POSIX command path. It drains pending relocation requests
   `src/status-native-probes.ts`, `src/status-report.ts`,
   `src/status-output.ts`, and `src/status-types.ts`; `src/doctor.ts`,
   `src/logs.ts`, `src/sync-ws.ts` (headless firehose), and `src/state.ts`.
-- **Headless API** — `src/api.ts` owns authenticated API dispatch,
+- **Headless API** — `src/api.ts` owns authenticated API dispatch;
+  `src/api-ui.ts` owns typed `ui-state`, strict layout-file parsing, and
+  acknowledged apply outcome formatting. `src/api-ui-legacy.ts` owns exact
+  argv parsing for the eight publication-only UI commands, while
+  `src/terminal-safe-text.ts` bounds and escapes untrusted human output.
   `src/api-agent-status.ts` owns stable agent-status reads and exact-occupant
-  waits, and `src/api-agent-prompt.ts` owns guarded prompt parsing, status
-  pinning, and outcome formatting. `src/api-command-registry.ts` composes the
-  canonical metadata used to validate the API examples in the bundled skill.
+  waits, while `src/api-agent-prompt.ts` owns guarded prompt parsing, status
+  pinning, and outcome formatting.
+  `src/api-command-registry.ts` composes the canonical metadata used to
+  validate the API examples in the bundled skill.
 - **Local loop** — `src/dev.ts`, `src/test.ts`, `src/reset.ts`, `src/cutover.ts`.
 - **Server modes** — `src/coord.ts`, `src/worker.ts`, `src/keeper.ts`.
 
@@ -233,6 +238,51 @@ input or prints/logs the prompt text.
 
 `roost api input <session> <text> [--enter]` remains the unfenced raw-input
 surface: its documented backslash expansion and optional CR are unchanged.
+
+### `roost api ui`
+
+`roost api ui-state [--json]` reads each reporting browser tab's ephemeral
+active path. While that path resolves to an open folder session, the report
+also carries a nonempty browser-owned folder key and typed portable
+`layout_document`. Human output prints a pane tree only when that document is
+present; JSON uses the strict snake_case `LayoutDocumentV1` or `null` off
+folder routes, never runtime pane/split IDs or an embedded layout string.
+Human output visibly escapes terminal controls and Unicode bidi/format controls
+in every remote text field, truncating each at 256 rendered code points or 512
+UTF-8 bytes with an explicit marker. `--json` leaves string values lossless and
+untruncated.
+Reports remain discoverable for a five-minute TTL, so an entry is not proof
+that its tab still owns a live writable Sync socket.
+
+The eight interactive commands (`navigate`, `place-split`, `select-tab`,
+`focus-pane`, `move-tab`, `arrange`, `close-tab`, and `spotlight`) remain
+fire-and-forget. Each prints exactly `delivered=N`, where `N` is the selected
+dashboard's Sync-subscriber count when the coordinator publishes—not the
+number of tabs that execute or acknowledge it. `--tab <id>` may appear anywhere
+after the command name; it filters execution in browsers but does not change
+that count, and omitting it broadcasts. Duplicate or unknown options and the
+wrong positional arity are errors.
+
+Acknowledged replacement of one live tab's layout is:
+
+```sh
+roost api ui apply-layout <file> --tab <id>
+```
+
+The file must be strict V1 layout JSON and `--tab` is mandatory and nonempty.
+The CLI first reads the retained UI-state projection. No matching tab prints
+`target-gone`; the same tab ID under multiple fingerprints prints `rejected`;
+neither path publishes an apply. One match pins its fingerprint/tab tuple into
+at most one apply RPC, so a browser that later reuses the tab ID cannot take
+over the request.
+
+Stdout is exactly one of `applied`, `rejected`, or `target-gone`. `rejected`
+and `target-gone` set a nonzero exit code. A stable sanitized reason, when
+present, is written to stderr. `applied` proves a commit after the browser's
+navigation attempt, not successful navigation completion. The apply RPC is
+never retried. `target-gone` means the exact fingerprint/tab/socket
+acknowledgement became unavailable through absence, close, replacement, or
+timeout; it is not proof that the browser did not commit the layout.
 
 `src/machine-transaction.ts` serializes install/update/relocation/
 keeper-refresh/deploy against one lock per machine. Importers are
