@@ -73,6 +73,23 @@ export type KeeperConnectionAttempt =
   | FailedKeeperConnection;
 
 
+export function _keeperHelloProtocolCompatible(hello: {
+  version: number;
+  features: readonly string[];
+  contract?: KeeperContractV1;
+}): boolean {
+  if (hello.contract === undefined) return false;
+  const availableFeatures = new Set(hello.features);
+  return hello.version === KEEPER_PROTOCOL_VERSION
+    && KEEPER_TARGET_CONTRACT.required_features.every(
+      feature => availableFeatures.has(feature),
+    )
+    && keeperContractsProtocolCompatible(
+      KEEPER_TARGET_CONTRACT,
+      hello.contract,
+    );
+}
+
 /** Connect and perform the capability-bearing Hello as the first frame.
  * Successful sockets are returned paused so the caller can install its
  * long-lived frame listener without an intervening data event. */
@@ -155,24 +172,11 @@ export function connectKeeperAuthenticated(
       socket.removeListener("connect", onConnect);
       socket.removeListener("close", onClose);
       socket.removeListener("error", onError);
-      const availableFeatures = new Set(hello.features);
-      socket.pause();
       const features = hello.features.filter(
         (feature): feature is KeeperFeature =>
           SUPPORTED_KEEPER_FEATURES.includes(feature as KeeperFeature),
       );
-      const protocolCompatible =
-        hello.version === KEEPER_PROTOCOL_VERSION
-        && KEEPER_TARGET_CONTRACT.required_features.every(
-          feature => availableFeatures.has(feature),
-        )
-        && (
-          hello.contract === undefined
-          || keeperContractsProtocolCompatible(
-            KEEPER_TARGET_CONTRACT,
-            hello.contract,
-          )
-        );
+      const protocolCompatible = _keeperHelloProtocolCompatible(hello);
       resolve({
         reachable: true,
         authenticated: true,

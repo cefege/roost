@@ -13,6 +13,7 @@ import {
   type MuxChannelCallbacks,
 } from "../src/keeper/multiplexed-client.ts";
 import { muxLocalEndpoint } from "../src/keeper/keeper-pool-config.ts";
+import { _keeperHelloProtocolCompatible } from "../src/keeper/keeper-probe.ts";
 import {
   KEEPER_TARGET_CONTRACT,
   keeperContractsExactlyEqual,
@@ -65,6 +66,22 @@ describe("keeper contract generation and authenticated observation", () => {
       KEEPER_TARGET_CONTRACT,
       unproven,
     )).toBe(false);
+  });
+
+  test("authenticated Hello requires a contract but permits an unproven digest", () => {
+    const features = [...KEEPER_TARGET_CONTRACT.supported_features];
+    expect(_keeperHelloProtocolCompatible({
+      version: KEEPER_TARGET_CONTRACT.protocol_version,
+      features,
+    })).toBe(false);
+    expect(_keeperHelloProtocolCompatible({
+      version: KEEPER_TARGET_CONTRACT.protocol_version,
+      features,
+      contract: {
+        ...KEEPER_TARGET_CONTRACT,
+        implementation_digest: null,
+      },
+    })).toBe(true);
   });
 
   test("build provenance does not change implementation equality", () => {
