@@ -75,7 +75,7 @@ describe("agent process identity", () => {
     expect((await scanner.scanAgents(roots)).has(sessionId)).toBe(false);
   });
 
-  test("freshly resolves the detected agent under a claimed session root", async () => {
+  test("requires a pre-observed incumbent before admitting a reporter", async () => {
     const root = processRecord({ pid: 10, ppid: 1 });
     const records = [
       root,
@@ -83,10 +83,13 @@ describe("agent process identity", () => {
       processRecord({ pid: 30, ppid: 20, comm: "omp", args: "omp" }),
     ];
     const scanner = new AgentProcessScanner(async () => records, 0);
-    expect(await scanner.scanReportingAgent({ sessionId, childPid: 10 }, 30))
+    const sessionRoot = { sessionId, childPid: 10 };
+    expect(await scanner.scanReportingAgent(sessionRoot, 30)).toBeNull();
+    expect((await scanner.scanAgents([sessionRoot])).get(sessionId))
       .toEqual({ agentId: "omp", pid: 30 });
-    expect(await scanner.scanReportingAgent({ sessionId, childPid: 10 }, 20))
-      .toBeNull();
+    expect(await scanner.scanReportingAgent(sessionRoot, 30))
+      .toEqual({ agentId: "omp", pid: 30 });
+    expect(await scanner.scanReportingAgent(sessionRoot, 20)).toBeNull();
   });
 
   test("keeps a live incumbent ahead of a newly named descendant reporter", async () => {

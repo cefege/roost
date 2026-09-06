@@ -335,9 +335,6 @@ export class AgentProcessScanner {
       if (!liveHeld || liveHeld.agentId !== held.agentId) return null;
       return liveHeld.pid === reporterPid ? liveHeld : null;
     }
-    const current = findAgentProcessIdentity(this.records, root.childPid);
-    if (!current || current.pid !== reporterPid) return null;
-    this.heldBySession.set(root.sessionId, { ...current, misses: 0 });
-    return current;
+    return null;
   }
 }
