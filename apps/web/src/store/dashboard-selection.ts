@@ -13,8 +13,8 @@ import {
   isValidDashboardAccess,
   rootStore,
   setDashboardAccess,
+  type DashboardAccessSnapshot,
 } from "./root.ts";
-import type { DashboardAccessSnapshot } from "./root.ts";
 import { resetTerminalStream } from "./terminal-stream.ts";
 import { resetTerminalOutboundState } from "../ws/sync-outbound.ts";
 import {
@@ -29,6 +29,7 @@ import { resetOptimisticSpawnState } from "./optimisticSpawn.ts";
 import { resetPendingCloses } from "../lib/pendingClose.ts";
 import { resetCursorPollTicker } from "../lib/cursorPollTicker.ts";
 import { resetUserTerminalInput } from "../lib/userTerminalInput.ts";
+import { resetDashboardSearchRuntime, resumeDashboardSearchRuntime } from "../lib/globalContentSearchRuntime.ts";
 import { clearAgentConfigForDashboardSwitch, loadAgentConfig } from "../lib/agents.ts";
 import { resetSpawnSessionRuntime } from "../lib/spawnSession.ts";
 import { resetResizeDrags } from "../lib/resizeDrag.ts";
@@ -96,6 +97,7 @@ function clearDashboardRuntimeState(): void {
   // unmounts its panes and before the next dashboard's socket can open.
   resetCursorPollTicker();
   resetUserTerminalInput();
+  resetDashboardSearchRuntime();
   resetResizeDrags();
   resetPendingCloses();
   resetOptimisticSpawnState();
@@ -206,12 +208,11 @@ function isCurrentDashboardSwitch(attempt: DashboardSwitchAttempt): boolean {
 }
 
 function rehydrateConfirmedDashboard(requestGeneration?: number): void {
-  if (
-    requestGeneration !== undefined
-    && activeDashboardSwitchRequestGeneration !== requestGeneration
-  ) return;
+  if (requestGeneration !== undefined
+    && activeDashboardSwitchRequestGeneration !== requestGeneration) return;
   activeDashboardSwitchRequestGeneration = null;
   releaseSyncAfterDashboardSwitch();
+  resumeDashboardSearchRuntime();
   void loadAgentConfig();
 }
 
@@ -332,7 +333,6 @@ export async function selectDashboardFromServer(dashboardId: string): Promise<bo
     return snapshot.selected_dashboard_id === dashboardId
       && commitServerConfirmedDashboardAccess(snapshot);
   }
-
   const attempt = beginDashboardSwitch(dashboardId);
   let response: AuthDashboardAccessResponse;
   try {

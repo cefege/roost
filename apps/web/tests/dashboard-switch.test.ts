@@ -4,15 +4,18 @@
 
 import { expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import {
-  AuthDashboardAccessResponseSchema,
-  type AuthDashboardAccessResponse,
-} from "@roost/shared/proto/coordinator_pb";
+import { AuthDashboardAccessResponseSchema, type AuthDashboardAccessResponse } from "@roost/shared/proto/coordinator_pb";
 import { activeRenameDialog, openRenameDialog } from "../src/store/renameDialog.ts";
 import { queueTaskDialogStore } from "../src/store/queueTaskDialog.ts";
 import { openTransferDialog, transferDialogOpen } from "../src/lib/transferDialog.ts";
 import { addTransfer, transfers } from "../src/store/transfers.ts";
 import { setSpotlightSessionId, spotlightSessionId } from "../src/store/spotlight.ts";
+import { registerDashboardBoundContentSearch } from "../src/lib/globalContentSearchRuntime.ts";
+import {
+  _resetTerminalFindIntentsForTest,
+  registerTerminalFind,
+  requestTerminalFind,
+} from "../src/lib/terminalFindIntent.ts";
 
 const local = new Map<string, string>([
   ["roost.syncLastEventId", "41"],
@@ -54,7 +57,6 @@ const interceptedFetch: (
   throw new Error("stop after request interception");
 };
 Object.assign(globalThis, { fetch: interceptedFetch });
-
 
 // The remaining modules read browser globals during evaluation, so install the
 // fake location and storage before importing them.
@@ -190,6 +192,17 @@ test("server-confirmed dashboard switch clears scope atomically and invalidates 
   expect(root.rootStore.sessions["session-a"]).toBeDefined();
   expect(selection.isCurrentDashboardResourceToken(staleRoute)).toBe(true);
   openScopedOverlays();
+  const controllerTransitions = { resets: 0, resumes: 0 };
+  const unregisterControllerReset = registerDashboardBoundContentSearch({
+    resetForDashboardCutover: () => { controllerTransitions.resets++; },
+    resumeAfterDashboardCutover: () => { controllerTransitions.resumes++; },
+  });
+  const retiredFindQueries: string[] = [];
+  registerTerminalFind("session-find", {
+    openFind: () => {},
+    setQuery: (next) => { retiredFindQueries.push(next); },
+  });
+  requestTerminalFind("cold-find", "old dashboard");
 
   // Only the server's membership-confirmed B snapshot crosses the boundary.
   expect(selection.commitServerConfirmedDashboardAccess(accessB)).toBe(true);
@@ -200,6 +213,18 @@ test("server-confirmed dashboard switch clears scope atomically and invalidates 
   expect(root.rootStore.effective_capabilities).toEqual(["dashboard:member"]);
   expect(local.get("roost.dashboardId")).toBe("dashboard-b");
   expectScopedOverlaysCleared();
+  expect(controllerTransitions).toEqual({ resets: 1, resumes: 1 });
+  requestTerminalFind("session-find", "new dashboard");
+  expect(retiredFindQueries).toEqual([]);
+  const coldFindQueries: string[] = [];
+  const unregisterColdFind = registerTerminalFind("cold-find", {
+    openFind: () => {},
+    setQuery: (next) => { coldFindQueries.push(next); },
+  });
+  expect(coldFindQueries).toEqual([]);
+  unregisterColdFind();
+  unregisterControllerReset();
+  _resetTerminalFindIntentsForTest();
   expect(sync._syncDashboardSwitchHeld()).toBe(false);
 
   // Every dashboard-scoped root slice, terminal replica/timer owner, Sync

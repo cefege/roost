@@ -61,6 +61,10 @@ export abstract class SessionManagerState {
 		searchId: string;
 		controller: AbortController;
 	}>();
+	terminalSearchBatches = new Map<string, {
+		searchId: string;
+		sessionIds: readonly SessionId[];
+	}>();
 	terminalSearchCancellations = new Map<string, number>();
 	keeperAdmissionLane = new Map<number, KeeperAdmissionLane>();
 	channelResizeSeq = new Map<number, number>();

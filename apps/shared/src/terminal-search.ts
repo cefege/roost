@@ -11,6 +11,13 @@ export const TERMINAL_SEARCH_MAX_ROWS = 4_096;
 export const TERMINAL_SEARCH_MAX_MATCHES = 256;
 export const TERMINAL_SEARCH_PREVIEW_MAX_CODE_POINTS = 512;
 export const TERMINAL_SEARCH_MAX_PAGES = 32;
+export const GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS = 32;
+export const GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION = 2_048;
+export const GLOBAL_TERMINAL_SEARCH_MAX_MATCHES = 256;
+export const GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS = 5_000;
+export const GLOBAL_TERMINAL_SEARCH_WORK_DEADLINE_MS = 4_500;
+export const GLOBAL_TERMINAL_SEARCH_CURSOR_TTL_MS = 60_000;
+export const GLOBAL_TERMINAL_SEARCH_MAX_CURSORS_PER_DEVICE = 4;
 export const TERMINAL_SEARCH_RPC_DEADLINE_MS = 8_000;
 
 const SafeNonnegativeIntegerSchema = z.number()
@@ -30,6 +37,25 @@ export function countUnicodeCodePoints(value: string): number {
     count++;
   }
   return count;
+}
+
+/** Divide a page cap across sessions so no selected session is starved. */
+export function allocateGlobalSearchMatchLimits(
+  totalMatches: number,
+  sessionCount: number,
+): number[] {
+  if (!Number.isSafeInteger(totalMatches) || totalMatches < 0) {
+    throw new RangeError("totalMatches must be a safe nonnegative integer");
+  }
+  if (!Number.isSafeInteger(sessionCount) || sessionCount <= 0) {
+    throw new RangeError("sessionCount must be a positive safe integer");
+  }
+  const base = Math.floor(totalMatches / sessionCount);
+  const remainder = totalMatches % sessionCount;
+  return Array.from(
+    { length: sessionCount },
+    (_, index) => base + (index < remainder ? 1 : 0),
+  );
 }
 
 function hasAtMostUnicodeCodePoints(value: string, maxCodePoints: number): boolean {
@@ -184,3 +210,47 @@ export const WorkerSearchScrollbackResultSchema = z.object({
 export type WorkerSearchScrollbackResult = z.infer<
   typeof WorkerSearchScrollbackResultSchema
 >;
+
+export const WorkerGlobalSearchErrorSchema = z.enum([
+  "session_closed",
+  "deadline",
+  "epoch_changed",
+  "no_terminal",
+  "internal",
+]);
+export type WorkerGlobalSearchError = z.infer<typeof WorkerGlobalSearchErrorSchema>;
+
+const WorkerGlobalSearchSessionIdSchema = z.string().uuid();
+export const WorkerGlobalSearchEntrySchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    session_id: WorkerGlobalSearchSessionIdSchema,
+    result: WorkerSearchScrollbackResultSchema,
+  }).strict(),
+  z.object({
+    status: z.literal("error"),
+    session_id: WorkerGlobalSearchSessionIdSchema,
+    error: WorkerGlobalSearchErrorSchema,
+  }).strict(),
+]);
+export type WorkerGlobalSearchEntry = z.infer<typeof WorkerGlobalSearchEntrySchema>;
+
+export const WorkerGlobalSearchResultSchema = z.object({
+  entries: z.array(WorkerGlobalSearchEntrySchema)
+    .max(GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS)
+    .readonly(),
+}).strict().readonly().superRefine((result, context) => {
+  const seenSessionIds = new Set<string>();
+  for (let index = 0; index < result.entries.length; index++) {
+    const sessionId = result.entries[index]!.session_id;
+    if (seenSessionIds.has(sessionId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "global search result session IDs must be unique",
+        path: ["entries", index, "session_id"],
+      });
+    }
+    seenSessionIds.add(sessionId);
+  }
+});
+export type WorkerGlobalSearchResult = z.infer<typeof WorkerGlobalSearchResultSchema>;

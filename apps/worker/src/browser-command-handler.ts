@@ -12,6 +12,10 @@ import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnShell } fr
 import { handleGetHome, handleListDir, handleMkdir, handleReadFile, handleReadFileChunk } from "./browser-command-files.ts";
 import { handleGetScrollbackCells } from "./browser-command-terminal.ts";
 import { cancelSearchScrollback, handleSearchScrollback } from "./terminal-search.ts";
+import {
+	cancelSearchScrollbackBatch,
+	handleSearchScrollbackBatch,
+} from "./terminal-search-batch.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
 
@@ -64,6 +68,18 @@ export function handleBrowserCommand(
 		}
 		case "get-scrollback-cells": {
 			void handleGetScrollbackCells(frame, request_id, { coordLink, sessionMgr });
+			return;
+		}
+		case "cancel-scrollback-search-batch": {
+			cancelSearchScrollbackBatch(frame, msg.viewer_id, sessionMgr);
+			return;
+		}
+		case "search-scrollback-batch": {
+			void handleSearchScrollbackBatch(frame, request_id, {
+				coordLink,
+				sessionMgr,
+				searchOwnerId: msg.viewer_id,
+			});
 			return;
 		}
 		case "cancel-scrollback-search": {

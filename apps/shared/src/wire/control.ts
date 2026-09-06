@@ -6,6 +6,9 @@ import { z } from "zod";
 import { ChannelId, SessionId, TraceId } from "./brand.ts";
 import {
   ScrollbackHistoryFloorSchema,
+  GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
+  GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS,
+  GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
   TerminalSearchGridEpochSchema,
   TerminalSearchIdSchema,
   TerminalSearchMaxMatchesSchema,
@@ -27,6 +30,39 @@ import {
 export type ScrollbackHistoryFloor = z.infer<typeof ScrollbackHistoryFloorSchema>;
 
 const Base = z.object({ trace_id: TraceId.optional() });
+const GlobalSearchSessionSchema = z.object({
+  session_id: SessionId,
+  grid_epoch: TerminalSearchGridEpochSchema,
+  before_row: TerminalSearchRowSchema.optional(),
+}).strict();
+const GlobalSearchSessionsSchema = z.array(GlobalSearchSessionSchema)
+  .min(1)
+  .max(GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS)
+  .superRefine((sessions, context) => {
+    const seenSessionIds = new Set<string>();
+    for (let index = 0; index < sessions.length; index++) {
+      const sessionId = sessions[index]!.session_id;
+      if (seenSessionIds.has(sessionId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "global search sessions must be unique",
+          path: [index, "session_id"],
+        });
+      }
+      seenSessionIds.add(sessionId);
+    }
+  });
+const GlobalSearchSessionIdsSchema = z.array(SessionId)
+  .min(1)
+  .max(GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS)
+  .superRefine((sessionIds, context) => {
+    if (new Set(sessionIds).size !== sessionIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "global search session IDs must be unique",
+      });
+    }
+  });
 // ─── client → worker ───────────────────────────────────────────────────
 
 export const ClientControlFrame = z.discriminatedUnion("kind", [
@@ -101,6 +137,26 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     session_id: SessionId,
     search_request_id: TerminalSearchIdSchema,
   }),
+  Base.extend({
+    kind: z.literal("search-scrollback-batch"),
+    request_id: z.string(),
+    search_id: TerminalSearchIdSchema,
+    query: TerminalSearchQuerySchema,
+    case_sensitive: z.boolean(),
+    sessions: GlobalSearchSessionsSchema,
+    max_rows_per_session: z.number()
+      .int()
+      .positive()
+      .max(GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION),
+    max_matches: TerminalSearchMaxMatchesSchema,
+    deadline_ms: z.literal(GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS),
+  }).strict(),
+  Base.extend({
+    kind: z.literal("cancel-scrollback-search-batch"),
+    request_id: z.string(),
+    search_id: TerminalSearchIdSchema,
+    session_ids: GlobalSearchSessionIdsSchema,
+  }).strict(),
   // att1 file upload retired here — uploads stream via the DAttachmentChunk
   // worker-transport frame (coord AttachFileChunk RPC), not this JSON frame.
   // att2b — list a session's attachments. Worker returns entries

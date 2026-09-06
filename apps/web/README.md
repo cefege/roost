@@ -47,17 +47,17 @@ lives in that row's directory; prefixed refs follow the convention above.
 | Directory | Owns | Must not own |
 | --- | --- | --- |
 | `apps/web/src/` (root files) | `entry.ts` (credential scrub + deferred graph load), `main.tsx` (post-scrub bootstrap + mount), `App.tsx` (router + overlay shell), `routes.ts` (URL table), `connect.ts` (Connect-RPC client), `css-imports.d.ts` and `md-elements.d.ts` (ambient imports/elements) | feature-shaped UI |
-| `apps/web/src/components/` | screens/dialogs; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `TerminalDeck.tsx` owns persistent keyed mounting; `ManagedRouteGate.tsx` and `ManagedLogin.tsx`/`ManagedSignup.tsx` own managed gates/routes | direct store writes, wire framing, persistence |
+| `apps/web/src/components/` | screens/dialogs; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `TerminalDeck.tsx` owns persistent keyed mounting; `ManagedRouteGate.tsx` and `ManagedLogin.tsx`/`ManagedSignup.tsx` own managed gates/routes | direct store writes, wire framing, persistence |
 | `apps/web/src/components/layout/` | `AppShell.tsx` (sidebar + route slot), `MobileTopBar.tsx`, `DashboardScopeSelector.tsx` (server-confirmed organization/dashboard selection) | route-specific content |
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
 | `apps/web/src/components/Settings/` | settings shell/panes; `OrganizationPane.tsx` and `DashboardPane.tsx` project confirmed scope, `MachinesPane.tsx` owns workers, `settingsNavigation.ts` hides self-hosted-only scope controls in managed mode | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
 | `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
-| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
+| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters; `globalContentSearchController.ts` owns bounded dashboard search paging, `globalContentSearchResults.ts` reconciles cursor results, `globalContentSearchRuntime.ts` fences dashboard cutovers, and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun clicked results in pane-local current-epoch find (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, fragment credentials, pairing/tab identity/relocation; `tenant-routing.ts`, `managed-routes.ts`, `managed-auth-gateway.ts`, `managed-login.ts`, `managed-account.ts`, `managed-credentials.ts`, and `managed-logout.ts` own managed policy/transitions | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | six global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules | component-local one-offs |
-| `apps/web/tests/` | 115 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
+| `apps/web/tests/` | 118 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
 | `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
 
@@ -65,15 +65,19 @@ Managed per-account isolation and these auth/dashboard modules are qualified,
 but the managed service is not publicly launched in v0.5.0. Accounts are
 operator-created; open signup and production managed image publication are off.
 
-`/search` is a dashboard-local session metadata and agent-attention navigation
-surface. It reuses the same scalar projection as sidebar and palette matching:
-titles, current/spawn folders, workspace, machine, Git/PR, ports, activity,
-availability, and existing agent seen-state. `scope=attention` retains current
-blocked rows and unseen completions; opening a completed session acknowledges
-it. Search does not inspect terminal cells, scrollback, or agent transcripts.
-Cross-worker transfer remains a beta placeholder: its item opens an explanatory
-dialog without issuing a transfer RPC. Attachment upload/download through
-`TransferStack` remains supported.
+`/search` is a dashboard-local metadata, terminal-content, and agent-attention
+surface. Its default scope filters the same scalar metadata projection used by
+the sidebar and palette while a debounced controller searches authorized open
+sessions' retained terminal rows. Content pages are explicitly continued with
+`Load more`; worker/session partials remain visible instead of becoming false
+empty results. Selecting a content match navigates by the current projection's
+session href and asks that pane's find controller to rerun the literal query
+against its current grid epoch before revealing anything. `scope=attention`
+retains current blocked rows and unseen completions without issuing content
+search RPCs; opening a completed session acknowledges it. Search never inspects
+agent transcripts. Cross-worker transfer remains a beta placeholder: its item
+opens an explanatory dialog without issuing a transfer RPC. Attachment
+upload/download through `TransferStack` remains supported.
 
 ## Invariants
 

@@ -58,6 +58,10 @@ const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   // and ListStates stay unlimited: heartbeat/read-frequency traffic, same
   // reasoning as the *List exclusions above.
   "/roost.v1.CoordinatorService/UiDispatch",
+  // Dashboard-global search allocates cursors, worker queues, and cancel
+  // tombstones; bound authenticated callers as defense beyond owner caps.
+  "/roost.v1.CoordinatorService/SessionsSearchGlobal",
+  "/roost.v1.CoordinatorService/SessionsCancelGlobalSearch",
 ]);
 
 const TOKENS_PER_WINDOW = 100;

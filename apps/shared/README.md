@@ -123,6 +123,11 @@ producers and consumers.
   Worker JSON row indices stay nonnegative safe integers until the coordinator
   converts them to proto `uint64`; `before_row` and `next_before_row` are
   exclusive cursors; only `row_limit` returns a continuation.
+  Dashboard-global pages separately cap enumeration at 32 sessions, scan 2,048
+  rows per session, return 256 matches total within 5,000 ms, and retain at
+  most four opaque cursors per device for 60,000 ms.
+  Caller-requested global session/row/match limits are normalized down to those
+  caps before cursor binding; worker-bound limits reject any out-of-range value.
 
 - **`src/fingerprint.ts` is the only pubkey fingerprint.** Hex SHA-256 of a raw
   32-byte ed25519 pubkey, and all three ends of the protocol must agree

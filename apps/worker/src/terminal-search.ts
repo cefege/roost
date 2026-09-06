@@ -68,6 +68,7 @@ export interface _SearchScrollbackRuntime {
 		remainingMs: number,
 		signal: AbortSignal,
 	) => Promise<boolean>;
+	deadlineAtMs?: number;
 }
 
 function rowSpans(
@@ -157,7 +158,7 @@ async function searchScrollbackAdmitted(
 	const yieldNow = runtime?.yieldNow ?? terminalSearchEventLoopYield;
 	const waitForTerminalControl = runtime?.waitForTerminalControl
 		?? terminalControlSettlesBeforeSearchDeadline;
-	const deadlineAt = nowMs() + SEARCH_WORK_DEADLINE_MS;
+	const deadlineAt = runtime?.deadlineAtMs ?? nowMs() + SEARCH_WORK_DEADLINE_MS;
 	let session = initialSession;
 	if (sessionMgr.terminalControlChains.has(session.channelId)) {
 		const settled = terminalControlSettled(sessionMgr, session.channelId);

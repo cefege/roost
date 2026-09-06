@@ -174,6 +174,7 @@ const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
   // simply be skipped.
   UiReportState: true, SessionsGetScrollbackCells: true,
   SessionsSearchScrollback: true, SessionsCancelScrollbackSearch: true,
+  SessionsSearchGlobal: true, SessionsCancelGlobalSearch: true,
   TranscriptionGetConfig: true,
 };
 

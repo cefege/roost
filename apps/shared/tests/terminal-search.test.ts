@@ -5,12 +5,20 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { describe, expect, test } from "bun:test";
 import {
+  GlobalSearchPartialReason,
   ScrollbackHistoryFloor as PbScrollbackHistoryFloor,
   SearchStopReason as PbSearchStopReason,
+  SessionsSearchGlobalRequestSchema,
+  SessionsSearchGlobalResponseSchema,
   SessionsSearchScrollbackRequestSchema,
   SessionsSearchScrollbackResponseSchema,
 } from "../src/gen/roost/v1/coordinator_pb.ts";
 import {
+  allocateGlobalSearchMatchLimits,
+  GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
+  GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
+  GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS,
+  GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
   SearchStopReasonSchema,
   TERMINAL_SEARCH_GRID_EPOCH_MAX_LENGTH,
   TERMINAL_SEARCH_MAX_MATCHES,
@@ -19,6 +27,7 @@ import {
   TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS,
   TerminalSearchQuerySchema,
   WorkerSearchScrollbackResultSchema,
+  WorkerGlobalSearchResultSchema,
   countUnicodeCodePoints,
   truncateUnicodeCodePoints,
 } from "../src/terminal-search.ts";
@@ -254,5 +263,107 @@ describe("bounded terminal-search contract", () => {
     expect(decodedResponse.historyFloor).toBe(PbScrollbackHistoryFloor.EVICTED);
     expect(decodedResponse.nextBeforeRow).toBe(10n);
     expect(decodedResponse.stopReason).toBe(PbSearchStopReason.ROW_LIMIT);
+  });
+
+  test("bounds worker-global batch wire requests and aggregate replies", () => {
+    expect(allocateGlobalSearchMatchLimits(
+      GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
+      GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
+    )).toEqual(Array(GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS).fill(8));
+    const sessions = Array.from({ length: GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS }, (_, index) => ({
+      session_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      grid_epoch: index === 0 ? "" : `epoch:${index}`,
+      ...(index === 0 ? {} : { before_row: 10 }),
+    }));
+    const batch = {
+      kind: "search-scrollback-batch" as const,
+      request_id: "batch-request",
+      search_id: "global-search",
+      query: "needle",
+      case_sensitive: false,
+      sessions,
+      max_rows_per_session: GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
+      max_matches: GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
+      deadline_ms: GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS,
+    };
+    expect(ClientControlFrame.safeParse(batch).success).toBe(true);
+    expect(ClientControlFrame.safeParse({
+      ...batch,
+      max_rows_per_session: 1,
+      max_matches: 1,
+    }).success).toBe(true);
+    expect(ClientControlFrame.safeParse({
+      ...batch,
+      regex: false,
+    }).success).toBe(false);
+    expect(ClientControlFrame.safeParse({
+      ...batch,
+      sessions: [...sessions, sessions[0]],
+    }).success).toBe(false);
+    expect(ClientControlFrame.safeParse({
+      ...batch,
+      max_rows_per_session: GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION + 1,
+    }).success).toBe(false);
+    expect(ClientControlFrame.safeParse({
+      ...batch,
+      sessions: [sessions[0]!, ...sessions.slice(0, -1)],
+    }).success).toBe(false);
+    const entries = sessions.map(({ session_id }) => ({
+      status: "ok" as const,
+      session_id,
+      result: baseResult,
+    }));
+    expect(WorkerGlobalSearchResultSchema.safeParse({ entries }).success).toBe(true);
+    expect(WorkerGlobalSearchResultSchema.safeParse({
+      entries: [...entries, entries[0]],
+    }).success).toBe(false);
+    expect(WorkerGlobalSearchResultSchema.safeParse({
+      entries: [entries[0]!, ...entries.slice(0, -1)],
+    }).success).toBe(false);
+  });
+
+  test("round-trips global search cursor, match, and typed partial fields", () => {
+    const request = create(SessionsSearchGlobalRequestSchema, {
+      query: "needle",
+      caseSensitive: true,
+      searchId: "global-search",
+      cursor: "opaque-cursor",
+    });
+    const decodedRequest = fromBinary(
+      SessionsSearchGlobalRequestSchema,
+      toBinary(SessionsSearchGlobalRequestSchema, request),
+    );
+    expect(decodedRequest).toMatchObject({
+      query: "needle",
+      caseSensitive: true,
+      searchId: "global-search",
+      cursor: "opaque-cursor",
+    });
+    const response = create(SessionsSearchGlobalResponseSchema, {
+      matches: [{
+        sessionId: FIXTURE_SESSION.id,
+        row: 9n,
+        col: 1,
+        len: 2,
+        preview: "match",
+        gridEpoch: "epoch:1",
+      }],
+      partials: [{
+        sessionId: FIXTURE_SESSION.id,
+        reason: GlobalSearchPartialReason.DEADLINE,
+      }],
+      nextCursor: "next-cursor",
+      searchedSessions: 1,
+      eligibleSessions: 2,
+      truncated: true,
+    });
+    const decodedResponse = fromBinary(
+      SessionsSearchGlobalResponseSchema,
+      toBinary(SessionsSearchGlobalResponseSchema, response),
+    );
+    expect(decodedResponse.matches[0]?.row).toBe(9n);
+    expect(decodedResponse.partials[0]?.reason).toBe(GlobalSearchPartialReason.DEADLINE);
+    expect(decodedResponse.nextCursor).toBe("next-cursor");
+    expect(decodedResponse.truncated).toBe(true);
   });
 });

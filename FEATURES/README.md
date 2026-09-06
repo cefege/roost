@@ -28,7 +28,7 @@ record lineage only.
 | **SHIPPED** | Cell terminal continuity | Worker `@wterm/core` owns terminal semantics; browsers receive generation-addressed full/delta cells. Visible panes escalate missed view proof or 20-second idle delivery through resync and a 10-second proof deadline to in-place Sync redial. Keeper adoption history is bounded to 1 MiB/channel. | `apps/web/src/store/terminal-stream-liveness.ts`, `apps/web/src/store/terminal-stream-view.ts`, `apps/worker/src/keeper/keeper-frame-handler.ts` |
 | **QUALIFIED** | Managed dashboard isolation | Server-resolved membership scopes RPC, Sync, workers, and resources. Browser switches only after server confirmation, clears prior scoped state, and fences stale generations. | `apps/coord/src/connect/dashboard-authorization.ts`, `apps/web/src/store/dashboard-selection.ts`, `bun run test:managed` |
 | **QUALIFIED** | Managed deployment | The Linux root-owned profile drives one exact-spec non-root coordinator container per operator-created account from an immutable digest, with distinct writable state/keys/credentials/route. Four E2E files contain five top-level cases. No production containers run; no managed image is published; the shared dashboard route is inactive; production email signup/Google auth are off. | `Dockerfile.coord`, `apps/roost-cli/src/saas/`, `apps/roost-cli/src/test.ts` |
-| **BETA** | Global search | `/search` is informational and performs no global search. Use sidebar cwd/workspace filtering or per-terminal find over retained scrollback/live viewport. | `apps/web/src/components/MainPane.tsx`, `smoke/terminal/beta-surfaces.spec.ts` |
+| **QUALIFIED** | Global search | `/search` combines the shared metadata projection with coordinator-authorized literal search across up to 32 open sessions' retained terminal rows. Results page through opaque cursors, preserve typed per-session partials, and rerun pane-local find against the current grid epoch before reveal; attention scope remains metadata/status-only. | `apps/coord/src/connect/handlers-sessions-global-search.ts`, `apps/worker/src/terminal-search-batch.ts`, `apps/web/src/lib/globalContentSearchController.ts`, `smoke/terminal/beta-surfaces.spec.ts` |
 | **BETA** | Cross-worker transfer | The dialog performs no transfer RPC; retired public transfer endpoints return 404. Use terminal `rsync` or `scp`. | `apps/web/src/components/TransferDialog.tsx`, `smoke/terminal/beta-surfaces.spec.ts` |
 | **PAUSED** | Windows coordinator/worker | v0.5.0 publishes and qualifies no Windows host assets or install/update path. | `.github/workflows/release.yml` |
 
@@ -73,7 +73,7 @@ paging described in the release table.
 
 ---
 
-**Last updated:** 2026-09-04
+**Last updated:** 2026-09-06
 
 **Inventory authority:** this README for status; named live source and tests
 for implementation.

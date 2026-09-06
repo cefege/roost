@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RateLimiter } from "../src/middleware/rate-limit.ts";
+import { checkRateLimit, RateLimiter } from "../src/middleware/rate-limit.ts";
 
 describe("RateLimiter", () => {
   test("never grows beyond the bucket cap and admits after expired LRU entries prune", () => {
@@ -50,5 +50,21 @@ describe("RateLimiter", () => {
     expect(limiter.consume("203.0.113.7", "password", 1).allowed).toBe(true);
     expect(limiter.consume("203.0.113.7", "password", 1).allowed).toBe(false);
     expect(rejected).toHaveLength(2);
+  });
+
+  test("limits global search and cancellation routes", () => {
+    for (const [method, ip] of [
+      ["SessionsSearchGlobal", "198.51.100.40"],
+      ["SessionsCancelGlobalSearch", "198.51.100.41"],
+    ] as const) {
+      const request = new Request(
+        `https://coord.test/roost.v1.CoordinatorService/${method}`,
+        { method: "POST" },
+      );
+      for (let count = 0; count < 100; count++) {
+        expect(checkRateLimit(request, ip)).toBeNull();
+      }
+      expect(checkRateLimit(request, ip)?.status).toBe(429);
+    }
   });
 });

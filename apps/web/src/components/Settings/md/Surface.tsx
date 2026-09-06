@@ -17,6 +17,9 @@ export const Surface: Component<{
   onClick?: () => void;
   "data-testid"?: string;
   "aria-labelledby"?: string;
+  role?: JSX.HTMLAttributes<HTMLElement>["role"];
+  "aria-live"?: JSX.AriaAttributes["aria-live"];
+  "aria-atomic"?: JSX.AriaAttributes["aria-atomic"];
   children: JSX.Element;
 }> = (props) => (
   <Dynamic
@@ -25,6 +28,9 @@ export const Surface: Component<{
     onClick={props.onClick}
     attr:data-testid={props["data-testid"]}
     attr:aria-labelledby={props["aria-labelledby"]}
+    role={props.role}
+    aria-live={props["aria-live"]}
+    aria-atomic={props["aria-atomic"]}
     style={{
       background: `var(--surface-${props.level ?? 1})`,
       "box-shadow": `var(--md-elev-${props.elevation ?? 0})`,

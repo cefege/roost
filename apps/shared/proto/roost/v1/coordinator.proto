@@ -284,6 +284,48 @@ message SessionsCancelScrollbackSearchRequest {
 }
 message SessionsCancelScrollbackSearchResponse {}
 
+enum GlobalSearchPartialReason {
+  GLOBAL_SEARCH_PARTIAL_REASON_UNSPECIFIED = 0;
+  GLOBAL_SEARCH_PARTIAL_REASON_WORKER_UNAVAILABLE = 1;
+  GLOBAL_SEARCH_PARTIAL_REASON_DEADLINE = 2;
+  GLOBAL_SEARCH_PARTIAL_REASON_EPOCH_CHANGED = 3;
+  GLOBAL_SEARCH_PARTIAL_REASON_MATCH_LIMIT = 4;
+  GLOBAL_SEARCH_PARTIAL_REASON_HISTORY_EVICTED = 5;
+  GLOBAL_SEARCH_PARTIAL_REASON_SESSION_CLOSED = 6;
+  GLOBAL_SEARCH_PARTIAL_REASON_MALFORMED_RESULT = 7;
+}
+message SessionsSearchGlobalRequest {
+  string query = 1;
+  bool case_sensitive = 2;
+  string search_id = 3;
+  optional string cursor = 4;
+  uint32 max_sessions = 5;
+  uint32 max_rows_per_session = 6;
+  uint32 max_matches = 7;
+}
+message SessionsSearchGlobalMatch {
+  string session_id = 1;
+  uint64 row = 2;
+  uint32 col = 3;
+  uint32 len = 4;
+  string preview = 5;
+  string grid_epoch = 6;
+}
+message SessionsSearchGlobalPartial {
+  string session_id = 1;
+  GlobalSearchPartialReason reason = 2;
+}
+message SessionsSearchGlobalResponse {
+  repeated SessionsSearchGlobalMatch matches = 1;
+  repeated SessionsSearchGlobalPartial partials = 2;
+  optional string next_cursor = 3;
+  uint32 searched_sessions = 4;
+  uint32 eligible_sessions = 5;
+  bool truncated = 6;
+}
+message SessionsCancelGlobalSearchRequest { string search_id = 1; }
+message SessionsCancelGlobalSearchResponse {}
+
 
 // ─── workspaces ───────────────────────────────────────────────────────────
 
@@ -751,6 +793,8 @@ service CoordinatorService {
   rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
   rpc SessionsSearchScrollback(SessionsSearchScrollbackRequest) returns (SessionsSearchScrollbackResponse);
   rpc SessionsCancelScrollbackSearch(SessionsCancelScrollbackSearchRequest) returns (SessionsCancelScrollbackSearchResponse);
+  rpc SessionsSearchGlobal(SessionsSearchGlobalRequest) returns (SessionsSearchGlobalResponse);
+  rpc SessionsCancelGlobalSearch(SessionsCancelGlobalSearchRequest) returns (SessionsCancelGlobalSearchResponse);
 
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

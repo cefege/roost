@@ -10,6 +10,7 @@ import {
   cancelSearchScrollback,
   handleSearchScrollback,
 } from "../src/terminal-search.ts";
+import { _mapGlobalSearchError } from "../src/terminal-search-batch.ts";
 import type { CoordLink } from "../src/transport/coord-link-types.ts";
 import { LifecycleTestSink } from "./lifecycle-test-sink.ts";
 
@@ -97,6 +98,13 @@ describe("scrollback search cancellation admission", () => {
       }, "viewer-a", sessionManager);
     }
     expect(sessionManager.terminalSearchCancellations.size).toBeLessThanOrEqual(128);
+  });
+
+  test("maps teardown supersession to a closed-session result", () => {
+    expect(_mapGlobalSearchError("scrollback search superseded", false))
+      .toBe("session_closed");
+    expect(_mapGlobalSearchError("scrollback search superseded", true))
+      .toBe("deadline");
   });
 
   test("channel teardown aborts and removes every viewer search", () => {

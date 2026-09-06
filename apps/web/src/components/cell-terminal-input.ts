@@ -29,6 +29,7 @@ import {
 	createTerminalFind,
 	type TerminalFind,
 } from "../lib/terminalFindController.ts";
+import { registerTerminalFind } from "../lib/terminalFindIntent.ts";
 import { sendUserTerminalInput } from "../lib/userTerminalInput.ts";
 import type { InputAdmission } from "../ws/sync-outbound.ts";
 import type { ResolveFile } from "./terminal-links.ts";
@@ -177,6 +178,7 @@ export function createCellTerminalInput(
 		renderer: () => runtime.renderer,
 		backfill: () => runtime.backfill,
 	});
+	const unregisterTerminalFind = registerTerminalFind(sessionId, find);
 	const readTerminalContext = (): TerminalContext => ({
 		grid: runtime.renderer?.gridText() ?? "",
 		scrollback: runtime.renderer?.scrollbackText() ?? "",
@@ -185,6 +187,7 @@ export function createCellTerminalInput(
 	const dispose = (): void => {
 		if (disposed) return;
 		disposed = true;
+		unregisterTerminalFind();
 		find.dispose();
 		clearInput(sessionId);
 	};

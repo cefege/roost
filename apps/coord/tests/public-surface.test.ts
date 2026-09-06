@@ -28,6 +28,10 @@ describe("managed public route classification", () => {
       .toBe("protected-rpc");
     expect(classifyManagedPublicRoute(`${RPC}SessionsCancelScrollbackSearch`, "POST"))
       .toBe("protected-rpc");
+    expect(classifyManagedPublicRoute(`${RPC}SessionsSearchGlobal`, "POST"))
+      .toBe("protected-rpc");
+    expect(classifyManagedPublicRoute(`${RPC}SessionsCancelGlobalSearch`, "POST"))
+      .toBe("protected-rpc");
     expect(classifyManagedPublicRoute(`${RPC}AuthMintBootstrap`, "POST"))
       .toBe("protected-rpc");
     expect(classifyManagedPublicRoute(`${RPC}AuthCredentialsGet`, "POST"))

@@ -69,7 +69,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | workspaces | `src/connect/handlers-workspaces.ts` | version-CAS workspace rows, set-sessions, orphan GC |
 | tasks | `src/connect/handlers-tasks.ts` | claimable task queue: list/enqueue/next-pending/set-state/cancel |
 | workers | `src/connect/handlers-workers.ts` | registry lifecycle; composes deploy start/output from `src/connect/handlers-workers-deploy.ts` |
-| sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment; composes spawn from `src/connect/handler-session-spawn.ts` and terminal cell/search/cancel RPCs from `src/connect/handlers-sessions-scrollback.ts`; resize is socket-bound |
+| sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment; composes spawn from `src/connect/handler-session-spawn.ts`, terminal cell/search/cancel RPCs from `src/connect/handlers-sessions-scrollback.ts`, and authorized global terminal search from `src/connect/handlers-sessions-global-search.ts`; resize is socket-bound |
 | streaming | `src/connect/handlers-streaming.ts` | only the `sync` stub (below) |
 | ui | `src/connect/handlers-ui.ts` | ui-cc relay: `uiReportState`/`uiListStates`/`uiDispatch`. The spatial model stays browser-local; coord relays, never interprets |
 | coordinator-move | `src/connect/handlers-coordinator-move.ts` | preflight/start/status over `coord-move/`; plain `Error` from the orchestrator is translated to `ConnectError` here, at the RPC boundary |
@@ -93,7 +93,15 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `CallerOrigin.onHost`.
 - `src/coord-move/` — live coordinator relocation (below).
 - `src/router/pending-rpcs.ts` — correlation table for browser→worker RPCs needing a reply; a UUID-keyed entry is
-  resolved by the worker's upstream `rpc_ok`/`rpc_error` frame, deadline-bounded.
+  resolved by the worker's upstream `rpc_ok`/`rpc_error` frame, deadline-bounded. `src/connect/global-search-cursors.ts`
+  owns bounded per-router, device/tab/dashboard/options-bound global-search
+  continuations, cumulative progress, active searches, and cancellation
+  tombstones; `src/connect/global-search-options.ts` clamps public page limits.
+  `src/connect/global-search-worker-lanes.ts` bounds and serializes the
+  server-wide per-worker search lane; `src/connect/global-search-fanout.ts`
+  owns authorized session selection, fair one-batch-per-worker partitioning,
+  and strict result validation. `src/connect/global-search-cancel.ts` owns the
+  tombstone-before-discovery cancellation path.
 - Top level: `src/event-log.ts` (stable event facade),
   `src/event-transaction.ts` (durable append/projection transaction),
   `src/pending-event-publications.ts` (bounded post-commit recovery and ordered
@@ -219,9 +227,11 @@ the worker-WS registry that server populates.
   `tests/durable-publication.test.ts`, `tests/announced-channel-barrier.test.ts`,
   `tests/sync-ws-keepalive.test.ts`,
   `tests/sync-ws-keepalive-flow-control.test.ts`,
-  `tests/ws-auth-deadline.test.ts`, `tests/worker-ws-transport.test.ts`, and
-  `tests/worker-bidi-event.test.ts`. The browser end
-  is `smoke/terminal/*.spec.ts` (`bun run test:terminal`).
+  `tests/ws-auth-deadline.test.ts`, `tests/worker-ws-transport.test.ts`,
+  `tests/worker-ws-transport-global-search.test.ts`,
+  `tests/global-search-control.test.ts`, `tests/global-search-cursors.test.ts`,
+  and `tests/worker-bidi-event.test.ts`. The browser end is
+  `smoke/terminal/*.spec.ts` (`bun run test:terminal`).
 - `bun run test:unit` runs the fast tier across all apps; `bun run lint` enforces the 400-line file cap and the
   `console.*` ratchet.
 - Run it with `bun apps/coord/src/main.ts` (env parsed by `CoordConfig` in `apps/shared/src/config.ts`); install as

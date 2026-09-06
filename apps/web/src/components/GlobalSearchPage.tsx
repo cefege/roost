@@ -1,16 +1,21 @@
-// Route-driven metadata and attention search for current dashboard sessions.
-// It consumes the shared navigation projection and navigates only through session hrefs.
-// Existing root-store, agent-seen, and terminal-deck owners retain all state and lifecycle authority.
+// Route-driven metadata, attention, and terminal-content search for dashboard sessions.
+// Metadata and content join through one scalar navigation projection; content RPC
+// results hand off to pane-local current-epoch find before session navigation.
 
 import { useLocation, useNavigate } from "@solidjs/router";
-import { createMemo, For, Show } from "solid-js";
+import { createEffect, createMemo, For, onCleanup, Show } from "solid-js";
+import type { SessionsSearchGlobalMatch } from "@roost/shared/proto/coordinator_pb";
 import { AGENT_STATUS_PRESENTATION } from "../lib/agentStatus.ts";
 import { relTimeSince } from "../lib/relTime.ts";
+import { createGlobalContentSearchController } from "../lib/globalContentSearchController.ts";
+import { requestTerminalFind } from "../lib/terminalFindIntent.ts";
 import {
   attentionNavigationDocuments,
   filterNavigationSearchDocuments,
   navigationSearchDocuments,
+  type NavigationSearchDocument,
 } from "../store/navigation-search.ts";
+import { rootStore } from "../store/root.ts";
 import {
   Chip,
   EmptyState,
@@ -20,6 +25,7 @@ import {
   Surface,
   TextField,
 } from "./Settings/md/primitives.tsx";
+import { GlobalSearchContentResults } from "./GlobalSearchContentResults.tsx";
 import "./Settings/md/tokens.css";
 
 type SearchScope = "all" | "attention";
@@ -32,8 +38,11 @@ export function GlobalSearchPage() {
     routeQuery().get("scope") === "attention" ? "attention" : "all"
   );
   const query = createMemo(() => routeQuery().get("q") ?? "");
+  const caseSensitive = createMemo(() =>
+    scope() === "all" && routeQuery().get("case") === "1"
+  );
   const searchLabel = createMemo(() =>
-    scope() === "attention" ? "Filter attention" : "Search metadata"
+    scope() === "attention" ? "Filter attention" : "Search sessions and terminal content"
   );
   const scopedDocuments = createMemo(() => scope() === "attention"
     ? attentionNavigationDocuments(navigationSearchDocuments())
@@ -41,21 +50,49 @@ export function GlobalSearchPage() {
   const results = createMemo(() =>
     filterNavigationSearchDocuments(scopedDocuments(), query())
   );
-  const resultSummary = createMemo(() => {
+  const metadataSummary = createMemo(() => {
     const count = results().length;
     if (count > 0) return `${count} ${count === 1 ? "session" : "sessions"}`;
-    if (query().trim()) return "0 sessions. No matching sessions";
+    if (query().trim()) return "0 sessions. No matching session metadata";
     return scope() === "attention"
       ? "0 sessions. Nothing needs attention"
       : "0 sessions. No sessions to search";
   });
+  const contentSearch = createGlobalContentSearchController();
+  const dashboardGeneration = createMemo(() => rootStore.dashboard_generation);
+  createEffect(() => {
+    dashboardGeneration();
+    if (scope() === "all") contentSearch.setSearch(query(), caseSensitive());
+    else contentSearch.setSearch("", false);
+  });
+  onCleanup(() => contentSearch.dispose());
 
-  const updateRoute = (nextScope: SearchScope, nextQuery: string): void => {
+  const updateRoute = (
+    nextScope: SearchScope,
+    nextQuery: string,
+    nextCaseSensitive = caseSensitive(),
+  ): void => {
     const parameters = new URLSearchParams();
     if (nextScope === "attention") parameters.set("scope", "attention");
     if (nextQuery.trim()) parameters.set("q", nextQuery);
+    if (nextScope === "all" && nextCaseSensitive) parameters.set("case", "1");
     const serialized = parameters.toString();
     navigate(serialized ? `/search?${serialized}` : "/search", { replace: true });
+  };
+
+  const openContentResult = (
+    document: NavigationSearchDocument,
+    match: SessionsSearchGlobalMatch,
+  ): void => {
+    requestTerminalFind(document.sessionId, query(), {
+      caseSensitive: caseSensitive(),
+      preferredGlobalMatch: {
+        gridEpoch: match.gridEpoch,
+        row: match.row,
+        col: match.col,
+      },
+    });
+    navigate(document.href);
   };
 
   return (
@@ -98,7 +135,7 @@ export function GlobalSearchPage() {
               font: "var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font)",
             }}
           >
-            Find sessions by title, folder, workspace, machine, Git, pull request, or port metadata.
+            Find sessions by metadata and search retained terminal content across this dashboard.
           </div>
         </div>
 
@@ -106,7 +143,7 @@ export function GlobalSearchPage() {
           value={query()}
           onInput={(value) => updateRoute(scope(), value)}
           label={searchLabel()}
-          placeholder="Title, path, branch, machine…"
+          placeholder={scope() === "attention" ? "Title, path, agent status…" : "Title, path, or terminal text…"}
           testId="global-search-input"
           autofocus
           style={{ width: "100%" }}
@@ -131,6 +168,15 @@ export function GlobalSearchPage() {
             onClick={() => updateRoute("attention", query())}
             testId="global-search-scope-attention"
           />
+          <Show when={scope() === "all"}>
+            <Chip
+              label="Match terminal case"
+              icon={caseSensitive() ? "check" : "match_case"}
+              selected={caseSensitive()}
+              onClick={() => updateRoute("all", query(), !caseSensitive())}
+              testId="global-search-case-sensitive"
+            />
+          </Show>
         </div>
       </div>
 
@@ -140,6 +186,23 @@ export function GlobalSearchPage() {
         padding: "var(--md-space-3) var(--md-space-5) var(--md-space-5)",
         "padding-bottom": "calc(var(--md-space-5) + var(--kb-offset))",
       }}>
+        <Show when={scope() === "all"}>
+          <GlobalSearchContentResults
+            controller={contentSearch}
+            documents={navigationSearchDocuments}
+            query={query}
+            onOpenResult={openContentResult}
+          />
+        </Show>
+        <h2
+          style={{
+            margin: 0,
+            font: "var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font)",
+            "margin-top": "var(--md-space-4)",
+          }}
+        >
+          {scope() === "attention" ? "Agent attention" : "Session metadata"}
+        </h2>
         <div
           role="status"
           aria-live="polite"
@@ -150,7 +213,7 @@ export function GlobalSearchPage() {
             "margin-bottom": "var(--md-space-2)",
           }}
         >
-          {resultSummary()}
+          {metadataSummary()}
         </div>
         <Show
           when={results().length > 0}
@@ -158,12 +221,14 @@ export function GlobalSearchPage() {
             <EmptyState
               icon={scope() === "attention" ? "notifications_none" : "search_off"}
               title={query().trim()
-                ? "No matching sessions"
+                ? scope() === "attention" ? "No matching sessions" : "No matching session metadata"
                 : scope() === "attention"
                   ? "Nothing needs attention"
                   : "No sessions to search"}
               supporting={query().trim()
-                ? "Try another title, path, workspace, machine, Git, pull request, or port term."
+                ? scope() === "attention"
+                  ? "Try another title, path, workspace, machine, or agent term."
+                  : "Terminal content matches appear above. Try another metadata term to filter this list."
                 : scope() === "attention"
                   ? "Blocked agents and unseen completions appear here."
                   : "Sessions in this dashboard appear here as they open."}

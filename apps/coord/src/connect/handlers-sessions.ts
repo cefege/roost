@@ -1,8 +1,7 @@
 // Session RPC handlers: list/spawn/attach/kill/rename/input/cursor-pos/
 // assign-workspace. Most forward a browser-command frame to the session's
-// worker and await its reply. Terminal views and resize aggregation are handled
-// only on the socket-bound TerminalViewHub path. Scrollback reads live in
-// handlers-sessions-scrollback.ts.
+// worker and await its reply. Socket-bound views remain elsewhere; focused
+// scrollback and dashboard-wide search owners are composed at the return seam.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -39,6 +38,9 @@ import { getWorkerHubSocket } from "./worker-service.ts";
 import { sendBrowserCmd, forwardToSessionWorker, requireSessionWorkerSocket } from "./router-helpers.ts";
 import type { ConnectDeps } from "./router.ts";
 import { makeSessionScrollbackHandlers } from "./handlers-sessions-scrollback.ts";
+import { makeSessionGlobalSearchHandlers } from "./handlers-sessions-global-search.ts";
+import { GlobalSearchCursorOwner } from "./global-search-cursors.ts";
+import { GlobalSearchWorkerLaneOwner } from "./global-search-worker-lanes.ts";
 import { handleSessionsSpawn } from "./handler-session-spawn.ts";
 import { bindSyncSessionSnapshot } from "./sync-snapshot-registry.ts";
 import {
@@ -86,11 +88,14 @@ type SessionMethods =
   | "sessionsRename" | "sessionsInput" | "sessionsCursorPos"
   | "sessionsAssignWorkspace"
   | "sessionsGetScrollbackCells" | "sessionsSearchScrollback"
-  | "sessionsCancelScrollbackSearch";
+  | "sessionsCancelScrollbackSearch" | "sessionsSearchGlobal"
+  | "sessionsCancelGlobalSearch";
 
 export function makeSessionHandlers(
   deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, SessionMethods> {
+  const globalSearchCursors = new GlobalSearchCursorOwner();
+  const globalSearchWorkerLanes = new GlobalSearchWorkerLaneOwner();
   return {
     async sessionsList(req, ctx) {
       const principal = ctx.values.get(callerKey);
@@ -357,5 +362,10 @@ export function makeSessionHandlers(
     },
 
     ...makeSessionScrollbackHandlers(deps),
+    ...makeSessionGlobalSearchHandlers(
+      deps,
+      globalSearchCursors,
+      globalSearchWorkerLanes,
+    ),
   };
 }

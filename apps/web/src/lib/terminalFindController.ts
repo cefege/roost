@@ -15,10 +15,16 @@ import {
   searchPageRangeIsValid,
   type FindMatch,
 } from "./terminalFindPaging.ts";
+import {
+  preferredTerminalFindIndex,
+  type TerminalFindPreferredMatch,
+  type TerminalFindQueryOptions,
+} from "./terminalFindHandoff.ts";
 import type { ScrollbackBackfill } from "./scrollbackBackfill.ts";
 
 export type { FindMatch } from "./terminalFindPaging.ts";
 export const FIND_DEBOUNCE_MS = 300;
+
 
 export interface TerminalFind {
   open: () => boolean;
@@ -33,7 +39,7 @@ export interface TerminalFind {
   regex: () => boolean;
   openFind(): void;
   closeFind(): void;
-  setQuery(next: string): void;
+  setQuery(next: string, options?: TerminalFindQueryOptions): void;
   toggleCaseSensitive(): void;
   toggleRegex(): void;
   step(delta: number): void;
@@ -60,6 +66,7 @@ export function createTerminalFind(opts: {
   let token = 0;
   let disposed = false;
   let activeSearch: { controller: AbortController; searchId: string } | null = null;
+  let preferredMatch: TerminalFindPreferredMatch | null = null;
 
   /** Current grid numbering of this pane's authoritative frame, "" before the
    *  first frame lands. */
@@ -122,6 +129,7 @@ export function createTerminalFind(opts: {
     cancelActiveSearch();
   }
 
+
   /** Convert the worker's newest-first traversal to UI reading order. */
   function installResult(
     newestFirst: readonly FindMatch[],
@@ -134,7 +142,8 @@ export function createTerminalFind(opts: {
     setMatches(list);
     setTruncated(incomplete);
     setFailed(didFail);
-    const active = list.length;
+    const active = preferredTerminalFindIndex(list, paneEpoch(), preferredMatch);
+    preferredMatch = null;
     setIndex(active);
     publish(list, active);
     if (active > 0) void reveal(list[active - 1]!, epochRetryBudget);
@@ -340,9 +349,15 @@ export function createTerminalFind(opts: {
       if (debounce) { clearTimeout(debounce); debounce = null; }
       stopActiveSearch();
       setQueryRaw("");
+      preferredMatch = null;
       clear();
     },
-    setQuery(next: string): void {
+    setQuery(next: string, options: TerminalFindQueryOptions = {}): void {
+      preferredMatch = options.preferredMatch ?? null;
+      if (options.literal) {
+        setRegex(false);
+        setCaseSensitive(options.caseSensitive ?? false);
+      }
       setQueryRaw(next);
       if (next.length === 0) {
         if (debounce) { clearTimeout(debounce); debounce = null; }
@@ -352,8 +367,16 @@ export function createTerminalFind(opts: {
       }
       schedule();
     },
-    toggleCaseSensitive(): void { setCaseSensitive((value) => !value); if (query()) schedule(); },
-    toggleRegex(): void { setRegex((value) => !value); if (query()) schedule(); },
+    toggleCaseSensitive(): void {
+      preferredMatch = null;
+      setCaseSensitive((value) => !value);
+      if (query()) schedule();
+    },
+    toggleRegex(): void {
+      preferredMatch = null;
+      setRegex((value) => !value);
+      if (query()) schedule();
+    },
     step(delta: number): void {
       const list = matches();
       if (list.length === 0) return;
@@ -364,6 +387,7 @@ export function createTerminalFind(opts: {
     },
     dispose(): void {
       disposed = true;
+      preferredMatch = null;
       if (debounce) { clearTimeout(debounce); debounce = null; }
       stopActiveSearch();
     },

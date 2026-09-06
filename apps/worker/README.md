@@ -122,9 +122,10 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 - **Browser RPCs** — `src/browser-command-handler.ts` owns the exhaustive
   downstream switch. Implemented request families delegate to
   `src/browser-command-spawn.ts`, `src/browser-command-terminal.ts` (cell
-  retrieval), `src/terminal-search.ts` (bounded content-search paging) with
+  retrieval), `src/terminal-search.ts` (bounded single-session content-search
+  paging), `src/terminal-search-batch.ts` (fair, deadline-shared worker fan-out),
   `src/terminal-search-matcher.ts`, `src/terminal-search-scheduling.ts`,
-  `src/terminal-search-result.ts`, and `src/terminal-search-cancellation.ts`,
+  `src/terminal-search-result.ts`, `src/terminal-search-cancellation.ts`,
   `src/browser-command-files.ts`, `src/browser-command-attachments.ts`, and
   `src/browser-command-diag.ts`, answering upstream as `rpc-ok` / `rpc-error`.
   Cross-worker transfer has no worker command or result frame in v0.5.0; the
@@ -166,8 +167,9 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   traverses the same absolute row space newest-first through exclusive,
   row-bounded cursors. Regex queries use the linear-time RE2 syntax rather
   than JavaScript's backtracking engine. Searches are latest-wins per
-  browser-tab/channel, channel close aborts every owner, and bounded
-  cancellation tombstones reject cancel-before-start request reordering.
+  browser-tab/channel, and a newer global batch tombstones every session in
+  its predecessor before scanning. Channel close aborts every active owner;
+  bounded cancellation tombstones reject cancel-before-start request reordering.
   Both readers settle terminal control and epoch-fence cooperative work; the
   browser never reflows rows. `getScrollbackSince` remains retired.
 - **The coordinator owns viewer membership and SCD.** The worker receives one
