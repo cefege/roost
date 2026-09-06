@@ -9,27 +9,79 @@
 // pure session/action jumper. Callers: CommandPalette.tsx (host).
 
 import { createMemo, createSignal, createEffect, on, For, Show, onMount, onCleanup } from "solid-js";
-import { useNavigate } from "@solidjs/router";
-import { cmdPaletteOpen, closeCmdPalette } from "../lib/keyboardShortcuts.ts";
+import { useLocation, useNavigate } from "@solidjs/router";
+import { folderKeyOf } from "../lib/folderKey.ts";
+import { closeCmdPalette, cmdPaletteOpen } from "../lib/keyboardShortcuts.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
+import { activeSessionForPath } from "../store/selectors.ts";
+import { rootStore } from "../store/root.ts";
+import { workerOnline } from "../store/sync.ts";
+import { normalizeNavigationSearchQuery } from "../store/navigation-search.ts";
 import { KindBadge, CommandPaletteFooter } from "./CommandPalettePieces.tsx";
-import { type PaletteItem, matchesQuery, buildDefaultItems } from "./CommandPalette.data.ts";
+import {
+  buildDefaultItems,
+  matchesQuery,
+  type CommandPaletteContext,
+  type PaletteItem,
+} from "./CommandPalette.data.ts";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 
 export function PaletteBody(props: { setPanelRef: (el: HTMLElement) => void }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [query, setQuery] = createSignal("");
   const [activeIdx, setActiveIdx] = createSignal(0);
   let inputRef: HTMLInputElement | undefined;
   let resultsRef: HTMLDivElement | undefined;
 
-  const defaultItems = createMemo<PaletteItem[]>(() => buildDefaultItems(navigate));
+  const paletteContext = createMemo<CommandPaletteContext>(() => {
+    const pathname = location.pathname;
+    const routeSession = activeSessionForPath(pathname);
+    const activeSession = routeSession?.status === "open" ? routeSession : null;
+    const selectedDashboard = rootStore.selected_dashboard_id;
+    const role = selectedDashboard
+      ? rootStore.dashboards[selectedDashboard]?.dashboard_role
+      : null;
+    const effectiveRole = role === "admin" || role === "member" ? role : null;
+    const worker = activeSession
+      ? rootStore.workers[activeSession.worker_fp]
+      : undefined;
+    const sessionTarget = activeSession
+      ? {
+          id: activeSession.id,
+          workerFp: activeSession.worker_fp,
+          cwd: activeSession.cwd,
+        }
+      : null;
+    return {
+      pathname,
+      dashboardGeneration: rootStore.dashboard_generation,
+      activeSession: sessionTarget,
+      activeFolder: activeSession
+        ? {
+            id: folderKeyOf(activeSession),
+            workerFp: activeSession.worker_fp,
+            cwd: activeSession.cwd,
+          }
+        : null,
+      workerRoutable: worker ? workerOnline(worker) : false,
+      effectiveRole,
+    };
+  });
+
+  const defaultItems = createMemo<PaletteItem[]>(() =>
+    buildDefaultItems(navigate, paletteContext())
+  );
 
   const filtered = createMemo<PaletteItem[]>(() => {
-    // Lowercase the query ONCE per filter run (C1.3) — matchesQuery takes the
-    // pre-lowered needle instead of re-lowering per item.
-    const qLower = query().toLowerCase();
-    return defaultItems().filter((it) => matchesQuery(`${it.label} ${it.hint ?? ""} ${it.search ?? ""}`, qLower));
+    const normalizedQuery = normalizeNavigationSearchQuery(query());
+    const queryTerms = normalizedQuery ? normalizedQuery.split(" ") : [];
+    return defaultItems().filter((item) =>
+      matchesQuery(
+        `${item.label} ${item.hint ?? ""} ${item.search ?? ""}`,
+        queryTerms,
+      )
+    );
   });
 
   // Reset the cursor on QUERY change only (C1.2) — not whenever the list

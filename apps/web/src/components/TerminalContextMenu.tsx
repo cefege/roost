@@ -10,19 +10,14 @@ import { copyToClipboard } from "../lib/clipboard.ts";
 import { Show, batch, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate, useLocation } from "@solidjs/router";
-import type { Navigator } from "@solidjs/router";
 import type { Session } from "@roost/shared/wire";
 import { ctxMenuSurfaceStyle, CtxMenuItem, CtxMenuSeparator } from "./contextMenuPrimitives.tsx";
-import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
+import { spawnSessionSibling } from "../lib/sessionSiblingAction.ts";
 import { scheduleClose } from "../lib/pendingClose.ts";
 import { closeLabelsFor, killAfterUndo, siblingOrHomeHref } from "../lib/closeSession.ts";
 import { activeSessionForPath } from "../store/selectors.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { isSpotlit, setSpotlightSessionId, clearSpotlight, visiblePaneCount } from "../store/spotlight.ts";
-import {
-  captureDashboardResourceToken,
-  isCurrentDashboardResourceToken,
-} from "../store/dashboard-selection.ts";
 
 interface Props {
   session: Session;
@@ -49,26 +44,6 @@ interface OpenState {
 // Bottom action-sheet on touch (phones + tablets), floating menu on mouse.
 const isMobileViewport = () => isCompact() || isTouchDevice();
 
-/** Kept outside the component so deferred dashboard cutovers can be tested
- * without mounting a DOM. */
-export async function _spawnContextTerminal(
-  session: Pick<Session, "worker_fp" | "cwd">,
-  navigate: Navigator,
-): Promise<void> {
-  const dashboardToken = captureDashboardResourceToken();
-  try {
-    const sessionId = await spawnShell(session.worker_fp, session.cwd);
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
-    const projectedSession = await waitForSession(sessionId);
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
-    maybeAutoLaunchAgent(sessionId);
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
-    if (projectedSession) navigate(`/s/${projectedSession.id}`, { replace: false });
-  } catch (error) {
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
-    console.warn("[ctx] new terminal failed", error);
-  }
-}
 
 export function TerminalContextMenu(props: Props) {
   const navigate = useNavigate();
@@ -131,7 +106,7 @@ export function TerminalContextMenu(props: Props) {
 
   const doNewTerminal = async () => {
     dismiss();
-    await _spawnContextTerminal(props.session, navigate);
+    await spawnSessionSibling(props.session, navigate);
   };
 
   // Open the picker WITHIN this tap (gesture) before dismissing, so iOS allows it.

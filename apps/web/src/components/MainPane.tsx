@@ -21,8 +21,6 @@ import { folderKeyOf } from "../lib/folderKey.ts";
 import { signal } from "@roost/shared/diag";
 import { TerminalDeck } from "./TerminalDeck.tsx";
 import { Button } from "./Settings/md/Button.tsx";
-import { EmptyState } from "./Settings/md/EmptyState.tsx";
-import { Surface } from "./Settings/md/Surface.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import type { Session } from "@roost/shared/wire";
@@ -32,10 +30,13 @@ import {
 } from "./TerminalOfflineNotice.tsx";
 
 // Code-split boundary (ts-no-dynamic-import exception): solid `lazy` is the
-// bundler's split mechanism — the file viewer (+ syntaxLite) loads only when a
-// /file/ route is actually visited (perf sweep C2.1).
+// bundler's split mechanism. File-viewer and metadata-search dependencies load
+// only when their overlays are first visited.
 const FileViewerSheet = lazy(() =>
   import("./FileViewerSheet.tsx").then((m) => ({ default: m.FileViewerSheet })),
+);
+const GlobalSearchPage = lazy(() =>
+  import("./GlobalSearchPage.tsx").then((module) => ({ default: module.GlobalSearchPage })),
 );
 
 interface BootstrapLoadingCopy {
@@ -226,21 +227,7 @@ export function MainPane() {
       </Show>
 
       <Show when={isSearch()}>
-        <Surface
-          level={0}
-          style={{
-            flex: "1",
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "center",
-          }}
-        >
-          <EmptyState
-            icon="search"
-            title="Global search (beta)"
-            supporting="Global search is not available in v0.5.0. Use sidebar filtering or terminal find."
-          />
-        </Surface>
+        <GlobalSearchPage />
       </Show>
 
       {/* Persistent terminal deck — mounts every open terminal once and keeps
@@ -250,7 +237,7 @@ export function MainPane() {
           survive the trip; returning is a pure restyle — no remount, no WASM
           init, no claim storm). Children opt back in with visibility:"inherit"
           (TerminalDeck termStyle) — a literal "visible" would bleed through
-          this un-z-indexed host; the search EmptyState sits under a fully
+          this un-z-indexed host; the search surface sits under a fully
           hidden, pointer-transparent host. */}
       <div
         style={{

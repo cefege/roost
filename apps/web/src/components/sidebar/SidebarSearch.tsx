@@ -1,7 +1,6 @@
-// Sidebar search input. Cmd-F focuses it; Esc clears and blurs.
-// Filters rootStore.sessions by cwd / latest OMP output / workspace name.
-// Props: query (string), onChange (setter). Called by SidebarRoot or AllView.
-// Depends on: no store reads — pure controlled input; filtering is caller's job.
+// Controlled sidebar metadata-search input. Cmd-F focuses it; Esc clears it.
+// AllView applies the shared navigation-search projection and owns the debounce.
+// This component has no store reads and emits every keystroke to its caller.
 //
 // Debounce policy: this component fires onChange on EVERY keystroke. Callers
 // that drive O(n) filters (e.g. AllView over allSessions()) MUST debounce the

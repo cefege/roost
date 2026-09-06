@@ -1,6 +1,6 @@
-// Browser proof for the discoverable-but-unavailable search and cross-worker transfer surfaces.
-// The existing multi-worker fixture makes the conditional transfer menu entry observable.
-// Request capture guards the informational dialog from regaining a transfer RPC side effect.
+// Browser proof for metadata navigation search and the unavailable cross-worker transfer surface.
+// The multi-worker fixture exposes machine/workspace metadata and the conditional transfer entry.
+// Request capture guards the informational transfer dialog from regaining an RPC side effect.
 
 import { test, expect } from "./fixtures.ts";
 import { spawnSmokeShell } from "./terminal-helpers.ts";
@@ -11,38 +11,57 @@ const TRANSFER_RPC_SUFFIXES = [
   "/roost.v1.CoordinatorService/TransfersOutput",
 ] as const;
 
-test("search and cross-worker transfer are honest beta surfaces", async ({
+test("metadata search and cross-worker transfer expose their honest surfaces", async ({
   multiWorkerSmokePage,
   stack,
+  secondWorker,
 }, testInfo) => {
   test.skip(
     !testInfo.project.name.startsWith("chromium"),
     "desktop multi-worker beta-surface contract",
   );
 
-  const sessionId = (await spawnSmokeShell(multiWorkerSmokePage, stack.workerFp)).session_id;
-  await multiWorkerSmokePage.waitForFunction((id) => {
-    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    return !!smokeWindow.__smoke.state().sessions[id];
-  }, sessionId);
-
-  await multiWorkerSmokePage.evaluate(() => {
-    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    smokeWindow.__smoke.navigate("/search");
+  const customTitle = `metadata-${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
+  const sessionId = (await spawnSmokeShell(
+    multiWorkerSmokePage,
+    secondWorker.workerFp,
+  )).session_id;
+  expect(await stack.client.sessionsRename({ sessionId, title: customTitle })).toMatchObject({
+    ok: true,
   });
-  await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/search`);
+  await multiWorkerSmokePage.waitForFunction(({ id, title }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.state().sessions[id]?.custom_title === title;
+  }, { id: sessionId, title: customTitle });
+
+  await multiWorkerSmokePage.evaluate((query) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    smokeWindow.__smoke.navigate(`/search?q=${encodeURIComponent(query)}`);
+  }, customTitle);
+  await expect(multiWorkerSmokePage).toHaveURL(
+    `${stack.baseUrl}/search?q=${encodeURIComponent(customTitle)}`,
+  );
+  await expect(multiWorkerSmokePage.getByTestId("global-search-page")).toBeVisible();
   await expect(
-    multiWorkerSmokePage.getByText("Global search (beta)", { exact: true }),
+    multiWorkerSmokePage.getByRole("heading", { name: "Search sessions", exact: true }),
   ).toBeVisible();
-  await expect(
-    multiWorkerSmokePage.getByText(
-      "Global search is not available in v0.5.0. Use sidebar filtering or terminal find.",
-      { exact: true },
-    ),
-  ).toBeVisible();
+  const metadataResult = multiWorkerSmokePage.getByTestId(`global-search-result-${sessionId}`);
+  await expect(metadataResult).toBeVisible();
+  await expect(metadataResult.getByTestId(`global-search-title-${sessionId}`)).toHaveText(
+    customTitle,
+  );
+  await expect(metadataResult).toContainText("/tmp");
+  await expect(metadataResult).toContainText("tmp");
+  await expect(metadataResult).toContainText(secondWorker.label);
+  await expect(metadataResult.getByTestId(`global-search-availability-${sessionId}`))
+    .not.toHaveText("Unavailable");
+
+  await metadataResult.click();
+  await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/s/${sessionId}`);
+  await expect(multiWorkerSmokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
 
   await multiWorkerSmokePage.getByTestId("brand-row-search").click();
-  await multiWorkerSmokePage.getByTestId("sidebar-search").fill("/tmp");
+  await multiWorkerSmokePage.getByTestId("sidebar-search").fill(customTitle);
   const sessionRow = multiWorkerSmokePage.locator(
     `[data-testid="sidebar-session-row"][data-session-id="${sessionId}"]`,
   );

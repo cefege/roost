@@ -25,6 +25,7 @@ export const QueueTaskDialog: Component = () => {
         <TaskEditor
           defaultBody={queueTaskDialogStore.prefillBody()}
           defaultCwd={queueTaskDialogStore.prefillCwd()}
+          defaultWorkerFp={queueTaskDialogStore.prefillWorkerFp()}
           onEnqueued={handleClose}
           onCancel={handleClose}
           showCancel={true}

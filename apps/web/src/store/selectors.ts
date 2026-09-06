@@ -67,6 +67,13 @@ export function newestOpenSessionForFolderKey(folderKey: string, exceptId: strin
 // /s/:id → by id; /t/:workerFp/*folderPath → by folder; /w/:id → by workspace.
 // null off a terminal route (/settings, /search, /) — callers fall back.
 export function activeSessionForPath(pathname: string): Session | null {
+  const legacyWorkspaceChannel = pathname.match(/^\/w\/[^/]+\/t\/(\d+)$/);
+  if (legacyWorkspaceChannel) {
+    const channel = Number.parseInt(legacyWorkspaceChannel[1]!, 10);
+    return Object.values(rootStore.sessions).find(
+      session => session.channel === channel,
+    ) ?? null;
+  }
   const s = pathname.match(/^\/s\/([^/]+)/);
   if (s) return rootStore.sessions[s[1]] ?? null;
   const t = pathname.match(/^\/t\/([^/]+)\/(.*)$/);

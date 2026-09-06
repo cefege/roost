@@ -48,6 +48,20 @@ describe("activeSessionForPath", () => {
     expect(activeSessionForPath("/w/ws1")?.id as string).toBe(ID);
   });
 
+  test("/w/:workspaceId/t/:channelId resolves the displayed legacy channel", () => {
+    const secondId = "00000000-0000-4000-8000-000000000002";
+    setRootStore("sessions", {
+      [ID]: sess({ id: ID, channel: asChannelId(1), created_at: 2_000 }),
+      [secondId]: sess({
+        id: secondId,
+        channel: asChannelId(2),
+        created_at: 1_000,
+      }),
+    } as Record<string, Session>);
+
+    expect(activeSessionForPath("/w/ws1/t/2")?.id as string).toBe(secondId);
+  });
+
   test("non-terminal routes return null", () => {
     expect(activeSessionForPath("/settings/machines")).toBeNull();
     expect(activeSessionForPath("/search")).toBeNull();

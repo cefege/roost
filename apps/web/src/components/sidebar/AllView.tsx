@@ -2,16 +2,19 @@
 // sidebar layout; the Status/Folder/Folders view modes were deleted
 // 2026-07-04. Brand row + ⌘F search on top; SidebarEmptyState when no
 // machines are registered.
-// Reads rootStore.workers (empty-state gate) + allSessions (search).
+// Reads rootStore workers plus the shared navigation projection.
 
 import { createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { rootStore } from "../../store/root.ts";
 import { uiStore, toggleSidebarCollapsed, closeSidebar } from "../../store/uiStore.ts";
 import { isCompact } from "../../lib/windowSizeClass.ts";
-import { allSessions } from "../../store/selectors.ts";
 import { terminalOwnsKeyboard } from "../../lib/keyboardShortcuts.ts";
 import { matchesPlatformShortcut, platformShortcutLabel } from "../../lib/browserPlatform.ts";
+import {
+  filterNavigationSearchDocuments,
+  navigationSearchDocuments,
+} from "../../store/navigation-search.ts";
 import { SidebarSearch } from "./SidebarSearch.tsx";
 import { SidebarEmptyState } from "./SidebarEmptyState.tsx";
 import { SessionRow } from "./SessionRow.tsx";
@@ -65,16 +68,14 @@ export function AllView() {
   const noMachines = createMemo(() => Object.keys(rootStore.workers).length === 0);
 
   // When query active: flat filtered terminal-session list.
-  // Uses debouncedQuery so the filter only re-runs after typing settles.
+  // Uses the same metadata index as /search and the palette, while retaining
+  // the sidebar's 120 ms trailing debounce and established SessionRow surface.
   const filteredSessions = createMemo(() => {
-    const q = debouncedQuery().toLowerCase().trim();
-    if (!q) return null;
-    return allSessions().filter((s) => {
-      if (s.kind !== "shell") return false;
-      if (s.cwd.toLowerCase().includes(q)) return true;
-      const ws = s.workspace_id ? rootStore.workspaces[s.workspace_id] : null;
-      return ws?.name.toLowerCase().includes(q) ?? false;
-    });
+    const q = debouncedQuery();
+    if (!q.trim()) return null;
+    return filterNavigationSearchDocuments(navigationSearchDocuments(), q)
+      .map((document) => rootStore.sessions[document.sessionId])
+      .filter((session) => session?.kind === "shell");
   });
 
   return (

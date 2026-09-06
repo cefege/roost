@@ -128,7 +128,11 @@ function openScopedOverlays(): void {
     hasCustom: true,
     sessionId: "session-a",
   });
-  queueTaskDialogStore.open({ cwd: "/old/scope", body: "old task" });
+  queueTaskDialogStore.open({
+    cwd: "/old/scope",
+    body: "old task",
+    workerFp: "worker-a",
+  });
   openTransferDialog();
   addTransfer({
     id: "old-transfer",
@@ -145,6 +149,7 @@ function expectScopedOverlaysCleared(): void {
   expect(queueTaskDialogStore.isOpen()).toBe(false);
   expect(queueTaskDialogStore.prefillCwd()).toBeUndefined();
   expect(queueTaskDialogStore.prefillBody()).toBeUndefined();
+  expect(queueTaskDialogStore.prefillWorkerFp()).toBeUndefined();
   expect(transferDialogOpen()).toBe(false);
   expect(Object.keys(transfers)).toEqual([]);
   expect(spotlightSessionId()).toBeNull();

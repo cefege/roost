@@ -65,10 +65,15 @@ Managed per-account isolation and these auth/dashboard modules are qualified,
 but the managed service is not publicly launched in v0.5.0. Accounts are
 operator-created; open signup and production managed image publication are off.
 
-`/search` and cross-worker transfer are beta placeholders in v0.5.0. Search
-directs users to sidebar filtering or terminal find; the session transfer item
-opens an explanatory dialog without issuing a transfer RPC. Attachment
-upload/download through `TransferStack` remains supported.
+`/search` is a dashboard-local session metadata and agent-attention navigation
+surface. It reuses the same scalar projection as sidebar and palette matching:
+titles, current/spawn folders, workspace, machine, Git/PR, ports, activity,
+availability, and existing agent seen-state. `scope=attention` retains current
+blocked rows and unseen completions; opening a completed session acknowledges
+it. Search does not inspect terminal cells, scrollback, or agent transcripts.
+Cross-worker transfer remains a beta placeholder: its item opens an explanatory
+dialog without issuing a transfer RPC. Attachment upload/download through
+`TransferStack` remains supported.
 
 ## Invariants
 

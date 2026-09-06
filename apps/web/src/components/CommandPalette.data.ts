@@ -1,19 +1,19 @@
-// Command registry + item model for CommandPalette. Pure data builders (no JSX,
-// no component-local reactivity) split out of CommandPalette.tsx to keep it
-// under the 400-line cap. The reactive reads (allSessions / rootStore) happen
-// inside these builders, so a caller wrapping them in a createMemo still tracks
-// their dependencies.
+// Typed command-palette catalog and row compiler. Session rows reuse the
+// shared navigation-search projection; contextual actions receive scalar
+// route/dashboard targets and delegate to their existing action owners.
+// The identity cache keeps unchanged Solid <For> rows mounted.
 
 import type { Navigator } from "@solidjs/router";
+import type { Session } from "@roost/shared/wire";
+import { spawnSessionSibling } from "../lib/sessionSiblingAction.ts";
 import { rootStore } from "../store/root.ts";
-import { allSessions } from "../store/selectors.ts";
-import { workerOnline } from "../store/sync.ts";
+import {
+  navigationSearchDocuments,
+  normalizeNavigationSearchQuery,
+  type NavigationSearchDocument,
+} from "../store/navigation-search.ts";
 import { queueTaskDialogStore } from "../store/queueTaskDialog.ts";
 import type { ItemKind } from "./CommandPalettePieces.tsx";
-import { workerPathBasename } from "../lib/nativePath.ts";
-import { platformShortcutLabel } from "../lib/browserPlatform.ts";
-
-// ── Types ───────────────────────────────────────────────────────────────────
 
 export interface PaletteItem {
   id: string;
@@ -26,87 +26,234 @@ export interface PaletteItem {
   action?: () => Promise<void> | void;
 }
 
-// ── Static action list (default mode) ────────────────────────────────────────
+export type CommandPaletteEffectiveRole = "admin" | "member" | null;
 
-function buildStaticActions(navigate: Navigator): PaletteItem[] {
-  const items: PaletteItem[] = [
-    { id: "action:settings:machines", kind: "action", label: "Settings — Machines", hint: platformShortcutLabel("settings", "⌘,"), action: () => navigate("/settings/machines") },
-    { id: "action:queue-new-task", kind: "action", label: "Queue new task", hint: "task queue", action: () => queueTaskDialogStore.open() },
-  ];
-  // Only online servers can spawn — a down/asleep Mac's row would hang on spawn.
-  for (const [fp, w] of Object.entries(rootStore.workers)) {
-    if (!workerOnline(w)) continue;
-    items.push({
-      id: `action:new-shell:${fp}`,
-      kind: "action",
-      label: `New terminal on ${w.label}`,
-      hint: "browse",
-      action: () => navigate(`/browse/${fp}`),
-    });
-  }
-  return items;
+export interface CommandPaletteSessionTarget {
+  readonly id: string;
+  readonly workerFp: Session["worker_fp"];
+  readonly cwd: string;
 }
 
-
-// `qLower` MUST be pre-lowercased by the caller (once per filter run — the
-// filter loop runs per item, so lowering here re-allocated per row).
-export function matchesQuery(text: string, qLower: string): boolean {
-  if (!qLower) return true;
-  return text.toLowerCase().includes(qLower);
+export interface CommandPaletteFolderTarget {
+  readonly id: string;
+  readonly workerFp: Session["worker_fp"];
+  readonly cwd: string;
 }
 
-// ── Row identity cache ───────────────────────────────────────────────────────
-// buildDefaultItems mints fresh objects per run (any WS tick while the palette
-// is open), and <For> keys by reference → fresh objects would recreate every
-// row's DOM. stableItem returns the PREVIOUS object for an id when nothing
-// visible changed, so unchanged rows keep identity and their DOM survives.
-// `action` closures are rebuilt per run but capture only values baked into the
-// id (fp) or stable (navigate) — reusing the old closure is behaviorally
-// identical, so actions compare by presence, not reference.
-let _itemCache = new Map<string, PaletteItem>();
+export interface CommandPaletteContext {
+  readonly pathname: string;
+  readonly dashboardGeneration: number;
+  readonly activeSession: CommandPaletteSessionTarget | null;
+  readonly activeFolder: CommandPaletteFolderTarget | null;
+  readonly workerRoutable: boolean;
+  readonly effectiveRole: CommandPaletteEffectiveRole;
+}
+
+export interface CommandPaletteDataDeps {
+  navigationSearchDocuments: () => readonly Pick<
+    NavigationSearchDocument,
+    "sessionId" | "href" | "displayTitle" | "workerLabel" | "searchText" | "available"
+  >[];
+  spawnSessionSibling: typeof spawnSessionSibling;
+}
+
+const defaultCommandPaletteDataDeps: CommandPaletteDataDeps = {
+  navigationSearchDocuments,
+  spawnSessionSibling,
+};
+
+export type CoreActionId =
+  | "core.search.all"
+  | "core.attention.open"
+  | "core.task.queue-folder"
+  | "core.session.new-sibling";
+
+export interface CoreActionDefinition<ActionId extends CoreActionId = CoreActionId> {
+  readonly id: ActionId;
+  readonly compile: (
+    navigate: Navigator,
+    context: CommandPaletteContext,
+    deps: CommandPaletteDataDeps,
+  ) => PaletteItem | null;
+}
+
+export const CORE_ACTION_DEFINITIONS = [
+  { id: "core.search.all", compile: compileSearchAll },
+  { id: "core.attention.open", compile: compileAttentionOpen },
+  { id: "core.task.queue-folder", compile: compileQueueFolder },
+  { id: "core.session.new-sibling", compile: compileNewSibling },
+] as const satisfies readonly [
+  CoreActionDefinition<"core.search.all">,
+  CoreActionDefinition<"core.attention.open">,
+  CoreActionDefinition<"core.task.queue-folder">,
+  CoreActionDefinition<"core.session.new-sibling">,
+];
+
+// The caller normalizes and splits once per filter run. Row matching only
+// normalizes each candidate and checks every cross-field query term.
+export function matchesQuery(
+  text: string,
+  normalizedQueryTerms: readonly string[],
+): boolean {
+  if (normalizedQueryTerms.length === 0) return true;
+  const normalizedText = normalizeNavigationSearchQuery(text);
+  return normalizedQueryTerms.every(term => normalizedText.includes(term));
+}
+
+let itemCache = new Map<string, PaletteItem>();
 
 /** Account and dashboard boundaries must not retain labels, paths, or actions
  * captured by rows from the prior scope. */
 export function clearCommandPaletteCacheForAccountBoundary(): void {
-  _itemCache.clear();
+  itemCache.clear();
 }
 
-function stableItem(next: PaletteItem, nextCache: Map<string, PaletteItem>): PaletteItem {
-  const prev = _itemCache.get(next.id);
-  const keep = prev !== undefined
-    && prev.kind === next.kind && prev.label === next.label
-    && prev.hint === next.hint && prev.search === next.search
-    && prev.href === next.href
-    && (prev.action === undefined) === (next.action === undefined);
-  const out = keep ? prev : next;
-  nextCache.set(next.id, out);
-  return out;
-}
-
-// Default-mode item list: open sessions + workspaces + static actions.
-export function buildDefaultItems(navigate: Navigator): PaletteItem[] {
+/** Compile current session/workspace rows and the closed core-action catalog. */
+export function buildDefaultItems(
+  navigate: Navigator,
+  context: CommandPaletteContext,
+  deps: CommandPaletteDataDeps = defaultCommandPaletteDataDeps,
+): PaletteItem[] {
   const items: PaletteItem[] = [];
-  for (const s of allSessions()) {
-    if (s.kind !== "shell") continue;
-    const worker = rootStore.workers[s.worker_fp];
+  for (const navigationDocument of deps.navigationSearchDocuments()) {
     items.push({
-      id: `session:${s.id}`,
+      id: `session:${navigationDocument.sessionId}`,
       kind: "session",
-      label: workerPathBasename(s.worker_fp, s.cwd) || s.cwd,
-      hint: worker?.label ?? s.worker_fp.slice(0, 8),
-      // Searchable-but-not-displayed full cwd.
-      search: s.cwd,
-      href: `/s/${s.id}`,
+      label: navigationDocument.displayTitle,
+      hint: navigationDocument.available
+        ? navigationDocument.workerLabel
+        : `${navigationDocument.workerLabel} · unavailable`,
+      search: navigationDocument.searchText,
+      href: navigationDocument.href,
     });
   }
-  for (const [id, ws] of Object.entries(rootStore.workspaces)) {
-    items.push({ id: `workspace:${id}`, kind: "workspace", label: ws.name, hint: `${ws.session_ids.length} sessions`, href: `/w/${id}` });
+  for (const [workspaceId, workspace] of Object.entries(rootStore.workspaces)) {
+    items.push({
+      id: `workspace:${workspaceId}`,
+      kind: "workspace",
+      label: workspace.name,
+      hint: `${workspace.session_ids.length} sessions`,
+      href: `/w/${workspaceId}`,
+    });
   }
-  const all = [...items, ...buildStaticActions(navigate)];
-  // Rebuild the cache from this run's ids — self-pruning (closed sessions
-  // don't accumulate stale entries across a long page life).
+  for (const definition of CORE_ACTION_DEFINITIONS) {
+    const actionItem = definition.compile(navigate, context, deps);
+    if (actionItem) items.push(actionItem);
+  }
+
+  // Rebuild from this run's ids so closed sessions and hidden contextual
+  // actions cannot accumulate across a long page life.
   const nextCache = new Map<string, PaletteItem>();
-  const out = all.map((it) => stableItem(it, nextCache));
-  _itemCache = nextCache;
-  return out;
+  const stableItems = items.map((item) => stableItem(item, nextCache));
+  itemCache = nextCache;
+  return stableItems;
+}
+
+function compileSearchAll(
+  _navigate: Navigator,
+  _context: CommandPaletteContext,
+  _deps: CommandPaletteDataDeps,
+): PaletteItem {
+  return {
+    id: "core.search.all",
+    kind: "action",
+    label: "Search all sessions",
+    hint: "metadata",
+    search: "global search sessions workspaces workers git ports",
+    href: "/search",
+  };
+}
+
+function compileAttentionOpen(
+  _navigate: Navigator,
+  _context: CommandPaletteContext,
+  _deps: CommandPaletteDataDeps,
+): PaletteItem {
+  return {
+    id: "core.attention.open",
+    kind: "action",
+    label: "Open attention",
+    hint: "blocked and completed agents",
+    search: "attention blocked done unseen agents",
+    href: "/search?scope=attention",
+  };
+}
+
+function compileQueueFolder(
+  _navigate: Navigator,
+  context: CommandPaletteContext,
+  _deps: CommandPaletteDataDeps,
+): PaletteItem | null {
+  const target = context.activeFolder;
+  if (!target || context.effectiveRole === null) return null;
+  const generation = context.dashboardGeneration;
+  return {
+    id: targetedActionId("core.task.queue-folder", target.id, generation),
+    kind: "action",
+    label: "Queue task for this folder",
+    hint: target.cwd,
+    search: `queue task ${target.cwd}`,
+    action: () => {
+      if (!capturedGenerationIsCurrent(generation)) return;
+      queueTaskDialogStore.open({
+        cwd: target.cwd,
+        workerFp: target.workerFp,
+      });
+    },
+  };
+}
+
+function compileNewSibling(
+  navigate: Navigator,
+  context: CommandPaletteContext,
+  deps: CommandPaletteDataDeps,
+): PaletteItem | null {
+  const target = context.activeSession;
+  if (!target || !context.workerRoutable || context.effectiveRole !== "admin") {
+    return null;
+  }
+  const generation = context.dashboardGeneration;
+  return {
+    id: targetedActionId("core.session.new-sibling", target.id, generation),
+    kind: "action",
+    label: "New sibling terminal",
+    hint: target.cwd,
+    search: `new terminal sibling ${target.cwd}`,
+    action: () => {
+      if (!capturedGenerationIsCurrent(generation)) return;
+      return deps.spawnSessionSibling({
+        worker_fp: target.workerFp,
+        cwd: target.cwd,
+      }, navigate);
+    },
+  };
+}
+
+function targetedActionId(
+  actionId: "core.task.queue-folder" | "core.session.new-sibling",
+  targetId: string,
+  dashboardGeneration: number,
+): string {
+  return `${actionId}:${targetId}:generation:${dashboardGeneration}`;
+}
+
+function capturedGenerationIsCurrent(capturedGeneration: number): boolean {
+  return rootStore.dashboard_generation === capturedGeneration;
+}
+
+function stableItem(
+  next: PaletteItem,
+  nextCache: Map<string, PaletteItem>,
+): PaletteItem {
+  const previous = itemCache.get(next.id);
+  const unchanged = previous !== undefined
+    && previous.kind === next.kind
+    && previous.label === next.label
+    && previous.hint === next.hint
+    && previous.search === next.search
+    && previous.href === next.href
+    && (previous.action === undefined) === (next.action === undefined);
+  const item = unchanged ? previous : next;
+  nextCache.set(next.id, item);
+  return item;
 }

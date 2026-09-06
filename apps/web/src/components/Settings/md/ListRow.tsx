@@ -1,15 +1,19 @@
+// Material list-row anatomy for static content, actions, and destinations.
+// Element semantics follow href first, then onClick, so navigation keeps
+// native link affordances while action rows remain buttons.
+
 import { type JSX, type Component, Show } from "solid-js";
+import { A } from "@solidjs/router";
 import { Icon } from "./Icon.tsx";
 
 // ─── List row ──────────────────────────────────────────────────────
-// Renders <button> for clickable rows and <div> for static rows so
-// keyboard navigation and screen readers do the right thing.
 export const ListRow: Component<{
   leading?: string | JSX.Element;
   headline: JSX.Element;
   support?: JSX.Element;
   trailing?: JSX.Element;
   onClick?: () => void;
+  href?: string;
   selected?: boolean;
   testId?: string;
 }> = (props) => {
@@ -35,7 +39,16 @@ export const ListRow: Component<{
       </Show>
     </>
   );
-  return props.onClick ? (
+  return props.href ? (
+    <A
+      href={props.href}
+      class="md-list-row"
+      data-selected={props.selected ? "true" : undefined}
+      attr:data-testid={props.testId}
+    >
+      {inner}
+    </A>
+  ) : props.onClick ? (
     <button
       type="button"
       class="md-list-row"

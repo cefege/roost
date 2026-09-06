@@ -1,6 +1,6 @@
 // Coding-agent status path, end to end without model credentials:
-// spawned PTY env -> worker UDS report server -> worker/coord protobuf -> Sync
-// -> session/tab/folder state, delayed toast, title ACK, and inactive cleanup.
+// spawned PTY report -> worker/coord/Sync -> session, folder, notification,
+// and route-driven attention surfaces, including acknowledgement decay.
 
 import { test, expect } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
@@ -9,6 +9,7 @@ interface AgentStatusSmoke {
   spawnShell(worker: string, folder: string): Promise<{ session_id: string }>;
   input(sessionId: string, text: string): Promise<void>;
   forceVisible(on: boolean): void;
+  navigate(href: string): void;
 }
 
 function reportCommand(
@@ -104,9 +105,31 @@ test("agent status reaches every browser surface and notification ACK", async ({
   await expect(blockedToast).toBeVisible({ timeout: 10_000 });
   await expect(blockedToast.getByTestId("toast-details")).toContainText("Approval needed");
 
-  await blockedToast.getByRole("button", { name: "View" }).click();
+  await smokePage.evaluate(() => {
+    const smoke = (window as unknown as Window & { __smoke: AgentStatusSmoke }).__smoke;
+    smoke.navigate("/search?scope=attention");
+  });
+  await expect(smokePage).toHaveURL(`${stack.baseUrl}/search?scope=attention`);
+  const blockedAttention = smokePage.getByTestId(`global-search-result-${backgroundId}`);
+  await expect(blockedAttention).toBeVisible();
+  await expect(
+    blockedAttention.getByTestId(`global-search-attention-${backgroundId}`),
+  ).toHaveText("Needs input");
+  await blockedAttention.click();
+  await expect(smokePage).toHaveURL(`${stack.baseUrl}/s/${backgroundId}`);
   await expect(smokePage.getByTestId(`tab-${backgroundId}`)).toHaveAttribute("data-active", "true");
   await expect.poll(() => smokePage.title()).not.toMatch(/^\(\d+\)/);
+
+  // Viewing acknowledges the notification revision, but current blocked state
+  // remains attention until the agent itself transitions.
+  await smokePage.evaluate(() => {
+    const smoke = (window as unknown as Window & { __smoke: AgentStatusSmoke }).__smoke;
+    smoke.navigate("/search?scope=attention");
+  });
+  await expect(blockedAttention).toBeVisible();
+  await expect(
+    blockedAttention.getByTestId(`global-search-attention-${backgroundId}`),
+  ).toHaveText("Needs input");
 
   // Move away before completion so the transition is genuinely backgrounded.
   await smokePage.goto(`${stack.baseUrl}/s/${activeId}`);
@@ -121,9 +144,26 @@ test("agent status reaches every browser surface and notification ACK", async ({
   await expect(doneToast).toBeVisible({ timeout: 10_000 });
   await expect.poll(() => smokePage.title()).toMatch(/^\(1\) Roost/);
 
-  await doneToast.getByRole("button", { name: "View" }).click();
+  await smokePage.evaluate(() => {
+    const smoke = (window as unknown as Window & { __smoke: AgentStatusSmoke }).__smoke;
+    smoke.navigate("/search?scope=attention");
+  });
+  const doneAttention = smokePage.getByTestId(`global-search-result-${backgroundId}`);
+  await expect(doneAttention).toBeVisible();
+  await expect(
+    doneAttention.getByTestId(`global-search-attention-${backgroundId}`),
+  ).toHaveText("Done");
+  await doneAttention.click();
+  await expect(smokePage).toHaveURL(`${stack.baseUrl}/s/${backgroundId}`);
   await expect(tabStatus).toHaveAttribute("data-level", "idle");
   await expect.poll(() => smokePage.title()).not.toMatch(/^\(\d+\)/);
+
+  await smokePage.evaluate(() => {
+    const smoke = (window as unknown as Window & { __smoke: AgentStatusSmoke }).__smoke;
+    smoke.navigate("/search?scope=attention");
+  });
+  await expect(doneAttention).toHaveCount(0);
+  await expect(smokePage.getByText("Nothing needs attention", { exact: true })).toBeVisible();
 
   await report(smokePage, backgroundId, "idle", 5, false);
   await expect(tabStatus).toHaveCount(0, { timeout: 30_000 });

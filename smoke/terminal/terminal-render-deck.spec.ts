@@ -224,10 +224,10 @@ test("deck reveal preserves painted history and lands at the live bottom instant
   });
 });
 
-// /file hides the terminal surface and withdraws its view, but MainPane keeps
-// the deck and renderer mounted. Returning therefore needs one fresh-stream
-// viewport full, not a remount or a history refetch.
-test("a /file round-trip keeps the deck warm and rebaselines only for renewed membership", async ({ smokePage, stack }, testInfo) => {
+// File and search overlays hide the terminal surface and withdraw its view,
+// while MainPane keeps the deck and renderer mounted. Returning through the
+// metadata result therefore reuses the warm DOM and refills no history.
+test("a /file and /search round-trip keeps the deck warm", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop deck-persistence contract");
   const identityKey = `__roostDeckIdentity_${crypto.randomUUID().replaceAll("-", "")}`;
   const canary = `deck-${crypto.randomUUID()}`;
@@ -244,7 +244,7 @@ test("a /file round-trip keeps the deck warm and rebaselines only for renewed me
   await expect.poll(() => slot.textContent(), { timeout: 30_000 }).toContain("FRT-300");
 
   const initialStream = await readTerminalStreamProbe(smokePage, sessionId);
-  if (!initialStream.browser.view.stream_id) throw new Error("file round-trip omitted its initial stream");
+  if (!initialStream.browser.view.stream_id) throw new Error("overlay round-trip omitted its initial stream");
   const baseline = await smokePage.evaluate(({ id, key, value }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     const smoke = smokeWindow.__smoke;
@@ -310,10 +310,16 @@ test("a /file round-trip keeps the deck warm and rebaselines only for renewed me
       effective: coordinator?.effective,
     };
   }).toEqual({ status: "accepted", active: false, views: 0, effective: null });
+  await smokePage.evaluate(() => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    smokeWindow.__smoke.navigate("/search?q=%2Ftmp");
+  });
+  const searchResult = smokePage.getByTestId(`global-search-result-${sessionId}`);
+  await expect(searchResult).toBeVisible();
 
   await pressPlatformShortcut(smokePage, "spotlight", "Enter");
   await expect(slot).not.toHaveAttribute("data-spotlit", "true");
-  await smokePage.evaluate(({ id, key }) => {
+  await smokePage.evaluate(({ key }) => {
     const runtime = (document as unknown as Record<string, unknown>)[key] as {
       grid: Element; samples: number[]; sampling: boolean;
     };
@@ -324,9 +330,8 @@ test("a /file round-trip keeps the deck warm and rebaselines only for renewed me
       requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
-    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    smokeWindow.__smoke.navigate(`/s/${id}`);
-  }, { id: sessionId, key: identityKey });
+  }, { key: identityKey });
+  await searchResult.click();
   await expect(slot).toBeVisible();
   await expect.poll(async () => {
     const stream = await readTerminalStreamProbe(smokePage, sessionId);

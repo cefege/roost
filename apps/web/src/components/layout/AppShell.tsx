@@ -123,13 +123,12 @@ function SidebarResizer() {
 // Attribute bindings ARE reactive (same path as aria-hidden), so the CSS
 // keyed on [data-open="true"] animates correctly.
 
-// Soft-keyboard handling is pref-driven (keyboardResizePref):
-//  - push (DEFAULT): shell stays full height; shift main up by --kb-offset so
-//    the input rides above the keyboard (grid size unchanged, top scrolls off).
-//  - resize (toggle on): the SHELL already shrank by --kb-offset (shellStyle),
-//    so main needs NO transform — the terminal re-claims a smaller grid.
-// lib/keyboardInset.ts sets --kb-offset; 0px on desktop.
-function mainStyle() {
+// Soft-keyboard handling is pref-driven on terminal routes:
+//  - push (DEFAULT): shell stays full height; shift terminal content up by
+//    --kb-offset so the composer rides above the keyboard without grid resize.
+//  - resize: the shell already shrank by --kb-offset, so no transform is needed.
+// Non-terminal forms remain anchored; their own scrollers reserve the inset.
+function mainStyle(terminalRoute: boolean) {
   const base = {
     flex: "1 1 0",
     overflow: "hidden",
@@ -144,6 +143,7 @@ function mainStyle() {
   // paint-only translate so TerminalDeck and the PTY grid never resize/reclaim
   // while the draft wraps. The dock offset is the shared safe-area, keyboard,
   // and 8px bottom-gap expression.
+  if (!terminalRoute) return base;
   if (composerActive()) {
     return {
       ...base,
@@ -349,7 +349,11 @@ export function AppShell(props: ParentProps) {
       </Show>
 
       {/* ── Main content (mobile top bar stacks above it in the column) ── */}
-      <main style={mainStyle()}>
+      <main style={mainStyle(
+        location.pathname.startsWith("/s/")
+        || location.pathname.startsWith("/t/")
+        || location.pathname.startsWith("/w/"),
+      )}>
         {/* Both home routes and terminal routes own their own header + bar;
             suppress the redundant MobileTopBar there. Other mobile routes keep it. */}
         <Show when={isMobile() && location.pathname !== ROUTES.ROOT && location.pathname !== ROUTES.APP && !location.pathname.startsWith("/browse") && !(location.pathname.startsWith("/s/") || location.pathname.startsWith("/t/") || location.pathname.startsWith("/w/"))}>

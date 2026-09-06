@@ -367,6 +367,7 @@
   text-align: left;
   color: inherit;
   font-family: inherit;
+  text-decoration: none;
   position: relative;
   transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
 }
