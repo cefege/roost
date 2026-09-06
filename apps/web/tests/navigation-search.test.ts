@@ -181,10 +181,6 @@ describe("navigation search metadata", () => {
       pullRequestChecks: "pending",
       pullRequestUrl: "https://github.com/acme/roost/pull/417",
       portLabel: ":3000 :5174",
-      ports: [
-        { port: 3000, label: ":3000", href: "http://build.example.test:3000" },
-        { port: 5174, label: ":5174", href: "http://build.example.test:5174" },
-      ],
       activityAt: 9_000,
       available: true,
       agentStatus: "working",
@@ -193,11 +189,9 @@ describe("navigation search metadata", () => {
       agentUpdatedAt: 8_500,
       agentMessage: "Indexing metadata",
     });
-    expect(Object.entries(document)
-      .filter(([key]) => key !== "ports")
-      .every(([, value]) =>
-        value === null || ["string", "number", "boolean"].includes(typeof value)
-      )).toBe(true);
+    expect(Object.values(document).every((value) =>
+      value === null || ["string", "number", "boolean"].includes(typeof value)
+    )).toBe(true);
 
     for (const query of [
       "release", "vite web", "packages/web", "/srv/roost", "search workspace",

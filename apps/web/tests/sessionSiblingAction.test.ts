@@ -21,6 +21,7 @@ const captureDashboardResourceToken = mock(() => ({
 const isCurrentDashboardResourceToken = mock(
   (token: { generation: number }) => token.generation === dashboardGeneration,
 );
+const recordDiagnostic = mock((_event: string, _fields: Record<string, unknown>) => {});
 
 const dependencies = {
   spawnShell,
@@ -28,6 +29,7 @@ const dependencies = {
   maybeAutoLaunchAgent,
   captureDashboardResourceToken,
   isCurrentDashboardResourceToken,
+  recordDiagnostic,
 } as unknown as NonNullable<Parameters<typeof spawnSessionSibling>[2]>;
 
 const session: Pick<Session, "worker_fp" | "cwd"> = {
@@ -44,6 +46,7 @@ beforeEach(() => {
   maybeAutoLaunchAgent.mockClear();
   captureDashboardResourceToken.mockClear();
   isCurrentDashboardResourceToken.mockClear();
+  recordDiagnostic.mockClear();
 });
 
 describe("sibling-session dashboard fence", () => {
@@ -96,22 +99,14 @@ describe("sibling-session dashboard fence", () => {
     const spawned = Promise.withResolvers<string>();
     spawnShell.mockImplementation(() => spawned.promise);
     const navigate = mock((_href: string, _options?: unknown) => {});
-    const warn = mock((..._messages: unknown[]) => {});
-    const originalWarn = console.warn;
-    console.warn = warn;
+    const pending = spawnSessionSibling(session, navigate as unknown as Navigator, dependencies);
+    dashboardGeneration++;
+    spawned.reject(new Error("old dashboard spawn failed"));
+    await pending;
 
-    try {
-      const pending = spawnSessionSibling(session, navigate as unknown as Navigator, dependencies);
-      dashboardGeneration++;
-      spawned.reject(new Error("old dashboard spawn failed"));
-      await pending;
-
-      expect(warn).not.toHaveBeenCalled();
-      expect(maybeAutoLaunchAgent).not.toHaveBeenCalled();
-      expect(navigate).not.toHaveBeenCalled();
-    } finally {
-      console.warn = originalWarn;
-    }
+    expect(recordDiagnostic).not.toHaveBeenCalled();
+    expect(maybeAutoLaunchAgent).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   test("a current-dashboard rejection still reports the spawn failure", async () => {
@@ -119,21 +114,13 @@ describe("sibling-session dashboard fence", () => {
       throw new Error("spawn denied");
     });
     const navigate = mock((_href: string, _options?: unknown) => {});
-    const warn = mock((..._messages: unknown[]) => {});
-    const originalWarn = console.warn;
-    console.warn = warn;
+    await spawnSessionSibling(session, navigate as unknown as Navigator, dependencies);
 
-    try {
-      await spawnSessionSibling(session, navigate as unknown as Navigator, dependencies);
-
-      expect(warn).toHaveBeenCalledWith(
-        "[ctx] new terminal failed",
-        expect.objectContaining({ message: "spawn denied" }),
-      );
-      expect(maybeAutoLaunchAgent).not.toHaveBeenCalled();
-      expect(navigate).not.toHaveBeenCalled();
-    } finally {
-      console.warn = originalWarn;
-    }
+    expect(recordDiagnostic).toHaveBeenCalledWith(
+      "session.sibling_spawn_failed",
+      { error: "spawn denied" },
+    );
+    expect(maybeAutoLaunchAgent).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

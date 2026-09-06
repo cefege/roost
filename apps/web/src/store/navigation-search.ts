@@ -37,11 +37,6 @@ export interface NavigationSearchDocument {
   readonly pullRequestChecks: "passing" | "failing" | "pending" | "none" | null;
   readonly pullRequestUrl: string | null;
   readonly portLabel: string | null;
-  readonly ports: readonly {
-    readonly port: number;
-    readonly label: string;
-    readonly href: string | null;
-  }[];
   readonly searchText: string;
   readonly activityAt: number;
   readonly available: boolean;
@@ -116,18 +111,10 @@ function projectSession(session: Session): NavigationSearchDocument {
   const gitBranch = cleanOptional(session.git_branch);
   const gitRemote = cleanOptional(session.git_remote);
   const pullRequestUrl = cleanOptional(session.pr_url);
-  const ports = [...new Set(session.ports ?? [])]
+  const portLabel = [...new Set(session.ports ?? [])]
     .sort((left, right) => left - right)
-    .map(port => ({
-      port,
-      label: `:${port}`,
-      href: worker?.reachable_addr
-        ? `http://${worker.reachable_addr}:${port}`
-        : null,
-    }));
-  const portLabel = ports.length > 0
-    ? ports.map(port => port.label).join(" ")
-    : null;
+    .map(port => `:${port}`)
+    .join(" ") || null;
   const agentMessage = cleanOptional(status?.message);
   const displayTitle = sessionTitle(session);
   const pullRequestNumber = session.pr_number ?? null;
@@ -152,7 +139,7 @@ function projectSession(session: Session): NavigationSearchDocument {
     pullRequestState,
     pullRequestChecks,
     pullRequestUrl,
-    ...ports.flatMap(port => [port.label, port.href]),
+    portLabel,
     status?.agent_id,
     agentStatus,
     agentMessage,
@@ -179,7 +166,6 @@ function projectSession(session: Session): NavigationSearchDocument {
     pullRequestChecks,
     pullRequestUrl,
     portLabel,
-    ports,
     searchText,
     activityAt: session.status === "open"
       ? rootStore.last_activity[session.id] ?? session.created_at

@@ -57,7 +57,7 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, fragment credentials, pairing/tab identity/relocation; `tenant-routing.ts`, `managed-routes.ts`, `managed-auth-gateway.ts`, `managed-login.ts`, `managed-account.ts`, `managed-credentials.ts`, and `managed-logout.ts` own managed policy/transitions | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | six global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules | component-local one-offs |
-| `apps/web/tests/` | 112 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
+| `apps/web/tests/` | 115 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
 | `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
 

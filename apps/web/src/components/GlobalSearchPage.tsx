@@ -138,7 +138,7 @@ export function GlobalSearchPage() {
         flex: "1",
         overflow: "auto",
         padding: "var(--md-space-3) var(--md-space-5) var(--md-space-5)",
-        "padding-bottom": "calc(var(--md-space-5) + max(var(--kb-offset), 0px))",
+        "padding-bottom": "calc(var(--md-space-5) + var(--kb-offset))",
       }}>
         <div
           role="status"

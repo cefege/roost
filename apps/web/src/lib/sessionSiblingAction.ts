@@ -3,6 +3,7 @@
 // and navigation sequence remains guarded at every asynchronous boundary.
 
 import type { Navigator } from "@solidjs/router";
+import { diag } from "@roost/shared/diag";
 import type { Session } from "@roost/shared/wire";
 import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "./spawnSession.ts";
 import {
@@ -16,6 +17,7 @@ interface SessionSiblingActionDeps {
   maybeAutoLaunchAgent: typeof maybeAutoLaunchAgent;
   captureDashboardResourceToken: typeof captureDashboardResourceToken;
   isCurrentDashboardResourceToken: typeof isCurrentDashboardResourceToken;
+  recordDiagnostic: typeof diag;
 }
 
 const defaultSessionSiblingActionDeps: SessionSiblingActionDeps = {
@@ -24,6 +26,7 @@ const defaultSessionSiblingActionDeps: SessionSiblingActionDeps = {
   maybeAutoLaunchAgent,
   captureDashboardResourceToken,
   isCurrentDashboardResourceToken,
+  recordDiagnostic: diag,
 };
 
 export async function spawnSessionSibling(
@@ -42,6 +45,8 @@ export async function spawnSessionSibling(
     if (projectedSession) navigate(`/s/${projectedSession.id}`, { replace: false });
   } catch (error) {
     if (!deps.isCurrentDashboardResourceToken(dashboardToken)) return;
-    console.warn("[ctx] new terminal failed", error);
+    deps.recordDiagnostic("session.sibling_spawn_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
