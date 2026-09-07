@@ -847,6 +847,28 @@ ConnectError) is the OTHER pattern — it applies BEFORE the DB write, not after
 **Guard** — `scripts/lint-roost.ts` rule
 `"L11: raw JSON.parse() inside a *Bus.publish() payload — parse-after-commit 500s the RPC → split-brain; use safeJsonParse"`.
 
+### A coordinator-global setting stored in a dashboard scope bricks self-hosted boot
+
+**Symptom** — "fatal: self-hosted tenant invariant violation: app_settings contains invalid dashboard
+scope" — the coordinator exits at startup the first time `ROOST_SAAS_MODE` is removed, on a database
+that runs fine in managed mode.
+
+**Wrong** — relax the guard, or hand-delete the offending row on the live database. Also wrong: the
+drift that causes it — writing `push.vapid` with a `dashboard_id`, when `apps/coord/src/vapid.ts`
+reads and writes that keypair only at the explicit NULL scope, so a scoped copy is unreachable by
+every code path that exists.
+
+**Right** — the guard is correct in both modes (`apps/coord/src/self-hosted-tenant.ts` and
+`apps/coord/src/managed-container-invariant.ts` enforce the same rule), so repair the data in a
+numbered migration: `apps/coord/migrations/0029_global_push_vapid_identity.sql` drops the unreachable
+scoped copies, and promotes the newest one to NULL scope when no global row exists rather than
+discarding the identity that signed the live push subscriptions. A coordinator-global setting belongs
+in the NULL scope; every dashboard-scoped key stays scoped.
+
+**Guard** — `apps/coord/tests/push-vapid-scope-migration.test.ts`: the live shape (a global row plus a
+scoped duplicate) fails admission before the migration and admits after it, promotion keeps the sole
+scoped identity, and a NULL-scoped ordinary key is still refused by the tenancy guard.
+
 ---
 
 ## Browser platform reality
