@@ -163,23 +163,40 @@ export async function hostProcessNames(): Promise<readonly string[]> {
 }
 
 /** Does anything accept a connection on `host:port`? A refused connect is the
- * fault this answers, so only a successful connect counts as listening. */
+ * fault this answers, so only a successful connect counts as listening.
+ * Bounded: a firewalled bind that DROPs rather than refuses would otherwise
+ * hang the one command an operator runs when a host already misbehaves.
+ * Loopback answers in microseconds, so the bound costs nothing when healthy. */
+const BIND_PROBE_TIMEOUT_MS = 1_000;
+
 export async function hostBindHasListener(bind: string): Promise<boolean> {
   const separator = bind.lastIndexOf(":");
   if (separator <= 0) return false;
   const host = bind.slice(0, separator).replace(/^\[|\]$/g, "") || "127.0.0.1";
   const port = Number(bind.slice(separator + 1));
   if (!Number.isInteger(port) || port <= 0 || port > 65_535) return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const socket = await Bun.connect({
+    const connected = Bun.connect({
       hostname: host,
       port,
       socket: { data() {}, error() {} },
     });
+    const expiry = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), BIND_PROBE_TIMEOUT_MS);
+      timer.unref?.();
+    });
+    const socket = await Promise.race([connected, expiry]);
+    if (!socket) {
+      void connected.then((late) => late.end()).catch(() => {});
+      return false;
+    }
     socket.end();
     return true;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
