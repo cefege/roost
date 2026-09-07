@@ -95,9 +95,9 @@ function firstLeaf(node: PaneNode): PaneLeaf {
 /** Flatten a layout's pane tree into one ordered tab list for compact/mobile.
  * Pane topology stays desktop-only while the phone paints one terminal.
  * Order is first-before-second leaf order, then tab order within each leaf.
- * Compact tab selection normally focuses its owning pane; when an imported
- * desktop layout intentionally focuses an empty leaf, selection navigates
- * view-only until an explicit layout mutation changes that preserved focus.
+ * Compact tab selection normally focuses its owning pane; when a stored layout
+ * focuses an empty leaf, selection navigates view-only until an explicit layout
+ * mutation changes that preserved focus.
  * Each entry carries its owning pane ID for the persistent-selection path. */
 export function flatTabs(root: PaneNode): { tabId: string; paneId: string }[] {
   return allLeaves(root).flatMap((leaf) =>
@@ -156,8 +156,10 @@ function removeTabEverywhere(node: PaneNode, tab: string): PaneNode {
   return { ...node, a: removeTabEverywhere(node.a, tab), b: removeTabEverywhere(node.b, tab) };
 }
 
-/** Bottom-up collapse limited to leaves emptied by the calling operation. */
-function collapseEmpties(
+/** Bottom-up collapse limited to the empty leaves the caller nominates: a
+ * split losing a child is replaced by that child's surviving sibling. An empty
+ * root leaf has no parent to collapse into, so it survives. */
+export function collapseEmpties(
   node: PaneNode,
   collapsiblePaneIds: ReadonlySet<string>,
 ): PaneNode {
@@ -194,7 +196,7 @@ function normalizeSplitRatios(node: PaneNode): PaneNode {
 }
 
 /** Point focus at a real pane; if `preferred` is gone, fall back to first leaf. */
-function fixFocus(root: PaneNode, preferred: string): string {
+export function fixFocus(root: PaneNode, preferred: string): string {
   return findLeaf(root, preferred) ? preferred : firstLeaf(root).paneId;
 }
 

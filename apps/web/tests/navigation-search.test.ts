@@ -117,6 +117,7 @@ function agentStatus(
     completed_revision: completedRevision,
     updated_at: updatedAt,
     active: true,
+    occupant_exited: false,
     ...identity,
   };
 }

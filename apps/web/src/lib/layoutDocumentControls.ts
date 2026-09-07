@@ -7,8 +7,8 @@ import { batch, createEffect, createSignal, onCleanup } from "solid-js";
 import type { LayoutDocumentV1 } from "@roost/shared/layout-document";
 import {
   applyLayoutDocument,
+  degradeLayoutDocumentToLiveSessions,
   exportLayoutDocument,
-  validateLayoutDocumentImport,
 } from "../store/paneLayoutDocument.ts";
 import {
   downloadLayoutDocument,
@@ -26,15 +26,16 @@ import { liveSessionIdsForFolder } from "../store/selectors.ts";
 import { clearSpotlight } from "../store/spotlight.ts";
 import { sessionHref } from "../routes.ts";
 
-interface LayoutImportAttempt {
+export interface LayoutImportAttempt {
   folderKey: string;
   dashboardToken: DashboardResourceToken;
 }
 
-interface LayoutImportPreviewState {
+export interface LayoutImportPreviewState {
   attempt: LayoutImportAttempt;
   fileName: string;
   document: LayoutDocumentV1 | null;
+  droppedSessionCount: number;
   error: string | null;
   reading: boolean;
 }
@@ -44,7 +45,18 @@ export interface LayoutDocumentControlContext {
   navigate: (href: string) => void;
 }
 
-export function createLayoutDocumentControls(context: LayoutDocumentControlContext) {
+export interface LayoutDocumentControls {
+  applyImportedLayout: () => void;
+  closeImport: () => void;
+  copyLayout: () => void;
+  downloadLayout: () => void;
+  importLayout: () => void;
+  preview: () => LayoutImportPreviewState | null;
+}
+
+export function createLayoutDocumentControls(
+  context: LayoutDocumentControlContext,
+): LayoutDocumentControls {
   const [preview, setPreview] = createSignal<LayoutImportPreviewState | null>(null);
   const [activeImport, setActiveImport] = createSignal<LayoutImportAttempt | null>(null);
   let disposed = false;
@@ -113,7 +125,7 @@ export function createLayoutDocumentControls(context: LayoutDocumentControlConte
       const source = await file.text();
       if (!isActiveImport(attempt)) return;
       const candidate: unknown = JSON.parse(source);
-      const document = validateLayoutDocumentImport(
+      const degraded = degradeLayoutDocumentToLiveSessions(
         candidate,
         liveSessionIdsForFolder(attempt.folderKey),
       );
@@ -121,7 +133,8 @@ export function createLayoutDocumentControls(context: LayoutDocumentControlConte
       setPreview({
         attempt,
         fileName: file.name,
-        document,
+        document: degraded.document,
+        droppedSessionCount: degraded.droppedSessionCount,
         error: null,
         reading: false,
       });
@@ -131,6 +144,7 @@ export function createLayoutDocumentControls(context: LayoutDocumentControlConte
         attempt,
         fileName: file.name,
         document: null,
+        droppedSessionCount: 0,
         error: layoutDocumentErrorMessage(error),
         reading: false,
       });
@@ -152,6 +166,7 @@ export function createLayoutDocumentControls(context: LayoutDocumentControlConte
         attempt,
         fileName: file.name,
         document: null,
+        droppedSessionCount: 0,
         error: null,
         reading: true,
       });

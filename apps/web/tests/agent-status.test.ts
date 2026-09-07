@@ -1,13 +1,11 @@
 // Browser agent-status tests cover legacy display, occupant-pinned seen state,
-// notification scheduling, and presentation rollups. Fake profile storage
-// exercises migration and cross-tab events without a browser runtime.
+// notification scheduling, and presentation rollups. Released-occupant
+// retirement lives in the sibling agent-status-exit.test.ts; the fake profile
+// storage both files share lives in ./agent-status-test-harness.ts.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "bun:test";
-import { create } from "@bufbuild/protobuf";
 import {
-  AgentOccupantId,
   AgentStatus,
-  StatusEpoch,
   asChannelId,
   asSessionId,
   asWorkerFp,
@@ -15,7 +13,6 @@ import {
   type AgentStatusIdentity,
   type SessionEvent,
 } from "@roost/shared/wire";
-import { AgentStatusFrameSchema } from "@roost/shared/proto/sync_pb";
 import {
   applyAgentStatusFrame,
   resetAgentStatusProjection,
@@ -41,58 +38,22 @@ import {
   countUnseenAgentStatuses,
   type AgentNotificationDelivery,
 } from "../src/lib/agentNotificationCore.ts";
+import {
+  IDENTITY_A,
+  IDENTITY_B,
+  OTHER_ID,
+  SESSION_ID,
+  fakeWindow,
+  frame,
+  installBrowserProfileGlobals,
+  status,
+  storage,
+} from "./agent-status-test-harness.ts";
 
-const SESSION_ID = asSessionId("11111111-1111-4111-8111-111111111111");
-const OTHER_ID = asSessionId("22222222-2222-4222-8222-222222222222");
 const WORKER = asWorkerFp("aa".repeat(32));
-const EPOCH_A = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-const OCCUPANT_A = AgentOccupantId.parse("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa");
-const OCCUPANT_B = AgentOccupantId.parse("bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb");
-const IDENTITY_A: AgentStatusIdentity = {
-  status_epoch: EPOCH_A,
-  occupant_id: OCCUPANT_A,
-  source: "integration",
-};
-const IDENTITY_B: AgentStatusIdentity = {
-  status_epoch: EPOCH_A,
-  occupant_id: OCCUPANT_B,
-  source: "integration",
-};
+let restoreBrowserProfileGlobals = () => {};
 
-class MemoryStorage implements Storage {
-  private readonly values = new Map<string, string>();
-  get length(): number { return this.values.size; }
-  clear(): void { this.values.clear(); }
-  getItem(key: string): string | null { return this.values.get(key) ?? null; }
-  key(index: number): string | null { return [...this.values.keys()][index] ?? null; }
-  removeItem(key: string): void { this.values.delete(key); }
-  setItem(key: string, value: string): void { this.values.set(key, String(value)); }
-}
-
-class FakeWindow {
-  private readonly listeners = new Map<string, Set<(event: any) => void>>();
-  addEventListener(type: string, listener: (event: any) => void): void {
-    const listeners = this.listeners.get(type) ?? new Set();
-    listeners.add(listener);
-    this.listeners.set(type, listeners);
-  }
-  removeEventListener(type: string, listener: (event: any) => void): void {
-    this.listeners.get(type)?.delete(listener);
-  }
-  emit(type: string, event: any): void {
-    for (const listener of this.listeners.get(type) ?? []) listener(event);
-  }
-}
-
-const storage = new MemoryStorage();
-const fakeWindow = new FakeWindow();
-const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-
-beforeAll(() => {
-  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
-  Object.defineProperty(globalThis, "window", { configurable: true, value: fakeWindow });
-});
+beforeAll(() => { restoreBrowserProfileGlobals = installBrowserProfileGlobals(); });
 
 beforeEach(() => {
   storage.clear();
@@ -102,48 +63,7 @@ beforeEach(() => {
 
 afterEach(() => vi.useRealTimers());
 
-afterAll(() => {
-  if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
-  else Reflect.deleteProperty(globalThis, "localStorage");
-  if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
-  else Reflect.deleteProperty(globalThis, "window");
-});
-
-function status(
-  state: AgentStatusValue["state"],
-  revision: number,
-  completedRevision = 0,
-  sessionId = SESSION_ID,
-  agentId = "omp",
-  identity?: AgentStatusIdentity,
-): AgentStatusValue {
-  return AgentStatus.parse({
-    session_id: sessionId,
-    agent_id: agentId,
-    state,
-    revision,
-    completed_revision: completedRevision,
-    updated_at: revision,
-    active: true,
-    ...identity,
-  });
-}
-
-function frame(value: AgentStatusValue | (Omit<AgentStatusValue, "active"> & { active: false })) {
-  return create(AgentStatusFrameSchema, {
-    sessionId: value.session_id,
-    agentId: value.agent_id,
-    state: value.state,
-    message: value.message,
-    revision: BigInt(value.revision),
-    completedRevision: BigInt(value.completed_revision),
-    updatedAt: value.updated_at,
-    active: value.active,
-    statusEpoch: value.status_epoch,
-    occupantId: value.occupant_id,
-    source: value.source,
-  });
-}
+afterAll(() => { restoreBrowserProfileGlobals(); });
 
 function opened(): Extract<SessionEvent, { kind: "opened" }> {
   return {

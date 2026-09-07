@@ -7,14 +7,14 @@ import { createEffect, onCleanup, onMount } from "solid-js";
 import type { AgentStatus } from "@roost/shared/wire";
 import { SessionId } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
-import { subscribeAgentStatus } from "../store/agent-status.ts";
+import { retireSpentReleasedAgentStatuses, subscribeAgentStatus } from "../store/agent-status.ts";
 import { activeSessionForPath } from "../store/selectors.ts";
 import {
   markAgentSeen,
   seenAgentRevision,
   startAgentSeenPersistence,
 } from "../lib/agentSeen.ts";
-import { pageVisible, isPageVisible } from "../lib/pageVisible.ts";
+import { isPageFocused, isPageVisible, pageFocused, pageVisible } from "../lib/pageVisible.ts";
 import { notifyPrefs } from "../lib/notifyPrefs.ts";
 import { addToast } from "../store/toastStore.ts";
 import { ensurePushSubscription } from "../lib/push-client.ts";
@@ -61,6 +61,15 @@ function playCue(kind: AgentNotificationKind): void {
   } catch { /* audio is an optional delivery surface */ }
 }
 
+/** Acknowledgement is herdr's active-tab suppression: the session must be the
+ * one on screen AND this window must own input focus, so a Roost tab parked on
+ * a second monitor keeps its blocked and done rows instead of silently marking
+ * them seen. Delivery gating stays on visibility alone. */
+export function _viewingAgentSession(pathname: string, sessionId: string): boolean {
+  return isPageVisible()
+    && isPageFocused()
+    && activeSessionForPath(pathname)?.id === sessionId;
+}
 
 export function AgentNotificationBridge() {
   const location = useLocation();
@@ -78,8 +87,7 @@ export function AgentNotificationBridge() {
     const { sessionId } = delivery;
     let status = rootStore.agent_status[sessionId] as AgentStatus | undefined;
     if (!matchesAgentNotification(status, delivery)) return;
-    const active = activeSessionForPath(location.pathname);
-    if (isPageVisible() && active?.id === sessionId) {
+    if (_viewingAgentSession(location.pathname, sessionId)) {
       markAgentSeen(status);
       return;
     }
@@ -119,15 +127,14 @@ export function AgentNotificationBridge() {
   const scheduler = new AgentNotificationScheduler({
     statusFor: (sessionId) =>
       rootStore.agent_status[sessionId] as AgentStatus | undefined,
-    isViewed: (sessionId) =>
-      isPageVisible() && activeSessionForPath(location.pathname)?.id === sessionId,
+    isViewed: (sessionId) => _viewingAgentSession(location.pathname, sessionId),
     markSeen: (status) => { markAgentSeen(status); },
     deliver: (delivery) => { void deliver(delivery); },
   });
 
   createEffect(() => {
     const path = location.pathname;
-    if (!pageVisible()) return;
+    if (!pageVisible() || !pageFocused()) return;
     const session = activeSessionForPath(path);
     if (!session) return;
     const status = rootStore.agent_status[session.id] as AgentStatus | undefined;
@@ -138,6 +145,13 @@ export function AgentNotificationBridge() {
   createEffect(() => {
     const enabled = notifyPrefs().desktop;
     if (enabled) void ensurePushSubscription();
+  });
+
+  // Acknowledging the completion of an occupant that has already exited leaves
+  // nothing for its row to describe. The sweep runs here rather than beside
+  // markAgentSeen because a second tab sharing this profile can acknowledge it.
+  createEffect(() => {
+    retireSpentReleasedAgentStatuses();
   });
 
   createEffect(() => {

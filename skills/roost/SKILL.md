@@ -19,6 +19,8 @@ If that check fails, say that this process is not running in a ROOST session and
 
 The CLI identity is dashboard-scoped, not PTY-scoped. It can therefore see resources beyond the caller's session. `$ROOST_SESSION_ID` identifies only the current shell PTY; it does not narrow the CLI key's authority.
 
+The installed binary is the authority for command syntax. Run `roost api` for the current verb line and `roost skill` for this text before reusing a remembered invocation.
+
 Before any mutation, require a fresh authenticated command to exit successfully and return parseable JSON:
 
 ```sh

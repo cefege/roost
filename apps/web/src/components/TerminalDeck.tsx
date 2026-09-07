@@ -289,6 +289,7 @@ export function TerminalDeck(props: TerminalDeckProps) {
             open
             fileName={preview().fileName}
             document={preview().document}
+            droppedSessionCount={preview().droppedSessionCount}
             error={preview().error}
             reading={preview().reading}
             onClose={layoutDocuments.closeImport}

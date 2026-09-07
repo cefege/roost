@@ -1,6 +1,10 @@
 // Volatile coding-agent status projection. Sync frames are admitted by exact
 // worker epoch and process occupant; displaced identities remain retired so
 // delayed frames cannot reclaim a session or erase its current occupant.
+// Every admitted change also takes a browser-assigned arrival number, because
+// attention ordering across machines cannot compare producing workers' clocks.
+// A row whose occupant already exited is kept only while this browser profile
+// still owes it a completion; acknowledgement retires it (./agentSeen.ts).
 
 import {
   AgentStatus,
@@ -14,7 +18,8 @@ import {
 } from "@roost/shared/wire";
 import type { AgentStatusFrame } from "@roost/shared/proto/sync_pb";
 import { signal } from "@roost/shared/diag";
-import { sameAgentStatusOccupant } from "../lib/agentStatus.ts";
+import { seenAgentRevision } from "../lib/agentSeen.ts";
+import { deriveAgentStatusLevel, sameAgentStatusOccupant } from "../lib/agentStatus.ts";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 
 export interface AgentStatusChange {
@@ -36,6 +41,25 @@ interface AgentStatusAdmission {
 const admissionBySession = new Map<string, AgentStatusAdmission>();
 const subscribers = new Set<(change: AgentStatusChange) => void>();
 const closedSessionIds = new Set<string>();
+
+const arrivalBySession = new Map<string, { identity: string; arrival: number }>();
+let lastArrival = 0;
+
+/** Browser arrival order of a session's current status; 0 when it has none.
+ *  Monotonic per browser, so a worker whose wall clock runs ahead cannot pin
+ *  its sessions to the top of an attention list. */
+export function agentStatusArrival(sessionId: string): number {
+  return arrivalBySession.get(sessionId)?.arrival ?? 0;
+}
+
+function recordArrival(update: AgentStatusUpdateValue): void {
+  const identity = isIdentifiedAgentStatus(update)
+    ? `${update.status_epoch}:${update.occupant_id}:${update.revision}`
+    : `:${update.revision}`;
+  if (arrivalBySession.get(update.session_id)?.identity === identity) return;
+  lastArrival += 1;
+  arrivalBySession.set(update.session_id, { identity, arrival: lastArrival });
+}
 
 function publish(change: AgentStatusChange): void {
   for (const subscriber of subscribers) {
@@ -176,6 +200,15 @@ function recordAcceptedStatus(
   }
 }
 
+/** A released occupant's row is retained only to carry the completion that
+ *  occupant earned. Presented as anything but Done it describes an agent that
+ *  is gone and a completion this profile already acknowledged, so it is spent
+ *  and retires exactly as an inactive frame would retire it. */
+function releasedOccupantIsSpent(status: AgentStatusValue): boolean {
+  return status.occupant_exited
+    && deriveAgentStatusLevel(status, seenAgentRevision(status)) !== "done";
+}
+
 /** Validate, fence, and project one Sync AgentStatusFrame. */
 export function applyAgentStatusFrame(frame: AgentStatusFrame): boolean {
   const parsed = AgentStatusUpdate.safeParse({
@@ -190,6 +223,7 @@ export function applyAgentStatusFrame(frame: AgentStatusFrame): boolean {
     status_epoch: frame.statusEpoch,
     occupant_id: frame.occupantId,
     source: frame.source,
+    occupant_exited: frame.occupantExited,
   });
   if (!parsed.success) {
     signal("diag.corruption_signal", {
@@ -207,24 +241,23 @@ export function applyAgentStatusFrame(frame: AgentStatusFrame): boolean {
   if (!acceptsStatus(admission, current, update)) return false;
   recordAcceptedStatus(admission, update);
 
-  if (update.active) {
-    const active = AgentStatus.parse(update);
-    setRootStore("agent_status", active.session_id, active);
-    publish({
-      sessionId: active.session_id,
-      previous: current,
-      next: active,
-      revision: active.revision,
-    });
+  const active = update.active ? AgentStatus.parse(update) : null;
+  const retained = active && !releasedOccupantIsSpent(active) ? active : null;
+  if (retained) {
+    // Ordered before the store write: the navigation projection reads both in
+    // the same recomputation.
+    recordArrival(update);
+    setRootStore("agent_status", retained.session_id, retained);
   } else {
+    arrivalBySession.delete(update.session_id);
     deleteStoreRecord("agent_status", update.session_id);
-    publish({
-      sessionId: update.session_id,
-      previous: current,
-      next: null,
-      revision: update.revision,
-    });
   }
+  publish({
+    sessionId: update.session_id,
+    previous: current,
+    next: retained,
+    revision: update.revision,
+  });
   return true;
 }
 
@@ -241,8 +274,23 @@ export function clearAgentStatusForSession(sessionId: string): void {
   } else {
     admission.legacyFloor = Math.max(admission.legacyFloor, current.revision);
   }
+  arrivalBySession.delete(sessionId);
   deleteStoreRecord("agent_status", sessionId);
   publish({ sessionId, previous: current, next: null, revision: current.revision });
+}
+
+/** Retire released occupants this profile has nothing left to show for.
+ *  Acknowledgement is browser-profile state that also arrives from another tab
+ *  through the shared acknowledgement store, so the sweep is driven from the
+ *  acknowledgement side rather than from the frame that produced the row. */
+export function retireSpentReleasedAgentStatuses(): void {
+  for (const [sessionId, value] of Object.entries(rootStore.agent_status)) {
+    const current = value as AgentStatusValue;
+    if (!releasedOccupantIsSpent(current)) continue;
+    arrivalBySession.delete(sessionId);
+    deleteStoreRecord("agent_status", sessionId);
+    publish({ sessionId, previous: detach(current), next: null, revision: current.revision });
+  }
 }
 
 /** Drop every dashboard's identity fences and notify subscribers so delayed
@@ -250,6 +298,7 @@ export function clearAgentStatusForSession(sessionId: string): void {
 export function resetAgentStatusProjection(): void {
   const currentStatuses = Object.entries(rootStore.agent_status);
   admissionBySession.clear();
+  arrivalBySession.clear();
   closedSessionIds.clear();
   for (const [sessionId, current] of currentStatuses) {
     deleteStoreRecord("agent_status", sessionId);

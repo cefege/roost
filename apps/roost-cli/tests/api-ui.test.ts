@@ -312,7 +312,7 @@ describe("UI API CLI", () => {
       "apply-layout", "layout.json", "--tab", "tab-target",
     ]);
     await expect(absentInvocation.promise).resolves.toBe(true);
-    expect(absentInvocation.output).toEqual(["target-gone"]);
+    expect(absentInvocation.output).toEqual(["target_gone"]);
     expect(absentInvocation.errors).toEqual(["target acknowledgement unavailable"]);
     expect(absentInvocation.exits).toEqual([1]);
     expect(absent.calls.map((call) => call.method)).toEqual(["list"]);
@@ -334,7 +334,7 @@ describe("UI API CLI", () => {
     for (const [outcome, label, exits] of [
       [UiApplyLayoutOutcome.APPLIED, "applied", []],
       [UiApplyLayoutOutcome.REJECTED, "rejected", [1]],
-      [UiApplyLayoutOutcome.TARGET_GONE, "target-gone", [1]],
+      [UiApplyLayoutOutcome.TARGET_GONE, "target_gone", [1]],
     ] as const) {
       const { client, calls } = fakeClient({
         tabs: [applyTargetTab("target-fingerprint")],

@@ -236,42 +236,39 @@ describe("pane layout document apply", () => {
     )).toEqual(document);
   });
 
-  test("round-trips intentional empty branches through future resolves", () => {
-    const document: LayoutDocumentV1 = {
-      schema_version: 1,
-      root: {
-        kind: "split",
-        direction: "row",
-        ratio: 0.5,
-        first: {
-          kind: "leaf",
-          leaf_key: "leaf-1",
-          slot_keys: [],
-          selected_slot_key: null,
+  test("collapses a session-less leaf into its sibling before commit", () => {
+    for (const focusedLeafKey of ["leaf-1", "leaf-2"]) {
+      const folderKey = `empty-branch-${focusedLeafKey}`;
+      const applied = layoutDocuments.applyLayoutDocument(
+        folderKey,
+        {
+          schema_version: 1,
+          root: {
+            kind: "split",
+            direction: "row",
+            ratio: 0.5,
+            first: { kind: "leaf", leaf_key: "leaf-1", slot_keys: [], selected_slot_key: null },
+            second: {
+              kind: "leaf",
+              leaf_key: "leaf-2",
+              slot_keys: ["slot-1"],
+              selected_slot_key: "slot-1",
+            },
+          },
+          focused_leaf_key: focusedLeafKey,
+          bindings: [{ slot_key: "slot-1", session_id: SESSION_A }],
         },
-        second: {
-          kind: "leaf",
-          leaf_key: "leaf-2",
-          slot_keys: ["slot-1"],
-          selected_slot_key: "slot-1",
-        },
-      },
-      focused_leaf_key: "leaf-1",
-      bindings: [{ slot_key: "slot-1", session_id: SESSION_A }],
-    };
-    const applied = layoutDocuments.applyLayoutDocument(
-      "empty-branch",
-      document,
-      [SESSION_A],
-    );
-    expect(applied.selectedSessionId).toBeNull();
-    const resolved = paneStore.resolveLayout("empty-branch", [SESSION_A]);
-    expect(resolved.root.kind).toBe("split");
-    expect(resolved.focusedPaneId).toBe(applied.layout.focusedPaneId);
-    expect(layoutDocuments.exportLayoutDocument(
-      "empty-branch",
-      [SESSION_A],
-    )).toEqual(document);
+        [SESSION_A],
+      );
+      expect(applied.layout.root).toEqual({
+        kind: "leaf",
+        paneId: applied.layout.focusedPaneId,
+        tabs: [SESSION_A],
+        selectedTab: SESSION_A,
+      });
+      expect(applied.selectedSessionId).toBe(SESSION_A);
+      expect(paneStore.resolveLayout(folderKey, [SESSION_A])).toEqual(applied.layout);
+    }
   });
 
   test("appends extra live sessions canonically to the focused leaf", () => {

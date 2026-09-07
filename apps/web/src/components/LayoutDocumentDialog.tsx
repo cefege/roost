@@ -15,6 +15,7 @@ interface LayoutDocumentDialogProps {
   open: boolean;
   fileName: string;
   document: LayoutDocumentV1 | null;
+  droppedSessionCount: number;
   error: string | null;
   reading: boolean;
   onClose: () => void;
@@ -76,6 +77,20 @@ export function LayoutDocumentDialog(props: LayoutDocumentDialogProps) {
             </Surface>
           )}
         </Show>
+        <Show when={props.droppedSessionCount > 0}>
+          <Surface
+            level={2}
+            radius="md"
+            pad={4}
+            border
+            role="status"
+            data-testid="layout-import-dropped"
+          >
+            <span class="md-body-m" style={{ color: "var(--md-sys-color-tertiary)" }}>
+              {droppedNotice(props.droppedSessionCount)}
+            </span>
+          </Surface>
+        </Show>
         <Show when={!props.reading && !props.error && props.document}>
           <Surface level={2} radius="md" pad={4} border>
             <div
@@ -97,6 +112,12 @@ export function LayoutDocumentDialog(props: LayoutDocumentDialogProps) {
       </div>
     </Dialog>
   );
+}
+
+function droppedNotice(droppedSessionCount: number): string {
+  return droppedSessionCount === 1
+    ? "1 saved session is no longer live and was dropped from this layout."
+    : `${droppedSessionCount} saved sessions are no longer live and were dropped from this layout.`;
 }
 
 function describeDocument(document: LayoutDocumentV1): string[] {

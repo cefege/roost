@@ -44,6 +44,15 @@ export function GlobalSearchContentResults(props: GlobalSearchContentResultsProp
     props.controller.retry();
     queueMicrotask(() => resultSummaryElement?.focus());
   }
+  // Sessions past the coordinator's page cap are eligible but never searched,
+  // so `searched < eligible` is real missing coverage, not a rounding detail.
+  const partialCoverage = createMemo(() => {
+    const eligible = props.controller.eligibleSessions();
+    return eligible > 0 && props.controller.searchedSessions() < eligible;
+  });
+  const unsearchedSessions = createMemo(() =>
+    Math.max(props.controller.eligibleSessions() - props.controller.searchedSessions(), 0)
+  );
   const resultSummary = createMemo(() => {
     if (!props.query().trim()) return "Search retained terminal content with the field above.";
     if (waiting() && !props.controller.hasSearched()) return "Searching retained terminal content…";
@@ -52,14 +61,17 @@ export function GlobalSearchContentResults(props: GlobalSearchContentResultsProp
     const searched = props.controller.searchedSessions();
     const eligible = props.controller.eligibleSessions();
     const matchesLabel = `${matchCount} ${matchCount === 1 ? "match" : "matches"}`;
-    if (eligible > 0) return `${matchesLabel} across ${searched} of ${eligible} sessions searched`;
-    return matchesLabel;
+    if (eligible === 0) return matchesLabel;
+    return partialCoverage()
+      ? `${matchesLabel} across ${searched} of ${eligible} sessions — coverage is partial`
+      : `${matchesLabel} across all ${eligible} sessions searched`;
   });
   const incomplete = createMemo(() =>
     props.controller.truncated()
     || props.controller.nextCursor() !== undefined
     || props.controller.partials().length > 0
     || missingProjectionMatches() > 0
+    || partialCoverage()
     || (props.controller.error() !== null && joinedMatches().length > 0)
   );
 
@@ -166,6 +178,12 @@ export function GlobalSearchContentResults(props: GlobalSearchContentResultsProp
             <strong>Search incomplete</strong>
             <Show when={props.controller.nextCursor()}>
               <span>More retained terminal rows are available.</span>
+            </Show>
+            <Show when={partialCoverage()}>
+              <span data-testid="global-content-unsearched">
+                {unsearchedSessions()} of {props.controller.eligibleSessions()} eligible
+                {unsearchedSessions() === 1 ? " session was" : " sessions were"} not searched.
+              </span>
             </Show>
             <Show when={props.controller.truncated() && !props.controller.nextCursor()}>
               <span>The bounded page ended before every retained row could be searched.</span>

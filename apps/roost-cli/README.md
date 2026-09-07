@@ -271,16 +271,16 @@ roost api ui apply-layout <file> --tab <id>
 
 The file must be strict V1 layout JSON and `--tab` is mandatory and nonempty.
 The CLI first reads the retained UI-state projection. No matching tab prints
-`target-gone`; the same tab ID under multiple fingerprints prints `rejected`;
+`target_gone`; the same tab ID under multiple fingerprints prints `rejected`;
 neither path publishes an apply. One match pins its fingerprint/tab tuple into
 at most one apply RPC, so a browser that later reuses the tab ID cannot take
 over the request.
 
-Stdout is exactly one of `applied`, `rejected`, or `target-gone`. `rejected`
-and `target-gone` set a nonzero exit code. A stable sanitized reason, when
+Stdout is exactly one of `applied`, `rejected`, or `target_gone`. `rejected`
+and `target_gone` set a nonzero exit code. A stable sanitized reason, when
 present, is written to stderr. `applied` proves a commit after the browser's
 navigation attempt, not successful navigation completion. The apply RPC is
-never retried. `target-gone` means the exact fingerprint/tab/socket
+never retried. `target_gone` means the exact fingerprint/tab/socket
 acknowledgement became unavailable through absence, close, replacement, or
 timeout; it is not proof that the browser did not commit the layout.
 

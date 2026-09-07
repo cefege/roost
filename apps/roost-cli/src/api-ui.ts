@@ -378,10 +378,10 @@ async function publishLegacyCommand(
   }
 }
 
-function applyOutcomeLabel(outcome: UiApplyLayoutOutcome): "applied" | "rejected" | "target-gone" {
+function applyOutcomeLabel(outcome: UiApplyLayoutOutcome): "applied" | "rejected" | "target_gone" {
   if (outcome === UiApplyLayoutOutcome.APPLIED) return "applied";
   if (outcome === UiApplyLayoutOutcome.REJECTED) return "rejected";
-  if (outcome === UiApplyLayoutOutcome.TARGET_GONE) return "target-gone";
+  if (outcome === UiApplyLayoutOutcome.TARGET_GONE) return "target_gone";
   throw new Error("ui apply-layout: coordinator returned an invalid outcome");
 }
 

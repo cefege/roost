@@ -3,18 +3,15 @@
 // one grid epoch; deep matches backfill before reveal. CellTerminal owns it.
 
 import { createSignal } from "solid-js";
-import { SearchStopReason } from "@roost/shared/proto/coordinator_pb";
-import { TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_PAGES, TERMINAL_SEARCH_MAX_ROWS } from "@roost/shared/terminal-search";
 import { diag } from "@roost/shared/diag";
 import { coordClient } from "../connect.ts";
 import type { CellGridRenderer } from "./cellRenderer.ts";
 import type { FindHit } from "./cellRow.ts";
+import type { FindMatch } from "./terminalFindPaging.ts";
 import {
-  decodePageMatches,
-  searchContinuationIsValid,
-  searchPageRangeIsValid,
-  type FindMatch,
-} from "./terminalFindPaging.ts";
+  runTerminalFindPageChain,
+  type OlderMatchPage,
+} from "./terminalFindPageChain.ts";
 import {
   preferredTerminalFindIndex,
   type TerminalFindPreferredMatch,
@@ -67,6 +64,9 @@ export function createTerminalFind(opts: {
   let disposed = false;
   let activeSearch: { controller: AbortController; searchId: string } | null = null;
   let preferredMatch: TerminalFindPreferredMatch | null = null;
+  // Cursor onto matches older than the published window, set whenever a page
+  // stopped at the match cap. Stepping back past the oldest match spends it.
+  let olderPage: OlderMatchPage | null = null;
 
   /** Current grid numbering of this pane's authoritative frame, "" before the
    *  first frame lands. */
@@ -101,6 +101,7 @@ export function createTerminalFind(opts: {
     setIndex(0);
     setTruncated(false);
     setFailed(false);
+    olderPage = null;
     publish([], 0);
   }
 
@@ -149,10 +150,6 @@ export function createTerminalFind(opts: {
     if (active > 0) void reveal(list[active - 1]!, epochRetryBudget);
   }
 
-  function installFailedPartial(newestFirst: readonly FindMatch[], epochRetryBudget: number): void {
-    installResult(newestFirst, newestFirst.length > 0, true, epochRetryBudget);
-  }
-
   function retryAfterEpochChange(
     mine: number,
     cancellation: AbortController,
@@ -167,9 +164,31 @@ export function createTerminalFind(opts: {
     setFailed(true);
   }
 
-  /** Run one chain; the retry budget covers one grid re-numbering through reveal. */
-  async function searchNow(epochRetryBudget = 1): Promise<void> {
+  /** Choose the match the next publication activates: the newest of a freshly
+   *  slid page, or the one the user was already parked on when it added none. */
+  function preferNewestOf(
+    slid: readonly FindMatch[],
+    parked: readonly FindMatch[],
+  ): void {
+    let choice: FindMatch | null = null;
+    for (const match of slid) {
+      if (choice === null || match.row > choice.row) choice = match;
+    }
+    choice ??= parked[0] ?? null;
+    preferredMatch = choice === null
+      ? null
+      : { gridEpoch: choice.epoch, row: BigInt(choice.row), col: choice.col };
+  }
+
+  /** Run one chain; the retry budget covers one grid re-numbering through
+   *  reveal. `resume` slides onto rows a match cap left unscanned, keeping the
+   *  matches already published under it. */
+  async function searchNow(
+    epochRetryBudget = 1,
+    resume: OlderMatchPage | null = null,
+  ): Promise<void> {
     const q = query();
+    const carried = resume === null ? [] : matches();
     cancelActiveSearch();
     const mine = ++token;
     if (q.length === 0) {
@@ -181,121 +200,53 @@ export function createTerminalFind(opts: {
     const cancellation = new AbortController();
     const searchId = crypto.randomUUID();
     activeSearch = { controller: cancellation, searchId };
-    const initialEpoch = paneEpoch();
-    let requestedEpoch = initialEpoch;
-    let beforeRow: bigint | undefined;
-    const newestFirst: FindMatch[] = [];
-    let pages = 0;
-    const paneAcceptsEpoch = (epoch: string): boolean => (
-      paneEpoch() === epoch || (initialEpoch === "" && paneEpoch() === "" && epoch !== "")
-    );
-
     try {
-      for (;;) {
-        if (!currentSearch(mine, cancellation)) return;
-        if (pages >= TERMINAL_SEARCH_MAX_PAGES) {
-          installFailedPartial(newestFirst, epochRetryBudget);
-          return;
-        }
-        if (!paneAcceptsEpoch(requestedEpoch)) {
-          retryAfterEpochChange(mine, cancellation, epochRetryBudget);
-          return;
-        }
-
-        const remainingMatches = TERMINAL_SEARCH_MAX_MATCHES - newestFirst.length;
-        if (remainingMatches <= 0) {
-          installResult(newestFirst, true, false, epochRetryBudget);
-          return;
-        }
-        const res = await coordClient.sessionsSearchScrollback({
-          sessionId: opts.sessionId,
-          searchId,
-          gridEpoch: requestedEpoch,
-          query: q,
-          caseSensitive: caseSensitive(),
-          regex: regex(),
-          maxRows: TERMINAL_SEARCH_MAX_ROWS,
-          maxMatches: remainingMatches,
-          ...(beforeRow === undefined ? {} : { beforeRow }),
-        }, { signal: cancellation.signal });
-        pages++;
-
-        if (!currentSearch(mine, cancellation)) return;
-        if (res.stopReason === SearchStopReason.EPOCH_CHANGED) {
-          retryAfterEpochChange(mine, cancellation, epochRetryBudget);
-          return;
-        }
-        if (requestedEpoch === "") {
-          if (res.gridEpoch === "") {
-            installFailedPartial(newestFirst, epochRetryBudget);
-            return;
-          }
-          requestedEpoch = res.gridEpoch;
-        } else if (res.gridEpoch !== requestedEpoch) {
-          retryAfterEpochChange(mine, cancellation, epochRetryBudget);
-          return;
-        }
-        if (!paneAcceptsEpoch(requestedEpoch)) {
-          retryAfterEpochChange(mine, cancellation, epochRetryBudget);
-          return;
-        }
-        if (!searchPageRangeIsValid(res, beforeRow)) {
-          installFailedPartial(newestFirst, epochRetryBudget);
-          return;
-        }
-
-        const pageMatches = decodePageMatches(res, requestedEpoch);
-        if (pageMatches === null || pageMatches.length > remainingMatches) {
-          installFailedPartial(newestFirst, epochRetryBudget);
-          return;
-        }
-        newestFirst.push(...pageMatches);
-
-        if (
-          res.stopReason !== SearchStopReason.ROW_LIMIT
-          && res.nextBeforeRow !== undefined
-        ) {
-          installFailedPartial(newestFirst, epochRetryBudget);
-          return;
-        }
-        if (res.stopReason === SearchStopReason.COMPLETE) {
-          installResult(newestFirst, false, false, epochRetryBudget);
-          return;
-        }
-        if (res.stopReason === SearchStopReason.MATCH_LIMIT) {
-          installResult(
-            newestFirst.slice(0, TERMINAL_SEARCH_MAX_MATCHES),
-            true, false, epochRetryBudget,
-          );
-          return;
-        }
-        if (res.stopReason === SearchStopReason.DEADLINE) {
-          installResult(newestFirst, true, true, epochRetryBudget);
-          return;
-        }
-        if (
-          res.stopReason !== SearchStopReason.ROW_LIMIT
-          || !searchContinuationIsValid(res, beforeRow)
-        ) {
-          installFailedPartial(newestFirst, epochRetryBudget);
-          return;
-        }
-        if (newestFirst.length >= TERMINAL_SEARCH_MAX_MATCHES) {
-          installResult(newestFirst, true, false, epochRetryBudget);
-          return;
-        }
-        beforeRow = res.nextBeforeRow;
-      }
-    } catch {
+      const outcome = await runTerminalFindPageChain({
+        sessionId: opts.sessionId,
+        searchId,
+        query: q,
+        caseSensitive: caseSensitive(),
+        regex: regex(),
+        epoch: resume?.epoch ?? paneEpoch(),
+        resume,
+        signal: cancellation.signal,
+        paneEpoch,
+        current: () => currentSearch(mine, cancellation),
+      });
+      if (outcome.kind === "abandoned") return;
       if (!currentSearch(mine, cancellation)) return;
-      if (!paneAcceptsEpoch(requestedEpoch)) {
+      if (outcome.kind === "epoch-changed") {
         retryAfterEpochChange(mine, cancellation, epochRetryBudget);
         return;
       }
-      installFailedPartial(newestFirst, epochRetryBudget);
+      olderPage = outcome.older;
+      const list = [...carried, ...outcome.matches];
+      if (resume !== null) preferNewestOf(outcome.matches, carried);
+      installResult(
+        list,
+        outcome.truncated || (outcome.failed && list.length > 0),
+        outcome.failed,
+        epochRetryBudget,
+      );
     } finally {
       if (activeSearch?.controller === cancellation) activeSearch = null;
     }
+  }
+
+  /** Spend the older-rows cursor a match cap handed back, so a needle with
+   *  more hits than one page holds stays fully navigable. */
+  async function extendOlderMatches(): Promise<void> {
+    const page = olderPage;
+    if (page === null) return;
+    // Consumed up front so a second keypress cannot start the same page twice.
+    olderPage = null;
+    diag("scrollback.find_slide_older", {
+      sid: opts.sessionId,
+      before_row: Number(page.beforeRow),
+      pages_used: page.pagesUsed,
+      held_matches: matches().length,
+    });
+    await searchNow(1, page);
   }
 
   /** Drop stale numbering, then spend the one retry against the live pane. */
@@ -380,6 +331,12 @@ export function createTerminalFind(opts: {
     step(delta: number): void {
       const list = matches();
       if (list.length === 0) return;
+      // The published window ends at the oldest match a capped page reached,
+      // so stepping back past it fetches older rows instead of wrapping.
+      if (delta < 0 && index() === 1 && olderPage !== null) {
+        void extendOlderMatches();
+        return;
+      }
       const next = ((index() - 1 + delta) % list.length + list.length) % list.length;
       setIndex(next + 1);
       publish(list, next + 1);

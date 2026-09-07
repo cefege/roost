@@ -52,7 +52,7 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
 | `apps/web/src/components/Settings/` | settings shell/panes; `OrganizationPane.tsx` and `DashboardPane.tsx` project confirmed scope, `MachinesPane.tsx` owns workers, `settingsNavigation.ts` hides self-hosted-only scope controls in managed mode | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
-| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `paneLayoutDocument.ts` is the strict portable-document adapter over the browser-local pane store; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
+| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `paneLayoutDocument.ts` is the portable-document adapter over the browser-local pane store — strict for every apply, degrading only for the human-confirmed import preview; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
 | `apps/web/src/lib/` | pure helpers and browser adapters; `layoutDocumentControls.ts` + `layoutDocumentFile.ts` own local transfer, `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, fragment credentials, pairing/tab identity/relocation; `tenant-routing.ts`, `managed-routes.ts`, `managed-auth-gateway.ts`, `managed-login.ts`, `managed-account.ts`, `managed-credentials.ts`, and `managed-logout.ts` own managed policy/transitions | RPC plumbing (`apps/web/src/connect.ts`) or UI |
@@ -132,12 +132,17 @@ Break one of these and you get back the history-corruption class this repo keeps
   redundant visible-session lists never cross the wire.
   The adapter validates and materializes entirely in locals before
   `commitLayout()` exactly once; rejection cannot create a pane signal,
-  subscriber call, persistence timer, or localStorage write. Imported empty
-  leaves survive reconciliation and unrelated mutations; legacy runtime ratios
-  normalize into the shared bounds before rendering/export. Desktop Arrange
-  and the compact workspace-sheet overflow expose the same controls, including
-  for one-session folders. Compact rendering projects the live URL session (or
-  first occupied leaf) without changing the preserved desktop focus/topology.
+  subscriber call, persistence timer, or localStorage write. A leaf holding no
+  session collapses into its sibling before that commit, so no pane commits
+  without a tab strip to close it; a single empty root leaf is the only legal
+  empty result. A human-confirmed import drops bindings whose session is no
+  longer live, collapses the panes they emptied, and reports that count in the
+  confirm dialog; acknowledged apply stays exact and rejects the same document.
+  Legacy runtime ratios normalize into the shared bounds before rendering or
+  export. Desktop Arrange and the compact workspace-sheet overflow expose the
+  same controls, including for one-session folders. Compact rendering projects
+  the live URL session (or first occupied leaf) without changing the preserved
+  desktop focus/topology.
 - **Acknowledged apply never transfers layout ownership.** `uiLayoutApplyCore.ts`
   accepts only a frame whose nonempty tab, socket, and correlation match the
   page's current identity and Sync-v2 generation. It rechecks that the URL names
@@ -151,7 +156,7 @@ Break one of these and you get back the history-corruption class this repo keeps
   local decision emits one bounded correlation/outcome diagnostic. Invalid
   current membership or document returns a stable sanitized `rejected` reason
   without mutation. Wrong/stale frames are ignored; a result unavailable after
-  socket replacement remains coordinator-side `target-gone` ambiguity and is
+  socket replacement remains coordinator-side `target_gone` ambiguity and is
   never retried. Open pages still ignore one another's layout storage events.
 - **UI reports wait for authoritative session identity.** A client-only
   optimistic `/s/:id` is blanked and omitted from layout bindings. Successful
@@ -165,7 +170,10 @@ Break one of these and you get back the history-corruption class this repo keeps
   provenance. Replaced occupants and epochs stay retired, and seen state,
   notification timers, cross-tab claims, badges, and attention rows use the
   exact occupant revision. Identityless rolling-deployment frames remain
-  displayable but cannot supersede an identified occupant.
+  displayable but cannot supersede an identified occupant. An `occupant_exited`
+  row is kept only while this profile still owes it a completion; once
+  acknowledged — here or in another tab sharing the profile — it is retired
+  from the projection, because a dead agent with nothing unseen has no surface.
 - **The Sync generation set is exact.** The browser accepts terminal, workers, workspaces, tasks,
   MCP, pair, and audit generations, with audit as the only lazy domain. Missing or extra domains are
   a protocol mismatch that requires the current SPA to reload; there are no tombstone domains or

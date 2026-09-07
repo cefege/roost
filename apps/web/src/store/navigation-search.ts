@@ -12,6 +12,7 @@ import {
 import { workspaceForFolder } from "../lib/folderKey.ts";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import { sessionHref } from "../routes.ts";
+import { agentStatusArrival } from "./agent-status.ts";
 import { rootStore } from "./root.ts";
 import { workerOnline } from "./sync-routable.ts";
 
@@ -43,7 +44,9 @@ export interface NavigationSearchDocument {
   readonly agentStatus: AgentStatusLevel;
   readonly agentAttention: NavigationSearchAttention | null;
   readonly agentUnseen: boolean;
+  /** Worker wall clock — display only; ordering uses `agentArrival`. */
   readonly agentUpdatedAt: number | null;
+  readonly agentArrival: number;
   readonly agentMessage: string | null;
 }
 
@@ -175,6 +178,7 @@ function projectSession(session: Session): NavigationSearchDocument {
     agentAttention,
     agentUnseen,
     agentUpdatedAt: status?.updated_at ?? null,
+    agentArrival: agentStatusArrival(session.id),
     agentMessage,
   };
 }
@@ -193,15 +197,20 @@ function compareMetadataDocuments(
     || (left.sessionId < right.sessionId ? -1 : left.sessionId > right.sessionId ? 1 : 0);
 }
 
+/** A session an operator cannot reach cannot be answered, so an unavailable
+ * worker's row sinks below every reachable one whatever its level. Recency is
+ * the browser's own arrival counter: worker wall clocks are unsynchronized, and
+ * one machine running minutes ahead would otherwise own the top of the list. */
 function compareAttentionDocuments(
   left: NavigationSearchDocument,
   right: NavigationSearchDocument,
 ): number {
   const leftKind = left.agentAttention === "blocked" ? 0 : 1;
   const rightKind = right.agentAttention === "blocked" ? 0 : 1;
-  return leftKind - rightKind
+  return Number(left.available === false) - Number(right.available === false)
+    || leftKind - rightKind
     || Number(right.agentUnseen) - Number(left.agentUnseen)
-    || (right.agentUpdatedAt ?? 0) - (left.agentUpdatedAt ?? 0)
+    || right.agentArrival - left.agentArrival
     || (left.sessionId < right.sessionId ? -1 : left.sessionId > right.sessionId ? 1 : 0);
 }
 

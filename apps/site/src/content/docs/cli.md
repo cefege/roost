@@ -35,7 +35,7 @@ standalone release binary (it contains no Git checkout).
 | `test` | Run all tests in dependency order |
 | `deploy <host>` | Deploy a macOS or Linux worker from a source checkout |
 | `push` | Journaled update of the local coordinator and complete registered macOS/Linux fleet |
-| `keeper-refresh <host> --yes` | Re-spawn a host's keeper on current code (destructive) |
+| `keeper-refresh <host> --yes [--force-live]` | Re-spawn a host's keeper — empty only, unless forced (destructive) |
 | `logs <coord\|worker>` | Tail an app's logs, `--tail N` (default: last 100 lines) |
 | `reset` | Nuke local state — database, keys, lock |
 | `state` | Print the state snapshot |
@@ -49,12 +49,16 @@ standalone release binary (it contains no Git checkout).
 `--since` accepts a number plus a unit, so `90m`, `1h`, `24h`, and `7d` are all
 valid. `roost logs` also warns when a log file has grown past 100 MB.
 
-Notes on the destructive ones. `keeper-refresh` requires `--yes` because
-re-spawning the keeper ends the PTYs it hosts. `reset` deletes local state
-outright. `push` may use `--targets` to name the exact complete registered
-worker set, but cannot narrow the transaction to a partial fleet; `--no-web`
-retains the existing web bundle. See [fleet](/docs/fleet/) for its convergence
-proof and rollback behavior.
+Notes on the destructive ones. `keeper-refresh` requires `--yes`, and it
+re-spawns only a keeper it can prove holds no channels: while any session on
+that host is live it refuses, leaving every PTY untouched. `--force-live` is
+the break-glass for a wedged keeper — it destroys every PTY that keeper hosts,
+so it prints exactly what it will end before acting, still requires `--yes`,
+and is refused when the keeper's identity is unproven. `reset` deletes local
+state outright. `push` may use `--targets` to name the exact complete
+registered worker set, but cannot narrow the transaction to a partial fleet;
+`--no-web` retains the existing web bundle. See [fleet](/docs/fleet/) for its
+convergence proof and rollback behavior.
 
 Windows-specific host options that remain in the CLI are non-actionable in
 `v0.5.0`: no Windows package, installer, join script, manifest, or updater
@@ -224,17 +228,17 @@ roost api ui apply-layout <file> --tab <id>
 
 The file must contain strict V1 layout JSON, and the nonempty `--tab` is
 required—there is no acknowledged broadcast. The CLI first reads the retained
-UI-state projection: no matching tab prints `target-gone`, while the same tab
+UI-state projection: no matching tab prints `target_gone`, while the same tab
 ID reported by multiple browser fingerprints prints `rejected`; neither case
 publishes an apply. One match pins that fingerprint/tab tuple into at most one
 apply RPC, so a later browser reusing the tab ID cannot take over a stale
 request.
 
-Stdout is exactly one of `applied`, `rejected`, or `target-gone`; the latter two
+Stdout is exactly one of `applied`, `rejected`, or `target_gone`; the latter two
 set a nonzero exit code. A stable sanitized reason, when present, is written to
 stderr. The CLI never retries the apply RPC. `applied` is emitted after the
 commit and a navigation attempt; it proves the commit, not successful
-navigation completion. `target-gone` means the exact fingerprint/tab/socket
+navigation completion. `target_gone` means the exact fingerprint/tab/socket
 acknowledgement was unavailable after absence, close, replacement, or timeout;
 it does not prove that the browser did not execute before the acknowledgement
 was lost.
