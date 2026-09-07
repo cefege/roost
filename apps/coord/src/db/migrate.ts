@@ -256,11 +256,25 @@ function clearAuthTenancyPreflight(sqlite: Database): void {
   `);
 }
 
+/** Migrations that once shipped and were later removed from the embedded set.
+ * Their history rows are real — the database DID apply them — so the prefix
+ * comparison must skip them instead of reading them as corruption. Dropping
+ * one from this table would refuse to boot every coordinator old enough to
+ * have applied it. A removed migration's slot number may be reused, so the
+ * comparison runs over the surviving rows only, never by position in the raw
+ * history. */
+const RETIRED_MIGRATIONS: Record<string, true> = {
+  // Removed with structured agent mode; its agent_ui_* tables went with it and
+  // slot 0017 was reused by 0017_retire_structured_agent_sessions.
+  "0017_agent_ui_frames": true,
+};
+
 function validateAppliedPrefix(
   migrations: readonly { name: string }[],
   appliedRows: readonly { name: string }[],
 ): void {
-  for (const [idx, { name }] of appliedRows.entries()) {
+  const live = appliedRows.filter(({ name }) => RETIRED_MIGRATIONS[name] !== true);
+  for (const [idx, { name }] of live.entries()) {
     if (migrations[idx]?.name === name) continue;
     throw new Error(
       "Applied migration history is not an exact prefix of embedded migrations: "

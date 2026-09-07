@@ -894,6 +894,25 @@ never spawns, supervises, or owns the agent session.
 
 **Guard** — `none`.
 
+### A removed migration's history row reads as corruption
+
+**Symptom** — "Applied migration history is not an exact prefix of embedded migrations: found
+`<name>` at position N" — the coordinator refuses to boot against a database that was working
+minutes earlier, right after the checkout it runs from moved forward.
+
+**Wrong** — treat every `_migrations` row that is absent from the embedded set as a corrupt
+history, or delete the row to make the check pass. Also wrong: deleting a shipped migration file
+and reusing its slot number, which is what puts a database in this state.
+
+**Right** — a removed migration's row is TRUE: that database did apply it. List the name in
+`RETIRED_MIGRATIONS` (`apps/coord/src/db/migrate.ts`) and compare the surviving rows only, never by
+position in the raw history — a reused slot number means the retired name can sort before the
+migration that replaced it. An unknown name must still fail closed.
+
+**Guard** — `apps/coord/tests/retired-migration-history.test.ts`: one case drives `runMigrations`
+over a database carrying the retired name plus the migration that reused its slot and requires the
+remaining chain to apply; the sibling case requires an unrecognized row to still throw.
+
 ### Redesigns discard previous fixes
 
 **Symptom** — "sidebar redesign loses every previous fix"
