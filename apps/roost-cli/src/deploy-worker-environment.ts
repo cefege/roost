@@ -3,9 +3,12 @@
 // target-release fields are replaced so no prior worktree or token leaks.
 
 import { posixShellQuote } from "@roost/shared/shell-quote";
+import {
+  AGENT_CONVERSATION_RESTORE_ENV as CONVERSATION_RESTORE_ENV,
+  KEEPER_FORCE_LIVE_RETIRE_ENV,
+} from "@roost/shared/worker-service-env";
 
-const CONVERSATION_RESTORE_ENV = "ROOST_AGENT_CONVERSATION_RESTORE";
-export const KEEPER_FORCE_LIVE_RETIRE_ENV = "ROOST_KEEPER_FORCE_LIVE_RETIRE";
+export { KEEPER_FORCE_LIVE_RETIRE_ENV };
 
 export function workerInstallEnvironmentValues(
   installed: Readonly<Record<string, string>>,

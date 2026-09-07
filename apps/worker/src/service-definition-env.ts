@@ -10,13 +10,10 @@ import {
   type SupportedHostPlatform,
 } from "@roost/shared/platform";
 import { workerServicePath } from "@roost/shared/paths";
+import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "@roost/shared/worker-service-env";
 import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 
-/** Named once for the worker: the config read and the boot-time erasure below
- * must address the same installed entry. It lives HERE, not in config.ts,
- * because config.ts resolves host paths at module scope — importing the name
- * alone must not evaluate another platform's directory layout. */
-export const KEEPER_FORCE_LIVE_RETIRE_ENV = "ROOST_KEEPER_FORCE_LIVE_RETIRE";
+export { KEEPER_FORCE_LIVE_RETIRE_ENV } from "@roost/shared/worker-service-env";
 
 /** Remove one `KEY=value` env entry from the installed service definition.
  * Returns false when the definition never carried it, which is how a value

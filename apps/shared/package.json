@@ -24,6 +24,7 @@
     "./tenant-route": "./src/tenant-route.ts",
     "./paths": "./src/paths.ts",
     "./shell-quote": "./src/shell-quote.ts",
+    "./worker-service-env": "./src/worker-service-env.ts",
     "./platform": "./src/platform.ts",
     "./native-path": "./src/native-path.ts",
     "./durability": "./src/durability.ts",
