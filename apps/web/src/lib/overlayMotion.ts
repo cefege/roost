@@ -21,13 +21,12 @@ const REDUCED = (): boolean =>
 
 const EMPHASIZED_DECELERATE = "cubic-bezier(0.05, 0.7, 0.1, 1)";
 
-// Keep-mounted-during-exit: lets a bare-<Show> overlay animate OUT before it
-// unmounts (M3 exits accelerate). Usage in a component:
+// Enter-on-mount for a bare-<Show> overlay. Usage in a component:
 //   const { present, setPanelRef } = createOverlayPresence(myOpenSignal);
 //   <Show when={present()}> ... <div ref={setPanelRef} ...> ...
-// `present` stays true through the exit animation, then flips false → unmount.
-// `setPanelRef` plays the enter on mount + holds the node for the exit. `kind`
-// selects panel vs dock geometry (mirrors the enter animations above).
+// `present` mirrors `open` exactly, so the overlay unmounts the moment it
+// closes. `setPanelRef` plays the enter on mount. `kind` selects panel vs dock
+// geometry (mirrors the enter animations above).
 export function createOverlayPresence(
   open: () => boolean,
   kind: "panel" | "dock" = "panel",

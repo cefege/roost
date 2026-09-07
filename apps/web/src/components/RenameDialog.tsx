@@ -1,7 +1,7 @@
 // Rename a session — small M3 modal opened from SessionRow's right-click menu
 // (promptRename: a prompt, NOT inline editing). Uses the shared md-dialog
 // Dialog primitive so it gets real Material scrim, elevation, 28px shape,
-// headline typography, focus-trap, ESC/scrim-close and enter/exit motion for
+// headline typography, focus-trap, ESC/scrim-close and enter motion for
 // free. Pre-fills the current name; Enter/Rename commits, Cancel/ESC/scrim
 // cancels, "Reset to auto" clears the override (sends ""). Commit →
 // coordClient.sessionsRename → coord appends a `renamed` event → sessionBus →
