@@ -1,8 +1,10 @@
 // Aggregates ancestry-verified integration and screen observations into the
 // identified AgentStatusUpdate frames sent to the coordinator. One registry
 // owns one worker epoch; each uninterrupted agent-kind/PID incarnation owns
-// one occupant token. Process IDs remain private to this module and its local
-// producers.
+// one occupant token, and an occupant that exits after finishing keeps its
+// completion until a viewer acknowledges it. The candidate/occupant shapes it
+// drives live in ./occupancy.ts. Process IDs remain private to this module and
+// its local producers.
 import { randomUUID } from "node:crypto";
 import {
   AgentOccupantId,
@@ -14,8 +16,21 @@ import {
 } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
 import type { AgentProcessIdentity, BuiltinAgentId } from "./process-scan.ts";
+import {
+  processKey,
+  type CandidateLoss,
+  type EffectiveEntry,
+  type SessionEntry,
+} from "./occupancy.ts";
 
 export const INTEGRATION_LEASE_MS = 30_000;
+
+/** Agent runtimes whose integration reports cover the whole agent lifecycle,
+ * so no screen signal may correct them. Every other reporter proves identity
+ * and activity only: a visible blocker prompt outranks its state. Keyed by
+ * agent id because our report protocol carries no source field; the `=== true`
+ * test keeps an inherited prototype key such as `constructor` out. */
+const FULL_LIFECYCLE_AGENTS: Record<string, true> = { omp: true, pi: true };
 
 export interface IntegrationStatusReport {
   sessionId: string;
@@ -31,6 +46,7 @@ export interface ScreenStatusReport {
   agentId: BuiltinAgentId;
   processId: number;
   state: AgentRuntimeState;
+  visibleBlocker: boolean;
 }
 
 /** Exact status fence plus the process identity that proved it. Process IDs
@@ -45,48 +61,11 @@ export interface AgentStatusPrivateProof {
   process: AgentProcessIdentity;
 }
 
-interface ProcessCandidate {
-  agentId: BuiltinAgentId;
-  processId: number;
-  processKey: string;
-  state: AgentRuntimeState;
-}
-
-interface IntegrationCandidate extends ProcessCandidate {
-  message?: string;
-  seq: number;
-  leaseUntil: number;
-}
-
-type ScreenCandidate = ProcessCandidate;
-
-interface EffectiveEntry extends ProcessCandidate {
-  message?: string;
-  source: AgentStatusSource;
-  occupantId: AgentOccupantId;
-  revision: number;
-  completedRevision: number;
-  updatedAt: number;
-}
-
-interface SessionEntry {
-  integration?: IntegrationCandidate;
-  integrationSeqByProcess: Map<string, number>;
-  screen?: ScreenCandidate;
-  screenAbsenceObserved: boolean;
-  effective?: EffectiveEntry;
-  retiredProcessKeys: Set<string>;
-}
-
 export interface AgentStatusRegistryOptions {
   publish: (status: AgentStatusUpdateType) => void;
   now?: () => number;
   leaseMs?: number;
   startLeaseTimer?: boolean;
-}
-
-function processKey(agentId: BuiltinAgentId, processId: number): string {
-  return `${agentId}:${processId}`;
 }
 
 export class AgentStatusRegistry {
@@ -126,14 +105,14 @@ export class AgentStatusRegistry {
     return this.revision;
   }
 
-  private publishEffective(
+  private effectiveFrame(
     sessionId: string,
     effective: EffectiveEntry,
     active: boolean,
     revision = effective.revision,
     updatedAt = effective.updatedAt,
-  ): void {
-    this.publish(AgentStatusUpdate.parse({
+  ): AgentStatusUpdateType {
+    return AgentStatusUpdate.parse({
       session_id: sessionId,
       agent_id: effective.agentId,
       state: effective.state,
@@ -145,7 +124,35 @@ export class AgentStatusRegistry {
       status_epoch: this.statusEpoch,
       occupant_id: effective.occupantId,
       source: effective.source,
-    }));
+      occupant_exited: !effective.occupantLive,
+    });
+  }
+
+  private publishEffective(
+    sessionId: string,
+    effective: EffectiveEntry,
+    active: boolean,
+    revision = effective.revision,
+    updatedAt = effective.updatedAt,
+  ): void {
+    this.publish(this.effectiveFrame(sessionId, effective, active, revision, updatedAt));
+  }
+
+  private logOccupant(
+    event: string,
+    sessionId: string,
+    occupant: EffectiveEntry,
+    revision: number,
+  ): void {
+    log.info("agent-status", event, {
+      session_id: sessionId,
+      agent_id: occupant.agentId,
+      status_epoch: this.statusEpoch,
+      occupant_id: occupant.occupantId,
+      source: occupant.source,
+      state: occupant.state,
+      revision,
+    });
   }
 
   private retireProcess(entry: SessionEntry, retiredKey: string): void {
@@ -159,7 +166,11 @@ export class AgentStatusRegistry {
     entry.integrationSeqByProcess.delete(reopenedKey);
   }
 
-  private recompute(sessionId: string, now = this.now()): void {
+  private recompute(
+    sessionId: string,
+    now = this.now(),
+    loss: CandidateLoss = "exit",
+  ): void {
     const entry = this.entries.get(sessionId);
     if (!entry) return;
     const integration = entry.integration && entry.integration.leaseUntil > now
@@ -167,31 +178,61 @@ export class AgentStatusRegistry {
       : undefined;
     if (entry.integration && !integration) entry.integration = undefined;
     const candidate = integration ?? entry.screen;
+    // A screen-visible blocker prompt is direct evidence the agent is waiting
+    // on a human, and it outranks a non-authoritative integration that claims
+    // otherwise — most often one whose reporter went quiet mid-turn.
+    const blockerOverridesIntegration = integration !== undefined
+      && FULL_LIFECYCLE_AGENTS[integration.agentId] !== true
+      && integration.state !== "blocked"
+      && entry.screen?.visibleBlocker === true
+      && entry.screen.agentId === integration.agentId;
     const previous = entry.effective;
 
     if (!candidate) {
-      if (!previous) return;
+      if (!previous || (!previous.occupantLive && loss !== "withdrawn")) return;
       const revision = this.nextRevision(now);
-      entry.effective = undefined;
-      this.publishEffective(sessionId, previous, false, revision, now);
-      log.info("agent-status", "occupant_inactive", {
-        session_id: sessionId,
-        agent_id: previous.agentId,
-        status_epoch: this.statusEpoch,
-        occupant_id: previous.occupantId,
-        source: previous.source,
-        state: previous.state,
+      // An agent that finishes and then leaves is still done. Exit forces the
+      // idle transition and keeps the row active so a completion nobody has
+      // acknowledged outlives the process that earned it; only an explicit
+      // withdrawal or session close retires the occupant here. The row goes out
+      // marked `occupant_exited`, because whether the completion still needs
+      // showing is known only to a viewer holding its own acknowledgements.
+      const retain = loss === "exit"
+        && (previous.state !== "idle" || previous.completedRevision > 0);
+      const exited: EffectiveEntry = {
+        ...previous,
+        state: "idle",
+        message: undefined,
+        occupantLive: false,
         revision,
-      });
+        completedRevision: previous.state === "idle"
+          ? previous.completedRevision
+          : revision,
+        updatedAt: now,
+      };
+      entry.effective = retain ? exited : undefined;
+      this.publishEffective(sessionId, retain ? exited : previous, retain, revision, now);
+      this.logOccupant(
+        retain ? "occupant_exited" : "occupant_inactive",
+        sessionId,
+        retain ? exited : previous,
+        revision,
+      );
       this.retireProcess(entry, previous.processKey);
       return;
     }
 
-    const source: AgentStatusSource = integration ? "integration" : "screen";
+    const source: AgentStatusSource = integration && !blockerOverridesIntegration
+      ? "integration"
+      : "screen";
+    const state: AgentRuntimeState = blockerOverridesIntegration
+      ? "blocked"
+      : candidate.state;
     const message = integration?.message;
-    const sameOccupant = previous?.processKey === candidate.processKey;
+    const sameOccupant = previous?.occupantLive === true
+      && previous.processKey === candidate.processKey;
     if (sameOccupant
-      && previous.state === candidate.state
+      && previous.state === state
       && previous.message === message
       && previous.source === source) return;
 
@@ -199,15 +240,7 @@ export class AgentStatusRegistry {
       const inactiveRevision = this.nextRevision(now);
       entry.effective = undefined;
       this.publishEffective(sessionId, previous, false, inactiveRevision, now);
-      log.info("agent-status", "occupant_inactive", {
-        session_id: sessionId,
-        agent_id: previous.agentId,
-        status_epoch: this.statusEpoch,
-        occupant_id: previous.occupantId,
-        source: previous.source,
-        state: previous.state,
-        revision: inactiveRevision,
-      });
+      this.logOccupant("occupant_inactive", sessionId, previous, inactiveRevision);
       this.retireProcess(entry, previous.processKey);
     }
 
@@ -215,14 +248,14 @@ export class AgentStatusRegistry {
     const completedRevision = sameOccupant
       && previous
       && (previous.state === "working" || previous.state === "blocked")
-      && candidate.state === "idle"
+      && state === "idle"
       ? revision
       : (sameOccupant ? (previous?.completedRevision ?? 0) : 0);
     const effective: EffectiveEntry = {
       agentId: candidate.agentId,
       processId: candidate.processId,
       processKey: candidate.processKey,
-      state: candidate.state,
+      state,
       message,
       source,
       occupantId: sameOccupant && previous
@@ -231,19 +264,17 @@ export class AgentStatusRegistry {
       revision,
       completedRevision,
       updatedAt: now,
+      occupantLive: true,
     };
     entry.screenAbsenceObserved = false;
     entry.effective = effective;
     this.publishEffective(sessionId, effective, true);
-    log.info("agent-status", sameOccupant ? "occupant_updated" : "occupant_active", {
-      session_id: sessionId,
-      agent_id: effective.agentId,
-      status_epoch: this.statusEpoch,
-      occupant_id: effective.occupantId,
-      source: effective.source,
-      state: effective.state,
-      revision: effective.revision,
-    });
+    this.logOccupant(
+      sameOccupant ? "occupant_updated" : "occupant_active",
+      sessionId,
+      effective,
+      effective.revision,
+    );
   }
 
   reportIntegration(report: IntegrationStatusReport): boolean {
@@ -255,6 +286,7 @@ export class AgentStatusRegistry {
     if (previousSeq !== undefined && report.seq <= previousSeq) return false;
     entry.integrationSeqByProcess.set(reporterKey, report.seq);
     const now = this.now();
+    let loss: CandidateLoss = "exit";
     if (report.active) {
       entry.integration = {
         agentId: report.agentId,
@@ -267,8 +299,9 @@ export class AgentStatusRegistry {
       };
     } else if (entry.integration?.processKey === reporterKey) {
       entry.integration = undefined;
+      loss = "withdrawn";
     }
-    this.recompute(report.sessionId, now);
+    this.recompute(report.sessionId, now, loss);
     return true;
   }
 
@@ -285,6 +318,7 @@ export class AgentStatusRegistry {
       processId: report.processId,
       processKey: observedKey,
       state: report.state,
+      visibleBlocker: report.visibleBlocker,
     };
     this.recompute(sessionId);
     return true;
@@ -313,7 +347,7 @@ export class AgentStatusRegistry {
     if (!entry) return;
     entry.integration = undefined;
     entry.screen = undefined;
-    this.recompute(sessionId);
+    this.recompute(sessionId, this.now(), "withdrawn");
     this.entries.delete(sessionId);
   }
 
@@ -325,10 +359,11 @@ export class AgentStatusRegistry {
 
   currentPrivateProof(sessionId: string): AgentStatusPrivateProof | null {
     // A prompt cannot use an integration row during the lease timer's
-    // one-second sweep gap.
+    // one-second sweep gap, nor the row an exited agent left behind to carry
+    // its completion.
     this.recompute(sessionId);
     const effective = this.entries.get(sessionId)?.effective;
-    if (!effective) return null;
+    if (!effective || !effective.occupantLive) return null;
     return {
       statusEpoch: this.statusEpoch,
       occupantId: effective.occupantId,
@@ -351,19 +386,7 @@ export class AgentStatusRegistry {
     for (const [sessionId, entry] of this.entries) {
       const effective = entry.effective;
       if (!effective) continue;
-      statuses.push(AgentStatusUpdate.parse({
-        session_id: sessionId,
-        agent_id: effective.agentId,
-        state: effective.state,
-        message: effective.message,
-        revision: effective.revision,
-        completed_revision: effective.completedRevision,
-        updated_at: effective.updatedAt,
-        active: true,
-        status_epoch: this.statusEpoch,
-        occupant_id: effective.occupantId,
-        source: effective.source,
-      }));
+      statuses.push(this.effectiveFrame(sessionId, effective, true));
     }
     return statuses;
   }

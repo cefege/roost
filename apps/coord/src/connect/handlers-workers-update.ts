@@ -1,6 +1,7 @@
 // Owns the coordinator-held keeper update boundary. It drains every
 // channel-creating command, reauthorizes the worker, snapshots every open
 // session in canonical order, then awaits the authenticated worker action.
+// Only an explicitly forced maintenance refresh may cross live sessions.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
@@ -14,6 +15,7 @@ import {
   CoordinatorService,
   WorkersPrepareKeeperUpdateResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
+import { log } from "@roost/shared/log";
 import { requireDashboardAdmin } from "./auth-interceptor.ts";
 import { resolveDashboardActor } from "./dashboard-authorization.ts";
 import type { ConnectDeps } from "./router.ts";
@@ -32,7 +34,17 @@ function parseJournaledUpdate(
   encoded: string | undefined,
   direction: string,
   maintenance: boolean,
+  forceLive: boolean,
 ): { update: JournaledKeeperUpdateV1 | null; direction: "source" | "target" | null } {
+  // force_live authorizes destroying live PTYs. It is meaningful only on the
+  // maintenance path, which carries no journaled envelope, so no replayed or
+  // hand-edited journal can ever arrive holding it.
+  if (forceLive && !maintenance) {
+    throw new ConnectError(
+      "keeper force-live requires the maintenance path",
+      Code.InvalidArgument,
+    );
+  }
   if (maintenance) {
     if (encoded !== undefined || direction !== "") {
       throw new ConnectError(
@@ -77,6 +89,7 @@ export function makeWorkerUpdateHandlers(
         req.journaledUpdateJson,
         req.direction,
         req.maintenance,
+        req.forceLive,
       );
       if (!deps.move) {
         throw new ConnectError("coordinator write gate is unavailable", Code.Unavailable);
@@ -123,7 +136,7 @@ export function makeWorkerUpdateHandlers(
           );
         }
         const coordinatorOpenSessionIds = parsedSessionIds.data;
-        const requiresEmpty = req.maintenance
+        const requiresEmpty = (req.maintenance && !req.forceLive)
           || requested.update?.admission.required_action === "replace-empty";
         if (requiresEmpty && coordinatorOpenSessionIds.length !== 0) {
           throw new ConnectError(
@@ -133,12 +146,21 @@ export function makeWorkerUpdateHandlers(
             Code.FailedPrecondition,
           );
         }
+        if (req.forceLive) {
+          log.warn("coord", "keeper_maintenance_force_live_authorized", {
+            worker_fp: worker.fp,
+            dashboard_id: actor.dashboardId,
+            device_fingerprint: actor.deviceFingerprint,
+            coordinator_open_sessions: coordinatorOpenSessionIds.length,
+          });
+        }
         const rawResult = await sendKeeperUpdatePreparation(worker.fp, {
           journaledUpdateJson: requested.update
             ? JSON.stringify(requested.update)
             : undefined,
           direction: requested.direction ?? undefined,
           maintenance: req.maintenance,
+          forceLive: req.forceLive,
           coordinatorOpenSessionIds,
         });
         const result = rawResult as Partial<WorkerKeeperPreparationResult>;

@@ -1,19 +1,30 @@
 // Pinned/adapted from Herdr src/detect/manifests/*.toml at commit
-// eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
+// c7b79294e28fe7c835691a25597fabf226ecfc20 (Apache-2.0). Herdr's `\A`/`\z`
+// anchors are written `^`/`$` here: compileHerdrRegex never sets the `m` flag,
+// so JS anchors bind to the whole region, exactly as Rust's defaults do.
 
 import type { AgentManifest } from "./manifest-engine.ts";
 import type { BuiltinAgentId } from "./process-scan.ts";
 
 const codex: AgentManifest = {
-  id: "codex", version: "2026.07.18.1", rules: [
+  id: "codex", version: "2026.09.05.1", rules: [
     { id: "osc_title_blocked", state: "blocked", priority: 1100, region: "osc_title", visible_blocker: true, contains: ["Action Required"] },
     { id: "osc_title_working", state: "working", priority: 1050, region: "osc_title", visible_working: true, regex: [String.raw`(?:^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)`] },
     { id: "transcript_viewer", state: "unknown", priority: 1000, region: "after_last_prompt_marker", skip_state_update: true,
       contains: ["↑/↓ to scroll", "pgup/pgdn to", "home/end to jump", "q to quit"],
       any: [{ contains: ["esc to edit prev"] }, { contains: ["esc/← to edit prev"] }] },
+    { id: "trust_directory", state: "blocked", priority: 950, region: "top_non_empty_lines(20)", visible_blocker: true,
+      all: [
+        { regex: [String.raw`^> You are in [^\r\n]+(?:\r?\n|$)`] },
+        { regex: [String.raw`Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?`] },
+      ] },
+    { id: "startup_update", state: "blocked", priority: 950, region: "bottom_non_empty_lines(20)", visible_blocker: true,
+      contains: ["Update available!", "Update now"],
+      regex: [String.raw`Skip\s+until\s+next\s+version`, String.raw`Press enter to continue\s*$`] },
     { id: "live_strong_blocker", state: "blocked", priority: 900, region: "after_last_prompt_marker", visible_blocker: true,
       any: ["press enter to confirm or esc to cancel", "enter to submit answer", "enter to submit all", "allow command?"].map((value) => ({ contains: [value] })) },
-    { id: "weak_blocker", state: "blocked", priority: 600, any: [
+    { id: "weak_blocker", state: "blocked", priority: 600,
+      region: "whole_recent_without_current_prompt_marker", any: [
       { contains: ["[y/n]"] }, { contains: ["yes (y)"] },
       { contains: ["do you want to"], any: [{ contains: ["yes"] }, { contains: ["❯"] }] },
       { contains: ["would you like to"], any: [{ contains: ["yes"] }, { contains: ["❯"] }] },
@@ -37,7 +48,7 @@ const gemini: AgentManifest = {
 };
 
 const opencode: AgentManifest = {
-  id: "opencode", version: "2026.06.10.1", aliases: ["open-code", "herdr:opencode"], rules: [
+  id: "opencode", version: "2026.06.10.1", aliases: ["open-code"], rules: [
     { id: "permission_required", state: "blocked", priority: 300, visible_blocker: true, any: [
       { contains: ["△ Permission required"] },
       { contains: ["esc dismiss"], any: ["enter confirm", "enter submit", "enter toggle"].map((value) => ({ contains: [value] })),
@@ -52,14 +63,16 @@ const opencode: AgentManifest = {
 };
 
 const cursor: AgentManifest = {
-  id: "cursor", version: "2026.06.10.1", aliases: ["cursor-agent"], rules: [
+  id: "cursor", version: "2026.08.03.1", aliases: ["cursor-agent"], rules: [
     { id: "write_file_approval", state: "blocked", priority: 320, region: "bottom_non_empty_lines(8)", visible_blocker: true,
       contains: ["write to this file?", "proceed (y)"], any: ["reject & propose changes", "esc or n or p", "add write("].map((value) => ({ contains: [value] })) },
     { id: "approval_prompt", state: "blocked", priority: 300, visible_blocker: true, any: [
       { contains: ["waiting for approval", "run this command?"], any: [{ contains: ["run (once) (y)"] }, { contains: ["skip (esc or n)"] }] },
-      ...["(y) (enter)", "keep (n)", "skip (esc or n)"].map((value) => ({ contains: [value] })),
+      { contains: ["(y) (enter)"] },
       { line_regex: [String.raw`(?i)^\s*allow .*\(y\)`] },
-      { line_regex: [String.raw`(?i)^\s*(run |.*\(y\).*(allow|run \(once\)|→ run))`] },
+      { contains: ["keep (n)"] },
+      { contains: ["skip (esc or n)"] },
+      { line_regex: [String.raw`(?i)^\s*(?:→\s*)?run .*\(y\)`] },
     ] },
     { id: "stop_hint_working", state: "working", priority: 100, region: "bottom_non_empty_lines(6)", visible_working: true, contains: ["ctrl+c to stop"] },
     { id: "background_task_status_working", state: "working", priority: 95, region: "bottom_non_empty_lines(5)", visible_working: true,
@@ -86,11 +99,13 @@ const amp: AgentManifest = {
 };
 
 const copilot: AgentManifest = {
-  id: "copilot", version: "2026.07.07.1", aliases: ["github-copilot", "ghcs"], rules: [
+  id: "copilot", version: "2026.08.29.1", aliases: ["github-copilot", "ghcs"], rules: [
     { id: "selection_blocker", state: "blocked", priority: 300, visible_blocker: true, all: [
       { any: [{ contains: ["esc to cancel"] }, { contains: ["esc cancel"] }] },
       { any: ["enter to select", "enter to confirm", "enter to submit", "enter accept"].map((value) => ({ contains: [value] })) },
     ] },
+    { id: "background_agents_working", state: "working", priority: 110, region: "bottom_non_empty_lines(6)", visible_working: true,
+      line_regex: [String.raw`^\s*◎\s+Waiting for background agents(?:\s|·|$)`] },
     { id: "working_cancel_hint", state: "working", priority: 100, visible_working: true,
       any: ["esc to cancel", "esc cancel", "esc again to cancel", "esc interrupt"].map((value) => ({ contains: [value] })) },
   ],
@@ -135,7 +150,7 @@ const grok: AgentManifest = {
 };
 
 const pi: AgentManifest = {
-  id: "pi", version: "2026.06.10.1", aliases: ["herdr:pi"], rules: [
+  id: "pi", version: "2026.06.10.1", rules: [
     { id: "working_literal", state: "working", priority: 100, visible_working: true, contains: ["Working..."] },
   ],
 };

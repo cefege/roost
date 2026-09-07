@@ -4,6 +4,7 @@
 
 import {
   AgentPromptInputOutcome,
+  AgentPromptRejection,
   AgentPromptWaitOutcome,
   type AgentStatusView,
 } from "@roost/shared/proto/coordinator_pb";
@@ -34,6 +35,7 @@ export interface AgentPromptApiClient {
     writtenBytes: number;
     reason: string;
     waitOutcome?: AgentPromptWaitOutcome;
+    rejection?: AgentPromptRejection;
   }>;
 }
 
@@ -163,8 +165,19 @@ export async function dispatchAgentPromptApi(
   if (response.waitOutcome !== undefined && waitOutcome === undefined) invalidPromptResponse();
   const waitExpected = parsed.wait !== null && inputOutcome !== "rejected";
   if ((waitOutcome !== undefined) !== waitExpected) invalidPromptResponse();
+  const rejection = response.rejection === undefined
+    ? undefined
+    : REJECTION_NAMES[response.rejection];
+  if (
+    response.rejection !== undefined
+    && (rejection === undefined || inputOutcome !== "rejected")
+  ) {
+    invalidPromptResponse();
+  }
 
-  const reason = printableReason(response.reason, parsed.text, status.message);
+  // A rejection cause is already a bounded member; only the ambiguous path
+  // still carries coordinator text that has to be sanitized before printing.
+  const reason = rejection ?? printableReason(response.reason, parsed.text, status.message);
   writeLine(`input\t${inputOutcome}\t${response.writtenBytes}\t${reason}`);
   if (waitOutcome !== undefined) writeLine(`wait\t${waitOutcome}`);
   if (inputOutcome !== "accepted" || (waitOutcome !== undefined && waitOutcome !== "matched")) {
@@ -174,7 +187,21 @@ export async function dispatchAgentPromptApi(
 }
 
 type InputOutcomeName = "accepted" | "rejected" | "ambiguous";
-type WaitOutcomeName = "matched" | "timed_out" | "occupant_changed" | "session_closed";
+type WaitOutcomeName =
+  | "matched"
+  | "timed_out"
+  | "occupant_changed"
+  | "session_closed"
+  | "prompt_stalled";
+type RejectionName =
+  | "blocked"
+  | "not_promptable"
+  | "not_foreground"
+  | "fence_changed"
+  | "process_changed"
+  | "session_unavailable"
+  | "expired"
+  | "keeper_rejected";
 
 const INPUT_OUTCOME_NAMES: Record<AgentPromptInputOutcome, InputOutcomeName | undefined> = {
   [AgentPromptInputOutcome.UNSPECIFIED]: undefined,
@@ -188,6 +215,18 @@ const WAIT_OUTCOME_NAMES: Record<AgentPromptWaitOutcome, WaitOutcomeName | undef
   [AgentPromptWaitOutcome.TIMED_OUT]: "timed_out",
   [AgentPromptWaitOutcome.OCCUPANT_CHANGED]: "occupant_changed",
   [AgentPromptWaitOutcome.SESSION_CLOSED]: "session_closed",
+  [AgentPromptWaitOutcome.PROMPT_STALLED]: "prompt_stalled",
+};
+const REJECTION_NAMES: Record<AgentPromptRejection, RejectionName | undefined> = {
+  [AgentPromptRejection.UNSPECIFIED]: undefined,
+  [AgentPromptRejection.BLOCKED]: "blocked",
+  [AgentPromptRejection.NOT_PROMPTABLE]: "not_promptable",
+  [AgentPromptRejection.NOT_FOREGROUND]: "not_foreground",
+  [AgentPromptRejection.FENCE_CHANGED]: "fence_changed",
+  [AgentPromptRejection.PROCESS_CHANGED]: "process_changed",
+  [AgentPromptRejection.SESSION_UNAVAILABLE]: "session_unavailable",
+  [AgentPromptRejection.EXPIRED]: "expired",
+  [AgentPromptRejection.KEEPER_REJECTED]: "keeper_rejected",
 };
 
 function promptFence(

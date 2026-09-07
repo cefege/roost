@@ -139,13 +139,18 @@ that contract, and guarded prompts do not change it.
 
 `SessionsPrompt` instead accepts text for one exact worker-observed integration
 occupant. After the worker re-proves the same process, epoch, occupant,
-revision, live channel, connection, deadline, and `idle|working` state, it uses
-`apps/shared/src/terminal-input.ts`—the browser composer's encoder—to normalize
-newlines and, when bracketed paste is active, strip ESC from the text and wrap
-it. It appends one CR and issues one keeper write. Every stale, blocked,
-screen-only, expired, or closed target observed at the final pre-`beginInput`
-check rejects before that write; failure after admission is ambiguous and never
-retried.
+revision, live channel, connection, deadline, `idle|working` state, and that
+the pane's terminal foreground job still belongs to that agent's own process
+subtree, it uses `apps/shared/src/terminal-input.ts`—the browser composer's
+encoder—to normalize newlines and, when bracketed paste is active, strip ESC
+from the text and wrap it. The text and the submitting CR are two separate
+keeper writes 300 ms apart, because an agent that debounces bracketed-paste
+assembly reads a fused text-and-CR burst as an unsubmitted draft. `accepted`
+means both writes were acknowledged; an acknowledged text whose CR did not
+land is ambiguous, never a rejection. Every stale, blocked, screen-only,
+expired, closed, or no-longer-foreground target observed at the final
+pre-write check rejects before the first write; failure after that is
+ambiguous and never retried.
 
 The text limit is 16,384 UTF-8 bytes. An optional post-input wait must name a
 nonempty unique subset of `idle|working|blocked` and a timeout from 1 ms through

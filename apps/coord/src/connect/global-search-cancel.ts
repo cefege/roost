@@ -64,7 +64,7 @@ export function makeGlobalSearchCancelHandler(
           GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
         );
         const merged = new Map<string, GlobalSearchSessionPosition>();
-        for (const session of [...cancellation.selectedSessions, ...current]) {
+        for (const session of [...cancellation.selectedSessions, ...current.sessions]) {
           if (merged.size >= GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS) break;
           if (!merged.has(session.sessionId)) merged.set(session.sessionId, session);
         }

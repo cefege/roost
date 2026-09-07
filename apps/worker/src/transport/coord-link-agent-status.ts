@@ -129,6 +129,7 @@ export function createCoordLinkAgentStatusOutbox(
           statusEpoch: status.status_epoch,
           occupantId: status.occupant_id,
           source: status.source,
+          occupantExited: status.occupant_exited,
         }),
       },
     }));

@@ -1,13 +1,10 @@
-// Owns status-fenced agent prompt admission from coordinator request to one
-// acknowledged keeper input write. It depends on the worker-private process
-// proof and the same terminal-input lane and text encoder as interactive input.
+// Owns status-fenced agent prompt admission from a coordinator request to the
+// acknowledged keeper writes that carry it. It depends on the worker-private
+// process proof, the pane's foreground job, and the same terminal-input lane
+// and text encoder as interactive input.
 
 import type { DAgentPrompt } from "@roost/shared/proto/worker_transport_pb";
-import {
-  AgentPromptTextSchema,
-  buildPtyPayload,
-  CR_BYTES,
-} from "@roost/shared/terminal-input";
+import { AgentPromptTextSchema, buildPtyPayload } from "@roost/shared/terminal-input";
 import {
   AgentOccupantId,
   SessionId,
@@ -19,7 +16,11 @@ import type {
   AgentStatusRegistry,
 } from "./agent-status/registry.ts";
 import type { AgentProcessIdentity } from "./agent-status/process-scan.ts";
-import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
+import { agentOwnsTerminalForeground } from "./agent-status/process-tree.ts";
+import {
+  PROMPT_SUBMIT_DELAY_MS,
+  submitAgentPrompt,
+} from "./agent-prompt-submit.ts";
 import { acquireKeeperAdmission } from "./session-control-lanes.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
@@ -30,6 +31,7 @@ import { TERMINAL_REQUEST_BUDGET_CAP_MS } from "./transport/coord-link-constants
 const REQUEST_ID_MAX_LENGTH = 128;
 const UINT64_MAX = (1n << 64n) - 1n;
 const MAX_SAFE_REVISION = BigInt(Number.MAX_SAFE_INTEGER);
+const NOT_FOREGROUND_REASON = "agent is not the terminal foreground process";
 
 export interface AgentPromptControlDeps {
   sessions: SessionManager;
@@ -105,15 +107,6 @@ function checkBudget(budget: TerminalRequestBudget): BudgetCheck {
   }
 }
 
-function boundedWrittenBytes(value: number | null, expectedBytes: number): number {
-  return value !== null
-    && Number.isSafeInteger(value)
-    && value >= 0
-    && value <= expectedBytes
-    ? value
-    : 0;
-}
-
 function processProofMatches(
   proof: AgentProcessIdentity,
   expected: AgentProcessIdentity,
@@ -186,7 +179,11 @@ async function refreshProcessProof(
         controller.signal,
       );
       const proof = refreshed && processProofMatches(refreshed, expected)
-        ? { agentId: refreshed.agentId, pid: refreshed.pid }
+        ? {
+            agentId: refreshed.agentId,
+            pid: refreshed.pid,
+            foreground: refreshed.foreground,
+          }
         : null;
       return { kind: "refreshed", proof } as const;
     } catch {
@@ -235,16 +232,8 @@ async function waitForAdmissionGrant(
   }
 }
 
-function promptPayload(text: string, bracketedPaste: boolean): Uint8Array {
-  const paste = buildPtyPayload(text, bracketedPaste);
-  const payload = new Uint8Array(paste.byteLength + CR_BYTES.byteLength);
-  payload.set(paste);
-  payload.set(CR_BYTES, paste.byteLength);
-  return payload;
-}
-
-/** Admit exactly one prompt. Every return before beginInput is a proven
- * zero-write rejection; after admission, the keeper result remains the truth. */
+/** Admit exactly one prompt. Every return before the first keeper write is a
+ * proven zero-write rejection; from there the keeper results are the truth. */
 export async function writeAgentPrompt(
   request: DAgentPrompt,
   budget: TerminalRequestBudget,
@@ -267,8 +256,6 @@ export async function writeAgentPrompt(
 
   const channelId = expectedRecord.channelId;
   const ticket = acquireKeeperAdmission(deps.sessions, channelId, "terminal_input");
-  let command;
-  let expectedWrittenBytes = 0;
   try {
     const firstRefresh = await refreshProcessProof(
       deps.detector,
@@ -280,6 +267,9 @@ export async function writeAgentPrompt(
     const firstProcessProof = firstRefresh.proof;
     if (!firstProcessProof) {
       return rejected("agent process proof could not be refreshed");
+    }
+    if (!agentOwnsTerminalForeground(firstProcessProof.foreground)) {
+      return rejected(NOT_FOREGROUND_REASON);
     }
     if (!exactSession(deps.sessions, request.sessionId, expectedRecord)) {
       return rejected("session changed before prompt admission");
@@ -310,11 +300,10 @@ export async function writeAgentPrompt(
 
     let payload: Uint8Array;
     try {
-      payload = promptPayload(request.text, expectedRecord.wtermCore.bracketedPaste());
+      payload = buildPtyPayload(request.text, expectedRecord.wtermCore.bracketedPaste());
     } catch {
       return rejected("terminal input mode could not be read");
     }
-    expectedWrittenBytes = payload.byteLength;
     if (!exactSession(deps.sessions, request.sessionId, expectedRecord)) {
       return rejected("session changed before the keeper write");
     }
@@ -330,49 +319,22 @@ export async function writeAgentPrompt(
         || !processProofMatches(finalStatus!.process, finalProcessProof)) {
       return rejected("agent process proof changed before the keeper write");
     }
+    if (!agentOwnsTerminalForeground(finalProcessProof.foreground)) {
+      return rejected(NOT_FOREGROUND_REASON);
+    }
     const finalBudget = checkBudget(budget);
     if (!finalBudget.ok) return rejected(finalBudget.reason);
+    // The CR is a second write PROMPT_SUBMIT_DELAY_MS after the text, so a
+    // budget that cannot cover it would strand the text as an unsubmitted
+    // draft with no way to finish the submission.
+    if (finalBudget.remainingMs <= PROMPT_SUBMIT_DELAY_MS) {
+      return rejected("prompt budget cannot cover the submit delay");
+    }
     deps.sessions.markInputSensitive(channelId);
-    try {
-      command = getMultiplexedPool().beginInput(channelId, payload);
-    } catch {
-      return {
-        status: "ambiguous",
-        writtenBytes: 0,
-        reason: "keeper input admission failed",
-      };
-    }
-    if (!command.admission.written) {
-      return rejected("keeper did not admit the agent prompt");
-    }
+    return await submitAgentPrompt(channelId, payload, () => checkBudget(budget).ok);
   } catch {
     return rejected("prompt admission could not be verified");
   } finally {
     ticket.release();
-  }
-
-  try {
-    const result = await command.result;
-    if (result.kind === "ack") {
-      return result.writtenBytes === expectedWrittenBytes
-        ? { status: "accepted", writtenBytes: result.writtenBytes }
-        : {
-            status: "ambiguous",
-            writtenBytes: boundedWrittenBytes(result.writtenBytes, expectedWrittenBytes),
-            reason: "keeper acknowledged an incomplete input batch",
-          };
-    }
-    if (result.kind === "reject") return rejected("keeper rejected the agent prompt");
-    return {
-      status: "ambiguous",
-      writtenBytes: boundedWrittenBytes(result.writtenBytes, expectedWrittenBytes),
-      reason: "keeper agent prompt outcome is ambiguous",
-    };
-  } catch {
-    return {
-      status: "ambiguous",
-      writtenBytes: 0,
-      reason: "keeper input result unavailable",
-    };
   }
 }

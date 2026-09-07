@@ -7,6 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
 import {
   AgentPromptInputOutcome,
+  AgentPromptRejection,
   AgentPromptWaitOutcome,
   CoordinatorService,
   SessionsPromptResponseSchema,
@@ -24,10 +25,11 @@ import {
   StatusEpoch,
 } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
-import { AgentStatusWaitError } from "../agent-status-hub.ts";
+import { AgentStatusWaitError } from "../agent-status-wait.ts";
 import {
   processAgentPromptControl,
   type AgentPromptWaitConfig,
+  type AgentPromptWaitOutcomeName,
 } from "./agent-prompt-control.ts";
 import {
   requireAccountDevice,
@@ -150,24 +152,62 @@ function validateAgentPromptRequest(
   };
 }
 
+const WAIT_OUTCOME_MEMBERS: Record<AgentPromptWaitOutcomeName, AgentPromptWaitOutcome> = {
+  matched: AgentPromptWaitOutcome.MATCHED,
+  timed_out: AgentPromptWaitOutcome.TIMED_OUT,
+  occupant_changed: AgentPromptWaitOutcome.OCCUPANT_CHANGED,
+  session_closed: AgentPromptWaitOutcome.SESSION_CLOSED,
+  prompt_stalled: AgentPromptWaitOutcome.PROMPT_STALLED,
+};
+
+/**
+ * Every definite rejection the worker or this coordinator can produce, mapped
+ * to the one member a caller may branch on: `blocked` means stop and send keys
+ * interactively, a changed fence or process means re-read status and retry, and
+ * `expired` means the same request is still valid. The free-text reason stays
+ * private, so an unmapped cause reports no member rather than leaking one.
+ */
+const REJECTION_MEMBERS: Record<string, AgentPromptRejection> = {
+  "agent is blocked": AgentPromptRejection.BLOCKED,
+  "agent status source is not integration": AgentPromptRejection.NOT_PROMPTABLE,
+  "agent state does not admit prompts": AgentPromptRejection.NOT_PROMPTABLE,
+  "agent is not the terminal foreground process": AgentPromptRejection.NOT_FOREGROUND,
+  "agent status is unavailable": AgentPromptRejection.FENCE_CHANGED,
+  "agent status fence changed": AgentPromptRejection.FENCE_CHANGED,
+  "agent process proof could not be refreshed": AgentPromptRejection.PROCESS_CHANGED,
+  "agent process proof changed before prompt admission": AgentPromptRejection.PROCESS_CHANGED,
+  "agent process proof changed before the keeper write": AgentPromptRejection.PROCESS_CHANGED,
+  "session unavailable": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "session is not live": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "session changed before prompt admission": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "session changed before the keeper write": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "terminal input mode could not be read": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "worker connection was superseded": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "unknown session": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "worker unavailable": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "terminal dashboard scope is unavailable": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "coordinator is not write-active": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "coordinator move in progress": AgentPromptRejection.SESSION_UNAVAILABLE,
+  "prompt budget expired": AgentPromptRejection.EXPIRED,
+  "prompt budget could not be verified": AgentPromptRejection.EXPIRED,
+  "prompt budget cannot cover the submit delay": AgentPromptRejection.EXPIRED,
+  "input budget expired before worker send": AgentPromptRejection.EXPIRED,
+  "keeper rejected the agent prompt": AgentPromptRejection.KEEPER_REJECTED,
+  "keeper did not admit the agent prompt": AgentPromptRejection.KEEPER_REJECTED,
+  "keeper rejected input": AgentPromptRejection.KEEPER_REJECTED,
+  "prompt admission could not be verified": AgentPromptRejection.KEEPER_REJECTED,
+  "generation closed or control queue full": AgentPromptRejection.KEEPER_REJECTED,
+};
+
 function promptResponse(
   input: TerminalWriteControlResult,
-  waitOutcome?: "matched" | "timed_out" | "occupant_changed" | "session_closed",
+  waitOutcome?: AgentPromptWaitOutcomeName,
 ): SessionsPromptResponse {
   const inputOutcome = input.status === "accepted"
     ? AgentPromptInputOutcome.ACCEPTED
     : input.status === "rejected"
       ? AgentPromptInputOutcome.REJECTED
       : AgentPromptInputOutcome.AMBIGUOUS;
-  const mappedWaitOutcome = waitOutcome === undefined
-    ? undefined
-    : waitOutcome === "matched"
-      ? AgentPromptWaitOutcome.MATCHED
-      : waitOutcome === "timed_out"
-        ? AgentPromptWaitOutcome.TIMED_OUT
-        : waitOutcome === "occupant_changed"
-          ? AgentPromptWaitOutcome.OCCUPANT_CHANGED
-          : AgentPromptWaitOutcome.SESSION_CLOSED;
   return create(SessionsPromptResponseSchema, {
     inputOutcome,
     writtenBytes: input.writtenBytes,
@@ -176,8 +216,26 @@ function promptResponse(
       : input.status === "rejected"
         ? "agent prompt rejected"
         : "agent prompt outcome is ambiguous",
-    waitOutcome: input.status === "rejected" ? undefined : mappedWaitOutcome,
+    waitOutcome: input.status === "rejected" || waitOutcome === undefined
+      ? undefined
+      : WAIT_OUTCOME_MEMBERS[waitOutcome],
+    rejection: input.status === "rejected" ? rejectionMember(input.reason, input.sessionId) : undefined,
   });
+}
+
+function rejectionMember(
+  reason: string,
+  sessionId: string,
+): AgentPromptRejection | undefined {
+  const member = REJECTION_MEMBERS[reason];
+  // The reason itself is private, so record only that a cause went unclassified.
+  if (member === undefined) {
+    log.warn("agent-prompt", "rejection_unmapped", {
+      session_id: sessionId,
+      reason_length: reason.length,
+    });
+  }
+  return member;
 }
 
 function remapAgentPromptWaitError(error: unknown): never {

@@ -319,6 +319,21 @@ export function requireWorker(values: ContextValues): WorkerPrincipal {
   return authenticationRequired();
 }
 
+/** Requires the per-tab id that scopes a terminal-search owner key. Without it
+ *  every search from one device collapses to a single owner, so two concurrent
+ *  searches supersede each other; a tab id makes supersession mean only "this
+ *  tab replaced its own search". */
+export function requireSearchTabId(values: ContextValues): string {
+  const tabId = values.get(tabIdKey)?.trim();
+  if (!tabId) {
+    throw new ConnectError(
+      `terminal search requires the ${X_ROOST_TAB_ID} header`,
+      Code.InvalidArgument,
+    );
+  }
+  return tabId;
+}
+
 
 export function requestedDashboardId(values: ContextValues): string | undefined {
   return values.get(requestedDashboardIdKey);

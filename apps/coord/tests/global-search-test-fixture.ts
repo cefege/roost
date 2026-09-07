@@ -1,4 +1,5 @@
-// Owns the isolated SQLite and fake worker-transport seam for global-search tests.
+// Owns the isolated SQLite and fake worker-transport seam for global-search tests,
+// plus the shared session-id and worker-entry builders those suites reply with.
 // Focused suites use it to seed dashboard-scoped sessions, capture exact batches,
 // and settle real coordinator pending RPCs without opening network listeners.
 // Every installed worker handle is removed during reset and cleanup.
@@ -13,6 +14,10 @@ import type {
   CoordWorkerDown,
   DBrowserCommand,
 } from "@roost/shared/proto/worker_transport_pb";
+import type {
+  WorkerGlobalSearchEntry,
+  WorkerSearchScrollbackResult,
+} from "@roost/shared/terminal-search";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,6 +40,40 @@ export const GLOBAL_TEST_DASHBOARD_B = "global-search-dashboard-b";
 export const GLOBAL_TEST_WORKER_A1 = "a".repeat(64);
 export const GLOBAL_TEST_WORKER_A2 = "b".repeat(64);
 export const GLOBAL_TEST_WORKER_B = "c".repeat(64);
+
+export function globalSearchSessionId(sequence: number): string {
+  return `00000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`;
+}
+
+export function globalSearchResult(
+  gridEpoch: string,
+  overrides: Partial<WorkerSearchScrollbackResult> = {},
+): WorkerSearchScrollbackResult {
+  return {
+    matches: [{ row: 5, col: 1, len: 6, preview: "needle" }],
+    truncated: false,
+    scrollback_total: 10,
+    cols: 80,
+    grid_epoch: gridEpoch,
+    scanned_start_row: 0,
+    scanned_end_row: 10,
+    history_floor: "none",
+    stop_reason: "complete",
+    ...overrides,
+  };
+}
+
+export function globalSearchOkEntry(
+  id: string,
+  gridEpoch = `epoch-${id.slice(-4)}`,
+  overrides: Partial<WorkerSearchScrollbackResult> = {},
+): WorkerGlobalSearchEntry {
+  return {
+    status: "ok",
+    session_id: id,
+    result: globalSearchResult(gridEpoch, overrides),
+  };
+}
 
 export interface CapturedGlobalSearchCommand {
   workerFp: string;
@@ -129,6 +168,7 @@ export interface GlobalSearchTestFixture {
     dashboardId?: string;
     deviceFingerprint?: string;
     tabId?: string;
+    omitTabId?: boolean;
     signal?: AbortSignal;
   }): HandlerContext;
   handlers(
@@ -243,7 +283,9 @@ export async function startGlobalSearchTestFixture(): Promise<GlobalSearchTestFi
         dashboardRole: "admin",
         deviceFingerprint,
       });
-      values.set(tabIdKey, options.tabId ?? "global-tab");
+      // Mirrors the interceptor: a request with no x-roost-tab-id header
+      // leaves the key set to undefined.
+      values.set(tabIdKey, options.omitTabId ? undefined : options.tabId ?? "global-tab");
       return {
         signal: options.signal ?? new AbortController().signal,
         values,

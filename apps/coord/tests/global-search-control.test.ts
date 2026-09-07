@@ -40,7 +40,7 @@ function workerResult(
   return {
     matches: [],
     truncated: false,
-    total: 3_000,
+    scrollback_total: 3_000,
     cols: 80,
     grid_epoch: gridEpoch,
     scanned_start_row: 0,
@@ -216,21 +216,29 @@ describe("global search continuation and result validation", () => {
     }
 
     const cursor = owner.issueCursor({
-      dashboardId: GLOBAL_TEST_DASHBOARD_A,
-      deviceFingerprint: "global-browser",
-      tabId: "global-tab",
-      searchId: "cursor-epoch-lie",
-      query: "malformed",
-      caseSensitive: false,
-      maxSessions: GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
-      maxRowsPerSession: GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
-      maxMatches: GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
-    }, [{
-      sessionId: secondId,
-      workerFp: GLOBAL_TEST_WORKER_A1,
-      gridEpoch: "expected-epoch",
-      beforeRow: 100,
-    }], 1, []);
+      binding: {
+        dashboardId: GLOBAL_TEST_DASHBOARD_A,
+        deviceFingerprint: "global-browser",
+        tabId: "global-tab",
+        searchId: "cursor-epoch-lie",
+        query: "malformed",
+        caseSensitive: false,
+        maxSessions: GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
+        maxRowsPerSession: GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
+        maxMatches: GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
+      },
+      continuations: [{
+        position: {
+          sessionId: secondId,
+          workerFp: GLOBAL_TEST_WORKER_A1,
+          gridEpoch: "expected-epoch",
+          beforeRow: 100,
+        },
+        searched: false,
+      }],
+      eligibleSessions: 1,
+      searchedSessionIds: [],
+    });
     const epochPromise = handlers.sessionsSearchGlobal(
       create(SessionsSearchGlobalRequestSchema, {
         query: "malformed",

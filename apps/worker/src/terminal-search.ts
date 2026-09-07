@@ -93,7 +93,7 @@ function rowSpans(
 
 /** Search newest-to-oldest in the same absolute row numbering used by cell
  * frames. `before_row` is exclusive, every reported scan range is half-open,
- * and the only continuation is a row-limit cursor at that range's start. */
+ * and a row- or match-limit stop continues at that range's start. */
 export async function handleSearchScrollback(
 	frame: SearchFrame,
 	requestId: string,
@@ -208,16 +208,21 @@ async function searchScrollbackAdmitted(
 		const historyFloor = scannedStartRow <= liveFloor
 			? historyFloorReason(session, liveFloor > 0 ? liveFloor - 1 : 0, liveFloor)
 			: "none";
+		// A match cap stops short of rows the ring still holds, so it hands back
+		// the same cursor a row cap does — otherwise older matches are
+		// unreachable. Omitted once the scan has reached the floor: no page left.
+		const continues = reason === "row_limit"
+			|| (reason === "match_limit" && scannedStartRow > liveFloor);
 		publishSearchResult(frame, requestId, coordLink, session, {
 			matches,
 			truncated: reason === "match_limit" || reason === "deadline",
-			total: scrollbackTotal,
+			scrollback_total: scrollbackTotal,
 			cols,
 			grid_epoch: gridEpoch,
 			scanned_start_row: scannedStartRow,
 			scanned_end_row: scannedEndRow,
 			history_floor: historyFloor,
-			...(reason === "row_limit" ? { next_before_row: scannedStartRow } : {}),
+			...(continues ? { next_before_row: scannedStartRow } : {}),
 			stop_reason: reason,
 		});
 	};

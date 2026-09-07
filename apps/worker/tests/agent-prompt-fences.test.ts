@@ -31,7 +31,11 @@ import {
   trackKeeper,
 } from "./terminal-stream-state-harness.ts";
 
-const PROCESS_PROOF: AgentProcessIdentity = { agentId: "omp", pid: 7_321 };
+const PROCESS_PROOF: AgentProcessIdentity = {
+  agentId: "omp",
+  pid: 7_321,
+  foreground: { groupId: 7_321, agentMemberPid: 7_321 },
+};
 const registries: AgentStatusRegistry[] = [];
 
 interface FenceHarness {
@@ -90,6 +94,7 @@ async function fenceHarness(
       agentId: "omp",
       processId: PROCESS_PROOF.pid,
       state: status.state ?? "idle",
+      visibleBlocker: false,
     });
   } else {
     registry.reportIntegration({
@@ -204,7 +209,7 @@ describe("agent prompt pre-write fences", () => {
     ]);
     const writes = keeper.writes.filter((write) => write.type === MuxFrameType.PtyInRequest);
     expect(writes.map((write) => new TextDecoder().decode(write.bytes!)))
-      .toEqual(["continue\r", "later-raw-input"]);
+      .toEqual(["continue", "\r", "later-raw-input"]);
   });
 
   test("drains a queued ticket when the initial process proof is rejected", async () => {

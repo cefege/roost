@@ -1,5 +1,6 @@
 // `roost keeper-refresh <host> --yes` performs coordinator-fenced empty-only
-// maintenance. The machine transaction serializes deploys while the
+// maintenance; `--force-live` is the operator's break-glass that additionally
+// destroys live PTYs. The machine transaction serializes deploys while the
 // coordinator drains every channel-creating command and authorizes the worker.
 
 import { mkdirSync } from "node:fs";
@@ -19,6 +20,7 @@ import {
   workerForDirectKeeperTarget,
 } from "./direct-keeper-update.ts";
 import { acquireMachineTransaction } from "./machine-transaction.ts";
+import type { WorkerStatus } from "./status.ts";
 
 function keeperRefreshJournalPath(platform: "darwin" | "linux"): string {
   return join(
@@ -28,16 +30,35 @@ function keeperRefreshJournalPath(platform: "darwin" | "linux"): string {
   );
 }
 
+function reportForcedDestruction(host: string, worker: WorkerStatus): void {
+  const keeper = worker.keeperRuntime!;
+  console.error(`--force-live will DESTROY every PTY the keeper on ${host} hosts.`);
+  console.error(`  keeper pid ${keeper.keeper_pid}, epoch ${keeper.keeper_epoch}`);
+  console.error(`  keeper channels: ${keeper.channel_count}`);
+  console.error(
+    `  coordinator sessions: ${worker.coordinatorOpenSessionIds.length}`
+    + (worker.coordinatorOpenSessionIds.length === 0
+      ? ""
+      : ` (${worker.coordinatorOpenSessionIds.join(", ")})`),
+  );
+  console.error("  Every shell, dev server, and test running in them exits.");
+}
+
 export async function keeperRefresh(args: string[]): Promise<void> {
   const localPlatform = process.platform;
   const host = args.find(argument => !argument.startsWith("--"));
+  const forceLive = args.includes("--force-live");
   if (!host) {
-    console.error("usage: roost keeper-refresh <host> --yes");
+    console.error("usage: roost keeper-refresh <host> --yes [--force-live]");
     process.exit(2);
   }
   if (!args.includes("--yes")) {
-    console.error(`Refreshing the empty keeper on ${host} requires confirmation.`);
-    console.error("Keepers with live channels are always refused. Re-run with --yes.");
+    console.error(forceLive
+      ? `Destroying the live keeper on ${host} requires confirmation.`
+      : `Refreshing the empty keeper on ${host} requires confirmation.`);
+    console.error(forceLive
+      ? "--force-live ends every PTY the keeper hosts. Re-run with --yes."
+      : "Keepers with live channels are refused without --force-live. Re-run with --yes.");
     process.exit(1);
   }
   if (localPlatform === "win32") {
@@ -53,6 +74,14 @@ export async function keeperRefresh(args: string[]): Promise<void> {
     ? await localUpdateWorker()
     : workerForDirectKeeperTarget(host);
   if (worker.stale) throw new Error(`${worker.label}: keeper runtime proof is stale`);
+  // Destroying PTYs requires a proven keeper identity. Without the coordinator's
+  // runtime proof there is nothing to authorize the destruction of.
+  if (forceLive && !worker.keeperRuntime) {
+    throw new Error(
+      `${worker.label}: keeper identity is unproven; --force-live is refused`,
+    );
+  }
+  if (forceLive) reportForcedDestruction(host, worker);
 
   let release: () => Promise<void>;
   if (selfHost) {
@@ -76,7 +105,7 @@ export async function keeperRefresh(args: string[]): Promise<void> {
     release = () => releaseRemoteDeployLock(host, lockPath, lockOwner);
   }
   try {
-    const outcome = await prepareKeeperMaintenance(worker.fingerprint);
+    const outcome = await prepareKeeperMaintenance(worker.fingerprint, forceLive);
     console.log(JSON.stringify({ outcome }));
   } finally {
     await release();

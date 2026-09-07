@@ -18,6 +18,7 @@ import {
   writeAgentPrompt,
   type AgentPromptControlDeps,
 } from "../src/agent-prompt-control.ts";
+import { PROMPT_SUBMIT_DELAY_MS } from "../src/agent-prompt-submit.ts";
 import { acquireKeeperAdmission } from "../src/session-control-lanes.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
@@ -36,7 +37,11 @@ import {
   trackKeeper,
 } from "./terminal-stream-state-harness.ts";
 
-const PROCESS_PROOF: AgentProcessIdentity = { agentId: "omp", pid: 4_242 };
+const PROCESS_PROOF: AgentProcessIdentity = {
+  agentId: "omp",
+  pid: 4_242,
+  foreground: { groupId: 4_242, agentMemberPid: 4_242 },
+};
 const STATUS_MESSAGE_SECRET = "status-message-must-not-leave-worker";
 const registries: AgentStatusRegistry[] = [];
 
@@ -188,9 +193,11 @@ describe("agent prompt terminal input ownership", () => {
     });
     expect(rawResult).toEqual({ status: "accepted", writtenBytes: rawBytes.byteLength });
     const writes = keeper.writes.filter((write) => write.type === MuxFrameType.PtyInRequest);
-    expect(new TextDecoder().decode(writes[0]!.bytes!))
-      .toBe("\x1b[200~prompt-secret\rsecondZ\x1b[201~\r");
-    expect(writes[1]!.bytes).toEqual(rawBytes);
+    expect(writes.map((write) => new TextDecoder().decode(write.bytes!))).toEqual([
+      "\x1b[200~prompt-secret\rsecondZ\x1b[201~",
+      "\r",
+      new TextDecoder().decode(rawBytes),
+    ]);
     expect(capturedLogs.join("\n")).not.toContain(promptText);
     expect(capturedLogs.join("\n")).not.toContain(STATUS_MESSAGE_SECRET);
   });
@@ -241,7 +248,7 @@ describe("agent prompt terminal input ownership", () => {
       harness.deps,
     )).toEqual({ status: "accepted", writtenBytes: AGENT_PROMPT_MAX_TEXT_BYTES + 1 });
     expect(harness.refreshCalls()).toBe(2);
-    expect(keeper.writes).toHaveLength(1);
+    expect(keeper.writes).toHaveLength(2);
   });
 
   test("expires behind an unresolved predecessor without losing receive order", async () => {
@@ -334,6 +341,51 @@ describe("agent prompt terminal input ownership", () => {
     });
     await Promise.resolve();
     expect(keeper.writes.filter((write) => write.type === MuxFrameType.PtyInRequest)).toHaveLength(3);
+  });
+
+  test("submits the CR only after the settle delay, and accepts only when it is acknowledged", async () => {
+    const harness = await promptHarness();
+    const writeAtMs: number[] = [];
+    const keeper = settlingKeeper((fake, write) => {
+      writeAtMs.push(performance.now());
+      if (new TextDecoder().decode(write.bytes!) === "\r") {
+        fake.inputReject(write.channelId, write.seq!, "queue_full");
+      } else {
+        fake.inputAck(write.channelId, write.seq!, write.bytes!.byteLength);
+      }
+    });
+
+    expect(await writeAgentPrompt(
+      requestFor(harness.proof, { text: "draft" }),
+      liveBudget(),
+      harness.deps,
+    )).toEqual({
+      status: "ambiguous",
+      writtenBytes: 5,
+      reason: "keeper did not submit the agent prompt",
+    });
+    const writes = keeper.writes.filter((write) => write.type === MuxFrameType.PtyInRequest);
+    expect(writes.map((write) => new TextDecoder().decode(write.bytes!)))
+      .toEqual(["draft", "\r"]);
+    expect(writeAtMs[1]! - writeAtMs[0]!).toBeGreaterThanOrEqual(PROMPT_SUBMIT_DELAY_MS);
+  });
+
+  test("rejects without writing when the budget cannot cover the submit delay", async () => {
+    const harness = await promptHarness();
+    const keeper = settlingKeeper((fake, write) => {
+      fake.inputAck(write.channelId, write.seq!, write.bytes!.byteLength);
+    });
+
+    expect(await writeAgentPrompt(
+      requestFor(harness.proof),
+      liveBudget({ current: true, remainingMs: PROMPT_SUBMIT_DELAY_MS }),
+      harness.deps,
+    )).toEqual({
+      status: "rejected",
+      writtenBytes: 0,
+      reason: "prompt budget cannot cover the submit delay",
+    });
+    expect(keeper.writes).toHaveLength(0);
   });
 
 });

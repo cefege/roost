@@ -14,6 +14,7 @@ import {
   prepareLocalEndpoint,
 } from "@roost/shared/local-endpoint";
 import {
+  KEEPER_IDENTITY_UNPROVEN_ERROR,
   KEEPER_REPLACEMENT_BLOCKED_ERROR,
   handleKeeperSurvivor,
 } from "../src/boot-keeper.ts";
@@ -359,7 +360,7 @@ describe("keeper survivor continuity", () => {
     expect(replacement.processEpoch).not.toBe(before.processEpoch);
   }, 20_000);
 
-  test("blocks a reachable pre-auth endpoint without shutdown or unlink", async () => {
+  test("refuses a reachable pre-auth endpoint without shutdown or unlink", async () => {
     await prepareLocalEndpoint(ENDPOINT);
     const sockets = new Set<Socket>();
     const server = createServer((socket) => {
@@ -373,11 +374,11 @@ describe("keeper survivor continuity", () => {
     await listening.promise;
     try {
       await expect(handleKeeperSurvivor(new Set()))
-        .rejects.toThrow(KEEPER_REPLACEMENT_BLOCKED_ERROR);
+        .rejects.toThrow(KEEPER_IDENTITY_UNPROVEN_ERROR);
       expect(server.listening).toBe(true);
       expect(existsSync(ENDPOINT.address)).toBe(true);
     } finally {
       await closePreAuthServer(server, sockets);
     }
-  }, 10_000);
+  }, 20_000);
 });

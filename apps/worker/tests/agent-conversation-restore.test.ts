@@ -1,6 +1,7 @@
 // Pins the worker-owned OMP resume plan (`omp --resume=<ref>`), its POSIX
-// quoting, reference validation, per-pass dedupe, and the one-batch keeper
-// acknowledgement truth model. No integration text becomes executable syntax.
+// quoting, reference validation, per-pass dedupe with its rejection rollback,
+// the partial-write line discard, and the one-batch keeper acknowledgement
+// truth model. No integration text becomes executable syntax.
 
 import { afterEach, describe, expect, test, vi } from "bun:test";
 import type { AgentConversationReferenceV1 } from "@roost/shared/agent-conversation-reference";
@@ -13,7 +14,7 @@ import {
   restoreAgentConversationAfterRespawn,
 } from "../src/agent-conversation-restore.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
-import { installFakeKeeper } from "./keeper-fake-pool.ts";
+import { installFakeKeeper, type KeeperWrite } from "./keeper-fake-pool.ts";
 import {
   CHANNEL_ID,
   cleanupStreamHarnesses,
@@ -152,7 +153,7 @@ describe("OMP conversation restore input", () => {
         keeper.inputReject(CHANNEL_ID, write.seq!, "queue_full");
       } else {
         keeper.inputAmbiguous(CHANNEL_ID, write.seq!, {
-          writtenBytes: 1,
+          writtenBytes: 0,
           reason: "write_error",
         });
       }
@@ -171,7 +172,7 @@ describe("OMP conversation restore input", () => {
       } else {
         expect(result).toEqual({
           status: "ambiguous",
-          writtenBytes: 1,
+          writtenBytes: 0,
           reason: "write_error",
         });
       }
@@ -187,6 +188,96 @@ describe("OMP conversation restore input", () => {
       expect(serializedTransition).not.toContain("--resume=");
     });
   }
+
+  test("a proven rejection releases the reference claim, an ambiguous one keeps it", async () => {
+    const inputWrites: KeeperWrite[] = [];
+    const keeper = trackKeeper(installFakeKeeper({
+      onWrite: (write) => {
+        if (write.type !== MuxFrameType.PtyInRequest) return;
+        inputWrites.push(write);
+        if (inputWrites.length === 1) {
+          keeper.inputReject(CHANNEL_ID, write.seq!, "queue_full");
+          return;
+        }
+        keeper.inputAmbiguous(CHANNEL_ID, write.seq!, {
+          writtenBytes: 0,
+          reason: "write_error",
+        });
+      },
+    }));
+    const harness = await makeHarness();
+    const agentReference = reference("path", "/private/shared.jsonl");
+    const dedupeKey = conversationRestoreDedupeKey(agentReference);
+    const resumedReferenceKeys = new Set<string>();
+    const deps = {
+      enabled: true,
+      sessionMgr: harness.manager,
+      platform: "linux" as const,
+      resumedReferenceKeys,
+    };
+
+    expect(await restoreAgentConversationAfterRespawn(
+      deps,
+      String(SESSION_ID),
+      agentReference,
+    )).toMatchObject({ status: "rejected" });
+    expect(resumedReferenceKeys.has(dedupeKey)).toBe(false);
+
+    expect(await restoreAgentConversationAfterRespawn(
+      deps,
+      String(SESSION_ID),
+      agentReference,
+    )).toMatchObject({ status: "ambiguous" });
+    expect(resumedReferenceKeys.has(dedupeKey)).toBe(true);
+  });
+
+  test("a partly delivered resume command is discarded from the prompt", async () => {
+    const inputWrites: KeeperWrite[] = [];
+    const keeper = trackKeeper(installFakeKeeper({
+      onWrite: (write) => {
+        if (write.type !== MuxFrameType.PtyInRequest) return;
+        inputWrites.push(write);
+        if (inputWrites.length === 1) {
+          keeper.inputAmbiguous(CHANNEL_ID, write.seq!, {
+            writtenBytes: 1,
+            reason: "write_error",
+          });
+          return;
+        }
+        keeper.inputAck(CHANNEL_ID, write.seq!, write.bytes!.byteLength);
+      },
+    }));
+    const harness = await makeHarness();
+    const agentReference = reference("path", "/private/opaque-secret.jsonl");
+    const info = vi.spyOn(log, "info").mockImplementation(() => {});
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+
+    expect(await restoreAgentConversationAfterRespawn({
+      enabled: true,
+      sessionMgr: harness.manager,
+      platform: "linux",
+    }, String(SESSION_ID), agentReference)).toEqual({
+      status: "ambiguous",
+      writtenBytes: 1,
+      reason: "write_error",
+    });
+
+    expect(inputWrites.map((write) => write.bytes)).toEqual([
+      materializeOmpConversationRestoreInput(agentReference, "linux"),
+      Uint8Array.of(0x03),
+    ]);
+    const events = [...info.mock.calls, ...warn.mock.calls].map(
+      (call) => call[1],
+    );
+    expect(events.filter(
+      (event) => event === "agent_conversation_restore_transition",
+    )).toHaveLength(1);
+    expect(events.filter(
+      (event) => event === "agent_conversation_restore_discard_transition",
+    )).toHaveLength(1);
+    expect(JSON.stringify([...info.mock.calls, ...warn.mock.calls]))
+      .not.toContain(agentReference.value);
+  });
 
   test("disabled, missing, and unsupported restores write zero input", async () => {
     const keeper = trackKeeper(installFakeKeeper());

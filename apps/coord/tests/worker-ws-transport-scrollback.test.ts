@@ -20,6 +20,7 @@ import {
   TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS,
   TERMINAL_SEARCH_RPC_DEADLINE_MS,
 } from "@roost/shared/terminal-search";
+import { tabIdKey } from "../src/connect/auth-interceptor.ts";
 import { makeSessionScrollbackHandlers } from "../src/connect/handlers-sessions-scrollback.ts";
 import { _pendingRpcStats } from "../src/router/pending-rpcs.ts";
 import { connectWorkers } from "../src/connect/worker-registry.ts";
@@ -254,6 +255,37 @@ describe("worker↔coord scrollback transport", () => {
       );
       expect(error.code).toBe(Code.InvalidArgument);
     }
+    expect(_pendingRpcStats().pending).toBe(pendingBefore);
+    await expect(worker.waitFor(
+      (frame) => frame.frame.case === "browserCommand",
+      50,
+    )).rejects.toThrow("waitFor timeout");
+    worker.close();
+  });
+
+  test("a search with no tab id is rejected before any command reaches the worker", async () => {
+    const worker = await connectReadyWorker();
+    const sessionId = await insertOpenSession();
+    const pendingBefore = _pendingRpcStats().pending;
+    const authorized = browserAuthContext();
+    const withoutTabId = {
+      signal: authorized.signal,
+      values: {
+        get: (key: unknown) =>
+          key === tabIdKey ? undefined : authorized.values.get(key as never),
+      },
+    } as unknown as typeof authorized;
+    const error = await expectConnectError(
+      makeSessionScrollbackHandlers(connectDeps).sessionsSearchScrollback(
+        create(SessionsSearchScrollbackRequestSchema, {
+          sessionId, searchId: "no-tab", query: "needle",
+          gridEpoch: "grid", maxRows: 100, maxMatches: 20,
+        }),
+        withoutTabId,
+      ),
+    );
+    expect(error.code).toBe(Code.InvalidArgument);
+    expect(error.rawMessage).toContain("x-roost-tab-id");
     expect(_pendingRpcStats().pending).toBe(pendingBefore);
     await expect(worker.waitFor(
       (frame) => frame.frame.case === "browserCommand",

@@ -53,7 +53,7 @@ describe("bounded terminal-search contract", () => {
   const baseResult = {
     matches: [{ row: 9, col: 1, len: 2, preview: "match" }],
     truncated: false,
-    total: 10,
+    scrollback_total: 10,
     cols: 80,
     grid_epoch: "epoch:1",
     scanned_start_row: 0,
@@ -201,10 +201,26 @@ describe("bounded terminal-search contract", () => {
       stop_reason: "row_limit",
       next_before_row: baseResult.scanned_start_row,
     }).success).toBe(true);
-    for (const stopReason of ["complete", "match_limit", "deadline", "epoch_changed"] as const) {
-      const truncated = stopReason === "match_limit" || stopReason === "deadline";
+    // A match cap leaves older rows unscanned, so it may page on; the cursor
+    // still has to name the start of the range it actually scanned.
+    expect(WorkerSearchScrollbackResultSchema.safeParse({
+      ...baseResult,
+      stop_reason: "match_limit",
+      truncated: true,
+      next_before_row: baseResult.scanned_start_row,
+    }).success).toBe(true);
+    expect(WorkerSearchScrollbackResultSchema.safeParse({
+      ...baseResult,
+      stop_reason: "match_limit",
+      truncated: true,
+      next_before_row: baseResult.scanned_end_row,
+    }).success).toBe(false);
+    for (const stopReason of ["complete", "deadline", "epoch_changed"] as const) {
       expect(WorkerSearchScrollbackResultSchema.safeParse({
-        ...baseResult, stop_reason: stopReason, truncated, next_before_row: 0,
+        ...baseResult,
+        stop_reason: stopReason,
+        truncated: stopReason === "deadline",
+        next_before_row: 0,
       }).success).toBe(false);
     }
     expect(WorkerSearchScrollbackResultSchema.safeParse({

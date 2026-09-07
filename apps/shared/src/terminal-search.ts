@@ -1,6 +1,11 @@
 // Shared terminal-search limits and JSON validation for the coordinator/worker lane.
 // The worker scanner, coordinator relay, and browser find controller import this
 // module so paging bounds and Unicode code-point semantics cannot drift.
+//
+// Each match carries a row `preview`, which is a deliberate widening: the
+// upstream design returns coordinates only, and the preview IS Roost's global
+// search feature. It stays bounded at 512 code points x 256 matches per page
+// and is never persisted, so it is not a leak to "fix" away.
 
 import { z } from "zod";
 
@@ -145,7 +150,7 @@ export const WorkerSearchScrollbackResultSchema = z.object({
     .max(TERMINAL_SEARCH_MAX_MATCHES)
     .readonly(),
   truncated: z.boolean(),
-  total: TerminalSearchRowSchema,
+  scrollback_total: TerminalSearchRowSchema,
   cols: PositiveUint32Schema,
   grid_epoch: TerminalSearchGridEpochSchema.min(1),
   scanned_start_row: TerminalSearchRowSchema,
@@ -199,10 +204,18 @@ export const WorkerSearchScrollbackResultSchema = z.object({
       path: ["next_before_row"],
     });
   }
-  if (result.stop_reason !== "row_limit" && result.next_before_row !== undefined) {
+  // A match cap leaves older rows unscanned, so it carries the same row cursor
+  // a row cap does; navigation stays unbounded through a bounded page.
+  const mayContinue = result.stop_reason === "row_limit"
+    || result.stop_reason === "match_limit";
+  if (
+    result.next_before_row !== undefined
+    && (!mayContinue || result.next_before_row !== result.scanned_start_row)
+  ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "only row_limit can carry a continuation row",
+      message: "only a row_limit or match_limit stop can carry a continuation"
+        + " row, and it must equal scanned_start_row",
       path: ["next_before_row"],
     });
   }

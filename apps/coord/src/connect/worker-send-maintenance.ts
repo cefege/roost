@@ -105,6 +105,7 @@ export function sendKeeperUpdatePreparation(workerFp: string, message: {
   journaledUpdateJson?: string;
   direction?: "source" | "target";
   maintenance: boolean;
+  forceLive: boolean;
   coordinatorOpenSessionIds: readonly string[];
 }, timeoutMs = 10_000): Promise<unknown> {
   const coordinatorOpenSessionIds = KeeperCoordinatorOpenSessionIdsSchema.parse(
@@ -122,6 +123,7 @@ export function sendKeeperUpdatePreparation(workerFp: string, message: {
           journaledUpdateJson: message.journaledUpdateJson,
           direction: message.direction ?? "",
           maintenance: message.maintenance,
+          forceLive: message.forceLive,
           coordinatorOpenSessionIds: [...coordinatorOpenSessionIds],
         }),
       },

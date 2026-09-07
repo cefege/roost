@@ -1,9 +1,14 @@
-// Owns the pinned OMP conversation-resume plan and its single acknowledged
-// PTY write after an ordinary replacement shell is durably admitted. Boot
+// Owns the pinned OMP conversation-resume plan, its single acknowledged PTY
+// write after an ordinary replacement shell is durably admitted, and the
+// line-discard write that cancels a partly delivered resume command. Boot
 // reconciliation supplies only private recovery metadata and a live session.
 
 import {
+  AGENT_CONVERSATION_CONTROL_CHARACTER_RE,
+  AGENT_CONVERSATION_SESSION_ID_MAX_UTF8_BYTES,
+  AGENT_CONVERSATION_SESSION_PATH_MAX_UTF8_BYTES,
   AgentConversationReferenceV1Schema,
+  isAbsoluteAgentConversationSessionPath,
   type AgentConversationReferenceV1,
 } from "@roost/shared/agent-conversation-reference";
 import {
@@ -12,6 +17,7 @@ import {
 } from "@roost/shared/platform";
 import { posixShellQuote } from "@roost/shared/shell-quote";
 import { log } from "@roost/shared/log";
+import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
 import type { SessionManager } from "./session-manager.ts";
 import {
   writeWorkerOwnedTerminalInput,
@@ -20,11 +26,10 @@ import {
 
 const UTF8_ENCODER = new TextEncoder();
 const CARRIAGE_RETURN = "\r";
-const MAX_SESSION_ID_LENGTH = 512;
-const MAX_SESSION_PATH_LENGTH = 4096;
-// A control character can be consumed by the line discipline or the agent's
-// own editor before the shell parser sees the closing quote.
-const CONTROL_CHARACTER_RE = /[\u0000-\u001f\u007f-\u009f]/u;
+// ETX discards the current input line in bash and zsh, in both emacs and vi
+// editing modes, so a partially delivered resume command cannot stay on the
+// prompt where one Enter would run a truncated `--resume=` id prefix.
+const PARTIAL_INPUT_DISCARD_BYTES = Uint8Array.of(0x03);
 
 /** `omp` exposes resume as `-r, --resume=<value>` and has no `--session`
  * flag, so the reference travels as one `--resume=` token. */
@@ -77,13 +82,19 @@ export function materializeOmpConversationRestoreInput(
   if (checked.agent_id !== descriptor.agent_id
       || !descriptor.reference_kinds.includes(checked.kind)
       || checked.value.length === 0
-      || CONTROL_CHARACTER_RE.test(checked.value)) return null;
-  if (checked.kind === "id" && checked.value.length > MAX_SESSION_ID_LENGTH) {
+      || AGENT_CONVERSATION_CONTROL_CHARACTER_RE.test(checked.value)) {
     return null;
   }
+  if (checked.kind === "id" && !hasAtMostUtf8Bytes(
+    checked.value,
+    AGENT_CONVERSATION_SESSION_ID_MAX_UTF8_BYTES,
+  )) return null;
   if (checked.kind === "path"
-      && (checked.value.length > MAX_SESSION_PATH_LENGTH
-        || !checked.value.startsWith("/"))) return null;
+      && (!hasAtMostUtf8Bytes(
+        checked.value,
+        AGENT_CONVERSATION_SESSION_PATH_MAX_UTF8_BYTES,
+      )
+        || !isAbsoluteAgentConversationSessionPath(checked.value))) return null;
   const argv = [
     descriptor.executable,
     `${descriptor.fixed_option_prefix}${checked.value}`,
@@ -136,7 +147,7 @@ export async function restoreAgentConversationAfterRespawn(
   // The claim precedes the write: an ambiguous outcome may still have reached
   // the PTY, so no second session may resume the same conversation.
   deps.resumedReferenceKeys?.add(dedupeKey);
-  let outcome: AgentConversationRestoreOutcome;
+  let outcome: WorkerInputResult;
   try {
     outcome = await writeWorkerOwnedTerminalInput.call(
       deps.sessionMgr,
@@ -150,7 +161,55 @@ export async function restoreAgentConversationAfterRespawn(
       reason: "worker-owned restore input outcome is unavailable",
     };
   }
-  return recordRestoreOutcome(sessionId, outcome);
+  if (outcome.status === "rejected") {
+    // A rejection is proven pre-write with zero keeper bytes, so no agent
+    // process can have attached: another session holding the same reference
+    // must still be allowed to resume it in this pass.
+    deps.resumedReferenceKeys?.delete(dedupeKey);
+  }
+  const recorded = recordRestoreOutcome(sessionId, outcome);
+  if (outcome.status !== "accepted" && outcome.writtenBytes > 0) {
+    await discardPartialRestoreInput(deps, sessionId, outcome);
+  }
+  return recorded;
+}
+
+/** Cancel — never re-send — a resume command the keeper only partly
+ * delivered. `omp --resume=` matches an id PREFIX, so a truncated command left
+ * on the prompt could attach one Enter to a different conversation. Discarding
+ * the input line is the only remedy available here: the replacement shell has
+ * already emitted a durable `respawned` event, so ending it would tombstone
+ * the session and delete its coordinator row over a stray prompt line. */
+async function discardPartialRestoreInput(
+  deps: AgentConversationRestoreDeps,
+  sessionId: string,
+  partial: WorkerInputResult,
+): Promise<void> {
+  let discard: WorkerInputResult;
+  try {
+    discard = await writeWorkerOwnedTerminalInput.call(
+      deps.sessionMgr,
+      sessionId,
+      PARTIAL_INPUT_DISCARD_BYTES,
+    );
+  } catch {
+    discard = {
+      status: "ambiguous",
+      writtenBytes: 0,
+      reason: "worker-owned restore discard outcome is unavailable",
+    };
+  }
+  const fields = {
+    sessionId,
+    outcome: discard.status,
+    partial_outcome: partial.status,
+    partial_bytes: partial.writtenBytes,
+  };
+  if (discard.status === "accepted") {
+    log.info("worker", "agent_conversation_restore_discard_transition", fields);
+  } else {
+    log.warn("worker", "agent_conversation_restore_discard_transition", fields);
+  }
 }
 
 function recordRestoreOutcome(

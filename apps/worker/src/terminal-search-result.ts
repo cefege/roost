@@ -48,13 +48,13 @@ export function publishPreScanDeadline(
 ): void {
   const core = session.wtermCore;
   const floor = scrollbackOrigin(core, session.cell_emit);
-  const total = floor + core.getScrollbackCount();
-  const newestExclusive = total + core.getRows();
+  const scrollbackTotal = floor + core.getScrollbackCount();
+  const newestExclusive = scrollbackTotal + core.getRows();
   const boundary = Math.min(frame.before_row ?? newestExclusive, newestExclusive);
   publishSearchResult(frame, requestId, coordLink, session, {
     matches: [],
     truncated: true,
-    total,
+    scrollback_total: scrollbackTotal,
     cols: core.getCols(),
     grid_epoch: cellGridEpoch(session.cell_emit),
     scanned_start_row: boundary,

@@ -6,7 +6,8 @@ import { describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import {
   AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES,
-  AGENT_CONVERSATION_REFERENCE_MAX_UTF8_BYTES,
+  AGENT_CONVERSATION_SESSION_ID_MAX_UTF8_BYTES,
+  AGENT_CONVERSATION_SESSION_PATH_MAX_UTF8_BYTES,
   AgentConversationReferenceV1Schema,
   AgentConversationRecoveryMetadataSchema,
   foldAgentConversationRecoveryMetadata,
@@ -40,36 +41,60 @@ const REFERENCE = AgentConversationReferenceV1Schema.parse({
 });
 
 describe("AgentConversationReferenceV1", () => {
-  test("preserves opaque values and accepts the exact UTF-8 value bound", () => {
+  test("accepts each kind at its exact UTF-8 bound and both absolute shapes", () => {
     expect(AgentConversationReferenceV1Schema.parse(REFERENCE)).toEqual(REFERENCE);
-    const exact = "😀".repeat(
-      AGENT_CONVERSATION_REFERENCE_MAX_UTF8_BYTES / 4,
-    );
-    expect(AgentConversationReferenceV1Schema.parse({
-      ...REFERENCE,
-      value: exact,
-    }).value).toBe(exact);
+    const exactPath = `/${"😀".repeat(1_023)}abc`;
+    expect(Buffer.byteLength(exactPath, "utf8"))
+      .toBe(AGENT_CONVERSATION_SESSION_PATH_MAX_UTF8_BYTES);
+    const exactId = "😀".repeat(AGENT_CONVERSATION_SESSION_ID_MAX_UTF8_BYTES / 4);
+    for (const accepted of [
+      { ...REFERENCE, value: exactPath },
+      { ...REFERENCE, value: "C:\\Users\\a\\.omp\\sessions\\s.jsonl" },
+      { ...REFERENCE, value: "C:/Users/a/.omp/sessions/s.jsonl" },
+      { ...REFERENCE, value: "\\\\server\\share\\s.jsonl" },
+      { ...REFERENCE, kind: "id", value: exactId },
+      { ...REFERENCE, kind: "id", value: "0199a4f2-1b6c-7c31-9c2f-3f6b6f2a51ce" },
+    ]) {
+      expect(AgentConversationReferenceV1Schema.parse(accepted).value)
+        .toBe(accepted.value);
+    }
   });
 
-  test("rejects unsupported agents, empty/NUL values, unknown fields, and overflow", () => {
+  test("rejects control characters, per-kind overflow, and relative paths", () => {
+    const overSizedId = "a".repeat(AGENT_CONVERSATION_SESSION_ID_MAX_UTF8_BYTES + 1);
     for (const candidate of [
       { ...REFERENCE, agent_id: "pi" },
       { ...REFERENCE, value: "" },
-      { ...REFERENCE, value: "before\0after" },
+      { ...REFERENCE, value: "/tmp/before\0after" },
+      { ...REFERENCE, value: "/tmp/before\nafter" },
+      { ...REFERENCE, value: "/tmp/before\u001bafter" },
+      { ...REFERENCE, value: "/tmp/before\u007fafter" },
+      { ...REFERENCE, value: "/tmp/before\u009fafter" },
       { ...REFERENCE, value: "\ud800" },
       { ...REFERENCE, value: "\udc00" },
-      { ...REFERENCE, value: `${"a".repeat(AGENT_CONVERSATION_REFERENCE_MAX_UTF8_BYTES)}b` },
+      { ...REFERENCE, value: "relative/session.jsonl" },
+      { ...REFERENCE, value: "./session.jsonl" },
+      { ...REFERENCE, value: "~/.omp/sessions/session.jsonl" },
+      { ...REFERENCE, value: "C:" },
+      { ...REFERENCE, value: "C:relative.jsonl" },
+      { ...REFERENCE, value: `/${"a".repeat(AGENT_CONVERSATION_SESSION_PATH_MAX_UTF8_BYTES)}` },
+      { ...REFERENCE, kind: "id", value: overSizedId },
+      { ...REFERENCE, kind: "id", value: "before\nafter" },
       { ...REFERENCE, extra: true },
     ]) {
       expect(AgentConversationReferenceV1Schema.safeParse(candidate).success).toBe(false);
     }
+    expect(AgentConversationReferenceV1Schema.parse({
+      ...REFERENCE,
+      value: `/${overSizedId}`,
+    }).value).toBe(`/${overSizedId}`);
   });
 
   test("bounds the exact serialized event without truncating the opaque value", () => {
     const accepted = SessionEvent.parse({
       kind: "agent_reference",
       session_id: SESSION_ID,
-      reference: { ...REFERENCE, value: "a".repeat(4_096) },
+      reference: { ...REFERENCE, value: `/${"a".repeat(4_095)}` },
       ts: 1,
     });
     expect(Buffer.byteLength(JSON.stringify(accepted), "utf8"))
@@ -77,7 +102,9 @@ describe("AgentConversationReferenceV1", () => {
     expect(SessionEvent.safeParse({
       kind: "agent_reference",
       session_id: SESSION_ID,
-      reference: { ...REFERENCE, value: "\u0001".repeat(4_096) },
+      // JSON escaping doubles each backslash: a value inside its own bound can
+      // still push the durable envelope past its limit.
+      reference: { ...REFERENCE, value: `/${"\\".repeat(4_095)}` },
       ts: 1,
     }).success).toBe(false);
     expect(SessionEvent.safeParse({

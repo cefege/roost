@@ -34,6 +34,7 @@ describe("agent status occupant continuity", () => {
       agentId: "omp",
       processId: 101,
       state: "working",
+      visibleBlocker: false,
     });
     const screenWorking = published.at(-1)!;
     expect(screenWorking).toMatchObject({
@@ -95,6 +96,7 @@ describe("agent status occupant continuity", () => {
       agentId: "omp",
       processId: 101,
       state: "working",
+      visibleBlocker: false,
     });
     expect(published.at(-1)).toBe(integratedIdle);
     clock.now += 101;
@@ -118,12 +120,15 @@ describe("agent status occupant continuity", () => {
     const second = registryHarness();
     first.registry.reportScreen(SESSION_ID, {
       agentId: "codex", processId: 11, state: "working",
+      visibleBlocker: false,
     });
     first.registry.reportScreen(OTHER_SESSION_ID, {
       agentId: "pi", processId: 12, state: "idle",
+      visibleBlocker: false,
     });
     second.registry.reportScreen(SESSION_ID, {
       agentId: "codex", processId: 11, state: "working",
+      visibleBlocker: false,
     });
 
     expect(first.published[0]?.status_epoch).toBe(first.published[1]?.status_epoch);
@@ -182,10 +187,12 @@ describe("agent status occupant replacement", () => {
     const { published, registry } = registryHarness();
     registry.reportScreen(SESSION_ID, {
       agentId: "omp", processId: 300, state: "working",
+      visibleBlocker: false,
     });
     const oldOccupant = published.at(-1)!.occupant_id;
     registry.reportScreen(SESSION_ID, {
       agentId: "pi", processId: 300, state: "working",
+      visibleBlocker: false,
     });
 
     expect(published.slice(-2).map((status) => status.active)).toEqual([false, true]);
@@ -240,21 +247,30 @@ describe("agent status occupant replacement", () => {
     const { published, registry } = registryHarness();
     registry.reportScreen(SESSION_ID, {
       agentId: "codex", processId: 501, state: "working",
+      visibleBlocker: false,
     });
     const first = published.at(-1)!;
     registry.clearScreen(SESSION_ID);
-    expect(published.at(-1)).toMatchObject({
-      active: false,
+    const exited = published.at(-1)!;
+    expect(exited).toMatchObject({
+      active: true,
+      state: "idle",
       occupant_id: first.occupant_id,
     });
 
     registry.reportScreen(SESSION_ID, {
       agentId: "codex", processId: 501, state: "idle",
+      visibleBlocker: false,
     });
-    const reappeared = published.at(-1)!;
+    const [retired, reappeared] = published.slice(-2);
+    expect(retired).toMatchObject({
+      active: false,
+      occupant_id: first.occupant_id,
+      completed_revision: exited.completed_revision,
+    });
     expect(reappeared).toMatchObject({ active: true, completed_revision: 0 });
-    expect(reappeared.status_epoch).toBe(first.status_epoch);
-    expect(reappeared.occupant_id).not.toBe(first.occupant_id);
+    expect(reappeared!.status_epoch).toBe(first.status_epoch);
+    expect(reappeared!.occupant_id).not.toBe(first.occupant_id);
     registry.dispose();
   });
 
@@ -297,6 +313,7 @@ describe("agent status occupant replacement", () => {
       agentId: "pi",
       processId: 502,
       state: "idle",
+      visibleBlocker: false,
     })).toBe(false);
     expect(published).toHaveLength(countAfterInactive);
 
@@ -305,6 +322,7 @@ describe("agent status occupant replacement", () => {
       agentId: "pi",
       processId: 502,
       state: "idle",
+      visibleBlocker: false,
     })).toBe(true);
     const reappeared = published.at(-1)!;
     expect(reappeared).toMatchObject({

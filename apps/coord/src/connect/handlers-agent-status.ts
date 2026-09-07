@@ -18,10 +18,10 @@ import {
   type AgentStatus,
 } from "@roost/shared/wire";
 import {
-  AgentStatusWaitError,
   getAgentStatusSnapshot,
   waitForAgentStatus,
 } from "../agent-status-hub.ts";
+import { AgentStatusWaitError } from "../agent-status-wait.ts";
 import { requireDashboardActor } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 
@@ -153,6 +153,8 @@ function agentStatusView(status: AgentStatus): AgentStatusView {
       occupantId: status.occupant_id,
       source: status.source,
     } : {}),
-    promptable: identified && status.source === "integration",
+    // The worker refuses a prompt proof from an occupant whose process is
+    // gone, so a row retained only to carry its completion is not promptable.
+    promptable: identified && status.source === "integration" && !status.occupant_exited,
   });
 }

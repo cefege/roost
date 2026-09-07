@@ -45,7 +45,7 @@ test("agent status reaches every browser surface and notification ACK", async ({
     "idle",
     (status) => status.source === "screen",
   );
-  await report(smokePage, backgroundId, "working", 1);
+  await report(backgroundId, "working", 1);
   await smokePage.goto(`${stack.baseUrl}/s/${backgroundId}`);
   await expect(smokePage.getByTestId(`terminal-slot-${backgroundId}`)).toContainText(
     `STATUS_ACK_1 {"ok":true}`,
@@ -88,7 +88,7 @@ test("agent status reaches every browser surface and notification ACK", async ({
   await smokePage.getByTestId("sidebar-search-clear").click();
   await expect(folderStatus).toBeVisible();
 
-  await report(smokePage, backgroundId, "blocked", 2, true, "Approval needed");
+  await report(backgroundId, "blocked", 2, true, "Approval needed");
   await expect(tabStatus).toHaveAttribute("data-level", "blocked", { timeout: 30_000 });
   await expect(folderStatus).toHaveAttribute("data-level", "blocked");
   await expect(folderStatus).toContainText("1 needs input");
@@ -131,14 +131,14 @@ test("agent status reaches every browser surface and notification ACK", async ({
   // Move away before completion so the transition is genuinely backgrounded.
   await smokePage.goto(`${stack.baseUrl}/s/${activeId}`);
   await expect(smokePage.getByTestId(`tab-${activeId}`)).toHaveAttribute("data-active", "true");
-  await report(smokePage, backgroundId, "working", 3);
+  await report(backgroundId, "working", 3);
   await expect(tabStatus).toHaveAttribute("data-level", "working", { timeout: 30_000 });
   const resumedStatus = await pollAgentStatus(stack.client, backgroundId, "working");
   expect([resumedStatus.statusEpoch, resumedStatus.occupantId]).toEqual([
     sameShellEpoch,
     sameShellOccupant,
   ]);
-  await report(smokePage, backgroundId, "idle", 4);
+  await report(backgroundId, "idle", 4);
   await expect(tabStatus).toHaveAttribute("data-level", "done", { timeout: 30_000 });
   const idleStatus = await pollAgentStatus(stack.client, backgroundId, "idle");
   expect([idleStatus.statusEpoch, idleStatus.occupantId]).toEqual([
@@ -172,7 +172,7 @@ test("agent status reaches every browser surface and notification ACK", async ({
   await expect(doneAttention).toHaveCount(0);
   await expect(smokePage.getByText("Nothing needs attention", { exact: true })).toBeVisible();
 
-  await report(smokePage, backgroundId, "idle", 5, false);
+  await report(backgroundId, "idle", 5, false);
   await expect(tabStatus).toHaveCount(0, { timeout: 30_000 });
   await expect(folderStatus).toHaveCount(0);
 
@@ -183,13 +183,12 @@ test("agent status reaches every browser surface and notification ACK", async ({
     "idle",
     (status) => status.source === "screen",
   );
-  await report(smokePage, activeId, "working", 1);
+  await report(activeId, "working", 1);
   const firstReplacementStatus = await pollAgentStatus(stack.client, activeId, "working");
   expect(firstReplacementStatus.statusEpoch).toBe(sameShellEpoch);
   expect(firstReplacementStatus.occupantId).toMatch(UUID_PATTERN);
   await launchIntegratedAgent(smokePage, activeId);
   const secondReplacementStatus = await reportReplacementAgentStatus(
-    smokePage,
     stack.client,
     activeId,
     firstReplacementStatus.occupantId!,

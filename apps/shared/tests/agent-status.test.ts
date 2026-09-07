@@ -162,6 +162,7 @@ describe("agent status protobuf contract", () => {
       statusEpoch,
       occupantId,
       source: "integration",
+      occupantExited: true,
     };
     const workerStatus = create(WAgentStatusSchema, protoStatus);
     const workerFrame = create(CoordWorkerUpSchema, {
@@ -178,6 +179,7 @@ describe("agent status protobuf contract", () => {
         statusEpoch,
         occupantId,
         source: "integration",
+        occupantExited: true,
       },
     });
 
@@ -196,6 +198,7 @@ describe("agent status protobuf contract", () => {
         statusEpoch,
         occupantId,
         source: "integration",
+        occupantExited: true,
       },
     });
   });
@@ -222,6 +225,9 @@ describe("agent status protobuf contract", () => {
       expect(roundTripStatus.statusEpoch).toBeUndefined();
       expect(roundTripStatus.occupantId).toBeUndefined();
       expect(roundTripStatus.source).toBeUndefined();
+      // A worker deployed before exit retention omits the field; decoding it as
+      // "released" would retire live rows across a rolling upgrade.
+      expect(roundTripStatus.occupantExited).toBe(false);
     }
   });
 

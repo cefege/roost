@@ -9,6 +9,12 @@ import {
   type SupportedHostPlatform,
 } from "@roost/shared/platform";
 import { windowsProcessSnapshot } from "@roost/shared/windows-helper";
+import {
+  agentForegroundJob,
+  processSubtree,
+  type AgentForegroundJob,
+  type ProcessRecord,
+} from "./process-tree.ts";
 
 const HOST_PLATFORM = supportedHostPlatform();
 
@@ -27,15 +33,6 @@ export const BUILTIN_AGENT_COMMANDS = {
 
 export type BuiltinAgentId = keyof typeof BUILTIN_AGENT_COMMANDS;
 
-export interface ProcessRecord {
-  pid: number;
-  ppid: number;
-  pgid: number;
-  tpgid: number;
-  comm: string;
-  args: string;
-}
-
 export interface SessionProcessRoot {
   sessionId: string;
   childPid: number;
@@ -44,6 +41,10 @@ export interface SessionProcessRoot {
 export interface AgentProcessIdentity {
   agentId: BuiltinAgentId;
   pid: number;
+  /** Foreground job of the pane the identity was proved in. Present only when
+   *  a live snapshot row proved this exact pid; a held or reported identity
+   *  carries no such proof, which a prompt admission must treat as unproved. */
+  foreground?: AgentForegroundJob;
 }
 
 const SCAN_THROTTLE_MS = 250;
@@ -185,28 +186,12 @@ export function identifyAgentProcess(
   return null;
 }
 
-function descendants(records: readonly ProcessRecord[], rootPid: number): ProcessRecord[] {
-  const children = new Map<number, ProcessRecord[]>();
-  for (const record of records) {
-    let list = children.get(record.ppid);
-    if (!list) children.set(record.ppid, list = []);
-    list.push(record);
-  }
-  const root = records.find((record) => record.pid === rootPid);
-  const out: ProcessRecord[] = root ? [root] : [];
-  for (let index = 0; index < out.length; index++) {
-    const list = children.get(out[index]!.pid);
-    if (list) out.push(...list);
-  }
-  return out;
-}
-
 export function findAgentProcessIdentity(
   records: readonly ProcessRecord[],
   rootPid: number,
 ): AgentProcessIdentity | null {
   let best: { identity: AgentProcessIdentity; score: number } | null = null;
-  const tree = descendants(records, rootPid);
+  const tree = processSubtree(records, rootPid);
   for (let depth = 0; depth < tree.length; depth++) {
     const record = tree[depth]!;
     const agentId = identifyAgentProcess(record, HOST_PLATFORM);
@@ -226,10 +211,18 @@ function findExactAgentProcessIdentity(
   rootPid: number,
   processId: number,
 ): AgentProcessIdentity | null {
-  const record = descendants(records, rootPid).find((candidate) => candidate.pid === processId);
-  if (!record) return null;
+  const tree = processSubtree(records, rootPid);
+  const paneChild = tree[0];
+  const record = tree.find((candidate) => candidate.pid === processId);
+  if (!paneChild || !record) return null;
   const agentId = identifyAgentProcess(record, HOST_PLATFORM);
-  return agentId ? { agentId, pid: processId } : null;
+  return agentId
+    ? {
+        agentId,
+        pid: processId,
+        foreground: agentForegroundJob(records, paneChild, processId),
+      }
+    : null;
 }
 
 interface HeldIdentity extends AgentProcessIdentity { misses: number }

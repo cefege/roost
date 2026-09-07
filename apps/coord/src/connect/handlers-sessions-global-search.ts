@@ -28,7 +28,7 @@ import {
 import {
   requireAccountDevice,
   requireDashboardActor,
-  tabIdKey,
+  requireSearchTabId,
 } from "./auth-interceptor.ts";
 import { sendBrowserCmd } from "./router-helpers.ts";
 import type { ConnectDeps } from "./router.ts";
@@ -76,11 +76,11 @@ export function makeSessionGlobalSearchHandlers(
         );
       }
       const limits = normalizeGlobalSearchPageLimits(req);
-      const tabId = ctx.values.get(tabIdKey) ?? "";
+      const tabId = requireSearchTabId(ctx.values);
       const pageDeadlineAt = workerLanes.deadlineAfter(
         GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS,
       );
-      const viewerId = tabId ? `${caller.fingerprint}:${tabId}` : caller.fingerprint;
+      const viewerId = `${caller.fingerprint}:${tabId}`;
       const identity: GlobalSearchIdentity = {
         dashboardId: actor.dashboardId,
         deviceFingerprint: caller.fingerprint,
@@ -157,12 +157,13 @@ export function makeSessionGlobalSearchHandlers(
             throw new ConnectError("global search cancelled", Code.Canceled);
           }
         } else {
-          pageSessions = await listAuthorizedGlobalSearchSessions(
+          const authorizedPage = await listAuthorizedGlobalSearchSessions(
             deps.db,
             actor.dashboardId,
             limits.maxSessions,
           );
-          eligibleSessions = pageSessions.length;
+          pageSessions = authorizedPage.sessions;
+          eligibleSessions = authorizedPage.eligibleSessions;
           authorizedSessions = pageSessions;
           if (!cursorOwner.selectSessions(identity, authorizedSessions)) {
             throw new ConnectError("global search cancelled", Code.Canceled);
@@ -307,14 +308,18 @@ export function makeSessionGlobalSearchHandlers(
         const continuations = orderedOutcomes
           .filter(({ outcome }) => outcome.continuation !== undefined)
           .sort((left, right) => Number(left.outcome.searched) - Number(right.outcome.searched))
-          .map(({ outcome }) => outcome.continuation!);
+          .map(({ session, outcome }) => ({
+            position: outcome.continuation!,
+            searched: outcome.searched,
+            requestedBeforeRow: session.beforeRow,
+          }));
         const nextCursor = continuations.length > 0
-          ? cursorOwner.issueCursor(
+          ? cursorOwner.issueCursor({
               binding,
               continuations,
               eligibleSessions,
-              [...searchedSessionIds],
-            )
+              searchedSessionIds: [...searchedSessionIds],
+            })
           : undefined;
         const partials = orderedOutcomes.flatMap(({ session, outcome }) => {
           if (outcome.partialReason === undefined) return [];
@@ -340,7 +345,12 @@ export function makeSessionGlobalSearchHandlers(
           nextCursor,
           searchedSessions: searchedSessionIds.size,
           eligibleSessions,
-          truncated: nextCursor !== undefined || partials.length > 0,
+          // Sessions past the page cap were never touched, so a page that
+          // searched fewer than the eligible count is truncated even when
+          // nothing failed and no continuation remains.
+          truncated: nextCursor !== undefined
+            || partials.length > 0
+            || searchedSessionIds.size < eligibleSessions,
         });
       } finally {
         removeOwnerCancellation();

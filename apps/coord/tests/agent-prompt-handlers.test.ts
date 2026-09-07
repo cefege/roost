@@ -1,15 +1,24 @@
 // SessionsPrompt boundary tests pin dashboard/device authorization, exact
-// validation, non-oracular session rejection, dedicated worker framing, and
-// strict public outcome secrecy. Worker replies use the real pending-RPC table.
+// validation, non-oracular session rejection, dedicated worker framing, strict
+// public outcome secrecy, and rejection-cause classification. Worker replies
+// use the real pending-RPC table. Sibling
+// agent-prompt-handlers-status-wait.test.ts owns the status-wait arm.
 
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  spyOn,
+  test,
+} from "bun:test";
 import {
   AgentPromptInputOutcome,
-  AgentPromptWaitOutcome,
-  SessionsPromptRequestSchema,
-  type SessionsPromptRequest,
+  AgentPromptRejection,
 } from "@roost/shared/proto/coordinator_pb";
 import {
   TerminalInputStatus,
@@ -18,7 +27,7 @@ import {
 } from "@roost/shared/proto/worker_transport_pb";
 import { AGENT_PROMPT_MAX_WRITE_BYTES } from "@roost/shared/terminal-input";
 import { log } from "@roost/shared/log";
-import { _agentStatusWaiterStats } from "../src/agent-status-hub.ts";
+import { _agentStatusWaiterStats } from "../src/agent-status-wait.ts";
 import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
 import {
   FOREIGN_SESSION,
@@ -27,30 +36,12 @@ import {
   PROMPT_SESSION,
   PROMPT_STATUS_EPOCH,
   PROMPT_WORKER,
+  agentPromptRequest as request,
   startAgentPromptTestFixture,
   type AgentPromptTestFixture,
 } from "./agent-prompt-test-fixture.ts";
 
 let fixture: AgentPromptTestFixture;
-
-function request(overrides: Partial<{
-  sessionId: string;
-  expectedStatusEpoch: string;
-  expectedOccupantId: string;
-  expectedRevision: bigint;
-  text: string;
-  waitStates: string[];
-  waitTimeoutMs: number;
-}> = {}) {
-  return create(SessionsPromptRequestSchema, {
-    sessionId: PROMPT_SESSION,
-    expectedStatusEpoch: PROMPT_STATUS_EPOCH,
-    expectedOccupantId: PROMPT_OCCUPANT,
-    expectedRevision: 1n,
-    text: "continue",
-    ...overrides,
-  });
-}
 
 beforeAll(async () => {
   fixture = await startAgentPromptTestFixture();
@@ -107,18 +98,21 @@ describe("SessionsPrompt authorization and validation", () => {
       writtenBytes: response.writtenBytes,
       reason: response.reason,
       waitOutcome: response.waitOutcome,
+      rejection: response.rejection,
     }))).toEqual([
       {
         outcome: AgentPromptInputOutcome.REJECTED,
         writtenBytes: 0,
         reason: "agent prompt rejected",
         waitOutcome: undefined,
+        rejection: AgentPromptRejection.SESSION_UNAVAILABLE,
       },
       {
         outcome: AgentPromptInputOutcome.REJECTED,
         writtenBytes: 0,
         reason: "agent prompt rejected",
         waitOutcome: undefined,
+        rejection: AgentPromptRejection.SESSION_UNAVAILABLE,
       },
     ]);
     expect(sends).toBe(0);
@@ -239,79 +233,71 @@ describe("SessionsPrompt worker truth and secrecy", () => {
   });
 });
 
-describe("SessionsPrompt status waiting", () => {
-  test("captures a fast accepted transition emitted during worker send", async () => {
-    fixture.attachWorker((frame) => {
-      if (frame.frame.case !== "agentPrompt") throw new Error("expected agent prompt");
-      const prompt = frame.frame.value;
-      fixture.retainStatus("idle", 2);
-      resolvePendingRpc(prompt.requestId, create(WInputResultSchema, {
-        requestId: prompt.requestId,
-        sessionId: prompt.sessionId,
-        inputSeq: prompt.inputSeq,
-        status: TerminalInputStatus.ACCEPTED,
-        phase: TerminalWritePhase.WRITTEN,
-        writtenBytes: 9,
-      }), PROMPT_WORKER);
-      return 1;
-    });
-    const response = await fixture.handlers.sessionsPrompt(request({
-      waitStates: ["idle"],
-      waitTimeoutMs: 30_000,
-    }), fixture.context());
-    expect(response).toMatchObject({
-      inputOutcome: AgentPromptInputOutcome.ACCEPTED,
-      waitOutcome: AgentPromptWaitOutcome.MATCHED,
-    });
-    expect(_agentStatusWaiterStats().total).toBe(0);
+describe("SessionsPrompt rejection causes", () => {
+  test("gives every worker rejection cause its own bounded member", async () => {
+    const cases = [
+      ["agent is blocked", AgentPromptRejection.BLOCKED],
+      ["agent state does not admit prompts", AgentPromptRejection.NOT_PROMPTABLE],
+      ["agent status source is not integration", AgentPromptRejection.NOT_PROMPTABLE],
+      ["agent is not the terminal foreground process", AgentPromptRejection.NOT_FOREGROUND],
+      ["agent status fence changed", AgentPromptRejection.FENCE_CHANGED],
+      ["agent status is unavailable", AgentPromptRejection.FENCE_CHANGED],
+      ["agent process proof changed before the keeper write", AgentPromptRejection.PROCESS_CHANGED],
+      ["session changed before the keeper write", AgentPromptRejection.SESSION_UNAVAILABLE],
+      ["prompt budget expired", AgentPromptRejection.EXPIRED],
+      ["prompt budget cannot cover the submit delay", AgentPromptRejection.EXPIRED],
+      ["keeper rejected the agent prompt", AgentPromptRejection.KEEPER_REJECTED],
+      ["a cause this coordinator cannot classify", undefined],
+    ] as const;
+    for (const [reason, expected] of cases) {
+      fixture.attachWorker((frame) => {
+        if (frame.frame.case !== "agentPrompt") throw new Error("expected agent prompt");
+        const prompt = frame.frame.value;
+        resolvePendingRpc(prompt.requestId, create(WInputResultSchema, {
+          requestId: prompt.requestId,
+          sessionId: prompt.sessionId,
+          inputSeq: prompt.inputSeq,
+          status: TerminalInputStatus.REJECTED,
+          phase: TerminalWritePhase.PRE_WRITE,
+          writtenBytes: 0,
+          reason,
+        }), PROMPT_WORKER);
+        return 1;
+      });
+      const response = await fixture.handlers.sessionsPrompt(request(), fixture.context());
+      expect({
+        outcome: response.inputOutcome,
+        rejection: response.rejection,
+        reason: response.reason,
+      }).toEqual({
+        outcome: AgentPromptInputOutcome.REJECTED,
+        rejection: expected,
+        reason: "agent prompt rejected",
+      });
+    }
   });
 
-  test("awaits the requested state even when input completion is ambiguous", async () => {
-    fixture.attachWorker((frame) => {
-      if (frame.frame.case !== "agentPrompt") throw new Error("expected agent prompt");
-      const prompt = frame.frame.value;
-      fixture.retainStatus("blocked", 2);
-      resolvePendingRpc(prompt.requestId, create(WInputResultSchema, {
-        requestId: prompt.requestId,
-        sessionId: prompt.sessionId,
-        inputSeq: prompt.inputSeq,
-        status: TerminalInputStatus.AMBIGUOUS,
-        phase: TerminalWritePhase.UNKNOWN,
-        writtenBytes: 2,
-      }), PROMPT_WORKER);
-      return 1;
-    });
-    const response = await fixture.handlers.sessionsPrompt(request({
-      waitStates: ["blocked"],
-      waitTimeoutMs: 30_000,
-    }), fixture.context());
-    expect(response).toMatchObject({
-      inputOutcome: AgentPromptInputOutcome.AMBIGUOUS,
-      waitOutcome: AgentPromptWaitOutcome.MATCHED,
-    });
-    expect(_agentStatusWaiterStats().total).toBe(0);
-  });
-
-  test("aborts and consumes the provisional waiter on a definite rejection", async () => {
-    fixture.attachWorker((frame) => {
-      if (frame.frame.case !== "agentPrompt") throw new Error("expected agent prompt");
-      const prompt = frame.frame.value;
-      resolvePendingRpc(prompt.requestId, create(WInputResultSchema, {
-        requestId: prompt.requestId,
-        sessionId: prompt.sessionId,
-        inputSeq: prompt.inputSeq,
-        status: TerminalInputStatus.REJECTED,
-        phase: TerminalWritePhase.PRE_WRITE,
-        writtenBytes: 0,
-      }), PROMPT_WORKER);
-      return 1;
-    });
-    const response = await fixture.handlers.sessionsPrompt(request({
-      waitStates: ["idle"],
-      waitTimeoutMs: 300_000,
-    }), fixture.context());
-    expect(response.inputOutcome).toBe(AgentPromptInputOutcome.REJECTED);
-    expect(response.waitOutcome).toBeUndefined();
-    expect(_agentStatusWaiterStats().total).toBe(0);
+  test("leaves an accepted or ambiguous outcome without a rejection member", async () => {
+    for (const [status, phase, writtenBytes] of [
+      [TerminalInputStatus.ACCEPTED, TerminalWritePhase.WRITTEN, 9],
+      [TerminalInputStatus.AMBIGUOUS, TerminalWritePhase.UNKNOWN, 4],
+    ] as const) {
+      fixture.attachWorker((frame) => {
+        if (frame.frame.case !== "agentPrompt") throw new Error("expected agent prompt");
+        const prompt = frame.frame.value;
+        resolvePendingRpc(prompt.requestId, create(WInputResultSchema, {
+          requestId: prompt.requestId,
+          sessionId: prompt.sessionId,
+          inputSeq: prompt.inputSeq,
+          status,
+          phase,
+          writtenBytes,
+          reason: "agent is blocked",
+        }), PROMPT_WORKER);
+        return 1;
+      });
+      const response = await fixture.handlers.sessionsPrompt(request(), fixture.context());
+      expect(response.rejection).toBeUndefined();
+    }
   });
 });

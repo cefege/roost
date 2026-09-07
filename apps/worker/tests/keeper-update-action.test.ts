@@ -245,4 +245,18 @@ describe("journaled keeper update action", () => {
       },
     )).rejects.toThrow("worker sessions and keeper channels changed");
   });
+
+  test("rejects a journaled action that tries to carry force-live", async () => {
+    let probeCalls = 0;
+    await expect(applyJournaledKeeperUpdateAction(
+      { ...action("replace-empty", []), force_live: true } as JournaledKeeperUpdateActionV1,
+      {
+        probe: async () => {
+          probeCalls += 1;
+          return probe(contract(SOURCE_DIGEST, "a".repeat(40)), []);
+        },
+      },
+    )).rejects.toThrow();
+    expect(probeCalls).toBe(0);
+  });
 });

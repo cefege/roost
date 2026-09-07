@@ -129,6 +129,20 @@ async function importOmpReferenceIntegration(): Promise<IntegrationModule> {
   return await import(url.href) as unknown as IntegrationModule;
 }
 
+/** OMP's real SessionStopEvent, per SessionStopEvent in
+ *  @oh-my-pi/pi-coding-agent dist/types/extensibility/shared-events.d.ts. */
+function sessionStopEvent(sessionFile: string): Record<string, unknown> {
+  return {
+    type: "session_stop",
+    messages: [],
+    turn_id: 3,
+    session_id: "stopped-id",
+    session_file: sessionFile,
+    stop_hook_active: false,
+    signal: new AbortController().signal,
+  };
+}
+
 describe("OMP lifecycle integration", () => {
   test("preserves debounce, nested blockers, ask events, and release", async () => {
     const { reports, waitFor } = await startCollector();
@@ -218,7 +232,7 @@ describe("OMP lifecycle integration", () => {
     expect(disabled.handlers.size).toBe(0);
   });
 
-  test("reports official path references before IDs independently of status", async () => {
+  test("prefers an absolute session path and falls back to the id", async () => {
     const { reports, waitFor } = await startCollector();
     process.env.ROOST_AGENT_STATUS_DISABLED = "1";
     const { api, handlers } = createHarness();
@@ -242,11 +256,25 @@ describe("OMP lifecycle integration", () => {
       },
     });
     await waitFor(2);
-    await handlers.get("session_stop")?.({
-      session_file: "/opaque/stopped.jsonl",
-      session_id: "stopped-id",
-    }, {});
+    // A relative session file resumes nothing, so it must not shadow the id
+    // offered in the same call.
+    await handlers.get("session_switch")?.({}, {
+      sessionManager: {
+        getSessionFile: () => "relative/session.jsonl",
+        getSessionId: () => "relative-file-id",
+      },
+    });
     await waitFor(3);
+    await handlers.get("session_stop")?.(
+      sessionStopEvent("/opaque/stopped.jsonl"),
+      {},
+    );
+    await waitFor(4);
+    await handlers.get("session_stop")?.(
+      sessionStopEvent("stopped-relative.jsonl"),
+      {},
+    );
+    await waitFor(5);
 
     expect(referenceReports).toEqual([
       {
@@ -259,7 +287,15 @@ describe("OMP lifecycle integration", () => {
       },
       {
         session_id: SESSION_ID,
+        reference: { kind: "id", value: "relative-file-id" },
+      },
+      {
+        session_id: SESSION_ID,
         reference: { kind: "path", value: "/opaque/stopped.jsonl" },
+      },
+      {
+        session_id: SESSION_ID,
+        reference: { kind: "id", value: "stopped-id" },
       },
     ]);
     expect(handlers.size).toBe(3);

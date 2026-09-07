@@ -15,6 +15,7 @@ import {
 } from "../src/agent-status/registry.ts";
 import { withAgentStatusEnvironment } from "../src/agent-status/environment.ts";
 import { AgentReferenceAdmissionGate } from "../src/agent-status/reference-admission.ts";
+import { REPORTED_STATE_UNKNOWN_REASON } from "../src/agent-status/report-protocol.ts";
 import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -201,6 +202,11 @@ describe("agent report server", () => {
     }))).toMatchObject({ ok: false, error: "invalid_request" });
     expect(await request(server.path, report({ message: "x".repeat(513) })))
       .toMatchObject({ ok: false, error: "invalid_request" });
+    expect(await request(server.path, report({ state: "unknown" }))).toMatchObject({
+      ok: false,
+      error: "invalid_request",
+      detail: REPORTED_STATE_UNKNOWN_REASON,
+    });
     expect(received).toEqual([]);
   });
 

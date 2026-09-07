@@ -1,6 +1,7 @@
 // Applies one immutable keeper update action at the live worker boundary.
 // Coordinator preparation serializes channel admission before calling here.
-// Authenticated probes fence identity/bindings; only replace-empty may shut down.
+// Authenticated probes fence identity/bindings; only replace-empty and an
+// explicitly operator-forced maintenance refresh may shut the keeper down.
 
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -19,6 +20,8 @@ import { muxLocalEndpoint } from "./keeper-pool-config.ts";
 import {
   probeKeeperCompatible,
   shutdownEmptyKeeperAuthenticated,
+  shutdownKeeperAuthenticated,
+  waitForKeeperExit,
   type KeeperProbeResult,
 } from "./keeper-probe.ts";
 
@@ -51,8 +54,16 @@ export interface JournaledKeeperUpdateActionResult {
 interface KeeperUpdateActionDeps {
   probe?: typeof probeKeeperCompatible;
   shutdownEmpty?: typeof shutdownEmptyKeeperAuthenticated;
+  shutdownForced?: typeof shutdownKeeperAuthenticated;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
+}
+
+/** Operator-authorized destruction of live channels. The journaled update
+ * envelope cannot carry this: its schema is strict and has no such field, so a
+ * replayed or hand-edited journal is rejected rather than granted the flag. */
+export interface KeeperMaintenanceRequest {
+  forceLive: boolean;
 }
 
 function bindingDigest(probe: KeeperProbeResult): string | null {
@@ -73,21 +84,17 @@ function requireAuthenticatedProof(probe: KeeperProbeResult): asserts probe is K
 } {
   if (!probe.authenticated || !probe.contract || probe.keeperPid === undefined
     || !probe.processEpoch || !probe.bindings || !probe.spawningChannels) {
-    throw new Error("keeper update action lacks authenticated runtime proof");
+    throw new Error("keeper identity is unproven: no authenticated runtime proof");
   }
 }
 
-async function waitForKeeperExit(
+async function requireKeeperExit(
   probe: typeof probeKeeperCompatible,
   sleep: (milliseconds: number) => Promise<void>,
   now: () => number,
 ): Promise<void> {
-  const deadline = now() + 2_000;
-  while (now() < deadline) {
-    if (!(await probe(muxLocalEndpoint(), 200)).reachable) return;
-    await sleep(25);
-  }
-  throw new Error("authenticated empty keeper did not exit");
+  const exited = await waitForKeeperExit(muxLocalEndpoint(), { probe, sleep, now });
+  if (!exited) throw new Error("authenticated keeper did not exit");
 }
 
 export async function applyJournaledKeeperUpdateAction(
@@ -182,7 +189,7 @@ export async function applyJournaledKeeperUpdateAction(
     bindingDigest: currentDigest,
   });
   if (!stopped) throw new Error("authenticated empty keeper shutdown was rejected");
-  await waitForKeeperExit(probe, sleep, now);
+  await requireKeeperExit(probe, sleep, now);
   log.info("keeper-update", "empty_keeper_shutdown", {
     direction: action.direction,
     keeper_pid: current.keeperPid,
@@ -191,33 +198,53 @@ export async function applyJournaledKeeperUpdateAction(
   return { outcome: "shutdown" };
 }
 
-export async function shutdownEmptyKeeperForMaintenance(
+export async function shutdownKeeperForMaintenance(
+  request: KeeperMaintenanceRequest,
   deps: KeeperUpdateActionDeps = {},
 ): Promise<"shutdown" | "already-absent"> {
   const probe = deps.probe ?? probeKeeperCompatible;
   const shutdownEmpty = deps.shutdownEmpty ?? shutdownEmptyKeeperAuthenticated;
+  const shutdownForced = deps.shutdownForced ?? shutdownKeeperAuthenticated;
   const sleep = deps.sleep ?? Bun.sleep;
   const now = deps.now ?? Date.now;
   const endpoint = muxLocalEndpoint();
   const current = await probe(endpoint);
   if (!current.reachable) return "already-absent";
+  // An unproven identity is never a license to destroy PTYs: a process that
+  // cannot prove it is this machine's keeper is refused even under force-live.
   requireAuthenticatedProof(current);
   const currentDigest = bindingDigest(current)!;
-  if (current.bindings.length !== 0
-    || current.spawningChannels.length !== 0
-    || currentDigest !== KEEPER_EMPTY_BINDING_DIGEST) {
+  const empty = current.bindings.length === 0
+    && current.spawningChannels.length === 0
+    && currentDigest === KEEPER_EMPTY_BINDING_DIGEST;
+  if (!empty && !request.forceLive) {
     throw new Error("keeper refresh refused because the keeper has live channels");
   }
-  const stopped = await shutdownEmpty(endpoint, {
-    keeperPid: current.keeperPid,
-    processEpoch: current.processEpoch,
-    bindingDigest: currentDigest,
-  });
-  if (!stopped) throw new Error("authenticated empty keeper shutdown was rejected");
-  await waitForKeeperExit(probe, sleep, now);
-  log.info("keeper-update", "maintenance_empty_keeper_shutdown", {
+  if (!empty) {
+    log.warn("keeper-update", "maintenance_forced_live_keeper_shutdown", {
+      keeper_pid: current.keeperPid,
+      keeper_epoch: current.processEpoch,
+      binding_digest: currentDigest,
+      channel_bindings: current.bindings.map(binding => ({
+        channel_id: binding.channel_id,
+        pid: binding.pid,
+      })),
+      spawning_channels: [...current.spawningChannels],
+    });
+  }
+  const stopped = empty
+    ? await shutdownEmpty(endpoint, {
+        keeperPid: current.keeperPid,
+        processEpoch: current.processEpoch,
+        bindingDigest: currentDigest,
+      })
+    : await shutdownForced(endpoint);
+  if (!stopped) throw new Error("authenticated keeper shutdown was rejected");
+  await requireKeeperExit(probe, sleep, now);
+  log.info("keeper-update", "maintenance_keeper_shutdown", {
     keeper_pid: current.keeperPid,
     keeper_epoch: current.processEpoch,
+    forced_live: !empty,
   });
   return "shutdown";
 }

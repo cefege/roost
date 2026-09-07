@@ -122,7 +122,18 @@ async function installWorker(opts: InstallOptions): Promise<string> {
     authorized = true;
     log.info("install", "registered with coord", { fingerprint });
   } catch (error) {
-    log.warn("install", "register failed (will retry on heartbeat)", { error: String(error) });
+    // A failed register while the key is already authorized is a transient
+    // coordinator outage; the heartbeat loop recovers. A failed register after
+    // a failed redeem means this machine has no authority at all, which is
+    // otherwise indistinguishable from a network blip in the logs.
+    if (cfg.bootstrapToken && !authorized) {
+      log.error("install", "enrollment_failed", { fingerprint, error: String(error) });
+      log.error("install", "enrollment_hint", {
+        hint: "bootstrap token is one-shot and may already have been redeemed by another machine; mint a new one with `roost add-machine --platform macos` and re-run join",
+      });
+    } else {
+      log.warn("install", "register failed (will retry on heartbeat)", { error: String(error) });
+    }
   }
   if (cfg.bootstrapToken && authorized) await retireBootstrapToken();
 

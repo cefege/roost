@@ -1,7 +1,9 @@
-// Agent-prompt tests share one migrated dashboard/session fixture and explicit
-// fake worker transport. The fixture owns status-hub reset and route cleanup so
-// each case can observe waiter and pending-RPC behavior without network I/O.
+// Agent-prompt tests share one migrated dashboard/session fixture, the exact
+// request builder, and an explicit fake worker transport. The fixture owns
+// status-hub reset and route cleanup so each case can observe waiter and
+// pending-RPC behavior without network I/O.
 
+import { create } from "@bufbuild/protobuf";
 import { createContextValues, type HandlerContext } from "@connectrpc/connect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +16,10 @@ import {
   asWorkerFp,
   type AgentRuntimeState,
 } from "@roost/shared/wire";
+import {
+  SessionsPromptRequestSchema,
+  type SessionsPromptRequest,
+} from "@roost/shared/proto/coordinator_pb";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import {
   handleWorkerAgentStatus,
@@ -42,6 +48,25 @@ export const FOREIGN_SESSION = asSessionId("81000000-0000-4000-8000-000000000002
 export const MISSING_SESSION = asSessionId("81000000-0000-4000-8000-000000000099");
 export const PROMPT_STATUS_EPOCH = StatusEpoch.parse("82000000-0000-4000-8000-000000000001");
 export const PROMPT_OCCUPANT = AgentOccupantId.parse("83000000-0000-4000-8000-000000000001");
+
+export function agentPromptRequest(overrides: Partial<{
+  sessionId: string;
+  expectedStatusEpoch: string;
+  expectedOccupantId: string;
+  expectedRevision: bigint;
+  text: string;
+  waitStates: string[];
+  waitTimeoutMs: number;
+}> = {}): SessionsPromptRequest {
+  return create(SessionsPromptRequestSchema, {
+    sessionId: PROMPT_SESSION,
+    expectedStatusEpoch: PROMPT_STATUS_EPOCH,
+    expectedOccupantId: PROMPT_OCCUPANT,
+    expectedRevision: 1n,
+    text: "continue",
+    ...overrides,
+  });
+}
 
 const ACTOR: DashboardActor = {
   accountId: "agent-prompt-account",
@@ -142,6 +167,7 @@ export async function startAgentPromptTestFixture() {
     state: AgentRuntimeState = "working",
     revision = 1,
     message?: string,
+    completedRevision = 0,
   ): void {
     const accepted = handleWorkerAgentStatus(PROMPT_WORKER, AgentStatusUpdate.parse({
       session_id: PROMPT_SESSION,
@@ -149,7 +175,7 @@ export async function startAgentPromptTestFixture() {
       state,
       message,
       revision,
-      completed_revision: 0,
+      completed_revision: completedRevision,
       updated_at: now + revision,
       active: true,
       status_epoch: PROMPT_STATUS_EPOCH,

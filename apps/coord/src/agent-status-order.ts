@@ -1,11 +1,14 @@
 // Owns coordinator admission order for one session's observed agent status.
 // Revisions order updates only inside an exact epoch/occupant tuple; retired
 // UUID tokens are compared solely by equality and remain fenced through a
-// close/open boundary until the hub itself is stopped.
+// close/open boundary until the hub itself is stopped. It also marks the
+// revision at which the latest occupant's state last changed, which is the
+// only advance a status wait may honour.
 
 import {
   isIdentifiedAgentStatus,
   type AgentOccupantId,
+  type AgentRuntimeState,
   type AgentStatus,
   type AgentStatusIdentity,
   type AgentStatusUpdate,
@@ -30,6 +33,8 @@ export class AgentStatusOrder {
   private readonly retiredOccupantsByEpoch = new Map<StatusEpoch, Set<AgentOccupantId>>();
   private latestStatusEpoch: StatusEpoch | undefined;
   private latestOccupantId: AgentOccupantId | undefined;
+  private latestState: AgentRuntimeState | undefined;
+  private latestStateChangeRevision = 0;
 
   accepts(previous: AgentStatus | undefined, update: AgentStatusUpdate): boolean {
     if (!isIdentifiedAgentStatus(update)) {
@@ -49,11 +54,26 @@ export class AgentStatusOrder {
       this.legacyRevision = update.revision;
       return;
     }
+    // Waiters advance on a real transition, so the change point moves only when
+    // this occupant's state differs from the state last observed for it.
+    if (
+      this.latestStatusEpoch !== update.status_epoch
+      || this.latestOccupantId !== update.occupant_id
+      || this.latestState !== update.state
+    ) {
+      this.latestStateChangeRevision = update.revision;
+    }
+    this.latestState = update.state;
     this.identifiedAccepted = true;
     this.advanceIdentity(update);
     if (!update.active) {
       this.retireOccupant(update.status_epoch, update.occupant_id);
     }
+  }
+
+  /** Revision at which the latest occupant's state last actually changed. */
+  get stateChangeRevision(): number {
+    return this.latestStateChangeRevision;
   }
 
   recordClose(current: AgentStatus, inactiveRevision: number): void {

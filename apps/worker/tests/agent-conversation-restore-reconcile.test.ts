@@ -1,6 +1,7 @@
 // Boot reconciliation may resume an OMP conversation only after keeper adoption
-// failed and the ordinary replacement shell's `respawned` event is durable.
-// One reference is claimed once per pass, and outcomes never re-enter respawn.
+// failed and the ordinary replacement shell's `respawned` event is durable. One
+// reference is claimed once per pass until a rejected write releases it, and
+// outcomes never re-enter respawn.
 
 import { afterEach, expect, test, vi } from "bun:test";
 import { tmpdir } from "node:os";
@@ -10,6 +11,7 @@ import type { CoordClient } from "../src/coord-client.ts";
 import { reconcileCoordinatorSessions } from "../src/boot-session-reconcile.ts";
 import {
   conversationRestoreDedupeKey,
+  restoreAgentConversationAfterRespawn,
   type AgentConversationRestoreOutcome,
 } from "../src/agent-conversation-restore.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
@@ -228,6 +230,38 @@ test("every session in one pass shares the reference claim set", async () => {
   });
   expect(claimSets).toHaveLength(2);
   expect(claimSets[0]).toBe(claimSets[1]);
+});
+
+test("a rejected write frees the reference for the next session in the pass", async () => {
+  const harness = managerWithReconcileStubs(false);
+  const outcomes: AgentConversationRestoreOutcome[] = [];
+  const restore = vi.fn(async (
+    sessionId: string,
+    reference: AgentConversationReferenceV1 | null,
+    resumedReferenceKeys: Set<string>,
+  ): Promise<AgentConversationRestoreOutcome> => {
+    const outcome = await restoreAgentConversationAfterRespawn({
+      enabled: true,
+      sessionMgr: harness.manager,
+      platform: "linux",
+      resumedReferenceKeys,
+    }, sessionId, reference);
+    outcomes.push(outcome);
+    return outcome;
+  });
+
+  await expect(reconcile(harness.manager, restore, 2)).resolves.toMatchObject({
+    admitted: true,
+    resumed: 0,
+    respawned: 2,
+  });
+  // Both sessions carry the same reference and the stubbed respawn registers
+  // no live channel, so every write is a provable zero-byte rejection: the
+  // second session must still attempt its own restore.
+  expect(outcomes.map((outcome) => outcome.status)).toEqual([
+    "rejected",
+    "rejected",
+  ]);
 });
 
 test("an adopted session's reference is claimed before any respawn restore", async () => {

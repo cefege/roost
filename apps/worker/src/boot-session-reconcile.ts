@@ -370,14 +370,15 @@ export function _assertExactRecoveryMetadata(
 	const seen = new Set<string>();
 	const references = new Map<string, AgentConversationReferenceV1 | null>();
 	for (const row of rows) {
-		let sessionId: string;
-		let reference: AgentConversationReferenceV1 | null;
+		const sessionId = String(row.sessionId);
+		let reference: AgentConversationReferenceV1 | null = null;
 		try {
-			const metadata = sessionRecoveryMetadataFromProto(row);
-			sessionId = String(metadata.session_id);
-			reference = metadata.agent_reference;
+			reference = sessionRecoveryMetadataFromProto(row).agent_reference;
 		} catch {
-			throw new Error("coordinator recovery metadata is invalid");
+			// A stored reference that no longer satisfies the bounded contract
+			// restores an ordinary shell. Failing admission here would exit the
+			// worker and crash-loop it for every session on the machine.
+			log.warn("worker", "recovery_reference_unusable", { session_id: sessionId });
 		}
 		if (!expected.has(sessionId) || seen.has(sessionId)) {
 			throw new Error("coordinator recovery metadata set does not match sessions");

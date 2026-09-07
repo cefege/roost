@@ -1,15 +1,20 @@
-// Status-fenced agent-prompt orchestration registers an optional occupant wait
-// before terminal FIFO admission, then routes one dedicated worker request.
+// Status-fenced agent-prompt orchestration registers an occupant wait before
+// terminal FIFO admission, then routes one dedicated worker request.
+// A settled-state wait is two-phase: observed activity is required first, so a
+// prompt the agent never processed reports a stall instead of a match.
 // It shares the raw-input lane, move gate, deadline, and WInputResult classifier;
 // cancellation always removes and consumes the provisional status waiter.
 
 import { AGENT_PROMPT_MAX_WRITE_BYTES } from "@roost/shared/terminal-input";
 import {
-  AgentStatusWaitError,
+  retainedAgentOccupantState,
   waitForAgentStatus,
+} from "../agent-status-hub.ts";
+import {
+  AgentStatusWaitError,
   type AgentStatusWaitOutcome,
   type AgentStatusWaitResult,
-} from "../agent-status-hub.ts";
+} from "../agent-status-wait.ts";
 import type { ConnectDeps } from "./router.ts";
 import {
   INPUT_CONTROL_TIMEOUT_MS,
@@ -22,6 +27,15 @@ import {
   processTerminalWriteControl,
   type TerminalWriteControlResult,
 } from "./terminal-write-control.ts";
+
+/** A prompt must move its agent inside this window before a settled-state wait
+ * is honoured; without it an idle agent satisfies the wait with the turn the
+ * prompt was supposed to start. */
+export const AGENT_PROMPT_EFFECT_TIMEOUT_MS = 5_000;
+
+const PROMPT_ACTIVITY_STATES = ["working", "blocked"] as const;
+
+export type AgentPromptWaitOutcomeName = AgentStatusWaitOutcome | "prompt_stalled";
 
 export interface AgentPromptWaitConfig {
   states: readonly string[];
@@ -43,7 +57,13 @@ export interface AgentPromptControlCommand {
 
 export interface AgentPromptControlResult {
   input: TerminalWriteControlResult;
-  waitOutcome?: AgentStatusWaitOutcome;
+  waitOutcome?: AgentPromptWaitOutcomeName;
+}
+
+interface PromptActivityGate {
+  readonly timeoutMs: number;
+  /** A gate timeout is a stall only when the whole window was available. */
+  readonly stallOnTimeout: boolean;
 }
 
 type ObservedWait =
@@ -74,7 +94,8 @@ export async function processAgentPromptControl(
   signal: AbortSignal,
 ): Promise<AgentPromptControlResult> {
   const deadline = command.deadline ?? startHopDeadline(INPUT_CONTROL_TIMEOUT_MS);
-  if (!command.wait) {
+  const wait = command.wait;
+  if (!wait) {
     return {
       input: await processPromptWrite(deps, command, deadline),
     };
@@ -85,6 +106,8 @@ export async function processAgentPromptControl(
   signal.addEventListener("abort", cancelWait, { once: true });
   if (signal.aborted) waitController.abort();
 
+  const waitBudget = startHopDeadline(wait.timeoutMs);
+  const gate = promptActivityGate(command, wait, waitBudget);
   let observedWait: Promise<ObservedWait> | undefined;
   let waitConsumed = false;
   try {
@@ -94,9 +117,9 @@ export async function processAgentPromptControl(
       sessionId: command.sessionId,
       statusEpoch: command.expectedStatusEpoch,
       occupantId: command.expectedOccupantId,
-      desiredStates: command.wait.states,
+      desiredStates: gate ? PROMPT_ACTIVITY_STATES : wait.states,
       afterRevision: command.expectedRevision,
-      timeoutMs: command.wait.timeoutMs,
+      timeoutMs: gate ? gate.timeoutMs : wait.timeoutMs,
     }, waitController.signal));
     if (signal.aborted) {
       const canceled = await observedWait;
@@ -115,9 +138,18 @@ export async function processAgentPromptControl(
 
     const observed = await observedWait;
     waitConsumed = true;
+    const firstPhase = unwrapObservedWait(observed);
+    if (!gate) return { input, waitOutcome: firstPhase.outcome };
     return {
       input,
-      waitOutcome: unwrapObservedWait(observed).outcome,
+      waitOutcome: await settledWaitOutcome({
+        command,
+        states: wait.states,
+        gate,
+        activity: firstPhase,
+        budget: waitBudget,
+        signal: waitController.signal,
+      }),
     };
   } finally {
     signal.removeEventListener("abort", cancelWait);
@@ -126,6 +158,59 @@ export async function processAgentPromptControl(
       await observedWait;
     }
   }
+}
+
+/** A caller that waits for activity itself needs no gate, and an agent already
+ * working or blocked has already proved it. */
+function promptActivityGate(
+  command: AgentPromptControlCommand,
+  wait: AgentPromptWaitConfig,
+  budget: HopDeadline,
+): PromptActivityGate | undefined {
+  if (wait.states.some((state) => state === "working" || state === "blocked")) {
+    return undefined;
+  }
+  const pinned = retainedAgentOccupantState(
+    command.sessionId,
+    command.expectedStatusEpoch,
+    command.expectedOccupantId,
+  );
+  if (pinned === "working" || pinned === "blocked") return undefined;
+  const remainingMs = Math.max(1, Math.floor(budget.remainingMs()));
+  return {
+    timeoutMs: Math.min(AGENT_PROMPT_EFFECT_TIMEOUT_MS, remainingMs),
+    stallOnTimeout: remainingMs > AGENT_PROMPT_EFFECT_TIMEOUT_MS,
+  };
+}
+
+/** Second phase: the caller's own wait, floored at the observed activity so a
+ * completion that predates the prompt cannot satisfy it. */
+async function settledWaitOutcome(input: {
+  command: AgentPromptControlCommand;
+  states: readonly string[];
+  gate: PromptActivityGate;
+  activity: AgentStatusWaitResult;
+  budget: HopDeadline;
+  signal: AbortSignal;
+}): Promise<AgentPromptWaitOutcomeName> {
+  if (input.activity.outcome === "timed_out") {
+    return input.gate.stallOnTimeout ? "prompt_stalled" : "timed_out";
+  }
+  if (input.activity.outcome !== "matched") return input.activity.outcome;
+  const remainingMs = Math.floor(input.budget.remainingMs());
+  if (remainingMs < 1) return "timed_out";
+  const settled = await waitForAgentStatus({
+    sessionId: input.command.sessionId,
+    statusEpoch: input.command.expectedStatusEpoch,
+    occupantId: input.command.expectedOccupantId,
+    desiredStates: input.states,
+    afterRevision: Math.max(
+      input.command.expectedRevision,
+      input.activity.matchedRevision ?? 0,
+    ),
+    timeoutMs: remainingMs,
+  }, input.signal);
+  return settled.outcome;
 }
 
 function processPromptWrite(

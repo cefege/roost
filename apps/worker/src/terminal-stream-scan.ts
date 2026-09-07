@@ -178,6 +178,15 @@ export function initAgentOscState(): AgentOscState {
   };
 }
 
+/** Drops retained OSC title/progress for a session whose identified agent was
+ *  replaced. A replacement process must not be judged by the dead one's final
+ *  title; the first acquisition instead keeps bytes the newly identified
+ *  process may have emitted before the probe recognized it. */
+export function clearAgentOscEvidence(state: AgentOscState): void {
+  state.rawOscTitle = "";
+  state.rawOscProgress = "";
+}
+
 /** Scan complete OSC 0/2 title and OSC 9 progress sequences. `combined`
  * includes the caller's prior carry; the returned bounded tail must be
  * prepended to the next decoded chunk. */

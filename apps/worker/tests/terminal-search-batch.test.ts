@@ -144,7 +144,7 @@ function emptySearchResult(gridEpoch: string): WorkerSearchScrollbackResult {
 	return {
 		matches: [],
 		truncated: false,
-		total: 0,
+		scrollback_total: 0,
 		cols: 80,
 		grid_epoch: gridEpoch,
 		scanned_start_row: 0,

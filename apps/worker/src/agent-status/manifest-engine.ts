@@ -1,5 +1,9 @@
+// Manifest evaluator: picks a screen/OSC region, runs one agent manifest's
+// contains/regex/all/any/not gates over it, and returns the winning rule's
+// state plus its visible_* evidence. Driven by AgentScreenDetector per scan
+// with the pinned rules in manifests.ts; depends only on AgentRuntimeState.
 // Adapted from Herdr src/detect/manifest.rs at commit
-// eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
+// c7b79294e28fe7c835691a25597fabf226ecfc20 (Apache-2.0).
 
 import type { AgentRuntimeState } from "@roost/shared/wire";
 
@@ -59,6 +63,9 @@ const compiledGates = new WeakMap<object, CompiledGate>();
 /** Translate the Rust-regex syntax present in the pinned Herdr manifests. */
 export function compileHerdrRegex(pattern: string): RegExp {
   let source = pattern;
+  // Never add "m": the pinned manifests transcribe Rust's whole-haystack
+  // `\A`/`\z` as `^`/`$`, so a multiline flag would let a codex trust prompt
+  // quoted mid-transcript satisfy a visible_blocker anchor.
   let flags = "u";
   if (source.startsWith("(?i)")) {
     source = source.slice(4);

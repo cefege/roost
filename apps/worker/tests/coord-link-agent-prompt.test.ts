@@ -44,7 +44,7 @@ afterEach(() => {
   cleanupStreamHarnesses();
 });
 
-test("agentPrompt dispatch writes once and returns an accepted WInputResult", async () => {
+test("agentPrompt dispatch submits text then CR and returns an accepted WInputResult", async () => {
   const stream = await makeHarness();
   stream.record.childPid = 100;
   const registry = new AgentStatusRegistry({
@@ -67,7 +67,11 @@ test("agentPrompt dispatch writes once and returns an accepted WInputResult", as
   const detector = {
     reportingAgentForSession: async (sessionId: string, processId: number) => (
       sessionId === String(SESSION_ID) && processId === PROCESS_ID
-        ? { agentId: "omp" as const, pid: PROCESS_ID }
+        ? {
+            agentId: "omp" as const,
+            pid: PROCESS_ID,
+            foreground: { groupId: PROCESS_ID, agentMemberPid: PROCESS_ID },
+          }
         : null
     ),
   };
@@ -134,7 +138,7 @@ test("agentPrompt dispatch writes once and returns an accepted WInputResult", as
     reason: undefined,
   });
   expect(keeper.writes.filter((write) => write.type === MuxFrameType.PtyInRequest))
-    .toHaveLength(1);
+    .toHaveLength(2);
 });
 
 test("agentPrompt dependency failures use static ambiguous output without logging secrets", async () => {

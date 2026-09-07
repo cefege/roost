@@ -14,16 +14,18 @@ import {
   type SessionId,
 } from "@roost/shared/wire";
 import {
-  AGENT_STATUS_WAIT_MAX_GLOBAL,
-  AGENT_STATUS_WAIT_MAX_PER_SESSION,
-  AgentStatusWaitError,
-  _agentStatusWaiterStats,
   handleWorkerAgentStatus,
   startAgentStatusHub,
   stopAgentStatusHub,
   waitForAgentStatus,
-  type AgentStatusWaitRequest,
 } from "../src/agent-status-hub.ts";
+import {
+  AGENT_STATUS_WAIT_MAX_GLOBAL,
+  AGENT_STATUS_WAIT_MAX_PER_SESSION,
+  AgentStatusWaitError,
+  _agentStatusWaiterStats,
+  type AgentStatusWaitRequest,
+} from "../src/agent-status-wait.ts";
 import { sessionBus } from "../src/buses.ts";
 import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
 
@@ -102,24 +104,31 @@ describe("agent status occupant waits", () => {
   test("matches the retained exact occupant synchronously after registration", async () => {
     retain(status({ revision: 2, state: "blocked" }));
     await expect(pendingWait({ desiredStates: ["blocked"] }))
-      .resolves.toEqual({ outcome: "matched" });
+      .resolves.toEqual({ outcome: "matched", matchedRevision: 2 });
     expect(_agentStatusWaiterStats()).toEqual({ total: 0, sessions: 0 });
   });
 
-  test("fences afterRevision and then matches a future accepted update", async () => {
-    const afterRevision = pendingWait({
-      desiredStates: ["working"],
-      afterRevision: 1,
-    });
+  test("advances an active-state wait only on a real transition", async () => {
+    const waiting = pendingWait({ desiredStates: ["working"], afterRevision: 1 });
     expect(_agentStatusWaiterStats().total).toBe(1);
-    retain(status({ revision: 2, state: "working" }));
-    await expect(afterRevision).resolves.toEqual({ outcome: "matched" });
+    retain(status({ revision: 2, message: "still working" }));
+    retain(status({ revision: 3, source: "screen" }));
+    expect(_agentStatusWaiterStats().total).toBe(1);
+    retain(status({ revision: 4, state: "idle", completed_revision: 4 }));
+    expect(_agentStatusWaiterStats().total).toBe(1);
+    retain(status({ revision: 5, state: "working" }));
+    await expect(waiting).resolves.toEqual({ outcome: "matched", matchedRevision: 5 });
+    expect(_agentStatusWaiterStats().total).toBe(0);
+  });
 
-    const futureState = pendingWait({ desiredStates: ["idle"] });
-    retain(status({ revision: 3, state: "blocked" }));
+  test("advances a settled-state wait only on a completed turn", async () => {
+    retain(status({ revision: 2, state: "idle", completed_revision: 2 }));
+    const waiting = pendingWait({ desiredStates: ["idle"], afterRevision: 2 });
+    retain(status({ revision: 3, state: "idle", source: "screen", completed_revision: 2 }));
     expect(_agentStatusWaiterStats().total).toBe(1);
-    retain(status({ revision: 4, state: "idle", completed_revision: 1 }));
-    await expect(futureState).resolves.toEqual({ outcome: "matched" });
+    retain(status({ revision: 4, state: "working", completed_revision: 2 }));
+    retain(status({ revision: 5, state: "idle", completed_revision: 5 }));
+    await expect(waiting).resolves.toEqual({ outcome: "matched", matchedRevision: 5 });
     expect(_agentStatusWaiterStats().total).toBe(0);
   });
 

@@ -42,6 +42,25 @@ export interface GlobalSearchCursorProgress {
   searchedSessionIds: readonly string[];
 }
 
+export interface GlobalSearchContinuation {
+  /** Where the next page resumes for this session. */
+  position: GlobalSearchSessionPosition;
+  /** Whether this page consumed a worker page for the session. A consumed page
+   *  MUST advance the row cursor; a session the page never reached (contended
+   *  lane, offline worker) legitimately retries its own position. */
+  searched: boolean;
+  /** The `beforeRow` this page requested for the session, absent on a session
+   *  no page has scanned yet. */
+  requestedBeforeRow?: number;
+}
+
+export interface GlobalSearchCursorIssue {
+  binding: GlobalSearchCursorBinding;
+  continuations: readonly GlobalSearchContinuation[];
+  eligibleSessions: number;
+  searchedSessionIds: readonly string[];
+}
+
 interface CursorRecord {
   token: string;
   binding: GlobalSearchCursorBinding;
@@ -181,31 +200,37 @@ export class GlobalSearchCursorOwner {
     }
   }
 
-  issueCursor(
-    binding: GlobalSearchCursorBinding,
-    sessions: readonly GlobalSearchSessionPosition[],
-    eligibleSessions: number,
-    searchedSessionIds: readonly string[],
-  ): string {
+  issueCursor(issue: GlobalSearchCursorIssue): string {
     this.#purgeExpired();
+    const { binding, continuations, eligibleSessions, searchedSessionIds } = issue;
     if (
-      sessions.length === 0
-      || sessions.length > binding.maxSessions
-      || eligibleSessions < sessions.length
-      || eligibleSessions > binding.maxSessions
+      continuations.length === 0
+      || continuations.length > binding.maxSessions
+      || eligibleSessions < continuations.length
       || searchedSessionIds.length > eligibleSessions
     ) {
       throw new Error("global search cursor requires bounded progress");
     }
     const seenSessionIds = new Set<string>();
-    for (const session of sessions) {
-      if (session.gridEpoch.length === 0 && session.beforeRow !== undefined) {
+    for (const { position, searched, requestedBeforeRow } of continuations) {
+      if (position.gridEpoch.length === 0 && position.beforeRow !== undefined) {
         throw new Error("global search row continuation requires a grid epoch");
       }
-      if (seenSessionIds.has(session.sessionId)) {
+      if (seenSessionIds.has(position.sessionId)) {
         throw new Error("global search continuation sessions must be unique");
       }
-      seenSessionIds.add(session.sessionId);
+      seenSessionIds.add(position.sessionId);
+      // A page that actually scanned a session must leave it strictly closer to
+      // the history floor. An unchanged row would page over the same rows
+      // forever, holding a worker lane per page and never finishing.
+      if (
+        searched
+        && requestedBeforeRow !== undefined
+        && position.beforeRow !== undefined
+        && position.beforeRow >= requestedBeforeRow
+      ) {
+        throw new Error("global search continuation must advance a searched session");
+      }
     }
     this.#evictOldestDeviceCursor(binding.deviceFingerprint);
     const token = this.#newToken();
@@ -213,7 +238,7 @@ export class GlobalSearchCursorOwner {
     this.#cursors.set(token, {
       token,
       binding: { ...binding },
-      sessions: sessions.map((session) => ({ ...session })),
+      sessions: continuations.map(({ position }) => ({ ...position })),
       eligibleSessions,
       searchedSessionIds: [...searchedSessionIds],
       createdOrder: ++this.#createdOrder,

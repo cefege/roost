@@ -258,7 +258,7 @@ its byte-for-byte semantics.
   same dashboard, fingerprint, tab, socket, and correlation may settle it as
   `applied` or `rejected`; wrong, stale, duplicate, and late results are ignored.
   Cancellation removes the pending entry; socket close/replacement or the
-  deadline settles `target-gone`, with no retry. That outcome means an
+  deadline settles `target_gone`, with no retry. That outcome means an
   acknowledgement is unavailable, not that the browser did not execute.
 - **UI ingress and report retention are bounded canonical state.** Reports,
   acknowledged documents, and all eight legacy commands are rebuilt from

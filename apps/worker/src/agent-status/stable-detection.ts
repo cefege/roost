@@ -8,19 +8,26 @@ import type { ManifestDetection } from "./manifest-engine.ts";
 
 const PENDING_IDLE_CONFIRMATIONS = 3;
 const PENDING_IDLE_CAP_MS = 700;
+/** A freshly acquired agent is judged by whatever is on the grid at the moment
+ *  the process probe recognized it — a half-painted TUI, or the previous
+ *  program's leftover screen. Withhold the first evaluation until a later
+ *  observation agrees or this window expires. */
+const AGENT_ACQUISITION_GRACE_MS = 3_000;
 
 export interface StableScreenReport {
   agentId: BuiltinAgentId;
   state: AgentRuntimeState;
   processId: number;
+  visibleBlocker: boolean;
 }
 
 interface StableEntry extends StableScreenReport {
   visibleIdle: boolean;
-  visibleBlocker: boolean;
   visibleWorking: boolean;
   pendingIdleStartedAt: number | null;
   pendingIdleConfirmations: number;
+  acquiredAt: number;
+  acquisitionGraceOpen: boolean;
 }
 
 export class StableScreenDetector {
@@ -49,10 +56,22 @@ export class StableScreenDetector {
       visibleWorking: detection.visibleWorking,
       pendingIdleStartedAt: null,
       pendingIdleConfirmations: 0,
+      acquiredAt: previous && !identityChanged ? previous.acquiredAt : now,
+      acquisitionGraceOpen: false,
     };
     if (!previous || identityChanged) {
+      this.entries.set(sessionId, { ...next, acquisitionGraceOpen: true });
+      return null;
+    }
+    if (previous.acquisitionGraceOpen) {
+      const repeated = previous.state === next.state;
+      const expired = now - previous.acquiredAt >= AGENT_ACQUISITION_GRACE_MS;
+      if (!repeated && !expired) {
+        this.entries.set(sessionId, { ...next, acquisitionGraceOpen: true });
+        return null;
+      }
       this.entries.set(sessionId, next);
-      return { agentId: identity.agentId, processId: identity.pid, state: next.state };
+      return this.reportOf(next);
     }
 
     const plainWorkingToIdle = previous.state === "working"
@@ -76,16 +95,12 @@ export class StableScreenDetector {
       || previous.visibleBlocker !== next.visibleBlocker
       || previous.visibleWorking !== next.visibleWorking;
     this.entries.set(sessionId, next);
-    return changed
-      ? { agentId: identity.agentId, processId: identity.pid, state: next.state }
-      : null;
+    return changed ? this.reportOf(next) : null;
   }
 
   current(sessionId: string): StableScreenReport | null {
     const entry = this.entries.get(sessionId);
-    return entry
-      ? { agentId: entry.agentId, processId: entry.processId, state: entry.state }
-      : null;
+    return entry ? this.reportOf(entry) : null;
   }
 
   release(sessionId: string): void {
@@ -96,5 +111,14 @@ export class StableScreenDetector {
     for (const sessionId of this.entries.keys()) {
       if (!sessionIds.has(sessionId)) this.entries.delete(sessionId);
     }
+  }
+
+  private reportOf(entry: StableEntry): StableScreenReport {
+    return {
+      agentId: entry.agentId,
+      processId: entry.processId,
+      state: entry.state,
+      visibleBlocker: entry.visibleBlocker,
+    };
   }
 }

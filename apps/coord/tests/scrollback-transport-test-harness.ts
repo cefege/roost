@@ -136,7 +136,7 @@ export function searchResult(
   return {
     matches: [{ row: 745, col: 3, len: 6, preview: "prefix needle" }],
     truncated: false,
-    total: 1_000,
+    scrollback_total: 1_000,
     cols: 80,
     grid_epoch: "worker-grid:9",
     scanned_start_row: 700,

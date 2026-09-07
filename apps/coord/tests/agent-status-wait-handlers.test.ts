@@ -22,13 +22,15 @@ import {
   asWorkerFp,
 } from "@roost/shared/wire";
 import {
-  AGENT_STATUS_WAIT_MAX_PER_SESSION,
-  _agentStatusWaiterStats,
   handleWorkerAgentStatus,
   startAgentStatusHub,
   stopAgentStatusHub,
   waitForAgentStatus,
 } from "../src/agent-status-hub.ts";
+import {
+  AGENT_STATUS_WAIT_MAX_PER_SESSION,
+  _agentStatusWaiterStats,
+} from "../src/agent-status-wait.ts";
 import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
 import {
   callerKey,

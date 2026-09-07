@@ -24,7 +24,10 @@ import {
   verifyAgentReportCapability,
 } from "./environment.ts";
 import type { SessionEventSink } from "../event-sink.ts";
-import type { AgentReferenceAdmissionGate } from "./reference-admission.ts";
+import {
+  emitDurableAgentReference,
+  type AgentReferenceAdmissionGate,
+} from "./reference-admission.ts";
 import {
   AGENT_REPORT_MAX_LINE_BYTES,
   AgentIntegrationRequestSchema,
@@ -55,8 +58,11 @@ export interface AgentReportServer {
   close(): Promise<void>;
 }
 
-function response(ok: boolean, error?: string): string {
-  return `${JSON.stringify(ok ? { ok: true } : { ok: false, error })}\n`;
+/** A refused request carries the schema's own reason as `detail`: the local
+ * protocol is the integration author's only feedback channel, and `error`
+ * stays a stable code so clients keep matching on it. */
+function response(ok: boolean, error?: string, detail?: string): string {
+  return `${JSON.stringify(ok ? { ok: true } : { ok: false, error, detail })}\n`;
 }
 
 export async function startAgentReportServer(
@@ -126,24 +132,11 @@ export async function startAgentReportServer(
       );
       if (!identity) return "reporter_identity_mismatch";
       if (identity.agentId !== "omp") return "unsupported_agent";
-      const reservation = options.eventSink.reserveSessionEvent(
-        "agent_reference",
+      emitDurableAgentReference(
+        options.eventSink,
+        sessionId,
+        request.params.reference,
       );
-      try {
-        options.eventSink.emit({
-          kind: "agent_reference",
-          session_id: sessionId,
-          reference: request.params.reference,
-          ts: Date.now(),
-        }, reservation);
-      } catch (error) {
-        try {
-          options.eventSink.releaseSessionEvent(reservation);
-        } catch {
-          // Append may have consumed the reservation before transport failed.
-        }
-        throw error;
-      }
       log.info("agent-reference", "reference_report_committed", {
         session_id: sessionId,
         agent_id: identity.agentId,
@@ -212,7 +205,7 @@ export async function startAgentReportServer(
       }
       const parsed = AgentIntegrationRequestSchema.safeParse(raw);
       if (!parsed.success) {
-        socket.end(response(false, "invalid_request"));
+        socket.end(response(false, "invalid_request", parsed.error.issues[0]?.message));
         return;
       }
       const claimed = parsed.data.params.session_id;

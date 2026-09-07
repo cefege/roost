@@ -117,10 +117,17 @@ describe("agent-status screen-read gate", () => {
     const now = { value: 1_000 };
     const { detector, identities, published, addSession } = makeDetector(now);
     addSession();
+    // Two scans per identity: the acquisition grace window withholds the first
+    // evaluation of a newly detected process, so the second scan is the one
+    // that reaches the registry.
+    await detector.scanNow();
+    now.value += 200;
     await detector.scanNow();
     const first = published.at(-1)!;
 
     identities.set(SESSION_ID, { agentId: "omp", pid: 4_322 });
+    now.value += 200;
+    await detector.scanNow();
     now.value += 200;
     await detector.scanNow();
 

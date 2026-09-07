@@ -289,6 +289,7 @@ export async function startHeartbeat(opts: {
 						}
 					: undefined,
 				...(git_sha ? { gitSha: git_sha } : {}),
+				os: HOST_PLATFORM,
 				...(keeperRuntime
 					? { keeperRuntime: keeperRuntimeObservationToProto(keeperRuntime) }
 					: {}),

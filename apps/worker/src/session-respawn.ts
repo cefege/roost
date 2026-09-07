@@ -61,6 +61,11 @@ export async function respawn(
 				envOverlay: withAgentStatusEnvironment({}, String(opts.oldSessionId)),
 			});
 		const resolvedCwd = shellSpec.cwd;
+		// Boot restore has no client attached, so a restored agent starts at the
+		// 80x24 fallback and reflows when the first viewer resizes. Deferring the
+		// restore until real client geometry arrives would add a pending-restore
+		// state machine to a default-off feature and stall restore whenever no
+		// browser ever attaches.
 		const cols = opts.cols ?? existingSize?.cols ?? 80;
 		const rows = opts.rows ?? existingSize?.rows ?? 24;
 		if (!isTerminalGeometry({ cols, rows })) {

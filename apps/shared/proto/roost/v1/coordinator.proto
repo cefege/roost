@@ -45,6 +45,10 @@ message WorkersHeartbeatRequest {
   // Complete authenticated keeper proof; absent means update admission is
   // unproven. Workers emit it only after boot reconciliation succeeds.
   optional KeeperRuntimeObservationV1 keeper_runtime = 5;
+  // Re-sent every beat for the same reason reachable_addr is: a row must never
+  // keep a platform written by a different machine that once held this key
+  // fingerprint. Absent keeps the stored value.
+  optional string os = 6;
 }
 message WorkersHeartbeatResponse {
   reserved 1, 2;
@@ -79,12 +83,15 @@ message WorkersDeployOutputFrame {
 
 // Coordinator-owned keeper mutation boundary. The handler drains every
 // channel-creating coordinator command before it asks the authenticated worker
-// to perform one journaled empty replacement or deliberate empty maintenance.
+// to perform one journaled empty replacement or deliberate maintenance.
 message WorkersPrepareKeeperUpdateRequest {
   string worker_fp = 1;
   optional string journaled_update_json = 2;
   string direction = 3; // source | target; empty for maintenance
   bool maintenance = 4;
+  // Operator-authorized destruction of live PTYs; maintenance only, never
+  // inferred from any other field.
+  bool force_live = 5;
 }
 message WorkersPrepareKeeperUpdateResponse {
   string outcome = 1;
@@ -284,7 +291,7 @@ message SessionsSearchScrollbackResponse {
   uint64 scanned_start_row = 6;   // inclusive; this page scanned [start, end)
   uint64 scanned_end_row = 7;     // exclusive; pages always end between complete rows
   ScrollbackHistoryFloor history_floor = 8;
-  optional uint64 next_before_row = 9; // exclusive continuation cursor; row-limit pages use scanned_start_row
+  optional uint64 next_before_row = 9; // exclusive continuation cursor at scanned_start_row; row- and match-limit pages carry it
   SearchStopReason stop_reason = 10;
 }
 message SessionsCancelScrollbackSearchRequest {
@@ -1103,6 +1110,22 @@ enum AgentPromptWaitOutcome {
   AGENT_PROMPT_WAIT_OUTCOME_TIMED_OUT = 2;
   AGENT_PROMPT_WAIT_OUTCOME_OCCUPANT_CHANGED = 3;
   AGENT_PROMPT_WAIT_OUTCOME_SESSION_CLOSED = 4;
+  // The prompt produced no working/blocked state inside the activity gate.
+  AGENT_PROMPT_WAIT_OUTCOME_PROMPT_STALLED = 5;
+}
+
+// Bounded cause of a definite pre-write prompt rejection. Free-text worker
+// reasons stay private; callers branch on this member instead.
+enum AgentPromptRejection {
+  AGENT_PROMPT_REJECTION_UNSPECIFIED = 0;
+  AGENT_PROMPT_REJECTION_BLOCKED = 1;
+  AGENT_PROMPT_REJECTION_NOT_PROMPTABLE = 2;
+  AGENT_PROMPT_REJECTION_NOT_FOREGROUND = 3;
+  AGENT_PROMPT_REJECTION_FENCE_CHANGED = 4;
+  AGENT_PROMPT_REJECTION_PROCESS_CHANGED = 5;
+  AGENT_PROMPT_REJECTION_SESSION_UNAVAILABLE = 6;
+  AGENT_PROMPT_REJECTION_EXPIRED = 7;
+  AGENT_PROMPT_REJECTION_KEEPER_REJECTED = 8;
 }
 
 message SessionsPromptRequest {
@@ -1120,4 +1143,5 @@ message SessionsPromptResponse {
   uint32 written_bytes = 2;
   string reason = 3;
   optional AgentPromptWaitOutcome wait_outcome = 4;
+  optional AgentPromptRejection rejection = 5;
 }

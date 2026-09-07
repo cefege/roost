@@ -1,7 +1,8 @@
 // Exercises coordinator-authorized global terminal search through fake routable
 // worker handles and the real pending-RPC table. It pins dashboard isolation,
-// fan-out caps, response partials, continuation reauthorization, and malformed
-// worker rejection without depending on worker implementation details.
+// fan-out caps, response partials, and malformed worker rejection without
+// depending on worker implementation details. Sibling
+// worker-ws-transport-global-search-cursor.test.ts owns cursor continuation.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
@@ -15,53 +16,18 @@ import {
   GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS,
   GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
   type WorkerGlobalSearchEntry,
-  type WorkerSearchScrollbackResult,
 } from "@roost/shared/terminal-search";
-import {
-  GlobalSearchCursorOwner,
-  type GlobalSearchCursorBinding,
-} from "../src/connect/global-search-cursors.ts";
-import { GlobalSearchWorkerLaneOwner } from "../src/connect/global-search-worker-lanes.ts";
 import { _pendingRpcStats } from "../src/router/pending-rpcs.ts";
 import {
-  GLOBAL_TEST_DASHBOARD_A,
   GLOBAL_TEST_DASHBOARD_B,
   GLOBAL_TEST_WORKER_A1,
   GLOBAL_TEST_WORKER_A2,
   GLOBAL_TEST_WORKER_B,
+  globalSearchOkEntry as okEntry,
+  globalSearchSessionId as sessionId,
   startGlobalSearchTestFixture,
   type GlobalSearchTestFixture,
 } from "./global-search-test-fixture.ts";
-
-function sessionId(sequence: number): string {
-  return `00000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`;
-}
-
-function result(
-  gridEpoch: string,
-  overrides: Partial<WorkerSearchScrollbackResult> = {},
-): WorkerSearchScrollbackResult {
-  return {
-    matches: [{ row: 5, col: 1, len: 6, preview: "needle" }],
-    truncated: false,
-    total: 10,
-    cols: 80,
-    grid_epoch: gridEpoch,
-    scanned_start_row: 0,
-    scanned_end_row: 10,
-    history_floor: "none",
-    stop_reason: "complete",
-    ...overrides,
-  };
-}
-
-function okEntry(
-  id: string,
-  gridEpoch = `epoch-${id.slice(-4)}`,
-  overrides: Partial<WorkerSearchScrollbackResult> = {},
-): WorkerGlobalSearchEntry {
-  return { status: "ok", session_id: id, result: result(gridEpoch, overrides) };
-}
 
 let fixture: GlobalSearchTestFixture;
 beforeAll(async () => { fixture = await startGlobalSearchTestFixture(); });
@@ -150,11 +116,14 @@ describe("authorized global scrollback fan-out", () => {
       worker.respond(command, { entries: ids.map((id) => okEntry(id)) });
     }
     const response = await responsePromise;
-    expect(response.eligibleSessions).toBe(GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS);
+    expect(response.eligibleSessions).toBe(35);
     expect(response.searchedSessions).toBe(GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS);
     expect(response.matches).toHaveLength(GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS);
     expect(response.partials).toHaveLength(0);
     expect(response.nextCursor).toBeUndefined();
+    // 35 sessions are authorized and 32 fit one page: the browser must be told
+    // coverage is partial rather than "32 of 32 searched".
+    expect(response.truncated).toBe(true);
     expect(_pendingRpcStats().pending).toBe(0);
   });
 
@@ -190,7 +159,7 @@ describe("authorized global scrollback fan-out", () => {
     const firstId = (firstCommand!.control.sessions as Array<{ session_id: string }>)[0]!.session_id;
     firstWorker.respond(firstCommand!, { entries: [okEntry(firstId, "epoch-first", {
       matches: [{ row: 20, col: 1, len: 6, preview: "needle" }],
-      total: 30,
+      scrollback_total: 30,
       scanned_start_row: 13,
       scanned_end_row: 30,
       next_before_row: 13,
@@ -303,89 +272,5 @@ describe("authorized global scrollback fan-out", () => {
     expect(response.eligibleSessions).toBe(7);
     expect(response.searchedSessions).toBe(6);
     expect(response.matches!.length).toBeGreaterThan(0);
-  });
-
-  test("retains an unvisited offline session for cursor retry", async () => {
-    const id = sessionId(305);
-    await fixture.insertSession({ id, workerFp: GLOBAL_TEST_WORKER_A1 });
-    const owner = new GlobalSearchCursorOwner();
-    const lanes = new GlobalSearchWorkerLaneOwner();
-    const handlers = fixture.handlers(owner, lanes);
-    const request = { query: "retry", searchId: "offline-retry" };
-    const first = await handlers.sessionsSearchGlobal(
-      create(SessionsSearchGlobalRequestSchema, request),
-      fixture.context(),
-    );
-    expect(first.partials![0]?.reason)
-      .toBe(GlobalSearchPartialReason.WORKER_UNAVAILABLE);
-    expect(first.nextCursor).toBeDefined();
-    expect(first.searchedSessions).toBe(0);
-    expect(first.eligibleSessions).toBe(1);
-
-    const worker = fixture.installWorker(GLOBAL_TEST_WORKER_A1);
-    const retryPromise = handlers.sessionsSearchGlobal(
-      create(SessionsSearchGlobalRequestSchema, {
-        ...request,
-        cursor: first.nextCursor,
-      }),
-      fixture.context(),
-    );
-    const [command] = await worker.waitForKind("search-scrollback-batch");
-    expect(command!.control.sessions).toEqual([{
-      session_id: id,
-      grid_epoch: "",
-    }]);
-    worker.respond(command!, { entries: [okEntry(id)] });
-    const retried = await retryPromise;
-    expect(retried.partials).toHaveLength(0);
-    expect(retried.nextCursor).toBeUndefined();
-    expect(retried.searchedSessions).toBe(1);
-    expect(retried.eligibleSessions).toBe(1);
-  });
-  test("reauthorizes every cursor session after close or worker deletion", async () => {
-
-    const owner = new GlobalSearchCursorOwner();
-    const lanes = new GlobalSearchWorkerLaneOwner();
-    const closedId = sessionId(310);
-    const deletedWorkerId = sessionId(311);
-    await fixture.insertSession({ id: closedId, workerFp: GLOBAL_TEST_WORKER_A1 });
-    await fixture.insertSession({ id: deletedWorkerId, workerFp: GLOBAL_TEST_WORKER_A2 });
-    fixture.installWorker(GLOBAL_TEST_WORKER_A1);
-    fixture.installWorker(GLOBAL_TEST_WORKER_A2);
-    const binding: GlobalSearchCursorBinding = {
-      dashboardId: GLOBAL_TEST_DASHBOARD_A,
-      deviceFingerprint: "global-browser",
-      tabId: "global-tab",
-      searchId: "reauthorize",
-      query: "needle",
-      caseSensitive: false,
-      maxSessions: GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
-      maxRowsPerSession: GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
-      maxMatches: GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
-    };
-    const cursor = owner.issueCursor(binding, [
-      { sessionId: closedId, workerFp: GLOBAL_TEST_WORKER_A1, gridEpoch: "epoch-a", beforeRow: 100 },
-      { sessionId: deletedWorkerId, workerFp: GLOBAL_TEST_WORKER_A2, gridEpoch: "epoch-b", beforeRow: 100 },
-    ], 2, []);
-    await fixture.db.updateTable("sessions").set({ status: "closed" })
-      .where("id", "=", closedId).execute();
-    await fixture.db.updateTable("workers").set({ deleted_at_ms: Date.now() })
-      .where("fp", "=", GLOBAL_TEST_WORKER_A2).execute();
-
-    const response = await fixture.handlers(owner, lanes).sessionsSearchGlobal(
-      create(SessionsSearchGlobalRequestSchema, {
-        query: "needle",
-        searchId: "reauthorize",
-        cursor,
-      }),
-      fixture.context(),
-    );
-    expect(response.eligibleSessions).toBe(2);
-    expect(response.searchedSessions).toBe(0);
-    expect(response.partials).toEqual([
-      { $typeName: "roost.v1.SessionsSearchGlobalPartial", sessionId: closedId, reason: GlobalSearchPartialReason.SESSION_CLOSED },
-      { $typeName: "roost.v1.SessionsSearchGlobalPartial", sessionId: deletedWorkerId, reason: GlobalSearchPartialReason.SESSION_CLOSED },
-    ]);
-    expect(response.nextCursor).toBeUndefined();
   });
 });

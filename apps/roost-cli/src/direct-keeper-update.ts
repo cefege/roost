@@ -304,14 +304,18 @@ export function createJournaledKeeperUpdateCallbacks(
 
 
 
+/** `forceLive` is the operator's authorization to end live PTYs; it is always
+ * passed explicitly so no other request field can imply it. */
 export async function prepareKeeperMaintenance(
   workerFingerprint: string,
+  forceLive: boolean,
 ): Promise<string> {
   const { client } = await buildDashboardScopedCliContext();
   const response = await client.workersPrepareKeeperUpdate({
     workerFp: workerFingerprint,
     direction: "",
     maintenance: true,
+    forceLive,
   });
   if (!keeperUpdateOutcomeMatchesAction("maintenance", response.outcome)) {
     throw new Error(`worker returned unknown keeper maintenance outcome: ${response.outcome}`);

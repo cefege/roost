@@ -195,7 +195,7 @@ describe("UiLayoutApplyOwner result admission", () => {
 });
 
 describe("UiLayoutApplyOwner target selection", () => {
-  test("returns target-gone without publishing when no live socket exists", async () => {
+  test("returns target_gone without publishing when no live socket exists", async () => {
     const { owner } = makeOwner();
     let publications = 0;
     const response = await owner.requestApply(
@@ -313,7 +313,7 @@ describe("UiLayoutApplyOwner terminal cleanup", () => {
     expect((await peerPending.promise).outcome).toBe(UiApplyLayoutOutcome.APPLIED);
   });
 
-  test("timeout settles target-gone and removes its timer", async () => {
+  test("timeout settles target_gone and removes its timer", async () => {
     const { clock, owner } = makeOwner();
     owner.registerTarget(BASE_TARGET);
     const pending = beginPending(owner);

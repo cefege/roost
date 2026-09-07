@@ -346,7 +346,7 @@ describe("uiApplyLayout", () => {
     expect(uiLayoutApplies.stats().pending).toBe(0);
   });
 
-  test("a retained fresh report without a live socket returns target-gone", async () => {
+  test("a retained fresh report without a live socket returns target_gone", async () => {
     await handlers.uiReportState(reportReq("reported-only"), authCtx);
     const reportKey = uiStates.list(DASHBOARD)
       .find((entry) => entry.tabId === "reported-only");

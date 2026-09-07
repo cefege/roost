@@ -52,7 +52,12 @@ const TEST_LIMITS = {
 describe("global search cursor owner", () => {
   test("binds opaque cursors to dashboard, device, tab, search, and options", () => {
     const owner = new GlobalSearchCursorOwner();
-    const cursor = owner.issueCursor(BINDING, [POSITION], 1, [POSITION.sessionId]);
+    const cursor = owner.issueCursor({
+      binding: BINDING,
+      continuations: [{ position: POSITION, searched: false }],
+      eligibleSessions: 1,
+      searchedSessionIds: [POSITION.sessionId],
+    });
     expect(cursor).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     const mismatches: GlobalSearchCursorBinding[] = [
       { ...BINDING, dashboardId: "dashboard-b" },
@@ -92,24 +97,30 @@ describe("global search cursor owner", () => {
       index < GLOBAL_TERMINAL_SEARCH_MAX_CURSORS_PER_DEVICE + 1;
       index++
     ) {
-      owner.issueCursor(
-        { ...BINDING, searchId: `search-${index}` },
-        [{ ...POSITION, sessionId: `00000000-0000-4000-8000-${String(index + 20).padStart(12, "0")}` }],
-        1,
-        [],
-      );
+      owner.issueCursor({
+        binding: { ...BINDING, searchId: `search-${index}` },
+        continuations: [{
+          position: {
+            ...POSITION,
+            sessionId: `00000000-0000-4000-8000-${String(index + 20).padStart(12, "0")}`,
+          },
+          searched: false,
+        }],
+        eligibleSessions: 1,
+        searchedSessionIds: [],
+      });
     }
     expect(owner.claimCursor(tokens[0]!, { ...BINDING, searchId: "search-0" }))
       .toBeNull();
     expect(owner.claimCursor(tokens[1]!, { ...BINDING, searchId: "search-1" }))
       .not.toBeNull();
 
-    const expiring = owner.issueCursor(
-      { ...BINDING, searchId: "expires" },
-      [POSITION],
-      1,
-      [],
-    );
+    const expiring = owner.issueCursor({
+      binding: { ...BINDING, searchId: "expires" },
+      continuations: [{ position: POSITION, searched: false }],
+      eligibleSessions: 1,
+      searchedSessionIds: [],
+    });
     now += GLOBAL_TERMINAL_SEARCH_CURSOR_TTL_MS;
     expect(owner.claimCursor(expiring, { ...BINDING, searchId: "expires" }))
       .toBeNull();
@@ -122,7 +133,12 @@ describe("global search cursor owner", () => {
     expect(owner.selectSessions(BINDING, [POSITION])).toBe(true);
     let cancellationReleased = false;
     owner.onCancel(BINDING, () => { cancellationReleased = true; });
-    const cursor = owner.issueCursor(BINDING, [POSITION], 1, []);
+    const cursor = owner.issueCursor({
+      binding: BINDING,
+      continuations: [{ position: POSITION, searched: false }],
+      eligibleSessions: 1,
+      searchedSessionIds: [],
+    });
 
     const prepared = owner.prepareCancellation(BINDING);
     expect(prepared).toEqual({ shouldDispatch: true, selectedSessions: [POSITION] });
@@ -139,19 +155,70 @@ describe("global search cursor owner", () => {
 
   test("allows an unvisited cursor but rejects a row cursor without an epoch", () => {
     const owner = new GlobalSearchCursorOwner();
-    expect(owner.issueCursor(BINDING, [{
-      ...POSITION,
-      gridEpoch: "",
-      beforeRow: undefined,
-    }], 1, [])).toBeString();
-    expect(() => owner.issueCursor(
-      BINDING,
-      [{ ...POSITION, gridEpoch: "" }],
-      1,
-      [],
-    )).toThrow("row continuation requires a grid epoch");
-    expect(() => owner.issueCursor(BINDING, [POSITION, POSITION], 2, []))
-      .toThrow("must be unique");
+    expect(owner.issueCursor({
+      binding: BINDING,
+      continuations: [{
+        position: { ...POSITION, gridEpoch: "", beforeRow: undefined },
+        searched: false,
+      }],
+      eligibleSessions: 1,
+      searchedSessionIds: [],
+    })).toBeString();
+    expect(() => owner.issueCursor({
+      binding: BINDING,
+      continuations: [{ position: { ...POSITION, gridEpoch: "" }, searched: false }],
+      eligibleSessions: 1,
+      searchedSessionIds: [],
+    })).toThrow("row continuation requires a grid epoch");
+    expect(() => owner.issueCursor({
+      binding: BINDING,
+      continuations: [
+        { position: POSITION, searched: false },
+        { position: POSITION, searched: false },
+      ],
+      eligibleSessions: 2,
+      searchedSessionIds: [],
+    })).toThrow("must be unique");
+  });
+
+  test("requires a searched session to resume strictly older than the row it was given", () => {
+    const owner = new GlobalSearchCursorOwner();
+    const requestedBeforeRow = POSITION.beforeRow!;
+    const issue = (position: GlobalSearchSessionPosition, searched: boolean) =>
+      owner.issueCursor({
+        binding: BINDING,
+        continuations: [{ position, searched, requestedBeforeRow }],
+        eligibleSessions: 1,
+        searchedSessionIds: [POSITION.sessionId],
+      });
+    expect(issue({ ...POSITION, beforeRow: requestedBeforeRow - 1 }, true)).toBeString();
+    // An epoch reset restarts the session from its newest row: real progress
+    // even though no row number survives.
+    expect(issue({ ...POSITION, gridEpoch: "", beforeRow: undefined }, true)).toBeString();
+    // A page that never reached the session may retry the same position.
+    expect(issue(POSITION, false)).toBeString();
+    for (const beforeRow of [requestedBeforeRow, requestedBeforeRow + 1]) {
+      expect(() => issue({ ...POSITION, beforeRow }, true))
+        .toThrow("must advance a searched session");
+    }
+  });
+
+  test("keeps an eligible count larger than one page", () => {
+    const owner = new GlobalSearchCursorOwner();
+    const cursor = owner.issueCursor({
+      binding: BINDING,
+      continuations: [{ position: POSITION, searched: false }],
+      eligibleSessions: BINDING.maxSessions * 4,
+      searchedSessionIds: [POSITION.sessionId],
+    });
+    expect(owner.claimCursor(cursor, BINDING)?.eligibleSessions)
+      .toBe(BINDING.maxSessions * 4);
+    expect(() => owner.issueCursor({
+      binding: BINDING,
+      continuations: [{ position: POSITION, searched: false }],
+      eligibleSessions: 0,
+      searchedSessionIds: [],
+    })).toThrow("requires bounded progress");
   });
 
   test("bounds active searches and cancellation tombstones per device", () => {
@@ -251,7 +318,7 @@ test("rejects a same-epoch cursor result that skips the requested boundary", () 
       result: {
         matches: [],
         truncated: false,
-        total: 3_000,
+        scrollback_total: 3_000,
         cols: 80,
         grid_epoch: POSITION.gridEpoch,
         scanned_start_row: 0,
@@ -277,7 +344,7 @@ test("accepts a same-epoch result stopped by a mid-scan epoch change", () => {
       result: {
         matches: [],
         truncated: false,
-        total: 3_000,
+        scrollback_total: 3_000,
         cols: 80,
         grid_epoch: POSITION.gridEpoch,
         scanned_start_row: 1_548,
@@ -304,7 +371,7 @@ test("rejects duplicate match identities from a worker batch", () => {
       result: {
         matches: [match, match],
         truncated: false,
-        total: 3_000,
+        scrollback_total: 3_000,
         cols: 80,
         grid_epoch: POSITION.gridEpoch,
         scanned_start_row: 0,

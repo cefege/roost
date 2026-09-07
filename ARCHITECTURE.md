@@ -223,14 +223,22 @@ It may expose volatile worker-observed state, accept occupant-fenced text for th
 The official OMP integration reports a versioned opaque reference through a
 separate acknowledged local method. The worker revalidates the session
 capability, kernel peer PID, and fresh agent-process ancestry before accepting
-it; the report cannot choose a provider or executable. A nonempty official
-`session_file` is stored as kind `path`, otherwise the official `session_id` is
-stored as kind `id`. Values are well-formed, NUL-free Unicode limited to 4,096
-UTF-8 bytes and are never opened, normalized, indexed, rendered, or logged.
+it; the report cannot choose a provider or executable. An official
+`session_file` is stored as kind `path` only while it is absolute — POSIX or
+Windows shape — otherwise the official `session_id` offered in the same call is
+stored as kind `id`. Values are well-formed Unicode free of control characters,
+bounded at 512 UTF-8 bytes for an id and 4,096 for a path, and are never
+opened, normalized, indexed, rendered, or logged.
+`apps/shared/src/agent-conversation-reference.ts` owns every one of those
+rules, so a reference that could not be resumed is never stored.
 
 Set, replacement, and explicit clear are private durable `SessionEvent`s
 ordered by the worker outbox `client_seq`, independently of volatile agent
-status. The coordinator persists the newest reference and sequence in private
+status. The worker authors one clear itself: when the reporting agent process
+leaves a still-live session, the status detector emits exactly one durable
+`agent_reference: null` for that session, so a later restore cannot resume a
+conversation the user already ended.
+The coordinator persists the newest reference and sequence in private
 session recovery columns. Snapshots cannot erase them, lower or duplicate
 sequences cannot change them, and closing the session deletes them. The exact
 owning worker receives one recovery row for each open session; browsers,
@@ -248,14 +256,20 @@ that one argv element, quoted with the canonical POSIX shell quoting utility.
 The worker submits the rendered command plus one CR as exactly one
 acknowledged input batch to the replacement shell. A reference already claimed
 by an earlier session in the same reconciliation pass is skipped, so two panes
-cannot resume one conversation. Neither the opaque value nor the rendered
-command enters structured logs.
+cannot resume one conversation; a claim is released again when that session's
+write is rejected before any keeper byte, so the next session holding the same
+reference still resumes it. Neither the opaque value nor the rendered command
+enters structured logs.
 
 Integration data cannot choose executable or template text. Accepted,
 rejected, and ambiguous input results are terminal for that boot attempt and
-are never retried or routed back through respawn/tombstone handling. Every
-outcome retains the reference until the integration later replaces or clears
-it.
+are never retried or routed back through respawn/tombstone handling. A
+non-accepted result that reports written bytes is followed by exactly one
+worker-owned line-discard byte (`0x03`), because `--resume=` matches an id by
+prefix and a truncated command left on the prompt would attach one Enter to a
+different conversation; that cancel never re-sends the resume command and
+never affects session lifecycle. Every outcome retains the reference until the
+integration later replaces or clears it.
 
 `ROOST_AGENT_CONVERSATION_RESTORE` is a strict worker-local `0|1` setting.
 Absent and `0` mean disabled on every platform. `1` enables the path only on
@@ -398,7 +412,7 @@ image, active shared-dashboard route, or public signup surface.
 Active pane trees and runtime leaf/split UUIDs persist only in each browser profile under `roost.paneLayout.v1`. `UiReportState` exposes an off-terminal route or a route resolved to an open coordinator-admitted session; unresolved and optimistic `/s/:id` route fields are blank until hydration/admission schedules another report. When an open route session identifies a folder, the report also carries its browser-owned folder key plus a typed `LayoutDocumentV1` containing only admitted members, never runtime IDs or a second JSON layout shape.
 Copy, download, and reporting serialize the same strict V1 document with deterministic preorder leaf/slot keys and inclusive `0.1..0.9` ratios. One bounded parser rejects excessive UTF-8 identifiers, recursion, nodes, slots, or bindings before recursive conversion. Local import/apply and remote apply additionally validate current live-folder membership; remote apply rejects any pending/tombstoned optimistic member. Successful application materializes fresh runtime IDs, commits once through `applyLayoutDocument`, and attempts post-commit navigation to the focused selection. Open tabs do not consume storage events or live-fold one another's layouts.
 `UiApplyLayout` is the sole acknowledged exception to browser-local control: its dashboard-authorized caller sends a nonempty browser fingerprint/tab tuple, and the CLI derives exactly one such tuple from `UiListStates` or rejects an absent/ambiguous tab before apply. Sync rejects tab IDs over 256 UTF-8 bytes before socket state, and the coordinator bounds live targets to 32 distinct tuples per fingerprint and 256 per dashboard with one generic capacity rejection. It reserves only the selected tuple's current authenticated read/write Sync-v2 socket plus a fresh correlation ID before publication, so a stale fingerprint cannot redirect to another browser that later reuses the tab ID. The page rechecks the exact tab/socket/correlation and its URL-active live folder, then acknowledges `applied` after the commit and navigation attempt; `applied` proves the commit, not successful navigation completion, while invalid current membership returns `rejected`.
-Wrong, stale, duplicate, and late results are ignored; cancellation removes the pending request, and socket close/replacement or timeout returns `target-gone` without retry. `target-gone` means the acknowledgement is unavailable, not that execution did not occur. UI commands are never seeded, and read-only worker Sync subscribers receive neither UI state nor command frames. The eight `UiDispatch` commands remain fire-and-forget: `delivered` is exactly the dashboard Sync-subscriber count at publication, never an execution or acknowledgement count.
+Wrong, stale, duplicate, and late results are ignored; cancellation removes the pending request, and socket close/replacement or timeout returns `target_gone` without retry. `target_gone` means the acknowledgement is unavailable, not that execution did not occur. UI commands are never seeded, and read-only worker Sync subscribers receive neither UI state nor command frames. The eight `UiDispatch` commands remain fire-and-forget: `delivered` is exactly the dashboard Sync-subscriber count at publication, never an execution or acknowledgement count.
 
 ## Resilience model
 

@@ -22,5 +22,6 @@ export function dispatchWorkerAgentStatusFrame(
     status_epoch: status.statusEpoch,
     occupant_id: status.occupantId,
     source: status.source,
+    occupant_exited: status.occupantExited,
   });
 }

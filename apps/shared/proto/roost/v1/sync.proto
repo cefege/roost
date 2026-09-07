@@ -77,6 +77,9 @@ message CoordinatorRelocationFrame {
 
 // Volatile agent runtime metadata. Inactive frames delete the retained status
 // for a session; active frames are seeded on Sync reconnect.
+// `occupant_exited` marks a row whose occupant's last process is gone: it is
+// retained only to carry a completion, so a browser that has acknowledged that
+// completion retires the row instead of showing a dead agent.
 message AgentStatusFrame {
   string session_id = 1;
   string agent_id = 2;
@@ -89,6 +92,7 @@ message AgentStatusFrame {
   optional string status_epoch = 9;
   optional string occupant_id = 10;
   optional string source = 11;
+  bool occupant_exited = 12;
 }
 
 

@@ -43,31 +43,52 @@ export interface OnlineGlobalSearchGroup {
   matchBudget: number;
 }
 
+export interface AuthorizedGlobalSearchPage {
+  /** Newest-first sessions this page may search, capped at `maxSessions`. */
+  sessions: GlobalSearchSessionPosition[];
+  /** Exact count over the same authorization predicate. The page cap bounds
+   *  the work, never the denominator: reporting the cap as the total told the
+   *  browser a 100-session dashboard was fully searched after 32. */
+  eligibleSessions: number;
+}
+
 export async function listAuthorizedGlobalSearchSessions(
   db: KyselyDB,
   dashboardId: string,
   maxSessions: number,
-): Promise<GlobalSearchSessionPosition[]> {
-  const rows = await db.selectFrom("sessions as session")
-    .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
+): Promise<AuthorizedGlobalSearchPage> {
+  const rows = await authorizedGlobalSearchSessions(db, dashboardId)
     .select([
       "session.id as session_id",
       "session.worker_fp as worker_fp",
       "session.created_at as created_at",
     ])
-    .where("session.dashboard_id", "=", dashboardId)
-    .where("session.status", "=", "open")
-    .where("worker.dashboard_id", "=", dashboardId)
-    .where("worker.deleted_at_ms", "is", null)
     .orderBy("session.created_at", "desc")
     .orderBy("session.id", "desc")
     .limit(maxSessions)
     .execute();
-  return rows.map((row) => ({
-    sessionId: row.session_id,
-    workerFp: row.worker_fp,
-    gridEpoch: "",
-  }));
+  const counted = await authorizedGlobalSearchSessions(db, dashboardId)
+    .select((eb) => eb.fn.countAll<number>().as("eligible"))
+    .executeTakeFirst();
+  return {
+    sessions: rows.map((row) => ({
+      sessionId: row.session_id,
+      workerFp: row.worker_fp,
+      gridEpoch: "",
+    })),
+    eligibleSessions: Math.max(Number(counted?.eligible ?? rows.length), rows.length),
+  };
+}
+
+/** The single authorization predicate for dashboard-wide search: the page
+ *  query and the denominator count MUST NOT drift apart. */
+function authorizedGlobalSearchSessions(db: KyselyDB, dashboardId: string) {
+  return db.selectFrom("sessions as session")
+    .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
+    .where("session.dashboard_id", "=", dashboardId)
+    .where("session.status", "=", "open")
+    .where("worker.dashboard_id", "=", dashboardId)
+    .where("worker.deleted_at_ms", "is", null);
 }
 
 export async function reauthorizeGlobalSearchSessions(
@@ -220,6 +241,24 @@ export function validateGlobalSearchGroupResult(
   return parsed.data.entries;
 }
 
+/** A same-epoch deadline page that scanned nothing and resumed exactly where it
+ *  was asked to start made no progress: handing that position back produces an
+ *  endless chain of pages, each burning a page deadline and a worker lane
+ *  without reading a row. herdr refuses such a request outright
+ *  (`stale_content`); we keep the matches found so far and end the session as a
+ *  deadline partial. A page whose epoch changed is excluded: its continuation
+ *  drops the row entirely and restarts from the newest row, which is progress. */
+function stalledAtRequestedRow(
+  session: GlobalSearchSessionPosition,
+  result: WorkerSearchScrollbackResult,
+  epochMismatch: boolean,
+): boolean {
+  return !epochMismatch
+    && result.scanned_end_row === result.scanned_start_row
+    && session.beforeRow !== undefined
+    && result.scanned_start_row === session.beforeRow;
+}
+
 function outcomeForSearchResult(
   session: GlobalSearchSessionPosition,
   result: WorkerSearchScrollbackResult,
@@ -236,16 +275,25 @@ function outcomeForSearchResult(
   }
   const epochMismatch = session.gridEpoch.length > 0
     && session.gridEpoch !== result.grid_epoch;
+  const stalled = stalledAtRequestedRow(session, result, epochMismatch);
   let continuation: GlobalSearchSessionPosition | undefined;
   if (result.stop_reason === "epoch_changed") {
     continuation = { ...session, gridEpoch: "", beforeRow: undefined };
-  } else if (result.history_floor === "none" && result.stop_reason === "row_limit") {
+  } else if (
+    result.history_floor === "none"
+    && (result.stop_reason === "row_limit" || result.stop_reason === "match_limit")
+    && result.next_before_row !== undefined
+  ) {
     continuation = {
       ...session,
       gridEpoch: result.grid_epoch,
       beforeRow: result.next_before_row,
     };
-  } else if (result.history_floor === "none" && result.stop_reason === "deadline") {
+  } else if (
+    result.history_floor === "none"
+    && result.stop_reason === "deadline"
+    && !stalled
+  ) {
     continuation = epochMismatch
       ? { ...session, gridEpoch: result.grid_epoch, beforeRow: undefined }
       : {
@@ -281,10 +329,15 @@ export function outcomeForGlobalSearchEntry(
       : entry.error === "session_closed" || entry.error === "no_terminal"
         ? GlobalSearchPartialReason.SESSION_CLOSED
         : GlobalSearchPartialReason.MALFORMED_RESULT;
+  // A malformed entry scanned nothing, so resuming it mid-page would repeat
+  // the same request forever. A session with no row position yet has never
+  // been searched, and retrying it is real progress.
+  const stalledMalformed = partialReason === GlobalSearchPartialReason.MALFORMED_RESULT
+    && session.beforeRow !== undefined;
   return {
     matches: [],
     partialReason,
-    ...(partialReason === GlobalSearchPartialReason.SESSION_CLOSED
+    ...(partialReason === GlobalSearchPartialReason.SESSION_CLOSED || stalledMalformed
       ? {}
       : { continuation: session }),
     searched: true,

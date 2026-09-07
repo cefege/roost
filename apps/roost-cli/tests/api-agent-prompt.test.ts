@@ -6,6 +6,7 @@ import { create } from "@bufbuild/protobuf";
 import { describe, expect, test } from "bun:test";
 import {
   AgentPromptInputOutcome,
+  AgentPromptRejection,
   AgentPromptWaitOutcome,
   AgentStatusViewSchema,
   type AgentStatusView,
@@ -40,6 +41,7 @@ interface FakeOptions {
   writtenBytes?: number;
   reason?: string;
   waitOutcome?: AgentPromptWaitOutcome;
+  rejection?: AgentPromptRejection;
 }
 
 interface CallRecord {
@@ -66,6 +68,7 @@ function fakeClient(options: FakeOptions = {}): {
           writtenBytes: options.writtenBytes ?? 12,
           reason: options.reason ?? "",
           ...(options.waitOutcome === undefined ? {} : { waitOutcome: options.waitOutcome }),
+          ...(options.rejection === undefined ? {} : { rejection: options.rejection }),
         };
       },
     },
@@ -217,27 +220,51 @@ describe("agent-prompt API CLI", () => {
     });
   });
 
-  test("prints rejected and ambiguous input and exits nonzero without retry", async () => {
-    for (const [inputOutcome, label, writtenBytes, reason] of [
-      [AgentPromptInputOutcome.REJECTED, "rejected", 0, "agent is blocked"],
-      [AgentPromptInputOutcome.AMBIGUOUS, "ambiguous", 4, "keeper result unavailable"],
+  test("prints each bounded rejection cause and exits nonzero without retry", async () => {
+    for (const [rejection, label] of [
+      [AgentPromptRejection.BLOCKED, "blocked"],
+      [AgentPromptRejection.NOT_PROMPTABLE, "not_promptable"],
+      [AgentPromptRejection.NOT_FOREGROUND, "not_foreground"],
+      [AgentPromptRejection.FENCE_CHANGED, "fence_changed"],
+      [AgentPromptRejection.PROCESS_CHANGED, "process_changed"],
+      [AgentPromptRejection.SESSION_UNAVAILABLE, "session_unavailable"],
+      [AgentPromptRejection.EXPIRED, "expired"],
+      [AgentPromptRejection.KEEPER_REJECTED, "keeper_rejected"],
     ] as const) {
-      const { client, calls } = fakeClient({ inputOutcome, writtenBytes, reason });
+      const { client, calls } = fakeClient({
+        inputOutcome: AgentPromptInputOutcome.REJECTED,
+        writtenBytes: 0,
+        reason: "agent prompt rejected",
+        rejection,
+      });
       await expect(capture(client, [SESSION_ID, "one attempt"])).resolves.toEqual({
-        output: [`input\t${label}\t${writtenBytes}\t${reason}`],
+        output: [`input\trejected\t0\t${label}`],
         exits: [1],
       });
       expect(calls.filter((call) => call.method === "prompt")).toHaveLength(1);
     }
+  });
+
+  test("prints ambiguous detail, and a rejection skips the wait line", async () => {
+    const ambiguous = fakeClient({
+      inputOutcome: AgentPromptInputOutcome.AMBIGUOUS,
+      writtenBytes: 4,
+      reason: "agent prompt outcome is ambiguous",
+    });
+    await expect(capture(ambiguous.client, [SESSION_ID, "one attempt"])).resolves.toEqual({
+      output: ["input\tambiguous\t4\tagent prompt outcome is ambiguous"],
+      exits: [1],
+    });
     const rejectedWait = fakeClient({
       inputOutcome: AgentPromptInputOutcome.REJECTED,
       writtenBytes: 0,
-      reason: "agent is blocked",
+      reason: "agent prompt rejected",
+      rejection: AgentPromptRejection.BLOCKED,
     });
     await expect(capture(rejectedWait.client, [
       SESSION_ID, "continue", "--wait", "--until", "idle", "--timeout", "1s",
     ])).resolves.toEqual({
-      output: ["input\trejected\t0\tagent is blocked"],
+      output: ["input\trejected\t0\tblocked"],
       exits: [1],
     });
     expect(rejectedWait.calls.filter((call) => call.method === "prompt")).toHaveLength(1);
@@ -248,6 +275,7 @@ describe("agent-prompt API CLI", () => {
       [AgentPromptWaitOutcome.TIMED_OUT, "timed_out"],
       [AgentPromptWaitOutcome.OCCUPANT_CHANGED, "occupant_changed"],
       [AgentPromptWaitOutcome.SESSION_CLOSED, "session_closed"],
+      [AgentPromptWaitOutcome.PROMPT_STALLED, "prompt_stalled"],
     ] as const) {
       const { client } = fakeClient({ waitOutcome });
       await expect(capture(client, [
@@ -295,6 +323,20 @@ describe("agent-prompt API CLI", () => {
     await expect(capture(unsolicitedWait.client, [SESSION_ID, "one attempt"])).rejects.toThrow(
       "agent-prompt: coordinator returned an invalid response",
     );
+    const foreignRejection = fakeClient({
+      inputOutcome: AgentPromptInputOutcome.ACCEPTED,
+      rejection: AgentPromptRejection.BLOCKED,
+    });
+    await expect(capture(foreignRejection.client, [SESSION_ID, "one attempt"])).rejects.toThrow(
+      "agent-prompt: coordinator returned an invalid response",
+    );
+    const unspecifiedRejection = fakeClient({
+      inputOutcome: AgentPromptInputOutcome.REJECTED,
+      writtenBytes: 0,
+      rejection: AgentPromptRejection.UNSPECIFIED,
+    });
+    await expect(capture(unspecifiedRejection.client, [SESSION_ID, "one attempt"]))
+      .rejects.toThrow("agent-prompt: coordinator returned an invalid response");
   });
 
   test("refuses missing, malformed, screen-only, or unsafe status fences before prompting", async () => {

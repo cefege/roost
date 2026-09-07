@@ -40,7 +40,10 @@ message WCellGrid { uint32 channel_id = 1; PbCellGridFrame frame = 2; }
 message WCellGridChunk { uint32 channel_id = 1; PbCellGridChunk chunk = 2; }
 
 // Volatile agent runtime metadata. The worker owns revision ordering; this
-// frame is never placed in the durable event outbox.
+// frame is never placed in the durable event outbox. `occupant_exited` marks a
+// row the occupant's last process already left behind: it survives only to
+// carry a completion, and no viewer that has acknowledged that completion has
+// anything left to show.
 message WAgentStatus {
   string session_id = 1;
   string agent_id = 2;
@@ -53,6 +56,7 @@ message WAgentStatus {
   optional string status_epoch = 9;
   optional string occupant_id = 10;
   optional string source = 11;
+  bool occupant_exited = 12;
 }
 // Durable Windows update-broker progress. Progress is journal-backed on the
 // worker host and replayed after a worker reconnect; sequence is monotonic per
@@ -270,13 +274,15 @@ message DUpdateBroker {
 
 // Runs only under the coordinator's exclusive channel-creation drain. A
 // journaled action carries its complete immutable envelope; maintenance is the
-// explicit empty-only refresh path. Both reply through WRpcOk/WRpcError.
+// explicit refresh path. Both reply through WRpcOk/WRpcError.
 message DKeeperUpdatePrepare {
   string request_id = 1;
   optional string journaled_update_json = 2;
   string direction = 3;
   bool maintenance = 4;
   repeated string coordinator_open_session_ids = 5;
+  // Operator-authorized destruction of live PTYs; maintenance only.
+  bool force_live = 6;
 }
 
 message CoordWorkerDown {

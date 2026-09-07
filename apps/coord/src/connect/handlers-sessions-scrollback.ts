@@ -36,6 +36,7 @@ import { asSessionId, type ScrollbackHistoryFloor } from "@roost/shared/wire";
 import {
   requireAccountDevice,
   requireDashboardActor,
+  requireSearchTabId,
   tabIdKey,
 } from "./auth-interceptor.ts";
 import {
@@ -230,8 +231,7 @@ export function makeSessionScrollbackHandlers(
     async sessionsSearchScrollback(req, ctx) {
       const actor = requireDashboardActor(ctx.values);
       const caller = requireAccountDevice(ctx.values);
-      const tabId = ctx.values.get(tabIdKey);
-      const viewerId = tabId ? `${caller.fingerprint}:${tabId}` : caller.fingerprint;
+      const viewerId = `${caller.fingerprint}:${requireSearchTabId(ctx.values)}`;
       const beforeRow = validateSearchRequest(req);
       const { row, sock } = await requireSessionWorkerSocket(
         deps.db,
@@ -315,7 +315,7 @@ export function makeSessionScrollbackHandlers(
           })
         ),
         truncated: result.truncated,
-        scrollbackTotal: BigInt(result.total),
+        scrollbackTotal: BigInt(result.scrollback_total),
         cols: result.cols,
         gridEpoch: result.grid_epoch,
         scannedStartRow: BigInt(result.scanned_start_row),

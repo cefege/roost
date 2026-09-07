@@ -3,8 +3,12 @@
 // session's scrollback (session-manager.ts::appendScrollback). On
 // anomaly (worker- or SPA-side detector), `dump(sid, reason)` writes
 // the current ring contents + a JSON header to
-// ~/Library/Logs/RoostWorker/bytecap-<sid>-<ts>.bin and returns the
+// <workerLogDir()>/bytecap-<sid>-<ts>.bin and returns the
 // path. LRU caps dumps at 50 files / 500MB.
+//
+// The dump directory is 0700 and every dump 0600: the payload is raw PTY
+// output, so a default umask would otherwise publish secrets, tokens, and
+// agent prompts to every other local user on a shared worker host.
 //
 // Header format (single JSON line, terminated by \n):
 //   {"sid":"...","ts_ms":1700000000000,"end_seq":12345,"ring_len":262144,"reason":"..."}
@@ -17,14 +21,15 @@
 // Owners: worker session-manager.ts (push), worker-anomaly.ts +
 // coord diag.snapshot RPC (dump).
 
-import { mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { diag } from "@roost/shared/diag";
 import { workerLogDir } from "@roost/shared/paths";
 import { createSbRing, appendToRing, readRing, ringLength, type SbRing } from "../session-scrollback-ring.ts";
 
 const RING_CAP_BYTES = 256 * 1024;
-const DUMP_DIR = workerLogDir();
+const DUMP_DIR_MODE = 0o700;
+const DUMP_FILE_MODE = 0o600;
 const DUMP_LRU_MAX_FILES = 50;
 const DUMP_LRU_MAX_BYTES = 500 * 1024 * 1024;
 
@@ -34,6 +39,25 @@ interface RingEntry {
 }
 
 const _rings = new Map<string, RingEntry>();
+let _ownerOnlyDumpDir: string | null = null;
+
+/** Create the dump directory owner-only, and tighten a directory that a
+ *  looser umask (or an older worker) already created — `mkdirSync`'s mode is
+ *  ignored on an existing path, so raw PTY bytes would land in a 0755 dir. */
+function ensureOwnerOnlyDumpDir(dir: string): void {
+  try {
+    mkdirSync(dir, { recursive: true, mode: DUMP_DIR_MODE });
+  } catch { /* directory exists or unwritable; readdir below will tell us */ }
+  if (_ownerOnlyDumpDir === dir || process.platform === "win32") return;
+  try {
+    const mode = statSync(dir).mode & 0o777;
+    if (mode !== DUMP_DIR_MODE) {
+      chmodSync(dir, DUMP_DIR_MODE);
+      diag("diag.byte_dump_dir_tightened", { dir, from_mode: mode.toString(8) });
+    }
+    _ownerOnlyDumpDir = dir;
+  } catch { /* not ours or gone; the write below reports the real failure */ }
+}
 
 /** Append `chunk` to the per-sid ring. Oldest bytes are overwritten in place
  *  once RING_CAP_BYTES is retained. O(chunk), one fixed allocation per sid. */
@@ -60,14 +84,13 @@ export function dump(sid: string, reason: string): string | null {
     diag("diag.byte_dump_written", { sid, reason, written: false, why: "no_ring" });
     return null;
   }
-  try {
-    mkdirSync(DUMP_DIR, { recursive: true });
-  } catch { /* directory exists or unwritable; readdir below will tell us */ }
+  const dir = workerLogDir();
+  ensureOwnerOnlyDumpDir(dir);
   // LRU sweep before write so we don't blow past the cap.
-  _enforceLruLimits();
+  _enforceLruLimits(dir);
   const tsMs = Date.now();
   const sanitizedSid = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const path = join(DUMP_DIR, `bytecap-${sanitizedSid}-${tsMs}.bin`);
+  const path = join(dir, `bytecap-${sanitizedSid}-${tsMs}.bin`);
   const bytes = readRing(entry.ring);
   const header = JSON.stringify({
     sid, ts_ms: tsMs, end_seq: entry.end_seq, ring_len: bytes.length, reason,
@@ -76,7 +99,7 @@ export function dump(sid: string, reason: string): string | null {
     const out = new Uint8Array(header.length + bytes.length);
     out.set(new TextEncoder().encode(header), 0);
     out.set(bytes, header.length);
-    writeFileSync(path, out);
+    writeFileSync(path, out, { mode: DUMP_FILE_MODE });
     diag("diag.byte_dump_written", { sid, reason, written: true, path, byte_len: bytes.length, end_seq: entry.end_seq });
     return path;
   } catch (e) {
@@ -85,13 +108,13 @@ export function dump(sid: string, reason: string): string | null {
   }
 }
 
-function _enforceLruLimits(): void {
+function _enforceLruLimits(dir: string): void {
   let files: { path: string; mtimeMs: number; size: number }[];
   try {
-    files = readdirSync(DUMP_DIR)
+    files = readdirSync(dir)
       .filter((n) => n.startsWith("bytecap-") && n.endsWith(".bin"))
       .map((n) => {
-        const p = join(DUMP_DIR, n);
+        const p = join(dir, n);
         const s = statSync(p);
         return { path: p, mtimeMs: s.mtimeMs, size: s.size };
       });
@@ -108,6 +131,7 @@ function _enforceLruLimits(): void {
 /** Test-only: clear rings + reset state. */
 export function _resetForTest(): void {
   _rings.clear();
+  _ownerOnlyDumpDir = null;
 }
 
 /** Test-only: inspect ring state. */

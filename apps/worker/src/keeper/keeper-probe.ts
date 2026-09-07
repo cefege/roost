@@ -236,8 +236,40 @@ export async function probeKeeperCompatible(
   };
 }
 
-/** Deliberate offline maintenance shutdown. Live-channel policy belongs to the
- * caller; automatic survivor replacement must use the empty-only operation. */
+/** An accepted shutdown still closes the listener, drains acknowledgements,
+ * reaps every channel, and unlinks the endpoint before the process exits, so
+ * exit confirmation must outlast that work — a slow exit is not a failed one,
+ * and reporting it as one turns a completed shutdown into a false failure. */
+export const KEEPER_EXIT_CONFIRM_TIMEOUT_MS = 30_000;
+export const KEEPER_EXIT_POLL_INTERVAL_MS = 100;
+const KEEPER_EXIT_PROBE_TIMEOUT_MS = 200;
+
+export interface KeeperExitWaitDeps {
+  probe?: typeof probeKeeperCompatible;
+  sleep?: (milliseconds: number) => Promise<void>;
+  now?: () => number;
+}
+
+/** Poll a shut-down keeper's endpoint until it stops accepting connections.
+ * A refused connection is the only proof that the keeper process is gone. */
+export async function waitForKeeperExit(
+  endpoint: LocalEndpoint,
+  deps: KeeperExitWaitDeps = {},
+): Promise<boolean> {
+  const probe = deps.probe ?? probeKeeperCompatible;
+  const sleep = deps.sleep ?? Bun.sleep;
+  const now = deps.now ?? Date.now;
+  const deadline = now() + KEEPER_EXIT_CONFIRM_TIMEOUT_MS;
+  do {
+    if (!(await probe(endpoint, KEEPER_EXIT_PROBE_TIMEOUT_MS)).reachable) return true;
+    await sleep(KEEPER_EXIT_POLL_INTERVAL_MS);
+  } while (now() < deadline);
+  return false;
+}
+
+/** Unconditional shutdown: it ends live channels. Reserved for the
+ * operator-authorized destructive path, which owns that decision; every
+ * automatic replacement must use the identity-fenced empty-only operation. */
 export async function shutdownKeeperAuthenticated(
   endpoint: LocalEndpoint,
   timeoutMs: number = 2_000,

@@ -1,6 +1,7 @@
 // Coordinator keeper-update preparation is serialized across downstream requests.
 // The handler closes channel creation, joins boot reconciliation, and verifies
 // the coordinator's canonical session snapshot before applying either action.
+// Only an explicitly forced maintenance refresh may cross a live session set.
 
 import {
 	JournaledKeeperUpdateV1Schema,
@@ -8,7 +9,7 @@ import {
 } from "@roost/shared/keeper-update";
 import {
 	applyJournaledKeeperUpdateAction,
-	shutdownEmptyKeeperForMaintenance,
+	shutdownKeeperForMaintenance,
 } from "./keeper/update-admission.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { CoordLinkDeps } from "./transport/coord-link.ts";
@@ -22,12 +23,12 @@ export function createKeeperUpdatePrepareHandler(deps: {
 	sessionManager: () => SessionManager;
 	acquireKeeperUpdateBoundary: () => AcquireKeeperUpdateBoundary | null;
 	applyKeeperUpdateAction?: typeof applyJournaledKeeperUpdateAction;
-	shutdownKeeperForMaintenance?: typeof shutdownEmptyKeeperForMaintenance;
+	shutdownKeeperForMaintenance?: typeof shutdownKeeperForMaintenance;
 }): KeeperUpdatePrepareHandler {
 	const applyKeeperUpdateAction =
 		deps.applyKeeperUpdateAction ?? applyJournaledKeeperUpdateAction;
-	const shutdownKeeperForMaintenance =
-		deps.shutdownKeeperForMaintenance ?? shutdownEmptyKeeperForMaintenance;
+	const maintenanceShutdown =
+		deps.shutdownKeeperForMaintenance ?? shutdownKeeperForMaintenance;
 	let preparationTail = Promise.resolve();
 	const serializePreparation = <Result>(
 		operation: () => Promise<Result>,
@@ -82,19 +83,24 @@ export function createKeeperUpdatePrepareHandler(deps: {
 					if (
 						request.journaledUpdateJson !== undefined
 						|| request.direction !== ""
-						|| coordinatorOpenSessionIds.length !== 0
+						|| (!request.forceLive && coordinatorOpenSessionIds.length !== 0)
 					) {
 						throw new Error("keeper maintenance request is malformed");
 					}
-					const outcome = await shutdownKeeperForMaintenance();
+					const outcome = await maintenanceShutdown({
+						forceLive: request.forceLive,
+					});
 					rollbackReconcile();
 					rollbackReconcile = null;
 					rollbackAdmission();
 					return { outcome };
 				}
+				// A journaled envelope never authorizes destruction: force_live
+				// belongs to the live maintenance request alone.
 				if (
 					request.journaledUpdateJson === undefined
 					|| (request.direction !== "source" && request.direction !== "target")
+					|| request.forceLive
 				) {
 					throw new Error("journaled keeper update request is malformed");
 				}

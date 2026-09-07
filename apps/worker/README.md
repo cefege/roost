@@ -154,8 +154,9 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 - **Agent observation, private reference capture, guarded input, and restore** —
   `src/agent-status/` owns volatile per-session state, the PID-attested local
   report protocol, typed integration assets, and reference admission gate;
-  `src/agent-prompt-control.ts` owns the prompt-only status/process fence and
-  single keeper write. `src/agent-conversation-restore.ts` owns the fixed,
+  `src/agent-prompt-control.ts` owns the prompt-only status/process/foreground
+  fence and `src/agent-prompt-submit.ts` the two acknowledged keeper writes it
+  admits. `src/agent-conversation-restore.ts` owns the fixed,
   versioned OMP resume descriptor and post-respawn one-input policy. **`src/util/`** —
   `src/util/mono.ts` is the monotonic clock behind every terminal-control
   deadline; `src/util/path.ts` owns worker-native path handling.
@@ -227,14 +228,20 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   worker restart changes the epoch and re-derives every status.
 - **A prompt is admitted against the live process, not a stale badge.**
   `src/agent-prompt-control.ts` forces a private process-proof refresh before
-  terminal-input admission. Immediately before `beginInput`, while holding the
+  terminal-input admission. Immediately before the write, while holding the
   keeper admission, it rechecks the live session/channel and deadline, current
   coordinator connection, integration source, exact epoch/occupant/revision,
-  unchanged refreshed process proof, and `idle|working` state. Every mismatch
-  is a rejected pre-write result with zero keeper writes. Accepted text is
-  encoded once through `@roost/shared/terminal-input`, gets one trailing CR,
-  and is written once; an ambiguous boundary is never retried. Prompt text and
-  status messages never enter worker logs or durable storage.
+  unchanged refreshed process proof, `idle|working` state, and that the pane's
+  tty foreground job still belongs to the proved agent's own process subtree —
+  an interactive child that took the foreground (pager, `$EDITOR`, `sudo`,
+  nested shell) would otherwise receive the prompt. Every mismatch is a
+  rejected pre-write result with zero keeper writes. Accepted text is encoded
+  once through `@roost/shared/terminal-input` and written, then the submitting
+  CR follows as its own write 300 ms later, so an agent that debounces
+  bracketed-paste assembly cannot read the pair as an unsubmitted draft;
+  `accepted` requires both acknowledgements and an ambiguous boundary is never
+  retried. Prompt text and status messages never enter worker logs or durable
+  storage.
 - **Conversation restore is post-respawn and at-most-once.** Keeper adoption
   always precedes restore and writes no resume input when it succeeds. After
   failed adoption, the normal replacement shell and durable `respawned`
@@ -242,9 +249,13 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   Integration data supplies only the opaque value, which the canonical POSIX
   quoting utility renders as exactly one argv element; the worker types that
   command plus one CR as a single acknowledged batch. A reference already
-  claimed earlier in the same pass is skipped. Accepted, rejected, and
-  ambiguous outcomes never retry, re-enter respawn/tombstone handling, or
-  clear the stored reference.
+  claimed earlier in the same pass is skipped, and a claim is released again
+  when its write is rejected before any keeper byte, so the next session
+  holding that reference still resumes it. Accepted, rejected, and ambiguous
+  outcomes never retry, re-enter respawn/tombstone handling, or clear the
+  stored reference; a non-accepted outcome reporting written bytes is followed
+  by exactly one worker-owned `0x03`, which discards a truncated `--resume=`
+  line from the prompt without re-sending it or ending the session.
 - **Keeper input correlation is worker-owned.** Browser-local `input_seq` and
   worker request IDs correlate their respective hops only. The keeper receives
   a monotonically increasing per-channel/connection key allocated by the
@@ -263,8 +274,13 @@ PTY. Status code lives under `src/agent-status/`; prompt admission lives in
 - `src/agent-status/process-scan.ts` — throttled (250 ms) `ps -A` snapshot
   finds a known agent plus its PID in the session process tree; identity
   survives one missed scan so a momentary miss cannot flap.
+  `src/agent-status/process-tree.ts` owns the snapshot's process-tree facts:
+  the subtree of a session's child PID and which process group holds the pane
+  tty's foreground job, which is what the prompt fence reads.
   `src/agent-status/detector.ts` carries that verified private PID through
-  screen stabilization into the registry.
+  screen stabilization into the registry, and when an agent leaves a still-live
+  session it emits that session's one durable `agent_reference: null` clear
+  through the same admission gate the integration reports use.
 - `src/agent-status/report-server.ts` — authoritative reports on
   `$ROOST_AGENT_SOCKET_PATH` (default `~/.roost/agent-report.sock`, dir `0700`,
   socket `0600`): exactly one bounded JSON request per connection. Volatile
@@ -293,7 +309,10 @@ PTY. Status code lives under `src/agent-status/`; prompt admission lives in
   cannot flicker a completion. Same-process changes preserve the occupant;
   replacement publishes the old occupant inactive before a fresh occupant
   whose completion revision starts at zero, and retired reporters cannot
-  reclaim the session.
+  reclaim the session. An occupant whose last candidate exits leaves an
+  `occupant_exited` row behind whenever it has a completion to carry, so a
+  completion nobody has seen outlives the process that earned it; an explicit
+  `active: false` withdrawal or a session close retires the row outright.
 
 ## Run, test, deploy
 

@@ -104,9 +104,12 @@ producers and consumers.
   depth, nodes, slots, and bindings before recursion; and
   `src/layout-document-proto.ts` maps the bounded graph to/from protobuf.
 - **Agent conversation recovery** — `src/agent-conversation-reference.ts` owns
-  the private versioned OMP reference, UTF-8/envelope limits, and
-  `client_seq`-ordered recovery fold; `src/agent-conversation-reference-proto.ts`
-  maps the reference and worker-only recovery row to/from protobuf.
+  the private versioned OMP reference and every rule that decides whether one
+  is resumable (per-kind UTF-8 bounds, the control class, the absolute-path
+  test, envelope limits) plus the `client_seq`-ordered recovery fold; worker
+  restore imports those bounds rather than restating them.
+  `src/agent-conversation-reference-proto.ts` maps the reference and
+  worker-only recovery row to/from protobuf.
 - **UI state resource contract** — `src/ui-state.ts` owns allocation-free UTF-8
   measurement and the tab/report/cardinality limits used by Sync admission,
   coordinator report/live-target owners, and the CLI human-output formatter.
@@ -185,7 +188,15 @@ producers and consumers.
   legacy statuses may omit all three, and partial triples are invalid. The UUIDs
   are equality tokens, never ordering keys, and no process PID crosses a public
   wire. `promptable` exists only in the coordinator read projection and is true
-  only for an identified integration source.
+  only for an identified integration source whose occupant has not exited.
+
+- **A released occupant's row is retained only for an unacknowledged
+  completion.** `occupant_exited` marks a status whose occupant's last process
+  is gone. The worker keeps such a row `active` so a completion nobody has seen
+  outlives the process that earned it; a browser retires it as soon as its own
+  acknowledgement reaches `completed_revision`. Acknowledgement is browser
+  profile state and never travels back to the coordinator or worker, so two
+  viewers acknowledge the same completion independently.
 
 - **Agent-status waits carry exact identity.** `AgentStatusWait` names one
   `status_epoch` and `occupant_id`, a non-empty unique desired-state list, an

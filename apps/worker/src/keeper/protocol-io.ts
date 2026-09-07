@@ -80,6 +80,10 @@ export const KeeperHelloRequestSchema = z.object({
 
 export type KeeperHelloRequest = z.infer<typeof KeeperHelloRequestSchema>;
 
+// The request stays strict because this worker authors it. The response is
+// decoded from a keeper that may outlive this build: rollback onto a newer
+// survivor must still authenticate, so an unknown forward field is ignored
+// rather than failing the decode and reporting the keeper as unauthenticated.
 export const KeeperHelloResponseSchema = z.object({
   version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   authenticated: z.literal(true),
@@ -89,9 +93,7 @@ export const KeeperHelloResponseSchema = z.object({
   process_epoch: z.string().uuid().optional(),
   bindings: KeeperChannelBindingsV1Schema.optional(),
   spawning_channels: KeeperSpawningChannelsV1Schema.optional(),
-  // Decode-only compatibility for authenticated v2 keepers.
-  build: z.string().max(256).optional(),
-}).strict();
+});
 
 export type KeeperHelloResponse = z.infer<typeof KeeperHelloResponseSchema>;
 

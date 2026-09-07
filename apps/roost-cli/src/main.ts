@@ -143,7 +143,7 @@ function usage(): never {
   console.error("  test              run all tests in dep order");
   console.error("  deploy <host>     deploy worker to a tailnet host");
   console.error("  push              git push + deploy fleet + kickstart local coord");
-  console.error("  keeper-refresh <host> --yes   re-spawn an authenticated empty keeper; live channels refuse");
+  console.error("  keeper-refresh <host> --yes [--force-live]   re-spawn an authenticated empty keeper; live channels refuse unless forced");
   console.error("  logs <app>        tail an app's logs (coord|worker) [--tail N]");
   console.error("  reset             nuke local state (DB, keys, lock)");
   console.error("  state             print STATE.md snapshot");

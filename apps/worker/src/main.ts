@@ -232,7 +232,9 @@ export async function runWorker() {
 		publish: (status) => { coordLink.sendAgentStatus(status); },
 	});
 	refs.agentRegistry = agentRegistry;
-	const agentDetector = new AgentScreenDetector(sessionMgr, agentRegistry);
+	const agentDetector = new AgentScreenDetector(sessionMgr, agentRegistry, undefined, {
+		referenceClear: { eventSink: sink, referenceAdmission },
+	});
 	refs.agentDetector = agentDetector;
 	sessionMgr.setAgentStatusHooks({
 		terminalChanged: (channelId) => agentDetector.schedule(channelId),

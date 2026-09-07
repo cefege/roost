@@ -49,6 +49,10 @@ const AgentStatusFields = z.object({
   status_epoch: StatusEpoch.optional(),
   occupant_id: AgentOccupantId.optional(),
   source: AgentStatusSource.optional(),
+  /** The occupant's last process is gone. Such a row is retained only to carry
+   * a completion, so a viewer that has acknowledged that completion has no
+   * agent left to show. Absent from workers deployed before exit retention. */
+  occupant_exited: z.boolean().default(false),
 });
 
 function completionDoesNotExceedRevision(
