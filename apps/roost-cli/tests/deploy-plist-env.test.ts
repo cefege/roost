@@ -14,11 +14,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  _backfillEnvFromPlist,
-  _resolveDeployEnvValue,
-  parsePosixServiceEnvironment,
-} from "../src/deploy-plist-env.ts";
+import { _backfillEnvFromPlist, _resolveDeployEnvValue, parsePosixServiceEnvironment } from "../src/deploy-plist-env.ts";
 import { WORKER_UNIT } from "../src/service-ctl.ts";
 
 const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL", "HOME"] as const;
@@ -67,6 +63,11 @@ function unitWith(entries: Record<string, string>): string {
 function backfillFrom(home: string): Promise<{ env: Record<string, string>; filled: string[] }> {
   process.env.HOME = home;
   return _backfillEnvFromPlist("self");
+}
+
+/** What a remote deploy would install for `key`. */
+function resolveRemote(key: string, installedEnv: Record<string, string>): string | undefined {
+  return _resolveDeployEnvValue(key, installedEnv, undefined, "remote");
 }
 
 beforeEach(() => {
@@ -362,12 +363,10 @@ describe("_backfillEnvFromPlist — precedence and absence", () => {
       "ROOST_WORKER_LABEL",
     ]);
 
-    const resolvedCoordinatorUrl = _resolveDeployEnvValue("ROOST_COORDINATOR_URL", r.env);
-    const resolvedWorkerLabel = _resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env);
-    const resolvedReachableAddr = _resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env);
-    expect(resolvedCoordinatorUrl).toBe("https://enrolled-coord.tail1234.ts.net:4102");
-    expect(resolvedWorkerLabel).toBe("mac-worker");
-    expect(resolvedReachableAddr).toBe("mac-worker.tail1234.ts.net");
+    expect(resolveRemote("ROOST_COORDINATOR_URL", r.env))
+      .toBe("https://enrolled-coord.tail1234.ts.net:4102");
+    expect(resolveRemote("ROOST_WORKER_LABEL", r.env)).toBe("mac-worker");
+    expect(resolveRemote("ROOST_REACHABLE_ADDR", r.env)).toBe("mac-worker.tail1234.ts.net");
 
     expect(process.env.ROOST_COORDINATOR_URL).toBe("https://coord-host.tail1234.ts.net:4102");
     expect(process.env.ROOST_REACHABLE_ADDR).toBe("coord-host.tail1234.ts.net");
@@ -387,11 +386,10 @@ describe("_backfillEnvFromPlist — precedence and absence", () => {
     });
 
     const r = await backfillFrom(home);
-    expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", r.env))
+    expect(resolveRemote("ROOST_COORDINATOR_URL", r.env))
       .toBe("https://enrolled-coord.tail1234.ts.net:4102");
-    expect(_resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env))
-      .toBe("linux-worker.tail1234.ts.net");
-    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env)).toBe("linux-worker");
+    expect(resolveRemote("ROOST_REACHABLE_ADDR", r.env)).toBe("linux-worker.tail1234.ts.net");
+    expect(resolveRemote("ROOST_WORKER_LABEL", r.env)).toBe("linux-worker");
     expect(r.filled.sort()).toEqual([
       "ROOST_COORDINATOR_URL",
       "ROOST_REACHABLE_ADDR",
@@ -399,21 +397,20 @@ describe("_backfillEnvFromPlist — precedence and absence", () => {
     ]);
   });
 
-  test("a fresh target falls back to ambient deploy values", async () => {
+  test("a fresh self target falls back to ambient deploy values", async () => {
     process.env.ROOST_COORDINATOR_URL = "https://coord-host.tail1234.ts.net:4102";
     process.env.ROOST_REACHABLE_ADDR = "fresh-mac.tail1234.ts.net";
     process.env.ROOST_WORKER_LABEL = "fresh-mac";
     const r = await backfillFrom(fakeHost("fresh-mac", {}));
 
     expect(r).toEqual({ env: {}, filled: [] });
-    expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", r.env))
+    expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", r.env, undefined, "self"))
       .toBe("https://coord-host.tail1234.ts.net:4102");
-    expect(_resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env))
+    expect(_resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env, undefined, "self"))
       .toBe("fresh-mac.tail1234.ts.net");
-    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env)).toBe("fresh-mac");
+    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env, undefined, "self"))
+      .toBe("fresh-mac");
   });
-
-
 
   test("missing service definition returns empty without throwing", async () => {
     const r = await backfillFrom(join(root, "does-not-exist"));

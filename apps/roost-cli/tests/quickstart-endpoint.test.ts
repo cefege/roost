@@ -225,10 +225,11 @@ describe("quickstart endpoint consumers", () => {
       "ROOST_COORDINATOR_URL",
       installed,
       "https://selected.example.test:8443",
+      "self",
     )).toBe("https://selected.example.test:8443");
-    expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", installed))
+    expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", installed, undefined, "self"))
       .toBe("https://stale.example.test:4102");
-    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", installed))
+    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", installed, undefined, "self"))
       .toBe("existing-worker");
   });
 

@@ -482,6 +482,14 @@ One-host POSIX deployment remains a separate source operation:
 over SSH. Source deployments intentionally refuse to run from the standalone
 release binary because it does not contain a Git checkout.
 
+A remote target's own identity is never taken from the shell running the
+deploy. `ROOST_WORKER_LABEL` and `ROOST_REACHABLE_ADDR` come from the target's
+installed service definition, or from `--label=<name>` /
+`--reachable-addr=<fqdn>` on the command line; with neither present the target
+derives its own hostname and tailnet name. Exporting either variable while
+deploying to a host that has no prior install refuses the deploy rather than
+registering that host under this machine's name.
+
 ## Check current health and recent anomalies
 
 ```sh

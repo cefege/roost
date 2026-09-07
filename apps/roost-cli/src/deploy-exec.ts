@@ -170,16 +170,13 @@ export async function runOrDie(cmd: string[], label: string, opts?: RunOptions |
   }
 }
 
-// StrictHostKeyChecking=accept-new auto-trusts unknown host keys on the
-// first connection and writes them to known_hosts. Without this, a
-// fresh deploy target (or a worker the SSH client has never seen — the
-// common case when the Deploy button runs from coord rather than the
-// developer's interactive shell) fails with "Host key verification
-// failed" and exit 2. SSH keepalives also bound a dead session, so a lock
-// refresh cannot block its owner from releasing indefinitely — but the bound
-// has to survive a slow link: a worker reachable only over a relayed tailnet
-// hop stalls a bulk rsync for longer than a few seconds at a time, and a
-// 15-second tolerance tore down transfers to a live host mid-release.
+// StrictHostKeyChecking=accept-new auto-trusts unknown host keys on the first
+// connection and writes them to known_hosts. Without it, a target the SSH
+// client has never seen fails with "Host key verification failed" and exit 2.
+// Keepalives bound a dead session so a lock refresh cannot block its owner
+// forever, but the bound must survive a slow link: a worker reachable only
+// over a relayed tailnet hop stalls a bulk rsync past any few-second
+// tolerance, and 15s tore down transfers to a live host mid-release.
 export const SSH_OPTS = [
   "-o", "StrictHostKeyChecking=accept-new",
   "-o", "ConnectTimeout=10",

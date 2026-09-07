@@ -13,7 +13,11 @@ import {
   sshExec,
 } from "./deploy-exec.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
-import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
+import {
+  _backfillEnvFromPlist,
+  _resolveDeployEnvValue,
+  resolveRemoteDeployIdentityEnv,
+} from "./deploy-plist-env.ts";
 import { _deployLocal } from "./deploy-local.ts";
 import { deployLinux } from "./deploy-linux.ts";
 import { deployMacosWorker } from "./deploy-macos.ts";
@@ -60,6 +64,16 @@ export async function deploy(
   const expectedGitSha = rollout?.targetSha ?? expectedShaArg;
   const expectedManifestSha256 = args.find((arg) => arg.startsWith("--expected-manifest-sha256="))
     ?.slice("--expected-manifest-sha256=".length);
+  const workerLabel = args.find((arg) => arg.startsWith("--label="))
+    ?.slice("--label=".length);
+  const reachableAddr = args.find((arg) => arg.startsWith("--reachable-addr="))
+    ?.slice("--reachable-addr=".length);
+  if (workerLabel !== undefined && (workerLabel === "" || /[\r\n\0]/.test(workerLabel))) {
+    failDeploy(1, "--label must be a non-empty single-line worker label");
+  }
+  if (reachableAddr !== undefined && !/^[A-Za-z0-9._:-]+$/.test(reachableAddr)) {
+    failDeploy(1, "--reachable-addr must be a hostname, FQDN, or host:port");
+  }
   const sourceRootValue = args.find((arg) => arg.startsWith("--source-root="))
     ?.slice("--source-root=".length) ?? REPO_ROOT;
   if (!sourceRootValue || /[\r\n\0]/.test(sourceRootValue)) {
@@ -125,6 +139,8 @@ export async function deploy(
       gitSha: sourceGitSha,
       forceLiveKeeperRetire,
       coordinatorUrl: options.coordinatorUrl,
+      workerLabel,
+      reachableAddr,
       rollout: rollout ?? undefined,
       keeperUpdate: keeperAdmission?.keeperUpdate ?? null,
       workerFingerprint: keeperAdmission?.workerFingerprint ?? null,
@@ -173,9 +189,12 @@ export async function deploy(
   if (unameOut.stdout.trim() === "Linux") {
     const { env: hostEnv, filled } = await _backfillEnvFromPlist(host);
     if (filled.length > 0) console.log(`>> reused from the installed unit on ${host}: ${filled.join(", ")}`);
-    const resolved = (key: string, invocationValue?: string): string | undefined =>
-      _resolveDeployEnvValue(key, hostEnv, invocationValue);
-    const coordinatorUrl = resolved("ROOST_COORDINATOR_URL", options.coordinatorUrl);
+    const coordinatorUrl = _resolveDeployEnvValue(
+      "ROOST_COORDINATOR_URL",
+      hostEnv,
+      options.coordinatorUrl,
+      "remote",
+    );
     if ((!rollout || rollout.action === "hold") && !coordinatorUrl) {
       failDeploy(6, "ROOST_COORDINATOR_URL env var required (no prior install on target to reuse)");
     }
@@ -183,8 +202,7 @@ export async function deploy(
       ? ""
       : workerInstallEnvironment(hostEnv, {
           ROOST_COORDINATOR_URL: coordinatorUrl,
-          ROOST_WORKER_LABEL: resolved("ROOST_WORKER_LABEL"),
-          ROOST_REACHABLE_ADDR: resolved("ROOST_REACHABLE_ADDR"),
+          ...resolveRemoteDeployIdentityEnv(host, hostEnv, { workerLabel, reachableAddr }),
           ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN,
           [KEEPER_FORCE_LIVE_RETIRE_ENV]: forceLiveKeeperRetire ? "1" : undefined,
         }, sourceGitSha);
@@ -229,6 +247,8 @@ export async function deploy(
     gitSha: sourceGitSha,
     forceLiveKeeperRetire,
     coordinatorUrl: options.coordinatorUrl,
+    workerLabel,
+    reachableAddr,
     rollout: rollout ?? undefined,
     keeperUpdate: keeperAdmission?.keeperUpdate ?? null,
     workerFingerprint: keeperAdmission?.workerFingerprint ?? null,

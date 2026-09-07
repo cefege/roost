@@ -653,6 +653,36 @@ have reported success against a coordinator that was never running.
 `write-plist` verb and runs `systemd-analyze --user verify` on them, so a re-quoted path directive fails in CI
 rather than on the first `roost push`.
 
+### A remote deploy hands the target the deploying box's identity
+
+**Symptom** — "the machine I deployed to came up with another machine's name" — the coordinator lists two
+workers under one label, and the deployed machine's real identity is missing from the fleet view.
+
+**Wrong** — resolve every deploy variable through one uniform order,
+`invocationValue ?? installedEnv[key] ?? process.env[key]`. It reads as an obvious convenience — the ambient
+fallback is what lets an operator export `ROOST_COORDINATOR_URL` once and deploy the whole fleet without
+repeating it. But `ROOST_WORKER_LABEL` and `ROOST_REACHABLE_ADDR` do not describe the fleet, they name ONE
+machine, and the process holding that ambient env is the box running `roost deploy`, not the target. Deploying
+to a host with no installed service definition therefore installs the DEPLOYING box's label and reachable
+address on it; the target registers under a name that already belongs to another worker, and because
+`reachable_addr` is what the SPA and the coordinator-move preflight build target URLs from, the wrong machine
+is addressable under that name. Nothing warns: both values resolved, so the deploy looks complete.
+
+**Right** — the resolution order is per-key, from an explicit classification, not per-call. The identity keys
+live in one static table in `apps/roost-cli/src/deploy-plist-env.ts` (`DEPLOY_IDENTITY_ENV_FLAGS`, which also
+names the `roost deploy` flag that supplies each), and `_resolveDeployEnvValue` takes an explicit
+`target: "self" | "remote"` saying whose machine the ambient env describes. For `"remote"` an identity key
+resolves only from the invocation flag (`--label`, `--reachable-addr`) or the target's own installed plist /
+unit; for `"self"` the ambient env is the target's own and stays valid. Unresolvable is not an error by itself —
+the worker derives its hostname and tailnet name, which is the documented fresh-target path — but
+`resolveRemoteDeployIdentityEnv` REFUSES the deploy (`failDeploy(6, …)`) when the deploying shell exports that
+key and nothing else resolved it, because that is exactly the ambiguity that mislabels a fleet. Fleet-wide keys
+(`ROOST_COORDINATOR_URL`, `ROOST_BOOTSTRAP_TOKEN`, diag flags) keep the ambient fallback.
+
+**Guard** — `apps/roost-cli/tests/deploy-identity-env.test.ts` — a fresh remote target with an ambient
+`ROOST_WORKER_LABEL` resolves to nothing and refuses with the flag named, while the flag value, the target's
+installed value, and a `self` deploy each still resolve.
+
 ---
 
 ## Transport and connection lifecycle

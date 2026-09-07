@@ -20,7 +20,12 @@ import {
   runOrDie,
   sshExec,
 } from "./deploy-exec.ts";
-import { _backfillEnvFromPlist, _resolveDeployEnvValue, parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
+import {
+  _backfillEnvFromPlist,
+  _resolveDeployEnvValue,
+  parsePosixServiceEnvironment,
+  resolveRemoteDeployIdentityEnv,
+} from "./deploy-plist-env.ts";
 import { manifestOnlyWorkspaces } from "./deploy-workspaces.ts";
 import {
   KEEPER_FORCE_LIVE_RETIRE_ENV,
@@ -52,6 +57,8 @@ export interface MacosDeployOptions {
   sourceCheckout: string;
   gitSha: string;
   coordinatorUrl?: string;
+  workerLabel?: string;
+  reachableAddr?: string;
   forceLiveKeeperRetire?: boolean;
   rollout?: WorkerRolloutDirective;
   keeperUpdate?: JournaledKeeperUpdateV1 | null;
@@ -90,12 +97,19 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
     );
     return;
   }
-  const resolved = (key: string, invocationValue?: string): string | undefined =>
-    _resolveDeployEnvValue(key, hostEnv, invocationValue);
-  const resolvedCoordinatorUrl = resolved("ROOST_COORDINATOR_URL", options.coordinatorUrl);
+  const resolvedCoordinatorUrl = _resolveDeployEnvValue(
+    "ROOST_COORDINATOR_URL",
+    hostEnv,
+    options.coordinatorUrl,
+    "remote",
+  );
   if (!resolvedCoordinatorUrl) {
     failDeploy(6, `ROOST_COORDINATOR_URL env var required (no prior plist on target to reuse). Set it before running: roost deploy ${host}`);
   }
+  const identityEnv = resolveRemoteDeployIdentityEnv(host, hostEnv, {
+    workerLabel: options.workerLabel,
+    reachableAddr: options.reachableAddr,
+  });
   if (localGitSha.endsWith("-dirty")) failDeploy(7, "a macOS deploy requires a clean committed source snapshot");
 
   const releaseId = `${localGitSha}-${crypto.randomUUID()}`;
@@ -213,12 +227,11 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
       console.log("   bun install ok");
       const passthroughEnv = workerInstallEnvironment(hostEnv, {
         ROOST_COORDINATOR_URL: resolvedCoordinatorUrl,
-        ROOST_WORKER_LABEL: resolved("ROOST_WORKER_LABEL"),
+        ...identityEnv,
         ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN,
         [KEEPER_FORCE_LIVE_RETIRE_ENV]: options.forceLiveKeeperRetire
           ? "1"
           : undefined,
-        ROOST_REACHABLE_ADDR: resolved("ROOST_REACHABLE_ADDR"),
       }, localGitSha);
       const preparedJournal = await journalController.prepare(
         localGitSha,

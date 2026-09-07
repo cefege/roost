@@ -70,6 +70,8 @@ export async function _deployLocal(
     gitSha: string;
     rollout?: WorkerRolloutDirective;
     coordinatorUrl?: string;
+    workerLabel?: string;
+    reachableAddr?: string;
     forceLiveKeeperRetire?: boolean;
     keeperUpdate?: JournaledKeeperUpdateV1 | null;
     workerFingerprint: string | null;
@@ -208,9 +210,22 @@ export async function _deployLocal(
           "ROOST_COORDINATOR_URL",
           hostEnv,
           options.coordinatorUrl,
+          "self",
         ),
-        ROOST_WORKER_LABEL: _resolveDeployEnvValue("ROOST_WORKER_LABEL", hostEnv),
-        ROOST_REACHABLE_ADDR: _resolveDeployEnvValue("ROOST_REACHABLE_ADDR", hostEnv),
+        // The deploying process runs ON the target, so its ambient identity is
+        // this machine's own — unlike a remote deploy, where it is not.
+        ROOST_WORKER_LABEL: _resolveDeployEnvValue(
+          "ROOST_WORKER_LABEL",
+          hostEnv,
+          options.workerLabel,
+          "self",
+        ),
+        ROOST_REACHABLE_ADDR: _resolveDeployEnvValue(
+          "ROOST_REACHABLE_ADDR",
+          hostEnv,
+          options.reachableAddr,
+          "self",
+        ),
         ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN || undefined,
         [KEEPER_FORCE_LIVE_RETIRE_ENV]: options.forceLiveKeeperRetire
           ? "1"
