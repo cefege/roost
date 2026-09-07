@@ -165,7 +165,7 @@ async function cleanupLocalWorkerStage(
   await flushDurablePath(journal.releaseRoot);
 }
 
-async function removeManagedPriorRelease(
+export async function _removeManagedPriorRelease(
   sourceRepo: string,
   releaseRoot: string,
   priorWorkingDirectory: string | null,
@@ -189,16 +189,33 @@ async function removeManagedPriorRelease(
     }
   }
   if (localCoordinatorWorkingDirectory() === priorWorkingDirectory) return;
-  const removed = await run(["git", "worktree", "remove", "--force", priorWorkingDirectory], {
+  // A release staged by rsync — every installed release — is an ordinary
+  // directory, so `git worktree remove` fails it with "is not a working tree"
+  // and settlement dies AFTER the new release is already serving. Ask git
+  // first and fall back to a plain recursive remove; the symlink and
+  // release-root confinement proofs above are what make that safe.
+  const registered = await run(["git", "worktree", "list", "--porcelain"], {
     cwd: sourceRepo,
     quiet: true,
   });
-  if (removed.exit !== 0) {
-    throw new Error(
-      `cannot retire prior worker release ${priorWorkingDirectory}: ${removed.stderr.trim() || `exit ${removed.exit}`}`,
+  const isWorktree = registered.exit === 0
+    && registered.stdout.split("\n").some((line) =>
+      line === `worktree ${priorWorkingDirectory}`
     );
+  if (isWorktree) {
+    const removed = await run(["git", "worktree", "remove", "--force", priorWorkingDirectory], {
+      cwd: sourceRepo,
+      quiet: true,
+    });
+    if (removed.exit !== 0) {
+      throw new Error(
+        `cannot retire prior worker release ${priorWorkingDirectory}: ${removed.stderr.trim() || `exit ${removed.exit}`}`,
+      );
+    }
+  } else {
+    rmSync(priorWorkingDirectory, { recursive: true, force: true });
   }
-  if (removed.exit === 0 && existsSync(releaseRoot)) await flushDurablePath(releaseRoot);
+  if (existsSync(releaseRoot)) await flushDurablePath(releaseRoot);
 }
 
 export function createLocalWorkerDeployRecoveryDeps(
@@ -252,7 +269,7 @@ export function createLocalWorkerDeployRecoveryDeps(
       );
     },
     cleanupStage: journal => cleanupLocalWorkerStage(journal, confinement),
-    commitTarget: journal => removeManagedPriorRelease(
+    commitTarget: journal => _removeManagedPriorRelease(
       journal.sourceRoot, journal.releaseRoot, journal.priorWorkingDirectory,
     ),
     clearJournal: async () => {

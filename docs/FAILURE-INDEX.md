@@ -822,6 +822,23 @@ prior release cannot run rolls forward", "only a started prior release with a mi
 unrecoverable", "an ordinary prior-proof failure still keeps the macOS journal", "a schema-4 Linux journal
 parses and still rolls back", plus the two probe/checkpoint tests that pin the recorded version.
 
+### Settlement retires the prior release with a command only a worktree accepts
+
+**Symptom** — "deploy exit 5: cannot retire prior worker release …: fatal: '…' is not a working tree" — the
+new release is already installed and serving when the deploy reports failure.
+
+**Wrong** — assume a release directory is a git worktree because the developer's own checkout is one.
+Every release a real host has was staged by rsync, so `git worktree remove` fails it, and it fails at
+SETTLEMENT — after the service definition points at the new release — which reads as a failed deploy of a
+worker that is actually running the new code.
+
+**Right** — ask git whether the path is a registered worktree (`git worktree list --porcelain`) and
+otherwise remove the directory outright. The symlink refusal and the release-root confinement proof that
+already guard this path are what make the plain removal safe; keep both ahead of it.
+
+**Guard** — `apps/roost-cli/tests/deploy-local-release-retirement.test.ts`: "an rsync-staged prior release
+is retired even though it is no git worktree", plus the confinement and no-prior cases.
+
 ---
 
 ## Transport and connection lifecycle
