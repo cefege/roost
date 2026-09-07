@@ -143,4 +143,44 @@ export function statusServiceLoaded(label: string): boolean {
   }
 }
 
+/** Basenames of processes running on this host, for the public-origin check.
+ * Reads processes rather than service-manager units: a front can run while its
+ * unit reports inactive, and the running process is what serves traffic. */
+export async function hostProcessNames(): Promise<readonly string[]> {
+  const listed = captureStatusCommand(
+    process.platform === "win32"
+      ? ["tasklist", "/FO", "CSV", "/NH"]
+      : ["ps", "-eo", "comm="],
+  );
+  if (listed.exit !== 0) return [];
+  return listed.stdout
+    .split("\n")
+    .map((line) => {
+      const name = line.trim().replace(/^"/, "").split(/[",]/)[0] ?? "";
+      return name.slice(name.lastIndexOf("/") + 1).replace(/\.exe$/i, "");
+    })
+    .filter((name) => name.length > 0);
+}
+
+/** Does anything accept a connection on `host:port`? A refused connect is the
+ * fault this answers, so only a successful connect counts as listening. */
+export async function hostBindHasListener(bind: string): Promise<boolean> {
+  const separator = bind.lastIndexOf(":");
+  if (separator <= 0) return false;
+  const host = bind.slice(0, separator).replace(/^\[|\]$/g, "") || "127.0.0.1";
+  const port = Number(bind.slice(separator + 1));
+  if (!Number.isInteger(port) || port <= 0 || port > 65_535) return false;
+  try {
+    const socket = await Bun.connect({
+      hostname: host,
+      port,
+      socket: { data() {}, error() {} },
+    });
+    socket.end();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export { COORD_LABEL as STATUS_COORD_LABEL, WORKER_LABEL as STATUS_WORKER_LABEL };

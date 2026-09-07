@@ -2,6 +2,7 @@
 // The command entry and quickstart share it so remedies and health gating
 // stay aligned with the report fields without duplicating output decisions.
 
+import { publicOriginStatusLine } from "./status-public-origin.ts";
 import { STATUS_COORD_LABEL, STATUS_WORKER_LABEL } from "./status-native-probes.ts";
 import type { StatusReport } from "./status-types.ts";
 
@@ -49,6 +50,9 @@ export function printStatusReport(r: StatusReport): void {
   if (r.handoff) {
     console.log(`  coordinator move ${r.handoff.phase} (${r.handoff.role}, → ${r.handoff.targetUrl})`);
   }
+
+  const publicOrigin = publicOriginStatusLine(r.publicOrigin);
+  if (publicOrigin) console.log(publicOrigin);
 
   if (r.tlsMode === "tailscale-serve") {
     console.log("  ✓ coord TLS: tailscale serve");

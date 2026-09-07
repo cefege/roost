@@ -2,6 +2,7 @@
 // inventory, installed endpoint configuration, and coordinator handoff state.
 // Centralizing that I/O keeps the public command and renderer deterministic.
 
+import { resolvePublicOriginStatus } from "./status-public-origin.ts";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,6 +20,8 @@ import {
   statusServiceLoaded,
   STATUS_COORD_LABEL,
   STATUS_WORKER_LABEL,
+  hostBindHasListener,
+  hostProcessNames,
 } from "./status-native-probes.ts";
 import type {
   HandoffStatus,
@@ -345,6 +348,19 @@ function readHandoff(): HandoffStatus | null {
   }
 }
 
+/** ROOST_PUBLIC_BIND as the installed coordinator definition sets it. Reads
+ * both the systemd `Environment="K=V"` and the plist `<key>K</key><string>V`
+ * spellings, since one host layout writes each. */
+function serviceDefinitionEnvValue(definition: string | null, key: string): string | null {
+  if (!definition) return null;
+  const unit = new RegExp(`^Environment="?${key}=([^"\\n]*)"?$`, "m").exec(definition);
+  if (unit) return unit[1] ?? null;
+  const plist = new RegExp(
+    `<key>${key}</key>\\s*<string>([^<]*)</string>`,
+  ).exec(definition);
+  return plist ? plist[1] ?? null : null;
+}
+
 export async function statusReport(
   endpointOverride?: StatusEndpointOverride,
 ): Promise<StatusReport> {
@@ -364,5 +380,10 @@ export async function statusReport(
     tlsMode: currentTlsMode(serviceDefinition, endpoint.tailscale.required),
     url: endpoint.origin,
     handoff: readHandoff(),
+    publicOrigin: await resolvePublicOriginStatus({
+      publicBind: serviceDefinitionEnvValue(serviceDefinition, "ROOST_PUBLIC_BIND"),
+      runningProcessNames: hostProcessNames,
+      isListening: hostBindHasListener,
+    }),
   };
 }

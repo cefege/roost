@@ -151,6 +151,7 @@ describe("status TLS topology", () => {
       tlsMode: "tailscale-serve",
       url: "https://host.tail.ts.net:4102",
       handoff: null,
+    publicOrigin: { state: "unconfigured" },
     };
     const lines = renderedStatus(report);
 
@@ -179,6 +180,7 @@ describe("status TLS topology", () => {
       tlsMode: "direct",
       url: "https://coord.example.test:7443",
       handoff: null,
+    publicOrigin: { state: "unconfigured" },
     };
     const lines = renderedStatus(report);
 

@@ -39,6 +39,8 @@ export interface StatusEndpointOverride {
   origin: string;
 }
 
+import type { PublicOriginStatus } from "./status-public-origin.ts";
+
 export interface StatusReport {
   tailscale: TailscaleStatus;
   coordAgentLoaded: boolean;
@@ -48,6 +50,7 @@ export interface StatusReport {
   tlsMode: "tailscale-serve" | "direct" | "missing";
   url: string | null;
   handoff: HandoffStatus | null;
+  publicOrigin: PublicOriginStatus;
 }
 
 export interface ResolvedStatusEndpoint {

@@ -130,6 +130,7 @@ export function statusReport(sha: string | null, workers: WorkerStatus[] = []): 
     tlsMode: "direct",
     url: "https://coordinator.example.test:4102",
     handoff: null,
+    publicOrigin: { state: "unconfigured" },
   };
 }
 
