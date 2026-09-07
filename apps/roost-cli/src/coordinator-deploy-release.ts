@@ -124,14 +124,15 @@ export async function retirePriorCoordinatorRelease(
     workerRepo = existsSync(resolvedWorkerRepo) ? realpathSync(resolvedWorkerRepo) : resolvedWorkerRepo;
   }
   if (source === workerRepo) return;
+  // A release staged by rsync is an ordinary directory, and `git worktree
+  // remove` refuses it — which would fail settlement AFTER the new
+  // coordinator is already live. The confinement, canonical-path and
+  // worker-repo-in-use proofs above are what make the plain removal safe, so
+  // they must stay ahead of it. Mirrors the staged-release cleanup above.
   const removed = await run(["git", "worktree", "remove", "--force", source], {
     cwd: journal.stagedReleasePath,
     quiet: true,
   });
-  if (removed.exit !== 0) {
-    throw new Error(
-      `cannot retire prior coordinator release ${source}: ${removed.stderr.trim() || `exit ${removed.exit}`}`,
-    );
-  }
+  if (removed.exit !== 0) rmSync(source, { recursive: true, force: true });
   await flushDurablePath(releaseRoot);
 }
