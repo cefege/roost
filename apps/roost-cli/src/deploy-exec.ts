@@ -176,12 +176,15 @@ export async function runOrDie(cmd: string[], label: string, opts?: RunOptions |
 // common case when the Deploy button runs from coord rather than the
 // developer's interactive shell) fails with "Host key verification
 // failed" and exit 2. SSH keepalives also bound a dead session, so a lock
-// refresh cannot block its owner from releasing indefinitely.
+// refresh cannot block its owner from releasing indefinitely — but the bound
+// has to survive a slow link: a worker reachable only over a relayed tailnet
+// hop stalls a bulk rsync for longer than a few seconds at a time, and a
+// 15-second tolerance tore down transfers to a live host mid-release.
 export const SSH_OPTS = [
   "-o", "StrictHostKeyChecking=accept-new",
   "-o", "ConnectTimeout=10",
-  "-o", "ServerAliveInterval=5",
-  "-o", "ServerAliveCountMax=3",
+  "-o", "ServerAliveInterval=15",
+  "-o", "ServerAliveCountMax=8",
 ];
 export const RSYNC_RSH = `ssh ${SSH_OPTS.map((s) => s.includes(" ") ? `'${s}'` : s).join(" ")}`;
 
