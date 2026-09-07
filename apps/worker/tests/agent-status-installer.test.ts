@@ -1,6 +1,7 @@
 // Pins the typed OMP/Pi integration asset set and staged installer transaction.
-// Case/path aliases and ownership races fail closed; injected commit failures
-// preserve user files and roll every completed asset mutation back.
+// Case/path aliases and ownership races fail closed and one refused target
+// fails alone; injected commit failures preserve user files and roll every
+// completed asset mutation back.
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   mkdir,
@@ -64,9 +65,9 @@ describe("agent integration installation", () => {
   test("installs the complete typed assets byte-for-byte and is idempotent", async () => {
     const home = await tempHome();
     const materialized = await _loadAgentIntegrationAssets();
-    const installed = await installAgentIntegrations({}, home);
-    const paths = installedPaths(installed);
-    expect(installed.map(({ id }) => id)).toEqual([
+    const report = await installAgentIntegrations({}, home);
+    const paths = installedPaths(report.installed);
+    expect(report.installed.map(({ id }) => id)).toEqual([
       "omp-status",
       "omp-reference",
       "pi-status",
@@ -77,7 +78,7 @@ describe("agent integration installation", () => {
     const ompStatus = paths.get("omp-status")!;
     expect((await stat(ompStatus)).mode & 0o777).toBe(0o600);
     const inode = (await stat(ompStatus)).ino;
-    expect(await installAgentIntegrations({}, home)).toEqual(installed);
+    expect(await installAgentIntegrations({}, home)).toEqual(report);
     expect((await stat(ompStatus)).ino).toBe(inode);
     expect((await readdir(resolveOmpExtensionDir({}, home))).some((name) =>
       name.endsWith(".tmp")
@@ -91,7 +92,9 @@ describe("agent integration installation", () => {
     await mkdir(directory, { recursive: true });
     await writeFile(retired, "// ROOST_INTEGRATION_ID=omp\n");
 
-    const paths = installedPaths(await installAgentIntegrations({}, home));
+    const paths = installedPaths(
+      (await installAgentIntegrations({}, home)).installed,
+    );
 
     await expect(readFile(retired, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(paths.get("omp-reference")!, "utf8"))
@@ -133,42 +136,56 @@ describe("agent integration installation", () => {
     expect(await readdir(ompDirectory)).toEqual([]);
   });
 
-  test("rejects a final user-owned destination before writing earlier assets", async () => {
+  test("refuses a user-owned destination and installs the other runtime", async () => {
     const home = await tempHome();
     const piTarget = join(resolvePiExtensionDir({}, home), "roost-pi-agent-state.ts");
     await mkdir(resolvePiExtensionDir({}, home), { recursive: true });
     await writeFile(piTarget, "// user extension\n");
 
-    await expect(installAgentIntegrations({}, home)).rejects.toThrow(
-      "refusing to overwrite non-Roost extension",
-    );
+    const report = await installAgentIntegrations({}, home);
+
     expect(await readFile(piTarget, "utf8")).toBe("// user extension\n");
-    await expect(readFile(
+    expect(report.installed.map(({ id }) => id)).toEqual([
+      "omp-status",
+      "omp-reference",
+    ]);
+    expect(report.failed).toEqual([{
+      runtime: "pi",
+      path: piTarget,
+      reason: expect.stringContaining("refusing to overwrite non-Roost extension"),
+    }]);
+    expect(await readFile(
       join(resolveOmpExtensionDir({}, home), "roost-omp-agent-state.ts"),
       "utf8",
-    )).rejects.toMatchObject({ code: "ENOENT" });
+    )).toContain("ROOST_INTEGRATION_ID=omp");
   });
 
-  test("rejects an owned-filename symlink without changing its target", async () => {
+  test("refuses an owned-filename symlink and installs the remaining assets", async () => {
     if (process.platform === "win32") return;
     const home = await tempHome();
     const outside = join(home, "user-extension.ts");
-    const target = join(
-      resolveOmpExtensionDir({}, home),
-      "roost-omp-agent-state.ts",
-    );
+    const ompDirectory = resolveOmpExtensionDir({}, home);
+    const statusTarget = join(ompDirectory, "roost-omp-agent-state.ts");
     await writeFile(outside, "// user extension\n");
-    await mkdir(resolveOmpExtensionDir({}, home), { recursive: true });
-    await symlink(outside, target);
+    await mkdir(ompDirectory, { recursive: true });
+    await symlink(outside, statusTarget);
 
-    await expect(installAgentIntegrations({}, home)).rejects.toThrow(
-      "refusing symlink agent integration target",
-    );
+    const report = await installAgentIntegrations({}, home);
+
     expect(await readFile(outside, "utf8")).toBe("// user extension\n");
-    await expect(readFile(
-      join(resolveOmpExtensionDir({}, home), "roost-omp-agent-reference.ts"),
+    expect(report.installed.map(({ id }) => id)).toEqual([
+      "omp-reference",
+      "pi-status",
+    ]);
+    expect(report.failed).toEqual([{
+      runtime: "omp",
+      path: statusTarget,
+      reason: expect.stringContaining("refusing symlink agent integration target"),
+    }]);
+    expect(await readFile(
+      join(ompDirectory, "roost-omp-agent-reference.ts"),
       "utf8",
-    )).rejects.toMatchObject({ code: "ENOENT" });
+    )).toContain("ROOST_INTEGRATION_ID=omp-reference");
   });
 
   test("rejects absent case-only runtime aliases on Darwin and Windows", async () => {

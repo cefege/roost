@@ -68,13 +68,16 @@ export function journalSnapshot(options: {
   priorUnit?: string | null;
   lifecycle?: string;
   priorPid?: number;
-  schema?: "3" | "4";
+  schema?: "3" | "4" | "5";
   rolloutId?: string | null;
   workerFingerprint?: string | null;
   keeperUpdate?: JournaledKeeperUpdateV1 | null;
+  priorDurableState?: string;
+  targetDurableState?: string;
 }): string {
   const priorUnit = options.priorUnit === undefined ? PRIOR_UNIT : options.priorUnit;
   const lifecycle = options.lifecycle ?? "stopped";
+  const schema = options.schema ?? "5";
   const keeperUpdate = options.keeperUpdate === undefined
     ? priorUnit === null ? null : KEEPER_UPDATE
     : options.keeperUpdate;
@@ -82,7 +85,7 @@ export function journalSnapshot(options: {
     ? keeperUpdate ? WORKER_FINGERPRINT : null
     : options.workerFingerprint;
   const fields: Record<string, string> = {
-    schema: options.schema ?? "4",
+    schema,
     phase: options.phase,
     "target-sha": options.sha ?? SHA,
     "target-release": options.target ?? TARGET,
@@ -93,12 +96,14 @@ export function journalSnapshot(options: {
     "prior-pid": String(options.priorPid ?? (lifecycle === "running" ? 42 : 0)),
     "prior-unit": priorUnit ?? "",
   };
-  if ((options.schema ?? "4") === "4") {
-    fields["rollout-id"] = options.rolloutId ?? "";
+  fields["rollout-id"] = options.rolloutId ?? "";
+  if (schema !== "3") {
     fields["worker-fingerprint"] = workerFingerprint ?? "";
     fields["keeper-update"] = serializeLinuxKeeperUpdate(keeperUpdate);
-  } else {
-    fields["rollout-id"] = options.rolloutId ?? "";
+  }
+  if (schema === "5") {
+    fields["prior-durable-state"] = options.priorDurableState ?? "";
+    fields["target-durable-state"] = options.targetDurableState ?? "";
   }
   return [
     "journal",
@@ -110,6 +115,7 @@ export function journalSnapshot(options: {
 export function fakeRemote(
   journal: LinuxDeployJournal,
   targetHealthy: boolean,
+  priorProofError: Error | null = null,
 ): { calls: string[]; remote: LinuxDeployRecoveryRemote } {
   const calls: string[] = [];
   return {
@@ -127,7 +133,10 @@ export function fakeRemote(
           proof: { exit: targetHealthy ? 0 : 1, stdout: "", stderr: "" },
         };
       },
-      checkpointRollback: async () => { calls.push("checkpoint-rollback"); },
+      checkpointRollback: async (loaded) => {
+        calls.push("checkpoint-rollback");
+        return { ...loaded, phase: "rolling-back" };
+      },
       checkpointCommit: async () => { calls.push("checkpoint-commit"); },
       stopWorker: async () => {
         calls.push("stop-worker");
@@ -156,8 +165,9 @@ export function fakeRemote(
       provePriorWorker: async (_loaded, expectedSha) => {
         calls.push(`prove-prior-worker-${expectedSha}`);
       },
-      provePrior: async () => {
-        calls.push("prove-prior");
+      provePrior: async (_loaded, priorStarted) => {
+        calls.push(`prove-prior:${priorStarted ? "started" : "unstarted"}`);
+        if (priorProofError) throw priorProofError;
       },
       cleanupPrior: async () => {
         calls.push("cleanup-prior");

@@ -53,9 +53,8 @@ import {
   type WorkerRolloutDirective,
 } from "./worker-deploy-rollout.ts";
 import {
-  keeperAdmissionStaging,
-  unprovenInstalledServiceRefusal,
-  type DirectKeeperAdmissionOutcome,
+  installedServiceRefusalAfterTargetEvidence, keeperAdmissionStaging,
+  unprovenInstalledServiceRefusal, type DirectKeeperAdmissionOutcome,
 } from "./keeper-admission-staging.ts";
 
 export async function deployLinux(
@@ -166,10 +165,10 @@ export async function deployLinux(
       failDeploy(7, "Linux keeper update and worker fingerprint must be present together");
     }
     if (keeperUpdate === null && installedServiceRefusal !== null) {
-      const absentUnit = await deploySsh(
-        `test ! -e ${posixShellQuote(unitPath)} && test ! -L ${posixShellQuote(unitPath)}`,
-      );
-      if (absentUnit.exit !== 0) failDeploy(5, installedServiceRefusal);
+      const refusal = await installedServiceRefusalAfterTargetEvidence(installedServiceRefusal, {
+        host, os: "linux", serviceSpec: unitPath, execute: deploySsh,
+      });
+      if (refusal !== null) failDeploy(5, refusal);
     }
     let remoteRepo = process.env.ROOST_LINUX_REPO_DIR?.trim() ?? "";
     if (!remoteRepo) {
@@ -312,7 +311,9 @@ export async function deployLinux(
         ? "prior worker unit and lifecycle restored"
         : recovered.kind === "prepared-cleaned"
           ? "prepared worker stage removed"
-          : "no recoverable journal was found";
+          : recovered.kind === "roll-forward-required"
+            ? recovered.reason
+            : "no recoverable journal was found";
       failDeploy(
         failed.exit || 5,
         `${summary}\n${failed.stdout}\n${failed.stderr}\n${recoveryDetail}`,

@@ -13,6 +13,7 @@ const action = process.env.ROOST_MAC_DEPLOY_ACTION ?? "";
 const journalPath = process.env.ROOST_MAC_DEPLOY_JOURNAL ?? "";
 const releaseRoot = process.env.ROOST_MAC_DEPLOY_RELEASE_ROOT ?? "";
 const plistPath = process.env.ROOST_MAC_DEPLOY_PLIST ?? "";
+const durableStatePath = process.env.ROOST_MAC_DEPLOY_DURABLE_STATE ?? "";
 const label = process.env.ROOST_MAC_DEPLOY_LABEL ?? "";
 const requestedSha = process.env.ROOST_MAC_DEPLOY_TARGET_SHA ?? "";
 const requestedTarget = process.env.ROOST_MAC_DEPLOY_TARGET_PATH ?? "";

@@ -19,10 +19,17 @@ import {
   workerRolloutFingerprintOrNull,
   workerRolloutIdOrNull,
 } from "./worker-deploy-rollout.ts";
+import {
+  DURABLE_WORKER_STATE_VERSION_TEXT_RE,
+  isDurableStateVersion,
+} from "./durable-worker-state.ts";
 
 export const LINUX_WORKER_RELEASE_RELATIVE_ROOT = ".local/share/roost/releases/worker";
 export const LINUX_DEPLOY_JOURNAL_NAME = "worker-deploy-journal";
-export const LINUX_DEPLOY_JOURNAL_SCHEMA = "4";
+export const LINUX_DEPLOY_JOURNAL_SCHEMA = "5";
+/** Schema 4 lacks the durable-state fields; it parses with both unobserved,
+ * so a journal written before they existed still rolls back unchanged. */
+export const LINUX_DEPLOY_JOURNAL_SCHEMAS: Record<string, true> = { "4": true, "5": true };
 
 export type LinuxDeployJournalPhase =
   | "prepared"
@@ -45,6 +52,11 @@ export interface LinuxDeployJournal {
   priorLifecycle: LinuxDeployPriorLifecycle;
   priorEnablement: LinuxDeployPriorEnablement;
   priorPid: number;
+  // Durable session-event store schema versions: the one the prior release
+  // ran with, and the one the target release left behind. A higher target
+  // version means the prior release can no longer open the store.
+  priorDurableStateVersion: number | null;
+  targetDurableStateVersion: number | null;
 }
 
 export type LinuxDeployRecoveryPlan =
@@ -205,6 +217,14 @@ export function assertLinuxDeployJournal(
   if (journal.priorLifecycle === "running" && journal.priorEnablement === "masked") {
     malformedLinuxJournal("a masked prior unit cannot have a running lifecycle");
   }
+  for (const durableVersion of [
+    journal.priorDurableStateVersion,
+    journal.targetDurableStateVersion,
+  ]) {
+    if (durableVersion !== null && !isDurableStateVersion(durableVersion)) {
+      malformedLinuxJournal("durable state version is malformed");
+    }
+  }
 }
 
 function decodeJournalField(name: string, value: string): Buffer {
@@ -238,6 +258,12 @@ export function parseLinuxDeployJournalSnapshot(
     if (encoded.has(name)) malformedLinuxJournal(`duplicate ${name} field`);
     encoded.set(name, line.slice(separator + 1));
   }
+  const schema = encoded.has("schema")
+    ? decodeJournalField("schema", encoded.get("schema")!).toString("utf8")
+    : "";
+  if (LINUX_DEPLOY_JOURNAL_SCHEMAS[schema] !== true) {
+    malformedLinuxJournal("unsupported schema");
+  }
   const expected = [
     "schema",
     "phase",
@@ -252,13 +278,8 @@ export function parseLinuxDeployJournalSnapshot(
     "prior-enablement",
     "prior-pid",
     "prior-unit",
+    ...(schema === "4" ? [] : ["prior-durable-state", "target-durable-state"]),
   ];
-  const schema = encoded.has("schema")
-    ? decodeJournalField("schema", encoded.get("schema")!).toString("utf8")
-    : "";
-  if (schema !== LINUX_DEPLOY_JOURNAL_SCHEMA) {
-    malformedLinuxJournal("unsupported schema");
-  }
   if (encoded.size !== expected.length || expected.some((name) => !encoded.has(name))) {
     malformedLinuxJournal("snapshot fields are incomplete or unexpected");
   }
@@ -287,6 +308,16 @@ export function parseLinuxDeployJournalSnapshot(
   const priorLifecycle = text("prior-lifecycle") as LinuxDeployPriorLifecycle;
   const priorEnablement = text("prior-enablement") as LinuxDeployPriorEnablement;
   const priorPidText = text("prior-pid");
+  const durableStateVersion = (name: string): number | null => {
+    if (schema === "4") return null;
+    const value = text(name);
+    if (value === "") return null;
+    if (!DURABLE_WORKER_STATE_VERSION_TEXT_RE.test(value)
+      || !isDurableStateVersion(Number(value))) {
+      malformedLinuxJournal(`${name} is malformed`);
+    }
+    return Number(value);
+  };
   const priorUnitBytes = decodeJournalField("prior-unit", encoded.get("prior-unit")!);
   if (priorUnitState !== "present" && priorUnitState !== "absent") {
     malformedLinuxJournal(`invalid prior unit state ${JSON.stringify(priorUnitState)}`);
@@ -320,6 +351,8 @@ export function parseLinuxDeployJournalSnapshot(
     priorLifecycle,
     priorEnablement,
     priorPid: Number(priorPidText),
+    priorDurableStateVersion: durableStateVersion("prior-durable-state"),
+    targetDurableStateVersion: durableStateVersion("target-durable-state"),
   };
   if (priorUnitState === "present"
     && Buffer.from(journal.priorUnit!, "utf8").compare(priorUnitBytes) !== 0) {

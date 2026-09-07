@@ -18,6 +18,7 @@ import {
   workerRolloutIdOrNull,
   workerRolloutFingerprintOrNull,
 } from "./worker-deploy-rollout.ts";
+import { isDurableStateVersion } from "./durable-worker-state.ts";
 
 export const MACOS_WORKER_LABEL = "com.roost.worker-v2";
 const MACOS_DEPLOY_JOURNAL_FILE = "macos-worker-deploy-v1.json";
@@ -31,8 +32,8 @@ export type MacosDeployJournalPhase =
   | "committing"
   | "rolling-back";
 
-export interface MacosDeployJournalV2 {
-  schemaVersion: 2;
+export interface MacosDeployJournalV3 {
+  schemaVersion: 3;
   phase: MacosDeployJournalPhase;
   targetGitSha: string;
   targetReleasePath: string;
@@ -44,6 +45,12 @@ export interface MacosDeployJournalV2 {
   priorLifecycle: MacosWorkerLifecycle;
   priorPid: number | null;
   priorDisabled: boolean;
+  // Durable session-event store schema versions: the one the prior release
+  // ran with, and the one the target release left behind. A higher target
+  // version means the prior release can no longer open the store, so no
+  // amount of launchd choreography can restore it.
+  priorDurableStateVersion: number | null;
+  targetDurableStateVersion: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -61,6 +68,8 @@ interface MacosDeployJournalCandidate {
   priorLifecycle?: unknown;
   priorPid?: unknown;
   priorDisabled?: unknown;
+  priorDurableStateVersion?: unknown;
+  targetDurableStateVersion?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -72,14 +81,16 @@ export interface MacosDeployTargetProof {
 }
 
 export interface MacosDeployRecoveryRemote {
-  load(): Promise<MacosDeployJournalV2 | null>;
-  checkpointActivated(journal: Readonly<MacosDeployJournalV2>): Promise<MacosDeployJournalV2>;
-  checkpointRollback(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  checkpointCommit(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  proveTarget(journal: Readonly<MacosDeployJournalV2>): Promise<MacosDeployTargetProof>;
-  bootout(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  restorePriorDefinition(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  setDisabled(journal: Readonly<MacosDeployJournalV2>, disabled: boolean): Promise<void>;
+  load(): Promise<MacosDeployJournalV3 | null>;
+  checkpointActivated(journal: Readonly<MacosDeployJournalV3>): Promise<MacosDeployJournalV3>;
+  /** Records the durable-state version the target left behind, so a rollback
+   * that cannot restore service can prove why on every later attempt. */
+  checkpointRollback(journal: Readonly<MacosDeployJournalV3>): Promise<MacosDeployJournalV3>;
+  checkpointCommit(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
+  proveTarget(journal: Readonly<MacosDeployJournalV3>): Promise<MacosDeployTargetProof>;
+  bootout(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
+  restorePriorDefinition(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
+  setDisabled(journal: Readonly<MacosDeployJournalV3>, disabled: boolean): Promise<void>;
   applyKeeperUpdate(
     workerFingerprint: string,
     update: JournaledKeeperUpdateV1,
@@ -94,22 +105,36 @@ export interface MacosDeployRecoveryRemote {
     heartbeatNotBeforeMs: number,
     actionReleasePath: string,
   ): Promise<void>;
-  bootstrap(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  kickstart(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  stop(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  provePrior(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  removeTarget(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  cleanupPriorRelease(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
-  clear(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  bootstrap(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
+  kickstart(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
+  stop(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
+  /** Proves the prior plist is restored byte-exactly and its recorded
+   * lifecycle round-tripped. `priorStarted` states whether this rollback
+   * actually started that release: it is what separates a prior release that
+   * cannot run from one that was never started, and only the former may
+   * resolve to a roll-forward. */
+  provePrior(
+    journal: Readonly<MacosDeployJournalV3>,
+    priorStarted: boolean,
+  ): Promise<void>;
+  removeTarget(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
+  cleanupPriorRelease(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
+  clear(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
   now?: () => number;
 }
 
 export type MacosDeployRecoveryResult =
   | { outcome: "none" }
-  | { outcome: "prepared-cleaned"; journal: MacosDeployJournalV2 }
-  | { outcome: "held"; journal: MacosDeployJournalV2; targetProof: MacosDeployTargetProof }
-  | { outcome: "committed"; journal: MacosDeployJournalV2; targetProof: MacosDeployTargetProof }
-  | { outcome: "rolled-back"; journal: MacosDeployJournalV2; targetProof: MacosDeployTargetProof | null };
+  | { outcome: "prepared-cleaned"; journal: MacosDeployJournalV3 }
+  | { outcome: "held"; journal: MacosDeployJournalV3; targetProof: MacosDeployTargetProof }
+  | { outcome: "committed"; journal: MacosDeployJournalV3; targetProof: MacosDeployTargetProof }
+  | { outcome: "rolled-back"; journal: MacosDeployJournalV3; targetProof: MacosDeployTargetProof | null }
+  | {
+      outcome: "roll-forward-required";
+      journal: MacosDeployJournalV3;
+      targetProof: MacosDeployTargetProof | null;
+      reason: string;
+    };
 
 
 /** The journal is fixed beside the renewable machine-transaction database. */
@@ -141,7 +166,7 @@ export function _isConfinedMacosReleasePath(
 export function _parseMacosDeployJournal(
   value: unknown,
   releaseRoot: string,
-): MacosDeployJournalV2 {
+): MacosDeployJournalV3 {
   const candidate = posixJournalObjectValue(
     value,
     "macOS deploy journal is not an object",
@@ -159,20 +184,34 @@ export function _parseMacosDeployJournal(
     priorLifecycle,
     priorPid,
     priorDisabled,
+    priorDurableStateVersion,
+    targetDurableStateVersion,
     createdAt,
     updatedAt,
   } = candidate;
+  // A v2 journal predates the durable-state observation and upgrades with
+  // both versions unknown, which can never authorize a roll-forward.
+  const durableFields = ["priorDurableStateVersion", "targetDurableStateVersion"];
   const journalFields = [
     "schemaVersion", "phase", "targetGitSha", "targetReleasePath", "rolloutId",
     "workerFingerprint", "keeperUpdate", "priorPlistBase64", "priorPlistMode",
     "priorLifecycle", "priorPid", "priorDisabled", "createdAt", "updatedAt",
+    ...(schemaVersion === 2 ? [] : durableFields),
   ];
   const presentFields = Object.keys(candidate);
   if (presentFields.length !== journalFields.length
     || presentFields.some(field => !journalFields.includes(field))) {
     throw new Error("macOS deploy journal fields are malformed");
   }
-  if (schemaVersion !== 2) throw new Error("macOS deploy journal schema is unsupported");
+  if (schemaVersion !== 2 && schemaVersion !== 3) {
+    throw new Error("macOS deploy journal schema is unsupported");
+  }
+  const priorDurableState = schemaVersion === 2 ? null : priorDurableStateVersion;
+  const targetDurableState = schemaVersion === 2 ? null : targetDurableStateVersion;
+  if ((priorDurableState !== null && !isDurableStateVersion(priorDurableState))
+    || (targetDurableState !== null && !isDurableStateVersion(targetDurableState))) {
+    throw new Error("macOS deploy journal durable state version is malformed");
+  }
   if (phase !== "prepared" && phase !== "activating"
     && phase !== "activated" && phase !== "committing"
     && phase !== "rolling-back") {
@@ -264,7 +303,7 @@ export function _parseMacosDeployJournal(
     throw new Error("macOS deploy journal timestamps are malformed");
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     phase,
     targetGitSha,
     targetReleasePath,
@@ -276,6 +315,8 @@ export function _parseMacosDeployJournal(
     priorLifecycle,
     priorPid,
     priorDisabled,
+    priorDurableStateVersion: priorDurableState,
+    targetDurableStateVersion: targetDurableState,
     createdAt,
     updatedAt,
   };

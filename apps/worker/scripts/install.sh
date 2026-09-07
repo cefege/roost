@@ -171,7 +171,9 @@ systemd_env() {
 
 # Required env: ROOST_COORDINATOR_URL — http(s)://coord-host:4102
 # Optional env: ROOST_BOOTSTRAP_TOKEN (one-shot, cleared after redeem),
-#               ROOST_WORKER_LABEL, ROOST_REACHABLE_ADDR,
+#               ROOST_KEEPER_FORCE_LIVE_RETIRE (one-shot, strict 0|1, spent by
+#               the activation that receives it), ROOST_WORKER_LABEL,
+#               ROOST_REACHABLE_ADDR,
 #               ROOST_AGENT_CONVERSATION_RESTORE (strict 0|1)
 ROOST_COORDINATOR_URL="${ROOST_COORDINATOR_URL:-}"
 if [[ -z "$ROOST_COORDINATOR_URL" && "${1:-status}" == "install" ]]; then
@@ -182,11 +184,19 @@ fi
 
 # Optional plist entries — only emit the key/value block if env is set.
 BOOTSTRAP_TOKEN_PLIST=""
+KEEPER_FORCE_LIVE_RETIRE_PLIST=""
 LABEL_PLIST=""
 REACHABLE_ADDR_PLIST=""
 CONVERSATION_RESTORE_PLIST=""
 if [[ -n "${ROOST_BOOTSTRAP_TOKEN:-}" ]]; then
   BOOTSTRAP_TOKEN_PLIST=$'\n    <key>ROOST_BOOTSTRAP_TOKEN</key>\n    <string>'"$(xml_escape "${ROOST_BOOTSTRAP_TOKEN}")"$'</string>'
+fi
+# A destructive authorization is only useful to the worker the service manager
+# starts, so it must reach the service definition rather than just this
+# installer. It is never read back off an installed definition: an invocation
+# that was not given it leaves the key out, which is what retires it.
+if [[ -n "${ROOST_KEEPER_FORCE_LIVE_RETIRE:-}" ]]; then
+  KEEPER_FORCE_LIVE_RETIRE_PLIST=$'\n    <key>ROOST_KEEPER_FORCE_LIVE_RETIRE</key>\n    <string>'"$(xml_escape "${ROOST_KEEPER_FORCE_LIVE_RETIRE}")"$'</string>'
 fi
 if [[ -n "${ROOST_WORKER_LABEL:-}" ]]; then
   LABEL_PLIST=$'\n    <key>ROOST_WORKER_LABEL</key>\n    <string>'"$(xml_escape "${ROOST_WORKER_LABEL}")"$'</string>'
@@ -271,7 +281,7 @@ write_plist() {
     <key>ROOST_DIAG</key>
     <string>${diag_xml}</string>
     <key>ROOST_WORKER_SERVICE_PATH</key>
-    <string>${plist_xml}</string>${BOOTSTRAP_TOKEN_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${CONVERSATION_RESTORE_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
+    <string>${plist_xml}</string>${BOOTSTRAP_TOKEN_PLIST}${KEEPER_FORCE_LIVE_RETIRE_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${CONVERSATION_RESTORE_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -349,6 +359,7 @@ EOF
     systemd_env "ROOST_WORKER_TASKS_MAX" "$WORKER_TASKS_MAX"
     systemd_env "ROOST_WORKER_LOGROTATE_CONF" "$LOGROTATE_CONF"
     [[ -n "${ROOST_BOOTSTRAP_TOKEN:-}" ]] && systemd_env "ROOST_BOOTSTRAP_TOKEN" "$ROOST_BOOTSTRAP_TOKEN"
+    [[ -n "${ROOST_KEEPER_FORCE_LIVE_RETIRE:-}" ]] && systemd_env "ROOST_KEEPER_FORCE_LIVE_RETIRE" "$ROOST_KEEPER_FORCE_LIVE_RETIRE"
     [[ -n "${ROOST_WORKER_LABEL:-}" ]]    && systemd_env "ROOST_WORKER_LABEL" "$ROOST_WORKER_LABEL"
     [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]  && systemd_env "ROOST_REACHABLE_ADDR" "$ROOST_REACHABLE_ADDR"
     [[ "${ROOST_AGENT_CONVERSATION_RESTORE+x}" == "x" ]] && systemd_env "ROOST_AGENT_CONVERSATION_RESTORE" "$ROOST_AGENT_CONVERSATION_RESTORE"

@@ -126,7 +126,7 @@ describe("Linux deploy recovery", () => {
       `prove-prior-worker-${PRIOR_SHA}`,
       `prove-keeper-source-${PRIOR_SHA}`,
       "settle-prior",
-      "prove-prior",
+      "prove-prior:started",
     ]);
     expect(fixture.calls.at(-1)).toBe("clear");
   });

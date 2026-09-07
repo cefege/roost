@@ -16,7 +16,9 @@ export function workerInstallEnvironmentValues(
   const values: Record<string, string> = { ...installed };
   // The retire authorization is stripped like the bootstrap token: a retained
   // flag would silently authorize discarding a keeper's live channels on every
-  // later activation, so only the deploy that was given it carries it.
+  // later activation, so only the deploy that was given it carries it. This is
+  // the second half of that guarantee — the worker spends the value out of its
+  // own service definition at boot, which is what covers a plain restart.
   for (const key of [
     "GIT_SHA",
     "ROOST_GIT_SHA",

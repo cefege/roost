@@ -122,7 +122,8 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 ## Module map
 
 - **Boot** — `src/main.ts`, `src/coord-link-deps.ts`, `src/boot-keeper.ts`,
-  `src/boot-reconcile.ts`, `src/install.ts`, `src/config.ts`, `src/jwt.ts`.
+  `src/boot-reconcile.ts`, `src/install.ts`, `src/service-definition-env.ts`,
+  `src/config.ts`, `src/jwt.ts`.
   **`src/transport/`** — the outbound link, durable session-event store,
   schema migration, and replay barrier (above). **`src/keeper/`** — the PTY
   host (above).
@@ -297,9 +298,13 @@ PTY. Status code lives under `src/agent-status/`; prompt admission lives in
   `src/agent-status/install-integrations.ts` materializes the OMP status,
   OMP reference, and Pi status assets (mode `0600`, temp-file + rename,
   idempotent). It canonicalizes and preflights every destination before any
-  write or owned retirement. OMP/Pi directory collisions, symlink aliases,
-  symlink targets, and unowned target files fail the whole installation with
-  zero mutation. `ROOST_AGENT_STATUS_DISABLED=1` makes status reporting inert
+  write or owned retirement. OMP/Pi directory collisions and symlink aliases
+  fail the whole installation with zero mutation; a symlink or unowned file at
+  ONE target fails only that asset — the pass logs `integration_install_failed`
+  for it and its report still lists what installed. Ownership is a `//` comment
+  line carrying the asset's marker token at any depth in the file, because an
+  installed asset splices the shared report transport above its own header.
+  `ROOST_AGENT_STATUS_DISABLED=1` makes status reporting inert
   without disabling the separate OMP reference asset.
 - `src/agent-status/registry.ts` — an integration report wins while its 30 s
   lease is fresh, else the screen fallback
@@ -346,10 +351,15 @@ PTY. Status code lives under `src/agent-status/`; prompt admission lives in
   POSIX real-stack qualification.
 - **Keeper retire authorization** — `ROOST_KEEPER_FORCE_LIVE_RETIRE` accepts
   exactly `0` or `1` and defaults off. `1` lets `handleKeeperSurvivor()` retire
-  a survivor that authenticates but reports no channel bindings — a keeper
+  a survivor that authenticates but cannot prove its channel bindings — a keeper
   predating binding proof, which the worker can neither adopt nor prove empty —
-  and that ends every PTY it hosts, logged field by field before the shutdown.
+  and that ends every PTY it hosts, named field by field before the shutdown
+  request (a `null` channel list is the survivor's own failure to enumerate).
   A survivor that proves its bindings, and a process that proved no keeper
   identity, are both still refused under it. `roost deploy <host> --force-live`
-  supplies it for one activation; unlike the restore flag, a source deploy
-  strips an installed value so the authorization cannot persist.
+  supplies it for one activation, which means the installer writes it into the
+  service definition — otherwise it would reach only the installer process, not
+  the worker launchd/systemd starts. It is one-shot on both sides: boot spends
+  it out of that definition (`src/service-definition-env.ts`) before any keeper
+  work, and a source deploy strips an installed value, so neither a restart nor
+  a later deploy can re-arm it.

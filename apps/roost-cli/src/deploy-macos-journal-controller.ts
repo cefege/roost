@@ -13,7 +13,7 @@ import {
 import type { MacosJournalTarget } from "./deploy-macos-journal-commands.ts";
 import { MACOS_WORKER_LABEL } from "./deploy-macos-journal.ts";
 import type {
-  MacosDeployJournalV2,
+  MacosDeployJournalV3,
   MacosDeployRecoveryRemote,
 } from "./deploy-macos-journal.ts";
 import {
@@ -21,6 +21,10 @@ import {
   workerServiceIsRunning,
   workerServiceMatchesRelease,
 } from "./deploy-exec.ts";
+import {
+  DurableStateRollForwardRequired,
+  durableStateMigratedForward,
+} from "./durable-worker-state.ts";
 import { launchdBootstrapWithRetryCmd } from "./service-ctl.ts";
 
 type MacosRemoteExecutor = (
@@ -56,15 +60,15 @@ export interface MacosDeployJournalController {
     rolloutId: string | null,
     workerFingerprint: string | null,
     keeperUpdate: JournaledKeeperUpdateV1 | null,
-  ): Promise<MacosDeployJournalV2>;
+  ): Promise<MacosDeployJournalV3>;
   checkpointActivating(
     gitSha: string,
     remoteDir: string,
     rolloutId: string | null,
     workerFingerprint: string | null,
     keeperUpdate: JournaledKeeperUpdateV1 | null,
-  ): Promise<MacosDeployJournalV2>;
-  activateTarget(journal: Readonly<MacosDeployJournalV2>): Promise<void>;
+  ): Promise<MacosDeployJournalV3>;
+  activateTarget(journal: Readonly<MacosDeployJournalV3>): Promise<void>;
 }
 
 export function createMacosDeployJournalController(
@@ -103,7 +107,7 @@ export function createMacosDeployJournalController(
   const parseEnvelope = (
     result: { stdout: string },
     operation: string,
-  ): { releaseRoot: string; journal: MacosDeployJournalV2 | null } => {
+  ): { releaseRoot: string; journal: MacosDeployJournalV3 | null } => {
     try {
       return parseMacosJournalEnvelope(result.stdout);
     } catch (error) {
@@ -151,7 +155,15 @@ export function createMacosDeployJournalController(
       return checkpointedJournal;
     },
     async checkpointRollback() {
-      await checked("checkpoint macOS worker rollback", utility("checkpoint-rollback"));
+      const result = await checked(
+        "checkpoint macOS worker rollback",
+        utility("checkpoint-rollback"),
+      );
+      const rollingBack = parseEnvelope(result, "checkpoint macOS worker rollback").journal;
+      if (!rollingBack || rollingBack.phase !== "rolling-back") {
+        throw new DeployFailure(5, "remote Mac did not durably checkpoint rollback state");
+      }
+      return rollingBack;
     },
     async checkpointCommit() {
       await checked("checkpoint macOS target commit", utility("checkpoint-commit"));
@@ -232,7 +244,7 @@ export function createMacosDeployJournalController(
         `launchctl stop gui/$(id -u)/${MACOS_WORKER_LABEL}`,
       );
     },
-    async provePrior(journal) {
+    async provePrior(journal, priorStarted) {
       await checked(
         "prove prior macOS worker plist",
         utility("prove-prior-definition"),
@@ -262,6 +274,22 @@ export function createMacosDeployJournalController(
           consecutive = 0;
         }
         await Bun.sleep(250);
+      }
+      // Two independent facts must agree before a retained journal is called
+      // unrecoverable: this rollback actually started the prior release, and
+      // the journal records the target migrating durable worker state past
+      // it. Either fact alone keeps the journal, so an un-started or
+      // transiently failing rollback is still retried.
+      if (priorStarted
+        && durableStateMigratedForward(
+          journal.priorDurableStateVersion,
+          journal.targetDurableStateVersion,
+        )) {
+        throw new DurableStateRollForwardRequired(
+          "macOS",
+          journal.priorDurableStateVersion!,
+          journal.targetDurableStateVersion!,
+        );
       }
       throw new DeployFailure(
         5,

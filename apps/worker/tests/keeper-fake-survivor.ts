@@ -31,6 +31,10 @@ export interface FakeKeeperOptions {
    * bindings, or spawning channels. That is the exact Hello a worker update
    * finds when the surviving keeper predates the contract/binding proof. */
   preContract?: boolean;
+  /** Report channel bindings but no spawning-channel proof, the other Hello
+   * shape `keeperPredatesBindingProof` admits: the worker knows exactly which
+   * channels a force-live retirement destroys but still cannot prove empty. */
+  omitSpawningChannels?: boolean;
   /** Accept the unfenced Shutdown request and stop listening, as a survivor
    * must for the operator-authorized force-live retirement to complete. */
   retiresOnShutdown?: boolean;
@@ -129,7 +133,7 @@ function helloResponseBytes(options: FakeKeeperOptions): Uint8Array {
     pid: FAKE_KEEPER_PID,
     process_epoch: FAKE_KEEPER_EPOCH,
     bindings: options.bindings ?? [],
-    spawning_channels: [],
+    ...(options.omitSpawningChannels ? {} : { spawning_channels: [] }),
   };
   if (options.unknownField) {
     response.keeper_future_capability = { generation: 2, notes: "unknown" };

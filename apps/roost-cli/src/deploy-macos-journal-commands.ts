@@ -9,7 +9,8 @@ import {
   MACOS_WORKER_LABEL,
   _parseMacosDeployJournal,
 } from "./deploy-macos-journal.ts";
-import type { MacosDeployJournalV2 } from "./deploy-macos-journal.ts";
+import type { MacosDeployJournalV3 } from "./deploy-macos-journal.ts";
+import { DURABLE_WORKER_STATE_FILE } from "./durable-worker-state.ts";
 import { MACOS_DEPLOY_JOURNAL_PROGRAM } from "./macos-deploy-journal-program.ts";
 import { isCanonicalAbsolutePosixPath } from "./posix-deploy-journal.ts";
 import { verifyWorkerCmd } from "./service-ctl.ts";
@@ -61,9 +62,11 @@ export function macosJournalUtilityCommand(
     `release_root="$HOME/${MACOS_RELEASE_ROOT_RELATIVE}"; ` +
     `if test -d "$release_root"; then release_root=$(cd "$release_root" && pwd -P); fi; ` +
     `plist="$HOME/${MACOS_WORKER_PLIST_RELATIVE}"; ${targetDirectory}` +
+    `durable_state="$(dirname -- "$(dirname -- "$journal")")/${DURABLE_WORKER_STATE_FILE}"; ` +
     `ROOST_MAC_DEPLOY_ACTION=${posixShellQuote(action)} ` +
     `ROOST_MAC_DEPLOY_JOURNAL="$journal" ROOST_MAC_DEPLOY_RELEASE_ROOT="$release_root" ` +
     `ROOST_MAC_DEPLOY_PLIST="$plist" ROOST_MAC_DEPLOY_LABEL=${posixShellQuote(MACOS_WORKER_LABEL)} ` +
+    `ROOST_MAC_DEPLOY_DURABLE_STATE="$durable_state" ` +
     `ROOST_MAC_DEPLOY_TARGET_SHA=${posixShellQuote(target?.gitSha ?? "")} ` +
     `ROOST_MAC_DEPLOY_ROLLOUT_ID=${posixShellQuote(target?.rolloutId ?? "")} ` +
     `ROOST_MAC_DEPLOY_WORKER_FINGERPRINT=${posixShellQuote(target?.workerFingerprint ?? "")} ` +
@@ -73,7 +76,7 @@ export function macosJournalUtilityCommand(
 
 export function parseMacosJournalEnvelope(stdout: string): {
   releaseRoot: string;
-  journal: MacosDeployJournalV2 | null;
+  journal: MacosDeployJournalV3 | null;
 } {
   const encoded = stdout.split(/\r?\n/)
     .find((line) => line.startsWith(MACOS_DEPLOY_JOURNAL_OUTPUT))
@@ -109,7 +112,7 @@ export function parseMacosJournalEnvelope(stdout: string): {
 }
 
 export function macosTargetVerificationCommand(
-  journal: Readonly<MacosDeployJournalV2>,
+  journal: Readonly<MacosDeployJournalV3>,
 ): string {
   return `${verifyWorkerCmd("darwin")}; verify_status=$?; ` +
     `actual=$(/usr/libexec/PlistBuddy -c 'Print :WorkingDirectory' "$HOME/${MACOS_WORKER_PLIST_RELATIVE}" 2>/dev/null || true); ` +

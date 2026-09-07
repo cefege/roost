@@ -8,13 +8,23 @@ import { workerDataDir, workerLogDir } from "@roost/shared/paths";
 import { join } from "node:path";
 import { hostname } from "node:os";
 
+/** Owned by service-definition-env.ts, which has no module-scope host-path
+ * resolution: the config read below and the boot-time erasure there must
+ * address the same installed entry. */
+import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "./service-definition-env.ts";
+
 export const WorkerConfig = z.object({
   coordinatorUrl: z.string().url(),
   bootstrapToken: z.string().optional(),      // one-shot first-boot
   label: z.string().min(1),
   agentConversationRestore: z.boolean().default(false),
   keeperForceLiveRetire: z.boolean().default(false),
-  logDir: z.string().default(workerLogDir()),
+  // Resolved lazily: this module is imported by Windows enrollment paths that
+  // validate env BEFORE a host layout exists, and an eager default made the
+  // import itself throw "LOCALAPPDATA or USERPROFILE is required" ahead of the
+  // validation error the caller was about to report. withDefaults supplies the
+  // real value from the caller's env.
+  logDir: z.string().default(() => workerLogDir()),
   // path to coordinator_ed25519.key (the worker's own JWT-signing key)
   workerKeyPath: z.string(),
 });
@@ -43,7 +53,7 @@ function withDefaults(
       platform,
     ),
     keeperForceLiveRetire: parseKeeperForceLiveRetire(
-      env.ROOST_KEEPER_FORCE_LIVE_RETIRE,
+      env[KEEPER_FORCE_LIVE_RETIRE_ENV],
     ),
     // Prefer the actual machine hostname from node:os over env.HOSTNAME,
     // which isn't set on macOS by default — that was the regression
@@ -83,7 +93,7 @@ function parseAgentConversationRestore(
 function parseKeeperForceLiveRetire(value: string | undefined): boolean {
   if (value === undefined || value === "0") return false;
   if (value !== "1") {
-    throw new Error("ROOST_KEEPER_FORCE_LIVE_RETIRE must be exactly 0 or 1");
+    throw new Error(`${KEEPER_FORCE_LIVE_RETIRE_ENV} must be exactly 0 or 1`);
   }
   return true;
 }

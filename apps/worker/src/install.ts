@@ -7,12 +7,11 @@
 
 import { log } from "@roost/shared/log";
 import { supportedHostPlatform } from "@roost/shared/platform";
-import { workerServicePath } from "@roost/shared/paths";
 import { resolveTailnetDnsName } from "@roost/shared/tailnet";
-import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import type { CoordClient } from "./coord-client.ts";
 import type { WorkerConfig as WorkerConfigType } from "./config.ts";
 import { loadWorkerKey } from "./jwt.ts";
+import { scrubServiceDefinitionEnv } from "./service-definition-env.ts";
 export { resolveTailnetDnsName } from "@roost/shared/tailnet";
 
 // Boot-time coord RPCs MUST time out. runInstall runs BEFORE heartbeat +
@@ -25,45 +24,9 @@ export { resolveTailnetDnsName } from "@roost/shared/tailnet";
 // self-heal once coord is back.
 const BOOT_RPC_TIMEOUT_MS = 10_000;
 
-export async function scrubBootstrapTokenFromServiceDefinition(
-  path: string = process.env.ROOST_WORKER_SERVICE_PATH ?? workerServicePath(),
-  platform = supportedHostPlatform(),
-): Promise<boolean> {
-  if (platform === "win32") return false;
-  const raw = await readFile(path, "utf8");
-  const next = platform === "darwin"
-    ? raw.replace(
-        /\s*<key>ROOST_BOOTSTRAP_TOKEN<\/key>\s*<string>[^<]*<\/string>/,
-        "",
-      )
-    : raw.split("\n")
-        .filter((line) => !/^\s*Environment=(?:")?ROOST_BOOTSTRAP_TOKEN=/.test(line))
-        .join("\n");
-  if (next === raw) return false;
-  const temp = `${path}.${process.pid}.token-scrub`;
-  await writeFile(temp, next, { mode: 0o600 });
-  await rename(temp, path);
-  await chmod(path, 0o600);
-  if (platform === "linux") {
-    // env: process.env — Bun.spawn resolves argv[0] against the PATH in the env
-    // it is handed, and with no env it uses a cached environ snapshot rather
-    // than live process.env. Without this the lookup ignores a PATH set after
-    // process start, which is how bootstrap-token-scrub.test.ts injects its
-    // fake systemctl (it found the host's real systemctl on Linux and nothing
-    // at all on macOS).
-    const reload = Bun.spawn(["systemctl", "--user", "daemon-reload"], {
-      env: process.env as Record<string, string>,
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    await reload.exited;
-  }
-  return true;
-}
-
 async function retireBootstrapToken(): Promise<void> {
   try {
-    if (await scrubBootstrapTokenFromServiceDefinition()) {
+    if (await scrubServiceDefinitionEnv("ROOST_BOOTSTRAP_TOKEN")) {
       log.info("install", "bootstrap token scrubbed from service definition");
     }
   } catch (error) {
@@ -72,7 +35,6 @@ async function retireBootstrapToken(): Promise<void> {
     delete process.env.ROOST_BOOTSTRAP_TOKEN;
   }
 }
-
 
 interface InstallOptions {
   cfg: WorkerConfigType;

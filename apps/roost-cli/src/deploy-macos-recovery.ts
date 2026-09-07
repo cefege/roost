@@ -1,6 +1,8 @@
 // Crash-safe macOS worker journal recovery and fleet settlement.
 // It owns durable source rollback and irreversible target-commit ordering.
 // The journal controller supplies authenticated RPC and launchd operations.
+// A rollback the host can never satisfy ends in the roll-forward outcome
+// instead of a retained journal that would wedge every later deploy.
 
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import {
@@ -15,6 +17,10 @@ import {
   assertWorkerRolloutMatches,
   type WorkerRolloutDirective,
 } from "./worker-deploy-rollout.ts";
+import {
+  DurableStateRollForwardRequired,
+  durableStateRollForwardNotice,
+} from "./durable-worker-state.ts";
 
 export async function _recoverMacosDeployJournal(
   remote: MacosDeployRecoveryRemote,
@@ -95,19 +101,29 @@ export async function _recoverMacosDeployJournal(
     if (journal.keeperUpdate && (!priorSha || !MACOS_GIT_SHA_RE.test(priorSha))) {
       throw new Error("macOS rollback journal lacks the prior worker identity");
     }
-    if (journal.phase !== "rolling-back") await remote.checkpointRollback(journal);
+    const rollingBack = journal.phase === "rolling-back"
+      ? journal
+      : await remote.checkpointRollback(journal);
     await remote.bootout(journal);
     await remote.restorePriorDefinition(journal);
+    let priorStarted = false;
     if (journal.keeperUpdate) {
       await startWorker();
       await applyRecordedKeeperUpdate("source");
       await remote.bootout(journal);
       const heartbeatNotBeforeMs = (remote.now ?? Date.now)();
       await startWorker();
+      priorStarted = true;
       await remote.proveKeeperUpdate(
         journal.workerFingerprint!, journal.keeperUpdate, "source", priorSha!,
         heartbeatNotBeforeMs, journal.targetReleasePath,
       );
+    } else if (journal.priorLifecycle !== "unloaded") {
+      // Restored plist bytes are inert until launchd owns the job again, so a
+      // prior release that must end up loaded or running is bootstrapped here.
+      // Without it the lifecycle proof below can never pass.
+      await startWorker();
+      priorStarted = true;
     }
     if (journal.priorLifecycle === "loaded") {
       await remote.setDisabled(journal, true);
@@ -119,14 +135,21 @@ export async function _recoverMacosDeployJournal(
       await remote.bootout(journal);
       await remote.setDisabled(journal, journal.priorDisabled);
     }
-    await remote.provePrior(journal);
+    try {
+      await remote.provePrior(rollingBack, priorStarted);
+    } catch (error) {
+      if (!(error instanceof DurableStateRollForwardRequired)) throw error;
+      const reason = durableStateRollForwardNotice(error, rollingBack.targetReleasePath);
+      console.error(reason);
+      // The staged target is the only release that can still run, so it stays
+      // while the journal goes: a retained journal would fail this same proof
+      // on every later deploy.
+      await remote.clear(rollingBack);
+      return { outcome: "roll-forward-required", journal: rollingBack, targetProof, reason };
+    }
     await remote.removeTarget(journal);
     await remote.clear(journal);
-    return {
-      outcome: "rolled-back",
-      journal: { ...journal, phase: "rolling-back" },
-      targetProof,
-    };
+    return { outcome: "rolled-back", journal: rollingBack, targetProof };
   };
   if (journal.phase === "rolling-back") {
     if (requested?.action === "finalize") {

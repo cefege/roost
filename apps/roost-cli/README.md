@@ -84,9 +84,15 @@ code never enters a POSIX command path. It drains pending relocation requests
   `src/local-worker-rollout-coordinator.ts` validates intentional journal
   overlap. POSIX journals are `src/posix-deploy-journal.ts`,
   `src/deploy-macos-journal.ts`, `src/deploy-macos-journal-controller.ts`,
-  `src/macos-deploy-journal-program.ts`, `src/linux-deploy-journal.ts`,
-  `src/linux-deploy-journal-commands.ts`, and
-  `src/local-worker-deploy-journal.ts`. Coordinator rollout is split across
+  `src/macos-deploy-journal-program.ts` (with its
+  `-environment` and `-validation` halves), `src/linux-deploy-journal.ts`,
+  `src/linux-deploy-journal-commands.ts`,
+  `src/linux-prior-service-commands.ts`,
+  `src/linux-prior-service-recovery.ts`, and
+  `src/local-worker-deploy-journal.ts`. `src/durable-worker-state.ts` owns the
+  durable session-event store's schema version — both remote probes plus the
+  rule that a forward migration makes a rollback impossible, which is what
+  turns a wedged journal into a roll-forward. Coordinator rollout is split across
   `src/coordinator-deploy-journal.ts`, `src/coordinator-deploy-recovery.ts`,
   `src/coordinator-deploy-finalization.ts`,
   `src/coordinator-deploy-snapshot.ts`,

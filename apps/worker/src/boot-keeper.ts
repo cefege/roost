@@ -102,6 +102,9 @@ export async function handleKeeperSurvivor(
   }
 
   if (forceLiveRetire && keeperPredatesBindingProof(probe)) {
+    // Emitted BEFORE the shutdown request: this line is the only record of what
+    // the retirement ends. A null channel list is the survivor's own failure to
+    // enumerate its bindings, which is why the authorization was required.
     log.warn("worker", "keeper_force_live_retire_discarding", {
       endpoint: endpoint.address,
       kind: endpoint.kind,
@@ -109,6 +112,8 @@ export async function handleKeeperSurvivor(
       process_epoch: probe.processEpoch ?? null,
       keeper_features: probe.features,
       protocol_compatible: probe.protocolCompatible,
+      keeper_binding_channel_ids: probe.bindings?.map((binding) => binding.channel_id) ?? null,
+      spawning_channels: probe.spawningChannels ?? null,
       coordinator_sessions: coordinatorOpenSessionIds.size,
       coordinator_session_ids: [...coordinatorOpenSessionIds],
     });

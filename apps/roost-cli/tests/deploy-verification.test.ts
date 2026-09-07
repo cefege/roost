@@ -14,7 +14,7 @@ import { _linuxLoadDeployJournalCommand, _linuxStopWorkerServiceCommand, _linuxT
 import {
   linuxCoordinatorWorkingDirectoryCommand,
   shouldRemovePriorWorkerRelease,
-} from "../src/deploy-linux-recovery.ts";
+} from "../src/linux-prior-service-recovery.ts";
 import type { LinuxDeployJournal } from "../src/linux-deploy-journal.ts";
 const KEEPER_DIGEST = "1".repeat(64);
 const LINUX_KEEPER_CONTRACT = {
@@ -329,6 +329,8 @@ describe("worker deployment verification", () => {
       priorLifecycle: "running",
       priorEnablement: "enabled",
       priorPid: child.pid,
+      priorDurableStateVersion: null,
+      targetDurableStateVersion: null,
     };
     const runProof = (priorPid: number) => Bun.spawnSync(
       ["bash", "-c", _linuxTargetVerificationCommand({ ...base, priorPid }, home)],
@@ -368,7 +370,8 @@ describe("worker deployment verification", () => {
   test("Linux journal loading and worker stop share the fixed schema boundary", () => {
     const journalPath = "/home/worker/service/worker-deploy-journal";
     const load = _linuxLoadDeployJournalCommand(journalPath);
-    expect(load).toContain('test "$schema" = 4');
+    expect(load).toContain('case "$schema" in 4|5) ;; *) exit 65;; esac');
+    expect(load).toContain('if test "$schema" != 4; then fields="$fields prior-durable-state target-durable-state"; fi');
     expect(load).toContain("rollout-id worker-fingerprint keeper-update prior-unit-state");
     const stop = _linuxStopWorkerServiceCommand(journalPath);
     expect(stop).toContain("systemctl --user stop roost-worker");

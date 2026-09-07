@@ -4,6 +4,7 @@
 
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
+import { log } from "@roost/shared/log";
 import {
   supportedHostPlatform,
   type SupportedHostPlatform,
@@ -41,6 +42,21 @@ export interface InstalledAgentIntegration {
   id: AgentIntegrationAssetId;
   path: string;
 }
+
+export interface FailedAgentIntegration {
+  runtime: AgentIntegrationRuntime;
+  path: string;
+  reason: string;
+}
+
+export interface AgentIntegrationInstallReport {
+  installed: readonly InstalledAgentIntegration[];
+  failed: readonly FailedAgentIntegration[];
+}
+
+type IntegrationPlanOutcome<TPlan> =
+  | { kind: "planned"; plan: TPlan }
+  | { kind: "failed"; failure: FailedAgentIntegration };
 
 export interface AgentIntegrationInstallerTestOptions
   extends IntegrationInstallTestHooks {
@@ -95,7 +111,7 @@ export async function _loadAgentIntegrationAssets(): Promise<
 export async function installAgentIntegrations(
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
-): Promise<readonly InstalledAgentIntegration[]> {
+): Promise<AgentIntegrationInstallReport> {
   return installAgentIntegrationsWithOptions(env, home, {});
 }
 
@@ -103,7 +119,7 @@ export async function _installAgentIntegrationsForTest(
   env: NodeJS.ProcessEnv,
   home: string,
   options: AgentIntegrationInstallerTestOptions,
-): Promise<readonly InstalledAgentIntegration[]> {
+): Promise<AgentIntegrationInstallReport> {
   return installAgentIntegrationsWithOptions(env, home, options);
 }
 
@@ -111,7 +127,7 @@ async function installAgentIntegrationsWithOptions(
   env: NodeJS.ProcessEnv,
   home: string,
   options: AgentIntegrationInstallerTestOptions,
-): Promise<readonly InstalledAgentIntegration[]> {
+): Promise<AgentIntegrationInstallReport> {
   const assets = await _loadAgentIntegrationAssets();
   const platform = options.platform ?? supportedHostPlatform();
   const directoryPaths: Record<AgentIntegrationRuntime, string> = {
@@ -134,57 +150,58 @@ async function installAgentIntegrationsWithOptions(
     );
   }
 
-  const plannedAssets: IntegrationAssetInstallPlan[] = await Promise.all(
-    assets.map(async ({ spec, content }) => {
-      const target = join(directoryPaths[spec.runtime], spec.installFilename);
-      const existing = await inspectIntegrationTarget(
-        target,
-        "agent integration target",
-      );
-      if (
-        existing && existing.content !== content &&
-        !hasIntegrationOwnership(existing.content, spec.ownershipMarker)
-      ) {
-        throw new Error(`refusing to overwrite non-Roost extension: ${target}`);
-      }
-      return {
-        id: spec.id,
-        runtime: spec.runtime,
-        target,
-        content,
-        ownershipMarker: spec.ownershipMarker,
-        existing,
-      };
-    }),
-  );
-  const plannedRetirements: IntegrationRetirementPlan[] = await Promise.all(
-    RETIRED_AGENT_INTEGRATION_SPECS.map(async (spec) => {
-      const target = join(directoryPaths[spec.runtime], spec.installFilename);
-      const existing = await inspectIntegrationTarget(
-        target,
-        "retired agent integration",
-      );
-      return {
-        runtime: spec.runtime,
-        target,
-        ownershipMarker: spec.ownershipMarker,
-        existing,
-        remove: !!existing && hasIntegrationOwnership(
-          existing.content,
-          spec.ownershipMarker,
-        ),
-      };
-    }),
-  );
+  const assetCandidates = assets.map(({ spec, content }) => ({
+    spec,
+    content,
+    target: join(directoryPaths[spec.runtime], spec.installFilename),
+  }));
+  const retirementCandidates = RETIRED_AGENT_INTEGRATION_SPECS.map((spec) => ({
+    spec,
+    target: join(directoryPaths[spec.runtime], spec.installFilename),
+  }));
+  // Collision is a property of the catalog and the two directories, so it is
+  // proven over every candidate: a target dropped by its own planning failure
+  // must not relax the check for the targets that still install.
   assertUniqueTargets(
-    [...plannedAssets, ...plannedRetirements].map(({ runtime, target }) => ({
+    [...assetCandidates, ...retirementCandidates].map(({ spec, target }) => ({
       canonicalTarget: join(
-        directoryPlans[runtime].canonicalPath,
+        directoryPlans[spec.runtime].canonicalPath,
         basename(target),
       ),
     })),
     platform,
   );
+
+  const assetOutcomes = await Promise.all(
+    assetCandidates.map(({ spec, content, target }) =>
+      capturePlanFailure(spec.runtime, target, () =>
+        planAssetInstall(spec, content, target)
+      )
+    ),
+  );
+  const retirementOutcomes = await Promise.all(
+    retirementCandidates.map(({ spec, target }) =>
+      capturePlanFailure(spec.runtime, target, () => planRetirement(spec, target))
+    ),
+  );
+  const plannedAssets: IntegrationAssetInstallPlan[] = [];
+  const plannedRetirements: IntegrationRetirementPlan[] = [];
+  const failed: FailedAgentIntegration[] = [];
+  for (const outcome of assetOutcomes) {
+    if (outcome.kind === "planned") plannedAssets.push(outcome.plan);
+    else failed.push(outcome.failure);
+  }
+  for (const outcome of retirementOutcomes) {
+    if (outcome.kind === "planned") plannedRetirements.push(outcome.plan);
+    else failed.push(outcome.failure);
+  }
+  for (const failure of failed) {
+    log.warn("agent-status", "integration_install_failed", {
+      runtime: failure.runtime,
+      path: failure.path,
+      error: failure.reason,
+    });
+  }
 
   await commitIntegrationInstall(
     directoryPlans,
@@ -193,7 +210,10 @@ async function installAgentIntegrationsWithOptions(
     platform,
     options,
   );
-  return plannedAssets.map(({ id, target }) => ({ id, path: target }));
+  return {
+    installed: plannedAssets.map(({ id, target }) => ({ id, path: target })),
+    failed,
+  };
 }
 
 function expandHome(value: string, home: string): string {
@@ -251,4 +271,68 @@ function assertUniqueTargets(
     }
     seen.add(comparable);
   }
+}
+
+/** One refusal is one asset's problem: a target Roost may not write must not
+ *  cancel the targets it may, so every planning failure becomes an outcome the
+ *  pass reports instead of a throw that aborts the whole install. */
+async function capturePlanFailure<TPlan>(
+  runtime: AgentIntegrationRuntime,
+  target: string,
+  planTarget: () => Promise<TPlan>,
+): Promise<IntegrationPlanOutcome<TPlan>> {
+  try {
+    return { kind: "planned", plan: await planTarget() };
+  } catch (error) {
+    return {
+      kind: "failed",
+      failure: { runtime, path: target, reason: String(error) },
+    };
+  }
+}
+
+async function planAssetInstall(
+  spec: AgentIntegrationAssetSpec,
+  content: string,
+  target: string,
+): Promise<IntegrationAssetInstallPlan> {
+  const existing = await inspectIntegrationTarget(
+    target,
+    "agent integration target",
+  );
+  if (
+    existing && existing.content !== content &&
+    !hasIntegrationOwnership(existing.content, spec.ownershipMarker)
+  ) {
+    throw new Error(`refusing to overwrite non-Roost extension: ${target}`);
+  }
+  return {
+    id: spec.id,
+    runtime: spec.runtime,
+    target,
+    content,
+    ownershipMarker: spec.ownershipMarker,
+    existing,
+  };
+}
+
+async function planRetirement(
+  spec: Pick<
+    AgentIntegrationAssetSpec,
+    "runtime" | "installFilename" | "ownershipMarker"
+  >,
+  target: string,
+): Promise<IntegrationRetirementPlan> {
+  const existing = await inspectIntegrationTarget(
+    target,
+    "retired agent integration",
+  );
+  return {
+    runtime: spec.runtime,
+    target,
+    ownershipMarker: spec.ownershipMarker,
+    existing,
+    remove: !!existing &&
+      hasIntegrationOwnership(existing.content, spec.ownershipMarker),
+  };
 }

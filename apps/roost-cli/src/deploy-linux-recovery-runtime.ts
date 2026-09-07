@@ -9,10 +9,8 @@ import {
 import {
   clearLinuxDeployJournal,
   loadLinuxDeployJournal,
-  proveLinuxPriorService,
   proveLinuxTargetRelease,
   removeManagedLinuxWorkerRelease,
-  removePriorLinuxWorkerRelease,
   _recoverLinuxDeployJournal,
   type ApplyLinuxKeeperUpdate,
   type LinuxDeploySsh,
@@ -20,13 +18,19 @@ import {
   type ProveLinuxKeeperUpdate,
 } from "./deploy-linux-recovery.ts";
 import {
+  proveLinuxPriorService,
+  removePriorLinuxWorkerRelease,
+} from "./linux-prior-service-recovery.ts";
+import {
   _linuxCheckpointDeployJournalCommand,
-  _linuxRestorePriorServiceCommand,
-  _linuxSettlePriorServiceCommand,
   _linuxStartWorkerServiceCommand,
   _linuxStopWorkerServiceCommand,
   _linuxWorkerShaProofCommand,
 } from "./linux-deploy-journal-commands.ts";
+import {
+  _linuxRestorePriorServiceCommand,
+  _linuxSettlePriorServiceCommand,
+} from "./linux-prior-service-commands.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 
 export async function recoverLinuxDeployJournal(
@@ -50,6 +54,13 @@ export async function recoverLinuxDeployJournal(
       if (checkpoint.exit !== 0) {
         failDeploy(checkpoint.exit || 5, "cannot durably choose Linux worker rollback");
       }
+      // Re-read: the checkpoint also recorded the target's durable-state
+      // version, which decides whether this rollback can ever succeed.
+      const refreshed = await loadLinuxDeployJournal(deploySsh, journalPath, home);
+      if (refreshed === null) {
+        failDeploy(5, "Linux deploy journal disappeared during rollback checkpoint");
+      }
+      return refreshed;
     },
     checkpointCommit: async journal => {
       const checkpoint = await deploySsh(
@@ -96,8 +107,8 @@ export async function recoverLinuxDeployJournal(
         failDeploy(proof.exit || 5, "rollback could not prove the restarted prior Linux worker");
       }
     },
-    provePrior: journal =>
-      proveLinuxPriorService(deploySsh, journal, journalPath, unitPath, home),
+    provePrior: (journal, priorStarted) =>
+      proveLinuxPriorService(deploySsh, journal, journalPath, unitPath, home, priorStarted),
     cleanupPrior: journal => removePriorLinuxWorkerRelease(deploySsh, journal, home, signal),
     removeTarget: journal =>
       removeManagedLinuxWorkerRelease(deploySsh, journal.targetReleasePath, home),

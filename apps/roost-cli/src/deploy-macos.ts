@@ -36,6 +36,7 @@ import {
   _macosDeployJournalPath,
 } from "./deploy-macos-journal.ts";
 import type { MacosDeployRecoveryResult } from "./deploy-macos-journal.ts";
+import { MACOS_WORKER_PLIST_RELATIVE } from "./deploy-macos-journal-commands.ts";
 import { _recoverMacosDeployJournal } from "./deploy-macos-recovery.ts";
 import {
   createMacosDeployJournalController,
@@ -46,6 +47,7 @@ import { settleMacosWorkerRollout } from "./deploy-macos-rollout.ts";
 import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 import {
+  installedServiceRefusalAfterTargetEvidence,
   keeperAdmissionStaging,
   unprovenInstalledServiceRefusal,
   type DirectKeeperAdmissionOutcome,
@@ -173,6 +175,7 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
       if (interrupted.outcome === "prepared-cleaned") console.log(">> cleaned an interrupted prepared macOS release");
       else if (interrupted.outcome === "rolled-back") console.log(">> restored the prior macOS worker from an interrupted activation");
       else if (interrupted.outcome === "committed") console.log(">> committed a previously activated healthy macOS worker");
+      else if (interrupted.outcome === "roll-forward-required") console.log(">> cleared a macOS deploy journal whose rollback was impossible; rolling forward");
       if (options.resolveKeeperAdmission) {
         const staging = keeperAdmissionStaging(
           host,
@@ -187,11 +190,10 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
         failDeploy(7, "macOS keeper update and worker fingerprint must be present together");
       }
       if (keeperUpdate === null && installedServiceRefusal !== null) {
-        const absentPlist = await deploySsh(
-          `test ! -e "$HOME/Library/LaunchAgents/com.roost.worker-v2.plist" ` +
-            `&& test ! -L "$HOME/Library/LaunchAgents/com.roost.worker-v2.plist"`,
-        );
-        if (absentPlist.exit !== 0) failDeploy(5, installedServiceRefusal);
+        const refusal = await installedServiceRefusalAfterTargetEvidence(installedServiceRefusal, {
+          host, os: "darwin", serviceSpec: MACOS_WORKER_PLIST_RELATIVE, execute: deploySsh,
+        });
+        if (refusal !== null) failDeploy(5, refusal);
       }
 
       console.log(`>> ensure staged release ${remoteDir}/ on ${host}`);
@@ -287,6 +289,7 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
           return;
         }
         if (recovery.outcome === "rolled-back") failDeploy(exitCode, `${failure}\nprior worker service restored`);
+        if (recovery.outcome === "roll-forward-required") failDeploy(exitCode, `${failure}\n${recovery.reason}`);
         failDeploy(exitCode, `${failure}\nmacOS deploy journal disappeared before recovery`);
       };
 

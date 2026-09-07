@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   _parseMacosDeployJournal,
-  type MacosDeployJournalV2,
+  type MacosDeployJournalV3,
 } from "../src/deploy-macos-journal.ts";
 import { createMacosDeployJournalController } from "../src/deploy-macos-journal-controller.ts";
 import { MACOS_DEPLOY_JOURNAL_PROGRAM } from "../src/macos-deploy-journal-program.ts";
@@ -21,9 +21,9 @@ import {
 const SHA = "a".repeat(40);
 const temporaryRoots: string[] = [];
 
-function journalFixture(root: string): MacosDeployJournalV2 {
+function journalFixture(root: string): MacosDeployJournalV3 {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     phase: "activating",
     targetGitSha: SHA,
     targetReleasePath: join(root, `${SHA}-00000000-0000-4000-8000-000000000001`),
@@ -39,6 +39,8 @@ function journalFixture(root: string): MacosDeployJournalV2 {
     priorLifecycle: "running",
     priorPid: 37,
     priorDisabled: false,
+    priorDurableStateVersion: 2,
+    targetDurableStateVersion: null,
     createdAt: "2026-09-05T00:00:00.000Z",
     updatedAt: "2026-09-05T00:00:01.000Z",
   };
@@ -80,7 +82,7 @@ afterEach(() => {
 });
 
 describe("macOS journal keeper-update contract", () => {
-  test("local and remote parsers return identical schema-v2 bytes", () => {
+  test("local and remote parsers return identical journal bytes", () => {
     const root = mkdtempSync(join(tmpdir(), "roost-macos-release-root-"));
     temporaryRoots.push(root);
     const fixture = journalFixture(root);

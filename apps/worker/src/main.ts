@@ -14,6 +14,7 @@ import { buildSnapshot } from "./snapshot.ts";
 import { startCoordLink } from "./transport/coord-link.ts";
 import { buildCoordLinkDeps, type CoordLinkRefs } from "./coord-link-deps.ts";
 import { handleKeeperSurvivor } from "./boot-keeper.ts";
+import { spendKeeperForceLiveRetireAuthorization } from "./service-definition-env.ts";
 import {
 	setupReconcile,
 	type ReconcileAdmissionOutcome,
@@ -100,6 +101,10 @@ export async function runWorker() {
 		coordinatorUrl: cfg.coordinatorUrl,
 		label: cfg.label,
 	});
+	// The authorization the deploy installed is destructive, so it is spent by
+	// this activation before any keeper work: a value left in the service
+	// definition would re-authorize discarding live PTYs on every later restart.
+	if (cfg.keeperForceLiveRetire) await spendKeeperForceLiveRetireAuthorization();
 	const healthVersion = ROOST_ARTIFACT_VERSION === "dev" ? ROOST_BUILD_SHA : ROOST_ARTIFACT_VERSION;
 	const healthBuild = ROOST_BUILD_SHA;
 	const processEpoch = randomUUID();

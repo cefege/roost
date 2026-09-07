@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scrubBootstrapTokenFromServiceDefinition } from "../src/install.ts";
+import { scrubServiceDefinitionEnv } from "../src/service-definition-env.ts";
 
 const roots: string[] = [];
 const originalPath = process.env.PATH;
@@ -24,7 +24,7 @@ describe("bootstrap token service scrub", () => {
       "</dict></dict></plist>",
     ].join("\n"), { mode: 0o644 });
 
-    expect(await scrubBootstrapTokenFromServiceDefinition(plist, "darwin")).toBe(true);
+    expect(await scrubServiceDefinitionEnv("ROOST_BOOTSTRAP_TOKEN", plist, "darwin")).toBe(true);
     const updated = readFileSync(plist, "utf8");
     expect(updated).not.toContain("ROOST_BOOTSTRAP_TOKEN");
     expect(updated).toContain("ROOST_WORKER_LABEL");
@@ -47,7 +47,7 @@ describe("bootstrap token service scrub", () => {
     chmodSync(systemctl, 0o700);
     process.env.PATH = `${root}:${originalPath ?? "/usr/bin:/bin"}`;
 
-    expect(await scrubBootstrapTokenFromServiceDefinition(unit, "linux")).toBe(true);
+    expect(await scrubServiceDefinitionEnv("ROOST_BOOTSTRAP_TOKEN", unit, "linux")).toBe(true);
     const updated = readFileSync(unit, "utf8");
     expect(updated).not.toContain("ROOST_BOOTSTRAP_TOKEN");
     expect(updated).toContain("ROOST_WORKER_LABEL");

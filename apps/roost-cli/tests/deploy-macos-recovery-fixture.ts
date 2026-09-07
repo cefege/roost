@@ -2,7 +2,7 @@
 // Recovery tests use these fixtures to verify lifecycle and keeper ordering
 // without touching launchd or a host worker installation.
 import {
-  type MacosDeployJournalV2,
+  type MacosDeployJournalV3,
   type MacosDeployRecoveryRemote,
   type MacosDeployTargetProof,
 } from "../src/deploy-macos-journal.ts";
@@ -23,9 +23,9 @@ const PRIOR_PLIST = Buffer.from(
     `</dict></dict></plist>\n`,
 ).toString("base64");
 
-export function journal(overrides: Partial<MacosDeployJournalV2> = {}): MacosDeployJournalV2 {
+export function journal(overrides: Partial<MacosDeployJournalV3> = {}): MacosDeployJournalV3 {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     phase: "activating",
     targetGitSha: SHA,
     targetReleasePath: RELEASE_PATH,
@@ -37,6 +37,8 @@ export function journal(overrides: Partial<MacosDeployJournalV2> = {}): MacosDep
     priorLifecycle: "unloaded",
     priorPid: null,
     priorDisabled: false,
+    priorDurableStateVersion: null,
+    targetDurableStateVersion: null,
     createdAt: "2026-08-16T00:00:00.000Z",
     updatedAt: "2026-08-16T00:00:01.000Z",
     ...overrides,
@@ -44,13 +46,13 @@ export function journal(overrides: Partial<MacosDeployJournalV2> = {}): MacosDep
 }
 
 export function fakeRemote(
-  durable: MacosDeployJournalV2,
+  durable: MacosDeployJournalV3,
   targetProof: MacosDeployTargetProof = {
     definitionMatches: false,
     running: false,
     result: { exit: 1, stdout: "state = exited\n", stderr: "" },
   },
-  failProof = false,
+  priorProofError: Error | null = null,
 ): { remote: MacosDeployRecoveryRemote; calls: string[] } {
   const calls: string[] = [];
   const remote: MacosDeployRecoveryRemote = {
@@ -66,8 +68,9 @@ export function fakeRemote(
       calls.push("checkpoint-activated");
       return { ...saved, phase: "activated" };
     },
-    async checkpointRollback() {
+    async checkpointRollback(saved) {
       calls.push("checkpoint-rollback");
+      return { ...saved, phase: "rolling-back" };
     },
     async checkpointCommit() {
       calls.push("checkpoint-commit");
@@ -96,9 +99,9 @@ export function fakeRemote(
     async stop() {
       calls.push("stop");
     },
-    async provePrior() {
-      calls.push("prove-prior");
-      if (failProof) throw new Error("prior lifecycle mismatch");
+    async provePrior(_saved, priorStarted) {
+      calls.push(`prove-prior:${priorStarted ? "started" : "unstarted"}`);
+      if (priorProofError) throw priorProofError;
     },
     async removeTarget() {
       calls.push("remove-target");

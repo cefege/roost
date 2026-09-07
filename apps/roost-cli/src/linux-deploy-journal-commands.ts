@@ -1,9 +1,9 @@
 // Remote shell command builders for the fixed-path Linux worker deploy
-// journal and its release/proof choreography (the `_linux*Command` exports).
-// Every string is transmitted verbatim over ssh by the recovery driver in
-// deploy-linux.ts and pinned by deploy-linux-recovery/deploy-verification
-// tests — treat bodies as byte-stability-sensitive. Validation and schema
-// come from linux-deploy-journal.ts.
+// journal, its release staging, and its target proof (`_linux*Command`).
+// Prior-unit rollback commands live in linux-prior-service-commands.ts.
+// Every string is transmitted verbatim over ssh by deploy-linux.ts and its
+// recovery driver and is pinned by deploy-linux-recovery/deploy-verification
+// tests — treat bodies as byte-stability-sensitive. Schema: linux-deploy-journal.ts.
 
 import { posix } from "node:path";
 import { verifyWorkerCmd, WORKER_UNIT } from "./service-ctl.ts";
@@ -25,6 +25,10 @@ import {
   type LinuxDeployJournal,
   type LinuxDeployJournalPhase,
 } from "./linux-deploy-journal.ts";
+import {
+  DURABLE_WORKER_STATE_FILE,
+  DURABLE_WORKER_STATE_PROBE_SH,
+} from "./durable-worker-state.ts";
 export function linuxWorkerResourceEnvironment(definition: string): Record<string, string> {
   const installed = parsePosixServiceEnvironment(definition, "linux");
   const environment: Record<string, string> = {};
@@ -95,8 +99,9 @@ export function _linuxLoadDeployJournalCommand(journalPath: string): string {
     `if test ! -e "$journal" && test ! -L "$journal"; then printf 'absent\\n'; exit 0; fi; ` +
     `test -d "$journal" && test ! -L "$journal"; ` +
     `test -f "$journal/schema" && test ! -L "$journal/schema"; schema=$(cat "$journal/schema"); ` +
-    `test "$schema" = ${LINUX_DEPLOY_JOURNAL_SCHEMA}; ` +
+    `case "$schema" in 4|${LINUX_DEPLOY_JOURNAL_SCHEMA}) ;; *) exit 65;; esac; ` +
     `fields='schema phase target-sha target-release rollout-id worker-fingerprint keeper-update prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid'; ` +
+    `if test "$schema" != 4; then fields="$fields prior-durable-state target-durable-state"; fi; ` +
     `for name in $fields; do test -f "$journal/$name" && test ! -L "$journal/$name"; done; ` +
     `prior_unit_state=$(cat "$journal/prior-unit-state"); ` +
     `case "$prior_unit_state" in ` +
@@ -145,6 +150,8 @@ export function _linuxPrepareDeployJournalCommand(
     priorLifecycle: "stopped",
     priorEnablement: keeperUpdate === null ? "absent" : "enabled",
     priorPid: 0,
+    priorDurableStateVersion: null,
+    targetDurableStateVersion: null,
   };
   assertLinuxDeployJournal(candidate, home);
   const keeperUpdateJson = serializeLinuxKeeperUpdate(keeperUpdate);
@@ -156,6 +163,8 @@ export function _linuxPrepareDeployJournalCommand(
     `rollout_id=${posixShellQuote(rolloutId ?? "")}; ` +
     `worker_fingerprint=${posixShellQuote(workerFingerprint ?? "")}; ` +
     `keeper_update=${posixShellQuote(keeperUpdateJson)}; ` +
+    `${DURABLE_WORKER_STATE_PROBE_SH}` +
+    `prior_durable_state=$(durable_worker_state "$(dirname -- "$parent")/${DURABLE_WORKER_STATE_FILE}"); ` +
     `test "$(basename -- "$journal")" = ${LINUX_DEPLOY_JOURNAL_NAME}; ` +
     `test ! -e "$journal" && test ! -L "$journal"; ` +
     `if test "$keeper_update" != null; then test -f "$unit" && test ! -L "$unit"; ` +
@@ -195,6 +204,8 @@ export function _linuxPrepareDeployJournalCommand(
     `write_metadata prior-unit-mode "$(if test "$unit_state" = present; then printf '%s' "$unit_mode"; fi)"; ` +
     `write_metadata prior-lifecycle "$lifecycle"; write_metadata prior-enablement "$enablement"; ` +
     `write_metadata prior-pid "$prior_pid"; ` +
+    `write_metadata prior-durable-state "$prior_durable_state"; ` +
+    `write_metadata target-durable-state ""; ` +
     `if test "$unit_state" = present; then sync -f "$new/prior-unit"; fi; ` +
     `sync -f "$new"; mv -- "$new" "$journal"; sync -f "$parent"`;
 }
@@ -211,10 +222,20 @@ export function _linuxCheckpointDeployJournalCommand(
     || (to === "rolling-back" && from !== "rolling-back" && from !== "committing"))) {
     throw new Error(`invalid Linux deployment journal transition: ${from} -> ${to}`);
   }
+  // The target is the release that last ran, so a rollback checkpoint is the
+  // last moment the store version it migrated to can still be observed. A
+  // schema-4 journal has no field for it and keeps its old behavior.
+  const recordDurableState = to !== "rolling-back" ? "" :
+    `${DURABLE_WORKER_STATE_PROBE_SH}` +
+    `if test "$(cat "$journal/schema")" != 4 && test ! -s "$journal/target-durable-state"; then ` +
+    `observed=$(durable_worker_state "$(dirname -- "$(dirname -- "$journal")")/${DURABLE_WORKER_STATE_FILE}"); ` +
+    `printf '%s' "$observed" > "$journal/target-durable-state.next"; ` +
+    `chmod 600 "$journal/target-durable-state.next"; sync -f "$journal/target-durable-state.next"; ` +
+    `mv -- "$journal/target-durable-state.next" "$journal/target-durable-state"; sync -f "$journal"; fi; `;
   return `set -e; umask 077; journal=${posixShellQuote(journalPath)}; ` +
     `test -d "$journal" && test ! -L "$journal"; ` +
     `test -f "$journal/phase" && test ! -L "$journal/phase"; ` +
-    `test "$(cat "$journal/phase")" = ${from}; next="$journal/phase.next"; ` +
+    `test "$(cat "$journal/phase")" = ${from}; ${recordDurableState}next="$journal/phase.next"; ` +
     `rm -f -- "$next"; printf '%s' ${to} > "$next"; chmod 600 "$next"; ` +
     `sync -f "$next"; mv -- "$next" "$journal/phase"; sync -f "$journal"`;
 }
@@ -304,95 +325,4 @@ export function _linuxWorkerShaProofCommand(expectedSha: string): string {
     `if test "$service_exit" -eq 0 && test "$pid_exit" -eq 0 && test "$environment_exit" -eq 0 ` +
     `&& printf '%s\\n' "$environment" | grep -Fqx -- "GIT_SHA=$expected_sha"; ` +
     `then echo RoostGitShaMatch=yes; else exit 1; fi`;
-}
-
-export function _linuxRestorePriorServiceCommand(
-  journal: LinuxDeployJournal,
-  journalPath: string,
-  unitPath: string,
-  home: string,
-): string {
-  assertLinuxDeployJournal(journal, home);
-  assertFixedLinuxJournalPath(journalPath);
-  const restore = journal.priorUnit === null
-    ? `rm -f -- "$unit"; systemctl --user daemon-reload`
-    : `test -f "$journal/prior-unit" && test ! -L "$journal/prior-unit"; ` +
-      `systemctl --user unmask ${WORKER_UNIT} 2>/dev/null || true; ` +
-      `mkdir -p "$(dirname -- "$unit")"; rm -f -- "$unit"; cp -- "$journal/prior-unit" "$unit"; ` +
-      `chmod ${journal.priorUnitMode!.toString(8).padStart(3, "0")} "$unit"; ` +
-      `systemctl --user daemon-reload; ` +
-      `systemctl --user reset-failed ${WORKER_UNIT} 2>/dev/null || true; ` +
-      `systemctl --user start ${WORKER_UNIT}`;
-  return `set -e; export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-    `journal=${posixShellQuote(journalPath)}; unit=${posixShellQuote(unitPath)}; ` +
-    `test -d "$journal" && test ! -L "$journal"; ${restore}`;
-}
-
-export function _linuxSettlePriorServiceCommand(
-  journal: LinuxDeployJournal,
-  journalPath: string,
-  home: string,
-): string {
-  assertLinuxDeployJournal(journal, home);
-  assertFixedLinuxJournalPath(journalPath);
-  const lifecycle = journal.priorLifecycle === "stopped"
-    ? `systemctl --user stop ${WORKER_UNIT}; `
-    : "";
-  const enablement = journal.priorEnablement === "enabled"
-    ? `systemctl --user enable ${WORKER_UNIT}`
-    : journal.priorEnablement === "masked"
-      ? `systemctl --user mask --runtime ${WORKER_UNIT}`
-      : journal.priorEnablement === "disabled"
-        ? `systemctl --user disable ${WORKER_UNIT}`
-        : ":";
-  return `set -e; export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-    `journal=${posixShellQuote(journalPath)}; test -d "$journal" && test ! -L "$journal"; ` +
-    `${lifecycle}${enablement}`;
-}
-
-export function _linuxPriorServiceProofCommand(
-  journal: LinuxDeployJournal,
-  journalPath: string,
-  unitPath: string,
-  home: string,
-): string {
-  assertLinuxDeployJournal(journal, home);
-  assertFixedLinuxJournalPath(journalPath);
-  const expectedEnablement = journal.priorEnablement === "absent"
-    ? "not-found"
-    : journal.priorEnablement;
-  const prefix = `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-    `journal=${posixShellQuote(journalPath)}; unit=${posixShellQuote(unitPath)}; `;
-  if (journal.priorUnit === null) {
-    return prefix +
-      `state=$(systemctl --user show ${WORKER_UNIT} --property=LoadState --property=ActiveState); show_exit=$?; ` +
-      `enablement=$(systemctl --user is-enabled ${WORKER_UNIT} 2>/dev/null || true); ` +
-      `printf '%s\\n' "$state"; ` +
-      `if test "$show_exit" -eq 0 && test "$enablement" = ${expectedEnablement} ` +
-      `&& test ! -e "$unit" && test ! -L "$unit" ` +
-      `&& printf '%s\\n' "$state" | grep -q '^LoadState=not-found$' ` +
-      `&& printf '%s\\n' "$state" | grep -q '^ActiveState=inactive$'; ` +
-      `then echo RoostPriorStateMatch=yes; else exit 1; fi`;
-  }
-  const exactDefinition =
-    `cmp -s "$journal/prior-unit" "$unit" ` +
-    `&& test "$(stat -c '%a' "$unit")" = ${journal.priorUnitMode!.toString(8).padStart(3, "0")}`;
-  if (journal.priorLifecycle === "running") {
-    return prefix +
-      `load_state=$(systemctl --user show ${WORKER_UNIT} --property=LoadState --value); load_exit=$?; ` +
-      `enablement=$(systemctl --user is-enabled ${WORKER_UNIT} 2>/dev/null || true); ` +
-      `${verifyWorkerCmd("linux")}; service_exit=$?; ` +
-      `if test "$load_exit" -eq 0 && test "$load_state" = loaded && test "$service_exit" -eq 0 ` +
-      `&& test "$enablement" = ${expectedEnablement} && ${exactDefinition}; ` +
-      `then echo RoostPriorStateMatch=yes; else exit 1; fi`;
-  }
-  return prefix +
-    `state=$(systemctl --user show ${WORKER_UNIT} --property=LoadState --property=ActiveState); show_exit=$?; ` +
-    `enablement=$(systemctl --user is-enabled ${WORKER_UNIT} 2>/dev/null || true); ` +
-    `printf '%s\\n' "$state"; ` +
-    `if test "$show_exit" -eq 0 && test "$enablement" = ${expectedEnablement} ` +
-    `&& ${exactDefinition} ` +
-    `&& printf '%s\\n' "$state" | grep -q '^LoadState=loaded$' ` +
-    `&& printf '%s\\n' "$state" | grep -q '^ActiveState=inactive$'; ` +
-    `then echo RoostPriorStateMatch=yes; else exit 1; fi`;
 }

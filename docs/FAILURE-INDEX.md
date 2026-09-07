@@ -683,6 +683,145 @@ key and nothing else resolved it, because that is exactly the ambiguity that mis
 `ROOST_WORKER_LABEL` resolves to nothing and refuses with the flag named, while the flag value, the target's
 installed value, and a `self` deploy each still resolve.
 
+### Roost cannot upgrade the integration asset Roost installed
+
+**Symptom** — "agent status stopped reporting after an upgrade" — the worker logs
+`refusing to overwrite non-Roost extension: ~/.omp/agent/extensions/roost-omp-agent-state.ts` (or
+`agent integration target ownership changed before commit: …`) on every boot, the installed asset stays at the
+old version forever, and session status silently degrades to screen detection because no integration report
+ever arrives.
+
+**Wrong** — recognize the `ROOST_INTEGRATION_ID=<runtime>` ownership marker only in the file's first lines
+(`content.split(/\r?\n/, 8)`, or the contiguous leading `//` header). It reads as a tightening — a marker in
+the header is a marker Roost wrote — but the installed form of an asset is NOT the source form:
+`standalone-integration.ts` splices the shared `report-transport.ts` module in, and an earlier release spliced
+it ABOVE the integration's own header, so a deployed asset carries its marker on **line 106**, under ~100 lines
+of transport code (line 14 onward is `import net from "node:net";`, so it is not a comment header either). Roost's
+own correctly-marked files therefore read as somebody else's, and both the planning refusal and the commit-time
+guard fail closed against the installer itself. Any positional window is the same bug with a bigger constant:
+the prefix is another module's entire source, so it has no bound to pin. The second half of the same failure is
+planning the asset set with `Promise.all`: ONE refusal rejects the batch, so a stale unowned `.pi` asset blocks
+the `.omp` asset from ever being written even with the omp path free.
+
+**Right** — **depth is not evidence of authorship; the token is.** `hasIntegrationOwnership` accepts the marker
+as its own whitespace-delimited token on ANY `//` comment line in the file (fast-path bail-out when the marker
+substring is absent), and nothing else loosens: a non-comment line that merely mentions the marker, a near-miss
+token (`ROOST_INTEGRATION_ID=omp-reference` for `…=omp`), and a file with no marker are all still refused. Both
+call sites share that one predicate, so planning and `assertIntegrationTargetUnchanged` cannot disagree. Each
+target is then planned through `capturePlanFailure`, which turns one target's refusal into a reported failure
+(`integration_install_failed` with `runtime`/`path`) instead of a throw: the remaining assets still install and
+`installAgentIntegrations` returns `{installed, failed}`. Target-collision proof moved AHEAD of planning and runs
+over every candidate, so a dropped target cannot relax it. Transactional failures (directory alias, commit-time
+change) still abort the whole pass with zero mutation — only per-target refusals are isolated.
+
+**Guard** — `apps/worker/tests/agent-status-integration-ownership.test.ts` — an asset marked on line 106 is
+adopted, overwritten byte-for-byte and accepted by the commit guard, while a code-line mention, a near-miss
+token and an unmarked file stay refused; `apps/worker/tests/agent-status-installer.test.ts` pins that a
+user-owned pi target and a symlinked omp target each fail alone while every other asset installs.
+
+### A one-shot deploy flag stops at the installer process
+
+**Symptom** — "`roost deploy <host> --force-live` printed the destructive-authorization banner, staged, wrote
+the plist — and the worker then EXITED with `keeper_survivor_identity_unproven` / `keeper endpoint is held by a
+process that did not prove keeper identity; stop that process, then restart the worker`", so the operator has
+to stop the service, kill the legacy keeper and delete the mux socket by hand — which is the exact work the
+flag exists to avoid.
+
+**Wrong** — treat "the flag is in the composed install environment" as "the flag reached the worker". A POSIX
+deploy runs `<composed env> bash apps/worker/scripts/install.sh write-plist` over ssh, so every variable in
+that prefix is real — in the INSTALLER's process. `install.sh` then writes an explicit key set into
+`EnvironmentVariables` / `Environment=`, and a key absent from that set dies with the installer's shell: the
+worker launchd/systemd starts never sees it. Nothing warns, because both ends are individually correct — the
+CLI composed the value (`deploy.ts`, `deploy-macos.ts`, `deploy-local.ts` all pass
+`ROOST_KEEPER_FORCE_LIVE_RETIRE`), `config.ts` parses it, `boot-keeper.ts` branches on it, and the deploy log
+line `>> reused from existing plist on <host>: …` even proves the environment merge worked. The worker simply
+booted on the non-force path and refused, which reads as "the flag was ignored" rather than "the flag was
+never installed".
+
+**Right** — **a value only reaches the service if the service DEFINITION carries it.** `install.sh` emits
+`ROOST_KEEPER_FORCE_LIVE_RETIRE` beside `ROOST_BOOTSTRAP_TOKEN` in both `write_plist` and `write_unit`, and
+never reads it back off an installed definition (unlike `ROOST_AGENT_CONVERSATION_RESTORE`, whose installed
+choice is deliberately preserved) — an invocation not given the flag simply omits the key. Writing a
+destructive authorization into a definition then creates the opposite hazard, a flag that re-authorizes
+discarding live PTYs on every later restart, so it is one-shot on BOTH sides: the activation that reads it
+spends it (`spendKeeperForceLiveRetireAuthorization` in `apps/worker/src/service-definition-env.ts`, the same
+keyed erasure the redeemed bootstrap token uses, called from `main.ts` before any keeper work), and the next
+deploy strips an installed value anyway (`workerInstallEnvironmentValues`). The force branch also names what it
+destroys BEFORE requesting the shutdown — `keeper_binding_channel_ids` / `spawning_channels`, `null` when the
+survivor could not enumerate them, which is why the authorization was needed at all.
+
+**Guard** — `apps/roost-cli/tests/deploy-keeper-force-live-authorization.test.ts` — drives the real
+`install.sh write-plist` with the composed environment and pins that the definition carries the flag alongside
+values reused from a prior install, that `loadWorkerConfig` then reads it as armed, and that after the boot
+spends it neither the definition, the following deploy's environment, nor the reinstalled definition carries it;
+`apps/worker/tests/keeper-legacy-retire.test.ts` — an authorized boot logs the discarded bindings before the
+retirement, spends its own authorization, and the same survivor still yields `KEEPER_IDENTITY_UNPROVEN` without
+the flag.
+
+### Repairing a dead worker demands that the dead worker be running
+
+**Symptom** — "`DeployFailure: existing macOS worker mike-m5-air has a stale keeper update proof; start the
+worker on <host> so it can prove admission`" — `roost deploy` refuses the very host it exists to repair, and
+booting the wedged service out (the only way to clear a wedged keeper) makes it refuse harder with
+`prior macOS worker lifecycle did not round-trip`; the operator ends up hand-writing the plist and
+`launchctl bootstrap`ing it.
+
+**Wrong** — gate staging on the coordinator's registry row plus one `test -e` against the service definition.
+Both halves look like the conservative choice and both describe the wrong machine. A stale row is a statement
+about what the COORDINATOR last heard, not about what the host is running: a worker that died an hour ago and a
+healthy worker behind a broken tailnet hop produce the identical row, so refusing on staleness refuses exactly
+the machine that needs repair. The `test -e` then proves only that a FILE exists — an installed plist or unit
+says nothing about whether launchd/systemd ever loaded it, whether a worker process is alive, or whether a
+keeper is still holding PTYs. The remedy the refusal prints ("start the worker so it can prove admission") is
+unreachable for a host that is down, and impossible for the build that cannot report a keeper runtime at all.
+
+**Right** — **the registry supplies the refusal text; the target supplies the evidence that decides whether it
+stands.** `installedServiceRefusalAfterTargetEvidence`
+(`apps/roost-cli/src/keeper-admission-staging.ts`) runs ONE probe on the host and stages only on positive proof
+of emptiness: the service definition is absent, or the service manager itself answered AND reports the worker
+not running AND no keeper process is parenting a channel process. Every unknown fails closed, because an
+unreachable service manager reads exactly like a stopped one in its own output: darwin corroborates a failing
+`launchctl print` with a `launchctl print-disabled` domain query (an unloaded job and an unreachable launchd
+share an exit code), Linux requires `systemctl show` — which exits 0 even for a unit it has never heard of — to
+exit 0, and a host whose PATH has no `pgrep` cannot prove no keeper is alive and is refused. A keeper SOCKET
+FILE is deliberately not evidence: it outlives the keeper that created it, so it can neither prove nor disprove
+anything the process counts do not. Live PTYs keep every refusal they had — a running worker, or a keeper
+holding channels, still refuses — and a permitted install prints one line naming the evidence that allowed it.
+
+**Guard** — `apps/roost-cli/tests/keeper-admission-staging.test.ts` — runs the generated probe through a real
+shell against stub `launchctl`/`systemctl`/`pgrep` binaries: a stale row over a target running nothing stages,
+the same row over a running worker or over a keeper holding channels refuses, a prior macOS service that is
+merely not loaded stages, and an unreachable service manager or a missing `pgrep` refuses instead of reading as
+empty.
+
+### A rollback proof no release can satisfy wedges every later deploy
+
+**Symptom** — "`prior macOS worker lifecycle did not round-trip; journal retained`" alongside
+`Could not find service "com.roost.worker-v2" in domain for user gui: 501` / `RoostLaunchdLoaded=no` —
+after ONE failed activation, every later deploy to that host dies in journal recovery, and the operator
+escapes only by moving the retained journal aside by hand and activating the staged release directly.
+
+**Wrong** — assume a retained journal is always recoverable. The rollback restores the prior release's
+plist (or unit) and then demands that release return to its recorded lifecycle with an advanced pid — but
+the new release already migrated the worker's durable session-event store forward, so the prior release
+dies at boot with `SessionEventStoreFatalError: session event store schema mismatch`. The proof can never
+pass, the journal is retained by design, and each later deploy replays the same doomed rollback. Deleting
+the journal on any failed proof is equally wrong: a rollback that was never started, or is transiently
+failing, must keep it.
+
+**Right** — journal the fact that decides it. The durable store's schema version is captured at prepare
+(`priorDurableStateVersion`) and re-read at the rollback checkpoint (`targetDurableStateVersion`), from a
+64-byte SQLite header read that takes no lock — macOS journal schema v3, Linux journal schema 5, both
+parsing their predecessor with the versions unobserved. When the rollback actually started the prior
+release AND the journal proves the store moved past it, recovery resolves to the terminal
+`roll-forward-required` outcome: it prints why, keeps the staged release, and clears the journal so the
+next deploy runs. Un-started, un-migrated, and previous-schema journals still retain and retry.
+
+**Guard** — `apps/roost-cli/tests/deploy-roll-forward-recovery.test.ts`: "a retained macOS rollback whose
+prior release cannot run rolls forward", "only a started prior release with a migrated store is
+unrecoverable", "an ordinary prior-proof failure still keeps the macOS journal", "a schema-4 Linux journal
+parses and still rolls back", plus the two probe/checkpoint tests that pin the recorded version.
+
 ---
 
 ## Transport and connection lifecycle

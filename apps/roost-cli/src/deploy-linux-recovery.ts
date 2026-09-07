@@ -1,24 +1,25 @@
-// Pure Linux worker journal recovery and fleet settlement.
-// The source deploy driver supplies leased SSH operations; production command
-// adapters live in deploy-linux-recovery-runtime.ts.
-import { posix } from "node:path";
+// Linux worker journal recovery and fleet settlement: the phase state machine
+// plus the ssh helpers that load, clear, and prove the TARGET release.
+// Prior-release proof and retirement live in linux-prior-service-recovery.ts;
+// production command adapters live in deploy-linux-recovery-runtime.ts.
 import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
-import { parsePosixServiceEnvironment, parseSystemdServiceDirective } from "./deploy-plist-env.ts";
+import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import {
   DeployFailure, failDeploy, finishWorkerDeploy, workerServiceIsRunning,
   workerServiceMatchesRelease,
 } from "./deploy-exec.ts";
-import { COORD_UNIT } from "./service-ctl.ts";
 import {
-  isManagedLinuxWorkerReleasePath, linuxDeployRecoveryPlan,
+  DurableStateRollForwardRequired,
+  durableStateRollForwardNotice,
+} from "./durable-worker-state.ts";
+import {
+  linuxDeployRecoveryPlan,
   parseLinuxDeployJournalSnapshot,
 } from "./linux-deploy-journal.ts";
 import type { LinuxDeployJournal } from "./linux-deploy-journal.ts";
 import {
   _linuxCheckpointDeployJournalCommand, _linuxClearDeployJournalCommand,
-  _linuxLoadDeployJournalCommand, _linuxPriorServiceProofCommand,
-  _linuxRemoveManagedWorkerReleaseCommand, _linuxRestorePriorServiceCommand,
-  _linuxStartWorkerServiceCommand, _linuxStopWorkerServiceCommand,
+  _linuxLoadDeployJournalCommand, _linuxRemoveManagedWorkerReleaseCommand,
   _linuxTargetVerificationCommand, _linuxWorkerShaProofCommand,
 } from "./linux-deploy-journal-commands.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
@@ -40,26 +41,6 @@ export type ProveLinuxKeeperUpdate = (
   heartbeatNotBeforeMs: number,
   actionReleasePath: string,
 ) => Promise<void>;
-export function shouldRemovePriorWorkerRelease(
-  prior: string,
-  current: string,
-  coordinator: string | null,
-  home: string,
-): boolean {
-  if ((coordinator !== null && (!posix.isAbsolute(coordinator) || /[\r\n\0]/.test(coordinator)))
-    || !prior || prior === current || prior === coordinator
-    || !isManagedLinuxWorkerReleasePath(prior, home)
-    || !isManagedLinuxWorkerReleasePath(current, home)) return false;
-  return true;
-}
-
-export function linuxCoordinatorWorkingDirectoryCommand(): string {
-  return `set -e; export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-    `load_state=$(systemctl --user show ${COORD_UNIT} --property=LoadState --value); ` +
-    `case "$load_state" in not-found) printf 'absent\\n';; ` +
-    `loaded) systemctl --user show ${COORD_UNIT} --property=WorkingDirectory --value;; *) exit 65;; esac`;
-}
-
 export interface LinuxDeployTargetProof {
   healthy: boolean;
   proof: { exit: number; stdout: string; stderr: string };
@@ -69,7 +50,9 @@ export interface LinuxDeployRecoveryRemote {
   home: string;
   loadJournal: () => Promise<LinuxDeployJournal | null>;
   proveTarget: (journal: LinuxDeployJournal) => Promise<LinuxDeployTargetProof>;
-  checkpointRollback: (journal: LinuxDeployJournal) => Promise<void>;
+  /** Records the durable-state version the target left behind and returns the
+   * refreshed journal, so an impossible rollback can prove why. */
+  checkpointRollback: (journal: LinuxDeployJournal) => Promise<LinuxDeployJournal>;
   stopWorker: (journal: LinuxDeployJournal) => Promise<void>;
   startWorker: (journal: LinuxDeployJournal) => Promise<void>;
   checkpointCommit: (journal: LinuxDeployJournal) => Promise<void>;
@@ -78,7 +61,7 @@ export interface LinuxDeployRecoveryRemote {
   restorePrior: (journal: LinuxDeployJournal) => Promise<void>;
   settlePrior: (journal: LinuxDeployJournal) => Promise<void>;
   provePriorWorker: (journal: LinuxDeployJournal, expectedSha: string) => Promise<void>;
-  provePrior: (journal: LinuxDeployJournal) => Promise<void>;
+  provePrior: (journal: LinuxDeployJournal, priorStarted: boolean) => Promise<void>;
   cleanupPrior: (journal: LinuxDeployJournal) => Promise<void>;
   removeTarget: (journal: LinuxDeployJournal) => Promise<void>;
   clearJournal: () => Promise<void>;
@@ -90,7 +73,8 @@ export type LinuxRecoveryOutcome =
   | { kind: "prepared-cleaned"; journal: LinuxDeployJournal }
   | { kind: "target-held"; journal: LinuxDeployJournal; verification: { exit: number; stdout: string; stderr: string } }
   | { kind: "target-committed"; journal: LinuxDeployJournal; verification: { exit: number; stdout: string; stderr: string } }
-  | { kind: "prior-restored"; journal: LinuxDeployJournal };
+  | { kind: "prior-restored"; journal: LinuxDeployJournal }
+  | { kind: "roll-forward-required"; journal: LinuxDeployJournal; reason: string };
 export async function settleInitialLinuxRecovery(
   host: string,
   recovery: LinuxRecoveryOutcome,
@@ -149,6 +133,8 @@ export async function settleInitialLinuxRecovery(
     console.log(">> recovered interrupted Linux deploy (verified activated target)");
   } else if (recovery.kind === "prior-restored") {
     console.log(">> recovered interrupted Linux deploy (restored prior service)");
+  } else if (recovery.kind === "roll-forward-required") {
+    console.log(">> cleared a Linux deploy journal whose rollback was impossible; rolling forward");
   }
   return false;
 }
@@ -202,65 +188,6 @@ export async function proveLinuxTargetRelease(
   return { healthy: false, proof };
 }
 
-export async function proveLinuxPriorService(
-  deploySsh: LinuxDeploySsh,
-  journal: LinuxDeployJournal,
-  journalPath: string,
-  unitPath: string,
-  home: string,
-): Promise<void> {
-  let proof = { exit: 1, stdout: "", stderr: "rollback verification was not attempted" };
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    proof = await deploySsh(_linuxPriorServiceProofCommand(journal, journalPath, unitPath, home));
-    const lifecycleMatches = /^RoostPriorStateMatch=yes$/m.test(proof.stdout);
-    const runningMatches = journal.priorLifecycle !== "running"
-      || workerServiceIsRunning(proof.stdout, "linux");
-    if (proof.exit === 0 && lifecycleMatches && runningMatches) return;
-    if (proof.exit === 9 || proof.exit === 130 || proof.exit === 143) break;
-    if (attempt < 19) await Bun.sleep(250);
-  }
-  failDeploy(proof.exit || 5, `rollback could not prove the exact prior unit and lifecycle; deployment journal retained\n${proof.stdout}\n${proof.stderr}`);
-}
-
-export async function removePriorLinuxWorkerRelease(
-  deploySsh: LinuxDeploySsh,
-  journal: LinuxDeployJournal,
-  home: string,
-  signal: AbortSignal,
-): Promise<void> {
-  const prior = journal.priorUnit === null
-    ? ""
-    : parseSystemdServiceDirective(journal.priorUnit, "WorkingDirectory") ?? "";
-  if (!prior || prior === journal.targetReleasePath
-    || !shouldRemovePriorWorkerRelease(prior, journal.targetReleasePath, "/dev/null", home)) return;
-  const coordinator = await deploySsh(linuxCoordinatorWorkingDirectoryCommand());
-  if (signal.aborted) {
-    const reason = signal.reason;
-    throw reason instanceof DeployFailure
-      ? reason
-      : new DeployFailure(coordinator.exit || 9, "deployment interrupted while retaining the prior release");
-  }
-  if (coordinator.exit !== 0) {
-    failDeploy(coordinator.exit || 5, `cannot prove the coordinator release before prior worker cleanup; deployment journal retained\n${coordinator.stdout}\n${coordinator.stderr}`);
-  }
-  const reportedCoordinatorPath = coordinator.stdout.trim();
-  const coordinatorPath = reportedCoordinatorPath === "absent" ? null : reportedCoordinatorPath;
-  if (coordinatorPath !== null
-    && (!posix.isAbsolute(coordinatorPath) || /[\r\n\0]/.test(coordinatorPath))) {
-    failDeploy(5, "coordinator WorkingDirectory is malformed; deployment journal retained");
-  }
-  if (!shouldRemovePriorWorkerRelease(prior, journal.targetReleasePath, coordinatorPath, home)) return;
-  const removed = await deploySsh(_linuxRemoveManagedWorkerReleaseCommand(prior, home));
-  if (signal.aborted) {
-    const reason = signal.reason;
-    throw reason instanceof DeployFailure
-      ? reason
-      : new DeployFailure(removed.exit || 9, "deployment interrupted while removing the prior release");
-  }
-  if (removed.exit !== 0) {
-    failDeploy(removed.exit || 5, `cannot retire prior worker release ${prior}; deployment journal retained\n${removed.stdout}\n${removed.stderr}`);
-  }
-}
 
 export async function _recoverLinuxDeployJournal(
   remote: LinuxDeployRecoveryRemote,
@@ -327,9 +254,14 @@ export async function _recoverLinuxDeployJournal(
     if (journal.keeperUpdate && (!priorSha || !/^[a-f0-9]{40,64}$/i.test(priorSha))) {
       throw new DeployFailure(5, "Linux rollback journal lacks the prior worker identity");
     }
-    if (journal.phase !== "rolling-back") await remote.checkpointRollback(journal);
+    const rollingBack = journal.phase === "rolling-back"
+      ? journal
+      : await remote.checkpointRollback(journal);
     await remote.stopWorker(journal);
+    // A present prior unit is restored AND started by this command; an absent
+    // one has nothing to start, so it can never be proven unrunnable.
     await remote.restorePrior(journal);
+    const priorStarted = journal.priorUnit !== null;
     if (journal.keeperUpdate) {
       await applyRecordedKeeperUpdate("source");
       await remote.stopWorker(journal);
@@ -346,10 +278,21 @@ export async function _recoverLinuxDeployJournal(
       );
     }
     await remote.settlePrior(journal);
-    await remote.provePrior(journal);
+    try {
+      await remote.provePrior(rollingBack, priorStarted);
+    } catch (error) {
+      if (!(error instanceof DurableStateRollForwardRequired)) throw error;
+      const reason = durableStateRollForwardNotice(error, rollingBack.targetReleasePath);
+      console.error(reason);
+      // The staged target is the only release that can still run, so it stays
+      // while the journal goes: a retained journal would fail this same proof
+      // on every later deploy.
+      await remote.clearJournal();
+      return { kind: "roll-forward-required", journal: rollingBack, reason };
+    }
     await remote.removeTarget(journal);
     await remote.clearJournal();
-    return { kind: "prior-restored", journal: { ...journal, phase: "rolling-back" } };
+    return { kind: "prior-restored", journal: rollingBack };
   };
   if (journal.phase === "rolling-back") {
     if (requested?.action === "finalize") {

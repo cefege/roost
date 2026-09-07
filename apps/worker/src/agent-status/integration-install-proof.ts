@@ -45,8 +45,14 @@ export function integrationPathComparisonKey(
     : normalized;
 }
 
+// Ownership is a `//` comment line carrying the marker as its own
+// whitespace-delimited token, at ANY depth: an installed asset splices the
+// shared report-transport module above the integration's own header, so its
+// marker sits ~100 lines down and a leading-line window would refuse the very
+// files Roost wrote. Depth is not evidence of authorship; the token is.
 export function hasIntegrationOwnership(content: string, marker: string): boolean {
-  return content.split(/\r?\n/, 8).some((line) =>
+  if (!content.includes(marker)) return false;
+  return content.split(/\r?\n/).some((line) =>
     line.startsWith("//") &&
     line.slice(2).trim().split(/\s+/).includes(marker)
   );

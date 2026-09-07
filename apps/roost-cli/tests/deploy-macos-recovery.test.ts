@@ -122,7 +122,7 @@ describe("remote macOS deploy journal recovery", () => {
       "bootout", "disabled:false", "bootstrap", "kickstart",
       `prove-keeper:source:${PRIOR_SHA}`, "bootout",
     ]);
-    expect(fixture.calls.slice(-3)).toEqual(["prove-prior", "remove-target", "clear"]);
+    expect(fixture.calls.slice(-3)).toEqual(["prove-prior:started", "remove-target", "clear"]);
   });
 
   test("rolling-back crash reentry repeats the source action", async () => {
