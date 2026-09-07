@@ -92,6 +92,28 @@ describe("macOS journal keeper-update contract", () => {
     const envelope = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
     expect(JSON.stringify(envelope.journal)).toBe(JSON.stringify(local));
   });
+  test("a prior service with no journaled keeper update parses on both sides", () => {
+    const root = mkdtempSync(join(tmpdir(), "roost-macos-release-root-"));
+    temporaryRoots.push(root);
+    const bootstrap = {
+      ...journalFixture(root),
+      workerFingerprint: null,
+      keeperUpdate: null,
+    };
+    mkdirSync(bootstrap.targetReleasePath);
+
+    const local = _parseMacosDeployJournal(bootstrap, root);
+    expect(local.keeperUpdate).toBeNull();
+    expect(local.priorPlistBase64).toBe(bootstrap.priorPlistBase64);
+    const remote = loadWithRemoteProgram(bootstrap, root);
+    expect(remote.exitCode).toBe(0);
+    const envelope = JSON.parse(Buffer.from(
+      remote.stdout.trim().slice("RoostMacDeployJournal=".length),
+      "base64",
+    ).toString("utf8"));
+    expect(JSON.stringify(envelope.journal)).toBe(JSON.stringify(local));
+  });
+
 
   test("old, missing, inconsistent, and bootstrap-only admission shapes fail closed", () => {
     const root = mkdtempSync(join(tmpdir(), "roost-macos-release-root-"));

@@ -5,95 +5,21 @@
 
 import { expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { Code, ConnectError, type HandlerContext } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { WorkersHeartbeatRequestSchema } from "@roost/shared/proto/coordinator_pb";
-import { callerKey } from "../src/connect/auth-interceptor.ts";
-import { makeWorkerHandlers } from "../src/connect/handlers-workers.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
 import { presenceBus } from "../src/buses.ts";
+import {
+  WORKER_LABEL,
+  workerHeartbeatContext,
+  workerHeartbeatDb,
+  workerHeartbeatHandlers,
+} from "./worker-heartbeat-fixture.ts";
 
-const WORKER_FP = "c".repeat(64);
 const DASHBOARD_ID = "worker-os-selfheal-dashboard";
 
-type WorkerRow = Record<string, unknown>;
-
-function workerDb(initialOs: string): {
-  db: ConnectDeps["db"];
-  row: () => WorkerRow;
-  patches: WorkerRow[];
-} {
-  let row: WorkerRow = {
-    fp: WORKER_FP,
-    dashboard_id: DASHBOARD_ID,
-    label: "mac old",
-    os: initialOs,
-    git_sha: null,
-    host_metrics_json: null,
-    registered_at_ms: 1,
-    last_seen_ms: 1,
-    reachable_addr: null,
-    keeper_runtime_json: null,
-  };
-  const patches: WorkerRow[] = [];
-  const selectQuery = {
-    select: () => selectQuery,
-    selectAll: () => selectQuery,
-    where: () => selectQuery,
-    executeTakeFirst: async () => row,
-  };
-  return {
-    db: {
-      selectFrom: () => selectQuery,
-      updateTable: () => {
-        let patch: WorkerRow = {};
-        const updateQuery = {
-          set: (value: WorkerRow) => {
-            patch = value;
-            return updateQuery;
-          },
-          where: () => updateQuery,
-          returningAll: () => updateQuery,
-          executeTakeFirst: async () => {
-            row = { ...row, ...patch };
-            patches.push(patch);
-            return row;
-          },
-          executeTakeFirstOrThrow: async () => {
-            row = { ...row, ...patch };
-            patches.push(patch);
-            return row;
-          },
-        };
-        return updateQuery;
-      },
-    } as unknown as ConnectDeps["db"],
-    row: () => row,
-    patches,
-  };
-}
-
-function workerContext(): HandlerContext {
-  const worker = {
-    kind: "worker" as const,
-    fingerprint: WORKER_FP,
-    label: "mac old",
-    dashboardId: DASHBOARD_ID,
-  };
-  return {
-    values: { get: (key: unknown) => key === callerKey ? worker : undefined },
-  } as unknown as HandlerContext;
-}
-
-function handlersFor(db: ConnectDeps["db"]) {
-  return makeWorkerHandlers({
-    db,
-    cfg: { saasMode: false },
-  } as unknown as ConnectDeps);
-}
-
 test("a heartbeat re-points a row at the platform actually beating on it", async () => {
-  const database = workerDb("linux");
-  const handlers = handlersFor(database.db);
+  const database = workerHeartbeatDb(DASHBOARD_ID, { os: "linux" });
+  const handlers = workerHeartbeatHandlers(database.db);
   const registered: Array<{ os: string; label: string }> = [];
   const stop = presenceBus.subscribe((msg) => {
     if (msg.kind === "registered") {
@@ -104,7 +30,7 @@ test("a heartbeat re-points a row at the platform actually beating on it", async
   try {
     await handlers.workersHeartbeat(
       create(WorkersHeartbeatRequestSchema, { os: "darwin" }),
-      workerContext(),
+      workerHeartbeatContext(DASHBOARD_ID),
     );
   } finally {
     stop();
@@ -112,16 +38,16 @@ test("a heartbeat re-points a row at the platform actually beating on it", async
 
   expect(database.patches[0]).toMatchObject({ os: "darwin" });
   expect(database.row().os).toBe("darwin");
-  expect(registered).toEqual([{ os: "darwin", label: "mac old" }]);
+  expect(registered).toEqual([{ os: "darwin", label: WORKER_LABEL }]);
 });
 
 test("a heartbeat without a platform keeps the stored one", async () => {
-  const database = workerDb("darwin");
-  const handlers = handlersFor(database.db);
+  const database = workerHeartbeatDb(DASHBOARD_ID, { os: "darwin" });
+  const handlers = workerHeartbeatHandlers(database.db);
 
   await handlers.workersHeartbeat(
     create(WorkersHeartbeatRequestSchema, {}),
-    workerContext(),
+    workerHeartbeatContext(DASHBOARD_ID),
   );
 
   expect(database.patches[0]).not.toHaveProperty("os");
@@ -129,14 +55,14 @@ test("a heartbeat without a platform keeps the stored one", async () => {
 });
 
 test("a heartbeat carrying an unknown platform is rejected and writes nothing", async () => {
-  const database = workerDb("darwin");
-  const handlers = handlersFor(database.db);
+  const database = workerHeartbeatDb(DASHBOARD_ID, { os: "darwin" });
+  const handlers = workerHeartbeatHandlers(database.db);
 
   let rejection: unknown;
   try {
     await handlers.workersHeartbeat(
       create(WorkersHeartbeatRequestSchema, { os: "plan9" }),
-      workerContext(),
+      workerHeartbeatContext(DASHBOARD_ID),
     );
   } catch (error) {
     rejection = error;

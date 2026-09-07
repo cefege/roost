@@ -22,7 +22,10 @@ import {
 } from "./deploy-exec.ts";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue, parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import { manifestOnlyWorkspaces } from "./deploy-workspaces.ts";
-import { workerInstallEnvironment } from "./deploy-worker-environment.ts";
+import {
+  KEEPER_FORCE_LIVE_RETIRE_ENV,
+  workerInstallEnvironment,
+} from "./deploy-worker-environment.ts";
 import {
   MACOS_WORKER_LABEL,
   _macosDeployJournalPath,
@@ -37,7 +40,11 @@ import {
 import { settleMacosWorkerRollout } from "./deploy-macos-rollout.ts";
 import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
-import type { DirectKeeperAdmission } from "./direct-keeper-update.ts";
+import {
+  keeperAdmissionStaging,
+  unprovenInstalledServiceRefusal,
+  type DirectKeeperAdmissionOutcome,
+} from "./keeper-admission-staging.ts";
 
 const REMOTE_DIR = "~/RoostWorkerV2";
 
@@ -45,10 +52,11 @@ export interface MacosDeployOptions {
   sourceCheckout: string;
   gitSha: string;
   coordinatorUrl?: string;
+  forceLiveKeeperRetire?: boolean;
   rollout?: WorkerRolloutDirective;
   keeperUpdate?: JournaledKeeperUpdateV1 | null;
   workerFingerprint: string | null;
-  resolveKeeperAdmission?: () => Promise<DirectKeeperAdmission | null>;
+  resolveKeeperAdmission?: () => Promise<DirectKeeperAdmissionOutcome>;
   applyKeeperUpdate?: MacosApplyKeeperUpdate;
   proveKeeperUpdate?: MacosProveKeeperUpdate;
 }
@@ -57,6 +65,8 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
   const rollout = options.rollout ? assertWorkerRolloutDirective(options.rollout) : null;
   let keeperUpdate = rollout?.keeperUpdate ?? options.keeperUpdate ?? null;
   let workerFingerprint = rollout?.workerFingerprint ?? options.workerFingerprint;
+  let installedServiceRefusal: string | null =
+    unprovenInstalledServiceRefusal("macOS");
   const localGitSha = options.gitSha;
   if (rollout && rollout.targetSha !== localGitSha.toLowerCase()) {
     failDeploy(7, "worker rollout target does not match the macOS deployment SHA");
@@ -150,24 +160,24 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
       else if (interrupted.outcome === "rolled-back") console.log(">> restored the prior macOS worker from an interrupted activation");
       else if (interrupted.outcome === "committed") console.log(">> committed a previously activated healthy macOS worker");
       if (options.resolveKeeperAdmission) {
-        const admission = await options.resolveKeeperAdmission();
-        keeperUpdate = admission?.keeperUpdate ?? null;
-        workerFingerprint = admission?.workerFingerprint ?? null;
+        const staging = keeperAdmissionStaging(
+          host,
+          "macOS",
+          await options.resolveKeeperAdmission(),
+        );
+        keeperUpdate = staging.keeperUpdate;
+        workerFingerprint = staging.workerFingerprint;
+        installedServiceRefusal = staging.installedServiceRefusal;
       }
       if ((keeperUpdate === null) !== (workerFingerprint === null)) {
         failDeploy(7, "macOS keeper update and worker fingerprint must be present together");
       }
-      if (keeperUpdate === null) {
+      if (keeperUpdate === null && installedServiceRefusal !== null) {
         const absentPlist = await deploySsh(
           `test ! -e "$HOME/Library/LaunchAgents/com.roost.worker-v2.plist" ` +
             `&& test ! -L "$HOME/Library/LaunchAgents/com.roost.worker-v2.plist"`,
         );
-        if (absentPlist.exit !== 0) {
-          failDeploy(
-            5,
-            "existing macOS worker requires keeper update admission before staging",
-          );
-        }
+        if (absentPlist.exit !== 0) failDeploy(5, installedServiceRefusal);
       }
 
       console.log(`>> ensure staged release ${remoteDir}/ on ${host}`);
@@ -205,6 +215,9 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
         ROOST_COORDINATOR_URL: resolvedCoordinatorUrl,
         ROOST_WORKER_LABEL: resolved("ROOST_WORKER_LABEL"),
         ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN,
+        [KEEPER_FORCE_LIVE_RETIRE_ENV]: options.forceLiveKeeperRetire
+          ? "1"
+          : undefined,
         ROOST_REACHABLE_ADDR: resolved("ROOST_REACHABLE_ADDR"),
       }, localGitSha);
       const preparedJournal = await journalController.prepare(

@@ -182,8 +182,10 @@ export function assertLinuxDeployJournal(
   if (journal.priorUnit === null && journal.priorLifecycle === "running") {
     malformedLinuxJournal("an absent prior unit cannot have a running lifecycle");
   }
-  if ((journal.priorUnit === null) !== (journal.keeperUpdate === null)) {
-    malformedLinuxJournal("prior worker presence and keeper update disagree");
+  // A keeper action needs a prior unit to restore; a prior unit does not need
+  // a keeper action. A worker that reports no keeper runtime stages without one.
+  if (journal.keeperUpdate !== null && journal.priorUnit === null) {
+    malformedLinuxJournal("keeper update requires a prior worker unit to restore");
   }
   if (journal.priorUnit === null) {
     if (journal.priorUnitMode !== null) {

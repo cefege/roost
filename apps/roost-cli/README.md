@@ -37,9 +37,9 @@ self-exec/service entries `keeper`, `__keeper-contract`,
 | `expose <hostname>` | Put the coordinator behind Cloudflare Access (`--team`, `--aud`, `--config`) |
 | `dev` | Boot coord (:4102) + outbound-only worker + web dev server (:5174) in parallel |
 | `test [profile]` | Canonical entry point: `unit`, `worker`, `terminal`, `managed` qualification, `live-api` optional monitor, or `all` |
-| `deploy <host>` | Refresh the worker on a tailnet host (macOS rsync + LaunchAgent, Linux in-place checkout) |
+| `deploy <host> [--force-live]` | Refresh the worker on a tailnet host (macOS rsync + LaunchAgent, Linux in-place checkout). Staging requires keeper update admission from the coordinator registry, except for a worker that reports no keeper runtime at all — that one bootstraps without a journaled keeper update and says so. `--force-live` additionally authorizes the deployed worker to DESTROY every PTY held by a keeper it can neither adopt nor prove empty (a keeper predating binding proof); every shell, dev server, and test in those PTYs exits. It applies to that one deploy and the next deploy clears it |
 | `push` | Publish one clean commit, deploy every registered worker, update the coordinator's own checkout, and prove every process reports that commit before returning success |
-| `keeper-refresh <host> --yes` | Re-spawn a host's keeper on current code. Destructive, explicitly confirmed, and the only workflow authorized to stop a keeper |
+| `keeper-refresh <host> --yes [--force-live]` | Re-spawn a host's keeper on current code through the coordinator-fenced maintenance RPC. Destructive, explicitly confirmed, and the only workflow authorized to stop a keeper while the worker is live; `--force-live` ends every PTY that keeper hosts. A keeper the worker cannot identify is refused here — retire it with `roost deploy <host> --force-live` instead |
 | `logs <coord\|worker> [--tail N]` | Tail an app's log files; warns past 100 MB |
 | `reset` | Stop both services, wipe the coord DB + pinned keys + lock, re-run `bun install` |
 | `state` | Print a `STATE.md` snapshot to stdout |
@@ -95,6 +95,12 @@ code never enters a POSIX command path. It drains pending relocation requests
   `src/remote-deploy-lock-program.ts` owns remote leases;
   `src/deploy-self-host.ts` is detection only;
   `src/keeper-refresh.ts` owns the explicit destructive workflow.
+  `src/direct-keeper-update.ts` resolves keeper update admission from the
+  installed coordinator database and `src/keeper-admission-staging.ts` collapses
+  its outcome into what a platform driver may stage: a proven update, a
+  first-install target, a stale row that still defers to the installed-service
+  probe, or the bootstrap allowance for a worker that predates keeper-runtime
+  reporting.
 - **Windows-only, paused for v0.5.0** —
   `src/windows/windows-update-broker.ts`,
   `src/windows/windows-update-journal.ts`,

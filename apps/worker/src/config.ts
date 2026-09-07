@@ -13,6 +13,7 @@ export const WorkerConfig = z.object({
   bootstrapToken: z.string().optional(),      // one-shot first-boot
   label: z.string().min(1),
   agentConversationRestore: z.boolean().default(false),
+  keeperForceLiveRetire: z.boolean().default(false),
   logDir: z.string().default(workerLogDir()),
   // path to coordinator_ed25519.key (the worker's own JWT-signing key)
   workerKeyPath: z.string(),
@@ -40,6 +41,9 @@ function withDefaults(
     agentConversationRestore: parseAgentConversationRestore(
       env.ROOST_AGENT_CONVERSATION_RESTORE,
       platform,
+    ),
+    keeperForceLiveRetire: parseKeeperForceLiveRetire(
+      env.ROOST_KEEPER_FORCE_LIVE_RETIRE,
     ),
     // Prefer the actual machine hostname from node:os over env.HOSTNAME,
     // which isn't set on macOS by default — that was the regression
@@ -69,6 +73,17 @@ function parseAgentConversationRestore(
   }
   if (platform === "win32") {
     throw new Error("ROOST_AGENT_CONVERSATION_RESTORE=1 is unsupported on Windows");
+  }
+  return true;
+}
+
+/** Operator authorization to discard a keeper the worker can neither adopt nor
+ * prove empty. It ends every PTY that keeper hosts, so an unrecognized value
+ * is a hard error rather than a silent truthy arming. */
+function parseKeeperForceLiveRetire(value: string | undefined): boolean {
+  if (value === undefined || value === "0") return false;
+  if (value !== "1") {
+    throw new Error("ROOST_KEEPER_FORCE_LIVE_RETIRE must be exactly 0 or 1");
   }
   return true;
 }

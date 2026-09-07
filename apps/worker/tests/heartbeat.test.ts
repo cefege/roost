@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, setSystemTime, test, vi } from "bun:test";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { setSignalSink } from "@roost/shared/diag";
+import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
+import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
+import type { KeeperRuntimeObservationV1 as KeeperRuntimeObservationProto } from "@roost/shared/proto/wire_pb";
 import type { HostMetrics } from "@roost/shared/wire";
 import type { CoordClient } from "../src/coord-client.ts";
 import {
@@ -32,8 +35,12 @@ function sources(
 	};
 }
 
+interface HeartbeatBeat {
+	keeperRuntime?: KeeperRuntimeObservationProto;
+}
+
 type HeartbeatRpc = (
-	request: unknown,
+	request: HeartbeatBeat,
 	options: { timeoutMs: number },
 ) => Promise<unknown>;
 
@@ -154,5 +161,98 @@ describe("worker heartbeat supervision", () => {
 			expect(call[1]).toEqual({ timeoutMs: HEARTBEAT_RPC_TIMEOUT_MS });
 		}
 		stopReset();
+	});
+});
+
+const OBSERVATION: KeeperRuntimeObservationV1 = {
+	schema_version: 1,
+	running_contract: {
+		protocol_version: 3,
+		supported_features: ["history-records", "spawn-epoch"],
+		required_features: ["history-records"],
+		implementation_digest: "b".repeat(64),
+		bun_abi: "1.3.14",
+		platform: "linux",
+		arch: "x64",
+		build_sha: "c".repeat(40),
+	},
+	keeper_pid: 4242,
+	keeper_epoch: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+	channel_count: 2,
+	binding_digest: "a".repeat(64),
+	reconciled_at_ms: 1_700_000_000_000,
+};
+
+function keeperRuntimeOf(
+	request: HeartbeatBeat | undefined,
+): KeeperRuntimeObservationV1 | null {
+	if (!request?.keeperRuntime) return null;
+	return keeperRuntimeObservationFromProto(request.keeperRuntime);
+}
+
+describe("keeper runtime reporting", () => {
+	test("withholds the observation until boot reconciliation has succeeded", async () => {
+		const observe = vi.fn(async () => OBSERVATION);
+		const rpc = vi.fn(async (_request: HeartbeatBeat, _options: { timeoutMs: number }) => ({}));
+		const dispose = await startHeartbeat({
+			reconciledAtMs: () => null,
+			client: () => clientWith(rpc),
+			sources: { ...sources(), observeKeeperRuntime: observe },
+		});
+		expect(observe).not.toHaveBeenCalled();
+		expect(keeperRuntimeOf(rpc.mock.calls[0]?.[0])).toBeNull();
+		dispose();
+	});
+
+	test("ships the proved observation stamped with the reconciliation it belongs to", async () => {
+		const observe = vi.fn(async (reconciledAtMs: number) => ({
+			...OBSERVATION,
+			reconciled_at_ms: reconciledAtMs,
+		}));
+		const rpc = vi.fn(async (_request: HeartbeatBeat, _options: { timeoutMs: number }) => ({}));
+		const dispose = await startHeartbeat({
+			reconciledAtMs: () => 1_700_000_000_777,
+			client: () => clientWith(rpc),
+			sources: { ...sources(), observeKeeperRuntime: observe },
+		});
+		expect(observe).toHaveBeenCalledWith(1_700_000_000_777);
+		expect(keeperRuntimeOf(rpc.mock.calls[0]?.[0])).toEqual({
+			...OBSERVATION,
+			reconciled_at_ms: 1_700_000_000_777,
+		});
+		dispose();
+	});
+
+	test("drops an observation whose reconciliation was superseded mid-beat", async () => {
+		let reconciled: number | null = 1_700_000_000_111;
+		const rpc = vi.fn(async (_request: HeartbeatBeat, _options: { timeoutMs: number }) => ({}));
+		const dispose = await startHeartbeat({
+			reconciledAtMs: () => reconciled,
+			client: () => clientWith(rpc),
+			sources: {
+				...sources(),
+				observeKeeperRuntime: async () => {
+					reconciled = null;
+					return OBSERVATION;
+				},
+			},
+		});
+		expect(keeperRuntimeOf(rpc.mock.calls[0]?.[0])).toBeNull();
+		dispose();
+	});
+
+	test("still beats when the keeper probe fails", async () => {
+		const rpc = vi.fn(async (_request: HeartbeatBeat, _options: { timeoutMs: number }) => ({}));
+		const dispose = await startHeartbeat({
+			reconciledAtMs: () => 1_700_000_000_222,
+			client: () => clientWith(rpc),
+			sources: {
+				...sources(),
+				observeKeeperRuntime: async () => { throw new Error("keeper unreachable"); },
+			},
+		});
+		expect(rpc).toHaveBeenCalledTimes(1);
+		expect(keeperRuntimeOf(rpc.mock.calls[0]?.[0])).toBeNull();
+		dispose();
 	});
 });

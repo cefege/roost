@@ -344,3 +344,12 @@ PTY. Status code lives under `src/agent-status/`; prompt admission lives in
   service installer persists explicit values, and source deploys preserve an
   installed override. Default-on remains blocked pending actual official-OMP
   POSIX real-stack qualification.
+- **Keeper retire authorization** — `ROOST_KEEPER_FORCE_LIVE_RETIRE` accepts
+  exactly `0` or `1` and defaults off. `1` lets `handleKeeperSurvivor()` retire
+  a survivor that authenticates but reports no channel bindings — a keeper
+  predating binding proof, which the worker can neither adopt nor prove empty —
+  and that ends every PTY it hosts, logged field by field before the shutdown.
+  A survivor that proves its bindings, and a process that proved no keeper
+  identity, are both still refused under it. `roost deploy <host> --force-live`
+  supplies it for one activation; unlike the restore flag, a source deploy
+  strips an installed value so the authorization cannot persist.

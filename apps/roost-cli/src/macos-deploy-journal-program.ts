@@ -198,7 +198,7 @@ function validateJournal(value) {
     if (!Number.isSafeInteger(value.priorPlistMode) || value.priorPlistMode < 0
       || value.priorPlistMode > 0o777) reject("journal prior plist mode is malformed");
   }
-  if ((value.priorPlistBase64 === null) !== (keeperUpdate === null)) reject("journal keeper update must be null only for an absent prior service");
+  if (keeperUpdate !== null && value.priorPlistBase64 === null) reject("journal keeper update requires prior plist bytes to restore");
   if (typeof value.createdAt !== "string" || typeof value.updatedAt !== "string"
     || !Number.isFinite(Date.parse(value.createdAt)) || !Number.isFinite(Date.parse(value.updatedAt))) reject("journal timestamps are malformed");
   return {
@@ -283,7 +283,7 @@ try {
       priorPlistBase64 = fs.readFileSync(plistPath).toString("base64");
       priorPlistMode = stat.mode & 0o777;
     } else if (lifecycle !== "unloaded") reject("cannot recover a loaded worker whose plist is absent");
-    if ((priorPlistBase64 === null) !== (requestFields.keeperUpdate === null)) reject("keeper update must be null only for an absent prior service");
+    if (requestFields.keeperUpdate !== null && priorPlistBase64 === null) reject("keeper update requires prior plist bytes to restore");
     const priorDisabled = disabledOverride();
     if (lifecycle === "loaded" && !priorDisabled) reject("enabled KeepAlive worker has no durable loaded state");
     const priorBytes = priorPlistBase64 === null ? null : Buffer.from(priorPlistBase64, "base64");

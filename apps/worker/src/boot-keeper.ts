@@ -2,6 +2,8 @@
 // survivors are adopted; automatic replacement is identity-fenced and allowed
 // only after coordinator sessions and keeper channel bindings prove empty.
 // An identity this probe cannot prove is reported as unproven, never as busy.
+// A survivor whose Hello predates binding proof can only be retired under an
+// explicit operator force-live authorization, which ends every PTY it hosts.
 
 import {
   cleanupLocalEndpoint,
@@ -13,6 +15,7 @@ import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import {
   probeKeeperCompatible,
   shutdownEmptyKeeperAuthenticated,
+  shutdownKeeperAuthenticated,
   waitForKeeperExit,
   type KeeperProbeResult,
 } from "./keeper/keeper-probe.ts";
@@ -31,6 +34,18 @@ export const KEEPER_REPLACEMENT_BLOCKED_ERROR =
 export const KEEPER_IDENTITY_UNPROVEN_ERROR =
   "keeper endpoint is held by a process that did not prove keeper identity; "
   + "stop that process, then restart the worker";
+export const KEEPER_FORCE_LIVE_RETIRE_REJECTED_ERROR =
+  "authenticated force-live keeper retirement was rejected";
+
+/** A survivor that authenticates but cannot describe its channel bindings
+ * predates the binding-bearing Hello. The worker can neither adopt it (wrong
+ * protocol) nor prove it empty enough to replace automatically, so it is only
+ * ever retired under an explicit operator authorization. */
+function keeperPredatesBindingProof(probe: KeeperProbeResult): boolean {
+  return probe.authenticated
+    && !probe.protocolCompatible
+    && (probe.bindings === undefined || probe.spawningChannels === undefined);
+}
 
 /** Retry until the survivor proves its identity, the endpoint proves absent, or
  * the deadline passes. Authentication is the only fact worth waiting for; a
@@ -55,8 +70,11 @@ async function proveKeeperSurvivorIdentity(
   }
 }
 
+/** `forceLiveRetire` is the operator's authorization to discard a keeper that
+ * predates binding proof; it defaults off so no boot can imply it. */
 export async function handleKeeperSurvivor(
   coordinatorOpenSessionIds: ReadonlySet<string>,
+  forceLiveRetire = false,
 ): Promise<void> {
   const endpoint = muxLocalEndpoint();
   const probe = await proveKeeperSurvivorIdentity(endpoint);
@@ -79,6 +97,32 @@ export async function handleKeeperSurvivor(
       keeper_digest: probe.contract?.implementation_digest ?? null,
       target_digest: KEEPER_TARGET_CONTRACT.implementation_digest,
       bindings: probe.bindings?.length ?? null,
+    });
+    return;
+  }
+
+  if (forceLiveRetire && keeperPredatesBindingProof(probe)) {
+    log.warn("worker", "keeper_force_live_retire_discarding", {
+      endpoint: endpoint.address,
+      kind: endpoint.kind,
+      keeper_pid: probe.keeperPid ?? null,
+      process_epoch: probe.processEpoch ?? null,
+      keeper_features: probe.features,
+      protocol_compatible: probe.protocolCompatible,
+      coordinator_sessions: coordinatorOpenSessionIds.size,
+      coordinator_session_ids: [...coordinatorOpenSessionIds],
+    });
+    const retired = await shutdownKeeperAuthenticated(endpoint);
+    if (!retired) throw new Error(KEEPER_FORCE_LIVE_RETIRE_REJECTED_ERROR);
+    if (!await waitForKeeperExit(endpoint)) {
+      throw new Error("force-live retired keeper did not shut down");
+    }
+    await cleanupLocalEndpoint(endpoint);
+    log.warn("worker", "keeper_force_live_retired", {
+      endpoint: endpoint.address,
+      kind: endpoint.kind,
+      keeper_pid: probe.keeperPid ?? null,
+      discarded_sessions: coordinatorOpenSessionIds.size,
     });
     return;
   }

@@ -232,8 +232,11 @@ export function parseLocalWorkerDeployJournal(
   if (!priorService && (priorWorkingDirectory !== null || priorGitSha !== null)) {
     throw new Error("worker deploy journal has metadata for an absent prior service");
   }
-  if ((priorService === null) !== (keeperUpdate === null)) {
-    throw new Error("worker deploy journal keeper update must be null exactly when the prior service is absent");
+  // A keeper action needs a prior service to restore; a prior service does not
+  // need a keeper action. A worker that reports no keeper runtime stages
+  // without one, so its journal carries a prior service and a null update.
+  if (keeperUpdate !== null && priorService === null) {
+    throw new Error("worker deploy journal keeper update requires a prior service to restore");
   }
   if (priorService) {
     const priorDefinition = decodeServiceSnapshot(priorService).toString("utf8");

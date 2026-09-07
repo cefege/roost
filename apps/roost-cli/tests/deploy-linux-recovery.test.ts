@@ -34,6 +34,24 @@ describe("Linux deploy recovery", () => {
     expect(fixture.calls).toEqual(["load", `remove-${TARGET}`, "clear"]);
   });
 
+  test("keeps a prior unit whose staged deploy has no journaled keeper update", () => {
+    const bootstrap = parseLinuxDeployJournalSnapshot(journalSnapshot({
+      phase: "prepared",
+      keeperUpdate: null,
+      workerFingerprint: null,
+    }), HOME)!;
+
+    expect(bootstrap.keeperUpdate).toBeNull();
+    expect(bootstrap.priorUnit).not.toBeNull();
+    expect(() => parseLinuxDeployJournalSnapshot(journalSnapshot({
+      phase: "prepared",
+      priorUnit: null,
+      lifecycle: "stopped",
+      keeperUpdate: KEEPER_UPDATE,
+      workerFingerprint: WORKER_FINGERPRINT,
+    }), HOME)).toThrow("keeper update requires a prior worker unit");
+  });
+
   test("prepared fleet rollback cleans an originally stopped worker without service or keeper calls", async () => {
     const prepared = parseLinuxDeployJournalSnapshot(journalSnapshot({
       phase: "prepared",

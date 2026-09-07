@@ -109,6 +109,30 @@ xml_escape() {
     -e "s/'/\&apos;/g"
 }
 
+# launchd will not load a file that is not a complete plist, and it reports no
+# error for one it never loaded: the agent simply stays absent from `launchctl
+# list` until an operator notices the machine went quiet. A redirect straight
+# onto $PLIST truncates the installed agent before the first byte of the
+# replacement lands, so any interruption leaves an unloadable stub and no way
+# back. Stage beside the target, prove it parses, then rename over it.
+plist_is_complete() {
+  grep -q '^</plist>$' "$1" || return 1
+  command -v plutil >/dev/null 2>&1 || return 0
+  plutil -lint "$1" >/dev/null 2>&1
+}
+
+install_plist() {
+  local target="$1" staged
+  staged="$(mktemp "${target}.new.XXXXXX")" || { echo "cannot stage $target" >&2; return 1; }
+  if ! cat > "$staged" || ! plist_is_complete "$staged"; then
+    rm -f "$staged"
+    echo "refusing to install a malformed $target" >&2
+    return 1
+  fi
+  chmod 0600 "$staged"
+  mv -f "$staged" "$target" || { rm -f "$staged"; return 1; }
+}
+
 systemd_escape() {
   local value="$1"
   value="${value//\\/\\\\}"
@@ -220,7 +244,7 @@ write_plist() {
   diag_xml="$(xml_escape "${ROOST_DIAG:-0}")"
   log_dir_xml="$(xml_escape "$LOG_DIR")"
   plist_xml="$(xml_escape "$PLIST")"
-  cat > "$PLIST" <<EOF
+  install_plist "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -262,7 +286,6 @@ write_plist() {
 </dict>
 </plist>
 EOF
-  chmod 0600 "$PLIST"
   echo "wrote $PLIST"
 }
 

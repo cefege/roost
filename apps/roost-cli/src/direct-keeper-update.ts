@@ -12,17 +12,13 @@ import {
 import { buildDashboardScopedCliContext } from "./cli-auth.ts";
 import { normalizedHost } from "./deploy-windows-channel.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
+import type { DirectKeeperAdmissionOutcome } from "./keeper-admission-staging.ts";
 import { keeperUpdateConvergenceProblem } from "./keeper-update-convergence.ts";
 import {
   routableWorkerFingerprints,
   workerInventoryForUpdateAdmission,
   type WorkerStatus,
 } from "./status.ts";
-
-export interface DirectKeeperAdmission {
-  workerFingerprint: string;
-  keeperUpdate: JournaledKeeperUpdateV1;
-}
 
 interface KeeperPreparationRequest {
   workerFp: string;
@@ -92,7 +88,6 @@ function requireUniqueLocalWorker(matches: readonly WorkerStatus[]): WorkerStatu
   if (matches.length !== 1) {
     throw new Error("self-update admission cannot resolve exactly one local worker");
   }
-  if (matches[0]!.stale) throw new Error("self-update keeper runtime proof is stale");
   return matches[0]!;
 }
 
@@ -100,7 +95,14 @@ export async function localUpdateWorker(
   inventory: readonly WorkerStatus[] = workerInventoryForUpdateAdmission(),
   isSelfHost: (host: string) => Promise<boolean> = _isSelfHost,
 ): Promise<WorkerStatus> {
-  return requireUniqueLocalWorker(await matchingLocalWorkers(inventory, isSelfHost));
+  const worker = requireUniqueLocalWorker(
+    await matchingLocalWorkers(inventory, isSelfHost),
+  );
+  // Keeper maintenance destroys PTYs, so it demands proof the coordinator has
+  // refreshed recently. Deploy admission classifies staleness instead of
+  // throwing, because a host with no worker service has nothing to protect.
+  if (worker.stale) throw new Error("self-update keeper runtime proof is stale");
+  return worker;
 }
 
 export async function localUpdateWorkerForAdmission(
@@ -124,32 +126,41 @@ export function directKeeperUpdateAdmission(
   host: string,
   targetContract: KeeperContractV1,
   bootstrapAllowed: boolean,
-): DirectKeeperAdmission | null {
-  let inventory: WorkerStatus[];
+  inventory?: readonly WorkerStatus[],
+): DirectKeeperAdmissionOutcome {
+  let available: readonly WorkerStatus[];
   try {
-    inventory = workerInventoryForUpdateAdmission();
+    available = inventory ?? workerInventoryForUpdateAdmission();
   } catch (error) {
-    if (bootstrapAllowed) return null;
+    if (bootstrapAllowed) return { outcome: "unregistered" };
     throw error;
   }
-  const matches = inventory.filter(worker => workerMatchesTarget(worker, host));
-  if (matches.length === 0 && bootstrapAllowed) return null;
+  const matches = available.filter(worker => workerMatchesTarget(worker, host));
+  if (matches.length === 0 && bootstrapAllowed) return { outcome: "unregistered" };
   if (matches.length !== 1) {
     throw new Error(`${host}: update admission cannot resolve exactly one worker`);
   }
   const worker = matches[0]!;
-  if (worker.stale) {
-    throw new Error(`${worker.label}: keeper update proof is stale`);
+  // A row the coordinator has not heard from can neither prove nor refresh
+  // anything, and no keeper action could reach a disconnected worker anyway.
+  if (worker.stale) return { outcome: "proof-stale", workerLabel: worker.label };
+  // No observation at all is the one unprovable case: the running build
+  // predates keeper-runtime reporting, so it can never earn admission for the
+  // update that teaches it to report. A contradicted or refused observation
+  // still fails closed below.
+  if (!worker.keeperRuntime) {
+    return { outcome: "runtime-unreported", workerLabel: worker.label };
   }
   const admission = keeperUpdateAdmission(
     targetContract,
     worker.keeperRuntime,
     new Set(worker.coordinatorOpenSessionIds),
   );
-  if (!admission || !worker.keeperRuntime) {
+  if (!admission) {
     throw new Error(`${worker.label}: keeper update is blocked or unproven`);
   }
   return {
+    outcome: "admitted",
     workerFingerprint: worker.fingerprint,
     keeperUpdate: JournaledKeeperUpdateV1Schema.parse({
       admission,

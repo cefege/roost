@@ -103,7 +103,7 @@ describe("localhost worker deploy journal validation", () => {
     expect(mutations).toBe(0);
   });
 
-  test("allows null keeper state only for a true bootstrap", () => {
+  test("allows null keeper state for a bootstrap and an unproven installed service", () => {
     const bootstrap = localWorkerJournal({
       keeperUpdate: null,
       workerFingerprint: null,
@@ -117,6 +117,19 @@ describe("localhost worker deploy journal validation", () => {
       JSON.stringify(bootstrap),
       LOCAL_CONFINEMENT,
     ).keeperUpdate).toBeNull();
+
+    // A worker that reports no keeper runtime stages over its installed
+    // service without a journaled update; the journal must keep the service.
+    const unprovenInstalled = localWorkerJournal({
+      keeperUpdate: null,
+      workerFingerprint: null,
+    });
+    const parsed = parseLocalWorkerDeployJournal(
+      JSON.stringify(unprovenInstalled),
+      LOCAL_CONFINEMENT,
+    );
+    expect(parsed.keeperUpdate).toBeNull();
+    expect(parsed.priorService).toEqual(unprovenInstalled.priorService);
   });
 
   test("rejects traversal, nesting, unrelated stages, and foreign roots", () => {

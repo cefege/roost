@@ -141,7 +141,7 @@ function usage(): never {
   console.error("  expose <hostname> --team <team>.cloudflareaccess.com --aud <64-hex> [--config <path>]");
   console.error("  dev               start coord + worker + web dev servers");
   console.error("  test              run all tests in dep order");
-  console.error("  deploy <host>     deploy worker to a tailnet host");
+  console.error("  deploy <host> [--force-live]   deploy worker to a tailnet host; --force-live authorizes the new worker to DESTROY every PTY held by a keeper it cannot adopt (this deploy only)");
   console.error("  push              git push + deploy fleet + kickstart local coord");
   console.error("  keeper-refresh <host> --yes [--force-live]   re-spawn an authenticated empty keeper; live channels refuse unless forced");
   console.error("  logs <app>        tail an app's logs (coord|worker) [--tail N]");

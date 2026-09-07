@@ -52,7 +52,11 @@ import {
   assertWorkerRolloutDirective, assertWorkerRolloutMatches,
   type WorkerRolloutDirective,
 } from "./worker-deploy-rollout.ts";
-import type { DirectKeeperAdmission } from "./direct-keeper-update.ts";
+import {
+  keeperAdmissionStaging,
+  unprovenInstalledServiceRefusal,
+  type DirectKeeperAdmissionOutcome,
+} from "./keeper-admission-staging.ts";
 
 export async function deployLinux(
   host: string,
@@ -63,7 +67,7 @@ export async function deployLinux(
     rollout?: WorkerRolloutDirective;
     keeperUpdate: JournaledKeeperUpdateV1 | null;
     workerFingerprint: string | null;
-    resolveKeeperAdmission?: () => Promise<DirectKeeperAdmission | null>;
+    resolveKeeperAdmission?: () => Promise<DirectKeeperAdmissionOutcome>;
     applyKeeperUpdate: ApplyLinuxKeeperUpdate;
     proveKeeperUpdate: ProveLinuxKeeperUpdate;
   },
@@ -79,6 +83,8 @@ export async function deployLinux(
     ? null
     : JournaledKeeperUpdateV1Schema.parse(opts.keeperUpdate);
   let workerFingerprint = opts.workerFingerprint;
+  let installedServiceRefusal: string | null =
+    unprovenInstalledServiceRefusal("Linux");
   const rollout = opts.rollout ? assertWorkerRolloutDirective(opts.rollout) : null;
   if (rollout && rollout.targetSha !== gitSha.toLowerCase()) {
     failDeploy(7, "worker rollout target does not match the Linux deployment SHA");
@@ -147,23 +153,23 @@ export async function deployLinux(
       journalPath,
     )) return;
     if (opts.resolveKeeperAdmission) {
-      const admission = await opts.resolveKeeperAdmission();
-      keeperUpdate = admission?.keeperUpdate ?? null;
-      workerFingerprint = admission?.workerFingerprint ?? null;
+      const staging = keeperAdmissionStaging(
+        host,
+        "Linux",
+        await opts.resolveKeeperAdmission(),
+      );
+      keeperUpdate = staging.keeperUpdate;
+      workerFingerprint = staging.workerFingerprint;
+      installedServiceRefusal = staging.installedServiceRefusal;
     }
     if ((keeperUpdate === null) !== (workerFingerprint === null)) {
       failDeploy(7, "Linux keeper update and worker fingerprint must be present together");
     }
-    if (keeperUpdate === null) {
+    if (keeperUpdate === null && installedServiceRefusal !== null) {
       const absentUnit = await deploySsh(
         `test ! -e ${posixShellQuote(unitPath)} && test ! -L ${posixShellQuote(unitPath)}`,
       );
-      if (absentUnit.exit !== 0) {
-        failDeploy(
-          5,
-          "existing Linux worker requires keeper update admission before staging",
-        );
-      }
+      if (absentUnit.exit !== 0) failDeploy(5, installedServiceRefusal);
     }
     let remoteRepo = process.env.ROOST_LINUX_REPO_DIR?.trim() ?? "";
     if (!remoteRepo) {

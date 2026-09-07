@@ -238,9 +238,13 @@ export function _parseMacosDeployJournal(
   const checkedKeeperUpdate = parsedKeeperUpdate === null
     ? null
     : parsedKeeperUpdate.data;
-  if ((priorPlistBase64 === null) !== (checkedKeeperUpdate === null)) {
+  // One-directional on purpose: a journaled keeper action can only be replayed
+  // against prior plist bytes to restore, but a prior service does not require
+  // one. A worker that reports no keeper runtime is staged without an update,
+  // so its journal restores the service and mutates no keeper.
+  if (checkedKeeperUpdate !== null && priorPlistBase64 === null) {
     throw new Error(
-      "macOS deploy journal keeper update must be null only for an absent prior service",
+      "macOS deploy journal keeper update requires prior plist bytes to restore",
     );
   }
   if (checkedKeeperUpdate && priorPlistBase64) {

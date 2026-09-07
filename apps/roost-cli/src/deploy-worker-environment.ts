@@ -5,6 +5,7 @@
 import { posixShellQuote } from "@roost/shared/shell-quote";
 
 const CONVERSATION_RESTORE_ENV = "ROOST_AGENT_CONVERSATION_RESTORE";
+export const KEEPER_FORCE_LIVE_RETIRE_ENV = "ROOST_KEEPER_FORCE_LIVE_RETIRE";
 
 export function workerInstallEnvironmentValues(
   installed: Readonly<Record<string, string>>,
@@ -13,7 +14,17 @@ export function workerInstallEnvironmentValues(
   ambient: Readonly<Record<string, string | undefined>> = process.env,
 ): Record<string, string> {
   const values: Record<string, string> = { ...installed };
-  for (const key of ["GIT_SHA", "ROOST_GIT_SHA", "ROOST_WORKDIR", "ROOST_EXEC_BIN", "ROOST_BOOTSTRAP_TOKEN"]) {
+  // The retire authorization is stripped like the bootstrap token: a retained
+  // flag would silently authorize discarding a keeper's live channels on every
+  // later activation, so only the deploy that was given it carries it.
+  for (const key of [
+    "GIT_SHA",
+    "ROOST_GIT_SHA",
+    "ROOST_WORKDIR",
+    "ROOST_EXEC_BIN",
+    "ROOST_BOOTSTRAP_TOKEN",
+    KEEPER_FORCE_LIVE_RETIRE_ENV,
+  ]) {
     delete values[key];
   }
   for (const [key, value] of Object.entries(overrides)) {

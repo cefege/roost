@@ -17,7 +17,10 @@ import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-en
 import { _deployLocal } from "./deploy-local.ts";
 import { deployLinux } from "./deploy-linux.ts";
 import { deployMacosWorker } from "./deploy-macos.ts";
-import { workerInstallEnvironment } from "./deploy-worker-environment.ts";
+import {
+  KEEPER_FORCE_LIVE_RETIRE_ENV,
+  workerInstallEnvironment,
+} from "./deploy-worker-environment.ts";
 import { tryCoordinatorWindowsDeploy } from "./deploy-windows-channel.ts";
 import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
@@ -25,8 +28,11 @@ import {
   createJournaledKeeperUpdateCallbacks,
   directKeeperUpdateAdmission,
   localUpdateWorkerForAdmission,
-  type DirectKeeperAdmission,
 } from "./direct-keeper-update.ts";
+import type {
+  DirectKeeperAdmission,
+  DirectKeeperAdmissionOutcome,
+} from "./keeper-admission-staging.ts";
 import {
   loadSourceKeeperContract,
   probeTargetKeeperContract,
@@ -86,6 +92,16 @@ export async function deploy(
   if (allowUnpublishedLocal && (!selfHost || rollout)) {
     failDeploy(1, "--allow-unpublished-local is restricted to the localhost quickstart path");
   }
+  const forceLiveKeeperRetire = args.includes("--force-live");
+  if (forceLiveKeeperRetire && rollout) {
+    failDeploy(1, "--force-live is refused inside an atomic fleet rollout");
+  }
+  if (forceLiveKeeperRetire) {
+    console.error(`--force-live authorizes ${host} to DESTROY every PTY held by a keeper`);
+    console.error("  the deployed worker can neither adopt nor prove empty.");
+    console.error("  Every shell, dev server, and test in those PTYs exits.");
+    console.error("  It applies to this deploy only; the next deploy clears it.");
+  }
   const sourceGitSha = rollout
     ? rollout.targetSha
     : allowUnpublishedLocal
@@ -107,15 +123,16 @@ export async function deploy(
     await _deployLocal(host, {
       sourceRoot: sourceCheckout,
       gitSha: sourceGitSha,
+      forceLiveKeeperRetire,
       coordinatorUrl: options.coordinatorUrl,
       rollout: rollout ?? undefined,
       keeperUpdate: keeperAdmission?.keeperUpdate ?? null,
       workerFingerprint: keeperAdmission?.workerFingerprint ?? null,
       resolveKeeperAdmission: rollout
         ? undefined
-        : async () => {
+        : async (): Promise<DirectKeeperAdmissionOutcome> => {
             const localWorker = await localUpdateWorkerForAdmission(bootstrapAllowed);
-            if (!localWorker) return null;
+            if (!localWorker) return { outcome: "unregistered" };
             return directKeeperUpdateAdmission(
               localWorker.fingerprint,
               targetKeeperContractForWorker(sourceKeeperContract!, sourceGitSha, {
@@ -142,7 +159,7 @@ export async function deploy(
   console.log(`   bun: ${bunCheck.stdout.trim().split("\n").slice(-2).join(" @ ")}`);
   const resolveRemoteKeeperAdmission = rollout
     ? undefined
-    : async (): Promise<DirectKeeperAdmission | null> =>
+    : async (): Promise<DirectKeeperAdmissionOutcome> =>
       directKeeperUpdateAdmission(
         host,
         await probeTargetKeeperContract(
@@ -169,6 +186,7 @@ export async function deploy(
           ROOST_WORKER_LABEL: resolved("ROOST_WORKER_LABEL"),
           ROOST_REACHABLE_ADDR: resolved("ROOST_REACHABLE_ADDR"),
           ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN,
+          [KEEPER_FORCE_LIVE_RETIRE_ENV]: forceLiveKeeperRetire ? "1" : undefined,
         }, sourceGitSha);
     await deployLinux(host, {
       gitSha: sourceGitSha,
@@ -209,6 +227,7 @@ export async function deploy(
   await deployMacosWorker(host, {
     sourceCheckout,
     gitSha: sourceGitSha,
+    forceLiveKeeperRetire,
     coordinatorUrl: options.coordinatorUrl,
     rollout: rollout ?? undefined,
     keeperUpdate: keeperAdmission?.keeperUpdate ?? null,

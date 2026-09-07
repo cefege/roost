@@ -278,7 +278,8 @@ export async function runWorker() {
 		client: () => client,
 		workerFp,
 		sessionMgr,
-		prepareKeeper: handleKeeperSurvivor,
+		prepareKeeper: (coordinatorOpenSessionIds) =>
+			handleKeeperSurvivor(coordinatorOpenSessionIds, cfg.keeperForceLiveRetire),
 		referenceAdmission,
 		restoreAgentConversation: (sessionId, reference, resumedReferenceKeys) =>
 			restoreAgentConversationAfterRespawn({

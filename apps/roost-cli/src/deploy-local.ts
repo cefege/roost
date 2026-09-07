@@ -29,7 +29,10 @@ import {
 } from "./deploy-exec.ts";
 import { linuxWorkerResourceEnvironment } from "./linux-deploy-journal-commands.ts";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
-import { workerInstallEnvironmentValues } from "./deploy-worker-environment.ts";
+import {
+  KEEPER_FORCE_LIVE_RETIRE_ENV,
+  workerInstallEnvironmentValues,
+} from "./deploy-worker-environment.ts";
 import { readLocalWorkerPriorState } from "./deploy-local-service-lifecycle.ts";
 import {
   _recoverLocalWorkerDeployJournal,
@@ -51,10 +54,12 @@ import { acquireMachineTransaction } from "./machine-transaction.ts";
 import { verifyWorkerCmd, WORKER_AGENT, WORKER_UNIT } from "./service-ctl.ts";
 import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
-import type {
-  DirectKeeperAdmission,
-  JournaledKeeperUpdateCallbacks,
-} from "./direct-keeper-update.ts";
+import {
+  keeperAdmissionStaging,
+  unprovenInstalledServiceRefusal,
+  type DirectKeeperAdmissionOutcome,
+} from "./keeper-admission-staging.ts";
+import type { JournaledKeeperUpdateCallbacks } from "./direct-keeper-update.ts";
 
 /** Localhost source deployment uses the same immutable stage, service
  * snapshot, activation proof, and rollback contract as remote POSIX deploys. */
@@ -65,9 +70,10 @@ export async function _deployLocal(
     gitSha: string;
     rollout?: WorkerRolloutDirective;
     coordinatorUrl?: string;
+    forceLiveKeeperRetire?: boolean;
     keeperUpdate?: JournaledKeeperUpdateV1 | null;
     workerFingerprint: string | null;
-    resolveKeeperAdmission?: () => Promise<DirectKeeperAdmission | null>;
+    resolveKeeperAdmission?: () => Promise<DirectKeeperAdmissionOutcome>;
     keeperCallbacks: JournaledKeeperUpdateCallbacks;
   },
 ): Promise<void> {
@@ -151,17 +157,22 @@ export async function _deployLocal(
     if (priorService && !priorGitSha) {
       failDeploy(5, "the existing local worker service does not prove its build identity");
     }
-    const resolvedAdmission = options.resolveKeeperAdmission
-      ? await options.resolveKeeperAdmission()
+    const staging = options.resolveKeeperAdmission
+      ? keeperAdmissionStaging(
+          host,
+          "local",
+          await options.resolveKeeperAdmission(),
+        )
       : {
           keeperUpdate: options.keeperUpdate ?? null,
           workerFingerprint: options.workerFingerprint,
+          installedServiceRefusal: unprovenInstalledServiceRefusal("local"),
         };
     let suppliedKeeperUpdate: JournaledKeeperUpdateV1 | null = null;
     try {
-      suppliedKeeperUpdate = resolvedAdmission?.keeperUpdate == null
+      suppliedKeeperUpdate = staging.keeperUpdate === null
         ? null
-        : JournaledKeeperUpdateV1Schema.parse(resolvedAdmission.keeperUpdate);
+        : JournaledKeeperUpdateV1Schema.parse(staging.keeperUpdate);
     } catch (error) {
       failDeploy(5, `local worker keeper update proof is invalid: ${String(error)}`);
     }
@@ -169,18 +180,22 @@ export async function _deployLocal(
       && JSON.stringify(suppliedKeeperUpdate) !== JSON.stringify(rollout.keeperUpdate)) {
       failDeploy(5, "local worker keeper update does not match its rollout directive");
     }
-    const suppliedWorkerFingerprint = resolvedAdmission?.workerFingerprint ?? null;
+    const suppliedWorkerFingerprint = staging.workerFingerprint;
     const workerFingerprint = rollout?.workerFingerprint ?? suppliedWorkerFingerprint;
     if (rollout && suppliedWorkerFingerprint !== rollout.workerFingerprint) {
       failDeploy(5, "local worker fingerprint does not match its rollout directive");
     }
     const keeperUpdate = rollout?.keeperUpdate ?? suppliedKeeperUpdate;
-    if ((priorService === null) !== (keeperUpdate === null)
-      || (keeperUpdate === null) !== (workerFingerprint === null)) {
+    if ((keeperUpdate === null) !== (workerFingerprint === null)
+      || (keeperUpdate !== null && priorService === null)) {
       failDeploy(
         5,
         "local worker keeper update and fingerprint must be absent exactly when no prior service is installed",
       );
+    }
+    if (keeperUpdate === null && priorService !== null
+      && staging.installedServiceRefusal !== null) {
+      failDeploy(5, staging.installedServiceRefusal);
     }
 
     const installEnv = workerInstallEnvironmentValues(
@@ -197,6 +212,9 @@ export async function _deployLocal(
         ROOST_WORKER_LABEL: _resolveDeployEnvValue("ROOST_WORKER_LABEL", hostEnv),
         ROOST_REACHABLE_ADDR: _resolveDeployEnvValue("ROOST_REACHABLE_ADDR", hostEnv),
         ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN || undefined,
+        [KEEPER_FORCE_LIVE_RETIRE_ENV]: options.forceLiveKeeperRetire
+          ? "1"
+          : undefined,
       },
       localGitSha,
     );
