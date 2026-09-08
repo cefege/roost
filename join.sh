@@ -26,6 +26,22 @@ case "$(uname -s)" in
   *) die "Roost joins on macOS or Linux only (found $(uname -s))." ;;
 esac
 
+# 0b. Bun — and therefore Roost — requires macOS 13.0+. An older Mac cannot run
+# a worker at all; print the verdict before anything is installed rather than
+# leaving behind a Bun that dies on launch and a LaunchAgent that never starts.
+# POSIX-only constructs here: stock macOS ships bash 3.2.
+if [ "$(uname -s)" = "Darwin" ]; then
+  MACOS_VERSION="$(sw_vers -productVersion 2>/dev/null || true)"
+  MACOS_MAJOR="$(printf '%s' "$MACOS_VERSION" | cut -d. -f1)"
+  case "$MACOS_MAJOR" in
+    ''|*[!0-9]*) MACOS_MAJOR=0 ;;
+  esac
+  if [ "$MACOS_MAJOR" -lt 13 ]; then
+    die "This Mac runs macOS ${MACOS_VERSION:-unknown}; Roost needs macOS 13 (Ventura) or newer because Bun does." \
+        "Options: upgrade this Mac to macOS 13+, or run the worker on a different machine." \
+        "Nothing was installed."
+  fi
+fi
 
 # 1. Required env — the join target + credential come from `roost add-machine`.
 if [ -z "${ROOST_COORDINATOR_URL:-}" ] || [ -z "${ROOST_BOOTSTRAP_TOKEN:-}" ]; then
