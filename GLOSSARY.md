@@ -56,10 +56,10 @@ wins.
   log. Append + project happen in one SQLite transaction.
   Source: `apps/coord/src/event-log.ts`.
 
-- **Sync stream** — one long-lived server-streaming RPC that multiplexes live
-  deltas for every domain (sessions, presence, workspaces, tasks, permissions,
-  MCP, webhook tokens, audit) plus PTY bytes. On reconnect, the browser sends
-  the last event id it saw and the coordinator backfills the gap.
+- **Sync stream** — one long-lived protobuf WebSocket that multiplexes exactly
+  seven generation domains: terminal, workers, workspaces, tasks, MCP, pair, and
+  audit. Audit is the only lazy domain. A missing or extra generation is a
+  protocol mismatch, so a tab from an incompatible deployment must reload.
   Source: `apps/coord/src/connect/handlers-streaming.ts`,
   `apps/web/src/store/sync.ts`.
 

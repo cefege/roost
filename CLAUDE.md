@@ -141,7 +141,7 @@ Non-negotiable for every change.
       `apps/shared/src/wire/event.ts` first, then fold, emit, and project.
       Procedure signatures come from the generated proto types under
       `@roost/shared/proto/*` (regenerate with
-      `bun --filter @roost/shared run proto:gen`).
+      `bun run --filter='@roost/shared' proto:gen`).
     - **`apps/shared` is subpath-only.** `import { X } from "@roost/shared"`
       does not resolve — there is no barrel. Import
       `@roost/shared/{wire,log,diag,paths,platform,native-path,config,fingerprint,viewport,cell,json,...}`
