@@ -1,6 +1,6 @@
 // Status report assembly combines service state, coordinator liveness, the
-// declared front door, worker inventory, and coordinator handoff state.
-// Centralizing that I/O keeps the public command and renderer deterministic.
+// declared front door, and worker inventory. Centralizing that I/O keeps the
+// public command and renderer deterministic.
 
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
@@ -19,7 +19,6 @@ import {
   STATUS_WORKER_LABEL,
 } from "./status-native-probes.ts";
 import type {
-  HandoffStatus,
   ResolvedStatusEndpoint,
   StatusEndpointOverride,
   StatusEndpointResolverOptions,
@@ -44,12 +43,6 @@ function coordinatorServiceFile(): string {
   return process.platform === "win32"
     ? windowsServiceDefinitionsPath()
     : coordServicePath();
-}
-
-function coordinatorHandoffPath(): string {
-  const dataDir = process.env.ROOST_COORD_DATA_DIR ?? coordDataDir();
-  return process.env.ROOST_COORDINATOR_HANDOFF_PATH
-    ?? join(dataDir, "coord-handoff.json");
 }
 
 /** POST the unauthenticated coordinator identity RPC: the liveness contract
@@ -264,25 +257,6 @@ function installedCoordinatorDbPath(): string {
   }
 }
 
-/** Read coord-handoff.json (snake_case on disk). null on missing, unreadable
- *  or half-written JSON — a broken handoff file must never fail `roost status`. */
-function readHandoff(): HandoffStatus | null {
-  const handoffPath = coordinatorHandoffPath();
-  if (!existsSync(handoffPath)) return null;
-  try {
-    const j = JSON.parse(readFileSync(handoffPath, "utf8")) as Record<string, unknown>;
-    const { phase, handoff_id: handoffId, source_url: sourceUrl, target_url: targetUrl } = j;
-    const role = j.role === "SOURCE" ? "SOURCE" : j.role === "TARGET" ? "TARGET" : null;
-    if (!role) return null;
-    if (typeof phase !== "string" || typeof handoffId !== "string"
-      || typeof sourceUrl !== "string" || typeof targetUrl !== "string") return null;
-    return { role, phase, handoffId, sourceUrl, targetUrl };
-  } catch (error) {
-    log.warn("status", "handoff_read_failed", { error: String(error) });
-    return null;
-  }
-}
-
 export async function statusReport(
   endpointOverride?: StatusEndpointOverride,
 ): Promise<StatusReport> {
@@ -311,6 +285,5 @@ export async function statusReport(
           ? coord.reachable
           : (await _probeCoordinatorIdentity(identityUrl(endpoint.publicUrl))).reachable,
     },
-    handoff: readHandoff(),
   };
 }

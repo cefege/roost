@@ -12,7 +12,6 @@ import {
 } from "../../worker/src/coord-client.ts";
 import type { CoordClient } from "../../worker/src/coord-client.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
-import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import { diag } from "@roost/shared/diag";
 import { DEFAULT_COORDINATOR_BIND } from "@roost/shared/config";
 import {
@@ -464,40 +463,8 @@ async function dispatch(
       console.log(r.task?.state ?? "");
       break;
     }
-    // Coordinator relocation. The SPA dialog was the only way to reach these,
-    // which made the feature impossible to preflight or drive headlessly —
-    // including from an agent doing the testing.
-    case "move-preflight": {
-      // Non-destructive: sends PREPARE action=CHECK to the target, which
-      // validates disk, writable dirs, tailnet name and absence of an active
-      // coordinator. Changes nothing. Safe to run against a live cluster.
-      const fp = await resolveWorkerFp(c, requireArg(rest[0], "fp|prefix|label"));
-      const r = await c.coordinatorMovePreflight({ targetWorkerFp: fp });
-      console.log(`eligible\t${r.eligible}`);
-      console.log(`source\t${r.sourceUrl}`);
-      console.log(`target\t${r.targetUrl}`);
-      for (const b of r.blockers) console.log(`blocker\t${b.code}\t${b.message}${b.workerFp ? `\t${b.workerFp}` : ""}`);
-      if (!r.eligible) process.exitCode = 1;
-      break;
-    }
-    case "move-start": {
-      // DESTRUCTIVE: relocates the coordinator. Re-runs the full preflight
-      // server-side, so an ineligible target fails here rather than half-moving.
-      const fp = await resolveWorkerFp(c, requireArg(rest[0], "fp|prefix|label"));
-      const r = await c.coordinatorMoveStart({ targetWorkerFp: fp });
-      console.log(r.handoffId);
-      break;
-    }
-    case "move-status": {
-      const r = await c.coordinatorMoveStatus({ handoffId: requireArg(rest[0], "handoff-id") });
-      console.log(`phase\t${CoordinatorMovePhase[r.phase] ?? r.phase}`);
-      console.log(`source\t${r.sourceUrl}`);
-      console.log(`target\t${r.targetUrl}`);
-      if (r.error) console.log(`error\t${r.error}`);
-      break;
-    }
     default:
-      console.error(`roost api: unknown verb "${verb}" — sessions | agent-status | agent-wait | agent-prompt | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | events | watch`);
+      console.error(`roost api: unknown verb "${verb}" — sessions | agent-status | agent-wait | agent-prompt | agents | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | events | watch`);
       process.exit(1);
   }
 }

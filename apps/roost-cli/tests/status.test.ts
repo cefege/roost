@@ -24,7 +24,6 @@ function report(overrides: Partial<StatusReport> = {}): StatusReport {
     coord: { reachable: true, gitSha: null },
     workers: [],
     endpoint: { publicUrl: "https://dash.example.test", answers: true },
-    handoff: null,
     ...overrides,
   };
 }
@@ -114,23 +113,10 @@ describe("status front-door reporting", () => {
     expect(statusReportIsHealthy(unconfigured)).toBe(true);
   });
 
-  test("an unreachable coordinator fails the gate unless it moved away", () => {
+  test("an unreachable coordinator fails the gate", () => {
     const down = report({ coord: { reachable: false, gitSha: null } });
     expect(statusReportIsHealthy(down)).toBe(false);
     expect(renderedStatus(down).join("\n")).toContain("✗ coord reachable");
-
-    const relocated = report({
-      coord: { reachable: false, gitSha: null },
-      handoff: {
-        role: "SOURCE",
-        phase: "COMMITTED",
-        handoffId: "h1",
-        sourceUrl: "https://old.example.test",
-        targetUrl: "https://new.example.test",
-      },
-    });
-    expect(statusReportIsHealthy(relocated)).toBe(true);
-    expect(renderedStatus(relocated).join("\n")).not.toContain("coord reachable");
   });
 });
 

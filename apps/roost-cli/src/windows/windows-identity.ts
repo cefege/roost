@@ -1,5 +1,5 @@
 // Windows service-account normalization, shared by service-ctl, the binary
-// installer, and the relocation broker. One copy exists because account
+// installer, and the update broker. One copy exists because account
 // spellings cross module boundaries during rollback proofs — a per-module
 // normalization drift reads as a phantom config change.
 //

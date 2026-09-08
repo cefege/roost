@@ -18,6 +18,7 @@ import {
   type WorkerServiceDeps,
 } from "../src/connect/worker-conn.ts";
 import { connectWorkers } from "../src/connect/worker-registry.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 
 const fixture = createDurablePublicationFixture({
@@ -32,7 +33,10 @@ let deps: WorkerServiceDeps;
 
 beforeEach(async () => {
   await fixture.reset();
-  deps = { db: fixture.writer.db } as unknown as WorkerServiceDeps;
+  deps = {
+    db: fixture.writer.db,
+    writeGate: new CoordinatorWriteGate(),
+  } as unknown as WorkerServiceDeps;
 });
 afterAll(() => fixture.close());
 

@@ -12,12 +12,10 @@ import {
 } from "@roost/shared/proto/worker_transport_pb";
 import { asWorkerFp } from "@roost/shared/wire";
 import { AgentStatusRegistry } from "../src/agent-status/registry.ts";
-import type { CoordTarget } from "../src/coord-target.ts";
 import {
   buildCoordLinkDeps,
   type CoordLinkRefs,
 } from "../src/coord-link-deps.ts";
-import type { WorkerCoordRelocation } from "../src/coord-relocation.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
 import { createCoordLinkDownstream } from "../src/transport/coord-link-downstream.ts";
 import type {
@@ -103,9 +101,6 @@ test("agentPrompt dispatch submits text then CR and returns an accepted WInputRe
     workerFp: asWorkerFp("00".repeat(32)),
     mintJwt: async () => "jwt",
     sessionEventStore: {} as unknown as SessionEventStore,
-    coordTarget: {} as unknown as CoordTarget,
-    relocation: {} as unknown as WorkerCoordRelocation,
-    setCoordinatorEndpoint: () => {},
     refs,
   });
   const socket = {} as WebSocket;

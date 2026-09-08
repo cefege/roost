@@ -842,15 +842,6 @@ function nodeError(error: unknown): NodeJS.ErrnoException | null {
 }
 
 export {
-  DurableWindowsRelocationJournalStore,
-  windowsRelocationJournalPath,
-} from "./windows-relocation-journal.ts";
-export type {
-  WindowsRelocationJournalStore,
-  WindowsRelocationJournalV1,
-  WindowsRelocationPhase,
-} from "./windows-relocation-journal.ts";
-export {
   migrateWindowsCurrentManifestV1,
   parseWindowsBuildIdentity,
   parseWindowsCurrentManifest,

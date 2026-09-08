@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { CoordConfig } from "@roost/shared/config";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import type { ConnectDeps } from "../src/connect/router.ts";
-import { loadOrCreateCoordKey } from "../src/coord-key.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
@@ -30,20 +30,17 @@ export interface SyncWsKeepaliveCoordFixture {
 export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepaliveCoordFixture> {
   const workdir = mkdtempSync(join(tmpdir(), "roost-sync-keepalive-"));
   const dbPath = join(workdir, "test.db");
-  const keyPath = join(workdir, "test.key");
   const authorizedKeysPath = join(workdir, "authorized_keys");
   writeFileSync(authorizedKeysPath, "");
 
   const opened = openDb(dbPath);
   const { db, sqlite } = opened;
   await runMigrations(sqlite);
-  const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
     pushAllowedOrigins: [],
     bind: "127.0.0.1:0",
     dbPath,
-    coordKeyPath: keyPath,
     authorizedKeysPath,
     webDistPath: "",
     jwtMaxAgeSecs: 300,
@@ -54,12 +51,11 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     logDir: workdir,
     webPublicUrl: "https://public.example",
     publicUrl: undefined,
-    handoffPath: join(workdir, "coord-handoff.json"),
   };
   const deps: ConnectDeps = {
     db,
     sqlite,
-    coordKey,
+    writeGate: new CoordinatorWriteGate(),
     jwtCache,
     cfg,
     uiLayoutApplies: new UiLayoutApplyOwner(),

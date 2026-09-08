@@ -3,9 +3,7 @@
 // It depends only on browser-safe parsing and session storage, never on transport or store state.
 // Keeping this boundary narrow prevents secrets from leaking through startup requests or logs.
 
-export type CapturedFragmentCredential =
-  | { kind: "pair"; token: string }
-  | { kind: "relocation"; token: string; handoffId: string };
+export type CapturedFragmentCredential = { kind: "pair"; token: string };
 
 export type CapturedFragmentCredentialKind = CapturedFragmentCredential["kind"];
 
@@ -28,11 +26,7 @@ interface CredentialStorage {
 }
 
 const CAPTURED_CREDENTIAL_KEY = "roost.fragmentCredential.v1";
-const GLOBAL_CREDENTIAL_KEYS: Readonly<Record<string, true | undefined>> = {
-  pair: true,
-  move: true,
-  handoff: true,
-};
+const GLOBAL_CREDENTIAL_KEYS: Readonly<Record<string, true | undefined>> = { pair: true };
 let capturedCredential: CapturedFragmentCredential | null | undefined;
 
 function decodedParameterKey(segment: string): string | null {
@@ -78,15 +72,6 @@ function storedCredential(value: unknown): CapturedFragmentCredential | null {
     && isNonEmptyString(value.token)
   ) {
     return { kind: "pair", token: value.token };
-  }
-  if (
-    value.kind === "relocation"
-    && "token" in value
-    && "handoffId" in value
-    && isNonEmptyString(value.token)
-    && isNonEmptyString(value.handoffId)
-  ) {
-    return { kind: "relocation", token: value.token, handoffId: value.handoffId };
   }
   return null;
 }
@@ -134,33 +119,10 @@ function discardCapturedCredential(): void {
 
 export function parseFragmentCredential(hash: string): FragmentCredential {
   const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+  if (!params.has("pair")) return { kind: "none" };
   const pairs = params.getAll("pair");
-  const moves = params.getAll("move");
-  const handoffs = params.getAll("handoff");
-  const hasPair = params.has("pair");
-  const hasMove = params.has("move");
-  const hasHandoff = params.has("handoff");
-
-  if (!hasPair && !hasMove && !hasHandoff) return { kind: "none" };
-  if (
-    hasPair
-    && !hasMove
-    && !hasHandoff
-    && pairs.length === 1
-    && isNonEmptyString(pairs[0])
-  ) {
+  if (pairs.length === 1 && isNonEmptyString(pairs[0])) {
     return { kind: "pair", token: pairs[0] };
-  }
-  if (
-    !hasPair
-    && hasMove
-    && hasHandoff
-    && moves.length === 1
-    && handoffs.length === 1
-    && isNonEmptyString(moves[0])
-    && isNonEmptyString(handoffs[0])
-  ) {
-    return { kind: "relocation", token: moves[0], handoffId: handoffs[0] };
   }
   return { kind: "invalid" };
 }
@@ -199,7 +161,7 @@ export function captureAndScrubFragmentCredential(): FragmentCredential {
     history.replaceState(null, "", cleanUrl);
   }
 
-  if (credential.kind === "pair" || credential.kind === "relocation") {
+  if (credential.kind === "pair") {
     retainCapturedCredential(credential);
   } else if (credential.kind === "invalid" || containedCredentialData) {
     // A new malformed/query-only attempt must never fall through to a stale

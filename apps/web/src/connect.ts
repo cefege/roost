@@ -12,7 +12,6 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 import { CoordinatorService, type WorkersListResponse } from "@roost/shared/proto/coordinator_pb";
 import { signCoordinatorJwt } from "./auth/web-key.ts";
 import { getTabId } from "./auth/tab-id.ts";
-import { peekCapturedFragmentCredential } from "./auth/fragment-credential.ts";
 import { signal } from "@roost/shared/diag";
 import { selectedDashboardId } from "./store/root.ts";
 import {
@@ -64,13 +63,6 @@ export function classifyAuthFailure(error: unknown, rpcPath: string): AuthFailur
  * override once same-origin discovery has confirmed this deployment, otherwise
  * same-origin. Worker and WebSocket callers must use this too. */
 export function coordBase(): string {
-  // A relocation URL is deliberately same-origin on its destination. Ignore a
-  // stale per-browser override before creating the singleton transport, or the
-  // one-time destination redemption would be sent back to the retired source.
-  if (peekCapturedFragmentCredential()?.kind === "relocation") {
-    try { localStorage.removeItem(COORDINATOR_OVERRIDE_KEY); } catch { /* storage unavailable */ }
-    return "";
-  }
   if (typeof localStorage === "undefined") return "";
   if (localStorage.getItem(DEPLOYMENT_MODE_KEY) !== "self-hosted") return "";
   return localStorage.getItem(COORDINATOR_OVERRIDE_KEY) ?? "";

@@ -65,7 +65,7 @@ export function makeWorkerConn(
     close: requestClose,
     bufferedAmount,
   };
-  // Coordinator-move sends must still observe transport throws, while ACK and
+  // Maintenance sends must still observe transport throws, while ACK and
   // keepalive callers contain them. Both paths close this exact socket on a
   // rejected write so a reconnect can replay anything left unacknowledged.
   const sendProtocolFrame = (what: string, frame: CoordWorkerDown): number => {
@@ -147,7 +147,7 @@ export function makeWorkerConn(
       respawnTimer = setTimeout(() => {
         respawnTimer = null;
         if (done || !_isReady()) return;
-        respawnMissingForWorker(deps.db, fp, myHandle, deps.move?.gate).catch((error) => {
+        respawnMissingForWorker(deps.db, fp, myHandle, deps.writeGate).catch((error) => {
           log.warn("worker-service", "respawn_missing_failed", {
             error: String(error),
             worker_fp: fp,

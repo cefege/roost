@@ -56,7 +56,6 @@ function makeListenerFixture() {
       dbPath: "/tmp/request-timeout.db",
       authorizedKeysPath: "/tmp/authorized_keys",
       webDistPath: undefined,
-      coordKeyPath: "/tmp/coord-key",
       jwtMaxAgeSecs: 300,
       auditRetentionDays: 90,
       corsAllowedOrigins: ["https://caller.example"],
@@ -65,7 +64,6 @@ function makeListenerFixture() {
       logDir: "/tmp",
       publicUrl: "https://coord.example",
       webPublicUrl: "https://dashboard.example",
-      handoffPath: "/tmp/handoff.json",
     },
     coord: {
       async fetch(
@@ -78,7 +76,6 @@ function makeListenerFixture() {
       dispose() {},
     },
     sqlite: {},
-    move: { gate: { mode: "active" } },
     workerDeps: {},
     syncDeps: {},
     workerWs: { open() {}, message() {}, close() {} },

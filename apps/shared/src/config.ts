@@ -32,7 +32,6 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
     dbPath: env.ROOST_COORDINATOR_DB ?? join(dataDir, "coordinator_v2.db"),
     authorizedKeysPath: env.ROOST_COORDINATOR_AUTHORIZED_KEYS ?? join(dataDir, "authorized_keys.roost"),
     webDistPath: env.ROOST_WEB_DIST_PATH,
-    coordKeyPath: env.ROOST_COORDINATOR_KEY_PATH ?? join(dataDir, "ssh_ed25519.key"),
     jwtMaxAgeSecs: env.ROOST_COORDINATOR_JWT_MAX_AGE_SECS
       ? Number(env.ROOST_COORDINATOR_JWT_MAX_AGE_SECS)
       : undefined,
@@ -50,7 +49,6 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
     webPublicUrl: normalizeHttpsOrigin(env.ROOST_WEB_PUBLIC_URL, "ROOST_WEB_PUBLIC_URL"),
     logDir: env.ROOST_COORDINATOR_LOG_DIR,
     publicUrl: normalizeHttpsOrigin(env.ROOST_COORDINATOR_PUBLIC_URL, "ROOST_COORDINATOR_PUBLIC_URL"),
-    handoffPath: env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(dataDir, "coord-handoff.json"),
   });
 
   // Trusting X-Forwarded-For makes the caller origin attacker-controlled unless every

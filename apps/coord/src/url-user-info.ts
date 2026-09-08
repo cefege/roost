@@ -1,9 +1,9 @@
 // One definition of "this URL carries embedded credentials", used by every
 // coordinator surface that accepts an operator- or browser-supplied URL:
-// push subscription endpoints (connect/handlers-push.ts, push-dispatch.ts),
-// relocation targets (connect/handlers-relocation.ts) and signed Windows update
-// manifests (windows-update-deploy-record.ts). Four hand-written copies of one
-// rejection rule is exactly how one surface silently keeps accepting them.
+// push subscription endpoints (connect/handlers-push.ts, push-dispatch.ts) and
+// signed Windows update manifests (windows-update-deploy-record.ts). Several
+// hand-written copies of one rejection rule is exactly how one surface
+// silently keeps accepting them.
 
 /**
  * True when the URL's authority carries a userinfo component. WHATWG

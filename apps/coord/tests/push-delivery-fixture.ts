@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { CoordConfig } from "@roost/shared/config";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
-import { loadOrCreateCoordKey } from "../src/coord-key.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { createCoord } from "../src/coord-factory.ts";
 import {
   installTerminalViewHub,
@@ -40,19 +40,16 @@ export interface PushDeliveryFixture {
 export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> {
   const workdir = mkdtempSync(join(tmpdir(), "roost-push-"));
   const dbPath = join(workdir, "coord.db");
-  const keyPath = join(workdir, "coord.key");
   const authorizedKeysPath = join(workdir, "authorized_keys");
   writeFileSync(authorizedKeysPath, "");
   const opened = openDb(dbPath);
   const { db, sqlite } = opened;
   await runMigrations(sqlite);
-  const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
     trustProxy: false,
     bind: "127.0.0.1:0",
     dbPath,
-    coordKeyPath: keyPath,
     authorizedKeysPath,
     webDistPath: "",
     jwtMaxAgeSecs: 300,
@@ -62,7 +59,6 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
     pushAllowedOrigins: [...PUSH_ORIGINS],
     logDir: workdir,
     publicUrl: undefined,
-    handoffPath: join(workdir, "coord-handoff.json"),
   };
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -128,7 +124,7 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
   const coord = createCoord({
     db,
     sqlite,
-    coordKey,
+    writeGate: new CoordinatorWriteGate(),
     cfg,
     jwtCache,
   });

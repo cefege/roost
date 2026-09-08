@@ -356,6 +356,5 @@ export function createCoordLinkOutbox(
     isAttached: nativeWriter.isAttached,
     activeSocket: nativeWriter.activeSocket,
     ackEvent: (seq) => { events.ack(seq); drainQueues(); },
-    unackedCount: () => events.count(),
   };
 }

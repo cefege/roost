@@ -23,7 +23,6 @@ export type WindowsHelperOperation =
   | "remove-updater-artifact"
   | "inspect-updater-artifact"
   | "copy-updater-artifact"
-  | "coordinator-relocation-state"
   | "snapshot-file-security-tree"
   | "restore-file-security-tree"
   | "protect-directory"
@@ -508,35 +507,6 @@ export async function windowsCopyUpdaterArtifact(
   }
   return result;
 }
-export type WindowsCoordinatorRelocationStateAction =
-  | "admit-stage"
-  | "prepare"
-  | "promote"
-  | "restore"
-  | "commit";
-
-export async function windowsCoordinatorRelocationState(
-  action: WindowsCoordinatorRelocationStateAction,
-  relocationId: string,
-  handoffId: string,
-  options: RunWindowsHelperOptions = {},
-): Promise<{ action: WindowsCoordinatorRelocationStateAction; durable: true }> {
-  const result = await runWindowsHelper<{
-    action: WindowsCoordinatorRelocationStateAction;
-    durable: true;
-  }>(
-    "coordinator-relocation-state",
-    [action, relocationId, handoffId],
-    options,
-  );
-  if (result.action !== action || result.durable !== true) {
-    throw new Error("invalid coordinator relocation state proof");
-  }
-  return result;
-}
-
-
-
 
 export async function windowsCurrentUserSid(options: RunWindowsHelperOptions = {}): Promise<string> {
   const result = await runWindowsHelper<{ sid: string }>("current-user-sid", [], options);

@@ -16,8 +16,8 @@ export { resolveTailnetDnsName } from "@roost/shared/tailnet";
 
 // Boot-time coord RPCs MUST time out. runInstall runs BEFORE heartbeat +
 // CoordLink start, so a hang here stalls the whole worker boot. A coord
-// that's mid-crash leaves the connection half-open (tailscale serve accepts
-// the TCP/TLS, the dead coord process never responds) → the await never
+// that's mid-crash leaves the connection half-open (the operator's front door
+// accepts the TCP/TLS, the dead coord process never responds) → the await never
 // rejects, the try/catch never fires, boot hangs forever (observed: local
 // worker stuck 48min while coord segfault-flapped). With a timeout the call
 // rejects → caught → boot proceeds → heartbeat + CoordLink retry loops

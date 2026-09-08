@@ -145,6 +145,8 @@ export function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
     case "uiState":
     case "uiCommand":
     case "keepalive":
+    // Frozen proto residue: the oneof tag stays in the schema, but nothing in
+    // this coordinator ever produces the frame.
     case "coordinatorRelocation":
     case "subscribed":
     case "domainReset":

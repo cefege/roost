@@ -42,9 +42,9 @@ async function loadOrCreateVapidKeys(db: Kysely<DB>): Promise<VapidKeys> {
     .values({ dashboard_id: null, key: VAPID_SETTING_KEY, value, updated_at_ms: now })
     .execute();
 
-  // `loadPromise` serializes first use in the one coordinator process. During
-  // a handoff, read the retained coordinator-global row rather than a tenant
-  // setting; deployment guarantees only one writer after cutover.
+  // `loadPromise` serializes first use in the one coordinator process. Read back
+  // the coordinator-global row (dashboard_id IS NULL), never a tenant setting:
+  // push identity is global and a per-dashboard row would silently shadow it.
   const persisted = await db
     .selectFrom("app_settings")
     .select("value")

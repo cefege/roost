@@ -3,9 +3,9 @@
 // application choreography — install/configure round-trips, exact rollback
 // of saved SCM snapshots, and the recovery-policy contract.
 //
-// Callers: windows-update-control.ts, windows-relocation-control.ts,
-// install-binary-agents.ts, quickstart.ts, and tests via the service-ctl.ts
-// barrel. Depends on windows-service-{types,definitions,scm,security}.ts.
+// Callers: windows-update-control.ts, install-binary-agents.ts,
+// quickstart.ts, and tests via the service-ctl.ts barrel. Depends on
+// windows-service-{types,definitions,scm,security}.ts.
 
 import { runWindowsHelper } from "@roost/shared/windows-helper";
 import type { WindowsServiceRecoveryPolicy } from "@roost/shared/windows-helper";

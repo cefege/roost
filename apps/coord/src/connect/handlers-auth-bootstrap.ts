@@ -73,12 +73,9 @@ export function makeAuthBootstrapHandlers(
     // ─── auth ──────────────────────────────────────────────────────────
     async authCoordIdentity(_req, _ctx) {
       // public
-      const handoff = deps.move?.current();
       return create(AuthCoordIdentityResponseSchema, {
         gitSha: COORD_GIT_SHA,
         publicUrl: deps.cfg.publicUrl ?? "",
-        relocatedToUrl: handoff?.role === "SOURCE" && handoff.phase === "COMMITTED" ? handoff.target_url : undefined,
-        handoffId: handoff?.handoff_id,
       });
     },
 

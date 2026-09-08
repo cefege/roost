@@ -70,10 +70,10 @@ not arriving intact and the whole database is downloadable.
 
 ## Paths that stay private
 
-Deny two prefixes at the front door: `/internal/*` (coordinator handoff) and
-`/api/db-export` (the whole database). The coordinator also refuses
-`/api/db-export` for any caller it does not resolve as on-host, so the edge
-rule is defence in depth.
+Deny two prefixes at the front door: `/internal/*`, a namespace the coordinator
+reserves for private on-host routes, and `/api/db-export` (the whole database).
+The coordinator also refuses `/api/db-export` for any caller it does not resolve
+as on-host, so the edge rule is defence in depth.
 
 `/ws/coord-worker/*` — the worker link — passes by default: in a standard
 install workers dial the same origin browsers use. Deny it only once workers

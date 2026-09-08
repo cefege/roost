@@ -1,6 +1,6 @@
 // These tests pin fragment parsing and synchronous credential capture.
 // They model browser history and storage so secrets are scrubbed before SPA startup.
-// Entry capture and URL cleanup must remain synchronous across every credential kind.
+// Entry capture and URL cleanup must remain synchronous before any network module loads.
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
@@ -97,38 +97,23 @@ function installBrowser(
 }
 
 function resetBaseCredentialState(): void {
-  for (const kind of ["pair", "relocation"] as const) {
-    clearCapturedFragmentCredential(kind);
-  }
+  clearCapturedFragmentCredential("pair");
 }
 
 beforeEach(resetBaseCredentialState);
 
 describe("fragment credential classifier", () => {
-  test("accepts exactly one complete pair or relocation shape", () => {
+  test("accepts exactly one complete pair shape", () => {
     expect(parseFragmentCredential("#pair=one-shot")).toEqual({
       kind: "pair",
       token: "one-shot",
-    });
-    expect(parseFragmentCredential("#move=relocation&handoff=id-1")).toEqual({
-      kind: "relocation",
-      token: "relocation",
-      handoffId: "id-1",
     });
     expect(parseFragmentCredential("#unrelated=value")).toEqual({ kind: "none" });
     expect(parseFragmentCredential("")).toEqual({ kind: "none" });
   });
 
-  test("rejects combined, partial, empty, and duplicate credential fields", () => {
-    for (const hash of [
-      "#pair=p&move=m&handoff=h",
-      "#move=m",
-      "#handoff=h",
-      "#move=&handoff=h",
-      "#pair=",
-      "#pair=a&pair=b",
-      "#move=a&move=b&handoff=h",
-    ]) {
+  test("rejects empty and duplicate credential fields", () => {
+    for (const hash of ["#pair=", "#pair=a&pair=b"]) {
       expect(parseFragmentCredential(hash), hash).toEqual({ kind: "invalid" });
     }
   });
@@ -139,11 +124,6 @@ describe("fragment credential classifier", () => {
       search: "?view=terminal&pair=query-secret&raw=a%2Fb",
       hash: "#keep=one&pair=fragment-secret&anchor&other=two",
     })).toBe("/workspace?view=terminal&raw=a%2Fb#keep=one&anchor&other=two");
-    expect(credentialFreeUrl({
-      pathname: "/",
-      search: "?x=1",
-      hash: "#move=m&handoff=h",
-    })).toBe("/?x=1");
     expect(credentialFreeUrl({
       pathname: "/file/fp/path",
       search: "",
@@ -211,7 +191,6 @@ describe("synchronous entry capture", () => {
           events.push(`pair:${token}`);
           return { ok: true };
         },
-        redeemRelocation: async () => "success",
         warn: (message) => events.push(`warn:${message}`),
       });
       expect(redeemed).toBe(true);
@@ -228,26 +207,23 @@ describe("synchronous entry capture", () => {
     }
   });
 
-  test("captures once, persists through a module reload, and clears only the expected kind", async () => {
+  test("captures once and persists through a module reload", async () => {
     const events: string[] = [];
     const session = new MemoryStorage();
     const browser = installBrowser({
       pathname: "/",
-      hash: "#move=move-secret&handoff=handoff-id",
+      hash: "#pair=pair-secret",
       session,
     }, events);
     try {
       expect(captureAndScrubFragmentCredential()).toEqual({
-        kind: "relocation",
-        token: "move-secret",
-        handoffId: "handoff-id",
+        kind: "pair",
+        token: "pair-secret",
       });
       expect(events).toEqual(["replace:/"]);
-      expect(clearCapturedFragmentCredential("pair")).toBe(false);
       expect(peekCapturedFragmentCredential()).toEqual({
-        kind: "relocation",
-        token: "move-secret",
-        handoffId: "handoff-id",
+        kind: "pair",
+        token: "pair-secret",
       });
 
       // A cache-distinct import models a document reload: module memory starts
@@ -259,34 +235,33 @@ describe("synchronous entry capture", () => {
         clearCapturedFragmentCredential(kind: CapturedFragmentCredentialKind): boolean;
       };
       expect(reloaded.peekCapturedFragmentCredential()).toEqual({
-        kind: "relocation",
-        token: "move-secret",
-        handoffId: "handoff-id",
+        kind: "pair",
+        token: "pair-secret",
       });
-      expect(reloaded.clearCapturedFragmentCredential("relocation")).toBe(true);
+      expect(reloaded.clearCapturedFragmentCredential("pair")).toBe(true);
       expect(reloaded.peekCapturedFragmentCredential()).toBeNull();
     } finally {
-      clearCapturedFragmentCredential("relocation");
+      clearCapturedFragmentCredential("pair");
       browser.restore();
     }
   });
 
-  test("a captured relocation clears a stale coordinator override after hash scrubbing", () => {
+  test("capturing a pair leaves the self-hosted coordinator override intact", () => {
     const local = new MemoryStorage();
     local.setItem("roost.deploymentMode", "self-hosted");
-    local.setItem("roost.coordinatorUrl", "https://retired.example.test");
+    local.setItem("roost.coordinatorUrl", "https://coord.example.test");
     const browser = installBrowser({
       pathname: "/",
-      hash: "#move=move-secret&handoff=handoff-id",
+      hash: "#pair=pair-secret",
       local,
     });
     try {
       captureAndScrubFragmentCredential();
       expect(browser.location.hash).toBe("");
-      expect(coordBase()).toBe("");
-      expect(local.getItem("roost.coordinatorUrl")).toBeNull();
+      expect(coordBase()).toBe("https://coord.example.test");
+      expect(local.getItem("roost.coordinatorUrl")).toBe("https://coord.example.test");
     } finally {
-      clearCapturedFragmentCredential("relocation");
+      clearCapturedFragmentCredential("pair");
       browser.restore();
     }
   });
@@ -296,7 +271,7 @@ describe("synchronous entry capture", () => {
       origin: "https://dashboard.roosttt.com",
       pathname: "/s/session-a",
       search: "?pair=query-secret&keep=1",
-      hash: "#move=fragment-secret&handoff=h",
+      hash: "#pair=fragment-secret",
     });
     expect(serialized).toBe(
       "https://dashboard.roosttt.com/s/session-a?keep=1",

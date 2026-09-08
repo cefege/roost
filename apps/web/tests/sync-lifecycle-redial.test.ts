@@ -86,7 +86,7 @@ Object.assign(globalThis, {
   WebSocket: FakeSyncSocket,
   document: fakeDocument,
   window: fakeWindow,
-  // connect.ts reads location.hash for relocation/pair fragments at module scope.
+  // connect.ts resolves the same-origin base from location at module scope.
   location: {
     origin: "http://127.0.0.1:65000",
     protocol: "http:",

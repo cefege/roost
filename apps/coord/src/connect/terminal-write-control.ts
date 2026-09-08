@@ -1,4 +1,4 @@
-// Shared terminal-write orchestration owns the sender/session FIFO, move-gate
+// Shared terminal-write orchestration owns the sender/session FIFO, write-gate
 // lease ordering, monotonic hop deadline, and WInputResult classification.
 // Raw terminal input and status-fenced prompts supply only their worker sender
 // and acceptance policy, keeping retries and ambiguity semantics identical.
@@ -9,7 +9,7 @@ import {
   TerminalWritePhase,
   type WInputResult,
 } from "@roost/shared/proto/worker_transport_pb";
-import type { WriteLease } from "../coord-move/write-gate.ts";
+import type { WriteLease } from "../coordinator-write-gate.ts";
 import type { ConnectDeps } from "./router.ts";
 import {
   INPUT_CONTROL_TIMEOUT_MS,
@@ -167,7 +167,9 @@ export function processTerminalWriteControl(
       let lease: WriteLease | null = null;
       let admitted = false;
       try {
-        lease = deps.move?.gate.acquire() ?? null;
+        // Inside the lane, never before it: leasing earlier would let queued
+        // input hold the exclusive keeper-update drain open forever.
+        lease = deps.writeGate.acquire();
         const route = await resolveSessionRoute(deps.db, dashboardId, command.sessionId);
         if (!route) return terminalWriteRejected(command, "unknown session");
         const workerCall = sendToWorker(route.workerFp, route.dashboardId, deadline);
@@ -209,7 +211,7 @@ export function processTerminalWriteControl(
       } catch (error) {
         const reason = error instanceof Error
           ? error.message
-          : "coordinator is not write-active";
+          : "coordinator write lease unavailable";
         if (admitted) {
           return {
             status: "ambiguous",

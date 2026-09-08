@@ -1,9 +1,9 @@
-// Coordinator -> worker frame dispatch for coord-link.ts: every CoordWorkerDown
-// variant, the per-kind terminal-control admission slots, and the monotonic
-// request budget derived from the coordinator's RELATIVE budget_ms. Extracted
-// from coord-link.ts as pure code motion to keep both files under the 400-line
-// cap. Reply frames go back out through the same outbox, so ordering relative
-// to cells and raw metadata is unchanged.
+// Coordinator -> worker frame dispatch for coord-link.ts: the handled
+// CoordWorkerDown variants, the per-kind terminal-control admission slots, and
+// the monotonic request budget derived from the coordinator's RELATIVE
+// budget_ms. A variant with no case here is ignored, which is how retired
+// schema tags stay inert. Reply frames go back out through the same outbox, so
+// ordering relative to cells and raw metadata is unchanged.
 
 import {
   TerminalInputStatus,
@@ -35,7 +35,6 @@ export function createCoordLinkDownstream(
   outbox: CoordLinkOutbox,
 ): CoordLinkDownstream {
   const { send } = outbox;
-  const snapshotRequestIds = new Map<string, string>();
   // Stream-state and input requests have independent bounded admissions so a
   // keeper resize cannot consume the input lane.
   let inputRequestsInFlight = 0;
@@ -288,64 +287,6 @@ export function createCoordLinkDownstream(
           request_id: a.requestId, session_id: a.sessionId, filename: a.filename,
           short_path: a.shortPath, data: a.data, last: a.last, seq: a.seq,
         });
-        return;
-      }
-      case "coordMovePrepare": {
-        const move = v as { requestId: string; handoffId: string; sourceUrl: string; targetUrl: string; expectedCoordKid: string; expectedGitSha: string; estimatedDbSize: bigint; action: "CHECK" | "PREPARE" };
-        if (!deps.onCoordMovePrepare) {
-          send({ kind: "rpc-error", request_id: move.requestId, message: "coordinator move unsupported by this worker" });
-          return;
-        }
-        void Promise.resolve(deps.onCoordMovePrepare({
-          request_id: move.requestId, handoff_id: move.handoffId, source_url: move.sourceUrl, target_url: move.targetUrl,
-          expected_coord_kid: move.expectedCoordKid, expected_git_sha: move.expectedGitSha, estimated_db_size: move.estimatedDbSize, action: move.action,
-        })).then(() => send({ kind: "rpc-ok", request_id: move.requestId, data: {} }))
-          .catch((error) => send({ kind: "rpc-error", request_id: move.requestId, message: (error as Error).message }));
-        return;
-      }
-      case "coordMoveSnapshotStart": {
-        const snapshot = v as { requestId: string; handoffId: string; totalSize: bigint; sha256: string; coordKeyPem: Uint8Array; authorizedKeys: Uint8Array; secretSha256: string; expectedWorkerFps: string[] };
-        if (!deps.onCoordMoveSnapshotStart) {
-          send({ kind: "rpc-error", request_id: snapshot.requestId, message: "coordinator move unsupported by this worker" });
-          return;
-        }
-        void Promise.resolve(deps.onCoordMoveSnapshotStart({
-          request_id: snapshot.requestId, handoff_id: snapshot.handoffId, total_size: snapshot.totalSize, sha256: snapshot.sha256,
-          coord_key_pem: snapshot.coordKeyPem, authorized_keys: snapshot.authorizedKeys, secret_sha256: snapshot.secretSha256,
-          expected_worker_fps: snapshot.expectedWorkerFps,
-        })).then(() => snapshotRequestIds.set(snapshot.handoffId, snapshot.requestId))
-          .catch((error) => send({ kind: "rpc-error", request_id: snapshot.requestId, message: (error as Error).message }));
-        return;
-      }
-      case "coordMoveSnapshotChunk": {
-        const chunk = v as { handoffId: string; seq: number; data: Uint8Array; last: boolean };
-        if (!deps.onCoordMoveSnapshotChunk) return;
-        void Promise.resolve(deps.onCoordMoveSnapshotChunk({
-          handoff_id: chunk.handoffId, seq: chunk.seq, data: chunk.data, last: chunk.last,
-        })).then(() => {
-          if (!chunk.last) return;
-          const requestId = snapshotRequestIds.get(chunk.handoffId);
-          if (!requestId) return;
-          snapshotRequestIds.delete(chunk.handoffId);
-          send({ kind: "rpc-ok", request_id: requestId, data: {} });
-        }).catch((error) => {
-          const requestId = snapshotRequestIds.get(chunk.handoffId);
-          if (!requestId) return;
-          snapshotRequestIds.delete(chunk.handoffId);
-          send({ kind: "rpc-error", request_id: requestId, message: (error as Error).message });
-        });
-        return;
-      }
-      case "coordRelocate": {
-        const relocate = v as { requestId: string; handoffId: string; sourceUrl: string; targetUrl: string; action: "STAGE" | "ACTIVATE" | "COMMIT" | "ABORT" };
-        if (!deps.onCoordRelocate) {
-          send({ kind: "rpc-error", request_id: relocate.requestId, message: "coordinator move unsupported by this worker" });
-          return;
-        }
-        void Promise.resolve(deps.onCoordRelocate({
-          request_id: relocate.requestId, handoff_id: relocate.handoffId, source_url: relocate.sourceUrl, target_url: relocate.targetUrl, action: relocate.action,
-        })).then(() => send({ kind: "rpc-ok", request_id: relocate.requestId, data: {} }))
-          .catch((error) => send({ kind: "rpc-error", request_id: relocate.requestId, message: (error as Error).message }));
         return;
       }
       case "updateBroker": {

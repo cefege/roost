@@ -3,7 +3,7 @@
 // agent registry; focused handlers own stateful downstream protocols.
 
 import { randomUUID, createHash } from "node:crypto";
-import { diag, isDiagEnabled, signal } from "@roost/shared/diag";
+import { diag, isDiagEnabled } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import type { WorkerFp } from "@roost/shared/wire";
 import {
@@ -16,8 +16,6 @@ import { writeAgentPrompt } from "./agent-prompt-control.ts";
 import { createKeeperUpdatePrepareHandler } from "./coord-link-keeper-update.ts";
 import { handleAttachmentChunk } from "./attachment-upload.ts";
 import { handleBrowserCommand } from "./browser-command-handler.ts";
-import type { CoordTarget } from "./coord-target.ts";
-import type { WorkerCoordRelocation } from "./coord-relocation.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { AgentScreenDetector } from "./agent-status/detector.ts";
 import type { AgentStatusRegistry } from "./agent-status/registry.ts";
@@ -94,14 +92,11 @@ export interface CoordLinkDepsCtx {
 	workerFp: WorkerFp;
 	mintJwt: () => Promise<string>;
 	sessionEventStore: SessionEventStore;
-	coordTarget: CoordTarget;
-	relocation: WorkerCoordRelocation;
-	setCoordinatorEndpoint: (url: string) => void;
 	refs: CoordLinkRefs;
 }
 
 export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
-	const { refs, coordTarget, relocation, setCoordinatorEndpoint } = ctx;
+	const { refs } = ctx;
 	const mgr = (): SessionManager => {
 		if (!refs.sessionMgr) throw new Error("coord-link deps used before sessionMgr was bound");
 		return refs.sessionMgr;
@@ -280,57 +275,6 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 						message,
 					}),
 			});
-		},
-		// phase-24b-2: browser commands routed via coord WorkerHub. Per
-		// CoordWorkerDownstream.browser-command, the inner frame is a
-		// ClientControlFrame. Handle the variants that map cleanly to
-		// existing SessionManager methods; the rest land in subsequent
-		// sub-commits (spawn/input/attach/detach/presence).
-		onCoordMovePrepare: (request) => coordTarget.prepare(request),
-		onCoordMoveSnapshotStart: (request) => coordTarget.startSnapshot(request),
-		onCoordMoveSnapshotChunk: (chunk) => coordTarget.appendSnapshot(chunk),
-		onCoordRelocate: async (request) => {
-			// No logging here at all meant `roost logs worker` showed nothing
-			// during a failed move — errors only ever surfaced if the
-			// coordinator happened to persist them.
-			try {
-				if (request.action === "STAGE") {
-					await relocation.stage(request);
-					return;
-				}
-				if (request.action === "ACTIVATE") {
-					await relocation.activate(request);
-					setCoordinatorEndpoint(request.target_url);
-					setTimeout(() => link().relocate(request.target_url), 0);
-					return;
-				}
-				if (request.action === "COMMIT") {
-					await relocation.commit(
-						() => link().unackedEventCount(),
-						(url, force) => link().relocate(url, force),
-					);
-					// No-op on every worker but the new host: only the move target
-					// has a handoffs/<id>/ staging + rollback directory.
-					await coordTarget.finalizeCommit(request.handoff_id);
-					return;
-				}
-				if (request.action === "ABORT") {
-					await coordTarget.abort(request.handoff_id);
-					await relocation.abort(request.handoff_id, (url) => {
-						setCoordinatorEndpoint(url);
-						link().relocate(url);
-					});
-				}
-			} catch (error) {
-				log.error("worker", "coord_relocate_failed", {
-					action: request.action, handoff_id: request.handoff_id, error: String(error),
-				});
-				signal("worker.coord_relocate_failed", {
-					action: request.action, handoff_id: request.handoff_id,
-					error: String(error), cooldownKey: request.handoff_id,
-				});
-				throw error;
-			}
 		},
 		onUpdateBroker: async (command) => {
 			switch (process.platform) {

@@ -4,7 +4,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "bun:test";
+import { afterEach, expect, test, vi } from "bun:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerDownSchema,
@@ -15,6 +15,7 @@ import {
 } from "@roost/shared/proto/worker_transport_pb";
 import type { ChannelId, SessionEvent, SessionId, WorkerFp } from "@roost/shared/wire";
 import { startCoordLink } from "../src/transport/coord-link.ts";
+import { BACKOFF_INITIAL_MS } from "../src/transport/coord-link-constants.ts";
 import { openSessionEventStore } from "../src/transport/session-event-store.ts";
 
 const workerFp = "a".repeat(64) as WorkerFp;
@@ -72,6 +73,22 @@ function eventFrames(bytes: Uint8Array[]): WSessionEvent[] {
   return events;
 }
 
+afterEach(() => { vi.useRealTimers(); });
+
+/** A dropped socket redials on the reconnect ladder's jittered backoff timer,
+ *  so the ladder is driven by the fake clock: equal jitter caps the first
+ *  attempt at BACKOFF_INITIAL_MS, and the dial then awaits mintJwt. */
+async function redialedSocket(
+  sockets: ControlledWebSocket[],
+  index: number,
+): Promise<ControlledWebSocket> {
+  vi.advanceTimersByTime(BACKOFF_INITIAL_MS);
+  for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+  const socket = sockets[index];
+  if (!socket) throw new Error(`coord-link never redialed socket ${index}`);
+  return socket;
+}
+
 test("hello gates exact-ACK replay, one fresh snapshot, and post-copy traffic across reconnect", async () => {
   const root = mkdtempSync(join(tmpdir(), "roost-reconnect-order-"));
   const store = openSessionEventStore({
@@ -84,6 +101,7 @@ test("hello gates exact-ACK replay, one fresh snapshot, and post-copy traffic ac
   // whole lifetime. Held capacity must not block the reconnect snapshot.
   const existingLiveClose = store.reserveSessionEvent("closed");
   store.holdSessionEvent(existingLiveClose);
+  vi.useFakeTimers();
   const sockets: ControlledWebSocket[] = [];
   let snapshotBuilds = 0;
   let readyEdges = 0;
@@ -187,11 +205,9 @@ test("hello gates exact-ACK replay, one fresh snapshot, and post-copy traffic ac
     firstSocket.receive(downstream("eventAck", BigInt(postCopy.clientSeq)));
     expect(eventFrames(firstSocket.sent).at(-1)!.clientSeq).toBe(BigInt(metadataSeq));
 
-    link.relocate("http://coord.test:4102", true);
+    firstSocket.close();
     expect(link.ready()).toBe(false);
-    await Promise.resolve();
-    await Promise.resolve();
-    const secondSocket = sockets[1]!;
+    const secondSocket = await redialedSocket(sockets, 1);
     secondSocket.open();
     expect(secondSocket.sent.map((bytes) => fromBinary(CoordWorkerUpSchema, bytes).frame.case)).toEqual(["hello"]);
     secondSocket.receive(downstream("helloAck"));
@@ -293,6 +309,7 @@ test("reference replay drains before snapshot activation across a disconnect", a
   };
   const reservation = store.reserveSessionEvent("agent_reference");
   const stored = store.appendSessionEvent(reservation, event);
+  vi.useFakeTimers();
   const sockets: ControlledWebSocket[] = [];
   const link = startCoordLink({
     coordHttpUrl: "http://coord.test:4102",
@@ -322,10 +339,8 @@ test("reference replay drains before snapshot activation across a disconnect", a
     );
     expect(drained).toBe(false);
 
-    link.relocate("http://coord.test:4102", true);
-    await Promise.resolve();
-    await Promise.resolve();
-    const secondSocket = sockets[1]!;
+    firstSocket.close();
+    const secondSocket = await redialedSocket(sockets, 1);
     secondSocket.open();
     secondSocket.receive(downstream("helloAck"));
     expect(eventFrames(secondSocket.sent).map((frame) =>

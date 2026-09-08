@@ -29,6 +29,7 @@ import {
   getEventsThrough,
 } from "../src/event-log.ts";
 import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { sessionFirehoseFrame } from "../src/connect/sync-feed-frames.ts";
 import {
   startSyncFeed,
@@ -193,7 +194,10 @@ describe("pre-snapshot durable replay", () => {
       published.push(event.kind);
     }, DASHBOARD_ID);
     const connection = makeWorkerConn(
-      { db: fixture.writer.db } as unknown as WorkerServiceDeps,
+      {
+        db: fixture.writer.db,
+        writeGate: new CoordinatorWriteGate(),
+      } as unknown as WorkerServiceDeps,
       { fingerprint: FP },
       (frame) => {
         if (frame.frame.case === "eventAck") {
@@ -257,7 +261,10 @@ describe("pre-snapshot durable replay", () => {
     const clientSeq = fixture.nextClientSeq();
     const acknowledgements: bigint[] = [];
     const connection = makeWorkerConn(
-      { db: fixture.writer.db } as unknown as WorkerServiceDeps,
+      {
+        db: fixture.writer.db,
+        writeGate: new CoordinatorWriteGate(),
+      } as unknown as WorkerServiceDeps,
       { fingerprint: FP },
       (frame) => {
         if (frame.frame.case === "eventAck") {
@@ -333,7 +340,10 @@ describe("pre-snapshot durable replay", () => {
     const warnSpy = spyOn(log, "warn").mockImplementation(() => undefined);
     const acknowledgements: bigint[] = [];
     const connection = makeWorkerConn(
-      { db: fixture.writer.db } as unknown as WorkerServiceDeps,
+      {
+        db: fixture.writer.db,
+        writeGate: new CoordinatorWriteGate(),
+      } as unknown as WorkerServiceDeps,
       { fingerprint: FP },
       (frame) => {
         if (frame.frame.case === "eventAck") {

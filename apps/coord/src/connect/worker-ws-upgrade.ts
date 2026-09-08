@@ -37,13 +37,6 @@ export async function handleWorkerWsUpgrade(
   const url = new URL(req.url);
   const match = WS_PATH_RE.exec(url.pathname);
   if (!match) return null;
-  // WS handshakes are GET, so main.ts's retired gate cannot see them. Reject
-  // ONLY on `retired`: the link must stay open through `source_draining` to
-  // buffer unacked events and receive ACTIVATE. Rejecting once retired is what
-  // makes coord-relocation-recovery's link-closed guard engage.
-  if (deps.move?.gate.mode === "retired") {
-    return new Response("coordinator relocated", { status: 410 });
-  }
   const fp = match[1]!;
   const addr = server.requestIP?.(req)?.address ?? undefined;
   // This endpoint has no query contract. Rejecting the entire query surface

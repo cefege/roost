@@ -42,8 +42,8 @@ export function createCoordLinkReconnect(hooks: CoordLinkReconnectHooks): CoordL
   // Persists across dials so callers can reconcile only after a true reopen,
   // not race normal startup with a duplicate snapshot request.
   let hasOpened = false;
-  // Pending backoff dial. Held so relocate()/dispose() can cancel it — an
-  // uncancelled timer means a second concurrent socket.
+  // Pending backoff dial. Held so dispose() can cancel it — an uncancelled
+  // timer means a second concurrent socket.
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   function beginDial(): number {
@@ -75,14 +75,6 @@ export function createCoordLinkReconnect(hooks: CoordLinkReconnectHooks): CoordL
   function noteStableSession(): void {
     ladderAttempt = 0;
     dialAttempt = 0;
-  }
-
-  function resetForRedial(): void {
-    ladderAttempt = 0;
-    // A worker auth-rejected by the source would otherwise carry a 5-minute
-    // backoff cap into the healthy target and sit offline for minutes.
-    dialAttempt = 0;
-    _authRejectCount = 0;
   }
 
   function cancelPendingDial(): void {
@@ -126,6 +118,6 @@ export function createCoordLinkReconnect(hooks: CoordLinkReconnectHooks): CoordL
 
   return {
     scheduleReconnect, cancelPendingDial, beginDial, noteOpen,
-    noteDialClosed, noteStableSession, resetForRedial,
+    noteDialClosed, noteStableSession,
   };
 }

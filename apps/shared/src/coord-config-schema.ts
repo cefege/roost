@@ -16,7 +16,6 @@ export const CoordConfig = z.object({
   dbPath: z.string(),
   authorizedKeysPath: z.string(),
   webDistPath: z.string().optional(),         // vinxi/vite build output for SPA serve
-  coordKeyPath: z.string(),                    // OpenSSH ed25519 key for JWT signing
   jwtMaxAgeSecs: z.number().int().positive().default(300),
   // Age-out window for the high-volume audit_log rows (keystrokes, SPA polling).
   // Auth/pair/delete rows are never swept — see apps/coord/src/audit-retention.ts.
@@ -32,6 +31,5 @@ export const CoordConfig = z.object({
   // Coordinator identity origin for operators whose worker traffic enters through a
   // different door than the browser front door. Never derived, only declared.
   publicUrl: z.string().url().optional(),
-  handoffPath: z.string(),
 });
 export type CoordConfig = z.infer<typeof CoordConfig>;

@@ -24,10 +24,9 @@ import { startAgentStatusHub, stopAgentStatusHub } from "./agent-status-hub.ts";
 import { log } from "@roost/shared/log";
 import type { KyselyDB } from "./db/connection.ts";
 import type { Database } from "bun:sqlite";
-import type { CoordKey } from "./coord-key.ts";
+import type { CoordinatorWriteGate } from "./coordinator-write-gate.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "./jwt.ts";
-import type { CoordinatorMoveService } from "./coord-move/orchestrator.ts";
 import type { CallerOrigin } from "./middleware/caller-origin.ts";
 import type { PendingEventPublicationStore } from "./pending-event-publications.ts";
 import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
@@ -46,10 +45,11 @@ export interface CoordHandlerContext {
 export interface CoordDeps {
   db: KyselyDB;
   sqlite: Database;
-  coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;
-  move?: CoordinatorMoveService;
+  /** Required: every durable mutation path must be able to take a lease, so
+   * an absent gate would silently unfence keeper updates. */
+  writeGate: CoordinatorWriteGate;
   uiLayoutApplies?: UiLayoutApplyOwner;
   uiStates?: UiStateOwner;
   pendingPublications?: PendingEventPublicationStore;

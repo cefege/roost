@@ -22,9 +22,6 @@ import {
 } from "./boot-reconcile.ts";
 import { coordLinkSink, isFatalSessionEventError } from "./event-sink.ts";
 import { openSessionEventStore } from "./transport/session-event-store.ts";
-import { CoordTarget } from "./coord-target.ts";
-import { WorkerCoordRelocation } from "./coord-relocation.ts";
-import { createCoordRelocationRecovery } from "./coord-relocation-recovery.ts";
 import { AgentScreenDetector } from "./agent-status/detector.ts";
 import { AgentStatusRegistry } from "./agent-status/registry.ts";
 import { installAgentIntegrations } from "./agent-status/install-integrations.ts";
@@ -38,11 +35,10 @@ import { asWorkerFp } from "@roost/shared/wire";
 import { diag, signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import { ROOST_ARTIFACT_VERSION, ROOST_BUILD_SHA } from "@roost/shared/build-identity";
-import { coordDataDir, coordServicePath, workerDataDir, workerServicePath } from "@roost/shared/paths";
+import { workerDataDir } from "@roost/shared/paths";
 import { prepareWtermCoreModule } from "@roost/shared/wterm-core-factory";
 
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 
 // hook.sock lives in the same data dir as the worker key.
 // install.sh always sets ROOST_WORKER_DATA_DIR; default is v2-isolated.
@@ -115,30 +111,7 @@ export async function runWorker() {
 	diag("worker.boot", { step: "key" });
 	const key = await loadWorkerKey(cfg.workerKeyPath);
 	const workerFp = asWorkerFp(key.fingerprint);
-	const coordDataRoot = coordDataDir();
-	const coordTarget = new CoordTarget({
-		dataDir: coordDataRoot,
-		dbPath: process.env.ROOST_COORDINATOR_DB ?? join(coordDataRoot, "coordinator_v2.db"),
-		keyPath: process.env.ROOST_COORDINATOR_KEY_PATH ?? join(coordDataRoot, "ssh_ed25519.key"),
-		authorizedKeysPath: process.env.ROOST_COORDINATOR_AUTHORIZED_KEYS ?? join(coordDataRoot, "authorized_keys.roost"),
-		handoffPath: process.env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(coordDataRoot, "coord-handoff.json"),
-		servicePath: coordServicePath(),
-	});
-	const relocation = new WorkerCoordRelocation(
-		join(SUPPORT, "coord-relocation.json"),
-		workerServicePath(),
-	);
-	await relocation.recoverTransaction();
-	await coordTarget.recoverTransaction();
-	const recoveredRelocation = relocation.load();
-	// COMMITTED counts too: commit() now keeps the journal so a service restart
-	// before the next full login still finds the new endpoint.
-	if (recoveredRelocation && recoveredRelocation.state !== "STAGED") cfg.coordinatorUrl = recoveredRelocation.target_url;
-	let client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
-	const setCoordinatorEndpoint = (url: string): void => {
-		cfg.coordinatorUrl = url;
-		client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
-	};
+	const client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
 
 	// Install: redeem one-shot bootstrap token (first boot only) + register
 	// (idempotent, retried by heartbeat). Redeem MUST precede CoordLink so coord
@@ -178,36 +151,12 @@ export async function runWorker() {
 		coordHttpUrl: cfg.coordinatorUrl,
 		workerFp,
 		mintJwt: () => mintJwt(key, "roost-coordinator"),
-		coordTarget,
-		relocation,
-		setCoordinatorEndpoint,
 		refs,
 		sessionEventStore,
 	}));
 	// Bind the forward ref before yielding: startCoordLink's first dial awaits
 	// mintJwt(), so no callback can observe a null link on this tick.
 	refs.link = coordLink;
-	const recoverRelocation = createCoordRelocationRecovery({
-		relocation,
-		link: coordLink,
-		statusAt: (url, handoffId) =>
-			createCoordClient({
-				cfg: { ...cfg, coordinatorUrl: url },
-				getJwt: () => mintJwt(key, "roost-coordinator"),
-			}).coordinatorMoveStatus({ handoffId }, { timeoutMs: 5_000 }),
-		setCoordinatorEndpoint,
-		abortTarget: (handoffId) => coordTarget.abort(handoffId),
-		currentCoordinatorUrl: () => cfg.coordinatorUrl,
-	});
-	// A crashed source may miss the ACTIVATE frame. Query both public move
-	// statuses after a sustained outage; recovery never blocks boot or the
-	// connection retry loop.
-	const triggerRelocationRecovery = (): void => {
-		void recoverRelocation().catch((error) =>
-			log.warn("worker", "coord_relocation_recovery_failed", { error: String(error) }),
-		);
-	};
-	triggerRelocationRecovery();
 	// phase-25d: teeSink retired. Single emit boundary via CoordLink.
 	// tRPC sessions.emit + the trpcSink branch deleted; CoordLink has
 	// been proven through smoke + multi-restart cycles.

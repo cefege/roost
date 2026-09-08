@@ -242,13 +242,6 @@ acknowledgement was unavailable after absence, close, replacement, or timeout;
 it does not prove that the browser did not execute before the acknowledgement
 was lost.
 
-### Coordinator relocation
-
-`move-preflight <fp|prefix|label>` is non-destructive and safe against a live
-cluster. `move-start <fp|prefix|label>` is destructive and re-runs the full
-preflight server-side. `move-status <handoff-id>` reports the phase and source
-URL. See [fleet](/docs/fleet/).
-
 ### Task rows
 
 `tasks [--state X]`, `task-enqueue <payload_json>`, and `task-cancel <id>` read
@@ -290,7 +283,7 @@ oddly: use `cells` for scrollback and `events` for a live output stream.
 
 ## Next
 
-- [Fleet](/docs/fleet/) — `push`, `deploy`, and coordinator relocation
+- [Fleet](/docs/fleet/) — `push`, `deploy`, and coordinator database backups
 - [Networking](/docs/networking/) — the loopback listener and the private paths
 - [Security](/docs/security/) — keys, pairing, revocation, audit
 - [Quickstart](/docs/quickstart/) — `quickstart`, `add-machine`, `status`, `doctor`

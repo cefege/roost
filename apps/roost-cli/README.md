@@ -55,9 +55,8 @@ identity-checked in `native/windows/roost-win-helper.cpp`, so renaming the key o
 changing its argv shape breaks the native helper's admission check. The handler
 refuses to run unless `process.platform === "win32"` and `args.length === 0`. It
 loads every Windows module by dynamic `import()` so the native-helper-dependent
-code never enters a POSIX command path. It drains pending relocation requests
-(bounded at 16), runs the relocation broker for `worker-endpoint` and
-`coordinator-promotion`, and only then admits and runs the update broker.
+code never enters a POSIX command path. It admits any pending update request
+and only then runs the update broker.
 
 ## Module map
 
@@ -108,10 +107,7 @@ code never enters a POSIX command path. It drains pending relocation requests
   `src/windows/windows-release-manifest.ts`,
   `src/windows/windows-update-assets.ts`,
   `src/windows/windows-update-stable-artifacts.ts`, and
-  `src/windows/windows-update-rollback.ts`. Relocation is
-  `src/windows/windows-relocation-broker.ts`,
-  `src/windows/windows-relocation-control.ts`,
-  `src/windows/windows-relocation-journal.ts`. Service splits are
+  `src/windows/windows-update-rollback.ts`. Service splits are
   `src/windows/windows-service-types.ts`,
   `src/windows/windows-service-definitions.ts`,
   `src/windows/windows-service-scm.ts`,
@@ -230,11 +226,11 @@ never retried. `target_gone` means the exact fingerprint/tab/socket
 acknowledgement became unavailable through absence, close, replacement, or
 timeout; it is not proof that the browser did not commit the layout.
 
-`src/machine-transaction.ts` serializes install/update/relocation/
-keeper-refresh/deploy against one lock per machine. Importers are
-`src/deploy-local.ts`, `src/keeper-refresh.ts`, `src/push-coordinator.ts`,
-`src/quickstart-windows-install.ts`, `src/windows/windows-relocation-broker.ts`,
-and `src/windows/windows-update-broker.ts`.
+`src/machine-transaction.ts` serializes install/update/keeper-refresh/deploy
+against one lock per machine. Importers are `src/deploy-local.ts`,
+`src/keeper-refresh.ts`, `src/push-coordinator.ts`,
+`src/quickstart-windows-install.ts`, and
+`src/windows/windows-update-broker.ts`.
 
 ## Invariants
 

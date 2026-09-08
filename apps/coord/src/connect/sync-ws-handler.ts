@@ -4,10 +4,9 @@
 // terminal frame can escape before the socket has a complete baseline boundary.
 
 import type { ServerWebSocket } from "bun";
-import { clone, create } from "@bufbuild/protobuf";
+import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import {
-  CoordinatorRelocationFrameSchema,
   FirehoseFrameSchema,
   KeepaliveFrameSchema,
   SyncDomainGenerationSchema,
@@ -369,26 +368,6 @@ export function makeSyncWsHandler(
         ws.data.pressureClosing = true;
         cleanupSocket(ws);
         try { ws.close(4001, "dashboard access revoked"); } catch { /* cleanup already completed */ }
-      }
-    },
-    publishRelocation(handoffId: string, sourceUrl: string, targetUrl: string): void {
-      const frame = create(FirehoseFrameSchema, {
-        frame: {
-          case: "coordinatorRelocation",
-          value: create(CoordinatorRelocationFrameSchema, { handoffId, sourceUrl, targetUrl }),
-        },
-      });
-      for (const ws of [...sockets]) {
-        try {
-          const sent = ws.data.v2
-            ? v2Scheduler.sendV2ControlFrame(ws, clone(FirehoseFrameSchema, frame))
-            : delivery.sendGuarded(ws, frame);
-          if (sent) {
-            ws.data.pressureClosing = true;
-            cleanupSocket(ws);
-            ws.close();
-          }
-        } catch { /* cleanup paths retire every owner and timer */ }
       }
     },
   };

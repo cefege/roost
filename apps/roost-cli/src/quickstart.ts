@@ -106,8 +106,6 @@ export async function quickstart(args: string[]): Promise<void> {
         ROOST_COORD_LOG_DIR: windowsPaths.logDir,
         ROOST_COORDINATOR_DB: windowsPaths.database,
         ROOST_COORDINATOR_AUTHORIZED_KEYS: windowsPaths.authorizedKeys,
-        ROOST_COORDINATOR_KEY_PATH: windowsPaths.key,
-        ROOST_COORDINATOR_HANDOFF_PATH: windowsPaths.handoff,
         ...endpointEnvironment,
       }
       : undefined;

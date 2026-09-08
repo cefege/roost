@@ -25,6 +25,7 @@ import { getWorkerHubSocket } from "../src/connect/worker-send.ts";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 import { appendEvent } from "../src/event-log.ts";
 import { PendingEventPublicationStore } from "../src/pending-event-publications.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 
 const fixture = createDurablePublicationFixture({
   slug: "worker-generation",
@@ -97,8 +98,8 @@ describe("superseded worker generation fence", () => {
 
   test("only the current generation becomes routable after snapshot publication", async () => {
     const deps = {
-      db: writer.db,
-      pendingPublications: new PendingEventPublicationStore(),
+      db: writer.db, pendingPublications: new PendingEventPublicationStore(),
+      writeGate: new CoordinatorWriteGate(),
     } as unknown as WorkerServiceDeps;
     const hello = helloFrame();
     let closedOld = 0;
@@ -213,8 +214,8 @@ describe("superseded worker generation fence", () => {
     const pendingPublications = new PendingEventPublicationStore();
     const paused = pauseFirstTransactionAfterCommit(writer.db);
     const deps = {
-      db: paused.db,
-      pendingPublications,
+      db: paused.db, pendingPublications,
+      writeGate: new CoordinatorWriteGate(),
     } as unknown as WorkerServiceDeps;
     const oldAcks: bigint[] = [];
     let oldCloseRequests = 0;

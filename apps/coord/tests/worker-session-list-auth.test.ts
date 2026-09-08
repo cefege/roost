@@ -12,7 +12,7 @@ import { AgentConversationReferenceV1Schema } from "@roost/shared/agent-conversa
 import { sql } from "kysely";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { loadOrCreateCoordKey } from "../src/coord-key.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 
@@ -39,7 +39,6 @@ let closeDb: () => Promise<void>;
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-worker-session-auth-"));
   const dbPath = join(workdir, "test.db");
-  const keyPath = join(workdir, "coord.key");
   const authorizedKeysPath = join(workdir, "authorized_keys.roost");
   writeFileSync(authorizedKeysPath, "");
 
@@ -47,14 +46,12 @@ beforeAll(async () => {
   db = opened.db;
   closeDb = opened.close;
   await runMigrations(opened.sqlite);
-  const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
     trustProxy: false,
     bind: "127.0.0.1:0",
     pushAllowedOrigins: [],
     dbPath,
-    coordKeyPath: keyPath,
     authorizedKeysPath,
     webDistPath: "",
     jwtMaxAgeSecs: 300,
@@ -63,12 +60,11 @@ beforeAll(async () => {
     corsAllowedOrigins: [],
     logDir: workdir,
     publicUrl: undefined,
-    handoffPath: join(workdir, "coord-handoff.json"),
   };
   coord = createCoord({
     db,
     sqlite: opened.sqlite,
-    coordKey,
+    writeGate: new CoordinatorWriteGate(),
     cfg,
     jwtCache,
   });

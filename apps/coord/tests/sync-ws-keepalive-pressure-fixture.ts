@@ -33,7 +33,6 @@ export interface PressureHandler {
   message(ws: ServerWebSocket<SyncWsData>, message: string | Buffer): void;
   drain(ws: ServerWebSocket<SyncWsData>): void;
   close(ws: ServerWebSocket<SyncWsData>): void;
-  publishRelocation(handoffId: string, sourceUrl: string, targetUrl: string): void;
 }
 
 export interface PressureHarness {

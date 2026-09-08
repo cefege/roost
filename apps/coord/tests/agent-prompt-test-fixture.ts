@@ -37,6 +37,7 @@ import { makeAgentPromptHandlers } from "../src/connect/handlers-agent-prompt.ts
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb } from "../src/db/connection.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 
 export const PROMPT_DASHBOARD = "agent-prompt-dashboard";
@@ -147,7 +148,10 @@ export async function startAgentPromptTestFixture() {
       created_at: now,
     },
   ]).execute();
-  const deps = { db: opened.db } as unknown as ConnectDeps;
+  const deps = {
+    db: opened.db,
+    writeGate: new CoordinatorWriteGate(),
+  } as unknown as ConnectDeps;
   const handlers = makeAgentPromptHandlers(deps);
 
   function context(signal = new AbortController().signal): HandlerContext {

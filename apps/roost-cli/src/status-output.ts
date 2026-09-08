@@ -19,19 +19,8 @@ export function printStatusReport(r: StatusReport): void {
   console.log(`  ${mark(r.workerAgentLoaded)} worker service (${STATUS_WORKER_LABEL})`);
   if (!r.workerAgentLoaded) console.log(`      → bun apps/roost-cli/src/main.ts deploy localhost`);
 
-  // A SOURCE handoff at COMMITTED means the coordinator legitimately moved off
-  // this box — what handlers-auth.ts reports to the SPA as relocatedToUrl. Its
-  // local absence is then the expected end state, not a fault. Suppressed only
-  // when the coord is gone *because* of that; every other failure is untouched.
-  const relocated = r.handoff?.role === "SOURCE" && r.handoff.phase === "COMMITTED";
-  if (!(relocated && !r.coord.reachable)) {
-    console.log(`  ${mark(r.coord.reachable)} coord reachable${r.coord.gitSha ? ` (git ${r.coord.gitSha.slice(0, 8)})` : ""}`);
-    if (!r.coord.reachable) console.log(`      → check logs: bun apps/roost-cli/src/main.ts logs coord`);
-  }
-
-  if (r.handoff) {
-    console.log(`  coordinator move ${r.handoff.phase} (${r.handoff.role}, → ${r.handoff.targetUrl})`);
-  }
+  console.log(`  ${mark(r.coord.reachable)} coord reachable${r.coord.gitSha ? ` (git ${r.coord.gitSha.slice(0, 8)})` : ""}`);
+  if (!r.coord.reachable) console.log(`      → check logs: bun apps/roost-cli/src/main.ts logs coord`);
 
   if (!r.endpoint.publicUrl) {
     console.log("  - public url: not configured");
@@ -64,11 +53,10 @@ export function printStatusReport(r: StatusReport): void {
 }
 
 export function statusReportIsHealthy(report: StatusReport): boolean {
-  const relocatedAway = report.handoff?.role === "SOURCE" && report.handoff.phase === "COMMITTED";
   // An unconfigured front door is a valid same-origin install, so only a
   // declared-and-silent one fails the gate.
   return report.coordAgentLoaded
     && report.workerAgentLoaded
-    && (report.coord.reachable || relocatedAway)
+    && report.coord.reachable
     && (report.endpoint.publicUrl === null || report.endpoint.answers);
 }

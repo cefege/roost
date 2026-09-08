@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { loadOrCreateCoordKey } from "../src/coord-key.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { newJwtCache } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import type { CoordConfig } from "@roost/shared/config";
@@ -21,18 +21,16 @@ let cleanup: () => Promise<void>;
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-coord-e2e-"));
   const dbPath = join(workdir, "test.db");
-  const keyPath = join(workdir, "test.key");
   const authPath = join(workdir, "authorized_keys");
   writeFileSync(authPath, "");
 
   const opened = openDb(dbPath);
   const { db, sqlite } = opened;
   await runMigrations(sqlite);
-  const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
   pushAllowedOrigins: [],
-  dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
+  dbPath, authorizedKeysPath: authPath,
   webDistPath: "",
   jwtMaxAgeSecs: 300,
   auditRetentionDays: 90,
@@ -40,11 +38,11 @@ beforeAll(async () => {
   corsAllowedOrigins: [],
   logDir: workdir,
   publicUrl: undefined,
-  handoffPath: join(workdir, "coord-handoff.json"), }
+  }
   coord = createCoord({
     db,
     sqlite,
-    coordKey,
+    writeGate: new CoordinatorWriteGate(),
     cfg,
     jwtCache,
   });

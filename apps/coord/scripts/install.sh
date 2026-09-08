@@ -39,8 +39,6 @@ else
 fi
 DB_PATH="${ROOST_COORDINATOR_DB:-$DATA_DIR/coordinator_v2.db}"
 AUTH_KEYS="${ROOST_COORDINATOR_AUTHORIZED_KEYS:-$DATA_DIR/authorized_keys.roost}"
-COORD_KEY="${ROOST_COORDINATOR_KEY_PATH:-$DATA_DIR/ssh_ed25519.key}"
-HANDOFF_PATH="${ROOST_COORDINATOR_HANDOFF_PATH:-$DATA_DIR/coord-handoff.json}"
 PUBLIC_URL="${ROOST_COORDINATOR_PUBLIC_URL:-}"
 WEB_PUBLIC_URL="${ROOST_WEB_PUBLIC_URL:-}"
 # Resolve bun the same way the worker installer does: explicit override,
@@ -164,7 +162,7 @@ write_plist() {
   # means compiled binary (`roost coord`); unset means from-source
   # (`bun …/main.ts`). The selected network mode's endpoint environment is
   # otherwise identical for both forms.
-  local prog_bin prog_arg2 workdir web_dist label_xml prog_bin_xml prog_arg2_xml workdir_xml home_xml bind_xml db_xml auth_xml key_xml handoff_xml public_url_xml web_dist_xml diag_xml log_dir_xml
+  local prog_bin prog_arg2 workdir web_dist label_xml prog_bin_xml prog_arg2_xml workdir_xml home_xml bind_xml db_xml auth_xml public_url_xml web_dist_xml diag_xml log_dir_xml
   if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
     prog_bin="${ROOST_EXEC_BIN}"; prog_arg2="coord"
   else
@@ -180,8 +178,6 @@ write_plist() {
   bind_xml="$(xml_escape "$BIND_VALUE")"
   db_xml="$(xml_escape "$DB_PATH")"
   auth_xml="$(xml_escape "$AUTH_KEYS")"
-  key_xml="$(xml_escape "$COORD_KEY")"
-  handoff_xml="$(xml_escape "$HANDOFF_PATH")"
   public_url_xml="$(xml_escape "$PUBLIC_URL")"
   web_dist_xml="$(xml_escape "$web_dist")"
   diag_xml="$(xml_escape "${ROOST_DIAG:-0}")"
@@ -212,10 +208,6 @@ write_plist() {
     <string>${db_xml}</string>
     <key>ROOST_COORDINATOR_AUTHORIZED_KEYS</key>
     <string>${auth_xml}</string>
-    <key>ROOST_COORDINATOR_KEY_PATH</key>
-    <string>${key_xml}</string>
-    <key>ROOST_COORDINATOR_HANDOFF_PATH</key>
-    <string>${handoff_xml}</string>
     <key>ROOST_COORDINATOR_PUBLIC_URL</key>
     <string>${public_url_xml}</string>
     <key>ROOST_WEB_DIST_PATH</key>
@@ -305,8 +297,6 @@ EOF
     systemd_env "ROOST_COORDINATOR_BIND" "$BIND_VALUE"
     systemd_env "ROOST_COORDINATOR_DB" "$DB_PATH"
     systemd_env "ROOST_COORDINATOR_AUTHORIZED_KEYS" "$AUTH_KEYS"
-    systemd_env "ROOST_COORDINATOR_KEY_PATH" "$COORD_KEY"
-    systemd_env "ROOST_COORDINATOR_HANDOFF_PATH" "$HANDOFF_PATH"
     systemd_env "ROOST_COORDINATOR_PUBLIC_URL" "$PUBLIC_URL"
     systemd_env "ROOST_COORD_DATA_DIR" "$DATA_DIR"
     systemd_env "ROOST_COORD_LOG_DIR" "$LOG_DIR"

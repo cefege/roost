@@ -1,33 +1,23 @@
-// The coordinator's single write-availability switch. Every durable mutation
-// takes a lease; a move flips the mode through draining→retired (source) or
-// target_pending→active (target). setMode is the one choke point that sees
-// every flip, so it owns the audit trail — highest-stakes state in the
-// process, silent flips made move failures undiagnosable.
+// The coordinator's write-exclusivity fence for keeper updates: every durable
+// mutation takes a lease, and proving a keeper empty takes the exclusive lease,
+// which drains admitted writes first and blocks new ones until released.
+// Three orderings depend on it, and losing any of them loses live PTYs —
+// worker-frame-dispatch withholds a durable event ACK while it is held,
+// worker-respawn waits through it, terminal writes lease only inside the FIFO.
 
 import { Code, ConnectError } from "@connectrpc/connect";
 import { log } from "@roost/shared/log";
-
-export type CoordinatorWriteMode = "active" | "source_draining" | "target_pending" | "retired";
 
 export interface WriteLease {
   release(): void;
 }
 
 export class CoordinatorWriteGate {
-  #mode: CoordinatorWriteMode;
   #leases = 0;
   #drained: (() => void)[] = [];
   #exclusiveOwner: string | null = null;
   #exclusivePhase: "draining" | "held" | null = null;
   #exclusiveReleased: (() => void)[] = [];
-
-  constructor(mode: CoordinatorWriteMode = "active") {
-    this.#mode = mode;
-  }
-
-  get mode(): CoordinatorWriteMode {
-    return this.#mode;
-  }
 
   get exclusive(): boolean {
     return this.#exclusiveOwner !== null;
@@ -38,13 +28,9 @@ export class CoordinatorWriteGate {
   }
 
   acquire(): WriteLease {
-    if (this.#mode !== "active" || this.#exclusiveOwner !== null) {
+    if (this.#exclusiveOwner !== null) {
       throw new ConnectError(
-        this.#exclusiveOwner !== null
-          ? "coordinator keeper update preparation in progress"
-          : this.#mode === "source_draining"
-            ? "coordinator move in progress"
-            : "coordinator is not write-active",
+        "coordinator keeper update preparation in progress",
         Code.Unavailable,
       );
     }
@@ -56,13 +42,9 @@ export class CoordinatorWriteGate {
    * themselves, and allowing them is what lets the originating RPC lease
    * settle instead of deadlocking the drain. */
   acquireCompletion(): WriteLease {
-    if (this.#mode !== "active" || this.#exclusivePhase === "held") {
+    if (this.#exclusivePhase === "held") {
       throw new ConnectError(
-        this.#mode === "source_draining"
-          ? "coordinator move in progress"
-          : this.#exclusivePhase === "held"
-            ? "coordinator keeper update preparation is held"
-            : "coordinator is not write-active",
+        "coordinator keeper update preparation is held",
         Code.Unavailable,
       );
     }
@@ -72,9 +54,6 @@ export class CoordinatorWriteGate {
   async acquireAfterExclusive(timeoutMs = 30_000): Promise<WriteLease> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      if (this.#mode !== "active") {
-        throw new ConnectError("coordinator is not write-active", Code.Unavailable);
-      }
       if (this.#exclusiveOwner === null) return this.#addLease();
       await this.#waitForExclusiveRelease(Math.max(1, deadline - Date.now()));
     }
@@ -83,23 +62,14 @@ export class CoordinatorWriteGate {
   async acquireExclusive(owner: string, timeoutMs = 30_000): Promise<WriteLease> {
     if (!owner) throw new Error("exclusive coordinator write owner is required");
     const deadline = Date.now() + timeoutMs;
-    if (this.#mode !== "active") {
-      throw new ConnectError("coordinator is not write-active", Code.Unavailable);
-    }
     while (this.#exclusiveOwner !== null) {
       await this.#waitForExclusiveRelease(Math.max(1, deadline - Date.now()));
-      if (this.#mode !== "active") {
-        throw new ConnectError("coordinator is not write-active", Code.Unavailable);
-      }
     }
     this.#exclusiveOwner = owner;
     this.#exclusivePhase = "draining";
     try {
       while (this.#leases !== 0) {
         await this.#waitForLeases(Math.max(1, deadline - Date.now()));
-      }
-      if (this.#mode !== "active") {
-        throw new ConnectError("coordinator is not write-active", Code.Unavailable);
       }
       this.#exclusivePhase = "held";
       this.#leases += 1;
@@ -123,32 +93,6 @@ export class CoordinatorWriteGate {
         this.#resolveExclusiveReleased();
       },
     };
-  }
-
-  async beginDrain(timeoutMs = 30_000): Promise<void> {
-    if (this.#mode === "retired") return;
-    const deadline = Date.now() + timeoutMs;
-    while (this.#exclusiveOwner !== null) {
-      await this.#waitForExclusiveRelease(Math.max(1, deadline - Date.now()));
-    }
-    this.#mode = "source_draining";
-    await this.#waitForLeases(Math.max(1, deadline - Date.now()));
-  }
-
-  /** Single choke point for every gate transition — logs from→to so a stuck
-   *  cluster's RPC rejections can be traced back to the flip that caused
-   *  them. */
-  setMode(mode: CoordinatorWriteMode): void {
-    if (this.#exclusiveOwner !== null) {
-      throw new ConnectError(
-        "coordinator keeper update preparation in progress",
-        Code.Unavailable,
-      );
-    }
-    if (mode !== this.#mode) {
-      log.info("coord-move", "gate_mode", { from: this.#mode, to: mode });
-    }
-    this.#mode = mode;
   }
 
   #addLease(): WriteLease {

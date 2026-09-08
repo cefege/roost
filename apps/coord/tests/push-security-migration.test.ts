@@ -62,7 +62,6 @@ test("0022 installs owner activation while preserving Push cascade and bounded a
     insertAudit.run(null, "GET", "/app", 200);
     insertAudit.run(null, "HEAD", "/assets/app.js", 304);
     insertAudit.run(null, "GET", "/api/db-export", 200);
-    insertAudit.run(null, "GET", "/internal/coord-handoff/status", 200);
     insertAudit.run(null, "GET", "/ws/sync", 200);
     insertAudit.run(null, "GET", "/login", 401);
     insertAudit.run(validFingerprint, "GET", "/app", 200);
@@ -167,7 +166,6 @@ test("0022 installs owner activation while preserving Push cascade and bounded a
       "SELECT caller_fp, method, path, status FROM audit_log ORDER BY id",
     ).all()).toEqual([
       { caller_fp: null, method: "GET", path: "/api/db-export", status: 200 },
-      { caller_fp: null, method: "GET", path: "/internal/coord-handoff/status", status: 200 },
       { caller_fp: null, method: "GET", path: "/ws/sync", status: 200 },
       { caller_fp: null, method: "GET", path: "/login", status: 401 },
       { caller_fp: validFingerprint, method: "GET", path: "/app", status: 200 },

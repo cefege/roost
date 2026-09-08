@@ -19,8 +19,7 @@ Path references are relative to `apps/worker/` unless they start at the repo roo
 `src/main.ts` exports the `completeWorkerBootAdmission()` test seam and
 `runWorker()`. The latter enforces this boot order:
 
-1. Compile the patched WTerm core, then load config/key material and recover
-   coordinator relocation (`src/coord-relocation.ts`, `src/coord-target.ts`).
+1. Compile the patched WTerm core, then load config and key material.
 2. `runInstall()` (`src/install.ts`) is awaited only when a bootstrap token is
    present; otherwise it and agent-integration installation cannot gate the
    coordinator link or heartbeat.
@@ -165,12 +164,7 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/host-sample-darwin.ts`, `src/host-sample-linux.ts`,
   `src/host-sample-win32.ts`, and `src/host-sample-types.ts`;
   `src/coord-client.ts` (Connect client, boot calls only — events ride CoordLink); `src/event-sink.ts`;
-  `src/snapshot.ts`. **Coordinator move** — `src/coord-target.ts` with
-  `src/coord-target-contracts.ts`, `src/coord-target-snapshot.ts`,
-  `src/coord-target-posix.ts`, `src/coord-target-lifecycle.ts`,
-  `src/coord-target-spawns.ts`; `src/coord-relocation.ts`,
-  `src/coord-relocation-recovery.ts`,
-  `src/coord-relocation-windows.ts`, `src/coord-relocation-windows-runtime.ts`.
+  `src/snapshot.ts`.
 - **Session metadata pushed to the SPA** — `src/git-branch.ts`, `src/pr-status.ts`, `src/listening-ports.ts`.
   **Files + attachments** — `src/file-rpcs.ts`, `src/attachment-upload.ts`, `src/attachment-reaper.ts` (1 h sweep,
   24 h TTL, 1 GB LRU). **Terminal byte analysis** — `src/terminal-stream-scan.ts` (alt-screen transitions),

@@ -1,7 +1,7 @@
-// Path-safety primitives shared by the Windows update and relocation
-// brokers: containment checks, reparse-point guards, and the small string
-// helpers every journal-validation path leans on. One copy exists because a
-// divergence here is silently exploitable — the brokers trust these checks
+// Path-safety primitives shared by the Windows update broker and installer:
+// containment checks, reparse-point guards, and the small string helpers
+// every journal-validation path leans on. One copy exists because a
+// divergence here is silently exploitable — those callers trust these checks
 // to keep SCM image paths inside their protected roots.
 //
 // samePath deliberately normalizes trailing separators ('C:\a\' == 'C:\a'):

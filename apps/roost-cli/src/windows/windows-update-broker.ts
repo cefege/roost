@@ -842,11 +842,3 @@ function isLegacyPreStopPhase(
 ): phase is "prepared" | "broker-started" | "assets-staged" {
   return phase === "prepared" || phase === "broker-started" || phase === "assets-staged";
 }
-
-
-
-export {
-  createWindowsRelocationBrokerDeps,
-  prepareWindowsRelocationJournal,
-  runWindowsRelocationBroker,
-} from "./windows-relocation-broker.ts";

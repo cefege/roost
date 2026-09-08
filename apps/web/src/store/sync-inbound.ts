@@ -229,7 +229,6 @@ function handleV2Control(link: LiveSyncLink, frame: FirehoseFrame): boolean {
     case "uiState":
     case "uiCommand":
     case "keepalive":
-    case "coordinatorRelocation":
       return _dispatchSyncFrame(frame);
     default:
       return false;

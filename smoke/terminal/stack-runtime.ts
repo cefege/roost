@@ -211,12 +211,6 @@ export function startCoordinatorService(config: CoordinatorServiceConfig): Runni
         ROOST_RELAXED_CSP: "1",
         ROOST_COORDINATOR_DB: config.dbPath,
         ROOST_COORDINATOR_AUTHORIZED_KEYS: join(config.root, "authorized_keys.roost"),
-        ROOST_COORDINATOR_KEY_PATH: join(config.root, "coord.key"),
-        // Isolate the relocation state too. It defaults under the data dir
-        // (HOME-derived), so a caller running with useRealHome would
-        // otherwise inherit a real "coordinator relocated" handoff and the
-        // test coord would 410 every non-GET request.
-        ROOST_COORDINATOR_HANDOFF_PATH: join(config.root, "coord-handoff.json"),
         // The SPA is always the working tree's build: apps/web/dist is not
         // committed, so a prior-release checkout has none to serve.
         ROOST_WEB_DIST_PATH: join(REPOSITORY_ROOT, "apps/web/dist"),

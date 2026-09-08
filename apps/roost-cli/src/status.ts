@@ -20,7 +20,6 @@ export {
 export { routableWorkerFingerprints } from "./status-routability.ts";
 export type {
   EndpointStatus,
-  HandoffStatus,
   ResolvedStatusEndpoint,
   StatusEndpointOverride,
   StatusEndpointResolverOptions,

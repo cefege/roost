@@ -1,6 +1,6 @@
 ---
 title: "Fleet: coordinator, workers, keepers"
-description: "How Roost splits work between a coordinator, outbound-only workers, and a keeper subprocess — plus per-machine metrics, fleet updates, and relocation."
+description: "How Roost splits work between a coordinator, outbound-only workers, and a keeper subprocess — plus per-machine metrics and fleet updates."
 order: 3
 section: "Concepts"
 ---
@@ -112,23 +112,6 @@ directory beside the database file.
 Treat these as same-host rollback material. They do not survive the loss of the
 coordinator's disk; copy them somewhere with an independent failure domain if
 host-loss recovery matters.
-
-## Moving the coordinator to another machine
-
-Relocation is a two-step, non-destructive-first flow driven from the CLI:
-
-```sh
-roost api move-preflight <fp|prefix|label>
-roost api move-start     <fp|prefix|label>
-roost api move-status    <handoff-id>
-```
-
-`move-preflight` sends a check-only request to the target, which validates disk
-space, writable directories, its tailnet name, and the absence of an already
-active coordinator. It changes nothing and is safe to run against a live cluster.
-`move-start` is destructive and re-runs the full preflight server-side, so an
-ineligible target fails there rather than half-moving. `move-status` reports the
-phase and the source URL for a given handoff.
 
 ## Next
 

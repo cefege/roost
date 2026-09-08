@@ -55,7 +55,6 @@ import style is now correct instead of two.
 | `@roost/shared/build-identity` | compiled-binary version + git sha |
 | `@roost/shared/machine-join-command` | the enrollment command `roost add-machine` prints |
 | `@roost/shared/windows-helper` | typed wrappers on `roost-win-helper.exe` subcommands |
-| `@roost/shared/windows-relocation` | Windows relocation command + journal shapes |
 | `@roost/shared/log` | `log.{debug,info,warn,error}` — the coord/worker sink |
 | `@roost/shared/diag` | `diag()` / `signal()` — opt-in firehose, always-on Tier-1 |
 | `@roost/shared/trace` | `newTraceId()` + `TRACE_HEADER` |
@@ -130,7 +129,7 @@ producers and consumers.
 - **Observability** — `src/log.ts`, `src/diag.ts`, `src/trace.ts`, `src/json.ts`.
 - **Identity + timing** — `src/fingerprint.ts`,
   `src/jwt-base.ts`, `src/viewport.ts`, `src/retry.ts`.
-- **Native / Windows** — `src/windows-helper.ts`, `src/windows-relocation.ts`.
+- **Native / Windows** — `src/windows-helper.ts`.
 - **WASM** — `src/wterm-core-factory.ts`, `src/wterm-wasm.ts`, `wasm/`.
 - **Generated** — `src/gen/roost/v1/`, `src/install-scripts.generated.ts`,
   `src/wterm-wasm-embed.generated.ts`.

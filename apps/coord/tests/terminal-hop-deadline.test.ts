@@ -28,7 +28,7 @@ import {
 import type { CoordConfig } from "@roost/shared/config";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { loadOrCreateCoordKey } from "../src/coord-key.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { newJwtCache } from "../src/jwt.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
@@ -55,7 +55,6 @@ let cleanup: () => Promise<void>;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-hop-deadline-"));
-  const keyPath = join(workdir, "test.key");
   const authPath = join(workdir, "authorized_keys");
   writeFileSync(authPath, "");
   const opened = openDb(join(workdir, "test.db"));
@@ -64,15 +63,14 @@ beforeAll(async () => {
   const cfg: CoordConfig = {
     pushAllowedOrigins: [],
     trustProxy: false, bind: "127.0.0.1:0", dbPath: join(workdir, "test.db"),
-    coordKeyPath: keyPath, authorizedKeysPath: authPath, webDistPath: "", jwtMaxAgeSecs: 300,
+    authorizedKeysPath: authPath, webDistPath: "", jwtMaxAgeSecs: 300,
     auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [],
     logDir: workdir, publicUrl: undefined,
-    handoffPath: join(workdir, "coord-handoff.json"),
   };
   deps = {
     db,
     sqlite: opened.sqlite,
-    coordKey: await loadOrCreateCoordKey(keyPath),
+    writeGate: new CoordinatorWriteGate(),
     cfg,
     jwtCache: newJwtCache(),
     uiLayoutApplies: new UiLayoutApplyOwner(),

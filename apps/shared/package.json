@@ -36,7 +36,6 @@
     "./service-health": "./src/service-health.ts",
     "./machine-join-command": "./src/machine-join-command.ts",
     "./windows-helper": "./src/windows-helper.ts",
-    "./windows-relocation": "./src/windows-relocation.ts",
     "./trace": "./src/trace.ts",
     "./log": "./src/log.ts",
     "./diag": "./src/diag.ts",

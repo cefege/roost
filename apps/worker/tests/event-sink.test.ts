@@ -2,9 +2,11 @@
 // Durable references share exact persistence and sequencing with lifecycle
 // events while snapshots and coordinator-owned events remain prohibited.
 import { afterEach, expect, test } from "bun:test";
+import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CoordWorkerUpSchema } from "@roost/shared/proto/worker_transport_pb";
 import type { SessionEvent } from "@roost/shared/wire";
 import {
   classifySessionEvent,
@@ -109,25 +111,41 @@ test("metadata replacement never removes a durable session-event row", () => {
   const sessionEventStore = store();
   const reservation = sessionEventStore.reserveSessionEvent("opened");
   const durable = sessionEventStore.appendSessionEvent(reservation, opened());
+  const written: number[] = [];
   const ledger = createCoordLinkUnacked(sessionEventStore, {
     isDisposed: () => false,
-    encodeUpstream: () => new Uint8Array([1, 2, 3]),
-    tryWriteEncoded: () => true,
+    encodeUpstream: (frame) => toBinary(CoordWorkerUpSchema, frame),
+    tryWriteEncoded: (bytes) => {
+      const frame = fromBinary(CoordWorkerUpSchema, bytes);
+      if (frame.frame.case === "event") written.push(Number(frame.frame.value.clientSeq));
+      return true;
+    },
     isAttached: () => true,
     kick: () => {},
     onLive: () => {},
   });
+  ledger.activateSnapshotProvider(() => ({
+    kind: "snapshot", ts: 5, worker_fp: workerFp, sessions: [],
+  }));
   ledger.acceptHelloAck(false);
   const firstMetadata = sessionEventStore.nextClientSeq();
   const secondMetadata = sessionEventStore.nextClientSeq();
   ledger.send(cwd("/first"), firstMetadata, "metadata", `${sessionId}\0cwd`);
   ledger.send(cwd("/second"), secondMetadata, "metadata", `${sessionId}\0cwd`);
-  expect(ledger.count()).toBe(2);
+  expect(written).toEqual([durable.clientSeq]);
   expect(sessionEventStore.pendingEvents().map((row) => row.clientSeq)).toEqual([durable.clientSeq]);
+
+  // Acknowledging the replaced metadata sequence must not release the durable
+  // row that is still in flight ahead of it.
   ledger.ack(firstMetadata);
-  expect(ledger.count()).toBe(2);
+  expect(written).toEqual([durable.clientSeq]);
+  expect(sessionEventStore.pendingEvents().map((row) => row.clientSeq)).toEqual([durable.clientSeq]);
+
   ledger.ack(durable.clientSeq);
-  expect(ledger.count()).toBe(1);
   expect(sessionEventStore.pendingEvents()).toEqual([]);
+  const snapshotSeq = written.at(-1)!;
+  expect(snapshotSeq).toBeGreaterThan(secondMetadata);
+  ledger.ack(snapshotSeq);
+  expect(written).toEqual([durable.clientSeq, snapshotSeq, secondMetadata]);
   sessionEventStore.close();
 });

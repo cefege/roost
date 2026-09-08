@@ -25,7 +25,7 @@ import { appendEvent, dispatchSnapshotOrphanReaps } from "../event-log.ts";
 import { rejectPendingRpc, resolvePendingRpc } from "../router/pending-rpcs.ts";
 import { resolvePendingSpawnOpened } from "./pending-spawns.ts";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
-import type { WriteLease } from "../coord-move/write-gate.ts";
+import type { WriteLease } from "../coordinator-write-gate.ts";
 
 interface WorkerFrameDispatcherOptions {
   deps: WorkerServiceDeps;
@@ -120,23 +120,18 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
       });
       return;
     }
-    if (
-      options.deps.move?.gate.mode !== undefined
-      && (
-        options.deps.move.gate.mode !== "active"
-        || options.deps.move.gate.exclusiveHeld
-      )
-    ) {
-      // Pending targets, draining/retired sources, and keeper-update exclusive
-      // holds withhold the ACK so CoordLink replays the preserved entry later.
+    if (options.deps.writeGate.exclusiveHeld) {
+      // A held keeper-update fence withholds the ACK so CoordLink replays the
+      // preserved entry after the update. Acking here loses the durable record
+      // of which PTYs are live.
       return;
     }
-    const gate = options.deps.move?.gate;
+    const gate = options.deps.writeGate;
     let lease: WriteLease | undefined;
     try {
-      lease = gate?.acquireCompletion();
+      lease = gate.acquireCompletion();
     } catch (error) {
-      if (gate?.exclusiveHeld) return;
+      if (gate.exclusiveHeld) return;
       throw error;
     }
     let appendResult;

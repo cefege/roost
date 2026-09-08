@@ -9,23 +9,24 @@ import {
 import { asSessionId, SessionKind, type ClientControlFrame } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
 import type { KyselyDB } from "../db/connection.ts";
-import type { CoordinatorWriteGate } from "../coord-move/write-gate.ts";
+import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import { connectWorkers, type WorkerHandle } from "./worker-registry.ts";
 
 /**
  * Called after the worker hello grace period. Open terminal sessions are
  * revived at their saved cwd with the same session_id; the worker no-ops if
  * the sid is already live.
+ *
+ * The gate wait is not optional: a reconnect must not recreate a channel while
+ * the coordinator is proving the keeper empty for an update.
  */
 export async function respawnMissingForWorker(
   db: KyselyDB,
   workerFp: string,
   handle: WorkerHandle,
-  writeGate?: CoordinatorWriteGate,
+  writeGate: CoordinatorWriteGate,
 ): Promise<void> {
-  const lease = writeGate
-    ? await writeGate.acquireAfterExclusive()
-    : undefined;
+  const lease = await writeGate.acquireAfterExclusive();
   try {
     if (!handle.ready || handle.revoked || connectWorkers.get(workerFp) !== handle) return;
     const dashboardId = handle.dashboardId;
@@ -90,6 +91,6 @@ export async function respawnMissingForWorker(
       }
     }
   } finally {
-    lease?.release();
+    lease.release();
   }
 }

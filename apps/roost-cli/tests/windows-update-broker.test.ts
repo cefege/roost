@@ -489,7 +489,7 @@ describe("Windows update control replay", () => {
       { version: "2.0.1", build: "b".repeat(40) },
     )).toBe("different");
   });
-  test("isolates interactive update admissions from service relocation requests", () => {
+  test("isolates interactive update admissions from service update requests", () => {
     const serviceDir = "C:\\ProgramData\\Roost\\service";
     expect(windowsUpdateRequestDirectory(serviceDir, "interactive")).toBe(
       join(serviceDir, "requests", "interactive-update"),

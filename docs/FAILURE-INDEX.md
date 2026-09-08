@@ -665,7 +665,7 @@ repeating it. But `ROOST_WORKER_LABEL` and `ROOST_REACHABLE_ADDR` do not describ
 machine, and the process holding that ambient env is the box running `roost deploy`, not the target. Deploying
 to a host with no installed service definition therefore installs the DEPLOYING box's label and reachable
 address on it; the target registers under a name that already belongs to another worker, and because
-`reachable_addr` is what the SPA and the coordinator-move preflight build target URLs from, the wrong machine
+`reachable_addr` is what the SPA builds a machine's address from, the wrong machine
 is addressable under that name. Nothing warns: both values resolved, so the deploy looks complete.
 
 **Right** — the resolution order is per-key, from an explicit classification, not per-call. The identity keys

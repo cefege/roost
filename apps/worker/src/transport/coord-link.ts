@@ -20,7 +20,7 @@
 // at-least-once event ledger in coord-link-unacked.ts), the reconnect ladder
 // (coord-link-reconnect.ts) and the downstream frame dispatch
 // (coord-link-downstream.ts). What stays here is the socket lifecycle: dial,
-// hello, the stale-link watchdog, in-band JWT refresh, relocate and dispose.
+// hello, the stale-link watchdog, in-band JWT refresh and dispose.
 
 import { create, fromBinary } from "@bufbuild/protobuf";
 import {
@@ -48,8 +48,6 @@ export type {
 
 export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   const ttlSecs = deps.jwtTtlSecs ?? 300;
-  let coordHttpUrl = deps.coordHttpUrl;
-  let relocating = false;
   let state: CoordLinkState = { kind: "idle" };
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
@@ -119,7 +117,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     // upstream so the worker's rpc-ok replies stalled → sessionsSpawn hung.
     // Same CoordWorkerUp/Down proto frames, carried as BINARY WS messages.
     // The credential is the second requested subprotocol, never URL material.
-    const wsBase = coordHttpUrl.replace(/^http/, "ws");
+    const wsBase = deps.coordHttpUrl.replace(/^http/, "ws");
     const url = `${wsBase}/ws/coord-worker/${deps.workerFp}`;
     const protocols: [string, string] = [WORKER_AUTH_SUBPROTOCOL, jwt];
     let ws: WebSocket;
@@ -155,14 +153,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       outbox.detachSocket();
       closeStream = null;
       reconnect.noteDialClosed();
-      if (!disposed) {
-        if (relocating) {
-          relocating = false;
-          void dial();
-        } else {
-          reconnect.scheduleReconnect();
-        }
-      }
+      if (!disposed) reconnect.scheduleReconnect();
     };
 
     ws.onopen = () => {
@@ -186,7 +177,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       scheduleRefresh();
       // Stale-link watchdog: coord pings every 30s; if the socket goes silent
       // past the timeout the backend is gone even though TCP looks alive
-      // (tailscale-serve zombie). Force-close → cleanup → scheduleReconnect.
+      // (front-door zombie). Force-close → cleanup → scheduleReconnect.
       lastDownstreamAtMs = Date.now();
       const staleTimeoutMs = deps.staleLinkTimeoutMs ?? STALE_LINK_TIMEOUT_MS;
       staleTimer = setInterval(() => {
@@ -251,25 +242,6 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     ws.onclose = () => { cleanup(); };
   }
 
-  function relocate(targetUrl: string, force = false): void {
-    if (disposed || (!force && coordHttpUrl === targetUrl)) return;
-    // cleanup() nulls closeStream, so during reconnect backoff the else-branch
-    // below always fires — while the pending backoff timer fires its OWN dial.
-    // Two live sockets both install ws.onmessage → handleDownstream, so every
-    // browser command, PTY input byte and coordRelocate frame executes twice
-    // (doubled characters in the terminal). Cancel the pending dial first.
-    reconnect.cancelPendingDial();
-    coordHttpUrl = targetUrl;
-    reconnect.resetForRedial();
-    relocating = true;
-    if (closeStream) {
-      closeStream();
-    } else {
-      relocating = false;
-      void dial();
-    }
-  }
-
   function dispose(): void {
     disposed = true;
     reconnect.cancelPendingDial();
@@ -294,8 +266,6 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       outbox.waitForDurableSessionEventReplay,
     activateSnapshotProvider: outbox.activateSnapshotProvider,
     snapshotStateChanged: outbox.snapshotStateChanged,
-    relocate,
-    unackedEventCount: outbox.unackedCount,
     dispose,
   };
 }

@@ -12,14 +12,14 @@ Path references are relative to `apps/coord/` unless they start at the repo root
 
 **`src/main.ts` — process composition.** Loads `CoordConfig`, opens
 `bun:sqlite`, migrates/backfills tenant state, imports self-hosted authorized
-keys, starts maintenance owners, and constructs auth, move, Connect, worker-WS,
-and Sync-WS dependencies. It calls `createCoord()`, then
-`startBunCoordinatorListeners()`, and starts move recovery only after the
-listener can populate worker liveness.
+keys, starts maintenance owners, constructs the coordinator write gate, and
+constructs auth, Connect, worker-WS, and Sync-WS dependencies. It calls
+`createCoord()`, then `startBunCoordinatorListeners()`.
 
 **`src/bun-coordinator-listeners.ts` — the Bun listener boundary.** Owns the
-single `Bun.serve` call, `server.requestIP()` → `resolveCallerOrigin`, internal
-handoff/export routing, both WebSocket upgrades, the ONE multiplexed
+single `Bun.serve` call, `server.requestIP()` → `resolveCallerOrigin`, the
+`/api/db-export` route (its only special non-Connect route), both WebSocket
+upgrades, the ONE multiplexed
 `websocket` object dispatching on `ws.data.kind`, the shared 4 MiB frame cap,
 and `idleTimeout: 120`. The SPA fallback is injected from `src/spa.ts` +
 `src/web-embed.generated.ts`.
@@ -44,10 +44,10 @@ carries no public deny list: the front door owns that policy (see
 caller is on-host, which makes it the one request that proves whether
 `X-Forwarded-For` reaches the coordinator intact.
 
-## The 18 handler domains
+## The 16 handler domains
 
 `src/connect/router.ts` is **pure wiring**: it installs the auth interceptor and
-spreads 18 domain factories into a **single**
+spreads 16 domain factories into a **single**
 `router.service(CoordinatorService, {…})` literal. No handler logic or
 per-domain state lives there.
 
@@ -65,7 +65,6 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | mcp | `src/connect/handlers-mcp.ts` | MCP relay CRUD and publication, with a bus delta per mutation |
 | auth | `src/connect/handlers-auth.ts` | facade over `src/connect/handlers-auth-bootstrap.ts`, `src/connect/handlers-pairing.ts`, and `src/connect/handlers-devices.ts`: identity/access, bootstrap redemption, pairing, device rotation/revocation, logout |
 | worker-update | `src/connect/handlers-workers-update.ts` | the coordinator-held keeper update boundary: drain, reauthorize, canonical open-session snapshot, then the authenticated worker action |
-| relocation | `src/connect/handlers-relocation.ts` | browser relocation credential mint/redeem + redirect-chain resolution |
 | system | `src/connect/handlers-system.ts` | health, db-export URL, metrics, the SPA diag-log batch sink, state snapshot, audit-log query |
 | workspaces | `src/connect/handlers-workspaces.ts` | version-CAS workspace rows, set-sessions, orphan GC |
 | tasks | `src/connect/handlers-tasks.ts` | claimable task queue: list/enqueue/next-pending/set-state/cancel |
@@ -73,26 +72,24 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment plus owning-worker-only private recovery metadata; composes spawn from `src/connect/handler-session-spawn.ts`, terminal cell/search/cancel RPCs from `src/connect/handlers-sessions-scrollback.ts`, and authorized global terminal search from `src/connect/handlers-sessions-global-search.ts`; resize is socket-bound |
 | streaming | `src/connect/handlers-streaming.ts` | only the `sync` stub (below) |
 | ui | `src/connect/handlers-ui.ts` | typed per-tab reports/listing, bounded composition-owned TTL retention in `ui-state-owner.ts`, canonical legacy-command admission in `ui-legacy-command.ts`, and exact bounded fingerprint/tab apply admission in `ui-layout-apply-owner.ts`; the spatial model stays browser-local |
-| coordinator-move | `src/connect/handlers-coordinator-move.ts` | preflight/start/status over `coord-move/`; plain `Error` from the orchestrator is translated to `ConnectError` here, at the RPC boundary |
 | push | `src/connect/handlers-push.ts` | VAPID public key + Web Push subscribe/unsubscribe (`push_subscriptions`) |
 
 ## Module map
 
-- `src/connect/` — everything protocol-facing: the 18 handler domains and
+- `src/connect/` — everything protocol-facing: the 16 handler domains and
   focused facade leaves, auth interceptor, both split WS transports, Sync
   feed/scheduler, terminal view/screen hubs, raw terminal input lane, guarded
   agent-prompt orchestration, worker facade, announced-channel barrier, and
   pending spawns.
 - SQLite access — `src/db/connection.ts` (Kysely over `kysely-bun-sqlite`, WAL + busy timeout), `src/db/schema.ts` (the `DB`
   interface), `src/db/migrate.ts` (custom runner over `apps/coord/migrations/*.sql`, throws on any failure), `src/db/snapshot.ts`
-  (online SQLite copy for db-export and coord move).
+  (online SQLite copy backing `/api/db-export`).
 - Request middleware — `src/middleware/security.ts` (CSP/CORS/X-Frame-Options + `writeAuditLog`), `src/middleware/caller-origin.ts`
   (listener trust chosen at boot from config, never sniffed from headers: `direct` or `trusted-proxy`),
-  `src/middleware/coordinator-availability.ts` (410 for a retired coordinator, except GET and a short
-  discovery allow-list), and `src/middleware/rate-limit.ts`. On-host detection is
+  and `src/middleware/rate-limit.ts`. On-host detection is
   not a standalone middleware: `src/middleware/caller-origin.ts` owns
   `CallerOrigin.onHost`.
-- `src/coord-move/` — live coordinator relocation (below).
+- `src/coordinator-write-gate.ts` — the keeper-update write fence (below).
 - `src/router/pending-rpcs.ts` — correlation table for browser→worker RPCs needing a reply; a UUID-keyed entry is
   resolved by the worker's upstream `rpc_ok`/`rpc_error` frame, deadline-bounded. `src/connect/global-search-cursors.ts`
   owns bounded per-router, device/tab/dashboard/options-bound global-search
@@ -118,7 +115,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/connect/terminal-view-hub.ts` (browser membership and SCD geometry),
   `src/connect/terminal-screen-hub.ts` (canonical cell replica and resumable
   per-socket cursors), `src/buses.ts` (`BoundedBus<T>`, one per non-terminal
-  domain), `src/jwt.ts`, `src/coord-key.ts`, `src/authorized-keys.ts`,
+  domain), `src/jwt.ts`, `src/authorized-keys.ts`,
   `src/agent-status-hub.ts` (live projection and bounded occupant waiters),
   `src/agent-status-order.ts` (epoch/occupant admission and retirement), and
   `src/agent-status-push-scheduler.ts` (debounced transition pushes).
@@ -133,30 +130,25 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/windows-update-deploy-record.ts`, and
   `src/windows-update-manifest.ts`; `src/deploy-jobs.ts` does **not** own it.
 
-### `src/coord-move/` — live coordinator relocation
+### `src/coordinator-write-gate.ts` — the keeper-update fence
 
-Moves a running coordinator to another machine without losing sessions: the source drains writes behind a write
-gate, snapshots SQLite + coord key + `authorized_keys` to the target, stages every worker onto the target URL, waits
-for them to reconnect there, then commits — or rolls back, including the phases where the target may already have
-self-committed. `src/main.ts` calls `move.recover()` **after** `Bun.serve`, because recovery reads worker liveness from
-the worker-WS registry that server populates.
+`CoordinatorWriteGate` is a REQUIRED dependency of every coordinator mutation path, never an option: it is
+what stops a keeper update from racing a session-creating write, and that race loses live PTYs.
+`acquire()` returns a `WriteLease` for an ordinary durable mutation and throws `Code.Unavailable` while the
+fence is taken. `acquireExclusive(owner)` drains the admitted leases, then blocks new ones for as long as
+`src/connect/handlers-workers-update.ts` needs to prove the keeper empty.
+`acquireCompletion()` is admitted during the drain and refused only once the exclusive lease is held, because
+a lifecycle projection finishing a command admitted before the drain cannot create a keeper channel by
+itself, and refusing it would deadlock the drain against the RPC lease it is waiting on.
 
-- `src/coord-move/orchestrator.ts` — the SOURCE half plus the `CoordinatorMoveService` interface
-  (`preflight`/`start`/`status`/`current`/`recover`/`internal*`/`gate`) and the blocker taxonomy.
-- `src/coord-move/target-orchestrator.ts` — the TARGET half plus the plumbing both halves share (handoff lookup, snapshot
-  projection, background-run bookkeeping). A base class on purpose, not a collaborator: one `run` mutex is read by
-  both `start()` and `internalCommit()`, and `internalAbort()` clears the auto-commit/retry timers.
-- `src/coord-move/state.ts` — the 10 `MOVE_PHASES`, the zod-validated `HandoffState`, `isTerminalPhase`, and `HandoffStateStore`:
-  durable single-writer JSON at `cfg.handoffPath`, fsyncing file and directory.
-- `src/coord-move/write-gate.ts` — `CoordinatorWriteGate`, modes `active | source_draining | target_pending | retired`; `acquire()`
-  hands out a lease or throws `Code.Unavailable`, and `beginDrain()` resolves once outstanding leases hit zero.
-- `src/coord-move/runtime.ts` — the `CoordinatorMoveRuntime` port (target check/prepare, worker stage/activate/commit/abort,
-  snapshot copy, reconnect + wait, target status/commit/abort/health) plus `MoveSnapshot`/`MoveWorker`; types only.
-- `src/coord-move/bun-runtime.ts` — the Bun implementation of that port: `src/connect/worker-send.ts` frames, 1 MiB snapshot chunking off
-  `src/db/snapshot.ts`, a 3-attempt `fetch` to the target's `/internal/coord-handoff/*`, worker reconnect via close.
-- `src/coord-move/internal-http.ts` — the target-side surface for `/internal/coord-handoff/{status,commit,abort}`. Credentials ride
-  `x-roost-handoff-id` + `x-roost-handoff-secret`; unknown id or bad secret is 401, a precondition failure is 412,
-  because `abortTarget` branches on that distinction.
+Three orderings depend on the fence; breaking any of them loses live PTYs:
+
+- `src/connect/worker-frame-dispatch.ts` does NOT ACK a durable worker event while the exclusive lease is
+  held. The worker's outbox replays that event after the keeper update instead of the coordinator losing it.
+- `respawnMissingForWorker()` (`src/connect/worker-respawn.ts`) waits through `acquireAfterExclusive()`, so a
+  worker reconnect cannot recreate a channel while the coordinator is proving the keeper empty.
+- Terminal writes take the ordinary lease only AFTER entering the per-sender/session FIFO lane. Acquiring it
+  before the lane deadlocks the exclusive drain.
 
 ## The split transports
 

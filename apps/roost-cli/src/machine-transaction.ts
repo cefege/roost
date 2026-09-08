@@ -10,7 +10,7 @@ import {
   windowsProtectUpdaterArtifact,
 } from "@roost/shared/windows-helper";
 
-export type MachineTransactionKind = "install" | "update" | "relocation" | "keeper-refresh" | "deploy";
+export type MachineTransactionKind = "install" | "update" | "keeper-refresh" | "deploy";
 
 export interface MachineTransactionRecord {
   schemaVersion: 1;

@@ -47,10 +47,6 @@ import type {
   WindowsUpdateJournalV2,
   WindowsUpdateProgressEntry,
 } from "./windows-update-journal.ts";
-import {
-  DurableWindowsRelocationJournalStore,
-  windowsRelocationJournalPath,
-} from "./windows-relocation-journal.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const MAX_PENDING_UPDATE_REQUESTS = 16;
@@ -671,10 +667,3 @@ function defaultDeps(): WindowsUpdateControlDeps {
       await readPublishedWindowsUpdateProgress(jobId, afterSequence, requestId, serviceDir),
   };
 }
-
-// Windows relocation shares this authenticated inbox/start boundary while
-// remaining a closed operation union rather than a privileged config RPC.
-export {
-  admitPendingWindowsRelocationRequest,
-  executeWindowsRelocationBrokerCommand,
-} from "./windows-relocation-control.ts";

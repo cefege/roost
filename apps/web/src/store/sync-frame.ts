@@ -8,7 +8,6 @@ import { reconcile } from "solid-js/store";
 import { signal, diag } from "@roost/shared/diag";
 import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
-import { relocateBrowserToCoordinator } from "../auth/coordinator-relocation.ts";
 import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
 import { applyAgentStatusFrame } from "./agent-status.ts";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
@@ -173,11 +172,6 @@ export function _dispatchSyncFrame(
         for (const sub of _auditDeltaSubs) {
           try { sub(wire); } catch (e) { diag("sync.delta_sub_failed", { frame: "audit", error: String(e) }); }
         }
-        break;
-      }
-      case "coordinatorRelocation": {
-        const relocation = oneof.value;
-        void relocateBrowserToCoordinator(relocation.handoffId, relocation.targetUrl);
         break;
       }
       case "cellGrid": {

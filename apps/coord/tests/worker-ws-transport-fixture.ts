@@ -20,7 +20,7 @@ import { fingerprintOf } from "@roost/shared/fingerprint";
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import { SessionEvent, asWorkerFp } from "@roost/shared/wire";
 import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
-import { loadOrCreateCoordKey } from "../src/coord-key.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { signJwt, newJwtCache } from "../src/jwt.ts";
@@ -56,7 +56,6 @@ export const helloFrame = (fingerprint: string) => create(CoordWorkerUpSchema, {
 export async function startWorkerWsTransportFixture() {
   const workdir = mkdtempSync(join(tmpdir(), "roost-ws-transport-"));
   const dbPath = join(workdir, "test.db");
-  const keyPath = join(workdir, "test.key");
   const authPath = join(workdir, "authorized_keys");
   writeFileSync(authPath, "");
 
@@ -64,14 +63,12 @@ export async function startWorkerWsTransportFixture() {
   const db = opened.db;
   const sqlite = opened.sqlite;
   await runMigrations(sqlite);
-  const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
     trustProxy: false,
     bind: "127.0.0.1:0",
     pushAllowedOrigins: [],
     dbPath,
-    coordKeyPath: keyPath,
     authorizedKeysPath: authPath,
     webDistPath: "",
     jwtMaxAgeSecs: 300,
@@ -80,18 +77,17 @@ export async function startWorkerWsTransportFixture() {
     corsAllowedOrigins: [],
     logDir: workdir,
     publicUrl: undefined,
-    handoffPath: join(workdir, "coord-handoff.json"),
   };
   const deps: WorkerServiceDeps = {
     db,
     pendingPublications: new PendingEventPublicationStore(),
     jwtCache,
     cfg,
+    writeGate: new CoordinatorWriteGate(),
   };
   const connectDeps: ConnectDeps = {
     ...deps,
     sqlite,
-    coordKey,
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
   };

@@ -91,10 +91,7 @@ export function makeWorkerUpdateHandlers(
         req.maintenance,
         req.forceLive,
       );
-      if (!deps.move) {
-        throw new ConnectError("coordinator write gate is unavailable", Code.Unavailable);
-      }
-      const lease = await deps.move.gate.acquireExclusive(
+      const lease = await deps.writeGate.acquireExclusive(
         `keeper-update:${actor.deviceFingerprint}:${req.workerFp}`,
       );
       try {

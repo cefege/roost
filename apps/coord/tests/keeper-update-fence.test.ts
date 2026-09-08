@@ -13,14 +13,12 @@ import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { createCoord } from "../src/coord-factory.ts";
 import {
   CoordinatorWriteGate,
   type WriteLease,
-} from "../src/coord-move/write-gate.ts";
-import type { CoordinatorMoveService } from "../src/coord-move/orchestrator.ts";
+} from "../src/coordinator-write-gate.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import {
   rejectPendingRpc,
@@ -102,26 +100,11 @@ class ObservedWriteGate extends CoordinatorWriteGate {
     };
   }
 }
-function moveService(gate: CoordinatorWriteGate): CoordinatorMoveService {
-  return {
-    gate,
-    preflight: async () => ({ eligible: false, sourceUrl: "", targetUrl: "", blockers: [] }),
-    start: async () => "unused",
-    status: () => null,
-    statusForWorker: async () => null,
-    current: () => null,
-    recover: async () => {},
-    internalStatus: async () => { throw new Error("unused"); },
-    internalCommit: async () => {},
-    internalAbort: async () => {},
-  };
-}
 
 async function openHarness(): Promise<KeeperFenceHarness> {
   const directory = mkdtempSync(join(tmpdir(), "roost-keeper-fence-"));
   const opened = openDb(join(directory, "coord.db"));
   await runMigrations(opened.sqlite);
-  const coordKey = await loadOrCreateCoordKey(join(directory, "coord.key"));
   const browserKeys = await crypto.subtle.generateKey(
     { name: "Ed25519" }, true, ["sign", "verify"],
   );
@@ -163,18 +146,17 @@ async function openHarness(): Promise<KeeperFenceHarness> {
   const cfg: CoordConfig = {
     trustProxy: false, bind: "127.0.0.1:0",
     pushAllowedOrigins: [], dbPath: join(directory, "coord.db"),
-    coordKeyPath: join(directory, "coord.key"), authorizedKeysPath: join(directory, "keys"),
+    authorizedKeysPath: join(directory, "keys"),
     webDistPath: "", jwtMaxAgeSecs: 300,
     auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [], logDir: directory,
-    publicUrl: undefined, handoffPath: join(directory, "handoff.json"),
+    publicUrl: undefined,
   };
   const coord = createCoord({
     db: opened.db,
     sqlite: opened.sqlite,
-    coordKey,
     cfg,
     jwtCache: newJwtCache(),
-    move: moveService(gate),
+    writeGate: gate,
     _onKeeperUpdateFinalEmptyRecheck: () => {
       order.push(`final-empty-recheck:exclusive=${gate.exclusiveHeld}`);
       finalEmptyRecheck.resolve();

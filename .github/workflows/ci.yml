@@ -125,8 +125,8 @@ jobs:
   windows-2022:
     name: windows server 2022 deterministic gates
     # OFF by default, same gate as release.yml's Windows jobs: these failures are
-    # environmental (coord-move temp-dir EBUSY, POSIX-only deploy fixtures,
-    # darwin-shaped path tests) and had kept main red on every run since 2026-08-16.
+    # environmental (POSIX-only deploy fixtures, darwin-shaped path tests) and
+    # had kept main red on every run since 2026-08-16.
     # Set repository variable ROOST_WINDOWS_GATE=on to turn the tier back on.
     if: vars.ROOST_WINDOWS_GATE == 'on'
     runs-on: windows-2022
@@ -157,12 +157,6 @@ jobs:
           apps/worker/tests/listening-ports.test.ts
       - name: Install and update invariants
         run: bun test --isolate apps/roost-cli/tests/
-      - name: Coordinator move invariants
-        run: >-
-          bun test
-          apps/coord/tests/coordinator-move-handlers.test.ts
-          apps/coord/tests/coordinator-move-orchestrator.test.ts
-          apps/coord/tests/coordinator-move-e2e.test.ts
       - name: Build embedded Windows binary
         run: |
           bun run --cwd apps/web build

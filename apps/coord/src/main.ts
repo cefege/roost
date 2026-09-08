@@ -1,12 +1,13 @@
-// Owns coordinator process boot order and lifecycle handoff to Bun listeners.
+// Owns coordinator process boot order and lifecycle wiring for Bun listeners.
 // The import-meta entrypoint calls runCoord; embedded callers may import it directly.
-// It composes database, auth, transport, move, maintenance, and listener modules.
-// Listeners must start before move recovery, maintenance, and signal shutdown wiring.
+// It composes database, auth, transport, maintenance, and listener modules.
+// Listeners must start before maintenance and signal shutdown wiring, and the
+// single write gate constructed here must reach every mutation path.
 
 import { loadCoordConfig, type CoordConfig } from "@roost/shared/config";
 import { openDb } from "./db/connection.ts";
 import { runMigrations } from "./db/migrate.ts";
-import { loadOrCreateCoordKey } from "./coord-key.ts";
+import { CoordinatorWriteGate } from "./coordinator-write-gate.ts";
 import { importAuthorizedKeys } from "./authorized-keys.ts";
 import { newJwtCache } from "./jwt.ts";
 import { makePreMigrationBackupHook, scheduleBackups } from "./backup.ts";
@@ -16,11 +17,7 @@ import { makeWorkerWsHandler } from "./connect/worker-ws-handler.ts";
 import { makeSyncWsHandler } from "./connect/sync-ws-handler.ts";
 import { makeSyncTerminalControlHooks } from "./connect/sync-terminal-controls.ts";
 import { TerminalViewHub, installTerminalViewHub } from "./connect/terminal-view-hub.ts";
-import { CoordinatorMoveOrchestrator } from "./coord-move/orchestrator.ts";
-import { HandoffStateStore } from "./coord-move/state.ts";
-import { createBunCoordinatorMoveRuntime } from "./coord-move/bun-runtime.ts";
 import { COORD_GIT_SHA } from "./git-sha.ts";
-import { connectWorkers } from "./connect/worker-registry.ts";
 import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./windows-update-deploy-jobs.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
 import { serveServiceHealth } from "@roost/shared/service-health";
@@ -80,40 +77,11 @@ export async function runCoord() {
 
   await runStartupJanitor(db);
 
-  const coordKey = await loadOrCreateCoordKey(cfg.coordKeyPath);
-  log.info("main", "coord_key_ready", { kid: coordKey.verifyingKeyKid() });
-
   const jwtCache = newJwtCache();
-  let publishRelocation: ((handoffId: string, sourceUrl: string, targetUrl: string) => void) | null = null;
-  const move = new CoordinatorMoveOrchestrator({
-    cfg,
-    coordKey,
-    store: new HandoffStateStore(cfg.handoffPath),
-    runtime: createBunCoordinatorMoveRuntime({
-      sqlite,
-      dbPath: cfg.dbPath,
-      coordKeyPath: cfg.coordKeyPath,
-      authorizedKeysPath: cfg.authorizedKeysPath,
-      handoffPath: cfg.handoffPath,
-      publishRelocation: (state) => publishRelocation?.(state.handoffId, state.sourceUrl, state.targetUrl),
-    }),
-    workers: async (dashboardId) => (await db.selectFrom("workers")
-      .select(["fp", "label", "os", "git_sha", "reachable_addr"])
-      .where("dashboard_id", "=", dashboardId)
-      .where("deleted_at_ms", "is", null)
-      .execute())
-      .map((worker) => ({
-        fp: worker.fp,
-        label: worker.label,
-        os: worker.os,
-        gitSha: worker.git_sha,
-        reachableAddr: worker.reachable_addr,
-        online: (() => {
-          const handle = connectWorkers.get(worker.fp);
-          return handle?.dashboardId === dashboardId && handle.ready && !handle.revoked;
-        })(),
-      })),
-  });
+  // ONE gate per process: keeper-update exclusivity is meaningless if a
+  // mutation path can reach a second instance and bypass the fence.
+  const writeGate = new CoordinatorWriteGate();
+
   const pendingPublications = new PendingEventPublicationStore();
   const uiLayoutApplies = new UiLayoutApplyOwner();
   const uiStates = new UiStateOwner();
@@ -124,7 +92,7 @@ export async function runCoord() {
     ((dashboardId: string, fingerprint: string) => void) | null = null;
   let closeDeletedWorkerSockets: ((fingerprint: string) => void) | null = null;
   const coord = createCoord({
-    db, sqlite, coordKey, cfg, jwtCache, move,
+    db, sqlite, cfg, jwtCache, writeGate,
     pendingPublications, uiLayoutApplies, uiStates,
     onKeyRevoked: (fingerprint) => {
       pendingPublications.clearWorker(fingerprint);
@@ -150,7 +118,7 @@ export async function runCoord() {
     pendingPublications,
     jwtCache,
     cfg,
-    move,
+    writeGate,
     onWorkerConnected: async (workerFp) => {
       terminalViews.workerReplacement(workerFp);
       await resumeWindowsUpdateDeploysForWorker(workerFp);
@@ -163,10 +131,9 @@ export async function runCoord() {
   const syncDeps = {
     db,
     sqlite,
-    coordKey,
     jwtCache,
     cfg,
-    move,
+    writeGate,
     uiLayoutApplies,
     uiStates,
   };
@@ -189,13 +156,11 @@ export async function runCoord() {
   };
   closeDashboardSockets = (dashboardId, fingerprint) =>
     syncWs.closeForDashboard(dashboardId, fingerprint);
-  publishRelocation = (handoffId, sourceUrl, targetUrl) => syncWs.publishRelocation(handoffId, sourceUrl, targetUrl);
 
   const { server, host } = startBunCoordinatorListeners({
     cfg,
     coord,
     sqlite,
-    move,
     workerDeps: wsDeps,
     syncDeps,
     workerWs,
@@ -226,11 +191,6 @@ export async function runCoord() {
   }
 
   log.info("main", "listening", { bind: `${host}:${server.port}`, uptime_ms: Date.now() - bootMs });
-  // AFTER Bun.serve: recovery stages/commits/aborts workers, and `online` is
-  // computed from the worker-WS registry this server populates. Running it
-  // first guarantees an empty registry, an immediate `worker offline`, and a
-  // blind rollback — plus up to ~15s of delayed first byte.
-  void move.recover().catch((error) => log.error("coord", "move_recover_failed", { error: String(error) }));
 
   scheduleBackups(sqlite, cfg.dbPath);
   scheduleAuditRetention(sqlite, cfg.auditRetentionDays);

@@ -121,15 +121,6 @@ export async function handleSyncWsUpgrade(
 ): Promise<Response | undefined | null> {
   const url = new URL(req.url);
   if (url.pathname !== SYNC_WS_PATH) return null;
-  // WS handshakes are GET, so main.ts's retired gate (`req.method !== "GET"`)
-  // cannot see them. Any non-active mode must fail fast here, or a browser
-  // reconnecting mid-move attaches to a frozen DB and gets keepalives forever
-  // instead of falling into the AuthCoordIdentity discovery path.
-  if (deps.move && deps.move.gate.mode !== "active") {
-    return new Response("coordinator move in progress", {
-      status: deps.move.gate.mode === "retired" ? 410 : 503,
-    });
-  }
   const wsOrigin = req.headers.get("origin");
   if (wsOrigin && !isAllowedWsOrigin(wsOrigin, url.host, deps.cfg)) {
     const addr = server.requestIP(req)?.address ?? undefined;

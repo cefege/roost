@@ -74,8 +74,6 @@ export interface RootState {
   coord_identity: {
     git_sha: string;
     public_url: string;
-    relocated_to_url?: string;
-    handoff_id?: string;
   } | null;
   /** OSC-0/OSC-2 title from the terminal core. Empty until the program sets
    *  one. */

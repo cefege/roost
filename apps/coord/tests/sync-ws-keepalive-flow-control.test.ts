@@ -182,23 +182,6 @@ test("ACK-paced retained seed crosses 512 frames and a stalled seed exits at 3 s
   }
 });
 
-test("application window accepts 512 frames and rejects the guarded relocation candidate", async () => {
-  const harness = await openFlowSocket();
-  for (let i = 0; i < 512; i += 1) publishSessionTitle(`frame-${i}`);
-
-  expect(harness.socket.closes).toEqual([]);
-  expect(harness.socket.data.deliveryQueue).toHaveLength(512);
-  const sentBeforeRelocation = harness.socket.sendCount;
-  harness.handler.publishRelocation("handoff", "https://source.test", "https://target.test");
-
-  expect(harness.socket.sendCount).toBe(sentBeforeRelocation);
-  expect(harness.socket.frameKinds).not.toContain("coordinatorRelocation");
-  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
-  expect(harness.socket.data.deliveryQueue).toEqual([]);
-  expect(harness.socket.data.unackedEncodedBytes).toBe(0);
-  harness.handler.close(harness.serverSocket);
-});
-
 test("application byte preflight accepts through 4 MiB and rejects the next candidate", async () => {
   const harness = await openFlowSocket();
   const limit = 4 * 1024 * 1024;
@@ -369,15 +352,4 @@ test("legacy sockets remain unsequenced and unenforced", async () => {
   expect(harness.socket.data.deliveryQueue).toEqual([]);
   expect(harness.socket.data.deliveryTimer).toBeNull();
   harness.handler.close(harness.serverSocket);
-});
-
-test("accepted relocation is sequenced by the guarded sender", async () => {
-  const harness = await openFlowSocket();
-  harness.handler.publishRelocation("handoff", "https://source.test", "https://target.test");
-
-  expect(harness.socket.frameKinds.at(-1)).toBe("coordinatorRelocation");
-  expect(harness.socket.deliverySeqs.at(-1)).toBeGreaterThan(0n);
-  expect(harness.socket.closes).toEqual([[undefined, undefined]]);
-  harness.handler.close(harness.serverSocket);
-  expect(harness.socket.data.deliveryQueue).toEqual([]);
 });

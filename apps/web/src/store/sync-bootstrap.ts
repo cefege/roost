@@ -22,7 +22,6 @@ import {
 } from "./sync.ts";
 import { createSingleSyncLoopStarter } from "./sync-flow.ts";
 import { _dispatchCapturedFragmentCredential } from "./sync-bootstrap.pair.ts";
-import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
 import { setTerminalBootstrapStage } from "./sync-hydrated.ts";
 import { markPhase } from "../lib/diag.ts";
 import { _installBootstrapDomainHydrators } from "./sync-bootstrap-hydration.ts";
@@ -91,7 +90,6 @@ export async function refreshCoordAndWorkers(): Promise<void> {
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
   );
-  if (identity.status === "fulfilled" && await relocateRetiredBrowser(identity.value) !== "failed") return;
   const workers = await Promise.resolve(coordClient.workersList({})).then(
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
@@ -101,8 +99,6 @@ export async function refreshCoordAndWorkers(): Promise<void> {
     setRootStore("coord_identity", {
       git_sha: identity.value.gitSha,
       public_url: identity.value.publicUrl,
-      relocated_to_url: identity.value.relocatedToUrl,
-      handoff_id: identity.value.handoffId,
     });
   }
   // Refresh path mirror of bootstrap's unauth detection: clear or
@@ -219,16 +215,10 @@ async function _bootstrap(): Promise<void> {
       location.reload();
       return;
     }
-    if (
-      initialIdentity.status === "fulfilled"
-      && await relocateRetiredBrowser(initialIdentity.value) !== "failed"
-    ) return;
     if (initialIdentity.status === "fulfilled") {
       setRootStore("coord_identity", {
         git_sha: initialIdentity.value.gitSha,
         public_url: initialIdentity.value.publicUrl,
-        relocated_to_url: initialIdentity.value.relocatedToUrl,
-        handoff_id: initialIdentity.value.handoffId,
       });
       _startCoordHealthPoller();
     }

@@ -11,7 +11,7 @@ export const AUTH_REJECT_THRESHOLD = 3;
 export const AUTH_REJECT_BACKOFF_CAP_MS = 5 * 60_000;
 // A dial that never fires ws.onopen is NOT necessarily an auth rejection: coord
 // answers a bad JWT with an HTTP 401 on the upgrade, which Bun's client
-// WebSocket reports exactly like a timeout or a tailscale-serve 502. So a
+// WebSocket reports exactly like a timeout or a front-door 502. So a
 // worker throttled by its own cgroup used to escalate to the 5-min cap after 3
 // dials and stay invisible for minutes (2026-08-01, ovh1). A worker that has
 // never opened in this process is the real stale-binary case and still
@@ -52,11 +52,11 @@ export const STABLE_SESSION_MS = 30_000;
 export const UNACKED_CAP = 8192;
 // Stale-link watchdog. Coord pings every 30s (coord worker-conn.ts keepalive),
 // so a healthy open link never goes >30s without a downstream frame. When the
-// coord process dies behind tailscale serve, the worker-side TCP stays
+// coord process dies behind its front door, the worker-side TCP stays
 // ESTABLISHED and ws.send keeps "succeeding" into a black hole — onerror/
 // onclose never fire (2026-07-11: 7h zombie link; every spawn failed with
 // [failed_precondition] worker not connected). Force-close + re-dial after
-// 3 missed pings. Same half-open-through-tailscale class as install.ts
+// 3 missed pings. Same half-open-through-a-proxy class as install.ts
 // BOOT_RPC_TIMEOUT_MS.
 export const STALE_LINK_TIMEOUT_MS = 90_000;
 export const STALE_CHECK_INTERVAL_MS = 15_000;

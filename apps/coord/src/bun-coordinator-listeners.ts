@@ -1,8 +1,8 @@
 // Owns Bun HTTP and WebSocket listener construction for coordinator startup.
 // runCoord calls it after the database, protocol services, and transports are ready.
-// It depends on Bun.serve plus the coordinator transport and move adapters.
+// It depends on Bun.serve plus the coordinator transport adapters.
 // The coordinator serves plaintext on its loopback bind; the operator's front
-// door owns TLS. The listener must be live before runCoord starts move recovery.
+// door owns TLS.
 
 import type { CoordConfig } from "@roost/shared/config";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
@@ -25,11 +25,8 @@ import {
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
 import type { ConnectDeps } from "./connect/router.ts";
 import type { CoordHandle } from "./coord-factory.ts";
-import { handleInternalHandoffRequest } from "./coord-move/internal-http.ts";
-import type { CoordinatorMoveService } from "./coord-move/orchestrator.ts";
 import { createSqliteSnapshot } from "./db/snapshot.ts";
 import { resolveCallerOrigin, type CallerOrigin, type ListenerTrust } from "./middleware/caller-origin.ts";
-import { coordinatorAvailabilityResponse } from "./middleware/coordinator-availability.ts";
 
 const COORDINATOR_HTTP_IDLE_TIMEOUT_SECONDS = 120;
 const BUN_MAX_FINITE_IDLE_TIMEOUT_SECONDS = 255;
@@ -61,7 +58,6 @@ interface BunCoordinatorListenerDeps {
   cfg: CoordConfig;
   coord: CoordHandle;
   sqlite: Database;
-  move: CoordinatorMoveService;
   workerDeps: WorkerServiceDeps;
   syncDeps: ConnectDeps;
   workerWs: WorkerWebSocketDispatch;
@@ -107,7 +103,6 @@ export function startBunCoordinatorListeners(
     cfg,
     coord,
     sqlite,
-    move,
     workerDeps,
     syncDeps,
     workerWs,
@@ -217,14 +212,6 @@ export function startBunCoordinatorListeners(
       req: Request,
       listenerServer: Server<WorkerWsData | SyncWsData>,
     ) => {
-      const internal = await handleInternalHandoffRequest(req, move);
-      // Above the retired gate: this route carries its own constant-time
-      // secret auth and executes internalCommit/internalAbort side effects,
-      // so 410-ing its response would drop a commit that already happened.
-      if (internal) return internal;
-      const path = new URL(req.url).pathname;
-      const unavailable = coordinatorAvailabilityResponse(move.gate.mode, req.method, path);
-      if (unavailable) return unavailable;
       // Worker raw-WS transport (/ws/coord-worker/:fp). If this is that
       // upgrade, authenticate + hijack here (Bun-specific); null = not our
       // path → fall through to the portable coord.fetch.

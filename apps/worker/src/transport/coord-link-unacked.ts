@@ -40,7 +40,6 @@ export interface CoordLinkUnacked {
   ready(): boolean;
   waitForDurableSessionEventReplay(signal?: AbortSignal): Promise<void>;
   ack(seq: number): void;
-  count(): number;
   clear(): void;
 }
 interface EventEntry {
@@ -288,7 +287,6 @@ export function createCoordLinkUnacked(store: SessionEventStore, hooks: CoordLin
     ready: () => protocolPhase === "live",
     waitForDurableSessionEventReplay: (signal) => replayBarrier.wait(signal),
     ack,
-    count: () => store.pendingEvents().length + metadata.size + (inFlight?.eventClass === "snapshot" ? 1 : 0),
     clear,
   };
 }

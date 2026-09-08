@@ -1,6 +1,6 @@
 // These tests cover dispatch of credentials captured before SPA startup.
-// They verify success ordering and failure retention for pair and relocation
-// credentials. The dispatcher is exercised without a browser runtime.
+// They verify success ordering and failure retention for pair credentials.
+// The dispatcher is exercised without a browser runtime.
 
 import { describe, expect, test } from "bun:test";
 import type { CapturedFragmentCredential } from "../src/auth/fragment-credential.ts";
@@ -32,17 +32,13 @@ function dispatcherHarness(credential: CapturedFragmentCredential): DispatcherHa
         events.push(`pair:${token}`);
         return { ok: true };
       },
-      redeemRelocation: async (value) => {
-        events.push(`relocation:${value.token}:${value.handoffId}`);
-        return "success";
-      },
       warn: (message) => events.push(`warn:${message}`),
     },
   };
 }
 
 describe("captured fragment credential dispatcher", () => {
-  test("pair and relocation success clear before reload", async () => {
+  test("pair success clears before reload", async () => {
     const pair = dispatcherHarness({ kind: "pair", token: "pair-secret" });
     expect(await dispatchCapturedFragmentCredential(pair.deps)).toBe(true);
     expect(pair.events).toEqual([
@@ -51,19 +47,6 @@ describe("captured fragment credential dispatcher", () => {
       "reload",
     ]);
     expect(pair.state.credential).toBeNull();
-
-    const relocation = dispatcherHarness({
-      kind: "relocation",
-      token: "move-secret",
-      handoffId: "handoff-id",
-    });
-    expect(await dispatchCapturedFragmentCredential(relocation.deps)).toBe(true);
-    expect(relocation.events).toEqual([
-      "relocation:move-secret:handoff-id",
-      "clear:relocation",
-      "reload",
-    ]);
-    expect(relocation.state.credential).toBeNull();
   });
 
   test("authoritative denials clear, while ambiguous pair errors remain retryable", async () => {
@@ -93,32 +76,10 @@ describe("captured fragment credential dispatcher", () => {
     expect(ambiguous.state.credential).toEqual({ kind: "pair", token: "retry-me" });
   });
 
-  test("authoritative relocation denial clears, while retryable failure remains captured", async () => {
-    const denied = dispatcherHarness({
-      kind: "relocation",
-      token: "denied",
-      handoffId: "handoff",
-    });
-    denied.deps.redeemRelocation = async () => "authoritative-denial";
-    expect(await dispatchCapturedFragmentCredential(denied.deps)).toBe(false);
-    expect(denied.events).toEqual([
-      "clear:relocation",
-      "warn:[sync] coordinator relocation credential was denied",
-    ]);
-    expect(denied.state.credential).toBeNull();
-
-    const retryable = dispatcherHarness({
-      kind: "relocation",
-      token: "retry",
-      handoffId: "handoff",
-    });
-    retryable.deps.redeemRelocation = async () => "retryable";
-    expect(await dispatchCapturedFragmentCredential(retryable.deps)).toBe(false);
-    expect(retryable.events).toEqual([]);
-    expect(retryable.state.credential).toEqual({
-      kind: "relocation",
-      token: "retry",
-      handoffId: "handoff",
-    });
+  test("a non-pair credential state dispatches nothing", async () => {
+    const empty = dispatcherHarness({ kind: "pair", token: "unused" });
+    empty.state.credential = null;
+    expect(await dispatchCapturedFragmentCredential(empty.deps)).toBe(false);
+    expect(empty.events).toEqual([]);
   });
 });

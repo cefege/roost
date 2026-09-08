@@ -224,8 +224,9 @@ before going further.
 
 ### `/internal/*` and `/api/db-export` are private
 
-Those two prefixes are the coordinator's internal handoff surface and its whole
-database snapshot. Deny them at the front door, as both recipes above do.
+`/internal/*` is a namespace the coordinator reserves for private on-host
+routes; `/api/db-export` is its whole database snapshot. Deny both at the front
+door, as both recipes above do.
 `/api/db-export` additionally refuses any caller the coordinator does not
 resolve as on-host, so the edge rule is defence in depth rather than the only
 guard.

@@ -15,7 +15,6 @@ import { makeAgentPromptHandlers } from "./handlers-agent-prompt.ts";
 import { makeAttachmentHandlers } from "./handlers-attachments.ts";
 import { makeMcpHandlers } from "./handlers-mcp.ts";
 import { makeAuthHandlers } from "./handlers-auth.ts";
-import { makeRelocationHandlers } from "./handlers-relocation.ts";
 import { makeSystemHandlers } from "./handlers-system.ts";
 import { makeWorkspaceHandlers } from "./handlers-workspaces.ts";
 import { makeTaskHandlers } from "./handlers-tasks.ts";
@@ -24,16 +23,14 @@ import { makeWorkerUpdateHandlers } from "./handlers-workers-update.ts";
 import { makeSessionHandlers } from "./handlers-sessions.ts";
 import { makeStreamingHandlers } from "./handlers-streaming.ts";
 import { makeUiHandlers } from "./handlers-ui.ts";
-import { makeCoordinatorMoveHandlers } from "./handlers-coordinator-move.ts";
 import { makePushHandlers } from "./handlers-push.ts";
 
 import type { KyselyDB } from "../db/connection.ts";
 import type { Database } from "bun:sqlite";
-import type { CoordKey } from "../coord-key.ts";
+import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "../jwt.ts";
 import { makeAuthInterceptor } from "./auth-interceptor.ts";
-import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 import type { PendingEventPublicationStore } from "../pending-event-publications.ts";
 import type { UiLayoutApplyOwner } from "./ui-layout-apply-owner.ts";
 import type { UiStateOwner } from "./ui-state-owner.ts";
@@ -43,12 +40,13 @@ import type { UiStateOwner } from "./ui-state-owner.ts";
 export interface ConnectDeps {
   db: KyselyDB;
   sqlite: Database;
-  coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;
   uiLayoutApplies: UiLayoutApplyOwner;
   uiStates: UiStateOwner;
-  move?: CoordinatorMoveService;
+  /** Required: the keeper-update fence only holds if every mutation path
+   * leases the same gate instance. */
+  writeGate: CoordinatorWriteGate;
   pendingPublications?: PendingEventPublicationStore;
   /** Deterministic observation point immediately before the keeper-update
    * handler's final empty-session query. */
@@ -70,7 +68,7 @@ export interface ConnectDeps {
 
 export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
   const interceptor = makeAuthInterceptor({
-    db: deps.db, jwtCache: deps.jwtCache, cfg: deps.cfg, move: deps.move,
+    db: deps.db, jwtCache: deps.jwtCache, cfg: deps.cfg, writeGate: deps.writeGate,
   });
 
   const router = createConnectRouter({
@@ -98,7 +96,6 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeTaskHandlers(deps),
     ...makeMcpHandlers(deps),
     ...makeAuthHandlers(deps),
-    ...makeRelocationHandlers(deps),
     ...makeSystemHandlers(deps),
     ...makeTranscriptionHandlers(deps),
     ...makeAgentConfigHandlers(deps),
@@ -106,7 +103,6 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeUiHandlers(deps),
     ...makePushHandlers(deps),
     ...makeStreamingHandlers(deps),
-    ...makeCoordinatorMoveHandlers(deps),
   });
 
   // coord↔worker transport is the raw WebSocket at /ws/coord-worker/:fp

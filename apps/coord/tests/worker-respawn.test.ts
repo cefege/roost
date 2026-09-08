@@ -3,7 +3,7 @@
 // proves the current worker generation receives its missing-session command.
 
 import { afterEach, expect, test } from "bun:test";
-import { CoordinatorWriteGate } from "../src/coord-move/write-gate.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { respawnMissingForWorker } from "../src/connect/worker-respawn.ts";
 import {
   __setConnectWorkerForTest,

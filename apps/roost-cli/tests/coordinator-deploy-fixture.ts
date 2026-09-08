@@ -127,7 +127,6 @@ export function statusReport(sha: string | null, workers: WorkerStatus[] = []): 
     coord: { reachable: sha !== null, gitSha: sha },
     workers,
     endpoint: { publicUrl: "https://coordinator.example.test", answers: sha !== null },
-    handoff: null,
   };
 }
 

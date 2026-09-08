@@ -11,17 +11,13 @@ import type {
 } from "../auth/fragment-credential.ts";
 import { redeemPairToken } from "../auth/redeemPairToken.ts";
 import type { RedeemResult } from "../auth/redeemPairToken.ts";
-import { redeemCoordinatorRelocation } from "../auth/coordinator-relocation.ts";
-import type { RelocationRedemptionResult } from "../auth/coordinator-relocation.ts";
+import { diag } from "@roost/shared/diag";
 
 export interface FragmentDispatcherDependencies {
   peek(): CapturedFragmentCredential | null;
   clear(expectedKind: CapturedFragmentCredentialKind): boolean;
   reload(): void;
   redeemPair(token: string): Promise<RedeemResult>;
-  redeemRelocation(
-    credential: Extract<CapturedFragmentCredential, { kind: "relocation" }>,
-  ): Promise<RelocationRedemptionResult>;
   warn(message: string): void;
 }
 
@@ -29,19 +25,7 @@ export async function dispatchCapturedFragmentCredential(
   deps: FragmentDispatcherDependencies,
 ): Promise<boolean> {
   const credential = deps.peek();
-  if (credential?.kind !== "pair" && credential?.kind !== "relocation") return false;
-
-  if (credential.kind === "relocation") {
-    const result = await deps.redeemRelocation(credential);
-    if (result === "retryable") return false;
-    deps.clear("relocation");
-    if (result === "authoritative-denial") {
-      deps.warn("[sync] coordinator relocation credential was denied");
-      return false;
-    }
-    deps.reload();
-    return true;
-  }
+  if (credential?.kind !== "pair") return false;
 
   const result = await deps.redeemPair(credential.token);
   if (!result.ok) {
@@ -61,8 +45,7 @@ export async function _dispatchCapturedFragmentCredential(): Promise<boolean> {
     clear: clearCapturedFragmentCredential,
     reload: () => location.reload(),
     redeemPair: redeemPairToken,
-    redeemRelocation: redeemCoordinatorRelocation,
-    warn: (message) => console.warn(message),
+    warn: (message) => diag("pair.redeem_failed", { msg: message }),
   });
 }
 

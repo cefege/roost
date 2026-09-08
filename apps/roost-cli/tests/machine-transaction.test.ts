@@ -13,7 +13,7 @@ import {
 const KINDS: readonly MachineTransactionKind[] = [
   "keeper-refresh",
   "update",
-  "relocation",
+  "install",
   "deploy",
 ];
 
@@ -110,8 +110,8 @@ describe("machine transactions", () => {
         malformed.close();
       }
       await expectBusy(acquireMachineTransaction(
-        "relocation",
-        "/journals/relocation.jsonl",
+        "install",
+        "/journals/install.jsonl",
         options(root, lockPath, "blocked-by-malformed-remote"),
       ));
 
@@ -124,8 +124,8 @@ describe("machine transactions", () => {
         reversedTimestamps.close();
       }
       await expectBusy(acquireMachineTransaction(
-        "relocation",
-        "/journals/relocation.jsonl",
+        "deploy",
+        "/journals/deploy.jsonl",
         options(root, lockPath, "blocked-by-reversed-lease"),
       ));
 
@@ -205,7 +205,7 @@ describe("machine transactions", () => {
         const ready = await child.stdout.getReader().read();
         expect(new TextDecoder().decode(ready.value)).toContain("READY");
         await expectBusy(acquireMachineTransaction(
-          "relocation",
+          "install",
           "/journals/parent.jsonl",
           options(root, lockPath, "parent-before-kill"),
         ));
@@ -215,7 +215,7 @@ describe("machine transactions", () => {
       }
 
       const recovered = await acquireMachineTransaction(
-        "relocation",
+        "install",
         "/journals/parent.jsonl",
         options(root, lockPath, "parent-after-kill"),
       );

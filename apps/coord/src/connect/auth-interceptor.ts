@@ -1,5 +1,5 @@
 // Connect RPC authentication resolves verified keys and tenant scope before any
-// handler runs. This interceptor owns request context, move-gate leases, and
+// handler runs. This interceptor owns request context, write-gate leases, and
 // response-aware auditing because no outer layer sees all three safely.
 
 import {
@@ -12,7 +12,7 @@ import {
 import type { KyselyDB } from "../db/connection.ts";
 import type { JwtCache } from "../jwt.ts";
 import type { CoordConfig } from "@roost/shared/config";
-import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
+import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import type { CallerOrigin, ListenerTrust } from "../middleware/caller-origin.ts";
 import { verifyJwt } from "../jwt.ts";
 import {
@@ -121,14 +121,12 @@ export const tabIdKey = createContextKey<string | undefined>(undefined);
 export const requestedDashboardIdKey = createContextKey<string | undefined>(undefined);
 /** Server-confirmed dashboard scope, resolved exactly once by the interceptor. */
 export const dashboardActorKey = createContextKey<DashboardActor | null>(null);
-/** Raw bearer header preserved for retired-source relocation forwarding. */
-export const authorizationKey = createContextKey<string | undefined>(undefined);
 
 export interface AuthInterceptorDeps {
   db: KyselyDB;
   jwtCache: JwtCache;
   cfg: CoordConfig;
-  move?: CoordinatorMoveService;
+  writeGate: CoordinatorWriteGate;
 }
 
 
@@ -139,7 +137,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   SessionsSpawn: true, SessionsAttach: true, SessionsKill: true, SessionsRename: true,
   // Terminal writes acquire their lease only after entering the per-sender/
   // session FIFO. Taking one here would let queued input or a prompt hold the
-  // move drain open.
+  // exclusive keeper-update drain open.
   SessionsCursorPos: true, SessionsAssignWorkspace: true,
   TasksEnqueue: true, TasksNextPending: true, TasksSetState: true, TasksCancel: true,
   WorkspacesCreate: true, WorkspacesUpdate: true, WorkspacesDelete: true, WorkspacesSetSessions: true,
@@ -221,9 +219,8 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
       listenerHeader === AUTH_LAYER_TRUSTED_PROXY ? "trusted-proxy" : "direct";
     req.contextValues.set(listenerTrustKey, listenerTrust);
     req.contextValues.set(tabIdKey, req.header.get(X_ROOST_TAB_ID) ?? undefined);
-    req.contextValues.set(authorizationKey, auth);
     let status = 200;
-    const lease = deps.move && WRITE_METHODS[method] ? deps.move.gate.acquire() : null;
+    const lease = WRITE_METHODS[method] ? deps.writeGate.acquire() : null;
     try {
       return await next(req);
     } catch (e) {

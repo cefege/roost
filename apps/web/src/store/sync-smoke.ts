@@ -6,8 +6,8 @@
 // The roostSmoke-gated exports additionally require VITE_ROOST_SMOKE=1 at
 // BUILD time: production bundles fold them to no-ops, so the localStorage key
 // alone cannot steer the transport. forceSyncReconnect is the one export here
-// that is NOT gated: it has three live callers in store/sync-bootstrap.ts
-// (hydrator retry, coordinator relocation, and a missing terminal snapshot token).
+// that is NOT gated: it has two live callers in store/sync-bootstrap.ts
+// (hydrator retry and a missing terminal snapshot token).
 
 import {
   _armSyncRedialFloor,

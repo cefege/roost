@@ -6,7 +6,7 @@ import type { CoordConfig } from "@roost/shared/config";
 import type {
   CoordWorkerUp,
 } from "@roost/shared/proto/worker_transport_pb";
-import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
+import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import type { KyselyDB } from "../db/connection.ts";
 import type { PendingEventPublicationStore } from "../pending-event-publications.ts";
 import type { JwtCache } from "../jwt.ts";
@@ -27,7 +27,9 @@ export interface WorkerServiceDeps {
   pendingPublications: PendingEventPublicationStore;
   jwtCache: JwtCache;
   cfg: CoordConfig;
-  move?: CoordinatorMoveService;
+  /** Required: frame dispatch withholds durable ACKs and respawn waits on
+   * this exact instance while a keeper update holds the fence. */
+  writeGate: CoordinatorWriteGate;
   onWorkerConnected?: (workerFp: string) => Promise<void> | void;
   onUpdateProgress?: (
     workerFp: string,

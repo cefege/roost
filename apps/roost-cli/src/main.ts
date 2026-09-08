@@ -49,32 +49,13 @@ const SUBCOMMANDS = {
       { DurableWindowsUpdateJournalStore },
       { createServiceHealthProver, createWindowsUpdateNative },
       { admitPendingWindowsUpdateRequest },
-      { createWindowsRelocationBrokerDeps, runWindowsRelocationBroker },
-      { admitPendingWindowsRelocationRequest },
     ] = await Promise.all([
       import("./service-ctl.ts"),
       import("./windows/windows-update-broker.ts"),
       import("./windows/windows-update-journal.ts"),
       import("./windows/windows-update-runtime.ts"),
       import("./windows/windows-update-control.ts"),
-      import("./windows/windows-relocation-broker.ts"),
-      import("./windows/windows-relocation-control.ts"),
     ]);
-    for (let admitted = 0; admitted < 16; admitted += 1) {
-      const journal = await admitPendingWindowsRelocationRequest();
-      if (!journal) break;
-      await runWindowsRelocationBroker(
-        createWindowsRelocationBrokerDeps(journal.operationKind),
-      );
-    }
-    let relocationHandled = false;
-    for (const kind of ["worker-endpoint", "coordinator-promotion"] as const) {
-      const relocation = await runWindowsRelocationBroker(
-        createWindowsRelocationBrokerDeps(kind),
-      );
-      relocationHandled ||= relocation.handled;
-    }
-    if (relocationHandled) return;
     await admitPendingWindowsUpdateRequest();
     await runWindowsUpdateBroker({
       store: new DurableWindowsUpdateJournalStore(),

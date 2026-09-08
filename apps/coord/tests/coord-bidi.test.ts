@@ -21,7 +21,7 @@ import { InputCommandSchema } from "@roost/shared/proto/sync_pb";
 import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { loadOrCreateCoordKey } from "../src/coord-key.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
@@ -58,7 +58,6 @@ const OFFLINE_WORKER_FP = "deadbeef".repeat(8);
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-coord-bidi-"));
   const dbPath = join(workdir, "test.db");
-  const keyPath = join(workdir, "test.key");
   const authPath = join(workdir, "authorized_keys");
   writeFileSync(authPath, "");
 
@@ -66,11 +65,10 @@ beforeAll(async () => {
   db = opened.db;
   const sqlite = opened.sqlite;
   await runMigrations(sqlite);
-  const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
   pushAllowedOrigins: [],
-  dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
+  dbPath, authorizedKeysPath: authPath,
   webDistPath: "",
   jwtMaxAgeSecs: 300,
   auditRetentionDays: 90,
@@ -78,11 +76,11 @@ beforeAll(async () => {
   corsAllowedOrigins: [],
   logDir: workdir,
   publicUrl: undefined,
-  handoffPath: join(workdir, "coord-handoff.json"), }
+  }
   const deps: ConnectDeps = {
     db,
     sqlite,
-    coordKey,
+    writeGate: new CoordinatorWriteGate(),
     cfg,
     jwtCache,
     uiLayoutApplies: new UiLayoutApplyOwner(),

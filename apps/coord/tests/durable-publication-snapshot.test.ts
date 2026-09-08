@@ -11,6 +11,7 @@ import {
 } from "../src/byte-hub.ts";
 import { processInputControl, terminalViewerIdentity } from "../src/connect/session-control.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { SessionEvent, asChannelId } from "@roost/shared/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 
@@ -132,9 +133,13 @@ describe("exact worker snapshot reconciliation", () => {
 
   test("input cannot repopulate a stale route from the open breadcrumb", async () => {
     await append(openedEvent(SID_B, 12));
-    // processInputControl reads only db before route resolution; the remaining
-    // router dependencies belong to unrelated RPC handlers.
-    const deps = { db: writer.db } as unknown as ConnectDeps;
+    // processInputControl reads db plus the write gate before route
+    // resolution; the remaining router dependencies belong to unrelated RPC
+    // handlers.
+    const deps = {
+      db: writer.db,
+      writeGate: new CoordinatorWriteGate(),
+    } as unknown as ConnectDeps;
     const command = {
       identity: terminalViewerIdentity("f".repeat(64), "tab-1", undefined, DASHBOARD_ID),
       sessionId: SID_B,

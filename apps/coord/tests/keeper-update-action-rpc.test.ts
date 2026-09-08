@@ -15,11 +15,9 @@ import type {
 } from "@roost/shared/proto/worker_transport_pb";
 import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { createCoord } from "../src/coord-factory.ts";
-import type { CoordinatorMoveService } from "../src/coord-move/orchestrator.ts";
-import { CoordinatorWriteGate } from "../src/coord-move/write-gate.ts";
+import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import {
@@ -94,28 +92,12 @@ afterEach(async () => {
   await Promise.all(activeHarnesses.splice(0).map(harness => harness.close()));
 });
 
-function moveService(): CoordinatorMoveService {
-  return {
-    gate: new CoordinatorWriteGate(),
-    preflight: async () => ({ eligible: false, sourceUrl: "", targetUrl: "", blockers: [] }),
-    start: async () => "unused",
-    status: () => null,
-    statusForWorker: async () => null,
-    current: () => null,
-    recover: async () => {},
-    internalStatus: async () => { throw new Error("unused"); },
-    internalCommit: async () => {},
-    internalAbort: async () => {},
-  };
-}
-
 async function openHarness(
   sessionIds: readonly string[],
 ): Promise<RpcHarness> {
   const directory = mkdtempSync(join(tmpdir(), "roost-keeper-action-rpc-"));
   const opened = openDb(join(directory, "coord.db"));
   await runMigrations(opened.sqlite);
-  const coordKey = await loadOrCreateCoordKey(join(directory, "coord.key"));
   const browserKeys = await crypto.subtle.generateKey(
     { name: "Ed25519" }, true, ["sign", "verify"],
   );
@@ -197,7 +179,6 @@ async function openHarness(
     bind: "127.0.0.1:0",
     pushAllowedOrigins: [],
     dbPath: join(directory, "coord.db"),
-    coordKeyPath: join(directory, "coord.key"),
     authorizedKeysPath: join(directory, "keys"),
     webDistPath: "",
     jwtMaxAgeSecs: 300,
@@ -206,15 +187,13 @@ async function openHarness(
     corsAllowedOrigins: [],
     logDir: directory,
     publicUrl: undefined,
-    handoffPath: join(directory, "handoff.json"),
   };
   const coord = createCoord({
     db: opened.db,
     sqlite: opened.sqlite,
-    coordKey,
     cfg,
     jwtCache: newJwtCache(),
-    move: moveService(),
+    writeGate: new CoordinatorWriteGate(),
   });
   const issuedAt = Math.floor(now / 1_000);
   const jwt = await signJwt({

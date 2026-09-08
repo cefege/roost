@@ -1,7 +1,7 @@
-// Owns rename, removal confirmation, live metrics, and coordinator controls for
-// one registered machine. MachinesPane supplies the worker record and keeps
-// enrollment plus move-resume state at list scope. Shared M3 primitives preserve
-// the settings surface's existing hierarchy and interaction states.
+// Owns rename, removal confirmation, and live metrics for one registered
+// machine. MachinesPane supplies the worker record and keeps enrollment state
+// at list scope. Shared M3 primitives preserve the settings surface's existing
+// hierarchy and interaction states.
 
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { Worker } from "@roost/shared/wire";
@@ -10,10 +10,8 @@ import { workerOnline } from "../../store/sync.ts";
 import { applyWorkerDeleteResponse } from "../../store/worker-removal.ts";
 import { coordClient } from "../../connect.ts";
 import { addToast } from "../../store/toastStore.ts";
-import { CoordinatorMoveDialog } from "./CoordinatorMoveDialog.tsx";
 import { Card, Button, MetricTile, Icon, TextField } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
-import { coordinatorRole } from "../../lib/coordinatorMove.ts";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { machinePlatformIcon } from "../../lib/machineActions.ts";
 function formatBps(bps: number): string {
@@ -45,8 +43,6 @@ export function MachineCard(props: { worker: Worker }) {
   const [confirmDelete, setConfirmDelete] = createSignal(false);
   const [deleteBusy, setDeleteBusy] = createSignal(false);
   let confirmTimer: ReturnType<typeof setTimeout> | null = null;
-  const [moveDialog, setMoveDialog] = createSignal(false);
-  const role = () => coordinatorRole(rootStore.coord_identity, w());
 
   function beginRename() {
     setRenameLabel(w().label);
@@ -143,12 +139,6 @@ export function MachineCard(props: { worker: Worker }) {
 
   return (
     <div data-testid={`machines-worker-row-${w().fp}`} style={{ opacity: deleteBusy() ? 0.4 : 1, transition: "opacity 0.15s" }}>
-      <Show when={moveDialog()}>
-        <CoordinatorMoveDialog
-          targetWorkerFp={w().fp}
-          onClose={() => setMoveDialog(false)}
-        />
-      </Show>
       <Card variant="elevated" trailing={headerTrailing}>
         <Show
           when={!renaming()}
@@ -258,23 +248,6 @@ export function MachineCard(props: { worker: Worker }) {
             >
               Rename
             </Button>
-            <Show when={role() === "yes"}>
-              <span data-testid={`machines-coordinator-pill-${w().fp}`} class="md-label-m">Coordinator</span>
-            </Show>
-            <Show when={role() === "unknown"}>
-              <span data-testid={`machines-coordinator-unknown-${w().fp}`} class="md-label-s">
-                Coordinator location unknown — set ROOST_COORDINATOR_PUBLIC_URL on the coordinator.
-              </span>
-            </Show>
-            <Show when={role() === "no"}>
-              <Button
-                variant="tonal"
-                data-testid={`machines-move-coordinator-btn-${w().fp}`}
-                onClick={() => setMoveDialog(true)}
-              >
-                Move coordinator here
-              </Button>
-            </Show>
             <Show when={confirmDelete()}>
               <span
                 class="md-body-s"

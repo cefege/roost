@@ -17,16 +17,6 @@ export interface WorkerStatus {
   stale: boolean;
 }
 
-/** Coordinator-move state as the coord persists it (coord-move/state.ts).
- *  Structural on purpose — roost-cli imports @roost/shared only, never coord. */
-export interface HandoffStatus {
-  role: "SOURCE" | "TARGET";
-  phase: string;
-  handoffId: string;
-  sourceUrl: string;
-  targetUrl: string;
-}
-
 /** The operator-declared front door. Roost installs no proxy, tunnel, or
  *  certificate, so the only claim it can make is whether that URL answers. */
 export interface EndpointStatus {
@@ -44,7 +34,6 @@ export interface StatusReport {
   coord: { reachable: boolean; gitSha: string | null };
   workers: WorkerStatus[];
   endpoint: EndpointStatus;
-  handoff: HandoffStatus | null;
 }
 
 export interface ResolvedStatusEndpoint {

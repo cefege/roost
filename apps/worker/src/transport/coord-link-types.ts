@@ -88,18 +88,6 @@ export interface CoordLinkDeps {
     binding_digest?: string;
   };
   onAttachmentChunk?: (msg: { request_id: string; session_id: string; filename: string; short_path: boolean; data: Uint8Array; last: boolean; seq: number }) => void;
-  onCoordMovePrepare?: (msg: {
-    request_id: string; handoff_id: string; source_url: string; target_url: string;
-    expected_coord_kid: string; expected_git_sha: string; estimated_db_size: bigint; action: "CHECK" | "PREPARE";
-  }) => Promise<void> | void;
-  onCoordMoveSnapshotStart?: (msg: {
-    request_id: string; handoff_id: string; total_size: bigint; sha256: string; coord_key_pem: Uint8Array;
-    authorized_keys: Uint8Array; secret_sha256: string; expected_worker_fps: string[];
-  }) => Promise<void> | void;
-  onCoordMoveSnapshotChunk?: (msg: { handoff_id: string; seq: number; data: Uint8Array; last: boolean }) => Promise<void> | void;
-  onCoordRelocate?: (msg: {
-    request_id: string; handoff_id: string; source_url: string; target_url: string; action: "STAGE" | "ACTIVATE" | "COMMIT" | "ABORT";
-  }) => Promise<void> | void;
   onUpdateBroker?: (msg: {
     request_id: string;
     job_id: string;
@@ -141,8 +129,6 @@ export interface CoordLink {
   activateSnapshotProvider(provider: WorkerSnapshotProvider): void;
   snapshotStateChanged(): void;
   sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TerminalCellSendResult;
-  relocate(targetUrl: string, force?: boolean): void;
-  unackedEventCount(): number;
   dispose(): void;
 }
 
@@ -232,7 +218,6 @@ export interface CoordLinkOutbox {
   drainQueues(): void;
   clearDrainTimer(): void;
   ackEvent(seq: number): void;
-  unackedCount(): number;
   reset(): void;
 }
 
@@ -261,7 +246,6 @@ export interface CoordLinkReconnect {
   noteOpen(): boolean;
   noteDialClosed(): void;
   noteStableSession(): void;
-  resetForRedial(): void;
 }
 
 /** Coordinator→worker frame dispatch (coord-link-downstream.ts). */
