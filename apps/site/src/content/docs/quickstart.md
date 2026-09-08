@@ -7,27 +7,17 @@ section: "Start"
 
 ## One command for the first machine
 
-Choose one `quickstart` form. Automatic Tailscale Serve:
+Point the coordinator at the origin your front door serves:
 
 ```sh
-roost quickstart
+roost quickstart --coordinator-url "https://roost.example.com"
 ```
 
-Direct HTTPS:
-
-```sh
-roost quickstart \
-  --coordinator-url "https://roost.example.com:8443" \
-  --tls-cert "/absolute/path/fullchain.pem" \
-  --tls-key "/absolute/path/privkey.pem"
-```
-
-Both forms install the coordinator service, deploy a worker on the same machine,
-wait for health, print a status readout, and open your browser already
-authorized. Automatic mode requires Tailscale and configures Serve in front of a
-loopback coordinator. Direct mode does not resolve or call Tailscale; the
-coordinator serves your browser-trusted certificate on the configured HTTPS
-origin.
+That installs the coordinator service on its loopback bind, deploys a worker on
+the same machine, waits for health, prints a status readout, and opens your
+browser already authorized. The flag is required: Roost never guesses a public
+origin. TLS and reachability come from the front door you chose in
+[install](/docs/install/).
 
 Coordinator startup owns the self-hosted tenant setup. Before enrollment, it
 creates or validates one internal `local@roost.invalid` account, one `personal`
@@ -48,18 +38,12 @@ one-shot browser token and renders a QR for the current HTTPS origin, again with
 the token in the fragment. Scan it with the phone's camera — the phone opens
 Roost and signs itself in with nothing to type.
 
-Choose a browser route:
+Make the front door reachable from the phone first — on a `tailscale serve`
+front door that means installing the Tailscale app on the phone and signing in
+to the same tailnet.
 
-- **Automatic Tailscale Serve.** Install the Tailscale app on the phone and sign
-  in to the same tailnet, then scan.
-- **Direct HTTPS.** Make the configured origin reachable from the phone and make
-  sure its complete certificate chain is trusted there, then scan.
-- **Cloudflare (optional for automatic mode).** After the setup in
-  [networking](/docs/networking/), open your Cloudflare hostname on the phone
-  with no VPN client, complete the Cloudflare Access login, then pair.
-
-Every route requires Roost pairing. Network reachability or a successful Access
-login on its own does not authorize a device.
+Pairing is what authorizes the device. Network reachability, or a login your
+front door performs on its own, does not.
 
 Three other ways to authorize a browser — pasting a bootstrap token, loopback
 self-registration, and tap-to-pair approval — are described in
@@ -67,10 +51,8 @@ self-registration, and tap-to-pair approval — are described in
 
 ## Add another machine
 
-`v0.5.0` enrolls macOS and Linux workers. On a coordinator in either HTTPS
-mode, use **Settings → Machines → Add machine** to generate a one-shot pull
-command for the installed public origin. On an automatic-mode coordinator, the
-equivalent CLI generators are:
+`v0.5.0` enrolls macOS and Linux workers. Use **Settings → Machines → Add
+machine** to generate a one-shot pull command, or the CLI generators:
 
 ```sh
 roost add-machine --platform macos
@@ -88,11 +70,12 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
   ROOST_BOOTSTRAP_TOKEN="roost_bt_…" bash
 ```
 
-Those two environment variables are the enrollment contract. `join.sh`
-currently also requires a running Tailscale daemon, even when
-`ROOST_COORDINATOR_URL` names the direct HTTPS origin. In direct mode, the
-worker must reach that origin and trust its certificate chain. `v0.5.0`
-therefore has no Tailscale-free extra-worker enrollment path.
+Those two environment variables are the enrollment contract. The worker must
+reach that origin and trust its certificate chain; `/ws/coord-worker/*` passes
+on a standard front door. Give workers a separate origin with
+`ROOST_COORDINATOR_PUBLIC_URL` on the coordinator when the worker link should
+stay off the public front door — only then is it safe to deny that path at the
+edge.
 
 > **Windows host enrollment is paused.** `v0.5.0` publishes no Windows worker,
 > package, installer, or signed join script, so there is no Windows command to
@@ -148,10 +131,9 @@ roost status
 roost doctor --since 1h
 ```
 
-`roost status` is the current service, network, and fleet gate: it reports the
-selected HTTPS mode, required Tailscale/Serve or direct-certificate state,
-coordinator and worker services, coordinator health and tagged SHA, and worker
-freshness.
+`roost status` is the current service, network, and fleet gate: it reports both
+local services, coordinator health and tagged SHA on its loopback bind, the
+configured public URL and whether it answers, and worker freshness.
 `roost doctor --since <window>` is a different question — it summarizes the local
 logs from that window and reports anomaly counts such as uncaught errors,
 sequence gaps, queue overflows, degraded keepers, and failed backups or

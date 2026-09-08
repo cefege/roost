@@ -181,7 +181,7 @@ describe("agent status read handlers", () => {
   test("the single coordinator router admits both read methods exactly once", () => {
     const router = buildConnectRouter({
       db,
-      cfg: { saasMode: false },
+      cfg: {},
     } as unknown as ConnectDeps);
     const connectHandler = makeConnectBunHandler(router);
     for (const rpcMethod of [

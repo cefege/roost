@@ -66,8 +66,6 @@ function rateLimitedSocket(): {
     },
     fp: WORKER_FP,
     dashboardId: DASHBOARD_ID,
-    authDeadlineAtMs: null,
-    authDeadlineTimer: null,
     conn,
     queue: null,
     eventRate: { startedAtMs: null, events: 0 },
@@ -87,7 +85,7 @@ describe("per-socket durable event rate", () => {
     const clock = { now: () => 10_000 };
     const handler = makeWorkerWsHandler(
       {} as WorkerServiceDeps,
-      { deadlineClock: clock as never },
+      { clock: clock as never },
     );
     const frame = Buffer.from(toBinary(CoordWorkerUpSchema, durableEventFrame()));
     const first = rateLimitedSocket();

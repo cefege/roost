@@ -35,7 +35,7 @@ function targetProbeBlocker(target: MoveWorker, detail: string): MoveBlocker {
   if (detail.includes("target URL does not match this worker's Tailscale address")) {
     return blocker(
       "target_address_missing",
-      `${target.label} does not recognise ${publicTargetUrl(target)} as its own Tailscale address.`,
+      `${target.label} does not recognise ${publicTargetUrl(target)} as its own reachable address.`,
       target.fp,
     );
   }
@@ -69,7 +69,7 @@ export async function preflightSourceMove(
     const sourceHost = sourceUrl ? new URL(sourceUrl).hostname.toLowerCase() : "";
     if (sourceHost && target.reachableAddr?.toLowerCase() === sourceHost) blockers.push(blocker("target_same_as_source", "This machine already hosts the coordinator.", target.fp));
     if (!target.online) blockers.push(blocker("target_offline", `Bring ${target.label} online before moving the coordinator.`, target.fp));
-    if (!target.reachableAddr) blockers.push(blocker("target_address_missing", `${target.label} has not reported a Tailscale address.`, target.fp));
+    if (!target.reachableAddr) blockers.push(blocker("target_address_missing", `${target.label} has not reported a reachable address.`, target.fp));
     if (target.gitSha !== COORD_GIT_SHA) blockers.push(blocker("target_version_mismatch", `Deploy coordinator version ${SHA8} to ${target.label} first.`, target.fp));
     if (target.online && target.reachableAddr && target.gitSha === COORD_GIT_SHA) {
       // PREPARE stats dbPath size; the target sizes its disk check off it.

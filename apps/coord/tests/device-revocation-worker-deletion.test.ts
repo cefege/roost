@@ -35,10 +35,8 @@ describe("authorized device lifecycle", () => {
     await h.db.insertInto("accounts").values({
       id: "administrator-account",
       email_normalized: "administrator@example.test",
-      password_hash: null,
       status: "active",
       created_at_ms: 1,
-      password_changed_at_ms: null,
     }).execute();
     await h.db.insertInto("organizations").values({
       id: "worker-delete-organization",

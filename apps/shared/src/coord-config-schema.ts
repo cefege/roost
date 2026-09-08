@@ -5,8 +5,14 @@
 import { z } from "zod";
 import { coordLogDir } from "./paths.ts";
 
+/** The bind an unset `ROOST_COORDINATOR_BIND` resolves to. Loopback, because the
+ * coordinator serves plaintext and must never expose the dashboard on every
+ * interface by default; `roost dev` opts out explicitly. Callers that need to
+ * reach a bare coordinator import this rather than restating the port. */
+export const DEFAULT_COORDINATOR_BIND = "127.0.0.1:4103";
+
 export const CoordConfig = z.object({
-  bind: z.string().default("0.0.0.0:4102"),
+  bind: z.string().default(DEFAULT_COORDINATOR_BIND),
   dbPath: z.string(),
   authorizedKeysPath: z.string(),
   webDistPath: z.string().optional(),         // vinxi/vite build output for SPA serve
@@ -19,26 +25,12 @@ export const CoordConfig = z.object({
   pushAllowedOrigins: z.array(z.string()).default([]),
   relaxedCsp: z.boolean().default(false),
   trustProxy: z.boolean().default(false),
-  publicBind: z.string().optional(),
+  // Operator-declared browser front door. Seeds the CSP connect-src allowance and
+  // the Sync WS origin allowlist; the front door itself owns TLS and DNS.
   webPublicUrl: z.string().url().optional(),
-  cfAccessTeamDomain: z.string().optional(),
-  saasMode: z.boolean().default(false),
-  managedContainer: z.boolean().default(false),
-  instanceId: z.string().optional(),
-  tenantRouteKey: z.string().optional(),
-  saasAuthVerifyKeyPath: z.string().optional(),
-  resendEndpoint: z.string().url().optional(),
-  resendApiKey: z.string().min(1).optional(),
-  emailFrom: z.string().min(1).optional(),
-  emailOutboxKey: z.string().min(1).optional(),
-  cfAccessAud: z.string().optional(),
   logDir: z.string().default(coordLogDir()),
-  // Tailnet TLS via `tailscale cert <fqdn>`. When BOTH paths are set,
-  // coord serves HTTPS instead of HTTP. Browsers reach the tailnet FQDN
-  // over HTTPS, satisfying secure-context APIs (WebCrypto, SubtleCrypto)
-  // and avoiding mixed-content when a worker serves WSS.
-  tlsCertPath: z.string().optional(),
-  tlsKeyPath: z.string().optional(),
+  // Coordinator identity origin for operators whose worker traffic enters through a
+  // different door than the browser front door. Never derived, only declared.
   publicUrl: z.string().url().optional(),
   handoffPath: z.string(),
 });

@@ -12,7 +12,6 @@ import {
 import { processInputControl, terminalViewerIdentity } from "../src/connect/session-control.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { SessionEvent, asChannelId } from "@roost/shared/wire";
-import { appendEvent } from "../src/event-log.ts";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 
 const fixture = createDurablePublicationFixture({
@@ -32,7 +31,6 @@ const {
   liveSession,
   openedEvent,
   snapshotEvent,
-  nextClientSeq,
 } = fixture;
 
 let writer: typeof fixture.writer;
@@ -159,31 +157,13 @@ describe("exact worker snapshot reconciliation", () => {
     expect(getCachedSessionWorker(SID_B)).toBeUndefined();
   });
 
-  test("self-hosted snapshots admit a genuinely unknown own session", async () => {
+  test("snapshots admit a genuinely unknown own session", async () => {
     const result = await append(snapshotEvent([liveSession(SID_A, 21)]));
     expect(result).toMatchObject({ admitted: true, inserted: true, published: true });
     expect(await writer.db.selectFrom("sessions")
       .select(["id", "worker_fp", "channel"])
       .where("id", "=", SID_A)
       .executeTakeFirst()).toEqual({ id: SID_A, worker_fp: FP, channel: 21 });
-  });
-
-  test("managed snapshots retain the existing-session proof requirement", async () => {
-    const result = await appendEvent(
-      writer.db,
-      snapshotEvent([liveSession(SID_A, 21)]),
-      {
-        worker_fp: FP,
-        client_seq: nextClientSeq(),
-        dashboardId: DASHBOARD_ID,
-        requireExistingWorkerSessions: true,
-      },
-    );
-    expect(result).toMatchObject({ admitted: false, inserted: false, published: false });
-    expect(await writer.db.selectFrom("sessions")
-      .select("id")
-      .where("id", "=", SID_A)
-      .executeTakeFirst()).toBeUndefined();
   });
 
   test("snapshot collision with another worker rejects every announced session", async () => {

@@ -101,8 +101,6 @@ export async function refreshCoordAndWorkers(): Promise<void> {
     setRootStore("coord_identity", {
       git_sha: identity.value.gitSha,
       public_url: identity.value.publicUrl,
-      public_listener: identity.value.publicListener,
-      saas_mode: identity.value.saasMode,
       relocated_to_url: identity.value.relocatedToUrl,
       handoff_id: identity.value.handoffId,
     });
@@ -171,19 +169,6 @@ let _hydratorsInstalled = false;
 // this one starter instead of creating competing socket generations.
 const _startSyncLoop = createSingleSyncLoopStarter(() => { void _runConnectSync(); });
 
-/** Continue the one bootstrap pipeline immediately after a public password RPC
- * binds this browser key. The single-loop starter still prevents duplicate
- * Sync sockets if a scheduled retry wins the race. */
-export function resumeBootstrapAfterDeviceAuthorization(): void {
-  setBrowserUnauthorized(false);
-  _bootstrapRetries = 0;
-  if (_bootstrapRetryTimer) {
-    clearTimeout(_bootstrapRetryTimer);
-    _bootstrapRetryTimer = null;
-  }
-  void _bootstrap();
-}
-
 function setBrowserUnauthorized(next: boolean): void {
   // Signal only the authorization loss edge; a persistently unknown browser
   // must not emit another relogin event on every visibility refresh.
@@ -229,13 +214,11 @@ async function _bootstrap(): Promise<void> {
     markPhase("identity_complete", { status: initialIdentity.status });
     if (
       initialIdentity.status === "fulfilled"
-      && reconcileCoordinatorOverrideAfterDiscovery(initialIdentity.value.saasMode)
+      && reconcileCoordinatorOverrideAfterDiscovery()
     ) {
       location.reload();
       return;
     }
-    const selfHosted = initialIdentity.status === "fulfilled"
-      && !initialIdentity.value.saasMode;
     if (
       initialIdentity.status === "fulfilled"
       && await relocateRetiredBrowser(initialIdentity.value) !== "failed"
@@ -244,14 +227,12 @@ async function _bootstrap(): Promise<void> {
       setRootStore("coord_identity", {
         git_sha: initialIdentity.value.gitSha,
         public_url: initialIdentity.value.publicUrl,
-        public_listener: initialIdentity.value.publicListener,
-        saas_mode: initialIdentity.value.saasMode,
         relocated_to_url: initialIdentity.value.relocatedToUrl,
         handoff_id: initialIdentity.value.handoffId,
       });
-      if (selfHosted) _startCoordHealthPoller();
+      _startCoordHealthPoller();
     }
-    if (selfHosted && await _dispatchCapturedFragmentCredential()) return;
+    if (await _dispatchCapturedFragmentCredential()) return;
     setTerminalBootstrapStage("authorization");
     const dashboardAccess = await Promise.resolve(bootstrapDashboardAccess()).then(
       (value) => ({ status: "fulfilled" as const, value }),
@@ -320,7 +301,6 @@ async function _bootstrap(): Promise<void> {
     // terminal remains first while all list calls overlap.
     _installBootstrapDomainHydrators({
       coordClient,
-      selfHosted,
       onTerminalFailure: terminalFailure,
       requestReconnect: forceSyncReconnect,
       onTerminalSnapshotApplied: (token, sessionCount) => {

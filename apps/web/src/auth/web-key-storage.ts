@@ -106,18 +106,6 @@ export function deleteCurrentWebKey(database: IDBDatabase): Promise<void> {
   return promise;
 }
 
-export function deleteAllWebKeyMaterial(database: IDBDatabase): Promise<void> {
-  const { promise, resolve, reject } = promiseWithResolvers<void>();
-  const transaction = database.transaction(STORE_NAME, "readwrite");
-  const store = transaction.objectStore(STORE_NAME);
-  store.delete(KEY_ID);
-  store.delete(ROTATION_ID);
-  transaction.oncomplete = () => resolve();
-  transaction.onerror = () => reject(transaction.error);
-  transaction.onabort = () => reject(transaction.error);
-  return promise;
-}
-
 const STORE_NAME = "keys";
 const LEGACY_TRUST_STORE_NAME = "trust";
 const DB_VERSION = 2;

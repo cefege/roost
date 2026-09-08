@@ -11,7 +11,6 @@ import { signal } from "@roost/shared/diag";
 import type { KyselyDB } from "../db/connection.ts";
 import type { ListenerTrust } from "./caller-origin.ts";
 
-const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
 const CSP_TAIL = "frame-ancestors 'none'";
 
 export interface SecurityOptions {
@@ -19,7 +18,6 @@ export interface SecurityOptions {
   corsAllowedOrigins: string[];
   hsts: boolean;
   connectOrigins: string[];
-  managed: boolean;
 }
 
 export function securityOptionsForConfig(cfg: CoordConfig, hsts: boolean): SecurityOptions {
@@ -38,14 +36,12 @@ export function securityOptionsForConfig(cfg: CoordConfig, hsts: boolean): Secur
     corsAllowedOrigins: cfg.corsAllowedOrigins,
     hsts,
     connectOrigins: [...origins],
-    managed: cfg.saasMode,
   };
 }
 
 export function buildCsp(
   relaxed: boolean,
   connectOrigins: string[],
-  managed = false,
 ): string {
   const connections = new Set(["'self'", ...connectOrigins]);
   if (relaxed) {
@@ -55,7 +51,7 @@ export function buildCsp(
   const scriptSources = ["'self'", "'wasm-unsafe-eval'", "blob:"];
   const directives = [
     "default-src 'self'",
-    `script-src ${managed ? [...scriptSources, TURNSTILE_ORIGIN].join(" ") : scriptSources.join(" ")}`,
+    `script-src ${scriptSources.join(" ")}`,
     "worker-src 'self' blob:",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
@@ -64,7 +60,6 @@ export function buildCsp(
     "form-action 'none'",
     "object-src 'none'",
   ];
-  if (managed) directives.push(`frame-src ${TURNSTILE_ORIGIN}`);
   return `${directives.join("; ")}; connect-src ${[...connections].join(" ")}; ${CSP_TAIL}`;
 }
 
@@ -73,9 +68,8 @@ export function applySecurityHeaders(
   relaxed: boolean,
   hsts: boolean,
   connectOrigins: string[],
-  managed = false,
 ): void {
-  headers.set("content-security-policy", buildCsp(relaxed, connectOrigins, managed));
+  headers.set("content-security-policy", buildCsp(relaxed, connectOrigins));
   headers.set("x-frame-options", "DENY");
   headers.set("x-content-type-options", "nosniff");
   headers.set("referrer-policy", "no-referrer");
@@ -104,14 +98,14 @@ export function wrapResponse(
 ): Response {
   const headers = new Headers(resp.headers);
   applyCors(headers, req.headers.get("origin"), opts.corsAllowedOrigins);
-  applySecurityHeaders(headers, opts.relaxedCsp, opts.hsts, opts.connectOrigins, opts.managed);
+  applySecurityHeaders(headers, opts.relaxedCsp, opts.hsts, opts.connectOrigins);
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
 }
 
 export function preflightResponse(req: Request, opts: SecurityOptions): Response {
   const headers = new Headers();
   applyCors(headers, req.headers.get("origin"), opts.corsAllowedOrigins);
-  applySecurityHeaders(headers, opts.relaxedCsp, opts.hsts, opts.connectOrigins, opts.managed);
+  applySecurityHeaders(headers, opts.relaxedCsp, opts.hsts, opts.connectOrigins);
   return new Response(null, { status: 204, headers });
 }
 
@@ -149,15 +143,20 @@ export function shouldPersistNonConnectAudit(opts: {
   );
 }
 
-/** Public anonymous credential failures are represented by bounded telemetry
- * and cooldown-coalesced signals rather than attacker-amplified SQLite rows. */
+/** An anonymous credential failure that arrived through the operator's front
+ * door carries no forensic value and is unsweepable: audit-retention.ts is an
+ * explicit allowlist that never ages out auth rows, so an internet-facing
+ * scanner would otherwise grow audit_log without bound (it once reached
+ * 7,026,358 rows / 1.0 GB). Bounded telemetry and cooldown-coalesced signals
+ * cover the same anomaly. An on-host caller is low volume and high signal, so
+ * its 401 still persists. */
 export function shouldPersistConnectAudit(opts: {
   listener: ListenerTrust;
   status: number;
   callerFp: string | null;
 }): boolean {
   return !(
-    opts.listener === "public-edge"
+    opts.listener === "trusted-proxy"
     && opts.status === 401
     && opts.callerFp === null
   );

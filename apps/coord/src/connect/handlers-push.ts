@@ -14,6 +14,7 @@ import {
 } from "@roost/shared/proto/coordinator_pb";
 import { requireDashboardActor } from "./auth-interceptor.ts";
 import { getVapidKeys } from "../vapid.ts";
+import { hasUrlUserInfo } from "../url-user-info.ts";
 import type { ConnectDeps } from "./router.ts";
 
 const ENDPOINT_MAX_LENGTH = 4_096;
@@ -41,8 +42,7 @@ function validateEndpoint(endpoint: string, allowedOrigins: readonly string[]): 
   }
   if (
     url.protocol !== "https:"
-    || url.username !== ""
-    || url.password !== ""
+    || hasUrlUserInfo(url)
     || url.hash !== ""
     || !allowedOrigins.includes(url.origin)
   ) {

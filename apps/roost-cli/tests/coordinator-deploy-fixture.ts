@@ -122,15 +122,12 @@ export function workerStatus(
 
 export function statusReport(sha: string | null, workers: WorkerStatus[] = []): StatusReport {
   return {
-    tailscale: { required: false, state: "disabled", fqdn: null, running: false },
     coordAgentLoaded: true,
     workerAgentLoaded: true,
     coord: { reachable: sha !== null, gitSha: sha },
     workers,
-    tlsMode: "direct",
-    url: "https://coordinator.example.test:4102",
+    endpoint: { publicUrl: "https://coordinator.example.test", answers: sha !== null },
     handoff: null,
-    publicOrigin: { state: "unconfigured" },
   };
 }
 

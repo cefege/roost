@@ -30,7 +30,6 @@ import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { primeChannelMap } from "../src/byte-hub.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { ConnectDeps } from "../src/connect/router.ts";
-import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import {
   makeSyncTerminalControlHooks,
   type SyncTerminalControlHooks,
@@ -70,12 +69,9 @@ beforeAll(async () => {
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
-  saasMode: false,
-  managedContainer: false,
   pushAllowedOrigins: [],
   dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
   webDistPath: "",
-  tlsCertPath: undefined, tlsKeyPath: undefined,
   jwtMaxAgeSecs: 300,
   auditRetentionDays: 90,
   relaxedCsp: false,
@@ -89,7 +85,6 @@ beforeAll(async () => {
     coordKey,
     cfg,
     jwtCache,
-    passwordWorkGate: new PasswordWorkGate(),
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
   };
@@ -111,10 +106,8 @@ beforeAll(async () => {
   await db.insertInto("accounts").values({
     id: ACCOUNT_ID,
     email_normalized: "coord-bidi@example.test",
-    password_hash: null,
     status: "active",
     created_at_ms: fixtureNow,
-    password_changed_at_ms: null,
   }).execute();
   await db.insertInto("account_devices").values({
     fingerprint: browserFp,

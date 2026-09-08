@@ -1,13 +1,23 @@
 // `roost add-machine` — mint one worker token and print the platform-specific,
-// copy-paste enrollment command. Run only on the coordinator.
+// copy-paste enrollment command. Run only on the coordinator: the URL the new
+// machine dials is read from this host's installed coordinator service
+// definition, overlaid by the ambient environment. Roost derives no URL.
 
+import { existsSync, readFileSync } from "node:fs";
+import {
+  COORDINATOR_DIAL_URL_ENV_NAMES,
+  COORDINATOR_DIAL_URL_REQUIRED_MESSAGE,
+  resolveCoordinatorDialUrl,
+} from "@roost/shared/coordinator-dial-url";
 import {
   buildMachineJoinCommand,
   machinePlatformLabel,
 } from "@roost/shared/machine-join-command";
+import { coordServicePath } from "@roost/shared/paths";
 import type { SupportedHostPlatform } from "@roost/shared/platform";
 import { mintWorkerBootstrap } from "./api.ts";
-import { resolveTailscale } from "./status.ts";
+import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
+import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 
 function strFlag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -32,6 +42,43 @@ function targetPlatform(args: string[]): SupportedHostPlatform {
   }
 }
 
+/** The dial variables as the installed coordinator service declares them.
+ *  A damaged or absent definition yields no entries: the ambient environment
+ *  then has to supply the URL, which is what the refusal below names. */
+function installedCoordinatorDialEnv(): Record<string, string | undefined> {
+  const platform = process.platform;
+  const serviceFile = platform === "win32"
+    ? windowsServiceDefinitionsPath()
+    : coordServicePath();
+  if (!existsSync(serviceFile)) return {};
+  let definition: string;
+  try {
+    definition = readFileSync(serviceFile, "utf8");
+  } catch {
+    return {};
+  }
+  try {
+    if (platform === "darwin" || platform === "linux") {
+      const environment = parsePosixServiceEnvironment(definition, platform);
+      return Object.fromEntries(
+        COORDINATOR_DIAL_URL_ENV_NAMES.map((name) => [name, environment[name]]),
+      );
+    }
+    const stored = JSON.parse(definition) as {
+      services?: { coordinator?: { environment?: Record<string, unknown> } };
+    };
+    const environment = stored.services?.coordinator?.environment ?? {};
+    return Object.fromEntries(
+      COORDINATOR_DIAL_URL_ENV_NAMES.map((name) => {
+        const value = environment[name];
+        return [name, typeof value === "string" ? value : undefined];
+      }),
+    );
+  } catch {
+    return {};
+  }
+}
+
 export async function addMachine(args: string[]): Promise<void> {
   const platform = targetPlatform(args);
   const label = strFlag(args, "--label") ?? "";
@@ -43,13 +90,18 @@ export async function addMachine(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const { state, fqdn } = resolveTailscale();
-  if (state !== "Running" || !fqdn) {
-    console.error("ERROR: Tailscale not running / not on the coordinator host.");
-    console.error("  Run `roost add-machine` on the coordinator machine with `tailscale up`.");
+  // The running coordinator's own definition is the ground truth for the door
+  // it advertises; the environment only answers for a host with no installed
+  // definition. Enrolling a machine against the wrong door is silent.
+  const coordUrl = resolveCoordinatorDialUrl(installedCoordinatorDialEnv())
+    ?? resolveCoordinatorDialUrl(Object.fromEntries(
+      COORDINATOR_DIAL_URL_ENV_NAMES.map((name) => [name, process.env[name]]),
+    ));
+  if (!coordUrl) {
+    console.error(`ERROR: ${COORDINATOR_DIAL_URL_REQUIRED_MESSAGE}.`);
+    console.error("  Set one on this host's coordinator service, or export it for this command.");
     process.exit(1);
   }
-  const coordUrl = `https://${fqdn}:4102`;
 
   // Keep stdout a copy-pasteable command even though key loading logs.
   const realLog = console.log;
@@ -62,7 +114,7 @@ export async function addMachine(args: string[]): Promise<void> {
   }
 
   const command = buildMachineJoinCommand(platform, coordUrl, token, label, publisher);
-  console.log(`Run this on the new ${machinePlatformLabel(platform)} (Tailscale must be running there):`);
+  console.log(`Run this on the new ${machinePlatformLabel(platform)}:`);
   console.log("");
   console.log(command);
   console.log("");

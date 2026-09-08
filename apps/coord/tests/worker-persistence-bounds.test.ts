@@ -115,7 +115,7 @@ test("worker register, heartbeat, and rename cap every persisted string at a UTF
   const database = recordingWorkerDb();
   const handlers = makeWorkerHandlers({
     db: database.db,
-    cfg: { saasMode: false },
+    cfg: {},
   } as unknown as ConnectDeps);
 
   await handlers.workersRegister(create(WorkersRegisterRequestSchema, {
@@ -156,7 +156,7 @@ test("worker register, heartbeat, and rename cap every persisted string at a UTF
 
 test("browser principals cannot register or heartbeat as workers", async () => {
   const handlers = makeWorkerHandlers({
-    cfg: { saasMode: true },
+    cfg: {},
   } as unknown as ConnectDeps);
   await expect(handlers.workersRegister(
     create(WorkersRegisterRequestSchema, {}),

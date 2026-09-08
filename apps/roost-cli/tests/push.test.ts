@@ -348,19 +348,23 @@ describe("staged coordinator preservation", () => {
     }
   });
 
-  test("recovers direct mode and effective systemd resource limits", () => {
+  test("carries the installed endpoint and effective systemd resource limits", () => {
     const definition = [
       "[Service]",
-      'Environment="ROOST_COORDINATOR_BIND=0.0.0.0:4102"',
+      'Environment="ROOST_COORDINATOR_BIND=127.0.0.1:4103"',
+      'Environment="ROOST_TRUST_PROXY=1"',
+      'Environment="ROOST_WEB_PUBLIC_URL=https://dash.example.test"',
       'Environment="ROOST_COORDINATOR_DB=/srv/state/coordinator.db"',
       'Environment="ROOST_COORD_LOGROTATE_CONF=/srv/config%%blue/coord.conf"',
       "MemoryHigh=3G",
       "MemoryMax=6G",
       "TasksMax=768",
     ].join("\n");
-    expect(coordinatorInstallEnvironment(definition, "linux")).toMatchObject({
+    expect(coordinatorInstallEnvironment(definition, "linux")).toEqual({
+      ROOST_COORDINATOR_BIND: "127.0.0.1:4103",
+      ROOST_TRUST_PROXY: "1",
+      ROOST_WEB_PUBLIC_URL: "https://dash.example.test",
       ROOST_COORDINATOR_DB: "/srv/state/coordinator.db",
-      ROOST_FRONTED: "0",
       ROOST_COORD_MEMORY_HIGH: "3G",
       ROOST_COORD_MEMORY_MAX: "6G",
       ROOST_COORD_TASKS_MAX: "768",

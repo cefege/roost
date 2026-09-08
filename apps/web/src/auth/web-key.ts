@@ -1,5 +1,5 @@
 // This stable entry owns the browser Ed25519 identity lifecycle and public auth API.
-// Auth bootstrap, managed access, and device settings call it to sign, rotate, or reset.
+// Auth bootstrap and device settings call it to sign, rotate, or reset.
 // It delegates atomic IndexedDB transactions so staged keys survive interrupted rotation.
 // WebCrypto supplies non-extractable keys, while coordinator probes decide safe recovery.
 
@@ -9,7 +9,6 @@ import type { WebKeyRotationStage } from "./web-key-storage.ts";
 import {
   addCurrentWebKey,
   addWebKeyRotationStage,
-  deleteAllWebKeyMaterial,
   deleteCurrentWebKey,
   deleteMatchingWebKeyRotationStage,
   openWebKeyDatabase,
@@ -18,19 +17,15 @@ import {
   readWebKeyRotationStage,
   WEB_KEY_DB_NAME,
 } from "./web-key-storage.ts";
-import { clearManagedAuthCeremoniesForLogout } from "./managed-auth-session.ts";
 
 const KEY_LOCK = "roost-web-key-v1";
 const KEY_MINTED_FLAG = "roostKeyMinted";
-const KEY_AUTHORIZED_FLAG = "roostKeyAuthorized";
 const JWT_LIFETIME_SECS = 300;
 const JWT_CACHE_TTL_MS = 240_000;
 const DEVICES_LIST_PATH = "/roost.v1.CoordinatorService/DevicesList";
-const DASHBOARD_ACCESS_PATH = "/roost.v1.CoordinatorService/AuthDashboardAccess";
 
 
-export type WebKeyProbeResult = "authorized" | "device-rejected" | "ambiguous";
-export type WebKeyResetContext = "self-hosted" | "managed";
+type WebKeyProbeResult = "authorized" | "device-rejected" | "ambiguous";
 type RecoveryResult = "none" | "promoted" | "discarded" | "ambiguous";
 
 let _cachedKeyPair: CryptoKeyPair | null = null;
@@ -50,13 +45,6 @@ function markKeyMinted(): void {
   try { localStorage.setItem(KEY_MINTED_FLAG, "1"); } catch { /* private mode */ }
 }
 
-export function markCurrentWebKeyAuthorized(): void {
-  try { localStorage.setItem(KEY_AUTHORIZED_FLAG, "1"); } catch { /* persistence unavailable */ }
-}
-
-function wasCurrentWebKeyAuthorized(): boolean {
-  try { return localStorage.getItem(KEY_AUTHORIZED_FLAG) === "1"; } catch { return false; }
-}
 
 function clearCaches(): void {
   _cacheGeneration++;
@@ -76,20 +64,19 @@ const keyChangeChannel = (() => {
   }
 })();
 
-export function _announceWebKeyChange(message: "changed" | "logout" = "changed"): void {
+export function _announceWebKeyChange(): void {
   clearCaches();
   try {
     // A BroadcastChannel never delivers to the object that posted the message.
     // Reusing the listener keeps initiating-tab credentials alive while peers
-    // still discard stale keys and managed authentication ceremonies.
-    keyChangeChannel?.postMessage(message);
+    // still discard stale keys.
+    keyChangeChannel?.postMessage("changed");
   } catch { /* BroadcastChannel unavailable */ }
 }
 
 if (keyChangeChannel) {
-  keyChangeChannel.onmessage = (event) => {
+  keyChangeChannel.onmessage = () => {
     clearCaches();
-    if (event.data === "logout") clearManagedAuthCeremoniesForLogout();
     if (typeof location !== "undefined" && typeof location.reload === "function") {
       location.reload();
     }
@@ -138,20 +125,15 @@ export async function signCoordinatorJwtWithKeyPair(pair: CryptoKeyPair): Promis
   return `${header}.${payload}.${b64url(signature)}`;
 }
 
-async function probePair(
-  pair: CryptoKeyPair,
-  context: WebKeyResetContext = "self-hosted",
-): Promise<WebKeyProbeResult> {
-  const rpcPath = context === "managed" ? DASHBOARD_ACCESS_PATH : DEVICES_LIST_PATH;
+async function probePair(pair: CryptoKeyPair): Promise<WebKeyProbeResult> {
   try {
     const { makeCoordinatorClientForSigner } = await import("../connect.ts");
     const client = makeCoordinatorClientForSigner(() => signCoordinatorJwtWithKeyPair(pair));
-    if (context === "managed") await client.authDashboardAccess({});
-    else await client.devicesList({});
+    await client.devicesList({});
     return "authorized";
   } catch (error) {
     const { classifyAuthFailure } = await import("../connect.ts");
-    return classifyAuthFailure(error, rpcPath) === "device"
+    return classifyAuthFailure(error, DEVICES_LIST_PATH) === "device"
       ? "device-rejected"
       : "ambiguous";
   }
@@ -275,28 +257,12 @@ export async function rotateCurrentWebKey(label: string): Promise<void> {
   });
 }
 
-/** Probe only the persisted current key. This never generates, promotes, or
- * reloads key material, so an ambiguous logout response can safely prove that
- * the coordinator has rejected the exact key that signed AuthLogout. */
-export async function probeCurrentWebKey(
-  context: WebKeyResetContext = "self-hosted",
-): Promise<WebKeyProbeResult> {
-  return withKeyLock(false, async () => {
-    const db = await openWebKeyDatabase();
-    const current = await readCurrentWebKey(db);
-    return current ? probePair(current, context) : "ambiguous";
-  });
-}
-
-export async function isResetWebKeyEligible(
-  context: WebKeyResetContext = "self-hosted",
-): Promise<boolean> {
-  if (context === "managed" && !wasCurrentWebKeyAuthorized()) return false;
-  return withKeyLock(false, async () => probePair(await loadOrGenerateLocked(), context)
+export async function isResetWebKeyEligible(): Promise<boolean> {
+  return withKeyLock(false, async () => probePair(await loadOrGenerateLocked())
     .then((result) => result === "device-rejected"));
 }
 
-export async function resetWebKey(context: WebKeyResetContext = "self-hosted"): Promise<void> {
+export async function resetWebKey(): Promise<void> {
   await withKeyLock(true, async () => {
     const db = await openWebKeyDatabase();
     const recovery = await recoverStageLocked(db);
@@ -309,34 +275,13 @@ export async function resetWebKey(context: WebKeyResetContext = "self-hosted"): 
     }
     const current = await readCurrentWebKey(db);
     if (!current) return;
-    if (context === "managed" && !wasCurrentWebKeyAuthorized()) {
-      throw new Error("Reset is allowed only after this browser key was previously authorized");
-    }
-    if (await probePair(current, context) !== "device-rejected") {
+    if (await probePair(current) !== "device-rejected") {
       throw new Error("Reset is allowed only after this device key is explicitly rejected");
     }
     await deleteCurrentWebKey(db);
     _announceWebKeyChange();
-    if (context === "managed") {
-      try { localStorage.removeItem(KEY_AUTHORIZED_FLAG); } catch { /* persistence unavailable */ }
-    }
     if (typeof location !== "undefined" && typeof location.reload === "function") location.reload();
   });
-}
-/** Remove both committed and staged browser identities after the coordinator
- * has revoked this device. This deliberately does not reload or navigate:
- * logout owns the remaining state cleanup and performs one final replace. */
-export async function clearWebKeyMaterialForLogout(): Promise<void> {
-  clearCaches();
-  try {
-    await withKeyLock(false, async () => deleteAllWebKeyMaterial(await openWebKeyDatabase()));
-  } finally {
-    try {
-      localStorage.removeItem(KEY_MINTED_FLAG);
-      localStorage.removeItem(KEY_AUTHORIZED_FLAG);
-    } catch { /* persistence unavailable */ }
-    _announceWebKeyChange("logout");
-  }
 }
 
 

@@ -27,16 +27,12 @@ import { COORD_GIT_SHA } from "../git-sha.ts";
 import { refreshJwtKey } from "../jwt.ts";
 import { truncatePersistedUtf8 } from "../persistence-input.ts";
 import {
-  callerOrigin,
   getDashboardAccessSnapshot,
   requestedDashboardId,
   requireAccountDevice,
   requireDashboardActor,
-  requireDashboardAdmin,
-  type DashboardActor,
 } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
-import { rejectManagedLegacyBrowserAuth } from "./self-hosted-browser-auth.ts";
 
 type AuthBootstrapMethods =
   | "authCoordIdentity"
@@ -75,7 +71,7 @@ export function makeAuthBootstrapHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, AuthBootstrapMethods> {
   return {
     // ─── auth ──────────────────────────────────────────────────────────
-    async authCoordIdentity(_req, ctx) {
+    async authCoordIdentity(_req, _ctx) {
       // public
       const handoff = deps.move?.current();
       return create(AuthCoordIdentityResponseSchema, {
@@ -83,9 +79,6 @@ export function makeAuthBootstrapHandlers(
         publicUrl: deps.cfg.publicUrl ?? "",
         relocatedToUrl: handoff?.role === "SOURCE" && handoff.phase === "COMMITTED" ? handoff.target_url : undefined,
         handoffId: handoff?.handoff_id,
-        publicListener: callerOrigin(ctx.values).listener === "public-edge",
-        saasMode: deps.cfg.saasMode,
-        instanceId: deps.cfg.instanceId ?? "",
       });
     },
 
@@ -124,18 +117,10 @@ export function makeAuthBootstrapHandlers(
 
     async authMintBootstrap(req, ctx) {
       requireAccountDevice(ctx.values);
-      let actor: DashboardActor;
-      if (deps.cfg.saasMode) {
-        if (req.kind !== "worker") {
-          throw new ConnectError("managed bootstrap kind must be worker", Code.InvalidArgument);
-        }
-        actor = requireDashboardAdmin(ctx.values);
-      } else {
-        if (req.kind !== "worker" && req.kind !== "browser") {
-          throw new ConnectError("bootstrap kind must be worker or browser", Code.InvalidArgument);
-        }
-        actor = requireDashboardActor(ctx.values);
+      if (req.kind !== "worker" && req.kind !== "browser") {
+        throw new ConnectError("bootstrap kind must be worker or browser", Code.InvalidArgument);
       }
+      const actor = requireDashboardActor(ctx.values);
       const kind = req.kind === "worker" ? "worker" : "browser";
       const minted = await mintBootstrapToken(deps.db, {
         kind,
@@ -244,7 +229,6 @@ export function makeAuthBootstrapHandlers(
     },
 
     async authRedeemBrowser(req, _ctx) {
-      rejectManagedLegacyBrowserAuth(deps);
       const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
       if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
       const fp = await fingerprintOf(pubkey);

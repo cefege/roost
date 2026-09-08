@@ -40,13 +40,11 @@ export interface WindowsCoordinatorRelocationCheckpoint {
     | "coordinator-stopped"
     | "state-promoted"
     | "override-applied"
-    | "route-applied"
     | "coordinator-started"
     | "healthy"
     | "restored"
     | "committed";
   priorCoordinatorRunning: boolean;
-  priorTailscaleConfig: string;
   rollbackPrepared: boolean;
 }
 
@@ -156,10 +154,9 @@ export function assertWindowsRelocationJournal(
     if (
       ![
         "captured", "coordinator-stopped", "state-promoted", "override-applied",
-        "route-applied", "coordinator-started", "healthy", "restored", "committed",
+        "coordinator-started", "healthy", "restored", "committed",
       ].includes(checkpoint.phase)
       || typeof checkpoint.priorCoordinatorRunning !== "boolean"
-      || typeof checkpoint.priorTailscaleConfig !== "string"
       || typeof checkpoint.rollbackPrepared !== "boolean"
     ) throw new Error("invalid Windows coordinator relocation checkpoint");
   } else if (journal.operationKind !== "coordinator-promotion" && journal.coordinator !== undefined) {

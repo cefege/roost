@@ -33,7 +33,6 @@ import { newJwtCache } from "../src/jwt.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
-import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import { processInputControl } from "../src/connect/input-control.ts";
 import type { TerminalViewerIdentity } from "../src/connect/terminal-control-lane.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
@@ -63,12 +62,9 @@ beforeAll(async () => {
   db = opened.db;
   await runMigrations(opened.sqlite);
   const cfg: CoordConfig = {
-    saasMode: false,
-    managedContainer: false,
     pushAllowedOrigins: [],
     trustProxy: false, bind: "127.0.0.1:0", dbPath: join(workdir, "test.db"),
-    coordKeyPath: keyPath, authorizedKeysPath: authPath, webDistPath: "",
-    tlsCertPath: undefined, tlsKeyPath: undefined, jwtMaxAgeSecs: 300,
+    coordKeyPath: keyPath, authorizedKeysPath: authPath, webDistPath: "", jwtMaxAgeSecs: 300,
     auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [],
     logDir: workdir, publicUrl: undefined,
     handoffPath: join(workdir, "coord-handoff.json"),
@@ -79,7 +75,6 @@ beforeAll(async () => {
     coordKey: await loadOrCreateCoordKey(keyPath),
     cfg,
     jwtCache: newJwtCache(),
-    passwordWorkGate: new PasswordWorkGate(),
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
   };

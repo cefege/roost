@@ -41,25 +41,25 @@ describe("audit persistence policy", () => {
     })).toBe(true);
   });
 
-  test("skips only anonymous public-edge 401 rows", () => {
+  test("skips only an anonymous 401 that arrived through a trusted proxy", () => {
     expect(shouldPersistConnectAudit({
-      listener: "public-edge",
+      listener: "trusted-proxy",
       status: 401,
       callerFp: null,
     })).toBe(false);
     expect(shouldPersistConnectAudit({
-      listener: "public-edge",
+      listener: "trusted-proxy",
       status: 401,
       callerFp: "device-fingerprint",
     })).toBe(true);
     expect(shouldPersistConnectAudit({
-      listener: "direct",
-      status: 401,
+      listener: "trusted-proxy",
+      status: 403,
       callerFp: null,
     })).toBe(true);
     expect(shouldPersistConnectAudit({
-      listener: "public-edge",
-      status: 403,
+      listener: "direct",
+      status: 401,
       callerFp: null,
     })).toBe(true);
   });

@@ -1,22 +1,11 @@
 // This module owns capture and scrubbing of authentication credentials carried in URL fragments.
 // entry.ts calls it before transport, diagnostics, or error modules are allowed to evaluate.
-// It depends only on browser-safe parsing, session storage, and strict tenant-route validation.
+// It depends only on browser-safe parsing and session storage, never on transport or store state.
 // Keeping this boundary narrow prevents secrets from leaking through startup requests or logs.
 
-import { isTenantRouteKey } from "@roost/shared/tenant-route";
-import { stageTenantRouteKeyFromCredential } from "./tenant-routing.ts";
-
 export type CapturedFragmentCredential =
-  | { kind: "pair"; token: string; routeKey?: string }
-  | { kind: "relocation"; token: string; handoffId: string }
-  | { kind: "activation"; token: string; routeKey: string }
-  | { kind: "reset"; token: string; routeKey?: string }
-  | {
-      kind: "email-signup";
-      token: string;
-      expiresAtMs?: number;
-      submittedAtMs?: number;
-    };
+  | { kind: "pair"; token: string }
+  | { kind: "relocation"; token: string; handoffId: string };
 
 export type CapturedFragmentCredentialKind = CapturedFragmentCredential["kind"];
 
@@ -39,46 +28,12 @@ interface CredentialStorage {
 }
 
 const CAPTURED_CREDENTIAL_KEY = "roost.fragmentCredential.v1";
-export const EMAIL_SIGNUP_CREDENTIAL_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
-const RAW_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 const GLOBAL_CREDENTIAL_KEYS: Readonly<Record<string, true | undefined>> = {
   pair: true,
   move: true,
   handoff: true,
 };
 let capturedCredential: CapturedFragmentCredential | null | undefined;
-
-interface RouteCredentialPath {
-  kind: "activation" | "reset";
-  routeKey: string | null;
-  cleanPath: "/activate" | "/reset-password";
-}
-
-function routeCredentialPath(pathname: string): RouteCredentialPath | null {
-  const route = pathname === "/activate" || pathname.startsWith("/activate/")
-    ? { kind: "activation" as const, cleanPath: "/activate" as const }
-    : pathname === "/reset-password" || pathname.startsWith("/reset-password/")
-      ? { kind: "reset" as const, cleanPath: "/reset-password" as const }
-      : null;
-  if (!route) return null;
-  if (pathname === route.cleanPath) return { ...route, routeKey: null };
-  const candidate = pathname.slice(route.cleanPath.length + 1);
-  return { ...route, routeKey: isTenantRouteKey(candidate) ? candidate : null };
-}
-function pairRouteKey(pathname: string): string | null {
-  if (!pathname.startsWith("/pair/")) return null;
-  const candidate = pathname.slice("/pair/".length);
-  return isTenantRouteKey(candidate) ? candidate : null;
-}
-function tenantNavigationPath(pathname: string): { routeKey: string; cleanPath: string } | null {
-  const match = /^\/_roost\/t\/([0-9a-f]{64})(\/s\/[^/]+)$/.exec(pathname);
-  return match?.[1] && match[2] ? { routeKey: match[1], cleanPath: match[2] } : null;
-}
-function isEmailSignupCredentialPath(pathname: string): boolean {
-  return pathname === "/signup/verify" || pathname.startsWith("/signup/verify/");
-}
-
-
 
 function decodedParameterKey(segment: string): string | null {
   const separator = segment.indexOf("=");
@@ -114,11 +69,8 @@ function stripParameters(
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
-function isSafeTimestamp(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
-}
 
-function storedCredential(value: unknown, nowMs = Date.now()): CapturedFragmentCredential | null {
+function storedCredential(value: unknown): CapturedFragmentCredential | null {
   if (!value || typeof value !== "object" || !("kind" in value)) return null;
   if (
     value.kind === "pair"
@@ -128,15 +80,6 @@ function storedCredential(value: unknown, nowMs = Date.now()): CapturedFragmentC
     return { kind: "pair", token: value.token };
   }
   if (
-    (value.kind === "activation" || value.kind === "reset")
-    && "token" in value
-    && "routeKey" in value
-    && isNonEmptyString(value.token)
-    && isTenantRouteKey(value.routeKey)
-  ) {
-    return { kind: value.kind, token: value.token, routeKey: value.routeKey };
-  }
-  if (
     value.kind === "relocation"
     && "token" in value
     && "handoffId" in value
@@ -144,28 +87,6 @@ function storedCredential(value: unknown, nowMs = Date.now()): CapturedFragmentC
     && isNonEmptyString(value.handoffId)
   ) {
     return { kind: "relocation", token: value.token, handoffId: value.handoffId };
-  }
-  if (
-    value.kind === "email-signup"
-    && "token" in value
-    && "expiresAtMs" in value
-    && typeof value.token === "string"
-    && RAW_TOKEN_RE.test(value.token)
-    && isSafeTimestamp(value.expiresAtMs)
-    && value.expiresAtMs > nowMs
-    && value.expiresAtMs <= nowMs + EMAIL_SIGNUP_CREDENTIAL_TTL_MS
-  ) {
-    const submittedAtMs = "submittedAtMs" in value
-      && isSafeTimestamp(value.submittedAtMs)
-      && value.submittedAtMs <= nowMs
-      ? value.submittedAtMs
-      : undefined;
-    return {
-      kind: "email-signup",
-      token: value.token,
-      expiresAtMs: value.expiresAtMs,
-      ...(submittedAtMs === undefined ? {} : { submittedAtMs }),
-    };
   }
   return null;
 }
@@ -194,15 +115,9 @@ function loadCapturedCredential(): CapturedFragmentCredential | null {
 }
 
 function retainCapturedCredential(credential: CapturedFragmentCredential): void {
-  const retained = credential.kind === "email-signup"
-    ? {
-        ...credential,
-        expiresAtMs: credential.expiresAtMs ?? Date.now() + EMAIL_SIGNUP_CREDENTIAL_TTL_MS,
-      }
-    : credential;
-  capturedCredential = retained;
+  capturedCredential = credential;
   try {
-    browserStorage()?.setItem(CAPTURED_CREDENTIAL_KEY, JSON.stringify(retained));
+    browserStorage()?.setItem(CAPTURED_CREDENTIAL_KEY, JSON.stringify(credential));
   } catch {
     // Module memory still carries the credential for this document.
   }
@@ -217,33 +132,7 @@ function discardCapturedCredential(): void {
   }
 }
 
-export function parseFragmentCredential(pathname: string, hash: string): FragmentCredential {
-  if (isEmailSignupCredentialPath(pathname)) {
-    const token = hash.startsWith("#") ? hash.slice(1) : hash;
-    if (!token) return pathname === "/signup/verify" ? { kind: "none" } : { kind: "invalid" };
-    return pathname === "/signup/verify" && RAW_TOKEN_RE.test(token)
-      ? { kind: "email-signup", token }
-      : { kind: "invalid" };
-  }
-  const pairKey = pairRouteKey(pathname);
-  if (pathname.startsWith("/pair/") && pairKey === null) return { kind: "invalid" };
-  const credentialRoute = routeCredentialPath(pathname);
-  if (credentialRoute) {
-    const token = hash.startsWith("#") ? hash.slice(1) : hash;
-    if (!token) return credentialRoute.routeKey ? { kind: "invalid" } : { kind: "none" };
-    if (RAW_TOKEN_RE.test(token)) {
-      if (credentialRoute.routeKey) {
-        return {
-          kind: credentialRoute.kind,
-          token,
-          routeKey: credentialRoute.routeKey,
-        };
-      }
-      if (credentialRoute.kind === "reset") return { kind: "reset", token };
-    }
-    return { kind: "invalid" };
-  }
-
+export function parseFragmentCredential(hash: string): FragmentCredential {
   const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
   const pairs = params.getAll("pair");
   const moves = params.getAll("move");
@@ -260,9 +149,7 @@ export function parseFragmentCredential(pathname: string, hash: string): Fragmen
     && pairs.length === 1
     && isNonEmptyString(pairs[0])
   ) {
-    return pairKey
-      ? { kind: "pair", token: pairs[0], routeKey: pairKey }
-      : { kind: "pair", token: pairs[0] };
+    return { kind: "pair", token: pairs[0] };
   }
   if (
     !hasPair
@@ -283,14 +170,6 @@ export function parseFragmentCredential(pathname: string, hash: string): Fragmen
  * An origin is retained when supplied (diagnostics); history callers can omit it.
  */
 export function credentialFreeUrl(url: CredentialUrl): string {
-  const tenantNavigation = tenantNavigationPath(url.pathname);
-  if (tenantNavigation) return `${url.origin ?? ""}${tenantNavigation.cleanPath}`;
-  if (pairRouteKey(url.pathname)) return `${url.origin ?? ""}/`;
-  if (isEmailSignupCredentialPath(url.pathname)) {
-    return `${url.origin ?? ""}/signup/verify`;
-  }
-  const credentialRoute = routeCredentialPath(url.pathname);
-  if (credentialRoute) return `${url.origin ?? ""}${credentialRoute.cleanPath}`;
   const search = stripParameters(url.search, "?", GLOBAL_CREDENTIAL_KEYS);
   const hash = stripParameters(url.hash, "#", GLOBAL_CREDENTIAL_KEYS);
   return `${url.origin ?? ""}${url.pathname}${search}${hash}`;
@@ -309,8 +188,7 @@ export function captureAndScrubFragmentCredential(): FragmentCredential {
     search: location.search,
     hash: location.hash,
   };
-  const tenantNavigation = tenantNavigationPath(current.pathname);
-  const credential = parseFragmentCredential(current.pathname, current.hash);
+  const credential = parseFragmentCredential(current.hash);
   const cleanUrl = credentialFreeUrl(current);
   const visibleUrl = `${current.pathname}${current.search}${current.hash}`;
   const containedCredentialData = cleanUrl !== visibleUrl;
@@ -320,33 +198,8 @@ export function captureAndScrubFragmentCredential(): FragmentCredential {
     // network-facing code with a bearer still present in the document address.
     history.replaceState(null, "", cleanUrl);
   }
-  if (
-    tenantNavigation
-    && !stageTenantRouteKeyFromCredential(tenantNavigation.routeKey)
-  ) {
-    throw new Error("Unable to persist the notification route");
-  }
-  if (
-    (
-      credential.kind === "activation"
-      || credential.kind === "reset"
-      || credential.kind === "pair"
-    )
-    && credential.routeKey !== undefined
-    && !stageTenantRouteKeyFromCredential(credential.routeKey)
-  ) {
-    // The address is already credential-free, but continuing would make a
-    // post-activation/reset reload fall back to another tenant.
-    throw new Error("Unable to persist the account route");
-  }
 
-  if (
-    credential.kind === "pair"
-    || credential.kind === "relocation"
-    || credential.kind === "activation"
-    || credential.kind === "reset"
-    || credential.kind === "email-signup"
-  ) {
+  if (credential.kind === "pair" || credential.kind === "relocation") {
     retainCapturedCredential(credential);
   } else if (credential.kind === "invalid" || containedCredentialData) {
     // A new malformed/query-only attempt must never fall through to a stale
@@ -355,23 +208,11 @@ export function captureAndScrubFragmentCredential(): FragmentCredential {
   }
   return credential;
 }
+
 export function peekCapturedFragmentCredential(): CapturedFragmentCredential | null {
   if (capturedCredential === undefined) capturedCredential = loadCapturedCredential();
-  if (
-    capturedCredential?.kind === "email-signup"
-    && (capturedCredential.expiresAtMs ?? 0) <= Date.now()
-  ) {
-    discardCapturedCredential();
-  }
   return capturedCredential;
 }
-export function markCapturedEmailSignupSubmitted(nowMs = Date.now()): boolean {
-  const current = peekCapturedFragmentCredential();
-  if (current?.kind !== "email-signup") return false;
-  retainCapturedCredential({ ...current, submittedAtMs: nowMs });
-  return true;
-}
-
 
 /**
  * Clear only the credential the caller has just resolved. A stale async result
@@ -384,9 +225,4 @@ export function clearCapturedFragmentCredential(
   if (current?.kind !== expectedKind) return false;
   discardCapturedCredential();
   return true;
-}
-
-/** Logout discards every pending proof, regardless of which managed flow captured it. */
-export function clearCapturedFragmentCredentialsForLogout(): void {
-  discardCapturedCredential();
 }

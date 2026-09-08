@@ -6,15 +6,9 @@ import { printStatusReport, statusReportIsHealthy } from "./status-output.ts";
 import { statusReport } from "./status-report.ts";
 
 export {
-  ensureTailscale,
-  resolveTailscale,
-} from "./status-native-probes.ts";
-export type { TailscalePreflightDeps } from "./status-native-probes.ts";
-export {
   _probeCoordinatorIdentity,
   resolveCoordinatorDbPath,
   resolveStatusEndpoint,
-  resolveTlsMode,
   workerInventory,
   workerInventoryForUpdateAdmission,
 } from "./status-report.ts";
@@ -25,12 +19,12 @@ export {
 };
 export { routableWorkerFingerprints } from "./status-routability.ts";
 export type {
+  EndpointStatus,
   HandoffStatus,
   ResolvedStatusEndpoint,
   StatusEndpointOverride,
   StatusEndpointResolverOptions,
   StatusReport,
-  TailscaleStatus,
   WorkerStatus,
 } from "./status-types.ts";
 

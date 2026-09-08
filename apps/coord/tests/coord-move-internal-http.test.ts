@@ -63,11 +63,9 @@ async function fixture(): Promise<Fixture> {
   await runMigrations(opened.sqlite);
   closers.push(() => opened.close());
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:4102", dbPath, coordKeyPath: keyPath, authorizedKeysPath,
-  saasMode: false,
-  managedContainer: false,
   pushAllowedOrigins: [],
   handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
-  publicUrl: "https://target.ts.net:4102", tlsCertPath: undefined, tlsKeyPath: undefined,
+  publicUrl: "https://target.ts.net:4102",
   jwtMaxAgeSecs: 300, auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [] };
   const store = new HandoffStateStore(cfg.handoffPath);
   const coordKey: CoordKey = await loadOrCreateCoordKey(keyPath);

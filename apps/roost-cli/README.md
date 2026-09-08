@@ -15,47 +15,38 @@ for the command surface: `src/main.ts` looks the argv up in that object, so a co
 exists exactly when it has a key there. `--version` / `-v` alias to `version`; an
 unknown key prints `usage()` and exits 1.
 
-`SUBCOMMANDS` has **29 keys**: `usage()` prints 23; the six internal
-self-exec/service entries `keeper`, `__keeper-contract`,
-`__windows-updater-broker`, `__saas-instance`, `__saas-auth`, and
-`__saas-provisioner` are omitted.
+`SUBCOMMANDS` has **23 keys**: `usage()` prints 20; the three internal
+self-exec/service entries `keeper`, `__keeper-contract`, and
+`__windows-updater-broker` are omitted.
 
 | Command | Purpose |
 | --- | --- |
-| `quickstart` | One-shot local install for direct HTTPS (`--coordinator-url` + `--tls-cert` + `--tls-key`) or Tailscale: validate endpoint group → build SPA → configure POSIX Serve when needed → install coord → deploy local worker → health → open an already-authorized browser via a self-minted `#pair` token |
+| `quickstart` | One-shot local install: validate the declared `--coordinator-url` origin → build SPA → install the coordinator on its loopback bind → deploy the local worker → health → open an already-authorized browser via a self-minted `#pair` token |
 | `coord` | Run the coordinator in this process (compiled-binary server mode). Lazily `import()`ed so the generated SPA embed never loads into `roost test` |
-| `saas <command>` | Root-only managed operator surface: account create/resend/disable/enable/list, reconcile, resolver, encrypted backup, immutable-image rollout, signup credential init |
-| `__saas-instance <command>` | **Internal.** Managed-container seed/activation/status/health self-exec surface |
-| `__saas-auth serve` | **Internal.** Central auth gateway service |
-| `__saas-provisioner serve` | **Internal.** Root-only authenticated provisioning service |
 | `worker` | Run the worker in this process (compiled-binary worker mode); same entry the LaunchAgent/unit uses |
 | `keeper <sock>` | Run the multiplexed keeper in this process. Internal self-exec target: the worker spawns `roost keeper <sock>` when it is not running under bun |
 | `update` | Self-update the binary from the latest GitHub release |
 | `__windows-updater-broker` | **Internal, win32-only.** See below — its name and argv are a contract |
 | `version` | Print the version / build identity (`--version`, `-v`) |
 | `skill` | Write the canonical release-matched `skills/roost/SKILL.md` bytes to stdout; accepts no arguments and never installs or edits agent configuration |
-| `expose <hostname>` | Put the coordinator behind Cloudflare Access (`--team`, `--aud`, `--config`) |
 | `dev` | Boot coord (:4102) + outbound-only worker + web dev server (:5174) in parallel |
-| `test [profile]` | Canonical entry point: `unit`, `worker`, `terminal`, `managed` qualification, `live-api` optional monitor, or `all` |
-| `deploy <host> [--label=<name>] [--reachable-addr=<fqdn>] [--force-live]` | Refresh the worker on a tailnet host (macOS rsync + LaunchAgent, Linux in-place checkout). Staging requires keeper update admission from the coordinator registry, except for a worker that reports no keeper runtime at all — that one bootstraps without a journaled keeper update and says so. A remote target's `ROOST_WORKER_LABEL` / `ROOST_REACHABLE_ADDR` resolve only from `--label` / `--reachable-addr` or the target's own installed service definition; exporting either variable in the deploying shell refuses a first install on that host instead of registering it under this machine's identity. `--force-live` additionally authorizes the deployed worker to DESTROY every PTY held by a keeper it can neither adopt nor prove empty (a keeper predating binding proof); every shell, dev server, and test in those PTYs exits. It applies to that one deploy and the next deploy clears it |
+| `test [profile]` | Canonical entry point: `unit`, `worker`, `terminal`, `upgrade`, `live-api` optional monitor, or `all` |
+| `deploy <host> [--label=<name>] [--reachable-addr=<fqdn>] [--force-live]` | Refresh the worker on a remote host (macOS rsync + LaunchAgent, Linux in-place checkout). Staging requires keeper update admission from the coordinator registry, except for a worker that reports no keeper runtime at all — that one bootstraps without a journaled keeper update and says so. A remote target's `ROOST_WORKER_LABEL` / `ROOST_REACHABLE_ADDR` resolve only from `--label` / `--reachable-addr` or the target's own installed service definition; exporting either variable in the deploying shell refuses a first install on that host instead of registering it under this machine's identity. `--force-live` additionally authorizes the deployed worker to DESTROY every PTY held by a keeper it can neither adopt nor prove empty (a keeper predating binding proof); every shell, dev server, and test in those PTYs exits. It applies to that one deploy and the next deploy clears it |
 | `push` | Publish one clean commit, deploy every registered worker, update the coordinator's own checkout, and prove every process reports that commit before returning success |
 | `keeper-refresh <host> --yes [--force-live]` | Re-spawn a host's keeper on current code through the coordinator-fenced maintenance RPC. Destructive, explicitly confirmed, and the only workflow authorized to stop a keeper while the worker is live; `--force-live` ends every PTY that keeper hosts. A keeper the worker cannot identify is refused here — retire it with `roost deploy <host> --force-live` instead |
 | `logs <coord\|worker> [--tail N]` | Tail an app's log files; warns past 100 MB |
 | `reset` | Stop both services, wipe the coord DB + pinned keys + lock, re-run `bun install` |
 | `state` | Print a `STATE.md` snapshot to stdout |
 | `cutover` | Migrate `coordinator.db` → `coordinator_v2.db` |
-| `status` | ✓/✗ health readout: configured endpoint/TLS mode, conditional Tailscale state, both services, coordinator liveness, workers; each failing line carries its remedy |
+| `status` | ✓/✗ health readout: both services, coordinator liveness on its loopback bind, the configured public URL and whether it answers, workers; each failing line carries its remedy |
 | `doctor [--since 24h]` | Anomaly digest from the low-volume Tier-1 channel (`main.err.log` + rotated `.N.gz`) |
 | `api <verb>` | Dashboard-authorized headless introspection/control over coordinator RPCs: `sessions`, `agent-status`, `agent-wait`, `agent-prompt`, `agents`, `cells`, `input`, `rename`, `assign`, `attach`, `spawn`, `kill`, `workers`, `workspaces`, `ws-*`, `tasks`, `task-*`, `ui`, `ui-state`, `events` |
 | `join` | Install + register this machine's worker from a one-shot bootstrap token (driven by the repo-root `join.sh`; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN`) |
-| `add-machine --platform <macos\|linux\|windows>` | Mint one worker token and print the platform-specific enrollment command. Coordinator-only |
-| `organizations bootstrap-owner` | Managed-only atomic initial owner/organization/dashboard bootstrap; password accepted only through stdin or `ROOST_OWNER_BOOTSTRAP_PASSWORD` |
+| `add-machine --platform <macos\|linux\|windows>` | Mint one worker token and print the platform-specific enrollment command. Coordinator-only; the enrollment URL resolves `ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL` from the installed coordinator service definition overlaid by the environment, and refuses naming all three when none is set |
 
-v0.5.0 releases and deploys self-hosted Roost on macOS/Linux. Both direct
-HTTPS and Tailscale endpoint modes are supported. Managed per-account isolation
-is qualified but not publicly launched: accounts are operator-created, while
-open signup and production managed image publication are off. Windows remains
-paused.
+v0.5.0 releases and deploys self-hosted Roost on macOS/Linux. The coordinator
+binds loopback in plaintext and the operator's front door owns TLS, DNS, and
+public reachability. Windows remains paused.
 
 ### `__windows-updater-broker` is a contract, not an implementation detail
 
@@ -131,64 +122,7 @@ code never enters a POSIX command path. It drains pending relocation requests
   launchd/systemd command construction. Install/enrollment owners are
   `src/install-binary-agents.ts`, `src/machine-transaction.ts`, `src/join.ts`,
   `src/add-machine.ts`, `src/quickstart.ts`, `src/quickstart-runtime.ts`,
-  `src/quickstart-endpoint.ts`, `src/quickstart-bootstrap-tokens.ts`, and
-  `src/expose.ts`. Managed bootstrap is `src/organizations.ts` +
-  `src/organizations-bootstrap-database.ts`.
-- **Managed host/runtime** — `src/saas/entry-admission.ts` gates exact Linux
-  identities; `src/saas/index.ts` composes the operator command.
-  `src/saas/host.ts` is the facade over `src/saas/host-config.ts`,
-  `src/saas/host-prerequisites.ts`, and
-  `src/saas/host-prerequisite-checks.ts`. `src/saas/layout.ts`,
-  `src/saas/docker.ts` + `src/saas/docker-container-contract.ts`,
-  `src/saas/caddy.ts`, `src/saas/probe.ts`, `src/saas/backup.ts`, and
-  `src/saas/rollout.ts` own the remaining host boundaries.
-- **Managed lifecycle/registry** — `src/saas/lifecycle.ts` is the facade over
-  `src/saas/lifecycle-contract.ts`, `src/saas/lifecycle-core.ts`,
-  `src/saas/lifecycle-account-operations.ts`, and
-  `src/saas/lifecycle-reconciliation.ts`. `src/saas/registry.ts` fronts
-  `src/saas/registry-model.ts`, `src/saas/registry-row-types.ts`,
-  `src/saas/registry-row-mappers.ts`, `src/saas/registry-validation.ts`,
-  `src/saas/registry-schema.ts`, `src/saas/registry-storage.ts`,
-  `src/saas/registry-coordinator-store.ts`,
-  `src/saas/registry-reservation-store.ts`,
-  `src/saas/registry-provisioning-job-store.ts`,
-  `src/saas/registry-link-ticket-store.ts`, and
-  `src/saas/registry-lease-store.ts`. `src/saas/resolver.ts` composes
-  `src/saas/resolver-contract.ts` and `src/saas/resolver-request.ts`.
-- **Managed provisioning** — `src/saas/provisioner-worker.ts` is the facade
-  over `src/saas/provisioning-contract.ts`,
-  `src/saas/provisioning-job-loop.ts`,
-  `src/saas/provisioning-submission-worker.ts`,
-  `src/saas/provisioning-link-ticket.ts`, and
-  `src/saas/provisioner-operation.ts`; `src/saas-provisioner-worker.ts` is its
-  top-level compatibility re-export.
-- **Managed instance** — `src/saas-instance.ts` dispatches through
-  `src/saas-instance-types.ts` and `src/saas-instance-command.ts` to
-  `src/saas-instance-seed-database.ts`,
-  `src/saas-instance-owner-activation.ts`,
-  `src/saas-instance-google-owner.ts`, and
-  `src/saas-instance-inspection.ts`.
-- **Managed auth** — `src/saas-auth/index.ts` composes
-  `src/saas-auth/http-server.ts`, `src/saas-auth/gateway-config.ts`,
-  `src/saas-auth/request-security.ts`, and `src/saas-auth/canonical-json.ts`.
-  `src/saas-auth/state-store.ts` fronts
-  `src/saas-auth/state-store-types.ts`,
-  `src/saas-auth/state-store-database.ts`,
-  `src/saas-auth/state-store-abuse.ts`, `src/saas-auth/state-store-email.ts`,
-  `src/saas-auth/state-store-oauth.ts`, and
-  `src/saas-auth/state-store-results.ts`. Provider/browser flows are
-  `src/saas-auth/provider-http.ts`,
-  `src/saas-auth/google-id-token.ts`, `src/saas-auth/turnstile.ts`,
-  `src/saas-auth/email-signup.ts`, `src/saas-auth/google-oauth.ts`,
-  `src/saas-auth/result-protocol.ts`, and
-  `src/saas-auth/federated-assertion.ts`; signup delivery/setup are
-  `src/saas-auth/signup-email-outbox.ts` and `src/saas-auth/signup-init.ts`.
-  `src/saas-auth/provisioner-client.ts`, `src/saas-auth/private-ipc.ts`,
-  `src/saas-auth/private-ipc-client.ts`, and
-  `src/saas-auth/private-ipc-framing.ts` own authenticated root IPC.
-- **Managed root provisioner** — `src/saas-provisioner/index.ts`,
-  `src/saas-provisioner/runtime.ts`, `src/saas-provisioner/server.ts`, and
-  `src/saas-provisioner/replay-store.ts`.
+  `src/quickstart-endpoint.ts`, and `src/quickstart-bootstrap-tokens.ts`.
 - **Release / skill** — `src/update.ts`, `src/version.ts`; `src/skill.ts`
   chooses the generated text embed in compiled binaries and the canonical
   repository file in source mode.
@@ -346,19 +280,11 @@ pins wait parsing, occupant pinning, outcomes, and exit behavior;
 pins release verification; `tests/machine-transaction.test.ts` pins the machine lock.
 
 The repo's test scripts run through this CLI: `bun run test:unit`,
-`bun run test:terminal`, `bun run test:managed`, and
+`bun run test:terminal`, `bun run test:upgrade`, and
 `bun run test:live-api` shell into `roost test <profile>` (`src/test.ts`).
-`unit`, `worker`, `terminal`, and Linux/root/Docker/Chromium/`age`-backed
-`managed` are release gates; `live-api` requires `ROOST_COORD_URL` and remains
-an optional production monitor. `bun run test:worker` calls
+`unit`, `worker`, `terminal`, and `upgrade` are release gates; `live-api`
+requires `ROOST_COORD_URL` and remains an optional production monitor.
+`bun run test:worker` calls
 `scripts/test-worker.ts` directly—the same runner used by `roost test worker`
 and `unit`—because each worker test file needs its own process, keeper, and
 temporary root.
-
-The managed profile builds one immutable coordinator image and runs
-`tests/managed-browser.e2e.test.ts`,
-`tests/saas-provisioning.e2e.test.ts`,
-`tests/saas-backup-restore.e2e.test.ts`, and
-`tests/saas-open-signup.e2e.test.ts` for routed per-account isolation,
-browser auth, backup/restore, and feature-gated signup recovery. Qualification
-does not enable production signup or publish that image.

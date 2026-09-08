@@ -101,21 +101,6 @@ $scriptPublisher = Get-SignedPublisher $PSCommandPath
 if ($scriptPublisher -cne $publisher) {
     throw "join.ps1 publisher mismatch: expected $publisher, got $scriptPublisher"
 }
-$tailscalePath = Join-Path ([Environment]::GetFolderPath(
-    [Environment+SpecialFolder]::ProgramFiles
-)) 'Tailscale\tailscale.exe'
-if (-not (Test-Path -LiteralPath $tailscalePath -PathType Leaf) -or
-    ((Get-Item -LiteralPath $tailscalePath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw 'trusted machine-wide Tailscale is required. Install it from https://tailscale.com/download/windows and connect before joining Roost.'
-}
-$tailscaleSignature = Get-AuthenticodeSignature -LiteralPath $tailscalePath
-if ($tailscaleSignature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
-    throw 'the machine-wide Tailscale executable does not have a valid Authenticode signature'
-}
-$tailscale = (& $tailscalePath status --json | Out-String) | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or $tailscale.BackendState -cne 'Running') {
-    throw 'Tailscale must be connected before joining Roost'
-}
 if (-not $BootstrapToken) {
     $BootstrapToken = Read-Host -AsSecureString 'One-shot Roost worker bootstrap token'
 }

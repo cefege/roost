@@ -17,14 +17,6 @@ const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   "/roost.v1.CoordinatorService/AuthMintBootstrap",
   "/roost.v1.CoordinatorService/AuthRedeemWorker",
   "/roost.v1.CoordinatorService/AuthRedeemBrowser",
-  "/roost.v1.CoordinatorService/AuthPasswordLogin",
-  "/roost.v1.CoordinatorService/AuthOwnerActivate",
-  "/roost.v1.CoordinatorService/AuthPasswordResetRequest",
-  "/roost.v1.CoordinatorService/AuthPasswordResetRedeem",
-  "/roost.v1.CoordinatorService/AuthFederatedContinue",
-  "/roost.v1.CoordinatorService/AuthPasswordAdd",
-  "/roost.v1.CoordinatorService/AuthFederatedLinkBegin",
-  "/roost.v1.CoordinatorService/AuthFederatedLink",
   "/roost.v1.CoordinatorService/AuthLogout",
   "/roost.v1.CoordinatorService/PairCreate",
   "/roost.v1.CoordinatorService/PairPoll",
@@ -238,15 +230,4 @@ export function checkRateLimit(req: Request, clientIp: string): Response | null 
   const group = routeGroupKey(path);
   if (!group) return null;
   return limiter.response(clientIp, group, TOKENS_PER_WINDOW);
-}
-
-/** Bounded fixed-window limit for public dispatch, WebSocket upgrades, and
- * credential sub-limits that do not share the generic Connect mutation rate. */
-export function checkCustomLimit(
-  key: string,
-  group: string,
-  tokensPerWindow: number,
-  windowMs = RATE_LIMIT_WINDOW_MS,
-): Response | null {
-  return limiter.response(key, group, tokensPerWindow, windowMs);
 }

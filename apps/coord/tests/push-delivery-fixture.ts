@@ -11,7 +11,6 @@ import { fingerprintOf } from "@roost/shared/fingerprint";
 import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { createCoord } from "../src/coord-factory.ts";
-import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import {
   installTerminalViewHub,
   TerminalViewHub,
@@ -51,15 +50,11 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
     trustProxy: false,
-    saasMode: false,
-    managedContainer: false,
     bind: "127.0.0.1:0",
     dbPath,
     coordKeyPath: keyPath,
     authorizedKeysPath,
     webDistPath: "",
-    tlsCertPath: undefined,
-    tlsKeyPath: undefined,
     jwtMaxAgeSecs: 300,
     auditRetentionDays: 90,
     relaxedCsp: false,
@@ -83,10 +78,8 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
   await db.insertInto("accounts").values({
     id: ACCOUNT_ID,
     email_normalized: "push@example.com",
-    password_hash: null,
     status: "active",
     created_at_ms: fixtureNow,
-    password_changed_at_ms: null,
   }).execute();
   await db.insertInto("account_devices").values({
     fingerprint: viewerFp,
@@ -138,7 +131,6 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
     coordKey,
     cfg,
     jwtCache,
-    passwordWorkGate: new PasswordWorkGate(),
   });
 
   return {

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { coordDataDir } from "@roost/shared/paths";
+import { hasUrlUserInfo } from "./url-user-info.ts";
 import { durableRemove, durableWriteFile } from "@roost/shared/durability";
 import { DEPLOY_JOB_TTL_MS, type DeployJob } from "./deploy-jobs.ts";
 
@@ -30,7 +31,7 @@ export const HOST_RE = /^[A-Za-z0-9.-]+$/;
 export const httpsUrlSchema = z.string().min(1).max(2_048).url().refine((value) => {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password;
+    return url.protocol === "https:" && !hasUrlUserInfo(url);
   } catch {
     return false;
   }

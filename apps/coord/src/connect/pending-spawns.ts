@@ -181,17 +181,6 @@ export function rejectPendingSpawn(
   return true;
 }
 
-/** True only for the exact dashboard/worker spawn reservation. */
-export function hasPendingSpawn(
-  dashboardId: string,
-  workerFp: string,
-  sessionId: string,
-): boolean {
-  const entry = pendingSpawns.get(sessionId);
-  return entry?.signature.dashboardId === dashboardId
-    && entry.signature.workerFp === workerFp;
-}
-
 /** A durable worker credential revocation makes every unresolved spawn for
  * that worker definitively impossible; unlike transport loss, no replay can
  * reconcile it through this credential generation. */

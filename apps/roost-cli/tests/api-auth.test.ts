@@ -7,7 +7,6 @@ import { join } from "node:path";
 import { loadWorkerKey } from "../../worker/src/jwt.ts";
 import {
   CLI_PAIRING_REQUIRED,
-  MANAGED_CLI_ENROLLMENT_UNSUPPORTED,
   cliKeyPath,
   ensureCliEnrollment,
   withDashboardScope,
@@ -42,7 +41,6 @@ describe("CLI device authentication", () => {
     const selected = await ensureCliEnrollment({
       client,
       publicClient: {
-        async authCoordIdentity() { throw new Error("must not probe a known key"); },
         async authRedeemBrowser() { throw new Error("must not redeem a known key"); },
       },
       publicKeyB64: "public-key",
@@ -80,7 +78,6 @@ describe("CLI device authentication", () => {
     const selected = await ensureCliEnrollment({
       client,
       publicClient: {
-        async authCoordIdentity() { return { saasMode: false }; },
         async authRedeemBrowser(request: unknown) { redeemed = request; },
       },
       publicKeyB64: "cli-public-key",
@@ -113,7 +110,6 @@ describe("CLI device authentication", () => {
         },
       },
       publicClient: {
-        async authCoordIdentity() { return { saasMode: false }; },
         async authRedeemBrowser() { throw new Error("must not redeem remotely"); },
       },
       publicKeyB64: "cli-public-key",
@@ -121,26 +117,5 @@ describe("CLI device authentication", () => {
       localDatabasePath: null,
     });
     await expect(promise).rejects.toThrow(CLI_PAIRING_REQUIRED);
-  });
-
-  test("a fresh managed CLI never acquires browser or worker authority", async () => {
-    const promise = ensureCliEnrollment({
-      client: {
-        async authDashboardAccess() {
-          throw new ConnectError("unknown key", Code.Unauthenticated);
-        },
-      },
-      publicClient: {
-        async authCoordIdentity() { return { saasMode: true }; },
-        async authRedeemBrowser() { throw new Error("must not redeem in managed mode"); },
-      },
-      publicKeyB64: "cli-public-key",
-      label: "roost-cli",
-      localDatabasePath: "/managed/coordinator_v2.db",
-      async mintHostBrowserToken() {
-        throw new Error("must not mint in managed mode");
-      },
-    });
-    await expect(promise).rejects.toThrow(MANAGED_CLI_ENROLLMENT_UNSUPPORTED);
   });
 });

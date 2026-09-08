@@ -35,33 +35,17 @@ export function makeDeviceHandlers(
   return {
     async devicesList(_req, ctx) {
       const caller = requireAccountDevice(ctx.values);
-      let keys: Array<{ fingerprint: string; label: string; added_at: number }>;
-      let workerFps: Set<string> | undefined;
-      if (deps.cfg.saasMode) {
-        if (caller.kind !== "account-device") {
-          throw new ConnectError("authentication required", Code.Unauthenticated);
-        }
-        keys = await deps.db
-          .selectFrom("authorized_keys as key")
-          .innerJoin("account_devices as device", "device.fingerprint", "key.fingerprint")
-          .select(["key.fingerprint", "key.label", "key.added_at"])
-          .where("device.account_id", "=", caller.accountId)
-          .orderBy("key.added_at", "desc")
-          .execute();
-      } else {
-        const [allKeys, workers] = await Promise.all([
-          deps.db.selectFrom("authorized_keys")
-            .select(["fingerprint", "label", "added_at"])
-            .orderBy("added_at", "desc")
-            .execute(),
-          deps.db.selectFrom("workers").select("fp").execute(),
-        ]);
-        keys = allKeys;
-        workerFps = new Set(workers.map((worker) => worker.fp));
-      }
+      const [keys, workers] = await Promise.all([
+        deps.db.selectFrom("authorized_keys")
+          .select(["fingerprint", "label", "added_at"])
+          .orderBy("added_at", "desc")
+          .execute(),
+        deps.db.selectFrom("workers").select("fp").execute(),
+      ]);
+      const workerFps = new Set(workers.map((worker) => worker.fp));
       return create(DevicesListResponseSchema, {
         devices: keys
-          .filter((key) => !workerFps?.has(key.fingerprint))
+          .filter((key) => !workerFps.has(key.fingerprint))
           .map((key) => create(DeviceRowSchema, {
             fingerprint: key.fingerprint,
             label: key.label,
@@ -72,35 +56,19 @@ export function makeDeviceHandlers(
     },
 
     async devicesRevoke(req, ctx) {
-      const caller = deps.cfg.saasMode
-        ? requireAccountDevice(ctx.values)
-        : optionalAccountDevice(ctx.values);
+      const caller = optionalAccountDevice(ctx.values);
       if (!caller) assertOnHost(callerOrigin(ctx.values));
       if (caller?.fingerprint === req.fingerprint) {
         throw new ConnectError("use key rotation to revoke this device", Code.InvalidArgument);
-      }
-      const managedAccountId = deps.cfg.saasMode && caller?.kind === "account-device"
-        ? caller.accountId
-        : null;
-      if (deps.cfg.saasMode && managedAccountId === null) {
-        throw new ConnectError("authentication required", Code.Unauthenticated);
       }
 
       const affectedDashboards = new Set<string>();
       const now = Date.now();
       await deps.db.transaction().execute(async (trx) => {
-        const target = managedAccountId
-          ? await trx
-            .selectFrom("authorized_keys as key")
-            .innerJoin("account_devices as device", "device.fingerprint", "key.fingerprint")
-            .select("key.fingerprint")
-            .where("key.fingerprint", "=", req.fingerprint)
-            .where("device.account_id", "=", managedAccountId)
-            .executeTakeFirst()
-          : await trx.selectFrom("authorized_keys")
-            .select("fingerprint")
-            .where("fingerprint", "=", req.fingerprint)
-            .executeTakeFirst();
+        const target = await trx.selectFrom("authorized_keys")
+          .select("fingerprint")
+          .where("fingerprint", "=", req.fingerprint)
+          .executeTakeFirst();
         if (!target) throw new ConnectError("device not found", Code.NotFound);
         const worker = await trx.selectFrom("workers").select("fp")
           .where("fp", "=", req.fingerprint).executeTakeFirst();
@@ -113,25 +81,21 @@ export function makeDeviceHandlers(
           reason: "device-revoked",
         }).execute();
 
-        let delegatedTokens = trx.deleteFrom("bootstrap_tokens")
-          .where("used_at_ms", "is", null);
-        delegatedTokens = managedAccountId
-          ? delegatedTokens.where("minted_by_fp", "=", req.fingerprint)
-          : delegatedTokens.where((eb) => eb.or([
+        await trx.deleteFrom("bootstrap_tokens")
+          .where("used_at_ms", "is", null)
+          .where((eb) => eb.or([
             eb("minted_by_fp", "=", req.fingerprint),
             eb("minted_by_fp", "is", null),
-          ]));
-        await delegatedTokens.execute();
+          ]))
+          .execute();
         await trx.deleteFrom("push_subscriptions")
           .where("viewer_fp", "=", req.fingerprint)
           .execute();
 
-        const accountDevices = managedAccountId
-          ? [{ account_id: managedAccountId }]
-          : await trx.selectFrom("account_devices")
-            .select("account_id")
-            .where("fingerprint", "=", req.fingerprint)
-            .execute();
+        const accountDevices = await trx.selectFrom("account_devices")
+          .select("account_id")
+          .where("fingerprint", "=", req.fingerprint)
+          .execute();
         if (accountDevices.length > 0) {
           const memberships = await trx.selectFrom("dashboard_memberships")
             .select("dashboard_id")
@@ -140,12 +104,9 @@ export function makeDeviceHandlers(
           for (const membership of memberships) affectedDashboards.add(membership.dashboard_id);
         }
 
-        let accountDeviceDelete = trx.deleteFrom("account_devices")
-          .where("fingerprint", "=", req.fingerprint);
-        if (managedAccountId) {
-          accountDeviceDelete = accountDeviceDelete.where("account_id", "=", managedAccountId);
-        }
-        await accountDeviceDelete.execute();
+        await trx.deleteFrom("account_devices")
+          .where("fingerprint", "=", req.fingerprint)
+          .execute();
         await trx.deleteFrom("authorized_keys")
           .where("fingerprint", "=", req.fingerprint)
           .execute();
@@ -161,9 +122,6 @@ export function makeDeviceHandlers(
 
     async devicesRotateCurrent(req, ctx) {
       const caller = requireAccountDevice(ctx.values);
-      if (deps.cfg.saasMode && caller.kind !== "account-device") {
-        throw new ConnectError("authentication required", Code.Unauthenticated);
-      }
       const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
       if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
       const fingerprint = await fingerprintOf(pubkey);
@@ -190,10 +148,6 @@ export function makeDeviceHandlers(
           accountDeviceQuery = accountDeviceQuery.where("account_id", "=", caller.accountId);
         }
         const accountDevice = await accountDeviceQuery.executeTakeFirst();
-        if (deps.cfg.saasMode && !accountDevice) {
-          throw new ConnectError("authentication required", Code.Unauthenticated);
-        }
-
         await trx.insertInto("authorized_keys").values({
           fingerprint, public_key: pubkey, label: req.label, added_at: now,
         }).execute();
@@ -212,15 +166,13 @@ export function makeDeviceHandlers(
           reason: "device-rotated",
         }).execute();
 
-        let delegatedTokens = trx.deleteFrom("bootstrap_tokens")
-          .where("used_at_ms", "is", null);
-        delegatedTokens = deps.cfg.saasMode
-          ? delegatedTokens.where("minted_by_fp", "=", caller.fingerprint)
-          : delegatedTokens.where((eb) => eb.or([
+        await trx.deleteFrom("bootstrap_tokens")
+          .where("used_at_ms", "is", null)
+          .where((eb) => eb.or([
             eb("minted_by_fp", "=", caller.fingerprint),
             eb("minted_by_fp", "is", null),
-          ]));
-        await delegatedTokens.execute();
+          ]))
+          .execute();
         await trx.deleteFrom("push_subscriptions")
           .where("viewer_fp", "=", caller.fingerprint)
           .execute();
@@ -241,10 +193,6 @@ export function makeDeviceHandlers(
     async authLogout(_req, ctx) {
       const caller = requireAccountDevice(ctx.values);
       const accountId = caller.kind === "account-device" ? caller.accountId : null;
-      if (deps.cfg.saasMode && accountId === null) {
-        throw new ConnectError("authentication required", Code.Unauthenticated);
-      }
-
       const affectedDashboards = new Set<string>();
       const now = Date.now();
       await deps.db.transaction().execute(async (trx) => {

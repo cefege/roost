@@ -86,6 +86,6 @@ export function workerHeartbeatContext(dashboardId: string): HandlerContext {
 export function workerHeartbeatHandlers(db: ConnectDeps["db"]) {
   return makeWorkerHandlers({
     db,
-    cfg: { saasMode: false },
+    cfg: {},
   } as unknown as ConnectDeps);
 }

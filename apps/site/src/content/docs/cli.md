@@ -23,14 +23,13 @@ standalone release binary (it contains no Git checkout).
 
 | Subcommand | What it does |
 |---|---|
-| `quickstart` | One-shot local install: automatic Tailscale Serve or explicit-certificate direct HTTPS, then coordinator, local worker, and browser pairing |
+| `quickstart` | One-shot local install: validate `--coordinator-url`, then coordinator on its loopback bind, local worker, and browser pairing |
 | `coord` | Run the coordinator (server mode; used by the compiled binary) |
 | `worker` | Run the worker (server-side; compiled binary or supervised service) |
 | `keeper` | Run the keeper subprocess that hosts this machine's PTYs |
 | `update` | Self-update a supported macOS or Linux binary from the latest GitHub release |
 | `version` | Print the Roost version |
 | `skill` | Write the exact release-matched ROOST agent skill to stdout; accepts no arguments and performs no installation |
-| `expose <hostname>` | Configure Cloudflare Access browser entry — `--team <team>.cloudflareaccess.com --aud <64-hex> [--config <path>]` |
 | `dev` | Start coordinator, worker, and web dev servers |
 | `test` | Run all tests in dependency order |
 | `deploy <host>` | Deploy a macOS or Linux worker from a source checkout |
@@ -40,11 +39,11 @@ standalone release binary (it contains no Git checkout).
 | `reset` | Nuke local state — database, keys, lock |
 | `state` | Print the state snapshot |
 | `cutover` | Migrate from the legacy `coordinator.db` to `coordinator_v2.db` |
-| `status` | Health readout: selected network/TLS mode, coordinator, workers |
+| `status` | Health readout: services, coordinator, the configured public URL, workers |
 | `doctor [--since]` | Anomaly digest from the error logs (default window 24h) |
 | `api <verb>` | Headless introspection and control (see below) |
 | `join` | Install and register a macOS or Linux worker; needs `ROOST_COORDINATOR_URL` and `ROOST_BOOTSTRAP_TOKEN` |
-| `add-machine` | Print a one-shot macOS or Linux enrollment command for automatic mode — `--platform <macos\|linux> [--label X]` |
+| `add-machine` | Print a one-shot macOS or Linux enrollment command — `--platform <macos\|linux> [--label X]`; the URL resolves `ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL` and refuses when none is set |
 
 `--since` accepts a number plus a unit, so `90m`, `1h`, `24h`, and `7d` are all
 valid. `roost logs` also warns when a log file has grown past 100 MB.
@@ -268,7 +267,7 @@ This is the escape hatch for having lost every authorized browser. It is
 destructive, so `--yes` is mandatory, and it only talks to an
 `http://127.0.0.1:<port>` coordinator URL — no credentials in the URL, no path,
 no query, no fragment. The port comes from `ROOST_COORDINATOR_BIND` (default
-`127.0.0.1:4102`) or an explicit `ROOST_COORD_URL`. Anything else is refused
+`127.0.0.1:4103`) or an explicit `ROOST_COORD_URL`. Anything else is refused
 before a request is made.
 
 ## How `roost api` enrolls its key
@@ -281,8 +280,8 @@ to that dashboard.
 An unknown key can enroll automatically only while the CLI is running on the
 coordinator host: the host mints a scoped one-shot browser grant and the CLI
 redeems it through the normal browser-redemption RPC. A fresh remote CLI instead
-stops with explicit pairing-required guidance. Loopback and tailnet addresses
-are not credentials and never authorize the key by themselves.
+stops with explicit pairing-required guidance. A loopback or tailnet address is
+not a credential and never authorizes the key by itself.
 
 ## Two verbs that were removed
 
@@ -292,6 +291,6 @@ oddly: use `cells` for scrollback and `events` for a live output stream.
 ## Next
 
 - [Fleet](/docs/fleet/) — `push`, `deploy`, and coordinator relocation
-- [Networking](/docs/networking/) — `expose` and the public deny list
+- [Networking](/docs/networking/) — the loopback listener and the private paths
 - [Security](/docs/security/) — keys, pairing, revocation, audit
 - [Quickstart](/docs/quickstart/) — `quickstart`, `add-machine`, `status`, `doctor`

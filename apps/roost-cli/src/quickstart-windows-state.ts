@@ -30,7 +30,6 @@ import {
 export interface CoordinatorPaths {
   dataDir: string;
   logDir: string;
-  tlsDir: string;
   database: string;
   authorizedKeys: string;
   key: string;
@@ -62,7 +61,6 @@ export function coordinatorPaths(): CoordinatorPaths {
     return {
       dataDir,
       logDir: process.env.ROOST_COORD_LOG_DIR ?? join(dataDir, "..", "..", "logs", "coordinator"),
-      tlsDir: process.env.ROOST_COORDINATOR_TLS_DIR ?? join(dataDir, "tls"),
       database: process.env.ROOST_COORDINATOR_DB ?? join(dataDir, "coordinator_v2.db"),
       authorizedKeys: process.env.ROOST_COORDINATOR_AUTHORIZED_KEYS ?? join(dataDir, "authorized_keys.roost"),
       key: process.env.ROOST_COORDINATOR_KEY_PATH ?? join(dataDir, "ssh_ed25519.key"),
@@ -83,10 +81,6 @@ export function coordinatorPaths(): CoordinatorPaths {
     logDir: requireCanonicalWindowsPath(
       "ROOST_COORD_LOG_DIR",
       win32.join(serviceDir, "logs", "coordinator"),
-    ),
-    tlsDir: requireCanonicalWindowsPath(
-      "ROOST_COORDINATOR_TLS_DIR",
-      win32.join(dataDir, "tls"),
     ),
     database: requireCanonicalWindowsPath(
       "ROOST_COORDINATOR_DB",

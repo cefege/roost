@@ -8,6 +8,7 @@ import { sql } from "kysely";
 import type { KyselyDB } from "./db/connection.ts";
 import { activeTerminalViewerFingerprints } from "./connect/terminal-view-hub.ts";
 import { sendPushToSubscriptions } from "./push-sender.ts";
+import { hasUrlUserInfo } from "./url-user-info.ts";
 import type { AgentOccupantId, StatusEpoch } from "@roost/shared/wire";
 
 export type PushTransition = "blocked" | "done";
@@ -40,7 +41,6 @@ export async function firePushForTransition(
   allowedOrigins: readonly string[],
   isCurrent: () => boolean,
   send: PushSender = sendPushToSubscriptions,
-  tenantRouteKey?: string,
 ): Promise<void> {
   const { sessionId, kind } = transition;
   try {
@@ -105,8 +105,7 @@ export async function firePushForTransition(
       try {
         const endpoint = new URL(subscription.endpoint);
         return endpoint.protocol === "https:"
-          && endpoint.username === ""
-          && endpoint.password === ""
+          && !hasUrlUserInfo(endpoint)
           && endpoint.hash === ""
           && allowedOriginSet.has(endpoint.origin);
       } catch {
@@ -139,7 +138,6 @@ export async function firePushForTransition(
       occupantId: transition.occupantId,
       revision: transition.revision,
       deduplicationToken,
-      ...(tenantRouteKey ? { routeKey: tenantRouteKey } : {}),
     };
     if (!isCurrent()) {
       log.info("push", "status_superseded", {

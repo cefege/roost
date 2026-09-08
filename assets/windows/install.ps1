@@ -24,17 +24,13 @@ param(
     [string] $ExpectedBuild,
     [switch] $StageOnly,
 
-    [string] $CoordinatorUrl,
-
-    [string] $TlsCert,
-
-    [string] $TlsKey
+    [string] $CoordinatorUrl
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Assert-DirectCoordinatorUrl([string] $Value) {
+function Assert-CoordinatorUrl([string] $Value) {
     if ([string]::IsNullOrWhiteSpace($Value) -or $Value -match '\p{Cc}') {
         throw 'CoordinatorUrl must be a non-empty HTTPS origin without control characters'
     }
@@ -54,92 +50,29 @@ function Assert-DirectCoordinatorUrl([string] $Value) {
         throw 'CoordinatorUrl must be an HTTPS origin with no userinfo, path, query, or fragment'
     }
     if ($authority.StartsWith('[', [StringComparison]::Ordinal)) {
-        if ($authority -match '^\[[^\]]+\]:(?<port>[0-9]+)$') {
-            $portText = [string] $Matches['port']
-        } else {
-            throw 'CoordinatorUrl must include an explicit numeric port'
+        if ($authority -notmatch '^\[[^\]]+\](:(?<port>[0-9]+))?$') {
+            throw 'CoordinatorUrl authority is not a valid bracketed host'
         }
-    } elseif ($authority -match '^[^:]+:(?<port>[0-9]+)$') {
-        $portText = [string] $Matches['port']
-    } else {
-        throw 'CoordinatorUrl must include an explicit numeric port'
+    } elseif ($authority -notmatch '^[^:]+(:(?<port>[0-9]+))?$') {
+        throw 'CoordinatorUrl authority is not a valid host'
     }
-    $port = 0
-    if (-not [int]::TryParse($portText, [ref] $port) -or
-        $port -lt 1 -or $port -gt 65535) {
-        throw 'CoordinatorUrl port must be between 1 and 65535'
+    $portText = [string] $Matches['port']
+    if (-not [string]::IsNullOrEmpty($portText)) {
+        $port = 0
+        if (-not [int]::TryParse($portText, [ref] $port) -or
+            $port -lt 1 -or $port -gt 65535) {
+            throw 'CoordinatorUrl port must be between 1 and 65535'
+        }
     }
 }
 
-function Get-NormalizedDirectTlsPath([string] $Value, [string] $Label) {
-    if ([string]::IsNullOrWhiteSpace($Value) -or $Value -match '\p{Cc}') {
-        throw "$Label must be a non-empty rooted path without control characters"
+if ($HostRole -eq 'coordinator') {
+    if (-not $PSBoundParameters.ContainsKey('CoordinatorUrl')) {
+        throw 'CoordinatorUrl is required: the HTTPS URL your front door serves Roost on'
     }
-    try {
-        if (-not [IO.Path]::IsPathRooted($Value)) {
-            throw [ArgumentException]::new()
-        }
-        $normalized = [IO.Path]::GetFullPath($Value)
-    } catch {
-        throw "$Label must be a lexically valid rooted path"
-    }
-    return $normalized.TrimEnd([char[]] @([char] 92, [char] 47))
-}
-
-$directTlsParameterCount = 0
-foreach ($name in @('CoordinatorUrl', 'TlsCert', 'TlsKey')) {
-    if ($PSBoundParameters.ContainsKey($name)) {
-        $directTlsParameterCount += 1
-    }
-}
-if ($directTlsParameterCount -ne 0 -and $directTlsParameterCount -ne 3) {
-    throw 'CoordinatorUrl, TlsCert, and TlsKey must be supplied together'
-}
-$directTlsMode = $directTlsParameterCount -eq 3
-if ($directTlsMode) {
-    if ($HostRole -ne 'coordinator') {
-        throw 'CoordinatorUrl, TlsCert, and TlsKey are only valid for a coordinator install'
-    }
-    Assert-DirectCoordinatorUrl $CoordinatorUrl
-    $normalizedTlsCert = Get-NormalizedDirectTlsPath $TlsCert 'TlsCert'
-    $normalizedTlsKey = Get-NormalizedDirectTlsPath $TlsKey 'TlsKey'
-    if ($normalizedTlsCert.Equals(
-        $normalizedTlsKey,
-        [StringComparison]::OrdinalIgnoreCase
-    )) {
-        throw 'TlsCert and TlsKey must identify distinct paths'
-    }
-    foreach ($entry in @(
-        [pscustomobject]@{ Path = $normalizedTlsCert; Label = 'TlsCert' },
-        [pscustomobject]@{ Path = $normalizedTlsKey; Label = 'TlsKey' }
-    )) {
-        $path = [string] $entry.Path
-        $label = [string] $entry.Label
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            throw "$label must identify a readable regular file"
-        }
-        $item = Get-Item -LiteralPath $path -Force
-        $linkType = $item.PSObject.Properties['LinkType']
-        if ($item.PSIsContainer -or
-            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-            ($null -ne $linkType -and
-                -not [string]::IsNullOrWhiteSpace([string] $linkType.Value))) {
-            throw "$label must identify a non-link regular file"
-        }
-        $stream = $null
-        try {
-            $stream = [IO.File]::Open(
-                $path,
-                [IO.FileMode]::Open,
-                [IO.FileAccess]::Read,
-                [IO.FileShare]::ReadWrite
-            )
-        } catch {
-            throw "$label must identify a readable regular file"
-        } finally {
-            if ($null -ne $stream) { $stream.Dispose() }
-        }
-    }
+    Assert-CoordinatorUrl $CoordinatorUrl
+} elseif ($PSBoundParameters.ContainsKey('CoordinatorUrl')) {
+    throw 'CoordinatorUrl is only valid for a coordinator install'
 }
 $icaclsPath = Join-Path ([Environment]::SystemDirectory) 'icacls.exe'
 if (-not (Test-Path -LiteralPath $icaclsPath -PathType Leaf)) {
@@ -285,37 +218,6 @@ function Assert-CanonicalProductionLayout([string] $Root, [string] $ConfiguredSe
     if (-not $actualService.Equals($expectedService, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'ServiceDir must be the canonical service directory beneath InstallRoot'
     }
-}
-
-function Get-TrustedTailscaleExecutable() {
-    $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
-    if ([string]::IsNullOrWhiteSpace($programFiles)) {
-        throw 'the trusted machine-wide Program Files location is unavailable'
-    }
-    $path = [IO.Path]::GetFullPath((Join-Path $programFiles 'Tailscale\tailscale.exe'))
-    Assert-RegularNonReparseFile $path 'machine-wide Tailscale executable'
-    $cursor = Split-Path -Parent $path
-    while (-not [string]::IsNullOrWhiteSpace($cursor)) {
-        $item = Get-Item -LiteralPath $cursor -Force
-        if (-not $item.PSIsContainer -or
-            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "machine-wide Tailscale path contains an unsafe component: $cursor"
-        }
-        if ($cursor.TrimEnd('\').Equals(
-            [IO.Path]::GetFullPath($programFiles).TrimEnd('\'),
-            [StringComparison]::OrdinalIgnoreCase
-        )) { break }
-        $parent = [IO.Directory]::GetParent($cursor)
-        if ($null -eq $parent) { throw 'machine-wide Tailscale escaped Program Files' }
-        $cursor = $parent.FullName
-    }
-    $signature = Get-AuthenticodeSignature -LiteralPath $path
-    if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
-        $null -eq $signature.SignerCertificate -or
-        $null -eq $signature.TimeStamperCertificate) {
-        throw 'the machine-wide Tailscale executable lacks a valid timestamped Authenticode signature'
-    }
-    return $path
 }
 
 function ConvertTo-WindowsCommandLineArgument([string] $Value) {
@@ -619,11 +521,6 @@ if ($LASTEXITCODE -ne 0 -or $activeBuild -cne $ExpectedBuild.ToLowerInvariant())
 $system32 = [IO.Path]::GetFullPath([Environment]::SystemDirectory)
 Assert-NonReparseDirectory $system32 'trusted Windows System32'
 Assert-RegularNonReparseFile (Join-Path $system32 'sc.exe') 'trusted Windows sc.exe'
-$tailscaleExecutable = if ($directTlsMode) {
-    $null
-} else {
-    Get-TrustedTailscaleExecutable
-}
 $serviceHome = Join-Path $ServiceDir 'home'
 if (-not (Test-Path -LiteralPath $serviceHome)) {
     [IO.Directory]::CreateDirectory($serviceHome) | Out-Null
@@ -649,7 +546,6 @@ $keeperLogs = Join-Path $logRoot 'keeper'
 $workerLogs = Join-Path $logRoot 'worker'
 $coordinatorLogs = Join-Path $logRoot 'coordinator'
 $updaterLogs = Join-Path $logRoot 'updater'
-$coordinatorTls = Join-Path $coordinatorData 'tls'
 $legacyLocalAppData = $env:LOCALAPPDATA
 if ([string]::IsNullOrWhiteSpace($legacyLocalAppData) -or
     -not [IO.Path]::IsPathRooted($legacyLocalAppData) -or
@@ -674,12 +570,8 @@ $startInfo.FileName = $installedRoost
 $startInfo.UseShellExecute = $false
 $startInfo.RedirectStandardInput = $true
 $roostArguments = @($roostCommand, '--windows-service-credential-stdin')
-if ($directTlsMode) {
-    $roostArguments += @(
-        '--coordinator-url', $CoordinatorUrl,
-        '--tls-cert', $TlsCert,
-        '--tls-key', $TlsKey
-    )
+if ($HostRole -eq 'coordinator') {
+    $roostArguments += @('--coordinator-url', $CoordinatorUrl)
 }
 $argumentListProperty = $startInfo.GetType().GetProperty('ArgumentList')
 if ($null -ne $argumentListProperty) {
@@ -716,7 +608,6 @@ $canonicalEnvironment = [ordered]@{
     'ROOST_COORDINATOR_AUTHORIZED_KEYS' = (Join-Path $coordinatorData 'authorized_keys.roost')
     'ROOST_COORDINATOR_KEY_PATH' = (Join-Path $coordinatorData 'ssh_ed25519.key')
     'ROOST_COORDINATOR_HANDOFF_PATH' = (Join-Path $coordinatorData 'coord-handoff.json')
-    'ROOST_COORDINATOR_TLS_DIR' = $coordinatorTls
     'ROOST_LEGACY_COORD_DATA_DIR' = $legacyCoordinatorData
     'USERPROFILE' = $serviceHome
     'HOME' = $serviceHome
@@ -727,12 +618,6 @@ $canonicalEnvironment = [ordered]@{
 }
 foreach ($entry in $canonicalEnvironment.GetEnumerator()) {
     $startInfo.EnvironmentVariables[$entry.Key] = [string] $entry.Value
-}
-if ($directTlsMode) {
-    $null = $startInfo.EnvironmentVariables.Remove('ROOST_TAILSCALE_EXE')
-    $null = $startInfo.EnvironmentVariables.Remove('ROOST_TAILNET_HTTPS_PORT')
-} else {
-    $startInfo.EnvironmentVariables['ROOST_TAILSCALE_EXE'] = [string] $tailscaleExecutable
 }
 $null = $startInfo.EnvironmentVariables.Remove('ROOST_SERVICE_ACCOUNT_PASSWORD')
 $null = $startInfo.EnvironmentVariables.Remove('ROOST_SERVICE_PASSWORD')

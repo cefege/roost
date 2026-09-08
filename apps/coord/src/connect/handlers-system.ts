@@ -81,10 +81,8 @@ export function makeSystemHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, SystemMethods> {
   return {
     // ─── misc ──────────────────────────────────────────────────────────
-    async miscHealth(_req, ctx) {
-      // Self-hosted health remains public. Managed health is a browser RPC and
-      // must cross the same verified device boundary as the rest of the app.
-      if (deps.cfg.saasMode) requireAccountDevice(ctx.values);
+    async miscHealth(_req, _ctx) {
+      // public
       return create(MiscHealthResponseSchema, {
         ok: true, bootMs: BigInt(BOOT_MS),
         uptimeMs: BigInt(Date.now() - BOOT_MS), gitSha: COORD_GIT_SHA,
@@ -92,9 +90,6 @@ export function makeSystemHandlers(
     },
 
     async miscDbExportUrl(_req, ctx) {
-      if (deps.cfg.saasMode) {
-        throw new ConnectError("database export is unavailable in managed mode", Code.PermissionDenied);
-      }
       requireAccountDevice(ctx.values);
       assertOnHost(callerOrigin(ctx.values));
       const port = deps.cfg.bind.split(":").pop();

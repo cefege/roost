@@ -21,7 +21,6 @@ import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
-import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import {
   rejectPendingRpcsForWorker,
@@ -134,10 +133,8 @@ async function openHarness(
   await opened.db.insertInto("accounts").values({
     id: ACCOUNT_ID,
     email_normalized: "keeper-action@example.test",
-    password_hash: null,
     status: "active",
     created_at_ms: now,
-    password_changed_at_ms: null,
   }).execute();
   await opened.db.insertInto("account_devices").values({
     fingerprint: browserFp,
@@ -198,15 +195,11 @@ async function openHarness(
   const cfg: CoordConfig = {
     trustProxy: false,
     bind: "127.0.0.1:0",
-    saasMode: false,
-    managedContainer: false,
     pushAllowedOrigins: [],
     dbPath: join(directory, "coord.db"),
     coordKeyPath: join(directory, "coord.key"),
     authorizedKeysPath: join(directory, "keys"),
     webDistPath: "",
-    tlsCertPath: undefined,
-    tlsKeyPath: undefined,
     jwtMaxAgeSecs: 300,
     auditRetentionDays: 90,
     relaxedCsp: false,
@@ -221,7 +214,6 @@ async function openHarness(
     coordKey,
     cfg,
     jwtCache: newJwtCache(),
-    passwordWorkGate: new PasswordWorkGate(),
     move: moveService(),
   });
   const issuedAt = Math.floor(now / 1_000);

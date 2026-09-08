@@ -1,17 +1,11 @@
 // These tests cover dispatch of credentials captured before SPA startup.
-// They verify success ordering, failure retention, and coordinator-origin validation.
-// The dispatcher and URL selector are exercised without a browser runtime.
+// They verify success ordering and failure retention for pair and relocation
+// credentials. The dispatcher is exercised without a browser runtime.
 
 import { describe, expect, test } from "bun:test";
 import type { CapturedFragmentCredential } from "../src/auth/fragment-credential.ts";
-import { workerCoordinatorUrl } from "../src/lib/workerCoordinatorUrl.ts";
 import { dispatchCapturedFragmentCredential } from "../src/store/sync-bootstrap.pair.ts";
 import type { FragmentDispatcherDependencies } from "../src/store/sync-bootstrap.pair.ts";
-
-const ROUTE_A = "a".repeat(64);
-const ROUTE_B = "b".repeat(64);
-const ACTIVATION_TOKEN = "A".repeat(43);
-const RESET_TOKEN = "R".repeat(43);
 
 interface DispatcherHarness {
   deps: FragmentDispatcherDependencies;
@@ -126,37 +120,5 @@ describe("captured fragment credential dispatcher", () => {
       token: "retry",
       handoffId: "handoff",
     });
-  });
-
-  test("activation and reset credentials are left for their route forms", async () => {
-    for (const credential of [
-      { kind: "activation", token: ACTIVATION_TOKEN, routeKey: ROUTE_A },
-      { kind: "reset", token: RESET_TOKEN, routeKey: ROUTE_B },
-    ] as const) {
-      const harness = dispatcherHarness(credential);
-      expect(await dispatchCapturedFragmentCredential(harness.deps)).toBe(false);
-      expect(harness.events).toEqual([]);
-      expect(harness.state.credential).toEqual(credential);
-    }
-  });
-});
-
-describe("worker coordinator origin", () => {
-  test("requires a distinct non-loopback HTTPS origin", () => {
-    expect(workerCoordinatorUrl("https://private.example.ts.net:4102", "https://roost.example.com"))
-      .toBe("https://private.example.ts.net:4102");
-    for (const configured of [
-      undefined,
-      "http://private.example.ts.net:4102",
-      "https://localhost:4102",
-      "https://127.0.0.1:4102",
-      "https://127.0.0.2:4102",
-      "https://roost.example.com",
-      "https://roost.example.com/",
-      "https://private.example.ts.net:4102/?token=bad",
-      "https://roost.example.com/path",
-    ]) {
-      expect(workerCoordinatorUrl(configured, "https://roost.example.com")).toBeNull();
-    }
   });
 });

@@ -23,7 +23,7 @@ useInsteadIf: "You want zero infrastructure and are happy for Claude Code alone 
 
 ## Where they differ
 
-- **Who owns the machines.** Anthropic runs the control plane and the VMs — or tethers one local machine with `claude rc`. Roost's released, self-hosted product keeps terminal workers on your macOS and Linux machines and lets you operate the control plane yourself. A per-account managed implementation is qualified but not launched; production signup and the shared dashboard origin are inactive, and accounts can only be operator-created.
+- **Who owns the machines.** Anthropic runs the control plane and the VMs — or tethers one local machine with `claude rc`. Roost is self-hosted only: terminal workers stay on your macOS and Linux machines and you operate the control plane yourself. There is no Roost-hosted tier and no Roost account.
 
 - **A task view versus the real terminal.** The web product gives you a task-shaped view of what Claude Code did, and what runs in it is Claude Code. Roost gives you the real terminal, with full ANSI, scrollback, mouse, and touch, and what runs in it is any agent, shell, REPL, or TUI — including Claude Code, which Roost treats as an ordinary command.
 
@@ -37,7 +37,7 @@ useInsteadIf: "You want zero infrastructure and are happy for Claude Code alone 
 
 ## What you give up either way
 
-- **Choosing Roost costs you:** managed execution sandboxes and most integration surfaces. You still provide and enroll the machines where terminals run; you also operate a coordinator and its browser-trusted HTTPS endpoint, using automatic Tailscale Serve or direct HTTPS. Roost has one client, the browser, with no editor plugin, CI action, or chat bot, while Anthropic maintains terminal, web, iOS, Android, VS Code, JetBrains, GitHub Actions, and Slack paths.
+- **Choosing Roost costs you:** managed execution sandboxes and most integration surfaces. You still provide and enroll the machines where terminals run; you also operate a coordinator, which binds loopback and sits behind a front door you choose — Caddy, a Cloudflare tunnel, `tailscale serve`. Roost has one client, the browser, with no editor plugin, CI action, or chat bot, while Anthropic maintains terminal, web, iOS, Android, VS Code, JetBrains, GitHub Actions, and Slack paths.
 - **Choosing Claude Code on the web costs you:** a shell, panes, and scrollback; more than one machine; opening a fresh terminal while away; any CLI other than Claude Code; and code that never leaves hardware you control.
 
 ## Use Claude Code on the web instead if…

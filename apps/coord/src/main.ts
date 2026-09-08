@@ -16,8 +16,6 @@ import { makeWorkerWsHandler } from "./connect/worker-ws-handler.ts";
 import { makeSyncWsHandler } from "./connect/sync-ws-handler.ts";
 import { makeSyncTerminalControlHooks } from "./connect/sync-terminal-controls.ts";
 import { TerminalViewHub, installTerminalViewHub } from "./connect/terminal-view-hub.ts";
-import { PasswordWorkGate } from "./connect/password-work-gate.ts";
-import { prepareNativeAuthDummyHash } from "./connect/handlers-native-auth.ts";
 import { CoordinatorMoveOrchestrator } from "./coord-move/orchestrator.ts";
 import { HandoffStateStore } from "./coord-move/state.ts";
 import { createBunCoordinatorMoveRuntime } from "./coord-move/bun-runtime.ts";
@@ -35,8 +33,6 @@ import { WEB_ASSETS } from "./web-embed.generated.ts";
 import { createSpaResponder } from "./spa.ts";
 import { MIGRATIONS } from "./migrations-embed.generated.ts";
 import { runStartupJanitor } from "./startup-janitor.ts";
-import { createEmailDeliveryService } from "./email-delivery.ts";
-import { assertManagedContainerInvariant } from "./managed-container-invariant.ts";
 import { ensureSelfHostedTenant } from "./self-hosted-tenant.ts";
 import { startBunCoordinatorListeners } from "./bun-coordinator-listeners.ts";
 import { PendingEventPublicationStore } from "./pending-event-publications.ts";
@@ -57,27 +53,19 @@ export async function runCoord() {
   }
 
   const databaseExisted = existsSync(cfg.dbPath);
-  const { db, sqlite, close: closeDb } = openDb(cfg.dbPath, {
-    managedContainer: cfg.managedContainer,
-  });
+  const { db, sqlite, close: closeDb } = openDb(cfg.dbPath);
   await runMigrations(
     sqlite,
     MIGRATIONS.length > 0 ? MIGRATIONS : undefined,
-    databaseExisted
-      ? makePreMigrationBackupHook(sqlite, cfg.dbPath, {
-          managedContainer: cfg.managedContainer,
-        })
-      : undefined,
-    cfg.saasMode
-      ? undefined
-      : (name) => {
-          if (name === "0024_auth_tenancy_stabilization") {
-            ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: true });
-          }
-        },
+    databaseExisted ? makePreMigrationBackupHook(sqlite, cfg.dbPath) : undefined,
+    (name) => {
+      if (name === "0024_auth_tenancy_stabilization") {
+        ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: true });
+      }
+    },
   );
 
-  if (!cfg.saasMode && cfg.authorizedKeysPath && existsSync(cfg.authorizedKeysPath)) {
+  if (cfg.authorizedKeysPath && existsSync(cfg.authorizedKeysPath)) {
     try {
       const n = await importAuthorizedKeys(db, cfg.authorizedKeysPath);
       log.info("main", "authorized_keys_imported", { count: n, path: cfg.authorizedKeysPath });
@@ -85,32 +73,17 @@ export async function runCoord() {
       log.warn("main", "authorized_keys_import_failed", { error: (e as Error).message });
     }
   }
-  if (!cfg.saasMode) {
-    ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
-  }
-  assertManagedContainerInvariant(sqlite, cfg);
+  // One deployment shape means exactly one account/organization/dashboard, so
+  // this is the only tenancy invariant and it must hold before any RPC runs.
+  ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
   log.info("main", "db_ready", { path: cfg.dbPath });
 
   await runStartupJanitor(db);
-  const email = cfg.resendEndpoint
-    ? createEmailDeliveryService({
-        db,
-        resendEndpoint: cfg.resendEndpoint!,
-        resendApiKey: cfg.resendApiKey!,
-        emailFrom: cfg.emailFrom!,
-        emailOutboxKey: cfg.emailOutboxKey!,
-      })
-    : undefined;
-  email?.start();
-
 
   const coordKey = await loadOrCreateCoordKey(cfg.coordKeyPath);
   log.info("main", "coord_key_ready", { kid: coordKey.verifyingKeyKid() });
 
-
   const jwtCache = newJwtCache();
-  const passwordWorkGate = new PasswordWorkGate();
-  if (cfg.saasMode) await prepareNativeAuthDummyHash(passwordWorkGate);
   let publishRelocation: ((handoffId: string, sourceUrl: string, targetUrl: string) => void) | null = null;
   const move = new CoordinatorMoveOrchestrator({
     cfg,
@@ -151,7 +124,7 @@ export async function runCoord() {
     ((dashboardId: string, fingerprint: string) => void) | null = null;
   let closeDeletedWorkerSockets: ((fingerprint: string) => void) | null = null;
   const coord = createCoord({
-    db, sqlite, coordKey, cfg, jwtCache, passwordWorkGate, move, email,
+    db, sqlite, coordKey, cfg, jwtCache, move,
     pendingPublications, uiLayoutApplies, uiStates,
     onKeyRevoked: (fingerprint) => {
       pendingPublications.clearWorker(fingerprint);
@@ -192,7 +165,6 @@ export async function runCoord() {
     sqlite,
     coordKey,
     jwtCache,
-    passwordWorkGate,
     cfg,
     move,
     uiLayoutApplies,
@@ -219,12 +191,7 @@ export async function runCoord() {
     syncWs.closeForDashboard(dashboardId, fingerprint);
   publishRelocation = (handoffId, sourceUrl, targetUrl) => syncWs.publishRelocation(handoffId, sourceUrl, targetUrl);
 
-  const {
-    server,
-    publicServer,
-    host,
-    tlsEnabled,
-  } = startBunCoordinatorListeners({
+  const { server, host } = startBunCoordinatorListeners({
     cfg,
     coord,
     sqlite,
@@ -258,16 +225,14 @@ export async function runCoord() {
       throw new Error(`unsupported coordinator platform: ${process.platform}`);
   }
 
-  log.info("main", "listening", { bind: `${host}:${server.port}`, tls: tlsEnabled, http2: tlsEnabled, uptime_ms: Date.now() - bootMs });
+  log.info("main", "listening", { bind: `${host}:${server.port}`, uptime_ms: Date.now() - bootMs });
   // AFTER Bun.serve: recovery stages/commits/aborts workers, and `online` is
   // computed from the worker-WS registry this server populates. Running it
   // first guarantees an empty registry, an immediate `worker offline`, and a
   // blind rollback — plus up to ~15s of delayed first byte.
   void move.recover().catch((error) => log.error("coord", "move_recover_failed", { error: String(error) }));
 
-  scheduleBackups(sqlite, cfg.dbPath, {
-    managedContainer: cfg.managedContainer,
-  });
+  scheduleBackups(sqlite, cfg.dbPath);
   scheduleAuditRetention(sqlite, cfg.auditRetentionDays);
 
   let shuttingDown = false;
@@ -281,9 +246,7 @@ export async function runCoord() {
       log.warn("main", "service_health_close_failed", { error: String(error) });
     }
     server.stop(true);
-    publicServer?.stop(true);
     coord.dispose();
-    await email?.stop();
     installTerminalViewHub(null);
     terminalViews.dispose();
     await closeDb().catch((error) => log.warn("main", "db_close_failed", { error: String(error) }));

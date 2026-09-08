@@ -13,8 +13,7 @@ import { coordClient } from "../connect.ts";
 import { addToast } from "../store/toastStore.ts";
 import { Button } from "./Settings/md/Button.tsx";
 
-const canApprovePairRequests = () =>
-  !rootStore.browser_unauthorized && rootStore.coord_identity?.saas_mode === false;
+const canApprovePairRequests = () => !rootStore.browser_unauthorized;
 
 export function PairRequestNotifier() {
   const pending = createMemo(() => Object.values(rootStore.pair_requests));

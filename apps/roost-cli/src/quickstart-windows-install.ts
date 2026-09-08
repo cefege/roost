@@ -1,6 +1,7 @@
 // Windows quickstart installation owns the machine transaction and exact rollback.
-// The command orchestrator delegates service snapshots, state/TLS restoration,
-// and post-install identity proof so every failure leaves one auditable boundary.
+// The command orchestrator delegates service snapshots, coordinator-state
+// restoration, and post-install identity proof so every failure leaves one
+// auditable boundary.
 
 import { lstatSync } from "node:fs";
 import { dirname, join, win32 } from "node:path";
@@ -18,9 +19,6 @@ import {
   type WindowsServiceSnapshotSet,
 } from "./service-ctl.ts";
 import { ROOST_VERSION } from "./version.ts";
-import type {
-  ResolvedQuickstartEndpoint,
-} from "./quickstart-endpoint.ts";
 import {
   commitLegacyCoordinatorMigration,
   prepareWindowsCoordinatorState,
@@ -28,12 +26,6 @@ import {
   type CoordinatorPaths,
   type WindowsLegacyCoordinatorMigration,
 } from "./quickstart-windows-state.ts";
-import {
-  commitWindowsTlsInstall,
-  prepareWindowsTlsInstall,
-  rollbackWindowsTlsInstall,
-  type WindowsTlsInstallRollback,
-} from "./quickstart-windows-tls.ts";
 
 export interface WindowsQuickstartInstall {
   lock: MachineTransactionLock;
@@ -42,7 +34,6 @@ export interface WindowsQuickstartInstall {
   committed: boolean;
   migration: WindowsLegacyCoordinatorMigration | null;
   migrationJournalPath: string;
-  tls: WindowsTlsInstallRollback | null;
 }
 
 export async function beginWindowsQuickstartInstall(): Promise<WindowsQuickstartInstall> {
@@ -63,7 +54,6 @@ export async function beginWindowsQuickstartInstall(): Promise<WindowsQuickstart
       committed: false,
       migration: null,
       migrationJournalPath,
-      tls: null,
     };
   } catch (error) {
     await lock.release();
@@ -81,27 +71,6 @@ export async function prepareWindowsQuickstartCoordinatorState(
     account,
     installation.migrationJournalPath,
   );
-}
-
-export async function prepareWindowsQuickstartTls(
-  installation: WindowsQuickstartInstall,
-  endpoint: ResolvedQuickstartEndpoint,
-  paths: CoordinatorPaths,
-  account: string,
-  interactiveSid: string,
-): Promise<ResolvedQuickstartEndpoint> {
-  const copied = await prepareWindowsTlsInstall(
-    endpoint,
-    paths,
-    account,
-    interactiveSid,
-  );
-  installation.tls = copied.state;
-  return {
-    ...endpoint,
-    tlsCertPath: copied.certPath,
-    tlsKeyPath: copied.keyPath,
-  };
 }
 
 export async function proveWindowsInstallHealth(
@@ -163,7 +132,6 @@ export async function commitWindowsQuickstartInstall(
   installation: WindowsQuickstartInstall,
 ): Promise<void> {
   await commitLegacyCoordinatorMigration(installation.migration);
-  commitWindowsTlsInstall(installation.tls);
   installation.committed = true;
 }
 
@@ -173,7 +141,7 @@ export async function rollbackWindowsQuickstartInstall(
 ): Promise<void> {
   if (installation.committed) return;
   const rollbackErrors: unknown[] = [];
-  const suspendedLifecycle = installation.migration !== null || installation.tls !== null;
+  const suspendedLifecycle = installation.migration !== null;
   if (suspendedLifecycle) {
     try {
       await installation.manager.stop("coordinator");
@@ -188,14 +156,6 @@ export async function rollbackWindowsQuickstartInstall(
     });
   } catch (rollbackError) {
     rollbackErrors.push(rollbackError);
-  }
-  if (installation.tls) {
-    try {
-      await rollbackWindowsTlsInstall(installation.tls);
-      installation.tls = null;
-    } catch (rollbackError) {
-      rollbackErrors.push(rollbackError);
-    }
   }
   if (installation.migration) {
     try {

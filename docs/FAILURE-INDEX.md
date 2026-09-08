@@ -556,7 +556,7 @@ to end).
 
 **Symptom** — "a worker shows offline/down in the SPA while `systemctl --user status roost-worker` says active (running) and the host has GBs free / worker log silent for minutes then `link_stale_no_downstream` + `listChannels timed out` + `heartbeat beat failed [unavailable] HTTP 502` / coord `worker-ws close`→`open` gap of ~361s"
 
-**Wrong** — chase the 502 into tailscale-serve, restart the worker, or read the SPA's host metrics and conclude
+**Wrong** — chase the 502 into the front-door proxy, restart the worker, or read the SPA's host metrics and conclude
 the box is healthy — `apps/worker/src/host-sample-linux.ts` reads host-wide `/proc/meminfo`, so a unit strangled
 by its own `MemoryHigh` publishes "8.7 GB of 33.6 GB used" while every allocation in its cgroup is throttled;
 equally wrong: adding `MemoryMax` (every PTY session shares this cgroup, so a hard cap plus `Restart=always`
@@ -578,7 +578,7 @@ on `hasOpened`; the log is `reconnect_backoff_escalated`, never `auth_rejection_
 
 **Guard** — `apps/worker/tests/coord-link-backoff-cap.test.ts`.
 
-### Managed worker reconnects but respawns every terminal
+### A worker reconnects but respawns every terminal
 
 **Symptom** — "worker WebSocket opens and heartbeats are fresh, but every workspace remains unavailable /
 worker logs `resume_failed` with `[unauthenticated] authentication required`, followed by a burst of
@@ -867,7 +867,7 @@ WebSocket(` outside the canonical client/server links"`.
 **Symptom** — "new terminal → [failed_precondition] worker … not connected / worker log silent (no stream_error) for hours / heartbeats fine, lsof shows ESTABLISHED to :4102"
 
 **Wrong** — restart the worker by hand / trust `ws.onclose`. When the coord process dies and is relaunched,
-tailscale serve keeps the worker-side TCP ESTABLISHED, so `ws.onerror`/`ws.onclose` NEVER fire and `ws.send`
+a TLS-terminating front door keeps the worker-side TCP ESTABLISHED, so `ws.onerror`/`ws.onclose` NEVER fire and `ws.send`
 (including in-band JWT refresh) black-holes forever; the restarted coord's in-memory `connectWorkers` registry
 has no WS for the fingerprint → the hub socket lookup returns null →
 `apps/coord/src/connect/handler-session-spawn.ts` throws failed_precondition on every spawn while heartbeats (a
@@ -877,7 +877,7 @@ separate unary transport) keep the row looking alive.
 (`dial()`'s open/message handlers): coord pings every 30s (`apps/coord/src/connect/worker-conn.ts`); every
 downstream frame stamps `lastDownstreamAtMs`; a per-dial interval (`STALE_CHECK_INTERVAL_MS` 15s) force-closes
 and re-dials after `STALE_LINK_TIMEOUT_MS` 90s (3 missed pings) of downstream silence → hello→snapshot replay
-heals the rest. Same half-open-through-tailscale class as the boot RPC timeout.
+heals the rest. Same half-open-behind-a-proxy class as the boot RPC timeout.
 
 **Guard** — `apps/worker/tests/coord-link-stale-watchdog.test.ts`.
 
@@ -917,7 +917,7 @@ retired implicit-enrollment route.
 **Right** — a fresh browser must redeem a scoped one-shot browser grant
 (`#pair=<bearer>` or pasted token), or post a pairing request that an
 already-authorized browser or direct on-host operator explicitly approves.
-Tailscale supplies reachability only. Quickstart preserves one-command initial
+Network position supplies reachability only. Quickstart preserves one-command initial
 use by opening a host-minted fragment grant after tenant initialization.
 
 **Guard** — `apps/coord/tests/device-revocation.test.ts` (a tailnet address
@@ -972,22 +972,6 @@ rename/delete/deploy-start. `*List`, identity and health probes are NOT in the s
 **Guard** — `apps/coord/tests/coord-e2e.test.ts` —
 `"rate limit: 100 AuthRedeemBrowser POSTs from same IP → 101st returns 429"`.
 
-### Managed SPA assets exhaust the dynamic public-edge budget
-
-**Symptom** — "managed `/login` URL loads but `managed-login-email` never mounts / a lazy auth chunk returns
-429 after several full-page auth transitions"
-
-**Wrong** — charge every managed request to `managed-public-base`; one normal browser lifecycle fetches enough
-content-hashed SPA assets to exhaust the 100-request dynamic budget before its final login chunk.
-
-**Right** — in `apps/coord/src/middleware/public-surface.ts::makePublicSurface`, exempt the already-classified
-`spa` route from dynamic edge budgets. RPCs and WebSocket upgrades retain their base and endpoint-specific
-limits; SPA routing remains GET/HEAD-only and default-deny for reserved paths.
-
-**Guard** — `apps/coord/tests/public-surface-managed.test.ts` —
-`"serves SPA navigation and assets without spending the dynamic edge budget"`; the managed-browser E2E drives
-activation → logout → login → password reset → re-login without restarting the coordinator.
-
 ### JSON.parse inside a bus publish, after the commit
 
 **Symptom** — "RPC returns 500 but DB row IS persisted, SPA UI keeps showing prior state until manual refresh"
@@ -1006,16 +990,15 @@ ConnectError) is the OTHER pattern — it applies BEFORE the DB write, not after
 ### A coordinator-global setting stored in a dashboard scope bricks self-hosted boot
 
 **Symptom** — "fatal: self-hosted tenant invariant violation: app_settings contains invalid dashboard
-scope" — the coordinator exits at startup the first time `ROOST_SAAS_MODE` is removed, on a database
-that runs fine in managed mode.
+scope" — the coordinator exits at startup on a database whose `push.vapid` keypair carries a
+`dashboard_id`.
 
 **Wrong** — relax the guard, or hand-delete the offending row on the live database. Also wrong: the
 drift that causes it — writing `push.vapid` with a `dashboard_id`, when `apps/coord/src/vapid.ts`
 reads and writes that keypair only at the explicit NULL scope, so a scoped copy is unreachable by
 every code path that exists.
 
-**Right** — the guard is correct in both modes (`apps/coord/src/self-hosted-tenant.ts` and
-`apps/coord/src/managed-container-invariant.ts` enforce the same rule), so repair the data in a
+**Right** — the guard is correct (`apps/coord/src/self-hosted-tenant.ts` owns it), so repair the data in a
 numbered migration: `apps/coord/migrations/0029_global_push_vapid_identity.sql` drops the unreachable
 scoped copies, and promotes the newest one to NULL scope when no global row exists rather than
 discarding the identity that signed the live push subscriptions. A coordinator-global setting belongs
@@ -1134,6 +1117,28 @@ resources"` re-runs the whole flow on every CI run (`runFlow`: workspace create 
 marker round-trip → pane close → cascade-delete), plus the deck-persistence cases in
 `smoke/terminal/terminal-render-deck.spec.ts`. Gap: nothing asserts that a *named* earlier fix
 survived a rewrite — only that the flow, the deck, and the `scripts/lint-roost.ts` sidebar rules hold.
+
+### An anonymous 401 from the internet writes a row nothing ages out
+
+**Symptom** — `audit_log` grows without bound on a coordinator behind a front door, filled with
+`status=401` rows whose `caller_fp` is NULL; the sweep runs and deletes none of them.
+
+**Wrong** — delete `shouldPersistConnectAudit` (`apps/coord/src/middleware/security.ts`) because its
+body reduces to a constant once the listener it named is gone, or answer the growth by widening
+`AUDIT_SWEEP_METHODS`. Both read as simplification and both re-open the hole: the sweep in
+`apps/coord/src/audit-retention.ts` is an explicit allowlist (`SessionsInput` only) that must never
+age out auth rows, so an unauthenticated scanner's row is permanent.
+
+**Right** — keep the predicate and skip exactly the anonymous 401 that arrived through a trusted
+proxy. It carries no identity — `audit_log` has no address column — so it is unbounded volume with
+no forensic value, while a 401 that names a device, any other status, and every request on a
+`direct` listener still persist. Telemetry counters and cooldown-coalesced signals cover the
+anomaly the rows would have shown.
+
+**Guard** — `apps/coord/tests/audit-policy.test.ts` `"skips only an anonymous 401 that arrived
+through a trusted proxy"` pins all four boundaries: anonymous 401 + `trusted-proxy` skipped;
+the same 401 with a device fingerprint persisted; an anonymous 403 persisted; an anonymous 401 on a
+`direct` listener persisted.
 
 ---
 

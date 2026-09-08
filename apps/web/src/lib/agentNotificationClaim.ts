@@ -1,6 +1,6 @@
 // Cross-tab election claims for one exact agent occupant/revision notification.
-// Profile-local leases include the identity fence; account boundaries erase
-// both current and older claim keys. Web Locks provide atomic election.
+// Profile-local leases include the identity fence, so a superseded revision
+// cannot suppress a fresh notification. Web Locks provide atomic election.
 
 import type { AgentNotificationDelivery } from "./agentNotificationCore.ts";
 import { agentStatusOccupantKey } from "./agentStatus.ts";
@@ -59,17 +59,4 @@ export async function claimAgentNotification(
     );
   }
   return storageElection(key);
-}
-
-export function clearAgentNotificationClaimsForAccountBoundary(): void {
-  try {
-    const claimKeys: string[] = [];
-    for (let idx = 0; idx < localStorage.length; idx += 1) {
-      const key = localStorage.key(idx);
-      if (key?.startsWith(CLAIM_PREFIX)) claimKeys.push(key);
-    }
-    for (const key of claimKeys) localStorage.removeItem(key);
-  } catch {
-    // Profile storage is optional.
-  }
 }

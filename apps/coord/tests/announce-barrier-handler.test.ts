@@ -115,8 +115,6 @@ function harness(): Harness {
     },
     fp: WORKER_FP,
     dashboardId: DASHBOARD,
-    authDeadlineAtMs: null,
-    authDeadlineTimer: null,
     conn,
     queue: null,
     eventRate: { startedAtMs: null, events: 0 },

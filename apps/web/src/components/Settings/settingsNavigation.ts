@@ -1,5 +1,5 @@
-// Canonical Settings navigation for self-hosted and managed deployments.
-// Pane IDs here drive the rail, unknown-pane fallback, and visibility tests;
+// Canonical Settings navigation: one rail definition for every deployment.
+// Pane IDs here drive the rail, the mobile list, and the unknown-pane fallback;
 // retired permissions/webhook panes intentionally have no compatibility alias.
 export interface SettingsPaneSpec {
   id: string;
@@ -12,13 +12,6 @@ export interface SettingsRailGroup {
   label: string;
   panes: readonly SettingsPaneSpec[];
 }
-
-const ACCOUNT_PANE: SettingsPaneSpec = {
-  id: "account",
-  label: "Account",
-  icon: "account_circle",
-  title: "Account",
-};
 
 const ORGANIZATION_PANE: SettingsPaneSpec = {
   id: "organization",
@@ -73,40 +66,9 @@ const SHARED_GROUPS: readonly SettingsRailGroup[] = [
   ] },
 ];
 
-const SELF_HOSTED_GROUPS: readonly SettingsRailGroup[] = [
+/** Rail order is the navigation contract: Scope, then Network, then the rest. */
+export const SETTINGS_GROUPS: readonly SettingsRailGroup[] = [
   { label: "Scope", panes: [ORGANIZATION_PANE, DASHBOARD_PANE] },
   { label: "Network", panes: [MACHINES_PANE, CONNECTION_PANE, DEVICES_PANE] },
   ...SHARED_GROUPS,
 ];
-
-const MANAGED_GROUPS: readonly SettingsRailGroup[] = [
-  { label: "Scope", panes: [ACCOUNT_PANE] },
-  { label: "Network", panes: [MACHINES_PANE] },
-  ...SHARED_GROUPS,
-];
-
-const MANAGED_HIDDEN_PANES: Readonly<Record<string, true>> = {
-  [ORGANIZATION_PANE.id]: true,
-  [DASHBOARD_PANE.id]: true,
-  [CONNECTION_PANE.id]: true,
-  [DEVICES_PANE.id]: true,
-};
-
-/** Stable, precomputed navigation groups for the active deployment profile. */
-export function settingsGroupsForMode(managed: boolean): readonly SettingsRailGroup[] {
-  return managed ? MANAGED_GROUPS : SELF_HOSTED_GROUPS;
-}
-
-/** Old/self-hosted scope URLs must not render their hidden pane in managed mode. */
-export function resolveSettingsPaneForMode(pane: string, managed: boolean): string {
-  return managed && MANAGED_HIDDEN_PANES[pane] === true ? ACCOUNT_PANE.id : pane;
-}
-
-export function isHiddenManagedSettingsPane(pane: string | undefined): boolean {
-  return pane !== undefined && MANAGED_HIDDEN_PANES[pane] === true;
-}
-
-/** The organization/dashboard picker is a self-hosted-only surface. */
-export function settingsScopeSelectorVisible(saasMode: boolean | null | undefined): boolean {
-  return saasMode === false;
-}

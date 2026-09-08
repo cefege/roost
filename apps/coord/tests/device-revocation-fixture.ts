@@ -67,7 +67,7 @@ export interface DeviceRevocationHarness {
 
 export interface DeviceRevocationHarnessOwner {
   cleanupHarnesses(): Promise<void>;
-  openHarness(saasMode?: boolean): Promise<DeviceRevocationHarness>;
+  openHarness(): Promise<DeviceRevocationHarness>;
 }
 
 export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwner {
@@ -77,7 +77,7 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
     for (const cleanup of cleanups.splice(0)) await cleanup();
   }
 
-  async function openHarness(saasMode = false): Promise<DeviceRevocationHarness> {
+  async function openHarness(): Promise<DeviceRevocationHarness> {
     const dir = mkdtempSync(join(tmpdir(), "roost-device-revoke-"));
     const opened = openDb(join(dir, "test.db"));
     const { db, sqlite } = opened;
@@ -91,7 +91,7 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
     const deps = {
       db,
       sqlite,
-      cfg: { saasMode },
+      cfg: {},
       jwtCache: newJwtCache(),
       onKeyRevoked: (fingerprint: string) => {
         revoked.push(fingerprint);
@@ -148,28 +148,6 @@ export function authCtx(fingerprint: string): HandlerContext {
   return { values } as unknown as HandlerContext;
 }
 
-export function accountCtx(fingerprint: string, accountId: string): HandlerContext {
-  const values = createContextValues();
-  values.set(callerKey, {
-    kind: "account-device",
-    fingerprint,
-    label: "test",
-    accountId,
-  });
-  return { values } as unknown as HandlerContext;
-}
-
-export function workerCtx(fingerprint: string, dashboardId: string): HandlerContext {
-  const values = createContextValues();
-  values.set(callerKey, {
-    kind: "worker",
-    fingerprint,
-    label: "worker",
-    dashboardId,
-  });
-  return { values } as unknown as HandlerContext;
-}
-
 export function unauthCtx(address: string, onHost: boolean): HandlerContext {
   const values = createContextValues();
   values.set(remoteAddressKey, address);
@@ -214,30 +192,6 @@ export async function authorize(db: KyselyDB, device: DeviceKey, label: string):
     public_key: device.raw,
     label,
     added_at: Date.now(),
-  }).execute();
-}
-
-export async function addAccountDevice(
-  db: KyselyDB,
-  accountId: string,
-  device: DeviceKey,
-  label: string,
-): Promise<void> {
-  const now = Date.now();
-  await db.insertInto("accounts").values({
-    id: accountId,
-    email_normalized: `${accountId}@example.test`,
-    password_hash: null,
-    status: "active",
-    created_at_ms: now,
-    password_changed_at_ms: null,
-  }).execute();
-  await authorize(db, device, label);
-  await db.insertInto("account_devices").values({
-    fingerprint: device.fingerprint,
-    account_id: accountId,
-    added_at_ms: now,
-    last_seen_at_ms: now,
   }).execute();
 }
 

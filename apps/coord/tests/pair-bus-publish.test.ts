@@ -83,7 +83,7 @@ beforeAll(async () => {
   handlers = makeAuthHandlers({
     db,
     jwtCache: newJwtCache(),
-    cfg: { saasMode: false },
+    cfg: {},
   } as unknown as ConnectDeps) as unknown as PairHandlers;
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);

@@ -36,9 +36,3 @@ export function pushRecent(sessionId: string): void {
   _setRecent(cur);
   writePersisted(cur);
 }
-
-/** Clear session IDs retained by the sidebar for the signed-out account. */
-export function clearSidebarRecentForLogout(): void {
-  _setRecent([]);
-  try { localStorage.removeItem(KEY); } catch { /* quota / privacy mode */ }
-}

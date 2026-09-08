@@ -1,7 +1,8 @@
-// `roost quickstart` — the local one-shot installer. It supports either the
-// automatic Tailscale convenience topology or an explicit browser-trusted
-// HTTPS endpoint. Endpoint and TLS-file validation are deliberately pure/read
-// only and run before any install, state, credential, or service mutation.
+// `roost quickstart` — the local one-shot installer for the one supported
+// shape: the coordinator listens plaintext on loopback and the operator's own
+// front door serves `--coordinator-url`. Endpoint validation is deliberately
+// pure/read-only and runs before any install, state, credential, or service
+// mutation. Calls into quickstart-endpoint/-runtime/-windows-install.
 
 import * as nodeFs from "node:fs";
 import { basename } from "node:path";
@@ -16,18 +17,14 @@ import {
   mintWorkerToken,
 } from "./quickstart-bootstrap-tokens.ts";
 import {
-  automaticQuickstartEndpoint,
   coordinatorEnvironmentForQuickstart,
-  requireResolvedEndpoint,
   resolveQuickstartEndpoint,
-  validateQuickstartTlsFiles,
 } from "./quickstart-endpoint.ts";
 import {
   die,
   dryRunServiceDefinitions,
   installRoostShim,
   logStep,
-  prepareAutomaticQuickstartNetwork,
   openQuickstartBrowser,
   runInherit,
   waitForCoordHealth,
@@ -37,19 +34,13 @@ import {
   beginWindowsQuickstartInstall,
   commitWindowsQuickstartInstall,
   prepareWindowsQuickstartCoordinatorState,
-  prepareWindowsQuickstartTls,
   proveWindowsInstallHealth,
   rollbackWindowsQuickstartInstall,
 } from "./quickstart-windows-install.ts";
 import type { WindowsQuickstartInstall } from "./quickstart-windows-install.ts";
 import { coordinatorPaths } from "./quickstart-windows-state.ts";
 import type { CoordinatorPaths } from "./quickstart-windows-state.ts";
-import {
-  ensureTailscale,
-  printStatusReport,
-  resolveTailscale,
-  statusReport,
-} from "./status.ts";
+import { printStatusReport, statusReport } from "./status.ts";
 import { ROOST_VERSION } from "./version.ts";
 
 const WEB_DIST_INDEX = "apps/web/dist/index.html";
@@ -57,13 +48,8 @@ const WEB_DIST_INDEX = "apps/web/dist/index.html";
 export {
   coordinatorEnvironmentForQuickstart,
   resolveQuickstartEndpoint,
-  validateQuickstartTlsFiles,
 } from "./quickstart-endpoint.ts";
-export type {
-  QuickstartEndpoint,
-  QuickstartEndpointMode,
-  QuickstartTlsFileSystem,
-} from "./quickstart-endpoint.ts";
+export type { QuickstartEndpoint } from "./quickstart-endpoint.ts";
 export {
   openQuickstartBrowser,
   waitForCoordHealth,
@@ -74,11 +60,10 @@ export type {
 } from "./quickstart-runtime.ts";
 
 export async function quickstart(args: string[]): Promise<void> {
-  // This pair is the no-effect boundary. In particular it precedes Windows
-  // credential reads, machine transactions, state preparation, dependency
-  // installs, builds, service definitions, and every Tailscale command.
-  const selectedEndpoint = resolveQuickstartEndpoint(args, process.env, process.platform);
-  validateQuickstartTlsFiles(selectedEndpoint, nodeFs);
+  // The no-effect boundary. It precedes Windows credential reads, machine
+  // transactions, state preparation, dependency installs, builds, and every
+  // service definition write.
+  const endpoint = resolveQuickstartEndpoint(args, process.env, process.platform);
 
   const force = args.includes("--force");
   const dry = args.includes("--dry-run");
@@ -87,37 +72,8 @@ export async function quickstart(args: string[]): Promise<void> {
   if (process.platform === "win32" && !binary) {
     die("Windows quickstart requires the signed compiled release", "run install-binary.ps1");
   }
-
-  let endpoint = selectedEndpoint;
-  if (endpoint.mode === "automatic") {
-    let fqdn: string;
-    if (dry) {
-      fqdn = resolveTailscale().fqdn ?? "dry-run.example.ts.net";
-      logStep(`--dry-run (service definitions only), tailnet ${fqdn}`);
-    } else {
-      logStep("checking Tailscale");
-      try {
-        const ready = await ensureTailscale({
-          resolve: resolveTailscale,
-          log: (message) => console.log(`   ${message}`),
-          sleep: (ms) => Bun.sleep(ms),
-          now: Date.now,
-          brewInstall: async () => {
-            if (Bun.which("brew")) await runInherit(["brew", "install", "tailscale"]);
-          },
-        });
-        fqdn = ready.fqdn;
-      } catch (error) {
-        die(error instanceof Error ? error.message : String(error));
-      }
-      console.log(`   tailnet: ${fqdn}`);
-    }
-    endpoint = automaticQuickstartEndpoint(fqdn, coordinatorPaths().tlsDir);
-  } else {
-    logStep(`using explicit HTTPS endpoint ${endpoint.origin}`);
-  }
-  requireResolvedEndpoint(endpoint);
-  const coordUrl = endpoint.origin;
+  const publicUrl = endpoint.origin;
+  logStep(`front door ${publicUrl} → coordinator 127.0.0.1:${endpoint.loopbackPort}`);
 
   const serviceCredentials = process.platform === "win32" && !dry
     ? args.includes("--windows-service-credential-stdin")
@@ -143,30 +99,7 @@ export async function quickstart(args: string[]): Promise<void> {
       );
     }
 
-    let serviceEndpoint = endpoint;
-    if (
-      endpoint.mode === "explicit"
-      && windowsInstall
-      && windowsPaths
-      && serviceCredentials
-    ) {
-      const interactiveSid = process.env.ROOST_INTERACTIVE_SID?.trim() ?? "";
-      if (!/^S-1-(?:\d+-)+\d+$/.test(interactiveSid)) {
-        throw new Error("ROOST_INTERACTIVE_SID is required for protected TLS installation");
-      }
-      serviceEndpoint = await prepareWindowsQuickstartTls(
-        windowsInstall,
-        endpoint,
-        windowsPaths,
-        serviceCredentials.account,
-        interactiveSid,
-      );
-    }
-
-    const endpointEnvironment = coordinatorEnvironmentForQuickstart(
-      serviceEndpoint,
-      process.platform,
-    );
+    const endpointEnvironment = coordinatorEnvironmentForQuickstart(endpoint);
     const windowsCoordinatorEnvironment = windowsPaths
       ? {
         ROOST_COORD_DATA_DIR: windowsPaths.dataDir,
@@ -175,7 +108,6 @@ export async function quickstart(args: string[]): Promise<void> {
         ROOST_COORDINATOR_AUTHORIZED_KEYS: windowsPaths.authorizedKeys,
         ROOST_COORDINATOR_KEY_PATH: windowsPaths.key,
         ROOST_COORDINATOR_HANDOFF_PATH: windowsPaths.handoff,
-        ROOST_COORDINATOR_TLS_DIR: windowsPaths.tlsDir,
         ...endpointEnvironment,
       }
       : undefined;
@@ -183,9 +115,6 @@ export async function quickstart(args: string[]): Promise<void> {
 
     if (binary) {
       console.log(`   roost: ${process.execPath} (${ROOST_VERSION})`);
-      if (!dry) {
-        await prepareAutomaticQuickstartNetwork(endpoint, force, process.platform);
-      }
       await installCoordAgent({
         execPath: process.execPath,
         gitSha: ROOST_VERSION,
@@ -197,7 +126,7 @@ export async function quickstart(args: string[]): Promise<void> {
       if (dry) {
         await installWorkerAgent({
           execPath: process.execPath,
-          coordUrl,
+          coordUrl: publicUrl,
           gitSha: ROOST_VERSION,
           cmd: "write-plist",
           coordinatorHost: true,
@@ -210,14 +139,14 @@ export async function quickstart(args: string[]): Promise<void> {
 
       logStep("waiting for coordinator health");
       if (!await waitForCoordHealth(endpoint)) {
-        die(`coord did not become healthy at ${coordUrl}`, "check logs: roost logs coord");
+        die("coord did not become healthy on its loopback bind", "check logs: roost logs coord");
       }
-      console.log(`   coord healthy at ${coordUrl}`);
+      console.log(`   coord healthy on 127.0.0.1:${endpoint.loopbackPort}`);
 
       workerToken = await mintWorkerToken(databasePath, "quickstart-local-worker");
       await installWorkerAgent({
         execPath: process.execPath,
-        coordUrl,
+        coordUrl: publicUrl,
         bootstrapToken: workerToken,
         gitSha: ROOST_VERSION,
         cmd: "install",
@@ -230,7 +159,7 @@ export async function quickstart(args: string[]): Promise<void> {
         await proveWindowsInstallHealth(
           windowsInstall,
           serviceCredentials.account,
-          coordUrl,
+          publicUrl,
         );
       }
     } else {
@@ -255,7 +184,6 @@ export async function quickstart(args: string[]): Promise<void> {
         logStep("web SPA build (skipped — dist present)");
       }
 
-      await prepareAutomaticQuickstartNetwork(endpoint, force, process.platform);
       logStep("installing coordinator service");
       if (
         await runInherit(
@@ -268,9 +196,9 @@ export async function quickstart(args: string[]): Promise<void> {
       }
       logStep("waiting for coordinator health");
       if (!await waitForCoordHealth(endpoint)) {
-        die(`coord did not become healthy at ${coordUrl}`, "check logs: roost logs coord");
+        die("coord did not become healthy on its loopback bind", "check logs: roost logs coord");
       }
-      console.log(`   coord healthy at ${coordUrl}`);
+      console.log(`   coord healthy on 127.0.0.1:${endpoint.loopbackPort}`);
 
       workerToken = await mintWorkerToken(databasePath, "quickstart-local-worker");
       logStep("deploying local worker");
@@ -278,12 +206,12 @@ export async function quickstart(args: string[]): Promise<void> {
       const priorBootstrapToken = process.env.ROOST_BOOTSTRAP_TOKEN;
       const priorAllowDirty = process.env.ROOST_ALLOW_DIRTY;
       try {
-        process.env.ROOST_COORDINATOR_URL = coordUrl;
+        process.env.ROOST_COORDINATOR_URL = publicUrl;
         process.env.ROOST_BOOTSTRAP_TOKEN = workerToken;
         process.env.ROOST_ALLOW_DIRTY = "1";
         await deploy(
           ["localhost", "--allow-unpublished-local"],
-          { coordinatorUrl: coordUrl },
+          { coordinatorUrl: publicUrl },
         );
       } finally {
         if (priorCoordinatorUrl === undefined) delete process.env.ROOST_COORDINATOR_URL;
@@ -296,20 +224,24 @@ export async function quickstart(args: string[]): Promise<void> {
     }
 
     if (!workerToken) throw new Error("quickstart worker grant was not minted");
+    // The local worker dials the declared front door, so its registration is
+    // also the proof that the operator's front door passes worker traffic.
     logStep("proving local worker registration");
     const workerFingerprint = await waitForWorkerRegistration(databasePath, workerToken);
     if (!workerFingerprint) {
-      die("local worker did not register with its one-shot grant", "check logs: roost logs worker");
+      die(
+        `local worker did not register through ${publicUrl}`,
+        "check that your front door proxies to the coordinator's loopback bind, then: roost logs worker",
+      );
     }
     workerToken = undefined;
     console.log(`   worker registered (${workerFingerprint.slice(0, 12)})`);
 
-    const report = await statusReport({ mode: endpoint.mode, origin: coordUrl });
+    const report = await statusReport({ origin: publicUrl });
     printStatusReport(report);
     if (
       windowsInstall
-      && ((report.tailscale.required && !report.tailscale.running)
-        || !report.coordAgentLoaded
+      && (!report.coordAgentLoaded
         || !report.workerAgentLoaded
         || !report.coord.reachable)
     ) {
@@ -326,8 +258,8 @@ export async function quickstart(args: string[]): Promise<void> {
 
     const shim = binary ? null : installRoostShim(process.cwd());
     console.log("\n✓ Roost is running.");
-    console.log(`  This machine:    ${coordUrl}`);
-    console.log(`  Pair your phone: open ${coordUrl} → Settings → Pair a device → scan the QR`);
+    console.log(`  This machine:    ${publicUrl}`);
+    console.log(`  Pair your phone: open ${publicUrl} → Settings → Pair a device → scan the QR`);
     if (binary || (shim && shim.onPath)) {
       console.log("  Health anytime:  roost status");
     } else if (shim) {

@@ -2,7 +2,6 @@
 // The command entry and quickstart share it so remedies and health gating
 // stay aligned with the report fields without duplicating output decisions.
 
-import { publicOriginStatusLine } from "./status-public-origin.ts";
 import { STATUS_COORD_LABEL, STATUS_WORKER_LABEL } from "./status-native-probes.ts";
 import type { StatusReport } from "./status-types.ts";
 
@@ -13,23 +12,6 @@ function mark(ok: boolean): string {
 /** Print the report as ✓/✗ lines, each failing line followed by its remedy. */
 export function printStatusReport(r: StatusReport): void {
   console.log("roost status");
-
-  if (r.tailscale.required) {
-    const tsOk = r.tailscale.running;
-    console.log(`  ${mark(tsOk)} tailscale: ${r.tailscale.state}${r.tailscale.fqdn ? ` (${r.tailscale.fqdn})` : ""}`);
-    if (!tsOk) {
-      const darwin = process.platform === "darwin";
-      if (r.tailscale.state === "NotInstalled") {
-        console.log(darwin
-          ? `      → install: brew install tailscale (or the Mac App Store app)`
-          : `      → install: sudo dnf install -y tailscale (see https://tailscale.com/download/linux)`);
-      } else {
-        console.log(darwin
-          ? `      → start it: tailscale up  (then approve the network extension in System Settings)`
-          : `      → start it: sudo systemctl enable --now tailscaled && sudo tailscale up`);
-      }
-    }
-  }
 
   console.log(`  ${mark(r.coordAgentLoaded)} coordinator service (${STATUS_COORD_LABEL})`);
   if (!r.coordAgentLoaded) console.log(`      → bash apps/coord/scripts/install.sh install`);
@@ -51,18 +33,15 @@ export function printStatusReport(r: StatusReport): void {
     console.log(`  coordinator move ${r.handoff.phase} (${r.handoff.role}, → ${r.handoff.targetUrl})`);
   }
 
-  const publicOrigin = publicOriginStatusLine(r.publicOrigin);
-  if (publicOrigin) console.log(publicOrigin);
-
-  if (r.tlsMode === "tailscale-serve") {
-    console.log("  ✓ coord TLS: tailscale serve");
-  } else if (r.tlsMode === "direct") {
-    console.log("  ✓ coord TLS: direct certificate");
+  if (!r.endpoint.publicUrl) {
+    console.log("  - public url: not configured");
+    console.log("      → set ROOST_WEB_PUBLIC_URL to the HTTPS URL your front door serves");
   } else {
-    console.log("  ✗ coord TLS: missing");
-    console.log(r.tailscale.required
-      ? "      → reinstall coord to restore Tailscale Serve"
-      : "      → configure both direct TLS paths");
+    console.log(`  ${mark(r.endpoint.answers)} public url ${r.endpoint.publicUrl}`);
+    if (!r.endpoint.answers) {
+      console.log("      → that URL does not answer AuthCoordIdentity; point your front door");
+      console.log("        (Caddy, nginx, a tunnel, any reverse proxy) at the coordinator's bind");
+    }
   }
 
   if (r.workers.length === 0) {
@@ -81,13 +60,15 @@ export function printStatusReport(r: StatusReport): void {
     }
   }
 
-  if (r.url) console.log(`  open: ${r.url}`);
+  if (r.endpoint.publicUrl) console.log(`  open: ${r.endpoint.publicUrl}`);
 }
 
 export function statusReportIsHealthy(report: StatusReport): boolean {
   const relocatedAway = report.handoff?.role === "SOURCE" && report.handoff.phase === "COMMITTED";
-  return (!report.tailscale.required || report.tailscale.running)
-    && report.coordAgentLoaded
+  // An unconfigured front door is a valid same-origin install, so only a
+  // declared-and-silent one fails the gate.
+  return report.coordAgentLoaded
     && report.workerAgentLoaded
-    && (report.coord.reachable || relocatedAway);
+    && (report.coord.reachable || relocatedAway)
+    && (report.endpoint.publicUrl === null || report.endpoint.answers);
 }

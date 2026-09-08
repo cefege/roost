@@ -62,14 +62,6 @@ export async function appendEvent(
     client_seq: number | null;
     /** Dashboard actor scope for coordinator-originated session mutations. */
     dashboardId?: string;
-    /** Managed workers may create only a coordinator-reserved session id. */
-    allowNewWorkerSession?: (
-      dashboardId: string,
-      workerFp: string,
-      sessionId: string,
-    ) => boolean;
-    /** Managed snapshots may only re-announce persisted own sessions. */
-    requireExistingWorkerSessions?: boolean;
     /** Auxiliary writes that MUST commit atomically with the event (e.g.
      *  junction-table moves). Runs inside the transaction, AFTER ownership
      *  admission, so a foreign request cannot make an auxiliary mutation. */

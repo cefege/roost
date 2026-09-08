@@ -47,7 +47,7 @@ export async function waitForConfirmedDashboardScope(
   );
 }
 
-async function enrollDashboardBrowser(
+export async function enrollDashboardBrowser(
   page: Page,
   stack: TerminalTestStack,
   client = stack.client,

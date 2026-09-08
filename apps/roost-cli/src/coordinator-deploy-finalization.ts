@@ -72,10 +72,11 @@ export function coordinatorDeployRuntime(
   };
 }
 
+/** The coordinator proves itself by answering on its own listener under a
+ * loaded service. The front door in front of it is the operator's, so a
+ * deploy never blocks on it. */
 export function coordinatorReportIsOperational(report: StatusReport): boolean {
-  return report.coord.reachable
-    && report.coordAgentLoaded
-    && report.tlsMode !== "missing";
+  return report.coord.reachable && report.coordAgentLoaded;
 }
 
 export function coordinatorReportIsHealthy(report: StatusReport, expectedSha: string): boolean {

@@ -1,27 +1,11 @@
-// Covers coordinator listener trust, public bindings, and allowed-origin parsing.
-// The suite exercises loadCoordConfig at the environment boundary with realistic profiles.
-// Shared fixtures keep the public and managed listener setup consistent across config suites.
+// Covers the coordinator configuration contract: loopback-only trust, declared public
+// origins, and allowed-origin parsing. The suite drives loadCoordConfig at the
+// environment boundary, so every assertion is what a booting coordinator would see.
 
-import { afterEach, describe, expect, test } from "bun:test";
-import { loadCoordConfig } from "../src/config.ts";
-import {
-  AUD,
-  cleanConfigTestWorkdirs,
-  managedPublicEnv,
-  publicEnv,
-} from "./config-test-fixtures.ts";
+import { describe, expect, test } from "bun:test";
+import { DEFAULT_COORDINATOR_BIND, loadCoordConfig } from "../src/config.ts";
 
-afterEach(cleanConfigTestWorkdirs);
-
-describe("coordinator listener trust configuration", () => {
-  test("accepts distinct loopback private and Access-fronted listeners", () => {
-    const cfg = loadCoordConfig(publicEnv());
-    expect(cfg.trustProxy).toBe(true);
-    expect(cfg.publicBind).toBe("127.0.0.1:4104");
-    expect(cfg.webPublicUrl).toBe("https://roost.example.com");
-    expect(cfg.publicUrl).toBe("https://private.example.ts.net:4102");
-  });
-
+describe("coordinator configuration", () => {
   for (const bind of ["0.0.0.0:4103", "[::]:4103", "192.168.1.8:4103"]) {
     test(`rejects trusted proxy headers on network-reachable bind ${bind}`, () => {
       expect(() => loadCoordConfig({
@@ -31,84 +15,69 @@ describe("coordinator listener trust configuration", () => {
     });
   }
 
-  test("accepts a managed public listener without Cloudflare Access", () => {
-    const cfg = loadCoordConfig(managedPublicEnv());
-    expect(cfg.saasMode).toBe(true);
-    expect(cfg.publicBind).toBe("127.0.0.1:4104");
-    expect(cfg.cfAccessTeamDomain).toBeUndefined();
-    expect(cfg.cfAccessAud).toBeUndefined();
+  test("accepts a loopback bind behind a trusted proxy and bounds its port", () => {
+    const cfg = loadCoordConfig({
+      ROOST_COORDINATOR_BIND: "127.0.0.1:4103",
+      ROOST_TRUST_PROXY: "1",
+      ROOST_WEB_PUBLIC_URL: "https://roost.example.com",
+    });
+    expect(cfg.trustProxy).toBe(true);
+    expect(cfg.bind).toBe("127.0.0.1:4103");
+    expect(cfg.webPublicUrl).toBe("https://roost.example.com");
+
+    expect(() => loadCoordConfig({
+      ROOST_COORDINATOR_BIND: "127.0.0.1:70000",
+      ROOST_TRUST_PROXY: "1",
+    })).toThrow("ROOST_COORDINATOR_BIND port must be 1-65535");
   });
 
-  test("requires the browser URL for every public listener", () => {
-    expect(() => loadCoordConfig(managedPublicEnv({ ROOST_WEB_PUBLIC_URL: undefined })))
-      .toThrow("ROOST_SAAS_MODE=1 requires ROOST_WEB_PUBLIC_URL");
-    expect(() => loadCoordConfig(publicEnv({ ROOST_WEB_PUBLIC_URL: undefined })))
-      .toThrow("ROOST_PUBLIC_BIND requires ROOST_WEB_PUBLIC_URL");
+  test("leaves a network-reachable bind alone without a trusted proxy", () => {
+    expect(loadCoordConfig({ ROOST_COORDINATOR_BIND: "0.0.0.0:4102" }).bind)
+      .toBe("0.0.0.0:4102");
   });
 
-  test("rejects partial Cloudflare Access configuration", () => {
-    for (const overrides of [
-      { ROOST_CF_ACCESS_TEAM_DOMAIN: "example.cloudflareaccess.com" },
-      { ROOST_CF_ACCESS_AUD: AUD },
-    ]) {
-      expect(() => loadCoordConfig({
-        ROOST_SAAS_MODE: "1",
-        ROOST_WEB_PUBLIC_URL: "https://roost.example.com",
-        ...overrides,
-      })).toThrow("must be configured together");
+  test("an unset bind resolves to the one declared loopback default", () => {
+    // A plaintext listener must not reach every interface when nothing is set,
+    // and every caller that dials a bare coordinator reads this same value.
+    expect(DEFAULT_COORDINATOR_BIND).toBe("127.0.0.1:4103");
+    expect(loadCoordConfig({}).bind).toBe(DEFAULT_COORDINATOR_BIND);
+  });
+
+  test("declares public origins and never derives one", () => {
+    const cfg = loadCoordConfig({});
+    expect(cfg.webPublicUrl).toBeUndefined();
+    expect(cfg.publicUrl).toBeUndefined();
+
+    for (const envName of ["ROOST_WEB_PUBLIC_URL", "ROOST_COORDINATOR_PUBLIC_URL"]) {
+      for (const value of [
+        "http://roost.example.com",
+        "https://roost.example.com/path",
+        "https://user@roost.example.com",
+        "https://roost.example.com?token=secret",
+        "https://roost.example.com#fragment",
+        "not a URL",
+      ]) {
+        expect(() => loadCoordConfig({ [envName]: value }), `${envName}=${value}`)
+          .toThrow(envName);
+      }
     }
   });
 
-  test("rejects Cloudflare Access in managed mode", () => {
-    expect(() => loadCoordConfig(managedPublicEnv({
-      ROOST_CF_ACCESS_TEAM_DOMAIN: "example.cloudflareaccess.com",
-      ROOST_CF_ACCESS_AUD: AUD,
-    }))).toThrow("ROOST_SAAS_MODE=1 cannot be combined");
+  test("accepts one front door for both browser and worker traffic", () => {
+    const cfg = loadCoordConfig({
+      ROOST_WEB_PUBLIC_URL: "https://roost.example.com/",
+      ROOST_COORDINATOR_PUBLIC_URL: "https://roost.example.com",
+    });
+    expect(cfg.webPublicUrl).toBe("https://roost.example.com");
+    expect(cfg.publicUrl).toBe("https://roost.example.com");
   });
 
-  test("requires managed mode when a public listener has no Access gate", () => {
-    expect(() => loadCoordConfig(publicEnv({
-      ROOST_CF_ACCESS_TEAM_DOMAIN: undefined,
-      ROOST_CF_ACCESS_AUD: undefined,
-    }))).toThrow("requires ROOST_SAAS_MODE=1");
-  });
-
-  test("requires public mode to preserve private tailscale-serve trust", () => {
-    expect(() => loadCoordConfig(publicEnv({ ROOST_TRUST_PROXY: undefined })))
-      .toThrow("ROOST_PUBLIC_BIND requires ROOST_TRUST_PROXY=1");
-  });
-
-  test("rejects a network-reachable or occupied private-origin public bind", () => {
-    expect(() => loadCoordConfig(publicEnv({ ROOST_PUBLIC_BIND: "0.0.0.0:4104" })))
-      .toThrow("ROOST_PUBLIC_BIND must use 127.0.0.1:<port>");
-    expect(() => loadCoordConfig(publicEnv({ ROOST_PUBLIC_BIND: "127.0.0.1:70000" })))
-      .toThrow("ROOST_PUBLIC_BIND port must be 1-65535");
-    expect(() => loadCoordConfig(publicEnv({ ROOST_PUBLIC_BIND: "127.0.0.1:4103" })))
-      .toThrow("ROOST_PUBLIC_BIND must differ");
-  });
-
-  test("pins the Access JWKS host and audience shape", () => {
-    expect(() => loadCoordConfig(publicEnv({
-      ROOST_CF_ACCESS_TEAM_DOMAIN: "attacker.example.com",
-    }))).toThrow("ROOST_CF_ACCESS_TEAM_DOMAIN");
-    expect(() => loadCoordConfig(publicEnv({ ROOST_CF_ACCESS_AUD: "not-an-aud" })))
-      .toThrow("ROOST_CF_ACCESS_AUD");
-  });
-
-  test("requires distinct bare HTTPS worker and browser origins", () => {
-    expect(() => loadCoordConfig(publicEnv({ ROOST_WEB_PUBLIC_URL: "http://roost.example.com" })))
-      .toThrow("ROOST_WEB_PUBLIC_URL must be an HTTPS origin");
-    expect(() => loadCoordConfig(publicEnv({ ROOST_WEB_PUBLIC_URL: "https://roost.example.com/path" })))
-      .toThrow("ROOST_WEB_PUBLIC_URL must be an HTTPS origin");
-    expect(() => loadCoordConfig(publicEnv({
-      ROOST_COORDINATOR_PUBLIC_URL: "https://same.example/",
-      ROOST_WEB_PUBLIC_URL: "https://same.example",
-    }))).toThrow("must differ from the browser-only");
-  });
-
-  test("prohibits relaxed CSP on the public listener", () => {
-    expect(() => loadCoordConfig(publicEnv({ ROOST_RELAXED_CSP: "1" })))
-      .toThrow("ROOST_PUBLIC_BIND cannot be combined");
+  test("keeps a distinct worker origin when the operator declares one", () => {
+    const cfg = loadCoordConfig({
+      ROOST_WEB_PUBLIC_URL: "https://roost.example.com",
+      ROOST_COORDINATOR_PUBLIC_URL: "https://coord.example.com:4102",
+    });
+    expect(cfg.publicUrl).toBe("https://coord.example.com:4102");
   });
 
   test("validates every CORS entry as a bare HTTP(S) origin", () => {

@@ -1,8 +1,7 @@
-// Status report assembly combines service state, coordinator health, worker
-// inventory, installed endpoint configuration, and coordinator handoff state.
+// Status report assembly combines service state, coordinator liveness, the
+// declared front door, worker inventory, and coordinator handoff state.
 // Centralizing that I/O keeps the public command and renderer deterministic.
 
-import { resolvePublicOriginStatus } from "./status-public-origin.ts";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,13 +14,9 @@ import { coordDataDir, coordServicePath } from "@roost/shared/paths";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import {
-  captureStatusCommand,
-  resolveTailscale,
   statusServiceLoaded,
   STATUS_COORD_LABEL,
   STATUS_WORKER_LABEL,
-  hostBindHasListener,
-  hostProcessNames,
 } from "./status-native-probes.ts";
 import type {
   HandoffStatus,
@@ -31,10 +26,13 @@ import type {
   StatusReport,
   WorkerStatus,
 } from "./status-types.ts";
-import { trustedTailscaleExecutable } from "./windows/windows-identity.ts";
 
 const WORKER_STALE_MS = 90_000;
 const COORD_IDENTITY_PATH = "/roost.v1.CoordinatorService/AuthCoordIdentity";
+
+function identityUrl(origin: string | null): string | null {
+  return origin ? `${origin}${COORD_IDENTITY_PATH}` : null;
+}
 
 function defaultCoordinatorDbPath(): string {
   const dataDir = process.env.ROOST_COORD_DATA_DIR ?? coordDataDir();
@@ -54,8 +52,8 @@ function coordinatorHandoffPath(): string {
     ?? join(dataDir, "coord-handoff.json");
 }
 
-/** POST the unauthenticated coordinator identity RPC. Managed mode protects
- * MiscHealth, while identity is the shared liveness contract for every mode. */
+/** POST the unauthenticated coordinator identity RPC: the liveness contract
+ * every listener answers, whether reached directly or through a front door. */
 export async function _probeCoordinatorIdentity(
   healthUrl: string | null,
   fetchImpl: typeof fetch = fetch,
@@ -202,7 +200,7 @@ function serviceEnvironmentValue(
       }
     }
     default:
-      throw new Error(`unsupported TLS service platform: ${platform}`);
+      throw new Error(`unsupported coordinator service platform: ${platform}`);
   }
 }
 
@@ -216,54 +214,29 @@ function normalizeHttpsOrigin(value: string | null): string | null {
   }
 }
 
+/** The two origins `roost status` can speak about: the operator's declared
+ * front door, and the coordinator's own loopback listener as the installed
+ * service definition binds it. */
 export function resolveStatusEndpoint(
   serviceDefinition: string | null,
   options: StatusEndpointResolverOptions = {},
 ): ResolvedStatusEndpoint {
   const platform = options.platform ?? process.platform;
-  const fronted = serviceDefinition
-    ? serviceEnvironmentValue(serviceDefinition, "ROOST_FRONTED", platform)
-    : null;
-  const tailnetPort = serviceDefinition
-    ? serviceEnvironmentValue(serviceDefinition, "ROOST_TAILNET_HTTPS_PORT", platform)
-    : null;
-  // Windows automatic installs terminate TLS directly; the tailnet-port marker
-  // still identifies their endpoint as Tailscale-backed.
-  const mode = options.override?.mode
-    ?? (fronted === "1" || tailnetPort !== null ? "automatic" : "explicit");
-
-  if (mode === "explicit") {
-    const installedOrigin = serviceDefinition
-      ? serviceEnvironmentValue(serviceDefinition, "ROOST_COORDINATOR_PUBLIC_URL", platform)
+  // Installed units carry declared-but-empty entries
+  // (Environment="ROOST_COORDINATOR_PUBLIC_URL="); those declare nothing.
+  const installedValue = (name: string): string | null => {
+    const declared = serviceDefinition
+      ? serviceEnvironmentValue(serviceDefinition, name, platform)?.trim()
       : null;
-    const origin = normalizeHttpsOrigin(options.override?.origin ?? installedOrigin);
-    return {
-      mode,
-      origin,
-      healthUrl: origin ? `${origin}${COORD_IDENTITY_PATH}` : null,
-      tailscale: {
-        required: false,
-        state: "NotRequired",
-        fqdn: null,
-        running: false,
-      },
-    };
-  }
-
-  const tailscale = (options.resolveTailscale ?? resolveTailscale)();
-  const configuredOrigin = options.override?.origin
-    ?? (tailscale.fqdn ? `https://${tailscale.fqdn}:${tailnetPort ?? "4102"}` : null);
-  const origin = normalizeHttpsOrigin(configuredOrigin);
+    return declared ? declared : null;
+  };
+  const declared = options.override?.origin
+    ?? installedValue("ROOST_WEB_PUBLIC_URL")
+    ?? installedValue("ROOST_COORDINATOR_PUBLIC_URL");
+  const bind = installedValue("ROOST_COORDINATOR_BIND");
   return {
-    mode,
-    origin,
-    healthUrl: origin ? `${origin}${COORD_IDENTITY_PATH}` : null,
-    tailscale: {
-      required: true,
-      state: tailscale.state,
-      fqdn: tailscale.fqdn,
-      running: tailscale.state === "Running",
-    },
+    publicUrl: normalizeHttpsOrigin(declared),
+    coordUrl: bind ? `http://${bind}` : null,
   };
 }
 
@@ -291,44 +264,6 @@ function installedCoordinatorDbPath(): string {
   }
 }
 
-export function resolveTlsMode(
-  serviceDefinition: string | null,
-  tailscaleServeStatus: string | null,
-  platform: NodeJS.Platform = process.platform,
-): StatusReport["tlsMode"] {
-  if (!serviceDefinition) return "missing";
-  if (serviceEnvironmentValue(serviceDefinition, "ROOST_FRONTED", platform) === "1") {
-    const loopbackPort = serviceEnvironmentValue(
-      serviceDefinition,
-      "ROOST_COORD_LOOPBACK_PORT",
-      platform,
-    ) ?? "4103";
-    return tailscaleServeStatus?.includes(`http://127.0.0.1:${loopbackPort}`)
-      ? "tailscale-serve"
-      : "missing";
-  }
-  const cert = serviceEnvironmentValue(serviceDefinition, "ROOST_TLS_CERT_PATH", platform);
-  const key = serviceEnvironmentValue(serviceDefinition, "ROOST_TLS_KEY_PATH", platform);
-  return cert && key ? "direct" : "missing";
-}
-
-function currentTlsMode(
-  serviceDefinition: string | null,
-  tailscaleRequired: boolean,
-): StatusReport["tlsMode"] {
-  if (!serviceDefinition) return "missing";
-  try {
-    if (!tailscaleRequired
-      || serviceEnvironmentValue(serviceDefinition, "ROOST_FRONTED", process.platform) !== "1") {
-      return resolveTlsMode(serviceDefinition, null);
-    }
-    const serve = captureStatusCommand([trustedTailscaleExecutable(), "serve", "status"]);
-    return resolveTlsMode(serviceDefinition, serve.exit === 0 ? serve.stdout : null);
-  } catch {
-    return "missing";
-  }
-}
-
 /** Read coord-handoff.json (snake_case on disk). null on missing, unreadable
  *  or half-written JSON — a broken handoff file must never fail `roost status`. */
 function readHandoff(): HandoffStatus | null {
@@ -348,19 +283,6 @@ function readHandoff(): HandoffStatus | null {
   }
 }
 
-/** ROOST_PUBLIC_BIND as the installed coordinator definition sets it. Reads
- * both the systemd `Environment="K=V"` and the plist `<key>K</key><string>V`
- * spellings, since one host layout writes each. */
-function serviceDefinitionEnvValue(definition: string | null, key: string): string | null {
-  if (!definition) return null;
-  const unit = new RegExp(`^Environment="?${key}=([^"\\n]*)"?$`, "m").exec(definition);
-  if (unit) return unit[1] ?? null;
-  const plist = new RegExp(
-    `<key>${key}</key>\\s*<string>([^<]*)</string>`,
-  ).exec(definition);
-  return plist ? plist[1] ?? null : null;
-}
-
 export async function statusReport(
   endpointOverride?: StatusEndpointOverride,
 ): Promise<StatusReport> {
@@ -370,20 +292,25 @@ export async function statusReport(
     if (existsSync(serviceFile)) serviceDefinition = readFileSync(serviceFile, "utf8");
   } catch { /* status remains available with a damaged definition */ }
   const endpoint = resolveStatusEndpoint(serviceDefinition, { override: endpointOverride });
-  const coord = await _probeCoordinatorIdentity(endpoint.healthUrl);
+  // Liveness is the coordinator's own listener, so a front door the operator
+  // has not finished wiring never reads as a dead coordinator. Off a
+  // coordinator host there is no bind to probe, so the front door is all there
+  // is to ask.
+  const coordUrl = endpoint.coordUrl ?? endpoint.publicUrl;
+  const coord = await _probeCoordinatorIdentity(identityUrl(coordUrl));
   return {
-    tailscale: endpoint.tailscale,
     coordAgentLoaded: statusServiceLoaded(STATUS_COORD_LABEL),
     workerAgentLoaded: statusServiceLoaded(STATUS_WORKER_LABEL),
     coord,
     workers: workerInventory(),
-    tlsMode: currentTlsMode(serviceDefinition, endpoint.tailscale.required),
-    url: endpoint.origin,
+    endpoint: {
+      publicUrl: endpoint.publicUrl,
+      answers: endpoint.publicUrl === null
+        ? false
+        : endpoint.publicUrl === coordUrl
+          ? coord.reachable
+          : (await _probeCoordinatorIdentity(identityUrl(endpoint.publicUrl))).reachable,
+    },
     handoff: readHandoff(),
-    publicOrigin: await resolvePublicOriginStatus({
-      publicBind: serviceDefinitionEnvValue(serviceDefinition, "ROOST_PUBLIC_BIND"),
-      runningProcessNames: hostProcessNames,
-      isListening: hostBindHasListener,
-    }),
   };
 }

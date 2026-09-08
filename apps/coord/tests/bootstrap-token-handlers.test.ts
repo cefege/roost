@@ -199,14 +199,4 @@ describe("digest-only scoped bootstrap grants", () => {
       workerRequest(inconsistentToken, worker), {} as HandlerContext,
     ))).toEqual(INVALID_GRANT);
   });
-
-  test("managed browser redemption remains explicitly unavailable", async () => {
-    const h = await openHarness(true);
-    expect(await connectFailure(async () => h.handlers.authRedeemBrowser(
-      browserRequest("not-a-grant", await makeKey()), {} as HandlerContext,
-    ))).toEqual({
-      code: Code.PermissionDenied,
-      message: "legacy browser authorization is unavailable in managed mode",
-    });
-  });
 });

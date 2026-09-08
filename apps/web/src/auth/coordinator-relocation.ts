@@ -94,9 +94,3 @@ export async function relocateRetiredBrowser(identity: RetiredCoordinatorIdentit
   if (!identity.relocatedToUrl || !identity.handoffId) return "failed";
   return relocateBrowserToCoordinator(identity.handoffId, identity.relocatedToUrl);
 }
-
-/** Let a later account start a fresh relocation after this one logs out mid-mint. */
-export function clearCoordinatorRelocationRuntimeForLogout(): void {
-  relocationGeneration += 1;
-  relocating = false;
-}

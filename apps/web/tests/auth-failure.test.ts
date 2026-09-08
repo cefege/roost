@@ -1,21 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Code, ConnectError } from "@connectrpc/connect";
-import {
-  AccessLayerAuthError,
-  classifyAuthFailure,
-} from "../src/connect.ts";
+import { classifyAuthFailure } from "../src/connect.ts";
 
 const WORKERS_LIST = "/roost.v1.CoordinatorService/WorkersList";
 
 describe("browser auth failure classification", () => {
-  test("Access-layer failures remain nondestructive", () => {
-    expect(classifyAuthFailure(new AccessLayerAuthError(), WORKERS_LIST)).toBe("access");
-    expect(classifyAuthFailure(
-      new ConnectError("wrapped", Code.Unavailable, undefined, undefined, new AccessLayerAuthError()),
-      WORKERS_LIST,
-    )).toBe("access");
-  });
-
   test("only a marked device rejection from a known auth-required RPC is authoritative", () => {
     const marked = new ConnectError(
       "authentication required",

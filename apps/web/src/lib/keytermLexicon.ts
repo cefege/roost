@@ -65,8 +65,3 @@ export function learnTerms(terms: readonly string[]): void {
 export function lexiconTopTerms(n: number): string[] {
   return topTerms(read(), n);
 }
-
-/** Dictation vocabulary can contain account and project names. */
-export function clearKeytermLexiconForLogout(): void {
-  try { localStorage.removeItem(STORAGE_KEY); } catch { /* quota / privacy mode */ }
-}

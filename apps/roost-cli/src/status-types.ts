@@ -27,41 +27,34 @@ export interface HandoffStatus {
   targetUrl: string;
 }
 
-export interface TailscaleStatus {
-  required: boolean;
-  state: string;
-  fqdn: string | null;
-  running: boolean;
+/** The operator-declared front door. Roost installs no proxy, tunnel, or
+ *  certificate, so the only claim it can make is whether that URL answers. */
+export interface EndpointStatus {
+  publicUrl: string | null;
+  answers: boolean;
 }
 
 export interface StatusEndpointOverride {
-  mode: "automatic" | "explicit";
   origin: string;
 }
 
-import type { PublicOriginStatus } from "./status-public-origin.ts";
-
 export interface StatusReport {
-  tailscale: TailscaleStatus;
   coordAgentLoaded: boolean;
   workerAgentLoaded: boolean;
   coord: { reachable: boolean; gitSha: string | null };
   workers: WorkerStatus[];
-  tlsMode: "tailscale-serve" | "direct" | "missing";
-  url: string | null;
+  endpoint: EndpointStatus;
   handoff: HandoffStatus | null;
-  publicOrigin: PublicOriginStatus;
 }
 
 export interface ResolvedStatusEndpoint {
-  mode: StatusEndpointOverride["mode"];
-  origin: string | null;
-  healthUrl: string | null;
-  tailscale: TailscaleStatus;
+  /** Front door the installed coordinator was told to advertise. */
+  publicUrl: string | null;
+  /** The coordinator's own listener on this host, when one is installed. */
+  coordUrl: string | null;
 }
 
 export interface StatusEndpointResolverOptions {
   platform?: NodeJS.Platform;
   override?: StatusEndpointOverride;
-  resolveTailscale?: () => { state: string; fqdn: string | null };
 }

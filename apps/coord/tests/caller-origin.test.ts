@@ -1,75 +1,69 @@
 import { describe, expect, test } from "bun:test";
+import { Code, ConnectError } from "@connectrpc/connect";
 import {
   assertOnHost,
-  isTailnetAddr,
   resolveCallerOrigin,
 } from "../src/middleware/caller-origin.ts";
 
+const NO_HEADERS = new Headers();
+
 describe("resolveCallerOrigin", () => {
-  test("direct loopback is on-host and ignores forwarding headers", () => {
+  test("a trusted proxy supplies the client address through X-Forwarded-For", () => {
+    expect(resolveCallerOrigin(
+      "trusted-proxy",
+      "127.0.0.1",
+      new Headers({ "x-forwarded-for": "203.0.113.7, 10.0.0.1" }),
+    )).toEqual({ listener: "trusted-proxy", clientIp: "203.0.113.7", onHost: false });
+  });
+
+  test("a forwarded request never counts as on-host, even from loopback", () => {
+    expect(resolveCallerOrigin(
+      "trusted-proxy",
+      "127.0.0.1",
+      new Headers({ "x-forwarded-for": "127.0.0.1" }),
+    )).toEqual({ listener: "trusted-proxy", clientIp: "127.0.0.1", onHost: false });
+  });
+
+  test("an unforwarded loopback request on the proxied listener is on-host", () => {
+    expect(resolveCallerOrigin("trusted-proxy", "::1", NO_HEADERS))
+      .toEqual({ listener: "trusted-proxy", clientIp: "::1", onHost: true });
+  });
+
+  test("a direct listener ignores X-Forwarded-For entirely", () => {
     expect(resolveCallerOrigin(
       "direct",
       "127.0.0.1",
-      new Headers({ "x-forwarded-for": "100.64.0.1" }),
+      new Headers({ "x-forwarded-for": "203.0.113.7" }),
     )).toEqual({ listener: "direct", clientIp: "127.0.0.1", onHost: true });
   });
 
-  test("tailscale serve uses the first forwarded address but never marks it on-host", () => {
-    expect(resolveCallerOrigin(
-      "tailscale-serve",
-      "127.0.0.1",
-      new Headers({ "x-forwarded-for": " 100.64.0.1, 127.0.0.1" }),
-    )).toEqual({ listener: "tailscale-serve", clientIp: "100.64.0.1", onHost: false });
-    expect(resolveCallerOrigin(
-      "tailscale-serve",
-      "127.0.0.1",
-      new Headers({ "x-forwarded-for": "127.0.0.1" }),
-    )).toEqual({ listener: "tailscale-serve", clientIp: "127.0.0.1", onHost: false });
+  test("a direct non-loopback peer is neither forged nor on-host", () => {
+    expect(resolveCallerOrigin("direct", "198.51.100.4", NO_HEADERS))
+      .toEqual({ listener: "direct", clientIp: "198.51.100.4", onHost: false });
   });
 
-  test("tailscale serve without XFF preserves direct on-host recovery", () => {
-    expect(resolveCallerOrigin(
-      "tailscale-serve",
-      "::1",
-      new Headers(),
-    )).toEqual({ listener: "tailscale-serve", clientIp: "::1", onHost: true });
-  });
-
-  test("public edge sanitizes privileged-looking and empty addresses", () => {
-    for (const clientIp of ["", "127.0.0.1", "100.64.0.1", "fd7a:115c:a1e0::1"]) {
-      const headers = new Headers();
-      if (clientIp) headers.set("cf-connecting-ip", clientIp);
-      expect(resolveCallerOrigin("public-edge", "127.0.0.1", headers))
-        .toEqual({ listener: "public-edge", clientIp: "public", onHost: false });
-    }
-  });
-
-  test("public edge retains a normal address only for rate limiting and audit", () => {
-    expect(resolveCallerOrigin(
-      "public-edge",
-      "127.0.0.1",
-      new Headers({ "cf-connecting-ip": " 203.0.113.7 " }),
-    )).toEqual({ listener: "public-edge", clientIp: "203.0.113.7", onHost: false });
+  test("an unknown socket peer is never on-host", () => {
+    expect(resolveCallerOrigin("direct", undefined, NO_HEADERS))
+      .toEqual({ listener: "direct", clientIp: "unknown", onHost: false });
   });
 });
 
-describe("caller origin guards", () => {
-  test("recognizes both Tailscale address families", () => {
-    expect(isTailnetAddr("100.127.255.1")).toBe(true);
-    expect(isTailnetAddr("100.128.0.1")).toBe(false);
-    expect(isTailnetAddr("fd7a:115c:a1e0::123")).toBe(true);
+describe("assertOnHost", () => {
+  test("rejects a proxied caller with permission-denied", () => {
+    try {
+      assertOnHost({ listener: "trusted-proxy", clientIp: "203.0.113.7", onHost: false });
+      throw new Error("expected assertOnHost to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConnectError);
+      expect((error as ConnectError).code).toBe(Code.PermissionDenied);
+    }
   });
 
-  test("tailnet classification does not confer on-host authority", () => {
+  test("admits an on-host caller", () => {
     expect(() => assertOnHost({
       listener: "direct",
       clientIp: "127.0.0.1",
       onHost: true,
     })).not.toThrow();
-    expect(() => assertOnHost({
-      listener: "tailscale-serve",
-      clientIp: "100.101.102.103",
-      onHost: false,
-    })).toThrow("on-host only");
   });
 });

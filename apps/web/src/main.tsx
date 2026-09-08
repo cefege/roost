@@ -12,10 +12,6 @@ import { installSpaDiag, installSignalShip, markPhase } from "./lib/diag.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import { applyTermFontSize } from "./lib/terminalFontPref.ts";
 import { claimTabIdentity } from "./auth/tab-id.ts";
-import { completePendingTenantRouteSwitch } from "./auth/managed-logout.ts";
-import { invalidateFixedCoordinatorClientForTenantRouteSwitch } from "./connect.ts";
-import { installTenantRouteSwitchListener } from "./auth/tenant-routing.ts";
-import { suspendSyncForTenantRouteSwitch } from "./store/sync.ts";
 import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
 import { diag, signal } from "@roost/shared/diag";
 import { effectiveAttempts, shouldReloadForChunkError } from "./lib/chunkError.ts";
@@ -25,17 +21,6 @@ import "./styles/sidebar.css";
 import "./styles/voice-input.css";
 import "./styles/settings-dense.css";
 import "./styles/drive.css";
-
-installTenantRouteSwitchListener(() => {
-  invalidateFixedCoordinatorClientForTenantRouteSwitch();
-  suspendSyncForTenantRouteSwitch();
-  location.reload();
-});
-
-// Activation/reset entry staged the new route before this module graph loaded.
-// Finish deleting the previous tenant's Push/key/state before any diagnostics,
-// bootstrap RPC, or protected socket can start.
-await completePendingTenantRouteSwitch();
 
 markPhase("module_start");
 

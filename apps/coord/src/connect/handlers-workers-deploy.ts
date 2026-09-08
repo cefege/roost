@@ -77,15 +77,6 @@ export function workerDeployHost(
   return requestedHost;
 }
 
-function requireCoordinatorDeployAllowed(deps: ConnectDeps): void {
-  if (deps.cfg.saasMode) {
-    throw new ConnectError(
-      "worker deployment is unavailable in managed mode",
-      Code.PermissionDenied,
-    );
-  }
-}
-
 export function makeWorkerDeployHandlers(
   deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, WorkerDeployMethods> {
@@ -93,7 +84,6 @@ export function makeWorkerDeployHandlers(
 
   return {
     async *workersDeployOutput(req, ctx) {
-      requireCoordinatorDeployAllowed(deps);
       const actor = requireDashboardAdmin(ctx.values);
       if (deployJobScopes.get(req.jobId)?.dashboardId !== actor.dashboardId) {
         throw new ConnectError("not found", Code.NotFound);
@@ -129,7 +119,6 @@ export function makeWorkerDeployHandlers(
     },
 
     async workersDeployStart(req, ctx) {
-      requireCoordinatorDeployAllowed(deps);
       const actor = requireDashboardAdmin(ctx.values);
       const workers = await deps.db
         .selectFrom("workers")

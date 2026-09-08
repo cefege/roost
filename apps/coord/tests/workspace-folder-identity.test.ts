@@ -85,10 +85,8 @@ beforeEach(async () => {
   await opened.db.insertInto("accounts").values({
     id: ACCOUNT_ID,
     email_normalized: "workspace-identity@example.test",
-    password_hash: null,
     status: "active",
     created_at_ms: now,
-    password_changed_at_ms: null,
   }).execute();
   await opened.db.insertInto("account_devices").values({
     fingerprint: DEVICE_FP,

@@ -166,7 +166,7 @@ export async function deploy(
 
   console.log(`>> reachability check ssh ${host}`);
   const ssh = await run(["ssh", ...SSH_OPTS, "-o", "BatchMode=yes", "--", host, "true"]);
-  if (ssh.exit !== 0) failDeploy(2, "ssh failed; ensure key-based / tailscale-ssh auth");
+  if (ssh.exit !== 0) failDeploy(2, "ssh failed; ensure key-based auth to that host");
   console.log(`>> verify bun on ${host}`);
   const bunCheck = await sshExec(host, "command -v bun && bun --version");
   if (bunCheck.exit !== 0) {

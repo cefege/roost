@@ -103,10 +103,10 @@ export function makeWorkerHeartbeatHandler(
 					}
 				: undefined;
 			// reachable_addr self-heals on every beat: the worker re-resolves its
-			// LIVE tailnet DNSName each beat (heartbeat.ts) so a machine rename
-			// corrects within 30s, not only at boot. Only persist a non-empty value
-			// — an absent/empty field (tailscale unreachable this beat) keeps the
-			// prior value rather than nulling a good address.
+			// LIVE address each beat (heartbeat.ts) so a machine rename corrects
+			// within 30s, not only at boot. Only persist a non-empty value — an
+			// absent/empty field (resolution failed this beat) keeps the prior
+			// value rather than nulling a good address.
 			// os self-heals for the same reason, and the invariant is stronger: the
 			// stored platform must describe the process currently beating on this
 			// fingerprint. It is otherwise write-once at enrollment, so a row could

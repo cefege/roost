@@ -3,65 +3,32 @@
 
 The v0.5.0 self-hosted coordinator/worker runtime is released for macOS
 arm64/x64 and Linux arm64/x64. Production fleet rollout remains pending.
-Quickstart supports two production modes:
-automatic Tailscale Serve and operator-managed direct HTTPS. Direct
-coordinator quickstart is Tailscale-free; the current extra-worker installer
-still requires a running Tailscale daemon and is called out below.
 
 **Only coordinator and worker machines need a supported host OS.** Everything
 you browse *from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Android
 phone, an iPad, an Android tablet, whatever — needs nothing but a modern
 browser (optionally added to the home screen as a PWA).
 
-## Choose a coordinator network mode
+## One deployment shape
 
-### Automatic: Tailscale Serve
+There is exactly one contract:
 
-Run `roost quickstart` without any endpoint flags. Quickstart discovers the
-coordinator's tailnet name, keeps the coordinator's plaintext listener on
-loopback, provisions HTTPS on port 4102, and configures Tailscale Serve.
-Coordinator and worker machines, and browsers using this route, join the same
-tailnet.
+- The coordinator listens on loopback, in plaintext:
+  `ROOST_COORDINATOR_BIND=127.0.0.1:4103`.
+- You put a front door in front of it — Caddy, nginx, a Cloudflare tunnel,
+  `tailscale serve`, anything that terminates TLS and proxies HTTP.
+- That front door is a trusted proxy, so the coordinator reads its
+  `X-Forwarded-For`: `ROOST_TRUST_PROXY=1`.
+- You tell the coordinator the resulting public origin:
+  `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
 
-For this convenience mode:
+Roost owns no TLS, no DNS, no tunnel, and no certificate renewal, and it never
+invents a hostname for you. The origin you declare seeds the SPA's CSP
+`connect-src` and the Sync WebSocket origin allowlist, so it must be exactly
+the origin a browser addresses — scheme, host, and non-default port included.
 
-1. On macOS, either install the open-source CLI daemon with
-   `brew install tailscale`, or install the GUI app and follow its prompts.
-2. For the Homebrew daemon, run
-   `sudo tailscaled install-system-daemon && sudo tailscale up`. It does not
-   use the macOS network extension. The GUI app does, so approve that extension
-   when its UI asks.
-3. On Linux, add Tailscale's repository, then run
-   `sudo systemctl enable --now tailscaled && sudo tailscale up` and
-   `sudo tailscale set --operator=$USER`.
-
-### Direct: your trusted HTTPS endpoint
-
-Direct coordinator quickstart does not resolve or call Tailscale. You provide
-DNS or another stable hostname, routing and firewall policy, and the
-certificate files. Every browser and worker connection using that origin must
-be able to reach it and trust its complete certificate chain; a self-signed or
-privately issued certificate works only after its CA is trusted on every
-client.
-
-The three flags are one group: supply all of `--coordinator-url`, `--tls-cert`,
-and `--tls-key`, or supply none and use automatic mode. Ambient `ROOST_*`
-endpoint variables do not turn a no-flag invocation into direct mode.
-
-Direct inputs follow these rules:
-
-- `--coordinator-url` is an HTTPS origin with an explicit numeric port from 1
-  through 65535, even for `:443`. It has no username/password, query, fragment,
-  or path other than an optional single `/`.
-- Certificate and key paths are absolute, readable, non-symlink regular files.
-  They must remain distinct after lexical normalization and must resolve to
-  different files; aliases and hard links to one file are rejected.
-- The certificate covers the URL hostname and is currently valid, and its chain
-  terminates at a CA trusted by every browser and worker.
-
-Quickstart normalizes the URL to its HTTPS origin, while retaining the explicit
-input port for the listener. For example, `https://roost.example.com:443/`
-persists the public origin as `https://roost.example.com` and binds port 443.
+The coordinator serves the SPA from its own binary, so nothing else has to host
+the dashboard.
 
 ## Install + run
 
@@ -72,35 +39,40 @@ installer verifies it against the adjacent GitHub Release SHA-256 sidecar:
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
 ```
 
-Then choose exactly one quickstart form. Automatic Tailscale mode:
+Then run quickstart. It takes one endpoint flag, and requires it:
 
 ```sh
-"$HOME/.local/bin/roost" quickstart
+"$HOME/.local/bin/roost" quickstart --coordinator-url "https://roost.example.com"
 ```
 
-Direct HTTPS, here using arbitrary port 8443:
+`--coordinator-url` is an absolute `https:` origin with no userinfo, query, or
+fragment and no path beyond `/`. An explicit port is optional:
+`https://roost.example.com` and `https://roost.example.com:8443` are both
+accepted. Quickstart builds the SPA, installs the coordinator service bound to
+loopback, deploys a worker on the same machine, waits for health, prints a
+status readout, and opens an already-authorized browser. It proves coordinator
+health on the loopback bind — the only listener Roost owns — and points the
+local worker at the origin you declared, so a successful worker registration
+also proves your front door passes worker traffic.
 
-```sh
-"$HOME/.local/bin/roost" quickstart \
-  --coordinator-url "https://roost.example.com:8443" \
-  --tls-cert "$HOME/.config/roost/tls/fullchain.pem" \
-  --tls-key "$HOME/.config/roost/tls/privkey.pem"
-```
-
-That direct invocation installs the coordinator service with this endpoint
-contract (using the normalized absolute certificate paths):
+The installed coordinator service carries this endpoint contract:
 
 ```text
-ROOST_FRONTED=0
-ROOST_COORDINATOR_BIND=0.0.0.0:8443
-ROOST_COORDINATOR_PUBLIC_URL=https://roost.example.com:8443
-ROOST_TLS_CERT_PATH=/home/<user>/.config/roost/tls/fullchain.pem
-ROOST_TLS_KEY_PATH=/home/<user>/.config/roost/tls/privkey.pem
+ROOST_COORDINATOR_BIND=127.0.0.1:4103
+ROOST_TRUST_PROXY=1
+ROOST_WEB_PUBLIC_URL=https://roost.example.com
 ```
 
-`ROOST_TAILNET_HTTPS_PORT` and the loopback/front-proxy settings belong only to
-automatic mode; a direct coordinator quickstart neither persists them nor
-invokes Tailscale.
+`apps/coord/scripts/install.sh` takes the bind port from
+`ROOST_COORD_LOOPBACK_PORT` (default 4103) and persists the resolved
+`ROOST_COORDINATOR_BIND`, so the service definition states the listener once.
+
+`ROOST_COORDINATOR_PUBLIC_URL` is optional and separate: it is the coordinator's
+own identity origin, for installs where workers dial a different door than the
+browsers do. Leave it unset and workers use the browser front door. The URL a
+worker dials resolves as `ROOST_COORDINATOR_URL` →
+`ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL`; with none of the three
+set, enrollment refuses rather than guessing an origin.
 
 > **Windows host releases are paused.** v0.5.0 publishes no Windows
 > coordinator, worker, installer, join script, or package. Windows remains
@@ -116,13 +88,232 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash
 That command installs Bun and a checkout which tracks `main`; it is not a
 pinned production release.
 
-In self-hosted mode, coordinator startup creates and thereafter validates the
-single local tenant automatically: the internal `local@roost.invalid` account,
-its `personal` organization, and the `default` dashboard. Existing coherent
-single-tenant databases keep their IDs and names. There is no separate
-organization bootstrap command to run before quickstart or after an upgrade.
+Coordinator startup creates and thereafter validates the single local tenant
+automatically: the internal `local@roost.invalid` account, its `personal`
+organization, and the `default` dashboard. Existing coherent single-tenant
+databases keep their IDs and names. There is no separate organization bootstrap
+command to run before quickstart or after an upgrade.
 
-### First browser enrollment
+## Three front-door recipes
+
+Pick one. Roost implements none of them: each is ordinary configuration for
+software you already know how to operate, and each ends with the same two facts
+— the coordinator's loopback bind and the `ROOST_WEB_PUBLIC_URL` it is told.
+
+### Recipe 1 — Caddy with your own domain
+
+You have a domain and a machine reachable on 80/443. Caddy obtains and renews
+the certificate itself; nothing about it reaches Roost.
+
+`/etc/caddy/Caddyfile`:
+
+```caddy
+roost.example.com {
+	@private path /internal/* /api/db-export
+	respond @private "not found" 404
+
+	reverse_proxy 127.0.0.1:4103 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+```
+
+```sh
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+Workers dial this same origin in the standard install, so `/ws/coord-worker/*`
+passes.
+
+Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4103` plaintext with
+`ROOST_TRUST_PROXY=1`, and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
+
+### Recipe 2 — Cloudflare tunnel
+
+No open inbound ports, works behind NAT, and no certificate on the box.
+Install `cloudflared` on the coordinator host, then:
+
+```sh
+cloudflared tunnel login
+cloudflared tunnel create roost
+cloudflared tunnel route dns roost roost.example.com
+```
+
+`$HOME/.cloudflared/config.yml`:
+
+```yaml
+tunnel: <TUNNEL-UUID>
+credentials-file: /absolute/path/printed/by/cloudflared/<TUNNEL-UUID>.json
+ingress:
+  - hostname: roost.example.com
+    service: http://127.0.0.1:8080
+  - service: http_status:404
+```
+
+`cloudflared` **appends** the visitor address to any client-supplied
+`X-Forwarded-For`, so it must not be the last hop (see the caller-address note
+below). Put a proxy between the tunnel and the coordinator that rewrites the
+header from `CF-Connecting-IP` and denies the private paths:
+
+```caddy
+http://roost.example.com:8080 {
+	@no_cf_ip not header CF-Connecting-IP *
+	respond @no_cf_ip "not found" 404
+
+	@private path /internal/* /api/db-export
+	respond @private "not found" 404
+
+	reverse_proxy 127.0.0.1:4103 {
+		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+	}
+}
+```
+
+Workers dial this same origin in the standard install, so `/ws/coord-worker/*`
+passes.
+
+Install the tunnel as a service with an explicit config path — under `sudo` the
+service's `$HOME` is `/root`, so `cloudflared` would not otherwise find the file
+you just wrote:
+
+```sh
+sudo cloudflared --config "$HOME/.cloudflared/config.yml" service install
+sudo systemctl enable --now cloudflared   # Linux; launchd starts it on install
+```
+
+Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4103` plaintext with
+`ROOST_TRUST_PROXY=1`, and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
+
+### Recipe 3 — `tailscale serve`
+
+No domain, no public exposure, no certificate management: every device that
+browses Roost joins your tailnet.
+
+```sh
+tailscale serve --bg --https=443 http://127.0.0.1:4103
+tailscale serve status
+```
+
+The public origin is the machine's MagicDNS name, e.g.
+`https://roost-host.tailnet-name.ts.net`. `tailscale serve` has no path
+matcher, so if you need the private paths denied, keep a local proxy in front of
+the coordinator as in recipe 1 and point Serve at that instead.
+
+Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4103` plaintext with
+`ROOST_TRUST_PROXY=1`, and
+`ROOST_WEB_PUBLIC_URL=https://roost-host.tailnet-name.ts.net`.
+
+### The caller address must be overwritten, never appended
+
+The coordinator reads the **first** entry of `X-Forwarded-For` as the caller
+address, and uses it to decide whether a request is on-host. Your front door
+must therefore *replace* that header with its own client address rather than
+appending to a chain the client supplied — an appending proxy lets any client
+prepend an address of its choosing and claim to be on-host.
+
+One request proves it, from a machine that is not the coordinator:
+
+```sh
+curl -si https://roost.example.com/api/db-export | head -1
+```
+
+Expect `403` (or `404` if you deny the path at the front door). A `200` means
+the caller address is not reaching the coordinator correctly: fix the front door
+before going further.
+
+### `/internal/*` and `/api/db-export` are private
+
+Those two prefixes are the coordinator's internal handoff surface and its whole
+database snapshot. Deny them at the front door, as both recipes above do.
+`/api/db-export` additionally refuses any caller the coordinator does not
+resolve as on-host, so the edge rule is defence in depth rather than the only
+guard.
+
+`/ws/coord-worker/*` — the worker link — **passes** by default, because in a
+standard install the workers reach the coordinator through the same front door
+the browsers use. A worker dials `ROOST_COORDINATOR_URL`, else
+`ROOST_COORDINATOR_PUBLIC_URL`, else `ROOST_WEB_PUBLIC_URL`, and both the
+coordinator's deploy path and `roost add-machine` resolve it in exactly that
+order.
+
+**Hardening variant — only after you have given workers their own origin.**
+Declare that origin as `ROOST_COORDINATOR_PUBLIC_URL` on the coordinator — it
+must be a separate HTTPS front door a worker can reach, such as a tailnet
+`tailscale serve` URL or an HTTPS proxy on a VPN address, never the
+coordinator's own plaintext loopback listener — and make each worker's
+`ROOST_COORDINATOR_URL` name it. Then, and only
+then, the browser-only door denies the worker path too. Both doors define the
+same site address, so **choose exactly one** — never paste both.
+
+Shared browser + worker door, the default, because workers dial this origin:
+
+```caddy
+roost.example.com {
+	@private path /internal/* /api/db-export
+	respond @private "not found" 404
+
+	reverse_proxy 127.0.0.1:4103 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+```
+
+Browser-only door, valid once workers dial `ROOST_COORDINATOR_PUBLIC_URL`
+instead:
+
+```caddy
+roost.example.com {
+	@private path /internal/* /api/db-export /ws/coord-worker/*
+	respond @private "not found" 404
+
+	reverse_proxy 127.0.0.1:4103 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+```
+
+Behind a Cloudflare tunnel the same distinction lands on the Caddy hop the
+tunnel points at — keep its `CF-Connecting-IP` guard and header rewrite, and
+choose the matcher the same way. Again, exactly one of the two.
+
+Shared browser + worker door, behind `cloudflared`:
+
+```caddy
+http://roost.example.com:8080 {
+	@no_cf_ip not header CF-Connecting-IP *
+	respond @no_cf_ip "not found" 404
+
+	@private path /internal/* /api/db-export
+	respond @private "not found" 404
+
+	reverse_proxy 127.0.0.1:4103 {
+		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+	}
+}
+```
+
+Browser-only door, behind `cloudflared`:
+
+```caddy
+http://roost.example.com:8080 {
+	@no_cf_ip not header CF-Connecting-IP *
+	respond @no_cf_ip "not found" 404
+
+	@private path /internal/* /api/db-export /ws/coord-worker/*
+	respond @private "not found" 404
+
+	reverse_proxy 127.0.0.1:4103 {
+		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+	}
+}
+```
+
+Denying the worker path while workers still dial the public origin strands
+every one of them: their transport answers 404 and no session on that machine
+is reachable.
+
+## First browser enrollment
 
 Quickstart mints a one-shot browser grant in a `#pair` URL fragment and passes
 that URL directly to the platform browser opener. Quickstart never prints or
@@ -135,255 +326,16 @@ or screenshots. If the platform opener fails, arrange a working local browser
 opener and rerun quickstart, or use **Settings → Pair a device** from an already
 authorized browser. Later devices should always use that Settings pairing flow.
 
-## Managed deployment qualification (not publicly launched)
-
-v0.5.0 includes a qualified managed implementation, not a public managed
-service. Production does not publish the managed coordinator image or activate
-the shared dashboard origin, so the public release cannot be used to provision
-a managed account.
-
-The qualified Linux profile has a root-owned operator/provisioner plane and
-one exact-spec non-root coordinator container per account, created from a
-digest-pinned immutable image. Each account has separate writable state, keys,
-worker credentials, and an opaque route key. The profile's Caddy configuration
-routes `/_roost/t/<route-key>/…` on the shared dashboard origin to exactly one
-container over the named Docker `web` network; no coordinator port is
-published on the host. The container has no shell, package manager, SSH,
-rsync, Docker socket, source checkout, host home, or customer worker process.
-
-Managed accounts are operator-created through the `roost saas` commands.
-Production email signup and Google auth remain disabled. Owner activation is a
-held, expiring email flow: routing and resolver proofs complete before mail is
-released, and reconciliation resumes the last safe state without deleting
-tenant data.
-
-Server authorization derives dashboard scope from the authenticated account
-membership rather than trusting a browser-supplied dashboard id. RPC, Sync,
-worker routing, and browser dashboard cutover retain that same scope.
-
-The mandatory `test:managed` profile runs four E2E files with five top-level
-cases: browser activation/login/reset, two-account container and route
-isolation, encrypted backup/restore, and dormant email/Google signup. Passing
-that profile is the qualification gate; it is not evidence that the service,
-image, domain, containers, or signup path is live.
-
-## Optional: Cloudflare browser access for automatic mode
-
-Cloudflare browser access adds a public browser endpoint to an already working
-automatic Tailscale installation:
-
-- Cloudflare Access authenticates the human reaching the browser endpoint.
-- Roost pairing still authorizes that browser as a Roost device. An Access
-  login does not replace pairing.
-- Tailscale remains the private coordinator/worker network.
-- Only the coordinator runs `cloudflared`; browser devices and workers do not
-  install it.
-
-| | Default Tailscale path | Cloudflare browser access |
-|---|---|---|
-| **Browser device software** | Tailscale app | Ordinary browser only |
-| **Coordinator/worker network** | Tailscale | Tailscale |
-| **Public DNS/domain** | None | Cloudflare-managed domain required |
-| **Cloudflare setup** | None | Tunnel plus self-hosted Access application |
-| **Best reason to choose it** | Minimum setup | Browser access from unmanaged devices |
-| **Tradeoff** | Browser must join the tailnet | Manual Cloudflare administration and an extra internet-facing dependency |
-
-Follow these steps on the coordinator.
-
-### 1. Check the prerequisites
-
-You need:
-
-- a working Roost coordinator and workers on Tailscale;
-- a domain whose DNS is managed by Cloudflare;
-- a Cloudflare Zero Trust team with a login method that works for the
-  operator's email (otherwise, first [configure an identity
-  provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/));
-- administrator access to install a `cloudflared` service on the coordinator;
-- the [outbound connectivity required by Cloudflare
-  Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/troubleshoot-tunnels/connectivity-prechecks/).
-
-This manual flow uses `cloudflared tunnel login`; it does not require a
-Cloudflare API token.
-
-### 2. Install `cloudflared` and create a locally-managed tunnel
-
-Install `cloudflared` on the coordinator:
-
-```sh
-# macOS
-brew install cloudflared
-
-# Debian / Ubuntu
-sudo mkdir -p --mode=0755 /usr/share/keyrings
-curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
-  | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
-echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' \
-  | sudo tee /etc/apt/sources.list.d/cloudflared.list
-sudo apt-get update && sudo apt-get install cloudflared
-
-# RHEL / CentOS Stream / Fedora / Amazon Linux
-curl -fsSL https://pkg.cloudflare.com/cloudflared.repo \
-  | sudo tee /etc/yum.repos.d/cloudflared.repo
-sudo dnf install cloudflared
-```
-
-Other distributions and architectures: [Cloudflare's package
-index](https://pkg.cloudflare.com) or the [release
-binaries](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/).
-`roost expose` refuses to run when `cloudflared` is not on `PATH`.
-
-Then follow Cloudflare's [locally-managed tunnel
-guide](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/)
-and run:
-
-```sh
-cloudflared tunnel login
-cloudflared tunnel create roost
-```
-
-Copy the tunnel UUID and the absolute credentials-file path printed by
-`cloudflared tunnel create`.
-
-### 3. Configure tunnel ingress
-
-Create `$HOME/.cloudflared/config.yml`:
-
-```yaml
-tunnel: <TUNNEL-UUID>
-credentials-file: /absolute/path/printed/by/cloudflared/<TUNNEL-UUID>.json
-ingress:
-  - hostname: roost.example.com
-    service: http://127.0.0.1:4104
-  - service: http_status:404
-```
-
-Replace each angle-bracketed placeholder and replace `roost.example.com` with
-your real hostname. `roost expose` rejects a missing config, invalid ingress, a
-path-scoped first rule, a different hostname or first service, or routes that
-do not resolve to the loopback browser listener at `127.0.0.1:4104`.
-
-### 4. Route the hostname
-
-```sh
-cloudflared tunnel route dns roost roost.example.com
-```
-
-Replace `roost.example.com` with the same hostname used in the config.
-
-### 5. [Create the Access application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)
-
-In **Cloudflare Zero Trust → Access controls → Applications**, create a
-**Self-hosted** application for exactly `roost.example.com`, replacing the
-example with your hostname. Add an **Allow** policy containing the operator's
-email. Copy:
-
-- the team domain in the exact form `<team>.cloudflareaccess.com`;
-- **Additional settings → [Application Audience (AUD)
-  Tag](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)**,
-  which must be exactly 64 lowercase hexadecimal characters.
-
-### 6. Configure Roost
-
-Run the existing command with the same bare hostname:
-
-```sh
-roost expose roost.example.com \
-  --team <team>.cloudflareaccess.com \
-  --aud <64-lowercase-hex>
-```
-
-For a non-default config, add `--config <path>`. A relative path is resolved
-against the current working directory before validation.
-
-### 7. Install the tunnel service
-
-Run the service-install command printed by `roost expose`. With the default
-config, it is:
-
-```sh
-sudo cloudflared --config "$HOME/.cloudflared/config.yml" service install
-```
-
-The explicit `--config` is what makes this work on Linux: under `sudo`, the
-service's `$HOME` is `/root`, so `cloudflared` would not find the config you
-just wrote. Your own shell expands `$HOME` before `sudo` runs, so the path above
-is the right one.
-
-macOS launchd starts the service on install. On Linux, start and enable it
-yourself:
-
-```sh
-sudo systemctl enable --now cloudflared
-sudo systemctl status cloudflared
-```
-
-Roost does not install, update, or own this Cloudflare service; it only prints
-the command.
-
-### 8. Verify access and pair the browser
-
-While logged out of Cloudflare Access, run:
-
-```sh
-curl -i -X POST https://roost.example.com/roost.v1.CoordinatorService/MiscHealth
-```
-
-Expect a Cloudflare Access login redirect or challenge. Origin HTTP 200 means
-Access is absent; HTTP 502 or 530 means tunnel routing is wrong.
-
-Then open `https://roost.example.com`, complete the Access login, and pair that
-browser through Roost. A successful Access login without Roost pairing is not
-sufficient.
-
-### What this does not change
-
-- Workers still join through the Tailscale coordinator URL and require
-  Tailscale.
-- `roost deploy`, VNC/Screen Sharing, Finder/SMB, SSH/rsync, and
-  development-port links continue using direct or tailnet reachability.
-- The Cloudflare browser surface intentionally denies worker WebSockets,
-  worker bootstrap, database export, internal handoff, and coordinator-move
-  RPCs.
-- Cloudflare availability and the configured Access policy become dependencies
-  for the public browser URL. The private Tailscale path remains available.
-
-### Disable public access
-
-Stop and remove the tunnel service:
-
-```sh
-sudo systemctl disable --now cloudflared   # Linux only
-sudo cloudflared service uninstall
-```
-
-Then delete the corresponding Access application, DNS record, and tunnel in
-the Cloudflare dashboard. Stopping the tunnel removes public reachability; it
-does not stop coordinator/worker traffic over Tailscale.
-
-> **Lifecycle limitation:** There is no `roost unexpose` command.
-> `roost expose` persists `ROOST_WEB_PUBLIC_URL` and the Access settings in the
-> coordinator service. Deleting the Cloudflare resources therefore does not
-> fully restore local pairing links or remove the saved public URL. Do not
-> hand-edit launchd or systemd files. To perform a full local reset, reinstall
-> or reconfigure the coordinator.
-
 ## Pair your phone
 
-Choose one route:
+Make the front door reachable from the phone, open it, then choose **Settings →
+Pair a device** in Roost on an already-authorized browser and scan the QR with
+the phone's camera. On a tailnet front door, install the Tailscale app on the
+phone and sign in to the same tailnet first.
 
-- **Default Tailscale route:** Install the Tailscale app on the phone and sign
-  in to the same tailnet. In Roost on your computer, choose **Settings → Pair a
-  device**, then scan the QR with the phone's camera.
-- **Direct HTTPS route:** Make the configured HTTPS origin reachable from the
-  phone and ensure its certificate chain is trusted there. In Roost on an
-  authorized browser, choose **Settings → Pair a device**, then scan the QR.
-- **Cloudflare route:** After completing the optional Cloudflare setup above,
-  open your Cloudflare hostname on the phone without installing Tailscale.
-  Complete the Cloudflare Access login, then complete Roost QR/device pairing.
-
-Every route requires Roost pairing. Network reachability or a Cloudflare Access
-login alone does not authorize the phone as a Roost device.
+Pairing is what authorizes a device. Network reachability, a VPN membership, or
+a login your front door performs on its own does not authorize a phone as a
+Roost device.
 
 ## Turn on agent notifications
 
@@ -408,26 +360,28 @@ notification opens that session.
 
 ## Add another machine
 
-v0.5.0 enrolls macOS or Linux workers. In either coordinator mode,
-**Settings → Machines → Add machine** derives the installed public HTTPS
-origin and creates a one-shot pull command. On an automatic-mode coordinator,
-the equivalent CLI generators are `roost add-machine --platform macos` and
-`roost add-machine --platform linux`. No coordinator SSH or push is involved.
+v0.5.0 enrolls macOS or Linux workers. **Settings → Machines → Add machine**
+creates a one-shot pull command; the CLI equivalents are
+`roost add-machine --platform macos` and `roost add-machine --platform linux`.
+The enrollment URL comes from the installed coordinator service definition,
+overlaid by the ambient environment, in the order `ROOST_COORDINATOR_URL` →
+`ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL`. With none of them set
+the command refuses, naming all three, instead of inventing an origin. No
+coordinator SSH or push is involved.
 
 Paste the generated command on the worker:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
-  ROOST_COORDINATOR_URL="https://<coordinator-host>:<port>" \
+  ROOST_COORDINATOR_URL="https://roost.example.com" \
   ROOST_BOOTSTRAP_TOKEN="roost_bt_…" bash
 ```
 
-`join.sh` currently requires a running Tailscale daemon even when
-`ROOST_COORDINATOR_URL` is the direct HTTPS origin. In direct mode, the worker
-must also reach that origin and trust its certificate chain. The CLI generator
-is automatic-mode-only and always uses the coordinator MagicDNS name on port
-4102. v0.5.0 therefore has no Tailscale-free direct extra-worker enrollment
-flow.
+The worker must reach that origin and trust its certificate chain, and the
+origin must accept `/ws/coord-worker/*`. Give workers a private origin
+(`ROOST_COORDINATOR_PUBLIC_URL` on the coordinator, and the matching
+`ROOST_COORDINATOR_URL` here) when you would rather keep the worker link off
+the public front door.
 
 The machine appears in **Settings → Machines** within a few seconds. macOS
 uses launchd and Linux uses `systemd --user`. The server-side bootstrap token
@@ -453,6 +407,8 @@ skipped, and a rejected or ambiguous input is never retried.
 The opaque reference remains private recovery metadata until the OMP
 integration replaces or clears it; Roost still owns no agent conversation or
 transcript.
+
+## Update the fleet
 
 To update a source-installed coordinator and its registered fleet from a clean
 Roost checkout, run:
@@ -486,7 +442,7 @@ A remote target's own identity is never taken from the shell running the
 deploy. `ROOST_WORKER_LABEL` and `ROOST_REACHABLE_ADDR` come from the target's
 installed service definition, or from `--label=<name>` /
 `--reachable-addr=<fqdn>` on the command line; with neither present the target
-derives its own hostname and tailnet name. Exporting either variable while
+derives its own hostname and reachable address. Exporting either variable while
 deploying to a host that has no prior install refuses the deploy rather than
 registering that host under this machine's name.
 
@@ -497,15 +453,18 @@ roost status
 roost doctor --since 1h
 ```
 
-`roost status` reports the selected network mode, required Tailscale/Serve or
-direct-certificate state, local coordinator and worker services, coordinator
-health and tagged SHA, and remote worker age/build observations. Its exit
-status gates required Tailscale, the two local services, and coordinator
-reachability; inspect the fleet rows rather than treating that exit status as
-proof that every remote worker converged. `roost doctor --since <window>`
-summarizes local logs from that window and reports anomalies such as uncaught
-errors, sequence gaps, queue overflows, degraded keepers, and failed
-backups/readiness.
+`roost status` reports the local coordinator and worker services, coordinator
+health and tagged SHA against its own loopback bind, the configured public URL
+and whether it answers `AuthCoordIdentity`, and remote worker age/build
+observations. A public URL that is not configured prints as informational; a
+configured one that does not answer fails the run and names the remedy — point
+your front door at the coordinator's loopback bind. Its exit status gates both
+local services, coordinator reachability, and that public-URL answer; inspect
+the fleet rows rather than treating that exit status as proof that every remote
+worker converged.
+`roost doctor --since <window>` summarizes local logs from that window and
+reports anomalies such as uncaught errors, sequence gaps, queue overflows,
+degraded keepers, and failed backups/readiness.
 
 During an ordinary worker or coordinator-link disconnect, keeper processes
 continue owning the PTYs. Crash-safe lifecycle events replay before the worker
@@ -553,16 +512,16 @@ Use one release commit and one atomic fleet transaction:
    global rollback before the durable decision, finish-only recovery after it.
 4. Run the live API canary against the installed origin:
    ```sh
-   ROOST_COORD_URL="https://<host>:<port>" \
+   ROOST_COORD_URL="https://roost.example.com" \
      bun test smoke/api_smoke.test.ts
    ```
 5. Restart the coordinator and local worker. Require a new coordinator boot
    timestamp, all workers online on the expected build, and the pre-restart PTY
    to paint a new marker. Reject new uncaught errors, sequence gaps, queue
    overflows, stale keepers, or failed backup/readiness events.
-6. If automatic-mode Cloudflare access is enabled, require an unauthenticated
-   public `MiscHealth` POST to receive the Access challenge rather than origin
-   200, while the authorized browser and private Tailscale URL remain healthy.
+6. Re-prove the front door: an unauthenticated `MiscHealth` POST through the
+   public origin reaches the coordinator, and `/api/db-export` from off-host
+   answers 403 or the front door's 404.
 
 ## Logs
 

@@ -199,8 +199,6 @@ describe("worker↔coord raw-WS transport", () => {
       caller: {} as never,
       fp,
       dashboardId,
-      authDeadlineAtMs: null,
-      authDeadlineTimer: null,
       conn: queuedConn,
       queue: null,
       eventRate: { startedAtMs: null, events: 0 },

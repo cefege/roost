@@ -12,7 +12,6 @@ import {
   coordinatorMovePhaseLabel,
 } from "./CoordinatorMoveDialog.tsx";
 import { Card, Button, EmptyState } from "./md/primitives.tsx";
-import { coordinatorMoveControlsVisible } from "../../lib/coordinatorMove.ts";
 import { isPageVisible } from "../../lib/pageVisible.ts";
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import { MachineCard } from "./MachineCard.tsx";
@@ -27,7 +26,6 @@ export function MachinesPane() {
   // coord_identity.handoff_id is already populated for any role/phase.
   const runningMove = createMemo(() => {
     const identity = rootStore.coord_identity;
-    if (!coordinatorMoveControlsVisible(identity)) return null;
     return identity?.handoff_id && !identity.relocated_to_url ? identity.handoff_id : null;
   });
   const [movePhase, setMovePhase] = createSignal<CoordinatorMovePhase | null>(null);
@@ -47,9 +45,8 @@ export function MachinesPane() {
   };
 
   createEffect(() => {
-    const identity = rootStore.coord_identity;
     const id = runningMove();
-    if (!coordinatorMoveControlsVisible(identity) || !id || identity?.public_listener === true) {
+    if (!id) {
       setMovePhase(null);
       return;
     }
@@ -66,16 +63,7 @@ export function MachinesPane() {
 
   return (
     <div data-testid="settings-machines-pane" style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-5)" }}>
-      <Show when={coordinatorMoveControlsVisible(rootStore.coord_identity) && rootStore.coord_identity?.public_listener === true}>
-        <Card
-          variant="elevated"
-          title="Coordinator moves require private access"
-          supporting="Coordinator moves are unavailable from the public web address. Open Roost through its private Tailscale address to move it."
-        >
-          <span />
-        </Card>
-      </Show>
-      <Show when={coordinatorMoveControlsVisible(rootStore.coord_identity) && moveInFlight()}>
+      <Show when={moveInFlight()}>
         <Card
           variant="elevated"
           title="Coordinator move in progress"
@@ -122,12 +110,10 @@ export function MachinesPane() {
         {(worker) => <MachineCard worker={worker} />}
       </For>
 
-      {/* This is worker enrollment, not coordinator-originated deployment; it
-          remains available for managed accounts. */}
       <Show when={showDeploy()}>
         <MachineDeployDialog onClose={() => setShowDeploy(false)} />
       </Show>
-      <Show when={coordinatorMoveControlsVisible(rootStore.coord_identity) && resumeDialog() && moveInFlight() && rootStore.coord_identity?.public_listener !== true}>
+      <Show when={resumeDialog() && moveInFlight()}>
         <CoordinatorMoveDialog
           targetWorkerFp=""
           resumeHandoffId={moveInFlight()!}

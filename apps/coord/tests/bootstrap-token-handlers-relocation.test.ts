@@ -149,10 +149,8 @@ describe("account-bound relocation redemption", () => {
     await foreign.h.db.insertInto("accounts").values({
       id: "foreign-account",
       email_normalized: "foreign@example.test",
-      password_hash: null,
       status: "active",
       created_at_ms: now,
-      password_changed_at_ms: null,
     }).execute();
     await foreign.h.db.insertInto("authorized_keys").values({
       fingerprint: foreignKey.fingerprint,

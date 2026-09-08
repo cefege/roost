@@ -138,9 +138,8 @@ function inspectOrCreateTopology(
     const organizationId = randomUUID();
     const dashboardId = randomUUID();
     queryRun(sqlite, `
-      INSERT INTO accounts
-        (id, email_normalized, password_hash, status, created_at_ms, password_changed_at_ms)
-      VALUES (?, 'local@roost.invalid', NULL, 'active', ?, NULL)
+      INSERT INTO accounts (id, email_normalized, status, created_at_ms)
+      VALUES (?, 'local@roost.invalid', 'active', ?)
     `, accountId, now);
     queryRun(sqlite, `
       INSERT INTO organizations (id, slug, name, status, created_at_ms)

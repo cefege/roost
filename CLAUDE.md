@@ -243,7 +243,7 @@ critical failure — the plan IS the answer.
 
 A change to the producer→wire→consumer chain (worker emits a `SessionEvent` or
 terminal frame → coord routes it → SPA folds state or paints the grid) is done
-when the five gates under `### Commands` are green, and not before. Test-hook
+when the six gates under `### Commands` are green, and not before. Test-hook
 coverage supplements, never replaces, `bun run test:terminal` — the real-flow
 tier: each Playwright worker starts a real coord, worker, keeper and PTYs
 (`smoke/terminal/stack.ts`) and drives a real browser against the built
@@ -266,6 +266,16 @@ bundles: it is only included when the web bundle was built with
 `VITE_ROOST_SMOKE=1` (the terminal tier's build sets it), and even then it is
 code-split and installed solely when `localStorage.roostSmoke === "1"`.
 
+`bun run test:upgrade` is the other real-flow tier and the only gate that
+proves an EXISTING install survives a new release: it stages the previous
+commit and the newest release tag as git worktrees, boots the working tree's
+coordinator over the database that release created, opens two PTYs, deploys
+through the product's own keeper-update admission
+(`smoke/upgrade/release-handoff.ts`), and fails if the keeper's pid or either
+channel count moved, if a marker stopped painting, or if the upgraded worker
+never reported the keeper runtime the next upgrade admits on. `test:terminal`
+proves a FRESH stack works and cannot see that class of defect at all.
+
 `smoke/terminal/live-stack.ts` is the hands-on escape hatch, never a gate: `bun
 run --cwd apps/web build`, then `bun smoke/terminal/live-stack.ts` holds that
 same working-tree stack open and prints `READY <url> worker=<fp>`; no tailnet.
@@ -281,23 +291,27 @@ bun run test:worker     # gate — per-file isolated worker suite
 bun run test:terminal   # gate — real coord + worker + keeper + PTY + browser;
                         #   builds apps/web with VITE_ROOST_SMOKE=1 (the only
                         #   way window.__smoke exists; prod builds fold it out)
+bun run test:upgrade    # gate — a released install meets the working tree:
+                        #   real deploy, keeper and live PTYs must survive it
 bun x tsgo -p tsconfig.base.json --noEmit   # gate — exactly what CI typechecks
 bun run --cwd apps/site typecheck          # gate — apps/site `astro check`
 bun run test:live-api   # optional monitor — deployed coord (ROOST_COORD_URL)
 ```
 
 CI (`.github/workflows/ci.yml`) runs every gate above plus knip (report-only)
-on ubuntu-latest AND macos-latest, then the pinned-wterm-WASM gate and, ONLY
-when the repo variable ROOST_WINDOWS_GATE is `on` (off by default since
-2026-08-16, paused per GETTING_STARTED.md), the `windows-2022` tier — the only
-gate covering the Windows brokers. No gate needs a deployed coordinator, a
-tailnet, or a human driving a browser.
+on ubuntu-latest AND macos-latest — the `terminal` and `upgrade` tiers as their
+own matrix jobs on both — then the pinned-wterm-WASM gate and, ONLY when the
+repo variable ROOST_WINDOWS_GATE is `on` (off by default since 2026-08-16,
+paused per GETTING_STARTED.md), the `windows-2022` tier — the only gate
+covering the Windows brokers. The `upgrade` job checks out with
+`fetch-depth: 0`, because it stages other releases as git worktrees. No gate
+needs a deployed coordinator, a tailnet, or a human driving a browser.
 
 ---
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 42
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 52
 entries, one `###` heading each, with `**Symptom**` (the grep string),
 `**Wrong**`, `**Right**`, and `**Guard**` (the lint rule or test that pins
 it). It is the only actively maintained institutional memory in this repo and

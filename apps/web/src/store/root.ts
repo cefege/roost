@@ -74,8 +74,6 @@ export interface RootState {
   coord_identity: {
     git_sha: string;
     public_url: string;
-    public_listener: boolean;
-    saas_mode: boolean;
     relocated_to_url?: string;
     handoff_id?: string;
   } | null;
@@ -181,7 +179,7 @@ export function clearDashboardScopedRootData(): void {
 }
 
 /** Remove account identity, memberships, selection, and all scoped replicas.
- * Coordinator discovery survives so the managed login route can still render. */
+ * Coordinator discovery survives so the pairing surfaces can still render. */
 export function clearAccountRootStateForLogout(): void {
   batch(() => {
     clearDashboardScopedRootData();
@@ -198,13 +196,6 @@ export function clearAccountRootStateForLogout(): void {
 /** Current selected scope as a string suitable for transport propagation. */
 export function selectedDashboardId(): string | null {
   return rootStore.selected_dashboard_id;
-}
-
-/** True only after AuthDashboardAccess returned an account, selected dashboard,
- * and membership metadata for that exact selection. */
-export function hasConfirmedDashboardAccess(): boolean {
-  const selected = rootStore.selected_dashboard_id;
-  return !!rootStore.account_id && !!selected && !!rootStore.dashboards[selected];
 }
 
 // Slices keyed as plain-object Records. Solid setStore cannot delete through

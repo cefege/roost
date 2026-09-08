@@ -3,7 +3,7 @@
 // not a temporary grant; caching avoids a WAN round-trip on every mic tap.
 // Invalidation is generation-scoped so logout, key rotation, or credential
 // rejection cannot let an older in-flight response repopulate the cache.
-// Callers: MobileVoiceInput, TranscriptionPane, and managed logout.
+// Callers: MobileVoiceInput and TranscriptionPane.
 
 import { coordClient } from "../connect.ts";
 

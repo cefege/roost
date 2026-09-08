@@ -233,7 +233,7 @@ describe("Web Push delivery", () => {
       statusEpoch: STATUS_EPOCH,
       occupantId: OCCUPANT_ID,
       revision: 7,
-    }, PUSH_ORIGINS, () => true, sender, "a".repeat(64));
+    }, PUSH_ORIGINS, () => true, sender);
     expect(deliveries).toHaveLength(1);
     const payload = deliveries[0]!.payload as { deduplicationToken: string };
     const deduplicationToken = payload.deduplicationToken;
@@ -249,7 +249,6 @@ describe("Web Push delivery", () => {
         statusEpoch: STATUS_EPOCH,
         occupantId: OCCUPANT_ID,
         revision: 7,
-        routeKey: "a".repeat(64),
         deduplicationToken,
       },
       deduplicationToken,

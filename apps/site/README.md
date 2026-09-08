@@ -73,8 +73,9 @@ Linger is already enabled for `almalinux`, so the unit survives logout.
 
 ## Expose on the tailnet
 
-The coordinator already owns the `:4102 -> 127.0.0.1:4103` mapping. Check it first, then
-add the site mapping only — do not touch the coordinator's:
+The coordinator listens on `127.0.0.1:4103` and whatever fronts it owns that
+mapping. Check the existing Serve configuration first, then add the site
+mapping only — do not touch the coordinator's:
 
 ```sh
 tailscale serve status
@@ -99,7 +100,7 @@ match reality.
 ## Publish `roosttt.com`
 
 `roosttt.com` is the static Astro origin. Publish it independently of every
-coordinator or managed-service route:
+coordinator origin:
 
 ```sh
 ROOST_SITE_ORIGIN=https://roosttt.com bun run --cwd apps/site publish
@@ -112,78 +113,5 @@ ROOST_SITE_ORIGIN=https://roosttt.com bun run --cwd apps/site publish
 read-only, so publishing does not restart a coordinator or edge service.
 
 The apex and `www` origins remain static-only. They do not proxy SPA routes,
-Connect RPC, Sync, worker WebSockets, tenant resolution, or managed
-authentication.
-
-## Managed deployment status
-
-**Managed hosting is qualified but not launched in `v0.5.0`.** No production
-managed coordinator containers, `dashboard.roosttt.com` Cloudflare route, or
-managed image publication are active. The assets below define a future
-operator deployment; they are not instructions to activate it as part of the
-site publish.
-
-Public signup is off. `assets/linux/systemd/roost-saas-auth.service` sets
-`ROOST_SIGNUP_ENABLED=0` and `ROOST_GOOGLE_ENABLED=0`. Accounts are created by
-an operator with `roost saas account-create --email <address>` after a
-separately authorized managed launch. Do not expose `/signup`, enable either
-gate, publish `Dockerfile.coord`, or add the dashboard tunnel route for the
-`v0.5.0` site release.
-
-## Qualified managed topology (not launched)
-
-The managed design is one coordinator container and one persisted instance
-layout per account, not one coordinator shared by every account.
-
-| Boundary | Source owner | Contract |
-|---|---|---|
-| Public edge | `assets/linux/cloudflared/config.yml.example` | The future `dashboard.roosttt.com` hostname terminates at the edge Caddy origin. The example has one whole-host ingress and a terminal `http_status:404` rule. |
-| Route generation | `apps/roost-cli/src/saas/caddy.ts` | `CaddyTenantRouter` writes `roost-tenants.caddy`. A 64-lowercase-hex route key selects `/_roost/t/<route-key>/*`; `handle_path` strips the prefix and proxies only to the matching account container. |
-| Account resolver | `apps/roost-cli/src/saas/resolver.ts` | `POST /__roost/tenant/resolve` maps normalized email to the account route key in `/srv/data/roost/control.db`. Unknown emails receive a keyed synthetic route, so the response does not disclose account existence. |
-| Browser routing | `apps/web/src/auth/tenant-routing.ts` | The browser persists the route key as a routing hint and sends coordinator traffic through `/_roost/t/<route-key>`. The route key is not authorization. |
-| Account runtime | `apps/roost-cli/src/saas/docker.ts` and `apps/roost-cli/src/saas/docker-container-contract.ts` | `ManagedInstanceRuntime` creates and adopts only an exact-spec container labeled with its account and coordinator IDs and pinned to an immutable image digest. |
-| Per-account state | `apps/roost-cli/src/saas/layout.ts` and `apps/roost-cli/src/saas/registry-validation.ts` | Each coordinator uses `/srv/data/roost/instances/<coordinator-id>/data` plus account-specific secrets, verifier material, manifest, database, logs, and authorized keys. |
-| Operator control | `apps/roost-cli/src/saas/index.ts` | Account lifecycle, route reconciliation, encrypted backup, and immutable-image rollout are explicit operator commands. |
-| Service isolation | `assets/linux/systemd/` and `assets/linux/nftables/roost-saas-origin-isolation.nft` | Separate auth, provisioner, resolver, reconcile, backup, bridge, and origin-firewall units keep public request handling away from Docker and privileged host state. |
-
-Request flow:
-
-1. The future Cloudflare tunnel forwards the dashboard hostname to edge Caddy.
-2. Login submits email to `/__roost/tenant/resolve`; the resolver reads the
-   control registry and returns a route key without confirming account
-   existence.
-3. The browser sends subsequent RPC and WebSocket traffic through
-   `/_roost/t/<route-key>`.
-4. Generated Caddy configuration maps that route key to exactly one
-   per-account container and strips the routing prefix before proxying.
-5. The coordinator authenticates the account/device and applies its persisted
-   dashboard scope; route selection alone grants no access.
-
-The operator command surface implemented by `apps/roost-cli/src/saas/index.ts`
-is:
-
-```sh
-roost saas account-create --email <address>
-roost saas account-resend --email <address>
-roost saas account-disable --email <address> --yes
-roost saas account-enable --email <address>
-roost saas accounts
-roost saas reconcile
-roost saas backup
-roost saas backup --email <address>
-roost saas rollout --image <sha256:digest>
-```
-
-`account-create` is the managed account-entry policy: it reserves the
-account and route key, creates the dedicated container and instance layout,
-reconciles the Caddy route, proves direct and routed identity, and delivers
-owner activation. `account-resend`, `account-disable`, and `account-enable`
-operate on that same account-owned coordinator. `reconcile` repairs runtime
-and route drift; `backup` encrypts coordinator backups; `rollout` accepts only
-an immutable `sha256:` image digest.
-
-The service-owned commands are `roost saas resolver`,
-`roost __saas-auth serve`, and `roost __saas-provisioner serve`; their unit
-files are `assets/linux/systemd/roost-saas-resolver.service`,
-`roost-saas-auth.service`, and `roost-saas-provisioner.service`. They are
-internal topology, not manual public-launch steps.
+Connect RPC, Sync, or worker WebSockets. A Roost dashboard is reached through
+the operator's own front door, never through this site.

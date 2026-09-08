@@ -15,7 +15,6 @@ import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
-import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000101";
 const DASHBOARD_ID = "00000000-0000-4000-8000-000000000102";
@@ -53,16 +52,11 @@ beforeAll(async () => {
   const cfg: CoordConfig = {
     trustProxy: false,
     bind: "127.0.0.1:0",
-    saasMode: true,
-    managedContainer: true,
-    instanceId: DASHBOARD_ID,
     pushAllowedOrigins: [],
     dbPath,
     coordKeyPath: keyPath,
     authorizedKeysPath,
     webDistPath: "",
-    tlsCertPath: undefined,
-    tlsKeyPath: undefined,
     jwtMaxAgeSecs: 300,
     auditRetentionDays: 90,
     relaxedCsp: false,
@@ -77,7 +71,6 @@ beforeAll(async () => {
     coordKey,
     cfg,
     jwtCache,
-    passwordWorkGate: new PasswordWorkGate(),
   });
 
   const workerKeys = await crypto.subtle.generateKey(

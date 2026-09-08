@@ -41,7 +41,7 @@ export interface Harness {
 
 export function createBootstrapHandlerHarnessOwner(): {
   cleanupHarnesses: () => Promise<void>;
-  openHarness: (saasMode?: boolean) => Promise<Harness>;
+  openHarness: () => Promise<Harness>;
 } {
   const cleanups: Array<() => Promise<void>> = [];
 
@@ -49,7 +49,7 @@ export function createBootstrapHandlerHarnessOwner(): {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   }
 
-  async function openHarness(saasMode = false): Promise<Harness> {
+  async function openHarness(): Promise<Harness> {
     const dir = mkdtempSync(join(tmpdir(), "roost-bootstrap-handler-"));
     const opened = openDb(join(dir, "coord.db"));
     await runMigrations(opened.sqlite);
@@ -57,7 +57,7 @@ export function createBootstrapHandlerHarnessOwner(): {
     const deps = {
       db: opened.db,
       sqlite: opened.sqlite,
-      cfg: { saasMode },
+      cfg: {},
       jwtCache: newJwtCache(),
     } as unknown as ConnectDeps;
     cleanups.push(async () => {

@@ -94,9 +94,9 @@ beforeAll(async () => {
     { fingerprint: fpLegacy, public_key: new Uint8Array(32), label: "legacy", added_at: now },
   ]).execute();
   await db.insertInto("accounts").values([
-    { id: accountA, email_normalized: "a@example.test", password_hash: null, status: "active", created_at_ms: now, password_changed_at_ms: null },
-    { id: accountB, email_normalized: "b@example.test", password_hash: null, status: "active", created_at_ms: now, password_changed_at_ms: null },
-    { id: accountDisabled, email_normalized: "disabled@example.test", password_hash: null, status: "disabled", created_at_ms: now, password_changed_at_ms: null },
+    { id: accountA, email_normalized: "a@example.test", status: "active", created_at_ms: now },
+    { id: accountB, email_normalized: "b@example.test", status: "active", created_at_ms: now },
+    { id: accountDisabled, email_normalized: "disabled@example.test", status: "disabled", created_at_ms: now },
   ]).execute();
   await db.insertInto("account_devices").values([
     { fingerprint: fpA, account_id: accountA, added_at_ms: now, last_seen_at_ms: now },
@@ -149,24 +149,21 @@ describe("dashboard actor resolution", () => {
   });
 
   test("resolves account, worker, and legacy principals without authority fallback", async () => {
-    const managed = { saasMode: true } as Parameters<typeof resolveCallerPrincipal>[1];
-    const selfHosted = { saasMode: false } as Parameters<typeof resolveCallerPrincipal>[1];
     const verified = (fingerprint: string, label: string) => ({ fingerprint, label });
-    await expect(resolveCallerPrincipal(db, managed, verified(fpA, "A"))).resolves.toEqual({
+    await expect(resolveCallerPrincipal(db, verified(fpA, "A"))).resolves.toEqual({
       kind: "account-device",
       fingerprint: fpA,
       label: "A",
       accountId: accountA,
     });
-    await expect(resolveCallerPrincipal(db, managed, verified(fpWorker, "worker"))).resolves.toEqual({
+    await expect(resolveCallerPrincipal(db, verified(fpWorker, "worker"))).resolves.toEqual({
       kind: "worker",
       fingerprint: fpWorker,
       label: "worker",
       dashboardId: dashboardA,
     });
-    await expect(resolveCallerPrincipal(db, managed, verified(fpDisabled, "disabled"))).resolves.toBeNull();
-    await expect(resolveCallerPrincipal(db, managed, verified(fpLegacy, "legacy"))).resolves.toBeNull();
-    await expect(resolveCallerPrincipal(db, selfHosted, verified(fpLegacy, "legacy"))).resolves.toEqual({
+    await expect(resolveCallerPrincipal(db, verified(fpDisabled, "disabled"))).resolves.toBeNull();
+    await expect(resolveCallerPrincipal(db, verified(fpLegacy, "legacy"))).resolves.toEqual({
       kind: "legacy-self-hosted",
       fingerprint: fpLegacy,
       label: "legacy",
@@ -232,139 +229,6 @@ describe("dashboard actor resolution", () => {
       dashboardRole: "member",
     }));
     expect(requireOrganizationAdmin(organizationAdminValues).organizationRole).toBe("admin");
-  });
-
-  test("reports the exact managed instance on either accepting listener", async () => {
-    const instanceId = "11111111-1111-4111-8111-111111111111";
-    const handlers = makeAuthHandlers({
-      cfg: {
-        saasMode: true,
-        managedContainer: true,
-        instanceId,
-      },
-    } as unknown as ConnectDeps);
-
-    for (const [listener, publicListener] of [
-      ["direct", false],
-      ["public-edge", true],
-    ] as const) {
-      const values = createContextValues();
-      values.set(listenerTrustKey, listener);
-      const response = await handlers.authCoordIdentity(
-        create(AuthCoordIdentityRequestSchema, {}),
-        { values } as unknown as HandlerContext,
-      );
-      expect("fingerprintHex" in response).toBe(false);
-      expect(response).toMatchObject({
-        saasMode: true,
-        instanceId,
-        publicListener,
-      });
-    }
-  });
-  test("does not audit a request that began before managed bootstrap committed", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "roost-auth-bootstrap-audit-"));
-    const opened = openDb(join(dir, "coord.db"));
-    await runMigrations(opened.sqlite);
-    const interceptor = makeAuthInterceptor({
-      db: opened.db,
-      cfg: { saasMode: true },
-      jwtCache: {},
-    } as unknown as Parameters<typeof makeAuthInterceptor>[0]);
-    const entered = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    const invoke = interceptor as unknown as (
-      next: (request: unknown) => Promise<Response>,
-    ) => (request: unknown) => Promise<Response>;
-    const pending = invoke(async () => {
-      entered.resolve();
-      await release.promise;
-      return new Response();
-    })({
-      method: { name: "SessionsList" },
-      service: { typeName: "roost.v1.CoordinatorService" },
-      header: new Headers(),
-      contextValues: createContextValues(),
-    });
-    await entered.promise;
-    await opened.db.insertInto("accounts").values({
-      id: "bootstrap-account",
-      email_normalized: "owner@example.com",
-      password_hash: null,
-      status: "active",
-      created_at_ms: 1,
-      password_changed_at_ms: null,
-    }).execute();
-    release.resolve();
-    await pending;
-    const audit = opened.sqlite.query("SELECT COUNT(*) AS count FROM audit_log").get() as { count: number };
-    expect(audit.count).toBe(0);
-    await opened.close();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  test("scopes actorless managed-container audits to the instance dashboard", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "roost-auth-instance-audit-"));
-    const opened = openDb(join(dir, "coord.db"));
-    const instanceId = "11111111-1111-4111-8111-111111111111";
-    try {
-      await runMigrations(opened.sqlite);
-      await opened.db.insertInto("accounts").values({
-        id: "bootstrap-account",
-        email_normalized: "owner@example.com",
-        password_hash: "hash",
-        status: "active",
-        created_at_ms: 1,
-        password_changed_at_ms: 1,
-      }).execute();
-      await opened.db.insertInto("organizations").values({
-        id: "bootstrap-account",
-        slug: "personal",
-        name: "owner@example.com",
-        status: "active",
-        created_at_ms: 1,
-      }).execute();
-      await opened.db.insertInto("dashboards").values({
-        id: instanceId,
-        organization_id: "bootstrap-account",
-        slug: "default",
-        name: "Personal",
-        status: "active",
-        created_at_ms: 1,
-      }).execute();
-      const interceptor = makeAuthInterceptor({
-        db: opened.db,
-        cfg: {
-          saasMode: true,
-          managedContainer: true,
-          instanceId,
-        },
-        jwtCache: {},
-      } as unknown as Parameters<typeof makeAuthInterceptor>[0]);
-      const invoke = interceptor as unknown as (
-        next: (request: unknown) => Promise<Response>,
-      ) => (request: unknown) => Promise<Response>;
-      const auditWritten = Promise.withResolvers<void>();
-      const unsubscribe = auditBus.subscribe(() => auditWritten.resolve());
-      try {
-        await invoke(async () => new Response())({
-          method: { name: "AuthPasswordLogin" },
-          service: { typeName: "roost.v1.CoordinatorService" },
-          header: new Headers(),
-          contextValues: createContextValues(),
-        });
-        await auditWritten.promise;
-        const audit = opened.sqlite.query(
-          "SELECT dashboard_id FROM audit_log LIMIT 1",
-        ).get() as { dashboard_id: string | null } | null;
-        expect(audit).toEqual({ dashboard_id: instanceId });
-      } finally {
-        unsubscribe();
-      }
-    } finally {
-      await opened.close();
-      rmSync(dir, { recursive: true, force: true });
-    }
   });
 
 });

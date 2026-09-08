@@ -166,7 +166,7 @@ export async function handleSyncWsUpgrade(
   }
   const dashboardId = url.searchParams.get("dashboard");
   if (!dashboardId) return new Response("not found", { status: 404 });
-  const principal = await resolveCallerPrincipal(deps.db, deps.cfg, caller);
+  const principal = await resolveCallerPrincipal(deps.db, caller);
   let actor: SyncDashboardActor;
   let readOnly: boolean;
   if (principal?.kind === "account-device") {
@@ -198,12 +198,6 @@ export async function handleSyncWsUpgrade(
   const since = Number(url.searchParams.get("since")) || 0;
   const flowControl = url.searchParams.get("flow") === SYNC_QUERY_FLOW_V1;
   const syncV2 = flowControl && url.searchParams.get("sync_v") === SYNC_QUERY_V2;
-  const credentialDeadlineMs = deps.cfg.saasMode ? caller.validUntilMs : null;
-  const socketDeadlineMs = reauthAtMs === null
-    ? credentialDeadlineMs
-    : credentialDeadlineMs === null
-      ? reauthAtMs
-      : Math.min(reauthAtMs, credentialDeadlineMs);
   const data: SyncWsData = {
     kind: "sync",
     caller,
@@ -216,7 +210,7 @@ export async function handleSyncWsUpgrade(
     remoteAddress: addr ?? null,
     feed: null,
     keepaliveTimer: null,
-    reauthAtMs: socketDeadlineMs,
+    reauthAtMs,
     reauthTimer: null,
     pressureTimer: null,
     pressureFrame: null,

@@ -63,14 +63,6 @@ export function coordinatorInstallEnvironment(
       if (value) environment[key] = value;
     }
   }
-  if (environment.ROOST_FRONTED === undefined) {
-    const bind = environment.ROOST_COORDINATOR_BIND;
-    if (environment.ROOST_TRUST_PROXY === "1" || bind?.startsWith("127.0.0.1:")) {
-      environment.ROOST_FRONTED = "1";
-    } else if (bind || environment.ROOST_TLS_CERT_PATH || environment.ROOST_TLS_KEY_PATH) {
-      environment.ROOST_FRONTED = "0";
-    }
-  }
   return environment;
 }
 

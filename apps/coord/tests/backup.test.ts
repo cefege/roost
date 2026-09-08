@@ -129,25 +129,4 @@ describe("coordinator backups", () => {
       sqlite.close(true);
     }
   });
-
-  test("managed startup installs neither pre-migration nor scheduled in-volume backups", () => {
-    const dir = mkdtempSync(join(tmpdir(), "roost-managed-backup-policy-"));
-    workdirs.push(dir);
-    const dbPath = join(dir, "coord.db");
-    const sqlite = new Database(dbPath, { create: true });
-    try {
-      sqlite.exec("CREATE TABLE sentinel (value TEXT)");
-      expect(makePreMigrationBackupHook(sqlite, dbPath, {
-        managedContainer: true,
-      })).toBeUndefined();
-      expect(makePreMigrationBackupHook(sqlite, dbPath, {
-        managedContainer: false,
-      })).toBeFunction();
-
-      scheduleBackups(sqlite, dbPath, { managedContainer: true });
-      expect(existsSync(join(dir, "backups"))).toBe(false);
-    } finally {
-      sqlite.close(true);
-    }
-  });
 });

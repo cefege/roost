@@ -1,8 +1,9 @@
-// Settings → Devices: self-hosted browser identities and pairing controls.
-// The authorized-device card is shared with the managed Account pane, where
-// the coordinator scopes DevicesList/Revoke to the signed-in account.
+// Settings → Devices: the browser identities authorized on this coordinator,
+// plus the phone-pairing QR and the pending browser-approval queue.
+// Reads devicesList/devicesRevoke over coordClient and the local key info from
+// auth/web-key.ts; PairDevicePane and Onboarding own the two pairing surfaces.
 
-import { For, Show, createEffect, createResource, createSignal, onCleanup } from "solid-js";
+import { For, Show, createResource, createSignal } from "solid-js";
 import { coordClient } from "../../connect.ts";
 import {
   getCurrentWebKeyInfo,
@@ -14,27 +15,14 @@ import { Card, Button, EmptyState, List, ListRow } from "./md/primitives.tsx";
 import { PairDevicePane } from "./PairDevicePane.tsx";
 import { Onboarding } from "../Onboarding.tsx";
 
-interface AuthorizedDevicesCardProps {
-  accountScoped?: boolean;
-  disabled?: boolean;
-  onBusyChange?: (busy: boolean) => void;
-}
-
-export function AuthorizedDevicesCard(props: AuthorizedDevicesCardProps) {
+function AuthorizedDevicesCard() {
   const [devices, { refetch }] = createResource(() => coordClient.devicesList({}));
-  const [keyInfo] = createResource(
-    () => !props.accountScoped,
-    async () => getCurrentWebKeyInfo(),
-  );
+  const [keyInfo] = createResource(async () => getCurrentWebKeyInfo());
   const [busyFingerprint, setBusyFingerprint] = createSignal<string | null>(null);
 
-  createEffect(() => props.onBusyChange?.(busyFingerprint() !== null));
-  onCleanup(() => props.onBusyChange?.(false));
-
   async function revoke(fingerprint: string, label: string): Promise<void> {
-    const recovery = props.accountScoped ? "sign in again" : "pair again";
     const displayLabel = label || fingerprint.slice(0, 12);
-    if (!confirm(`Revoke ${displayLabel}? This browser will need to ${recovery}.`)) return;
+    if (!confirm(`Revoke ${displayLabel}? This browser will need to pair again.`)) return;
 
     setBusyFingerprint(fingerprint);
     try {
@@ -61,10 +49,8 @@ export function AuthorizedDevicesCard(props: AuthorizedDevicesCardProps) {
 
   return (
     <Card
-      title={props.accountScoped ? "Browser devices" : "Authorized devices"}
-      supporting={props.accountScoped
-        ? "Only browsers signed in to this account are listed. Revoking another browser signs it out permanently."
-        : "Browsers authorized to access this coordinator. Revocation is permanent for that key."}
+      title="Authorized devices"
+      supporting="Browsers authorized to access this coordinator. Revocation is permanent for that key."
     >
       <Show when={devices.loading}>
         <p aria-live="polite" class="md-body-m" style={{ margin: "0", color: "var(--md-sys-color-on-surface-variant)" }}>
@@ -80,9 +66,7 @@ export function AuthorizedDevicesCard(props: AuthorizedDevicesCardProps) {
         <EmptyState
           icon="devices"
           title="No browser devices"
-          supporting={props.accountScoped
-            ? "Reconnect to the coordinator and refresh this page."
-            : "Pair a browser below, then refresh this list."}
+          supporting="Pair a browser below, then refresh this list."
         />
       </Show>
       <Show when={!devices.error && (devices()?.devices.length ?? 0) > 0}>
@@ -96,7 +80,7 @@ export function AuthorizedDevicesCard(props: AuthorizedDevicesCardProps) {
                     <span style={{ overflow: "hidden", "text-overflow": "ellipsis" }}>{device.label || "Unnamed browser"}</span>
                     <Show when={device.isSelf}>
                       <span class="md-label-s" style={{ color: "var(--md-sys-color-primary)", "flex-shrink": 0 }}>
-                        {props.accountScoped ? "This browser" : "This device"}
+                        This device
                       </span>
                     </Show>
                   </span>
@@ -114,10 +98,10 @@ export function AuthorizedDevicesCard(props: AuthorizedDevicesCardProps) {
                   <Show
                     when={!device.isSelf}
                     fallback={
-                      <Show when={!props.accountScoped && keyInfo()?.extractable}>
+                      <Show when={keyInfo()?.extractable}>
                         <Button
                           variant="tonal"
-                          disabled={props.disabled || busyFingerprint() !== null}
+                          disabled={busyFingerprint() !== null}
                           onClick={() => void rotate()}
                         >
                           Upgrade key security
@@ -128,7 +112,7 @@ export function AuthorizedDevicesCard(props: AuthorizedDevicesCardProps) {
                     <Button
                       variant="tonal"
                       aria-label={`Revoke ${device.label || "unnamed browser"}`}
-                      disabled={props.disabled || busyFingerprint() !== null}
+                      disabled={busyFingerprint() !== null}
                       onClick={() => void revoke(device.fingerprint, device.label)}
                     >
                       {busyFingerprint() === device.fingerprint ? "Revoking…" : "Revoke"}

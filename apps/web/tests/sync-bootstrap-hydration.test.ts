@@ -1,6 +1,6 @@
 // Sync bootstrap domains publish readiness independently within one generation.
-// This regression delays WorkersList past terminal hydration and also proves the
-// managed PAIR domain becomes ready without requesting the unavailable PairList.
+// This regression delays WorkersList past terminal hydration so a slow domain
+// cannot hold back the ones that already answered.
 // A WORKERS domain reset must withdraw readiness until its replacement snapshot lands.
 
 import { expect, test } from "bun:test";
@@ -43,7 +43,7 @@ async function flushHydrators(): Promise<void> {
   for (let turn = 0; turn < 24; turn++) await Promise.resolve();
 }
 
-test("managed bootstrap hydrates and rehydrates workers independently without PairList", async () => {
+test("bootstrap hydrates and rehydrates workers independently of the other domains", async () => {
   const sent: Uint8Array[] = [];
   const calls = {
     sessionsList: 0,
@@ -78,7 +78,7 @@ test("managed bootstrap hydrates and rehydrates workers independently without Pa
     },
     pairList: async () => {
       calls.pairList += 1;
-      throw new Error("managed bootstrap must not request PairList");
+      return { requests: [] };
     },
   };
   const link: LiveSyncLink = {
@@ -95,8 +95,8 @@ test("managed bootstrap hydrates and rehydrates workers independently without Pa
     closeEscapeTimer: null,
     watchdog: null,
     v2: {
-      socketId: "managed-socket",
-      processEpoch: "managed-epoch",
+      socketId: "bootstrap-socket",
+      processEpoch: "bootstrap-epoch",
       domains: new Map(EAGER_DOMAINS.map((domain) => [domain, {
         generation: 1n,
         subscribed: true,
@@ -116,7 +116,6 @@ test("managed bootstrap hydrates and rehydrates workers independently without Pa
   _installLiveSyncLink(link);
   const disposeHydrators = _installBootstrapDomainHydrators({
     coordClient: coordClient as never,
-    selfHosted: false,
     onTerminalFailure: async (reason) => { throw reason; },
     onTerminalSnapshotApplied: () => {},
     requestReconnect: () => {},
@@ -149,7 +148,7 @@ test("managed bootstrap hydrates and rehydrates workers independently without Pa
       workspacesList: 1,
       tasksList: 1,
       mcpList: 1,
-      pairList: 0,
+      pairList: 1,
     });
     expect(Object.keys(rootStore.pair_requests)).toEqual([]);
     expect(EAGER_DOMAINS.every((domain) => link.v2?.domains.get(domain)?.ready)).toBe(true);

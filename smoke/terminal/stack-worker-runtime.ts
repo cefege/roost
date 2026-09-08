@@ -1,11 +1,12 @@
 // Terminal stack worker support owns child launch, routability waits, and fixture compilation.
 // The stack lifecycle supplies isolated paths while this module keeps worker setup byte-identical.
-// Sharing one compiler closure preserves lazy compilation across both fixture-worker factories.
+// One checkout parameter lets an upgrade run relaunch the same worker identity from a new release.
 
 import { execFileSync, spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { join } from "node:path";
 import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
+import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "../../apps/shared/src/worker-service-env.ts";
 import {
   REPOSITORY_ROOT,
   childEnvironment,
@@ -24,18 +25,26 @@ export interface TerminalWorkerStartConfig {
   tmpDir: string;
   bootstrapToken: string;
   shell?: string;
+  /** Build identity the worker reports; deploy admission compares it. */
+  gitSha?: string;
+  /** Outlive the spawning process, the way an installed service would. */
+  detached?: boolean;
+  /** Authorize destroying live PTYs the target keeper cannot adopt. */
+  forceLiveKeeperRetire?: boolean;
 }
 
 export function createTerminalWorkerStarter(
   bunExecutable: string,
   coordinatorUrl: string,
+  sourceRoot: string = REPOSITORY_ROOT,
 ): (config: TerminalWorkerStartConfig) => RunningService {
   return (config) => {
     const workerLog = openSync(config.logPath, "a");
     return {
       logPath: config.logPath,
       child: spawn(bunExecutable, ["apps/worker/src/main.ts"], {
-        cwd: REPOSITORY_ROOT,
+        cwd: sourceRoot,
+        detached: config.detached ?? false,
         env: childEnvironment(config.home, config.tmpDir, {
           ROOST_COORDINATOR_URL: coordinatorUrl,
           // Only the first boot redeems the token; persisted data owns the
@@ -45,6 +54,8 @@ export function createTerminalWorkerStarter(
           ROOST_WORKER_DATA_DIR: config.dataDir,
           ROOST_WORKER_KEY_PATH: join(config.dataDir, "worker.key"),
           ROOST_KEEPER_QUIET: "1",
+          ...(config.gitSha ? { ROOST_GIT_SHA: config.gitSha } : {}),
+          ...(config.forceLiveKeeperRetire ? { [KEEPER_FORCE_LIVE_RETIRE_ENV]: "1" } : {}),
           ...(config.shell ? { SHELL: config.shell, ROOST_SHELL: config.shell } : {}),
         }),
         stdio: ["ignore", workerLog, workerLog],

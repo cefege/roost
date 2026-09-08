@@ -2,7 +2,7 @@
 // Boots sync on mount (store/sync.ts). No SolidStart Router — plain @solidjs/router.
 // AppErrorBoundary is outermost; connection and version banners stay route-independent.
 
-import { Router, Route, Navigate, useLocation, useNavigate } from "@solidjs/router";
+import { Router, Route, Navigate, useNavigate } from "@solidjs/router";
 import { createMemo, Show, onMount, onCleanup, lazy } from "solid-js";
 import type { JSX } from "solid-js";
 import { ROUTES, settingsPaneHref } from "./routes.ts";
@@ -12,10 +12,9 @@ import { MainPane } from "./components/MainPane.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { TransferStack } from "./components/TransferCard.tsx";
 import { installKeyboardShortcuts, setSettingsOpener } from "./lib/keyboardShortcuts.ts";
-import { hasConfirmedDashboardAccess, rootStore } from "./store/root.ts";
+import { rootStore } from "./store/root.ts";
 import { bootstrapSync } from "./store/sync-bootstrap.ts";
 import { AppErrorBoundary } from "./components/AppErrorBoundary.tsx";
-import { ManagedRouteGate } from "./components/ManagedRouteGate.tsx";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { VersionBanner } from "./components/VersionBanner.tsx";
 import { WhatsNewDialog } from "./components/WhatsNewDialog.tsx";
@@ -29,7 +28,6 @@ import { getLastTerminalPath } from "./lib/lastVisited.ts";
 import { shouldBootRestore, consumeBootRestore } from "./lib/bootRestore.ts";
 import { UiBridge } from "./components/UiBridge.tsx";
 import { AgentNotificationBridge } from "./components/AgentNotificationBridge.tsx";
-import { isManagedPublicRoute } from "./auth/managed-routes.ts";
 
 // Code-split boundaries (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism — routes/overlays below load their chunk on first
@@ -43,13 +41,6 @@ const DesignGallery = lazy(() => import("./components/DesignGallery.tsx").then((
 const HelpOverlay = lazy(() => import("./components/HelpOverlay.tsx").then((m) => ({ default: m.HelpOverlay })));
 const BrowsePage = lazy(() => import("./components/BrowsePage.tsx").then((m) => ({ default: m.BrowsePage })));
 const BrowseRedirect = lazy(() => import("./components/BrowsePage.tsx").then((m) => ({ default: m.BrowseRedirect })));
-const ManagedLogin = lazy(() => import("./components/ManagedLogin.tsx").then((m) => ({ default: m.ManagedLogin })));
-const ManagedSignup = lazy(() => import("./components/ManagedSignup.tsx").then((m) => ({ default: m.ManagedSignup })));
-const ManagedSignupVerify = lazy(() => import("./components/ManagedSignupVerify.tsx").then((m) => ({ default: m.ManagedSignupVerify })));
-const ManagedGoogleComplete = lazy(() => import("./components/ManagedGoogleComplete.tsx").then((m) => ({ default: m.ManagedGoogleComplete })));
-const ManagedOwnerActivation = lazy(() => import("./components/ManagedOwnerActivation.tsx").then((m) => ({ default: m.ManagedOwnerActivation })));
-const ManagedForgotPassword = lazy(() => import("./components/ManagedForgotPassword.tsx").then((m) => ({ default: m.ManagedForgotPassword })));
-const ManagedPasswordReset = lazy(() => import("./components/ManagedPasswordReset.tsx").then((m) => ({ default: m.ManagedPasswordReset })));
 
 function WorkspaceRedirect() {
   // Boot restore (Author 2026-07-06, reverses the 2026-06-23 hello-page default):
@@ -132,35 +123,29 @@ export function App() {
   }
 
   function RootShell(props: { children?: JSX.Element }) {
-    const location = useLocation();
-    const hasProtectedOverlayAccess = createMemo(() => {
-      const saasMode = rootStore.coord_identity?.saas_mode;
-      if (saasMode === undefined || isManagedPublicRoute(location.pathname)) return false;
-      return !saasMode
-        || (!rootStore.browser_unauthorized && hasConfirmedDashboardAccess());
-    });
+    // Overlays reach the coordinator the moment they mount, so they wait for
+    // identity discovery to settle rather than racing the first RPC.
+    const coordinatorDiscovered = createMemo(() => rootStore.coord_identity !== null);
 
     return (
       <>
         <SmokeRouterBridge />
-        <ManagedRouteGate>
-          {props.children}
-          <Show when={hasProtectedOverlayAccess()}>
-            <ShortcutRouterBridge />
-            <UiBridge />
-            <AgentNotificationBridge />
-            <CommandPalette />
-            <HelpOverlay />
-            <WhatsNewDialog />
-            <QueueTaskDialog />
-            <ToastContainer />
-            <PairRequestNotifier />
-            <UndoCloseBanner />
-            <TransferDialogHost />
-            <RenameDialogHost />
-            <TransferStack />
-          </Show>
-        </ManagedRouteGate>
+        {props.children}
+        <Show when={coordinatorDiscovered()}>
+          <ShortcutRouterBridge />
+          <UiBridge />
+          <AgentNotificationBridge />
+          <CommandPalette />
+          <HelpOverlay />
+          <WhatsNewDialog />
+          <QueueTaskDialog />
+          <ToastContainer />
+          <PairRequestNotifier />
+          <UndoCloseBanner />
+          <TransferDialogHost />
+          <RenameDialogHost />
+          <TransferStack />
+        </Show>
       </>
     );
   }
@@ -174,7 +159,6 @@ export function App() {
           {/* Index "/" → HomeLanding INSIDE AppShell so the sidebar (desktop)
               / drawer + ☰ (mobile) are always present on the home page. */}
           <Route path={ROUTES.ROOT} component={WorkspaceRedirect} />
-          <Route path={ROUTES.APP} component={HomeLanding} />
           {/* ONE route definition for every MainPane screen. Separate
               <Route> entries remount MainPane (and the terminal deck under
               it) on every /s ↔ /file ↔ /search crossing — Solid router keys
@@ -196,13 +180,6 @@ export function App() {
           <Route path={ROUTES.BROWSE_ROOT} component={BrowseRedirect} />
           <Route path={ROUTES.BROWSE} component={BrowsePage} />
         </Route>
-        <Route path={ROUTES.LOGIN} component={ManagedLogin} />
-        <Route path={ROUTES.SIGNUP} component={ManagedSignup} />
-        <Route path={ROUTES.SIGNUP_VERIFY} component={ManagedSignupVerify} />
-        <Route path={ROUTES.GOOGLE_COMPLETE} component={ManagedGoogleComplete} />
-        <Route path={ROUTES.ACTIVATE} component={ManagedOwnerActivation} />
-        <Route path={ROUTES.FORGOT_PASSWORD} component={ManagedForgotPassword} />
-        <Route path={ROUTES.RESET_PASSWORD} component={ManagedPasswordReset} />
         <Route path={ROUTES.SETTINGS} component={SettingsRoot} />
         <Route path={ROUTES.PAIR} component={() => <Onboarding />} />
         <Route path={ROUTES.HELP} component={Help} />

@@ -14,6 +14,7 @@ import type { CoordClient } from "../../worker/src/coord-client.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import { diag } from "@roost/shared/diag";
+import { DEFAULT_COORDINATOR_BIND } from "@roost/shared/config";
 import {
   buildDashboardScopedCliContext,
   withDashboardScope,
@@ -44,7 +45,7 @@ export async function buildAuthorizedApiClient(options: {
   coordinatorUrl: string;
   keyPath: string;
   label: string;
-  /** Caller seeded the key and will attach tenant headers itself. */
+  /** Caller seeded the key and attaches its own dashboard scope. */
   skipTenantProbe?: boolean;
 }): Promise<AuthorizedApiClient> {
   const cfg = loadWorkerConfig({
@@ -144,11 +145,9 @@ async function revokeLocalDevice(args: string[]): Promise<void> {
   if (!args.includes("--yes")) {
     throw new Error("device-revoke-local is destructive; pass --yes");
   }
-  const bind = process.env.ROOST_COORDINATOR_BIND ?? "127.0.0.1:4102";
-  const port = bind.startsWith("[")
-    ? new URL(`http://${bind}`).port
-    : bind.slice(bind.lastIndexOf(":") + 1);
-  const rawUrl = process.env.ROOST_COORD_URL ?? `http://127.0.0.1:${port}`;
+  const bind = process.env.ROOST_COORDINATOR_BIND ?? DEFAULT_COORDINATOR_BIND;
+  const rawUrl = process.env.ROOST_COORD_URL
+    ?? `http://127.0.0.1:${new URL(`http://${bind}`).port}`;
   const url = new URL(rawUrl);
   if (
     url.protocol !== "http:"
@@ -158,6 +157,7 @@ async function revokeLocalDevice(args: string[]): Promise<void> {
     || url.pathname !== "/"
     || url.search
     || url.hash
+    || !/^[0-9]+$/.test(url.port)
   ) {
     throw new Error("device-revoke-local requires an http://127.0.0.1:<port> coordinator URL");
   }

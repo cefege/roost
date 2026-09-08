@@ -1,6 +1,6 @@
 ---
 title: "Install Roost"
-description: "Install the verified Roost release on macOS or Linux — binary installer, Homebrew, HTTPS modes, and release assets."
+description: "Install the verified Roost release on macOS or Linux — binary installer, Homebrew, the front door you choose, and release assets."
 order: 1
 section: "Start"
 ---
@@ -12,29 +12,46 @@ those roles run on macOS arm64/x64 and Linux arm64/x64. Everything you *browse
 from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Android phone, an
 iPad, an Android tablet — needs nothing but a modern browser.
 
-## Choose a coordinator HTTPS mode
+## One coordinator shape
 
-`roost quickstart` supports two production topologies:
+The coordinator binds loopback and speaks plaintext; you put a front door in
+front of it and tell it the resulting origin:
 
-- **Automatic Tailscale Serve.** With no endpoint flags, Tailscale supplies
-  private reachability and browser-trusted HTTPS in front of the coordinator's
-  loopback listener.
-- **Direct HTTPS.** Supply `--coordinator-url`, `--tls-cert`, and `--tls-key`
-  together. The coordinator serves HTTPS itself with your browser-trusted
-  certificate; initial coordinator setup and its local worker do not require
-  Tailscale. You own DNS, routing, firewall policy, and certificate renewal.
+```sh
+roost quickstart --coordinator-url https://roost.example.com
+```
 
-For automatic mode, install and start Tailscale on the macOS or Linux host. On
-macOS, use `brew install tailscale` or the Mac App Store. On Linux, follow
-[tailscale.com/download/linux](https://tailscale.com/download/linux), enable
-`tailscaled`, run `tailscale up`, and set the current user as operator. Approve
-the macOS network extension only when the GUI app prompts; the Homebrew daemon
-does not use it.
+That installs `ROOST_COORDINATOR_BIND=127.0.0.1:4103`, `ROOST_TRUST_PROXY=1`,
+and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`. Roost owns no TLS, no
+DNS, and no tunnel. Pick one front door:
 
-The current extra-worker installer still requires a running Tailscale daemon,
-even when that worker dials a direct HTTPS coordinator. That installer
-limitation does not make Tailscale a prerequisite for direct coordinator
-quickstart. See [networking](/docs/networking/) for both endpoint contracts.
+**Caddy with your own domain** — Caddy obtains and renews the certificate:
+
+```caddy
+roost.example.com {
+	@private path /internal/* /api/db-export
+	respond @private "not found" 404
+
+	reverse_proxy 127.0.0.1:4103 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+```
+
+**Cloudflare tunnel** — no open ports, works behind NAT, no certificate on the
+box. Point `cloudflared` ingress at a local proxy like the one above;
+`cloudflared` appends rather than replaces `X-Forwarded-For`, so it must not be
+the last hop.
+
+**`tailscale serve`** — no domain at all:
+
+```sh
+tailscale serve --bg --https=443 http://127.0.0.1:4103
+```
+
+The public origin is then the host's MagicDNS name. Full copy-paste recipes,
+including the caller-address rule and the private paths, are in
+[networking](/docs/networking/).
 
 ## macOS and Linux
 
@@ -42,19 +59,10 @@ quickstart. See [networking](/docs/networking/) for both endpoint contracts.
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
 ```
 
-Then choose one quickstart form. Automatic Tailscale Serve:
+Then run quickstart with the origin your front door serves:
 
 ```sh
-"$HOME/.local/bin/roost" quickstart
-```
-
-Direct HTTPS:
-
-```sh
-"$HOME/.local/bin/roost" quickstart \
-  --coordinator-url "https://roost.example.com:8443" \
-  --tls-cert "$HOME/.config/roost/tls/fullchain.pem" \
-  --tls-key "$HOME/.config/roost/tls/privkey.pem"
+"$HOME/.local/bin/roost" quickstart --coordinator-url "https://roost.example.com"
 ```
 
 The installer resolves `uname -s` / `uname -m` to one release asset —
@@ -64,7 +72,7 @@ downloads that asset plus its `.sha256` sidecar from the latest release, and
 refuses to install on a digest mismatch or a malformed checksum file. The
 verified binary is moved into `$HOME/.local/bin/roost` with mode 0755. Override
 the destination with `ROOST_BIN_DIR`; the script warns if that directory is not
-on your `PATH`, and warns separately if Tailscale is missing. Any other
+on your `PATH`. Any other
 OS/architecture pair exits with an error rather than guessing an asset.
 
 ## Homebrew (macOS)
@@ -73,16 +81,9 @@ OS/architecture pair exits with an error rather than guessing an asset.
 brew install cefege/tap/roost
 ```
 
-For automatic mode, start the Homebrew daemon with
-`sudo tailscaled install-system-daemon && sudo tailscale up`, then run
-`roost quickstart`. For direct HTTPS, run `roost quickstart` with all three
-endpoint flags shown above; direct quickstart does not call Tailscale.
-
 The formula is macOS-only on purpose: the unsuffixed `roost` asset is the
 darwin-arm64 build and there is no tested Linuxbrew bottle, so Linux installs go
-through `install-binary.sh` instead. The formula depends on `tailscale`, which
-installs the open-source `tailscaled` — that daemon needs no System Settings
-network-extension approval.
+through `install-binary.sh` instead.
 
 ## Windows hosts
 
@@ -132,6 +133,6 @@ command, see [fleet](/docs/fleet/).
 ## Next
 
 - [Quickstart](/docs/quickstart/) — first coordinator, first phone, first workspace
-- [Networking](/docs/networking/) — automatic Tailscale Serve and direct HTTPS
+- [Networking](/docs/networking/) — the loopback listener and your front door
 - [The CLI](/docs/cli/) — every subcommand
 - [Security](/docs/security/) — pairing, keys, audit, backups

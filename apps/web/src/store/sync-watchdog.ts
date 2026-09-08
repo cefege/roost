@@ -2,11 +2,11 @@
 // plus the redial/park decisions the reconnect loop asks for. Mirrors the
 // worker↔coord watchdog (`apps/worker/src/transport/coord-link.ts`'s
 // stale-link watchdog in `dial()`, tuned by `coord-link-constants.ts`). When
-// the coord process dies behind tailscale-serve the browser-side TCP stays
-// ESTABLISHED and ws.onclose/onerror never fire — the reconnect loop sits
-// `await closed` forever, no auto-reload, terminal frozen until a manual page
-// refresh. This watchdog force-closes the socket after sustained silence so
-// onclose fires → the loop re-dials with sinceEventId → backfill → recovery.
+// the coord process dies behind a TLS-terminating front door, the browser-side
+// TCP stays ESTABLISHED and ws.onclose/onerror never fire — the reconnect loop
+// sits `await closed` forever, no auto-reload, terminal frozen until a manual
+// page refresh. This watchdog force-closes the socket after sustained silence
+// so onclose fires → the loop re-dials with sinceEventId → backfill → recovery.
 //
 // Only acts while the tab is foregrounded: a hidden tab's setInterval is
 // throttled and unreliable. The hidden→visible transition is owned by

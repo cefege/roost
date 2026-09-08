@@ -1,11 +1,9 @@
 // Settings root. Material 3 navigation rail (left) + top app bar
 // (with back action) + scrollable content area. Pane router based on
 // /settings/:pane param.
-// Managed coordinators replace the self-hosted scope, connection, and pairing
-// surfaces with one Account pane.
 
 import { useParams, useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, Switch, Match, For, Show } from "solid-js";
+import { createMemo, Switch, Match, For, Show } from "solid-js";
 import { MachinesPane } from "./MachinesPane.tsx";
 import { McpPane } from "./McpPane.tsx";
 import { ThemePane } from "./ThemePane.tsx";
@@ -14,7 +12,6 @@ import { AuditLogPane } from "./AuditLogPane.tsx";
 import { MetricsPane } from "./MetricsPane.tsx";
 import { AttachmentsPane } from "./AttachmentsPane.tsx";
 import { DevicesPane } from "./DevicesPane.tsx";
-import { AccountPane } from "./AccountPane.tsx";
 import { TranscriptionPane } from "./TranscriptionPane.tsx";
 import { TerminalPane } from "./TerminalPane.tsx";
 import { ConnectionPane } from "./ConnectionPane.tsx";
@@ -24,22 +21,9 @@ import { DashboardPane } from "./DashboardPane.tsx";
 import { Icon } from "./md/primitives.tsx";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { withViewTransition } from "../../lib/viewTransition.ts";
-import { rootStore } from "../../store/root.ts";
-import { settingsPaneHref } from "../../routes.ts";
-import {
-  isHiddenManagedSettingsPane,
-  resolveSettingsPaneForMode,
-  settingsGroupsForMode,
-  type SettingsPaneSpec,
-  type SettingsRailGroup,
-} from "./settingsNavigation.ts";
+import { SETTINGS_GROUPS, type SettingsPaneSpec } from "./settingsNavigation.ts";
 import "./md/tokens.css";
 
-// Self-hosted Devices merges phone pairing and browser approval. Managed
-// coordinators instead route every legacy scope/device URL to Account.
-function visibleSettingsGroups(): readonly SettingsRailGroup[] {
-  return settingsGroupsForMode(rootStore.coord_identity?.saas_mode === true);
-}
 /** Mobile push/pop: detail slides in from the right (dir 1 = forward),
  *  back pops it out to the right (dir -1). Direction-aware slide via
  *  --settings-nav-dir; withViewTransition handles feature-detect + reduced
@@ -57,27 +41,22 @@ function slideNavigate(
 // Shared pane router — used by both desktop main and mobile detail so the
 // two surfaces render identical pane content with zero duplication.
 function SettingsPane(props: { id: string }) {
-  const id = () => resolveSettingsPaneForMode(
-    props.id,
-    rootStore.coord_identity?.saas_mode === true,
-  );
   return (
     <Switch>
-      <Match when={id() === "account"}><AccountPane /></Match>
-      <Match when={id() === "machines"}><MachinesPane /></Match>
-      <Match when={id() === "organization"}><OrganizationPane /></Match>
-      <Match when={id() === "dashboard"}><DashboardPane /></Match>
-      <Match when={id() === "connection"}><ConnectionPane /></Match>
-      <Match when={id() === "devices"}><DevicesPane /></Match>
-      <Match when={id() === "launcher"}><AgentLauncherPane /></Match>
-      <Match when={id() === "mcp"}><McpPane /></Match>
-      <Match when={id() === "voice"}><TranscriptionPane /></Match>
-      <Match when={id() === "terminal"}><TerminalPane /></Match>
-      <Match when={id() === "notifications"}><NotificationsPane /></Match>
-      <Match when={id() === "attachments"}><AttachmentsPane /></Match>
-      <Match when={id() === "theme"}><ThemePane /></Match>
-      <Match when={id() === "audit"}><AuditLogPane /></Match>
-      <Match when={id() === "metrics"}><MetricsPane /></Match>
+      <Match when={props.id === "machines"}><MachinesPane /></Match>
+      <Match when={props.id === "organization"}><OrganizationPane /></Match>
+      <Match when={props.id === "dashboard"}><DashboardPane /></Match>
+      <Match when={props.id === "connection"}><ConnectionPane /></Match>
+      <Match when={props.id === "devices"}><DevicesPane /></Match>
+      <Match when={props.id === "launcher"}><AgentLauncherPane /></Match>
+      <Match when={props.id === "mcp"}><McpPane /></Match>
+      <Match when={props.id === "voice"}><TranscriptionPane /></Match>
+      <Match when={props.id === "terminal"}><TerminalPane /></Match>
+      <Match when={props.id === "notifications"}><NotificationsPane /></Match>
+      <Match when={props.id === "attachments"}><AttachmentsPane /></Match>
+      <Match when={props.id === "theme"}><ThemePane /></Match>
+      <Match when={props.id === "audit"}><AuditLogPane /></Match>
+      <Match when={props.id === "metrics"}><MetricsPane /></Match>
     </Switch>
   );
 }
@@ -85,36 +64,28 @@ function SettingsPane(props: { id: string }) {
 export function SettingsRoot() {
   const params = useParams<{ pane?: string }>();
   const navigate = useNavigate();
-  createEffect(() => {
-    if (
-      rootStore.coord_identity?.saas_mode === true
-      && isHiddenManagedSettingsPane(params.pane)
-    ) {
-      navigate(settingsPaneHref("account"), { replace: true });
-    }
-  });
 
   // Raw URL pane — undefined when at /settings (the list root). The mobile
   // branch reads this so the category list remains the settings home.
   const paneSpec = createMemo((): SettingsPaneSpec | undefined => {
     const paneId = params.pane;
     if (!paneId) return undefined;
-    for (const group of visibleSettingsGroups()) {
+    for (const group of SETTINGS_GROUPS) {
       const pane = group.panes.find((candidate) => candidate.id === paneId);
       if (pane) return pane;
     }
     return undefined;
   });
-  // Desktop rail/content defaults to the first visible pane when none is
-  // selected, preserving the profile's navigation order.
-  const activePane = createMemo((): SettingsPaneSpec => paneSpec() ?? visibleSettingsGroups()[0]!.panes[0]!);
+  // Desktop rail/content defaults to the first pane when none is selected,
+  // preserving the rail's navigation order.
+  const activePane = createMemo((): SettingsPaneSpec => paneSpec() ?? SETTINGS_GROUPS[0]!.panes[0]!);
 
   return (
     <Show when={isCompact()} fallback={
       <div class="settings-shell">
         <nav class="settings-rail" aria-label="Settings sections">
           <button type="button" class="settings-rail__brand" aria-label="Back to app" onClick={() => navigate("/")}>Settings</button>
-          <For each={visibleSettingsGroups()}>
+          <For each={SETTINGS_GROUPS}>
             {(group) => (
               <div class="settings-rail__group">
                 <div class="settings-rail__group-label">{group.label}</div>
@@ -187,7 +158,7 @@ function MobileSettingsList() {
 
       </header>
       <div class="settings-mobile__list">
-        <For each={visibleSettingsGroups()}>
+        <For each={SETTINGS_GROUPS}>
           {(group) => (
             <div class="settings-mobile__group">
               <div class="settings-mobile__group-label">{group.label}</div>

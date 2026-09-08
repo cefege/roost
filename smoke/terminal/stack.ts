@@ -1,9 +1,10 @@
 // The terminal smoke stack starts an isolated coordinator, workers, keepers, and API scope.
 // Playwright fixtures call this lifecycle and receive lazy worker factories plus cleanup.
 // Every child gets isolated state and temp roots while the returned stop closes all resources.
+// Split coordinator and worker release checkouts let the upgrade tier run this
+// stack as an existing install a prior release created and a new one takes over.
 
-import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, openSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildAuthorizedApiClient, type AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
@@ -12,10 +13,11 @@ import {
   REPOSITORY_ROOT,
   TERMINAL_TEST_DASHBOARD_ID,
   TERMINAL_TEST_SECOND_DASHBOARD_ID,
-  childEnvironment,
   logTail,
   seedTerminalDashboards,
+  startCoordinatorService,
   stopChild,
+  stopDeployedWorker,
   stopKeeper,
   waitFor,
   withTerminalDashboard,
@@ -25,6 +27,7 @@ import {
   createPtyFixtureCompiler,
   createTerminalWorkerStarter,
   waitForTerminalWorkerRoutable,
+  type TerminalWorkerStartConfig,
 } from "./stack-worker-runtime.ts";
 const WORKER_LABEL = "roost-terminal-test";
 const SECOND_WORKER_LABEL = "roost-terminal-test-second";
@@ -64,7 +67,26 @@ export type TerminalTestStack = {
   // Bounce the primary worker process, keeping coord and the persisted worker
   // identity. Resolves once the same fingerprint is routable again.
   restartWorker(): Promise<void>;
+  /** Coordinator database the CLI reads for deploy admission. */
+  coordDbPath: string;
+  /** Key the harness authorized, so a deploy can call the same coordinator. */
+  apiKeyPath: string;
+  /** Persisted primary-worker launch spec, for a deploy running out of process. */
+  workerServiceSpecPath: string;
+  /** Process id of the running primary worker. */
+  workerPid(): number | undefined;
+  /** Take teardown ownership of a worker a deploy left running. */
+  adoptDeployedWorker(pid: number): void;
+  /** Release the primary worker runs, so a deploy can name what it replaces. */
+  workerRelease: TerminalReleaseCheckout;
   stop(): Promise<void>;
+};
+
+export type TerminalReleaseCheckout = {
+  /** Checkout the process runs from. */
+  sourceRoot: string;
+  /** Build identity it reports; deploy admission and convergence compare it. */
+  gitSha: string;
 };
 
 export type TerminalTestStackOptions = {
@@ -74,6 +96,14 @@ export type TerminalTestStackOptions = {
   // unauthenticated. Coord/worker state stays isolated either way (their paths
   // are ROOST_* env overrides, not HOME-derived).
   useRealHome?: boolean;
+  // Releases the coordinator and the workers run from. Both default to this
+  // checkout; the upgrade tier points them at different ones, because a real
+  // upgrade moves the coordinator first and the workers afterwards.
+  coordRelease?: Partial<TerminalReleaseCheckout>;
+  workerRelease?: Partial<TerminalReleaseCheckout>;
+  // Coordinator database to boot over. Default is a fresh one under the test
+  // root; an upgrade run supplies one a prior release already migrated.
+  coordDbPath?: string;
 };
 
 export async function startTerminalTestStack(
@@ -89,7 +119,7 @@ export async function startTerminalTestStack(
   const home = options.useRealHome ? (process.env.HOME ?? join(root, "home")) : join(root, "home");
   const secondHome = join(root, "second-home");
   const coordLogPath = join(root, "coord.log");
-  const coordDbPath = join(root, "coord.db");
+  const coordDbPath = options.coordDbPath ?? join(root, "coord.db");
   const workerLogPath = join(root, "worker.log");
   const secondWorkerLogPath = join(root, "second-worker.log");
   const ptyFixtureHome = join(root, "pty-fixture-home");
@@ -104,7 +134,16 @@ export async function startTerminalTestStack(
   );
   const workerDataDir = join(root, "worker-data");
   const secondWorkerDataDir = join(root, "second-worker-data");
+  const workerServiceSpecPath = join(root, "worker-service.json");
   const bunExecutable = process.env.ROOST_TEST_BUN ?? "bun";
+  const coordRelease: TerminalReleaseCheckout = {
+    sourceRoot: options.coordRelease?.sourceRoot ?? REPOSITORY_ROOT,
+    gitSha: options.coordRelease?.gitSha ?? "dev",
+  };
+  const workerRelease: TerminalReleaseCheckout = {
+    sourceRoot: options.workerRelease?.sourceRoot ?? coordRelease.sourceRoot,
+    gitSha: options.workerRelease?.gitSha ?? coordRelease.gitSha,
+  };
   mkdirSync(home, { recursive: true });
   mkdirSync(secondHome, { recursive: true });
   mkdirSync(ptyFixtureHome, { recursive: true });
@@ -119,6 +158,7 @@ export async function startTerminalTestStack(
   for (const dir of Object.values(childTmpDirs)) mkdirSync(dir, { recursive: true });
   let coord: RunningService | undefined;
   let worker: RunningService | undefined;
+  let deployedWorkerPid: number | undefined;
   let secondWorker: RunningService | undefined;
   let secondWorkerStart: Promise<TerminalTestWorker> | undefined;
   let ptyFixtureWorker: RunningService | undefined;
@@ -171,6 +211,7 @@ export async function startTerminalTestStack(
       await stopKeeper(ptyFixtureDataDir).catch((error) => errors.push(`stop PTY fixture keeper: ${String(error)}`));
       await stopKeeper(secondWorkerDataDir).catch((error) => errors.push(`stop second keeper: ${String(error)}`));
       await stopChild(worker).catch((error) => errors.push(`stop worker: ${String(error)}`));
+      await stopDeployedWorker(deployedWorkerPid).catch((error) => errors.push(`stop deployed worker: ${String(error)}`));
       await stopKeeper(workerDataDir).catch((error) => errors.push(`stop keeper: ${String(error)}`));
       await stopChild(coord).catch((error) => errors.push(`stop coordinator: ${String(error)}`));
       try { rmSync(root, { recursive: true, force: true }); } catch (error) { errors.push(`remove test root: ${String(error)}`); }
@@ -179,32 +220,17 @@ export async function startTerminalTestStack(
   };
 
   try {
-    const coordLog = openSync(coordLogPath, "a");
-    coord = {
+    coord = startCoordinatorService({
+      bunExecutable,
+      sourceRoot: coordRelease.sourceRoot,
+      root,
+      home,
+      tmpDir: childTmpDirs.coord,
+      bind: "127.0.0.1:0",
+      dbPath: coordDbPath,
       logPath: coordLogPath,
-      child: spawn(bunExecutable, ["apps/coord/src/main.ts"], {
-        cwd: REPOSITORY_ROOT,
-        env: childEnvironment(home, childTmpDirs.coord, {
-          ROOST_COORDINATOR_BIND: "127.0.0.1:0",
-          // Bun auto-loads the repository .env after process spawn. Explicit
-          // overrides keep the hermetic listener on loopback auth semantics and
-          // disable production's secondary Cloudflare listener.
-          ROOST_TRUST_PROXY: "0",
-          ROOST_PUBLIC_BIND: "",
-          ROOST_RELAXED_CSP: "1",
-          ROOST_COORDINATOR_DB: coordDbPath,
-          ROOST_COORDINATOR_AUTHORIZED_KEYS: join(root, "authorized_keys.roost"),
-          ROOST_COORDINATOR_KEY_PATH: join(root, "coord.key"),
-          // Isolate the relocation state too. It defaults under the data dir
-          // (HOME-derived), so a caller running with useRealHome would
-          // otherwise inherit a real "coordinator relocated" handoff and the
-          // test coord would 410 every non-GET request.
-          ROOST_COORDINATOR_HANDOFF_PATH: join(root, "coord-handoff.json"),
-          ROOST_WEB_DIST_PATH: join(REPOSITORY_ROOT, "apps/web/dist"),
-        }),
-        stdio: ["ignore", coordLog, coordLog],
-      }),
-    };
+      gitSha: coordRelease.gitSha,
+    });
     const baseUrl = await waitFor("coordinator startup", COORD_START_TIMEOUT_MS, () => {
       const match = /"msg":"listening"[^\n]*"bind":"([^"]+)"/.exec(logTail(coordLogPath));
       return match ? `http://${match[1]}` : undefined;
@@ -221,18 +247,23 @@ export async function startTerminalTestStack(
     });
     client = withTerminalDashboard(rawClient, TERMINAL_TEST_DASHBOARD_ID);
     secondDashboardClient = withTerminalDashboard(rawClient, TERMINAL_TEST_SECOND_DASHBOARD_ID);
-    const startWorker = createTerminalWorkerStarter(bunExecutable, baseUrl);
+    const startWorker = createTerminalWorkerStarter(bunExecutable, baseUrl, workerRelease.sourceRoot);
     const compilePtyFixture = createPtyFixtureCompiler(bunExecutable, ptyFixtureExecutable);
 
     const bootstrapToken = (await client.authMintBootstrap({ kind: "worker", label: WORKER_LABEL })).token;
-    worker = startWorker({
+    const workerServiceSpec: TerminalWorkerStartConfig = {
       label: WORKER_LABEL,
       home,
       logPath: workerLogPath,
       dataDir: workerDataDir,
       tmpDir: childTmpDirs.worker,
       bootstrapToken,
-    });
+      gitSha: workerRelease.gitSha,
+    };
+    // A deploy runs out of process and must relaunch this exact identity, so the
+    // launch spec is persisted instead of restated at the second call site.
+    writeFileSync(workerServiceSpecPath, `${JSON.stringify(workerServiceSpec, null, 2)}\n`, { mode: 0o600 });
+    worker = startWorker(workerServiceSpec);
     const workerFp = await waitForTerminalWorkerRoutable(client, WORKER_LABEL, workerLogPath);
 
     const startSecondWorker = (): Promise<TerminalTestWorker> => {
@@ -325,14 +356,7 @@ export async function startTerminalTestStack(
     // worker, and agent sessions never touch it anyway.
     const restartWorker = async () => {
       await stopChild(worker);
-      worker = startWorker({
-        label: WORKER_LABEL,
-        home,
-        logPath: workerLogPath,
-        dataDir: workerDataDir,
-        tmpDir: childTmpDirs.worker,
-        bootstrapToken,
-      });
+      worker = startWorker(workerServiceSpec);
       await waitForTerminalWorkerRoutable(client!, WORKER_LABEL, workerLogPath);
     };
 
@@ -353,6 +377,12 @@ export async function startTerminalTestStack(
       startPtyFixtureWorker,
       startSecondDashboardPtyFixtureWorker,
       restartWorker,
+      coordDbPath,
+      apiKeyPath,
+      workerServiceSpecPath,
+      workerPid: () => worker?.child.pid,
+      adoptDeployedWorker: (pid) => { deployedWorkerPid = pid; },
+      workerRelease,
       stop,
     };
   } catch (error) {

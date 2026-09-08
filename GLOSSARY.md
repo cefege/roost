@@ -127,5 +127,17 @@ wins.
   an interceptor. There are no shared passwords or copied tokens for normal use.
   Source: `apps/web/src/auth/web-key.ts`, `apps/coord/src/jwt.ts`.
 
-- **tailnet** — your [Tailscale](https://tailscale.com) network. Every
-  connection (browser↔coordinator, worker↔coordinator) runs over it.
+- **front door** — whatever the operator puts in front of the coordinator's
+  plaintext loopback listener: Caddy, nginx, a Cloudflare tunnel,
+  `tailscale serve`. It owns TLS, DNS, and public reachability; Roost owns none
+  of them and is simply told the resulting origin through
+  `ROOST_WEB_PUBLIC_URL`. That origin seeds the SPA's CSP `connect-src` and the
+  Sync WebSocket origin allowlist.
+  Source: `apps/coord/src/middleware/security.ts`,
+  `apps/coord/src/connect/sync-ws-upgrade.ts`.
+
+- **tailnet** — your [Tailscale](https://tailscale.com) network, when you run
+  one. Roost resolves the MagicDNS name only to publish a worker's
+  `reachable_addr` for worker-to-worker reachability; a tailnet address is
+  transport metadata, never authority.
+  Source: `apps/shared/src/tailnet.ts`.

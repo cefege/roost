@@ -13,9 +13,7 @@ security boundary. Startup order:
 
 1. `captureAndScrubFragmentCredential()` synchronously removes URL-carried
    credentials before the SPA module graph loads.
-2. `entry.ts` dynamically imports `apps/web/src/main.tsx`; it installs the
-   tenant-route switch listener and awaits
-   `completePendingTenantRouteSwitch()` before diagnostics or transport.
+2. `entry.ts` dynamically imports `apps/web/src/main.tsx`.
 3. `applyTheme(loadTheme())` sets `data-theme` before first paint.
 4. `installSignalShip()` + `installSpaDiag()` and the global
    error/rejection/chunk-recovery handlers install before render.
@@ -47,23 +45,19 @@ lives in that row's directory; prefixed refs follow the convention above.
 | Directory | Owns | Must not own |
 | --- | --- | --- |
 | `apps/web/src/` (root files) | `entry.ts` (credential scrub + deferred graph load), `main.tsx` (post-scrub bootstrap + mount), `App.tsx` (router + overlay shell), `routes.ts` (URL table), `connect.ts` (Connect-RPC client), `css-imports.d.ts` and `md-elements.d.ts` (ambient imports/elements) | feature-shaped UI |
-| `apps/web/src/components/` | screens/dialogs; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets plus local layout transfer and `LayoutDocumentDialog.tsx` owns explicit import preview/apply; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `TerminalDeck.tsx` owns persistent keyed mounting; `ManagedRouteGate.tsx` and `ManagedLogin.tsx`/`ManagedSignup.tsx` own managed gates/routes | direct store writes, wire framing, persistence |
+| `apps/web/src/components/` | screens/dialogs; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets plus local layout transfer and `LayoutDocumentDialog.tsx` owns explicit import preview/apply; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `TerminalDeck.tsx` owns persistent keyed mounting | direct store writes, wire framing, persistence |
 | `apps/web/src/components/layout/` | `AppShell.tsx` (sidebar + route slot), `MobileTopBar.tsx`, `DashboardScopeSelector.tsx` (server-confirmed organization/dashboard selection) | route-specific content |
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
-| `apps/web/src/components/Settings/` | settings shell/panes; `OrganizationPane.tsx` and `DashboardPane.tsx` project confirmed scope, `MachinesPane.tsx` owns workers, `settingsNavigation.ts` hides self-hosted-only scope controls in managed mode | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
+| `apps/web/src/components/Settings/` | settings shell/panes; `OrganizationPane.tsx` and `DashboardPane.tsx` project confirmed scope, `MachinesPane.tsx` owns workers, `DevicesPane.tsx` is the only identity surface, `settingsNavigation.ts` owns the single `SETTINGS_GROUPS` list | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
 | `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `paneLayoutDocument.ts` is the portable-document adapter over the browser-local pane store — strict for every apply, degrading only for the human-confirmed import preview; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
 | `apps/web/src/lib/` | pure helpers and browser adapters; `layoutDocumentControls.ts` + `layoutDocumentFile.ts` own local transfer, `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
-| `apps/web/src/auth/` | web-key/IndexedDB, fragment credentials, pairing/tab identity/relocation; `tenant-routing.ts`, `managed-routes.ts`, `managed-auth-gateway.ts`, `managed-login.ts`, `managed-account.ts`, `managed-credentials.ts`, and `managed-logout.ts` own managed policy/transitions | RPC plumbing (`apps/web/src/connect.ts`) or UI |
+| `apps/web/src/auth/` | web-key/IndexedDB, `fragment-credential.ts` (`#pair=<token>` and `#move=<token>&handoff=<id>`, the only two credential kinds), pairing/tab identity/relocation | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | six global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules | component-local one-offs |
 | `apps/web/tests/` | recursive `*.test.ts` Bun suites, including the root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
 | `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
-
-Managed per-account isolation and these auth/dashboard modules are qualified,
-but the managed service is not publicly launched in v0.5.0. Accounts are
-operator-created; open signup and production managed image publication are off.
 
 `/search` is a dashboard-local metadata, terminal-content, and agent-attention
 surface. Its default scope filters the same scalar metadata projection used by

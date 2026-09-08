@@ -10,12 +10,6 @@ export interface EventAdmissionOptions {
   worker_fp: string | null;
   client_seq: number | null;
   dashboardId?: string;
-  requireExistingWorkerSessions?: boolean;
-  allowNewWorkerSession?: (
-    dashboardId: string,
-    workerFp: string,
-    sessionId: string,
-  ) => boolean;
 }
 
 export interface EventAdmission {
@@ -127,26 +121,7 @@ export async function resolveEventAdmission(
         return rejected(dashboardId, sessionId);
       }
     }
-    if (!options.requireExistingWorkerSessions || event.sessions.length === 0) {
-      return { admitted: true, dashboardId, sessionId, sessionExists: false };
-    }
-    const provenIds = new Set(currentRows.map((row) => row.id));
-    const missingIds = announcedIds.filter((id) => !provenIds.has(id));
-    if (missingIds.length > 0) {
-      const openedRows = await db.selectFrom("events")
-        .select("session_id")
-        .where("dashboard_id", "=", dashboardId)
-        .where("worker_fp", "=", options.worker_fp)
-        .where("kind", "=", "opened")
-        .where("session_id", "in", missingIds)
-        .execute();
-      for (const row of openedRows) {
-        if (row.session_id !== null) provenIds.add(row.session_id);
-      }
-    }
-    return provenIds.size === announcedIds.length
-      ? { admitted: true, dashboardId, sessionId, sessionExists: false }
-      : rejected(dashboardId, sessionId);
+    return { admitted: true, dashboardId, sessionId, sessionExists: false };
   }
 
   if (sessionId === null) {
@@ -177,9 +152,5 @@ export async function resolveEventAdmission(
     }
   }
   if (event.kind !== "opened") return rejected(dashboardId, sessionId);
-  if (
-    options.allowNewWorkerSession
-    && !options.allowNewWorkerSession(dashboardId, options.worker_fp, sessionId)
-  ) return rejected(dashboardId, sessionId);
   return { admitted: true, dashboardId, sessionId, sessionExists: false };
 }

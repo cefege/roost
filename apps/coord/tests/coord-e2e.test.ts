@@ -12,7 +12,6 @@ import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { newJwtCache } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
-import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import type { CoordConfig } from "@roost/shared/config";
 
 let workdir: string;
@@ -32,12 +31,9 @@ beforeAll(async () => {
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
-  saasMode: false,
-  managedContainer: false,
   pushAllowedOrigins: [],
   dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
   webDistPath: "",
-  tlsCertPath: undefined, tlsKeyPath: undefined,
   jwtMaxAgeSecs: 300,
   auditRetentionDays: 90,
   relaxedCsp: false,
@@ -51,7 +47,6 @@ beforeAll(async () => {
     coordKey,
     cfg,
     jwtCache,
-    passwordWorkGate: new PasswordWorkGate(),
   });
   cleanup = async () => {
     coord.dispose();
@@ -81,29 +76,19 @@ describe("coord-factory fetch handler", () => {
     expect(typeof body.gitSha).toBe("string");
   });
 
-  test("AuthCoordIdentity reports the accepting listener, not global public configuration", async () => {
-    const request = () => new Request("http://t/roost.v1.CoordinatorService/AuthCoordIdentity", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    });
-    const privateResp = await coord.fetch(request(), {
-      origin: { listener: "tailscale-serve", clientIp: "100.64.0.1", onHost: false },
-    });
-    const publicResp = await coord.fetch(request(), {
-      origin: { listener: "public-edge", clientIp: "203.0.113.7", onHost: false },
-    });
-    expect(privateResp.status).toBe(200);
-    expect(publicResp.status).toBe(200);
-    const privateBody = await privateResp.json();
-    const publicBody = await publicResp.json();
-    expect("fingerprintHex" in privateBody).toBe(false);
-    expect(privateBody.publicListener ?? false).toBe(false);
-    expect(publicBody.publicListener).toBe(true);
-    expect(privateBody.saasMode ?? false).toBe(false);
-    expect(privateBody.instanceId ?? "").toBe("");
-    expect(publicBody.saasMode ?? false).toBe(false);
-    expect(publicBody.instanceId ?? "").toBe("");
+  test("AuthCoordIdentity is public and discloses no coordinator key material", async () => {
+    const resp = await coord.fetch(
+      new Request("http://t/roost.v1.CoordinatorService/AuthCoordIdentity", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      { origin: { listener: "trusted-proxy", clientIp: "203.0.113.7", onHost: false } },
+    );
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect("fingerprintHex" in body).toBe(false);
+    expect(typeof body.gitSha).toBe("string");
   });
 
   test("WorkersList without JWT → 401 unauthenticated", async () => {

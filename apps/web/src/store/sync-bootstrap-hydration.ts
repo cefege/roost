@@ -38,7 +38,6 @@ type CoordinatorClient = Client<typeof CoordinatorService>;
 
 interface BootstrapDomainHydrationDeps {
   readonly coordClient: CoordinatorClient;
-  readonly selfHosted: boolean;
   readonly onTerminalFailure: (reason: unknown) => Promise<void>;
   readonly onTerminalSnapshotApplied: (
     token: SyncDomainToken,
@@ -168,11 +167,6 @@ export function _installBootstrapDomainHydrators(
   }));
 
   unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.PAIR, async () => {
-    if (!deps.selfHosted) {
-      return {
-        apply: () => setRootStore("pair_requests", reconcile({})),
-      };
-    }
     const response = await deps.coordClient.pairList({});
     const requests: Record<string, PairRequest> = {};
     for (const request of response.requests) {

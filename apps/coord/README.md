@@ -17,12 +17,12 @@ and Sync-WS dependencies. It calls `createCoord()`, then
 `startBunCoordinatorListeners()`, and starts move recovery only after the
 listener can populate worker liveness.
 
-**`src/bun-coordinator-listeners.ts` — the Bun listener boundary.** Owns TLS,
-both `Bun.serve` calls, `server.requestIP()` → `resolveCallerOrigin`, internal
+**`src/bun-coordinator-listeners.ts` — the Bun listener boundary.** Owns the
+single `Bun.serve` call, `server.requestIP()` → `resolveCallerOrigin`, internal
 handoff/export routing, both WebSocket upgrades, the ONE multiplexed
 `websocket` object dispatching on `ws.data.kind`, the shared 4 MiB frame cap,
-`idleTimeout: 120`, and optional public-listener construction. The SPA fallback
-is injected from `src/spa.ts` + `src/web-embed.generated.ts`.
+and `idleTimeout: 120`. The SPA fallback is injected from `src/spa.ts` +
+`src/web-embed.generated.ts`.
 
 **`src/coord-factory.ts::createCoord(deps)` — the portable protocol layer.** Returns `{ fetch, dispose }`, where
 `fetch` is `(Request, CoordHandlerContext?) => Promise<Response>` and touches no Bun API. Owns OPTIONS
@@ -31,22 +31,23 @@ the SPA hand-off, the non-Connect audit row, and the security/CORS response wrap
 coord-authoritative hubs `src/terminal-title-hub.ts`, `src/last-activity-hub.ts`, `src/agent-status-hub.ts`. A
 runtime that cannot read the filesystem injects `ctx.spa`/`ctx.dbExport`.
 
-Listeners: the main one binds `cfg.bind`, default `0.0.0.0:4102` (`ROOST_COORDINATOR_BIND`), with TLS only when both
-cert and key paths are set; under `ROOST_TRUST_PROXY=1` that bind must be `127.0.0.1:<port>`, because tailscale
-serve fronts it and is then the only trusted source of `X-Forwarded-For`. An optional public edge binds
-`cfg.publicBind` (`ROOST_PUBLIC_BIND`), differs from `bind`, and runs either the exact Cloudflare Access policy or
-the managed default-deny policy. Public binds are loopback-only except for `ROOST_MANAGED_CONTAINER=1`, whose
-strict profile requires `0.0.0.0:4104` inside an unpublished Docker network so only Caddy can reach it. Both
-listeners reuse one 4 MiB-bounded WebSocket handler and hijack the two WS paths before `coord.fetch` sees them.
-Managed containers reject relocation, export, and deploy at both routing and
-handler layers. This per-account profile is qualification-only in v0.5.0; the
-managed service is not publicly launched. Accounts are operator-created; open
-signup and production managed image publication are off.
+The listener binds `cfg.bind` (`ROOST_COORDINATOR_BIND`), default
+`127.0.0.1:4103`, and always serves plaintext: TLS, DNS, and public
+reachability belong to the front door the operator puts in front of it. Under
+`ROOST_TRUST_PROXY=1` the bind must be `127.0.0.1:<port>`, because that proxy is
+then the only trusted source of `X-Forwarded-For`, whose FIRST entry
+`src/middleware/caller-origin.ts` reads as the caller address. The coordinator
+carries no public deny list: the front door owns that policy (see
+`GETTING_STARTED.md`), denying `/internal/*` and `/api/db-export` while
+`/ws/coord-worker/*` stays open for workers that dial the same origin.
+`dbExportResponse` answers 403 `{"error":"on-host only"}` unless the resolved
+caller is on-host, which makes it the one request that proves whether
+`X-Forwarded-For` reaches the coordinator intact.
 
-## The 20 handler domains
+## The 18 handler domains
 
 `src/connect/router.ts` is **pure wiring**: it installs the auth interceptor and
-spreads 20 domain factories into a **single**
+spreads 18 domain factories into a **single**
 `router.service(CoordinatorService, {…})` literal. No handler logic or
 per-domain state lives there.
 
@@ -63,9 +64,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | attachments | `src/connect/handlers-attachments.ts` | worker-forwarded read/read-chunk/list/mkdir + attachment upload/probe/list/delete |
 | mcp | `src/connect/handlers-mcp.ts` | MCP relay CRUD and publication, with a bus delta per mutation |
 | auth | `src/connect/handlers-auth.ts` | facade over `src/connect/handlers-auth-bootstrap.ts`, `src/connect/handlers-pairing.ts`, and `src/connect/handlers-devices.ts`: identity/access, bootstrap redemption, pairing, device rotation/revocation, logout |
-| account | `src/connect/handlers-account.ts` | facade over `src/connect/handlers-owner-activation.ts` and `src/connect/handlers-password-reset.ts` |
-| native-auth | `src/connect/handlers-native-auth.ts` | managed native-password login + browser-key enrollment |
-| federated-auth | `src/connect/handlers-federated-auth.ts` | federated continuation/linking, credential inspection, password add |
+| worker-update | `src/connect/handlers-workers-update.ts` | the coordinator-held keeper update boundary: drain, reauthorize, canonical open-session snapshot, then the authenticated worker action |
 | relocation | `src/connect/handlers-relocation.ts` | browser relocation credential mint/redeem + redirect-chain resolution |
 | system | `src/connect/handlers-system.ts` | health, db-export URL, metrics, the SPA diag-log batch sink, state snapshot, audit-log query |
 | workspaces | `src/connect/handlers-workspaces.ts` | version-CAS workspace rows, set-sessions, orphan GC |
@@ -79,7 +78,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 
 ## Module map
 
-- `src/connect/` — everything protocol-facing: the 20 handler domains and
+- `src/connect/` — everything protocol-facing: the 18 handler domains and
   focused facade leaves, auth interceptor, both split WS transports, Sync
   feed/scheduler, terminal view/screen hubs, raw terminal input lane, guarded
   agent-prompt orchestration, worker facade, announced-channel barrier, and
@@ -87,11 +86,10 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 - SQLite access — `src/db/connection.ts` (Kysely over `kysely-bun-sqlite`, WAL + busy timeout), `src/db/schema.ts` (the `DB`
   interface), `src/db/migrate.ts` (custom runner over `apps/coord/migrations/*.sql`, throws on any failure), `src/db/snapshot.ts`
   (online SQLite copy for db-export and coord move).
-- Request middleware — `src/middleware/security.ts` (CSP/CORS/X-Frame-Options + `writeAuditLog`), `src/middleware/caller-origin.ts` (per-listener
-  trust chosen at boot from config, never sniffed from headers), `src/middleware/public-surface.ts` (the Cloudflare-Access edge
-  listener + its deny lists), `src/middleware/coordinator-availability.ts` (410 for a retired coordinator, except GET and a short
-  discovery allow-list), `src/middleware/rate-limit.ts`,
-  `src/middleware/cf-access.ts` (Access JWT + JWKS cache). On-host detection is
+- Request middleware — `src/middleware/security.ts` (CSP/CORS/X-Frame-Options + `writeAuditLog`), `src/middleware/caller-origin.ts`
+  (listener trust chosen at boot from config, never sniffed from headers: `direct` or `trusted-proxy`),
+  `src/middleware/coordinator-availability.ts` (410 for a retired coordinator, except GET and a short
+  discovery allow-list), and `src/middleware/rate-limit.ts`. On-host detection is
   not a standalone middleware: `src/middleware/caller-origin.ts` owns
   `CallerOrigin.onHost`.
 - `src/coord-move/` — live coordinator relocation (below).

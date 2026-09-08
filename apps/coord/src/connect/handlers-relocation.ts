@@ -23,6 +23,7 @@ import { fingerprintOf } from "@roost/shared/fingerprint";
 import { decodeEd25519Pubkey } from "../authorized-keys.ts";
 import { refreshJwtKey } from "../jwt.ts";
 import { log } from "@roost/shared/log";
+import { hasUrlUserInfo } from "../url-user-info.ts";
 import type { ConnectDeps } from "./router.ts";
 
 type RelocationMethods =
@@ -78,7 +79,7 @@ async function resolveCurrentCoordinator(initialUrl: string): Promise<{ url: str
   let url = initialUrl;
   for (let hop = 0; hop < 8; hop++) {
     const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+    if (parsed.protocol !== "https:" || hasUrlUserInfo(parsed)) {
       throw new ConnectError("invalid coordinator relocation target", Code.FailedPrecondition);
     }
     const origin = parsed.origin;

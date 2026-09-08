@@ -15,9 +15,6 @@ import { makeAgentPromptHandlers } from "./handlers-agent-prompt.ts";
 import { makeAttachmentHandlers } from "./handlers-attachments.ts";
 import { makeMcpHandlers } from "./handlers-mcp.ts";
 import { makeAuthHandlers } from "./handlers-auth.ts";
-import { makeAccountHandlers } from "./handlers-account.ts";
-import { makeNativeAuthHandlers } from "./handlers-native-auth.ts";
-import { makeFederatedAuthHandlers } from "./handlers-federated-auth.ts";
 import { makeRelocationHandlers } from "./handlers-relocation.ts";
 import { makeSystemHandlers } from "./handlers-system.ts";
 import { makeWorkspaceHandlers } from "./handlers-workspaces.ts";
@@ -37,8 +34,6 @@ import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "../jwt.ts";
 import { makeAuthInterceptor } from "./auth-interceptor.ts";
 import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
-import type { EmailDeliveryService } from "../email-delivery.ts";
-import type { PasswordWorkGate } from "./password-work-gate.ts";
 import type { PendingEventPublicationStore } from "../pending-event-publications.ts";
 import type { UiLayoutApplyOwner } from "./ui-layout-apply-owner.ts";
 import type { UiStateOwner } from "./ui-state-owner.ts";
@@ -51,7 +46,6 @@ export interface ConnectDeps {
   coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;
-  passwordWorkGate: PasswordWorkGate;
   uiLayoutApplies: UiLayoutApplyOwner;
   uiStates: UiStateOwner;
   move?: CoordinatorMoveService;
@@ -67,8 +61,6 @@ export interface ConnectDeps {
   onWorkerDeletedSyncScope?: (dashboardId: string, fingerprint: string) => void;
   /** Request transport close only after every in-process deletion cleanup. */
   onWorkerDeletedSocketClose?: (fingerprint: string) => void;
-  /** Encrypts password-reset payloads before transactional outbox insert. */
-  email?: Pick<EmailDeliveryService, "encryptPayload">;
   /** Invoked after a dashboard membership/status mutation commits. A device
    * fingerprint narrows revocation to that device when present. */
   onDashboardRevoked?: (dashboardId: string, fingerprint?: string) => void;
@@ -106,9 +98,6 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeTaskHandlers(deps),
     ...makeMcpHandlers(deps),
     ...makeAuthHandlers(deps),
-    ...makeAccountHandlers(deps),
-    ...makeNativeAuthHandlers(deps),
-    ...makeFederatedAuthHandlers(deps),
     ...makeRelocationHandlers(deps),
     ...makeSystemHandlers(deps),
     ...makeTranscriptionHandlers(deps),

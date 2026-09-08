@@ -29,11 +29,9 @@ async function fixture() {
   const opened = openDb(dbPath);
   await runMigrations(opened.sqlite);
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:4102", dbPath, coordKeyPath: keyPath, authorizedKeysPath,
-  saasMode: false,
-  managedContainer: false,
   pushAllowedOrigins: [],
   handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
-  publicUrl: "https://source.ts.net:4102", tlsCertPath: undefined, tlsKeyPath: undefined,
+  publicUrl: "https://source.ts.net:4102",
   jwtMaxAgeSecs: 300, auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [], }
   return { dir, cfg, db: opened.db, close: () => opened.close(), coordKey: await loadOrCreateCoordKey(keyPath) };
 }

@@ -203,20 +203,8 @@ export interface PushSubscriptionsTable {
 export interface AccountsTable {
   id: string;
   email_normalized: string;
-  password_hash: string | null;
   status: string;
   created_at_ms: number;
-  password_changed_at_ms: number | null;
-}
-
-export interface AccountIdentitiesTable {
-  account_id: string;
-  issuer: string;
-  subject: string;
-  email_normalized: string;
-  linked_at_ms: number;
-  last_authenticated_at_ms: number | null;
-  revoked_at_ms: number | null;
 }
 
 export interface AccountDevicesTable {
@@ -257,68 +245,15 @@ export interface DashboardMembershipsTable {
   created_at_ms: number;
 }
 
-export interface OwnerActivationTokensTable {
-  coordinator_id: string;
-  account_id: string;
-  email_normalized: string;
-  token_hash: string;
-  outbox_id: string | null;
-  delivery: "coordinator-email" | "signup-gateway";
-  created_at_ms: number;
-  expires_at_ms: number;
-  accepted_at_ms: number | null;
-  revoked_at_ms: number | null;
-}
-
-export interface FederatedAssertionRedemptionsTable {
-  jti: string;
-  purpose: string;
-  device_fp: string;
-  redeemed_at_ms: number;
-  expires_at_ms: number;
-}
-
-export interface PasswordResetTokensTable {
-  account_id: string;
-  email_normalized: string;
-  token_hash: string;
-  expires_at_ms: number;
-  used_at_ms: number | null;
-}
-
-export interface EmailOutboxTable {
-  id: string;
-  kind: string;
-  recipient: string;
-  encrypted_payload: string;
-  idempotency_key: string;
-  state: string;
-  attempts: number;
-  locked_until_ms: number | null;
-  lease_token: string | null;
-  next_attempt_ms: number;
-  provider_message_id: string | null;
-  sent_at_ms: number | null;
-  failed_at_ms: number | null;
-  last_error: string | null;
-}
-
-
-
 // ─── Kysely DB type ────────────────────────────────────────────────────
 
 export interface DB {
   accounts: AccountsTable;
-  account_identities: AccountIdentitiesTable;
   account_devices: AccountDevicesTable;
   organizations: OrganizationsTable;
   organization_memberships: OrganizationMembershipsTable;
   dashboards: DashboardsTable;
   dashboard_memberships: DashboardMembershipsTable;
-  owner_activation_tokens: OwnerActivationTokensTable;
-  federated_assertion_redemptions: FederatedAssertionRedemptionsTable;
-  password_reset_tokens: PasswordResetTokensTable;
-  email_outbox: EmailOutboxTable;
   workers: WorkersTable;
   events: EventsTable;
   sessions: SessionsTable;

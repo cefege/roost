@@ -3,7 +3,6 @@ import { acquireMachineTransaction } from "../machine-transaction.ts";
 import { roostServiceDir, roostVersionsDir } from "@roost/shared/paths";
 import {
   windowsCoordinatorRelocationState,
-  windowsProtectUpdaterArtifact,
   windowsQueryService,
   windowsReadUpdaterArtifact,
   windowsRemoveUpdaterArtifact,
@@ -37,7 +36,7 @@ import {
   type WindowsRelocationJournalV1,
 } from "./windows-relocation-journal.ts";
 import type { WindowsUpdateNative } from "./windows-update-broker.ts";
-import { normalizedWindowsAccount, runTrustedTailscale } from "./windows-identity.ts";
+import { normalizedWindowsAccount } from "./windows-identity.ts";
 import {
   assertNoReparseComponents,
   depsNow,
@@ -61,9 +60,6 @@ export interface WindowsRelocationBrokerDeps {
   stopService: typeof windowsStopService;
   relocationState: typeof windowsCoordinatorRelocationState;
   acquireTransaction: typeof acquireMachineTransaction;
-  captureTailscale(relocationId: string): Promise<string>;
-  applyTailscale(): Promise<void>;
-  restoreTailscale(relocationId: string, prior: string): Promise<void>;
   coordinatorHealthy(targetUrl: string): Promise<boolean>;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
@@ -86,9 +82,6 @@ export function createWindowsRelocationBrokerDeps(
     stopService: windowsStopService,
     relocationState: windowsCoordinatorRelocationState,
     acquireTransaction: acquireMachineTransaction,
-    captureTailscale: (relocationId) => captureTailscale(serviceDir, relocationId),
-    applyTailscale,
-    restoreTailscale: (relocationId, prior) => restoreTailscale(serviceDir, relocationId, prior),
     coordinatorHealthy,
   };
 }
@@ -253,7 +246,6 @@ async function applyCoordinator(
     checkpoint = {
       phase: "captured",
       priorCoordinatorRunning: operation.expectedBefore.state === "running",
-      priorTailscaleConfig: await deps.captureTailscale(journal.relocationId),
       rollbackPrepared: true,
     };
     journal = await saveCheckpoint({ ...journal, coordinator: checkpoint }, deps);
@@ -279,11 +271,6 @@ async function applyCoordinator(
     journal = await saveCheckpoint({ ...journal, coordinator: checkpoint }, deps);
   }
   if (checkpoint.phase === "override-applied") {
-    await deps.applyTailscale();
-    checkpoint = { ...checkpoint, phase: "route-applied" };
-    journal = await saveCheckpoint({ ...journal, coordinator: checkpoint }, deps);
-  }
-  if (checkpoint.phase === "route-applied") {
     await deps.startService(WINDOWS_SERVICE_NAMES.coordinator);
     checkpoint = { ...checkpoint, phase: "coordinator-started" };
     journal = await saveCheckpoint({ ...journal, coordinator: checkpoint }, deps);
@@ -316,7 +303,6 @@ async function restoreTransaction(
       await deps.stopService(WINDOWS_SERVICE_NAMES.coordinator, 30_000);
     }
     await deps.relocationState("restore", journal.relocationId, journal.handoffId);
-    await deps.restoreTailscale(journal.relocationId, journal.coordinator.priorTailscaleConfig);
   }
   await restorePriorOverride(journal, deps.serviceDir);
   await assertOverride(journal, journal.priorOverrideRaw, deps.serviceDir);
@@ -617,60 +603,12 @@ function validCoordinatorUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash
-      && url.pathname === "/" && url.port === "4102" && url.hostname.toLowerCase().endsWith(".ts.net");
+      && url.pathname === "/";
   } catch { return false; }
 }
 
 function boundedIdentifier(value: string): boolean {
   return value.length > 0 && value.length <= 256 && !/[\0\r\n]/.test(value);
-}
-
-function tailscaleRollbackPath(serviceDir: string, relocationId: string): string {
-  if (!UUID_RE.test(relocationId)) throw new Error("invalid Tailscale relocation identity");
-  return win32.join(
-    serviceDir,
-    "data",
-    "updater",
-    "coordinator-relocation",
-    relocationId,
-    "tailscale-before.json",
-  );
-}
-
-async function captureTailscale(serviceDir: string, relocationId: string): Promise<string> {
-  const path = tailscaleRollbackPath(serviceDir, relocationId);
-  await runTrustedTailscale(["serve", "get-config", path, "--all"]);
-  await windowsProtectUpdaterArtifact(path, "private");
-  return new TextDecoder().decode(
-    await windowsReadUpdaterArtifact(path, "private", 1024 * 1024),
-  );
-}
-
-async function applyTailscale(): Promise<void> {
-  if (process.env.ROOST_FRONTED === "0") return;
-  await runTrustedTailscale([
-    "serve",
-    "--bg",
-    "--https=4102",
-    "http://127.0.0.1:4103",
-  ]);
-}
-
-async function restoreTailscale(
-  serviceDir: string,
-  relocationId: string,
-  prior: string,
-): Promise<void> {
-  if (!prior.trim() || prior.trim() === "{}" || prior.trim() === "null") {
-    await runTrustedTailscale(["serve", "reset"]);
-    return;
-  }
-  await runTrustedTailscale([
-    "serve",
-    "set-config",
-    tailscaleRollbackPath(serviceDir, relocationId),
-    "--all",
-  ]);
 }
 
 async function coordinatorHealthy(targetUrl: string): Promise<boolean> {

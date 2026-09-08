@@ -16,11 +16,6 @@ import type {
 } from "../src/auth/fragment-credential.ts";
 import { coordBase } from "../src/connect.ts";
 import { dispatchCapturedFragmentCredential } from "../src/store/sync-bootstrap.pair.ts";
-const ROUTE_A = "a".repeat(64);
-const ROUTE_B = "b".repeat(64);
-const ACTIVATION_TOKEN = "A".repeat(43);
-const RESET_TOKEN = "R".repeat(43);
-
 
 class MemoryStorage implements Storage {
   readonly values = new Map<string, string>();
@@ -56,7 +51,7 @@ function installBrowser(
   events: string[] = [],
 ): FakeBrowser {
   const locationValue = {
-    origin: "https://c-test.dashboard.roosttt.com",
+    origin: "https://dashboard.roosttt.com",
     pathname: input.pathname,
     search: input.search ?? "",
     hash: input.hash ?? "",
@@ -102,7 +97,7 @@ function installBrowser(
 }
 
 function resetBaseCredentialState(): void {
-  for (const kind of ["pair", "relocation", "activation", "reset"] as const) {
+  for (const kind of ["pair", "relocation"] as const) {
     clearCapturedFragmentCredential(kind);
   }
 }
@@ -110,71 +105,31 @@ function resetBaseCredentialState(): void {
 beforeEach(resetBaseCredentialState);
 
 describe("fragment credential classifier", () => {
-  test("accepts exactly one complete pair, relocation, activation, or reset shape", () => {
-    expect(parseFragmentCredential("/", "#pair=one-shot")).toEqual({
+  test("accepts exactly one complete pair or relocation shape", () => {
+    expect(parseFragmentCredential("#pair=one-shot")).toEqual({
       kind: "pair",
       token: "one-shot",
     });
-    expect(parseFragmentCredential(`/pair/${ROUTE_A}`, "#pair=managed-shot")).toEqual({
-      kind: "pair",
-      token: "managed-shot",
-      routeKey: ROUTE_A,
-    });
-    expect(parseFragmentCredential("/", "#move=relocation&handoff=id-1")).toEqual({
+    expect(parseFragmentCredential("#move=relocation&handoff=id-1")).toEqual({
       kind: "relocation",
       token: "relocation",
       handoffId: "id-1",
     });
-    expect(parseFragmentCredential(`/activate/${ROUTE_A}`, `#${ACTIVATION_TOKEN}`)).toEqual({
-      kind: "activation",
-      token: ACTIVATION_TOKEN,
-      routeKey: ROUTE_A,
-    });
-    expect(parseFragmentCredential(`/reset-password/${ROUTE_B}`, `#${RESET_TOKEN}`)).toEqual({
-      kind: "reset",
-      token: RESET_TOKEN,
-      routeKey: ROUTE_B,
-    });
-    expect(parseFragmentCredential("/reset-password", `#${RESET_TOKEN}`)).toEqual({
-      kind: "reset",
-      token: RESET_TOKEN,
-    });
-    expect(parseFragmentCredential("/", "#unrelated=value")).toEqual({ kind: "none" });
-  });
-
-  test("activation and reset token capture requires an exact route key and raw fragment", () => {
-    for (const pathname of ["/", "/login", "/forgot-password"]) {
-      expect(parseFragmentCredential(pathname, `#${ACTIVATION_TOKEN}`), pathname)
-        .toEqual({ kind: "none" });
-    }
-    for (const pathname of ["/activate", "/activate/extra", `/activate/${ROUTE_A}`]) {
-      expect(parseFragmentCredential(pathname, "#token=legacy"), pathname)
-        .toEqual({ kind: "invalid" });
-      expect(credentialFreeUrl({
-        pathname,
-        search: "?token=query-secret",
-        hash: "#fragment-secret",
-      })).toBe("/activate");
-    }
+    expect(parseFragmentCredential("#unrelated=value")).toEqual({ kind: "none" });
+    expect(parseFragmentCredential("")).toEqual({ kind: "none" });
   });
 
   test("rejects combined, partial, empty, and duplicate credential fields", () => {
-    const cases: Array<[string, string]> = [
-      ["/", "#pair=p&move=m&handoff=h"],
-      ["/", "#move=m"],
-      ["/", "#handoff=h"],
-      ["/", "#move=&handoff=h"],
-      ["/", "#pair="],
-      ["/", "#pair=a&pair=b"],
-      ["/", "#move=a&move=b&handoff=h"],
-      [`/activate/${ROUTE_A}`, "#"],
-      [`/activate/${ROUTE_A}`, "#token=legacy"],
-      [`/activate/${ROUTE_A}`, "#short"],
-      [`/reset-password/${ROUTE_B}`, `#${"x".repeat(44)}`],
-    ];
-    for (const [pathname, hash] of cases) {
-      expect(parseFragmentCredential(pathname, hash), `${pathname}${hash}`)
-        .toEqual({ kind: "invalid" });
+    for (const hash of [
+      "#pair=p&move=m&handoff=h",
+      "#move=m",
+      "#handoff=h",
+      "#move=&handoff=h",
+      "#pair=",
+      "#pair=a&pair=b",
+      "#move=a&move=b&handoff=h",
+    ]) {
+      expect(parseFragmentCredential(hash), hash).toEqual({ kind: "invalid" });
     }
   });
 
@@ -184,16 +139,6 @@ describe("fragment credential classifier", () => {
       search: "?view=terminal&pair=query-secret&raw=a%2Fb",
       hash: "#keep=one&pair=fragment-secret&anchor&other=two",
     })).toBe("/workspace?view=terminal&raw=a%2Fb#keep=one&anchor&other=two");
-    expect(credentialFreeUrl({
-      pathname: `/activate/${ROUTE_A}`,
-      search: "?next=%2Fapp&token=query-secret",
-      hash: `#${ACTIVATION_TOKEN}`,
-    })).toBe("/activate");
-    expect(credentialFreeUrl({
-      pathname: `/pair/${ROUTE_A}`,
-      search: "",
-      hash: "#pair=managed-shot",
-    })).toBe("/");
     expect(credentialFreeUrl({
       pathname: "/",
       search: "?x=1",
@@ -215,9 +160,9 @@ describe("synchronous entry capture", () => {
 
     const events: string[] = [];
     const browser = installBrowser({
-      pathname: `/activate/${ROUTE_A}`,
-      search: "?token=query-secret",
-      hash: `#${ACTIVATION_TOKEN}`,
+      pathname: "/",
+      search: "?pair=query-secret",
+      hash: "#pair=fragment-secret",
     }, events);
     try {
       mock.module("../src/main.tsx", () => {
@@ -228,22 +173,17 @@ describe("synchronous entry capture", () => {
       await entry.mainModulePromise;
 
       expect(events).toEqual([
-        "replace:/activate",
-        "main:/activate",
+        "replace:/",
+        "main:/",
       ]);
       expect(peekCapturedFragmentCredential()).toEqual({
-        kind: "activation",
-        token: ACTIVATION_TOKEN,
-        routeKey: ROUTE_A,
+        kind: "pair",
+        token: "fragment-secret",
       });
-      expect(browser.local.getItem("roost.tenantRouteKey")).toBe(ROUTE_A);
-      expect(coordBase()).toBe(
-        `https://c-test.dashboard.roosttt.com/_roost/t/${ROUTE_A}`,
-      );
       expect(events.join("|")).not.toContain("query-secret");
-      expect(events.join("|")).not.toContain("fragment-secret");
+      expect(events.join("|")).not.toContain("=fragment-secret");
     } finally {
-      clearCapturedFragmentCredential("activation");
+      clearCapturedFragmentCredential("pair");
       browser.restore();
     }
   });
@@ -287,41 +227,27 @@ describe("synchronous entry capture", () => {
       browser.restore();
     }
   });
-  test("notification navigation selects and scrubs the tenant route before app import", () => {
-    const events: string[] = [];
-    const browser = installBrowser({
-      pathname: `/_roost/t/${ROUTE_A}/s/11111111-1111-4111-8111-111111111111`,
-    }, events);
-    try {
-      expect(captureAndScrubFragmentCredential()).toEqual({ kind: "none" });
-      expect(events).toEqual(["replace:/s/11111111-1111-4111-8111-111111111111"]);
-      expect(browser.local.getItem("roost.tenantRouteKey")).toBe(ROUTE_A);
-    } finally {
-      browser.restore();
-    }
-  });
-
 
   test("captures once, persists through a module reload, and clears only the expected kind", async () => {
     const events: string[] = [];
     const session = new MemoryStorage();
     const browser = installBrowser({
-      pathname: `/reset-password/${ROUTE_B}`,
-      hash: `#${RESET_TOKEN}`,
+      pathname: "/",
+      hash: "#move=move-secret&handoff=handoff-id",
       session,
     }, events);
     try {
       expect(captureAndScrubFragmentCredential()).toEqual({
-        kind: "reset",
-        token: RESET_TOKEN,
-        routeKey: ROUTE_B,
+        kind: "relocation",
+        token: "move-secret",
+        handoffId: "handoff-id",
       });
-      expect(events).toEqual(["replace:/reset-password"]);
-      expect(clearCapturedFragmentCredential("activation")).toBe(false);
+      expect(events).toEqual(["replace:/"]);
+      expect(clearCapturedFragmentCredential("pair")).toBe(false);
       expect(peekCapturedFragmentCredential()).toEqual({
-        kind: "reset",
-        token: RESET_TOKEN,
-        routeKey: ROUTE_B,
+        kind: "relocation",
+        token: "move-secret",
+        handoffId: "handoff-id",
       });
 
       // A cache-distinct import models a document reload: module memory starts
@@ -333,14 +259,14 @@ describe("synchronous entry capture", () => {
         clearCapturedFragmentCredential(kind: CapturedFragmentCredentialKind): boolean;
       };
       expect(reloaded.peekCapturedFragmentCredential()).toEqual({
-        kind: "reset",
-        token: RESET_TOKEN,
-        routeKey: ROUTE_B,
+        kind: "relocation",
+        token: "move-secret",
+        handoffId: "handoff-id",
       });
-      expect(reloaded.clearCapturedFragmentCredential("reset")).toBe(true);
+      expect(reloaded.clearCapturedFragmentCredential("relocation")).toBe(true);
       expect(reloaded.peekCapturedFragmentCredential()).toBeNull();
     } finally {
-      clearCapturedFragmentCredential("reset");
+      clearCapturedFragmentCredential("relocation");
       browser.restore();
     }
   });
@@ -350,7 +276,7 @@ describe("synchronous entry capture", () => {
     local.setItem("roost.deploymentMode", "self-hosted");
     local.setItem("roost.coordinatorUrl", "https://retired.example.test");
     const browser = installBrowser({
-      pathname: "/app",
+      pathname: "/",
       hash: "#move=move-secret&handoff=handoff-id",
       local,
     });
@@ -368,12 +294,12 @@ describe("synchronous entry capture", () => {
   test("diagnostic URL serialization removes query and fragment credentials", () => {
     const serialized = credentialFreeUrl({
       origin: "https://dashboard.roosttt.com",
-      pathname: `/reset-password/${ROUTE_B}`,
-      search: "?token=query-secret&keep=1",
-      hash: `#${RESET_TOKEN}`,
+      pathname: "/s/session-a",
+      search: "?pair=query-secret&keep=1",
+      hash: "#move=fragment-secret&handoff=h",
     });
     expect(serialized).toBe(
-      "https://dashboard.roosttt.com/reset-password",
+      "https://dashboard.roosttt.com/s/session-a?keep=1",
     );
     expect(serialized).not.toContain("query-secret");
     expect(serialized).not.toContain("fragment-secret");

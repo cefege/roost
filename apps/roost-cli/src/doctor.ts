@@ -8,8 +8,8 @@
 //
 // Output: one-screen markdown digest grouped by signal kind + infra
 // target/msg. Exit 1 when any signal fired or any error-level line exists
-// (so it is cron/CI-able: 0 = nothing to review). Health (tailscale/agents/
-// coord) lives in `roost status` — this command is logs-only and fast.
+// (so it is cron/CI-able: 0 = nothing to review). Health (services / coord /
+// front door / workers) lives in `roost status` — this command is logs-only.
 //
 // SPA signals all flow through coord → coord's err.log covers every device.
 // Remote-worker signals stay on their host until Phase-5 centralization.
@@ -177,7 +177,7 @@ export function renderDigest(d: Digest, sinceLabel: string, cutoff: number, miss
   out.push("## summary");
   out.push(`  window:  ${d.minTs === Infinity ? "(no events)" : `${fmt(d.minTs)} → ${fmt(d.maxTs)}`}`);
   out.push(`  signals: ${totalSignals} (${d.signals.size} kinds)   infra: ${[...d.infra.values()].reduce((a, b) => a + b, 0)}   errors: ${d.errorLines}`);
-  out.push(`  health:  run \`roost status\` (tailscale / launch agents / coord / workers)`);
+  out.push(`  health:  run \`roost status\` (services / coord / public url / workers)`);
 
   const exit = totalSignals > 0 || d.errorLines > 0 ? 1 : 0;
   out.push(`  exit:    ${exit} (${exit ? "review above" : "nothing to review"})`);

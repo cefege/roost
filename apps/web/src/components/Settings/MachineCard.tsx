@@ -13,7 +13,7 @@ import { addToast } from "../../store/toastStore.ts";
 import { CoordinatorMoveDialog } from "./CoordinatorMoveDialog.tsx";
 import { Card, Button, MetricTile, Icon, TextField } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
-import { coordinatorMoveControlsVisible, coordinatorRole } from "../../lib/coordinatorMove.ts";
+import { coordinatorRole } from "../../lib/coordinatorMove.ts";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { machinePlatformIcon } from "../../lib/machineActions.ts";
 function formatBps(bps: number): string {
@@ -47,8 +47,6 @@ export function MachineCard(props: { worker: Worker }) {
   let confirmTimer: ReturnType<typeof setTimeout> | null = null;
   const [moveDialog, setMoveDialog] = createSignal(false);
   const role = () => coordinatorRole(rootStore.coord_identity, w());
-  const moveControlsVisible = () =>
-    coordinatorMoveControlsVisible(rootStore.coord_identity);
 
   function beginRename() {
     setRenameLabel(w().label);
@@ -145,7 +143,7 @@ export function MachineCard(props: { worker: Worker }) {
 
   return (
     <div data-testid={`machines-worker-row-${w().fp}`} style={{ opacity: deleteBusy() ? 0.4 : 1, transition: "opacity 0.15s" }}>
-      <Show when={moveControlsVisible() && moveDialog()}>
+      <Show when={moveDialog()}>
         <CoordinatorMoveDialog
           targetWorkerFp={w().fp}
           onClose={() => setMoveDialog(false)}
@@ -260,22 +258,18 @@ export function MachineCard(props: { worker: Worker }) {
             >
               Rename
             </Button>
-            <Show when={moveControlsVisible() && role() === "yes"}>
+            <Show when={role() === "yes"}>
               <span data-testid={`machines-coordinator-pill-${w().fp}`} class="md-label-m">Coordinator</span>
             </Show>
-            <Show when={moveControlsVisible() && role() === "unknown"}>
+            <Show when={role() === "unknown"}>
               <span data-testid={`machines-coordinator-unknown-${w().fp}`} class="md-label-s">
                 Coordinator location unknown — set ROOST_COORDINATOR_PUBLIC_URL on the coordinator.
               </span>
             </Show>
-            <Show when={moveControlsVisible() && role() === "no"}>
-              {/* Managed coordinators are moved only by the host operator. The
-                  public self-hosted surface keeps this control visible but inert;
-                  private access still relies on server preflight details. */}
+            <Show when={role() === "no"}>
               <Button
                 variant="tonal"
                 data-testid={`machines-move-coordinator-btn-${w().fp}`}
-                disabled={rootStore.coord_identity?.public_listener === true}
                 onClick={() => setMoveDialog(true)}
               >
                 Move coordinator here

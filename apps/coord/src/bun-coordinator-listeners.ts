@@ -1,7 +1,8 @@
 // Owns Bun HTTP and WebSocket listener construction for coordinator startup.
 // runCoord calls it after the database, protocol services, and transports are ready.
-// It depends on Bun.serve plus the coordinator transport and public-surface adapters.
-// The primary listener must be live before runCoord starts move recovery.
+// It depends on Bun.serve plus the coordinator transport and move adapters.
+// The coordinator serves plaintext on its loopback bind; the operator's front
+// door owns TLS. The listener must be live before runCoord starts move recovery.
 
 import type { CoordConfig } from "@roost/shared/config";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
@@ -10,7 +11,7 @@ import { log } from "@roost/shared/log";
 import type { Server, ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   COORD_WEBSOCKET_MAX_PAYLOAD_BYTES,
@@ -28,9 +29,7 @@ import { handleInternalHandoffRequest } from "./coord-move/internal-http.ts";
 import type { CoordinatorMoveService } from "./coord-move/orchestrator.ts";
 import { createSqliteSnapshot } from "./db/snapshot.ts";
 import { resolveCallerOrigin, type CallerOrigin, type ListenerTrust } from "./middleware/caller-origin.ts";
-import { makeCfAccessVerifier } from "./middleware/cf-access.ts";
 import { coordinatorAvailabilityResponse } from "./middleware/coordinator-availability.ts";
-import { makePublicSurface } from "./middleware/public-surface.ts";
 
 const COORDINATOR_HTTP_IDLE_TIMEOUT_SECONDS = 120;
 const BUN_MAX_FINITE_IDLE_TIMEOUT_SECONDS = 255;
@@ -74,9 +73,7 @@ interface BunCoordinatorListenerDeps {
 
 interface BunCoordinatorListeners {
   server: Server<WorkerWsData | SyncWsData>;
-  publicServer: Server<WorkerWsData | SyncWsData> | undefined;
   host: string;
-  tlsEnabled: boolean;
 }
 
 interface BunRequestTimeoutServer {
@@ -124,8 +121,8 @@ export function startBunCoordinatorListeners(
   // invariant on `data`, so the compiler can't narrow the socket handle from
   // ws.data.kind alone — cast to the known variant after the discriminant check.
   const websocket = {
-    // One shared ceiling covers both worker and browser Sync sockets on both
-    // listeners. Bun rejects the offending frame/socket before dispatch.
+    // One shared ceiling covers both worker and browser Sync sockets. Bun
+    // rejects the offending frame/socket before dispatch.
     maxPayloadLength: COORD_WEBSOCKET_MAX_PAYLOAD_BYTES,
     open(ws: ServerWebSocket<WorkerWsData | SyncWsData>): void {
       if (ws.data.kind === "sync") syncWs.open(ws as ServerWebSocket<SyncWsData>);
@@ -143,31 +140,7 @@ export function startBunCoordinatorListeners(
       else workerWs.close(ws as ServerWebSocket<WorkerWsData>);
     },
   };
-  const publicAccess = cfg.cfAccessTeamDomain && cfg.cfAccessAud
-    ? makeCfAccessVerifier(cfg.cfAccessTeamDomain, cfg.cfAccessAud)
-    : undefined;
-  const publicSurface = cfg.publicBind
-    ? makePublicSurface({
-        access: publicAccess,
-        coord,
-        syncDeps,
-        workerDeps,
-        move,
-        cfg,
-        spa,
-        syncUpgrade: handleSyncWsUpgrade,
-        workerUpgrade: (req, server, workerSurfaceDeps) => handleWorkerWsUpgrade(
-          req,
-          server as unknown as Server<WorkerWsData>,
-          workerSurfaceDeps,
-        ),
-      })
-    : null;
-
   async function dbExportResponse(origin: CallerOrigin): Promise<Response> {
-    if (cfg.saasMode) {
-      return new Response("not found", { status: 404 });
-    }
     if (!origin.onHost) {
       return new Response(JSON.stringify({ error: "on-host only" }), {
         status: 403, headers: { "content-type": "application/json" },
@@ -195,22 +168,10 @@ export function startBunCoordinatorListeners(
   const [host, portStr] = cfg.bind.split(":") as [string, string];
   const port = parseInt(portStr, 10);
 
-  // tailscale serve overwrites X-Forwarded-For with the authenticated tailnet
+  // A trusted front door overwrites X-Forwarded-For with the real client
   // address. Trust that header only on this boot-configured listener profile.
   const trustProxy = cfg.trustProxy;
-  const listenerTrust: ListenerTrust = trustProxy ? "tailscale-serve" : "direct";
-
-  const tls = cfg.tlsCertPath && cfg.tlsKeyPath
-    ? {
-        cert: readFileSync(cfg.tlsCertPath),
-        key: readFileSync(cfg.tlsKeyPath),
-        // ponytail: ALPN dropped 2026-06-22. Bun.serve alpnProtocols
-        // is a no-op in 1.3.14 (openssl shows "No ALPN negotiated"
-        // regardless). Worker transport is now raw WS, not Connect-bidi
-        // h2, so ALPN is dead code. Removing fixes ERR_SSL_PROTOCOL_ERROR
-        // on some Chrome profiles.
-      }
-    : undefined;
+  const listenerTrust: ListenerTrust = trustProxy ? "trusted-proxy" : "direct";
 
   let econnresetCount = 0;
   let econnresetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -218,7 +179,7 @@ export function startBunCoordinatorListeners(
     econnresetCount++;
     if (!econnresetTimer) {
       econnresetTimer = setTimeout(() => {
-        log.debug("server", "tls_handshake_probes", { count: econnresetCount });
+        log.debug("server", "connection_reset_probes", { count: econnresetCount });
         econnresetCount = 0;
         econnresetTimer = null;
       }, 60_000);
@@ -226,7 +187,7 @@ export function startBunCoordinatorListeners(
   }
 
   const server = serve({
-    hostname: host, port, tls,
+    hostname: host, port,
     // idleTimeout reaps connections with no traffic for N seconds. This is
     // the fix for "internet blipped → browser can't reconnect, even reload
     // hangs": after a network drop Chrome keeps reusing a ZOMBIE HTTP/2
@@ -293,7 +254,7 @@ export function startBunCoordinatorListeners(
         origin,
         spa,
         dbExport: dbExportResponse,
-        hsts: Boolean(tls) || trustProxy,
+        hsts: trustProxy,
       });
     }),
     websocket,
@@ -312,32 +273,5 @@ export function startBunCoordinatorListeners(
     },
   });
 
-  let publicServer: Server<WorkerWsData | SyncWsData> | undefined;
-  if (cfg.publicBind && publicSurface) {
-    const [publicHost, publicPortStr] = cfg.publicBind.split(":") as [string, string];
-    publicServer = serve({
-      hostname: publicHost,
-      port: Number(publicPortStr),
-      idleTimeout: COORDINATOR_HTTP_IDLE_TIMEOUT_SECONDS,
-      maxRequestBodySize: 16 * 1024 * 1024,
-      websocket,
-      fetch: withCoordinatorRequestIdleTimeout((
-        req: Request,
-        listenerServer: Server<WorkerWsData | SyncWsData>,
-      ) => publicSurface.fetch(req, listenerServer)),
-      error: publicSurface.error,
-    });
-    log.info("main", "public_listening", {
-      bind: `${publicHost}:${publicServer.port}`,
-      policy: publicAccess ? "cloudflare-access" : "managed",
-      access_team: cfg.cfAccessTeamDomain ?? null,
-    });
-  }
-
-  return {
-    server,
-    publicServer,
-    host,
-    tlsEnabled: !!tls,
-  };
+  return { server, host };
 }

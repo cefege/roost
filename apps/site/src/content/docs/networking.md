@@ -1,177 +1,101 @@
 ---
 title: "Networking"
-description: "Automatic Tailscale Serve and explicit-certificate HTTPS topologies, optional Cloudflare Access, and the public listener boundary."
+description: "One loopback coordinator listener, the front door you choose, and the paths that stay private."
 order: 7
 section: "Reference"
 ---
 
-## Coordinator HTTPS: automatic Tailscale Serve or an explicit certificate
+## One listener, one declared origin
 
-`roost quickstart` supports two mutually exclusive endpoint modes. With no
-endpoint flags, automatic mode configures Tailscale Serve in front of a loopback
-coordinator:
+The coordinator binds loopback and speaks plaintext:
 
 ```text
-Tailscale Serve :4102  →  127.0.0.1:4103
+your front door  →  127.0.0.1:4103
 ```
 
-For a host reachable without Tailscale, explicit mode serves HTTPS directly:
+That is the whole network model. TLS, DNS, tunnels, and public reachability
+belong to whatever you put in front of it, and you tell the coordinator the
+resulting origin:
 
 ```sh
-roost quickstart \
-  --coordinator-url https://roost.example.com:4102 \
-  --tls-cert /absolute/path/fullchain.pem \
-  --tls-key /absolute/path/privkey.pem
+roost quickstart --coordinator-url https://roost.example.com
 ```
 
-The URL, certificate, and key flags form one required group; partial input never
-falls back to Tailscale. The certificate must be browser-trusted for the
-coordinator hostname.
+Quickstart installs the coordinator with `ROOST_COORDINATOR_BIND=127.0.0.1:4103`,
+`ROOST_TRUST_PROXY=1`, and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
+`--coordinator-url` must be an absolute `https:` origin with no path, query, or
+fragment; an explicit port is optional. Roost never provisions a certificate,
+never registers DNS, and never invents an origin for you.
 
-Direct coordinator quickstart does not resolve or call Tailscale. You provide
-the stable hostname, routing and firewall policy, and certificate lifecycle.
+`roost status` reports that configured URL and whether it answers.
 
-Tailscale supplies convenient private reachability and TLS in automatic mode. It
-is never an application identity or enrollment authority. Every browser must
-redeem a scoped one-shot browser grant or complete approved pairing, and every
-worker must redeem a scoped worker grant; a loopback or tailnet source address
-does not replace either credential.
+## Three front doors
 
-Workers dial the configured coordinator HTTPS origin outbound and never listen
-for inbound connections. `roost status` reports whether TLS is provided by
-Tailscale Serve or directly by the coordinator certificate.
+Any reverse proxy works. These three cover most installs, and Roost implements
+none of them — copy-paste configuration lives in
+[Install](/docs/install/) and the repository's `GETTING_STARTED.md`.
 
-The current `join.sh` for an additional macOS or Linux worker still requires a
-running Tailscale daemon, even when that worker dials the direct HTTPS origin.
-That enrollment limitation does not make Tailscale part of the direct
-coordinator topology.
+| | Caddy with your domain | Cloudflare tunnel | `tailscale serve` |
+|---|---|---|---|
+| Public DNS/domain | yours | yours, on Cloudflare | none |
+| Inbound ports open | 80/443 | none | none |
+| Certificate on the box | Caddy manages it | none | Tailscale manages it |
+| Browser device software | ordinary browser | ordinary browser | Tailscale client |
+| Best reason to choose it | plain public hosting | works behind NAT | no domain, no exposure |
 
-## Optional: Cloudflare browser access for automatic mode
+Workers dial the coordinator origin outbound and never listen for inbound
+connections. When workers should use a different door than browsers, set
+`ROOST_COORDINATOR_PUBLIC_URL` to that origin; enrollment resolves
+`ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` →
+`ROOST_WEB_PUBLIC_URL` and refuses when none is set.
 
-Cloudflare Access adds a *public browser endpoint* to an already working
-automatic Tailscale Serve installation. It exists for one case: reaching your
-fleet from a device you cannot or will not install a VPN client on — a work
-laptop, a borrowed machine, or a locked-down phone.
+## Overwrite `X-Forwarded-For`, never append
 
-What changes and what does not:
+The coordinator reads the **first** entry of `X-Forwarded-For` as the caller
+address, and that address decides whether a request counts as on-host. Your
+front door must therefore replace the header with its own client address.
+A proxy that appends — `cloudflared` appends the visitor address after any
+client-supplied chain — lets a caller prepend an address of its choosing and
+claim to be on-host.
 
-| | Automatic Tailscale path | Cloudflare browser access |
-|---|---|---|
-| Browser device software | Tailscale app | Ordinary browser only |
-| Coordinator/worker network | Tailscale | Tailscale |
-| Public DNS/domain | None | Cloudflare-managed domain required |
-| Cloudflare setup | None | Tunnel plus a self-hosted Access application |
-| Tradeoff | Browser must join the tailnet | Manual Cloudflare administration and an extra internet-facing dependency |
-
-Only the coordinator runs `cloudflared`; workers and browsing devices do not
-install it. The coordinator opens a second loopback listener on
-`127.0.0.1:4104` for this path, and `roost expose` refuses to run when
-`cloudflared` is not on `PATH`.
-
-The tunnel ingress must point at that listener:
-
-```yaml
-tunnel: <TUNNEL-UUID>
-credentials-file: /absolute/path/printed/by/cloudflared/<TUNNEL-UUID>.json
-ingress:
-  - hostname: roost.example.com
-    service: http://127.0.0.1:4104
-  - service: http_status:404
-```
-
-Then tell Roost about the Access application:
+Prove it from a machine that is not the coordinator:
 
 ```sh
-roost expose roost.example.com \
-  --team <team>.cloudflareaccess.com \
-  --aud <64-lowercase-hex>
+curl -si https://roost.example.com/api/db-export | head -1
 ```
 
-Add `--config <path>` for a non-default config; a relative path is resolved
-against the current working directory before validation.
+`403` is correct, and `404` is equally correct once you deny the path at the
+front door as below. Only `200` is a failure: it means the caller address is
+not arriving intact and the whole database is downloadable.
 
-`roost expose` validates before it changes anything. The hostname must be a bare
-FQDN with no scheme, port, or path. `--team` must match
-`<team>.cloudflareaccess.com`, and `--aud` must be exactly 64 lowercase hex
-characters. The config must exist and pass `cloudflared`'s own ingress
-validation. The **first** ingress rule must be pathless and name exactly your
-hostname and `http://127.0.0.1:4104`. And four representative URLs — the site
-root, `/api/db-export`, `/internal/coord-handoff/commit`, and
-`/ws/coord-worker/<fp>` — are each resolved through `cloudflared` and must land on
-that same service, so a stray later rule cannot quietly capture one of them.
+## Paths that stay private
 
-`roost expose` prints the service-install command to run afterwards; with the
-default config it is
-`sudo cloudflared --config "$HOME/.cloudflared/config.yml" service install`. The
-explicit `--config` matters on Linux, where `sudo` gives the service `$HOME=/root`
-and `cloudflared` would otherwise not find the config you just wrote. Roost does
-not install, update, or own that Cloudflare service; it only prints the command.
+Deny two prefixes at the front door: `/internal/*` (coordinator handoff) and
+`/api/db-export` (the whole database). The coordinator also refuses
+`/api/db-export` for any caller it does not resolve as on-host, so the edge
+rule is defence in depth.
 
-## What the public listener refuses
+`/ws/coord-worker/*` — the worker link — passes by default: in a standard
+install workers dial the same origin browsers use. Deny it only once workers
+have their own declared origin (`ROOST_COORDINATOR_PUBLIC_URL` on the
+coordinator, matching `ROOST_COORDINATOR_URL` on each worker). Denying it while
+workers still dial the public origin strands every one of them on a 404
+transport.
 
-Access authenticating a human is not the same as authorizing a device, and the
-public surface is narrower than the private one by construction. Even behind a
-correct Access policy, the public listener returns 404 for a fixed deny list:
+## No network position grants authority
 
-- any path under `/internal/`
-- `/ws/coord-worker/…` — the worker transport
-- `/api/db-export`
-- the RPCs `AuthRedeemWorker`, `AuthMintCoordinatorRelocation`,
-  `AuthRedeemCoordinatorRelocation`, `CoordinatorMovePreflight`,
-  `CoordinatorMoveStart`, `CoordinatorMoveStatus`, and `MiscDbExportUrl`
+Being on the tailnet, on a VPN, or on loopback is transport reachability, never
+authorization. Every browser redeems a scoped one-shot grant or completes an
+approved pairing request; every worker redeems a scoped worker grant. A login
+your front door performs is authentication of a human, not authorization of a
+device.
 
-So worker enrollment, worker transport, database export, internal handoff, and
-coordinator relocation stay on the coordinator's main HTTPS endpoint whether or
-not the public browser endpoint exists.
-
-Roost pairing still authorizes the browser as a Roost device. A successful Access
-login without pairing is not sufficient. To verify the edge before you trust it,
-log out of Access and run:
-
-```sh
-curl -i -X POST https://roost.example.com/roost.v1.CoordinatorService/MiscHealth
-```
-
-Expect an Access login redirect or challenge. An origin HTTP 200 means Access is
-absent; 502 or 530 means tunnel routing is wrong.
-
-Also worth knowing before you enable it: `roost deploy`, VNC/Screen Sharing,
-Finder/SMB, SSH/rsync, and development-port links keep using direct or tailnet
-reachability. And Cloudflare availability plus your Access policy become
-dependencies of the public URL — the private Tailscale path remains available
-regardless.
-
-## Turning public access off
-
-Stop and remove the tunnel service, then delete the Access application, the DNS
-record, and the tunnel in the Cloudflare dashboard:
-
-```sh
-sudo systemctl disable --now cloudflared   # Linux only
-sudo cloudflared service uninstall
-```
-
-There is no `roost unexpose`. `roost expose` persists the public URL and the
-Access settings into the coordinator service, so deleting the Cloudflare resources
-removes public reachability but does not restore local pairing links or clear the
-saved public URL. Do not hand-edit the launchd or systemd definitions; reinstall
-or reconfigure the coordinator for a full local reset.
-
-## Other private overlays
-
-WireGuard, Headscale, ZeroTier, and other private overlays can make a direct
-HTTPS origin reachable, but Roost does not configure or exercise them. You own
-their routing and DNS, and the coordinator still needs a certificate trusted by
-every browser and worker. They do not bypass the current `join.sh` requirement
-for a running Tailscale daemon when enrolling an additional worker.
-
-No network membership grants Roost authority. Browsers and workers still redeem
-scoped one-shot grants or complete explicit pairing, exactly as they do over
-Tailscale or direct HTTPS.
+WireGuard, Headscale, ZeroTier, and other private overlays make the front door
+reachable and change nothing else; Roost neither configures nor exercises them.
 
 ## Next
 
-- [Install](/docs/install/) — choose automatic Tailscale or explicit HTTPS
+- [Install](/docs/install/) — the one install shape and the front-door recipes
 - [Fleet](/docs/fleet/) — why workers only ever dial outbound
 - [Security](/docs/security/) — pairing, device keys, and revocation
-- [The CLI](/docs/cli/) — `expose`, `status`, `doctor`
+- [The CLI](/docs/cli/) — `status`, `doctor`, and the rest

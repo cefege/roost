@@ -1,4 +1,4 @@
-// Pins Bun request-timeout routing for the coordinator's two HTTP listeners.
+// Pins Bun request-timeout routing for the coordinator's loopback HTTP listener.
 // The fixture avoids wall-clock sleeps by observing per-request timeout calls.
 // SessionsPrompt is the only route allowed to override the 120-second default.
 
@@ -11,16 +11,12 @@ const PRIOR_IDLE_BOUNDARY_MS = 120_000;
 const SESSIONS_PROMPT_PATH =
   `/${CoordinatorService.typeName}/${CoordinatorService.method.sessionsPrompt.name}`;
 
-type ListenerName = "private" | "public";
-
 interface TimeoutCall {
-  listener: ListenerName;
   request: Request;
   seconds: number;
 }
 
 interface ListenerServer {
-  listener: ListenerName;
   port: number;
   requestIP(request: Request): { address: string };
   upgrade(): boolean;
@@ -35,43 +31,28 @@ interface CapturedServeOptions {
   ) => Response | undefined | Promise<Response | undefined>;
 }
 
-function makeListenerServer(
-  listener: ListenerName,
-  timeoutCalls: TimeoutCall[],
-): ListenerServer {
-  return {
-    listener,
-    port: listener === "private" ? 4102 : 4104,
-    requestIP: () => ({ address: "127.0.0.1" }),
-    upgrade: () => false,
-    timeout(request, seconds): void {
-      timeoutCalls.push({ listener, request, seconds });
-    },
-  };
-}
-
 function makeListenerFixture() {
   const timeoutCalls: TimeoutCall[] = [];
   const delegatedListeners: string[] = [];
   const serveOptions: CapturedServeOptions[] = [];
-  const servers = [
-    makeListenerServer("private", timeoutCalls),
-    makeListenerServer("public", timeoutCalls),
-  ];
+  const server: ListenerServer = {
+    port: 4103,
+    requestIP: () => ({ address: "127.0.0.1" }),
+    upgrade: () => false,
+    timeout(request, seconds): void {
+      timeoutCalls.push({ request, seconds });
+    },
+  };
   const serve = ((options: unknown) => {
-    const server = servers[serveOptions.length];
-    if (!server) throw new Error("unexpected third Bun listener");
+    if (serveOptions.length > 0) throw new Error("unexpected second Bun listener");
     serveOptions.push(options as CapturedServeOptions);
     return server;
   }) as unknown as typeof Bun.serve;
 
   startBunCoordinatorListeners({
     cfg: {
-      bind: "127.0.0.1:4102",
-      publicBind: "127.0.0.1:4104",
+      bind: "127.0.0.1:4103",
       trustProxy: false,
-      saasMode: true,
-      managedContainer: true,
       dbPath: "/tmp/request-timeout.db",
       authorizedKeysPath: "/tmp/authorized_keys",
       webDistPath: undefined,
@@ -82,12 +63,8 @@ function makeListenerFixture() {
       pushAllowedOrigins: [],
       relaxedCsp: false,
       logDir: "/tmp",
-      tlsCertPath: undefined,
-      tlsKeyPath: undefined,
-      publicUrl: "https://private.example",
-      webPublicUrl: "https://public.example",
-      cfAccessTeamDomain: undefined,
-      cfAccessAud: undefined,
+      publicUrl: "https://coord.example",
+      webPublicUrl: "https://dashboard.example",
       handoffPath: "/tmp/handoff.json",
     },
     coord: {
@@ -110,8 +87,9 @@ function makeListenerFixture() {
     _serve: serve,
   } as unknown as Parameters<typeof startBunCoordinatorListeners>[0]);
 
-  expect(serveOptions).toHaveLength(2);
-  return { delegatedListeners, serveOptions, servers, timeoutCalls };
+  const options = serveOptions[0];
+  if (!options) throw new Error("listener was never constructed");
+  return { delegatedListeners, options, server, timeoutCalls };
 }
 
 async function dispatch(
@@ -126,31 +104,23 @@ async function dispatch(
 }
 
 describe("coordinator Bun request idle timeout", () => {
-  test("both actual listeners keep the maximum SessionsPrompt wait alive", async () => {
+  test("the listener keeps the maximum SessionsPrompt wait alive", async () => {
     expect(AGENT_PROMPT_WAIT_TIMEOUT_MAX_MS).toBe(300_000);
     expect(AGENT_PROMPT_WAIT_TIMEOUT_MAX_MS).toBeGreaterThan(PRIOR_IDLE_BOUNDARY_MS);
     const fixture = makeListenerFixture();
+    const request = new Request(`https://coord.example${SESSIONS_PROMPT_PATH}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-device" },
+    });
 
-    for (let idx = 0; idx < fixture.serveOptions.length; idx++) {
-      const request = new Request(`https://coord.example${SESSIONS_PROMPT_PATH}`, {
-        method: "POST",
-        headers: { authorization: "Bearer test-device" },
-      });
-      await dispatch(fixture.serveOptions[idx]!, fixture.servers[idx]!, request);
-      expect(fixture.timeoutCalls[idx]?.request).toBe(request);
-    }
+    await dispatch(fixture.options, fixture.server, request);
 
-    expect(fixture.serveOptions.map((options) => options.idleTimeout))
-      .toEqual([120, 120]);
-    expect(fixture.delegatedListeners).toEqual(["direct", "public-edge"]);
-    expect(fixture.timeoutCalls.map(({ listener, seconds }) => ({ listener, seconds })))
-      .toEqual([
-        { listener: "private", seconds: 0 },
-        { listener: "public", seconds: 0 },
-      ]);
+    expect(fixture.options.idleTimeout).toBe(120);
+    expect(fixture.delegatedListeners).toEqual(["direct"]);
+    expect(fixture.timeoutCalls).toEqual([{ request, seconds: 0 }]);
   });
 
-  test("unrelated requests inherit both listeners' 120-second default", async () => {
+  test("unrelated requests inherit the listener's 120-second default", async () => {
     const fixture = makeListenerFixture();
     const unrelatedRequests = [
       new Request(`https://coord.example${SESSIONS_PROMPT_PATH}`, { method: "GET" }),
@@ -165,14 +135,11 @@ describe("coordinator Bun request idle timeout", () => {
       new Request("https://coord.example/api/health"),
     ];
 
-    for (let idx = 0; idx < fixture.serveOptions.length; idx++) {
-      for (const request of unrelatedRequests) {
-        await dispatch(fixture.serveOptions[idx]!, fixture.servers[idx]!, request);
-      }
+    for (const request of unrelatedRequests) {
+      await dispatch(fixture.options, fixture.server, request);
     }
 
-    expect(fixture.serveOptions.map((options) => options.idleTimeout))
-      .toEqual([120, 120]);
+    expect(fixture.options.idleTimeout).toBe(120);
     expect(fixture.timeoutCalls).toEqual([]);
   });
 });

@@ -352,8 +352,6 @@ test("self-hosted auth rejection clears access, overlays, and an active switch h
   root.setRootStore("coord_identity", {
     git_sha: "test",
     public_url: "http://127.0.0.1:65000",
-    public_listener: false,
-    saas_mode: false,
   });
   root.setRootStore("sessions", { "session-a": {} as never });
   selection.rememberDashboardSelectionHint("dashboard-a");
@@ -373,7 +371,7 @@ test("self-hosted auth rejection clears access, overlays, and an active switch h
 
     selection.suspendDashboardScopedClientState();
 
-    expect(root.rootStore.coord_identity?.saas_mode).toBe(false);
+    expect(root.rootStore.coord_identity?.git_sha).toBe("test");
     expect(root.rootStore.account_id).toBeNull();
     expect(Object.keys(root.rootStore.organizations)).toEqual([]);
     expect(Object.keys(root.rootStore.dashboards)).toEqual([]);

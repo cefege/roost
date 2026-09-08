@@ -289,7 +289,7 @@ export function makeWorkerConn(
             cache: deps.jwtCache,
             jwtMaxAgeSecs: deps.cfg.jwtMaxAgeSecs,
           });
-          const principal = await resolveCallerPrincipal(deps.db, deps.cfg, refreshed);
+          const principal = await resolveCallerPrincipal(deps.db, refreshed);
           if (
             refreshed.fingerprint !== caller.fingerprint
             || principal?.kind !== "worker"

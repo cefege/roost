@@ -32,8 +32,7 @@ import {
   X_ROOST_DASHBOARD_ID,
   X_ROOST_AUTH_LAYER,
   AUTH_LAYER_DEVICE,
-  AUTH_LAYER_TAILSCALE_SERVE,
-  AUTH_LAYER_PUBLIC_EDGE,
+  AUTH_LAYER_TRUSTED_PROXY,
 } from "@roost/shared/wire/headers";
 import {
   resolveCallerPrincipal,
@@ -146,9 +145,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   WorkspacesCreate: true, WorkspacesUpdate: true, WorkspacesDelete: true, WorkspacesSetSessions: true,
   McpCreate: true, McpDelete: true, McpPublish: true,
   AuthMintBootstrap: true, AuthRedeemWorker: true, AuthRedeemBrowser: true,
-  AuthLogout: true, AuthPasswordLogin: true, AuthOwnerActivate: true, AuthFederatedContinue: true,
-  AuthPasswordAdd: true, AuthFederatedLinkBegin: true, AuthFederatedLink: true,
-  AuthPasswordResetRequest: true, AuthPasswordResetRedeem: true,
+  AuthLogout: true,
   PairCreate: true, PairApprove: true, PairDeny: true,
   DevicesRevoke: true, DevicesRotateCurrent: true,
   FilesMkdir: true, TranscriptionSetConfig: true, AgentConfigSet: true,
@@ -183,24 +180,7 @@ const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
 };
 
 export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
-  // Managed startup serves identity and rejects reconnecting legacy clients
-  // before the owner transaction can assign their rows to a dashboard. Audit
-  // only after that transaction creates the first account; otherwise the
-  // preservation oracle is polluted with unscoped transition traffic.
-  let managedBootstrapComplete = !deps.cfg.saasMode;
   return (next) => async (req) => {
-    let auditEnabledForThisRequest = managedBootstrapComplete;
-    if (!auditEnabledForThisRequest) {
-      try {
-        auditEnabledForThisRequest = Boolean(
-          await deps.db.selectFrom("accounts").select("id").limit(1).executeTakeFirst(),
-        );
-        if (auditEnabledForThisRequest) managedBootstrapComplete = true;
-      } catch {
-        // Startup migration/locking failures must not turn a successful RPC
-        // into a 500. The next request retries the bootstrap-state read.
-      }
-    }
     let caller: Caller | null = null;
     // Per-RPC record lives in audit_log (finally below) — method/path/
     // status/trace_id/caller_fp; the OTel span wrapper was retired
@@ -217,7 +197,7 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
           cache: deps.jwtCache,
           jwtMaxAgeSecs: deps.cfg.jwtMaxAgeSecs,
         });
-        caller = await resolveCallerPrincipal(deps.db, deps.cfg, verified);
+        caller = await resolveCallerPrincipal(deps.db, verified);
       } catch {
         diag("auth.jwt_verify_failed", { path });
         // leave caller null; authenticated handlers reject
@@ -238,9 +218,7 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
     req.contextValues.set(onHostKey, req.header.get(X_ROOST_ON_HOST) === "1");
     const listenerHeader = req.header.get(X_ROOST_LISTENER_TRUST);
     const listenerTrust: ListenerTrust =
-      listenerHeader === AUTH_LAYER_TAILSCALE_SERVE || listenerHeader === AUTH_LAYER_PUBLIC_EDGE
-        ? listenerHeader
-        : "direct";
+      listenerHeader === AUTH_LAYER_TRUSTED_PROXY ? "trusted-proxy" : "direct";
     req.contextValues.set(listenerTrustKey, listenerTrust);
     req.contextValues.set(tabIdKey, req.header.get(X_ROOST_TAB_ID) ?? undefined);
     req.contextValues.set(authorizationKey, auth);
@@ -255,8 +233,7 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
       lease?.release();
       recordAuditTelemetry(path, status);
       if (
-        auditEnabledForThisRequest
-        && (status !== 200 || !AUDIT_SKIP_METHODS[method])
+        (status !== 200 || !AUDIT_SKIP_METHODS[method])
         && shouldPersistConnectAudit({
           listener: listenerTrust,
           status,
@@ -271,8 +248,7 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
           traceId,
           callerFp: caller?.fingerprint ?? null,
           dashboardId: actor?.dashboardId
-            ?? (caller?.kind === "worker" ? caller.dashboardId : undefined)
-            ?? (deps.cfg.managedContainer ? deps.cfg.instanceId : undefined),
+            ?? (caller?.kind === "worker" ? caller.dashboardId : undefined),
           recordTelemetry: false,
         });
       }

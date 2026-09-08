@@ -23,10 +23,7 @@ import {
 } from "../byte-hub.ts";
 import { appendEvent, dispatchSnapshotOrphanReaps } from "../event-log.ts";
 import { rejectPendingRpc, resolvePendingRpc } from "../router/pending-rpcs.ts";
-import {
-  hasPendingSpawn,
-  resolvePendingSpawnOpened,
-} from "./pending-spawns.ts";
+import { resolvePendingSpawnOpened } from "./pending-spawns.ts";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
 import type { WriteLease } from "../coord-move/write-gate.ts";
 
@@ -148,10 +145,6 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
         worker_fp: workerFp,
         client_seq: clientSeq,
         dashboardId: options.dashboardId,
-        allowNewWorkerSession: options.deps.cfg?.saasMode
-          ? hasPendingSpawn
-          : undefined,
-        requireExistingWorkerSessions: options.deps.cfg?.saasMode === true,
         canPublish: options.isCurrentGeneration,
         pendingPublications: options.deps.pendingPublications,
         deferSnapshotReap: event.kind === "snapshot",

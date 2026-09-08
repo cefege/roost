@@ -1,6 +1,8 @@
 // Pairing handlers isolate the public request flow from authenticated approval.
 // Approval persists the key and its account association atomically so a pending
 // device cannot gain browser authority before an authorized decision commits.
+// The association helpers below are private for that reason: they must only run
+// inside the approval transaction, never from another enrollment path.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
@@ -18,6 +20,7 @@ import {
 import { PairRequestSchema } from "@roost/shared/proto/wire_pb";
 import { sql } from "kysely";
 import { decodeEd25519Pubkey, isAuthorizedKeyRevoked } from "../authorized-keys.ts";
+import type { KyselyDB } from "../db/connection.ts";
 import { pairBus } from "../buses.ts";
 import { refreshJwtKey } from "../jwt.ts";
 import { assertOnHost } from "../middleware/caller-origin.ts";
@@ -26,11 +29,55 @@ import {
   optionalAccountDevice,
 } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
-import {
-  associateSelfHostedBrowser,
-  rejectManagedLegacyBrowserAuth,
-  selfHostedBrowserAccountId,
-} from "./self-hosted-browser-auth.ts";
+
+/** The account a newly approved browser joins. An approver's own account wins;
+ * otherwise the single active account is the only unambiguous answer. */
+async function pairedBrowserAccountId(
+  db: KyselyDB,
+  authorityFingerprint?: string,
+): Promise<string | null> {
+  if (authorityFingerprint) {
+    const device = await db.selectFrom("account_devices")
+      .select("account_id")
+      .where("fingerprint", "=", authorityFingerprint)
+      .executeTakeFirst();
+    if (device) return device.account_id;
+  }
+  const accounts = await db.selectFrom("accounts")
+    .select(["id", "status"])
+    .limit(2)
+    .execute();
+  return accounts.length === 1 && accounts[0]?.status === "active"
+    ? accounts[0].id
+    : null;
+}
+
+async function associatePairedBrowser(
+  db: KyselyDB,
+  fingerprint: string,
+  accountId: string | null,
+  now: number,
+): Promise<void> {
+  if (accountId === null) return;
+  const worker = await db.selectFrom("workers").select("fp")
+    .where("fp", "=", fingerprint).executeTakeFirst();
+  const device = await db.selectFrom("account_devices").select("account_id")
+    .where("fingerprint", "=", fingerprint).executeTakeFirst();
+  if (worker) {
+    throw new ConnectError("device key is already in use by a worker", Code.AlreadyExists);
+  }
+  if (device && device.account_id !== accountId) {
+    throw new ConnectError("device already belongs to another account", Code.AlreadyExists);
+  }
+  await db.insertInto("account_devices").values({
+    fingerprint,
+    account_id: accountId,
+    added_at_ms: now,
+    last_seen_at_ms: now,
+  }).onConflict((conflict) => conflict.column("fingerprint").doUpdateSet({
+    last_seen_at_ms: now,
+  })).execute();
+}
 
 type PairingMethods =
   | "pairCreate"
@@ -45,7 +92,6 @@ export function makePairingHandlers(
   return {
     // ─── pair ──────────────────────────────────────────────────────────
     async pairCreate(req, _ctx) {
-      rejectManagedLegacyBrowserAuth(deps);
       // public
       const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
       if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
@@ -76,7 +122,6 @@ export function makePairingHandlers(
     },
 
     async pairPoll(req, _ctx) {
-      rejectManagedLegacyBrowserAuth(deps);
       // public
       const row = await deps.db.selectFrom("pair_requests").select("status")
         .where("ephemeral_id", "=", req.ephemeralId).executeTakeFirst();
@@ -85,10 +130,9 @@ export function makePairingHandlers(
     },
 
     // pairList/pairApprove/pairDeny: an authenticated browser (notifier click)
-    // or a direct on-host caller. A tailnet source address never grants
+    // or a direct on-host caller. A proxied source address never grants
     // authority; otherwise a pending device could approve itself.
     async pairList(_req, ctx) {
-      rejectManagedLegacyBrowserAuth(deps);
       if (!optionalAccountDevice(ctx.values)) assertOnHost(callerOrigin(ctx.values));
       const rows = await deps.db.selectFrom("pair_requests")
         .select(["ephemeral_id", "label", "created_at_ms"])
@@ -102,7 +146,6 @@ export function makePairingHandlers(
     },
 
     async pairApprove(req, ctx) {
-      rejectManagedLegacyBrowserAuth(deps);
       const caller = optionalAccountDevice(ctx.values);
       if (!caller) assertOnHost(callerOrigin(ctx.values));
       const now = Date.now();
@@ -135,8 +178,8 @@ export function makePairingHandlers(
         }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: row.label })).execute();
         const accountId = caller?.kind === "account-device"
           ? caller.accountId
-          : await selfHostedBrowserAccountId(trx, caller?.fingerprint);
-        await associateSelfHostedBrowser(trx, fp, accountId, now);
+          : await pairedBrowserAccountId(trx, caller?.fingerprint);
+        await associatePairedBrowser(trx, fp, accountId, now);
         approvedFp = fp;
       });
       refreshJwtKey(deps.jwtCache, approvedFp);
@@ -146,7 +189,6 @@ export function makePairingHandlers(
     },
 
     async pairDeny(req, ctx) {
-      rejectManagedLegacyBrowserAuth(deps);
       if (!optionalAccountDevice(ctx.values)) assertOnHost(callerOrigin(ctx.values));
       const result = await deps.db.updateTable("pair_requests")
         .set({ status: "denied", decided_at_ms: Date.now() })

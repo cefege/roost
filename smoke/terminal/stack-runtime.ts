@@ -1,9 +1,11 @@
-// Terminal smoke stack support owns child environments, dashboard seeding, and teardown.
-// The stack lifecycle calls these helpers while retaining ownership of spawned services.
+// Terminal smoke stack support owns child environments, the coordinator launch,
+// dashboard seeding, and teardown. The stack lifecycle calls these helpers while
+// retaining ownership of spawned services, and an upgrade run relaunches the
+// coordinator from a second checkout through the same launcher.
 // Keeping process cleanup and authorization scoping together prevents hermetic stacks leaking state.
 
-import { execFileSync, type ChildProcess } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { openSync, readFileSync } from "node:fs";
 import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -157,12 +159,81 @@ async function stopKeeper(workerDataDir: string): Promise<void> {
   }));
 }
 
+/** Stop a worker a deploy left running: it is not a child of this process, so
+ *  only its pid is available and liveness is polled with signal 0. */
+async function stopDeployedWorker(pid: number | undefined): Promise<void> {
+  if (pid === undefined) return;
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return;
+  }
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await delay(100);
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // Exited between the liveness probe and the hard kill.
+  }
+}
+
+export interface CoordinatorServiceConfig {
+  bunExecutable: string;
+  /** Checkout the coordinator process runs from; a release upgrade swaps it. */
+  sourceRoot: string;
+  root: string;
+  home: string;
+  tmpDir: string;
+  bind: string;
+  dbPath: string;
+  logPath: string;
+  gitSha: string;
+}
+
+export function startCoordinatorService(config: CoordinatorServiceConfig): RunningService {
+  const coordLog = openSync(config.logPath, "a");
+  return {
+    logPath: config.logPath,
+    child: spawn(config.bunExecutable, ["apps/coord/src/main.ts"], {
+      cwd: config.sourceRoot,
+      env: childEnvironment(config.home, config.tmpDir, {
+        ROOST_COORDINATOR_BIND: config.bind,
+        // Bun auto-loads the checkout's .env after spawn, so the hermetic
+        // loopback auth semantics are pinned explicitly rather than inherited.
+        ROOST_TRUST_PROXY: "0",
+        ROOST_RELAXED_CSP: "1",
+        ROOST_COORDINATOR_DB: config.dbPath,
+        ROOST_COORDINATOR_AUTHORIZED_KEYS: join(config.root, "authorized_keys.roost"),
+        ROOST_COORDINATOR_KEY_PATH: join(config.root, "coord.key"),
+        // Isolate the relocation state too. It defaults under the data dir
+        // (HOME-derived), so a caller running with useRealHome would
+        // otherwise inherit a real "coordinator relocated" handoff and the
+        // test coord would 410 every non-GET request.
+        ROOST_COORDINATOR_HANDOFF_PATH: join(config.root, "coord-handoff.json"),
+        // The SPA is always the working tree's build: apps/web/dist is not
+        // committed, so a prior-release checkout has none to serve.
+        ROOST_WEB_DIST_PATH: join(REPOSITORY_ROOT, "apps/web/dist"),
+        ROOST_GIT_SHA: config.gitSha,
+      }),
+      stdio: ["ignore", coordLog, coordLog],
+    }),
+  };
+}
+
 
 export {
   childEnvironment,
   logTail,
   seedTerminalDashboards,
   stopChild,
+  stopDeployedWorker,
   stopKeeper,
   waitFor,
   withTerminalDashboard,

@@ -1,25 +1,17 @@
 ---
 title: "Security model"
-description: "How self-hosted Roost uses non-extractable device keys, pairing, revocation, audit, backups, and local-only telemetry."
+description: "How Roost uses non-extractable device keys, pairing, revocation, audit, backups, and local-only telemetry."
 order: 9
 section: "Reference"
 ---
 
-The per-account managed implementation is qualified but not launched. Production
-publishes no managed coordinator image, the shared dashboard origin is inactive,
-and public email signup and Google authentication remain disabled. Qualification
-accounts can only be operator-created. Each starts with one owner and dashboard;
-the owner password authorizes a browser's non-extractable device key, and
-subsequent requests use signed device JWTs.
+Coordinator startup creates and validates one internal local account, `personal`
+organization, and `default` dashboard automatically. That topology is not an
+operator login identity: Roost has no hosted accounts and no login screen.
 
-Self-hosted startup instead creates and validates one internal local account,
-`personal` organization, and `default` dashboard automatically. That topology
-is not an operator login identity; the pairing and operational details below
-describe self-hosted access.
+## Device identity is a key, not a login account
 
-## Self-hosted device identity is a key, not a login account
-
-Self-hosted Roost has no login-account provisioning and no shared tokens. Each
+Roost has no login-account provisioning and no shared tokens. Each
 browser mints its own Ed25519 key pair with WebCrypto, marks it
 **non-extractable**, and persists it through IndexedDB's structured clone. A
 non-extractable private key cannot be exported by
@@ -44,10 +36,10 @@ is unambiguous, so a rotation interrupted midway cannot lock a device out.
 ## Three ways to authorize a browser
 
 **1. QR pairing.** In **Settings → Pair a device**, Roost mints a one-shot browser
-bootstrap token and renders a QR for the current HTTPS origin. The token rides in
-the URL **fragment**, which browsers never send to the server — so it cannot land
-in the coordinator's request log, a proxy or Cloudflare access log, or a `Referer`
-header. Scan it with a phone camera and the device signs itself in.
+bootstrap token and renders a QR for the configured public origin. The token
+rides in the URL **fragment**, which browsers never send to the server — so it
+cannot land in the coordinator's request log, a proxy or tunnel access log, or a
+`Referer` header. Scan it with a phone camera and the device signs itself in.
 
 **2. Paste a bootstrap token.** Mint a token in an already-authorized browser and
 paste it into the new one.
@@ -57,7 +49,7 @@ decision. An already-authorized browser sees the request under **Pending pair
 requests** and approves or denies it; on approval the waiting browser reloads
 itself with an authorized token. Nothing is typed on either side.
 
-Neither loopback nor a Tailscale address authorizes a browser. Those addresses
+Neither loopback nor a tailnet address authorizes a browser. Those addresses
 are transport metadata only; a fresh device still needs a scoped one-shot grant
 or an explicit pairing approval.
 
@@ -138,19 +130,20 @@ These are same-host rollback material. They do not survive the loss of the
 coordinator's disk and are not off-host disaster recovery; copy them to storage
 with an independent failure domain if host-loss recovery matters.
 
-## What the public surface refuses
+## What stays off the front door
 
-In the self-hosted edition, if you enable the optional Cloudflare browser endpoint, the public listener is
-strictly narrower than the main one. It returns 404 for anything under
-`/internal/`, for the worker WebSocket path, for `/api/db-export`, and for the
-worker-redemption and coordinator-relocation RPCs. Cloudflare Access
-authenticates a human; a browser still needs a scoped one-shot grant or an
-approved pairing request. Details in [networking](/docs/networking/).
+Deny `/internal/*` and `/api/db-export` at your front door; the coordinator
+additionally refuses `/api/db-export` for any caller it does not resolve as
+on-host. The worker link `/ws/coord-worker/*` passes by default, because
+workers dial the same origin browsers use unless you declare a separate
+`ROOST_COORDINATOR_PUBLIC_URL` for them. Whatever authentication the front door
+performs authenticates a human; a browser still needs a scoped one-shot grant
+or an approved pairing request. Details in [networking](/docs/networking/).
 
-## Self-hosted telemetry behavior
+## Telemetry behavior
 
-The self-hosted edition has no analytics, crash reporting, or phone-home, and no
-Roost vendor account is involved. Diagnostics are local files: always-on signal
+Roost has no analytics, crash reporting, or phone-home, and no
+Roost vendor account exists. Diagnostics are local files: always-on signal
 events land in the coordinator's and worker's own error logs, and
 `roost doctor --since <window>` summarizes them from disk. Agent status is not
 persisted at all, and neither status messages nor guarded-prompt text are
@@ -160,7 +153,7 @@ Deepgram or a Cloudflare tunnel you operate.
 
 ## Next
 
-- [Networking](/docs/networking/) — the private path and the public deny list
+- [Networking](/docs/networking/) — the loopback listener and the private paths
 - [The CLI](/docs/cli/) — `api device-revoke-local`, `status`, `doctor`
 - [Fleet](/docs/fleet/) — event log, backups, and fleet updates
 - [Quickstart](/docs/quickstart/) — pairing in practice

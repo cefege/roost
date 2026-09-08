@@ -88,7 +88,7 @@ export async function handleWorkerWsUpgrade(
     });
     return new Response("unauthorized", { status: 401 });
   }
-  const principal = await resolveCallerPrincipal(deps.db, deps.cfg, caller);
+  const principal = await resolveCallerPrincipal(deps.db, caller);
   if (
     caller.fingerprint !== fp
     || principal?.kind !== "worker"
@@ -112,8 +112,6 @@ export async function handleWorkerWsUpgrade(
     caller,
     fp,
     dashboardId: principal.dashboardId,
-    authDeadlineAtMs: deps.cfg.saasMode ? caller.validUntilMs : null,
-    authDeadlineTimer: null,
     conn: null,
     queue: null,
     eventRate: { startedAtMs: null, events: 0 },

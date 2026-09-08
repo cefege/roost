@@ -354,9 +354,9 @@ export function AppShell(props: ParentProps) {
         || location.pathname.startsWith("/t/")
         || location.pathname.startsWith("/w/"),
       )}>
-        {/* Both home routes and terminal routes own their own header + bar;
+        {/* The home route and terminal routes own their own header + bar;
             suppress the redundant MobileTopBar there. Other mobile routes keep it. */}
-        <Show when={isMobile() && location.pathname !== ROUTES.ROOT && location.pathname !== ROUTES.APP && !location.pathname.startsWith("/browse") && !(location.pathname.startsWith("/s/") || location.pathname.startsWith("/t/") || location.pathname.startsWith("/w/"))}>
+        <Show when={isMobile() && location.pathname !== ROUTES.ROOT && !location.pathname.startsWith("/browse") && !(location.pathname.startsWith("/s/") || location.pathname.startsWith("/t/") || location.pathname.startsWith("/w/"))}>
           <MobileTopBar />
         </Show>
         {props.children}

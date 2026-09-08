@@ -1,17 +1,19 @@
-// crpc6 — extracted from router/workers.ts so the Connect handler can
-// call into it without going through the tRPC procedure shim. Owns the
-// in-memory DeployJob registry + spawn helpers.
+// Owns the in-memory DeployJob registry and the POSIX `roost deploy`
+// subprocess the Connect worker-deploy handler drives.
 //
 // The signed Windows-update jobs that share this registry live in
 // windows-update-deploy-jobs.ts (+ -record/-runtime); this file is the generic
-// registry and the POSIX `roost deploy` subprocess.
+// registry and the operator-declared coordinator URL a deploy hands the worker.
 
 import { BoundedBus } from "./buses.ts";
 import { busToAsyncIterable } from "./sse.ts";
 import { signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import type { SignalKind } from "@roost/shared/diag";
-import { resolveTailnetDnsName } from "@roost/shared/tailnet";
+import {
+  COORDINATOR_DIAL_URL_REQUIRED_MESSAGE,
+  resolveCoordinatorDialUrl,
+} from "@roost/shared/coordinator-dial-url";
 import { IS_COMPILED_ROOST_BUILD } from "@roost/shared/build-identity";
 import { durableRemove } from "@roost/shared/durability";
 import {
@@ -103,19 +105,31 @@ export interface DeployStartResult {
   error?: string;
 }
 
+/** The operator-declared origin a deployed worker dials. A worker reaches it
+ * from another machine, so a loopback or link-local host is refused even when
+ * declared: roost never invents a substitute. */
 export function resolveDeployCoordinatorUrl(
   env: Record<string, string | undefined>,
-  tailnetDnsName: string,
 ): string | null {
-  const configured = env.ROOST_COORDINATOR_URL ?? env.ROOST_COORDINATOR_PUBLIC_URL;
-  if (configured) return configured;
-  const host = env.ROOST_REACHABLE_ADDR || tailnetDnsName;
-  if (!host.endsWith(".ts.net")) return null;
-  // ROOST_COORDINATOR_BIND is the private loopback listener (normally :4103)
-  // when Tailscale Serve fronts the coordinator. Workers need the advertised
-  // tailnet port, not that internal listener.
-  const port = env.ROOST_TAILNET_HTTPS_PORT || "4102";
-  return `https://${host}:${port}`;
+  const declared = resolveCoordinatorDialUrl(env);
+  if (declared === null) return null;
+  let hostname: string;
+  try {
+    hostname = new URL(declared).hostname.toLowerCase();
+  } catch {
+    log.warn("deploy", "coordinator_url_malformed", { url: declared });
+    return null;
+  }
+  if (
+    hostname === "localhost"
+    || hostname === "127.0.0.1"
+    || hostname === "[::1]"
+    || hostname.endsWith(".local")
+  ) {
+    log.warn("deploy", "coordinator_url_unreachable", { url: declared });
+    return null;
+  }
+  return declared;
 }
 
 export function startDeploy(host: string): DeployStartResult {
@@ -129,12 +143,9 @@ export function startDeploy(host: string): DeployStartResult {
     };
   }
   const repoRoot = process.cwd();
-  const coordUrl = resolveDeployCoordinatorUrl(
-    process.env,
-    resolveTailnetDnsName(),
-  );
-  if (!coordUrl || coordUrl.includes("//localhost") || coordUrl.includes("//127.0.0.1") || coordUrl.includes(".local:")) {
-    return { ok: false, error: `coord has no tailnet-reachable URL (resolved="${coordUrl ?? "none"}"). Set ROOST_REACHABLE_ADDR=<tailnet-fqdn>.` };
+  const coordUrl = resolveDeployCoordinatorUrl(process.env);
+  if (!coordUrl) {
+    return { ok: false, error: COORDINATOR_DIAL_URL_REQUIRED_MESSAGE };
   }
   const env = { ...process.env, ROOST_COORDINATOR_URL: coordUrl };
   const DEPLOY_TIMEOUT_MS = 180_000;

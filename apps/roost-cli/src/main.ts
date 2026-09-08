@@ -24,9 +24,6 @@ import { worker } from "./worker.ts";
 import { keeper } from "./keeper.ts";
 import { update } from "./update.ts";
 import { version } from "./version.ts";
-import { expose } from "./expose.ts";
-import { organizations } from "./organizations.ts";
-import { assertSaasEntryAdmission } from "./saas/entry-admission.ts";
 
 const SUBCOMMANDS = {
   quickstart,
@@ -35,29 +32,6 @@ const SUBCOMMANDS = {
     // command-only dependency out of `roost test`, which builds the web bundle.
     const { coord } = await import("./coord.ts");
     return coord(args);
-  },
-  "__saas-instance": async (args: string[]) => {
-    assertSaasEntryAdmission("instance");
-    // Provisioning internals import coordinator SQLite, migrations, and key
-    // code. Keep them out of every public CLI path and out of usage output.
-    const { saasInstance } = await import("./saas-instance.ts");
-    return saasInstance(args);
-  },
-  "__saas-auth": async (args: string[]) => {
-    assertSaasEntryAdmission("auth");
-    const { saasAuth } = await import("./saas-auth/index.ts");
-    return saasAuth(args);
-  },
-  "__saas-provisioner": async (args: string[]) => {
-    assertSaasEntryAdmission("provisioner");
-    const { saasProvisioner } = await import("./saas-provisioner/index.ts");
-    return saasProvisioner(args);
-  },
-  saas: async (args: string[]) => {
-    assertSaasEntryAdmission("operator");
-    // Operator-only Docker/Caddy/age modules stay out of worker and coordinator process startup.
-    const { saas } = await import("./saas/index.ts");
-    return saas(args);
   },
   worker,
   keeper,
@@ -110,7 +84,6 @@ const SUBCOMMANDS = {
     });
   },
   version,
-  expose,
   dev,
   test,
   deploy,
@@ -126,7 +99,6 @@ const SUBCOMMANDS = {
   api,
   join,
   "add-machine": addMachine,
-  organizations,
 } as const;
 
 type Subcommand = keyof typeof SUBCOMMANDS;
@@ -134,14 +106,12 @@ type Subcommand = keyof typeof SUBCOMMANDS;
 function usage(): never {
   console.error("Usage: bun run roost <subcommand> [args]");
   console.error("Subcommands:");
-  console.error("  quickstart [--coordinator-url https://host:port --tls-cert /abs/cert --tls-key /abs/key]  local coord + worker + browser");
+  console.error("  quickstart --coordinator-url https://your.host   local coord + worker + browser");
   console.error("  coord             run the coordinator (server mode; used by the compiled binary)");
-  console.error("  saas <command>    provision and reconcile dedicated managed coordinators");
   console.error("  worker            run the worker (server-side; compiled binary / LaunchAgent)");
-  console.error("  expose <hostname> --team <team>.cloudflareaccess.com --aud <64-hex> [--config <path>]");
   console.error("  dev               start coord + worker + web dev servers");
   console.error("  test              run all tests in dep order");
-  console.error("  deploy <host> [--label=<name>] [--reachable-addr=<fqdn>] [--force-live]   deploy worker to a tailnet host; identity flags name the TARGET (never inherited from this shell); --force-live authorizes the new worker to DESTROY every PTY held by a keeper it cannot adopt (this deploy only)");
+  console.error("  deploy <host> [--label=<name>] [--reachable-addr=<fqdn>] [--force-live]   deploy worker to a reachable host; identity flags name the TARGET (never inherited from this shell); --force-live authorizes the new worker to DESTROY every PTY held by a keeper it cannot adopt (this deploy only)");
   console.error("  push              git push + deploy fleet + kickstart local coord");
   console.error("  keeper-refresh <host> --yes [--force-live]   re-spawn an authenticated empty keeper; live channels refuse unless forced");
   console.error("  logs <app>        tail an app's logs (coord|worker) [--tail N]");
@@ -151,7 +121,6 @@ function usage(): never {
   console.error("  skill             print the exact release-matched ROOST agent skill");
   console.error("  status            health readout (endpoint, agents, coord, workers)");
   console.error("  doctor [--since]  daily anomaly digest from err logs (default 24h)");
-  console.error("  organizations bootstrap-owner --email <address> --organization <slug> --dashboard <slug>  provision the managed owner (password via stdin or ROOST_OWNER_BOOTSTRAP_PASSWORD)");
   console.error("  api <verb>        headless introspect/drive (sessions|agent-status|agent-wait|agent-prompt|agents|cells|input|rename|assign|attach|spawn|kill|workers|workspaces|ws-*|tasks|task-*|ui|ui-state|events)");
   console.error("  add-machine --platform <macos|linux|windows> [--label X] [--publisher-sha256 HEX]  print a one-shot enrollment command");
   console.error("  join                install + register this machine's worker (used by join.sh; needs ROOST_COORDINATOR_URL + ROOST_BOOTSTRAP_TOKEN)");
@@ -162,7 +131,10 @@ function usage(): never {
 
 const [, , sub, ...args] = process.argv;
 const cmd = sub === "--version" || sub === "-v" ? "version" : sub;
+// A help flag anywhere reaches the one usage listing rather than a subcommand's
+// missing-argument error, so the first command a new operator types explains itself.
 if (!cmd || !(cmd in SUBCOMMANDS)) usage();
+if (args.includes("--help") || args.includes("-h")) usage();
 try {
   await SUBCOMMANDS[cmd as Subcommand](args);
 } catch (error) {

@@ -12,14 +12,14 @@ processes run on Bun.
 Path references in this document are repo-root-relative.
 
 ```
-  Browser (Solid SPA on any device that can reach the selected HTTPS origin)
+  Browser (Solid SPA on any device that can reach the operator's front door)
        │
        │  unary Connect-RPC + protobuf Sync WebSocket (HTTPS)
        ▼
+  Front door (Caddy, nginx, a tunnel, tailscale serve — not Roost's code)
+       │  plaintext HTTP to 127.0.0.1:4103
+       ▼
   Coordinator (Bun)
-       │  automatic: Tailscale Serve :4102 → HTTP 127.0.0.1:4103
-       │  direct: Bun TLS on the operator-selected port
-       │  optional automatic-mode Cloudflare listener: HTTP 127.0.0.1:4104
        │
        │  WebSocket + protobuf (worker link)
        │
@@ -35,17 +35,16 @@ Path references in this document are repo-root-relative.
        └─ PTY per session     └─ PTY per session     └─ PTY per session
 ```
 
-Automatic and direct HTTPS are separate self-hosted contracts. Direct
-quickstart does not call Tailscale for the coordinator/local worker/browser;
-the current extra-worker enrollment front door still performs a Tailscale
-preflight.
+The coordinator owns one listener: a plaintext loopback bind. TLS, DNS, and
+public reachability belong to whatever the operator puts in front of it, and
+`ROOST_WEB_PUBLIC_URL` is how the coordinator learns the resulting origin.
 
 ## Product processes and shared protocol
 
 ### `apps/web` — the browser client
 
 The SolidJS SPA owns operator interaction: workspaces, sessions, terminal
-painting, settings, managed-auth routes, and dashboard selection. It consumes
+painting, settings, and dashboard selection. It consumes
 typed Sync frames and renders cell snapshots/deltas; raw PTY bytes never reach
 the browser.
 
@@ -63,11 +62,10 @@ Each v0.5.0 worker runs on macOS or Linux, owns the keeper link and
 and maintains the outbound coordinator link. Windows host release support is
 paused; Windows remains usable as a browser client.
 
-### `apps/roost-cli` — install, health, rollout, and managed operations
+### `apps/roost-cli` — install, health, and rollout
 
 The `roost` binary installs the local coordinator/worker pair, reports
-`status` and `doctor`, performs journaled fleet rollout, and exposes the
-operator-only managed account commands.
+`status` and `doctor`, and performs journaled fleet rollout.
 
 ### `apps/shared` — the protocol contract
 
@@ -384,29 +382,18 @@ multiplexers use:
 This is the part of the codebase with the most scar tissue; the recurring
 failure modes and their fixes are catalogued in `CLAUDE.md`.
 
-## Tenant and managed isolation
+## Tenant isolation
 
-Self-hosted v0.5.0 creates one local tenant and automatically selects its sole
-dashboard. Every resource query, Sync subscription, worker principal, and
-terminal route still carries that persisted dashboard boundary.
+Coordinator startup creates one local tenant and automatically selects its sole
+dashboard: `apps/coord/src/self-hosted-tenant.ts` runs unconditionally at boot
+and is the only tenancy invariant. Every resource query, Sync subscription,
+worker principal, and terminal route carries that persisted dashboard
+boundary.
 
-The managed implementation extends the same boundary rather than trusting a
-dashboard id supplied by the browser. Authentication resolves the persisted
-account membership on the server; browser dashboard changes take effect only
-after server confirmation, clear old scoped state first, and fence stale
-async work by Sync generation.
-
-On the qualified Linux operator host, a root provisioner drives one exact-spec
-non-root coordinator container per account from a digest-pinned immutable
-image. Writable state, keys, worker credentials, and the 64-hex route key are
-separate per instance. Future edge Caddy would strip that opaque route before
-forwarding to container port 4104; the route is a selector, never authority.
-The four-file managed profile exercises the isolation and lifecycle boundary.
-
-That implementation is **qualified, not publicly launched** in v0.5.0.
-Accounts are operator-created and production email signup and Google auth
-remain off. There are no production managed containers, published managed
-image, active shared-dashboard route, or public signup surface.
+Authorization never trusts a dashboard id supplied by the browser: it resolves
+the persisted account-device membership on the server. Browser dashboard
+changes take effect only after server confirmation, clear old scoped state
+first, and fence stale async work by Sync generation.
 
 ## Portable browser-local pane layouts
 Active pane trees and runtime leaf/split UUIDs persist only in each browser profile under `roost.paneLayout.v1`. `UiReportState` exposes an off-terminal route or a route resolved to an open coordinator-admitted session; unresolved and optimistic `/s/:id` route fields are blank until hydration/admission schedules another report. When an open route session identifies a folder, the report also carries its browser-owned folder key plus a typed `LayoutDocumentV1` containing only admitted members, never runtime IDs or a second JSON layout shape.
@@ -434,7 +421,7 @@ progress or triggers bounded recovery.”
 
 ## Key entry points
 
-- **Web:** `entry.ts` scrubs managed credential fragments before loading
+- **Web:** `entry.ts` scrubs URL-carried credentials before loading
   `main.tsx`; `routes.ts` owns route guards; `store/sync.ts` owns Sync;
   `store/dashboard-selection.ts` owns server-confirmed dashboard cutover.
   `CellTerminal.tsx` composes the eight `cell-terminal-*` behavior leaves, and
@@ -452,10 +439,9 @@ progress or triggers bounded recovery.”
   replay/snapshot/live barrier; `transport/coord-link.ts`,
   `keeper/multiplexed-client.ts`, and `fsm.ts` own the remote link, local
   keeper transport, and connection state.
-- **CLI:** `main.ts` dispatches commands; `quickstart-endpoint.ts` owns the two
-  network contracts; `push.ts` and `push-fleet-rollout.ts` own atomic rollout.
-  `saas/`, `saas-auth/`, and `saas-provisioner/` own managed operations,
-  gateway authentication, and the privilege-separated provisioning bridge.
+- **CLI:** `main.ts` dispatches commands; `quickstart-endpoint.ts` validates the
+  one declared front-door origin; `push.ts` and `push-fleet-rollout.ts` own
+  atomic rollout.
 - **Shared:** `proto/roost/v1/` and `src/gen/roost/v1/` are the source and
   generated contracts; `src/wire/event{,-proto}.ts` own the canonical event
   fold/adapters; `src/cell.ts` owns the grid model. `package.json` is the

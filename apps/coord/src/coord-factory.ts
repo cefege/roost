@@ -1,8 +1,8 @@
-// T3.1 — multi-runtime coord factory. Returns a (Request, ctx?) =>
+// Multi-runtime coord factory. Returns a (Request, ctx?) =>
 // Promise<Response> handler that any fetch-capable runtime (Bun.serve,
 // Node http via fetch adapter, Cloudflare Workers, Deno, Vercel Edge)
-// can consume. main.ts owns Bun-specific concerns (TLS, server.requestIP,
-// signal handlers, file-system DB); this factory owns the protocol layer.
+// can consume. main.ts owns Bun-specific concerns (server.requestIP, signal
+// handlers, file-system DB); this factory owns the protocol layer.
 
 import {
   extractAuditMeta,
@@ -29,8 +29,6 @@ import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "./jwt.ts";
 import type { CoordinatorMoveService } from "./coord-move/orchestrator.ts";
 import type { CallerOrigin } from "./middleware/caller-origin.ts";
-import type { EmailDeliveryService } from "./email-delivery.ts";
-import type { PasswordWorkGate } from "./connect/password-work-gate.ts";
 import type { PendingEventPublicationStore } from "./pending-event-publications.ts";
 import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "./connect/ui-state-owner.ts";
@@ -51,7 +49,6 @@ export interface CoordDeps {
   coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;
-  passwordWorkGate: PasswordWorkGate;
   move?: CoordinatorMoveService;
   uiLayoutApplies?: UiLayoutApplyOwner;
   uiStates?: UiStateOwner;
@@ -62,7 +59,6 @@ export interface CoordDeps {
   onWorkerDeletedFence?: (fingerprint: string) => void;
   onWorkerDeletedSyncScope?: (dashboardId: string, fingerprint: string) => void;
   onWorkerDeletedSocketClose?: (fingerprint: string) => void;
-  email?: Pick<EmailDeliveryService, "encryptPayload">;
   onDashboardRevoked?: (dashboardId: string, fingerprint?: string) => void;
 }
 
@@ -95,7 +91,6 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   startAgentStatusHub({
     db: deps.db,
     pushAllowedOrigins: deps.cfg.pushAllowedOrigins,
-    tenantRouteKey: deps.cfg.tenantRouteKey,
   });
 
   const secOpts = securityOptionsForConfig(deps.cfg, false);

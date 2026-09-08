@@ -2,14 +2,14 @@
 # Roost pull-based worker join. Run on a NEW machine (macOS or Linux) to go
 # from nothing → registered worker, no SSH/push from the coordinator:
 #   curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
-#     ROOST_COORDINATOR_URL="https://<coord>.<tailnet>.ts.net:4102" \
+#     ROOST_COORDINATOR_URL="https://roost.example.com" \
 #     ROOST_BOOTSTRAP_TOKEN="roost_bt_…" [ROOST_WORKER_LABEL="my-box"] bash
 #
 # Get that one-liner from `roost add-machine` on the coordinator (or the web
-# Settings → Machines → Add machine dialog). What it does: gate on Tailscale
-# (required) → install Bun if missing → clone/update the repo → pin the
-# checkout to the coordinator's live commit (so the drift badge stays quiet) →
-# `bun install` → `roost join` (installs + registers the local worker).
+# Settings → Machines → Add machine dialog). What it does: install Bun if
+# missing → clone/update the repo → pin the checkout to the coordinator's live
+# commit (so the drift badge stays quiet) → `bun install` → `roost join`
+# (installs + registers the local worker).
 
 set -euo pipefail
 
@@ -26,32 +26,18 @@ case "$(uname -s)" in
   *) die "Roost joins on macOS or Linux only (found $(uname -s))." ;;
 esac
 
+
 # 1. Required env — the join target + credential come from `roost add-machine`.
 if [ -z "${ROOST_COORDINATOR_URL:-}" ] || [ -z "${ROOST_BOOTSTRAP_TOKEN:-}" ]; then
   die "ROOST_COORDINATOR_URL and ROOST_BOOTSTRAP_TOKEN are required." \
       "Run \`roost add-machine --platform macos\` or \`roost add-machine --platform linux\` on your coordinator" \
       "to get the full one-liner, then paste it here. It looks like:" \
       "  curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \\" \
-      "    ROOST_COORDINATOR_URL=\"https://<coord>.<tailnet>.ts.net:4102\" \\" \
+      "    ROOST_COORDINATOR_URL=\"https://roost.example.com\" \\" \
       "    ROOST_BOOTSTRAP_TOKEN=\"roost_bt_…\" bash"
 fi
 
-# 2. Tailscale gate (HARD). No tailnet → the worker can't reach the coord.
-say "checking Tailscale"
-if ! command -v tailscale >/dev/null 2>&1; then
-  die "Tailscale is required and not installed." \
-      "Install it:  brew install tailscale (macOS) / https://tailscale.com/download/linux" \
-      "Then:        tailscale up   (approve the network extension in System Settings on macOS)" \
-      "Re-run this command afterward."
-fi
-TS_STATE="$(tailscale status --json 2>/dev/null | grep -o '"BackendState":[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
-if [ "$TS_STATE" != "Running" ]; then
-  die "Tailscale is installed but not running (state: ${TS_STATE:-unknown})." \
-      "Start it:  tailscale up   (approve the network extension in System Settings)" \
-      "Re-run this command afterward."
-fi
-
-# 3. Bun.
+# 2. Bun.
 if ! command -v bun >/dev/null 2>&1; then
   say "installing Bun"
   curl -fsSL https://bun.sh/install | bash
@@ -59,7 +45,7 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 command -v bun >/dev/null 2>&1 || die "Bun install did not land on PATH." "Open a new shell and re-run, or add ~/.bun/bin to PATH."
 
-# 4. Source — clone or fetch (do NOT pull yet; step 5 pins the checkout).
+# 3. Source — clone or fetch (do NOT pull yet; step 4 pins the checkout).
 if [ -d "$ROOST_DIR/.git" ]; then
   say "fetching $ROOST_DIR"
   git -C "$ROOST_DIR" fetch --quiet origin
@@ -68,7 +54,7 @@ else
   git clone "$REPO_URL" "$ROOST_DIR"
 fi
 
-# 5. Version pin (load-bearing) — stamp the SAME commit the coord runs, else
+# 4. Version pin (load-bearing) — stamp the SAME commit the coord runs, else
 # the drift badge fires on this fresh Mac. Fetch the coord's live HEAD from
 # the PUBLIC MiscHealth RPC (no auth) and detach-checkout it. Best-effort: on
 # a 'dev'/unpushed/unreachable SHA, stay on main and warn (same semantics as
@@ -85,12 +71,12 @@ else
   git -C "$ROOST_DIR" checkout --quiet main && git -C "$ROOST_DIR" pull --ff-only --quiet || true
 fi
 
-# 6. Install deps (no native deps → fast, no codesign/quarantine repairs).
+# 5. Install deps (no native deps → fast, no codesign/quarantine repairs).
 cd "$ROOST_DIR"
 say "bun install"
 bun install
 
-# 7. Install + register the local worker. ROOST_COORDINATOR_URL /
+# 6. Install + register the local worker. ROOST_COORDINATOR_URL /
 # ROOST_BOOTSTRAP_TOKEN / ROOST_WORKER_LABEL are already in the env and inherited.
 say "roost join"
 exec bun apps/roost-cli/src/main.ts join

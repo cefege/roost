@@ -2,7 +2,6 @@
 // exactly one persisted application principal. Re-reading authority rows here
 // prevents deleted, dual-role, or inactive identities from entering RPC context.
 
-import type { CoordConfig } from "@roost/shared/config";
 import type { KyselyDB } from "../db/connection.ts";
 
 interface PrincipalIdentity {
@@ -29,7 +28,7 @@ export type Caller =
   | WorkerPrincipal
   | LegacySelfHostedPrincipal;
 
-/** Browser authority. Legacy keys remain browser-capable only in self-hosted mode. */
+/** Browser authority. Keys with no account-device row remain browser-capable. */
 export type AccountDeviceCaller =
   | AccountDevicePrincipal
   | LegacySelfHostedPrincipal;
@@ -43,7 +42,6 @@ export type AccountDeviceCaller =
  */
 export async function resolveCallerPrincipal(
   db: KyselyDB,
-  cfg: CoordConfig,
   verified: { fingerprint: string; label: string },
 ): Promise<Caller | null> {
   const row = await db
@@ -100,7 +98,6 @@ export async function resolveCallerPrincipal(
       dashboardId: row.workerDashboardId,
     };
   }
-  if (cfg.saasMode) return null;
   return {
     kind: "legacy-self-hosted",
     fingerprint: verified.fingerprint,

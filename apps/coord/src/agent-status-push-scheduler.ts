@@ -21,7 +21,6 @@ import { sameAgentStatusOccupant } from "./agent-status-order.ts";
 export interface AgentStatusPushDeps {
   db: KyselyDB;
   pushAllowedOrigins: readonly string[];
-  tenantRouteKey?: string;
   dispatchPush?: typeof firePushForTransition;
 }
 
@@ -157,8 +156,6 @@ function schedulePush(
       transition,
       deps.pushAllowedOrigins,
       () => pendingMatchesCurrentStatus(pending, currentStatus(sessionId)),
-      undefined,
-      deps.tenantRouteKey,
     ).catch((error) => {
       log.warn("agent-status", "push_failed", {
         session_id: sessionId,

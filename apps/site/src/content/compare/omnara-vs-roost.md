@@ -27,7 +27,7 @@ useInsteadIf: "You want a phone-first chat and approval workflow over managed ag
 
 - **What the surface actually shows you.** Omnara shows a structured conversation: progress, streamed output, diffs, and approval prompts. Roost shows the literal cell grid the program is drawing, with full ANSI, scrollback, mouse support, and alt-screen TUIs — which is what you need to run `htop`, page through `git log`, answer an interactive prompt, or use a shell at all.
 
-- **Accounts and device keys.** Omnara is account-based, with organisations, roles, and API keys, and its default path is Omnara Cloud. Roost's released product is self-hosted, accountless, and user-operated: each authorized browser holds a non-extractable Ed25519 device key and signs ordinary requests. A per-account managed implementation is qualified but not launched; production signup and the shared dashboard origin are inactive, and accounts can only be operator-created.
+- **Accounts and device keys.** Omnara is account-based, with organisations, roles, and API keys, and its default path is Omnara Cloud. Roost is self-hosted, accountless, and user-operated: each authorized browser holds a non-extractable Ed25519 device key and signs ordinary requests. There is no Roost-hosted tier and no signup.
 
 - **Machines mean different things.** Omnara's machines are execution targets an agent can be handed, including vendor sandboxes from Blaxel, Daytona, or Unikraft, added or removed while the agent is running. Roost's workers are your own long-lived macOS and Linux computers, enrolled once with `roost add-machine --platform macos|linux`, dialling outbound only so none exposes an inbound port, and shown in one sidebar with per-machine CPU, memory, disk, and network tiles.
 

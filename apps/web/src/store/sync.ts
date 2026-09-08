@@ -100,10 +100,6 @@ export {
 
 const SYNC_AUTH_REVOKED_CLOSE_CODE = 4001;
 let syncAuthRejected: (() => void) | null = null;
-let tenantRouteSwitchSuspended = false;
-const TENANT_ROUTE_SWITCH_HOLD = new Promise<void>(() => {
-  // A route-bound transport may resume only in the freshly loaded document.
-});
 interface DashboardSwitchHold {
   promise: Promise<void>;
   resolve: () => void;
@@ -113,7 +109,6 @@ let dashboardSwitchHold: DashboardSwitchHold | null = null;
 
 async function waitForScopeDialPermission(): Promise<void> {
   while (true) {
-    if (tenantRouteSwitchSuspended) await TENANT_ROUTE_SWITCH_HOLD;
     const currentHold = dashboardSwitchHold;
     if (!currentHold) return;
     await currentHold.promise;
@@ -142,13 +137,6 @@ export function registerSyncAuthRejectionHandler(handler: () => void): () => voi
   return () => {
     if (syncAuthRejected === handler) syncAuthRejected = null;
   };
-}
-
-/** Permanently retire this document's route-bound Sync transport. */
-export function suspendSyncForTenantRouteSwitch(): void {
-  if (tenantRouteSwitchSuspended) return;
-  tenantRouteSwitchSuspended = true;
-  _initiateSyncClose("manual");
 }
 
 /** Close the live tube intentionally so the existing loop immediately redials. */

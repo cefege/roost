@@ -30,7 +30,6 @@ import {
 } from "../src/connect/worker-ws-handler.ts";
 import type { WorkerServiceDeps } from "../src/connect/worker-service.ts";
 import { callerKey, dashboardActorKey, tabIdKey } from "../src/connect/auth-interceptor.ts";
-import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { PendingEventPublicationStore } from "../src/pending-event-publications.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
@@ -70,15 +69,11 @@ export async function startWorkerWsTransportFixture() {
   const cfg: CoordConfig = {
     trustProxy: false,
     bind: "127.0.0.1:0",
-    saasMode: false,
-    managedContainer: false,
     pushAllowedOrigins: [],
     dbPath,
     coordKeyPath: keyPath,
     authorizedKeysPath: authPath,
     webDistPath: "",
-    tlsCertPath: undefined,
-    tlsKeyPath: undefined,
     jwtMaxAgeSecs: 300,
     auditRetentionDays: 90,
     relaxedCsp: false,
@@ -97,7 +92,6 @@ export async function startWorkerWsTransportFixture() {
     ...deps,
     sqlite,
     coordKey,
-    passwordWorkGate: new PasswordWorkGate(),
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
   };
@@ -166,7 +160,7 @@ export async function startWorkerWsTransportFixture() {
         waiter?.resolve();
       } else {
         waiter?.reject(new Error(
-          `worker server rejected open before initialization; auth deadline ${ws.data.authDeadlineAtMs}`,
+          `worker server rejected open before initialization for ${ws.data.fp}`,
         ));
       }
     },

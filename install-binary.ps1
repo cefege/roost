@@ -14,17 +14,13 @@ param(
 
     [string] $ReleaseBaseUrl = 'https://github.com/cefege/roost/releases/latest/download',
 
-    [string] $CoordinatorUrl,
-
-    [string] $TlsCert,
-
-    [string] $TlsKey
+    [string] $CoordinatorUrl
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Assert-DirectCoordinatorUrl([string] $Value) {
+function Assert-CoordinatorUrl([string] $Value) {
     if ([string]::IsNullOrWhiteSpace($Value) -or $Value -match '\p{Cc}') {
         throw 'CoordinatorUrl must be a non-empty HTTPS origin without control characters'
     }
@@ -43,93 +39,31 @@ function Assert-DirectCoordinatorUrl([string] $Value) {
         -not [string]::IsNullOrEmpty($uri.Fragment)) {
         throw 'CoordinatorUrl must be an HTTPS origin with no userinfo, path, query, or fragment'
     }
-    if ($authority.StartsWith('[', [StringComparison]::Ordinal)) {
-        if ($authority -match '^\[[^\]]+\]:(?<port>[0-9]+)$') {
-            $portText = [string] $Matches['port']
-        } else {
-            throw 'CoordinatorUrl must include an explicit numeric port'
-        }
-    } elseif ($authority -match '^[^:]+:(?<port>[0-9]+)$') {
-        $portText = [string] $Matches['port']
+    # A bare origin resolves to 443; only an explicitly written port is range-checked,
+    # which is the same rule resolveQuickstartEndpoint applies on the TypeScript side.
+    $portText = ''
+    if ($authority -match '^\[[^\]]+\](:(?<port>[0-9]+))?$' -or
+        $authority -match '^[^:\[\]]+(:(?<port>[0-9]+))?$') {
+        if ($Matches.ContainsKey('port')) { $portText = [string] $Matches['port'] }
     } else {
-        throw 'CoordinatorUrl must include an explicit numeric port'
+        throw 'CoordinatorUrl authority must be host[:port]'
     }
-    $port = 0
-    if (-not [int]::TryParse($portText, [ref] $port) -or
-        $port -lt 1 -or $port -gt 65535) {
-        throw 'CoordinatorUrl port must be between 1 and 65535'
-    }
-}
-
-function Get-NormalizedDirectTlsPath([string] $Value, [string] $Label) {
-    if ([string]::IsNullOrWhiteSpace($Value) -or $Value -match '\p{Cc}') {
-        throw "$Label must be a non-empty rooted path without control characters"
-    }
-    try {
-        if (-not [IO.Path]::IsPathRooted($Value)) {
-            throw [ArgumentException]::new()
+    if ($portText -ne '') {
+        $port = 0
+        if (-not [int]::TryParse($portText, [ref] $port) -or
+            $port -lt 1 -or $port -gt 65535) {
+            throw 'CoordinatorUrl port must be between 1 and 65535'
         }
-        $normalized = [IO.Path]::GetFullPath($Value)
-    } catch {
-        throw "$Label must be a lexically valid rooted path"
     }
-    return $normalized.TrimEnd([char[]] @([char] 92, [char] 47))
 }
 
-$directTlsParameterCount = 0
-foreach ($name in @('CoordinatorUrl', 'TlsCert', 'TlsKey')) {
-    if ($PSBoundParameters.ContainsKey($name)) {
-        $directTlsParameterCount += 1
-    }
-}
-if ($directTlsParameterCount -ne 0 -and $directTlsParameterCount -ne 3) {
-    throw 'CoordinatorUrl, TlsCert, and TlsKey must be supplied together'
-}
-$directTlsMode = $directTlsParameterCount -eq 3
-if ($directTlsMode) {
+if ($PSBoundParameters.ContainsKey('CoordinatorUrl')) {
     if ($HostRole -ne 'coordinator') {
-        throw 'CoordinatorUrl, TlsCert, and TlsKey are only valid for a coordinator install'
+        throw 'CoordinatorUrl is only valid for a coordinator install'
     }
-    Assert-DirectCoordinatorUrl $CoordinatorUrl
-    $normalizedTlsCert = Get-NormalizedDirectTlsPath $TlsCert 'TlsCert'
-    $normalizedTlsKey = Get-NormalizedDirectTlsPath $TlsKey 'TlsKey'
-    if ($normalizedTlsCert.Equals(
-        $normalizedTlsKey,
-        [StringComparison]::OrdinalIgnoreCase
-    )) {
-        throw 'TlsCert and TlsKey must identify distinct paths'
-    }
-    foreach ($entry in @(
-        [pscustomobject]@{ Path = $normalizedTlsCert; Label = 'TlsCert' },
-        [pscustomobject]@{ Path = $normalizedTlsKey; Label = 'TlsKey' }
-    )) {
-        $path = [string] $entry.Path
-        $label = [string] $entry.Label
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            throw "$label must identify a readable regular file"
-        }
-        $item = Get-Item -LiteralPath $path -Force
-        $linkType = $item.PSObject.Properties['LinkType']
-        if ($item.PSIsContainer -or
-            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-            ($null -ne $linkType -and
-                -not [string]::IsNullOrWhiteSpace([string] $linkType.Value))) {
-            throw "$label must identify a non-link regular file"
-        }
-        $stream = $null
-        try {
-            $stream = [IO.File]::Open(
-                $path,
-                [IO.FileMode]::Open,
-                [IO.FileAccess]::Read,
-                [IO.FileShare]::ReadWrite
-            )
-        } catch {
-            throw "$label must identify a readable regular file"
-        } finally {
-            if ($null -ne $stream) { $stream.Dispose() }
-        }
-    }
+    Assert-CoordinatorUrl $CoordinatorUrl
+} elseif ($HostRole -eq 'coordinator') {
+    throw 'CoordinatorUrl is required for a coordinator install: it is the HTTPS origin your own front door serves'
 }
 $script:IcaclsPath = Join-Path ([Environment]::SystemDirectory) 'icacls.exe'
 if (-not (Test-Path -LiteralPath $script:IcaclsPath -PathType Leaf)) {
@@ -777,10 +711,8 @@ try {
         ExpectedVersion = [string] $manifest.version
         ExpectedBuild = [string] $manifest.build
     }
-    if ($directTlsMode) {
+    if ($HostRole -eq 'coordinator') {
         $packageInstallerArguments['CoordinatorUrl'] = $CoordinatorUrl
-        $packageInstallerArguments['TlsCert'] = $TlsCert
-        $packageInstallerArguments['TlsKey'] = $TlsKey
     }
     & $packageInstaller @packageInstallerArguments -StageOnly | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "signed package staging failed (exit $LASTEXITCODE)" }

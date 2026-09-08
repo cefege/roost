@@ -40,9 +40,6 @@ export async function join(args: string[]): Promise<void> {
       });
       break;
     case "win32": {
-      if (!Bun.which("tailscale.exe") && !Bun.which("tailscale")) {
-        throw new Error("Tailscale is required — install and connect it before running join.ps1");
-      }
       if (!args.includes("--windows-service-credential-stdin")) {
         throw new Error("Windows join requires the framed service credential from the signed join.ps1 front door");
       }

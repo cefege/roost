@@ -40,19 +40,16 @@ import style is now correct instead of two.
 | `@roost/shared/cell/cell-proto` | cell frame ↔ proto |
 | `@roost/shared/proto/*` | every generated `_pb.ts` (`…/proto/coordinator_pb`) |
 | `@roost/shared/config` | `CoordConfig` + `loadCoordConfig(env)` — **coord only** |
-| `@roost/shared/tenant-route` | lowercase 64-hex tenant route-key validation |
 | `@roost/shared/paths` | per-platform data/log/service dirs + service labels |
 | `@roost/shared/shell-quote` | canonical POSIX single-quote encoding |
 | `@roost/shared/platform` | `SupportedHostPlatform`, `supportedHostPlatform()`, `assertNeverPlatform` |
 | `@roost/shared/native-path` | lexical worker-path normalization (browser-safe) |
-| `@roost/shared/tailnet` | tailscale binary candidates + MagicDNS name resolution |
+| `@roost/shared/tailnet` | tailscale binary candidates + MagicDNS name resolution, for a worker's `reachable_addr` |
 | `@roost/shared/fingerprint` | `fingerprintOf` — the one pubkey fingerprint |
 | `@roost/shared/durability` | `durableWriteFile` atomic write + private DACL |
-| `@roost/shared/email-client` | provider-neutral Resend client + classified outcomes |
-| `@roost/shared/email-payload` | AES-256-GCM persisted email-outbox payload boundary |
 | `@roost/shared/retry` | capped exponential-backoff delay + jitter policy |
 | `@roost/shared/jwt-base` | Node-side JWT base64url codec; never browser-imported |
-| `@roost/shared/native-credentials` | account-email normalization + native-password policy |
+| `@roost/shared/coordinator-dial-url` | the one precedence rule for the coordinator origin a worker dials: `ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL`, else refuse |
 | `@roost/shared/local-endpoint` | UDS / named-pipe prep, securing, capability tokens |
 | `@roost/shared/service-health` | local health server + prober (re-exports its protocol schemas) |
 | `@roost/shared/build-identity` | compiled-binary version + git sha |
@@ -125,14 +122,14 @@ producers and consumers.
   `src/config.ts` owns environment normalization, secret resolution, cross-field
   policy, and the public re-export.
 - **Platform + paths** — `src/platform.ts`, `src/paths.ts`, `src/native-path.ts`,
-  `src/tenant-route.ts`, `src/tailnet.ts`, `src/durability.ts`,
+  `src/tailnet.ts`, `src/durability.ts`,
   `src/local-endpoint.ts`, `src/service-health.ts`,
   `src/service-health-protocol.ts`, `src/build-identity.ts`,
-  `src/machine-join-command.ts`, `src/shell-quote.ts`.
+  `src/coordinator-dial-url.ts`, `src/machine-join-command.ts`,
+  `src/shell-quote.ts`.
 - **Observability** — `src/log.ts`, `src/diag.ts`, `src/trace.ts`, `src/json.ts`.
-- **Identity + timing** — `src/fingerprint.ts`, `src/native-credentials.ts`,
+- **Identity + timing** — `src/fingerprint.ts`,
   `src/jwt-base.ts`, `src/viewport.ts`, `src/retry.ts`.
-- **Email** — `src/email-client.ts`, `src/email-payload.ts`.
 - **Native / Windows** — `src/windows-helper.ts`, `src/windows-relocation.ts`.
 - **WASM** — `src/wterm-core-factory.ts`, `src/wterm-wasm.ts`, `wasm/`.
 - **Generated** — `src/gen/roost/v1/`, `src/install-scripts.generated.ts`,

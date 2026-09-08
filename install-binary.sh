@@ -25,15 +25,6 @@ case "$OS/$ARCH" in
   *) die "no prebuilt roost binary for $OS/$ARCH — install from source: https://github.com/$REPO" ;;
 esac
 
-# Tailscale is walked through interactively by `roost quickstart`; just a nudge.
-if ! command -v tailscale >/dev/null 2>&1; then
-  if [ "$(uname -s)" = "Darwin" ]; then
-    say "WARN: Tailscale not installed — quickstart will guide you (brew install tailscale)."
-  else
-    say "WARN: Tailscale not installed — quickstart will guide you (https://tailscale.com/download/linux)."
-  fi
-fi
-
 mkdir -p "$BIN_DIR"
 DEST="$BIN_DIR/roost"
 TMP_DIR="$(mktemp -d "$BIN_DIR/.roost-install.XXXXXX")"
@@ -77,4 +68,4 @@ case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) say "NOTE: $BIN_DIR is not on your PATH — add it, or run $DEST directly." ;;
 esac
-say "next: roost quickstart"
+say "next: roost quickstart --coordinator-url https://<your front door>"

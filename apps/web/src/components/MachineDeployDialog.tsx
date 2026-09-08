@@ -3,8 +3,8 @@
 // Depends on: trpc (auth.mintBootstrap), Solid signals.
 // Callers: MachinesPane.tsx.
 
-import { createMemo, createSignal, Show } from "solid-js";
-import { coordinatorBaseUrl, coordClient } from "../connect.ts";
+import { createSignal, Show } from "solid-js";
+import { coordClient, coordinatorBaseUrl } from "../connect.ts";
 import { rootStore } from "../store/root.ts";
 import { TextField, Button, IconButton, Select } from "./Settings/md/primitives.tsx";
 import { workerCoordinatorUrl } from "../lib/workerCoordinatorUrl.ts";
@@ -52,22 +52,24 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
   const [deployCmd, setDeployCmd] = createSignal<string | null>(null);
   const [copied, setCopied] = createSignal(false);
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
-  const workerUrl = createMemo(() => {
-    if (rootStore.coord_identity?.saas_mode === true) return coordinatorBaseUrl();
-    if (rootStore.coord_identity?.saas_mode !== false) return null;
-    return workerCoordinatorUrl(rootStore.coord_identity.public_url, location.origin);
-  });
+  // The worker's dial URL and its one-shot token MUST come from the same
+  // coordinator. rootStore holds the identity the same-origin bootstrap client
+  // fetched, which is a different coordinator whenever a self-hosted override is
+  // active, so the URL is resolved from the active client at mint time: the
+  // coordinator's declared public URL when it has one, else the origin that
+  // client talks to.
 
   async function mintAndShowCmd() {
     setLoading(true);
     setError("");
     setDeployCmd(null);
     try {
-      const coordinatorUrl = workerUrl();
+      const identity = await coordClient.authCoordIdentity({});
+      const coordinatorUrl = workerCoordinatorUrl(identity.publicUrl, coordinatorBaseUrl());
       if (!coordinatorUrl) {
-        setError(rootStore.coord_identity?.saas_mode === false
-          ? "Worker installation requires the coordinator's distinct private or tailnet URL."
-          : "Roost is still confirming how this deployment accepts workers.");
+        setError(
+          "Worker installation needs an HTTPS origin a worker can reach. Open Roost over your front door's HTTPS URL, or set ROOST_COORDINATOR_PUBLIC_URL on the coordinator when workers use a different door.",
+        );
         return;
       }
       const lbl = label().trim();
@@ -120,10 +122,10 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
         </p>
 
         <Show
-          when={workerUrl()}
+          when={rootStore.coord_identity}
           fallback={
             <div
-              data-testid="machine-deploy-unreachable"
+              data-testid="machine-deploy-pending"
               style={{
                 background: "var(--md-sys-color-surface-container)",
                 border: "1px solid var(--md-sys-color-outline)",
@@ -134,8 +136,7 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
                 color: "var(--text-lo)",
               }}
             >
-              Worker installation requires the coordinator's distinct private
-              or tailnet URL; the public web address is browser-only.
+              Roost is still confirming how this deployment accepts workers.
             </div>
           }
         >
@@ -202,7 +203,7 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
         <Show when={deployCmd()}>
           <div>
             <div style={{ "font-size": "11px", color: "var(--text-lo)", "margin-bottom": "8px", "text-transform": "uppercase", "letter-spacing": "0.06em" }}>
-              Run this on the new {machinePlatformLabel(targetPlatform())} (Tailscale must be running there):
+              Run this on the new {machinePlatformLabel(targetPlatform())} (it must be able to reach the coordinator URL):
             </div>
             <div style={{
               background: "var(--bg-base)",

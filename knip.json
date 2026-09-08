@@ -7,7 +7,7 @@
     "apps/worker":   { "entry": ["src/keeper/multiplexed-main.ts!", "tests/**/*.test.ts"], "ignoreBinaries": ["ip"] },
     "apps/web":      { "entry": ["index.html", "public/sw-push.js", "tests/**/*.test.ts"] },
     "apps/site":     { "entry": ["scripts/*.ts!", "src/pages/**/*.{astro,ts}"] },
-    "smoke":         { "entry": ["*.test.ts", "terminal/live-stack.ts", "terminal/pty-fixture.ts", "terminal/resize-tui.ts"] }
+    "smoke":         { "entry": ["*.test.ts", "terminal/live-stack.ts", "terminal/pty-fixture.ts", "terminal/resize-tui.ts", "upgrade/playwright.config.ts", "upgrade/release-handoff.ts"] }
   },
   "ignore": ["scripts/**"],
   "ignoreBinaries": ["vm_stat"]

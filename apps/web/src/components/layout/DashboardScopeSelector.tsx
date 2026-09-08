@@ -6,7 +6,6 @@ import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { rootStore } from "../../store/root.ts";
 import { selectDashboardFromServer } from "../../store/dashboard-selection.ts";
-import { settingsScopeSelectorVisible } from "../Settings/settingsNavigation.ts";
 import { Button, Select, Surface } from "../Settings/md/primitives.tsx";
 
 function scopeError(error: unknown): string {
@@ -102,7 +101,7 @@ export function DashboardScopeSelector() {
   }
 
   return (
-    <Show when={settingsScopeSelectorVisible(rootStore.coord_identity?.saas_mode) && organizations().length > 0 && selectedDashboard()}>
+    <Show when={organizations().length > 0 && selectedDashboard()}>
       <section data-testid="dashboard-scope-selector" aria-label="Current organization and dashboard">
         <Surface
           level={1}

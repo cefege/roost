@@ -57,7 +57,7 @@ test("coordinator move status requires auth and matches only its exact handoff",
       statusForWorker: async (handoffId: string, workerFp: string) =>
         workerFp === "fp" && handoffId === handoff.handoff_id ? handoff : null,
     },
-    cfg: { saasMode: false },
+    cfg: {},
 
   } as unknown as ConnectDeps);
   await expect(handlers.coordinatorMoveStatus(

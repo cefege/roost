@@ -1,16 +1,15 @@
 // Settings → "Pair a device" pane. Renders a QR for the current HTTPS origin.
-// Its one-shot bearer stays in the URL fragment, so Cloudflare, access logs,
-// and Referer headers never receive it.
+// Its one-shot bearer stays in the URL fragment, so the front door, access
+// logs, and Referer headers never receive it.
 //
 // Any non-loopback HTTPS origin is phone-reachable when the phone can route to
-// it: either the public Roost domain or a tailnet URL.
+// it — whichever front door the operator put in front of the coordinator.
 
 import { createSignal, onMount, Show } from "solid-js";
 import QRCode from "qrcode";
 import { coordClient } from "../../connect.ts";
 import { addToast } from "../../store/toastStore.ts";
 import { Button } from "./md/primitives.tsx";
-import { storedTenantRouteKey } from "../../auth/tenant-routing.ts";
 
 function originIsPhoneReachable(): boolean {
   if (typeof location === "undefined") return false;
@@ -30,9 +29,7 @@ export function PairDevicePane() {
     setStatus("loading");
     try {
       const { token } = await coordClient.authMintBootstrap({ kind: "browser", label: "phone" });
-      const routeKey = storedTenantRouteKey();
-      const pairPath = routeKey ? `/pair/${routeKey}` : "/";
-      const url = `${location.origin}${pairPath}#pair=${encodeURIComponent(token)}`;
+      const url = `${location.origin}/#pair=${encodeURIComponent(token)}`;
       setPairUrl(url);
       setQrDataUrl(await QRCode.toDataURL(url, { width: 240, margin: 1 }));
       setStatus("ready");

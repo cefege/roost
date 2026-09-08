@@ -8,7 +8,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CoordConfig } from "@roost/shared/config";
 import { fingerprintOf } from "@roost/shared/fingerprint";
-import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { openDb } from "../src/db/connection.ts";
@@ -41,16 +40,12 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
-    saasMode: false,
-    managedContainer: false,
     pushAllowedOrigins: [],
     bind: "127.0.0.1:0",
     dbPath,
     coordKeyPath: keyPath,
     authorizedKeysPath,
     webDistPath: "",
-    tlsCertPath: undefined,
-    tlsKeyPath: undefined,
     jwtMaxAgeSecs: 300,
     auditRetentionDays: 90,
     relaxedCsp: false,
@@ -67,7 +62,6 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     coordKey,
     jwtCache,
     cfg,
-    passwordWorkGate: new PasswordWorkGate(),
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
   };
@@ -85,10 +79,8 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
   await db.insertInto("accounts").values({
     id: ACCOUNT_ID,
     email_normalized: "sync-keepalive@example.test",
-    password_hash: null,
     status: "active",
     created_at_ms: membershipNow,
-    password_changed_at_ms: null,
   }).execute();
   await db.insertInto("account_devices").values({
     fingerprint,

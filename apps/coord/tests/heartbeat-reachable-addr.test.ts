@@ -16,7 +16,6 @@ import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
-import { PasswordWorkGate } from "../src/connect/password-work-gate.ts";
 import { presenceBus } from "../src/buses.ts";
 import type { CoordConfig } from "@roost/shared/config";
 
@@ -57,15 +56,11 @@ beforeAll(async () => {
 	const coordKey = await loadOrCreateCoordKey(keyPath);
 	const jwtCache = newJwtCache();
 	const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
-		saasMode: false,
-		managedContainer: false,
 		pushAllowedOrigins: [],
 		dbPath,
 		coordKeyPath: keyPath,
 		authorizedKeysPath: authPath,
 		webDistPath: "",
-		tlsCertPath: undefined,
-		tlsKeyPath: undefined,
 		jwtMaxAgeSecs: 300,
 		auditRetentionDays: 90,
 		relaxedCsp: false,
@@ -79,7 +74,6 @@ beforeAll(async () => {
 		coordKey,
 		cfg,
 		jwtCache,
-		passwordWorkGate: new PasswordWorkGate(),
 	});
 
 	// Mint a worker keypair, authorize it, seed its workers row (register-time

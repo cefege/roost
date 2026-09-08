@@ -251,34 +251,6 @@ function beginDashboardSwitch(candidate: string): DashboardSwitchAttempt {
   };
 }
 
-/** Confirm an exact login response through a caller-supplied prefixed signed
- * client without publishing scope into the current document. The full reload
- * will commit the same protected response through the normal bootstrap path. */
-export async function confirmDashboardAccessWithClient(
-  client: Pick<typeof coordClient, "authDashboardAccess">,
-  dashboardId: string,
-): Promise<boolean> {
-  const response = await client.authDashboardAccess(
-    {},
-    { headers: { [X_ROOST_DASHBOARD_ID]: dashboardId } },
-  );
-  const snapshot = snapshotFromProto(response);
-  return snapshot.selected_dashboard_id === dashboardId
-    && isValidDashboardAccess(snapshot);
-}
-export async function selectDashboardFromServerWithClient(
-  client: Pick<typeof coordClient, "authDashboardAccess">,
-  dashboardId: string,
-): Promise<boolean> {
-  const response = await client.authDashboardAccess(
-    {},
-    { headers: { [X_ROOST_DASHBOARD_ID]: dashboardId } },
-  );
-  const snapshot = snapshotFromProto(response);
-  return snapshot.selected_dashboard_id === dashboardId
-    && commitServerConfirmedDashboardAccess(snapshot);
-}
-
 /** Fetch scope server-side. A picker owns the request generation until its
  * Sync hold settles, so lifecycle/bootstrap refreshes cannot supersede it. */
 async function requestDashboardAccess(candidate: string | null): Promise<boolean> {

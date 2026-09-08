@@ -19,12 +19,7 @@ import { makeWorkerConn, type WorkerConn, type WorkerServiceDeps } from "./worke
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { lookupSessionId } from "../byte-hub.ts";
-import {
-  realWsDeadlineClock,
-  scheduleWsAuthDeadline,
-  type WsAuthDeadlineTimer,
-  type WsDeadlineClock,
-} from "./ws-auth-deadline.ts";
+import { realWsDeadlineClock, type WsDeadlineClock } from "./ws-auth-deadline.ts";
 import { OrderedWorkerFrameQueue } from "./worker-frame-queue.ts";
 import { fenceWorkerCredential } from "./worker-registry.ts";
 import type { AnnouncedChannelBarrier } from "./announced-channel-barrier.ts";
@@ -73,8 +68,6 @@ export interface WorkerWsData {
   /** Resolved from workers.dashboard_id before WS upgrade; never from a
    * URL, JWT claim, hello, or worker event payload. */
   dashboardId: string;
-  authDeadlineAtMs: number | null;
-  authDeadlineTimer: WsAuthDeadlineTimer | null;
   conn: WorkerConn | null;
   // Bun dispatches messages in order but does not await async handlers. This
   // explicit bounded queue keeps durable/control frames ordered and accounts
@@ -88,35 +81,16 @@ export interface WorkerWsData {
 }
 
 export interface WorkerWsHandlerOptions {
-  deadlineClock?: WsDeadlineClock;
+  /** Injectable clock for the durable-event rate window. */
+  clock?: WsDeadlineClock;
 }
 
 export function makeWorkerWsHandler(
   deps: WorkerServiceDeps,
   options: WorkerWsHandlerOptions = {},
 ) {
-  const deadlineClock = options.deadlineClock ?? realWsDeadlineClock;
+  const clock = options.clock ?? realWsDeadlineClock;
   const sockets = new Set<ServerWebSocket<WorkerWsData>>();
-  const clearAuthDeadline = (ws: ServerWebSocket<WorkerWsData>): void => {
-    if (ws.data.authDeadlineTimer?.current) {
-      deadlineClock.clearTimeout(ws.data.authDeadlineTimer.current);
-    }
-    ws.data.authDeadlineTimer = null;
-  };
-  const armAuthDeadline = (
-    ws: ServerWebSocket<WorkerWsData>,
-    deadlineMs: number | null,
-  ): boolean => {
-    clearAuthDeadline(ws);
-    ws.data.authDeadlineAtMs = deadlineMs;
-    if (deadlineMs === null) return true;
-    if (deadlineMs <= deadlineClock.now()) {
-      ws.close(4003, "reauth required");
-      return false;
-    }
-    ws.data.authDeadlineTimer = scheduleWsAuthDeadline(ws, deadlineMs, deadlineClock);
-    return true;
-  };
   const ensureQueue = (
     ws: ServerWebSocket<WorkerWsData>,
     conn: WorkerConn,
@@ -185,7 +159,6 @@ export function makeWorkerWsHandler(
         ws.close(4001, "revoked");
         return;
       }
-      if (!armAuthDeadline(ws, ws.data.authDeadlineAtMs)) return;
       sockets.add(ws);
       // Return Bun's send result (0 = dropped, -1 = backpressure, >0 = bytes)
       // and re-throw: the snapshot pump must learn a chunk was lost instead of
@@ -206,12 +179,7 @@ export function makeWorkerWsHandler(
         requestClose,
         () => ws.getBufferedAmount(),
         ws.data.dashboardId,
-        (refreshed) => {
-          ws.data.caller = refreshed;
-          if (deps.cfg.saasMode) {
-            armAuthDeadline(ws, refreshed.validUntilMs);
-          }
-        },
+        (refreshed) => { ws.data.caller = refreshed; },
       );
       ws.data.conn = conn;
       ensureQueue(ws, conn);
@@ -271,7 +239,7 @@ export function makeWorkerWsHandler(
       }
       if (
         fcase === "event"
-        && !admitWorkerDurableEvent(ws.data.eventRate, deadlineClock.now())
+        && !admitWorkerDurableEvent(ws.data.eventRate, clock.now())
       ) {
         queue.close();
         ws.data.announcedChannels.clear();
@@ -348,7 +316,6 @@ export function makeWorkerWsHandler(
       queue.enqueue({ frame, announced }, frameBytes);
     },
     close(ws: ServerWebSocket<WorkerWsData>): void {
-      clearAuthDeadline(ws);
       sockets.delete(ws);
       ws.data.queue?.close();
       ws.data.queue = null;

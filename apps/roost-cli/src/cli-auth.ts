@@ -1,6 +1,6 @@
 // Owns the CLI browser identity and dashboard-scoped transport setup.
 // It never borrows worker authority: host-local enrollment redeems a one-shot
-// grant, while remote or managed unknown keys require explicit pairing.
+// grant, while an unknown key on any other machine requires explicit pairing.
 import { Code, ConnectError } from "@connectrpc/connect";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -25,8 +25,6 @@ import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 export const CLI_KEY_LABEL = "roost-cli";
 export const CLI_PAIRING_REQUIRED =
   "CLI key is not enrolled; pairing required from an already enrolled browser";
-export const MANAGED_CLI_ENROLLMENT_UNSUPPORTED =
-  "fresh CLI enrollment is unsupported in managed mode; pair this CLI key from an already enrolled browser";
 
 export type CliKey = LoadedKey;
 
@@ -124,7 +122,6 @@ interface DashboardAccessClient {
 }
 
 interface PublicEnrollmentClient {
-  authCoordIdentity(request: Record<string, never>): Promise<{ saasMode: boolean }>;
   authRedeemBrowser(request: {
     token: string;
     sshPubkeyB64: string;
@@ -179,8 +176,6 @@ export async function ensureCliEnrollment(
     if (!unauthenticated(error)) throw error;
   }
 
-  const identity = await options.publicClient.authCoordIdentity({});
-  if (identity.saasMode) throw new Error(MANAGED_CLI_ENROLLMENT_UNSUPPORTED);
   if (!options.localDatabasePath) throw new Error(CLI_PAIRING_REQUIRED);
 
   const mint = options.mintHostBrowserToken ?? mintHostBootstrapToken;

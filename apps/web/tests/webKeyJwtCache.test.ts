@@ -188,12 +188,9 @@ _trustStore.set("coord-fingerprint", "obsolete-fingerprint");
 
 // Dynamic import on purpose: the module must initialize AFTER the stubs above.
 const {
-  clearWebKeyMaterialForLogout,
   getPublicKeyB64,
-  markCurrentWebKeyAuthorized,
   isResetWebKeyEligible,
   resetWebKey,
-  probeCurrentWebKey,
   signCoordinatorJwt,
 } = await import("../src/auth/web-key.ts");
 
@@ -215,7 +212,8 @@ describe("roost-auth IndexedDB migration", () => {
     );
 
     try {
-      expect(await probeCurrentWebKey()).toBe("ambiguous");
+      // An unreachable coordinator is ambiguous, so it must delete nothing.
+      expect(await isResetWebKeyEligible()).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
       if (originalLocation) Object.defineProperty(globalThis, "location", originalLocation);
@@ -300,8 +298,8 @@ describe("signCoordinatorJwt cache", () => {
   });
 });
 
-describe("managed rejected-key recovery", () => {
-  test("deletes only after a marked dashboard-access rejection and generates a new key", async () => {
+describe("rejected-key recovery", () => {
+  test("deletes only after a marked device rejection and generates a new key", async () => {
     const originalFetch = globalThis.fetch;
     const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
     const originalLocks = Object.getOwnPropertyDescriptor(navigator, "locks");
@@ -310,7 +308,7 @@ describe("managed rejected-key recovery", () => {
     Object.defineProperty(globalThis, "location", {
       configurable: true,
       value: {
-        origin: "https://managed.example",
+        origin: "https://coord.example",
         hash: "",
         reload: () => { reloads++; },
       },
@@ -336,15 +334,14 @@ describe("managed rejected-key recovery", () => {
     );
 
     try {
-      markCurrentWebKeyAuthorized();
       const originalKey = await getPublicKeyB64();
-      expect(await isResetWebKeyEligible("managed")).toBe(false);
-      await expect(resetWebKey("managed")).rejects.toThrow("explicitly rejected");
+      expect(await isResetWebKeyEligible()).toBe(false);
+      await expect(resetWebKey()).rejects.toThrow("explicitly rejected");
       expect(await getPublicKeyB64()).toBe(originalKey);
 
       responseStatus = 401;
-      expect(await isResetWebKeyEligible("managed")).toBe(true);
-      await resetWebKey("managed");
+      expect(await isResetWebKeyEligible()).toBe(true);
+      await resetWebKey();
       expect(reloads).toBe(1);
       expect(await getPublicKeyB64()).not.toBe(originalKey);
     } finally {
@@ -354,27 +351,5 @@ describe("managed rejected-key recovery", () => {
       if (originalLocks) Object.defineProperty(navigator, "locks", originalLocks);
       else Reflect.deleteProperty(navigator, "locks");
     }
-  });
-});
-
-describe("managed logout key cleanup", () => {
-  test("removes committed and staged keys, flags, and cached identity without reloading", async () => {
-    await getPublicKeyB64();
-    markCurrentWebKeyAuthorized();
-    _idbStore.set("ed25519-rotation-v1", {
-      operationId: "staged-operation",
-      keyPair: _idbStore.get("ed25519"),
-    });
-    expect(_idbStore.has("ed25519")).toBe(true);
-    expect(_idbStore.has("ed25519-rotation-v1")).toBe(true);
-    expect(localStorage.getItem("roostKeyMinted")).toBe("1");
-    expect(localStorage.getItem("roostKeyAuthorized")).toBe("1");
-
-    await clearWebKeyMaterialForLogout();
-
-    expect(_idbStore.has("ed25519")).toBe(false);
-    expect(_idbStore.has("ed25519-rotation-v1")).toBe(false);
-    expect(localStorage.getItem("roostKeyMinted")).toBeNull();
-    expect(localStorage.getItem("roostKeyAuthorized")).toBeNull();
   });
 });

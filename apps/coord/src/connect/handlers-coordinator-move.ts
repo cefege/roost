@@ -35,18 +35,11 @@ function requireMoveService(deps: ConnectDeps) {
   return deps.move;
 }
 
-function requireMoveAllowed(deps: ConnectDeps): void {
-  if (deps.cfg.saasMode) {
-    throw new ConnectError("coordinator move is unavailable in managed mode", Code.PermissionDenied);
-  }
-}
-
 export function makeCoordinatorMoveHandlers(
   deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, CoordinatorMoveMethods> {
   return {
     async coordinatorMovePreflight(req, ctx) {
-      requireMoveAllowed(deps);
       const actor = requireOrganizationAdmin(ctx.values);
       const result = await requireMoveService(deps).preflight(actor.dashboardId, req.targetWorkerFp);
       return create(CoordinatorMovePreflightResponseSchema, {
@@ -57,7 +50,6 @@ export function makeCoordinatorMoveHandlers(
       });
     },
     async coordinatorMoveStart(req, ctx) {
-      requireMoveAllowed(deps);
       const actor = requireOrganizationAdmin(ctx.values);
       try {
         return create(CoordinatorMoveStartResponseSchema, {
@@ -68,7 +60,6 @@ export function makeCoordinatorMoveHandlers(
       }
     },
     async coordinatorMoveStatus(req, ctx) {
-      requireMoveAllowed(deps);
       const move = requireMoveService(deps);
       const principal = ctx.values.get(callerKey);
       let state: HandoffState | null;
