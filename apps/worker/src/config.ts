@@ -12,6 +12,7 @@ import { hostname } from "node:os";
  * resolution: the config read below and the boot-time erasure there must
  * address the same installed entry. */
 import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "./service-definition-env.ts";
+import { DEFAULT_COORDINATOR_BIND } from "@roost/shared/config";
 
 export const WorkerConfig = z.object({
   coordinatorUrl: z.string().url(),
@@ -43,10 +44,11 @@ function withDefaults(
   // wsListenPort / wsScheme / tls* / coordVerifyingKeyPath dropped
   // entirely in phase-25e.
   return {
-    // Dev fallback only — install.sh always passes the tailnet FQDN
-    // explicitly via the plist. Bare `bun apps/worker/src/main.ts` then
-    // dials the local coord instead of throwing a Zod url() error.
-    coordinatorUrl: env.ROOST_COORDINATOR_URL ?? "http://localhost:4102",
+    // Fallback for a bare `bun apps/worker/src/main.ts` and for CLI commands
+    // that build a worker config with no installed service definition. It
+    // reads the coordinator's own default bind rather than a second
+    // hand-written port, which is how this drifted onto a retired one.
+    coordinatorUrl: env.ROOST_COORDINATOR_URL ?? `http://${DEFAULT_COORDINATOR_BIND}`,
     bootstrapToken: env.ROOST_BOOTSTRAP_TOKEN,
     agentConversationRestore: parseAgentConversationRestore(
       env.ROOST_AGENT_CONVERSATION_RESTORE,

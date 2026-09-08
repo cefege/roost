@@ -3,12 +3,24 @@
 // from boot reconciliation and the restore implementation.
 
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_COORDINATOR_BIND } from "@roost/shared/config";
 import { loadWorkerConfig } from "../src/config.ts";
 
 const BASE_ENV = {
   ROOST_WORKER_DATA_DIR: "/tmp/roost-worker-config-test",
   ROOST_WORKER_LOG_DIR: "/tmp/roost-worker-config-test/logs",
 };
+
+describe("coordinatorUrl", () => {
+  test("falls back to the coordinator's own default bind, not a second literal", () => {
+    // A retired port here made `roost deploy` fail keeper admission with
+    // ECONNREFUSED while the worker itself was healthy.
+    expect(loadWorkerConfig(BASE_ENV).coordinatorUrl)
+      .toBe(`http://${DEFAULT_COORDINATOR_BIND}`);
+    expect(loadWorkerConfig({ ...BASE_ENV, ROOST_COORDINATOR_URL: "https://roost.example.com" })
+      .coordinatorUrl).toBe("https://roost.example.com");
+  });
+});
 
 describe("ROOST_AGENT_CONVERSATION_RESTORE", () => {
   test("defaults to disabled on every platform when absent", () => {
