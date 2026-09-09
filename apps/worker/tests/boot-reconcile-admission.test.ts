@@ -3,36 +3,26 @@
 // maintenance, local session mutation, snapshot provider, or readiness leaks past it.
 
 import { afterEach, describe, expect, test, vi } from "bun:test";
-import { tmpdir } from "node:os";
-import { asSessionId, asWorkerFp } from "@roost/shared/wire";
 import type { CoordClient } from "../src/coord-client.ts";
+import { SessionEventStoreFatalError } from "../src/event-sink.ts";
+import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import {
 	setupReconcile,
 	type ReconcileAdmissionOutcome,
 } from "../src/boot-reconcile.ts";
-import { completeWorkerBootAdmission } from "../src/main.ts";
 import { SessionManager } from "../src/session-manager.ts";
-import { SessionEventStoreFatalError } from "../src/event-sink.ts";
-import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
-import { SessionEventTestSink } from "./session-event-test-sink.ts";
-import { AgentReferenceAdmissionGate } from "../src/agent-status/reference-admission.ts";
 import { TerminalCoreCapacityError } from "../src/terminal-core-capacity.ts";
-
-const WORKER_FP = asWorkerFp("42".repeat(32));
-const OPEN_SESSIONS = [
-	{
-		id: asSessionId("00000000-0000-4000-8000-000000000001"),
-		channel: 11,
-		kind: "shell",
-		cwd: tmpdir(),
-	},
-	{
-		id: asSessionId("00000000-0000-4000-8000-000000000002"),
-		channel: 12,
-		kind: "shell",
-		cwd: tmpdir(),
-	},
-] as const;
+import {
+	OPEN_SESSIONS,
+	WORKER_FP,
+	bootActivation,
+	clientWithSessionsList,
+	referenceReconcileDependencies,
+	sessionsResponse,
+	spyOnKeeperMutation,
+	stubSessionAdmission,
+} from "./boot-reconcile-test-support.ts";
+import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const pool = getMultiplexedPool();
 const managers: SessionManager[] = [];
@@ -44,83 +34,10 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-function clientWithSessionsList(
-	sessionsList: (
-		...args: Parameters<CoordClient["sessionsList"]>
-	) => Promise<unknown>,
-): CoordClient {
-	return { sessionsList } as unknown as CoordClient;
-}
-
 function freshManager(sink: SessionEventTestSink): SessionManager {
 	const manager = new SessionManager({ workerFp: WORKER_FP, sink });
 	managers.push(manager);
 	return manager;
-}
-
-function referenceReconcileDependencies() {
-	return {
-		referenceAdmission: new AgentReferenceAdmissionGate(),
-		restoreAgentConversation: async () => ({
-			status: "skipped" as const,
-			reason: "disabled" as const,
-		}),
-		beforeRecoveryRead: async () => {},
-	};
-}
-
-function sessionsResponse<
-	const Sessions extends readonly { id: string }[],
->(sessions: Sessions) {
-	return {
-		sessions,
-		recoveryMetadata: sessions.map((session) => ({
-			sessionId: session.id,
-			agentReference: undefined,
-			agentReferenceClientSeq: 0n,
-		})),
-	};
-}
-
-function stubSessionAdmission(manager: SessionManager) {
-	const advance = vi.fn(async () => {});
-	const resume = vi.fn(async (
-		_options: Parameters<SessionManager["resume"]>[0],
-		reservation: Parameters<SessionManager["resume"]>[1],
-	) => {
-		if (!reservation) throw new Error("test reconcile omitted close reservation");
-		manager.releaseSessionEvent(reservation);
-		return true;
-	});
-	const respawn = vi.fn(async () => {});
-	const reap = vi.fn(async () => 0);
-	manager.advanceChannelCounterPastKeeper = advance;
-	manager.resume = resume;
-	manager.respawn = respawn;
-	manager.reapStrayKeeperChannels = reap;
-	return { advance, resume, respawn, reap };
-}
-
-function spyOnKeeperMutation() {
-	const ensure = vi.spyOn(pool, "ensure").mockResolvedValue();
-	const list = vi.spyOn(pool, "listChannels").mockResolvedValue([]);
-	const listFresh = vi.spyOn(pool, "listChannelsFresh").mockResolvedValue([]);
-	const kill = vi.spyOn(pool, "kill").mockImplementation(() => {});
-	return { ensure, list, listFresh, kill };
-}
-
-function bootActivation(reconcile: () => Promise<ReconcileAdmissionOutcome>) {
-	const activateSnapshotProvider = vi.fn();
-	const markReady = vi.fn();
-	return {
-		activateSnapshotProvider,
-		markReady,
-		complete: () => completeWorkerBootAdmission({
-			reconcile,
-			activateSnapshotProvider,
-			markReady,
-		}),
-	};
 }
 
 describe("worker boot reconciliation admission", () => {
@@ -359,7 +276,7 @@ describe("worker boot reconciliation admission", () => {
 		manager.reapStrayKeeperChannels = vi.fn(async () => 0);
 		const { reconcileOpenSessions } = setupReconcile({
 			...referenceReconcileDependencies(),
-			client: () => clientWithSessionsList(() => sessionsResponse([
+			client: () => clientWithSessionsList(async () => sessionsResponse([
 				OPEN_SESSIONS[0],
 			])),
 			workerFp: WORKER_FP,

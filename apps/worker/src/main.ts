@@ -237,6 +237,7 @@ export async function runWorker() {
 		client: () => client,
 		workerFp,
 		sessionMgr,
+		referenceAdmission,
 		prepareKeeper: (coordinatorOpenSessionIds) =>
 			handleKeeperSurvivor(
 				coordinatorOpenSessionIds,

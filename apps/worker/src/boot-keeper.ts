@@ -103,8 +103,9 @@ export async function handleKeeperSurvivor(
       try {
         if (survivorChannelCount === null) {
           terminalCoreCapacity.refuseUnknownSurvivorInventory();
+        } else {
+          terminalCoreCapacity.assertCanAdoptSurvivors(survivorChannelCount);
         }
-        terminalCoreCapacity.assertCanAdoptSurvivors(survivorChannelCount);
       } catch (error) {
         if (isTerminalCoreCapacityError(error)) {
           const snapshot = terminalCoreCapacity.snapshot();
