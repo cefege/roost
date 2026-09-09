@@ -67,7 +67,6 @@ export function mountCellTerminalRenderer(
 		presentation.refreshTerminalPresentation,
 	);
 	runtime.renderer = renderer;
-	presentation.refreshCursorBlink();
 	const backfill = createScrollbackBackfill({
 		sessionId: runtime.sessionId,
 		renderer: () => runtime.renderer,
@@ -203,7 +202,7 @@ export function mountCellTerminalRenderer(
 		lastCursorCol = frame.cursorCol;
 		runtime.predictor?.onFrame(frame);
 		if (frame.full) backfill.onFullFrame();
-	});
+	}, () => _terminalForegroundWorkAllowed(viewport));
 	markPhase("terminal_mount", { sessionId: runtime.sessionId });
 
 	let measurementFrame = 0;

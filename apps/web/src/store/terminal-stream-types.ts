@@ -2,6 +2,7 @@ import type { CellGridChunkAssembler, CellGridFrame } from "@roost/shared/cell";
 import type { SyncClientFrame } from "@roost/shared/proto/sync_pb";
 import type { TerminalGeometry } from "@roost/shared/viewport";
 import type { CellGridRenderer } from "../lib/cellRenderer.ts";
+import type { TerminalRenderScheduler } from "../lib/terminal-render-scheduler.ts";
 
 export type TerminalViewHandleStatus =
   | {
@@ -43,6 +44,8 @@ export interface BaselineProgress {
 }
 
 export type TerminalPresentationState = "idle" | "receiving" | "catching_up";
+export type TerminalRendererForegroundPredicate = () => boolean;
+
 export const FRAME_ACTIVITY_WINDOW_MS = 500;
 
 export interface TerminalPresentationWatermark {
@@ -106,6 +109,7 @@ export interface TerminalViewHandle {
   subscribeRenderer(
     renderer: CellGridRenderer,
     onDelivery?: (delivery: TerminalRendererDelivery) => void,
+    isForeground?: TerminalRendererForegroundPredicate,
   ): () => void;
   dispose(): void;
 }
@@ -156,7 +160,9 @@ export interface TerminalViewRecord {
 
 export interface TerminalRendererSubscriber {
   sessionId: string;
-  renderer: CellGridRenderer;
+  scheduler: TerminalRenderScheduler;
+  isForeground: TerminalRendererForegroundPredicate;
+  viewActive: boolean;
   onDelivery: ((delivery: TerminalRendererDelivery) => void) | undefined;
   streamId: string | null;
   gridEpoch: string | null;

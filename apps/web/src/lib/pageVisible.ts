@@ -15,11 +15,10 @@
 // particular way. Turning either pin off releases every override and returns to
 // the real document state.
 //
-// SCOPE: the pin governs SPA behavior only. The painted path is synchronous
-// (cellRenderer.apply runs in the WS cell handler), so frames that ARRIVE paint
-// immediately. Every consumer MUST read visibility through this module
-// (pageVisible() reactive / isPageVisible() plain); a raw document.hidden read
-// bypasses the pin.
+// SCOPE: the pin governs SPA behavior only. Canonical frames fold during Sync
+// dispatch; each renderer schedules its DOM application on requestAnimationFrame.
+// Every consumer MUST read visibility through this module (pageVisible() reactive /
+// isPageVisible() plain); a raw document.hidden read bypasses the pin.
 
 import { createSignal } from "solid-js";
 

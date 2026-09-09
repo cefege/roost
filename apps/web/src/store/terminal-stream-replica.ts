@@ -1,17 +1,15 @@
 // This replica is the single canonical terminal grid shared by every view of a session.
-// It accepts only generation-matched, contiguous frames before mutating renderer state.
-// Sync dispatch calls it for full frames and chunks, while view handles subscribe to deliveries.
+// It accepts only generation-matched, contiguous frames before mutating canonical state.
+// Sync dispatch calls it for full frames and chunks, while subscribers enqueue DOM work.
 // Liveness repair is separate but consumes the same stream, epoch, sequence, and viewport facts.
 
 import {
   CELL_GRID_PART_MAX_BYTES,
   applyDelta,
-  cloneCellGridFrame,
   encodedCellGridFrameSize,
   type CellGridFrame,
 } from "@roost/shared/cell";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
-import { diag, isDiagEnabled } from "@roost/shared/diag";
 import type {
   PbCellGridChunk,
   PbCellGridFrame,
@@ -84,29 +82,15 @@ export function installExpectedTerminalStream(
     && session.canonical.rows === rows;
 }
 
-export function applyTerminalFrameToSubscriber(
+function enqueueTerminalFrameForSubscriber(
   subscriber: TerminalRendererSubscriber,
   frame: CellGridFrame,
-): boolean {
-  const diagnostics = isDiagEnabled();
-  const startedAt = diagnostics ? performance.now() : 0;
-  const applied = frame.full
-    ? subscriber.renderer.applyFullFrame(frame)
-    : subscriber.renderer.applyDeltaFrame(frame);
-  if (!applied) return false;
-  if (diagnostics) {
-    diag("cell.apply_dur", {
-      sid: subscriber.sessionId,
-      seq: frame.seq,
-      full: frame.full,
-      dur_ms: performance.now() - startedAt,
-    });
-  }
-  subscriber.streamId = frame.streamId;
-  subscriber.gridEpoch = frame.gridEpoch;
-  subscriber.seq = frame.seq;
-  subscriber.onDelivery?.({ frame, full: frame.full });
-  return true;
+  canonical: CellGridFrame,
+): void {
+  subscriber.scheduler.setForeground(
+    subscriber.viewActive && subscriber.isForeground(),
+  );
+  subscriber.scheduler.enqueue(frame, canonical);
 }
 
 export function deliverCanonicalToSubscriber(
@@ -114,7 +98,7 @@ export function deliverCanonicalToSubscriber(
   subscriber: TerminalRendererSubscriber,
 ): void {
   if (!session.canonical || suppressNextRendererFrame(session)) return;
-  applyTerminalFrameToSubscriber(subscriber, cloneCellGridFrame(session.canonical));
+  enqueueTerminalFrameForSubscriber(subscriber, session.canonical, session.canonical);
 }
 
 export function dispatchTerminalCellFrame(
@@ -178,7 +162,7 @@ function deliverFull(session: TerminalSessionReplica): void {
   const canonical = session.canonical;
   if (!canonical) return;
   for (const subscriber of session.subscribers) {
-    applyTerminalFrameToSubscriber(subscriber, cloneCellGridFrame(canonical));
+    enqueueTerminalFrameForSubscriber(subscriber, canonical, canonical);
   }
 }
 
@@ -251,11 +235,6 @@ function acceptFull(
   const suppressRendererDelivery = suppressNextRendererFrame(session);
   if (!suppressRendererDelivery) deliverFull(session);
   notifyBaselineState(session);
-  markPhaseOnce("first_cell_apply", session.sessionId, {
-    sessionId: session.sessionId,
-    sequence: frame.seq,
-    full: true,
-  });
 }
 
 function acceptDelta(
@@ -286,15 +265,6 @@ function acceptDelta(
     return;
   }
 
-  const eligible = new Map<TerminalRendererSubscriber, CellGridFrame>();
-  for (const subscriber of session.subscribers) {
-    if (
-      subscriber.streamId === delta.streamId
-      && subscriber.gridEpoch === delta.gridEpoch
-      && subscriber.seq === delta.baseSeq
-    ) eligible.set(subscriber, cloneCellGridFrame(delta));
-  }
-
   const folded = applyDelta(base, delta);
   if (!folded) {
     requestTerminalResync(
@@ -316,9 +286,7 @@ function acceptDelta(
   if (suppressNextRendererFrame(session)) return;
 
   for (const subscriber of session.subscribers) {
-    const sparse = eligible.get(subscriber);
-    if (sparse && applyTerminalFrameToSubscriber(subscriber, sparse)) continue;
-    applyTerminalFrameToSubscriber(subscriber, cloneCellGridFrame(folded));
+    enqueueTerminalFrameForSubscriber(subscriber, delta, folded);
   }
 }
 

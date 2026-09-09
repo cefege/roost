@@ -8,6 +8,8 @@ import {
   clampTerminalGeometry,
 } from "@roost/shared/viewport";
 import { isPageVisible } from "../lib/pageVisible.ts";
+import { TerminalRenderScheduler } from "../lib/terminal-render-scheduler.ts";
+import { markPhaseOnce } from "../lib/diag.ts";
 import {
   registerSyncV2GenerationHandler,
   type SyncV2TerminalState,
@@ -40,12 +42,15 @@ import {
 } from "./terminal-stream-state.ts";
 import type {
   BaselineProgress,
+  TerminalRendererForegroundPredicate,
   TerminalRendererSubscriber,
   TerminalViewHandle,
   TerminalViewRecord,
 } from "./terminal-stream-types.ts";
 
 export { dispatchTerminalViewState } from "./terminal-stream-view-commands.ts";
+const alwaysForeground = (): boolean => true;
+
 
 export function createTerminalView(sessionId: string): TerminalViewHandle {
   const session = terminalSessionReplica(sessionId);
@@ -109,11 +114,14 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
     setViewport(geometry): void {
       const trusted = clampTerminalGeometry(geometry);
       changeIntent(view, true, trusted.cols, trusted.rows);
+      setRendererSubscribersForeground(view, true);
     },
     setInactive(): void {
+      setRendererSubscribersForeground(view, false);
       changeIntent(view, false, 0, 0);
     },
     refresh(): void {
+      setRendererSubscribersForeground(view, view.desired?.active === true);
       if (!view.disposed && view.desired) publishIntent(view, view.desired);
     },
     subscribeStatus(listener): () => void {
@@ -141,11 +149,25 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
         }
       };
     },
-    subscribeRenderer(renderer, onDelivery): () => void {
+    subscribeRenderer(renderer, onDelivery, isForeground = alwaysForeground): () => void {
       if (view.disposed) return () => undefined;
-      const subscriber: TerminalRendererSubscriber = {
+      let subscriber: TerminalRendererSubscriber;
+      const scheduler = new TerminalRenderScheduler(renderer, sessionId, (frame) => {
+        subscriber.streamId = frame.streamId;
+        subscriber.gridEpoch = frame.gridEpoch;
+        subscriber.seq = frame.seq;
+        markPhaseOnce("first_cell_apply", sessionId, {
+          sessionId,
+          sequence: frame.seq,
+          full: frame.full,
+        });
+        subscriber.onDelivery?.({ frame, full: frame.full });
+      });
+      subscriber = {
         sessionId,
-        renderer,
+        scheduler,
+        isForeground,
+        viewActive: view.desired?.active ?? true,
         onDelivery: (delivery) => {
           const desired = view.desired;
           const leaseDeadlineMs = view.leaseDeadlineMs;
@@ -163,6 +185,7 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
         gridEpoch: null,
         seq: null,
       };
+      setSubscriberForeground(subscriber, subscriber.viewActive);
       session.subscribers.add(subscriber);
       view.rendererSubscribers.add(subscriber);
       if (
@@ -172,6 +195,7 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
         deliverCanonicalToSubscriber(session, subscriber);
       }
       return () => {
+        subscriber.scheduler.dispose();
         session.subscribers.delete(subscriber);
         view.rendererSubscribers.delete(subscriber);
       };
@@ -191,6 +215,7 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
       view.progressTimer = null;
       view.progressListeners.clear();
       for (const subscriber of view.rendererSubscribers) {
+        subscriber.scheduler.dispose();
         session.subscribers.delete(subscriber);
       }
       view.rendererSubscribers.clear();
@@ -283,4 +308,21 @@ function emitTerminalViewProgress(view: TerminalViewRecord): void {
   if (key === view.lastProgressKey) return;
   view.lastProgressKey = key;
   for (const listener of view.progressListeners) listener(progress);
+}
+
+function setRendererSubscribersForeground(
+  view: TerminalViewRecord,
+  active: boolean,
+): void {
+  for (const subscriber of view.rendererSubscribers) {
+    setSubscriberForeground(subscriber, active);
+  }
+}
+
+function setSubscriberForeground(
+  subscriber: TerminalRendererSubscriber,
+  active: boolean,
+): void {
+  subscriber.viewActive = active;
+  subscriber.scheduler.setForeground(active && subscriber.isForeground());
 }

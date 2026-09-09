@@ -140,6 +140,7 @@ function discardTerminalSessionState(session: TerminalSessionReplica): void {
   session.resyncLatchedAtMs = null;
   session.resyncLatchGeneration = null;
   session.repairOutcome = "pruned";
+  for (const subscriber of session.subscribers) subscriber.scheduler.dispose();
   for (const view of session.handles.values()) {
     view.disposed = true;
     clearInterval(view.heartbeat ?? undefined);
