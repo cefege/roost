@@ -55,6 +55,7 @@ const generationRecoveries: Array<{
   reason: string;
 }> = [];
 let visible = true;
+let focused = true;
 
 mock.module("../../src/store/sync.ts", () => ({
   currentSyncV2TerminalState: () => syncState,
@@ -97,6 +98,8 @@ mock.module("../../src/lib/diag.ts", () => ({
 mock.module("../../src/lib/pageVisible.ts", () => ({
   isPageVisible: () => visible,
   pageVisible: () => visible,
+  isPageFocused: () => focused,
+  pageFocused: () => focused,
 }));
 // The transport mock must be installed before this singleton registers its
 // generation callback; defer loading until Bun has finished evaluating this
@@ -280,6 +283,9 @@ function updateSyncState(next: TestSyncState | null): void {
 function setPageVisible(next: boolean): void {
   visible = next;
 }
+function setPageFocused(next: boolean): void {
+  focused = next;
+}
 function dispatchTerminalCellFrameFrom(
   owner: Omit<TestSyncState, "ready">,
   frame: Parameters<typeof TerminalStreamModule.dispatchTerminalCellFrame>[0],
@@ -296,6 +302,7 @@ beforeEach(() => {
   sent.length = 0;
   generationRecoveries.length = 0;
   visible = true;
+  focused = true;
   syncState = {
     socketGeneration: 1,
     socketId: "socket-1",
@@ -331,6 +338,7 @@ export {
   resyncCommands,
   row,
   setPageVisible,
+  setPageFocused,
   terminalStream,
   updateSyncState,
   viewCommands,

@@ -1,4 +1,9 @@
 import { CellGridChunkAssembler } from "@roost/shared/cell";
+import { clearTerminalChunkTransfer } from "./terminal-stream-chunks.ts";
+import {
+  cancelTerminalViewRenewals,
+  invalidateTerminalViewRenewals,
+} from "./terminal-stream-renewal-scheduler.ts";
 import type {
   TerminalGenerationToken,
   TerminalSessionReplica,
@@ -100,6 +105,9 @@ export function terminalSessionReplica(sessionId: string): TerminalSessionReplic
     proofChallengeGeneration: null,
     resyncLatchedAtMs: null,
     resyncLatchGeneration: null,
+    scopedRepairRounds: 0,
+    scopedRepairStartedAtMs: null,
+    scopedRepairGeneration: null,
     repairAttempts: 0,
     repairOutcome: "none",
     assembler: new CellGridChunkAssembler(),
@@ -121,9 +129,7 @@ export function emitTerminalViewStatus(
 }
 
 function discardTerminalSessionState(session: TerminalSessionReplica): void {
-  session.assembler.reset();
-  clearTimeout(session.chunkTimer ?? undefined);
-  session.chunkTimer = null;
+  clearTerminalChunkTransfer(session);
   // A credential reset may tear down the replica before Solid unmounts the
   // CellTerminal that owns these handles. Mark every handle inert first: its
   // later cleanup must never publish an inactive view against the next
@@ -139,19 +145,19 @@ function discardTerminalSessionState(session: TerminalSessionReplica): void {
   session.proofChallengeGeneration = null;
   session.resyncLatchedAtMs = null;
   session.resyncLatchGeneration = null;
+  session.scopedRepairRounds = 0;
+  session.scopedRepairStartedAtMs = null;
+  session.scopedRepairGeneration = null;
   session.repairOutcome = "pruned";
   for (const subscriber of session.subscribers) subscriber.scheduler.dispose();
+  cancelTerminalViewRenewals(session.handles.values());
   for (const view of session.handles.values()) {
     view.disposed = true;
-    clearInterval(view.heartbeat ?? undefined);
-    view.heartbeat = null;
     clearTimeout(view.viewAckTimer ?? undefined);
     view.viewAckTimer = null;
     view.pendingViewAckAtMs = null;
     view.pendingViewAckGeneration = null;
     view.pendingViewAckRevision = null;
-    clearInterval(view.progressTimer ?? undefined);
-    view.progressTimer = null;
     view.statusListeners.clear();
     view.progressListeners.clear();
     view.rendererSubscribers.clear();
@@ -183,6 +189,7 @@ export function pruneTerminalSessionState(sessionId: string): void {
 }
 
 export function resetTerminalStreamState(preservePendingRendererDrops = false): void {
+  invalidateTerminalViewRenewals();
   // A smoke renderer-loss arm names one session and is consumed exactly once.
   // Keep that deliberate delivery seam across a credential reset/replay so a
   // reset between arming and the first returned full frame cannot erase it.

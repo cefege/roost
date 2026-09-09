@@ -139,7 +139,7 @@ describe("per-session browser terminal replica", () => {
     expect(resyncCommands()).toHaveLength(2);
     expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica.resync_latched).toBe(true);
   }, 15_000);
-  test("keeps accepted status stable across exact heartbeats", () => {
+  test("keeps accepted status stable across exact renewals", () => {
     setSystemTime(0);
     try {
       const view = terminalStream.createTerminalView(SESSION_ID);
@@ -228,8 +228,8 @@ describe("per-session browser terminal replica", () => {
     ));
     expect(resyncCommands()).toHaveLength(1);
 
-    // The stale socket blocks the tab just short of its scheduled heartbeat.
-    // Redial then replays once; that deferred heartbeat must not send a second
+    // The stale socket blocks the tab just short of its scheduled renewal.
+    // Redial then replays once; that deferred renewal must not send a second
     // view plus resync before the first replayed baseline arrives.
     vi.advanceTimersByTime(4_999);
 
@@ -283,7 +283,7 @@ describe("per-session browser terminal replica", () => {
     });
   });
 
-  test("rolls rejected intent above the fence and heartbeats the rollback", () => {
+  test("rolls rejected intent above the fence and renews the rollback", () => {
     const view = terminalStream.createTerminalView(SESSION_ID);
     const statuses: TerminalViewHandleStatus[] = [];
     view.subscribeStatus((status) => statuses.push(status));

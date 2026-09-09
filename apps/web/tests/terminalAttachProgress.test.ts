@@ -1,14 +1,6 @@
-// Attach-progress exposure on the view handle: subscribeProgress must report
-// the replica assembler's chunked-baseline progress while a baseline is
-// assembling and fall back to null (indeterminate) on completion and reset —
-// the exact states the loading card's meter renders. Driven through
-// dispatchTerminalCellChunk like terminalStream.test.ts.
-//
-// The multi-chunk fixture (256×256 grid with hyperlink payloads, same shape
-// as terminalStream.test.ts's chunked baseline) crosses the one-MiB part
-// bound several times, so the assembler really holds a partial. It is built
-// once and reused across tests; protobuf encoding that much wire costs
-// seconds, hence the generous per-test timeouts.
+// Attach-progress exposure on the view handle follows assembler transitions.
+// The loading card receives an immediate value, each accepted chunk, and reset.
+// No view-owned interval is allowed to poll the shared replica.
 
 import { describe, expect, test, vi } from "bun:test";
 import {
@@ -22,7 +14,10 @@ import {
   latestViewCommand,
   terminalStream,
 } from "./helpers/terminalStreamFixture.ts";
-import type { BaselineProgress } from "../src/store/terminal-stream-types.ts";
+import type {
+  BaselineProgress,
+  TerminalViewHandle,
+} from "../src/store/terminal-stream-types.ts";
 import type { PbCellGridChunk } from "@roost/shared/proto/cell_pb";
 
 let cachedChunks: PbCellGridChunk[] | null = null;
@@ -51,7 +46,7 @@ function multiChunkBaseline(): PbCellGridChunk[] {
   return chunks;
 }
 
-function acceptedView(): ReturnType<typeof terminalStream.createTerminalView> {
+function acceptedView(): TerminalViewHandle {
   const view = terminalStream.createTerminalView(SESSION_ID);
   view.setViewport({ cols: 256, rows: 256 });
   acceptView(view.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 256, 256);
@@ -59,63 +54,53 @@ function acceptedView(): ReturnType<typeof terminalStream.createTerminalView> {
 }
 
 describe("view handle subscribeProgress", () => {
-  test("emits assembly progress per poll and null on completion", () => {
+  test("pushes accepted chunk progress and completion without polling", () => {
     const view = acceptedView();
     const chunks = multiChunkBaseline();
     const emissions: Array<BaselineProgress | null> = [];
     const release = view.subscribeProgress((progress) => emissions.push(progress));
-    // Immediate current value: idle replica → one null emission up front.
+
+    expect(emissions).toEqual([null]);
+    vi.advanceTimersByTime(4_999);
     expect(emissions).toEqual([null]);
 
-    vi.advanceTimersByTime(200);
-    expect(emissions).toEqual([null]);
     terminalStream.dispatchTerminalCellChunk(chunks[0]!);
-    vi.advanceTimersByTime(200);
     expect(emissions.at(-1)).toEqual({
       snapshotId: SNAPSHOT_A, receivedChunks: 1, totalChunks: chunks.length,
     });
+    for (const chunk of chunks.slice(1)) terminalStream.dispatchTerminalCellChunk(chunk);
+    expect(emissions.at(-1)).toBeNull();
 
-    for (const chunk of chunks.slice(1)) {
-      terminalStream.dispatchTerminalCellChunk(chunk);
-      vi.advanceTimersByTime(200);
-    }
-    // Completed assembly is idle again: the meter returns to indeterminate.
-    expect(emissions.filter((progress) => progress === null).length)
-      .toBeGreaterThanOrEqual(2);
     release();
-    vi.advanceTimersByTime(200 * 4);
-    // Unsubscribing stops the poller: no further emissions were appended.
-    expect(emissions.length).toBeLessThan(30);
+    const before = emissions.length;
+    terminalStream.dispatchTerminalCellChunk(chunks[0]!);
+    expect(emissions).toHaveLength(before);
     view.dispose();
   }, 30_000);
 
-  test("a mid-assembly invalid chunk resets progress to null", () => {
+  test("pushes null immediately when an invalid chunk resets assembly", () => {
     const view = acceptedView();
     const chunks = multiChunkBaseline();
     const emissions: Array<BaselineProgress | null> = [];
     view.subscribeProgress((progress) => emissions.push(progress));
 
     terminalStream.dispatchTerminalCellChunk(chunks[0]!);
-    vi.advanceTimersByTime(200);
     expect(emissions.at(-1)?.receivedChunks).toBe(1);
-
-    // Out-of-order chunk trips the resync path, which drops the partial.
     terminalStream.dispatchTerminalCellChunk(chunks[2]!);
-    vi.advanceTimersByTime(200);
     expect(emissions.at(-1)).toBeNull();
     view.dispose();
   }, 30_000);
 
-  test("dispose clears the poller with listeners attached", () => {
+  test("does not add polling work for multiple progress listeners", () => {
     const view = acceptedView();
-    multiChunkBaseline();
-    let calls = 0;
-    view.subscribeProgress(() => { calls += 1; });
-    vi.advanceTimersByTime(200);
-    const before = calls;
-    expect(before).toBeGreaterThan(0);
+    let firstCalls = 0;
+    let secondCalls = 0;
+    view.subscribeProgress(() => { firstCalls++; });
+    view.subscribeProgress(() => { secondCalls++; });
+
+    vi.advanceTimersByTime(4_999);
+    expect(firstCalls).toBe(1);
+    expect(secondCalls).toBe(1);
     view.dispose();
-    vi.advanceTimersByTime(200 * 5);
-    expect(calls).toBe(before);
-  }, 30_000);
+  });
 });

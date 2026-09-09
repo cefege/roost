@@ -1,7 +1,7 @@
 // View commands keep viewport revisions and acknowledgements ordered across Sync generations.
 // The view registry calls this module whenever local geometry or activity changes.
 // Sync view-state frames return here before a stream is installed in the session replica.
-// ACK deadlines use the same generation identity as terminal liveness recovery.
+// ACK deadlines begin scoped repair; only liveness may later choose socket recovery.
 
 import { create } from "@bufbuild/protobuf";
 import { signal } from "@roost/shared/diag";
@@ -18,14 +18,20 @@ import {
 import { isPageVisible } from "../lib/pageVisible.ts";
 import {
   currentSyncV2TerminalState,
-  requestSyncGenerationRecovery,
   sendSyncV2Command,
   type SyncV2TerminalState,
 } from "./sync.ts";
+import { notifyTerminalBaselineProgress } from "./terminal-stream-progress.ts";
+import {
+  armTerminalViewRenewal,
+  cancelTerminalViewRenewal,
+} from "./terminal-stream-renewal-scheduler.ts";
 import {
   armTerminalForegroundIdleProbe,
   clearTerminalSessionLiveness,
   installExpectedTerminalStream,
+  noteTerminalViewAck,
+  requestTerminalLivenessChallenge,
   sendLatchedTerminalResync,
   terminalGenerationMatches,
   terminalGenerationToken,
@@ -63,7 +69,12 @@ export function publishIntent(
   sync = currentSyncV2TerminalState(),
 ): boolean {
   const statusCurrent = view.status?.revision === intent.revision;
-  if (view.disposed || !sync?.ready) {
+  if (
+    view.disposed
+    || !sync?.ready
+    || (intent.active && !isPageVisible())
+  ) {
+    cancelTerminalViewRenewal(view);
     if (!view.disposed && !statusCurrent) {
       emitTerminalViewStatus(view, {
         status: "pending",
@@ -90,23 +101,30 @@ export function publishIntent(
     }),
   };
   const sent = sendSyncV2Command(outbound);
-  if (sent) {
-    view.leaseDeadlineMs = intent.active
-      ? Date.now() + TERMINAL_VIEW_LEASE_MS
-      : null;
-    if (intent.active && isPageVisible()) armViewAckDeadline(view, intent, sync);
-    else clearViewAck(view);
-    // Exact heartbeat and redial replay renew the lease without regressing an
-    // accepted/baseline-ready status while its idempotent ACK is in flight.
-    if (!statusCurrent) {
-      emitTerminalViewStatus(view, {
-        status: "pending",
-        revision: intent.revision,
-        active: intent.active,
-      });
-    }
+  if (!sent) {
+    cancelTerminalViewRenewal(view);
+    return false;
   }
-  return sent;
+  view.leaseDeadlineMs = intent.active
+    ? Date.now() + TERMINAL_VIEW_LEASE_MS
+    : null;
+  if (intent.active) {
+    armTerminalViewRenewal(view);
+    if (isPageVisible()) armViewAckDeadline(view, intent, sync);
+  } else {
+    cancelTerminalViewRenewal(view);
+    clearViewAck(view);
+  }
+  // Exact renewal and redial replay preserve an accepted/baseline-ready status
+  // while their idempotent ACK remains in flight.
+  if (!statusCurrent) {
+    emitTerminalViewStatus(view, {
+      status: "pending",
+      revision: intent.revision,
+      active: intent.active,
+    });
+  }
+  return true;
 }
 
 export function changeIntent(
@@ -132,6 +150,7 @@ export function changeIntent(
   };
   view.desired = intent;
   if (!active) {
+    cancelTerminalViewRenewal(view);
     clearViewAck(view);
     if (!hasActiveTerminalView(view.session)) {
       clearTerminalSessionLiveness(view.session, "inactive");
@@ -154,17 +173,12 @@ export function dispatchTerminalViewState(
   ) return;
   const desired = view.desired;
   if (!desired || frame.revision !== desired.revision) return;
-  if (
-    view.pendingViewAckRevision === desired.revision
-    && terminalGenerationMatches(view.pendingViewAckGeneration, owner)
-  ) {
-    clearViewAck(view);
-  }
   const reason = frame.reason.slice(0, 200);
 
   if (frame.status === TerminalViewStatus.ACCEPTED) {
     if (!frame.active) {
       if (desired.active || frame.streamId || frame.effectiveCols || frame.effectiveRows) return;
+      acknowledgeTerminalViewState(view, desired, owner);
       view.rollingBack = false;
       view.accepted = { ...desired };
       view.leaseDeadlineMs = null;
@@ -177,6 +191,7 @@ export function dispatchTerminalViewState(
         effectiveRows: 0,
         baselineReady: false,
       });
+      notifyTerminalBaselineProgress(session);
       return;
     }
     if (
@@ -184,6 +199,7 @@ export function dispatchTerminalViewState(
       || !isTerminalUuid(frame.streamId)
       || !isTerminalGeometry({ cols: frame.effectiveCols, rows: frame.effectiveRows })
     ) return;
+    acknowledgeTerminalViewState(view, desired, owner);
     installExpectedTerminalStream(
       session,
       frame.streamId,
@@ -201,12 +217,14 @@ export function dispatchTerminalViewState(
       effectiveRows: frame.effectiveRows,
       baselineReady: session.baselineReady,
     });
+    notifyTerminalBaselineProgress(session);
     sendLatchedTerminalResync(session);
     if (session.baselineReady) armTerminalForegroundIdleProbe(session);
     return;
   }
 
   if (frame.status === TerminalViewStatus.UNAVAILABLE) {
+    acknowledgeTerminalViewState(view, desired, owner);
     emitTerminalViewStatus(view, {
       status: "unavailable",
       revision: frame.revision,
@@ -220,6 +238,7 @@ export function dispatchTerminalViewState(
   }
 
   if (frame.status === TerminalViewStatus.REJECTED) {
+    acknowledgeTerminalViewState(view, desired, owner);
     emitTerminalViewStatus(view, {
       status: "rejected",
       revision: frame.revision,
@@ -239,9 +258,25 @@ export function dispatchTerminalViewState(
       publishIntent(view, rollback);
     } else {
       view.desired = null;
+      cancelTerminalViewRenewal(view);
     }
   }
 }
+
+function acknowledgeTerminalViewState(
+  view: TerminalViewRecord,
+  desired: TerminalViewIntent,
+  owner: TerminalGenerationToken,
+): void {
+  if (
+    view.pendingViewAckRevision === desired.revision
+    && terminalGenerationMatches(view.pendingViewAckGeneration, owner)
+  ) {
+    clearViewAck(view);
+  }
+  noteTerminalViewAck(view.session, owner);
+}
+
 
 function armViewAckDeadline(
   view: TerminalViewRecord,
@@ -279,11 +314,23 @@ function armViewAckDeadline(
       sid: view.session.sessionId,
       stream_id: view.session.expectedStreamId,
       layer: "view_ack",
-      action: "redial",
+      action: "resync",
       age_ms: Math.max(0, performance.now() - startedAt),
       cooldownKey: view.session.sessionId,
     });
-    requestSyncGenerationRecovery(owner, "terminal-view-ack-timeout");
+    const reassert = (): void => {
+      const desired = view.desired;
+      if (
+        view.disposed
+        || !desired?.active
+        || !isPageVisible()
+        || !terminalGenerationMatches(view.session.generation, owner)
+      ) return;
+      clearViewAck(view);
+      publishIntent(view, desired);
+    };
+    reassert();
+    requestTerminalLivenessChallenge(view.session, reassert);
   }, TERMINAL_VIEW_LEASE_MS);
   view.viewAckTimer = timer;
 }

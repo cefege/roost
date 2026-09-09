@@ -28,6 +28,7 @@ import { isPageVisible, pageVisible } from "../lib/pageVisible.ts";
 import { newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import {
+  attachDiagnosisWaitKey,
   startAttachDiagnosis,
   type AttachDiagnosisHandle,
 } from "../lib/attachDiagnosis.ts";
@@ -295,15 +296,17 @@ export function createCellTerminalPresentation(
     attachDiagnosisTimer = null;
     attachDiagnosis?.dispose();
     attachDiagnosis = null;
+    setStuckReason(null);
   };
   const loadingStage = createMemo(() => loadingNotice()?.stage ?? null);
   createEffect(() => {
-    const waitingForWire = loadingStage() === "viewport"
-      || loadingStage() === "frame";
-    if (!waitingForWire) {
-      setStuckReason(null);
+    // Every accepted chunk changes this key, restarting diagnosis grace.
+    const waitKey = attachDiagnosisWaitKey(loadingStage(), attachProgress());
+    if (waitKey === null) {
+      clearAttachDiagnosis();
       return;
     }
+    // Diagnosis is advisory; liveness and scoped repair do not wait for it.
     attachDiagnosisTimer = setTimeout(() => {
       attachDiagnosisTimer = null;
       attachDiagnosis = startAttachDiagnosis(runtime.sessionId, setStuckReason);

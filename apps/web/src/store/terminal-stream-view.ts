@@ -7,14 +7,22 @@ import {
   TERMINAL_VIEW_HEARTBEAT_MS,
   clampTerminalGeometry,
 } from "@roost/shared/viewport";
+import { markPhaseOnce } from "../lib/diag.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { TerminalRenderScheduler } from "../lib/terminal-render-scheduler.ts";
-import { markPhaseOnce } from "../lib/diag.ts";
 import {
   registerSyncV2GenerationHandler,
   type SyncV2TerminalState,
 } from "./sync.ts";
 import { clearTerminalChunkTransfer } from "./terminal-stream-chunks.ts";
+import { subscribeTerminalBaselineProgress } from "./terminal-stream-progress.ts";
+import {
+  beginTerminalViewRenewalBatch,
+  cancelTerminalViewRenewal,
+  endTerminalViewRenewalBatch,
+  invalidateTerminalViewRenewals,
+  registerTerminalViewRenewalHandler,
+} from "./terminal-stream-renewal-scheduler.ts";
 import {
   clearViewAck,
   changeIntent,
@@ -41,7 +49,6 @@ import {
   terminalWireDeltaFaults,
 } from "./terminal-stream-state.ts";
 import type {
-  BaselineProgress,
   TerminalRendererForegroundPredicate,
   TerminalRendererSubscriber,
   TerminalViewHandle,
@@ -49,8 +56,8 @@ import type {
 } from "./terminal-stream-types.ts";
 
 export { dispatchTerminalViewState } from "./terminal-stream-view-commands.ts";
-const alwaysForeground = (): boolean => true;
 
+const alwaysForeground = (): boolean => true;
 
 export function createTerminalView(sessionId: string): TerminalViewHandle {
   const session = terminalSessionReplica(sessionId);
@@ -64,12 +71,11 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
     status: null,
     statusListeners: new Set(),
     progressListeners: new Set(),
-    progressTimer: null,
     lastProgressKey: null,
     rendererSubscribers: new Set(),
     rollingBack: false,
     viewAckTimer: null,
-    heartbeat: null,
+    renewalDueAtMs: null,
     leaseDeadlineMs: null,
     pendingViewAckAtMs: null,
     pendingViewAckGeneration: null,
@@ -77,31 +83,6 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
     disposed: false,
   };
   session.handles.set(viewId, view);
-  view.heartbeat = setInterval(() => {
-    const desired = view.desired;
-    if (view.disposed || !desired?.active) return;
-    if (!isPageVisible()) {
-      clearViewAck(view);
-      clearTerminalSessionLiveness(session, "inactive");
-      return;
-    }
-    const now = Date.now();
-    const awaitingReplayBaseline =
-      session.requiresFreshBaseline
-      && view.status?.status === "pending"
-      && view.status.revision === desired.revision
-      && view.leaseDeadlineMs !== null
-      && view.leaseDeadlineMs > now + TERMINAL_VIEW_HEARTBEAT_MS;
-    // A timer deferred while the page was stalled can fire immediately after a
-    // redial replay. That replay already holds a live server lease and requests
-    // the authoritative baseline; do not race it with another view + resync.
-    if (awaitingReplayBaseline) return;
-    const accepted = view.status?.status === "accepted"
-      && view.status.revision === desired.revision;
-    if (publishIntent(view, desired) && accepted) {
-      repairStaleTerminalSubscriberOnHeartbeat(session);
-    }
-  }, TERMINAL_VIEW_HEARTBEAT_MS);
 
   return {
     sessionId,
@@ -122,7 +103,12 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
     },
     refresh(): void {
       setRendererSubscribersForeground(view, view.desired?.active === true);
-      if (!view.disposed && view.desired) publishIntent(view, view.desired);
+      const desired = view.desired;
+      if (
+        !view.disposed
+        && desired
+        && (!desired.active || isPageVisible())
+      ) publishIntent(view, desired);
     },
     subscribeStatus(listener): () => void {
       if (view.disposed) return () => undefined;
@@ -131,23 +117,7 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
       return () => { view.statusListeners.delete(listener); };
     },
     subscribeProgress(listener): () => void {
-      if (view.disposed) return () => undefined;
-      view.progressListeners.add(listener);
-      const current = view.session.assembler.snapshotProgress;
-      view.lastProgressKey = baselineProgressKey(current);
-      listener(current);
-      // One poller per view, alive only while a listener is attached.
-      view.progressTimer = setInterval(
-        () => emitTerminalViewProgress(view),
-        TERMINAL_PROGRESS_POLL_MS,
-      );
-      return () => {
-        view.progressListeners.delete(listener);
-        if (view.progressListeners.size === 0 && view.progressTimer !== null) {
-          clearInterval(view.progressTimer);
-          view.progressTimer = null;
-        }
-      };
+      return subscribeTerminalBaselineProgress(view, listener);
     },
     subscribeRenderer(renderer, onDelivery, isForeground = alwaysForeground): () => void {
       if (view.disposed) return () => undefined;
@@ -174,6 +144,7 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
           if (
             !view.disposed
             && desired?.active
+            && isPageVisible()
             && leaseDeadlineMs !== null
             && leaseDeadlineMs <= Date.now() + TERMINAL_VIEW_HEARTBEAT_MS
           ) {
@@ -208,11 +179,9 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
         clearTerminalSessionLiveness(session, "disposed");
       }
       view.disposed = true;
-      if (view.heartbeat !== null) clearInterval(view.heartbeat);
+      cancelTerminalViewRenewal(view);
       view.statusListeners.clear();
       view.lastProgressKey = null;
-      if (view.progressTimer !== null) clearInterval(view.progressTimer);
-      view.progressTimer = null;
       view.progressListeners.clear();
       for (const subscriber of view.rendererSubscribers) {
         subscriber.scheduler.dispose();
@@ -225,12 +194,31 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
   };
 }
 
+function renewTerminalView(view: TerminalViewRecord): void {
+  const desired = view.desired;
+  if (view.disposed || !desired?.active || !isPageVisible()) return;
+  const session = view.session;
+  const now = Date.now();
+  const awaitingReplayBaseline = session.requiresFreshBaseline
+    && view.status?.status === "pending"
+    && view.status.revision === desired.revision
+    && view.leaseDeadlineMs !== null
+    && view.leaseDeadlineMs > now + TERMINAL_VIEW_HEARTBEAT_MS;
+  if (awaitingReplayBaseline) return;
+  const accepted = view.status?.status === "accepted"
+    && view.status.revision === desired.revision;
+  if (publishIntent(view, desired) && accepted) {
+    repairStaleTerminalSubscriberOnHeartbeat(session);
+  }
+}
+
 function handleGeneration(state: SyncV2TerminalState | null): void {
   const nextGenerationKey = state ? terminalGenerationKey(state) : null;
   const generationChanged = terminalGenerationObservation.initialized
     && terminalGenerationObservation.key !== nextGenerationKey;
   terminalGenerationObservation.initialized = true;
   terminalGenerationObservation.key = nextGenerationKey;
+  if (generationChanged) invalidateTerminalViewRenewals();
   if (import.meta.env.VITE_ROOST_SMOKE === "1" && generationChanged) {
     for (const [sessionId, fault] of terminalBlackholeFaults) {
       if (!terminalGenerationMatches(fault.generation, state)) {
@@ -243,72 +231,53 @@ function handleGeneration(state: SyncV2TerminalState | null): void {
       }
     }
   }
-  for (const session of terminalSessions.values()) {
-    session.generation = state ? terminalGenerationToken(state) : null;
-    clearTerminalChunkTransfer(session);
-    if (generationChanged) {
-      clearTerminalSessionLiveness(session, "generation_reset");
-      if (state !== null) {
-        // The replayed view command is this generation's one authoritative
-        // baseline request. A resync latch belongs to the prior socket and
-        // would otherwise race that replay with a duplicate full frame.
-        session.requiresFreshBaseline = true;
-        session.baselineReady = false;
-        session.resyncLatched = false;
+  beginTerminalViewRenewalBatch();
+  try {
+    for (const session of terminalSessions.values()) {
+      session.generation = state ? terminalGenerationToken(state) : null;
+      clearTerminalChunkTransfer(session);
+      if (generationChanged) {
+        clearTerminalSessionLiveness(session, "generation_reset");
+        if (state !== null) {
+          // The replayed view command is this generation's one authoritative
+          // baseline request. A resync latch belongs to the prior socket and
+          // would otherwise race that replay with a duplicate full frame.
+          session.requiresFreshBaseline = true;
+          session.baselineReady = false;
+          session.resyncLatched = false;
+        }
       }
-    }
-    for (const view of session.handles.values()) {
-      if (generationChanged) clearViewAck(view);
-      if (view.disposed || !view.desired) continue;
-      if (
-        generationChanged
-        && (
-          view.status?.status !== "pending"
-          || view.status.revision !== view.desired.revision
-        )
-      ) {
-        emitTerminalViewStatus(view, {
-          status: "pending",
-          revision: view.desired.revision,
-          active: view.desired.active,
-        });
+      for (const view of session.handles.values()) {
+        if (generationChanged) clearViewAck(view);
+        if (view.disposed || !view.desired) continue;
+        if (view.desired.active && !isPageVisible()) {
+          cancelTerminalViewRenewal(view);
+          continue;
+        }
+        if (
+          generationChanged
+          && (
+            view.status?.status !== "pending"
+            || view.status.revision !== view.desired.revision
+          )
+        ) {
+          emitTerminalViewStatus(view, {
+            status: "pending",
+            revision: view.desired.revision,
+            active: view.desired.active,
+          });
+        }
+        publishIntent(view, view.desired, state);
       }
-      publishIntent(view, view.desired, state);
+      if (state?.ready) sendLatchedTerminalResync(session);
     }
-    if (state?.ready) sendLatchedTerminalResync(session);
+  } finally {
+    endTerminalViewRenewalBatch();
   }
 }
 
+registerTerminalViewRenewalHandler(renewTerminalView);
 queueMicrotask(() => registerSyncV2GenerationHandler(handleGeneration));
-if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
-  document.addEventListener("visibilitychange", () => {
-    if (isPageVisible()) return;
-    for (const session of terminalSessions.values()) {
-      for (const view of session.handles.values()) clearViewAck(view);
-      clearTerminalSessionLiveness(session, "inactive");
-    }
-  });
-}
-
-const TERMINAL_PROGRESS_POLL_MS = 200;
-
-function baselineProgressKey(progress: BaselineProgress | null): string {
-  return progress === null
-    ? "idle"
-    : `${progress.snapshotId}:${progress.receivedChunks}/${progress.totalChunks}`;
-}
-
-/** Read the replica assembler's current attach progress and fan any change
- * out to the view's subscribers. Chunk pushes land here within one poll;
- * completion and reset surface as a null emission because the assembler's
- * getter goes idle in both cases. */
-function emitTerminalViewProgress(view: TerminalViewRecord): void {
-  const progress = view.session.assembler.snapshotProgress;
-  const key = baselineProgressKey(progress);
-  if (key === view.lastProgressKey) return;
-  view.lastProgressKey = key;
-  for (const listener of view.progressListeners) listener(progress);
-}
 
 function setRendererSubscribersForeground(
   view: TerminalViewRecord,

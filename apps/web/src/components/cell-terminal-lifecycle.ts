@@ -1,4 +1,5 @@
-// Binds viewport, page, resize, and document-focus lifecycle for one terminal.
+// Binds viewport, resize, and document-focus lifecycle for one terminal.
+// The document coordinator fans shared page transitions to this mounted pane.
 // It converts visibility transitions into explicit active or inactive view intent
 // and keeps reserved copy, paste, and find chords ahead of PTY key encoding.
 // Renderer resources remain owned by the mounting controller.
@@ -16,6 +17,7 @@ import { isPageVisible } from "../lib/pageVisible.ts";
 import { FOCUS_OWNERS } from "../lib/focusOwners.ts";
 import { isAltGraphKey } from "../lib/terminalInput.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
+import { registerCellTerminalDocumentLifecycle } from "./cell-terminal-document-lifecycle.ts";
 import type { CellTerminalProps } from "./cell-terminal-types.ts";
 import type { CellTerminalRuntime } from "./cell-terminal-runtime.ts";
 import type { CellTerminalInput } from "./cell-terminal-input.ts";
@@ -93,33 +95,31 @@ export function mountCellTerminalLifecycle(
     });
   }, { defer: true }));
 
-  const onVisibility = (): void => {
-    if (!viewport.viewActive() || !isPageVisible()) {
+  const unregisterDocumentLifecycle = registerCellTerminalDocumentLifecycle((event) => {
+    if (event === "hidden") {
       viewport.parkView();
+      return;
+    }
+    if (event === "pagehide") {
+      presentation.clearFrameActivity();
+      presentation.clearCursorBlink();
+      presentation.releasePaintHolds();
+      viewport.publishInactive();
+      return;
+    }
+    if (!isPageVisible() || !viewport.viewActive()) {
+      if (event === "visible") viewport.parkView();
       return;
     }
     presentation.refreshCursorBlink();
     presentation.refreshTerminalPresentation();
     viewport.publishViewportNow();
-  };
+    runtime.view?.refresh();
+  });
   const onWindowResize = (): void => {
     if (viewport.viewActive() && isPageVisible()) viewport.scheduleViewport();
   };
-  const onPageHide = (): void => {
-    presentation.clearFrameActivity();
-    presentation.clearCursorBlink();
-    presentation.releasePaintHolds();
-    viewport.publishInactive();
-  };
-  const onPageShow = (): void => {
-    presentation.refreshCursorBlink();
-    presentation.refreshTerminalPresentation();
-    if (isPageVisible() && viewport.viewActive()) viewport.publishViewportNow();
-  };
-  document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("resize", onWindowResize);
-  window.addEventListener("pagehide", onPageHide);
-  window.addEventListener("pageshow", onPageShow);
 
   const onDocumentMouseDown = (event: MouseEvent): void => {
     if (pending() || !viewport.viewActive() || !props.focused || !isPageVisible()) return;
@@ -198,10 +198,8 @@ export function mountCellTerminalLifecycle(
   document.addEventListener("keydown", onDocumentKeyDown, true);
 
   const dispose = (): void => {
-    document.removeEventListener("visibilitychange", onVisibility);
+    unregisterDocumentLifecycle();
     window.removeEventListener("resize", onWindowResize);
-    window.removeEventListener("pagehide", onPageHide);
-    window.removeEventListener("pageshow", onPageShow);
     document.removeEventListener("keydown", onDocumentKeyDown, true);
     document.removeEventListener("mousedown", onDocumentMouseDown, true);
     resizeObserver.disconnect();

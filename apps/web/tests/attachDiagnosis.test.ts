@@ -1,16 +1,14 @@
-// Attach-stall diagnosis mapping: coordinator DiagSnapshot wire shapes → one
-// human "stuck here" line for the loading card. The canned snapshots mirror
-// the real dump exactly — coord.sessions[<id>] from handlers-system's
-// session-scoped branch, workers[<fp>] from collectWorkerDiagSnapshots with
-// the worker-side session-lifecycle.diagSnapshot payload inside `.snapshot`.
-// The polling loop is driven through startAttachDiagnosis with a mocked
-// coordClient (same mock.module pattern as attachmentsPicker.dom.test.ts).
+// Attach-stall diagnosis mapping: coordinator snapshots → one loading-card line.
+// The canned snapshots mirror the coordinator's bounded session response.
+// attachDiagnosisScheduler.test.ts owns cadence, cancellation, and batch tests.
 import {
-  ATTACH_DIAGNOSIS_POLL_MS,
+  ATTACH_DIAGNOSIS_BATCH_INTERVAL_MS,
+  _resetAttachDiagnosisSchedulerForTest,
   attachDiagnosisReasonFromSnapshot,
+  attachDiagnosisWaitKey,
   startAttachDiagnosis,
 } from "../src/lib/attachDiagnosis.ts";
-import { describe, expect, test, beforeEach, afterEach, vi, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test, vi, mock } from "bun:test";
 
 const SID = "00000000-0000-4000-8000-00000000d001";
 
@@ -62,7 +60,7 @@ function snapshot(
     workers: Object.keys(workerSessions).length === 0
       ? {}
       : {
-          [`${"a".repeat(64)}`]: {
+          [`${"f".repeat(64)}`]: {
             status: "ok",
             response_ms: 4,
             snapshot: { sessions: workerSessions },
@@ -129,6 +127,37 @@ describe("attachDiagnosisReasonFromSnapshot", () => {
     expect(outcome.reason).toBe("Building baseline (3s)");
   });
 
+  test("ignores a stale worker gate after session reassignment", () => {
+    const outcome = attachDiagnosisReasonFromSnapshot({
+      coord: {
+        sessions: {
+          [SID]: coordSession({ terminal_screen: null }),
+        },
+      },
+      workers: {
+        ["a".repeat(64)]: {
+          status: "ok",
+          snapshot: {
+            sessions: {
+              [SID]: {
+                gate: {
+                  active: true,
+                  gate: "baseline",
+                  age_ms: 500,
+                },
+              },
+            },
+          },
+        },
+        ["f".repeat(64)]: {
+          status: "ok",
+          snapshot: { sessions: {} },
+        },
+      },
+    }, SID, { previousTerminalScreenSeq: null });
+    expect(outcome.reason).toBeNull();
+  });
+
   test("worker resize_capture gate maps to Resizing grid", () => {
     const outcome = attachDiagnosisReasonFromSnapshot(
       snapshot(coordSession(), {
@@ -186,23 +215,21 @@ describe("attachDiagnosisReasonFromSnapshot", () => {
 
 describe("startAttachDiagnosis", () => {
   let diagSnapshots: Array<{ snapshotJson: string } | Error>;
-  let diagCalls: string[];
+  let requestedSessionIds: string[][];
 
-  // Microtasks between timer ticks carry each async poll: promise → parse →
-  // onReason → finally.
   const flush = async (): Promise<void> => {
-    for (let round = 0; round < 3; round++) await Promise.resolve();
+    for (let round = 0; round < 4; round += 1) await Promise.resolve();
   };
 
   beforeEach(() => {
     vi.useFakeTimers();
-    diagCalls = [];
-    // Replaces connect.ts's coordClient live binding before any poll runs
-    // (same mock.module pattern as attachmentsPicker.dom.test.ts).
+    _resetAttachDiagnosisSchedulerForTest();
+    diagSnapshots = [];
+    requestedSessionIds = [];
     mock.module("../src/connect.ts", () => ({
       coordClient: {
-        diagSnapshot(_request: unknown) {
-          diagCalls.push("poll");
+        diagSnapshot(request: { sessionFilterIds: string[] }) {
+          requestedSessionIds.push([...request.sessionFilterIds]);
           const next = diagSnapshots.shift();
           if (next instanceof Error) return Promise.reject(next);
           return Promise.resolve(next ?? { snapshotJson: "{}" });
@@ -210,9 +237,12 @@ describe("startAttachDiagnosis", () => {
       },
     }));
   });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    _resetAttachDiagnosisSchedulerForTest();
+    vi.useRealTimers();
+  });
 
-  test("maps the first poll, keeps polling at 750ms, stops on dispose", async () => {
+  test("registers through the bounded batch request and suppresses unchanged delivery", async () => {
     const gated = (): { snapshotJson: string } => ({
       snapshotJson: JSON.stringify(snapshot(coordSession({ terminal_screen: null }), {
         [SID]: {
@@ -223,33 +253,36 @@ describe("startAttachDiagnosis", () => {
         },
       })),
     });
-    // Two polls' worth: one consumed immediately, one at the first 750ms tick.
     diagSnapshots = [gated(), gated()];
     const reasons: Array<string | null> = [];
     const handle = startAttachDiagnosis(SID, (reason) => reasons.push(reason));
+    vi.advanceTimersByTime(1);
     await flush();
-    expect(reasons[0]).toBe("Building baseline (1s)");
-    expect(diagCalls.length).toBe(1);
-    vi.advanceTimersByTime(ATTACH_DIAGNOSIS_POLL_MS);
-    await flush();
-    expect(diagCalls.length).toBe(2);
-    handle.dispose();
-    vi.advanceTimersByTime(ATTACH_DIAGNOSIS_POLL_MS * 4);
-    await flush();
-    expect(diagCalls.length).toBe(2);
-    expect(reasons.every((reason) => reason === "Building baseline (1s)")).toBe(true);
-  });
+    expect(requestedSessionIds).toEqual([[SID]]);
+    expect(reasons).toEqual(["Building baseline (1s)"]);
 
-  test("a failed poll never surfaces and keeps the loop alive", async () => {
-    diagSnapshots = [new TypeError("network failed")];
-    const reasons: Array<string | null> = [];
-    const handle = startAttachDiagnosis(SID, (reason) => reasons.push(reason));
+    vi.advanceTimersByTime(ATTACH_DIAGNOSIS_BATCH_INTERVAL_MS);
     await flush();
-    expect(reasons.length).toBe(0);
-    expect(diagCalls.length).toBe(1);
-    vi.advanceTimersByTime(ATTACH_DIAGNOSIS_POLL_MS);
-    await flush();
-    expect(diagCalls.length).toBe(2);
+    expect(requestedSessionIds).toEqual([[SID], [SID]]);
+    expect(reasons).toEqual(["Building baseline (1s)"]);
     handle.dispose();
+  });
+});
+
+describe("attach diagnosis grace", () => {
+  test("restarts for every accepted progress update and clears when inactive", () => {
+    const beforeProgress = {
+      snapshotId: "10000000-0000-4000-8000-000000000010",
+      receivedChunks: 1,
+      totalChunks: 3,
+    };
+    const afterProgress = {
+      ...beforeProgress,
+      receivedChunks: 2,
+    };
+    expect(attachDiagnosisWaitKey("frame", beforeProgress))
+      .not.toBe(attachDiagnosisWaitKey("frame", afterProgress));
+    expect(attachDiagnosisWaitKey("frame", afterProgress)).not.toBeNull();
+    expect(attachDiagnosisWaitKey(null, afterProgress)).toBeNull();
   });
 });

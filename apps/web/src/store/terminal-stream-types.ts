@@ -103,8 +103,8 @@ export interface TerminalViewHandle {
   refresh(): void;
   subscribeStatus(listener: (status: TerminalViewHandleStatus) => void): () => void;
   /** Attach-progress stream for this view's session replica. Emits the
-   * current value immediately, then on every assembler change observed by
-   * the view-owned poller; null clears any determinate bar. */
+   * current value immediately, then only on assembler or replica transitions;
+   * null clears any determinate bar. */
   subscribeProgress(listener: (progress: BaselineProgress | null) => void): () => void;
   subscribeRenderer(
     renderer: CellGridRenderer,
@@ -141,16 +141,11 @@ export interface TerminalViewRecord {
   status: TerminalViewHandleStatus | null;
   statusListeners: Set<(status: TerminalViewHandleStatus) => void>;
   progressListeners: Set<(progress: BaselineProgress | null) => void>;
-  // Attach-progress poll state owned by subscribeProgress in
-  // terminal-stream-view.ts; the interval lives only while listeners do.
-  progressTimer: ReturnType<typeof setInterval> | null;
   lastProgressKey: string | null;
   rendererSubscribers: Set<TerminalRendererSubscriber>;
   rollingBack: boolean;
-  viewAckTimer: ReturnType<typeof setTimeout> | null;
-  // Liveness re-assert interval; armed immediately after record creation,
-  // so null only between the two statements (and never observed).
-  heartbeat: ReturnType<typeof setInterval> | null;
+  viewAckTimer: Timer | null;
+  renewalDueAtMs: number | null;
   leaseDeadlineMs: number | null;
   pendingViewAckAtMs: number | null;
   pendingViewAckGeneration: TerminalGenerationToken | null;
@@ -185,17 +180,20 @@ export interface TerminalSessionReplica {
   resyncRetryAtMs: number | null;
   generation: TerminalGenerationToken | null;
   lastAcceptedFrameAtMs: number | null;
-  idleProbeTimer: ReturnType<typeof setTimeout> | null;
-  proofDeadlineTimer: ReturnType<typeof setTimeout> | null;
+  idleProbeTimer: Timer | null;
+  proofDeadlineTimer: Timer | null;
   lastAcceptedFrameGeneration: TerminalGenerationToken | null;
   proofChallengeAtMs: number | null;
   proofChallengeGeneration: TerminalGenerationToken | null;
-  resyncLatchedAtMs: number | null;
   resyncLatchGeneration: TerminalGenerationToken | null;
+  resyncLatchedAtMs: number | null;
+  scopedRepairRounds: number;
+  scopedRepairStartedAtMs: number | null;
+  scopedRepairGeneration: TerminalGenerationToken | null;
   repairAttempts: number;
   repairOutcome: TerminalRepairOutcome;
   assembler: CellGridChunkAssembler;
-  chunkTimer: ReturnType<typeof setTimeout> | null;
+  chunkTimer: Timer | null;
   wireStreamId: string | null;
   wireGridEpoch: string | null;
   wireSeq: number | null;

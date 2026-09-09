@@ -20,12 +20,14 @@ import {
   pushTerminalCellChunk,
 } from "./terminal-stream-chunks.ts";
 import {
-  armTerminalForegroundIdleProbe,
-  clearTerminalRepairLatch,
   clearTerminalSessionLiveness,
-  requestTerminalResync,
   terminalGenerationMatches,
 } from "./terminal-stream-liveness.ts";
+import {
+  noteTerminalCellFrame,
+  noteTerminalChunkProgress,
+  requestTerminalResync,
+} from "./terminal-stream-repair.ts";
 import {
   emitTerminalViewStatus,
   takePersistedTerminalRendererDrop,
@@ -45,15 +47,18 @@ import type {
 
 export {
   activeTerminalResyncView,
-  armTerminalForegroundIdleProbe,
   clearTerminalSessionLiveness,
-  repairStaleTerminalSubscriberOnHeartbeat,
-  requestTerminalLivenessChallenge,
-  sendLatchedTerminalResync,
   terminalGenerationKey,
   terminalGenerationMatches,
   terminalGenerationToken,
 } from "./terminal-stream-liveness.ts";
+export {
+  armTerminalForegroundIdleProbe,
+  noteTerminalViewAck,
+  repairStaleTerminalSubscriberOnHeartbeat,
+  requestTerminalLivenessChallenge,
+  sendLatchedTerminalResync,
+} from "./terminal-stream-repair.ts";
 
 export function installExpectedTerminalStream(
   session: TerminalSessionReplica,
@@ -129,8 +134,9 @@ export function dispatchTerminalCellChunk(
   pushTerminalCellChunk(
     session,
     chunk,
+    () => noteTerminalChunkProgress(session, owner),
     (frame) => acceptProtoFrame(session, frame, true, owner),
-    (reason) => requestTerminalResync(session, reason, "initial", owner),
+    (reason) => requestTerminalResync(session, reason, owner),
   );
 }
 
@@ -188,28 +194,6 @@ function validFull(session: TerminalSessionReplica, frame: CellGridFrame): boole
   return true;
 }
 
-function recordAcceptedTerminalFrame(
-  session: TerminalSessionReplica,
-  full: boolean,
-  owner: TerminalGenerationToken,
-): void {
-  if (!terminalGenerationMatches(session.generation, owner)) return;
-  session.lastAcceptedFrameAtMs = performance.now();
-  session.lastAcceptedFrameGeneration = session.generation;
-  clearTimeout(session.proofDeadlineTimer ?? undefined);
-  session.proofDeadlineTimer = null;
-  session.proofChallengeAtMs = null;
-  session.proofChallengeGeneration = null;
-  session.repairOutcome = "proved";
-  if (full) {
-    clearTerminalRepairLatch(session);
-  } else if (session.resyncLatched) {
-    // A delta proves the lane is live but cannot repair the canonical gap.
-    // Keep retrying the latch; do not escalate a challenge that received proof.
-    session.resyncLatchedAtMs = null;
-  }
-  armTerminalForegroundIdleProbe(session);
-}
 
 function acceptFull(
   session: TerminalSessionReplica,
@@ -217,7 +201,7 @@ function acceptFull(
   owner: TerminalGenerationToken,
 ): void {
   if (!validFull(session, frame)) {
-    requestTerminalResync(session, "invalid full terminal baseline", "initial", owner);
+    requestTerminalResync(session, "invalid full terminal baseline", owner);
     return;
   }
   frame.full = true;
@@ -230,7 +214,7 @@ function acceptFull(
   session.resyncSentGeneration = null;
   session.resyncRetryGeneration = null;
   session.resyncRetryAtMs = null;
-  recordAcceptedTerminalFrame(session, true, owner);
+  noteTerminalCellFrame(session, true, owner);
   clearTerminalChunkTransfer(session);
   const suppressRendererDelivery = suppressNextRendererFrame(session);
   if (!suppressRendererDelivery) deliverFull(session);
@@ -259,7 +243,6 @@ function acceptDelta(
     requestTerminalResync(
       session,
       "terminal delta did not follow the canonical baseline",
-      "initial",
       owner,
     );
     return;
@@ -270,7 +253,6 @@ function acceptDelta(
     requestTerminalResync(
       session,
       "terminal delta fold rejected its canonical base",
-      "initial",
       owner,
     );
     return;
@@ -281,7 +263,7 @@ function acceptDelta(
   folded.scrollbackAppend = [];
   folded.sbBase = folded.scrollbackTotal;
   session.canonical = folded;
-  recordAcceptedTerminalFrame(session, false, owner);
+  noteTerminalCellFrame(session, false, owner);
 
   if (suppressNextRendererFrame(session)) return;
 
@@ -318,7 +300,7 @@ function acceptProtoFrame(
 ): void {
   if (!terminalGenerationMatches(session.generation, owner)) return;
   if (pb.sessionId !== session.sessionId) {
-    requestTerminalResync(session, "terminal frame session mismatch", "initial", owner);
+    requestTerminalResync(session, "terminal frame session mismatch", owner);
     return;
   }
   if (pb.streamId !== session.expectedStreamId) return;
@@ -326,7 +308,6 @@ function acceptProtoFrame(
     requestTerminalResync(
       session,
       "terminal frame exceeded the encoded part ceiling",
-      "initial",
       owner,
     );
     return;
@@ -335,7 +316,7 @@ function acceptProtoFrame(
   try {
     frame = protoToCellFrame(pb);
   } catch (error) {
-    requestTerminalResync(session, String(error), "initial", owner);
+    requestTerminalResync(session, String(error), owner);
     return;
   }
   noteWireFrame(session, pb);
