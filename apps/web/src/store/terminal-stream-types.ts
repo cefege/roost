@@ -187,9 +187,6 @@ export interface TerminalSessionReplica {
   proofChallengeGeneration: TerminalGenerationToken | null;
   resyncLatchGeneration: TerminalGenerationToken | null;
   resyncLatchedAtMs: number | null;
-  scopedRepairRounds: number;
-  scopedRepairStartedAtMs: number | null;
-  scopedRepairGeneration: TerminalGenerationToken | null;
   repairAttempts: number;
   repairOutcome: TerminalRepairOutcome;
   assembler: CellGridChunkAssembler;

@@ -9,7 +9,7 @@
 // canonical replicas clone before folding when another owner retains the same
 // state; renderers keep one independently owned frame and store the return.
 
-import type { CellGridFrame, CellRow } from "./types.ts";
+import { SB_RENEWAL_HISTORY_ROWS, type CellGridFrame, type CellRow } from "./types.ts";
 
 /** Give a replica/renderer independent mutable row coordinates while sharing
  * immutable span arrays. applyDelta may replace row slots and renumber rows, so
@@ -23,6 +23,20 @@ export function cloneCellGridFrame(frame: CellGridFrame): CellGridFrame {
 		scrollbackRows: cloneRows(frame.scrollbackRows),
 		scrollbackAppend: cloneRows(frame.scrollbackAppend),
 	};
+}
+
+/** Convert a reconstructed frame into a bounded full baseline for a new
+ * consumer. The retained tail repairs local renderer coalescing without
+ * making snapshots scale with total scrollback depth. */
+export function normalizeCellGridFrame(frame: CellGridFrame): CellGridFrame {
+	frame.full = true;
+	frame.baseSeq = 0;
+	frame.scrollbackAppend.length = 0;
+	if (frame.scrollbackRows.length > SB_RENEWAL_HISTORY_ROWS) {
+		frame.scrollbackRows = frame.scrollbackRows.slice(-SB_RENEWAL_HISTORY_ROWS);
+	}
+	frame.sbBase = frame.scrollbackRows[0]?.index ?? frame.scrollbackTotal;
+	return frame;
 }
 
 

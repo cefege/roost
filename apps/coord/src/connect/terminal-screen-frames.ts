@@ -4,7 +4,6 @@
 import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import {
-  SB_RENEWAL_HISTORY_ROWS,
   createCellGridSnapshotSource,
   type CellGridFrame,
   type CellGridSnapshotCursor,
@@ -91,16 +90,6 @@ export function countCellGridRows(frame: CellGridFrame): number {
   return frame.scrollbackRows.length + frame.rows;
 }
 
-export function normalizeCellGridFrame(frame: CellGridFrame): CellGridFrame {
-  frame.full = true;
-  frame.baseSeq = 0;
-  frame.scrollbackAppend = [];
-  if (frame.scrollbackRows.length > SB_RENEWAL_HISTORY_ROWS) {
-    frame.scrollbackRows = frame.scrollbackRows.slice(-SB_RENEWAL_HISTORY_ROWS);
-  }
-  frame.sbBase = frame.scrollbackRows[0]?.index ?? frame.scrollbackTotal;
-  return frame;
-}
 
 export interface TerminalScreenSnapshot {
   streamId: string;

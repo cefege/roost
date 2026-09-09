@@ -16,6 +16,7 @@ import {
   renderer,
   terminalStream,
 } from "./helpers/terminalStreamFixture.ts";
+import { terminalDropNextFrames } from "../src/store/terminal-stream-state.ts";
 
 type AnimationFrameQueue = {
   cancelled: number[];
@@ -101,6 +102,51 @@ describe("terminal stream renderer scheduling", () => {
       expect(sink.fullFrames[0]!.viewportRows[0]!.spans[0]!.text).toBe("B");
       expect(sink.deltaFrames).toHaveLength(0);
       expect(deliveries).toHaveLength(1);
+      view.dispose();
+    } finally {
+      frames.restore();
+    }
+  });
+
+  test("repairs a renderer-only dropped delta with retained scrollback", () => {
+    const frames = installAnimationFrameQueue();
+    try {
+      const view = terminalStream.createTerminalView(SESSION_ID);
+      const sink = new RecordingRenderer();
+      view.subscribeRenderer(renderer(sink));
+      view.setViewport({ cols: 1, rows: 1 });
+      acceptView(view.viewId, latestViewCommand().value.revision as bigint);
+
+      const baseline = full();
+      terminalStream.dispatchTerminalCellFrame(cellFrameToProto(baseline, SESSION_ID));
+      frames.flush();
+      terminalDropNextFrames.add(SESSION_ID);
+      const dropped = {
+        ...delta(2, "B"),
+        scrollbackAppend: [baseline.viewportRows[0]!],
+        scrollbackTotal: 1,
+      };
+      terminalStream.dispatchTerminalCellFrame(cellFrameToProto(dropped, SESSION_ID));
+      expect(frames.pending()).toBe(0);
+
+      const following = {
+        ...delta(3, "C"),
+        scrollbackAppend: [{ ...dropped.viewportRows[0]!, index: 1 }],
+        scrollbackTotal: 2,
+      };
+      terminalStream.dispatchTerminalCellFrame(cellFrameToProto(following, SESSION_ID));
+      expect(frames.pending()).toBe(1);
+      frames.flush();
+
+      const repair = sink.fullFrames.at(-1);
+      expect(repair).toMatchObject({
+        full: true,
+        baseSeq: 0,
+        seq: 3,
+        sbBase: 0,
+        scrollbackTotal: 2,
+      });
+      expect(repair?.scrollbackRows.map((row) => row.spans[0]?.text)).toEqual(["A", "B"]);
       view.dispose();
     } finally {
       frames.restore();

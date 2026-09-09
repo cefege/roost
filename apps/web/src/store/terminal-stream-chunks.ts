@@ -1,6 +1,6 @@
 // Chunk transfer owns assembler timers and emits bounded progress transitions.
 // The replica supplies terminal-frame acceptance and repair callbacks.
-// Progress notification never changes wire ordering or baseline atomicity.
+// Chunk progress never establishes a terminal baseline or liveness proof.
 
 import {
   CELL_GRID_CHUNK_STALL_MS,
@@ -19,7 +19,6 @@ export function clearTerminalChunkTransfer(session: TerminalSessionReplica): voi
 export function pushTerminalCellChunk(
   session: TerminalSessionReplica,
   chunk: PbCellGridChunk,
-  onProgress: () => void,
   onComplete: (frame: PbCellGridFrame) => void,
   onInvalid: (reason: string) => void,
 ): void {
@@ -28,7 +27,6 @@ export function pushTerminalCellChunk(
     clearTimeout(session.chunkTimer ?? undefined);
     session.chunkTimer = null;
     notifyTerminalBaselineProgress(session);
-    onProgress();
     if (result.kind === "complete") {
       onComplete(result.frame);
       return;

@@ -30,7 +30,6 @@ import {
   armTerminalForegroundIdleProbe,
   clearTerminalSessionLiveness,
   installExpectedTerminalStream,
-  noteTerminalViewAck,
   requestTerminalLivenessChallenge,
   sendLatchedTerminalResync,
   terminalGenerationMatches,
@@ -268,13 +267,14 @@ function acknowledgeTerminalViewState(
   desired: TerminalViewIntent,
   owner: TerminalGenerationToken,
 ): void {
+  // A view ACK proves membership, not terminal delivery; only a full or delta
+  // may retire the foreground proof deadline.
   if (
     view.pendingViewAckRevision === desired.revision
     && terminalGenerationMatches(view.pendingViewAckGeneration, owner)
   ) {
     clearViewAck(view);
   }
-  noteTerminalViewAck(view.session, owner);
 }
 
 

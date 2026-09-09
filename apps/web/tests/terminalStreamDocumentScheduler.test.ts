@@ -7,6 +7,8 @@ import {
   SESSION_ID,
   STREAM_A,
   acceptView,
+  cellFrameToProto,
+  full,
   generationRecoveries,
   latestViewCommand,
   setPageFocused,
@@ -111,7 +113,7 @@ describe("terminal document renewal scheduler", () => {
     view.dispose();
   });
 
-  test("starts scoped repair before redialing an unanswered view", () => {
+  test("redials an unanswered visible terminal after its scoped proof deadline", () => {
     const view = terminalStream.createTerminalView(SESSION_ID);
     view.setViewport({ cols: 80, rows: 24 });
     const initial = latestViewCommand().value;
@@ -127,9 +129,39 @@ describe("terminal document renewal scheduler", () => {
       rows: 24,
     });
 
-    vi.advanceTimersByTime(10_000);
+    vi.advanceTimersByTime(9_999);
     expect(generationRecoveries).toHaveLength(0);
-    vi.advanceTimersByTime(34_999);
+    vi.advanceTimersByTime(1);
+    expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");
+    view.dispose();
+  });
+
+  test("does not accept a late initial view ACK as terminal proof", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 80, rows: 24 });
+
+    vi.advanceTimersByTime(15_000);
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 80, 24);
+    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
+      expected_stream_id: STREAM_A,
+    });
+
+    vi.advanceTimersByTime(9_999);
+    expect(generationRecoveries).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");
+    view.dispose();
+  });
+
+  test("does not accept a renewed view ACK as terminal proof", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 1, rows: 1 });
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
+
+    vi.advanceTimersByTime(20_000);
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
+    vi.advanceTimersByTime(9_999);
     expect(generationRecoveries).toHaveLength(0);
     vi.advanceTimersByTime(1);
     expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");

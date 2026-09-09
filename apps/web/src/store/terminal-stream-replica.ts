@@ -7,6 +7,7 @@ import {
   CELL_GRID_PART_MAX_BYTES,
   applyDelta,
   encodedCellGridFrameSize,
+  normalizeCellGridFrame,
   type CellGridFrame,
 } from "@roost/shared/cell";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
@@ -25,7 +26,6 @@ import {
 } from "./terminal-stream-liveness.ts";
 import {
   noteTerminalCellFrame,
-  noteTerminalChunkProgress,
   requestTerminalResync,
 } from "./terminal-stream-repair.ts";
 import {
@@ -54,7 +54,6 @@ export {
 } from "./terminal-stream-liveness.ts";
 export {
   armTerminalForegroundIdleProbe,
-  noteTerminalViewAck,
   repairStaleTerminalSubscriberOnHeartbeat,
   requestTerminalLivenessChallenge,
   sendLatchedTerminalResync,
@@ -67,6 +66,7 @@ export function installExpectedTerminalStream(
   rows: number,
 ): void {
   const streamChanged = session.expectedStreamId !== streamId;
+  const streamReplaced = streamChanged && session.expectedStreamId !== null;
   if (
     !streamChanged
     && session.effectiveCols === cols
@@ -76,7 +76,7 @@ export function installExpectedTerminalStream(
   session.effectiveCols = cols;
   session.effectiveRows = rows;
   if (streamChanged) {
-    clearTerminalSessionLiveness(session, "stream_replaced");
+    if (streamReplaced) clearTerminalSessionLiveness(session, "stream_replaced");
     session.requiresFreshBaseline = true;
     clearTerminalChunkTransfer(session);
   }
@@ -134,7 +134,6 @@ export function dispatchTerminalCellChunk(
   pushTerminalCellChunk(
     session,
     chunk,
-    () => noteTerminalChunkProgress(session, owner),
     (frame) => acceptProtoFrame(session, frame, true, owner),
     (reason) => requestTerminalResync(session, reason, owner),
   );
@@ -257,11 +256,7 @@ function acceptDelta(
     );
     return;
   }
-  folded.full = true;
-  folded.baseSeq = 0;
-  folded.scrollbackRows = [];
-  folded.scrollbackAppend = [];
-  folded.sbBase = folded.scrollbackTotal;
+  normalizeCellGridFrame(folded);
   session.canonical = folded;
   noteTerminalCellFrame(session, false, owner);
 

@@ -105,9 +105,6 @@ export function terminalSessionReplica(sessionId: string): TerminalSessionReplic
     proofChallengeGeneration: null,
     resyncLatchedAtMs: null,
     resyncLatchGeneration: null,
-    scopedRepairRounds: 0,
-    scopedRepairStartedAtMs: null,
-    scopedRepairGeneration: null,
     repairAttempts: 0,
     repairOutcome: "none",
     assembler: new CellGridChunkAssembler(),
@@ -145,9 +142,6 @@ function discardTerminalSessionState(session: TerminalSessionReplica): void {
   session.proofChallengeGeneration = null;
   session.resyncLatchedAtMs = null;
   session.resyncLatchGeneration = null;
-  session.scopedRepairRounds = 0;
-  session.scopedRepairStartedAtMs = null;
-  session.scopedRepairGeneration = null;
   session.repairOutcome = "pruned";
   for (const subscriber of session.subscribers) subscriber.scheduler.dispose();
   cancelTerminalViewRenewals(session.handles.values());

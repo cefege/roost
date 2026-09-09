@@ -231,7 +231,7 @@ describe("per-session browser terminal replica", () => {
     view.dispose();
   });
 
-  test("repeats an unanswered scoped repair at its proof deadline", () => {
+  test("redials an unanswered scoped repair at its proof deadline", () => {
     const view = terminalStream.createTerminalView(SESSION_ID);
     view.setViewport({ cols: 1, rows: 1 });
     acceptView(view.viewId, latestViewCommand().value.revision as bigint);
@@ -239,14 +239,14 @@ describe("per-session browser terminal replica", () => {
     vi.advanceTimersByTime(5_000);
     expect(resyncCommands()).toHaveLength(1);
     vi.advanceTimersByTime(9_999);
-    expect(resyncCommands()).toHaveLength(1);
-    vi.advanceTimersByTime(1);
-    expect(resyncCommands()).toHaveLength(2);
     expect(generationRecoveries).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    expect(resyncCommands()).toHaveLength(1);
+    expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");
     view.dispose();
   });
 
-  test("deduplicates renewal repairs across handles for one session", () => {
+  test("deduplicates renewal redial across handles for one session", () => {
     const first = terminalStream.createTerminalView(SESSION_ID);
     first.setViewport({ cols: 1, rows: 1 });
     acceptView(first.viewId, latestViewCommand().value.revision as bigint);
@@ -257,7 +257,8 @@ describe("per-session browser terminal replica", () => {
     vi.advanceTimersByTime(5_000);
     expect(resyncCommands()).toHaveLength(1);
     vi.advanceTimersByTime(10_000);
-    expect(resyncCommands()).toHaveLength(2);
+    expect(resyncCommands()).toHaveLength(1);
+    expect(generationRecoveries).toHaveLength(1);
     first.dispose();
     second.dispose();
   });

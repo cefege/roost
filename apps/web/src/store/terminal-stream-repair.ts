@@ -18,7 +18,6 @@ import {
   sendSyncV2Command,
   type SyncV2TerminalState,
 } from "./sync.ts";
-import { _syncLinkIdleMs } from "./sync-link-state.ts";
 import { clearTerminalChunkTransfer } from "./terminal-stream-chunks.ts";
 import {
   activeTerminalResyncView,
@@ -34,7 +33,6 @@ import type {
   TerminalViewRecord,
 } from "./terminal-stream-types.ts";
 
-const TERMINAL_SCOPED_REPAIR_WINDOW_MS = 45_000;
 
 export function requestTerminalLivenessChallenge(
   session: TerminalSessionReplica,
@@ -60,7 +58,7 @@ export function requestTerminalLivenessChallenge(
     : false;
   if (!sent && !reassert) return false;
   const challengedAt = performance.now();
-  beginTerminalScopedRepair(session, owner, challengedAt, reassert);
+  beginTerminalScopedRepair(session, owner, challengedAt);
   signal("cell.foreground_stall", {
     sid: session.sessionId,
     stream_id: session.expectedStreamId,
@@ -137,7 +135,7 @@ export function sendLatchedTerminalResync(session: TerminalSessionReplica): void
       || !terminalGenerationMatches(session.proofChallengeGeneration, owner)
     )
   ) {
-    beginTerminalScopedRepair(session, owner, performance.now(), undefined);
+    beginTerminalScopedRepair(session, owner, performance.now());
   }
 }
 
@@ -195,19 +193,6 @@ export function repairStaleTerminalSubscriberOnHeartbeat(
   }
 }
 
-export function noteTerminalViewAck(
-  session: TerminalSessionReplica,
-  owner: TerminalGenerationToken,
-): void {
-  noteTerminalProgress(session, owner);
-}
-
-export function noteTerminalChunkProgress(
-  session: TerminalSessionReplica,
-  owner: TerminalGenerationToken,
-): void {
-  noteTerminalProgress(session, owner);
-}
 
 export function noteTerminalCellFrame(
   session: TerminalSessionReplica,
@@ -236,9 +221,6 @@ function noteTerminalProgress(
   session.proofDeadlineTimer = null;
   session.proofChallengeAtMs = null;
   session.proofChallengeGeneration = null;
-  session.scopedRepairRounds = 0;
-  session.scopedRepairStartedAtMs = null;
-  session.scopedRepairGeneration = null;
   session.repairOutcome = "proved";
 }
 
@@ -273,33 +255,21 @@ function beginTerminalScopedRepair(
   session: TerminalSessionReplica,
   owner: TerminalGenerationToken,
   challengedAt: number,
-  reassert: (() => void) | undefined,
 ): void {
-  if (!terminalGenerationMatches(session.scopedRepairGeneration, owner)) {
-    session.scopedRepairRounds = 0;
-    session.scopedRepairStartedAtMs = challengedAt;
-    session.scopedRepairGeneration = owner;
-  }
-  session.scopedRepairRounds++;
   session.repairAttempts++;
   session.repairOutcome = "requested";
-  armTerminalProofDeadline(session, owner, challengedAt, reassert);
+  armTerminalProofDeadline(session, owner, challengedAt);
 }
 
 function armTerminalProofDeadline(
   session: TerminalSessionReplica,
   owner: TerminalGenerationToken,
   challengedAt: number,
-  reassert: (() => void) | undefined,
 ): void {
   clearTimeout(session.proofDeadlineTimer ?? undefined);
   session.proofChallengeAtMs = challengedAt;
   session.proofChallengeGeneration = owner;
-  const repairStartedAt = session.scopedRepairStartedAtMs ?? challengedAt;
-  const dueAt = Math.min(
-    challengedAt + TERMINAL_FOREGROUND_PROBE_DEADLINE_MS,
-    repairStartedAt + TERMINAL_SCOPED_REPAIR_WINDOW_MS,
-  );
+  const dueAt = challengedAt + TERMINAL_FOREGROUND_PROBE_DEADLINE_MS;
   const timer = setTimeout(() => {
     if (session.proofDeadlineTimer !== timer) return;
     session.proofDeadlineTimer = null;
@@ -313,34 +283,17 @@ function armTerminalProofDeadline(
       clearTerminalSessionLiveness(session, "inactive");
       return;
     }
-    const repairAgeMs = Math.max(0, performance.now() - repairStartedAt);
-    const twoScopedRoundsElapsed = session.scopedRepairRounds >= 2
-      && repairAgeMs >= TERMINAL_SCOPED_REPAIR_WINDOW_MS;
-    const transportSilent = repairAgeMs >= TERMINAL_SCOPED_REPAIR_WINDOW_MS
-      && _syncLinkIdleMs() > TERMINAL_SCOPED_REPAIR_WINDOW_MS;
-    if (transportSilent || twoScopedRoundsElapsed) {
-      session.repairOutcome = "escalated";
-      signal("cell.foreground_stall", {
-        sid: session.sessionId,
-        stream_id: session.expectedStreamId,
-        layer: "terminal_proof",
-        action: "redial",
-        age_ms: repairAgeMs,
-        cooldownKey: session.sessionId,
-      });
-      requestSyncGenerationRecovery(owner, "terminal-proof-timeout");
-      return;
-    }
+    const proofAgeMs = Math.max(0, performance.now() - challengedAt);
+    session.repairOutcome = "escalated";
     signal("cell.foreground_stall", {
       sid: session.sessionId,
       stream_id: session.expectedStreamId,
       layer: "terminal_proof",
-      action: "resync",
-      age_ms: repairAgeMs,
+      action: "redial",
+      age_ms: proofAgeMs,
       cooldownKey: session.sessionId,
     });
-    reassert?.();
-    requestTerminalLivenessChallenge(session, reassert);
+    requestSyncGenerationRecovery(owner, "terminal-proof-timeout");
   }, Math.max(0, dueAt - performance.now()));
   session.proofDeadlineTimer = timer;
 }

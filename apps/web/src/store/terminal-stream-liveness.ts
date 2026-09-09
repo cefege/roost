@@ -72,9 +72,6 @@ export function clearTerminalSessionLiveness(
   session.lastAcceptedFrameGeneration = null;
   session.proofChallengeAtMs = null;
   session.proofChallengeGeneration = null;
-  session.scopedRepairRounds = 0;
-  session.scopedRepairStartedAtMs = null;
-  session.scopedRepairGeneration = null;
   session.repairAttempts = 0;
   session.repairOutcome = outcome;
   clearTerminalRepairLatch(session);
