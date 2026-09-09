@@ -150,9 +150,6 @@ html[data-chrome-mode="workbench"] .df-tab-bar {
   box-shadow: inset 0 -1px 0 var(--md-outline-variant);
 }
 
-html[data-chrome-mode="workbench"] .df-tab-bar[data-focused="true"] {
-  box-shadow: inset 0 1px 0 var(--md-primary), inset 0 -1px 0 var(--md-outline-variant);
-}
 
 html[data-chrome-mode="workbench"] .df-tab-indicator {
   background: var(--md-primary);
