@@ -1,7 +1,7 @@
 // Right-click context menu over the terminal pane. Adapted to v2 Session
 // shape + terminalActions helpers.
-// Desktop: floating positioned menu at cursor coordinates.
-// Mobile (<768px): bottom action sheet that slides up from the screen edge.
+// Compact viewports use a bottom action sheet; medium and desktop viewports
+// always use a cursor-anchored floating menu, including touch-capable desktops.
 //
 // Items: Copy | Paste | New terminal | Attach file | Close terminal.
 // Mounted alongside the Terminal component in MainPane.
@@ -16,7 +16,7 @@ import { spawnSessionSibling } from "../lib/sessionSiblingAction.ts";
 import { scheduleClose } from "../lib/pendingClose.ts";
 import { closeLabelsFor, killAfterUndo, siblingOrHomeHref } from "../lib/closeSession.ts";
 import { activeSessionForPath } from "../store/selectors.ts";
-import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
+import { isCompact } from "../lib/windowSizeClass.ts";
 import { isSpotlit, setSpotlightSessionId, clearSpotlight, visiblePaneCount } from "../store/spotlight.ts";
 
 interface Props {
@@ -41,8 +41,13 @@ interface OpenState {
   linkTarget: string | null;
 }
 
-// Bottom action-sheet on touch (phones + tablets), floating menu on mouse.
-const isMobileViewport = () => isCompact() || isTouchDevice();
+// Touch capability is not a layout mode: KDE and desktop browsers can expose
+// a coarse pointer or touch points while a mouse right-click still needs a menu.
+export function _terminalContextMenuUsesActionSheet(compact: boolean): boolean {
+  return compact;
+}
+
+const usesActionSheet = () => _terminalContextMenuUsesActionSheet(isCompact());
 
 
 export function TerminalContextMenu(props: Props) {
@@ -138,7 +143,7 @@ export function TerminalContextMenu(props: Props) {
         // cursor. Portaling escapes the transformed containing block.
         <Portal>
         <Show
-          when={!isMobileViewport()}
+          when={!usesActionSheet()}
           fallback={
             // ── Mobile: bottom action sheet ──────────────────────────────
             <>

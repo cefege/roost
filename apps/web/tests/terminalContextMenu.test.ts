@@ -16,7 +16,10 @@ mock.module("@solidjs/router", () => ({
 
 // The TSX runtime and router mocks must install before this known module binds
 // them, so a static import cannot isolate the style test.
-const { _terminalActionSheetStyle } = await import(
+const {
+  _terminalActionSheetStyle,
+  _terminalContextMenuUsesActionSheet,
+} = await import(
   "../src/components/TerminalContextMenu.tsx"
 );
 
@@ -30,4 +33,9 @@ test("mobile action sheet stays inside the keyboard-safe viewport", () => {
   );
   expect(style["overflow-y"]).toBe("auto");
   expect(String(style.padding)).toContain("env(safe-area-inset-bottom, 0px)");
+});
+
+test("only compact viewports use the terminal action sheet", () => {
+  expect(_terminalContextMenuUsesActionSheet(false)).toBe(false);
+  expect(_terminalContextMenuUsesActionSheet(true)).toBe(true);
 });
