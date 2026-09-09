@@ -15,6 +15,7 @@ import {
   type TerminalViewHubOptions,
 } from "../src/connect/terminal-view-hub.ts";
 import type { TerminalScreenSocketSink } from "../src/connect/terminal-screen-hub.ts";
+import type { TerminalSnapshotSource } from "../src/connect/terminal-screen-frames.ts";
 
 export const SESSION = "10000000-0000-4000-8000-000000000001";
 export const OTHER_SESSION = "10000000-0000-4000-8000-000000000002";
@@ -35,7 +36,7 @@ export class TestSink implements TerminalScreenSocketSink {
   readonly snapshots: Array<{
     sessionId: string;
     streamId: string;
-    frames: readonly FirehoseFrame[];
+    source: TerminalSnapshotSource;
   }> = [];
   readonly deltas: Array<{ sessionId: string; streamId: string; frame: FirehoseFrame }> = [];
   readonly drops: string[] = [];
@@ -55,9 +56,9 @@ export class TestSink implements TerminalScreenSocketSink {
   replaceTerminalSnapshot(
     sessionId: string,
     streamId: string,
-    frames: readonly FirehoseFrame[],
+    source: TerminalSnapshotSource,
   ): boolean {
-    this.snapshots.push({ sessionId, streamId, frames });
+    this.snapshots.push({ sessionId, streamId, source });
     return true;
   }
 

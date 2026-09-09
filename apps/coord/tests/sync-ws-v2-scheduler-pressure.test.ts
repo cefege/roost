@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import { SyncDomain } from "@roost/shared/proto/sync_pb";
 import {
   V2_NONTERMINAL_MAX_RETAINED_FRAMES,
+  V2_TERMINAL_CELL_MAX_RETAINED_FRAMES,
   V2_TERMINAL_MAX_RETAINED_FRAMES,
 } from "../src/connect/sync-ws-v2-state.ts";
 import {
@@ -20,7 +21,7 @@ import {
 test("terminal generic queue pressure leaves its generation and retained frames live", () => {
   const harness = makeHarness("scheduler-test:terminal-pressure", false);
   const generation = harness.terminal.generation;
-  for (let sequence = 1; sequence <= V2_TERMINAL_MAX_RETAINED_FRAMES; sequence++) {
+  for (let sequence = 1; sequence <= V2_TERMINAL_CELL_MAX_RETAINED_FRAMES; sequence++) {
     expect(harness.scheduler.enqueueV2Frame(
       harness.ws,
       makeCell(TARGET_SESSION, sequence, false),
@@ -30,11 +31,11 @@ test("terminal generic queue pressure leaves its generation and retained frames 
 
   expect(harness.scheduler.enqueueV2Frame(
     harness.ws,
-    makeCell(TARGET_SESSION, V2_TERMINAL_MAX_RETAINED_FRAMES + 1, false),
+    makeCell(TARGET_SESSION, V2_TERMINAL_CELL_MAX_RETAINED_FRAMES + 1, false),
     { domain: SyncDomain.TERMINAL, lane: "cell", sessionId: TARGET_SESSION },
   )).toBe(false);
   expect(harness.terminal.generation).toBe(generation);
-  expect(harness.terminal.queue).toHaveLength(V2_TERMINAL_MAX_RETAINED_FRAMES);
+  expect(harness.terminal.queue).toHaveLength(V2_TERMINAL_CELL_MAX_RETAINED_FRAMES);
   expect(decodedFrames(harness.socket).some((frame) => frame.frame.case === "domainReset")).toBe(false);
 });
 
@@ -84,4 +85,26 @@ test("unready terminal cells wait for application admission without a terminal r
   )).toBe(true);
   expect(harness.terminal.generation).toBe(generation);
   expect(harness.terminal.queue).toHaveLength(1);
+});
+
+test("terminal semantic queue overflow closes instead of silently dropping the feed frame", () => {
+  const harness = makeHarness("scheduler-test:terminal-semantic-overflow", false);
+  const generation = harness.terminal.generation;
+  for (let index = 0; index < V2_TERMINAL_MAX_RETAINED_FRAMES; index++) {
+    expect(harness.scheduler.enqueueV2Frame(
+      harness.ws,
+      makeState(TARGET_SESSION, `semantic-stream-${index}`),
+      { domain: SyncDomain.TERMINAL, lane: "session", sessionId: TARGET_SESSION },
+    )).toBe(true);
+  }
+
+  expect(harness.scheduler.enqueueV2Frame(
+    harness.ws,
+    makeState(TARGET_SESSION, "semantic-stream-overflow"),
+    { domain: SyncDomain.TERMINAL, lane: "session", sessionId: TARGET_SESSION },
+  )).toBe(false);
+  expect(harness.terminal.generation).toBe(generation);
+  expect(harness.socket.data.pressureClosing).toBe(true);
+  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
+  expect(decodedFrames(harness.socket).some((frame) => frame.frame.case === "domainReset")).toBe(false);
 });

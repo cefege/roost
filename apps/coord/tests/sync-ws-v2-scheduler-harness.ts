@@ -29,7 +29,7 @@ import {
   createSyncV2SocketState,
   type SyncV2DomainState,
 } from "../src/connect/sync-ws-v2-state.ts";
-
+import type { TerminalSnapshotSource } from "../src/connect/terminal-screen-frames.ts";
 export const SESSION_A = "11111111-1111-4111-8111-111111111111";
 export const SESSION_B = "22222222-2222-4222-8222-222222222222";
 export const OTHER_SESSION = "33333333-3333-4333-8333-333333333333";
@@ -291,7 +291,22 @@ export function estimatedTerminalBytes(frame: FirehoseFrame, generation: bigint)
   owned.domainGeneration = generation;
   return toBinary(FirehoseFrameSchema, owned).byteLength + 10;
 }
-
+export function snapshotSource(frames: readonly FirehoseFrame[]): TerminalSnapshotSource {
+  const sourceFrames = frames.map((frame) => clone(FirehoseFrameSchema, frame));
+  return {
+    createCursor() {
+      return {
+        partCount: sourceFrames.length,
+        materialize(partIndex) {
+          const frame = sourceFrames[partIndex];
+          if (!frame) throw new Error(`missing test snapshot part ${partIndex}`);
+          return clone(FirehoseFrameSchema, frame);
+        },
+        release() {},
+      };
+    },
+  };
+}
 export interface CellIdentity {
   sessionId: string;
   full: boolean;

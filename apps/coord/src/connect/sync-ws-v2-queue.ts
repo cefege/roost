@@ -23,9 +23,9 @@ function isTerminalCellFrame(frame: FirehoseFrame): boolean {
   return frame.frame.case === "cellGrid" || frame.frame.case === "cellGridChunk";
 }
 
-// A freshly attached session's baseline may pass other sessions' queued deltas,
+// A newly attached baseline or view-state fence may pass foreign queued deltas,
 // but never this session's own queued frames or another session's snapshot.
-export function v2AttachSnapshotInsertIndex(
+export function v2TerminalPriorityInsertIndex(
   queue: readonly SyncV2QueuedFrame[],
   sessionId: string | undefined,
 ): number {

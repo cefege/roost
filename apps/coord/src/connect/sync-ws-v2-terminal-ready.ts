@@ -9,6 +9,7 @@ import type { SyncFeedFrameMeta } from "./sync-feed.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 import {
   isV2SnapshotFrame,
+  releaseV2TerminalCursor,
   type SyncTerminalSessionLane,
   type SyncV2RetainedFrame,
 } from "./sync-ws-v2-state.ts";
@@ -19,6 +20,10 @@ export interface SyncV2TerminalReadySchedulerDeps {
     retained: SyncV2RetainedFrame,
     meta: SyncFeedFrameMeta,
   ): boolean;
+  materializeTerminalSnapshotHead(
+    ws: ServerWebSocket<SyncWsData>,
+    cursor: NonNullable<SyncTerminalSessionLane["cursor"]>,
+  ): SyncV2RetainedFrame | null;
   requestTerminalRebaseline(
     ws: ServerWebSocket<SyncWsData>,
     sessionId: string,
@@ -30,7 +35,11 @@ type TerminalCursorPump = "queued" | "blocked" | "empty";
 export function makeSyncV2TerminalReadyScheduler(
   deps: SyncV2TerminalReadySchedulerDeps,
 ) {
-  const { enqueueRetainedV2Frame, requestTerminalRebaseline } = deps;
+  const {
+    enqueueRetainedV2Frame,
+    materializeTerminalSnapshotHead,
+    requestTerminalRebaseline,
+  } = deps;
 
   function markReady(
     v2: NonNullable<SyncWsData["v2"]>,
@@ -88,15 +97,23 @@ export function makeSyncV2TerminalReadyScheduler(
     const cursor = lane.cursor;
     if (!cursor || lane.streamId !== cursor.streamId) return "empty";
     if (cursor.queued) return "blocked";
+    const source = cursor.source;
+    const sourcePart = source !== null && cursor.index < source.partCount;
     let retained: SyncV2RetainedFrame | undefined;
-    let cursorIndex = cursor.index;
-    if (cursor.index < cursor.frames.length) {
-      retained = cursor.frames[cursor.index];
+    let cursorIndex: number;
+    if (sourcePart) {
+      const materialized = cursor.materialized ?? materializeTerminalSnapshotHead(ws, cursor);
+      if (!materialized) return "blocked";
+      retained = materialized;
+      cursor.materialized = retained;
+      cursorIndex = cursor.index;
     } else if (cursor.deltaTail.length > 0) {
       retained = cursor.deltaTail[0];
-      cursorIndex = cursor.frames.length;
+      cursorIndex = source?.partCount ?? 0;
     } else {
-      lane.cursor = null;
+      const v2 = ws.data.v2;
+      if (v2) releaseV2TerminalCursor(v2, lane);
+      else lane.cursor = null;
       return "empty";
     }
     const attachSnapshot = lane.attachPriorityPending && isV2SnapshotFrame(retained.frame);
@@ -162,17 +179,21 @@ export function makeSyncV2TerminalReadyScheduler(
     } else {
       if (cursorIndex === undefined) return;
       const cursor = lane.cursor;
+      const sourcePartCount = cursor?.source?.partCount ?? 0;
       if (
         !cursor
         || cursor.streamId !== meta.terminalStreamId
-        || cursorIndex !== (cursor.index < cursor.frames.length
-          ? cursor.index
-          : cursor.frames.length)
+        || cursorIndex !== (cursor.index < sourcePartCount ? cursor.index : sourcePartCount)
       ) return;
       cursor.queued = false;
       if (meta.attachSnapshot) lane.attachPriorityPending = false;
-      if (cursor.index < cursor.frames.length) {
+      if (cursor.index < sourcePartCount) {
         cursor.index++;
+        cursor.materialized = null;
+        if (cursor.index === sourcePartCount) {
+          cursor.source?.release();
+          cursor.source = null;
+        }
       } else {
         const delta = cursor.deltaTail.shift();
         if (delta) cursor.deltaBytes -= delta.payloadBytes;

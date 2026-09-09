@@ -4,7 +4,7 @@
 
 import { expect, test } from "bun:test";
 import { SyncDomain } from "@roost/shared/proto/sync_pb";
-import { V2_TERMINAL_MAX_RETAINED_FRAMES } from "../src/connect/sync-ws-v2-state.ts";
+import { V2_TERMINAL_CELL_MAX_RETAINED_FRAMES } from "../src/connect/sync-ws-v2-state.ts";
 import {
   TARGET_SESSION,
   cellIdentity,
@@ -144,7 +144,7 @@ test("a throwing control buffered-amount probe closes the ambiguously sent socke
 test("terminal queue pressure does not send a reset control frame or close the socket", () => {
   const harness = makeHarness("scheduler-test:terminal-pressure-no-close", false);
   const generation = harness.terminal.generation;
-  for (let seq = 1; seq <= V2_TERMINAL_MAX_RETAINED_FRAMES; seq += 1) {
+  for (let seq = 1; seq <= V2_TERMINAL_CELL_MAX_RETAINED_FRAMES; seq += 1) {
     expect(harness.scheduler.enqueueV2Frame(
       harness.ws,
       makeCell(TARGET_SESSION, seq, false),
@@ -154,7 +154,7 @@ test("terminal queue pressure does not send a reset control frame or close the s
   harness.socket.sendResult = 0;
   expect(harness.scheduler.enqueueV2Frame(
     harness.ws,
-    makeCell(TARGET_SESSION, V2_TERMINAL_MAX_RETAINED_FRAMES + 1, false),
+    makeCell(TARGET_SESSION, V2_TERMINAL_CELL_MAX_RETAINED_FRAMES + 1, false),
     { domain: SyncDomain.TERMINAL, lane: "cell", sessionId: TARGET_SESSION },
   )).toBe(false);
   expect(harness.terminal.generation).toBe(generation);

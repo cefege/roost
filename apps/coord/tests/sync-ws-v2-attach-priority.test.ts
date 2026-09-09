@@ -17,6 +17,7 @@ import {
   makeHarness,
   makeState,
   queuedIdentity,
+  snapshotSource,
 } from "./sync-ws-v2-scheduler-harness.ts";
 
 // A newly attached stream gets one baseline-part boost over foreign deltas,
@@ -39,7 +40,12 @@ test("a newly attached session's first baseline part jumps foreign queued deltas
   expect(harness.scheduler.enqueueTerminalDelta(harness.ws, SESSION_B, streamB, makeCell(SESSION_B, 3, false))).toBe(true);
 
   harness.scheduler.beginTerminalStream(harness.ws, TARGET_SESSION, streamC);
-  harness.scheduler.replaceTerminalSnapshot(harness.ws, TARGET_SESSION, streamC, [makeCell(TARGET_SESSION, 10, true)]);
+  harness.scheduler.replaceTerminalSnapshot(
+    harness.ws,
+    TARGET_SESSION,
+    streamC,
+    snapshotSource([makeCell(TARGET_SESSION, 10, true)]),
+  );
   await flushMicrotasks();
 
   expect(harness.socket.sent).toEqual([]);
@@ -74,14 +80,29 @@ test("an attached baseline never passes another session's queued chunk or full f
   const streamDelta = "stream-barrier-delta";
   const streamAttach = "stream-barrier-attach";
   harness.scheduler.beginTerminalStream(harness.ws, OTHER_SESSION, streamChunk);
-  harness.scheduler.replaceTerminalSnapshot(harness.ws, OTHER_SESSION, streamChunk, [makeChunk(OTHER_SESSION, 1, 0)]);
+  harness.scheduler.replaceTerminalSnapshot(
+    harness.ws,
+    OTHER_SESSION,
+    streamChunk,
+    snapshotSource([makeChunk(OTHER_SESSION, 1, 0)]),
+  );
   harness.scheduler.beginTerminalStream(harness.ws, SESSION_B, streamFull);
-  harness.scheduler.replaceTerminalSnapshot(harness.ws, SESSION_B, streamFull, [makeCell(SESSION_B, 5, true)]);
+  harness.scheduler.replaceTerminalSnapshot(
+    harness.ws,
+    SESSION_B,
+    streamFull,
+    snapshotSource([makeCell(SESSION_B, 5, true)]),
+  );
   harness.scheduler.beginTerminalStream(harness.ws, SESSION_A, streamDelta);
   expect(harness.scheduler.enqueueTerminalDelta(harness.ws, SESSION_A, streamDelta, makeCell(SESSION_A, 7, false))).toBe(true);
 
   harness.scheduler.beginTerminalStream(harness.ws, TARGET_SESSION, streamAttach);
-  harness.scheduler.replaceTerminalSnapshot(harness.ws, TARGET_SESSION, streamAttach, [makeCell(TARGET_SESSION, 10, true)]);
+  harness.scheduler.replaceTerminalSnapshot(
+    harness.ws,
+    TARGET_SESSION,
+    streamAttach,
+    snapshotSource([makeCell(TARGET_SESSION, 10, true)]),
+  );
   await flushMicrotasks();
 
   expect(harness.terminal.queue.map((item) => queuedIdentity(item.frame))).toEqual([
@@ -110,15 +131,20 @@ test("an attached baseline keeps its view state ahead of the snapshot", async ()
   expect(harness.scheduler.enqueueTerminalDelta(harness.ws, SESSION_B, streamB, makeCell(SESSION_B, 2, false))).toBe(true);
   harness.scheduler.enqueueTerminalState(harness.ws, makeState(TARGET_SESSION, streamC), TARGET_SESSION);
   harness.scheduler.beginTerminalStream(harness.ws, TARGET_SESSION, streamC);
-  harness.scheduler.replaceTerminalSnapshot(harness.ws, TARGET_SESSION, streamC, [makeCell(TARGET_SESSION, 10, true)]);
+  harness.scheduler.replaceTerminalSnapshot(
+    harness.ws,
+    TARGET_SESSION,
+    streamC,
+    snapshotSource([makeCell(TARGET_SESSION, 10, true)]),
+  );
   await flushMicrotasks();
 
   expect(harness.terminal.queue.map((item) => item.frame.frame.case)).toEqual([
-    "cellGrid",
-    "cellGrid",
     "terminalViewState",
+    "cellGrid",
+    "cellGrid",
   ]);
-  expect(harness.terminal.queue.slice(0, 2).map((item) => cellIdentity(item.frame))).toEqual([
+  expect(harness.terminal.queue.slice(1).map((item) => cellIdentity(item.frame))).toEqual([
     { sessionId: SESSION_A, full: false, seq: 1n },
     { sessionId: SESSION_B, full: false, seq: 2n },
   ]);
@@ -128,16 +154,16 @@ test("an attached baseline keeps its view state ahead of the snapshot", async ()
   await flushMicrotasks();
   const sent = decodedFrames(harness.socket);
   expect(sent.map((frame) => frame.frame.case)).toEqual([
-    "cellGrid",
-    "cellGrid",
     "terminalViewState",
     "cellGrid",
+    "cellGrid",
+    "cellGrid",
   ]);
-  expect(sent.slice(0, 2).map(cellIdentity)).toEqual([
+  expect(cellIdentity(sent[1]!)).toEqual({ sessionId: TARGET_SESSION, full: true, seq: 10n });
+  expect(sent.slice(2).map(cellIdentity)).toEqual([
     { sessionId: SESSION_A, full: false, seq: 1n },
     { sessionId: SESSION_B, full: false, seq: 2n },
   ]);
-  expect(cellIdentity(sent[3]!)).toEqual({ sessionId: TARGET_SESSION, full: true, seq: 10n });
   expect(harness.delivery.applyCumulativeAck(harness.ws, sent.at(-1)!.deliverySeq)).toBe(true);
   await flushMicrotasks();
 });
@@ -154,10 +180,15 @@ test("a snapshot continuation rotates behind steady deltas after its first boost
   expect(harness.scheduler.enqueueTerminalDelta(harness.ws, SESSION_A, streamA, makeCell(SESSION_A, 1, false))).toBe(true);
 
   harness.scheduler.beginTerminalStream(harness.ws, TARGET_SESSION, streamC);
-  harness.scheduler.replaceTerminalSnapshot(harness.ws, TARGET_SESSION, streamC, [
-    makeChunk(TARGET_SESSION, 9, 0),
-    makeChunk(TARGET_SESSION, 9, 1),
-  ]);
+  harness.scheduler.replaceTerminalSnapshot(
+    harness.ws,
+    TARGET_SESSION,
+    streamC,
+    snapshotSource([
+      makeChunk(TARGET_SESSION, 9, 0),
+      makeChunk(TARGET_SESSION, 9, 1),
+    ]),
+  );
   await flushMicrotasks();
 
   expect(harness.terminal.queue.map((item) => item.meta.attachSnapshot)).toEqual([true, undefined]);

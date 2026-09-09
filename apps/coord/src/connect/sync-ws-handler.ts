@@ -264,8 +264,8 @@ export function makeSyncWsHandler(
               v2Scheduler.beginTerminalStream(ws, sessionId, streamId),
             enqueueTerminalState: (frame, sessionId) =>
               v2Scheduler.enqueueTerminalState(ws, frame, sessionId),
-            replaceTerminalSnapshot: (sessionId, streamId, frames) =>
-              v2Scheduler.replaceTerminalSnapshot(ws, sessionId, streamId, frames),
+            replaceTerminalSnapshot: (sessionId, streamId, source) =>
+              v2Scheduler.replaceTerminalSnapshot(ws, sessionId, streamId, source),
             enqueueTerminalDelta: (sessionId, streamId, frame) => {
               const terminal = ws.data.v2?.domains.get(SyncDomain.TERMINAL);
               const generation = terminal?.generation;

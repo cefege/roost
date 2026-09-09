@@ -1,3 +1,7 @@
+// Provides deterministic terminal-hub test inputs and a sink recorder.
+// Hub unit tests use it to observe per-socket state, snapshots, and deltas.
+// Snapshot frames materialize at admission, matching scheduler cursor ownership.
+
 import { clone, create } from "@bufbuild/protobuf";
 import { expect } from "bun:test";
 import {
@@ -16,6 +20,7 @@ import {
   type TerminalDeltaEnqueueResult,
   type TerminalScreenSocketSink,
 } from "../src/connect/terminal-screen-hub.ts";
+import type { TerminalSnapshotSource } from "../src/connect/terminal-screen-frames.ts";
 
 export const SESSION = "40000000-0000-4000-8000-000000000001";
 export const STREAM = "50000000-0000-4000-8000-000000000001";
@@ -31,7 +36,7 @@ export class TestSink implements TerminalScreenSocketSink {
   readonly snapshots: Array<{
     sessionId: string;
     streamId: string;
-    frames: readonly FirehoseFrame[];
+    frames: FirehoseFrame[];
   }> = [];
   readonly deltas: Array<{ sessionId: string; streamId: string; frame: FirehoseFrame }> = [];
   readonly drops: string[] = [];
@@ -56,11 +61,20 @@ export class TestSink implements TerminalScreenSocketSink {
   replaceTerminalSnapshot(
     sessionId: string,
     streamId: string,
-    frames: readonly FirehoseFrame[],
+    source: TerminalSnapshotSource,
   ): boolean {
-    this.events.push(`snapshot:${streamId}`);
-    this.snapshots.push({ sessionId, streamId, frames });
-    return true;
+    const cursor = source.createCursor();
+    try {
+      const frames = Array.from(
+        { length: cursor.partCount },
+        (_, partIndex) => cursor.materialize(partIndex),
+      );
+      this.events.push(`snapshot:${streamId}`);
+      this.snapshots.push({ sessionId, streamId, frames });
+      return true;
+    } finally {
+      cursor.release();
+    }
   }
 
   enqueueTerminalDelta(

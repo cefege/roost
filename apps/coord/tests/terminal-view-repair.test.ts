@@ -42,8 +42,8 @@ function schedulerSink(harness: SchedulerHarness): TerminalScreenSocketSink {
       harness.scheduler.beginTerminalStream(harness.ws, sessionId, streamId),
     enqueueTerminalState: (frame, sessionId) =>
       harness.scheduler.enqueueTerminalState(harness.ws, frame, sessionId),
-    replaceTerminalSnapshot: (sessionId, streamId, frames) =>
-      harness.scheduler.replaceTerminalSnapshot(harness.ws, sessionId, streamId, frames),
+    replaceTerminalSnapshot: (sessionId, streamId, source) =>
+      harness.scheduler.replaceTerminalSnapshot(harness.ws, sessionId, streamId, source),
     enqueueTerminalDelta: (sessionId, streamId, frame) =>
       harness.scheduler.enqueueTerminalDelta(harness.ws, sessionId, streamId, frame)
         ? "queued"

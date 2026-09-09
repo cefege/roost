@@ -13,6 +13,9 @@ import {
 } from "@roost/shared/proto/sync_pb";
 import type { SyncFeedFrameMeta, SyncFeedLane } from "./sync-feed.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
+import type {
+  TerminalSnapshotCursor as TerminalSnapshotPartsCursor,
+} from "./terminal-screen-frames.ts";
 
 export const V2_DOMAIN_MAX_QUEUED_FRAMES = 512;
 export const V2_DOMAIN_MAX_QUEUED_BYTES = 4 * 1024 * 1024;
@@ -26,6 +29,13 @@ export const V2_AGGREGATE_MAX_QUEUED_BYTES =
   V2_TERMINAL_MAX_RETAINED_BYTES + V2_NONTERMINAL_MAX_RETAINED_BYTES;
 export const V2_TERMINAL_LANE_MAX_DELTA_FRAMES = 32;
 export const V2_TERMINAL_LANE_MAX_DELTA_BYTES = 4 * 1024 * 1024;
+/** Cell material leaves this charged terminal credit for state/feed frames. */
+export const V2_TERMINAL_RELIABLE_RESERVE_FRAMES = 64;
+export const V2_TERMINAL_RELIABLE_RESERVE_BYTES = 256 * 1024;
+export const V2_TERMINAL_CELL_MAX_RETAINED_FRAMES =
+  V2_TERMINAL_MAX_RETAINED_FRAMES - V2_TERMINAL_RELIABLE_RESERVE_FRAMES;
+export const V2_TERMINAL_CELL_MAX_RETAINED_BYTES =
+  V2_TERMINAL_MAX_RETAINED_BYTES - V2_TERMINAL_RELIABLE_RESERVE_BYTES;
 export const V2_LOW_LANE_MAX_AGE_MS = 100;
 export const V2_DOMAINS = [
   SyncDomain.TERMINAL,
@@ -58,6 +68,10 @@ export function isV2SnapshotFrame(frame: FirehoseFrame): boolean {
     || (frame.frame.case === "cellGrid" && frame.frame.value.full);
 }
 
+function isTerminalCellMaterial(frame: FirehoseFrame): boolean {
+  return frame.frame.case === "cellGrid" || frame.frame.case === "cellGridChunk";
+}
+
 export interface SyncV2OwnedFrame {
   readonly frame: FirehoseFrame;
   readonly estimatedBytes: number;
@@ -66,6 +80,7 @@ export interface SyncV2OwnedFrame {
 export interface SyncV2AggregateCharge {
   readonly estimatedBytes: number;
   readonly terminal: boolean;
+  readonly terminalCell: boolean;
   retained: boolean;
 }
 
@@ -84,9 +99,11 @@ export interface SyncV2QueuedFrame extends SyncV2RetainedFrame {
 
 export interface SyncTerminalSnapshotCursor {
   readonly streamId: string;
-  readonly frames: readonly SyncV2RetainedFrame[];
+  source: TerminalSnapshotPartsCursor | null;
   index: number;
   queued: boolean;
+  /** The one source part currently charged to terminal materialization. */
+  materialized: SyncV2RetainedFrame | null;
   readonly deltaTail: SyncTerminalDeltaFrame[];
   deltaBytes: number;
 }
@@ -127,6 +144,9 @@ export interface SyncV2SocketState {
   /** Terminal's half of retained application materialization. */
   terminalRetainedFrames: number;
   terminalRetainedBytes: number;
+  /** Charged cell payloads, capped below terminal's reliable semantic reserve. */
+  terminalCellRetainedFrames: number;
+  terminalCellRetainedBytes: number;
   /** Aggregate payload ownership across domain queues and terminal auxiliaries. */
   queuedFrames: number;
   queuedBytes: number;
@@ -159,6 +179,8 @@ export function createSyncV2SocketState(): SyncV2SocketState {
     terminalReadySessions: new Set(),
     terminalRetainedFrames: 0,
     terminalRetainedBytes: 0,
+    terminalCellRetainedFrames: 0,
+    terminalCellRetainedBytes: 0,
     queuedFrames: 0,
     queuedBytes: 0,
     laneCursor: 0,
@@ -189,6 +211,7 @@ export function tryRetainV2AggregateFrame(
   owned: SyncV2OwnedFrame,
 ): SyncV2RetainedFrame | null {
   const terminal = owned.frame.domain === SyncDomain.TERMINAL;
+  const terminalCell = terminal && isTerminalCellMaterial(owned.frame);
   const retainedFrames = terminal
     ? v2.terminalRetainedFrames
     : v2.queuedFrames - v2.terminalRetainedFrames;
@@ -204,12 +227,17 @@ export function tryRetainV2AggregateFrame(
   if (
     retainedFrames + 1 > frameLimit
     || retainedBytes + owned.estimatedBytes > byteLimit
+    || (terminalCell && (
+      v2.terminalCellRetainedFrames + 1 > V2_TERMINAL_CELL_MAX_RETAINED_FRAMES
+      || v2.terminalCellRetainedBytes + owned.estimatedBytes > V2_TERMINAL_CELL_MAX_RETAINED_BYTES
+    ))
     || v2.queuedFrames + 1 > V2_AGGREGATE_MAX_QUEUED_FRAMES
     || v2.queuedBytes + owned.estimatedBytes > V2_AGGREGATE_MAX_QUEUED_BYTES
   ) return null;
   const aggregateCharge: SyncV2AggregateCharge = {
     estimatedBytes: owned.estimatedBytes,
     terminal,
+    terminalCell,
     retained: true,
   };
   v2.queuedFrames++;
@@ -217,6 +245,10 @@ export function tryRetainV2AggregateFrame(
   if (terminal) {
     v2.terminalRetainedFrames++;
     v2.terminalRetainedBytes += owned.estimatedBytes;
+  }
+  if (terminalCell) {
+    v2.terminalCellRetainedFrames++;
+    v2.terminalCellRetainedBytes += owned.estimatedBytes;
   }
   return { ...owned, aggregateCharge };
 }
@@ -233,6 +265,10 @@ export function releaseV2AggregateFrame(
   if (charge.terminal) {
     v2.terminalRetainedFrames--;
     v2.terminalRetainedBytes -= charge.estimatedBytes;
+  }
+  if (charge.terminalCell) {
+    v2.terminalCellRetainedFrames--;
+    v2.terminalCellRetainedBytes -= charge.estimatedBytes;
   }
 }
 
@@ -251,7 +287,9 @@ export function releaseV2TerminalCursor(
 ): void {
   const cursor = lane.cursor;
   if (!cursor) return;
-  for (const frame of cursor.frames) releaseV2AggregateFrame(v2, frame);
+  if (cursor.materialized) releaseV2AggregateFrame(v2, cursor.materialized);
+  cursor.materialized = null;
+  cursor.source?.release();
   releaseV2TerminalDeltaTail(v2, cursor);
   lane.cursor = null;
 }
@@ -294,6 +332,8 @@ export const clearV2State = (
   v2.queuedBytes = 0;
   v2.terminalRetainedFrames = 0;
   v2.terminalRetainedBytes = 0;
+  v2.terminalCellRetainedFrames = 0;
+  v2.terminalCellRetainedBytes = 0;
   v2.announcedSessions.clear();
   v2.pendingSessionAnnouncements.clear();
   v2.terminalReadySessions.clear();

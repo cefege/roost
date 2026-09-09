@@ -1,23 +1,15 @@
-// Pure CellGrid frame helpers shared by the terminal screen hub: wraps frames
-// in FirehoseFrame envelopes, splits oversized full snapshots into
-// cellGridChunk firehose frames, counts rows/spans, and normalizes frames to
-// canonical baseline form (full=true, baseSeq=0, sbBase recomputed).
-// normalizeCellGridFrame mutates its argument in place — pass a clone when
-// the original proto must stay pristine.
-import { clone, create } from "@bufbuild/protobuf";
+// Wraps canonical terminal cells for Sync and exposes reusable lazy snapshot
+// sources. TerminalScreenHub owns each immutable canonical full; socket cursors
+// receive one materialized part at a time without duplicating the entire full.
+import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import {
-  assertCellGridSnapshot,
-  CELL_GRID_PART_MAX_BYTES,
-  chunkCellGridFrame,
   SB_RENEWAL_HISTORY_ROWS,
-  encodedCellGridFrameSize,
+  createCellGridSnapshotSource,
   type CellGridFrame,
+  type CellGridSnapshotCursor,
 } from "@roost/shared/cell";
-import {
-  PbCellGridFrameSchema,
-  type PbCellGridFrame,
-} from "@roost/shared/proto/cell_pb";
+import { type PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import {
   FirehoseFrameSchema,
   type FirehoseFrame,
@@ -29,17 +21,63 @@ export function cellGridEnvelope(frame: PbCellGridFrame): FirehoseFrame {
   });
 }
 
-export function terminalSnapshotFrames(
+export interface TerminalSnapshotLease {
+  acquire(): boolean;
+  release(): void;
+}
+
+export interface TerminalSnapshotCursor {
+  readonly partCount: number;
+  materialize(partIndex: number): FirehoseFrame;
+  release(): void;
+}
+
+export interface TerminalSnapshotSource {
+  createCursor(): TerminalSnapshotCursor;
+}
+
+function firehoseSnapshotCursor(
+  cursor: CellGridSnapshotCursor,
+  lease: TerminalSnapshotLease | undefined,
+): TerminalSnapshotCursor {
+  let released = false;
+  return {
+    partCount: cursor.partCount,
+    materialize(partIndex) {
+      if (released) throw new Error("terminal snapshot cursor has been released");
+      const part = cursor.materialize(partIndex);
+      return part.kind === "frame"
+        ? cellGridEnvelope(part.value)
+        : create(FirehoseFrameSchema, {
+          frame: { case: "cellGridChunk", value: part.value },
+        });
+    },
+    release() {
+      if (released) return;
+      released = true;
+      lease?.release();
+    },
+  };
+}
+
+export function terminalSnapshotSource(
   full: PbCellGridFrame,
-): readonly FirehoseFrame[] {
-  assertCellGridSnapshot(full);
-  if (encodedCellGridFrameSize(full) <= CELL_GRID_PART_MAX_BYTES) {
-    return [cellGridEnvelope(clone(PbCellGridFrameSchema, full))];
-  }
-  return chunkCellGridFrame(full, randomUUID()).map((chunk) =>
-    create(FirehoseFrameSchema, {
-      frame: { case: "cellGridChunk", value: chunk },
-    }));
+  lease?: TerminalSnapshotLease,
+): TerminalSnapshotSource {
+  const source = createCellGridSnapshotSource(full);
+  return {
+    createCursor() {
+      if (lease && !lease.acquire()) {
+        throw new Error("terminal snapshot source is no longer resident");
+      }
+      try {
+        return firehoseSnapshotCursor(source.createCursor(randomUUID()), lease);
+      } catch (error) {
+        lease?.release();
+        throw error;
+      }
+    },
+  };
 }
 
 export function countCellGridSpans(frame: CellGridFrame): number {

@@ -11,6 +11,7 @@ import {
 import { log } from "@roost/shared/log";
 import type { SyncFeedFrameMeta } from "./sync-feed.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
+import type { TerminalSnapshotSource } from "./terminal-screen-frames.ts";
 import {
   V2_TERMINAL_LANE_MAX_DELTA_BYTES,
   V2_TERMINAL_LANE_MAX_DELTA_FRAMES,
@@ -40,6 +41,10 @@ interface SyncV2TerminalSchedulerDeps {
     ws: ServerWebSocket<SyncWsData>,
     sessionId: string,
   ): boolean;
+  closeTerminalSemanticOverflow(
+    ws: ServerWebSocket<SyncWsData>,
+    frame: FirehoseFrame,
+  ): void;
 }
 
 export function makeSyncV2TerminalScheduler(
@@ -49,9 +54,11 @@ export function makeSyncV2TerminalScheduler(
     enqueueRetainedV2Frame,
     removeTerminalQueued,
     requestTerminalRebaseline = () => false,
+    closeTerminalSemanticOverflow,
   } = deps;
   const ready = makeSyncV2TerminalReadyScheduler({
     enqueueRetainedV2Frame,
+    materializeTerminalSnapshotHead,
     requestTerminalRebaseline,
   });
 
@@ -78,6 +85,15 @@ export function makeSyncV2TerminalScheduler(
     return retained;
   }
 
+  function materializeTerminalSnapshotHead(
+    ws: ServerWebSocket<SyncWsData>,
+    cursor: NonNullable<SyncTerminalSessionLane["cursor"]>,
+  ): SyncV2RetainedFrame | null {
+    const source = cursor.source;
+    if (!source || cursor.index >= source.partCount) return null;
+    return retainTerminalFrames(ws, [source.materialize(cursor.index)])?.[0] ?? null;
+  }
+
   function discardUnsentMaterialization(
     ws: ServerWebSocket<SyncWsData>,
     sessionId: string,
@@ -89,7 +105,9 @@ export function makeSyncV2TerminalScheduler(
       removeTerminalQueued(ws, sessionId, false);
       return;
     }
-    const activeSnapshot = cursor.index > 0 && cursor.index < cursor.frames.length;
+    const activeSnapshot = cursor.source !== null
+      && cursor.index > 0
+      && cursor.index < cursor.source.partCount;
     if (activeSnapshot) {
       releaseV2TerminalDeltaTail(v2, cursor);
       return;
@@ -129,6 +147,7 @@ export function makeSyncV2TerminalScheduler(
     const v2 = ws.data.v2;
     const lane = v2?.terminalSessions.get(sessionId);
     if (!v2 || !lane) return;
+    removeTerminalQueued(ws, sessionId, true);
     releaseV2TerminalLane(v2, lane);
     v2.terminalReadySessions.delete(sessionId);
     v2.terminalSessions.delete(sessionId);
@@ -190,10 +209,14 @@ export function makeSyncV2TerminalScheduler(
       };
       v2.terminalSessions.set(sessionId, lane);
     }
-    const retained = retainTerminalFrames(ws, [frame]);
+    let retained = retainTerminalFrames(ws, [frame]);
     if (!retained) {
-      requestScopedRebaseline(ws, sessionId, lane, "terminal_aggregate_pressure");
-      return;
+      requestScopedRebaseline(ws, sessionId, lane, "terminal_state_priority");
+      retained = retainTerminalFrames(ws, [frame]);
+      if (!retained) {
+        closeTerminalSemanticOverflow(ws, frame);
+        return;
+      }
     }
     lane.pendingStates.push(retained[0]!);
     ready.markReady(v2, sessionId, lane);
@@ -204,29 +227,33 @@ export function makeSyncV2TerminalScheduler(
     ws: ServerWebSocket<SyncWsData>,
     sessionId: string,
     streamId: string,
-    frames: readonly FirehoseFrame[],
+    source: TerminalSnapshotSource,
   ): boolean => {
     const v2 = ws.data.v2;
     const lane = v2?.terminalSessions.get(sessionId);
-    if (!v2 || !lane || lane.streamId !== streamId || frames.length === 0) return false;
+    if (!v2 || !lane || lane.streamId !== streamId) return false;
     const cursor = lane.cursor;
-    if (cursor && cursor.index > 0 && cursor.index < cursor.frames.length) {
+    const activeSnapshot = cursor !== null
+      && cursor.source !== null
+      && cursor.index > 0
+      && cursor.index < cursor.source.partCount;
+    if (activeSnapshot) {
       lane.rebaselinePending = true;
       ready.markReady(v2, sessionId, lane);
+      return false;
+    }
+    const sourceCursor = source.createCursor();
+    if (sourceCursor.partCount === 0) {
+      sourceCursor.release();
       return false;
     }
     discardUnsentMaterialization(ws, sessionId, lane);
-    const retained = retainTerminalFrames(ws, frames);
-    if (!retained) {
-      lane.rebaselinePending = true;
-      ready.markReady(v2, sessionId, lane);
-      return false;
-    }
     lane.cursor = {
       streamId,
-      frames: retained,
+      source: sourceCursor,
       index: 0,
       queued: false,
+      materialized: null,
       deltaTail: [],
       deltaBytes: 0,
     };
@@ -249,9 +276,10 @@ export function makeSyncV2TerminalScheduler(
     if (!cursor) {
       cursor = {
         streamId,
-        frames: [],
+        source: null,
         index: 0,
         queued: false,
+        materialized: null,
         deltaTail: [],
         deltaBytes: 0,
       };
@@ -295,7 +323,7 @@ export function makeSyncV2TerminalScheduler(
     const v2 = ws.data.v2;
     const lane = v2?.terminalSessions.get(sessionId);
     if (!v2 || !lane) return;
-    removeTerminalQueued(ws, sessionId, false);
+    removeTerminalQueued(ws, sessionId, true);
     releaseV2TerminalLane(v2, lane);
     v2.terminalReadySessions.delete(sessionId);
     v2.terminalSessions.delete(sessionId);

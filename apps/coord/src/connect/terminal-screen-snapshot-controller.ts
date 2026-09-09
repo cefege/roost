@@ -3,19 +3,15 @@
 // state and repair generation that requested it, preventing stale timer
 // callbacks from replacing a newer stream or reopening a completed repair.
 
-import { clone } from "@bufbuild/protobuf";
 import {
   CellGridChunkAssembler,
   CELL_GRID_CHUNK_STALL_MS,
 } from "@roost/shared/cell";
-import {
-  PbCellGridFrameSchema,
-  type PbCellGridFrame,
-} from "@roost/shared/proto/cell_pb";
 import { diag, signal } from "@roost/shared/diag";
-import { terminalSnapshotFrames } from "./terminal-screen-frames.ts";
+import type { TerminalSnapshotSource } from "./terminal-screen-frames.ts";
 import {
   TerminalAssemblyHold,
+  type ResidentCache,
   type SessionScreen,
   type SocketRegistration,
 } from "./terminal-screen-hub-state.ts";
@@ -27,6 +23,7 @@ interface TerminalScreenSnapshotControllerOptions {
   requestSnapshot(sessionId: string, streamId: string): void;
   unavailable(sessionId: string, reason: string): void;
   requestFreshStream(sessionId: string, expectedStreamId: string, reason: string): void;
+  snapshotSource(cache: ResidentCache): TerminalSnapshotSource;
   setTimer(callback: () => void, delayMs: number): NodeJS.Timeout;
   clearTimer(timer: NodeJS.Timeout): void;
   now(): number;
@@ -41,6 +38,7 @@ export class TerminalScreenSnapshotController {
       state = {
         expected: null,
         cache: null,
+        pinnedCache: null,
         chunks: {
           assembler: new CellGridChunkAssembler(),
           timer: null,
@@ -63,14 +61,12 @@ export class TerminalScreenSnapshotController {
     socket: SocketRegistration,
     sessionId: string,
     streamId: string,
-    proto: PbCellGridFrame,
+    cache: ResidentCache,
   ): boolean {
     try {
-      return socket.sink.replaceTerminalSnapshot(
-        sessionId,
-        streamId,
-        terminalSnapshotFrames(clone(PbCellGridFrameSchema, proto)),
-      );
+      const source = cache.source ?? this.options.snapshotSource(cache);
+      cache.source = source;
+      return socket.sink.replaceTerminalSnapshot(sessionId, streamId, source);
     } catch (error) {
       const reason = error instanceof Error
         ? error.message

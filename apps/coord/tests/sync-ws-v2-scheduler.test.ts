@@ -13,6 +13,7 @@ import {
   makeCell,
   makeHarness,
   makeState,
+  snapshotSource,
 } from "./sync-ws-v2-scheduler-harness.ts";
 
 test("a replacement snapshot supersedes only its unsent cursor and delta tail", async () => {
@@ -32,7 +33,7 @@ test("a replacement snapshot supersedes only its unsent cursor and delta tail", 
     harness.ws,
     TARGET_SESSION,
     targetStream,
-    [oldFull, oldTail],
+    snapshotSource([oldFull, oldTail]),
   )).toBe(true);
   expect(harness.scheduler.enqueueTerminalDelta(
     harness.ws,
@@ -44,7 +45,7 @@ test("a replacement snapshot supersedes only its unsent cursor and delta tail", 
     harness.ws,
     TARGET_SESSION,
     targetStream,
-    [replacement],
+    snapshotSource([replacement]),
   )).toBe(true);
   expect(harness.scheduler.enqueueTerminalDelta(
     harness.ws,
@@ -59,9 +60,12 @@ test("a replacement snapshot supersedes only its unsent cursor and delta tail", 
     { sessionId: OTHER_SESSION, full: false, seq: 1n },
   ]);
   const cursor = harness.socket.data.v2!.terminalSessions.get(TARGET_SESSION)!.cursor!;
-  expect(cursor.frames.map((item) => cellIdentity(item.frame))).toEqual([
-    { sessionId: TARGET_SESSION, full: true, seq: 4n },
-  ]);
+  expect(cursor.source?.partCount).toBe(1);
+  expect(cellIdentity(cursor.materialized!.frame)).toEqual({
+    sessionId: TARGET_SESSION,
+    full: true,
+    seq: 4n,
+  });
   expect(cursor.deltaTail.map((item) => cellIdentity(item.frame))).toEqual([
     { sessionId: TARGET_SESSION, full: false, seq: 5n },
   ]);
@@ -114,7 +118,7 @@ test("terminal state precedes snapshot parts and delta tail after an ACK restart
     harness.ws,
     TARGET_SESSION,
     streamId,
-    [makeCell(TARGET_SESSION, 20, true), makeCell(TARGET_SESSION, 21, false)],
+    snapshotSource([makeCell(TARGET_SESSION, 20, true), makeCell(TARGET_SESSION, 21, false)]),
   )).toBe(true);
   expect(harness.scheduler.enqueueTerminalDelta(
     harness.ws,

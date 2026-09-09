@@ -10,12 +10,16 @@ import {
 } from "@roost/shared/cell";
 import { PbCellGridFrameSchema, type PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { TerminalScreenSocketSink } from "./terminal-screen-hub.ts";
+import type { TerminalSnapshotSource } from "./terminal-screen-frames.ts";
 
 export interface ExpectedStream { streamId: string; cols: number; rows: number }
 
 export interface ResidentCache {
+  readonly screen: SessionScreen;
   frame: CellGridFrame;
   proto: PbCellGridFrame;
+  source: TerminalSnapshotSource | null;
+  sourceLeaseCount: number;
   rows: number;
   spans: number;
   valid: boolean;
@@ -36,6 +40,8 @@ export interface SnapshotRepairState {
 export interface SessionScreen {
   expected: ExpectedStream | null;
   cache: ResidentCache | null;
+  /** One old canonical source may outlive the current cache. */
+  pinnedCache: ResidentCache | null;
   chunks: ChunkState;
   resyncLatched: boolean;
   repair: SnapshotRepairState;

@@ -49,16 +49,21 @@ describe("coord cell passthrough", () => {
     hub.screen.registerSocket(socketId, {
       beginTerminalStream: () => true,
       enqueueTerminalState: () => {},
-      replaceTerminalSnapshot: (sessionId, streamId, frames) => {
-        const envelope = frames[0]?.frame;
-        if (envelope?.case !== "cellGrid") return false;
-        got.push({
-          sessionId,
-          frameSessionId: envelope.value.sessionId,
-          streamId,
-          gridEpoch: envelope.value.gridEpoch,
-        });
-        return true;
+      replaceTerminalSnapshot: (sessionId, streamId, source) => {
+        const cursor = source.createCursor();
+        try {
+          const frame = cursor.materialize(0);
+          if (frame.frame.case !== "cellGrid") return false;
+          got.push({
+            sessionId,
+            frameSessionId: frame.frame.value.sessionId,
+            streamId,
+            gridEpoch: frame.frame.value.gridEpoch,
+          });
+          return true;
+        } finally {
+          cursor.release();
+        }
       },
       enqueueTerminalDelta: () => "queued",
       dropTerminalSession: () => {},

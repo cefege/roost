@@ -34,7 +34,7 @@ import {
   type SyncV2RetainedFrame,
 } from "./sync-ws-v2-state.ts";
 import { makeSyncV2TerminalScheduler } from "./sync-ws-v2-terminal.ts";
-import { coalesceV2BufferedFrame, removeTerminalQueued, selectV2Candidate, v2AttachSnapshotInsertIndex } from "./sync-ws-v2-queue.ts";
+import { coalesceV2BufferedFrame, removeTerminalQueued, selectV2Candidate, v2TerminalPriorityInsertIndex } from "./sync-ws-v2-queue.ts";
 
 export interface SyncV2SchedulerDeps {
   readonly deadlineClock: WsDeadlineClock;
@@ -56,6 +56,10 @@ export interface SyncV2SchedulerDeps {
     ws: ServerWebSocket<SyncWsData>,
     sessionId: string,
   ): boolean;
+}
+
+function isTerminalCellMaterial(frame: FirehoseFrame): boolean {
+  return frame.frame.case === "cellGrid" || frame.frame.case === "cellGridChunk";
 }
 
 export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
@@ -119,13 +123,31 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     const exceedsDomain = domain.queue.length + 1 > V2_DOMAIN_MAX_QUEUED_FRAMES
       || domain.queuedBytes + owned.estimatedBytes > V2_DOMAIN_MAX_QUEUED_BYTES;
     if (exceedsDomain) {
-      if (meta.domain === SyncDomain.TERMINAL) return false;
+      if (meta.domain === SyncDomain.TERMINAL) {
+        if (isTerminalCellMaterial(owned.frame)) {
+          if (meta.sessionId) requestTerminalRebaseline(ws, meta.sessionId);
+          return false;
+        }
+        closeForBackpressure(
+          ws,
+          domain.queue.length + 1 > V2_DOMAIN_MAX_QUEUED_FRAMES ? "frame_limit" : "byte_limit",
+          owned.frame.frame.case ?? "terminal_semantic",
+        );
+        return false;
+      }
       resetV2Domain(ws, meta.domain, "domain_overflow");
       return false;
     }
     const aggregateOwner = retained ?? tryRetainV2AggregateFrame(v2, owned);
     if (!aggregateOwner) {
-      if (meta.domain === SyncDomain.TERMINAL) return false;
+      if (meta.domain === SyncDomain.TERMINAL) {
+        if (isTerminalCellMaterial(owned.frame)) {
+          if (meta.sessionId) requestTerminalRebaseline(ws, meta.sessionId);
+          return false;
+        }
+        closeForBackpressure(ws, "byte_limit", owned.frame.frame.case ?? "terminal_semantic");
+        return false;
+      }
       resetV2Domain(ws, meta.domain, "aggregate_overflow");
       return false;
     }
@@ -137,8 +159,8 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     if (meta.beforeBuffered) {
       domain.queue.splice(domain.seedInsertIndex, 0, item);
       domain.seedInsertIndex++;
-    } else if (meta.attachSnapshot) {
-      const insertIndex = v2AttachSnapshotInsertIndex(domain.queue, meta.sessionId);
+    } else if (meta.attachSnapshot || meta.terminalState) {
+      const insertIndex = v2TerminalPriorityInsertIndex(domain.queue, meta.sessionId);
       domain.queue.splice(insertIndex, 0, item);
       if (insertIndex < domain.seedInsertIndex) domain.seedInsertIndex++;
     } else {
@@ -190,6 +212,9 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     enqueueRetainedV2Frame,
     removeTerminalQueued,
     requestTerminalRebaseline,
+    closeTerminalSemanticOverflow(ws, frame) {
+      closeForBackpressure(ws, "byte_limit", frame.frame.case ?? "terminal_semantic");
+    },
   });
   let scheduleV2: (ws: ServerWebSocket<SyncWsData>) => void;
   const scheduleV2Yield = (
