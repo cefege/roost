@@ -204,17 +204,20 @@ describe("attach diagnosis document scheduler", () => {
     const renderer = {
       canonicalEpochSeq: () => ({ grid_epoch: "epoch-a", seq: 2 }),
       reconciledEpochSeq: () => ({ grid_epoch: "epoch-a", seq: 1 }),
+      setCursorBlinkEnabled: () => undefined,
     } as unknown as CellGridRenderer;
     let recoveryCalls = 0;
     let disposeRoot = (): void => undefined;
     const presentation = createRoot((rootDispose) => {
       disposeRoot = rootDispose;
-      return createTerminalPresentationController({
+      const presentationOptions = {
         active,
+        focused: () => true,
         status: () => acceptedView,
         renderer: () => renderer,
         onCatchUpStalled: () => { recoveryCalls += 1; },
-      });
+      };
+      return createTerminalPresentationController(presentationOptions);
     });
     try {
       scheduler.register(sessionId!, () => undefined);
