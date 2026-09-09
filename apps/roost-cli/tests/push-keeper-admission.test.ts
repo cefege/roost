@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   loadSourceKeeperContract,
+  probeTargetKeeperContract,
   sourceKeeperContractCommand,
   targetKeeperContractForWorker,
 } from "../src/push-keeper-admission.ts";
@@ -66,5 +67,24 @@ describe("selected source keeper contract", () => {
       "/selected/apps/roost-cli/src/main.ts",
       "__keeper-contract",
     ]);
+  });
+
+  test("uses the local runtime instead of SSH for localhost", async () => {
+    const target = await probeTargetKeeperContract(
+      "localhost",
+      "a".repeat(40),
+      SOURCE_CONTRACT,
+      async () => {
+        throw new Error("localhost keeper probe attempted SSH");
+      },
+    );
+
+    expect(target).toMatchObject({
+      ...SOURCE_CONTRACT,
+      bun_abi: Bun.version,
+      platform: process.platform,
+      arch: process.arch,
+      build_sha: "a".repeat(40),
+    });
   });
 });

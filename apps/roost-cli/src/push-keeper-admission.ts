@@ -12,6 +12,7 @@ import {
   type KeeperUpdateClassification,
 } from "@roost/shared/keeper-update";
 import { sshExec } from "./deploy-exec.ts";
+import { _isSelfHost } from "./deploy-self-host.ts";
 import type { FleetRolloutWorker } from "./push-fleet-rollout.ts";
 import type { WorkerStatus } from "./status-types.ts";
 
@@ -64,6 +65,17 @@ export async function probeTargetKeeperContract(
   sourceContract: KeeperContractV1,
   runRemote: typeof sshExec = sshExec,
 ): Promise<KeeperContractV1> {
+  if (await _isSelfHost(host)) {
+    const platform = process.platform;
+    if (platform !== "darwin" && platform !== "linux") {
+      throw new Error(`${host}: local keeper runtime is unsupported`);
+    }
+    return targetKeeperContractForWorker(sourceContract, targetSha, {
+      bun_abi: Bun.version,
+      platform,
+      arch: process.arch,
+    });
+  }
   const result = await runRemote(
     host,
     `bun -e 'process.stdout.write(JSON.stringify({bun_abi:Bun.version,platform:process.platform,arch:process.arch}))'`,
@@ -94,6 +106,7 @@ export async function probeTargetKeeperContract(
     platform: fields.platform,
     arch: fields.arch,
   });
+
 }
 
 export function targetKeeperContractForWorker(
