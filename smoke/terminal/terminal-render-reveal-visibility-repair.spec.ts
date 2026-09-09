@@ -157,9 +157,19 @@ test("an already-painted active pane repairs on a same-session document visibili
   expect(hiddenCounters.fullFrames).toBe(before.fullFrames);
   expect(hiddenCounters.backfills).toBe(before.backfills);
 
-  await smokePage.evaluate(() => {
+  const returnMarkerPaint = await smokePage.evaluate(async ({ id, marker }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    smokeWindow.__smoke.forceHidden(false);
+    const smoke = smokeWindow.__smoke;
+    smoke.forceHidden(false);
+    const inputAccepted = smoke.input(id, `printf '%s\\n' ${marker}\\r`);
+    const markerPaint = smoke.waitForPaintedMarker(id, marker, 15_000);
+    await inputAccepted;
+    return markerPaint;
+  }, { id: sessionId, marker: newMarker });
+  expect(returnMarkerPaint).toMatchObject({
+    proof_kind: "marker",
+    marker: newMarker,
+    frames: 2,
   });
   await expect.poll(async () => {
     const probe = await readTerminalStreamProbe(smokePage, sessionId);
@@ -214,18 +224,6 @@ test("an already-painted active pane repairs on a same-session document visibili
     marker: originalMarker,
     frames: 2,
   });
-  const newPaint = await smokePage.evaluate(async ({ id, marker }) => {
-    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    const smoke = smokeWindow.__smoke;
-    await smoke.input(id, `printf '%s\\n' ${marker}\\r`);
-    return smoke.waitForPaintedMarker(id, marker, 15_000);
-  }, { id: sessionId, marker: newMarker });
-  expect(newPaint).toMatchObject({
-    proof_kind: "marker",
-    marker: newMarker,
-    frames: 2,
-  });
-
   const after = await readCounters();
   expect(after.fullFrames - before.fullFrames).toBe(1);
   expect(after.backfills - before.backfills).toBe(0);
@@ -275,7 +273,7 @@ test("an already-painted active pane repairs on a same-session document visibili
   expect(survival).toEqual({
     document: true,
     slot: true,
-    loadingSeen: true,
+    loadingSeen: false,
   });
   await expect(loadingStatus).toHaveCount(0);
   expect(smokePage.url()).toBe(initialUrl);

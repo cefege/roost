@@ -107,6 +107,14 @@ export function createCellTerminalPresentation(
     const status = viewStatus();
     return status?.status === "accepted" && status.active && status.baselineReady;
   };
+  const retainsReconciledFrameDuringRefresh = (): boolean => {
+    const status = viewStatus();
+    return hasReconciledFrame()
+      && (
+        status?.status === "pending"
+        || (status?.status === "accepted" && !status.baselineReady)
+      );
+  };
   const watermarkStillUnreconciled = (watermark: RendererEpochSeq): boolean => {
     const renderer = runtime.renderer;
     if (!renderer || watermark.grid_epoch === null || watermark.seq === null) return false;
@@ -252,7 +260,7 @@ export function createCellTerminalPresentation(
   });
   createEffect(() => offlineWatch.update(
     viewActive() && isPageVisible(),
-    hasReconciledFrame() && viewportLiveReady(),
+    hasReconciledFrame(),
   ));
   const offlineSibling = () =>
     newestOpenSessionForFolderKey(folderKeyOf(props.session), runtime.sessionId);
@@ -275,6 +283,7 @@ export function createCellTerminalPresentation(
       || !pageVisible()
       || offline()
       || (hasReconciledFrame() && viewportLiveReady())
+      || retainsReconciledFrameDuringRefresh()
     ) return null;
     return terminalViewportLoadingNotice(pending(), viewStatus());
   });
