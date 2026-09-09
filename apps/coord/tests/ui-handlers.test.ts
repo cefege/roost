@@ -1,5 +1,5 @@
 // UI handler contract: typed report/list state, the eight legacy dispatches,
-// and one acknowledged layout apply with dashboard-bound session authorization.
+// and one acknowledged layout apply over persisted-session authorization.
 // Bun drives the real handlers and UI bus against an isolated in-memory database.
 // Explicit state/apply owners keep retained identities and target generations test-local.
 
@@ -20,11 +20,8 @@ import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
-import {
-  callerKey,
-  dashboardActorKey,
-  type DashboardActor,
-} from "../src/connect/auth-interceptor.ts";
+import { callerKey } from "../src/connect/auth-interceptor.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { makeUiHandlers, type UiHandlers } from "../src/connect/handlers-ui.ts";
 import { uiBus, type UiBusMsg } from "../src/buses.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
@@ -36,25 +33,14 @@ let handlers: UiHandlers;
 let uiLayoutApplies: UiLayoutApplyOwner;
 let uiStates: UiStateOwner;
 
-const DASHBOARD = "ui-handlers-dashboard";
-
 function fakeAuthCtx(fingerprint: string): HandlerContext {
-  const actor: DashboardActor = {
-    accountId: "ui-handlers-account",
-    organizationId: "ui-handlers-organization",
-    dashboardId: DASHBOARD,
-    organizationRole: "owner",
-    dashboardRole: "admin",
-    deviceFingerprint: fingerprint,
-  };
   const values = createContextValues();
   values.set(callerKey, {
     kind: "account-device",
     fingerprint,
     label: "",
-    accountId: actor.accountId,
+    accountId: "ui-handlers-account",
   });
-  values.set(dashboardActorKey, actor);
   return { values, signal: new AbortController().signal } as unknown as HandlerContext;
 }
 const authCtx = fakeAuthCtx("fp-test");
@@ -93,26 +79,12 @@ beforeAll(async () => {
   const opened = openDb(join(workdir, "test.db"));
   const db = opened.db;
   await runMigrations(opened.sqlite);
+  const tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
   closeDb = async () => { await opened.close(); };
   const now = Date.now();
-  await db.insertInto("organizations").values({
-    id: "ui-handlers-organization",
-    slug: "ui-handlers",
-    name: "UI handlers",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await db.insertInto("dashboards").values({
-    id: DASHBOARD,
-    organization_id: "ui-handlers-organization",
-    slug: "ui-handlers",
-    name: "UI handlers",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
   await db.insertInto("workers").values({
     fp: "ui-handlers-worker",
-    dashboard_id: DASHBOARD,
+    dashboard_id: tenant.dashboardId,
     label: "UI handlers",
     os: "linux",
     git_sha: null,
@@ -123,7 +95,7 @@ beforeAll(async () => {
   }).execute();
   await db.insertInto("sessions").values({
     id: "sess-9",
-    dashboard_id: DASHBOARD,
+    dashboard_id: tenant.dashboardId,
     worker_fp: "ui-handlers-worker",
     channel: 9,
     kind: "shell",
@@ -149,7 +121,12 @@ beforeAll(async () => {
   }).execute();
   uiLayoutApplies = new UiLayoutApplyOwner();
   uiStates = new UiStateOwner();
-  handlers = makeUiHandlers({ db, uiLayoutApplies, uiStates } as unknown as ConnectDeps);
+  handlers = makeUiHandlers({
+    db,
+    uiLayoutApplies,
+    uiStates,
+    selfHostedTenant: tenant,
+  } as unknown as ConnectDeps);
 });
 
 afterAll(async () => {
@@ -194,7 +171,7 @@ describe("uiReportState → uiListStates roundtrip", () => {
 
   test("report publishes a state msg on uiBus", async () => {
     const msgs: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((m) => msgs.push(m), DASHBOARD);
+    const stop = uiBus.subscribe((m) => msgs.push(m));
     await handlers.uiReportState(reportReq("tab-1"), authCtx);
     stop();
     expect(msgs.length).toBe(1);
@@ -211,7 +188,7 @@ describe("uiReportState → uiListStates roundtrip", () => {
     const invalid = reportReq("tab-invalid");
     invalid.layoutDocument!.schemaVersion = 2;
     const msgs: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((message) => msgs.push(message), DASHBOARD);
+    const stop = uiBus.subscribe((message) => msgs.push(message));
     await expect(handlers.uiReportState(invalid, authCtx))
       .rejects.toMatchObject({ code: Code.InvalidArgument });
     stop();
@@ -219,7 +196,7 @@ describe("uiReportState → uiListStates roundtrip", () => {
     expect(msgs).toEqual([]);
   });
 
-  test("rejects report bindings outside the selected dashboard", async () => {
+  test("rejects report bindings naming a session that is not persisted", async () => {
     const request = reportReq("tab-foreign");
     request.layoutDocument = layoutDocument("foreign-session");
     await expect(handlers.uiReportState(request, authCtx))
@@ -233,7 +210,7 @@ describe("upsert keying on fp:tabId", () => {
     await handlers.uiReportState(reportReq("tab-1", "/s/old"), authCtx);
     await handlers.uiReportState(reportReq("tab-1", "/s/new"), authCtx);
     expect(uiStates._statesByTab.size).toBe(1);
-    expect(uiStates.list(DASHBOARD)[0]?.state.activePath).toBe("/s/new");
+    expect(uiStates.list()[0]?.state.activePath).toBe("/s/new");
 
     await handlers.uiReportState(reportReq("tab-2"), authCtx);
     expect(uiStates._statesByTab.size).toBe(2);
@@ -244,10 +221,10 @@ describe("TTL reap", () => {
   test("stale entry excluded from list and snapshot", async () => {
     await handlers.uiReportState(reportReq("tab-live"), authCtx);
     await handlers.uiReportState(reportReq("tab-dead"), authCtx);
-    const dead = uiStates.list(DASHBOARD).find((entry) => entry.tabId === "tab-dead")!;
+    const dead = uiStates.list().find((entry) => entry.tabId === "tab-dead")!;
     dead.lastMs = Date.now() - UI_STATE_TTL_MS - 1;
 
-    const snap = uiStates.snapshot(DASHBOARD);
+    const snap = uiStates.snapshot();
     expect(snap.map((state) => state.tabId)).toEqual(["tab-live"]);
 
     const resp = await handlers.uiListStates(create(UiListStatesRequestSchema, {}), authCtx);
@@ -259,8 +236,8 @@ describe("TTL reap", () => {
 describe("uiDispatch", () => {
   test("publishes the command intact and reports delivered = subscriber count", async () => {
     const msgs: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((m) => msgs.push(m), DASHBOARD);
-    const expected = uiBus.subscriberCountFor(DASHBOARD);
+    const stop = uiBus.subscribe((m) => msgs.push(m));
+    const expected = uiBus.subscriberCount;
     const resp = await handlers.uiDispatch(create(UiDispatchRequestSchema, {
       targetTabId: "tab-1", command: selectTabCmd("sess-9"),
     }), authCtx);
@@ -281,7 +258,7 @@ describe("uiDispatch", () => {
 
   test("missing command → ConnectError InvalidArgument, nothing published", async () => {
     const msgs: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((m) => msgs.push(m), DASHBOARD);
+    const stop = uiBus.subscribe((m) => msgs.push(m));
     // Both shapes must reject: command absent, and command present with no case.
     for (const command of [undefined, create(UiCommandSchema, {})]) {
       try {
@@ -298,7 +275,7 @@ describe("uiDispatch", () => {
 
   test("explicitly refuses applyLayout without changing legacy delivery", async () => {
     const msgs: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((message) => msgs.push(message), DASHBOARD);
+    const stop = uiBus.subscribe((message) => msgs.push(message));
     const command = create(UiCommandSchema, {
       command: {
         case: "applyLayout",
@@ -317,7 +294,6 @@ describe("uiDispatch", () => {
 describe("uiApplyLayout", () => {
   test("registers before publication and returns an immediate applied ACK", async () => {
     const target = {
-      dashboardId: DASHBOARD,
       fingerprint: "target-fp",
       tabId: "target-tab",
       socketId: "target-socket",
@@ -332,7 +308,7 @@ describe("uiApplyLayout", () => {
         correlationId: message.correlationId,
         outcome: UiApplyLayoutOutcome.APPLIED,
       }));
-    }, DASHBOARD);
+    });
     const response = await handlers.uiApplyLayout(create(UiApplyLayoutRequestSchema, {
       targetTabId: target.tabId,
       targetFingerprint: target.fingerprint,
@@ -348,11 +324,11 @@ describe("uiApplyLayout", () => {
 
   test("a retained fresh report without a live socket returns target_gone", async () => {
     await handlers.uiReportState(reportReq("reported-only"), authCtx);
-    const reportKey = uiStates.list(DASHBOARD)
+    const reportKey = uiStates.list()
       .find((entry) => entry.tabId === "reported-only");
     expect(reportKey).toBeDefined();
     const seen: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((message) => seen.push(message), DASHBOARD);
+    const stop = uiBus.subscribe((message) => seen.push(message));
     const response = await handlers.uiApplyLayout(create(UiApplyLayoutRequestSchema, {
       targetTabId: "reported-only",
       targetFingerprint: "fp-test",
@@ -361,19 +337,18 @@ describe("uiApplyLayout", () => {
     stop();
     expect(response.outcome).toBe(UiApplyLayoutOutcome.TARGET_GONE);
     expect(seen.filter((message) => message.kind === "apply")).toEqual([]);
-    expect(uiStates.list(DASHBOARD).some((entry) => entry.tabId === "reported-only")).toBe(true);
+    expect(uiStates.list().some((entry) => entry.tabId === "reported-only")).toBe(true);
   });
 
-  test("rejects an apply with a binding outside the selected dashboard", async () => {
+  test("rejects an apply whose binding names a session that is not persisted", async () => {
     const target = {
-      dashboardId: DASHBOARD,
       fingerprint: "target-fp",
       tabId: "target-tab",
       socketId: "target-socket",
     };
     const unregister = uiLayoutApplies.registerTarget(target);
     const seen: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((message) => seen.push(message), DASHBOARD);
+    const stop = uiBus.subscribe((message) => seen.push(message));
     await expect(handlers.uiApplyLayout(create(UiApplyLayoutRequestSchema, {
       targetTabId: target.tabId,
       targetFingerprint: target.fingerprint,

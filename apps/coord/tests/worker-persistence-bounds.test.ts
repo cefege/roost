@@ -7,15 +7,11 @@ import {
   WorkersRegisterRequestSchema,
   WorkersRenameRequestSchema,
 } from "@roost/shared/proto/coordinator_pb";
-import {
-  callerKey,
-  dashboardActorKey,
-} from "../src/connect/auth-interceptor.ts";
+import { callerKey } from "../src/connect/auth-interceptor.ts";
 import { makeWorkerHandlers } from "../src/connect/handlers-workers.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 
 const WORKER_FP = "a".repeat(64);
-const DASHBOARD_ID = "worker-bounds-dashboard";
 
 type WorkerPatch = Record<string, unknown>;
 
@@ -25,7 +21,6 @@ function recordingWorkerDb(): {
 } {
   let row: WorkerPatch = {
     fp: WORKER_FP,
-    dashboard_id: DASHBOARD_ID,
     label: "worker",
     os: "linux",
     git_sha: null,
@@ -78,36 +73,21 @@ function workerContext(): HandlerContext {
     kind: "worker" as const,
     fingerprint: WORKER_FP,
     label: "worker",
-    dashboardId: DASHBOARD_ID,
   };
   return {
     values: { get: (key: unknown) => key === callerKey ? worker : undefined },
   } as unknown as HandlerContext;
 }
 
-function adminContext(): HandlerContext {
+function browserContext(): HandlerContext {
   const caller = {
     kind: "account-device" as const,
     fingerprint: "admin-device",
     label: "Admin",
     accountId: "account",
   };
-  const actor = {
-    accountId: caller.accountId,
-    organizationId: "organization",
-    dashboardId: DASHBOARD_ID,
-    organizationRole: "owner" as const,
-    dashboardRole: "admin" as const,
-    deviceFingerprint: caller.fingerprint,
-  };
   return {
-    values: {
-      get: (key: unknown) => {
-        if (key === callerKey) return caller;
-        if (key === dashboardActorKey) return actor;
-        return undefined;
-      },
-    },
+    values: { get: (key: unknown) => key === callerKey ? caller : undefined },
   } as unknown as HandlerContext;
 }
 
@@ -142,7 +122,7 @@ test("worker register, heartbeat, and rename cap every persisted string at a UTF
   await handlers.workersRename(create(WorkersRenameRequestSchema, {
     fp: WORKER_FP,
     label: `${"b".repeat(4095)}é`,
-  }), adminContext());
+  }), browserContext());
   expect(database.patches[2]).toMatchObject({ label: "b".repeat(4095) });
 
   for (const patch of database.patches) {
@@ -160,10 +140,10 @@ test("browser principals cannot register or heartbeat as workers", async () => {
   } as unknown as ConnectDeps);
   await expect(handlers.workersRegister(
     create(WorkersRegisterRequestSchema, {}),
-    adminContext(),
+    browserContext(),
   )).rejects.toMatchObject({ code: Code.Unauthenticated });
   await expect(handlers.workersHeartbeat(
     create(WorkersHeartbeatRequestSchema, {}),
-    adminContext(),
+    browserContext(),
   )).rejects.toMatchObject({ code: Code.Unauthenticated });
 });

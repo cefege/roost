@@ -18,42 +18,27 @@ import { openDb, type DbHandle } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { makeWorkspaceHandlers, type WorkspaceHandlers } from "../src/connect/handlers-workspaces.ts";
-import {
-  callerKey,
-  dashboardActorKey,
-  type DashboardActor,
-} from "../src/connect/auth-interceptor.ts";
+import { callerKey } from "../src/connect/auth-interceptor.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 
-const ACCOUNT_ID = "workspace-identity-account";
-const ORGANIZATION_ID = "workspace-identity-organization";
-const DASHBOARD_ID = "workspace-identity-dashboard";
 const DEVICE_FP = "workspace-identity-device";
 const DARWIN_FP = "fp-darwin";
 const LINUX_FP = "fp-linux";
 const UNKNOWN_OS_FP = "fp-unknown-os";
 
-const actor: DashboardActor = {
-  accountId: ACCOUNT_ID,
-  organizationId: ORGANIZATION_ID,
-  dashboardId: DASHBOARD_ID,
-  organizationRole: "owner",
-  dashboardRole: "admin",
-  deviceFingerprint: DEVICE_FP,
-};
-
-function actorContext(): HandlerContext {
+function deviceContext(accountId: string): HandlerContext {
   const values = createContextValues();
   values.set(callerKey, {
     kind: "account-device",
     fingerprint: DEVICE_FP,
     label: "workspace identity test device",
-    accountId: ACCOUNT_ID,
+    accountId,
   });
-  values.set(dashboardActorKey, actor);
   return { values } as unknown as HandlerContext;
 }
 
-const authCtx = actorContext();
+let authCtx: HandlerContext;
+let dashboardId: string;
 
 let workdir: string;
 let opened: DbHandle;
@@ -61,7 +46,7 @@ let handlers: WorkspaceHandlers;
 
 async function registerWorker(fp: string, os: string): Promise<void> {
   await opened.db.insertInto("workers").values({
-    dashboard_id: DASHBOARD_ID,
+    dashboard_id: dashboardId,
     fp, label: fp, os, git_sha: null, host_metrics_json: null,
     registered_at_ms: Date.now(), last_seen_ms: Date.now(), reachable_addr: null,
   }).execute();
@@ -75,6 +60,9 @@ beforeEach(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-ws-identity-"));
   opened = openDb(join(workdir, "test.db"));
   await runMigrations(opened.sqlite);
+  const tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
+  dashboardId = tenant.dashboardId;
+  authCtx = deviceContext(tenant.accountId);
   const now = Date.now();
   await opened.db.insertInto("authorized_keys").values({
     fingerprint: DEVICE_FP,
@@ -82,49 +70,19 @@ beforeEach(async () => {
     label: "workspace identity test device",
     added_at: now,
   }).execute();
-  await opened.db.insertInto("accounts").values({
-    id: ACCOUNT_ID,
-    email_normalized: "workspace-identity@example.test",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
   await opened.db.insertInto("account_devices").values({
     fingerprint: DEVICE_FP,
-    account_id: ACCOUNT_ID,
+    account_id: tenant.accountId,
     added_at_ms: now,
     last_seen_at_ms: now,
-  }).execute();
-  await opened.db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "workspace-identity",
-    name: "Workspace Identity",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await opened.db.insertInto("organization_memberships").values({
-    organization_id: ORGANIZATION_ID,
-    account_id: ACCOUNT_ID,
-    role: "owner",
-    created_at_ms: now,
-  }).execute();
-  await opened.db.insertInto("dashboards").values({
-    id: DASHBOARD_ID,
-    organization_id: ORGANIZATION_ID,
-    slug: "workspace-identity",
-    name: "Workspace Identity",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await opened.db.insertInto("dashboard_memberships").values({
-    dashboard_id: DASHBOARD_ID,
-    account_id: ACCOUNT_ID,
-    role: "admin",
-    created_at_ms: now,
   }).execute();
   await registerWorker(DARWIN_FP, "darwin");
   await registerWorker(LINUX_FP, "linux");
   await registerWorker(UNKNOWN_OS_FP, "unknown");
-  handlers = makeWorkspaceHandlers({ db: opened.db } as unknown as ConnectDeps);
+  handlers = makeWorkspaceHandlers({
+    db: opened.db,
+    selfHostedTenant: tenant,
+  } as unknown as ConnectDeps);
 });
 
 afterEach(async () => {

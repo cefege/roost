@@ -26,7 +26,6 @@ export interface TerminalStreamDesired {
 
 export interface TerminalStreamRoute {
   workerFp: string;
-  dashboardId: string;
   channel: number;
 }
 
@@ -41,26 +40,17 @@ export interface TerminalStreamState {
 }
 
 interface TerminalStreamSession extends TerminalStreamState {
-  dashboardId: string;
   inFlight: TerminalStreamDesired | null;
   latest: TerminalStreamDesired | null;
 }
 
 export interface TerminalViewStreamControllerOptions {
-  resolveRoute(dashboardId: string, sessionId: string): Promise<TerminalStreamRoute | null>;
+  resolveRoute(sessionId: string): Promise<TerminalStreamRoute | null>;
   sendStream(
     workerFp: string,
-    state: Omit<TerminalStreamDesired, "retry"> & {
-      sessionId: string;
-      dashboardId: string;
-    },
+    state: Omit<TerminalStreamDesired, "retry"> & { sessionId: string },
   ): TerminalWorkerRequest<WTerminalStreamResult>;
-  sendSnapshot(
-    workerFp: string,
-    sessionId: string,
-    streamId: string,
-    dashboardId: string,
-  ): boolean;
+  sendSnapshot(workerFp: string, sessionId: string, streamId: string): boolean;
   geometries(sessionId: string): readonly TerminalGeometry[];
   broadcast(sessionId: string, status: TerminalViewStatus, message: string): void;
   closeViews(sessionId: string): void;
@@ -92,8 +82,8 @@ export class TerminalViewStreamController {
     return this.sessions.get(sessionId) ?? null;
   }
 
-  recompute(sessionId: string, dashboardId: string): boolean {
-    const session = this.session(sessionId, dashboardId);
+  recompute(sessionId: string): boolean {
+    const session = this.session(sessionId);
     const geometries = this.options.geometries(sessionId);
     let effective: TerminalGeometry | null = null;
     if (geometries.length > 0) {
@@ -164,7 +154,7 @@ export class TerminalViewStreamController {
         !session?.effective
         || (session.unavailable && session.unavailablePolicy === "never")
       ) continue;
-      void this.options.resolveRoute(session.dashboardId, sessionId).then((route) => {
+      void this.options.resolveRoute(sessionId).then((route) => {
         if (
           route?.workerFp === workerFp
           && this.sessions.get(sessionId) === session
@@ -176,14 +166,10 @@ export class TerminalViewStreamController {
     }
   }
 
-  private session(sessionId: string, dashboardId?: string): TerminalStreamSession {
+  private session(sessionId: string): TerminalStreamSession {
     let session = this.sessions.get(sessionId);
     if (!session) {
-      if (dashboardId === undefined) {
-        throw new Error("terminal stream has no dashboard scope");
-      }
       session = {
-        dashboardId,
         effective: null,
         streamId: "",
         unavailable: false,
@@ -193,8 +179,6 @@ export class TerminalViewStreamController {
         latest: null,
       };
       this.sessions.set(sessionId, session);
-    } else if (dashboardId !== undefined && session.dashboardId !== dashboardId) {
-      throw new Error("terminal stream dashboard scope changed");
     }
     return session;
   }
@@ -244,14 +228,13 @@ export class TerminalViewStreamController {
     session.latest = null;
     session.inFlight = desired;
     try {
-      const route = await this.options.resolveRoute(session.dashboardId, sessionId);
+      const route = await this.options.resolveRoute(sessionId);
       if (this.sessions.get(sessionId) !== session || session.latest) return;
-      if (!route || route.dashboardId !== session.dashboardId) {
+      if (!route) {
         return this.unavailable(sessionId, "terminal worker is unavailable");
       }
       const request = this.options.sendStream(route.workerFp, {
         sessionId,
-        dashboardId: session.dashboardId,
         ...desired,
       });
       if (!request.admitted) {
@@ -381,13 +364,9 @@ export class TerminalViewStreamController {
   private async requestFull(sessionId: string, streamId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session?.effective || session.streamId !== streamId) return;
-    const route = await this.options.resolveRoute(session.dashboardId, sessionId);
-    if (
-      !route
-      || route.dashboardId !== session.dashboardId
-      || this.sessions.get(sessionId)?.streamId !== streamId
-    ) return;
-    if (!this.options.sendSnapshot(route.workerFp, sessionId, streamId, session.dashboardId)) {
+    const route = await this.options.resolveRoute(sessionId);
+    if (!route || this.sessions.get(sessionId)?.streamId !== streamId) return;
+    if (!this.options.sendSnapshot(route.workerFp, sessionId, streamId)) {
       this.unavailable(sessionId, "snapshot request could not reach worker");
     }
   }

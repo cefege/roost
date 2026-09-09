@@ -26,6 +26,11 @@ function normalizeHttpsOrigin(raw: string | undefined, envName: string): string 
 }
 
 export function loadCoordConfig(env: Record<string, string | undefined> = process.env): CoordConfig {
+  const hasCfAccessTeamDomain = env.ROOST_CF_ACCESS_TEAM_DOMAIN !== undefined;
+  const hasCfAccessAud = env.ROOST_CF_ACCESS_AUD !== undefined;
+  if (hasCfAccessTeamDomain !== hasCfAccessAud) {
+    throw new Error("ROOST_CF_ACCESS_TEAM_DOMAIN and ROOST_CF_ACCESS_AUD must be set together");
+  }
   const dataDir = coordDataDir(env);
   const parsed = CoordConfig.parse({
     bind: env.ROOST_COORDINATOR_BIND,
@@ -46,6 +51,8 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
       : [],
     relaxedCsp: env.ROOST_RELAXED_CSP === "1",
     trustProxy: env.ROOST_TRUST_PROXY === "1",
+    cfAccessTeamDomain: env.ROOST_CF_ACCESS_TEAM_DOMAIN,
+    cfAccessAud: env.ROOST_CF_ACCESS_AUD,
     webPublicUrl: normalizeHttpsOrigin(env.ROOST_WEB_PUBLIC_URL, "ROOST_WEB_PUBLIC_URL"),
     logDir: env.ROOST_COORDINATOR_LOG_DIR,
     publicUrl: normalizeHttpsOrigin(env.ROOST_COORDINATOR_PUBLIC_URL, "ROOST_COORDINATOR_PUBLIC_URL"),

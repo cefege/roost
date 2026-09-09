@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { expect, waitForConfirmedDashboardScope } from "./fixtures.ts";
+import { expect } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
 import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 import { dirname, join } from "node:path";
@@ -69,25 +69,30 @@ function fixtureWorkerFolder(worker: TerminalTestWorker): string {
 }
 
 export async function spawnPtyFixtureSession(page: Page, worker: TerminalTestWorker): Promise<string> {
-  await waitForConfirmedDashboardScope(page);
-  await page.waitForFunction((workerFp) => {
-    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    return !!smokeWindow.__smoke.state().workers[workerFp];
-  }, worker.workerFp);
-  return page.evaluate(async ({ workerFp, folder }) => {
-    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    return (await smokeWindow.__smoke.spawnShell(workerFp, folder)).session_id;
-  }, { workerFp: worker.workerFp, folder: fixtureWorkerFolder(worker) });
+  await waitForRoutableWorker(page, worker.workerFp);
+  return page.evaluate(async ({ workerFp, folder }) =>
+    (await window.__smoke.spawnShell(workerFp, folder)).session_id,
+  { workerFp: worker.workerFp, folder: fixtureWorkerFolder(worker) });
 }
 
 export async function spawnSmokeShell(page: Page, workerFp: string, sessionId?: string) {
-  await waitForConfirmedDashboardScope(page);
+  await waitForRoutableWorker(page, workerFp);
   return page.evaluate(async ({ workerFp: fp, sessionId: sid }) => {
-    const smoke = (window as unknown as { __smoke: RecoverySmokeApi }).__smoke;
+    const smoke = window.__smoke;
     const session = await smoke.spawnShell(fp, "/tmp", sid);
     await smoke.createWorkspace(fp, "/tmp", session.session_id);
     return session;
   }, { workerFp, sessionId });
+}
+
+/** A spawn needs an authenticated, hydrated client. The target worker showing
+ *  up in store state proves both, so it is the readiness gate every spawn
+ *  crosses instead of asserting on transport state directly. */
+async function waitForRoutableWorker(page: Page, workerFp: string): Promise<void> {
+  await page.waitForFunction(
+    (fp) => !!window.__smoke?.state().workers[fp],
+    workerFp,
+  );
 }
 
 export async function navigateToSmokeSession(page: Page, sessionId: string): Promise<void> {

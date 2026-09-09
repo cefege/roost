@@ -19,7 +19,6 @@ const {
   FP,
   SID_A,
   SID_C,
-  DASHBOARD_ID,
   committedChannel,
   openedEvent,
   respawnedEvent,
@@ -85,7 +84,7 @@ describe("appendEvent durable publication order", () => {
     try {
       // Same (worker_fp, client_seq) as the append above → dedupe hit.
       await appendEvent(writer.db, respawnedEvent(SID_A, 12), {
-        worker_fp: FP, client_seq: clientSeq, dashboardId: DASHBOARD_ID,
+        worker_fp: FP, client_seq: clientSeq, dashboardId: fixture.dashboardId,
       });
     } finally {
       unsub();

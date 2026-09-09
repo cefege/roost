@@ -56,7 +56,6 @@ class ApplyClock implements UiLayoutApplyClock {
 }
 
 const BASE_TARGET: UiLayoutApplyTarget = {
-  dashboardId: "dashboard-a",
   fingerprint: "fingerprint-a",
   tabId: "tab-a",
   socketId: "socket-a",
@@ -89,7 +88,6 @@ function beginPending(
 ) {
   let publication: UiLayoutApplyPublication | undefined;
   const promise = owner.requestApply(
-    target.dashboardId,
     target.fingerprint,
     target.tabId,
     controller.signal,
@@ -104,7 +102,6 @@ describe("UiLayoutApplyOwner result admission", () => {
     const { clock, owner } = makeOwner();
     owner.registerTarget(BASE_TARGET);
     const response = await owner.requestApply(
-      BASE_TARGET.dashboardId,
       BASE_TARGET.fingerprint,
       BASE_TARGET.tabId,
       new AbortController().signal,
@@ -160,7 +157,6 @@ describe("UiLayoutApplyOwner result admission", () => {
     const pending = beginPending(owner);
     const correlationId = pending.publication.correlationId;
     for (const source of [
-      { ...BASE_TARGET, dashboardId: "dashboard-b" },
       { ...BASE_TARGET, fingerprint: "fingerprint-b" },
       { ...BASE_TARGET, tabId: "tab-b" },
       { ...BASE_TARGET, socketId: "socket-b" },
@@ -199,7 +195,6 @@ describe("UiLayoutApplyOwner target selection", () => {
     const { owner } = makeOwner();
     let publications = 0;
     const response = await owner.requestApply(
-      BASE_TARGET.dashboardId,
       BASE_TARGET.fingerprint,
       BASE_TARGET.tabId,
       new AbortController().signal,
@@ -245,7 +240,6 @@ describe("UiLayoutApplyOwner target selection", () => {
     closeVictim();
     let publications = 0;
     const response = await owner.requestApply(
-      BASE_TARGET.dashboardId,
       BASE_TARGET.fingerprint,
       BASE_TARGET.tabId,
       new AbortController().signal,
@@ -253,24 +247,6 @@ describe("UiLayoutApplyOwner target selection", () => {
     );
     expect(response.outcome).toBe(UiApplyLayoutOutcome.TARGET_GONE);
     expect(publications).toBe(0);
-  });
-
-  test("same tab id in another dashboard does not collide", async () => {
-    const { owner } = makeOwner();
-    owner.registerTarget(BASE_TARGET);
-    owner.registerTarget({
-      ...BASE_TARGET,
-      dashboardId: "dashboard-b",
-      fingerprint: "fingerprint-b",
-      socketId: "socket-b",
-    });
-    const pending = beginPending(owner);
-    expect(pending.publication.socketId).toBe(BASE_TARGET.socketId);
-    expect(owner.acceptResult(BASE_TARGET, result(
-      pending.publication.correlationId,
-      UiApplyLayoutOutcome.APPLIED,
-    ))).toBe(true);
-    await pending.promise;
   });
 });
 
@@ -344,7 +320,6 @@ describe("UiLayoutApplyOwner terminal cleanup", () => {
     const preAborted = new AbortController();
     preAborted.abort();
     await expect(owner.requestApply(
-      "missing-dashboard",
       "missing-fingerprint",
       "missing-tab",
       preAborted.signal,
@@ -358,7 +333,6 @@ describe("UiLayoutApplyOwner terminal cleanup", () => {
     const first = beginPending(owner);
     let secondPublished = false;
     await expect(owner.requestApply(
-      BASE_TARGET.dashboardId,
       BASE_TARGET.fingerprint,
       BASE_TARGET.tabId,
       new AbortController().signal,

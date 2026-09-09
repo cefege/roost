@@ -80,7 +80,6 @@ export function makeSyncTerminalControlHooks(
           viewerKey: context.viewerKey,
           callerFingerprint: context.caller.fingerprint,
           clientIp: context.remoteAddress,
-          dashboardId: context.actor.dashboardId,
         },
         sessionId: command.sessionId,
         inputSeq: command.inputSeq,

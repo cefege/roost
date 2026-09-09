@@ -14,7 +14,7 @@ import {
   TranscriptionGrantTokenResponseSchema,
   TranscriptionTestResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
-import { requireDashboardActor, requireDashboardAdmin } from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import {
   getTranscriptionConfig, setTranscriptionConfig, grantDeepgramToken, testDeepgram,
 } from "../transcription.ts";
@@ -29,14 +29,14 @@ export function makeTranscriptionHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, TranscriptionMethods> {
   return {
     async transcriptionGetConfig(_req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
-      const c = await getTranscriptionConfig(deps.db, actor.dashboardId);
+      requireAccountDevice(ctx.values);
+      const c = await getTranscriptionConfig(deps.db);
       return create(TranscriptionConfigSchema, c);
     },
 
     async transcriptionSetConfig(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
-      const c = await setTranscriptionConfig(deps.db, actor.dashboardId, {
+      requireAccountDevice(ctx.values);
+      const c = await setTranscriptionConfig(deps.db, deps.selfHostedTenant.dashboardId, {
         deepgramKey: req.deepgramKey,
         deepgramLanguage: req.deepgramLanguage,
       });
@@ -44,12 +44,12 @@ export function makeTranscriptionHandlers(
     },
 
     // Direct Deepgram mode cannot mint a restricted temporary grant. Return the
-    // configured key only to a dashboard admin (the sole owner in managed mode),
-    // whose browser connects to Deepgram directly.
+    // configured key only to an authenticated browser, which connects to
+    // Deepgram directly.
     async transcriptionGrantToken(_req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      requireAccountDevice(ctx.values);
       try {
-        const { accessToken, expiresIn } = await grantDeepgramToken(deps.db, actor.dashboardId);
+        const { accessToken, expiresIn } = await grantDeepgramToken(deps.db);
         return create(TranscriptionGrantTokenResponseSchema, { accessToken, expiresIn });
       } catch (err) {
         const msg = String(err instanceof Error ? err.message : err);
@@ -61,8 +61,8 @@ export function makeTranscriptionHandlers(
     },
 
     async transcriptionTest(_req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
-      const { ok, error } = await testDeepgram(deps.db, actor.dashboardId);
+      requireAccountDevice(ctx.values);
+      const { ok, error } = await testDeepgram(deps.db);
       return create(TranscriptionTestResponseSchema, { ok, error });
     },
   };

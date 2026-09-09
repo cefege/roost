@@ -13,20 +13,6 @@ export interface SettingsRailGroup {
   panes: readonly SettingsPaneSpec[];
 }
 
-const ORGANIZATION_PANE: SettingsPaneSpec = {
-  id: "organization",
-  label: "Organization",
-  icon: "domain",
-  title: "Organization",
-};
-
-const DASHBOARD_PANE: SettingsPaneSpec = {
-  id: "dashboard",
-  label: "Dashboard",
-  icon: "dashboard",
-  title: "Dashboard",
-};
-
 const MACHINES_PANE: SettingsPaneSpec = {
   id: "machines",
   label: "Machines",
@@ -66,9 +52,8 @@ const SHARED_GROUPS: readonly SettingsRailGroup[] = [
   ] },
 ];
 
-/** Rail order is the navigation contract: Scope, then Network, then the rest. */
+/** Rail order is the navigation contract: Network first, then the rest. */
 export const SETTINGS_GROUPS: readonly SettingsRailGroup[] = [
-  { label: "Scope", panes: [ORGANIZATION_PANE, DASHBOARD_PANE] },
   { label: "Network", panes: [MACHINES_PANE, CONNECTION_PANE, DEVICES_PANE] },
   ...SHARED_GROUPS,
 ];

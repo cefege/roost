@@ -1,4 +1,4 @@
-// Pins the two progress rules of dashboard-wide search that the fan-out and
+// Pins the two progress rules of install-wide search that the fan-out and
 // cursor owner enforce together: a page that rescans nothing at the row it was
 // given must not hand that row back, and a search must carry a tab id so
 // supersession can only ever mean "this tab replaced its own search".
@@ -22,7 +22,6 @@ import {
 } from "../src/connect/global-search-cursors.ts";
 import { GlobalSearchWorkerLaneOwner } from "../src/connect/global-search-worker-lanes.ts";
 import {
-  GLOBAL_TEST_DASHBOARD_A,
   GLOBAL_TEST_WORKER_A1,
   startGlobalSearchTestFixture,
   type GlobalSearchTestFixture,
@@ -34,7 +33,6 @@ function sessionId(sequence: number): string {
 
 function binding(searchId: string): GlobalSearchCursorBinding {
   return {
-    dashboardId: GLOBAL_TEST_DASHBOARD_A,
     deviceFingerprint: "global-browser",
     tabId: "global-tab",
     searchId,

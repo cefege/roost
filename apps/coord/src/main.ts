@@ -12,6 +12,7 @@ import { importAuthorizedKeys } from "./authorized-keys.ts";
 import { newJwtCache } from "./jwt.ts";
 import { makePreMigrationBackupHook, scheduleBackups } from "./backup.ts";
 import { scheduleAuditRetention } from "./audit-retention.ts";
+import { schedulePairRequestRetention } from "./pair-request-retention.ts";
 import { createCoord } from "./coord-factory.ts";
 import { makeWorkerWsHandler } from "./connect/worker-ws-handler.ts";
 import { makeSyncWsHandler } from "./connect/sync-ws-handler.ts";
@@ -72,7 +73,7 @@ export async function runCoord() {
   }
   // One deployment shape means exactly one account/organization/dashboard, so
   // this is the only tenancy invariant and it must hold before any RPC runs.
-  ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
+  const selfHostedTenant = ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
   log.info("main", "db_ready", { path: cfg.dbPath });
 
   await runStartupJanitor(db);
@@ -86,25 +87,21 @@ export async function runCoord() {
   const uiLayoutApplies = new UiLayoutApplyOwner();
   const uiStates = new UiStateOwner();
   let closeRevokedSockets: ((fingerprint: string) => void) | null = null;
-  let closeDashboardSockets: ((dashboardId: string, fingerprint?: string) => void) | null = null;
   let fenceDeletedWorker: ((fingerprint: string) => void) | null = null;
-  let removeDeletedWorkerSyncScope:
-    ((dashboardId: string, fingerprint: string) => void) | null = null;
+  let removeDeletedWorkerSyncScope: ((fingerprint: string) => void) | null = null;
   let closeDeletedWorkerSockets: ((fingerprint: string) => void) | null = null;
   const coord = createCoord({
-    db, sqlite, cfg, jwtCache, writeGate,
+    db, sqlite, cfg, jwtCache, writeGate, selfHostedTenant,
     pendingPublications, uiLayoutApplies, uiStates,
     onKeyRevoked: (fingerprint) => {
       pendingPublications.clearWorker(fingerprint);
       closeRevokedSockets?.(fingerprint);
     },
     onWorkerDeletedFence: (fingerprint) => fenceDeletedWorker?.(fingerprint),
-    onWorkerDeletedSyncScope: (dashboardId, fingerprint) =>
-      removeDeletedWorkerSyncScope?.(dashboardId, fingerprint),
+    onWorkerDeletedSyncScope: (fingerprint) =>
+      removeDeletedWorkerSyncScope?.(fingerprint),
     onWorkerDeletedSocketClose: (fingerprint) =>
       closeDeletedWorkerSockets?.(fingerprint),
-    onDashboardRevoked: (dashboardId, fingerprint) =>
-      closeDashboardSockets?.(dashboardId, fingerprint),
   });
   const spaResponse = createSpaResponder(cfg.webDistPath, WEB_ASSETS);
   const terminalViews = new TerminalViewHub({ db });
@@ -119,6 +116,7 @@ export async function runCoord() {
     jwtCache,
     cfg,
     writeGate,
+    selfHostedTenant,
     onWorkerConnected: async (workerFp) => {
       terminalViews.workerReplacement(workerFp);
       await resumeWindowsUpdateDeploysForWorker(workerFp);
@@ -134,12 +132,14 @@ export async function runCoord() {
     jwtCache,
     cfg,
     writeGate,
+    selfHostedTenant,
     uiLayoutApplies,
     uiStates,
   };
+  const syncDepsWithAccess = { ...syncDeps, cfAccess: null };
   const syncWs = makeSyncWsHandler(
-    syncDeps,
-    makeSyncTerminalControlHooks(syncDeps, terminalViews),
+    syncDepsWithAccess,
+    makeSyncTerminalControlHooks(syncDepsWithAccess, terminalViews),
   );
   closeRevokedSockets = (fingerprint) => {
     terminalViews.removeFingerprint(fingerprint);
@@ -148,21 +148,19 @@ export async function runCoord() {
   };
   fenceDeletedWorker = (fingerprint) =>
     workerWs.fenceForFingerprint(fingerprint);
-  removeDeletedWorkerSyncScope = (dashboardId, fingerprint) =>
-    syncWs.removeWorkerFromScopes(dashboardId, fingerprint);
+  removeDeletedWorkerSyncScope = (fingerprint) =>
+    syncWs.removeWorkerFromResourceIndexes(fingerprint);
   closeDeletedWorkerSockets = (fingerprint) => {
     syncWs.closeForFingerprint(fingerprint);
     workerWs.closeForFingerprint(fingerprint);
   };
-  closeDashboardSockets = (dashboardId, fingerprint) =>
-    syncWs.closeForDashboard(dashboardId, fingerprint);
 
   const { server, host } = startBunCoordinatorListeners({
     cfg,
     coord,
     sqlite,
     workerDeps: wsDeps,
-    syncDeps,
+    syncDeps: syncDepsWithAccess,
     workerWs,
     syncWs,
     spa: spaResponse,
@@ -194,6 +192,7 @@ export async function runCoord() {
 
   scheduleBackups(sqlite, cfg.dbPath);
   scheduleAuditRetention(sqlite, cfg.auditRetentionDays);
+  schedulePairRequestRetention(sqlite);
 
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {

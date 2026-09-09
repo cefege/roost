@@ -26,7 +26,6 @@ import { workerInventoryForUpdateAdmission } from "../../apps/roost-cli/src/stat
 import type { WorkerStatus } from "../../apps/roost-cli/src/status-types.ts";
 import type { KeeperContractV1 } from "../../apps/shared/src/keeper-update.ts";
 import { supportedHostPlatform } from "../../apps/shared/src/platform.ts";
-import { X_ROOST_DASHBOARD_ID } from "../../apps/shared/src/wire/headers.ts";
 import { createTerminalWorkerStarter } from "../terminal/stack-worker-runtime.ts";
 
 const KEEPER_RPC_ATTEMPTS = 30;
@@ -50,7 +49,6 @@ export interface ReleaseHandoffRequest {
   coordDbPath: string;
   coordinatorUrl: string;
   apiKeyPath: string;
-  dashboardId: string;
   /** Deploy target, resolved against worker label, fingerprint or address. */
   host: string;
   sourceRoot: string;
@@ -70,9 +68,7 @@ export async function applyReleaseHandoff(request: ReleaseHandoffRequest): Promi
     coordinatorUrl: request.coordinatorUrl,
     keyPath: request.apiKeyPath,
     label: "roost-upgrade-deploy",
-    skipTenantProbe: true,
   });
-  const headers = { [X_ROOST_DASHBOARD_ID]: request.dashboardId };
 
   const sourceContract = await loadSourceKeeperContract(request.sourceRoot);
   const targetContract = targetKeeperContractForWorker(sourceContract, request.gitSha, {
@@ -83,10 +79,10 @@ export async function applyReleaseHandoff(request: ReleaseHandoffRequest): Promi
   const staging = stageKeeperUpdate(request, targetContract, inventory());
 
   const callbacks = createJournaledKeeperUpdateCallbacks({
-    prepare: (prepareRequest) => client.workersPrepareKeeperUpdate(prepareRequest, { headers }),
+    prepare: (prepareRequest) => client.workersPrepareKeeperUpdate(prepareRequest),
     inventory,
     routable: async (workerFingerprint) =>
-      (await client.workersList({}, { headers })).routableFps.includes(workerFingerprint),
+      (await client.workersList({})).routableFps.includes(workerFingerprint),
     sleep: delay,
     attempts: KEEPER_RPC_ATTEMPTS,
   });
@@ -127,7 +123,6 @@ export function parseReleaseHandoffRequest(args: readonly string[]): ReleaseHand
     coordDbPath: flag("coord-db"),
     coordinatorUrl: flag("coordinator-url"),
     apiKeyPath: flag("api-key"),
-    dashboardId: flag("dashboard-id"),
     host: flag("host"),
     sourceRoot: flag("source-root"),
     gitSha: flag("git-sha"),

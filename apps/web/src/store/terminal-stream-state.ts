@@ -124,10 +124,10 @@ function discardTerminalSessionState(session: TerminalSessionReplica): void {
   session.assembler.reset();
   clearTimeout(session.chunkTimer ?? undefined);
   session.chunkTimer = null;
-  // A dashboard reset may tear down the replica before Solid unmounts the
+  // A credential reset may tear down the replica before Solid unmounts the
   // CellTerminal that owns these handles. Mark every handle inert first: its
   // later cleanup must never publish an inactive view against the next
-  // dashboard's Sync generation.
+  // socket's Sync generation.
   session.generation = null;
   session.lastAcceptedFrameAtMs = null;
   session.lastAcceptedFrameGeneration = null;
@@ -183,7 +183,7 @@ export function pruneTerminalSessionState(sessionId: string): void {
 
 export function resetTerminalStreamState(preservePendingRendererDrops = false): void {
   // A smoke renderer-loss arm names one session and is consumed exactly once.
-  // Keep that deliberate delivery seam across a dashboard reset/replay so a
+  // Keep that deliberate delivery seam across a credential reset/replay so a
   // reset between arming and the first returned full frame cannot erase it.
   // Ordinary test teardown still clears every arm.
   const pendingRendererDrops = preservePendingRendererDrops

@@ -15,6 +15,22 @@ import { Card, Button, EmptyState, List, ListRow } from "./md/primitives.tsx";
 import { PairDevicePane } from "./PairDevicePane.tsx";
 import { Onboarding } from "../Onboarding.tsx";
 
+function pairingProvenanceLabel(device: {
+  pairedFromIp?: string;
+  pairedCountry?: string;
+  pairedEdgeIdentity?: string;
+}): string {
+  const origin = [device.pairedFromIp, device.pairedCountry]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+  const originLabel = origin ? `Paired from ${origin}` : "";
+  const identityLabel = device.pairedEdgeIdentity?.trim()
+    ? `Signed in as ${device.pairedEdgeIdentity}`
+    : "";
+  return [originLabel, identityLabel].filter(Boolean).join(" · ") || "Pairing origin unavailable";
+}
+
 function AuthorizedDevicesCard() {
   const [devices, { refetch }] = createResource(() => coordClient.devicesList({}));
   const [keyInfo] = createResource(async () => getCurrentWebKeyInfo());
@@ -86,13 +102,18 @@ function AuthorizedDevicesCard() {
                   </span>
                 }
                 support={
-                  <span style={{ display: "block", "overflow-wrap": "anywhere" }}>
-                    <span style={{ "font-family": "var(--term-font-family)" }}>{device.fingerprint}</span>
-                    <span aria-hidden="true"> · </span>
-                    <time dateTime={new Date(Number(device.addedAtMs)).toISOString()}>
-                      {new Date(Number(device.addedAtMs)).toLocaleString()}
-                    </time>
-                  </span>
+                  <>
+                    <span style={{ display: "block", "overflow-wrap": "anywhere" }}>
+                      <span style={{ "font-family": "var(--term-font-family)" }}>{device.fingerprint}</span>
+                      <span aria-hidden="true"> · </span>
+                      <time dateTime={new Date(Number(device.addedAtMs)).toISOString()}>
+                        {new Date(Number(device.addedAtMs)).toLocaleString()}
+                      </time>
+                    </span>
+                    <span style={{ display: "block", "overflow-wrap": "anywhere" }}>
+                      {pairingProvenanceLabel(device)}
+                    </span>
+                  </>
                 }
                 trailing={
                   <Show

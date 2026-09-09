@@ -180,13 +180,11 @@ export function sendTerminalInputRequest(
     sessionId: string;
     inputSeq: bigint;
     data: Uint8Array;
-    /** Derived from the actor/session DB lookup, never client frame scope. */
-    dashboardId?: string;
   },
   deadline: HopDeadline = startHopDeadline(INPUT_CONTROL_TIMEOUT_MS),
 ): TerminalWorkerRequest<WInputResult> {
   const worker = currentRoutableWorker(workerFp);
-  if (!worker || worker.dashboardId !== message.dashboardId) {
+  if (!worker) {
     return unsentRequest("worker offline", false);
   }
   const budgetMs = workerBudgetMs(deadline);
@@ -240,12 +238,11 @@ export function sendAgentPromptRequest(
     expectedOccupantId: string;
     expectedRevision: bigint;
     text: string;
-    dashboardId?: string;
   },
   deadline: HopDeadline = startHopDeadline(INPUT_CONTROL_TIMEOUT_MS),
 ): TerminalWorkerRequest<WInputResult> {
   const worker = currentRoutableWorker(workerFp);
-  if (!worker || worker.dashboardId !== message.dashboardId) {
+  if (!worker) {
     return unsentRequest("worker offline", false);
   }
   const budgetMs = workerBudgetMs(deadline);
@@ -301,13 +298,11 @@ export function sendTerminalStreamStateRequest(
     enabled: boolean;
     cols: number;
     rows: number;
-    /** Resolved from the owning terminal view's persisted session scope. */
-    dashboardId?: string;
   },
   deadline: HopDeadline = startHopDeadline(TERMINAL_STREAM_CONTROL_TIMEOUT_MS),
 ): TerminalWorkerRequest<WTerminalStreamResult> {
   const worker = currentRoutableWorker(workerFp);
-  if (!worker || worker.dashboardId !== message.dashboardId) {
+  if (!worker) {
     return unsentRequest("worker offline", false);
   }
   const budgetMs = workerBudgetMs(deadline);
@@ -355,10 +350,10 @@ export function sendTerminalStreamStateRequest(
 /** Fire-and-forget full-baseline repair for the currently expected stream. */
 export function sendTerminalSnapshotRequest(
   workerFp: string,
-  message: { sessionId: string; streamId: string; dashboardId?: string },
+  message: { sessionId: string; streamId: string },
 ): boolean {
   const worker = currentRoutableWorker(workerFp);
-  if (!worker || worker.dashboardId !== message.dashboardId) return false;
+  if (!worker) return false;
   try {
     return worker.send(create(CoordWorkerDownSchema, {
       frame: {

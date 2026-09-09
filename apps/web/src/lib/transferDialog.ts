@@ -1,6 +1,6 @@
 // Open state for the cross-worker transfer beta availability dialog.
 // Session row context menus open it; the App-level host renders it.
-// A dashboard-scope boundary closes it with the rest of account-sensitive UI state.
+// A credential boundary closes it with the rest of account-sensitive UI state.
 
 import { createSignal } from "solid-js";
 

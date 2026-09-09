@@ -18,7 +18,6 @@ import {
 } from "../src/connect/sync-ws-v1-delivery.ts";
 import {
   createSyncWsKeepaliveCoordFixture,
-  SYNC_WS_KEEPALIVE_DASHBOARD_ID,
   type SyncWsKeepaliveCoordFixture,
 } from "./sync-ws-keepalive-coord-fixture.ts";
 import {
@@ -33,7 +32,6 @@ import {
 let fixture: SyncWsKeepaliveCoordFixture;
 let deps: ConnectDeps;
 let fingerprint: string;
-const dashboardId = SYNC_WS_KEEPALIVE_DASHBOARD_ID;
 
 class PressureSocket extends FixturePressureSocket {
   constructor(
@@ -64,14 +62,13 @@ test("ACK-paced retained seed crosses 512 frames and a stalled seed exits at 3 s
   const now = Date.now();
   for (let index = 0; index < 520; index += 1) {
     const tabId = `${seedPrefix}-${index}`;
-    const key = JSON.stringify([dashboardId, fingerprint, tabId]);
+    const key = JSON.stringify([fingerprint, tabId]);
     const state = create(UiReportStateRequestSchema, {
       tabId,
       activePath: "/",
       folderKey: "",
     });
     deps.uiStates._statesByTab.set(key, {
-      dashboardId,
       fp: fingerprint,
       tabId,
       lastMs: now,

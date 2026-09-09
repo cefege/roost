@@ -71,12 +71,11 @@ export function workerHeartbeatDb(
   };
 }
 
-export function workerHeartbeatContext(dashboardId: string): HandlerContext {
+export function workerHeartbeatContext(): HandlerContext {
   const worker = {
     kind: "worker" as const,
     fingerprint: WORKER_FP,
     label: WORKER_LABEL,
-    dashboardId,
   };
   return {
     values: { get: (key: unknown) => key === callerKey ? worker : undefined },

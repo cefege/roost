@@ -9,13 +9,10 @@ import { log } from "@roost/shared/log";
 import { isSupportedHostPlatform } from "@roost/shared/platform";
 import {
   AuthCoordIdentityResponseSchema,
-  AuthDashboardAccessResponseSchema,
   AuthMintBootstrapResponseSchema,
   AuthRedeemBrowserResponseSchema,
   AuthRedeemWorkerResponseSchema,
   CoordinatorService,
-  DashboardAccessSchema,
-  OrganizationAccessSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { decodeEd25519Pubkey } from "../authorized-keys.ts";
 import {
@@ -26,33 +23,16 @@ import {
 import { COORD_GIT_SHA } from "../git-sha.ts";
 import { refreshJwtKey } from "../jwt.ts";
 import { truncatePersistedUtf8 } from "../persistence-input.ts";
-import {
-  getDashboardAccessSnapshot,
-  requestedDashboardId,
-  requireAccountDevice,
-  requireDashboardActor,
-} from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 
 type AuthBootstrapMethods =
   | "authCoordIdentity"
-  | "authDashboardAccess"
   | "authMintBootstrap"
   | "authRedeemWorker"
   | "authRedeemBrowser";
 
-function dashboardCapabilities(
-  organizationRole: "owner" | "admin" | "member",
-  dashboardRole: "admin" | "member",
-): string[] {
-  const capabilities = ["dashboard:member"];
-  if (dashboardRole === "admin") capabilities.push("dashboard:admin");
-  if (organizationRole === "owner" || organizationRole === "admin") {
-    capabilities.push("organization:admin");
-  }
-  if (organizationRole === "owner") capabilities.push("organization:owner");
-  return capabilities;
-}
+
 
 function invalidBootstrapToken(): never {
   throw new ConnectError("invalid or expired token", Code.Unauthenticated);
@@ -79,58 +59,21 @@ export function makeAuthBootstrapHandlers(
       });
     },
 
-    async authDashboardAccess(_req, ctx) {
-      const caller = requireAccountDevice(ctx.values);
-      const snapshot = await getDashboardAccessSnapshot(deps.db, caller.fingerprint);
-      if (!snapshot) throw new ConnectError("not found", Code.NotFound);
-      const requested = requestedDashboardId(ctx.values);
-      // The header is only a hint at bootstrap. A foreign or stale value cannot
-      // select anything; return the first deterministic active membership.
-      const selected = snapshot.dashboards.find((dashboard) => dashboard.id === requested)
-        ?? snapshot.dashboards[0];
-      return create(AuthDashboardAccessResponseSchema, {
-        accountId: snapshot.accountId,
-        organizations: snapshot.organizations.map((organization) => create(OrganizationAccessSchema, {
-          id: organization.id,
-          slug: organization.slug,
-          name: organization.name,
-          role: organization.role,
-        })),
-        dashboards: snapshot.dashboards.map((dashboard) => create(DashboardAccessSchema, {
-          id: dashboard.id,
-          organizationId: dashboard.organizationId,
-          slug: dashboard.slug,
-          name: dashboard.name,
-          organizationRole: dashboard.organizationRole,
-          dashboardRole: dashboard.dashboardRole,
-        })),
-        selectedDashboardId: selected?.id ?? "",
-        capabilities: selected
-          ? dashboardCapabilities(selected.organizationRole, selected.dashboardRole)
-          : [],
-      });
-    },
-
 
     async authMintBootstrap(req, ctx) {
-      requireAccountDevice(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
       if (req.kind !== "worker" && req.kind !== "browser") {
         throw new ConnectError("bootstrap kind must be worker or browser", Code.InvalidArgument);
       }
-      const actor = requireDashboardActor(ctx.values);
       const kind = req.kind === "worker" ? "worker" : "browser";
       const minted = await mintBootstrapToken(deps.db, {
         kind,
         label: req.label,
-        accountId: actor.accountId,
-        dashboardId: actor.dashboardId,
-        mintedByFp: actor.deviceFingerprint,
+        accountId: deps.selfHostedTenant.accountId,
+        dashboardId: deps.selfHostedTenant.dashboardId,
+        mintedByFp: caller.fingerprint,
       });
-      log.info("auth.connect", "bootstrap_minted", {
-        kind,
-        account_id: actor.accountId,
-        dashboard_id: actor.dashboardId,
-      });
+      log.info("auth.connect", "bootstrap_minted", { kind });
       return create(AuthMintBootstrapResponseSchema, {
         token: minted.token,
         expiresAtMs: BigInt(minted.expiresAtMs),
@@ -171,14 +114,13 @@ export function makeAuthBootstrapHandlers(
           .where("fingerprint", "=", fp)
           .executeTakeFirst();
         const worker = await trx.selectFrom("workers")
-          .select(["fp", "dashboard_id"])
+          .select("fp")
           .where("fp", "=", fp)
           .executeTakeFirst();
 
         if (worker) {
           if (
-            worker.dashboard_id !== claimed.dashboardId
-            || !authorizedKey
+            !authorizedKey
             || !publicKeysEqual(authorizedKey.public_key, pubkey)
           ) {
             invalidBootstrapToken();
@@ -195,7 +137,6 @@ export function makeAuthBootstrapHandlers(
               last_seen_ms: now,
             })
             .where("fp", "=", fp)
-            .where("dashboard_id", "=", claimed.dashboardId)
             .execute();
         } else {
           if (authorizedKey) invalidBootstrapToken();
@@ -207,7 +148,7 @@ export function makeAuthBootstrapHandlers(
           }).execute();
           await trx.insertInto("workers").values({
             fp,
-            dashboard_id: claimed.dashboardId,
+            dashboard_id: deps.selfHostedTenant.dashboardId,
             label,
             os: req.os,
             git_sha: gitSha,

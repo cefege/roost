@@ -64,39 +64,33 @@ test("worker routes wait for their domain and keep denial recovery reachable", a
   expect(seedCleanup.errors).toEqual([]);
   expect(seedCleanup.killedSessions).toContain(seedSessionId);
 
-  const dashboardSelector = smokePage.getByTestId("dashboard-selector");
-  await dashboardSelector.evaluate((element, dashboardId) => {
-    if (!("value" in element) || typeof element.value !== "string") {
-      throw new Error("dashboard selector has no value");
-    }
-    element.value = dashboardId;
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-  }, stack.secondDashboardId);
-  await expect.poll(() => dashboardSelector.evaluate((element) =>
-    "value" in element ? String(element.value) : ""
-  )).toBe(stack.secondDashboardId);
+  // Stale, unknown, or deleted worker: a fingerprint no machine will ever claim
+  // is the surviving route the denial replacement has to recover from.
+  const unknownWorkerFp = "0".repeat(64);
+  await smokePage.evaluate((workerFp) => {
+    window.__smoke.navigate(`/browse/${workerFp}`);
+  }, unknownWorkerFp);
   const browseUnavailable = smokePage.getByTestId("browse-worker-unavailable");
   await expect(browseUnavailable).toBeVisible();
   await expect(browseUnavailable).toHaveAttribute("role", "status");
   await expect(browseUnavailable).toHaveAttribute("aria-live", "polite");
   await expect(browseUnavailable).toHaveAccessibleName(
-    "Machine unavailable. This machine isn't available in the current dashboard.",
+    "Machine unavailable. This machine isn't available on this coordinator.",
   );
   await expect(browseUnavailable).toBeFocused();
 
   await smokePage.setViewportSize({ width: 640, height: 320 });
 
   await smokePage.evaluate((workerFp) => {
-    const smokeWindow = window as unknown as WorkerRouteGuardWindow;
-    smokeWindow.__smoke.navigate(`/file/${workerFp}/tmp/unavailable.txt`);
-  }, stack.workerFp);
+    window.__smoke.navigate(`/file/${workerFp}/tmp/unavailable.txt`);
+  }, unknownWorkerFp);
   const fileUnavailable = smokePage.getByTestId("file-viewer-unavailable");
   const homeAction = smokePage.getByTestId("file-viewer-unavailable-home");
   await expect(fileUnavailable).toBeVisible();
   await expect(fileUnavailable).toHaveAttribute("role", "status");
   await expect(fileUnavailable).toHaveAttribute("aria-live", "polite");
   await expect(fileUnavailable).toHaveAccessibleName(
-    "File unavailable. This file isn't available in the current dashboard.",
+    "File unavailable. This file isn't available on this coordinator.",
   );
   await expect(fileUnavailable).toBeFocused();
 

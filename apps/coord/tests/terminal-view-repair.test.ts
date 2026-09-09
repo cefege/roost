@@ -6,7 +6,6 @@ import {
 } from "@roost/shared/proto/sync_pb";
 import type { TerminalScreenSocketSink } from "../src/connect/terminal-screen-hub.ts";
 import {
-  DASHBOARD,
   SESSION,
   VIEW_A,
   disposeHubs,
@@ -67,7 +66,6 @@ describe("terminal view coordinator repair", () => {
       socketId: "socket-a",
       viewerKey: "viewer-a",
       callerFingerprint: "fingerprint-a",
-      dashboardId: DASHBOARD,
       allowsSession: (sessionId) => sessionId === SESSION,
       sink: schedulerSink(scheduler),
     });

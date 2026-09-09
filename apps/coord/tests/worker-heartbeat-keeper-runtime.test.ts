@@ -56,7 +56,7 @@ function registeredKeeperRuntimes(): {
   const seen: Array<KeeperRuntimeObservationV1 | null> = [];
   const stop = presenceBus.subscribe((msg) => {
     if (msg.kind === "registered") seen.push(msg.worker.keeper_runtime);
-  }, DASHBOARD_ID);
+  });
   return { seen, stop };
 }
 
@@ -70,7 +70,7 @@ test("a proved keeper runtime persists in a shape update admission accepts", asy
       create(WorkersHeartbeatRequestSchema, {
         keeperRuntime: keeperRuntimeObservationToProto(OBSERVATION),
       }),
-      workerHeartbeatContext(DASHBOARD_ID),
+      workerHeartbeatContext(),
     );
   } finally {
     presence.stop();
@@ -113,7 +113,7 @@ test("a malformed keeper runtime clears the column and rejects the beat", async 
       create(WorkersHeartbeatRequestSchema, {
         keeperRuntime: create(KeeperRuntimeProtoSchema, { schemaVersion: 1 }),
       }),
-      workerHeartbeatContext(DASHBOARD_ID),
+      workerHeartbeatContext(),
     );
   } catch (error) {
     rejection = error;
@@ -140,7 +140,7 @@ test("a beat that omits the keeper runtime retires the stored proof", async () =
   try {
     await handlers.workersHeartbeat(
       create(WorkersHeartbeatRequestSchema, {}),
-      workerHeartbeatContext(DASHBOARD_ID),
+      workerHeartbeatContext(),
     );
   } finally {
     presence.stop();

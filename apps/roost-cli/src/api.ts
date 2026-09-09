@@ -1,7 +1,7 @@
 // roost api — headless introspection and control over coordinator Connect RPCs.
 // Owns authenticated client setup and dispatches the general API verb surface.
 // Focused verb families and formatters live in sibling api-* modules.
-// Called by main.ts; every request uses the selected dashboard's CLI identity.
+// Called by main.ts; every request uses the enrolled CLI device identity.
 
 import { basename } from "node:path";
 import { loadWorkerConfig } from "../../worker/src/config.ts";
@@ -14,10 +14,7 @@ import type { CoordClient } from "../../worker/src/coord-client.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { diag } from "@roost/shared/diag";
 import { DEFAULT_COORDINATOR_BIND } from "@roost/shared/config";
-import {
-  buildDashboardScopedCliContext,
-  withDashboardScope,
-} from "./cli-auth.ts";
+import { buildCliContext } from "./cli-auth.ts";
 import { dispatchAgentStatusApi } from "./api-agent-status.ts";
 import { dispatchAgentPromptApi } from "./api-agent-prompt.ts";
 import { dispatchUiApi, prepareUiApplyLayout, type PreparedUiApplyLayout } from "./api-ui.ts";
@@ -29,7 +26,7 @@ export type AuthorizedApiClient = CoordClient;
 export async function buildApiClient(
   options: { coordinatorUrl?: string } = {},
 ): Promise<CoordClient> {
-  return (await buildDashboardScopedCliContext(options)).client;
+  return (await buildCliContext(options)).client;
 }
 /** Historical caller name; enrollment is now the normal buildApiClient path. */
 export function buildSelfAuthorizedApiClient(): Promise<CoordClient> {
@@ -44,8 +41,6 @@ export async function buildAuthorizedApiClient(options: {
   coordinatorUrl: string;
   keyPath: string;
   label: string;
-  /** Caller seeded the key and attaches its own dashboard scope. */
-  skipTenantProbe?: boolean;
 }): Promise<AuthorizedApiClient> {
   const cfg = loadWorkerConfig({
     ROOST_COORDINATOR_URL: options.coordinatorUrl,
@@ -53,13 +48,10 @@ export async function buildAuthorizedApiClient(options: {
     ROOST_WORKER_LABEL: options.label,
   });
   const key = await loadWorkerKey(options.keyPath);
-  const client = createCoordClient({
+  return createCoordClient({
     cfg,
     getJwt: () => mintJwt(key, "roost-coordinator"),
   });
-  if (options.skipTenantProbe) return client;
-  const access = await client.authDashboardAccess({});
-  return withDashboardScope(client, access.selectedDashboardId);
 }
 
 /** Mint a scoped one-shot worker grant using the enrolled CLI device. */
@@ -333,11 +325,9 @@ async function dispatch(
       // lifecycle history use the `sessions` projection or read the events table.
       const sid = requireArg(rest[0], "sessionId");
       const secs = numFlag(rest, "--secs", 5);
-      const dashboardId = strFlag(rest, "--dashboard");
       const SKIP = new Set(["bytes", "cellGrid"]); // high-volume binary — use `cells` or `events`
       try {
         for await (const frame of await openSyncWs({
-          ...(dashboardId ? { dashboardId } : {}),
           signal: AbortSignal.timeout(secs * 1000),
         })) {
           const fc = frame.frame.case;

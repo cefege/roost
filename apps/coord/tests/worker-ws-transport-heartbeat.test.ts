@@ -29,12 +29,11 @@ import {
 } from "./worker-ws-transport-fixture.ts";
 
 let fixture: WorkerWsTransportFixture;
-let dashboardId: string;
 let deps: WorkerWsTransportFixture["deps"];
 
 beforeAll(async () => {
   fixture = await startWorkerWsTransportFixture();
-  ({ dashboardId, deps } = fixture);
+  ({ deps } = fixture);
 });
 
 afterAll(async () => { await fixture?.cleanup(); });
@@ -50,8 +49,6 @@ describe("worker↔coord raw-WS transport", () => {
       { fingerprint: fp },
       (frame) => { sent.push(frame); return 1; },
       () => { closeRequests++; },
-      undefined,
-      dashboardId,
     );
     try {
       await conn.handleUpstream(helloFrame(fp));
@@ -88,8 +85,6 @@ describe("worker↔coord raw-WS transport", () => {
       { fingerprint: fp },
       (frame) => { sent.push(frame); return 1; },
       () => { closeRequests++; },
-      undefined,
-      dashboardId,
     );
     try {
       await conn.handleUpstream(helloFrame(fp));
@@ -140,16 +135,12 @@ describe("worker↔coord raw-WS transport", () => {
       { fingerprint: fp },
       () => 1,
       () => { oldCloseRequests++; },
-      undefined,
-      dashboardId,
     );
     const newConn = makeWorkerConn(
       deps,
       { fingerprint: fp },
       () => 1,
       () => { newCloseRequests++; },
-      undefined,
-      dashboardId,
     );
     try {
       await oldConn.handleUpstream(helloFrame(fp));
@@ -178,8 +169,6 @@ describe("worker↔coord raw-WS transport", () => {
       { fingerprint: fp },
       (frame) => { sent.push(frame); return 1; },
       () => { closeRequests++; },
-      undefined,
-      dashboardId,
     );
     const gate = Promise.withResolvers<void>();
     const order: string[] = [];
@@ -198,7 +187,6 @@ describe("worker↔coord raw-WS transport", () => {
       kind: "worker",
       caller: {} as never,
       fp,
-      dashboardId,
       conn: queuedConn,
       queue: null,
       eventRate: { startedAtMs: null, events: 0 },

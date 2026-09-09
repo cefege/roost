@@ -1,5 +1,5 @@
-// SessionsPrompt authorizes an open dashboard session, validates every public
-// fence and bound, then delegates exactly-once write/wait orchestration.
+// SessionsPrompt authorizes an open session, validates every public fence and
+// bound, then delegates exactly-once write/wait orchestration.
 // Responses expose only bounded outcomes; prompt text and agent status messages
 // never enter coordinator logs, audits, or durable storage.
 
@@ -33,7 +33,6 @@ import {
 } from "./agent-prompt-control.ts";
 import {
   requireAccountDevice,
-  requireDashboardActor,
   remoteAddressKey,
   tabIdKey,
 } from "./auth-interceptor.ts";
@@ -59,13 +58,11 @@ interface ValidatedAgentPrompt {
 export function makeAgentPromptHandlers(deps: ConnectDeps): AgentPromptHandlers {
   return {
     async sessionsPrompt(request, context) {
-      const actor = requireDashboardActor(context.values);
       const caller = requireAccountDevice(context.values);
       const validated = validateAgentPromptRequest(request);
       const authorizedSession = await deps.db.selectFrom("sessions")
         .select("id")
         .where("id", "=", validated.sessionId)
-        .where("dashboard_id", "=", actor.dashboardId)
         .where("status", "=", "open")
         .executeTakeFirst();
       if (!authorizedSession) {
@@ -84,7 +81,6 @@ export function makeAgentPromptHandlers(deps: ConnectDeps): AgentPromptHandlers 
             caller.fingerprint,
             context.values.get(tabIdKey),
             context.values.get(remoteAddressKey),
-            actor.dashboardId,
           ),
           sessionId: validated.sessionId,
           inputSeq: nextCompatibilityInputSeq(),
@@ -185,7 +181,6 @@ const REJECTION_MEMBERS: Record<string, AgentPromptRejection> = {
   "worker connection was superseded": AgentPromptRejection.SESSION_UNAVAILABLE,
   "unknown session": AgentPromptRejection.SESSION_UNAVAILABLE,
   "worker unavailable": AgentPromptRejection.SESSION_UNAVAILABLE,
-  "terminal dashboard scope is unavailable": AgentPromptRejection.SESSION_UNAVAILABLE,
   "coordinator keeper update preparation in progress": AgentPromptRejection.SESSION_UNAVAILABLE,
   "coordinator write lease unavailable": AgentPromptRejection.SESSION_UNAVAILABLE,
   "prompt budget expired": AgentPromptRejection.EXPIRED,

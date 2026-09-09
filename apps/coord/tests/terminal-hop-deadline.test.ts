@@ -28,6 +28,7 @@ import {
 import type { CoordConfig } from "@roost/shared/config";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { newJwtCache } from "../src/jwt.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
@@ -45,8 +46,7 @@ import {
 
 const WORKER_FP = "abadcafe".repeat(8);
 const CALLER_FP = "feedface".repeat(8);
-const DASHBOARD_ID = "terminal-hop-deadline-dashboard";
-const ORGANIZATION_ID = "terminal-hop-deadline-organization";
+let dashboardId: string;
 
 let workdir: string;
 let db: KyselyDB;
@@ -60,6 +60,8 @@ beforeAll(async () => {
   const opened = openDb(join(workdir, "test.db"));
   db = opened.db;
   await runMigrations(opened.sqlite);
+  const selfHostedTenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
+  dashboardId = selfHostedTenant.dashboardId;
   const cfg: CoordConfig = {
     pushAllowedOrigins: [],
     trustProxy: false, bind: "127.0.0.1:0", dbPath: join(workdir, "test.db"),
@@ -75,25 +77,12 @@ beforeAll(async () => {
     jwtCache: newJwtCache(),
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
+    selfHostedTenant,
+    cfAccess: null,
   };
   const now = Date.now();
-  await db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "terminal-hop-deadline",
-    name: "Terminal hop deadline",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await db.insertInto("dashboards").values({
-    id: DASHBOARD_ID,
-    organization_id: ORGANIZATION_ID,
-    slug: "terminal-hop-deadline",
-    name: "Terminal hop deadline",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
   await db.insertInto("workers").values({
-    dashboard_id: DASHBOARD_ID,
+    dashboard_id: dashboardId,
     fp: WORKER_FP, label: "hop", os: "linux", reachable_addr: "127.0.0.1",
     git_sha: null, host_metrics_json: null,
     registered_at_ms: now, last_seen_ms: now,
@@ -115,14 +104,14 @@ async function seedSession(): Promise<string> {
   const id = `hop00000-0000-4000-8000-${String(sessionCounter).padStart(12, "0")}`;
   await db.insertInto("sessions").values({
     id, worker_fp: WORKER_FP, channel: 1, kind: "shell",
-    dashboard_id: DASHBOARD_ID,
+    dashboard_id: dashboardId,
     cwd: "/tmp", status: "open", created_at: Date.now(),
   }).execute();
   return id;
 }
 
 function identity(tabId: string): TerminalViewerIdentity {
-  return { viewerKey: `${CALLER_FP}:${tabId}`, callerFingerprint: CALLER_FP, dashboardId: DASHBOARD_ID };
+  return { viewerKey: `${CALLER_FP}:${tabId}`, callerFingerprint: CALLER_FP };
 }
 
 /** A deadline frozen at `remainingMs`. Nothing here reads a clock, so a test
@@ -132,7 +121,7 @@ function frozenDeadline(totalMs: number, remainingMs: number): HopDeadline {
 }
 
 function attachWorker(send: (frame: CoordWorkerDown) => number): void {
-  __setConnectWorkerForTest(WORKER_FP, { workerFp: WORKER_FP, dashboardId: DASHBOARD_ID, send });
+  __setConnectWorkerForTest(WORKER_FP, { workerFp: WORKER_FP, send });
 }
 
 describe("pre-send expiry is a definite rejection", () => {

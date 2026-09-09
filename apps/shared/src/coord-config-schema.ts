@@ -24,10 +24,12 @@ export const CoordConfig = z.object({
   pushAllowedOrigins: z.array(z.string()).default([]),
   relaxedCsp: z.boolean().default(false),
   trustProxy: z.boolean().default(false),
+  cfAccessTeamDomain: z.string().regex(/^[a-z0-9-]+\.cloudflareaccess\.com$/).optional(),
+  cfAccessAud: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   // Operator-declared browser front door. Seeds the CSP connect-src allowance and
   // the Sync WS origin allowlist; the front door itself owns TLS and DNS.
   webPublicUrl: z.string().url().optional(),
-  logDir: z.string().default(coordLogDir()),
+  logDir: z.string().default(() => coordLogDir()),
   // Coordinator identity origin for operators whose worker traffic enters through a
   // different door than the browser front door. Never derived, only declared.
   publicUrl: z.string().url().optional(),

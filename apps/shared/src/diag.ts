@@ -145,6 +145,7 @@ export type SignalKind =
   | "voice.dictation_empty"     // a recording ended with an EMPTY transcript and no error anywhere; kv names the stage that went quiet (frames=0 dead audio graph / peak=0 device silence / chunks>0 results=0 Deepgram never answered / results>0 chars=0 it heard nothing) plus build+ua, because "the mic does nothing" is otherwise unfalsifiable after the tab closes
   | "nav.safety_net_redirect" // MainPane dead-route safety net navigated away from a terminal route (kv.reason=gone|stale-deeplink, kv.target). Live-session bounce = a resolution bug to chase from kv.sid.
   | "perf.longtask_stall"       // SPA main-thread task ≥ freeze threshold; kv carries the leak-watch accumulator snapshot (per-session map sizes, dom_nodes, heap_mb, uptime) at stall time → names days-long-uptime bloat vs a transient
+  | "cf-access.rejected"        // Cloudflare Access assertion was absent or failed verification
   // ─── Coverage-sweep additions (coord Tier-1, worker transport/lifecycle, deploy) ───
   | "bytes.drop_unmapped"       // coord byte-hub dropped PTY output/cell/status for a channel with no session mapping (burst = real output/history loss, not the open-race)
   | "cell.announce_barrier_drop" // coord's announced-channel barrier abandoned buffered worker frames; a mapped terminal stream is invalidated and requests one full snapshot

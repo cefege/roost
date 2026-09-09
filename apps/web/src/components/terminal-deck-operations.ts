@@ -25,9 +25,9 @@ import {
   wasAborted,
 } from "../store/optimisticSpawn.ts";
 import {
-  captureDashboardResourceToken,
-  isCurrentDashboardResourceToken,
-} from "../store/dashboard-selection.ts";
+  captureAuthResourceToken,
+  isCurrentAuthResourceToken,
+} from "../store/auth-boundary.ts";
 import { coordClient } from "../connect.ts";
 import {
   findLeafOfTab,
@@ -147,13 +147,13 @@ export function createTerminalDeckOperations(
   async function newTab(paneId: string): Promise<void> {
     const anchor = anchorFor(paneId);
     if (!anchor) return;
-    const dashboardToken = captureDashboardResourceToken();
+    const authToken = captureAuthResourceToken();
     releaseActiveComposeFocus();
     model.apply((layout) => focusPane(layout, paneId));
     const sessionId = beginOptimisticSpawn(anchor);
     model.navigate(`/s/${sessionId}`);
     const measured = await waitForMountedSpawnMeasurement(sessionId, 100);
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    if (!isCurrentAuthResourceToken(authToken)) return;
     if (wasAborted(sessionId)) {
       clearAborted(sessionId);
       return;
@@ -161,7 +161,7 @@ export function createTerminalDeckOperations(
     const startedAt = Date.now();
     try {
       await spawnSibling(anchor, sessionId, measured ?? undefined);
-      if (!isCurrentDashboardResourceToken(dashboardToken)) {
+      if (!isCurrentAuthResourceToken(authToken)) {
         endOptimisticSpawn(sessionId);
         return;
       }
@@ -181,7 +181,7 @@ export function createTerminalDeckOperations(
       );
       maybeAutoLaunchAgent(sessionId);
     } catch (error) {
-      if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+      if (!isCurrentAuthResourceToken(authToken)) return;
       if (wasAborted(sessionId)) {
         clearAborted(sessionId);
         if ((rootStore.sessions[sessionId]?.channel ?? 0) > 0) {
@@ -211,12 +211,12 @@ export function createTerminalDeckOperations(
     const paneId = layout.focusedPaneId;
     const anchor = anchorFor(paneId);
     if (!anchor) return;
-    const dashboardToken = captureDashboardResourceToken();
+    const authToken = captureAuthResourceToken();
     releaseActiveComposeFocus();
     const { sessionId } = await spawnSibling(anchor);
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    if (!isCurrentAuthResourceToken(authToken)) return;
     await waitForSession(sessionId);
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    if (!isCurrentAuthResourceToken(authToken)) return;
     maybeAutoLaunchAgent(sessionId);
     model.apply((current) => splitLeaf(current, paneId, dir, sessionId, false));
     model.navigate(`/s/${sessionId}`);

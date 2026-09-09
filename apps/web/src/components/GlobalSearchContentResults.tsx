@@ -1,4 +1,4 @@
-// Terminal-content result presentation for the dashboard search route.
+// Terminal-content result presentation for the global search route.
 // It joins coordinator matches through the current navigation projection and
 // delegates paging and session navigation to its controller-owning parent.
 
@@ -191,7 +191,7 @@ export function GlobalSearchContentResults(props: GlobalSearchContentResultsProp
             <Show when={missingProjectionMatches() > 0}>
               <span>
                 {missingProjectionMatches()} {missingProjectionMatches() === 1 ? "match belongs" : "matches belong"} to
-                sessions no longer present in the current dashboard view.
+                sessions no longer present in the current session list.
               </span>
             </Show>
             <Show when={props.controller.error()}>

@@ -22,7 +22,6 @@ import { GlobalSearchCursorOwner } from "../src/connect/global-search-cursors.ts
 import { GlobalSearchWorkerLaneOwner } from "../src/connect/global-search-worker-lanes.ts";
 import { _pendingRpcStats } from "../src/router/pending-rpcs.ts";
 import {
-  GLOBAL_TEST_DASHBOARD_A,
   GLOBAL_TEST_WORKER_A1,
   GLOBAL_TEST_WORKER_A2,
   startGlobalSearchTestFixture,
@@ -217,7 +216,6 @@ describe("global search continuation and result validation", () => {
 
     const cursor = owner.issueCursor({
       binding: {
-        dashboardId: GLOBAL_TEST_DASHBOARD_A,
         deviceFingerprint: "global-browser",
         tabId: "global-tab",
         searchId: "cursor-epoch-lie",

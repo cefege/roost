@@ -35,7 +35,6 @@ import type { CellRow } from "@roost/shared/cell";
 import { asSessionId, type ScrollbackHistoryFloor } from "@roost/shared/wire";
 import {
   requireAccountDevice,
-  requireDashboardActor,
   requireSearchTabId,
   tabIdKey,
 } from "./auth-interceptor.ts";
@@ -184,10 +183,9 @@ export function makeSessionScrollbackHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, ScrollbackMethods> {
   return {
     async sessionsGetScrollbackCells(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
       const caller = requireAccountDevice(ctx.values);
       const endRow = requireJsonSafeRow(req.endRow, "scrollback cells end_row");
-      const { row, sock } = await requireSessionWorkerSocket(deps.db, actor, req.sessionId);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const pending = createPendingRpc<{
         rows: CellRow[];
         cols: number;
@@ -229,15 +227,10 @@ export function makeSessionScrollbackHandlers(
     },
 
     async sessionsSearchScrollback(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
       const caller = requireAccountDevice(ctx.values);
       const viewerId = `${caller.fingerprint}:${requireSearchTabId(ctx.values)}`;
       const beforeRow = validateSearchRequest(req);
-      const { row, sock } = await requireSessionWorkerSocket(
-        deps.db,
-        actor,
-        req.sessionId,
-      );
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const pending = createPendingRpc<unknown>(
         TERMINAL_SEARCH_RPC_DEADLINE_MS,
         row.worker_fp,
@@ -329,7 +322,6 @@ export function makeSessionScrollbackHandlers(
     },
 
     async sessionsCancelScrollbackSearch(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
       const caller = requireAccountDevice(ctx.values);
       if (!TerminalSearchIdSchema.safeParse(req.searchId).success) {
         throw new ConnectError(
@@ -337,11 +329,7 @@ export function makeSessionScrollbackHandlers(
           Code.InvalidArgument,
         );
       }
-      const { sock } = await requireSessionWorkerSocket(
-        deps.db,
-        actor,
-        req.sessionId,
-      );
+      const { sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const tabId = ctx.values.get(tabIdKey);
       const viewerId = tabId ? `${caller.fingerprint}:${tabId}` : caller.fingerprint;
       sendBrowserCmd(sock, caller, req.searchId, {

@@ -8,7 +8,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { log } from "@roost/shared/log";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import type { KyselyDB } from "../db/connection.ts";
-import type { AccountDeviceCaller, DashboardActor } from "./auth-interceptor.ts";
+import type { AccountDeviceCaller } from "./auth-interceptor.ts";
 import { getWorkerHubSocket } from "./worker-service.ts";
 
 export type WorkerHubSocket = { send(data: string | Uint8Array): void };
@@ -25,15 +25,12 @@ export interface SessionWorkerBinding {
 // contract — do not re-diverge them.
 export async function requireSessionWorkerSocket(
   db: KyselyDB,
-  actor: DashboardActor,
   sessionId: string,
 ): Promise<SessionWorkerBinding> {
   const row = await db.selectFrom("sessions as session")
     .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
     .select("session.worker_fp as worker_fp")
     .where("session.id", "=", sessionId)
-    .where("session.dashboard_id", "=", actor.dashboardId)
-    .where("worker.dashboard_id", "=", actor.dashboardId)
     .where("worker.deleted_at_ms", "is", null)
     .executeTakeFirst();
   if (!row) throw new ConnectError("session not found", Code.NotFound);
@@ -82,7 +79,6 @@ export function sendBrowserCmd(
 // report accepted:false.
 export async function forwardToSessionWorker(
   db: KyselyDB,
-  actor: DashboardActor,
   sessionIdRaw: string,
   caller: AccountDeviceCaller,
   frame: ClientControlFrame,
@@ -92,7 +88,7 @@ export async function forwardToSessionWorker(
   const requestId = "request_id" in frame ? frame.request_id : randomUUID();
   let binding: SessionWorkerBinding;
   try {
-    binding = await requireSessionWorkerSocket(db, actor, sessionIdRaw);
+    binding = await requireSessionWorkerSocket(db, sessionIdRaw);
   } catch {
     return false;
   }

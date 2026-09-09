@@ -10,19 +10,11 @@
 import { fromBinary } from "@bufbuild/protobuf";
 import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
 import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { SYNC_WS_PATH } from "@roost/shared/wire/sync-ws";
 import { mintJwt } from "../../worker/src/jwt.ts";
-import { buildDashboardScopedCliContext } from "./cli-auth.ts";
+import { buildCliContext } from "./cli-auth.ts";
 
-export interface SyncWsFrameOptions {
-  dashboardId: string;
-  since?: number;
-  signal?: AbortSignal;
-}
-
-export interface OpenSyncWsOptions {
-  dashboardId?: string;
+export interface SyncWsOptions {
   since?: number;
   signal?: AbortSignal;
 }
@@ -33,33 +25,17 @@ interface BunWebSocketConstructor {
 
 const BunWebSocket = WebSocket as unknown as BunWebSocketConstructor;
 
-export function buildHeadlessSyncWsUrl(
-  wsBase: string,
-  dashboardId: string,
-  since = 0,
-): string {
-  const selected = dashboardId.trim();
-  if (!selected) throw new Error("headless Sync requires an explicit dashboard ID");
+export function buildHeadlessSyncWsUrl(wsBase: string, since = 0): string {
   const url = new URL(wsBase);
   const prefix = url.pathname.replace(/\/+$/, "");
   url.pathname = `${prefix}${SYNC_WS_PATH}`;
   url.search = "";
-  url.searchParams.set("dashboard", selected);
   url.searchParams.set("since", String(since));
   return url.toString();
 }
-export function buildHeadlessSyncWsOptions(
-  token: string,
-  dashboardId: string,
-): Bun.WebSocketOptions {
-  const selected = dashboardId.trim();
-  if (!selected) throw new Error("headless Sync requires an explicit dashboard ID");
-  return {
-    protocols: ["roost-auth", token],
-    headers: { [X_ROOST_DASHBOARD_ID]: selected },
-  };
+export function buildHeadlessSyncWsOptions(token: string): Bun.WebSocketOptions {
+  return { protocols: ["roost-auth", token] };
 }
-
 
 /** Stream FirehoseFrames from the coord WS until the socket closes or `signal`
  *  aborts. Abort → ws.close → clean generator return (no throw), so a caller's
@@ -69,11 +45,11 @@ export function buildHeadlessSyncWsOptions(
 export async function* syncWsFrames(
   wsBase: string,
   token: string,
-  opts: SyncWsFrameOptions,
+  opts: SyncWsOptions,
 ): AsyncGenerator<FirehoseFrame> {
   const ws = new BunWebSocket(
-    buildHeadlessSyncWsUrl(wsBase, opts.dashboardId, opts.since ?? 0),
-    buildHeadlessSyncWsOptions(token, opts.dashboardId),
+    buildHeadlessSyncWsUrl(wsBase, opts.since ?? 0),
+    buildHeadlessSyncWsOptions(token),
   );
   ws.binaryType = "arraybuffer";
   const queue: FirehoseFrame[] = [];
@@ -103,20 +79,14 @@ export async function* syncWsFrames(
   }
 }
 
-/** Open Sync with the same path-isolated CLI key and selected dashboard as unary RPCs. */
+/** Open Sync with the same path-isolated CLI key as the unary RPCs. */
 export async function openSyncWs(
-  opts: OpenSyncWsOptions = {},
+  opts: SyncWsOptions = {},
 ): Promise<AsyncGenerator<FirehoseFrame>> {
-  const requestedDashboardId = opts.dashboardId?.trim()
-    || process.env.ROOST_DASHBOARD_ID?.trim()
-    || undefined;
-  const { cfg, key, dashboardId } = await buildDashboardScopedCliContext({
-    requestedDashboardId,
-  });
+  const { cfg, key } = await buildCliContext();
   const token = await mintJwt(key, "roost-coordinator");
   const wsBase = cfg.coordinatorUrl.replace(/^http/, "ws");
   return syncWsFrames(wsBase, token, {
-    dashboardId,
     ...(opts.since !== undefined ? { since: opts.since } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
   });

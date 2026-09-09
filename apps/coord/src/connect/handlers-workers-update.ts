@@ -16,8 +16,7 @@ import {
   WorkersPrepareKeeperUpdateResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { log } from "@roost/shared/log";
-import { requireDashboardAdmin } from "./auth-interceptor.ts";
-import { resolveDashboardActor } from "./dashboard-authorization.ts";
+import { requireAccountDevice, resolveCallerPrincipal } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import { sendKeeperUpdatePreparation } from "./worker-service.ts";
 
@@ -81,7 +80,7 @@ export function makeWorkerUpdateHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, WorkerUpdateMethods> {
   return {
     async workersPrepareKeeperUpdate(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
       if (!/^[0-9a-f]{64}$/.test(req.workerFp)) {
         throw new ConnectError("worker fingerprint is invalid", Code.InvalidArgument);
       }
@@ -92,26 +91,26 @@ export function makeWorkerUpdateHandlers(
         req.forceLive,
       );
       const lease = await deps.writeGate.acquireExclusive(
-        `keeper-update:${actor.deviceFingerprint}:${req.workerFp}`,
+        `keeper-update:${caller.fingerprint}:${req.workerFp}`,
       );
       try {
-        const currentActor = await resolveDashboardActor(
-          deps.db,
-          actor.deviceFingerprint,
-          actor.dashboardId,
-        );
+        // The fence can queue behind another keeper update, so the caller's
+        // credential is re-read after the wait: a key or device revoked while
+        // queued must not proceed on a stale admission.
+        const currentCaller = await resolveCallerPrincipal(deps.db, {
+          fingerprint: caller.fingerprint,
+          label: caller.label,
+        });
         if (
-          !currentActor
-          || currentActor.dashboardRole !== "admin"
-          || currentActor.accountId !== actor.accountId
-          || currentActor.organizationId !== actor.organizationId
+          !currentCaller
+          || (currentCaller.kind !== "account-device"
+            && currentCaller.kind !== "legacy-self-hosted")
         ) {
-          throw new ConnectError("dashboard admin required", Code.PermissionDenied);
+          throw new ConnectError("authentication required", Code.Unauthenticated);
         }
         const worker = await deps.db.selectFrom("workers")
           .select("fp")
           .where("fp", "=", req.workerFp)
-          .where("dashboard_id", "=", actor.dashboardId)
           .where("deleted_at_ms", "is", null)
           .executeTakeFirst();
         if (!worker) throw new ConnectError("worker not found", Code.NotFound);
@@ -119,7 +118,6 @@ export function makeWorkerUpdateHandlers(
         const openSessions = await deps.db.selectFrom("sessions")
           .select("id")
           .where("worker_fp", "=", worker.fp)
-          .where("dashboard_id", "=", actor.dashboardId)
           .where("status", "=", "open")
           .orderBy("id", "asc")
           .execute();
@@ -146,8 +144,7 @@ export function makeWorkerUpdateHandlers(
         if (req.forceLive) {
           log.warn("coord", "keeper_maintenance_force_live_authorized", {
             worker_fp: worker.fp,
-            dashboard_id: actor.dashboardId,
-            device_fingerprint: actor.deviceFingerprint,
+            device_fingerprint: caller.fingerprint,
             coordinator_open_sessions: coordinatorOpenSessionIds.length,
           });
         }

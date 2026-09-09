@@ -6,7 +6,7 @@
 import type { UiReportStateRequest } from "@roost/shared/proto/sync_pb";
 import {
   UI_STATE_IDENTITY_WINDOW_MS,
-  UI_STATE_MAX_TABS_PER_DASHBOARD,
+  UI_STATE_MAX_TABS_TOTAL,
   UI_STATE_MAX_TABS_PER_FINGERPRINT,
   UI_STATE_NEW_IDENTITIES_PER_WINDOW,
 } from "@roost/shared/ui-state";
@@ -18,7 +18,6 @@ const UI_STATE_REAP_INTERVAL_MS = 60_000;
 const UI_STATE_RATE_GROUP = "ui-state-new-identity";
 
 export interface UiTabEntry {
-  readonly dashboardId: string;
   readonly fp: string;
   readonly tabId: string;
   lastMs: number;
@@ -29,7 +28,7 @@ export interface UiStateOwnerOptions {
   readonly now?: () => number;
   readonly reapIntervalMs?: number | null;
   readonly maxTabsPerFingerprint?: number;
-  readonly maxTabsPerDashboard?: number;
+  readonly maxTabsTotal?: number;
   readonly newIdentitiesPerWindow?: number;
   readonly identityWindowMs?: number;
 }
@@ -54,7 +53,7 @@ export class UiStateOwner {
 
   private readonly now: () => number;
   private readonly maxTabsPerFingerprint: number;
-  private readonly maxTabsPerDashboard: number;
+  private readonly maxTabsTotal: number;
   private readonly newIdentitiesPerWindow: number;
   private readonly identityWindowMs: number;
   private readonly identityRateLimiter: RateLimiter;
@@ -64,13 +63,13 @@ export class UiStateOwner {
     this.now = options.now ?? Date.now;
     this.maxTabsPerFingerprint = options.maxTabsPerFingerprint
       ?? UI_STATE_MAX_TABS_PER_FINGERPRINT;
-    this.maxTabsPerDashboard = options.maxTabsPerDashboard
-      ?? UI_STATE_MAX_TABS_PER_DASHBOARD;
+    this.maxTabsTotal = options.maxTabsTotal
+      ?? UI_STATE_MAX_TABS_TOTAL;
     this.newIdentitiesPerWindow = options.newIdentitiesPerWindow
       ?? UI_STATE_NEW_IDENTITIES_PER_WINDOW;
     this.identityWindowMs = options.identityWindowMs ?? UI_STATE_IDENTITY_WINDOW_MS;
     requirePositiveSafeInteger(this.maxTabsPerFingerprint, "per-fingerprint tab capacity");
-    requirePositiveSafeInteger(this.maxTabsPerDashboard, "per-dashboard tab capacity");
+    requirePositiveSafeInteger(this.maxTabsTotal, "aggregate tab capacity");
     requirePositiveSafeInteger(this.newIdentitiesPerWindow, "new identity rate");
     requirePositiveSafeInteger(this.identityWindowMs, "identity rate window");
     this.identityRateLimiter = new RateLimiter({
@@ -93,30 +92,27 @@ export class UiStateOwner {
   }
 
   report(input: {
-    readonly dashboardId: string;
     readonly fingerprint: string;
     readonly tabId: string;
     readonly state: UiReportStateRequest;
   }): void {
     const now = this.now();
     this.reap(now);
-    const key = JSON.stringify([input.dashboardId, input.fingerprint, input.tabId]);
+    const key = JSON.stringify([input.fingerprint, input.tabId]);
     const existing = this._statesByTab.get(key);
     if (existing) {
       existing.lastMs = now;
       existing.state = input.state;
       return;
     }
-    // A device cannot multiply its tab/rate budgets by joining more dashboards;
-    // the independent dashboard cap bounds aggregate viewers from all devices.
-    let dashboardTabs = 0;
+    // The aggregate cap bounds retained reports from all devices; the
+    // per-fingerprint cap alone lets many authorized devices multiply it.
     let fingerprintTabs = 0;
     for (const entry of this._statesByTab.values()) {
-      if (entry.dashboardId === input.dashboardId) dashboardTabs++;
       if (entry.fp === input.fingerprint) fingerprintTabs++;
     }
     if (
-      dashboardTabs >= this.maxTabsPerDashboard
+      this._statesByTab.size >= this.maxTabsTotal
       || fingerprintTabs >= this.maxTabsPerFingerprint
     ) {
       throw new UiStateCapacityError();
@@ -132,7 +128,6 @@ export class UiStateOwner {
     if (!rate.allowed) throw new UiStateIdentityRateError();
 
     this._statesByTab.set(key, {
-      dashboardId: input.dashboardId,
       fp: input.fingerprint,
       tabId: input.tabId,
       lastMs: now,
@@ -140,16 +135,13 @@ export class UiStateOwner {
     });
   }
 
-  list(dashboardId: string): UiTabEntry[] {
+  list(): UiTabEntry[] {
     this.reap(this.now());
-    return [...this._statesByTab.values()]
-      .filter((entry) => entry.dashboardId === dashboardId);
+    return [...this._statesByTab.values()];
   }
 
-  snapshot(
-    dashboardId: string,
-  ): Array<{ fp: string; tabId: string; state: UiReportStateRequest }> {
-    return this.list(dashboardId).map((entry) => ({
+  snapshot(): Array<{ fp: string; tabId: string; state: UiReportStateRequest }> {
+    return this.list().map((entry) => ({
       fp: entry.fp,
       tabId: entry.tabId,
       state: entry.state,

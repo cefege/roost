@@ -25,7 +25,6 @@ import {
 import { validateGlobalSearchGroupResult } from "../src/connect/global-search-fanout.ts";
 
 const BINDING: GlobalSearchCursorBinding = {
-  dashboardId: "dashboard-a",
   deviceFingerprint: "device-a",
   tabId: "tab-a",
   searchId: "search-a",
@@ -50,7 +49,7 @@ const TEST_LIMITS = {
 };
 
 describe("global search cursor owner", () => {
-  test("binds opaque cursors to dashboard, device, tab, search, and options", () => {
+  test("binds opaque cursors to device, tab, search, and options", () => {
     const owner = new GlobalSearchCursorOwner();
     const cursor = owner.issueCursor({
       binding: BINDING,
@@ -60,7 +59,6 @@ describe("global search cursor owner", () => {
     });
     expect(cursor).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     const mismatches: GlobalSearchCursorBinding[] = [
-      { ...BINDING, dashboardId: "dashboard-b" },
       { ...BINDING, deviceFingerprint: "device-b" },
       { ...BINDING, tabId: "tab-b" },
       { ...BINDING, searchId: "search-b" },

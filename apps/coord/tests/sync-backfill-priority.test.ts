@@ -6,12 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionEvent, asSessionId } from "@roost/shared/wire";
 import { sessionBus } from "../src/buses.ts";
-import { startSyncFeed, type SyncDashboardScope } from "../src/connect/sync-feed.ts";
+import { startSyncFeed, type SyncResourceIndex } from "../src/connect/sync-feed.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-const DASHBOARD = "sync-priority-dashboard";
-const ORGANIZATION = "sync-priority-organization";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 
 describe("Sync durable replay priority", () => {
   test("a queued live session event lands between sixteen-event replay batches", async () => {
@@ -19,22 +18,9 @@ describe("Sync durable replay priority", () => {
     const opened = openDb(join(dir, "coord.db"));
     try {
       await runMigrations(opened.sqlite);
-      const now = Date.now();
-      await opened.db.insertInto("organizations").values({
-        id: ORGANIZATION,
-        slug: "sync-priority",
-        name: "Sync priority",
-        status: "active",
-        created_at_ms: now,
-      }).execute();
-      await opened.db.insertInto("dashboards").values({
-        id: DASHBOARD,
-        organization_id: ORGANIZATION,
-        slug: "sync-priority",
-        name: "Sync priority",
-        status: "active",
-        created_at_ms: now,
-      }).execute();
+      const { dashboardId } = ensureSelfHostedTenant(opened.sqlite, {
+        backfillLegacyScopes: false,
+      });
       const seedEvent = {
         kind: "closed",
         session_id: "00000000-0000-4000-8000-000000000000",
@@ -43,7 +29,7 @@ describe("Sync durable replay priority", () => {
       };
       const seed = await opened.db.insertInto("events").values({
         kind: seedEvent.kind,
-        dashboard_id: DASHBOARD,
+        dashboard_id: dashboardId,
         session_id: seedEvent.session_id,
         worker_fp: null,
         payload_json: JSON.stringify(seedEvent),
@@ -58,7 +44,7 @@ describe("Sync durable replay priority", () => {
           ts: index + 2,
         };
         return {
-          dashboard_id: DASHBOARD,
+          dashboard_id: dashboardId,
           kind: event.kind,
           session_id: event.session_id,
           worker_fp: null,
@@ -79,8 +65,8 @@ describe("Sync durable replay priority", () => {
         exit_code: null,
         ts: 100,
       });
-      const scope: SyncDashboardScope = {
-        dashboardId: DASHBOARD,
+      const scope: SyncResourceIndex = {
+        ownerWorkerFp: null,
         workerFps: new Set(),
         sessionIds: new Set([...replayRows.map((row) => row.session_id), liveSessionId]),
         workspaceIds: new Set(),
@@ -96,7 +82,7 @@ describe("Sync durable replay priority", () => {
         replayed += 1;
         if (!queuedLiveSession) {
           queuedLiveSession = true;
-          queueMicrotask(() => sessionBus.publish(Object.assign(liveEvent, { _dashboard_id: DASHBOARD })));
+          queueMicrotask(() => sessionBus.publish(liveEvent));
         }
       }, null, false);
       try {
@@ -122,22 +108,10 @@ describe("Sync durable replay priority", () => {
     const opened = openDb(join(dir, "coord.db"));
     try {
       await runMigrations(opened.sqlite);
+      const { dashboardId } = ensureSelfHostedTenant(opened.sqlite, {
+        backfillLegacyScopes: false,
+      });
       const now = Date.now();
-      await opened.db.insertInto("organizations").values({
-        id: ORGANIZATION,
-        slug: "sync-dedupe",
-        name: "Sync dedupe",
-        status: "active",
-        created_at_ms: now,
-      }).execute();
-      await opened.db.insertInto("dashboards").values({
-        id: DASHBOARD,
-        organization_id: ORGANIZATION,
-        slug: "sync-dedupe",
-        name: "Sync dedupe",
-        status: "active",
-        created_at_ms: now,
-      }).execute();
       const event = SessionEvent.parse({
         kind: "closed",
         session_id: asSessionId("00000000-0000-4000-8000-111111111111"),
@@ -146,7 +120,7 @@ describe("Sync durable replay priority", () => {
       });
       if (event.kind !== "closed") throw new Error("expected closed session event fixture");
       const insertEvent = async () => Number((await opened.db.insertInto("events").values({
-        dashboard_id: DASHBOARD,
+        dashboard_id: dashboardId,
         kind: event.kind,
         session_id: event.session_id,
         worker_fp: null,
@@ -157,8 +131,8 @@ describe("Sync durable replay priority", () => {
       const sinceEventId = await insertEvent();
       const boundaryEventId = await insertEvent();
       const deliveredIds: number[] = [];
-      const scope: SyncDashboardScope = {
-        dashboardId: DASHBOARD,
+      const scope: SyncResourceIndex = {
+        ownerWorkerFp: null,
         workerFps: new Set(),
         sessionIds: new Set([event.session_id]),
         workspaceIds: new Set(),
@@ -176,10 +150,7 @@ describe("Sync durable replay priority", () => {
         false,
       );
       const publish = (eventId: number): void => {
-        sessionBus.publish(Object.assign(event, {
-          _dashboard_id: DASHBOARD,
-          _event_id: eventId,
-        }));
+        sessionBus.publish(Object.assign(event, { _event_id: eventId }));
       };
       try {
         publish(boundaryEventId);

@@ -37,20 +37,14 @@ import {
   UI_TAB_ID_MAX_UTF8_BYTES,
 } from "@roost/shared/ui-state";
 import { uiBus, type UiBusMsg } from "../src/buses.ts";
-import {
-  callerKey,
-  dashboardActorKey,
-  type DashboardActor,
-} from "../src/connect/auth-interceptor.ts";
+import { callerKey } from "../src/connect/auth-interceptor.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
 import { makeUiHandlers, type UiHandlers } from "../src/connect/handlers-ui.ts";
 import {
   createSyncWsKeepaliveCoordFixture,
-  SYNC_WS_KEEPALIVE_DASHBOARD_ID,
   type SyncWsKeepaliveCoordFixture,
 } from "./sync-ws-keepalive-coord-fixture.ts";
 
-const DASHBOARD_ID = SYNC_WS_KEEPALIVE_DASHBOARD_ID;
 const BASE_DOCUMENT: LayoutDocumentV1 = {
   schema_version: 1,
   root: {
@@ -68,22 +62,13 @@ let handlers: UiHandlers;
 let actorContext: HandlerContext;
 
 function authContext(fingerprint: string): HandlerContext {
-  const actor: DashboardActor = {
-    accountId: "ui-hardening-account",
-    organizationId: "ui-hardening-organization",
-    dashboardId: DASHBOARD_ID,
-    organizationRole: "owner",
-    dashboardRole: "admin",
-    deviceFingerprint: fingerprint,
-  };
   const values = createContextValues();
   values.set(callerKey, {
     kind: "account-device",
     fingerprint,
     label: "",
-    accountId: actor.accountId,
+    accountId: "ui-hardening-account",
   });
-  values.set(dashboardActorKey, actor);
   return { values, signal: new AbortController().signal } as unknown as HandlerContext;
 }
 
@@ -138,11 +123,11 @@ describe("canonical protobuf ingress", () => {
     expect(toBinary(UiReportStateRequestSchema, attacked).byteLength)
       .toBeGreaterThan(toBinary(UiReportStateRequestSchema, canonical).byteLength);
     const messages: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((message) => messages.push(message), DASHBOARD_ID);
+    const stop = uiBus.subscribe((message) => messages.push(message));
     await handlers.uiReportState(attacked, actorContext);
     stop();
 
-    const retained = fixture.deps.uiStates.snapshot(DASHBOARD_ID)[0]!.state;
+    const retained = fixture.deps.uiStates.snapshot()[0]!.state;
     expect(toBinary(UiReportStateRequestSchema, retained))
       .toEqual(toBinary(UiReportStateRequestSchema, canonical));
     const published = messages.find((message) => message.kind === "state");
@@ -170,7 +155,7 @@ describe("canonical protobuf ingress", () => {
       ]),
     );
     const messages: UiBusMsg[] = [];
-    const stop = uiBus.subscribe((message) => messages.push(message), DASHBOARD_ID);
+    const stop = uiBus.subscribe((message) => messages.push(message));
     await handlers.uiDispatch(create(UiDispatchRequestSchema, {
       targetTabId: "target-tab",
       command: attacked,
@@ -211,7 +196,6 @@ describe("canonical protobuf ingress", () => {
     expect(toBinary(LayoutDocumentV1Schema, attackedDocument).byteLength)
       .toBeGreaterThan(toBinary(LayoutDocumentV1Schema, canonicalDocument).byteLength);
     const target = {
-      dashboardId: DASHBOARD_ID,
       fingerprint: fixture.fingerprint,
       tabId: "apply-tab",
       socketId: "apply-socket",
@@ -227,7 +211,7 @@ describe("canonical protobuf ingress", () => {
         correlationId: message.correlationId,
         outcome: UiApplyLayoutOutcome.APPLIED,
       }));
-    }, DASHBOARD_ID);
+    });
 
     await handlers.uiApplyLayout(create(UiApplyLayoutRequestSchema, {
       targetTabId: target.tabId,
@@ -309,7 +293,7 @@ test("new-identity rate exhaustion preserves existing heartbeat updates", async 
   const uiStates = new UiStateOwner({
     reapIntervalMs: null,
     maxTabsPerFingerprint: 4,
-    maxTabsPerDashboard: 8,
+    maxTabsTotal: 8,
     newIdentitiesPerWindow: 1,
   });
   const rateHandlers = makeUiHandlers({ ...fixture.deps, uiStates });
@@ -322,7 +306,7 @@ test("new-identity rate exhaustion preserves existing heartbeat updates", async 
     reportState({ tabId: "new-identity" }),
     actorContext,
   )).rejects.toMatchObject({ code: Code.ResourceExhausted });
-  expect(uiStates.snapshot(DASHBOARD_ID)[0]?.state.activePath).toBe("/heartbeat");
+  expect(uiStates.snapshot()[0]?.state.activePath).toBe("/heartbeat");
   uiStates.dispose();
 });
 
@@ -333,22 +317,21 @@ test("stale victim report cannot fall through to a colliding live target", async
     reportState({ tabId }),
     authContext("attacker-fingerprint"),
   );
-  const reports = fixture.deps.uiStates.list(DASHBOARD_ID);
+  const reports = fixture.deps.uiStates.list();
   expect(reports.map((entry) => entry.fp))
     .toEqual([fixture.fingerprint, "attacker-fingerprint"]);
   reports.find((entry) => entry.fp === fixture.fingerprint)!.lastMs -= 10 * 60_000;
-  expect(fixture.deps.uiStates.snapshot(DASHBOARD_ID).map((entry) => entry.fp))
+  expect(fixture.deps.uiStates.snapshot().map((entry) => entry.fp))
     .toEqual(["attacker-fingerprint"]);
 
   const attacker = {
-    dashboardId: DASHBOARD_ID,
     fingerprint: "attacker-fingerprint",
     tabId,
     socketId: "attacker-socket",
   };
   const unregister = fixture.deps.uiLayoutApplies.registerTarget(attacker);
   const publications: UiBusMsg[] = [];
-  const stop = uiBus.subscribe((message) => publications.push(message), DASHBOARD_ID);
+  const stop = uiBus.subscribe((message) => publications.push(message));
   const response = await handlers.uiApplyLayout(create(UiApplyLayoutRequestSchema, {
     targetTabId: tabId,
     targetFingerprint: fixture.fingerprint,

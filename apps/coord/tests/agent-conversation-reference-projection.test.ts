@@ -19,7 +19,7 @@ const fixture = createDurablePublicationFixture({
   secondaryFingerprintByte: "e2",
   sessionGroup: "5",
 });
-const { FP, SID_A, DASHBOARD_ID, openedEvent, liveSession, snapshotEvent } = fixture;
+const { FP, SID_A, openedEvent, liveSession, snapshotEvent } = fixture;
 
 const FIRST_REFERENCE = AgentConversationReferenceV1Schema.parse({
   schema_version: 1,
@@ -63,7 +63,7 @@ async function appendAt(
   return appendEvent(fixture.writer.db, event, {
     worker_fp: FP,
     client_seq: clientSeq,
-    dashboardId: DASHBOARD_ID,
+    dashboardId: fixture.dashboardId,
   });
 }
 
@@ -87,7 +87,6 @@ describe("private agent reference projection", () => {
       .where("id", "=", SID_A)
       .execute()).rejects.toThrow();
     const projection = await readSessionsListProjection(fixture.writer.db, {
-      dashboardId: DASHBOARD_ID,
       workerFp: FP,
       status: "open",
       includeRecovery: true,
@@ -110,7 +109,6 @@ describe("private agent reference projection", () => {
       .where("id", "=", SID_A)
       .execute();
     const publicProjection = await readSessionsListProjection(fixture.writer.db, {
-      dashboardId: DASHBOARD_ID,
       status: "open",
       includeRecovery: false,
     });
@@ -119,7 +117,6 @@ describe("private agent reference projection", () => {
     expect(stringifyTestValue(publicProjection)).not.toContain(privateSecret);
 
     const privateRead = readSessionsListProjection(fixture.writer.db, {
-      dashboardId: DASHBOARD_ID,
       workerFp: FP,
       status: "open",
       includeRecovery: true,
@@ -194,7 +191,7 @@ describe("private agent reference projection", () => {
     const publishedKinds: string[] = [];
     const unsubscribe = sessionBus.subscribe((event) => {
       publishedKinds.push(event.kind);
-    }, DASHBOARD_ID);
+    });
     try {
       await appendAt(referenceEvent(FIRST_REFERENCE, 40), fixture.nextClientSeq());
       await appendAt(referenceEvent(null, 41), fixture.nextClientSeq());
@@ -208,7 +205,7 @@ describe("private agent reference projection", () => {
     await expect(appendEvent(
       fixture.writer.db,
       referenceEvent(FIRST_REFERENCE, 50),
-      { worker_fp: null, client_seq: null, dashboardId: DASHBOARD_ID },
+      { worker_fp: null, client_seq: null, dashboardId: fixture.dashboardId },
     )).rejects.toThrow("requires worker delivery");
 
     // Deliberately bypass the compile-time shape to exercise appendEvent's

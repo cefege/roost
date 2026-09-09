@@ -19,7 +19,6 @@ import {
 import { PressureSocket } from "./sync-ws-keepalive-pressure-fixture.ts";
 
 const BASE_TARGET: UiLayoutApplyTarget = {
-  dashboardId: "dashboard-a",
   fingerprint: "fingerprint-a",
   tabId: "tab-a",
   socketId: "socket-a",
@@ -56,54 +55,52 @@ function makeTargetSocket(tabId: string) {
   };
 }
 
-test("distinct targets hit global fingerprint and dashboard caps with one generic error", () => {
+test("distinct targets hit the per-fingerprint and aggregate caps with one generic error", () => {
   const fingerprintOwner = new UiLayoutApplyOwner({
     maxTargetsPerFingerprint: 2,
-    maxTargetsPerDashboard: 2,
+    maxTargetsTotal: 8,
   });
   fingerprintOwner.registerTarget(BASE_TARGET);
   fingerprintOwner.registerTarget({
     ...BASE_TARGET,
-    dashboardId: "dashboard-b",
     tabId: "tab-b",
     socketId: "socket-b",
   });
   const fingerprintError = captureCapacityError(() => fingerprintOwner.registerTarget({
     ...BASE_TARGET,
-    dashboardId: "dashboard-c",
     tabId: "tab-c",
     socketId: "socket-c",
   }));
   expect(fingerprintOwner.stats().targets).toBe(2);
 
-  const dashboardOwner = new UiLayoutApplyOwner({
-    maxTargetsPerFingerprint: 2,
-    maxTargetsPerDashboard: 2,
+  const aggregateOwner = new UiLayoutApplyOwner({
+    maxTargetsPerFingerprint: 8,
+    maxTargetsTotal: 2,
   });
-  dashboardOwner.registerTarget(BASE_TARGET);
-  dashboardOwner.registerTarget({
+  aggregateOwner.registerTarget(BASE_TARGET);
+  aggregateOwner.registerTarget({
     ...BASE_TARGET,
     fingerprint: "fingerprint-b",
     tabId: "tab-b",
     socketId: "socket-b",
   });
-  const dashboardError = captureCapacityError(() => dashboardOwner.registerTarget({
+  const aggregateError = captureCapacityError(() => aggregateOwner.registerTarget({
     ...BASE_TARGET,
     fingerprint: "fingerprint-c",
     tabId: "tab-c",
     socketId: "socket-c",
   }));
-  expect(dashboardOwner.stats().targets).toBe(2);
-  expect(fingerprintError.message).toBe(dashboardError.message);
-  expect(fingerprintError.name).toBe(dashboardError.name);
+  expect(aggregateOwner.stats().targets).toBe(2);
+  expect(fingerprintError.message).toBe(aggregateError.message);
+  expect(fingerprintError.name).toBe(aggregateError.name);
   fingerprintOwner.dispose();
-  dashboardOwner.dispose();
+  aggregateOwner.dispose();
 });
 
 test("same-tuple replacement is admitted at capacity and close frees both counts", () => {
   const owner = new UiLayoutApplyOwner({
     maxTargetsPerFingerprint: 1,
-    maxTargetsPerDashboard: 1,
+    maxTargetsTotal: 1,
   });
   const closeOld = owner.registerTarget(BASE_TARGET);
   const closeReplacement = owner.registerTarget({ ...BASE_TARGET, socketId: "replacement" });
@@ -127,7 +124,7 @@ test("same-tuple replacement is admitted at capacity and close frees both counts
 test("Sync target rejection closes once and leaves no rejected feed or target", () => {
   const uiLayoutApplies = new UiLayoutApplyOwner({
     maxTargetsPerFingerprint: 1,
-    maxTargetsPerDashboard: 8,
+    maxTargetsTotal: 8,
   });
   const handler = makeSyncWsHandler({ ...fixture.deps, uiLayoutApplies }, {
     keepaliveMs: 60_000,

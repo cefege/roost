@@ -44,12 +44,10 @@ export interface SessionsListProjection {
 export async function readSessionsListProjection(
   db: KyselyDB,
   options: {
-    dashboardId: string;
     workerFp: string;
     status: SessionStatusValue | null;
     includeRecovery: true;
   } | {
-    dashboardId: string;
     workerFp?: string;
     status: SessionStatusValue | null;
     includeRecovery: false;
@@ -58,8 +56,7 @@ export async function readSessionsListProjection(
   if (options.includeRecovery && !options.workerFp) {
     throw new Error("private session recovery query requires an owning worker");
   }
-  let query = db.selectFrom("sessions")
-    .where("dashboard_id", "=", options.dashboardId);
+  let query = db.selectFrom("sessions");
   if (options.workerFp) query = query.where("worker_fp", "=", options.workerFp);
   if (options.status !== null) query = query.where("status", "=", options.status);
 

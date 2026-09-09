@@ -16,7 +16,6 @@ import { createSyncV2SocketState } from "../src/connect/sync-ws-v2-state.ts";
 import type { TerminalViewHub } from "../src/connect/terminal-view-hub.ts";
 import {
   createSyncWsKeepaliveCoordFixture,
-  SYNC_WS_KEEPALIVE_DASHBOARD_ID,
   type SyncWsKeepaliveCoordFixture,
 } from "./sync-ws-keepalive-coord-fixture.ts";
 import {
@@ -29,7 +28,6 @@ let fixture: SyncWsKeepaliveCoordFixture;
 let deps: SyncWsKeepaliveCoordFixture["deps"];
 let jwt: string;
 let server: Server<SyncWsData>;
-const dashboardId = SYNC_WS_KEEPALIVE_DASHBOARD_ID;
 
 class PressureSocket extends FixturePressureSocket {
   constructor(
@@ -82,7 +80,7 @@ afterAll(async () => {
 
 test("open → server sends KeepaliveFrame within keepalive interval", async () => {
   const ws = new WebSocket(
-    `ws://127.0.0.1:${server.port}/ws/coord-sync?dashboard=${dashboardId}`,
+    `ws://127.0.0.1:${server.port}/ws/coord-sync`,
     ["roost-auth", jwt],
   );
   ws.binaryType = "arraybuffer";

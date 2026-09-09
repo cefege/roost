@@ -33,18 +33,16 @@ import {
  *   - On dup conflict the INSERT no-ops, the projection update is
  *     skipped (already applied), and the function returns normally so
  *     the caller still sends DEventAck.
- *   - Non-worker producers (synthetic ghost closes, deploy lines) omit
- *     opts entirely; the partial index ignores rows with NULLs.
+ *   - Non-worker producers (synthetic ghost closes, deploy lines) pass a null
+ *     fingerprint/sequence; the partial index ignores rows with NULLs.
  */
 export interface AppendEventResult {
-  /** False when persisted worker/resource scope could not be proven. */
+  /** False when persisted worker/resource ownership could not be proven. */
   admitted: boolean;
   /** True only when this call inserted the durable event row. */
   inserted: boolean;
   /** True only after the committed event updated volatile routes and Sync. */
   published: boolean;
-  /** Persisted dashboard selected for the append, when admission resolved one. */
-  dashboardId: string | null;
   /** A dedupe payload differed from the retained unpublished committed event. */
   replayRejected: boolean;
   /** The normalized event selected for this append result. */
@@ -60,8 +58,8 @@ export async function appendEvent(
     /** Authenticated worker fingerprint, never a worker-frame claim. */
     worker_fp: string | null;
     client_seq: number | null;
-    /** Dashboard actor scope for coordinator-originated session mutations. */
-    dashboardId?: string;
+    /** Value stamped into every `dashboard_id` column this append writes. */
+    dashboardId: string;
     /** Auxiliary writes that MUST commit atomically with the event (e.g.
      *  junction-table moves). Runs inside the transaction, AFTER ownership
      *  admission, so a foreign request cannot make an auxiliary mutation. */
@@ -74,7 +72,7 @@ export async function appendEvent(
     /** Worker connections defer orphan reaps until the snapshot ACK barrier has
      * made the exact current handle ready. Direct coordinator callers do not. */
     deferSnapshotReap?: boolean;
-  } = { worker_fp: null, client_seq: null },
+  },
 ): Promise<AppendEventResult> {
   if (event.kind === "agent_reference") {
     const parsed = SessionEventSchema.safeParse(event);
@@ -103,7 +101,6 @@ export async function appendEvent(
   );
   let insertedId: number | undefined;
   let persistedEventJson = "";
-  let dashboardId: string | null = null;
   // Snapshot reap: session ids force-closed while their worker was offline but
   // re-announced live by the returning worker. Sent a kill AFTER commit.
   let reapOrphanIds: string[] = [];
@@ -117,22 +114,19 @@ export async function appendEvent(
   await db.transaction().execute(async (trx) => {
     const tx = trx as unknown as KyselyDB;
     const admission = await resolveEventAdmission(tx, event, opts);
-    dashboardId = admission.dashboardId;
-    if (!admission.admitted || admission.dashboardId === null) {
+    if (!admission.admitted) {
       admissionRejected = true;
       return;
     }
     const sessionId = admission.sessionId;
-    const resolvedDashboardId = admission.dashboardId;
     sessionExisted = admission.sessionExists;
     if (event.kind === "workspace_assigned" && event.workspace_id !== null) {
       const workspace = await tx.selectFrom("workspaces")
         .select("id")
         .where("id", "=", event.workspace_id)
-        .where("dashboard_id", "=", resolvedDashboardId)
         .executeTakeFirst();
       if (!workspace) {
-        throw new Error("workspace is unavailable in this dashboard");
+        throw new Error("workspace is unavailable");
       }
     }
     if (event.kind === "snapshot") {
@@ -143,7 +137,6 @@ export async function appendEvent(
       const tombstoned = announcedIds.length === 0
         ? []
         : await tx.selectFrom("events").select("session_id")
-          .where("dashboard_id", "=", resolvedDashboardId)
           .where("kind", "=", "closed")
           .where("session_id", "in", announcedIds)
           .execute();
@@ -165,7 +158,7 @@ export async function appendEvent(
     const inserted = await tx
       .insertInto("events")
       .values({
-        dashboard_id: resolvedDashboardId,
+        dashboard_id: opts.dashboardId,
         kind: event.kind,
         session_id: sessionId,
         worker_fp: opts.worker_fp,
@@ -191,7 +184,7 @@ export async function appendEvent(
 
     // 2. Handle snapshot: reconcile ghost sessions + project new set.
     if (event.kind === "snapshot") {
-      await projectSnapshotSessions(tx, event, resolvedDashboardId);
+      await projectSnapshotSessions(tx, event, opts.dashboardId);
       publishable = true;
       return;
     }
@@ -204,7 +197,6 @@ export async function appendEvent(
         tx,
         event,
         opts.client_seq,
-        resolvedDashboardId,
         opts.worker_fp,
       );
       // The durable row and private recovery projection commit, but this event
@@ -220,7 +212,7 @@ export async function appendEvent(
       if (!session) return;
       const insertedSession = await tx
         .insertInto("sessions")
-        .values(sessionToRow(session, resolvedDashboardId))
+        .values(sessionToRow(session, opts.dashboardId))
         .onConflict((oc) => oc.column("id").doNothing())
         .returning("id")
         .executeTakeFirst();
@@ -237,14 +229,13 @@ export async function appendEvent(
       // park it as status="closed". Capture and remove workspace ownership
       // first because the session FK cascade would erase that evidence.
       // No-op if it's already gone (idempotent on dedup / double-close).
-      cascadeOrphans = await _cascadeClosedSession(tx, resolvedDashboardId, event.session_id);
+      cascadeOrphans = await _cascadeClosedSession(tx, event.session_id);
       await tx
         .deleteFrom("sessions")
         .where("id", "=", event.session_id)
-        .where("dashboard_id", "=", resolvedDashboardId)
         .execute();
     } else if (sessionId !== null) {
-      const existing = await loadSession(tx, sessionId, resolvedDashboardId);
+      const existing = await loadSession(tx, sessionId);
       if (!existing) {
         log.warn("event-log", "session_not_found", { kind: event.kind, session_id: sessionId });
         return;
@@ -256,9 +247,8 @@ export async function appendEvent(
 
       await tx
         .updateTable("sessions")
-        .set(sessionToRow(updated, resolvedDashboardId))
+        .set(sessionToRow(updated, opts.dashboardId))
         .where("id", "=", sessionId)
-        .where("dashboard_id", "=", resolvedDashboardId)
         .execute();
 
       // Also update workspace_sessions junction on workspace_assigned.
@@ -266,13 +256,12 @@ export async function appendEvent(
         await tx
           .deleteFrom("workspace_sessions")
           .where("session_id", "=", sessionId)
-          .where("dashboard_id", "=", resolvedDashboardId)
           .execute();
         if (event.workspace_id) {
           await tx
             .insertInto("workspace_sessions")
             .values({
-              dashboard_id: resolvedDashboardId,
+              dashboard_id: opts.dashboardId,
               workspace_id: event.workspace_id,
               session_id: sessionId,
               added_at_ms: Date.now(),
@@ -292,11 +281,10 @@ export async function appendEvent(
   });
 
   const committedEffect: CommittedEventPublication | undefined =
-    publishable && dashboardId !== null && insertedId !== undefined
+    publishable && insertedId !== undefined
       ? {
           event,
           authenticatedWorkerFp: opts.worker_fp as WorkerFp | null,
-          dashboardId,
           eventId: insertedId,
           eventJson: persistedEventJson,
           cascadeOrphanIds: [...cascadeOrphans],
@@ -330,7 +318,6 @@ export async function appendEvent(
     inserted: insertedId !== undefined,
     published,
     replayRejected: publication.replayRejected,
-    dashboardId,
     event: publishedEvent,
     snapshotReapIds,
   };

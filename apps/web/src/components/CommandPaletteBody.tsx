@@ -38,11 +38,6 @@ export function PaletteBody(props: { setPanelRef: (el: HTMLElement) => void }) {
     const pathname = location.pathname;
     const routeSession = activeSessionForPath(pathname);
     const activeSession = routeSession?.status === "open" ? routeSession : null;
-    const selectedDashboard = rootStore.selected_dashboard_id;
-    const role = selectedDashboard
-      ? rootStore.dashboards[selectedDashboard]?.dashboard_role
-      : null;
-    const effectiveRole = role === "admin" || role === "member" ? role : null;
     const worker = activeSession
       ? rootStore.workers[activeSession.worker_fp]
       : undefined;
@@ -55,7 +50,7 @@ export function PaletteBody(props: { setPanelRef: (el: HTMLElement) => void }) {
       : null;
     return {
       pathname,
-      dashboardGeneration: rootStore.dashboard_generation,
+      authGeneration: rootStore.auth_generation,
       activeSession: sessionTarget,
       activeFolder: activeSession
         ? {
@@ -65,7 +60,6 @@ export function PaletteBody(props: { setPanelRef: (el: HTMLElement) => void }) {
           }
         : null,
       workerRoutable: worker ? workerOnline(worker) : false,
-      effectiveRole,
     };
   });
 

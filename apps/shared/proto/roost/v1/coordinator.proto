@@ -652,7 +652,7 @@ message PairCreateRequest { string ssh_pubkey_b64 = 1; string label = 2; }
 message PairCreateResponse { string ephemeral_id = 1; }
 
 message PairPollRequest { string ephemeral_id = 1; }
-message PairPollResponse { string status = 1; }  // pending|approved|denied
+message PairPollResponse { string status = 1; uint64 expires_at_ms = 2; }  // pending|approved|denied|expired
 
 message PairListRequest {}
 message PairListResponse { repeated PairRequest requests = 1; }
@@ -813,6 +813,10 @@ message DeviceRow {
   string label = 2;
   uint64 added_at_ms = 3;
   bool is_self = 4;
+  string paired_from_ip = 5;
+  string paired_country = 6;
+  string paired_user_agent = 7;
+  string paired_edge_identity = 8;
 }
 message DevicesListRequest {}
 message DevicesListResponse { repeated DeviceRow devices = 1; }

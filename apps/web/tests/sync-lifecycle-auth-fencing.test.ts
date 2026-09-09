@@ -1,11 +1,10 @@
-// Regression coverage for dashboard scope and authentication ownership across Sync links.
+// Regression coverage for Sync link authentication ownership.
 //
-// Drives the production singleton loop against a fake WebSocket. Deferred signing and
-// close events model dashboard cutovers and retired-link callbacks; a replacement
-// may open only in the released scope, and only the current link may revoke auth.
+// Drives the production singleton loop against a fake WebSocket. Deferred close events
+// model intentionally retired links: only the current, unretired link may report that
+// this browser's credential was revoked.
 
 import { afterAll, beforeAll, describe, expect, mock, test, vi } from "bun:test";
-import { setRootStore } from "../src/store/root.ts";
 
 class FakeSyncSocket extends EventTarget {
   static readonly CONNECTING = 0;
@@ -48,17 +47,7 @@ const storage = new Map<string, string>();
 const fakeDocument = Object.assign(new EventTarget(), { visibilityState: "visible" });
 const fakeWindow = new EventTarget();
 
-let pendingJwtSign: Promise<string> | null = null;
-let noteJwtSignStarted: (() => void) | null = null;
-
-function signTestJwt(): Promise<string> {
-  const notifySignStarted = noteJwtSignStarted;
-  noteJwtSignStarted = null;
-  notifySignStarted?.();
-  const pendingSign = pendingJwtSign;
-  pendingJwtSign = null;
-  return pendingSign ?? Promise.resolve("test-jwt");
-}
+const signTestJwt = async (): Promise<string> => "test-jwt";
 
 Object.assign(globalThis, {
   WebSocket: FakeSyncSocket,
@@ -103,7 +92,6 @@ async function advance(ms: number): Promise<void> {
 beforeAll(() => {
   vi.useFakeTimers();
   setForceVisible(true);
-  setRootStore("selected_dashboard_id", "dashboard-old");
   void sync._runConnectSync();
 });
 
@@ -115,35 +103,7 @@ afterAll(async () => {
   vi.useRealTimers();
 });
 
-describe("Sync link scope and authentication ownership", () => {
-  test("an in-flight reconnect opens only the dashboard selected when its hold releases", async () => {
-    await flush();
-    const currentUrl = new URL(dialed.at(-1)!.url);
-    expect(currentUrl.searchParams.get("dashboard")).toBe("dashboard-old");
-
-    const jwtSignStarted = Promise.withResolvers<void>();
-    const jwtSignFinished = Promise.withResolvers<string>();
-    noteJwtSignStarted = jwtSignStarted.resolve;
-    pendingJwtSign = jwtSignFinished.promise;
-
-    const dialCount = dialed.length;
-    sync._requestSyncRedial();
-    await jwtSignStarted.promise;
-
-    sync.holdSyncForDashboardSwitch();
-    jwtSignFinished.resolve("test-jwt");
-    await flush();
-    expect(dialed).toHaveLength(dialCount);
-
-    setRootStore("selected_dashboard_id", "dashboard-new");
-    sync.releaseSyncAfterDashboardSwitch();
-    await flush();
-
-    expect(dialed).toHaveLength(dialCount + 1);
-    const reconnectUrl = new URL(dialed.at(-1)!.url);
-    expect(reconnectUrl.searchParams.get("dashboard")).toBe("dashboard-new");
-  });
-
+describe("Sync link authentication ownership", () => {
   test("retired and intentionally closed links cannot revoke replacement auth", async () => {
     await flush();
     let authResets = 0;
@@ -151,10 +111,10 @@ describe("Sync link scope and authentication ownership", () => {
       authResets += 1;
     });
 
-    const dashboardSwitchLink = dialed.at(-1)!;
-    dashboardSwitchLink.deferCloseEvent = true;
-    sync.closeSyncForDashboardSwitch();
-    dashboardSwitchLink.serverClose(4001, "authentication revoked");
+    const intentionallyClosedLink = dialed.at(-1)!;
+    intentionallyClosedLink.deferCloseEvent = true;
+    sync._requestSyncRedial();
+    intentionallyClosedLink.serverClose(4001, "authentication revoked");
     await flush();
     expect(authResets).toBe(0);
 

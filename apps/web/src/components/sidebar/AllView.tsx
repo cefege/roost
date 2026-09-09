@@ -98,7 +98,7 @@ export function AllView() {
           <md-icon-button
             aria-label="Settings"
             title="Settings"
-            onClick={() => navigate(settingsPaneHref("dashboard"))}
+            onClick={() => navigate(settingsPaneHref("devices"))}
             data-testid="brand-row-settings"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={{ width: "20px", height: "20px" }}>

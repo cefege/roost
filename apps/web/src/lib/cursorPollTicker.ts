@@ -23,7 +23,7 @@ export function registerCursorPoll(cb: () => void): () => void {
 	};
 }
 
-/** Remove every mounted-pane cursor callback before a dashboard switch. */
+/** Remove every mounted-pane cursor callback at a credential boundary. */
 export function resetCursorPollTicker(): void {
 	_cursorPollCbs.clear();
 	if (_cursorPollHandle !== null) {

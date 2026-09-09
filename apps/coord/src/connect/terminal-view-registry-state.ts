@@ -19,7 +19,6 @@ export interface TerminalViewRecord extends TerminalViewIntent {
   viewId: string;
   viewerKey: string;
   fingerprint: string;
-  dashboardId: string;
   socketId: string;
   revision: bigint;
   deadline: number;
@@ -30,7 +29,6 @@ export interface TerminalViewSocketRecord {
   id: string;
   viewerKey: string | null;
   fingerprint: string;
-  dashboardId: string;
   allowsSession(sessionId: string): boolean;
   sink: TerminalScreenSocketSink;
   views: Set<string>;
@@ -40,7 +38,6 @@ export interface TerminalViewTombstone {
   key: string;
   viewerKey: string;
   revision: bigint;
-  dashboardId: string;
   intent: TerminalViewIntent;
   expires: number;
 }
@@ -107,7 +104,6 @@ export function retainTerminalViewTombstone(
   now: number,
   key: string,
   viewerKey: string,
-  dashboardId: string,
   revision: bigint,
   intent: TerminalViewIntent,
 ): void {
@@ -115,7 +111,6 @@ export function retainTerminalViewTombstone(
   tombstones.set(key, {
     key,
     viewerKey,
-    dashboardId,
     revision,
     intent: { ...intent },
     expires: now + TERMINAL_VIEW_LEASE_MS,

@@ -17,11 +17,10 @@ import {
 } from "../src/connect/worker-registry.ts";
 import {
   authorize,
-  dashboardAdminCtx,
+  browserDeviceCtx,
   createDeviceRevocationHarnessOwner,
   key,
   token,
-  workerDeleteDashboardId,
 } from "./device-revocation-fixture.ts";
 
 const { cleanupHarnesses, openHarness: harness } = createDeviceRevocationHarnessOwner();
@@ -32,42 +31,9 @@ describe("authorized device lifecycle", () => {
     const h = await harness();
     const worker = await key();
     await authorize(h.db, worker, "worker");
-    await h.db.insertInto("accounts").values({
-      id: "administrator-account",
-      email_normalized: "administrator@example.test",
-      status: "active",
-      created_at_ms: 1,
-    }).execute();
-    await h.db.insertInto("organizations").values({
-      id: "worker-delete-organization",
-      slug: "worker-delete-organization",
-      name: "Worker Delete Organization",
-      status: "active",
-      created_at_ms: 1,
-    }).execute();
-    await h.db.insertInto("organization_memberships").values({
-      organization_id: "worker-delete-organization",
-      account_id: "administrator-account",
-      role: "owner",
-      created_at_ms: 1,
-    }).execute();
-    await h.db.insertInto("dashboards").values({
-      id: workerDeleteDashboardId,
-      organization_id: "worker-delete-organization",
-      slug: "worker-delete-dashboard",
-      name: "Worker Delete Dashboard",
-      status: "active",
-      created_at_ms: 1,
-    }).execute();
-    await h.db.insertInto("dashboard_memberships").values({
-      dashboard_id: workerDeleteDashboardId,
-      account_id: "administrator-account",
-      role: "admin",
-      created_at_ms: 1,
-    }).execute();
     await h.db.insertInto("workers").values({
       fp: worker.fingerprint,
-      dashboard_id: workerDeleteDashboardId,
+      dashboard_id: h.tenant.dashboardId,
       label: "worker",
       os: "linux",
       git_sha: null,
@@ -80,7 +46,7 @@ describe("authorized device lifecycle", () => {
     const workspaceId = "00000000-0000-4000-8000-000000000602";
     await h.db.insertInto("workspaces").values({
       id: workspaceId,
-      dashboard_id: workerDeleteDashboardId,
+      dashboard_id: h.tenant.dashboardId,
       worker_fp: worker.fingerprint,
       name: "retained",
       folder_path: "/tmp/retained",
@@ -92,7 +58,7 @@ describe("authorized device lifecycle", () => {
     }).execute();
     await h.db.insertInto("sessions").values({
       id: sessionId,
-      dashboard_id: workerDeleteDashboardId,
+      dashboard_id: h.tenant.dashboardId,
       worker_fp: worker.fingerprint,
       channel: 17,
       kind: "shell",
@@ -103,12 +69,12 @@ describe("authorized device lifecycle", () => {
     }).execute();
     await h.db.insertInto("workspace_sessions").values({
       workspace_id: workspaceId,
-      dashboard_id: workerDeleteDashboardId,
+      dashboard_id: h.tenant.dashboardId,
       session_id: sessionId,
       added_at_ms: 1,
     }).execute();
     await h.db.insertInto("events").values({
-      dashboard_id: workerDeleteDashboardId,
+      dashboard_id: h.tenant.dashboardId,
       kind: "cwd",
       session_id: sessionId,
       worker_fp: worker.fingerprint,
@@ -123,7 +89,6 @@ describe("authorized device lifecycle", () => {
     }).execute();
     const liveHandle = {
       workerFp: worker.fingerprint,
-      dashboardId: workerDeleteDashboardId,
       revoked: false,
       ready: true,
       send: () => 1,
@@ -134,8 +99,8 @@ describe("authorized device lifecycle", () => {
       worker_fp: worker.fingerprint,
       channel: 17,
     }]);
-    await token(h, "worker-delegated", worker.fingerprint, "browser", workerDeleteDashboardId);
-    await token(h, "legacy-uncertain", null, "browser", workerDeleteDashboardId);
+    await token(h, "worker-delegated", worker.fingerprint, "browser");
+    await token(h, "legacy-uncertain", null, "browser");
     h.sqlite.exec(`
       CREATE TRIGGER worker_delete_rollback
       BEFORE UPDATE OF deleted_at_ms ON workers
@@ -145,7 +110,7 @@ describe("authorized device lifecycle", () => {
     `);
     await expect(h.workerHandlers.workersDelete(
       create(WorkersDeleteRequestSchema, { fp: worker.fingerprint }),
-      dashboardAdminCtx(),
+      browserDeviceCtx(h.tenant.accountId),
     )).rejects.toThrow("injected worker tombstone failure");
     expect(await h.db.selectFrom("workers").select("deleted_at_ms")
       .where("fp", "=", worker.fingerprint).executeTakeFirst())
@@ -169,7 +134,7 @@ describe("authorized device lifecycle", () => {
 
     const response = await h.workerHandlers.workersDelete(
       create(WorkersDeleteRequestSchema, { fp: worker.fingerprint }),
-      dashboardAdminCtx(),
+      browserDeviceCtx(h.tenant.accountId),
     );
     expect(response.ok).toBe(true);
     const tombstone = await h.db.selectFrom("workers")
@@ -198,10 +163,7 @@ describe("authorized device lifecycle", () => {
     expect(lookupSessionId(asWorkerFp(worker.fingerprint), asChannelId(17)))
       .toBeUndefined();
     expect(h.workerFences).toEqual([worker.fingerprint]);
-    expect(h.workerSyncRemovals).toEqual([{
-      dashboardId: workerDeleteDashboardId,
-      fingerprint: worker.fingerprint,
-    }]);
+    expect(h.workerSyncRemovals).toEqual([worker.fingerprint]);
     await expect(h.db.insertInto("authorized_keys").values({
       fingerprint: worker.fingerprint,
       public_key: worker.raw,

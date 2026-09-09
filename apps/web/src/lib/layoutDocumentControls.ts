@@ -1,6 +1,6 @@
 // Owns TerminalDeck's local layout copy, download, preview, and apply workflow.
-// Dashboard, folder, and import-attempt identity fence every asynchronous edge;
-// application revalidates current membership before one atomic store commit.
+// Credential, folder, and import-attempt identity fence every asynchronous edge;
+// application revalidates the live credential before one atomic store commit.
 // The controller has no JSX and sends no coordinator traffic.
 
 import { batch, createEffect, createSignal, onCleanup } from "solid-js";
@@ -18,17 +18,17 @@ import {
 import { copyToClipboard } from "./clipboard.ts";
 import { addToast } from "../store/toastStore.ts";
 import {
-  captureDashboardResourceToken,
-  isCurrentDashboardResourceToken,
-} from "../store/dashboard-selection.ts";
-import type { DashboardResourceToken } from "../store/dashboard-selection.ts";
+  captureAuthResourceToken,
+  isCurrentAuthResourceToken,
+  type AuthResourceToken,
+} from "../store/auth-boundary.ts";
 import { liveSessionIdsForFolder } from "../store/selectors.ts";
 import { clearSpotlight } from "../store/spotlight.ts";
 import { sessionHref } from "../routes.ts";
 
 export interface LayoutImportAttempt {
   folderKey: string;
-  dashboardToken: DashboardResourceToken;
+  authToken: AuthResourceToken;
 }
 
 export interface LayoutImportPreviewState {
@@ -64,7 +64,7 @@ export function createLayoutDocumentControls(
   function isActiveImport(attempt: LayoutImportAttempt): boolean {
     return !disposed
       && activeImport() === attempt
-      && isCurrentDashboardResourceToken(attempt.dashboardToken)
+      && isCurrentAuthResourceToken(attempt.authToken)
       && context.folderKey() === attempt.folderKey;
   }
 
@@ -92,7 +92,7 @@ export function createLayoutDocumentControls(
   }
 
   function copyLayout(): void {
-    const dashboardToken = captureDashboardResourceToken();
+    const authToken = captureAuthResourceToken();
     const folderKey = context.folderKey();
     let serialized: string;
     try {
@@ -104,7 +104,7 @@ export function createLayoutDocumentControls(
     void copyToClipboard(serialized).then((copied) => {
       if (
         disposed
-        || !isCurrentDashboardResourceToken(dashboardToken)
+        || !isCurrentAuthResourceToken(authToken)
         || context.folderKey() !== folderKey
       ) return;
       addToast(copied ? "Layout copied." : "Clipboard access was denied.", copied ? "ok" : "err");
@@ -156,7 +156,7 @@ export function createLayoutDocumentControls(
     if (!folderKey) return;
     const attempt: LayoutImportAttempt = {
       folderKey,
-      dashboardToken: captureDashboardResourceToken(),
+      authToken: captureAuthResourceToken(),
     };
     setActiveImport(attempt);
     setPreview(null);

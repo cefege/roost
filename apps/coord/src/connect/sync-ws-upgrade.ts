@@ -11,8 +11,8 @@ import {
   hasAtMostUtf8Bytes,
 } from "@roost/shared/ui-state";
 import {
-  loadSyncDashboardScope,
-  type SyncDashboardScope,
+  loadSyncResourceIndex,
+  type SyncResourceIndex,
   type SyncFeed,
 } from "./sync-feed.ts";
 import type { WsAuthDeadlineTimer } from "./ws-auth-deadline.ts";
@@ -21,10 +21,7 @@ import {
   type SyncV2SocketState,
 } from "./sync-ws-v2-state.ts";
 import type { ConnectDeps } from "./router.ts";
-import {
-  resolveCallerPrincipal,
-  resolveDashboardActor,
-} from "./auth-interceptor.ts";
+import { resolveCallerPrincipal } from "./auth-interceptor.ts";
 import {
   SYNC_WS_PATH,
   SYNC_AUTH_SUBPROTOCOL,
@@ -63,22 +60,15 @@ export interface SyncDeliveryRecord {
   readonly sentAtMs: number;
 }
 
-/** Server-owned dashboard scope shared by account-device and read-only worker
- * Sync callers. Browser-only actor details never become worker claims. */
-export interface SyncDashboardActor {
-  dashboardId: string;
-}
-
 export interface SyncWsData {
   kind: "sync";
   caller: VerifiedJwtCaller;
-  /** Resolved from persisted browser membership or workers.dashboard_id before
-   * upgrade. The requested query value is never treated as proof. */
-  actor: SyncDashboardActor;
   /** Worker Sync is a firehose consumer only; it may ACK/subscription-control
    * delivery but cannot issue terminal view or input commands. */
   readOnly: boolean;
-  scope: SyncDashboardScope;
+  /** Resource ids this socket may observe, resolved before upgrade: the whole
+   * install for a browser, the caller's own resources for a worker. */
+  scope: SyncResourceIndex;
   sinceEventId: number;
   /** `${fingerprint}:${tabId}` identifies the browser tab that owns socket-bound
    * terminal view handles and attributes typed input. A v2 socket without
@@ -155,44 +145,31 @@ export async function handleSyncWsUpgrade(
     });
     return new Response("unauthorized", { status: 401 });
   }
-  const dashboardId = url.searchParams.get("dashboard");
-  if (!dashboardId) return new Response("not found", { status: 404 });
   const principal = await resolveCallerPrincipal(deps.db, caller);
-  let actor: SyncDashboardActor;
-  let readOnly: boolean;
+  let ownerWorkerFp: string | null;
   if (principal?.kind === "account-device") {
-    const browserActor = await resolveDashboardActor(
-      deps.db,
-      principal.fingerprint,
-      dashboardId,
-    );
-    if (!browserActor) return new Response("not found", { status: 404 });
-    actor = browserActor;
-    readOnly = false;
+    ownerWorkerFp = null;
   } else if (principal?.kind === "worker") {
-    if (principal.dashboardId !== dashboardId) {
-      return new Response("not found", { status: 404 });
-    }
-    actor = { dashboardId: principal.dashboardId };
-    readOnly = true;
+    ownerWorkerFp = principal.fingerprint;
   } else {
-    // Unmapped legacy keys have no tenant scope. After bootstrap every browser
-    // key is an account device and therefore follows the membership path above.
+    // Unmapped legacy keys carry no runtime identity. After bootstrap every
+    // browser key is an account device and follows the branch above.
     return new Response("not found", { status: 404 });
   }
+  // Worker Sync is a read-only firehose over that worker's own resources.
+  const readOnly = ownerWorkerFp !== null;
   const requestedTabId = url.searchParams.get("tab");
   const tabId = requestedTabId?.trim() ? requestedTabId : null;
   if (tabId !== null && !hasAtMostUtf8Bytes(tabId, UI_TAB_ID_MAX_UTF8_BYTES)) {
     return new Response(SYNC_CONNECTION_REJECTION_REASON, { status: 400 });
   }
-  const scope = await loadSyncDashboardScope(deps.db, actor.dashboardId);
+  const scope = await loadSyncResourceIndex(deps.db, ownerWorkerFp);
   const since = Number(url.searchParams.get("since")) || 0;
   const flowControl = url.searchParams.get("flow") === SYNC_QUERY_FLOW_V1;
   const syncV2 = flowControl && url.searchParams.get("sync_v") === SYNC_QUERY_V2;
   const data: SyncWsData = {
     kind: "sync",
     caller,
-    actor,
     scope,
     readOnly,
     sinceEventId: since,

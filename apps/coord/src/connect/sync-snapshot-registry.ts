@@ -7,7 +7,6 @@ import { randomUUID } from "node:crypto";
 
 interface SnapshotBinding {
   readonly fingerprint: string;
-  readonly dashboardId: string;
   readonly tokens: Map<string, ReadonlySet<string>>;
 }
 
@@ -18,9 +17,8 @@ const MAX_TOKENS_PER_SOCKET = 4;
 export function registerSyncSnapshotSocket(
   socketId: string,
   fingerprint: string,
-  dashboardId: string,
 ): () => void {
-  const binding: SnapshotBinding = { fingerprint, dashboardId, tokens: new Map() };
+  const binding: SnapshotBinding = { fingerprint, tokens: new Map() };
   sockets.set(socketId, binding);
   return () => {
     if (sockets.get(socketId) === binding) sockets.delete(socketId);
@@ -32,15 +30,10 @@ export function registerSyncSnapshotSocket(
 export function bindSyncSessionSnapshot(
   socketId: string,
   fingerprint: string,
-  dashboardId: string,
   sessionIds: Iterable<string>,
 ): string | null {
   const binding = sockets.get(socketId);
-  if (
-    !binding
-    || binding.fingerprint !== fingerprint
-    || binding.dashboardId !== dashboardId
-  ) return null;
+  if (!binding || binding.fingerprint !== fingerprint) return null;
   const token = randomUUID();
   binding.tokens.set(token, new Set(sessionIds));
   while (binding.tokens.size > MAX_TOKENS_PER_SOCKET) {

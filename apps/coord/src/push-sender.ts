@@ -117,7 +117,6 @@ export async function sendPushToSubscriptions(
             await db
               .deleteFrom("push_subscriptions")
               .where("viewer_fp", "=", subscription.viewer_fp)
-              .where("dashboard_id", "=", subscription.dashboard_id)
               .where("endpoint", "=", endpoint)
               .execute();
             log.info("push", "subscription_expired", {

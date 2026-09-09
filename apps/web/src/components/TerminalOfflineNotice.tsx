@@ -17,7 +17,6 @@ import type { TerminalViewHandleStatus } from "../store/terminal-stream.ts";
 
 export type TerminalLoadingStage =
   | "identity"
-  | "authorization"
   | "sync"
   | "sessions"
   | "spawn"

@@ -22,6 +22,17 @@ export type PaintedScrollbackProbe = SmokePaintedScrollbackProbe;
 
 export type RecoverySmokeApi = SmokeApi;
 
+/**
+ * The backdoor a smoke-enabled bundle installs on the page. Declared once here
+ * so every spec and helper reads `window.__smoke` through the production
+ * contract instead of re-casting the global per file.
+ */
+declare global {
+  interface Window {
+    __smoke: RecoverySmokeApi;
+  }
+}
+
 export interface TerminalIdentityProbeWindow {
   __smoke: RecoverySmokeApi;
   __terminalIdentityProbe: { slot: Element; grid: Element; textarea: Element };

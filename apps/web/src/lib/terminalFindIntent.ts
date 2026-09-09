@@ -1,6 +1,6 @@
-// One-shot handoff from dashboard content results to pane-local terminal find.
+// One-shot handoff from global content results to pane-local terminal find.
 // A mounted pane consumes immediately; a cold pane consumes on registration.
-// Dashboard cutover clears both callbacks and pending session identities.
+// A credential boundary clears both callbacks and pending session identities.
 
 import type { TerminalFind } from "./terminalFindController.ts";
 import type { TerminalFindPreferredMatch } from "./terminalFindHandoff.ts";
@@ -92,7 +92,7 @@ export function registerTerminalFind(
   return terminalFindIntentRegistry.register(sessionId, find);
 }
 
-export function resetTerminalFindIntentsForDashboardSwitch(): void {
+export function resetTerminalFindIntentsForAuthBoundary(): void {
   terminalFindIntentRegistry.reset();
 }
 

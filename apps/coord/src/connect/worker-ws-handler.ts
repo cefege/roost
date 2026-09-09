@@ -65,9 +65,6 @@ export interface WorkerWsData {
   kind: "worker";
   caller: VerifiedJwtCaller;
   fp: string;
-  /** Resolved from workers.dashboard_id before WS upgrade; never from a
-   * URL, JWT claim, hello, or worker event payload. */
-  dashboardId: string;
   conn: WorkerConn | null;
   // Bun dispatches messages in order but does not await async handlers. This
   // explicit bounded queue keeps durable/control frames ordered and accounts
@@ -178,7 +175,6 @@ export function makeWorkerWsHandler(
         send,
         requestClose,
         () => ws.getBufferedAmount(),
-        ws.data.dashboardId,
         (refreshed) => { ws.data.caller = refreshed; },
       );
       ws.data.conn = conn;

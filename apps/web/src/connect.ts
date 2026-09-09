@@ -13,17 +13,14 @@ import { CoordinatorService, type WorkersListResponse } from "@roost/shared/prot
 import { signCoordinatorJwt } from "./auth/web-key.ts";
 import { getTabId } from "./auth/tab-id.ts";
 import { signal } from "@roost/shared/diag";
-import { selectedDashboardId } from "./store/root.ts";
 import {
   AUTH_LAYER_DEVICE,
   X_ROOST_AUTH_LAYER,
-  X_ROOST_DASHBOARD_ID,
   X_ROOST_TAB_ID,
 } from "@roost/shared/wire/headers";
 const COORDINATOR_OVERRIDE_KEY = "roost.coordinatorUrl";
 const DEPLOYMENT_MODE_KEY = "roost.deploymentMode";
 const DEVICE_AUTH_REQUIRED_PATHS: Record<string, true | undefined> = {
-  "/roost.v1.CoordinatorService/AuthDashboardAccess": true,
   "/roost.v1.CoordinatorService/WorkersList": true,
   "/roost.v1.CoordinatorService/SessionsList": true,
   "/roost.v1.CoordinatorService/WorkspacesList": true,
@@ -104,13 +101,6 @@ function makeAuthInterceptor(signer: () => Promise<string>): Interceptor {
       });
     }
     req.header.set(X_ROOST_TAB_ID, getTabId());
-    // A caller may supply a server-confirmed switch candidate specifically to
-    // AuthDashboardAccess. Every ordinary RPC receives only the current
-    // confirmed selection.
-    const dashboard = selectedDashboardId();
-    if (dashboard && !req.header.has(X_ROOST_DASHBOARD_ID)) {
-      req.header.set(X_ROOST_DASHBOARD_ID, dashboard);
-    }
     return next(req);
   };
 }
@@ -127,8 +117,8 @@ export function makeCoordinatorClientForSigner(
 }
 
 /** Public pre-device client used by identity discovery. It deliberately sends
- * neither a device JWT nor a dashboard hint, and always targets same-origin so
- * discovery cannot be steered by a stale coordinator override. */
+ * no device JWT, and always targets same-origin so discovery cannot be steered
+ * by a stale coordinator override. */
 export const publicCoordClient = createClient(
   CoordinatorService,
   createConnectTransport({

@@ -30,7 +30,6 @@ export interface MintedBootstrapToken {
 
 export interface BootstrapTokenClaim {
   accountId: string;
-  dashboardId: string;
   label: string;
   mintedByFp: string | null;
 }
@@ -147,7 +146,6 @@ export async function claimBootstrapToken(
 ): Promise<BootstrapTokenClaim | null> {
   const result = await sql<{
     accountId: string;
-    dashboardId: string;
     label: string;
     mintedByFp: string | null;
   }>`
@@ -165,20 +163,8 @@ export async function claimBootstrapToken(
       AND EXISTS (
         SELECT 1
         FROM accounts AS account
-        JOIN dashboard_memberships AS dashboard_membership
-          ON dashboard_membership.account_id = account.id
-         AND dashboard_membership.dashboard_id = bt.dashboard_id
-        JOIN dashboards AS dashboard
-          ON dashboard.id = dashboard_membership.dashboard_id
-        JOIN organizations AS organization
-          ON organization.id = dashboard.organization_id
-        JOIN organization_memberships AS organization_membership
-          ON organization_membership.account_id = account.id
-         AND organization_membership.organization_id = organization.id
         WHERE account.id = bt.account_id
           AND account.status = 'active'
-          AND dashboard.status = 'active'
-          AND organization.status = 'active'
       )
       AND (
         bt.minted_by_fp IS NULL
@@ -226,7 +212,6 @@ export async function claimBootstrapToken(
               SELECT 1
               FROM workers AS retry_worker
               WHERE retry_worker.fp = ${input.fingerprint}
-                AND retry_worker.dashboard_id = bt.dashboard_id
                 AND retry_worker.deleted_at_ms IS NULL
             ))
             OR (${input.kind} = 'browser' AND EXISTS (
@@ -239,7 +224,6 @@ export async function claimBootstrapToken(
         )
       )
     RETURNING account_id AS accountId,
-              dashboard_id AS dashboardId,
               label,
               minted_by_fp AS mintedByFp
   `.execute(db);

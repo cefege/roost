@@ -10,6 +10,7 @@ import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import type { KyselyDB } from "../db/connection.ts";
 import type { PendingEventPublicationStore } from "../pending-event-publications.ts";
 import type { JwtCache } from "../jwt.ts";
+import type { SelfHostedTenant } from "../self-hosted-tenant.ts";
 
 export interface WorkerUpdateProgress {
   request_id: string;
@@ -30,6 +31,9 @@ export interface WorkerServiceDeps {
   /** Required: frame dispatch withholds durable ACKs and respawn waits on
    * this exact instance while a keeper update holds the fence. */
   writeGate: CoordinatorWriteGate;
+  /** Required: the single self-hosted account/organization/dashboard resolved
+   * once at startup. Every scoped write takes its value from here. */
+  selfHostedTenant: SelfHostedTenant;
   onWorkerConnected?: (workerFp: string) => Promise<void> | void;
   onUpdateProgress?: (
     workerFp: string,

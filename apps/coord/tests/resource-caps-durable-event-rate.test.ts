@@ -65,7 +65,6 @@ function rateLimitedSocket(): {
       validUntilMs: Date.now() + 60_000,
     },
     fp: WORKER_FP,
-    dashboardId: DASHBOARD_ID,
     conn,
     queue: null,
     eventRate: { startedAtMs: null, events: 0 },

@@ -1,7 +1,8 @@
 // Retained-snapshot seeding for the Sync firehose: the legacy synchronous
 // burst, the pair-request snapshot, and the v2 per-domain retained replay.
-// Split out of handlers-streaming.ts; the live-subscription engine that drives
-// these is sync-feed.ts.
+// Also owns the per-socket resource index those seeds are filtered by, plus
+// the single query that loads it before upgrade. The live-subscription engine
+// that drives these is sync-feed.ts.
 
 import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
@@ -18,16 +19,49 @@ import { terminalViewerProjection } from "./terminal-view-hub.ts";
 import { log } from "@roost/shared/log";
 import { agentStatusFrame, type SyncFeedFrameMeta } from "./sync-feed-frames.ts";
 import type { UiStateOwner } from "./ui-state-owner.ts";
+import type { KyselyDB } from "../db/connection.ts";
 import { uiStateSeedFrames } from "./sync-feed-ui.ts";
 
-export interface SyncDashboardScope {
-  readonly dashboardId: string;
-  /** Mutable for the socket lifetime: scoped durable session events extend or
-   * remove it before subsequent title/presence/cell fan-out. */
+export interface SyncResourceIndex {
+  /** Non-null only for a read-only worker Sync socket, whose sets stay limited
+   * to that worker's own resources. Null admits every install resource. */
+  readonly ownerWorkerFp: string | null;
+  /** Mutable for the socket lifetime: durable session events extend or remove
+   * it before subsequent title/presence/cell fan-out. */
   readonly sessionIds: Set<string>;
   /** Mutable for worker-registration deltas; used to intersect routability. */
   readonly workerFps: Set<string>;
   readonly workspaceIds: Set<string>;
+}
+
+/** Load persisted runtime ownership before the socket is upgraded. A browser
+ * indexes the whole install; a worker caller is narrowed to its own resources
+ * so its read-only firehose never carries another worker's state. */
+export async function loadSyncResourceIndex(
+  db: KyselyDB,
+  ownerWorkerFp: string | null = null,
+): Promise<SyncResourceIndex> {
+  const workerQuery = db.selectFrom("workers").select("fp")
+    .where("deleted_at_ms", "is", null);
+  const sessionQuery = db.selectFrom("sessions").select("id");
+  const workspaceQuery = db.selectFrom("workspaces").select("id");
+  const [workers, sessions, workspaces] = await Promise.all([
+    (ownerWorkerFp === null
+      ? workerQuery
+      : workerQuery.where("fp", "=", ownerWorkerFp)).execute(),
+    (ownerWorkerFp === null
+      ? sessionQuery
+      : sessionQuery.where("worker_fp", "=", ownerWorkerFp)).execute(),
+    (ownerWorkerFp === null
+      ? workspaceQuery
+      : workspaceQuery.where("worker_fp", "=", ownerWorkerFp)).execute(),
+  ]);
+  return {
+    ownerWorkerFp,
+    workerFps: new Set(workers.map((row) => row.fp)),
+    sessionIds: new Set(sessions.map((row) => row.id)),
+    workspaceIds: new Set(workspaces.map((row) => row.id)),
+  };
 }
 
 /** What a retained seed needs from the feed it is seeding: whether this socket
@@ -40,7 +74,7 @@ export interface SyncFeedSeedContext {
 }
 
 export function* retainedSeedFrames(
-  scope: SyncDashboardScope,
+  scope: SyncResourceIndex,
   uiStates: UiStateOwner,
   browserUi: boolean,
 ): Generator<FirehoseFrame> {
@@ -50,7 +84,7 @@ export function* retainedSeedFrames(
     frame: {
       case: "workerRoutable",
       value: create(WorkerRoutableFrameSchema, {
-        fps: listRoutableFps(scope.dashboardId),
+        fps: listRoutableFps().filter((fp) => scope.workerFps.has(fp)),
       }),
     },
   });
@@ -78,13 +112,13 @@ export function* retainedSeedFrames(
   for (const status of getAgentStatusSnapshot()) {
     if (scope.sessionIds.has(status.session_id)) yield agentStatusFrame(status);
   }
-  if (browserUi) yield* uiStateSeedFrames(uiStates, scope.dashboardId);
+  if (browserUi) yield* uiStateSeedFrames(uiStates);
 }
 
 
 export async function seedDomain(
   ctx: SyncFeedSeedContext,
-  scope: SyncDashboardScope,
+  scope: SyncResourceIndex,
   domain: SyncDomain,
   sessionIds?: ReadonlySet<string>,
 ): Promise<void> {
@@ -95,7 +129,7 @@ export async function seedDomain(
   };
 
   if (domain === SyncDomain.WORKERS) {
-    const fps = listRoutableFps(scope.dashboardId);
+    const fps = listRoutableFps().filter((fp) => scope.workerFps.has(fp));
     const snapshotId = randomUUID();
     const chunkSize = 256;
     const chunkCount = Math.max(1, Math.ceil(fps.length / chunkSize));

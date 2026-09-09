@@ -1,4 +1,4 @@
-// The terminal smoke stack starts an isolated coordinator, workers, keepers, and API scope.
+// The terminal smoke stack starts an isolated coordinator, workers, keepers, and API key.
 // Playwright fixtures call this lifecycle and receive lazy worker factories plus cleanup.
 // Every child gets isolated state and temp roots while the returned stop closes all resources.
 // Split coordinator and worker release checkouts let the upgrade tier run this
@@ -11,16 +11,13 @@ import { buildAuthorizedApiClient, type AuthorizedApiClient } from "../../apps/r
 import { loadWorkerKey } from "../../apps/worker/src/jwt.ts";
 import {
   REPOSITORY_ROOT,
-  TERMINAL_TEST_DASHBOARD_ID,
-  TERMINAL_TEST_SECOND_DASHBOARD_ID,
+  authorizeTerminalTestApiKey,
   logTail,
-  seedTerminalDashboards,
   startCoordinatorService,
   stopChild,
   stopDeployedWorker,
   stopKeeper,
   waitFor,
-  withTerminalDashboard,
   type RunningService,
 } from "./stack-runtime.ts";
 import {
@@ -33,7 +30,6 @@ const WORKER_LABEL = "roost-terminal-test";
 const SECOND_WORKER_LABEL = "roost-terminal-test-second";
 const PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture";
 const COORD_START_TIMEOUT_MS = 20_000;
-const SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-dashboard-b-pty-fixture";
 
 export type TerminalTestWorker = {
   workerFp: string;
@@ -50,20 +46,14 @@ export type TerminalTestStack = {
   workerLogPath: string;
   ptyFixtureWorkerLogPath: string;
   secondWorkerLogPath: string;
-  secondDashboardPtyFixtureWorkerLogPath: string;
   // The authorized client the harness already had to mint to bootstrap the
   // worker. Exposed so callers don't build a second (unauthorized) one.
-  dashboardId: string;
-  secondDashboardId: string;
-  secondDashboardClient: AuthorizedApiClient;
   client: AuthorizedApiClient;
   // Lazily start one independent worker with its own HOME, data, key, log, and
   // keeper. Repeated calls return the same running worker.
   startSecondWorker(): Promise<TerminalTestWorker>;
   /** Lazily start a worker whose shell is the compiled portable PTY fixture. */
   startPtyFixtureWorker(): Promise<TerminalTestWorker>;
-  /** Lazily start the portable PTY fixture worker bound to the second dashboard. */
-  startSecondDashboardPtyFixtureWorker(): Promise<TerminalTestWorker>;
   // Bounce the primary worker process, keeping coord and the persisted worker
   // identity. Resolves once the same fingerprint is routable again.
   restartWorker(): Promise<void>;
@@ -125,9 +115,6 @@ export async function startTerminalTestStack(
   const ptyFixtureHome = join(root, "pty-fixture-home");
   const ptyFixtureLogPath = join(root, "pty-fixture-worker.log");
   const ptyFixtureDataDir = join(root, "pty-fixture-worker-data");
-  const secondDashboardPtyFixtureHome = join(root, "dashboard-b-pty-fixture-home");
-  const secondDashboardPtyFixtureLogPath = join(root, "dashboard-b-pty-fixture-worker.log");
-  const secondDashboardPtyFixtureDataDir = join(root, "dashboard-b-pty-fixture-worker-data");
   const ptyFixtureExecutable = join(
     root,
     process.platform === "win32" ? "roost-pty-fixture.exe" : "roost-pty-fixture",
@@ -147,13 +134,11 @@ export async function startTerminalTestStack(
   mkdirSync(home, { recursive: true });
   mkdirSync(secondHome, { recursive: true });
   mkdirSync(ptyFixtureHome, { recursive: true });
-  mkdirSync(secondDashboardPtyFixtureHome, { recursive: true });
   const childTmpDirs = {
     coord: join(root, "coord-tmp"),
     worker: join(root, "worker-tmp"),
     secondWorker: join(root, "second-worker-tmp"),
     ptyFixtureWorker: join(root, "pty-fixture-worker-tmp"),
-    secondDashboardPtyFixtureWorker: join(root, "dashboard-b-pty-fixture-worker-tmp"),
   };
   for (const dir of Object.values(childTmpDirs)) mkdirSync(dir, { recursive: true });
   let coord: RunningService | undefined;
@@ -163,50 +148,44 @@ export async function startTerminalTestStack(
   let secondWorkerStart: Promise<TerminalTestWorker> | undefined;
   let ptyFixtureWorker: RunningService | undefined;
   let ptyFixtureWorkerStart: Promise<TerminalTestWorker> | undefined;
-  let secondDashboardPtyFixtureWorker: RunningService | undefined;
-  let secondDashboardPtyFixtureWorkerStart: Promise<TerminalTestWorker> | undefined;
   let client: AuthorizedApiClient | undefined;
-  let secondDashboardClient: AuthorizedApiClient | undefined;
 
   const stop = async () => {
     const errors: string[] = [];
     try {
-      const cleanDashboard = async (scopeClient: AuthorizedApiClient, scopeName: string): Promise<void> => {
-        const { sessions } = await scopeClient.sessionsList({ status: "all" }).catch((error) => {
-          errors.push(`${scopeName}: list sessions: ${String(error)}`);
+      const cleanInstallResources = async (installClient: AuthorizedApiClient): Promise<void> => {
+        const { sessions } = await installClient.sessionsList({ status: "all" }).catch((error) => {
+          errors.push(`list sessions: ${String(error)}`);
           return { sessions: [] };
         });
-        await Promise.all(sessions.map((session) => scopeClient.sessionsKill({ sessionId: session.id }).catch((error) => {
-          errors.push(`${scopeName}: kill session ${session.id}: ${String(error)}`);
+        await Promise.all(sessions.map((session) => installClient.sessionsKill({ sessionId: session.id }).catch((error) => {
+          errors.push(`kill session ${session.id}: ${String(error)}`);
         })));
-        const { workspaces } = await scopeClient.workspacesList({}).catch((error) => {
-          errors.push(`${scopeName}: list workspaces: ${String(error)}`);
+        const { workspaces } = await installClient.workspacesList({}).catch((error) => {
+          errors.push(`list workspaces: ${String(error)}`);
           return { workspaces: [] };
         });
         for (const workspace of workspaces) {
           for (let attempt = 0; attempt < 2; attempt++) {
-            const current = await scopeClient.workspacesList({}).then((result) =>
+            const current = await installClient.workspacesList({}).then((result) =>
               result.workspaces.find((item) => item.id === workspace.id),
             ).catch((error) => {
-              errors.push(`${scopeName}: read workspace ${workspace.id}: ${String(error)}`);
+              errors.push(`read workspace ${workspace.id}: ${String(error)}`);
               return undefined;
             });
             if (!current) break;
             try {
-              await scopeClient.workspacesDelete({ id: current.id, ifVersion: current.version });
+              await installClient.workspacesDelete({ id: current.id, ifVersion: current.version });
               break;
             } catch (error) {
-              if (attempt === 1) errors.push(`${scopeName}: delete workspace ${current.id}: ${String(error)}`);
+              if (attempt === 1) errors.push(`delete workspace ${current.id}: ${String(error)}`);
             }
           }
         }
       };
-      if (client) await cleanDashboard(client, "primary dashboard");
-      if (secondDashboardClient) await cleanDashboard(secondDashboardClient, "second dashboard");
+      if (client) await cleanInstallResources(client);
     } finally {
       await stopChild(secondWorker).catch((error) => errors.push(`stop second worker: ${String(error)}`));
-      await stopChild(secondDashboardPtyFixtureWorker).catch((error) => errors.push(`stop second dashboard PTY fixture worker: ${String(error)}`));
-      await stopKeeper(secondDashboardPtyFixtureDataDir).catch((error) => errors.push(`stop second dashboard PTY fixture keeper: ${String(error)}`));
       await stopChild(ptyFixtureWorker).catch((error) => errors.push(`stop PTY fixture worker: ${String(error)}`));
       await stopKeeper(ptyFixtureDataDir).catch((error) => errors.push(`stop PTY fixture keeper: ${String(error)}`));
       await stopKeeper(secondWorkerDataDir).catch((error) => errors.push(`stop second keeper: ${String(error)}`));
@@ -238,15 +217,12 @@ export async function startTerminalTestStack(
 
     const apiKeyPath = join(root, "api.key");
     const apiKey = await loadWorkerKey(apiKeyPath);
-    seedTerminalDashboards(bunExecutable, coordDbPath, apiKey.fingerprint, apiKey.pubKey);
-    const rawClient = await buildAuthorizedApiClient({
+    authorizeTerminalTestApiKey(bunExecutable, coordDbPath, apiKey.fingerprint, apiKey.pubKey);
+    client = await buildAuthorizedApiClient({
       coordinatorUrl: baseUrl,
       keyPath: apiKeyPath,
       label: "roost-terminal-test-api",
-      skipTenantProbe: true,
     });
-    client = withTerminalDashboard(rawClient, TERMINAL_TEST_DASHBOARD_ID);
-    secondDashboardClient = withTerminalDashboard(rawClient, TERMINAL_TEST_SECOND_DASHBOARD_ID);
     const startWorker = createTerminalWorkerStarter(bunExecutable, baseUrl, workerRelease.sourceRoot);
     const compilePtyFixture = createPtyFixtureCompiler(bunExecutable, ptyFixtureExecutable);
 
@@ -317,39 +293,6 @@ export async function startTerminalTestStack(
       })();
       return ptyFixtureWorkerStart;
     };
-    const startSecondDashboardPtyFixtureWorker = (): Promise<TerminalTestWorker> => {
-      secondDashboardPtyFixtureWorkerStart ??= (async () => {
-        compilePtyFixture();
-        const fixtureBootstrapToken = (
-          await secondDashboardClient!.authMintBootstrap({
-            kind: "worker",
-            label: SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL,
-          })
-        ).token;
-        secondDashboardPtyFixtureWorker = startWorker({
-          label: SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL,
-          home: secondDashboardPtyFixtureHome,
-          logPath: secondDashboardPtyFixtureLogPath,
-          dataDir: secondDashboardPtyFixtureDataDir,
-          tmpDir: childTmpDirs.secondDashboardPtyFixtureWorker,
-          bootstrapToken: fixtureBootstrapToken,
-          shell: ptyFixtureExecutable,
-        });
-        const workerFp = await waitForTerminalWorkerRoutable(
-          secondDashboardClient!,
-          SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL,
-          secondDashboardPtyFixtureLogPath,
-        );
-        return {
-          workerFp,
-          label: SECOND_DASHBOARD_PTY_FIXTURE_WORKER_LABEL,
-          home: secondDashboardPtyFixtureHome,
-          logPath: secondDashboardPtyFixtureLogPath,
-        };
-      })();
-      return secondDashboardPtyFixtureWorkerStart;
-    };
-
 
     // Full primary-worker bounce, keeping coord and the persisted identity.
     // The keeper is deliberately left alone: it is designed to outlive the
@@ -362,20 +305,15 @@ export async function startTerminalTestStack(
 
     return {
       baseUrl,
-      dashboardId: TERMINAL_TEST_DASHBOARD_ID,
-      secondDashboardId: TERMINAL_TEST_SECOND_DASHBOARD_ID,
       workerFp,
       workerHome: home,
       coordLogPath,
       workerLogPath,
       secondWorkerLogPath,
       ptyFixtureWorkerLogPath: ptyFixtureLogPath,
-      secondDashboardPtyFixtureWorkerLogPath: secondDashboardPtyFixtureLogPath,
       client,
-      secondDashboardClient,
       startSecondWorker,
       startPtyFixtureWorker,
-      startSecondDashboardPtyFixtureWorker,
       restartWorker,
       coordDbPath,
       apiKeyPath,
@@ -386,7 +324,7 @@ export async function startTerminalTestStack(
       stop,
     };
   } catch (error) {
-    const logs = `coord log:\n${logTail(coordLogPath)}\nworker log:\n${logTail(workerLogPath)}\nsecond worker log:\n${logTail(secondWorkerLogPath)}\nsecond dashboard PTY fixture worker log:\n${logTail(secondDashboardPtyFixtureLogPath)}`;
+    const logs = `coord log:\n${logTail(coordLogPath)}\nworker log:\n${logTail(workerLogPath)}\nsecond worker log:\n${logTail(secondWorkerLogPath)}`;
     await stop().catch(() => undefined);
     throw new Error(`${String(error)}\n${logs}`);
   }

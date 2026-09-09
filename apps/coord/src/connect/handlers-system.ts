@@ -18,8 +18,6 @@ import { AuditRowSchema } from "@roost/shared/proto/wire_pb";
 import {
   callerOrigin,
   requireAccountDevice,
-  requireDashboardActor,
-  requireDashboardAdmin,
 } from "./auth-interceptor.ts";
 import { assertOnHost } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
@@ -43,8 +41,8 @@ const BOOT_MS = Date.now();
 
 /**
  * A worker can retain stale sessions while it is being reassigned. Keep only
- * the actor-authorized session records; process-wide worker counters would
- * otherwise disclose activity outside the selected dashboard.
+ * the session records this snapshot authorized; process-wide worker counters
+ * would otherwise disclose activity the query never selected.
  */
 function scopedWorkerDiagnostic(
   workerFp: string,
@@ -119,7 +117,7 @@ export function makeSystemHandlers(
     // they land in RoostCoord/main.out.log with the canonical JSON shape.
     // Target="diag" so grep stays independent of operational logs.
     async diagDebugLogBatch(req, ctx) {
-      requireDashboardActor(ctx.values);
+      requireAccountDevice(ctx.values);
       // Tier-1 signals always land. The diag firehose (info entries) is
       // dropped unless coord-side ROOST_DIAG=1 — a single coord switch
       // governs disk/CPU even when a stale browser keeps localStorage.roostDiag=1
@@ -159,18 +157,16 @@ export function makeSystemHandlers(
       return create(DiagDebugLogBatchResponseSchema, { accepted });
     },
 
-    // On-demand state dump. A filtered session diagnosis is available to
-    // dashboard members; an unfiltered fleet dump is an admin diagnostic.
+    // On-demand state dump. A session-filtered diagnosis narrows to one
+    // session; an unfiltered dump covers the whole fleet.
     async diagSnapshot(req, ctx) {
+      requireAccountDevice(ctx.values);
       const sessionFilterId: string = req.sessionFilterId || "";
-      const actor = sessionFilterId === ""
-        ? requireDashboardAdmin(ctx.values)
-        : requireDashboardActor(ctx.values);
       const capturedAtMs = Date.now();
 
-      // Resolve every resource boundary from durable dashboard predicates
+      // Resolve every resource boundary from durable session and worker rows
       // before touching coordinator caches. The filtered attach poller only
-      // looks up its one session's worker, not the dashboard's whole fleet.
+      // looks up its one session's worker, not the whole fleet.
       let sessionQuery = deps.db.selectFrom("sessions as session")
         .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
         .select([
@@ -178,9 +174,7 @@ export function makeSystemHandlers(
           "session.worker_fp as worker_fp",
           "session.channel as channel",
         ])
-        .where("session.dashboard_id", "=", actor.dashboardId)
         .where("session.status", "=", "open")
-        .where("worker.dashboard_id", "=", actor.dashboardId)
         .where("worker.deleted_at_ms", "is", null);
       if (sessionFilterId !== "") {
         sessionQuery = sessionQuery.where("session.id", "=", sessionFilterId);
@@ -192,13 +186,11 @@ export function makeSystemHandlers(
           ? []
           : await deps.db.selectFrom("workers")
             .select("fp")
-            .where("dashboard_id", "=", actor.dashboardId)
             .where("fp", "in", sessionWorkerFps)
             .where("deleted_at_ms", "is", null)
             .execute()
         : await deps.db.selectFrom("workers")
           .select("fp")
-          .where("dashboard_id", "=", actor.dashboardId)
           .where("deleted_at_ms", "is", null)
           .execute();
       const allowedSessionIds = new Set(scopedSessionRows.map((row) => row.id));
@@ -209,15 +201,13 @@ export function makeSystemHandlers(
           : sessionWorkerFps.filter((workerFp) => allowedWorkerFps.has(workerFp)),
       );
 
-      // The registry is volatile, so its server-stamped dashboard scope must
-      // agree with the durable predicate before it is used for a route, a
-      // connection bit, or a worker dispatch.
+      // The registry is volatile, so a route, a connection bit, or a worker
+      // dispatch is only taken for a worker the durable predicate admitted.
       const dispatchableWorkerFps = new Set<string>();
       for (const workerFp of workerFpsToDiagnose) {
         const handle = connectWorkers.get(workerFp);
         if (
           handle !== undefined
-          && handle.dashboardId === actor.dashboardId
           && handle.ready
           && !handle.revoked
         ) {
@@ -272,8 +262,8 @@ export function makeSystemHandlers(
           terminal_view: terminalViewSnapshot(row.id),
           terminal_screen: null,
           // Viewer projection only has a process-wide snapshot API. Do not
-          // enumerate it for a tenant diagnostic; terminal_view has scoped
-          // aggregate view state above.
+          // enumerate it for a per-session diagnostic; terminal_view carries
+          // the aggregate view state above.
           viewers: {},
         };
         const screen = terminalScreen?.snapshot(row.id);
@@ -290,11 +280,7 @@ export function makeSystemHandlers(
         sessions[row.id] = state;
       }
 
-      const rawWorkers = await collectWorkerDiagSnapshots(
-        dispatchableWorkerFps,
-        undefined,
-        actor.dashboardId,
-      );
+      const rawWorkers = await collectWorkerDiagSnapshots(dispatchableWorkerFps);
       const workers = Object.fromEntries(
         Object.entries(rawWorkers).map(([workerFp, result]) => [
           workerFp,
@@ -328,13 +314,12 @@ export function makeSystemHandlers(
 
     // ─── audit ────────────────────────────────────────────────────────
     async auditList(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      requireAccountDevice(ctx.values);
       const limit = Math.min(req.limit || 100, 500);
       let q = deps.db.selectFrom("audit_log as a")
         .leftJoin("authorized_keys as k", "k.fingerprint", "a.caller_fp")
         .select(["a.id", "a.ts", "a.caller_fp", "k.label as caller_label",
                  "a.method", "a.path", "a.status", "a.trace_id"])
-        .where("a.dashboard_id", "=", actor.dashboardId)
         .orderBy("a.id", "desc").limit(limit + 1);
       if (req.cursor) q = q.where("a.id", "<", parseInt(req.cursor, 10));
       if (req.callerFp) q = q.where("a.caller_fp", "=", req.callerFp);

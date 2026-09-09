@@ -1,7 +1,7 @@
-// Dashboard-scoped observed-agent handlers authorize durable open-session
-// membership before consulting volatile status or registering bounded waits.
+// Observed-agent handlers authorize durable open-session existence before
+// consulting volatile status or registering bounded waits.
 // They expose PID-free projections and preserve one not-found response for
-// missing and foreign sessions.
+// missing and unknown sessions.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
@@ -22,7 +22,7 @@ import {
   waitForAgentStatus,
 } from "../agent-status-hub.ts";
 import { AgentStatusWaitError } from "../agent-status-wait.ts";
-import { requireDashboardActor } from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 
 type AgentStatusMethods = "agentStatusGet" | "agentStatusList" | "agentStatusWait";
@@ -35,12 +35,8 @@ export type AgentStatusHandlers = Pick<
 export function makeAgentStatusHandlers(deps: ConnectDeps): AgentStatusHandlers {
   return {
     async agentStatusGet(request, context) {
-      const actor = requireDashboardActor(context.values);
-      const sessionId = await requireOpenAgentStatusSession(
-        deps,
-        actor.dashboardId,
-        request.sessionId,
-      );
+      requireAccountDevice(context.values);
+      const sessionId = await requireOpenAgentStatusSession(deps, request.sessionId);
       const status = getAgentStatusSnapshot()
         .find((candidate) => candidate.session_id === sessionId);
       if (!status) agentStatusNotFound();
@@ -51,10 +47,9 @@ export function makeAgentStatusHandlers(deps: ConnectDeps): AgentStatusHandlers 
     },
 
     async agentStatusList(_request, context) {
-      const actor = requireDashboardActor(context.values);
+      requireAccountDevice(context.values);
       const sessions = await deps.db.selectFrom("sessions")
         .select("id")
-        .where("dashboard_id", "=", actor.dashboardId)
         .where("status", "=", "open")
         .execute();
       const authorizedSessionIds = new Set(sessions.map((session) => session.id));
@@ -67,12 +62,8 @@ export function makeAgentStatusHandlers(deps: ConnectDeps): AgentStatusHandlers 
     },
 
     async agentStatusWait(request, context) {
-      const actor = requireDashboardActor(context.values);
-      const sessionId = await requireOpenAgentStatusSession(
-        deps,
-        actor.dashboardId,
-        request.sessionId,
-      );
+      requireAccountDevice(context.values);
+      const sessionId = await requireOpenAgentStatusSession(deps, request.sessionId);
       let afterRevision: number | undefined;
       if (request.afterRevision !== undefined) {
         if (request.afterRevision > BigInt(Number.MAX_SAFE_INTEGER)) {
@@ -104,13 +95,11 @@ export function makeAgentStatusHandlers(deps: ConnectDeps): AgentStatusHandlers 
 
 async function requireOpenAgentStatusSession(
   deps: ConnectDeps,
-  dashboardId: string,
   sessionId: string,
 ): Promise<string> {
   const session = await deps.db.selectFrom("sessions")
     .select("id")
     .where("id", "=", sessionId)
-    .where("dashboard_id", "=", dashboardId)
     .where("status", "=", "open")
     .executeTakeFirst();
   if (!session) agentStatusNotFound();

@@ -18,17 +18,12 @@ import {
   UiSelectTabSchema,
 } from "@roost/shared/proto/sync_pb";
 import { uiBus, type UiBusMsg } from "../src/buses.ts";
-import {
-  callerKey,
-  dashboardActorKey,
-  type DashboardActor,
-} from "../src/connect/auth-interceptor.ts";
+import { callerKey } from "../src/connect/auth-interceptor.ts";
 import { makeUiHandlers } from "../src/connect/handlers-ui.ts";
 import { legacyUiCommandSessionIds } from "../src/connect/ui-legacy-command.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import {
   createSyncWsKeepaliveCoordFixture,
-  SYNC_WS_KEEPALIVE_DASHBOARD_ID,
   type SyncWsKeepaliveCoordFixture,
 } from "./sync-ws-keepalive-coord-fixture.ts";
 
@@ -37,22 +32,13 @@ let actorContext: HandlerContext;
 
 beforeAll(async () => {
   fixture = await createSyncWsKeepaliveCoordFixture();
-  const actor: DashboardActor = {
-    accountId: "legacy-command-account",
-    organizationId: "legacy-command-organization",
-    dashboardId: SYNC_WS_KEEPALIVE_DASHBOARD_ID,
-    organizationRole: "owner",
-    dashboardRole: "admin",
-    deviceFingerprint: fixture.fingerprint,
-  };
   const values = createContextValues();
   values.set(callerKey, {
     kind: "account-device",
     fingerprint: fixture.fingerprint,
     label: "",
-    accountId: actor.accountId,
+    accountId: "legacy-command-account",
   });
-  values.set(dashboardActorKey, actor);
   actorContext = {
     values,
     signal: new AbortController().signal,
@@ -119,10 +105,7 @@ test("oversized legacy session fields fail before SQLite or UI bus delivery", as
   } as unknown as ConnectDeps["db"];
   const handlers = makeUiHandlers({ ...fixture.deps, db });
   const published: UiBusMsg[] = [];
-  const stop = uiBus.subscribe(
-    (message) => published.push(message),
-    SYNC_WS_KEEPALIVE_DASHBOARD_ID,
-  );
+  const stop = uiBus.subscribe((message) => published.push(message));
   for (const command of commands) {
     await expect(handlers.uiDispatch(create(UiDispatchRequestSchema, {
       targetTabId: "target-tab",

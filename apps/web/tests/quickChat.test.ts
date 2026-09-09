@@ -1,12 +1,12 @@
-// Quick-chat path classification and dashboard-scoped spawn orchestration.
-// Deferred RPC and projection promises prove that a dashboard cutover drops
-// every old-scope continuation before it can spawn, navigate, launch, or toast.
+// Quick-chat path classification and credential-fenced spawn orchestration.
+// Deferred RPC and projection promises prove that a credential boundary drops
+// every retired continuation before it can spawn, navigate, launch, or toast.
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Navigator } from "@solidjs/router";
 
 const workerFp = "worker-a";
-let dashboardGeneration = 1;
+let authGeneration = 1;
 
 const filesMkdir = mock(async (_request: { workerFp: string; path: string }) => ({
   resolvedPath: "/resolved/chat",
@@ -19,12 +19,9 @@ const spawnShell = mock(async (
 const waitForSession = mock(async (_sessionId: string) => null);
 const forceLaunchAgent = mock((_sessionId: string) => {});
 const addToast = mock((_message: string, _kind: string) => {});
-const captureDashboardResourceToken = mock(() => ({
-  generation: dashboardGeneration,
-  dashboardId: "dashboard-a",
-}));
-const isCurrentDashboardResourceToken = mock(
-  (token: { generation: number }) => token.generation === dashboardGeneration,
+const captureAuthResourceToken = mock(() => ({ generation: authGeneration }));
+const isCurrentAuthResourceToken = mock(
+  (token: { generation: number }) => token.generation === authGeneration,
 );
 
 mock.module("../src/connect.ts", () => ({
@@ -47,9 +44,9 @@ mock.module("../src/lib/spawnSession.ts", () => ({
 mock.module("../src/store/toastStore.ts", () => ({
   addToast,
 }));
-mock.module("../src/store/dashboard-selection.ts", () => ({
-  captureDashboardResourceToken,
-  isCurrentDashboardResourceToken,
+mock.module("../src/store/auth-boundary.ts", () => ({
+  captureAuthResourceToken,
+  isCurrentAuthResourceToken,
 }));
 
 // Module mocks must install before quickChat binds its singleton dependencies.
@@ -60,7 +57,7 @@ const {
 } = await import("../src/lib/quickChat.ts");
 
 beforeEach(() => {
-  dashboardGeneration = 1;
+  authGeneration = 1;
   filesMkdir.mockReset();
   filesMkdir.mockImplementation(async () => ({ resolvedPath: "/resolved/chat" }));
   spawnShell.mockReset();
@@ -69,8 +66,8 @@ beforeEach(() => {
   waitForSession.mockImplementation(async () => null);
   forceLaunchAgent.mockClear();
   addToast.mockClear();
-  captureDashboardResourceToken.mockClear();
-  isCurrentDashboardResourceToken.mockClear();
+  captureAuthResourceToken.mockClear();
+  isCurrentAuthResourceToken.mockClear();
 });
 
 describe("isChatFolder", () => {
@@ -93,8 +90,8 @@ describe("newChatFolderPath", () => {
   });
 });
 
-describe("startQuickChat dashboard fence", () => {
-  test("runs the complete spawn flow while its dashboard token is current", async () => {
+describe("startQuickChat credential fence", () => {
+  test("runs the complete spawn flow while its auth token is current", async () => {
     const navigate = mock((_href: string) => {});
 
     await startQuickChat(navigate as unknown as Navigator);
@@ -109,14 +106,14 @@ describe("startQuickChat dashboard fence", () => {
     expect(addToast).not.toHaveBeenCalled();
   });
 
-  test("a switch while mkdir is pending prevents the spawn continuation", async () => {
+  test("a boundary while mkdir is pending prevents the spawn continuation", async () => {
     const mkdir = Promise.withResolvers<{ resolvedPath: string }>();
     filesMkdir.mockImplementation(() => mkdir.promise);
     const navigate = mock((_href: string) => {});
 
     const pending = startQuickChat(navigate as unknown as Navigator);
-    dashboardGeneration++;
-    mkdir.resolve({ resolvedPath: "/old-dashboard/chat" });
+    authGeneration++;
+    mkdir.resolve({ resolvedPath: "/retired/chat" });
     await pending;
 
     expect(spawnShell).not.toHaveBeenCalled();
@@ -126,7 +123,7 @@ describe("startQuickChat dashboard fence", () => {
     expect(addToast).not.toHaveBeenCalled();
   });
 
-  test("a switch while spawn is pending prevents projection and launch", async () => {
+  test("a boundary while spawn is pending prevents projection and launch", async () => {
     const spawnStarted = Promise.withResolvers<void>();
     const spawned = Promise.withResolvers<string>();
     spawnShell.mockImplementation(() => {
@@ -137,8 +134,8 @@ describe("startQuickChat dashboard fence", () => {
 
     const pending = startQuickChat(navigate as unknown as Navigator);
     await spawnStarted.promise;
-    dashboardGeneration++;
-    spawned.resolve("old-dashboard-session");
+    authGeneration++;
+    spawned.resolve("retired-session");
     await pending;
 
     expect(waitForSession).not.toHaveBeenCalled();
@@ -147,7 +144,7 @@ describe("startQuickChat dashboard fence", () => {
     expect(addToast).not.toHaveBeenCalled();
   });
 
-  test("a switch while projection is pending prevents navigation and input", async () => {
+  test("a boundary while projection is pending prevents navigation and input", async () => {
     const waitStarted = Promise.withResolvers<void>();
     const projected = Promise.withResolvers<null>();
     waitForSession.mockImplementation(() => {
@@ -158,7 +155,7 @@ describe("startQuickChat dashboard fence", () => {
 
     const pending = startQuickChat(navigate as unknown as Navigator);
     await waitStarted.promise;
-    dashboardGeneration++;
+    authGeneration++;
     projected.resolve(null);
     await pending;
 
@@ -167,14 +164,14 @@ describe("startQuickChat dashboard fence", () => {
     expect(addToast).not.toHaveBeenCalled();
   });
 
-  test("a stale rejection does not recreate an old-dashboard error toast", async () => {
+  test("a stale rejection does not recreate a retired error toast", async () => {
     const mkdir = Promise.withResolvers<{ resolvedPath: string }>();
     filesMkdir.mockImplementation(() => mkdir.promise);
     const navigate = mock((_href: string) => {});
 
     const pending = startQuickChat(navigate as unknown as Navigator);
-    dashboardGeneration++;
-    mkdir.reject(new Error("old dashboard rejected mkdir"));
+    authGeneration++;
+    mkdir.reject(new Error("retired credential rejected mkdir"));
     await pending;
 
     expect(addToast).not.toHaveBeenCalled();
@@ -182,7 +179,7 @@ describe("startQuickChat dashboard fence", () => {
     expect(forceLaunchAgent).not.toHaveBeenCalled();
   });
 
-  test("a current-dashboard rejection still reports the spawn failure", async () => {
+  test("a current-credential rejection still reports the spawn failure", async () => {
     filesMkdir.mockImplementation(async () => {
       throw new Error("mkdir denied");
     });

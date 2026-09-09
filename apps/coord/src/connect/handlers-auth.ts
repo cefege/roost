@@ -11,7 +11,6 @@ import type { ConnectDeps } from "./router.ts";
 
 type AuthMethods =
   | "authCoordIdentity"
-  | "authDashboardAccess"
   | "authMintBootstrap"
   | "authRedeemWorker"
   | "authRedeemBrowser"

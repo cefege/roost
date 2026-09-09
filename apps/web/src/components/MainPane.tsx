@@ -53,12 +53,6 @@ function terminalBootstrapCopy(stage: TerminalBootstrapStage): BootstrapLoadingC
         title: "Connecting to coordinator",
         detail: "Waiting for coordinator identity.",
       };
-    case "authorization":
-      return {
-        stage,
-        title: "Authorizing this browser",
-        detail: "Waiting for the coordinator to trust this browser.",
-      };
     case "sync":
       return {
         stage,

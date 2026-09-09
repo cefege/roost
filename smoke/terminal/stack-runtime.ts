@@ -1,8 +1,8 @@
 // Terminal smoke stack support owns child environments, the coordinator launch,
-// dashboard seeding, and teardown. The stack lifecycle calls these helpers while
-// retaining ownership of spawned services, and an upgrade run relaunches the
-// coordinator from a second checkout through the same launcher.
-// Keeping process cleanup and authorization scoping together prevents hermetic stacks leaking state.
+// test API-key authorization, and teardown. The stack lifecycle calls these
+// helpers while retaining ownership of spawned services, and an upgrade run
+// relaunches the coordinator from a second checkout through the same launcher.
+// Keeping process cleanup and key authorization together prevents hermetic stacks leaking state.
 
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { openSync, readFileSync } from "node:fs";
@@ -10,16 +10,10 @@ import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import { X_ROOST_DASHBOARD_ID } from "../../apps/shared/src/wire/headers.ts";
 import { resolveLocalEndpoint } from "../../apps/shared/src/local-endpoint.ts";
 import { shutdownKeeperAuthenticated } from "../../apps/worker/src/keeper/keeper-probe.ts";
 
 export const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const TERMINAL_TEST_ACCOUNT_ID = "terminal-test-account";
-const TERMINAL_TEST_ORGANIZATION_ID = "terminal-test-organization";
-export const TERMINAL_TEST_DASHBOARD_ID = "terminal-test-dashboard";
-export const TERMINAL_TEST_SECOND_DASHBOARD_ID = "terminal-test-dashboard-b";
 
 export type RunningService = {
   child: ChildProcess;
@@ -49,7 +43,14 @@ function childEnvironment(home: string, tmpDir: string, values: Record<string, s
   // Windows, where os.tmpdir() reads those instead of TMPDIR.
   return { ...env, HOME: home, TMPDIR: tmpDir, TMP: tmpDir, TEMP: tmpDir, ...values };
 }
-function seedTerminalDashboards(
+/**
+ * Authorize the harness API key against the coordinator's sole self-hosted
+ * account. The coordinator created that account while validating its startup
+ * invariant, so the fixture adopts the row that exists: inserting a topology of
+ * its own is exactly what that invariant rejects on the next boot.
+ * Runs in a `bun -e` child because the Playwright runner has no bun:sqlite.
+ */
+function authorizeTerminalTestApiKey(
   bunExecutable: string,
   dbPath: string,
   deviceFingerprint: string,
@@ -61,21 +62,14 @@ function seedTerminalDashboards(
     const now = Number(process.env.ROOST_TERMINAL_NOW);
     const key = Buffer.from(process.env.ROOST_TERMINAL_PUBLIC_KEY, "base64");
     const fp = process.env.ROOST_TERMINAL_DEVICE_FP;
-    const account = process.env.ROOST_TERMINAL_ACCOUNT;
-    const organization = process.env.ROOST_TERMINAL_ORGANIZATION;
-    const dashboard = process.env.ROOST_TERMINAL_DASHBOARD;
-    const secondDashboard = process.env.ROOST_TERMINAL_SECOND_DASHBOARD;
     try {
       db.exec("BEGIN IMMEDIATE");
+      const accounts = db.query("SELECT id FROM accounts").all();
+      if (accounts.length !== 1) {
+        throw new Error("expected one self-hosted account, found " + accounts.length);
+      }
       db.query("INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) VALUES (?, ?, ?, ?)").run(fp, key, "roost-terminal-test-api", now);
-      db.query("INSERT INTO accounts (id, email_normalized, password_hash, status, created_at_ms, password_changed_at_ms) VALUES (?, ?, NULL, 'active', ?, NULL)").run(account, "terminal-smoke@example.test", now);
-      db.query("INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) VALUES (?, ?, ?, ?)").run(fp, account, now, now);
-      db.query("INSERT INTO organizations (id, slug, name, status, created_at_ms) VALUES (?, ?, ?, 'active', ?)").run(organization, organization, "Terminal Test Organization", now);
-      db.query("INSERT INTO organization_memberships (organization_id, account_id, role, created_at_ms) VALUES (?, ?, 'owner', ?)").run(organization, account, now);
-      db.query("INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms) VALUES (?, ?, ?, ?, 'active', ?)").run(dashboard, organization, dashboard, "Terminal Test Dashboard", now);
-      db.query("INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms) VALUES (?, ?, ?, ?, 'active', ?)").run(secondDashboard, organization, secondDashboard, "Terminal Test Dashboard B", now);
-      db.query("INSERT INTO dashboard_memberships (dashboard_id, account_id, role, created_at_ms) VALUES (?, ?, 'admin', ?)").run(dashboard, account, now);
-      db.query("INSERT INTO dashboard_memberships (dashboard_id, account_id, role, created_at_ms) VALUES (?, ?, 'admin', ?)").run(secondDashboard, account, now);
+      db.query("INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) VALUES (?, ?, ?, ?)").run(fp, accounts[0].id, now, now);
       db.exec("COMMIT");
     } catch (error) {
       try { db.exec("ROLLBACK"); } catch {}
@@ -92,10 +86,6 @@ function seedTerminalDashboards(
       ROOST_TERMINAL_NOW: String(Date.now()),
       ROOST_TERMINAL_PUBLIC_KEY: Buffer.from(publicKey).toString("base64"),
       ROOST_TERMINAL_DEVICE_FP: deviceFingerprint,
-      ROOST_TERMINAL_ACCOUNT: TERMINAL_TEST_ACCOUNT_ID,
-      ROOST_TERMINAL_ORGANIZATION: TERMINAL_TEST_ORGANIZATION_ID,
-      ROOST_TERMINAL_DASHBOARD: TERMINAL_TEST_DASHBOARD_ID,
-      ROOST_TERMINAL_SECOND_DASHBOARD: TERMINAL_TEST_SECOND_DASHBOARD_ID,
     },
   });
 }
@@ -116,29 +106,6 @@ async function waitFor<T>(label: string, timeoutMs: number, probe: () => T | und
   }
   throw new Error(`${label} timed out after ${timeoutMs}ms${lastError ? `: ${String(lastError)}` : ""}`);
 }
-function isCallOptions(value: unknown): value is { headers?: HeadersInit } {
-  return typeof value === "object" && value !== null;
-}
-
-function withTerminalDashboard(
-  client: AuthorizedApiClient,
-  dashboardId: string,
-): AuthorizedApiClient {
-  return new Proxy(client, {
-    get(target, property, receiver) {
-      const value = Reflect.get(target, property, receiver);
-      if (typeof value !== "function") return value;
-      return (...args: unknown[]) => {
-        const [request, callOptions] = args;
-        const options = isCallOptions(callOptions) ? callOptions : {};
-        const headers = new Headers(options.headers);
-        headers.set(X_ROOST_DASHBOARD_ID, dashboardId);
-        return Reflect.apply(value, target, [request, { ...options, headers }]);
-      };
-    },
-  }) as AuthorizedApiClient;
-}
-
 async function stopChild(service: RunningService | undefined): Promise<void> {
   if (!service || service.child.exitCode !== null || service.child.killed) return;
   service.child.kill("SIGTERM");
@@ -223,12 +190,11 @@ export function startCoordinatorService(config: CoordinatorServiceConfig): Runni
 
 
 export {
+  authorizeTerminalTestApiKey,
   childEnvironment,
   logTail,
-  seedTerminalDashboards,
   stopChild,
   stopDeployedWorker,
   stopKeeper,
   waitFor,
-  withTerminalDashboard,
 };

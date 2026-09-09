@@ -50,7 +50,6 @@ import {
 } from "./sync-ws-upgrade.ts";
 export {
   handleSyncWsUpgrade,
-  type SyncDashboardActor,
   type SyncDeliveryRecord,
   type SyncUpgradeServer,
   type SyncWsData,
@@ -111,13 +110,8 @@ export function makeSyncWsHandler(
     resetV2Domain: v2Scheduler.resetV2Domain,
     scheduleV2: v2Scheduler.scheduleV2,
     onV2Command: options.onV2Command,
-    onUiApplyLayoutResult: ({ dashboardId, fingerprint, tabId, socketId, result }) => {
-      deps.uiLayoutApplies.acceptResult({
-        dashboardId,
-        fingerprint,
-        tabId,
-        socketId,
-      }, result);
+    onUiApplyLayoutResult: ({ fingerprint, tabId, socketId, result }) => {
+      deps.uiLayoutApplies.acceptResult({ fingerprint, tabId, socketId }, result);
     },
   });
   const handleClientMessage = makeSyncWsClientIngress({
@@ -196,7 +190,6 @@ export function makeSyncWsHandler(
         v2.snapshotDispose = registerSyncSnapshotSocket(
           v2.socketId,
           ws.data.caller.fingerprint,
-          ws.data.actor.dashboardId,
         );
         // startSyncFeed subscribes synchronously and performs no v2 seeding.
         // Only after every listener exists may the subscribed barrier escape.
@@ -241,7 +234,6 @@ export function makeSyncWsHandler(
         if (!ws.data.readOnly && ws.data.viewerKey !== null && ws.data.tabId !== null) {
           try {
             v2.layoutTargetDispose = deps.uiLayoutApplies.registerTarget({
-              dashboardId: ws.data.actor.dashboardId,
               fingerprint: ws.data.caller.fingerprint,
               tabId: ws.data.tabId,
               socketId: v2.socketId,
@@ -260,7 +252,6 @@ export function makeSyncWsHandler(
         options.terminalViews?.registerSocket({
           socketId: v2.socketId,
           viewerKey: ws.data.viewerKey,
-          dashboardId: ws.data.actor.dashboardId,
           allowsSession: (sessionId) => ws.data.scope.sessionIds.has(sessionId),
           callerFingerprint: ws.data.caller.fingerprint,
           sink: {
@@ -338,14 +329,10 @@ export function makeSyncWsHandler(
       cleanupSocket(ws);
       log.info("sync-ws", "close", { caller_fp: ws.data.caller.fingerprint });
     },
-    /** Remove a tombstoned worker from every already-open mutable dashboard
-     * scope before the presence delta is published. */
-    removeWorkerFromScopes(dashboardId: string, workerFp: string): void {
-      for (const ws of sockets) {
-        if (ws.data.scope.dashboardId === dashboardId) {
-          ws.data.scope.workerFps.delete(workerFp);
-        }
-      }
+    /** Remove a tombstoned worker from every open resource index before the
+     * presence delta is published. */
+    removeWorkerFromResourceIndexes(workerFp: string): void {
+      for (const ws of sockets) ws.data.scope.workerFps.delete(workerFp);
     },
     closeForFingerprint(fingerprint: string): void {
       for (const ws of sockets) {
@@ -353,21 +340,6 @@ export function makeSyncWsHandler(
         ws.data.pressureClosing = true;
         cleanupSocket(ws);
         try { ws.close(4001, "revoked"); } catch { /* cleanup already completed */ }
-      }
-    },
-    closeForDashboard(dashboardId: string, fingerprint?: string): void {
-      // A membership-wide revocation removes every scoped view. Device
-      // revocation narrows to the affected fingerprint and preserves peers.
-      if (fingerprint === undefined) options.terminalViews?.removeDashboard(dashboardId);
-      else options.terminalViews?.removeFingerprint(fingerprint);
-      for (const ws of sockets) {
-        if (
-          ws.data.actor.dashboardId !== dashboardId
-          || (fingerprint !== undefined && ws.data.caller.fingerprint !== fingerprint)
-        ) continue;
-        ws.data.pressureClosing = true;
-        cleanupSocket(ws);
-        try { ws.close(4001, "dashboard access revoked"); } catch { /* cleanup already completed */ }
       }
     },
   };

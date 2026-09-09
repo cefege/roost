@@ -21,7 +21,7 @@ import {
   mintBootstrapToken,
   type BootstrapTokenKind,
 } from "../src/bootstrap-tokens.ts";
-import { callerKey, dashboardActorKey } from "../src/connect/auth-interceptor.ts";
+import { callerKey } from "../src/connect/auth-interceptor.ts";
 import {
   authorizeAccountDevice,
   connectFailure,
@@ -36,21 +36,13 @@ afterEach(async () => {
   await cleanupHarnesses();
 });
 
-function actorContext(h: Harness, key: TestKey): HandlerContext {
+function deviceContext(h: Harness, key: TestKey): HandlerContext {
   const values = createContextValues();
   values.set(callerKey, {
     kind: "account-device",
     fingerprint: key.fingerprint,
     label: "actor",
     accountId: h.tenant.accountId,
-  });
-  values.set(dashboardActorKey, {
-    accountId: h.tenant.accountId,
-    organizationId: h.tenant.organizationId,
-    dashboardId: h.tenant.dashboardId,
-    organizationRole: "owner",
-    dashboardRole: "admin",
-    deviceFingerprint: key.fingerprint,
   });
   return { values } as unknown as HandlerContext;
 }
@@ -97,7 +89,7 @@ describe("digest-only scoped bootstrap grants", () => {
     const response = await h.handlers.authMintBootstrap(create(AuthMintBootstrapRequestSchema, {
       kind: "worker",
       label: "new worker",
-    }), actorContext(h, actor));
+    }), deviceContext(h, actor));
     if (response.token === undefined) throw new Error("mint response omitted token");
     const digest = await bootstrapTokenDigest(response.token);
     const row = h.sqlite.query(`
@@ -158,7 +150,7 @@ describe("digest-only scoped bootstrap grants", () => {
     )).toEqual(INVALID_GRANT);
   });
 
-  test("revoked, inactive, foreign, and inconsistent grants share one error", async () => {
+  test("revoked, inactive, and inconsistent grants share one error", async () => {
     const revoked = await openHarness();
     const revokedKey = await makeKey();
     await revoked.db.insertInto("authorized_key_revocations").values({
@@ -177,15 +169,6 @@ describe("digest-only scoped bootstrap grants", () => {
       .where("id", "=", inactive.tenant.accountId).execute();
     expect(await connectFailure(async () => inactive.handlers.authRedeemBrowser(
       browserRequest(inactiveToken, await makeKey()), {} as HandlerContext,
-    ))).toEqual(INVALID_GRANT);
-
-    const foreign = await openHarness();
-    const foreignToken = await grant(foreign, "browser");
-    await foreign.db.deleteFrom("dashboard_memberships")
-      .where("dashboard_id", "=", foreign.tenant.dashboardId)
-      .where("account_id", "=", foreign.tenant.accountId).execute();
-    expect(await connectFailure(async () => foreign.handlers.authRedeemBrowser(
-      browserRequest(foreignToken, await makeKey()), {} as HandlerContext,
     ))).toEqual(INVALID_GRANT);
 
     const inconsistent = await openHarness();

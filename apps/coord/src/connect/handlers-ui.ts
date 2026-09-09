@@ -1,7 +1,7 @@
 // Browser UI control handlers retain typed tab reports, relay the eight legacy
 // fire-and-forget commands, and publish one socket-fenced acknowledged layout apply.
-// Portable layout validation stays in the shared parser; persisted dashboard
-// session ownership is checked before any report or command enters the live bus.
+// Portable layout validation stays in the shared parser; every referenced session
+// must resolve to a persisted row before a report or command enters the live bus.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -28,7 +28,7 @@ import {
   layoutDocumentToProto,
 } from "@roost/shared/layout-document-proto";
 import { uiBus } from "../buses.ts";
-import { requireDashboardActor, requireDashboardAdmin } from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import {
   UiLayoutApplyCanceledError,
@@ -43,15 +43,13 @@ import {
   UiStateIdentityRateError,
 } from "./ui-state-owner.ts";
 
-async function requireDashboardSessionBindings(
+async function requirePersistedSessions(
   deps: ConnectDeps,
-  dashboardId: string,
   sessionIdsInput: Iterable<string>,
 ): Promise<void> {
   const sessionIds = [...new Set(sessionIdsInput)];
   if (sessionIds.length === 0) return;
   const rows = await deps.db.selectFrom("sessions").select("id")
-    .where("dashboard_id", "=", dashboardId)
     .where("id", "in", sessionIds)
     .execute();
   const found = new Set(rows.map((row) => row.id));
@@ -91,10 +89,9 @@ export type UiHandlers = Pick<ServiceImpl<typeof CoordinatorService>, UiMethods>
 export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
   return {
     async uiReportState(req, ctx) {
-      // Device fingerprint and dashboard scope both come from the verified
-      // selected-dashboard actor; a tab cannot impersonate another browser or
-      // overwrite the same browser-local tab in another dashboard.
-      const actor = requireDashboardActor(ctx.values);
+      // The reporting device fingerprint comes from the verified caller, so one
+      // tab can never impersonate another browser's report.
+      const caller = requireAccountDevice(ctx.values);
       requireBoundedUiText(
         req.tabId,
         UI_TAB_ID_MAX_UTF8_BYTES,
@@ -116,14 +113,13 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
       let canonicalDocument: LayoutDocumentV1 | undefined;
       if (req.layoutDocument) {
         const checked = validateLayoutDocument(req.layoutDocument);
-        await requireDashboardSessionBindings(
+        await requirePersistedSessions(
           deps,
-          actor.dashboardId,
           checked.bindings.map((binding) => binding.session_id),
         );
         canonicalDocument = layoutDocumentToProto(checked);
       }
-      const fp = actor.deviceFingerprint;
+      const fp = caller.fingerprint;
       const state = create(UiReportStateRequestSchema, {
         tabId: req.tabId,
         activePath: req.activePath,
@@ -132,7 +128,6 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
       });
       try {
         deps.uiStates.report({
-          dashboardId: actor.dashboardId,
           fingerprint: fp,
           tabId: req.tabId,
           state,
@@ -146,16 +141,13 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
         }
         throw error;
       }
-      uiBus.publish({
-        kind: "state", fp, tabId: req.tabId, state,
-        _dashboard_id: actor.dashboardId,
-      });
+      uiBus.publish({ kind: "state", fp, tabId: req.tabId, state });
       return create(UiReportStateResponseSchema, {});
     },
 
     async uiListStates(_req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
-      const entries = deps.uiStates.list(actor.dashboardId);
+      requireAccountDevice(ctx.values);
+      const entries = deps.uiStates.list();
       // Batch label lookup — one query for all distinct fps (small N: one
       // entry per open browser tab). "" when the fp has no authorized_keys
       // row (e.g. key revoked while the tab was still reporting).
@@ -179,7 +171,7 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
     },
 
     async uiDispatch(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      requireAccountDevice(ctx.values);
       requireBoundedUiText(
         req.targetTabId,
         UI_TAB_ID_MAX_UTF8_BYTES,
@@ -208,20 +200,19 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
         );
       }
       const commandSessionIds = legacyUiCommandSessionIds(command);
-      await requireDashboardSessionBindings(deps, actor.dashboardId, commandSessionIds);
+      await requirePersistedSessions(deps, commandSessionIds);
       const canonicalCommand = canonicalLegacyUiCommand(command);
-      // Subscriber count AT publish is restricted to the selected dashboard's
-      // live Sync streams. 0 tells a headless caller no one can execute this.
-      const delivered = uiBus.subscriberCountFor(actor.dashboardId);
+      // Subscriber count AT publish is the live Sync stream count. 0 tells a
+      // headless caller no one can execute this.
+      const delivered = uiBus.subscriberCount;
       uiBus.publish({
         kind: "command", targetTabId: req.targetTabId, command: canonicalCommand,
-        _dashboard_id: actor.dashboardId,
       });
       return create(UiDispatchResponseSchema, { delivered });
     },
 
     async uiApplyLayout(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      requireAccountDevice(ctx.values);
       requireBoundedUiText(
         req.targetTabId,
         UI_TAB_ID_MAX_UTF8_BYTES,
@@ -235,9 +226,8 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
         true,
       );
       const checked = validateLayoutDocument(req.document);
-      await requireDashboardSessionBindings(
+      await requirePersistedSessions(
         deps,
-        actor.dashboardId,
         checked.bindings.map((binding) => binding.session_id),
       );
       const document = layoutDocumentToProto(checked);
@@ -248,11 +238,10 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
         },
       });
       try {
-        // The admin-selected reporting fingerprint is pinned into the exact
-        // live socket reservation; another device claiming the same tab id
-        // cannot receive or acknowledge this apply.
+        // The requested reporting fingerprint is pinned into the exact live
+        // socket reservation; another device claiming the same tab id cannot
+        // receive or acknowledge this apply.
         const pendingResult = deps.uiLayoutApplies.requestApply(
-          actor.dashboardId,
           req.targetFingerprint,
           req.targetTabId,
           ctx.signal,
@@ -263,7 +252,6 @@ export function makeUiHandlers(deps: ConnectDeps): UiHandlers {
               targetSocketId: socketId,
               correlationId,
               command,
-              _dashboard_id: actor.dashboardId,
             });
           },
         );

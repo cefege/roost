@@ -18,9 +18,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { InputCommandSchema } from "@roost/shared/proto/sync_pb";
-import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
@@ -50,10 +50,8 @@ let browserFp: string;
 let db: import("../src/db/connection.ts").KyselyDB;
 let terminalControlHooks: SyncTerminalControlHooks;
 let terminalViews: TerminalViewHub;
-const ACCOUNT_ID = "coord-bidi-account";
-const ORGANIZATION_ID = "coord-bidi-organization";
-const DASHBOARD_ID = "coord-bidi-dashboard";
 const OFFLINE_WORKER_FP = "deadbeef".repeat(8);
+let dashboardId: string;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-coord-bidi-"));
@@ -65,6 +63,8 @@ beforeAll(async () => {
   db = opened.db;
   const sqlite = opened.sqlite;
   await runMigrations(sqlite);
+  const selfHostedTenant = ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
+  dashboardId = selfHostedTenant.dashboardId;
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
   pushAllowedOrigins: [],
@@ -85,6 +85,8 @@ beforeAll(async () => {
     jwtCache,
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
+    selfHostedTenant,
+    cfAccess: null,
   };
   coord = createCoord(deps);
   terminalViews = new TerminalViewHub({ db });
@@ -101,48 +103,15 @@ beforeAll(async () => {
     added_at: Date.now(),
   }).execute();
   const fixtureNow = Date.now();
-  await db.insertInto("accounts").values({
-    id: ACCOUNT_ID,
-    email_normalized: "coord-bidi@example.test",
-    status: "active",
-    created_at_ms: fixtureNow,
-  }).execute();
   await db.insertInto("account_devices").values({
     fingerprint: browserFp,
-    account_id: ACCOUNT_ID,
+    account_id: selfHostedTenant.accountId,
     added_at_ms: fixtureNow,
     last_seen_at_ms: fixtureNow,
   }).execute();
-  await db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "coord-bidi",
-    name: "Coord bidi",
-    status: "active",
-    created_at_ms: fixtureNow,
-  }).execute();
-  await db.insertInto("organization_memberships").values({
-    organization_id: ORGANIZATION_ID,
-    account_id: ACCOUNT_ID,
-    role: "owner",
-    created_at_ms: fixtureNow,
-  }).execute();
-  await db.insertInto("dashboards").values({
-    id: DASHBOARD_ID,
-    organization_id: ORGANIZATION_ID,
-    slug: "coord-bidi",
-    name: "Coord bidi",
-    status: "active",
-    created_at_ms: fixtureNow,
-  }).execute();
-  await db.insertInto("dashboard_memberships").values({
-    dashboard_id: DASHBOARD_ID,
-    account_id: ACCOUNT_ID,
-    role: "admin",
-    created_at_ms: fixtureNow,
-  }).execute();
   await db.insertInto("workers").values({
     fp: OFFLINE_WORKER_FP,
-    dashboard_id: DASHBOARD_ID,
+    dashboard_id: dashboardId,
     label: "offline",
     os: "darwin",
     reachable_addr: "127.0.0.1",
@@ -171,7 +140,6 @@ function authedFetch(path: string, body: unknown, tabId?: string): Promise<Respo
   const headers: Record<string, string> = {
     "content-type": "application/json",
     authorization: `Bearer ${browserJwt}`,
-    [X_ROOST_DASHBOARD_ID]: DASHBOARD_ID,
   };
   if (tabId) headers["x-roost-tab-id"] = tabId;
   return coord.fetch(new Request(`http://t${path}`, {
@@ -183,13 +151,8 @@ function authedFetch(path: string, body: unknown, tabId?: string): Promise<Respo
 
 const TERMINAL_DOMAIN_GENERATION = 7n;
 
-function syncActor(): SyncV2CommandContext["actor"] {
-  return {
-    dashboardId: DASHBOARD_ID,
-  };
-}
 const SYNC_SCOPE: SyncV2CommandContext["scope"] = {
-  dashboardId: DASHBOARD_ID,
+  ownerWorkerFp: null,
   workerFps: new Set(),
   sessionIds: new Set(),
   workspaceIds: new Set(),
@@ -213,7 +176,6 @@ function dispatchSyncTerminalCommand(
       keyGeneration: 1,
       validUntilMs: Date.now() + 60_000,
     },
-    actor: syncActor(),
     scope: SYNC_SCOPE,
     viewerKey: syncViewerKey(tabId),
     remoteAddress,
@@ -300,13 +262,13 @@ describe("cursor presence and worker command routing", () => {
 
   async function seedSession(sid: string): Promise<void> {
     await db.insertInto("workers").values({
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: dashboardId,
       fp: FAKE_WORKER_FP, label: "fake", os: "darwin",
       reachable_addr: "127.0.0.1", git_sha: null, host_metrics_json: null,
       registered_at_ms: Date.now(), last_seen_ms: Date.now(),
     }).onConflict((oc) => oc.column("fp").doNothing()).execute();
     await db.insertInto("sessions").values({
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: dashboardId,
       id: sid, worker_fp: FAKE_WORKER_FP, channel: 1, kind: "shell",
       cwd: "/tmp", status: "open", created_at: Date.now(),
     }).onConflict((oc) => oc.column("id").doNothing()).execute();
@@ -315,7 +277,6 @@ describe("cursor presence and worker command routing", () => {
   beforeAll(() => {
     __setConnectWorkerForTest(FAKE_WORKER_FP, {
       workerFp: FAKE_WORKER_FP,
-      dashboardId: DASHBOARD_ID,
       send(frame: CoordWorkerDown): number {
         workerSends.push(frame);
         return 1;

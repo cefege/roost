@@ -13,7 +13,6 @@ export const PENDING_EVENT_PUBLICATION_MAX_ENTRIES = 256;
 export interface CommittedEventPublication {
   readonly event: SessionEvent;
   readonly authenticatedWorkerFp: WorkerFp | null;
-  readonly dashboardId: string;
   readonly eventId: number;
   readonly eventJson: string;
   readonly cascadeOrphanIds: readonly string[];
@@ -270,15 +269,10 @@ function publishCommittedEvent(effect: CommittedEventPublication): void {
   applyDurableChannelIndex(effect.event, effect.authenticatedWorkerFp);
   const stamped: SessionBusMessage = {
     ...effect.event,
-    _dashboard_id: effect.dashboardId,
     _event_id: effect.eventId,
   };
   sessionBus.publish(stamped);
   for (const id of effect.cascadeOrphanIds) {
-    workspaceBus.publish({
-      kind: "deleted",
-      id: asWorkspaceId(id),
-      _dashboard_id: effect.dashboardId,
-    } as Parameters<typeof workspaceBus.publish>[0]);
+    workspaceBus.publish({ kind: "deleted", id: asWorkspaceId(id) });
   }
 }

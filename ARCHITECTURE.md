@@ -423,7 +423,7 @@ progress or triggers bounded recovery.”
 
 - **Web:** `entry.ts` scrubs URL-carried credentials before loading
   `main.tsx`; `routes.ts` owns route guards; `store/sync.ts` owns Sync;
-  `store/dashboard-selection.ts` owns server-confirmed dashboard cutover.
+  `store/auth-boundary.ts` owns credential-boundary teardown.
   `CellTerminal.tsx` composes the eight `cell-terminal-*` behavior leaves, and
   `lib/cellRenderer.ts` paints the canvas grid.
 - **Coordinator:** `main.ts` owns process lifecycle; `connect/router.ts`
@@ -431,8 +431,8 @@ progress or triggers bounded recovery.”
   `connect/ws-auth-deadline.ts` owns both authenticated WebSocket deadlines.
   `event-{transaction,projection,query}.ts`, `connect/sync-feed.ts`,
   `connect/terminal-screen-hub.ts`, and
-  `connect/{auth-principal,dashboard-authorization}.ts` own persistence,
-  delivery, terminal replicas, and persisted-principal scope respectively.
+  `connect/auth-principal.ts` own persistence, delivery, terminal replicas,
+  and persisted-principal resolution respectively.
 - **Worker:** `main.ts` is the entry point; `session-manager.ts` owns
   keeper-backed sessions; `transport/session-event-store.ts` owns the bounded
   SQLite lifecycle outbox; `transport/coord-link-unacked.ts` owns the

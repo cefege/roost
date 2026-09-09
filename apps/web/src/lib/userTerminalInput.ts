@@ -69,7 +69,7 @@ export function sendUserTerminalInput(
   return admission;
 }
 
-/** Clear callbacks retained by panes from the previous dashboard. */
+/** Clear callbacks retained by panes from the previous credential. */
 export function resetUserTerminalInput(): void {
   registrations.clear();
 }

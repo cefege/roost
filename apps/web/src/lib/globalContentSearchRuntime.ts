@@ -1,28 +1,28 @@
-// Dashboard-bound lifecycle owner for global-content controllers and terminal-find intents.
-// Controllers register a reset callback; dashboard selection invokes this owner
+// Credential-boundary lifecycle owner for global-content controllers and terminal-find intents.
+// Controllers register a reset callback; the auth-boundary teardown invokes this owner
 // before old sessions and transport state are released.
 
-import { resetTerminalFindIntentsForDashboardSwitch } from "./terminalFindIntent.ts";
+import { resetTerminalFindIntentsForAuthBoundary } from "./terminalFindIntent.ts";
 
-export interface DashboardBoundContentSearch {
-  resetForDashboardCutover(): void;
-  resumeAfterDashboardCutover(): void;
+export interface AuthBoundContentSearch {
+  resetForAuthBoundary(): void;
+  resumeAfterAuthBoundary(): void;
 }
 
 export class _GlobalContentSearchRuntime {
-  readonly #controllers = new Set<DashboardBoundContentSearch>();
+  readonly #controllers = new Set<AuthBoundContentSearch>();
   #suspended = false;
 
-  register(controller: DashboardBoundContentSearch): () => void {
+  register(controller: AuthBoundContentSearch): () => void {
     this.#controllers.add(controller);
-    if (this.#suspended) controller.resetForDashboardCutover();
+    if (this.#suspended) controller.resetForAuthBoundary();
     return () => this.#controllers.delete(controller);
   }
 
   suspend(): void {
     this.#suspended = true;
     for (const controller of [...this.#controllers]) {
-      controller.resetForDashboardCutover();
+      controller.resetForAuthBoundary();
     }
   }
 
@@ -30,25 +30,25 @@ export class _GlobalContentSearchRuntime {
     if (!this.#suspended) return;
     this.#suspended = false;
     for (const controller of [...this.#controllers]) {
-      controller.resumeAfterDashboardCutover();
+      controller.resumeAfterAuthBoundary();
     }
   }
 }
 
 const globalContentSearchRuntime = new _GlobalContentSearchRuntime();
 
-export function registerDashboardBoundContentSearch(
-  controller: DashboardBoundContentSearch,
+export function registerAuthBoundContentSearch(
+  controller: AuthBoundContentSearch,
 ): () => void {
   return globalContentSearchRuntime.register(controller);
 }
 
 
-export function resetDashboardSearchRuntime(): void {
-  resetTerminalFindIntentsForDashboardSwitch();
+export function resetContentSearchRuntimeForAuthBoundary(): void {
+  resetTerminalFindIntentsForAuthBoundary();
   globalContentSearchRuntime.suspend();
 }
 
-export function resumeDashboardSearchRuntime(): void {
+export function resumeContentSearchRuntimeAfterAuthBoundary(): void {
   globalContentSearchRuntime.resume();
 }

@@ -26,12 +26,12 @@ import { setTerminalBootstrapStage } from "./sync-hydrated.ts";
 import { markPhase } from "../lib/diag.ts";
 import { _installBootstrapDomainHydrators } from "./sync-bootstrap-hydration.ts";
 import {
-  bootstrapDashboardAccess,
-  captureDashboardResourceToken,
-  isCurrentDashboardResourceToken,
-  refreshDashboardAccess,
-  suspendDashboardScopedClientState,
-} from "./dashboard-selection.ts";
+  captureAuthResourceToken,
+  isCurrentAuthResourceToken,
+  suspendAuthenticatedClientState,
+} from "./auth-boundary.ts";
+import { loadAgentConfig } from "../lib/agents.ts";
+import { resumeContentSearchRuntimeAfterAuthBoundary } from "../lib/globalContentSearchRuntime.ts";
 
 
 registerSyncAuthRejectionHandler(() => setBrowserUnauthorized(true));
@@ -71,21 +71,7 @@ export function bootstrapSync(): void {
 export async function refreshCoordAndWorkers(): Promise<void> {
   if (rootStore.coord_identity === null) return;
   const { classifyAuthFailure, coordClient } = await import("../connect.ts");
-  const dashboardAccess = await Promise.resolve(refreshDashboardAccess()).then(
-    (value) => ({ status: "fulfilled" as const, value }),
-    (reason) => ({ status: "rejected" as const, reason }),
-  );
-  if (dashboardAccess.status === "rejected") {
-    setBrowserUnauthorized(
-      classifyAuthFailure(
-        dashboardAccess.reason,
-        "/roost.v1.CoordinatorService/AuthDashboardAccess",
-      ) === "device",
-    );
-    return;
-  }
-  if (!dashboardAccess.value) return;
-  const dashboardToken = captureDashboardResourceToken();
+  const authToken = captureAuthResourceToken();
   const identity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
@@ -94,7 +80,7 @@ export async function refreshCoordAndWorkers(): Promise<void> {
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
   );
-  if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+  if (!isCurrentAuthResourceToken(authToken)) return;
   if (identity.status === "fulfilled") {
     setRootStore("coord_identity", {
       git_sha: identity.value.gitSha,
@@ -170,7 +156,14 @@ function setBrowserUnauthorized(next: boolean): void {
   // must not emit another relogin event on every visibility refresh.
   if (next && !rootStore.browser_unauthorized) {
     signal("auth.relogin_401", {});
-    suspendDashboardScopedClientState();
+    suspendAuthenticatedClientState();
+  }
+  // The credential teardown latched content search off and dropped agent
+  // config; this recovery edge is the only one that restores them without a
+  // full reload.
+  if (!next && rootStore.browser_unauthorized) {
+    resumeContentSearchRuntimeAfterAuthBoundary();
+    void loadAgentConfig();
   }
   setRootStore("browser_unauthorized", next);
 }
@@ -223,27 +216,6 @@ async function _bootstrap(): Promise<void> {
       _startCoordHealthPoller();
     }
     if (await _dispatchCapturedFragmentCredential()) return;
-    setTerminalBootstrapStage("authorization");
-    const dashboardAccess = await Promise.resolve(bootstrapDashboardAccess()).then(
-      (value) => ({ status: "fulfilled" as const, value }),
-      (reason) => ({ status: "rejected" as const, reason }),
-    );
-    if (dashboardAccess.status === "rejected") {
-      const deviceRejected = classifyAuthFailure(
-        dashboardAccess.reason,
-        "/roost.v1.CoordinatorService/AuthDashboardAccess",
-      ) === "device";
-      if (deviceRejected) {
-        setBrowserUnauthorized(true);
-        return;
-      }
-      _scheduleBootstrapRetry();
-      return;
-    }
-    if (!dashboardAccess.value) {
-      throw new Error("coordinator returned invalid dashboard access");
-    }
-    setBrowserUnauthorized(false);
     _startCoordHealthPoller();
     setTerminalBootstrapStage("sync");
     _startSyncLoop();

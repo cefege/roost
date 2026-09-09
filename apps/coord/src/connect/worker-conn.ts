@@ -37,8 +37,6 @@ export function makeWorkerConn(
   send: (frame: CoordWorkerDown) => number,
   requestClose: () => void,
   bufferedAmount?: () => number,
-  /** Present only after raw WS admission selected workers.dashboard_id. */
-  dashboardId?: string,
   /** Raw WS owner uses this to atomically replace the credential deadline. */
   onAuthRefreshed?: (caller: VerifiedJwtCaller) => void,
 ): WorkerConn {
@@ -49,7 +47,6 @@ export function makeWorkerConn(
   // cannot delete the replacement handle and silently disable browser commands.
   const myHandle: WorkerHandle = {
     workerFp: "",
-    dashboardId,
     revoked: false,
     ready: false,
     send(frame): number {
@@ -130,7 +127,6 @@ export function makeWorkerConn(
   const workerFrames = makeWorkerFrameDispatcher({
     deps,
     callerFingerprint: caller.fingerprint,
-    dashboardId,
     requestClose,
     getWorkerFp: () => workerFp,
     isSnapshotReady: () => myHandle.ready,
@@ -282,7 +278,7 @@ export function makeWorkerConn(
       case "refreshJwt": {
         // Rotation is valid only for the exact persisted worker principal bound
         // at upgrade. Re-resolving after signature verification catches worker
-        // deletion/dashboard movement and closes the verification→lookup race.
+        // deletion and closes the verification→lookup race.
         try {
           const refreshed = await verifyJwt(f.frame.value.jwt, {
             db: deps.db,
@@ -293,14 +289,11 @@ export function makeWorkerConn(
           if (
             refreshed.fingerprint !== caller.fingerprint
             || principal?.kind !== "worker"
-            || (dashboardId !== undefined && principal.dashboardId !== dashboardId)
             || jwtKeyGeneration(deps.jwtCache, refreshed.fingerprint) !== refreshed.keyGeneration
           ) {
             log.warn("worker-service", "refresh_jwt_principal_mismatch", {
               expected_fp: caller.fingerprint,
               got_fp: refreshed.fingerprint,
-              expected_dashboard_id: dashboardId,
-              got_dashboard_id: principal?.kind === "worker" ? principal.dashboardId : undefined,
             });
             signal("worker.protocol_violation", {
               reason: "auth_principal_mismatch",

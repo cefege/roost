@@ -1,6 +1,6 @@
 // Navigation-search projection contracts: scalar metadata, shared matching, and attention semantics.
 // Tests drive the real root-store, routability, title, and seen owners consumed by the app-lifetime accessor.
-// Every fixture is dashboard-local and reset between cases so ordering assertions stay deterministic.
+// Every fixture is install-local and reset between cases so ordering assertions stay deterministic.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -25,7 +25,7 @@ import {
   matchesNavigationSearchDocument,
   normalizeNavigationSearchQuery,
 } from "../src/store/navigation-search.ts";
-import { clearDashboardScopedRootData, rootStore, setRootStore } from "../src/store/root.ts";
+import { clearAuthScopedRootData, rootStore, setRootStore } from "../src/store/root.ts";
 import { setRoutableFps } from "../src/store/sync-routable.ts";
 
 const ONLINE_FP = asWorkerFp("a".repeat(64));
@@ -135,13 +135,13 @@ function seedAgentStatuses(values: readonly AgentStatus[]): void {
 }
 
 beforeEach(() => {
-  clearDashboardScopedRootData();
+  clearAuthScopedRootData();
   resetAgentSeenForTest();
   setRoutableFps(new Set([ONLINE_FP]));
 });
 
 afterEach(() => {
-  clearDashboardScopedRootData();
+  clearAuthScopedRootData();
   resetAgentSeenForTest();
   setRoutableFps(new Set<string>());
 });

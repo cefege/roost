@@ -22,7 +22,6 @@ import {
 
 let fixture: WorkerWsTransportFixture;
 let connectWorker: WorkerWsTransportFixture["connectWorker"];
-let dashboardId: string;
 let deps: WorkerWsTransportFixture["deps"];
 let port: number;
 let readyWorker: WorkerWsTransportFixture["readyWorker"];
@@ -33,7 +32,6 @@ beforeAll(async () => {
   fixture = await startWorkerWsTransportFixture();
   ({
     connectWorker,
-    dashboardId,
     deps,
     port,
     readyWorker,
@@ -56,10 +54,10 @@ describe("worker↔coord raw-WS transport", () => {
     // Hello owns the generation but remains unroutable until its exact
     // snapshot commits and publishes.
     expect(getWorkerHubSocket(workerFp)).toBeNull();
-    expect(listRoutableFps(dashboardId)).not.toContain(workerFp);
+    expect(listRoutableFps()).not.toContain(workerFp);
     await readyWorker(w, workerFp);
     expect(getWorkerHubSocket(workerFp)).not.toBeNull();
-    expect(listRoutableFps(dashboardId)).toContain(workerFp);
+    expect(listRoutableFps()).toContain(workerFp);
     w.close();
   });
 

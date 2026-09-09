@@ -10,7 +10,6 @@ export async function projectAgentConversationReference(
   tx: KyselyDB,
   event: Extract<SessionEvent, { kind: "agent_reference" }>,
   clientSeq: number,
-  dashboardId: string,
   workerFp: string,
 ): Promise<void> {
   if (!Number.isSafeInteger(clientSeq) || clientSeq <= 0) {
@@ -25,7 +24,6 @@ export async function projectAgentConversationReference(
       agent_reference_client_seq: clientSeq,
     })
     .where("id", "=", event.session_id)
-    .where("dashboard_id", "=", dashboardId)
     .where("worker_fp", "=", workerFp)
     .where((expression) => expression.or([
       expression("agent_reference_client_seq", "is", null),

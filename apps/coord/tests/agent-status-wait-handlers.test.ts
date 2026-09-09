@@ -1,6 +1,6 @@
-// Agent-status wait handler tests pin dashboard authorization before volatile
-// admission, Connect error mapping, and exact response outcomes. A real migrated
-// database supplies the same open-session boundary used by status reads.
+// Agent-status wait handler tests pin account-device authorization before
+// volatile admission, Connect error mapping, and exact response outcomes. A real
+// migrated database supplies the same open-session boundary used by status reads.
 
 import { create } from "@bufbuild/protobuf";
 import {
@@ -34,31 +34,24 @@ import {
 import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
 import {
   callerKey,
-  dashboardActorKey,
-  type DashboardActor,
+  type AccountDeviceCaller,
 } from "../src/connect/auth-interceptor.ts";
 import { makeAgentStatusHandlers, type AgentStatusHandlers } from "../src/connect/handlers-agent-status.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 
-const ORGANIZATION_ID = "agent-wait-organization";
-const DASHBOARD_A = "agent-wait-dashboard-a";
-const DASHBOARD_B = "agent-wait-dashboard-b";
 const WORKER_A = asWorkerFp("a1".repeat(32));
-const WORKER_B = asWorkerFp("b2".repeat(32));
 const SESSION_A = asSessionId("50000000-0000-4000-8000-000000000001");
-const SESSION_FOREIGN = asSessionId("50000000-0000-4000-8000-000000000002");
 const SESSION_MISSING = asSessionId("50000000-0000-4000-8000-000000000099");
 const STATUS_EPOCH = StatusEpoch.parse("60000000-0000-4000-8000-000000000001");
 const OCCUPANT_ID = AgentOccupantId.parse("70000000-0000-4000-8000-000000000001");
-const ACTOR_A: DashboardActor = {
+const CALLER: AccountDeviceCaller = {
+  kind: "account-device",
+  fingerprint: "agent-wait-device-a",
+  label: "wait test device",
   accountId: "agent-wait-account-a",
-  organizationId: ORGANIZATION_ID,
-  dashboardId: DASHBOARD_A,
-  organizationRole: "owner",
-  dashboardRole: "admin",
-  deviceFingerprint: "agent-wait-device-a",
 };
 
 let workdir = "";
@@ -66,18 +59,9 @@ let db: KyselyDB;
 let closeDb: () => Promise<void>;
 let handlers: AgentStatusHandlers;
 
-function actorContext(
-  actor: DashboardActor,
-  signal = new AbortController().signal,
-): HandlerContext {
+function callerContext(signal = new AbortController().signal): HandlerContext {
   const values = createContextValues();
-  values.set(callerKey, {
-    kind: "account-device",
-    fingerprint: actor.deviceFingerprint,
-    label: "wait test device",
-    accountId: actor.accountId,
-  });
-  values.set(dashboardActorKey, actor);
+  values.set(callerKey, CALLER);
   return { values, signal } as unknown as HandlerContext;
 }
 
@@ -167,27 +151,20 @@ beforeAll(async () => {
   db = opened.db;
   closeDb = opened.close;
   await runMigrations(opened.sqlite);
+  const tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
   const now = Date.now();
-  await db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "agent-wait",
-    name: "Agent wait",
-    status: "active",
-    created_at_ms: now,
+  await db.insertInto("workers").values({
+    fp: WORKER_A, dashboard_id: tenant.dashboardId, label: "A", os: "linux",
+    git_sha: null, host_metrics_json: null, reachable_addr: null,
+    registered_at_ms: now, last_seen_ms: now,
   }).execute();
-  await db.insertInto("dashboards").values([
-    { id: DASHBOARD_A, organization_id: ORGANIZATION_ID, slug: "agent-wait-a", name: "A", status: "active", created_at_ms: now },
-    { id: DASHBOARD_B, organization_id: ORGANIZATION_ID, slug: "agent-wait-b", name: "B", status: "active", created_at_ms: now },
-  ]).execute();
-  await db.insertInto("workers").values([
-    { fp: WORKER_A, dashboard_id: DASHBOARD_A, label: "A", os: "linux", git_sha: null, host_metrics_json: null, reachable_addr: null, registered_at_ms: now, last_seen_ms: now },
-    { fp: WORKER_B, dashboard_id: DASHBOARD_B, label: "B", os: "linux", git_sha: null, host_metrics_json: null, reachable_addr: null, registered_at_ms: now, last_seen_ms: now },
-  ]).execute();
-  await db.insertInto("sessions").values([
-    openSession(SESSION_A, DASHBOARD_A, WORKER_A, 1),
-    openSession(SESSION_FOREIGN, DASHBOARD_B, WORKER_B, 2),
-  ]).execute();
-  handlers = makeAgentStatusHandlers({ db } as unknown as ConnectDeps);
+  await db.insertInto("sessions")
+    .values(openSession(SESSION_A, tenant.dashboardId, WORKER_A, 1))
+    .execute();
+  handlers = makeAgentStatusHandlers({
+    db,
+    selfHostedTenant: tenant,
+  } as unknown as ConnectDeps);
 });
 
 beforeEach(() => {
@@ -211,26 +188,22 @@ describe("agent status wait handler", () => {
   test("returns an immediate exact-occupant match", async () => {
     const response = await handlers.agentStatusWait(
       request({ desiredStates: ["working"] }),
-      actorContext(ACTOR_A),
+      callerContext(),
     );
     expect(response.outcome).toBe("matched");
     expect(_agentStatusWaiterStats().total).toBe(0);
   });
 
-  test("authorizes before validation and preserves the missing/foreign non-oracle", async () => {
+  test("authorizes before validation and keeps the missing-session non-oracle", async () => {
     await expect(handlers.agentStatusWait(request(), anonymousContext()))
       .rejects.toMatchObject({ code: Code.Unauthenticated });
-    const failures = await Promise.all([
+    // A malformed timeout on a missing session still answers not-found: the
+    // session boundary runs before request validation, so a caller cannot use
+    // error shape to probe which session ids exist.
+    expect(await connectFailure(() => handlers.agentStatusWait(
       request({ sessionId: SESSION_MISSING, timeoutMs: 0 }),
-      request({ sessionId: SESSION_FOREIGN, timeoutMs: 0 }),
-    ].map((value) => connectFailure(() => handlers.agentStatusWait(
-      value,
-      actorContext(ACTOR_A),
-    ))));
-    expect(failures).toEqual([
-      { code: Code.NotFound, message: "agent status not found" },
-      { code: Code.NotFound, message: "agent status not found" },
-    ]);
+      callerContext(),
+    ))).toEqual({ code: Code.NotFound, message: "agent status not found" });
     expect(_agentStatusWaiterStats().total).toBe(0);
   });
 
@@ -245,7 +218,7 @@ describe("agent status wait handler", () => {
       request({ timeoutMs: 300_001 }),
       request({ afterRevision: BigInt(Number.MAX_SAFE_INTEGER) + 1n }),
     ]) {
-      await expect(handlers.agentStatusWait(value, actorContext(ACTOR_A)))
+      await expect(handlers.agentStatusWait(value, callerContext()))
         .rejects.toMatchObject({ code: Code.InvalidArgument });
     }
     expect(_agentStatusWaiterStats().total).toBe(0);
@@ -255,7 +228,7 @@ describe("agent status wait handler", () => {
     const controller = new AbortController();
     const canceled = handlers.agentStatusWait(
       request({ desiredStates: ["idle"] }),
-      actorContext(ACTOR_A, controller.signal),
+      callerContext(controller.signal),
     );
     controller.abort();
     await expect(canceled).rejects.toMatchObject({ code: Code.Canceled });
@@ -270,7 +243,7 @@ describe("agent status wait handler", () => {
       }, new AbortController().signal));
     await expect(handlers.agentStatusWait(
       request({ desiredStates: ["idle"] }),
-      actorContext(ACTOR_A),
+      callerContext(),
     )).rejects.toMatchObject({ code: Code.ResourceExhausted });
     const settled = Promise.allSettled(pending);
     stopAgentStatusHub();

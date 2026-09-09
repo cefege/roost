@@ -51,7 +51,7 @@ function installBrowser(
   events: string[] = [],
 ): FakeBrowser {
   const locationValue = {
-    origin: "https://dashboard.roosttt.com",
+    origin: "https://app.roosttt.com",
     pathname: input.pathname,
     search: input.search ?? "",
     hash: input.hash ?? "",
@@ -268,13 +268,13 @@ describe("synchronous entry capture", () => {
 
   test("diagnostic URL serialization removes query and fragment credentials", () => {
     const serialized = credentialFreeUrl({
-      origin: "https://dashboard.roosttt.com",
+      origin: "https://app.roosttt.com",
       pathname: "/s/session-a",
       search: "?pair=query-secret&keep=1",
       hash: "#pair=fragment-secret",
     });
     expect(serialized).toBe(
-      "https://dashboard.roosttt.com/s/session-a?keep=1",
+      "https://app.roosttt.com/s/session-a?keep=1",
     );
     expect(serialized).not.toContain("query-secret");
     expect(serialized).not.toContain("fragment-secret");

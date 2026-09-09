@@ -15,7 +15,7 @@ import {
 } from "@roost/shared/proto/coordinator_pb";
 import { taskRowToProto } from "@roost/shared/wire/row-proto";
 import { taskBus } from "../buses.ts";
-import { requireDashboardActor } from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import { TaskState } from "@roost/shared/wire";
 import type { TaskState as TaskStateValue } from "@roost/shared/wire";
 import type { ConnectDeps } from "./router.ts";
@@ -33,11 +33,8 @@ function taskStateOf(raw: string): TaskStateValue {
 // Emit a `state` delta on the taskBus. Used by next-pending/set-state/cancel.
 // taskBus carries the proto Task directly (TaskBusMsg) so no JSON
 // parse/stringify roundtrip fires on the hot path.
-function publishTaskState(
-  dashboardId: string,
-  row: Parameters<typeof taskRowToProto>[0],
-): void {
-  taskBus.publish({ kind: "state", task: taskRowToProto(row), _dashboard_id: dashboardId });
+function publishTaskState(row: Parameters<typeof taskRowToProto>[0]): void {
+  taskBus.publish({ kind: "state", task: taskRowToProto(row) });
 }
 
 type TaskMethods =
@@ -48,9 +45,8 @@ export function makeTaskHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, TaskMethods> {
   return {
     async tasksList(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      requireAccountDevice(ctx.values);
       let q = deps.db.selectFrom("tasks").selectAll()
-        .where("dashboard_id", "=", actor.dashboardId)
         .orderBy("enqueued_at_ms");
       if (req.state) q = q.where("state", "=", taskStateOf(req.state));
       const rows = await q.execute();
@@ -58,7 +54,7 @@ export function makeTaskHandlers(
     },
 
     async tasksEnqueue(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      requireAccountDevice(ctx.values);
       // Reject malformed payload at the wire boundary. The proto field is a
       // string with no JSON shape, so accepting garbage would make downstream
       // consumers observe task.payload=null and violate the Task Zod schema,
@@ -70,7 +66,8 @@ export function makeTaskHandlers(
       const id = randomUUID();
       const now = Date.now();
       await deps.db.insertInto("tasks").values({
-        id, dashboard_id: actor.dashboardId, state: "pending", payload_json: req.payloadJson,
+        id, dashboard_id: deps.selfHostedTenant.dashboardId, state: "pending",
+        payload_json: req.payloadJson,
         enqueued_at_ms: now, claimed_at_ms: null, claimed_by: null,
         finished_at_ms: null, result_json: null,
         completion_check: req.completionCheck ?? null,
@@ -79,41 +76,37 @@ export function makeTaskHandlers(
       }).execute();
       const row = await deps.db.selectFrom("tasks").selectAll()
         .where("id", "=", id)
-        .where("dashboard_id", "=", actor.dashboardId)
         .executeTakeFirstOrThrow();
       const task = taskRowToProto(row);
-      taskBus.publish({ kind: "created", task, _dashboard_id: actor.dashboardId });
+      taskBus.publish({ kind: "created", task });
       return create(TasksEnqueueResponseSchema, { task });
     },
 
     async tasksNextPending(_req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
       const now = Date.now();
       const result = await deps.db.updateTable("tasks").set({
-        state: "claimed", claimed_at_ms: now, claimed_by: actor.deviceFingerprint,
+        state: "claimed", claimed_at_ms: now, claimed_by: caller.fingerprint,
       }).where("id", "=",
         deps.db.selectFrom("tasks").select("id")
           .where("state", "=", "pending")
-          .where("dashboard_id", "=", actor.dashboardId)
           .orderBy("enqueued_at_ms").limit(1),
       )
-        .where("dashboard_id", "=", actor.dashboardId)
         .returningAll().executeTakeFirst();
       if (!result) return create(TasksNextPendingResponseSchema, {});
-      publishTaskState(actor.dashboardId, result);
+      publishTaskState(result);
       return create(TasksNextPendingResponseSchema, { task: taskRowToProto(result) });
     },
 
     async tasksSetState(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
       const now = Date.now();
       const terminal = ["done", "failed", "cancelled"].includes(req.state);
       const existing = await deps.db.selectFrom("tasks").selectAll()
         .where("id", "=", req.id)
-        .where("dashboard_id", "=", actor.dashboardId)
         .executeTakeFirst();
       if (!existing) throw new ConnectError("task not found", Code.NotFound);
-      if (existing.claimed_by && existing.claimed_by !== actor.deviceFingerprint) {
+      if (existing.claimed_by && existing.claimed_by !== caller.fingerprint) {
         throw new ConnectError("task claimed by different worker", Code.PermissionDenied);
       }
       const result = await deps.db.updateTable("tasks").set({
@@ -122,24 +115,22 @@ export function makeTaskHandlers(
         ...(req.resultJson !== undefined && { result_json: req.resultJson }),
       })
         .where("id", "=", req.id)
-        .where("dashboard_id", "=", actor.dashboardId)
         .returningAll().executeTakeFirst();
       if (!result) throw new ConnectError("task not found", Code.NotFound);
-      publishTaskState(actor.dashboardId, result);
+      publishTaskState(result);
       return create(TasksSetStateResponseSchema, { task: taskRowToProto(result) });
     },
 
     async tasksCancel(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      requireAccountDevice(ctx.values);
       const result = await deps.db.updateTable("tasks").set({
         state: "cancelled", finished_at_ms: Date.now(),
       })
         .where("id", "=", req.id)
-        .where("dashboard_id", "=", actor.dashboardId)
         .where("state", "not in", ["done", "failed", "cancelled"])
         .returningAll().executeTakeFirst();
       if (!result) throw new ConnectError("task not found or already terminal", Code.NotFound);
-      publishTaskState(actor.dashboardId, result);
+      publishTaskState(result);
       return create(TasksCancelResponseSchema, { task: taskRowToProto(result) });
     },
   };

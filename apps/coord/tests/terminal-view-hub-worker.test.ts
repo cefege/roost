@@ -5,7 +5,6 @@ import {
   TerminalStreamStatus,
 } from "@roost/shared/proto/worker_transport_pb";
 import {
-  DASHBOARD,
   SESSION,
   VIEW_A,
   WORKER,
@@ -58,7 +57,7 @@ describe("TerminalViewHub worker transition ownership", () => {
     expect(new Set(desiredStreams).size).toBe(3);
     expect(sent).toHaveLength(0);
 
-    route.resolve({ workerFp: WORKER, channel: 7, dashboardId: DASHBOARD });
+    route.resolve({ workerFp: WORKER, channel: 7 });
     await settle();
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ enabled: true, cols: 100, rows: 40 });

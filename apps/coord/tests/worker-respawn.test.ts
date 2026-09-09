@@ -40,7 +40,6 @@ test("defers reconnect respawn until keeper-update exclusivity releases", async 
   };
   const worker: WorkerHandle = {
     workerFp: WORKER_FP,
-    dashboardId: "dashboard-1",
     revoked: false,
     ready: true,
     send,

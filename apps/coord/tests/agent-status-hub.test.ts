@@ -26,7 +26,6 @@ import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
 const SID = asSessionId("11111111-1111-4111-8111-111111111111");
 const WORKER = asWorkerFp("a1".repeat(32));
 const OTHER_WORKER = asWorkerFp("b2".repeat(32));
-const DASHBOARD = "agent-status-dashboard";
 const STATUS_EPOCH = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 const OCCUPANT_ID = AgentOccupantId.parse("11111111-aaaa-4aaa-8aaa-111111111111");
 
@@ -101,15 +100,12 @@ describe("coordinator agent status hub", () => {
     const published: AgentStatusUpdateValue[] = [];
     const unsubscribe = agentStatusBus.subscribe((update) => published.push(update));
     try {
-      sessionBus.publish({
-        ...SessionEvent.parse({
-          kind: "closed",
-          session_id: SID,
-          exit_code: 0,
-          ts: 1_780_000_000_001,
-        }),
-        _dashboard_id: DASHBOARD,
-      });
+      sessionBus.publish(SessionEvent.parse({
+        kind: "closed",
+        session_id: SID,
+        exit_code: 0,
+        ts: 1_780_000_000_001,
+      }));
       expect(getAgentStatusSnapshot()).toHaveLength(0);
       expect(published).toHaveLength(1);
       expect(published[0]).toMatchObject({ session_id: SID, revision: 9, active: false });

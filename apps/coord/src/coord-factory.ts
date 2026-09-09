@@ -31,6 +31,8 @@ import type { CallerOrigin } from "./middleware/caller-origin.ts";
 import type { PendingEventPublicationStore } from "./pending-event-publications.ts";
 import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "./connect/ui-state-owner.ts";
+import type { SelfHostedTenant } from "./self-hosted-tenant.ts";
+import { createCloudflareAccessGate } from "./cf-access.ts";
 
 export interface CoordHandlerContext {
   origin: CallerOrigin;
@@ -50,6 +52,9 @@ export interface CoordDeps {
   /** Required: every durable mutation path must be able to take a lease, so
    * an absent gate would silently unfence keeper updates. */
   writeGate: CoordinatorWriteGate;
+  /** Required: the single self-hosted account/organization/dashboard resolved
+   * once at startup. Every scoped write takes its value from here. */
+  selfHostedTenant: SelfHostedTenant;
   uiLayoutApplies?: UiLayoutApplyOwner;
   uiStates?: UiStateOwner;
   pendingPublications?: PendingEventPublicationStore;
@@ -57,9 +62,8 @@ export interface CoordDeps {
   _onKeeperUpdateFinalEmptyRecheck?: () => void;
   onKeyRevoked?: (fingerprint: string) => void;
   onWorkerDeletedFence?: (fingerprint: string) => void;
-  onWorkerDeletedSyncScope?: (dashboardId: string, fingerprint: string) => void;
+  onWorkerDeletedSyncScope?: (fingerprint: string) => void;
   onWorkerDeletedSocketClose?: (fingerprint: string) => void;
-  onDashboardRevoked?: (dashboardId: string, fingerprint?: string) => void;
 }
 
 export interface CoordHandle {
@@ -71,11 +75,11 @@ export interface CoordHandle {
   /** Drop any in-process state. Per-runtime cleanup is the caller's job. */
   dispose(): void;
 }
-
 export function createCoord(deps: CoordDeps): CoordHandle {
   const uiLayoutApplies = deps.uiLayoutApplies ?? new UiLayoutApplyOwner();
   const uiStates = deps.uiStates ?? new UiStateOwner();
-  const connectRouter = buildConnectRouter({ ...deps, uiLayoutApplies, uiStates });
+  const cfAccess = createCloudflareAccessGate(deps.cfg);
+  const connectRouter = buildConnectRouter({ ...deps, uiLayoutApplies, uiStates, cfAccess });
   const connectHandler = makeConnectBunHandler(connectRouter);
 
   // Coord-authoritative OSC terminal title: parse it off the relayed byte
@@ -126,7 +130,15 @@ export function createCoord(deps: CoordDeps): CoordHandle {
         resp = new Response("not found", { status: 404 });
       } else if (ctx?.spa) {
         nonConnectSurface = "spa";
-        resp = await ctx.spa(url, req.method, req.headers.get("accept-encoding") ?? "");
+        if (cfAccess && !origin.onHost && await cfAccess.verify(req.headers) === null) {
+          log.warn("coord-factory", "spa_access_denied", {
+            path: url.pathname,
+            client_ip: origin.clientIp,
+          });
+          resp = new Response("not found", { status: 404 });
+        } else {
+          resp = await ctx.spa(url, req.method, req.headers.get("accept-encoding") ?? "");
+        }
       } else {
         resp = new Response("not found", { status: 404 });
       }

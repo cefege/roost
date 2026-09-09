@@ -13,6 +13,7 @@ import {
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import { SessionEvent, asChannelId } from "@roost/shared/wire";
 import type { KyselyDB } from "../src/db/connection.ts";
+import type { SelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import {
   isWorkerChannelIndexReconciled,
   applyDurableChannelIndex,
@@ -37,17 +38,20 @@ const {
   FP,
   SID_A,
   SID_B,
-  DASHBOARD_ID,
   liveSession,
   openedEvent,
   snapshotEvent,
 } = fixture;
 
 let writer: typeof fixture.writer;
+let dashboardId: string;
+let selfHostedTenant: SelfHostedTenant;
 
 beforeEach(async () => {
   await fixture.reset();
   writer = fixture.writer;
+  dashboardId = fixture.dashboardId;
+  selfHostedTenant = fixture.tenant;
 });
 afterAll(() => fixture.close());
 
@@ -99,12 +103,12 @@ describe("superseded worker generation fence", () => {
   test("only the current generation becomes routable after snapshot publication", async () => {
     const deps = {
       db: writer.db, pendingPublications: new PendingEventPublicationStore(),
-      writeGate: new CoordinatorWriteGate(),
+      writeGate: new CoordinatorWriteGate(), selfHostedTenant,
     } as unknown as WorkerServiceDeps;
     const hello = helloFrame();
     let closedOld = 0;
     const oldConn = makeWorkerConn(
-      deps, { fingerprint: FP }, () => 1, () => { closedOld += 1; }, undefined, DASHBOARD_ID,
+      deps, { fingerprint: FP }, () => 1, () => { closedOld += 1; },
     );
     const ackStates: Array<{ seq: bigint; ready: boolean; route: string | undefined }> = [];
     const newConn = makeWorkerConn(
@@ -121,14 +125,12 @@ describe("superseded worker generation fence", () => {
         return 1;
       },
       () => { /* current */ },
-      undefined,
-      DASHBOARD_ID,
     );
     try {
       await oldConn.handleUpstream(hello);
       expect(oldConn.isCurrentGeneration()).toBe(true);
       expect(oldConn.isReady()).toBe(false);
-      expect(listRoutableFps(DASHBOARD_ID)).not.toContain(FP);
+      expect(listRoutableFps()).not.toContain(FP);
 
       await newConn.handleUpstream(hello);
       expect(closedOld).toBe(1);
@@ -140,7 +142,7 @@ describe("superseded worker generation fence", () => {
       // current raw socket routable or admit ordinary byte traffic.
       await newConn.handleUpstream(upFrame(openedEvent(SID_A, 11), 101));
       expect(getWorkerHubSocket(FP)).toBeNull();
-      expect(listRoutableFps(DASHBOARD_ID)).not.toContain(FP);
+      expect(listRoutableFps()).not.toContain(FP);
       const preReadyBytes: string[] = [];
       const unsubBytes = globalBytesBus.subscribe((message) => {
         if (message.session_id === SID_A) {
@@ -188,7 +190,7 @@ describe("superseded worker generation fence", () => {
       expect(snapshotPublication).toEqual([{ ready: false, route: SID_A }]);
       expect(newConn.isReady()).toBe(true);
       expect(getWorkerHubSocket(FP)).not.toBeNull();
-      expect(listRoutableFps(DASHBOARD_ID)).toContain(FP);
+      expect(listRoutableFps()).toContain(FP);
       expect(ackStates).toEqual([
         { seq: 101n, ready: false, route: undefined },
         { seq: 102n, ready: true, route: SID_A },
@@ -215,7 +217,7 @@ describe("superseded worker generation fence", () => {
     const paused = pauseFirstTransactionAfterCommit(writer.db);
     const deps = {
       db: paused.db, pendingPublications,
-      writeGate: new CoordinatorWriteGate(),
+      writeGate: new CoordinatorWriteGate(), selfHostedTenant,
     } as unknown as WorkerServiceDeps;
     const oldAcks: bigint[] = [];
     let oldCloseRequests = 0;
@@ -229,8 +231,6 @@ describe("superseded worker generation fence", () => {
         return 1;
       },
       () => { oldCloseRequests += 1; },
-      undefined,
-      DASHBOARD_ID,
     );
     const timeline: string[] = [];
     const acks: bigint[] = [];
@@ -248,35 +248,27 @@ describe("superseded worker generation fence", () => {
         return 1;
       },
       () => { replacementCloseRequests += 1; },
-      undefined,
-      DASHBOARD_ID,
     );
     const workspaceId = "00000000-0000-4000-8000-000000000404";
     const publications: Array<{
-      dashboardId: string;
       eventId: number | undefined;
       route: string | undefined;
     }> = [];
-    const foreignPublications: SessionEvent[] = [];
     const cascades: string[] = [];
     const unsubscribeSessions = sessionBus.subscribe((event) => {
       if (event.kind !== "closed" || event.session_id !== SID_A) return;
       timeline.push("session");
       publications.push({
-        dashboardId: event._dashboard_id,
         eventId: event._event_id,
         route: lookupSessionId(FP, asChannelId(21)),
       });
-    }, DASHBOARD_ID);
-    const unsubscribeForeign = sessionBus.subscribe((event) => {
-      foreignPublications.push(event);
-    }, "another-dashboard");
+    });
     const unsubscribeWorkspaces = workspaceBus.subscribe((event) => {
       if (event.kind === "deleted" && event.id === workspaceId) {
         timeline.push("workspace");
         cascades.push(event.id);
       }
-    }, DASHBOARD_ID);
+    });
     const closedEvent = SessionEvent.parse({
       kind: "closed",
       session_id: SID_A,
@@ -288,11 +280,11 @@ describe("superseded worker generation fence", () => {
       await appendEvent(writer.db, openedEvent(SID_A, 21), {
         worker_fp: FP,
         client_seq: 200,
-        dashboardId: DASHBOARD_ID,
+        dashboardId,
       });
       await writer.db.insertInto("workspaces").values({
         id: workspaceId,
-        dashboard_id: DASHBOARD_ID,
+        dashboard_id: dashboardId,
         worker_fp: FP,
         name: "recovery cascade",
         folder_path: "/tmp",
@@ -304,7 +296,7 @@ describe("superseded worker generation fence", () => {
       }).execute();
       await writer.db.insertInto("workspace_sessions").values({
         workspace_id: workspaceId,
-        dashboard_id: DASHBOARD_ID,
+        dashboard_id: dashboardId,
         session_id: SID_A,
         added_at_ms: 1,
       }).execute();
@@ -340,12 +332,10 @@ describe("superseded worker generation fence", () => {
       await replacement.handleUpstream(upFrame(closedEvent, clientSeq));
       expect(pendingPublications.size).toBe(0);
       expect(publications).toEqual([{
-        dashboardId: DASHBOARD_ID,
         eventId: Number(committed.id),
         route: undefined,
       }]);
       expect(cascades).toEqual([workspaceId]);
-      expect(foreignPublications).toEqual([]);
       expect(timeline).toEqual(["session", "workspace", "ack"]);
       expect(acks).toEqual([BigInt(clientSeq)]);
       expect(replacement.isReady()).toBe(false);
@@ -357,7 +347,6 @@ describe("superseded worker generation fence", () => {
     } finally {
       paused.resume();
       unsubscribeWorkspaces();
-      unsubscribeForeign();
       unsubscribeSessions();
       oldConn.close();
       replacement.close();
@@ -368,7 +357,7 @@ describe("superseded worker generation fence", () => {
     const pendingPublications = new PendingEventPublicationStore(1);
     const options = {
       worker_fp: FP,
-      dashboardId: DASHBOARD_ID,
+      dashboardId,
       canPublish: () => false,
       pendingPublications,
     };

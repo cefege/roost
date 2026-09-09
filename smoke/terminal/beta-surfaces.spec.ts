@@ -1,4 +1,4 @@
-// Browser proof for dashboard metadata/content search and the unavailable cross-worker transfer surface.
+// Browser proof for install-wide metadata/content search and the unavailable cross-worker transfer surface.
 // Two real workers expose distinct retained PTY markers; selecting a global result
 // re-runs pane-local find while the transfer item remains informational and side-effect free.
 

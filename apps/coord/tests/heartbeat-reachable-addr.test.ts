@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
@@ -25,7 +26,7 @@ let cleanup: () => Promise<void>;
 let workerJwt: string;
 let workerFp: string;
 let db: KyselyDB;
-const DASHBOARD_ID = "heartbeat-reachable-dashboard";
+let dashboardId: string;
 
 beforeAll(async () => {
 	workdir = mkdtempSync(join(tmpdir(), "roost-hb-reachable-"));
@@ -37,21 +38,8 @@ beforeAll(async () => {
 	db = opened.db;
 	const sqlite = opened.sqlite;
 	await runMigrations(sqlite);
-	await db.insertInto("organizations").values({
-		id: "heartbeat-reachable-organization",
-		slug: "heartbeat-reachable",
-		name: "Heartbeat reachable",
-		status: "active",
-		created_at_ms: Date.now(),
-	}).execute();
-	await db.insertInto("dashboards").values({
-		id: DASHBOARD_ID,
-		organization_id: "heartbeat-reachable-organization",
-		slug: "default",
-		name: "Default",
-		status: "active",
-		created_at_ms: Date.now(),
-	}).execute();
+	const selfHostedTenant = ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
+	dashboardId = selfHostedTenant.dashboardId;
 	const jwtCache = newJwtCache();
 	const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
 		pushAllowedOrigins: [],
@@ -70,6 +58,7 @@ beforeAll(async () => {
 		writeGate: new CoordinatorWriteGate(),
 		cfg,
 		jwtCache,
+		selfHostedTenant,
 	});
 
 	// Mint a worker keypair, authorize it, seed its workers row (register-time
@@ -96,7 +85,7 @@ beforeAll(async () => {
 		.insertInto("workers")
 		.values({
 			fp: workerFp,
-			dashboard_id: DASHBOARD_ID,
+			dashboard_id: dashboardId,
 			label: "worker-host",
 			os: "darwin",
 			registered_at_ms: Date.now(),

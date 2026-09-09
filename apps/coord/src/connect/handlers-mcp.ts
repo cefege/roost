@@ -14,7 +14,7 @@ import {
 import { McpRelaySchema } from "@roost/shared/proto/wire_pb";
 import { mcpRelayRowToProto } from "@roost/shared/wire/row-proto";
 import { mcpBus } from "../buses.ts";
-import { requireDashboardAdmin } from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import { requireNonEmpty } from "./router-helpers.ts";
 import { McpRelayKind, McpRelayId } from "@roost/shared/wire";
 import type { McpRelayKind as McpRelayKindValue } from "@roost/shared/wire";
@@ -35,23 +35,20 @@ export function makeMcpHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, McpMethods> {
   return {
     async mcpList(_req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      requireAccountDevice(ctx.values);
       const rows = await deps.db
         .selectFrom("mcp_relays")
         .selectAll()
-        .where("dashboard_id", "=", actor.dashboardId)
         .execute();
       return create(McpListResponseSchema, { relays: rows.map(mcpRelayRowToProto) });
     },
 
     async mcpCreate(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      requireAccountDevice(ctx.values);
       requireNonEmpty(req.label, "label");
-      // Validate configJson is parseable BEFORE INSERT. Prior shape
-      // ran JSON.parse only inside mcpBus.publish AFTER the INSERT
-      // committed → malformed JSON left a permanent DB row + the
-      // handler 500'd before publishing, so the SPA never got the
-      // `created` delta. Split-brain.
+      // Parse configJson BEFORE the INSERT: a row whose config cannot be
+      // parsed must never persist, because the created delta that carries the
+      // parsed config is published after the commit.
       let configParsed: Record<string, unknown>;
       try {
         const v = JSON.parse(req.configJson);
@@ -65,7 +62,7 @@ export function makeMcpHandlers(
       const id = randomUUID();
       const now = Date.now();
       await deps.db.insertInto("mcp_relays").values({
-        dashboard_id: actor.dashboardId,
+        dashboard_id: deps.selfHostedTenant.dashboardId,
         id, label: req.label, kind: mcpRelayKindOf(req.kind),
         config_json: req.configJson, created_at_ms: now,
       }).execute();
@@ -75,7 +72,6 @@ export function makeMcpHandlers(
       });
       mcpBus.publish({
         kind: "created",
-        _dashboard_id: actor.dashboardId,
         relay: {
           id: McpRelayId.parse(id), label: req.label, kind: mcpRelayKindOf(req.kind),
           config: configParsed, created_at_ms: now,
@@ -85,24 +81,19 @@ export function makeMcpHandlers(
     },
 
     async mcpDelete(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      requireAccountDevice(ctx.values);
       const result = await deps.db
         .deleteFrom("mcp_relays")
         .where("id", "=", req.id)
-        .where("dashboard_id", "=", actor.dashboardId)
         .returningAll()
         .executeTakeFirst();
       if (!result) throw new ConnectError("not found", Code.NotFound);
-      mcpBus.publish({
-        kind: "deleted",
-        id: McpRelayId.parse(result.id),
-        _dashboard_id: actor.dashboardId,
-      });
+      mcpBus.publish({ kind: "deleted", id: McpRelayId.parse(result.id) });
       return create(McpDeleteResponseSchema, { ok: true });
     },
 
     async mcpPublish(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      requireAccountDevice(ctx.values);
       let payload: unknown;
       try { payload = JSON.parse(req.payloadJson); }
       catch (e) {
@@ -112,14 +103,12 @@ export function makeMcpHandlers(
         .selectFrom("mcp_relays")
         .select("id")
         .where("id", "=", req.id)
-        .where("dashboard_id", "=", actor.dashboardId)
         .executeTakeFirst();
       if (!relay) throw new ConnectError("not found", Code.NotFound);
       mcpBus.publish({
         relay_id: McpRelayId.parse(relay.id),
         payload,
         ts: Date.now(),
-        _dashboard_id: actor.dashboardId,
       });
       return create(McpPublishResponseSchema, { ok: true });
     },

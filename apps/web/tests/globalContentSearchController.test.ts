@@ -1,4 +1,4 @@
-// Dashboard terminal-content controller tests for debounce, cancellation, paging,
+// Terminal-content controller tests for debounce, cancellation, paging,
 // resource-token fencing, and projection joins. RPC and timers are deterministic
 // so stale completion behavior is observable without a browser or coordinator.
 
@@ -80,7 +80,7 @@ function harness() {
   const scheduled = new Map<number, () => void>();
   let nextTimer = 1;
   let nextSearch = 1;
-  let currentToken = { generation: 1, dashboardId: "dashboard-a" as string | null };
+  let currentToken = { generation: 1 };
   let rpcImplementation = async (_request: CapturedRequest) => response();
 
   const controller = createGlobalContentSearchController({
@@ -96,9 +96,7 @@ function harness() {
       },
     },
     captureResourceToken: () => ({ ...currentToken }),
-    isResourceTokenCurrent: (token) =>
-      token.generation === currentToken.generation
-      && token.dashboardId === currentToken.dashboardId,
+    isResourceTokenCurrent: (token) => token.generation === currentToken.generation,
     createSearchId: () => `global-${nextSearch++}`,
     registerRuntime: () => () => {},
     schedule: (callback) => {
@@ -119,8 +117,8 @@ function harness() {
     setRpc(implementation: typeof rpcImplementation) {
       rpcImplementation = implementation;
     },
-    setDashboard(generation: number, dashboardId: string | null) {
-      currentToken = { generation, dashboardId };
+    setAuthGeneration(generation: number) {
+      currentToken = { generation };
     },
     async fireDebounce() {
       const callbacks = [...scheduled.values()];
@@ -302,52 +300,52 @@ describe("global terminal-content search controller", () => {
     expect(search.cancellations).toContain(firstSearchId);
     expect(search.controller.error()).toBeNull();
   });
-  test("dashboard reset cancels controllers and waits for a new resource token", async () => {
+  test("an auth-boundary reset cancels controllers and waits for a new resource token", async () => {
     const search = harness();
-    const oldDashboard = deferredResponse();
-    search.setRpc(() => oldDashboard.promise);
-    search.controller.setSearch("dashboard marker", false);
+    const retiredCredential = deferredResponse();
+    search.setRpc(() => retiredCredential.promise);
+    search.controller.setSearch("marker", false);
     await search.fireDebounce();
     const searchId = search.requests[0]!.searchId;
 
-    search.controller.resetForDashboardCutover();
+    search.controller.resetForAuthBoundary();
     expect(search.signals[0]!.aborted).toBe(true);
     expect(search.cancellations).toEqual([searchId]);
     expect(search.controller.matches()).toEqual([]);
 
-    search.controller.setSearch("dashboard marker", false);
+    search.controller.setSearch("marker", false);
     await search.fireDebounce();
     expect(search.requests).toHaveLength(1);
 
-    search.setDashboard(2, "dashboard-b");
-    search.setRpc(async () => response({ preview: "new dashboard" }));
-    search.controller.resumeAfterDashboardCutover();
+    search.setAuthGeneration(2);
+    search.setRpc(async () => response({ preview: "next credential" }));
+    search.controller.resumeAfterAuthBoundary();
     await search.fireDebounce();
     expect(search.requests).toHaveLength(2);
-    expect(search.controller.matches().map((match) => match.preview)).toEqual(["new dashboard"]);
+    expect(search.controller.matches().map((match) => match.preview)).toEqual(["next credential"]);
   });
 
-  test("suspends controllers registered during an in-flight dashboard switch", () => {
+  test("suspends controllers registered during an in-flight auth boundary", () => {
     const runtime = new _GlobalContentSearchRuntime();
     const transitions = { resets: 0, resumes: 0 };
     runtime.suspend();
     runtime.register({
-      resetForDashboardCutover: () => { transitions.resets++; },
-      resumeAfterDashboardCutover: () => { transitions.resumes++; },
+      resetForAuthBoundary: () => { transitions.resets++; },
+      resumeAfterAuthBoundary: () => { transitions.resumes++; },
     });
     expect(transitions).toEqual({ resets: 1, resumes: 0 });
     runtime.resume();
     expect(transitions).toEqual({ resets: 1, resumes: 1 });
   });
 
-  test("drops a response after dashboard-token cutover", async () => {
+  test("drops a response after a resource-token boundary", async () => {
     const search = harness();
     const stale = deferredResponse();
     search.setRpc(() => stale.promise);
-    search.controller.setSearch("old dashboard", false);
+    search.controller.setSearch("retired needle", false);
     await search.fireDebounce();
 
-    search.setDashboard(2, "dashboard-b");
+    search.setAuthGeneration(2);
     stale.resolve(response({ preview: "foreign result" }));
     await settle();
 

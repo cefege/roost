@@ -52,8 +52,8 @@ function _scheduleLastSeenPersist(): void {
 export function lastSeenSyncEventId(): number {
   return _lastSeenEventId;
 }
-/** Discard a dashboard's replay watermark before dialing another scope. A
- * persisted global cursor could otherwise skip that dashboard's initial
+/** Discard the replay watermark at a credential boundary. A
+ * persisted global cursor could otherwise skip the next socket's initial
  * history; cancelling the debounce also prevents the old value being written
  * after the reset. */
 export function resetLastSeenSyncEventId(): void {
@@ -287,9 +287,39 @@ export function _dispatchSyncFrame(
         // `snapshot` (seeded per Sync connect) REPLACES the whole set so
         // removals missed while disconnected can't linger.
         const d = oneof.value;
-        const fold = (p: { ephemeralId: string; label: string; createdAtMs: bigint }) =>
+        const fold = (p: {
+          ephemeralId: string;
+          label: string;
+          createdAtMs: bigint;
+          userAgent: string;
+          clientBrowser: string;
+          clientOs: string;
+          clientDeviceType: string;
+          sourceIp: string;
+          countryCode: string;
+          region: string;
+          city: string;
+          edgeIdentityProvider: string;
+          edgeIdentity: string;
+          edgeIdentityVerified: boolean;
+          expiresAtMs: bigint;
+        }) =>
           setRootStore("pair_requests", p.ephemeralId, {
-            ephemeral_id: p.ephemeralId, label: p.label, created_at_ms: Number(p.createdAtMs),
+            ephemeral_id: p.ephemeralId,
+            label: p.label,
+            created_at_ms: Number(p.createdAtMs),
+            userAgent: p.userAgent,
+            clientBrowser: p.clientBrowser,
+            clientOs: p.clientOs,
+            clientDeviceType: p.clientDeviceType,
+            sourceIp: p.sourceIp,
+            countryCode: p.countryCode,
+            region: p.region,
+            city: p.city,
+            edgeIdentityProvider: p.edgeIdentityProvider,
+            edgeIdentity: p.edgeIdentity,
+            edgeIdentityVerified: p.edgeIdentityVerified,
+            expiresAtMs: Number(p.expiresAtMs),
           });
         if (d.kind.case === "pending") fold(d.kind.value);
         else if (d.kind.case === "removedId") {

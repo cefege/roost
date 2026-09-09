@@ -2,7 +2,8 @@
 // selected agent id and an optional custom command in app_settings so every
 // device shares one choice (same KV contract as transcription). The server keeps
 // raw strings and does NOT validate `selected` against the catalog — the SPA owns
-// the catalog and resolves unknown ids to OMP client-side.
+// the catalog and resolves unknown ids to OMP client-side. Writes stamp the
+// retained `dashboard_id` column from the coordinator's single tenant.
 // Callers: connect/router.ts agentConfig* handlers.
 
 import type { Kysely } from "kysely";
@@ -17,11 +18,10 @@ export interface AgentConfigShape {
   autoLaunch: boolean;
 }
 
-async function readAll(db: Kysely<DB>, dashboardId: string): Promise<Record<string, string>> {
+async function readAll(db: Kysely<DB>): Promise<Record<string, string>> {
   const rows = await db
     .selectFrom("app_settings")
     .select(["key", "value"])
-    .where("dashboard_id", "=", dashboardId)
     .where("key", "like", "agent.%")
     .execute();
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
@@ -35,8 +35,8 @@ async function put(db: Kysely<DB>, dashboardId: string, key: string, value: stri
     .onConflict((oc) => oc.columns(["dashboard_id", "key"]).doUpdateSet({ value, updated_at_ms: now }))
     .execute();
 }
-export async function getAgentConfig(db: Kysely<DB>, dashboardId: string): Promise<AgentConfigShape> {
-  const s = await readAll(db, dashboardId);
+export async function getAgentConfig(db: Kysely<DB>): Promise<AgentConfigShape> {
+  const s = await readAll(db);
   return { selected: s[K.selected] || DEFAULT_SELECTED, customCommand: s[K.custom] ?? "", autoLaunch: s[K.autoLaunch] === "true" };
 }
 
@@ -48,5 +48,5 @@ export async function setAgentConfig(
   await put(db, dashboardId, K.selected, input.selected.trim() || DEFAULT_SELECTED);
   await put(db, dashboardId, K.custom, input.customCommand); // may be ""
   await put(db, dashboardId, K.autoLaunch, String(input.autoLaunch));
-  return getAgentConfig(db, dashboardId);
+  return getAgentConfig(db);
 }

@@ -12,7 +12,8 @@ import {
 } from "@roost/shared/viewport";
 import { TerminalScreenHub, type TerminalScreenSocketSink } from "./terminal-screen-hub.ts";
 import {
-  equalTerminalViewIntent, terminalViewIntent, validateTerminalViewCommand,
+  equalTerminalViewIntent, terminalViewIntent, terminalViewKey,
+  validateTerminalViewCommand,
 } from "./terminal-view-protocol.ts";
 import {
   activeTerminalFingerprints, projectTerminalViewers, terminalViewGeometries,
@@ -21,10 +22,7 @@ import {
   type TerminalViewTombstone as Tombstone,
 } from "./terminal-view-registry-state.ts";
 import type { TerminalStreamState } from "./terminal-view-stream-controller.ts";
-import {
-  scopedTerminalViewKey,
-  TerminalViewRegistryOperations,
-} from "./terminal-view-registry-operations.ts";
+import { TerminalViewRegistryOperations } from "./terminal-view-registry-operations.ts";
 
 const SOCKET_CAP = 64;
 const SESSION_CAP = 256;
@@ -33,7 +31,7 @@ export interface TerminalViewRegistryOptions {
   screen: TerminalScreenHub;
   now(): number;
   streamState(sessionId: string): TerminalStreamState | null;
-  recompute(sessionId: string, dashboardId: string): boolean;
+  recompute(sessionId: string): boolean;
   redrive(sessionId: string): void;
   onLiveViewExpired(socketId: string, viewId: string, sessionId: string): void;
 }
@@ -67,7 +65,6 @@ export class TerminalViewRegistry {
     socketId: string;
     viewerKey: string | null;
     callerFingerprint: string;
-    dashboardId: string;
     allowsSession(sessionId: string): boolean;
     sink: TerminalScreenSocketSink;
   }): void {
@@ -76,7 +73,6 @@ export class TerminalViewRegistry {
       id: registration.socketId,
       viewerKey: registration.viewerKey,
       fingerprint: registration.callerFingerprint,
-      dashboardId: registration.dashboardId,
       allowsSession: registration.allowsSession,
       sink: registration.sink,
       views: new Set(),
@@ -96,10 +92,10 @@ export class TerminalViewRegistry {
   }
 
   removeFingerprint(fingerprint: string): void {
-    const affected = new Map<string, string>();
+    const affected = new Set<string>();
     for (const view of [...this.views.values()]) {
       if (view.fingerprint !== fingerprint) continue;
-      affected.set(view.sessionId, view.dashboardId);
+      affected.add(view.sessionId);
       this.operations.remove(view, false);
     }
     for (const [key, tombstone] of this.tombstones) {
@@ -113,29 +109,7 @@ export class TerminalViewRegistry {
       this.sockets.delete(id);
       this.options.screen.unregisterSocket(id);
     }
-    for (const [sessionId, dashboardId] of affected) {
-      this.options.recompute(sessionId, dashboardId);
-    }
-  }
-
-  removeDashboard(dashboardId: string): void {
-    const affected = new Map<string, string>();
-    for (const view of [...this.views.values()]) {
-      if (view.dashboardId !== dashboardId) continue;
-      affected.set(view.sessionId, view.dashboardId);
-      this.operations.remove(view, false);
-    }
-    for (const [key, tombstone] of this.tombstones) {
-      if (tombstone.dashboardId === dashboardId) this.tombstones.delete(key);
-    }
-    for (const [socketId, socket] of this.sockets) {
-      if (socket.dashboardId !== dashboardId) continue;
-      this.sockets.delete(socketId);
-      this.options.screen.unregisterSocket(socketId);
-    }
-    for (const [sessionId, scope] of affected) {
-      this.options.recompute(sessionId, scope);
-    }
+    for (const sessionId of affected) this.options.recompute(sessionId);
   }
 
   handleViewCommand(socketId: string, command: TerminalViewCommand): void {
@@ -148,7 +122,7 @@ export class TerminalViewRegistry {
     }
     // This is intentionally before view/tombstone/cache mutation. The set is
     // seeded from persisted sessions at Sync admission and only expanded by a
-    // same-dashboard durable event.
+    // durable session event this socket owns.
     if (!socket.allowsSession(command.sessionId)) {
       this.operations.replyCommand(
         socket,
@@ -159,19 +133,11 @@ export class TerminalViewRegistry {
       );
       return;
     }
-    const key = scopedTerminalViewKey(
-      socket.dashboardId,
-      socket.viewerKey!,
-      command.viewId,
-    );
+    const key = terminalViewKey(socket.viewerKey!, command.viewId);
     const intent = terminalViewIntent(command);
     const current = this.views.get(key);
     const old = this.tombstones.get(key);
 
-    if (current && current.dashboardId !== socket.dashboardId) {
-      this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal session is unavailable", false);
-      return;
-    }
     if (current && current.socketId !== socketId) {
       if (
         !current.parked
@@ -238,7 +204,7 @@ export class TerminalViewRegistry {
       }
       if (!command.active) {
         this.operations.remove(current, true, command.revision, intent);
-        this.options.recompute(command.sessionId, current.dashboardId);
+        this.options.recompute(command.sessionId);
         this.operations.replyCommand(socket, command, TerminalViewStatus.ACCEPTED, "", true);
         this.operations.syncWatching(socketId, command.sessionId);
         return;
@@ -247,17 +213,13 @@ export class TerminalViewRegistry {
       current.rows = command.rows;
       current.revision = command.revision;
       current.deadline = this.options.now() + TERMINAL_VIEW_LEASE_MS;
-      if (!this.options.recompute(command.sessionId, current.dashboardId)) {
+      if (!this.options.recompute(command.sessionId)) {
         this.operations.replyView(current, TerminalViewStatus.ACCEPTED, "");
       }
       return;
     }
 
     if (old) {
-      if (old.dashboardId !== socket.dashboardId) {
-        this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal session is unavailable", false);
-        return;
-      }
       if (
         command.revision < old.revision
         || (command.revision === old.revision && !equalTerminalViewIntent(old.intent, intent))
@@ -276,7 +238,7 @@ export class TerminalViewRegistry {
       this.tombstones.delete(key);
     }
     if (!command.active) {
-      this.operations.tombstone(key, socket.viewerKey!, socket.dashboardId, command.revision, intent);
+      this.operations.tombstone(key, socket.viewerKey!, command.revision, intent);
       this.operations.replyCommand(socket, command, TerminalViewStatus.ACCEPTED, "", true);
       return;
     }
@@ -299,7 +261,6 @@ export class TerminalViewRegistry {
       viewId: command.viewId,
       viewerKey: socket.viewerKey!,
       fingerprint: socket.fingerprint,
-      dashboardId: socket.dashboardId,
       socketId,
       revision: command.revision,
       deadline: this.options.now() + TERMINAL_VIEW_LEASE_MS,
@@ -309,7 +270,7 @@ export class TerminalViewRegistry {
     socket.views.add(key);
     sessionViews.add(key);
     this.options.screen.setWatching(socketId, command.sessionId, true);
-    if (!this.options.recompute(command.sessionId, socket.dashboardId)) {
+    if (!this.options.recompute(command.sessionId)) {
       this.operations.replyView(view, TerminalViewStatus.ACCEPTED, "");
       this.options.screen.seedSocket(socketId, command.sessionId);
     }
@@ -322,14 +283,9 @@ export class TerminalViewRegistry {
       || !socket.allowsSession(command.sessionId)
       || !isTerminalUuid(command.viewId)
     ) return;
-    const view = this.views.get(scopedTerminalViewKey(
-      socket.dashboardId,
-      socket.viewerKey,
-      command.viewId,
-    ));
+    const view = this.views.get(terminalViewKey(socket.viewerKey, command.viewId));
     if (
       !view
-      || view.dashboardId !== socket.dashboardId
       || view.socketId !== socketId
       || view.parked
       || view.sessionId !== command.sessionId
@@ -375,22 +331,20 @@ export class TerminalViewRegistry {
 
   sweep(): void {
     const now = this.options.now();
-    const affected = new Map<string, string>();
+    const affected = new Set<string>();
     for (const view of [...this.views.values()]) {
       if (view.deadline > now) continue;
       if (!view.parked) {
         this.options.onLiveViewExpired(view.socketId, view.viewId, view.sessionId);
       }
-      affected.set(view.sessionId, view.dashboardId);
+      affected.add(view.sessionId);
       this.operations.remove(view, true);
       this.operations.syncWatching(view.socketId, view.sessionId);
     }
     for (const [key, entry] of this.tombstones) {
       if (entry.expires <= now) this.tombstones.delete(key);
     }
-    for (const [sessionId, dashboardId] of affected) {
-      this.options.recompute(sessionId, dashboardId);
-    }
+    for (const sessionId of affected) this.options.recompute(sessionId);
   }
 
 }

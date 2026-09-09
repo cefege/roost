@@ -16,8 +16,7 @@ import {
 } from "@roost/shared/proto/sync_pb";
 import type { WsDeadlineClock } from "../src/connect/ws-auth-deadline.ts";
 import type { SyncWsData } from "../src/connect/sync-ws-handler.ts";
-import type { DashboardActor } from "../src/connect/auth-interceptor.ts";
-import type { SyncDashboardScope } from "../src/connect/sync-feed.ts";
+import type { SyncResourceIndex } from "../src/connect/sync-feed.ts";
 import {
   APPLICATION_MAX_UNACKED_FRAMES,
   makeSyncV1Delivery,
@@ -35,17 +34,8 @@ export const SESSION_A = "11111111-1111-4111-8111-111111111111";
 export const SESSION_B = "22222222-2222-4222-8222-222222222222";
 export const OTHER_SESSION = "33333333-3333-4333-8333-333333333333";
 export const TARGET_SESSION = "44444444-4444-4444-8444-444444444444";
-export const DASHBOARD = "sync-v2-scheduler-dashboard";
-const actor: DashboardActor = {
-  accountId: "sync-v2-scheduler-account",
-  organizationId: "sync-v2-scheduler-organization",
-  dashboardId: DASHBOARD,
-  organizationRole: "owner",
-  dashboardRole: "admin",
-  deviceFingerprint: "sync-v2-scheduler-test",
-};
-const scope: SyncDashboardScope = {
-  dashboardId: DASHBOARD,
+const scope: SyncResourceIndex = {
+  ownerWorkerFp: null,
   workerFps: new Set(),
   sessionIds: new Set([SESSION_A, SESSION_B, OTHER_SESSION, TARGET_SESSION]),
   workspaceIds: new Set(),
@@ -133,7 +123,6 @@ export class TestSocket {
         keyGeneration: 0,
         validUntilMs: Date.now() + 60_000,
       },
-      actor,
       scope,
       readOnly: false,
       sinceEventId: 0,

@@ -1,7 +1,7 @@
 // TranscriptionPane — voice dictation settings (Settings → Voice).
 // Deepgram only: paste an API key (stored on the coordinator), Test it, or
 // remove it. Settings readback is masked. For direct Deepgram dictation the
-// configured key is returned only to an authenticated dashboard-admin browser,
+// configured key is returned only to an authenticated browser device,
 // which connects to Deepgram directly.
 // Callers: SettingsRoot.tsx. Depends on: coordClient transcription* RPCs +
 // lib/deepgramKey (cache dropped on save).

@@ -80,7 +80,7 @@ describe("SessionsPrompt authorization and validation", () => {
     expect(_agentStatusWaiterStats().total).toBe(0);
   });
 
-  test("makes absent and foreign sessions the same definite rejection before wait or send", async () => {
+  test("makes absent and unrouted sessions the same definite rejection before wait or send", async () => {
     let sends = 0;
     fixture.attachWorker(() => {
       sends += 1;

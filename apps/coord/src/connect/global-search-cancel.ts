@@ -1,4 +1,4 @@
-// Owns explicit coordinator cancellation for dashboard-wide terminal search.
+// Owns explicit coordinator cancellation for install-wide terminal search.
 // The session handler composes this function into its single handler domain;
 // cursor tombstones are installed before any asynchronous worker discovery.
 
@@ -15,7 +15,6 @@ import {
 } from "@roost/shared/terminal-search";
 import {
   requireAccountDevice,
-  requireDashboardActor,
   tabIdKey,
 } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
@@ -38,7 +37,6 @@ export function makeGlobalSearchCancelHandler(
   cursorOwner: GlobalSearchCursorOwner,
 ): CancelGlobalSearchHandler {
   return async (req, ctx) => {
-    const actor = requireDashboardActor(ctx.values);
     const caller = requireAccountDevice(ctx.values);
     if (!TerminalSearchIdSchema.safeParse(req.searchId).success) {
       throw new ConnectError(
@@ -48,7 +46,6 @@ export function makeGlobalSearchCancelHandler(
     }
     const tabId = ctx.values.get(tabIdKey) ?? "";
     const identity: GlobalSearchIdentity = {
-      dashboardId: actor.dashboardId,
       deviceFingerprint: caller.fingerprint,
       tabId,
       searchId: req.searchId,
@@ -60,7 +57,6 @@ export function makeGlobalSearchCancelHandler(
       try {
         const current = await listAuthorizedGlobalSearchSessions(
           deps.db,
-          actor.dashboardId,
           GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
         );
         const merged = new Map<string, GlobalSearchSessionPosition>();

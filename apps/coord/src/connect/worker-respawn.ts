@@ -29,11 +29,6 @@ export async function respawnMissingForWorker(
   const lease = await writeGate.acquireAfterExclusive();
   try {
     if (!handle.ready || handle.revoked || connectWorkers.get(workerFp) !== handle) return;
-    const dashboardId = handle.dashboardId;
-    if (dashboardId === undefined) {
-      log.warn("worker-service", "respawn_unscoped_worker_handle", { worker_fp: workerFp });
-      return;
-    }
     const rows = await db.selectFrom("sessions as session")
       .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
       .select([
@@ -42,9 +37,7 @@ export async function respawnMissingForWorker(
         "session.cwd as cwd",
       ])
       .where("session.worker_fp", "=", workerFp)
-      .where("session.dashboard_id", "=", dashboardId)
       .where("session.status", "=", "open")
-      .where("worker.dashboard_id", "=", dashboardId)
       .where("worker.deleted_at_ms", "is", null)
       .execute();
     if (rows.length === 0) return;

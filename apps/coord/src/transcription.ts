@@ -1,8 +1,9 @@
 // transcription — coord-side Deepgram dictation config. Stores the Deepgram API
 // key pasted in Settings → Voice. Direct Deepgram mode returns that configured
-// key only to an authenticated dashboard-admin browser (the sole owner in a
-// managed coordinator), which streams to Deepgram directly. No key configured
-// means the browser uses its built-in Web Speech recognizer instead.
+// key only to an authenticated browser (the sole operator of a self-hosted
+// coordinator), which streams to Deepgram directly. No key configured means the
+// browser uses its built-in Web Speech recognizer instead. Writes stamp the
+// retained `dashboard_id` column from the coordinator's single tenant.
 
 import type { Kysely } from "kysely";
 import type { DB } from "./db/schema.ts";
@@ -26,11 +27,10 @@ export interface SetTranscriptionInput {
   deepgramLanguage: string;
 }
 
-async function readAll(db: Kysely<DB>, dashboardId: string): Promise<Record<string, string>> {
+async function readAll(db: Kysely<DB>): Promise<Record<string, string>> {
   const rows = await db
     .selectFrom("app_settings")
     .select(["key", "value"])
-    .where("dashboard_id", "=", dashboardId)
     .where("key", "like", "transcription.%")
     .execute();
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
@@ -52,9 +52,8 @@ function mask(key: string | undefined): string {
 
 export async function getTranscriptionConfig(
   db: Kysely<DB>,
-  dashboardId: string,
 ): Promise<TranscriptionConfigShape> {
-  const s = await readAll(db, dashboardId);
+  const s = await readAll(db);
   return {
     deepgramConfigured: !!s[K.dgKey],
     deepgramKeyMasked: mask(s[K.dgKey]),
@@ -70,18 +69,17 @@ export async function setTranscriptionConfig(
   if (input.deepgramKey !== undefined) await put(db, dashboardId, K.dgKey, input.deepgramKey.trim());
   await put(db, dashboardId, K.dgLang, input.deepgramLanguage.trim() || DEFAULT_LANG);
   log.info("transcription", "config_set", { deepgram: input.deepgramKey !== undefined });
-  return getTranscriptionConfig(db, dashboardId);
+  return getTranscriptionConfig(db);
 }
 
-// Hands the configured Deepgram key to the already-authenticated dashboard-admin
-// browser, which opens the listen WS directly with Sec-WebSocket-Protocol
-// ["token", key]. This is not a temporary grant: restricted keys cannot mint
-// /v1/auth/grant tokens (403), so expiresIn is explicitly zero.
+// Hands the configured Deepgram key to the already-authenticated browser, which
+// opens the listen WS directly with Sec-WebSocket-Protocol ["token", key]. This
+// is not a temporary grant: restricted keys cannot mint /v1/auth/grant tokens
+// (403), so expiresIn is explicitly zero.
 export async function grantDeepgramToken(
   db: Kysely<DB>,
-  dashboardId: string,
 ): Promise<{ accessToken: string; expiresIn: number }> {
-  const s = await readAll(db, dashboardId);
+  const s = await readAll(db);
   const key = s[K.dgKey];
   if (!key) throw new Error("deepgram_not_configured");
   return { accessToken: key, expiresIn: 0 };
@@ -91,9 +89,8 @@ export async function grantDeepgramToken(
 // (a plain authed GET — works for any key that can transcribe).
 export async function testDeepgram(
   db: Kysely<DB>,
-  dashboardId: string,
 ): Promise<{ ok: boolean; error: string }> {
-  const s = await readAll(db, dashboardId);
+  const s = await readAll(db);
   const key = s[K.dgKey];
   if (!key) return { ok: false, error: "No Deepgram key saved" };
   try {

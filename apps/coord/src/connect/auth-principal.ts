@@ -16,7 +16,6 @@ export interface AccountDevicePrincipal extends PrincipalIdentity {
 
 export interface WorkerPrincipal extends PrincipalIdentity {
   kind: "worker";
-  dashboardId: string;
 }
 
 export interface LegacySelfHostedPrincipal extends PrincipalIdentity {
@@ -49,21 +48,12 @@ export async function resolveCallerPrincipal(
     .leftJoin("account_devices as device", "device.fingerprint", "key.fingerprint")
     .leftJoin("accounts as account", "account.id", "device.account_id")
     .leftJoin("workers as worker", "worker.fp", "key.fingerprint")
-    .leftJoin("dashboards as workerDashboard", "workerDashboard.id", "worker.dashboard_id")
-    .leftJoin(
-      "organizations as workerOrganization",
-      "workerOrganization.id",
-      "workerDashboard.organization_id",
-    )
     .select([
       "device.fingerprint as deviceFingerprint",
       "device.account_id as accountId",
       "account.status as accountStatus",
       "worker.fp as workerFingerprint",
-      "worker.dashboard_id as workerDashboardId",
       "worker.deleted_at_ms as workerDeletedAt",
-      "workerDashboard.status as workerDashboardStatus",
-      "workerOrganization.status as workerOrganizationStatus",
     ])
     .where("key.fingerprint", "=", verified.fingerprint)
     .executeTakeFirst();
@@ -85,17 +75,11 @@ export async function resolveCallerPrincipal(
     };
   }
   if (hasWorker) {
-    if (
-      row.workerDeletedAt !== null
-      || !row.workerDashboardId
-      || row.workerDashboardStatus !== "active"
-      || row.workerOrganizationStatus !== "active"
-    ) return null;
+    if (row.workerDeletedAt !== null) return null;
     return {
       kind: "worker",
       fingerprint: verified.fingerprint,
       label: verified.label,
-      dashboardId: row.workerDashboardId,
     };
   }
   return {

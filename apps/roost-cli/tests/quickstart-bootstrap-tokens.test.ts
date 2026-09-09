@@ -32,13 +32,12 @@ test("host quickstart minting stores scoped digests and no plaintext bearer", as
     const verify = new Database(databasePath, { readonly: true, strict: true });
     try {
       const rows = verify.query(`
-        SELECT token_hash, account_id, dashboard_id, kind, label, minted_by_fp
+        SELECT token_hash, account_id, kind, label, minted_by_fp
         FROM bootstrap_tokens
         ORDER BY label
       `).all() as Array<{
         token_hash: string;
         account_id: string;
-        dashboard_id: string;
         kind: string;
         label: string;
         minted_by_fp: string | null;
@@ -46,9 +45,7 @@ test("host quickstart minting stores scoped digests and no plaintext bearer", as
       expect(rows).toHaveLength(2);
       expect(rows.map((row) => row.kind)).toEqual(["browser", "worker"]);
       expect(rows.every((row) => row.account_id.length > 0)).toBe(true);
-      expect(rows.every((row) => row.dashboard_id.length > 0)).toBe(true);
       expect(new Set(rows.map((row) => row.account_id)).size).toBe(1);
-      expect(new Set(rows.map((row) => row.dashboard_id)).size).toBe(1);
       expect(rows.every((row) => row.minted_by_fp === null)).toBe(true);
       expect(rows.find((row) => row.kind === "worker")?.token_hash)
         .toBe(await bootstrapTokenDigest(workerToken));

@@ -15,9 +15,7 @@ import {
 } from "../src/push-sender.ts";
 import type { TerminalViewHub } from "../src/connect/terminal-view-hub.ts";
 import {
-  ACCOUNT_ID,
   createPushDeliveryFixture,
-  DASHBOARD_ID,
   PUSH_ORIGINS,
   SESSION_ID,
   type PushDeliveryFixture,
@@ -29,12 +27,14 @@ let fixture: PushDeliveryFixture;
 let db: KyselyDB;
 let terminalViews: TerminalViewHub;
 let viewerFp: string;
+let dashboardId: string;
+let accountId: string;
 const STATUS_EPOCH = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 const OCCUPANT_ID = AgentOccupantId.parse("11111111-aaaa-4aaa-8aaa-111111111111");
 
 beforeAll(async () => {
   fixture = await createPushDeliveryFixture();
-  ({ db, terminalViews, viewerFp } = fixture);
+  ({ db, terminalViews, viewerFp, dashboardId, accountId } = fixture);
 });
 
 beforeEach(async () => {
@@ -48,7 +48,7 @@ afterAll(async () => {
 describe("Web Push delivery", () => {
   test("prunes 404 and 410 subscriptions without exposing endpoints", async () => {
     const subscription = {
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: dashboardId,
       viewer_fp: viewerFp,
       endpoint: "https://push.example/expired-secret-token",
       p256dh: "abc",
@@ -72,7 +72,7 @@ describe("Web Push delivery", () => {
 
   test("bounds sends to four, applies the timeout, and never retries redirects", async () => {
     const subscriptions = Array.from({ length: 9 }, (_, index) => ({
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: dashboardId,
       viewer_fp: viewerFp,
       endpoint: `https://push.example/concurrency-${index}`,
       p256dh: "abc",
@@ -135,7 +135,7 @@ describe("Web Push delivery", () => {
   test("suppresses only devices actively viewing the session", async () => {
     const workerFp = "cc".repeat(32);
     await db.insertInto("workers").values({
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: dashboardId,
       fp: workerFp,
       label: "push-worker",
       os: "linux",
@@ -147,7 +147,7 @@ describe("Web Push delivery", () => {
     }).onConflict((conflict) => conflict.column("fp").doNothing()).execute();
     await db.insertInto("sessions").values({
       id: SESSION_ID,
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: dashboardId,
       worker_fp: workerFp,
       channel: 1,
       kind: "shell",
@@ -175,18 +175,17 @@ describe("Web Push delivery", () => {
     }).onConflict((conflict) => conflict.column("fingerprint").doNothing()).execute();
     await db.insertInto("account_devices").values({
       fingerprint: otherFp,
-      account_id: ACCOUNT_ID,
+      account_id: accountId,
       added_at_ms: Date.now(),
       last_seen_at_ms: Date.now(),
     }).execute();
     await db.insertInto("push_subscriptions").values([
-      { dashboard_id: DASHBOARD_ID, viewer_fp: viewerFp, endpoint: "https://push.example/viewing", p256dh: "a", auth: "b", created_at_ms: 1 },
-      { dashboard_id: DASHBOARD_ID, viewer_fp: otherFp, endpoint: "https://push.example/background", p256dh: "c", auth: "d", created_at_ms: 1 },
+      { dashboard_id: dashboardId, viewer_fp: viewerFp, endpoint: "https://push.example/viewing", p256dh: "a", auth: "b", created_at_ms: 1 },
+      { dashboard_id: dashboardId, viewer_fp: otherFp, endpoint: "https://push.example/background", p256dh: "c", auth: "d", created_at_ms: 1 },
     ]).execute();
     terminalViews.registerSocket({
       socketId: VIEW_SOCKET_ID,
       viewerKey: `${viewerFp}:push-delivery-tab`,
-      dashboardId: DASHBOARD_ID,
       allowsSession: (sessionId) => sessionId === SESSION_ID,
       callerFingerprint: viewerFp,
       sink: {
@@ -272,7 +271,7 @@ describe("Web Push delivery", () => {
     // Disabled accounts retain state for operator re-enable but receive no
     // notification while inactive.
     await db.updateTable("accounts").set({ status: "disabled" })
-      .where("id", "=", ACCOUNT_ID).execute();
+      .where("id", "=", accountId).execute();
     try {
       terminalViews.closeSession(SESSION_ID);
       await firePushForTransition(db, {
@@ -285,7 +284,7 @@ describe("Web Push delivery", () => {
       expect(deliveries).toHaveLength(1);
     } finally {
       await db.updateTable("accounts").set({ status: "active" })
-        .where("id", "=", ACCOUNT_ID).execute();
+        .where("id", "=", accountId).execute();
     }
   });
 });

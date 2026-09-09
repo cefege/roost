@@ -41,7 +41,6 @@ interface InputAuditRecord {
   deps: ConnectDeps;
   callerFingerprint: string;
   outcome: InputControlResult["status"];
-  dashboardId: string;
   writtenBytes: number;
   traceId?: string;
 }
@@ -72,7 +71,7 @@ function pumpInputAudits(): void {
             traceId: next.traceId,
             callerFp: next.callerFingerprint,
             throwOnFailure: true,
-            dashboardId: next.dashboardId,
+            dashboardId: next.deps.selfHostedTenant.dashboardId,
           });
           next.resolve();
         } catch (error) {
@@ -116,7 +115,6 @@ export function processInputControl(
           callerFingerprint: command.identity.callerFingerprint,
           outcome: outcome.status,
           writtenBytes: outcome.writtenBytes,
-          dashboardId: command.identity.dashboardId!,
           traceId: command.audit?.traceId,
         });
         return outcome;
@@ -137,12 +135,6 @@ export function processInputControl(
       }
     });
   };
-  if (command.identity.dashboardId === undefined) {
-    return finish(Promise.resolve(terminalWriteRejected(
-      command,
-      "terminal dashboard scope is unavailable",
-    )));
-  }
   if (command.data.byteLength === 0) {
     return finish(Promise.resolve({
       status: "accepted",
@@ -161,11 +153,10 @@ export function processInputControl(
     deps,
     command,
     { kind: "exact-bytes", writtenBytes: ownedData.byteLength },
-    (workerFp, dashboardId, deadline) => sendTerminalInputRequest(workerFp, {
+    (workerFp, deadline) => sendTerminalInputRequest(workerFp, {
       sessionId: command.sessionId,
       inputSeq: command.inputSeq,
       data: ownedData,
-      dashboardId,
     }, deadline),
   ));
 }

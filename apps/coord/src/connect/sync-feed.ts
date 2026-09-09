@@ -1,6 +1,9 @@
-// The sync firehose merges durable, retained, and live sources only after each
-// frame is scoped to its persisted dashboard. That boundary prevents one socket
-// queue or browser-facing cache from retaining another tenant's state.
+// The sync firehose merges durable, retained, and live sources into one ordered
+// stream per socket: durable session events keep a monotonic replay cutoff,
+// retained snapshots seed volatile state, and live bus fan-out follows them.
+// Session-keyed frames are gated by the socket's resource index, which the
+// upgrade seeds and durable events keep current; sync-feed-seed.ts owns the
+// retained half.
 
 import { create } from "@bufbuild/protobuf";
 import {
@@ -17,7 +20,6 @@ import { getEventMaxId, getEventsSince, getEventsThrough } from "../event-log.ts
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import type { SessionEvent } from "@roost/shared/wire";
-import type { KyselyDB } from "../db/connection.ts";
 import type { ConnectDeps } from "./router.ts";
 import {
   agentStatusFrame, auditFrame, frameMeta, mcpFrame, pairFrame, presenceFrame,
@@ -26,7 +28,7 @@ import {
 } from "./sync-feed-frames.ts";
 import {
   retainedSeedFrames, seedDomain,
-  type SyncDashboardScope, type SyncFeedSeedContext,
+  type SyncFeedSeedContext, type SyncResourceIndex,
 } from "./sync-feed-seed.ts";
 import {
   createSyncFeedV1SeedDelivery,
@@ -39,30 +41,11 @@ import {
 } from "./sync-ws-v1-delivery.ts";
 
 export type { SyncFeedFrameMeta, SyncFeedLane } from "./sync-feed-frames.ts";
-export type { SyncDashboardScope } from "./sync-feed-seed.ts";
+export {
+  loadSyncResourceIndex,
+  type SyncResourceIndex,
+} from "./sync-feed-seed.ts";
 export type { SyncFeedSeedOptions } from "./sync-feed-v1-seed.ts";
-
-/** Load persisted runtime ownership after DashboardActor has accepted the
- * selected dashboard and before the socket is upgraded. */
-export async function loadSyncDashboardScope(
-  db: KyselyDB,
-  dashboardId: string,
-): Promise<SyncDashboardScope> {
-  const [workers, sessions, workspaces] = await Promise.all([
-    db.selectFrom("workers").select("fp")
-      .where("dashboard_id", "=", dashboardId)
-      .where("deleted_at_ms", "is", null)
-      .execute(),
-    db.selectFrom("sessions").select("id").where("dashboard_id", "=", dashboardId).execute(),
-    db.selectFrom("workspaces").select("id").where("dashboard_id", "=", dashboardId).execute(),
-  ]);
-  return {
-    dashboardId,
-    workerFps: new Set(workers.map((row) => row.fp)),
-    sessionIds: new Set(sessions.map((row) => row.id)),
-    workspaceIds: new Set(workspaces.map((row) => row.id)),
-  };
-}
 
 export interface SyncFeedV2Options {
   readonly version: 2;
@@ -79,7 +62,7 @@ export interface SyncFeed {
 
 export function startSyncFeed(
   deps: ConnectDeps,
-  scope: SyncDashboardScope,
+  scope: SyncResourceIndex,
   sinceEventId: number,
   sink: (frame: FirehoseFrame, meta?: SyncFeedFrameMeta) => void,
   viewerKey: string | null,
@@ -112,7 +95,28 @@ export function startSyncFeed(
   let recoveringSessions = v2Options !== null && sinceEventId > 0;
   let recoveryAborted = false;
   let pendingRecoveryBytes = 0;
+  // A worker socket carries only its own sessions. Ownership is recorded from
+  // `opened`/`snapshot` and retained after close, so a deferred or recovered
+  // `closed` for an owned session still reaches the socket.
+  const ownedSessionIds = scope.ownerWorkerFp === null
+    ? null
+    : new Set(scope.sessionIds);
+  const admitOwnedSessionEvent = (event: SessionEvent): boolean => {
+    if (ownedSessionIds === null) return true;
+    if (event.kind === "snapshot") {
+      if (event.worker_fp !== scope.ownerWorkerFp) return false;
+      for (const session of event.sessions) ownedSessionIds.add(session.id);
+      return true;
+    }
+    if (event.kind === "opened") {
+      if (event.worker_fp !== scope.ownerWorkerFp) return false;
+      ownedSessionIds.add(event.session_id);
+      return true;
+    }
+    return ownedSessionIds.has(event.session_id);
+  };
   const emitSessionFrame = (event: SessionEvent, eventId: number): void => {
+    if (!admitOwnedSessionEvent(event)) return;
     push(sessionFirehoseFrame(event, eventId), sessionMeta(event));
   };
   const emitLiveSessionNow = (event: SessionEvent, eventId: number): void => {
@@ -159,50 +163,58 @@ export function startSyncFeed(
     pendingRecoveryBytes = nextBytes;
   };
 
+  const ownsWorker = (workerFp: string): boolean =>
+    scope.ownerWorkerFp === null || scope.ownerWorkerFp === workerFp;
+  const installWideViewer = scope.ownerWorkerFp === null;
   const unsubs = [
     sessionBus.subscribe((event) => {
-      if (event._dashboard_id !== scope.dashboardId) return;
       if (event.kind === "snapshot") {
-        for (const session of event.sessions) scope.sessionIds.add(session.id);
+        if (ownsWorker(event.worker_fp)) {
+          for (const session of event.sessions) scope.sessionIds.add(session.id);
+        }
       } else if (event.kind === "opened") {
-        scope.sessionIds.add(event.session_id);
+        if (ownsWorker(event.worker_fp)) scope.sessionIds.add(event.session_id);
       } else if (event.kind === "closed") {
         scope.sessionIds.delete(event.session_id);
       }
       emitSession(event, event._event_id ?? 0);
-    }, scope.dashboardId),
+    }),
     presenceBus.subscribe((event) => {
-      if (event._dashboard_id !== scope.dashboardId) return;
-      if (event.kind === "registered") scope.workerFps.add(event.worker.fp);
-      else if (event.kind === "removed") scope.workerFps.delete(event.fp);
+      const workerFp = event.kind === "registered" ? event.worker.fp : event.fp;
+      if (!ownsWorker(workerFp)) return;
+      if (event.kind === "registered") scope.workerFps.add(workerFp);
+      else if (event.kind === "removed") scope.workerFps.delete(workerFp);
       const frame = presenceFrame(event);
       if (frame) push(frame);
-    }, scope.dashboardId),
+    }),
     workspaceBus.subscribe((event) => {
-      if (event._dashboard_id !== scope.dashboardId) return;
+      const owned = event.kind === "created" || event.kind === "updated"
+        ? ownsWorker(event.workspace.worker_fp)
+        : scope.ownerWorkerFp === null || scope.workspaceIds.has(event.id);
       if (event.kind === "deleted") scope.workspaceIds.delete(event.id);
-      else if (event.kind === "created" || event.kind === "updated") {
+      else if (owned && event.kind !== "sessions-set") {
         scope.workspaceIds.add(event.workspace.id);
       }
+      if (!owned) return;
       const frame = workspaceFrame(event);
       if (frame) push(frame);
-    }, scope.dashboardId),
+    }),
+    // Tasks, MCP relays, audit rows and pair requests are install-wide with no
+    // worker owner, so a read-only worker socket is not one of their viewers.
     taskBus.subscribe((event) => {
-      if (event._dashboard_id === scope.dashboardId) push(taskFrame(event));
-    }, scope.dashboardId),
+      if (installWideViewer) push(taskFrame(event));
+    }),
     mcpBus.subscribe((event) => {
-      if (event._dashboard_id !== scope.dashboardId) return;
+      if (!installWideViewer) return;
       const frame = mcpFrame(event);
       if (frame) push(frame);
-    }, scope.dashboardId),
+    }),
     auditBus.subscribe((event) => {
-      // Audit events must be stamped by the authenticated producer. This check
-      // happens before auditFrame/push so a foreign row never reaches a socket.
-      if (event._dashboard_id === scope.dashboardId) push(auditFrame(event));
-    }, scope.dashboardId),
+      if (installWideViewer) push(auditFrame(event));
+    }),
     pairBus.subscribe((event) => {
-      if (event._dashboard_id === scope.dashboardId) push(pairFrame(event));
-    }, scope.dashboardId),
+      if (installWideViewer) push(pairFrame(event));
+    }),
     globalPresenceBus.subscribe(({ session_id, data }) => {
       if (!scope.sessionIds.has(session_id)) return;
       if (viewerKey !== null && typeof data === "object" && data !== null) {
@@ -235,10 +247,9 @@ export function startSyncFeed(
       }));
     }),
     workerRoutableBus.subscribe(({ fps }) => {
-      const scopedFps = fps.filter((fp) => scope.workerFps.has(fp));
       push(create(FirehoseFrameSchema, {
         frame: { case: "workerRoutable", value: create(WorkerRoutableFrameSchema, {
-          fps: scopedFps,
+          fps: fps.filter((fp) => scope.workerFps.has(fp)),
         }) },
       }));
     }),
@@ -247,7 +258,6 @@ export function startSyncFeed(
     }),
     subscribeUiFeed({
       browserUi,
-      dashboardId: scope.dashboardId,
       targetSocketId: v2Options?.socketId ?? null,
       push,
     }),
@@ -264,7 +274,7 @@ export function startSyncFeed(
     queueMicrotask(() => {
       if (disposed) return;
       if (!browserUi) return;
-      for (const frame of uiStateSeedFrames(deps.uiStates, scope.dashboardId)) {
+      for (const frame of uiStateSeedFrames(deps.uiStates)) {
         push(frame, { domain: null, lane: "control" });
       }
     });
@@ -275,7 +285,7 @@ export function startSyncFeed(
     if (disposed || sinceEventId <= 0) return;
     if (v2Options) {
       try {
-        const cutoff = await getEventMaxId(deps.db, scope.dashboardId);
+        const cutoff = await getEventMaxId(deps.db);
         if (recoveryAborted) return;
         if (cutoff < sinceEventId) {
           recoveringSessions = false;
@@ -285,7 +295,7 @@ export function startSyncFeed(
         }
         let cursor = sinceEventId;
         while (!disposed && !recoveryAborted && cursor < cutoff) {
-          const rows = await getEventsThrough(deps.db, scope.dashboardId, cursor, cutoff);
+          const rows = await getEventsThrough(deps.db, cursor, cutoff);
           if (rows.length === 0) {
             recoveringSessions = false;
             pendingRecoveryEvents.clear(); pendingRecoveryBytes = 0;
@@ -328,7 +338,7 @@ export function startSyncFeed(
       return;
     }
     try {
-      const rows = await getEventsSince(deps.db, scope.dashboardId, sinceEventId, 1000);
+      const rows = await getEventsSince(deps.db, sinceEventId, 1000);
       for (let index = 0; index < rows.length; index += 1) {
         const { id, event } = rows[index]!;
         emitRecoveredSession(event, id);

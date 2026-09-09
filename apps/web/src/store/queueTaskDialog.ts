@@ -1,7 +1,7 @@
-// Dashboard-scoped state for the mounted “Queue a task” dialog. Palette
+// Authenticated state for the mounted “Queue a task” dialog. Palette
 // actions may prefill the active folder and pin its worker; QueueTaskDialog
 // passes those values into TaskEditor only while the dialog is open.
-// Dashboard selection and logout boundaries clear every captured value.
+// Credential and logout boundaries clear every captured value.
 
 import { createSignal } from "solid-js";
 

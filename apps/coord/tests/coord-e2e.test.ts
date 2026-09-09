@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { newJwtCache } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
@@ -27,6 +28,7 @@ beforeAll(async () => {
   const opened = openDb(dbPath);
   const { db, sqlite } = opened;
   await runMigrations(sqlite);
+  const selfHostedTenant = ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
   pushAllowedOrigins: [],
@@ -45,6 +47,7 @@ beforeAll(async () => {
     writeGate: new CoordinatorWriteGate(),
     cfg,
     jwtCache,
+    selfHostedTenant,
   });
   cleanup = async () => {
     coord.dispose();

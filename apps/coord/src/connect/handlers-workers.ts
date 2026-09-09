@@ -20,11 +20,7 @@ import {
 } from "@roost/shared/wire/row-proto";
 import { presenceBus } from "../buses.ts";
 import { listRoutableFps } from "./worker-service.ts";
-import {
-	requireDashboardActor,
-	requireDashboardAdmin,
-	requireWorker,
-} from "./auth-interceptor.ts";
+import { requireAccountDevice, requireWorker } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import { invalidateJwtKey } from "../jwt.ts";
 import { asWorkerFp } from "@roost/shared/wire";
@@ -74,11 +70,10 @@ export function makeWorkerHandlers(
 
 	return {
 		async workersList(_req, ctx) {
-			const actor = requireDashboardActor(ctx.values);
+			requireAccountDevice(ctx.values);
 			const rows = await deps.db
 				.selectFrom("workers")
 				.selectAll()
-				.where("dashboard_id", "=", actor.dashboardId)
 				.where("deleted_at_ms", "is", null)
 				.execute();
 			const workerFps = new Set(rows.map((worker) => worker.fp));
@@ -107,7 +102,6 @@ export function makeWorkerHandlers(
 				.selectFrom("workers")
 				.selectAll()
 				.where("fp", "=", fp)
-				.where("dashboard_id", "=", caller.dashboardId)
 				.where("deleted_at_ms", "is", null)
 				.executeTakeFirst();
 			if (!existing)
@@ -127,7 +121,6 @@ export function makeWorkerHandlers(
 					last_seen_ms: now,
 				})
 				.where("fp", "=", fp)
-				.where("dashboard_id", "=", caller.dashboardId)
 				.where("deleted_at_ms", "is", null)
 				.returningAll()
 				.executeTakeFirstOrThrow();
@@ -135,19 +128,17 @@ export function makeWorkerHandlers(
 			presenceBus.publish({
 				kind: "registered",
 				worker: workerRowToWirePresence(updated) as any,
-				_dashboard_id: caller.dashboardId,
 			});
 			return create(WorkersRegisterResponseSchema, { worker: w });
 		},
 
 		async workersRename(req, ctx) {
-			const actor = requireDashboardAdmin(ctx.values);
+			requireAccountDevice(ctx.values);
 			const label = truncatePersistedUtf8(req.label);
 			const existing = await deps.db
 				.selectFrom("workers")
 				.selectAll()
 				.where("fp", "=", req.fp)
-				.where("dashboard_id", "=", actor.dashboardId)
 				.where("deleted_at_ms", "is", null)
 				.executeTakeFirst();
 			if (!existing) throw new ConnectError("worker not found", Code.NotFound);
@@ -155,14 +146,12 @@ export function makeWorkerHandlers(
 				.updateTable("workers")
 				.set({ label })
 				.where("fp", "=", req.fp)
-				.where("dashboard_id", "=", actor.dashboardId)
 				.where("deleted_at_ms", "is", null)
 				.returningAll()
 				.executeTakeFirstOrThrow();
 			presenceBus.publish({
 				kind: "registered",
 				worker: workerRowToWirePresence(updated) as any,
-				_dashboard_id: actor.dashboardId,
 			});
 			return create(WorkersRenameResponseSchema, {
 				worker: workerRowToProto(updated),
@@ -170,39 +159,35 @@ export function makeWorkerHandlers(
 		},
 
 		async workersDelete(req, ctx) {
-			const actor = requireDashboardAdmin(ctx.values);
+			const caller = requireAccountDevice(ctx.values);
 			const now = Date.now();
 			const persistedSessionIds = await deps.db.transaction().execute(async (trx) => {
 				const worker = await trx
 					.selectFrom("workers")
 					.select("fp")
 					.where("fp", "=", req.fp)
-					.where("dashboard_id", "=", actor.dashboardId)
 					.where("deleted_at_ms", "is", null)
 					.executeTakeFirst();
 				if (!worker) throw new ConnectError("worker not found", Code.NotFound);
 				const sessionRows = await trx.selectFrom("sessions")
 					.select("id")
 					.where("worker_fp", "=", req.fp)
-					.where("dashboard_id", "=", actor.dashboardId)
 					.execute();
 				await trx.insertInto("authorized_key_revocations").values({
 					fingerprint: req.fp,
 					revoked_at_ms: now,
-					revoked_by_fp: actor.deviceFingerprint,
+					revoked_by_fp: caller.fingerprint,
 					reason: "worker-deleted",
 				}).execute();
 				const tombstone = await trx.updateTable("workers")
 					.set({ deleted_at_ms: now })
 					.where("fp", "=", req.fp)
-					.where("dashboard_id", "=", actor.dashboardId)
 					.where("deleted_at_ms", "is", null)
 					.returning("fp")
 					.executeTakeFirst();
 				if (!tombstone) throw new Error("worker tombstone update lost");
 				await trx.deleteFrom("bootstrap_tokens")
 					.where("used_at_ms", "is", null)
-					.where("dashboard_id", "=", actor.dashboardId)
 					.where("minted_by_fp", "=", req.fp)
 					.execute();
 				await trx.deleteFrom("authorized_keys")
@@ -243,13 +228,12 @@ export function makeWorkerHandlers(
 			});
 			bestEffortWorkerDeleteCleanup("routable_presence", _publishRoutable);
 			bestEffortWorkerDeleteCleanup("sync_scope", () => {
-				deps.onWorkerDeletedSyncScope?.(actor.dashboardId, req.fp);
+				deps.onWorkerDeletedSyncScope?.(req.fp);
 			});
 			bestEffortWorkerDeleteCleanup("worker_presence", () => {
 				presenceBus.publish({
 					kind: "removed",
 					fp: asWorkerFp(req.fp),
-					_dashboard_id: actor.dashboardId,
 				});
 			});
 			bestEffortWorkerDeleteCleanup("socket_close", () => {

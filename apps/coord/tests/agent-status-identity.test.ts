@@ -24,7 +24,6 @@ import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
 
 const SESSION_ID = asSessionId("11111111-1111-4111-8111-111111111111");
 const WORKER_FP = asWorkerFp("a1".repeat(32));
-const DASHBOARD_ID = "agent-status-identity-dashboard";
 const EPOCH_A = StatusEpoch.parse("ffffffff-ffff-4fff-8fff-ffffffffffff");
 const EPOCH_B = StatusEpoch.parse("00000000-0000-4000-8000-000000000000");
 const OCCUPANT_A = AgentOccupantId.parse("ffffffff-aaaa-4aaa-8aaa-ffffffffffff");
@@ -245,15 +244,12 @@ describe("coordinator agent occupant ordering", () => {
     const published: AgentStatusUpdateValue[] = [];
     const unsubscribe = agentStatusBus.subscribe((update) => published.push(update));
     try {
-      sessionBus.publish({
-        ...SessionEvent.parse({
-          kind: "closed",
-          session_id: SESSION_ID,
-          exit_code: 0,
-          ts: 1_780_000_000_001,
-        }),
-        _dashboard_id: DASHBOARD_ID,
-      });
+      sessionBus.publish(SessionEvent.parse({
+        kind: "closed",
+        session_id: SESSION_ID,
+        exit_code: 0,
+        ts: 1_780_000_000_001,
+      }));
       expect(published).toHaveLength(1);
       expect(published[0]).toMatchObject({
         active: false,
@@ -268,18 +264,15 @@ describe("coordinator agent occupant ordering", () => {
         { revision: 0 },
       ))).toBe("stale");
 
-      sessionBus.publish({
-        ...SessionEvent.parse({
-          kind: "opened",
-          session_id: SESSION_ID,
-          worker_fp: WORKER_FP,
-          channel: asChannelId(7),
-          session_kind: "shell",
-          cwd: "/tmp",
-          ts: 1_780_000_000_002,
-        }),
-        _dashboard_id: DASHBOARD_ID,
-      });
+      sessionBus.publish(SessionEvent.parse({
+        kind: "opened",
+        session_id: SESSION_ID,
+        worker_fp: WORKER_FP,
+        channel: asChannelId(7),
+        session_kind: "shell",
+        cwd: "/tmp",
+        ts: 1_780_000_000_002,
+      }));
       expect(handleWorkerAgentStatus(WORKER_FP, identifiedStatus(
         EPOCH_A,
         OCCUPANT_B,

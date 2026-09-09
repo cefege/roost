@@ -14,12 +14,11 @@ import {
 import {
   authCtx,
   authorize,
+  browserDeviceCtx,
   createDeviceRevocationHarnessOwner,
-  dashboardAdminCtx,
   key,
   token,
   unauthCtx,
-  workerDeleteDashboardId,
 } from "./device-revocation-fixture.ts";
 
 const { cleanupHarnesses, openHarness: harness } = createDeviceRevocationHarnessOwner();
@@ -87,61 +86,25 @@ describe("authorized device lifecycle", () => {
     expect(h.revoked).toEqual([lost.fingerprint]);
   });
 
-  test("scoped device revocation invokes the dashboard lifecycle callback after commit", async () => {
+  test("an authenticated device revokes a peer and the callback observes committed state", async () => {
     const h = await harness();
     const lost = await key();
     const now = Date.now();
-    const accountId = "revoked-device-account";
-    const organizationId = "revoked-device-organization";
-    await h.db.insertInto("accounts").values({
-      id: accountId,
-      email_normalized: "revoked-device@example.test",
-      status: "active",
-      created_at_ms: now,
-    }).execute();
-    await h.db.insertInto("organizations").values({
-      id: organizationId,
-      slug: "revoked-device-org",
-      name: "Revoked device",
-      status: "active",
-      created_at_ms: now,
-    }).execute();
-    await h.db.insertInto("organization_memberships").values({
-      organization_id: organizationId,
-      account_id: accountId,
-      role: "member",
-      created_at_ms: now,
-    }).execute();
-    await h.db.insertInto("dashboards").values({
-      id: workerDeleteDashboardId,
-      organization_id: organizationId,
-      slug: "revoked-device-dashboard",
-      name: "Revoked device",
-      status: "active",
-      created_at_ms: now,
-    }).execute();
-    await h.db.insertInto("dashboard_memberships").values({
-      dashboard_id: workerDeleteDashboardId,
-      account_id: accountId,
-      role: "member",
-      created_at_ms: now,
-    }).execute();
     await authorize(h.db, lost, "lost");
     await h.db.insertInto("account_devices").values({
       fingerprint: lost.fingerprint,
-      account_id: accountId,
+      account_id: h.tenant.accountId,
       added_at_ms: now,
       last_seen_at_ms: now,
     }).execute();
     await h.handlers.devicesRevoke(
       create(DevicesRevokeRequestSchema, { fingerprint: lost.fingerprint }),
-      dashboardAdminCtx(),
+      browserDeviceCtx(h.tenant.accountId),
     );
     expect(h.revoked).toEqual([lost.fingerprint]);
-    expect(h.dashboardRevocations).toEqual([{
-      dashboardId: workerDeleteDashboardId,
-      fingerprint: lost.fingerprint,
-    }]);
+    // The callback closes live sockets, so it must never run before the key and
+    // device rows are gone — otherwise a socket reopens against a revoked key.
+    expect(h.callbackStates).toEqual([{ keys: 0, devices: 0, pushes: 0 }]);
   });
 
   test("rotates atomically and invalidates the old key's delegated tokens", async () => {

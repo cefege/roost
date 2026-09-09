@@ -16,8 +16,6 @@ import { TranscriptionPane } from "./TranscriptionPane.tsx";
 import { TerminalPane } from "./TerminalPane.tsx";
 import { ConnectionPane } from "./ConnectionPane.tsx";
 import { NotificationsPane } from "./NotificationsPane.tsx";
-import { OrganizationPane } from "./OrganizationPane.tsx";
-import { DashboardPane } from "./DashboardPane.tsx";
 import { Icon } from "./md/primitives.tsx";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { withViewTransition } from "../../lib/viewTransition.ts";
@@ -44,8 +42,6 @@ function SettingsPane(props: { id: string }) {
   return (
     <Switch>
       <Match when={props.id === "machines"}><MachinesPane /></Match>
-      <Match when={props.id === "organization"}><OrganizationPane /></Match>
-      <Match when={props.id === "dashboard"}><DashboardPane /></Match>
       <Match when={props.id === "connection"}><ConnectionPane /></Match>
       <Match when={props.id === "devices"}><DevicesPane /></Match>
       <Match when={props.id === "launcher"}><AgentLauncherPane /></Match>

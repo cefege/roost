@@ -35,31 +35,18 @@ import {
 export interface TerminalViewHubOptions {
   db: KyselyDB;
   now?: () => number;
-  resolveRoute?: (
-    dashboardId: string,
-    sessionId: string,
-  ) => Promise<TerminalStreamRoute | null>;
+  resolveRoute?: (sessionId: string) => Promise<TerminalStreamRoute | null>;
   sendStreamState?: (
     workerFp: string,
-    state: Omit<TerminalStreamDesired, "retry"> & {
-      sessionId: string;
-      dashboardId: string;
-    },
+    state: Omit<TerminalStreamDesired, "retry"> & { sessionId: string },
   ) => TerminalWorkerRequest<WTerminalStreamResult>;
-  sendSnapshot?: (
-    workerFp: string,
-    sessionId: string,
-    streamId: string,
-    dashboardId: string,
-  ) => boolean;
+  sendSnapshot?: (workerFp: string, sessionId: string, streamId: string) => boolean;
 }
 
 export interface TerminalSocketRegistration {
   socketId: string;
   viewerKey: string | null;
   callerFingerprint: string;
-  /** Server-selected dashboard, not a terminal command field. */
-  dashboardId: string;
   allowsSession(sessionId: string): boolean;
   sink: TerminalScreenSocketSink;
 }
@@ -122,16 +109,14 @@ export class TerminalViewHub {
   constructor(options: TerminalViewHubOptions) {
     this.now = options.now ?? Date.now;
     const resolveRoute = options.resolveRoute
-      ?? ((dashboardId: string, sessionId: string) =>
-        resolveSessionRoute(options.db, dashboardId, sessionId));
+      ?? ((sessionId: string) => resolveSessionRoute(options.db, sessionId));
     const sendStream = options.sendStreamState
       ?? ((workerFp: string, state: Omit<TerminalStreamDesired, "retry"> & {
         sessionId: string;
-        dashboardId: string;
       }) => sendTerminalStreamStateRequest(workerFp, state));
     const sendSnapshot = options.sendSnapshot
-      ?? ((workerFp: string, sessionId: string, streamId: string, dashboardId: string) =>
-        sendTerminalSnapshotRequest(workerFp, { sessionId, streamId, dashboardId }));
+      ?? ((workerFp: string, sessionId: string, streamId: string) =>
+        sendTerminalSnapshotRequest(workerFp, { sessionId, streamId }));
 
     this.streams = new TerminalViewStreamController({
       resolveRoute,
@@ -149,7 +134,7 @@ export class TerminalViewHub {
       screen: this.screen,
       now: this.now,
       streamState: (sessionId) => this.streams.state(sessionId),
-      recompute: (sessionId, dashboardId) => this.streams.recompute(sessionId, dashboardId),
+      recompute: (sessionId) => this.streams.recompute(sessionId),
       redrive: (sessionId) => this.streams.redrive(sessionId),
       onLiveViewExpired: (socketId, viewId, sessionId) => {
         this.onLiveViewExpired(socketId, viewId, sessionId);
@@ -187,10 +172,6 @@ export class TerminalViewHub {
 
   removeFingerprint(fingerprint: string): void {
     this.registry.removeFingerprint(fingerprint);
-  }
-
-  removeDashboard(dashboardId: string): void {
-    this.registry.removeDashboard(dashboardId);
   }
 
   handleViewCommand(socketId: string, command: TerminalViewCommand): void {

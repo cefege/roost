@@ -48,7 +48,7 @@ export async function firePushForTransition(
     const allowedOriginSet = new Set(allowedOrigins);
     const session = await db
       .selectFrom("sessions")
-      .select(["cwd", "custom_title", "dashboard_id"])
+      .select(["cwd", "custom_title"])
       .where("id", "=", sessionId)
       .where("status", "=", "open")
       .executeTakeFirst();
@@ -57,19 +57,16 @@ export async function firePushForTransition(
       return;
     }
 
-    if (session.dashboard_id === null) return;
-
     // account_devices is the live browser-device registry. The key FK handles
     // normal revocation, while this delete also repairs rows left by legacy
     // cleanup paths that removed only the account-device association.
     await sql`
       DELETE FROM push_subscriptions
-      WHERE dashboard_id = ${session.dashboard_id}
-        AND NOT EXISTS (
-          SELECT 1
-          FROM account_devices
-          WHERE account_devices.fingerprint = push_subscriptions.viewer_fp
-        )
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM account_devices
+        WHERE account_devices.fingerprint = push_subscriptions.viewer_fp
+      )
     `.execute(db);
 
     const subscriptions = await db
@@ -80,11 +77,6 @@ export async function firePushForTransition(
         "subscription.viewer_fp",
       )
       .innerJoin("accounts as account", "account.id", "device.account_id")
-      .innerJoin("dashboard_memberships as membership", (join) =>
-        join
-          .onRef("membership.account_id", "=", "device.account_id")
-          .onRef("membership.dashboard_id", "=", "subscription.dashboard_id"))
-      .innerJoin("dashboards as dashboard", "dashboard.id", "subscription.dashboard_id")
       .select([
         "subscription.dashboard_id",
         "subscription.viewer_fp",
@@ -93,9 +85,7 @@ export async function firePushForTransition(
         "subscription.auth",
         "subscription.created_at_ms",
       ])
-      .where("subscription.dashboard_id", "=", session.dashboard_id)
       .where("account.status", "=", "active")
-      .where("dashboard.status", "=", "active")
       .execute();
     if (subscriptions.length === 0) return;
 

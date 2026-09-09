@@ -14,9 +14,9 @@ import { computeFolderActivity, type FolderActivity } from "../lib/folderActivit
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { addToast } from "../store/toastStore.ts";
 import {
-  captureDashboardResourceToken,
-  isCurrentDashboardResourceToken,
-} from "../store/dashboard-selection.ts";
+  captureAuthResourceToken,
+  isCurrentAuthResourceToken,
+} from "../store/auth-boundary.ts";
 import { childPath, pathCrumbs, collapseCrumbsTo, type CrumbView } from "../lib/folderPalette.ts";
 import { workerPathBasename } from "../lib/nativePath.ts";
 import { initHistory, pushHistory as pushHistoryFn, goBack as goBackFn, goForward as goForwardFn, canGoBack as canBackFn, canGoForward as canFwdFn, type HistoryState } from "../lib/browseHistory.ts";
@@ -84,12 +84,12 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
       setDirLoading(false);
       return;
     }
-    const dashboardToken = captureDashboardResourceToken();
+    const authToken = captureAuthResourceToken();
     let cancelled = false;
     setDirLoading(true);
     coordClient.filesListDir({ workerFp: fp as unknown as WorkerFp, path: dir })
       .then((response) => {
-        if (cancelled || !isCurrentDashboardResourceToken(dashboardToken)) return;
+        if (cancelled || !isCurrentAuthResourceToken(authToken)) return;
         setDirData({
           resolved: response.resolvedPath || dir,
           entries: response.entries.map((entry) => ({
@@ -98,11 +98,11 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
         });
       })
       .catch(() => {
-        if (cancelled || !isCurrentDashboardResourceToken(dashboardToken)) return;
+        if (cancelled || !isCurrentAuthResourceToken(authToken)) return;
         setDirData(null);
       })
       .finally(() => {
-        if (cancelled || !isCurrentDashboardResourceToken(dashboardToken)) return;
+        if (cancelled || !isCurrentAuthResourceToken(authToken)) return;
         setDirLoading(false);
       });
     onCleanup(() => { cancelled = true; });
@@ -203,7 +203,7 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     if (!name || newFolderBusy()) return;
     const fp = folderServer();
     if (!fp || !scopedWorker()) return;
-    const dashboardToken = captureDashboardResourceToken();
+    const authToken = captureAuthResourceToken();
     setNewFolderBusy(true);
     try {
       const target = childPath(fp, cwd(), name);
@@ -211,11 +211,11 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
         workerFp: fp as unknown as WorkerFp,
         path: target,
       });
-      if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+      if (!isCurrentAuthResourceToken(authToken)) return;
       setNewFolderOpen(false);
       pushCwd(response.resolvedPath || target);
     } catch (error) {
-      if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+      if (!isCurrentAuthResourceToken(authToken)) return;
       addToast(`Create folder failed: ${error instanceof Error ? error.message : String(error)}`, "err");
       setNewFolderBusy(false);
     }
@@ -258,7 +258,7 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
           <EmptyState
             icon="progress_activity"
             title="Loading machine…"
-            supporting="Checking which machines are available in this dashboard."
+            supporting="Checking which machines this coordinator can reach."
           />
         </div>
       </Show>
@@ -270,14 +270,14 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
           data-testid="browse-worker-unavailable"
           role="status"
           aria-live="polite"
-          aria-label="Machine unavailable. This machine isn't available in the current dashboard."
+          aria-label="Machine unavailable. This machine isn't available on this coordinator."
           aria-atomic="true"
           tabIndex={-1}
         >
           <EmptyState
             icon="folder_off"
             title="Machine unavailable"
-            supporting="This machine isn't available in the current dashboard."
+            supporting="This machine isn't available on this coordinator."
             action={
               <Button
                 variant="tonal"

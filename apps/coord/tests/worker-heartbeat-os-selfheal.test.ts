@@ -25,12 +25,12 @@ test("a heartbeat re-points a row at the platform actually beating on it", async
     if (msg.kind === "registered") {
       registered.push({ os: msg.worker.os, label: msg.worker.label });
     }
-  }, DASHBOARD_ID);
+  });
 
   try {
     await handlers.workersHeartbeat(
       create(WorkersHeartbeatRequestSchema, { os: "darwin" }),
-      workerHeartbeatContext(DASHBOARD_ID),
+      workerHeartbeatContext(),
     );
   } finally {
     stop();
@@ -47,7 +47,7 @@ test("a heartbeat without a platform keeps the stored one", async () => {
 
   await handlers.workersHeartbeat(
     create(WorkersHeartbeatRequestSchema, {}),
-    workerHeartbeatContext(DASHBOARD_ID),
+    workerHeartbeatContext(),
   );
 
   expect(database.patches[0]).not.toHaveProperty("os");
@@ -62,7 +62,7 @@ test("a heartbeat carrying an unknown platform is rejected and writes nothing", 
   try {
     await handlers.workersHeartbeat(
       create(WorkersHeartbeatRequestSchema, { os: "plan9" }),
-      workerHeartbeatContext(DASHBOARD_ID),
+      workerHeartbeatContext(),
     );
   } catch (error) {
     rejection = error;

@@ -589,12 +589,11 @@ worker logs `resume_failed` with `[unauthenticated] authentication required`, fo
 The fallback preserves sidebar rows but loses the prior subprocess and terminal context.
 
 **Right** — `SessionsList` admits a worker principal only when the request names that exact worker fingerprint,
-requests only `status=open`, carries no browser sync-snapshot ID, and remains scoped to the worker's assigned
-dashboard. Boot reconciliation can then advance the channel counter and adopt keeper survivors before the
-coordinator fallback runs; every other session RPC remains account-device-only.
+requests only `status=open`, and carries no browser sync-snapshot ID. Boot reconciliation can then advance the
+channel counter and adopt keeper survivors before the coordinator fallback runs; every other session RPC
+remains account-device-only.
 
 **Guard** — `apps/coord/tests/worker-session-list-auth.test.ts`;
-`apps/coord/tests/dashboard-resource-scope.test.ts`;
 `apps/worker/tests/boot-reconcile-admission.test.ts`.
 
 ### A live viewport change rebuilds the terminal core

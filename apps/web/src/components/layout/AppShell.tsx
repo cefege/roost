@@ -7,7 +7,6 @@ import { ParentProps, Show, onMount, onCleanup, createEffect, on } from "solid-j
 import { useLocation } from "@solidjs/router";
 import { SidebarRoot } from "../sidebar/SidebarRoot.tsx";
 import { MobileTopBar } from "./MobileTopBar.tsx";
-import { DashboardScopeSelector } from "./DashboardScopeSelector.tsx";
 import { uiStore, closeSidebar, toggleSidebarCollapsed, setSidebarWidth } from "../../store/uiStore.ts";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { keyboardResize } from "../../lib/keyboardResizePref.ts";
@@ -313,9 +312,6 @@ export function AppShell(props: ParentProps) {
           ref={(el) => onCleanup(attachElasticOverscroll(el))}
           style={desktopSidebarStyle()}
         >
-          <Show when={!uiStore.sidebarCollapsed}>
-            <DashboardScopeSelector />
-          </Show>
           <SidebarRoot />
         </aside>
         <Show when={!uiStore.sidebarCollapsed}>
@@ -343,7 +339,6 @@ export function AppShell(props: ParentProps) {
           data-open={uiStore.sidebarOpen ? "true" : "false"}
           aria-hidden={!uiStore.sidebarOpen}
         >
-          <DashboardScopeSelector />
           <SidebarRoot />
         </aside>
       </Show>

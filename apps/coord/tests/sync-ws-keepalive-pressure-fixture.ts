@@ -18,10 +18,7 @@ import {
   type SyncWsData,
 } from "../src/connect/sync-ws-handler.ts";
 import type { WsDeadlineClock } from "../src/connect/ws-auth-deadline.ts";
-import {
-  SYNC_WS_KEEPALIVE_DASHBOARD_ID,
-  type SyncWsKeepaliveCoordFixture,
-} from "./sync-ws-keepalive-coord-fixture.ts";
+import type { SyncWsKeepaliveCoordFixture } from "./sync-ws-keepalive-coord-fixture.ts";
 
 interface PressureTimer {
   at: number;
@@ -108,12 +105,9 @@ export class PressureSocket {
         keyGeneration: 0,
         validUntilMs: Date.now() + 60_000,
       },
-      actor: {
-        dashboardId: SYNC_WS_KEEPALIVE_DASHBOARD_ID,
-      },
       readOnly: false,
       scope: {
-        dashboardId: SYNC_WS_KEEPALIVE_DASHBOARD_ID,
+        ownerWorkerFp: null,
         workerFps: new Set(),
         sessionIds: new Set(["flow-session"]),
         workspaceIds: new Set(),
@@ -210,11 +204,7 @@ export function sendAck(
  *  payload size is caller-controlled. Nothing here is title-specific — these
  *  tests are about delivery-queue, ACK, backpressure and keepalive mechanics. */
 export function publishSessionTitle(label: string, title = label): void {
-  titleBus.publish({
-    session_id: "flow-session",
-    title,
-    _dashboard_id: SYNC_WS_KEEPALIVE_DASHBOARD_ID,
-  });
+  titleBus.publish({ session_id: "flow-session", title });
 }
 
 export async function openFlowSocket(

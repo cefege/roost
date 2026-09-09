@@ -9,10 +9,6 @@ import { diag } from "@roost/shared/diag";
 
 export interface WorkerHandle {
   workerFp: string;
-  /** Persisted at worker bootstrap and fixed for this authenticated connection.
-   * Undefined is permitted only by legacy test seams; production admission
-   * never registers an unscoped worker. */
-  dashboardId?: string;
   /** Synchronous credential fence. Once set, this handle can never admit or
    *  send another authoritative frame, even if a caller retained the object. */
   revoked: boolean;
@@ -78,18 +74,9 @@ export function fenceWorkerCredential(workerFp: string): WorkerHandle | null {
 /** Fingerprints the coordinator can route to right now. Raw WebSocket
  * membership alone is insufficient: the current generation must have crossed
  * its durable exact-snapshot barrier and must not be revoked. */
-export function listRoutableFps(dashboardId?: string): string[] {
-  if (dashboardId === undefined) {
-    return [...connectWorkers.values()]
-      .filter((handle) => handle.ready && !handle.revoked)
-      .map((handle) => handle.workerFp);
-  }
+export function listRoutableFps(): string[] {
   return [...connectWorkers.values()]
-    .filter((handle) =>
-      handle.ready
-      && !handle.revoked
-      && handle.dashboardId === dashboardId
-    )
+    .filter((handle) => handle.ready && !handle.revoked)
     .map((handle) => handle.workerFp);
 }
 

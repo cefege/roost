@@ -5,9 +5,9 @@ import { randomUUID } from "node:crypto";
 import type { Database } from "bun:sqlite";
 
 export interface SelfHostedTenant {
-  accountId: string;
-  organizationId: string;
-  dashboardId: string;
+  readonly accountId: string;
+  readonly organizationId: string;
+  readonly dashboardId: string;
 }
 
 export interface EnsureSelfHostedTenantOptions {

@@ -5,6 +5,7 @@
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import type { SpaPhaseTimeline } from "../../apps/web/src/lib/diag.ts";
 import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
+import { enrollSmokeBrowser } from "./fixtures.ts";
 import { PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 type SmokeWindow = Window & {
@@ -76,20 +77,9 @@ async function enrollFreshNavigationContext(
   context: BrowserContext,
   stack: TerminalTestStack,
 ): Promise<void> {
-  const token = (await stack.client.authMintBootstrap({
-    kind: "browser",
-    label: "roost-terminal-perf-navigation",
-  })).token;
   const enrollmentPage = await context.newPage();
   try {
-    await enrollmentPage.goto(`${stack.baseUrl}/#pair=${encodeURIComponent(token)}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await enrollmentPage.waitForFunction(() => location.hash === "");
-    await enrollmentPage.waitForFunction((expectedDashboardId) =>
-      Array.from(document.querySelectorAll<HTMLSelectElement>('[data-testid="dashboard-selector"]'))
-        .some((selector) => selector.value === expectedDashboardId),
-    stack.dashboardId);
+    await enrollSmokeBrowser(enrollmentPage, stack);
   } finally {
     await enrollmentPage.close();
   }
@@ -104,8 +94,8 @@ async function measureFreshNavigation(
   await installColdInit(context);
   try {
     // A new context has a distinct device key. Enroll it explicitly before the
-    // measured document deep-links into this dashboard's terminal; bypassing
-    // this membership gate would turn an unauthenticated URL into access.
+    // measured document deep-links into a terminal; bypassing this pairing gate
+    // would turn an unauthenticated URL into access.
     await enrollFreshNavigationContext(context, stack);
     const page = await context.newPage();
     return await measureNavigation(page, stack.baseUrl, sessionId);

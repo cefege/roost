@@ -30,7 +30,6 @@ import type { WriteLease } from "../coordinator-write-gate.ts";
 interface WorkerFrameDispatcherOptions {
   deps: WorkerServiceDeps;
   callerFingerprint: string;
-  dashboardId?: string;
   requestClose(): void;
   getWorkerFp(): string | null;
   isSnapshotReady(): boolean;
@@ -139,7 +138,7 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
       appendResult = await appendEvent(options.deps.db, event, {
         worker_fp: workerFp,
         client_seq: clientSeq,
-        dashboardId: options.dashboardId,
+        dashboardId: options.deps.selfHostedTenant.dashboardId,
         canPublish: options.isCurrentGeneration,
         pendingPublications: options.deps.pendingPublications,
         deferSnapshotReap: event.kind === "snapshot",
@@ -165,7 +164,7 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
     }
     if (!appendResult.admitted) {
       diag("worker.frame_dropped", {
-        reason: "event_scope_unproven",
+        reason: "event_admission_rejected",
         event_kind: event.kind,
         worker_fp: workerFp,
       });
@@ -214,12 +213,8 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
       }
       return;
     }
-    if (
-      committedEvent.kind === "opened"
-      && appendResult.dashboardId !== null
-    ) {
+    if (committedEvent.kind === "opened") {
       resolvePendingSpawnOpened(
-        appendResult.dashboardId,
         workerFp,
         committedEvent.session_id,
         Number(committedEvent.channel),

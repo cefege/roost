@@ -1,11 +1,10 @@
-// Owns the CLI browser identity and dashboard-scoped transport setup.
+// Owns the CLI browser identity and its authenticated transport setup.
 // It never borrows worker authority: host-local enrollment redeems a one-shot
 // grant, while an unknown key on any other machine requires explicit pairing.
 import { Code, ConnectError } from "@connectrpc/connect";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { coordDataDir, coordServicePath } from "@roost/shared/paths";
 import { supportedHostPlatform } from "@roost/shared/platform";
 import type { SupportedHostPlatform } from "@roost/shared/platform";
@@ -85,40 +84,8 @@ export function localCoordinatorDatabasePath(
   return existsSync(candidate) ? candidate : null;
 }
 
-function dashboardHeaders(dashboardId: string): Headers {
-  const headers = new Headers();
-  headers.set(X_ROOST_DASHBOARD_ID, dashboardId);
-  return headers;
-}
-
-function isCallOptions(value: unknown): value is { headers?: HeadersInit } {
-  return typeof value === "object" && value !== null;
-}
-
-/** Attach the selected dashboard to every unary RPC without changing callers. */
-export function withDashboardScope<T extends object>(client: T, dashboardId: string): T {
-  const selected = dashboardId.trim();
-  if (!selected) throw new Error("CLI authentication returned no selected dashboard");
-  return new Proxy(client, {
-    get(target, property, receiver) {
-      const value = Reflect.get(target, property, receiver);
-      if (typeof value !== "function") return value;
-      return (...args: unknown[]) => {
-        const [request, callOptions] = args;
-        const options = isCallOptions(callOptions) ? callOptions : {};
-        const headers = new Headers(options.headers);
-        headers.set(X_ROOST_DASHBOARD_ID, selected);
-        return Reflect.apply(value, target, [request, { ...options, headers }]);
-      };
-    },
-  });
-}
-
-interface DashboardAccessClient {
-  authDashboardAccess(
-    request: Record<string, never>,
-    options?: { headers?: HeadersInit },
-  ): Promise<{ selectedDashboardId: string }>;
+interface EnrollmentProbeClient {
+  workersList(request: Record<string, never>): Promise<unknown>;
 }
 
 interface PublicEnrollmentClient {
@@ -130,11 +97,10 @@ interface PublicEnrollmentClient {
 }
 
 export interface EnsureCliEnrollmentOptions {
-  client: DashboardAccessClient;
+  client: EnrollmentProbeClient;
   publicClient: PublicEnrollmentClient;
   publicKeyB64: string;
   label: string;
-  requestedDashboardId?: string;
   localDatabasePath: string | null;
   mintHostBrowserToken?: (
     databasePath: string,
@@ -148,30 +114,17 @@ function unauthenticated(error: unknown): boolean {
     : /unauthenticated/i.test(String(error));
 }
 
-async function dashboardAccess(
-  client: DashboardAccessClient,
-  requestedDashboardId: string | undefined,
-): Promise<string> {
-  const requested = requestedDashboardId?.trim() ?? "";
-  const access = await client.authDashboardAccess(
-    {},
-    requested ? { headers: dashboardHeaders(requested) } : undefined,
-  );
-  const selected = access.selectedDashboardId.trim();
-  if (!selected) throw new Error("CLI authentication returned no selected dashboard");
-  return selected;
-}
-
 /**
- * Resolve the authoritative dashboard, enrolling an unknown key only when the
- * same machine owns a self-hosted coordinator database. The one-shot bearer is
- * kept in memory only and is redeemed through the public RPC.
+ * Confirm the key is enrolled with a cheap protected RPC, enrolling an unknown
+ * key only when the same machine owns a self-hosted coordinator database. The
+ * one-shot bearer is kept in memory only and is redeemed through the public RPC.
  */
 export async function ensureCliEnrollment(
   options: EnsureCliEnrollmentOptions,
-): Promise<string> {
+): Promise<void> {
   try {
-    return await dashboardAccess(options.client, options.requestedDashboardId);
+    await options.client.workersList({});
+    return;
   } catch (error) {
     if (!unauthenticated(error)) throw error;
   }
@@ -203,27 +156,25 @@ export async function ensureCliEnrollment(
     bearer = "";
   }
 
-  return dashboardAccess(options.client, options.requestedDashboardId);
+  await options.client.workersList({});
 }
 
 export interface BuildCliClientOptions {
   coordinatorUrl?: string;
   label?: string;
-  requestedDashboardId?: string;
   /** Tests and host tooling may force a specific local/remote classification. */
   localDatabasePath?: string | null;
 }
 
-export interface DashboardScopedCliContext {
+export interface CliContext {
   client: CoordClient;
-  dashboardId: string;
   key: CliKey;
   cfg: WorkerConfig;
 }
 
-export async function buildDashboardScopedCliContext(
+export async function buildCliContext(
   options: BuildCliClientOptions = {},
-): Promise<DashboardScopedCliContext> {
+): Promise<CliContext> {
   const cfg = loadWorkerConfig(
     options.coordinatorUrl
       ? { ROOST_COORDINATOR_URL: options.coordinatorUrl }
@@ -241,20 +192,14 @@ export async function buildDashboardScopedCliContext(
   const localDatabase = Object.prototype.hasOwnProperty.call(options, "localDatabasePath")
     ? options.localDatabasePath ?? null
     : localCoordinatorDatabasePath();
-  const dashboardId = await ensureCliEnrollment({
+  await ensureCliEnrollment({
     client,
     publicClient,
     publicKeyB64: cliPublicKeyB64(key),
     label: options.label ?? CLI_KEY_LABEL,
-    requestedDashboardId: options.requestedDashboardId,
     localDatabasePath: localDatabase,
   });
-  return {
-    client: withDashboardScope(client, dashboardId),
-    dashboardId,
-    key,
-    cfg,
-  };
+  return { client, key, cfg };
 }
 
 export interface CliContext {

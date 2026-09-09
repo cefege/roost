@@ -23,7 +23,7 @@ let _lastWorkerRegisterAt = 0;
 let _keeperDeathRespawnCount = 0;
 let _keeperDeathToastTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function resetSyncHandlerRuntimeForDashboardBoundary(): void {
+export function resetSyncHandlerRuntimeForAuthBoundary(): void {
   clearTimeout(_keeperDeathToastTimer ?? undefined);
   _lastSyncConnectAt = 0;
   _lastWorkerRegisterAt = 0;

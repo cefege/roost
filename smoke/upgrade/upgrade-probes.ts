@@ -19,7 +19,7 @@ import {
   type KeeperUpdateClassification,
 } from "../../apps/shared/src/keeper-update.ts";
 import { supportedHostPlatform } from "../../apps/shared/src/platform.ts";
-import { enrollDashboardBrowser } from "../terminal/fixtures.ts";
+import { enrollSmokeBrowser } from "../terminal/fixtures.ts";
 import { REPOSITORY_ROOT, waitFor } from "../terminal/stack-runtime.ts";
 import type { TerminalReleaseCheckout, TerminalTestStack } from "../terminal/stack.ts";
 import { spawnSmokeShell, navigateToSmokeSession } from "../terminal/terminal-helpers.ts";
@@ -178,7 +178,6 @@ function releaseHandoffCommand(
     `--coord-db=${install.stack.coordDbPath}`,
     `--coordinator-url=${install.stack.baseUrl}`,
     `--api-key=${install.stack.apiKeyPath}`,
-    `--dashboard-id=${install.stack.dashboardId}`,
     `--host=${workerRow(install.stack).label}`,
     `--source-root=${release.sourceRoot}`,
     `--git-sha=${release.gitSha}`,
@@ -232,14 +231,13 @@ async function withUpgradePage(
   body: (page: Page) => Promise<void>,
 ): Promise<void> {
   const context = await browser.newContext();
-  await context.addInitScript((dashboardId) => {
+  await context.addInitScript(() => {
     localStorage.setItem("roostSmoke", "1");
     localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
-    localStorage.setItem("roost.dashboardId", dashboardId);
-  }, stack.dashboardId);
+  });
   const page = await context.newPage();
   try {
-    await enrollDashboardBrowser(page, stack);
+    await enrollSmokeBrowser(page, stack);
     await page.waitForFunction(() => typeof window.__smoke === "object");
     await page.waitForFunction(
       (workerFp) => !!window.__smoke.state().workers[workerFp],

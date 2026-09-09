@@ -293,7 +293,7 @@ export function retireSpentReleasedAgentStatuses(): void {
   }
 }
 
-/** Drop every dashboard's identity fences and notify subscribers so delayed
+/** Drop every identity fence and notify subscribers so delayed
  * notification timers cannot outlive the resources they describe. */
 export function resetAgentStatusProjection(): void {
   const currentStatuses = Object.entries(rootStore.agent_status);

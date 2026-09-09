@@ -157,6 +157,18 @@ message PairRequest {
   string ephemeral_id = 1;
   string label = 2;
   uint64 created_at_ms = 3;
+  string user_agent = 4;
+  string client_browser = 5;
+  string client_os = 6;
+  string client_device_type = 7;
+  string source_ip = 8;
+  string country_code = 9;
+  string region = 10;
+  string city = 11;
+  string edge_identity_provider = 12;
+  string edge_identity = 13;
+  bool edge_identity_verified = 14;
+  uint64 expires_at_ms = 15;
 }
 
 // ─── Audit ────────────────────────────────────────────────────────────────

@@ -30,12 +30,13 @@ import {
 } from "../src/agent-status-hub.ts";
 import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
 import { titleBus } from "../src/buses.ts";
-import { loadSyncDashboardScope, startSyncFeed } from "../src/connect/sync-feed.ts";
+import { loadSyncResourceIndex, startSyncFeed } from "../src/connect/sync-feed.ts";
 import { agentStatusFrame } from "../src/connect/sync-feed-frames.ts";
 import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
 import { connectWorkers } from "../src/connect/worker-registry.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import {
   decodedFrames,
@@ -45,8 +46,6 @@ import {
 
 const SESSION_ID = asSessionId("11111111-1111-4111-8111-111111111111");
 const WORKER_FP = asWorkerFp("a1".repeat(32));
-const DASHBOARD_ID = "agent-status-dashboard";
-const ORGANIZATION_ID = "agent-status-organization";
 const STATUS_EPOCH = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 const OCCUPANT_ID = AgentOccupantId.parse("11111111-aaaa-4aaa-8aaa-111111111111");
 const OCCUPANT_B = AgentOccupantId.parse("22222222-aaaa-4aaa-8aaa-222222222222");
@@ -97,25 +96,11 @@ async function openStatusFeed() {
   cleanupDirs.push(dir);
   const opened = openDb(join(dir, "coord.db"));
   await runMigrations(opened.sqlite);
+  const tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
   const now = Date.now();
-  await opened.db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "agent-status",
-    name: "Agent status",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await opened.db.insertInto("dashboards").values({
-    id: DASHBOARD_ID,
-    organization_id: ORGANIZATION_ID,
-    slug: "agent-status",
-    name: "Agent status",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
   await opened.db.insertInto("workers").values({
     fp: WORKER_FP,
-    dashboard_id: DASHBOARD_ID,
+    dashboard_id: tenant.dashboardId,
     label: "agent-status-worker",
     os: "linux",
     git_sha: null,
@@ -125,7 +110,7 @@ async function openStatusFeed() {
   }).execute();
   await opened.db.insertInto("sessions").values({
     id: SESSION_ID,
-    dashboard_id: DASHBOARD_ID,
+    dashboard_id: tenant.dashboardId,
     worker_fp: WORKER_FP,
     channel: 7,
     kind: "shell",
@@ -135,8 +120,11 @@ async function openStatusFeed() {
   }).execute();
   return {
     opened,
-    scope: await loadSyncDashboardScope(opened.db, DASHBOARD_ID),
-    deps: { db: opened.db } as unknown as ConnectDeps,
+    scope: await loadSyncResourceIndex(opened.db),
+    deps: {
+      db: opened.db,
+      selfHostedTenant: tenant,
+    } as unknown as ConnectDeps,
   };
 }
 
@@ -218,7 +206,6 @@ test("subscription cutover coalesces buffered occupant replacement to the retain
   );
   try {
     titleBus.publish({
-      _dashboard_id: DASHBOARD_ID,
       session_id: SESSION_ID,
       title: "before replacement",
     });
@@ -233,7 +220,6 @@ test("subscription cutover coalesces buffered occupant replacement to the retain
       state: "blocked",
     }))).toBe("accepted");
     titleBus.publish({
-      _dashboard_id: DASHBOARD_ID,
       session_id: SESSION_ID,
       title: "after replacement",
     });
@@ -278,14 +264,17 @@ test("authenticated worker decoding rejects partial identity and preserves a ful
   cleanupDirs.push(dir);
   const opened = openDb(join(dir, "coord.db"));
   await runMigrations(opened.sqlite);
-  const deps = { db: opened.db } as unknown as WorkerServiceDeps;
+  const deps = {
+    db: opened.db,
+    selfHostedTenant: ensureSelfHostedTenant(opened.sqlite, {
+      backfillLegacyScopes: false,
+    }),
+  } as unknown as WorkerServiceDeps;
   const conn = makeWorkerConn(
     deps,
     { fingerprint: WORKER_FP },
     () => 1,
     () => {},
-    undefined,
-    DASHBOARD_ID,
   );
   try {
     await conn.handleUpstream(create(CoordWorkerUpSchema, {

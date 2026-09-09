@@ -230,14 +230,13 @@ function processPromptWrite(
       kind: "worker-written",
       maximumWrittenBytes: AGENT_PROMPT_MAX_WRITE_BYTES,
     },
-    (workerFp, dashboardId, workerDeadline) => sendAgentPromptRequest(workerFp, {
+    (workerFp, workerDeadline) => sendAgentPromptRequest(workerFp, {
       sessionId: command.sessionId,
       inputSeq: command.inputSeq,
       expectedStatusEpoch: command.expectedStatusEpoch,
       expectedOccupantId: command.expectedOccupantId,
       expectedRevision: BigInt(command.expectedRevision),
       text: command.text,
-      dashboardId,
     }, workerDeadline),
   );
 }

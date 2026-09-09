@@ -185,6 +185,57 @@ sudo systemctl enable --now cloudflared   # Linux; launchd starts it on install
 Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4103` plaintext with
 `ROOST_TRUST_PROXY=1`, and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
 
+### Recipe 2a — Cloudflare Access in front of the browser surfaces
+
+This extends recipe 2 with Cloudflare Access on the same hostname. Create two
+self-hosted Access applications. Cloudflare matches the most specific path
+first:
+
+- **Roost browser** — paths `/` (the SPA document and assets) and
+  `/roost.v1.CoordinatorService/PairCreate`. Set the policy to **Allow**,
+  selector **Emails**, with the owner's exact Cloudflare-verified email.
+  Choose the session duration to taste.
+- **Roost machines** — paths `/ws/` and `/roost.v1.CoordinatorService/`.
+  Set the policy to **Bypass**, **Everyone**. These paths carry worker and CLI
+  traffic, which already authenticates with a signed Ed25519 JWT from an
+  authorized key; the SPA is never served from them.
+
+`PairCreate` is protected while the other RPCs are not because no non-browser
+client calls it (the CLI has no pairing verb). Gating that one RPC therefore
+costs nothing and gives every pairing request a Cloudflare-verified email.
+
+Add these coordinator settings alongside the existing `ROOST_TRUST_PROXY=1`:
+
+```text
+ROOST_CF_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+ROOST_CF_ACCESS_AUD=<Application Audience Tag from the browser app>
+```
+
+Set both variables or neither. A half-configured Access gate is an error.
+
+The Caddy hop must keep forwarding `Cf-Access-Jwt-Assertion` and the visitor
+location headers `CF-IPCountry`, `CF-Region`, and `CF-IPCity`.
+`reverse_proxy` forwards them by default; do not add a `header_up -` rule that
+strips them. Keep the existing `X-Forwarded-For` rewrite from
+`CF-Connecting-IP`:
+
+```caddy
+reverse_proxy 127.0.0.1:4103 {
+	header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+}
+```
+
+Enable Cloudflare's managed transform so city and region are available:
+**Rules → Settings → Managed Transforms → Add visitor location headers**.
+Without it, only `CF-IPCountry` arrives and the pairing card shows country
+only.
+
+The tailnet recipe (recipe 3) and loopback access are unaffected. On-host
+requests are exempt, and the Access gate is inert when
+`ROOST_CF_ACCESS_TEAM_DOMAIN` and `ROOST_CF_ACCESS_AUD` are unconfigured.
+
+
+
 ### Recipe 3 — `tailscale serve`
 
 No domain, no public exposure, no certificate management: every device that

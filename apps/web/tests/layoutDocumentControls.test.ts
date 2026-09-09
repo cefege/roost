@@ -1,7 +1,7 @@
 // Import-controller tests own the seam between a picked layout file and the
 // confirm dialog's props: which folder's live set fences the read, what the
 // dropped-session count reports, and that Apply commits the previewed tree.
-// File picking, folder membership, dashboard identity, toasts, and spotlight
+// File picking, folder membership, credential identity, toasts, and spotlight
 // are mocked so no DOM, coordinator traffic, or root store is required.
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -45,9 +45,9 @@ mock.module("../src/lib/layoutDocumentFile.ts", () => ({
 mock.module("../src/store/selectors.ts", () => ({
   liveSessionIdsForFolder: (folderKey: string) => (folderKey === FOLDER_KEY ? liveSessionIds : []),
 }));
-mock.module("../src/store/dashboard-selection.ts", () => ({
-  captureDashboardResourceToken: () => "dashboard-token",
-  isCurrentDashboardResourceToken: () => true,
+mock.module("../src/store/auth-boundary.ts", () => ({
+  captureAuthResourceToken: () => "auth-token",
+  isCurrentAuthResourceToken: () => true,
 }));
 mock.module("../src/store/toastStore.ts", () => ({ addToast: () => {} }));
 mock.module("../src/store/spotlight.ts", () => ({ clearSpotlight: () => {} }));

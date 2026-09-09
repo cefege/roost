@@ -51,7 +51,7 @@ const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   // only new authenticated tab identities. ListStates is read-only.
   "/roost.v1.CoordinatorService/UiDispatch",
   "/roost.v1.CoordinatorService/UiApplyLayout",
-  // Dashboard-global search allocates cursors, worker queues, and cancel
+  // Install-global search allocates cursors, worker queues, and cancel
   // tombstones; bound authenticated callers as defense beyond owner caps.
   "/roost.v1.CoordinatorService/SessionsSearchGlobal",
   "/roost.v1.CoordinatorService/SessionsCancelGlobalSearch",

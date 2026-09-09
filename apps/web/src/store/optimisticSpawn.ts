@@ -69,7 +69,7 @@ export function wasAborted(id: string): boolean {
 export function clearAborted(id: string): void {
   aborted.delete(id);
 }
-/** A dashboard boundary invalidates placeholders and their measurement waits.
+/** A credential boundary invalidates placeholders and their measurement waits.
  * Do not leave a suspended pre-switch spawn continuation able to navigate or
  * issue follow-up work after the new scope is hydrated. */
 export function resetOptimisticSpawnState(): void {

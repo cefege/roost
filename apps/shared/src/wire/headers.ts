@@ -6,7 +6,6 @@
 // importing from here.
 
 export const X_ROOST_TAB_ID = "x-roost-tab-id";
-export const X_ROOST_DASHBOARD_ID = "x-roost-dashboard-id";
 export const X_ROOST_TRACE_ID = "x-roost-trace-id";
 export const X_ROOST_REMOTE_ADDR = "x-roost-remote-addr";
 export const X_ROOST_ON_HOST = "x-roost-on-host";

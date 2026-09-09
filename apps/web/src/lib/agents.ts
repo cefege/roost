@@ -1,6 +1,6 @@
-// Browser agent-launch configuration cached for the confirmed dashboard.
+// Browser agent-launch configuration cached for the authenticated browser.
 // Startup and settings load it from the coordinator while launchers read signals.
-// A dashboard boundary resets defaults and fences late responses from the old scope.
+// A credential boundary resets defaults and fences late responses from the old credential.
 
 import { createSignal } from "solid-js";
 import { coordClient } from "../connect.ts";
@@ -70,7 +70,7 @@ export const resolveAgent = (): ResolvedAgent =>
 let configGeneration = 0;
 let configRequest: Promise<void> | null = null;
 
-export function clearAgentConfigForDashboardSwitch(): void {
+export function clearAgentConfigForAuthBoundary(): void {
   configGeneration++;
   configRequest = null;
   setSelectedAgent("omp");
@@ -78,7 +78,7 @@ export function clearAgentConfigForDashboardSwitch(): void {
   setAutoLaunch(false);
 }
 
-/** Load once per dashboard generation and discard a response from an old scope. */
+/** Load once per auth generation and discard a response from a stale credential. */
 export async function loadAgentConfig(): Promise<void> {
   if (configRequest) return configRequest;
   const requestGeneration = configGeneration;

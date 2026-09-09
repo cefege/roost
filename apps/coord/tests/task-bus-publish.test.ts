@@ -28,52 +28,38 @@ import { runMigrations } from "../src/db/migrate.ts";
 import { makeTaskHandlers } from "../src/connect/handlers-tasks.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { taskBus, type TaskBusMsg } from "../src/buses.ts";
-import {
-  callerKey,
-  dashboardActorKey,
-  type DashboardActor,
-} from "../src/connect/auth-interceptor.ts";
+import { callerKey } from "../src/connect/auth-interceptor.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 type TaskHandlers = Pick<
   ServiceImpl<typeof CoordinatorService>,
   "tasksEnqueue" | "tasksNextPending" | "tasksSetState" | "tasksCancel"
 >;
 
-const ACCOUNT_ID = "task-bus-account";
-const ORGANIZATION_ID = "task-bus-organization";
-const DASHBOARD_ID = "task-bus-dashboard";
 const DEVICE_FP = "fp-test";
 
-const actor: DashboardActor = {
-  accountId: ACCOUNT_ID,
-  organizationId: ORGANIZATION_ID,
-  dashboardId: DASHBOARD_ID,
-  organizationRole: "owner",
-  dashboardRole: "admin",
-  deviceFingerprint: DEVICE_FP,
-};
-
-function actorContext(): HandlerContext {
+function deviceContext(accountId: string): HandlerContext {
   const values = createContextValues();
   values.set(callerKey, {
     kind: "account-device",
     fingerprint: DEVICE_FP,
     label: "task bus test device",
-    accountId: ACCOUNT_ID,
+    accountId,
   });
-  values.set(dashboardActorKey, actor);
   return { values } as unknown as HandlerContext;
 }
 
 let workdir: string;
 let closeDb: () => Promise<void>;
 let handlers: TaskHandlers;
-const authCtx = actorContext();
+let authCtx: HandlerContext;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-taskbus-"));
   const opened = openDb(join(workdir, "test.db"));
   const db = opened.db;
   await runMigrations(opened.sqlite);
+  const tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
+  authCtx = deviceContext(tenant.accountId);
   const now = Date.now();
   await db.insertInto("authorized_keys").values({
     fingerprint: DEVICE_FP,
@@ -81,47 +67,14 @@ beforeAll(async () => {
     label: "task bus test device",
     added_at: now,
   }).execute();
-  await db.insertInto("accounts").values({
-    id: ACCOUNT_ID,
-    email_normalized: "task-bus@example.test",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
   await db.insertInto("account_devices").values({
     fingerprint: DEVICE_FP,
-    account_id: ACCOUNT_ID,
+    account_id: tenant.accountId,
     added_at_ms: now,
     last_seen_at_ms: now,
   }).execute();
-  await db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "task-bus",
-    name: "Task Bus",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await db.insertInto("organization_memberships").values({
-    organization_id: ORGANIZATION_ID,
-    account_id: ACCOUNT_ID,
-    role: "owner",
-    created_at_ms: now,
-  }).execute();
-  await db.insertInto("dashboards").values({
-    id: DASHBOARD_ID,
-    organization_id: ORGANIZATION_ID,
-    slug: "task-bus",
-    name: "Task Bus",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await db.insertInto("dashboard_memberships").values({
-    dashboard_id: DASHBOARD_ID,
-    account_id: ACCOUNT_ID,
-    role: "admin",
-    created_at_ms: now,
-  }).execute();
   closeDb = async () => { await opened.close(); };
-  handlers = makeTaskHandlers({ db } as unknown as ConnectDeps);
+  handlers = makeTaskHandlers({ db, selfHostedTenant: tenant } as unknown as ConnectDeps);
 });
 
 afterAll(async () => { await closeDb?.(); rmSync(workdir, { recursive: true, force: true }); });

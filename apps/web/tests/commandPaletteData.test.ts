@@ -44,7 +44,7 @@ function paletteContext(
 ): CommandPaletteContext {
   return {
     pathname: "/s/session-a",
-    dashboardGeneration: rootStore.dashboard_generation,
+    authGeneration: rootStore.auth_generation,
     activeSession: {
       id: "session-a",
       workerFp: WORKER_FP,
@@ -56,7 +56,6 @@ function paletteContext(
       cwd: "/work/project-a",
     },
     workerRoutable: true,
-    effectiveRole: "admin",
     ...overrides,
   };
 }
@@ -72,7 +71,7 @@ beforeEach(() => {
   spawnSessionSibling.mockClear();
   clearQueueTaskDialogForLogout();
   clearCommandPaletteCacheForAccountBoundary();
-  setRootStore("dashboard_generation", 7);
+  setRootStore("auth_generation", 7);
   setRootStore("workspaces", {});
 });
 
@@ -135,7 +134,7 @@ test("session rows reuse navigation metadata while workspace rows remain availab
 });
 
 describe("contextual action visibility and delegation", () => {
-  test("an admin can queue the active folder and spawn a routable sibling", async () => {
+  test("an authenticated operator can queue the active folder and spawn a routable sibling", async () => {
     const navigate = mock((_href: string, _options?: unknown) => {});
     const items = buildDefaultItems(navigate as unknown as Navigator, paletteContext(), paletteDeps);
     expect(items.filter((item) => item.kind === "action")).toHaveLength(4);
@@ -159,13 +158,6 @@ describe("contextual action visibility and delegation", () => {
     }, navigate);
   });
 
-  test("member role keeps queueing but hides admin-only sibling spawn", () => {
-    const items = buildDefaultItems((() => {}) as unknown as Navigator, paletteContext({ effectiveRole: "member" }), paletteDeps);
-
-    expect(items.some((item) => item.id.startsWith("core.task.queue-folder:"))).toBe(true);
-    expect(items.some((item) => item.id.startsWith("core.session.new-sibling:"))).toBe(false);
-  });
-
   test("an unroutable worker hides sibling spawn without hiding its queued task", () => {
     const items = buildDefaultItems((() => {}) as unknown as Navigator, paletteContext({ workerRoutable: false }), paletteDeps);
 
@@ -173,12 +165,11 @@ describe("contextual action visibility and delegation", () => {
     expect(items.some((item) => item.id.startsWith("core.session.new-sibling:"))).toBe(false);
   });
 
-  test("missing folder and role context leaves only navigation actions", () => {
+  test("missing folder and session context leaves only navigation actions", () => {
     const items = buildDefaultItems((() => {}) as unknown as Navigator, paletteContext({
       activeSession: null,
       activeFolder: null,
       workerRoutable: false,
-      effectiveRole: null,
     }), paletteDeps);
 
     expect(items.filter((item) => item.kind === "action").map((item) => item.id)).toEqual([
@@ -220,7 +211,7 @@ test("target and generation changes replace contextual cache identities", () => 
   expect(itemWithPrefix(retargeted, "core.task.queue-folder:")).not.toBe(firstQueue);
   expect(itemWithPrefix(retargeted, "core.session.new-sibling:")).not.toBe(firstSibling);
 
-  setRootStore("dashboard_generation", 8);
+  setRootStore("auth_generation", 8);
   const regenerated = buildDefaultItems(navigate, paletteContext(), paletteDeps);
   expect(itemWithPrefix(regenerated, "core.task.queue-folder:").id).toContain(
     "generation:8",
@@ -230,13 +221,13 @@ test("target and generation changes replace contextual cache identities", () => 
   );
 });
 
-test("actions captured before a dashboard generation change no-op", async () => {
+test("actions captured before an auth generation change no-op", async () => {
   const navigate = mock((_href: string, _options?: unknown) => {});
   const items = buildDefaultItems(navigate as unknown as Navigator, paletteContext(), paletteDeps);
   const staleQueue = itemWithPrefix(items, "core.task.queue-folder:");
   const staleSibling = itemWithPrefix(items, "core.session.new-sibling:");
 
-  setRootStore("dashboard_generation", 8);
+  setRootStore("auth_generation", 8);
   await staleQueue.action?.();
   await staleSibling.action?.();
 

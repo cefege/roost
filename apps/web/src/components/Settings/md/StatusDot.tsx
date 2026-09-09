@@ -9,6 +9,7 @@ const STATUS_DOT_TOKEN: Record<string, string> = {
   running: "--md-primary",
   idle: "--text-lo",
   offline: "--text-lo",
+  warn: "--status-warn",
   error: "--status-err",
   info: "--status-info",
 };

@@ -288,7 +288,21 @@ export const pairFrame = (e: PairRequestDelta): FirehoseFrame =>
   e.kind === "pending"
     ? create(FirehoseFrameSchema, { frame: { case: "pairRequestDelta", value: create(PairRequestDeltaProtoSchema, {
         kind: { case: "pending", value: create(PairRequestSchema, {
-          ephemeralId: e.ephemeral_id, label: e.label, createdAtMs: BigInt(e.created_at_ms),
+          ephemeralId: e.ephemeral_id,
+          label: e.label,
+          createdAtMs: BigInt(e.created_at_ms),
+          userAgent: e.user_agent,
+          clientBrowser: e.client_browser,
+          clientOs: e.client_os,
+          clientDeviceType: e.client_device_type,
+          sourceIp: e.source_ip,
+          countryCode: e.country_code,
+          region: e.region,
+          city: e.city,
+          edgeIdentityProvider: e.edge_identity_provider,
+          edgeIdentity: e.edge_identity,
+          edgeIdentityVerified: e.edge_identity_verified,
+          expiresAtMs: BigInt(e.expires_at_ms),
         }) },
       })}})
     : create(FirehoseFrameSchema, { frame: { case: "pairRequestDelta", value: create(PairRequestDeltaProtoSchema, {

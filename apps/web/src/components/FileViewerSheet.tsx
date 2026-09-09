@@ -16,9 +16,9 @@ import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import { rootStore } from "../store/root.ts";
 import { workersHydrated } from "../store/sync-bootstrap.ts";
 import {
-  captureDashboardResourceToken,
-  isCurrentDashboardResourceToken,
-} from "../store/dashboard-selection.ts";
+  captureAuthResourceToken,
+  isCurrentAuthResourceToken,
+} from "../store/auth-boundary.ts";
 import { Button } from "./Settings/md/Button.tsx";
 import { EmptyState } from "./Settings/md/EmptyState.tsx";
 
@@ -87,7 +87,7 @@ export function FileViewerSheet() {
   let scrollRef: HTMLDivElement | undefined;
   let unavailableRef: HTMLDivElement | undefined;
   // Superseded route reads and replies after disposal cannot publish.
-  // Dashboard generation separately fences a scope cutover at the same path.
+  // The auth generation separately fences a credential boundary at the same path.
   let fetchToken = 0;
   onCleanup(() => { fetchToken++; });
   const setTimeoutTracked = createTrackedTimeouts();
@@ -107,13 +107,13 @@ export function FileViewerSheet() {
       setCopiedLine(null);
       return;
     }
-    const dashboardToken = captureDashboardResourceToken();
+    const authToken = captureAuthResourceToken();
     setLoading(true);
     setFetchError(null);
     setCopiedLine(null);
     coordClient.filesRead({ workerFp: fp, path })
       .then((result) => {
-        if (mine !== fetchToken || !isCurrentDashboardResourceToken(dashboardToken)) return;
+        if (mine !== fetchToken || !isCurrentAuthResourceToken(authToken)) return;
         setByteSize(Number(result.size));
         const text = (() => {
           try { return new TextDecoder("utf-8", { fatal: true }).decode(result.data); }
@@ -132,14 +132,14 @@ export function FileViewerSheet() {
         }
         setLoading(false);
         requestAnimationFrame(() => {
-          if (mine !== fetchToken || !isCurrentDashboardResourceToken(dashboardToken)) return;
+          if (mine !== fetchToken || !isCurrentAuthResourceToken(authToken)) return;
           const tl = targetLine();
           const el = scrollRef?.querySelector<HTMLElement>(`[data-line="${tl}"]`);
           el?.scrollIntoView({ block: "center" });
         });
       })
       .catch((e: unknown) => {
-        if (mine !== fetchToken || !isCurrentDashboardResourceToken(dashboardToken)) return;
+        if (mine !== fetchToken || !isCurrentAuthResourceToken(authToken)) return;
         const msg = e instanceof Error ? e.message : String(e);
         setFetchError(msg);
         setLoading(false);
@@ -148,12 +148,12 @@ export function FileViewerSheet() {
 
   function copyLineLink(lineNum: number) {
     const mine = fetchToken;
-    const dashboardToken = captureDashboardResourceToken();
+    const authToken = captureAuthResourceToken();
     void copyToClipboard(lineUrl(lineNum)).then((ok) => {
-      if (mine !== fetchToken || !isCurrentDashboardResourceToken(dashboardToken)) return;
+      if (mine !== fetchToken || !isCurrentAuthResourceToken(authToken)) return;
       setCopiedLine({ line: lineNum, ok });
       setTimeoutTracked(() => {
-        if (mine === fetchToken && isCurrentDashboardResourceToken(dashboardToken)) {
+        if (mine === fetchToken && isCurrentAuthResourceToken(authToken)) {
           setCopiedLine(null);
         }
       }, 1500);
@@ -244,7 +244,7 @@ export function FileViewerSheet() {
               data-testid="file-viewer-unavailable"
               role="status"
               aria-live="polite"
-              aria-label="File unavailable. This file isn't available in the current dashboard."
+              aria-label="File unavailable. This file isn't available on this coordinator."
               aria-atomic="true"
               tabIndex={-1}
               style={{ flex: "1", "min-height": "0", "overflow-y": "auto" }}
@@ -252,7 +252,7 @@ export function FileViewerSheet() {
               <EmptyState
                 icon="draft"
                 title="File unavailable"
-                supporting="This file isn't available in the current dashboard."
+                supporting="This file isn't available on this coordinator."
                 action={
                   <Button variant="tonal" data-testid="file-viewer-unavailable-home"
                     onFocus={(event) => event.currentTarget.scrollIntoView({ block: "center" })}

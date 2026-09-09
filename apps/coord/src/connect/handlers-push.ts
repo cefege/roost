@@ -12,7 +12,7 @@ import {
   PushSubscribeResponseSchema,
   PushUnsubscribeResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
-import { requireDashboardActor } from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import { getVapidKeys } from "../vapid.ts";
 import { hasUrlUserInfo } from "../url-user-info.ts";
 import type { ConnectDeps } from "./router.ts";
@@ -63,7 +63,7 @@ export function makePushHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, PushMethods> {
   return {
     async pushGetConfig(_request, context) {
-      requireDashboardActor(context.values);
+      requireAccountDevice(context.values);
       if (deps.cfg.pushAllowedOrigins.length === 0) {
         return create(PushGetConfigResponseSchema, {
           vapidPublicKeyB64: "",
@@ -78,7 +78,7 @@ export function makePushHandlers(
     },
 
     async pushSubscribe(request, context) {
-      const actor = requireDashboardActor(context.values);
+      const caller = requireAccountDevice(context.values);
       const allowedOrigins = deps.cfg.pushAllowedOrigins;
       requirePushEnabled(allowedOrigins);
       validateEndpoint(request.endpoint, allowedOrigins);
@@ -90,18 +90,17 @@ export function makePushHandlers(
           dashboard_id, viewer_fp, endpoint, p256dh, auth, created_at_ms
         )
         SELECT
-          ${actor.dashboardId}, ${actor.deviceFingerprint}, ${request.endpoint},
+          ${deps.selfHostedTenant.dashboardId}, ${caller.fingerprint}, ${request.endpoint},
           ${request.p256dh}, ${request.auth}, ${now}
         WHERE EXISTS (
           SELECT 1
           FROM push_subscriptions
-          WHERE dashboard_id IS ${actor.dashboardId}
-            AND viewer_fp = ${actor.deviceFingerprint}
+          WHERE viewer_fp = ${caller.fingerprint}
             AND endpoint = ${request.endpoint}
         ) OR (
           SELECT COUNT(*)
           FROM push_subscriptions
-          WHERE viewer_fp = ${actor.deviceFingerprint}
+          WHERE viewer_fp = ${caller.fingerprint}
         ) < ${MAX_SUBSCRIPTIONS_PER_DEVICE}
         ON CONFLICT (dashboard_id, viewer_fp, endpoint) DO UPDATE SET
           p256dh = excluded.p256dh,
@@ -115,14 +114,13 @@ export function makePushHandlers(
     },
 
     async pushUnsubscribe(request, context) {
-      const actor = requireDashboardActor(context.values);
+      const caller = requireAccountDevice(context.values);
       const allowedOrigins = deps.cfg.pushAllowedOrigins;
       requirePushEnabled(allowedOrigins);
       validateEndpoint(request.endpoint, allowedOrigins);
       await deps.db
         .deleteFrom("push_subscriptions")
-        .where("dashboard_id", "=", actor.dashboardId)
-        .where("viewer_fp", "=", actor.deviceFingerprint)
+        .where("viewer_fp", "=", caller.fingerprint)
         .where("endpoint", "=", request.endpoint)
         .execute();
       return create(PushUnsubscribeResponseSchema, { ok: true });

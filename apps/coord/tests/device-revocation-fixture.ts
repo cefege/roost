@@ -17,7 +17,6 @@ import { join } from "node:path";
 import { bootstrapTokenDigest } from "../src/bootstrap-tokens.ts";
 import {
   callerKey,
-  dashboardActorKey,
   onHostKey,
   remoteAddressKey,
 } from "../src/connect/auth-interceptor.ts";
@@ -59,10 +58,9 @@ export interface DeviceRevocationHarness {
   workerHandlers: WorkerHandlers;
   revoked: string[];
   callbackStates: Array<{ keys: number; devices: number; pushes: number }>;
-  dashboardRevocations: Array<{ dashboardId: string; fingerprint?: string }>;
   close(): Promise<void>;
   workerFences: string[];
-  workerSyncRemovals: Array<{ dashboardId: string; fingerprint: string }>;
+  workerSyncRemovals: string[];
 }
 
 export interface DeviceRevocationHarnessOwner {
@@ -85,14 +83,14 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
     const tenant = ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
     const revoked: string[] = [];
     const callbackStates: Array<{ keys: number; devices: number; pushes: number }> = [];
-    const dashboardRevocations: Array<{ dashboardId: string; fingerprint?: string }> = [];
     const workerFences: string[] = [];
-    const workerSyncRemovals: Array<{ dashboardId: string; fingerprint: string }> = [];
+    const workerSyncRemovals: string[] = [];
     const deps = {
       db,
       sqlite,
       cfg: {},
       jwtCache: newJwtCache(),
+      selfHostedTenant: tenant,
       onKeyRevoked: (fingerprint: string) => {
         revoked.push(fingerprint);
         const keyCount = sqlite.query("SELECT COUNT(*) AS count FROM authorized_keys WHERE fingerprint = ?")
@@ -113,12 +111,10 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
       onWorkerDeletedFence: (fingerprint: string) => {
         workerFences.push(fingerprint);
       },
-      onWorkerDeletedSyncScope: (dashboardId: string, fingerprint: string) => {
-        workerSyncRemovals.push({ dashboardId, fingerprint });
+      onWorkerDeletedSyncScope: (fingerprint: string) => {
+        workerSyncRemovals.push(fingerprint);
         throw new Error("injected worker Sync cleanup failure");
       },
-      onDashboardRevoked: (dashboardId: string, fingerprint?: string) =>
-        dashboardRevocations.push({ dashboardId, fingerprint }),
     } as unknown as ConnectDeps;
     const close = async () => {
       try { await opened.close(); } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -132,7 +128,6 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
       workerHandlers: makeWorkerHandlers(deps),
       revoked,
       callbackStates,
-      dashboardRevocations,
       workerFences,
       workerSyncRemovals,
       close,
@@ -155,23 +150,13 @@ export function unauthCtx(address: string, onHost: boolean): HandlerContext {
   return { values } as unknown as HandlerContext;
 }
 
-export const workerDeleteDashboardId = "worker-delete-dashboard";
-
-export function dashboardAdminCtx(): HandlerContext {
+export function browserDeviceCtx(accountId: string): HandlerContext {
   const values = createContextValues();
   values.set(callerKey, {
     kind: "account-device",
     fingerprint: "administrator",
     label: "administrator",
-    accountId: "administrator-account",
-  });
-  values.set(dashboardActorKey, {
-    accountId: "administrator-account",
-    organizationId: "worker-delete-organization",
-    dashboardId: workerDeleteDashboardId,
-    organizationRole: "owner",
-    dashboardRole: "admin",
-    deviceFingerprint: "administrator",
+    accountId,
   });
   return { values } as unknown as HandlerContext;
 }
@@ -200,17 +185,12 @@ export async function token(
   value: string,
   minter: string | null,
   kind: "browser" | "worker" = "browser",
-  dashboardId = h.tenant.dashboardId,
 ): Promise<void> {
-  const membership = await h.db.selectFrom("dashboard_memberships")
-    .select("account_id")
-    .where("dashboard_id", "=", dashboardId)
-    .executeTakeFirstOrThrow();
   const now = Date.now();
   await h.db.insertInto("bootstrap_tokens").values({
     token_hash: await bootstrapTokenDigest(value),
-    account_id: membership.account_id,
-    dashboard_id: dashboardId,
+    account_id: h.tenant.accountId,
+    dashboard_id: h.tenant.dashboardId,
     kind,
     label: "new browser",
     created_at_ms: now,

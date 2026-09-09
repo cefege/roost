@@ -1,5 +1,5 @@
 // deepgramKey — page-session cache for the configured Deepgram key returned to
-// an authenticated dashboard-admin browser. It is the stored key (expiresIn: 0),
+// an authenticated browser device. It is the stored key (expiresIn: 0),
 // not a temporary grant; caching avoids a WAN round-trip on every mic tap.
 // Invalidation is generation-scoped so logout, key rotation, or credential
 // rejection cannot let an older in-flight response repopulate the cache.

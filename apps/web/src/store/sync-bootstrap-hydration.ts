@@ -174,6 +174,18 @@ export function _installBootstrapDomainHydrators(
         ephemeral_id: request.ephemeralId,
         label: request.label,
         created_at_ms: Number(request.createdAtMs),
+        userAgent: request.userAgent,
+        clientBrowser: request.clientBrowser,
+        clientOs: request.clientOs,
+        clientDeviceType: request.clientDeviceType,
+        sourceIp: request.sourceIp,
+        countryCode: request.countryCode,
+        region: request.region,
+        city: request.city,
+        edgeIdentityProvider: request.edgeIdentityProvider,
+        edgeIdentity: request.edgeIdentity,
+        edgeIdentityVerified: request.edgeIdentityVerified,
+        expiresAtMs: Number(request.expiresAtMs),
       };
     }
     return {

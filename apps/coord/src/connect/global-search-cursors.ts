@@ -1,5 +1,5 @@
 // Owns bounded, browser-bound continuation state and cancellation ordering for
-// dashboard-wide terminal search. Session handlers create one owner per factory
+// install-wide terminal search. Session handlers create one owner per factory
 // and inject it into the global-search handler; no state escapes that composition.
 // Expiry and oldest-device eviction are lazy so cursors require no background timer.
 
@@ -14,7 +14,6 @@ const GLOBAL_SEARCH_MAX_CANCEL_TOMBSTONES = 4_096;
 export const _GLOBAL_SEARCH_MAX_ACTIVE_PER_DEVICE = 4;
 const GLOBAL_SEARCH_MAX_ACTIVE = 1_024;
 export interface GlobalSearchIdentity {
-  dashboardId: string;
   deviceFingerprint: string;
   tabId: string;
   searchId: string;
@@ -90,7 +89,6 @@ export interface GlobalSearchCursorOwnerOptions {
 
 function identityKey(identity: GlobalSearchIdentity): string {
   return JSON.stringify([
-    identity.dashboardId,
     identity.deviceFingerprint,
     identity.tabId,
     identity.searchId,
@@ -101,8 +99,7 @@ function sameIdentity(
   left: GlobalSearchIdentity,
   right: GlobalSearchIdentity,
 ): boolean {
-  return left.dashboardId === right.dashboardId
-    && left.deviceFingerprint === right.deviceFingerprint
+  return left.deviceFingerprint === right.deviceFingerprint
     && left.tabId === right.tabId
     && left.searchId === right.searchId;
 }

@@ -80,7 +80,7 @@ describe("force-close + snapshot reap", () => {
   it("force-closed session is NOT resurrected by a returning snapshot, and the orphan is reaped", async () => {
     const SID = "00000000-0000-4000-8000-000000000aa1";
     const captured: CoordWorkerDown[] = [];
-    __setConnectWorkerForTest(FP, { workerFp: FP, dashboardId: DASHBOARD_ID, send: (f) => captured.push(f) });
+    __setConnectWorkerForTest(FP, { workerFp: FP, send: (f) => captured.push(f) });
 
     await appendEvent(db, opened(SID), {
       worker_fp: FP, client_seq: 1, dashboardId: DASHBOARD_ID,
@@ -141,7 +141,7 @@ describe("force-close + snapshot reap", () => {
   it("a normal live session (no prior closed event) IS installed by the snapshot — no false reap", async () => {
     const SID = "00000000-0000-4000-8000-000000000bb2";
     const captured: CoordWorkerDown[] = [];
-    __setConnectWorkerForTest(FP, { workerFp: FP, dashboardId: DASHBOARD_ID, send: (f) => captured.push(f) });
+    __setConnectWorkerForTest(FP, { workerFp: FP, send: (f) => captured.push(f) });
 
     await appendEvent(db, snapshot([SID]), {
       worker_fp: FP, client_seq: 3, dashboardId: DASHBOARD_ID,

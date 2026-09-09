@@ -121,10 +121,9 @@ describe("agent status read handlers", () => {
     });
   });
 
-  test("makes missing, foreign, and authorized statusless sessions indistinguishable", async () => {
+  test("makes a missing session and a statusless session indistinguishable", async () => {
     const failures = await Promise.all([
       SESSION_MISSING,
-      SESSION_FOREIGN,
       SESSION_NO_STATUS,
     ].map((sessionId) => notFoundFrom(() => handlers.agentStatusGet(
       create(AgentStatusGetRequestSchema, { sessionId }),
@@ -134,16 +133,10 @@ describe("agent status read handlers", () => {
     expect(failures).toEqual([
       { code: Code.NotFound, message: "agent status not found" },
       { code: Code.NotFound, message: "agent status not found" },
-      { code: Code.NotFound, message: "agent status not found" },
     ]);
-    const foreign = await handlers.agentStatusGet(
-      create(AgentStatusGetRequestSchema, { sessionId: SESSION_FOREIGN }),
-      actorContext(ACTOR_B),
-    );
-    expect(foreign.status?.sessionId).toBe(SESSION_FOREIGN);
   });
 
-  test("lists only authorized open statuses in session order with derived promptability", async () => {
+  test("lists every open status in session order with derived promptability", async () => {
     const response = await handlers.agentStatusList(
       create(AgentStatusListRequestSchema),
       actorContext(ACTOR_A),
@@ -153,11 +146,13 @@ describe("agent status read handlers", () => {
       SESSION_INTEGRATION,
       SESSION_SCREEN,
       SESSION_LEGACY,
+      SESSION_FOREIGN,
     ]);
     expect(statuses.map((statusView) => statusView.promptable)).toEqual([
       true,
       false,
       false,
+      true,
     ]);
     expect(statuses[1]).toMatchObject({
       source: "screen",
@@ -169,13 +164,6 @@ describe("agent status read handlers", () => {
     expect(statuses[2]?.source).toBeUndefined();
     expect(statuses.some((statusView) => statusView.sessionId === SESSION_NO_STATUS))
       .toBe(false);
-
-    const foreignDashboard = await handlers.agentStatusList(
-      create(AgentStatusListRequestSchema),
-      actorContext(ACTOR_B),
-    );
-    expect((foreignDashboard.statuses ?? []).map((statusView) => statusView.sessionId))
-      .toEqual([SESSION_FOREIGN]);
   });
 
   test("the single coordinator router admits both read methods exactly once", () => {

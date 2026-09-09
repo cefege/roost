@@ -1,6 +1,6 @@
 // Typed command-palette catalog and row compiler. Session rows reuse the
 // shared navigation-search projection; contextual actions receive scalar
-// route/dashboard targets and delegate to their existing action owners.
+// route/session targets and delegate to their existing action owners.
 // The identity cache keeps unchanged Solid <For> rows mounted.
 
 import type { Navigator } from "@solidjs/router";
@@ -26,8 +26,6 @@ export interface PaletteItem {
   action?: () => Promise<void> | void;
 }
 
-export type CommandPaletteEffectiveRole = "admin" | "member" | null;
-
 export interface CommandPaletteSessionTarget {
   readonly id: string;
   readonly workerFp: Session["worker_fp"];
@@ -42,11 +40,10 @@ export interface CommandPaletteFolderTarget {
 
 export interface CommandPaletteContext {
   readonly pathname: string;
-  readonly dashboardGeneration: number;
+  readonly authGeneration: number;
   readonly activeSession: CommandPaletteSessionTarget | null;
   readonly activeFolder: CommandPaletteFolderTarget | null;
   readonly workerRoutable: boolean;
-  readonly effectiveRole: CommandPaletteEffectiveRole;
 }
 
 export interface CommandPaletteDataDeps {
@@ -102,8 +99,8 @@ export function matchesQuery(
 
 let itemCache = new Map<string, PaletteItem>();
 
-/** Account and dashboard boundaries must not retain labels, paths, or actions
- * captured by rows from the prior scope. */
+/** A credential boundary must not retain labels, paths, or actions captured by
+ * rows from the prior credential. */
 export function clearCommandPaletteCacheForAccountBoundary(): void {
   itemCache.clear();
 }
@@ -185,8 +182,8 @@ function compileQueueFolder(
   _deps: CommandPaletteDataDeps,
 ): PaletteItem | null {
   const target = context.activeFolder;
-  if (!target || context.effectiveRole === null) return null;
-  const generation = context.dashboardGeneration;
+  if (!target) return null;
+  const generation = context.authGeneration;
   return {
     id: targetedActionId("core.task.queue-folder", target.id, generation),
     kind: "action",
@@ -209,10 +206,8 @@ function compileNewSibling(
   deps: CommandPaletteDataDeps,
 ): PaletteItem | null {
   const target = context.activeSession;
-  if (!target || !context.workerRoutable || context.effectiveRole !== "admin") {
-    return null;
-  }
-  const generation = context.dashboardGeneration;
+  if (!target || !context.workerRoutable) return null;
+  const generation = context.authGeneration;
   return {
     id: targetedActionId("core.session.new-sibling", target.id, generation),
     kind: "action",
@@ -232,13 +227,13 @@ function compileNewSibling(
 function targetedActionId(
   actionId: "core.task.queue-folder" | "core.session.new-sibling",
   targetId: string,
-  dashboardGeneration: number,
+  authGeneration: number,
 ): string {
-  return `${actionId}:${targetId}:generation:${dashboardGeneration}`;
+  return `${actionId}:${targetId}:generation:${authGeneration}`;
 }
 
 function capturedGenerationIsCurrent(capturedGeneration: number): boolean {
-  return rootStore.dashboard_generation === capturedGeneration;
+  return rootStore.auth_generation === capturedGeneration;
 }
 
 function stableItem(

@@ -57,10 +57,8 @@ export function makeWorkerHeartbeatHandler(
 					"git_sha",
 					"keeper_runtime_json",
 					"reachable_addr",
-					"dashboard_id",
 				])
 				.where("fp", "=", fp)
-				.where("dashboard_id", "=", caller.dashboardId)
 				.where("deleted_at_ms", "is", null)
 				.executeTakeFirst();
 			if (!prior)
@@ -76,14 +74,12 @@ export function makeWorkerHeartbeatHandler(
 						keeper_runtime_json: null,
 					})
 					.where("fp", "=", fp)
-					.where("dashboard_id", "=", caller.dashboardId)
 					.where("deleted_at_ms", "is", null)
 					.returningAll()
 					.executeTakeFirstOrThrow();
 				presenceBus.publish({
 					kind: "registered",
 					worker: workerRowToWirePresence(cleared) as unknown as WireWorker,
-					_dashboard_id: caller.dashboardId,
 				});
 				throw new ConnectError(
 					"keeper runtime observation is malformed",
@@ -133,7 +129,6 @@ export function makeWorkerHeartbeatHandler(
 					...(req.os !== undefined && { os: req.os }),
 				})
 				.where("fp", "=", fp)
-				.where("dashboard_id", "=", caller.dashboardId)
 				.where("deleted_at_ms", "is", null)
 				.returningAll()
 				.executeTakeFirst();
@@ -161,7 +156,6 @@ export function makeWorkerHeartbeatHandler(
 				presenceBus.publish({
 					kind: "registered",
 					worker: workerRowToWirePresence(updated) as unknown as WireWorker,
-					_dashboard_id: caller.dashboardId,
 				});
 			} else {
 				presenceBus.publish({
@@ -169,7 +163,6 @@ export function makeWorkerHeartbeatHandler(
 					fp: asWorkerFp(fp),
 					last_seen_ms: now,
 					host_metrics: hm ?? null,
-					_dashboard_id: caller.dashboardId,
 				});
 			}
 			return create(WorkersHeartbeatResponseSchema, {});

@@ -1,6 +1,7 @@
-// Worker session-list authentication through the real coordinator fetch stack.
-// Proves a signed worker JWT resolves to its persisted dashboard principal and
-// can read only that worker's open rows during boot reconciliation.
+// Session-list authority through the real coordinator fetch stack.
+// Proves a signed worker JWT resolves to its persisted worker principal and can
+// read only its own open rows, and that a browser device never receives the
+// private agent-conversation recovery metadata those rows carry.
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -14,10 +15,9 @@ import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 
-const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000101";
-const DASHBOARD_ID = "00000000-0000-4000-8000-000000000102";
 const SESSION_ID = "00000000-0000-4000-8000-000000000103";
 const NEVER_SET_SESSION_ID = "00000000-0000-4000-8000-000000000104";
 const SESSIONS_LIST_PATH = "/roost.v1.CoordinatorService/SessionsList";
@@ -32,8 +32,10 @@ const PRIVATE_REFERENCE = AgentConversationReferenceV1Schema.parse({
 let workdir: string;
 let db: KyselyDB;
 let coord: CoordHandle;
+let dashboardId: string;
 let workerFingerprint: string;
 let workerJwt: string;
+let deviceJwt: string;
 let closeDb: () => Promise<void>;
 
 beforeAll(async () => {
@@ -46,6 +48,8 @@ beforeAll(async () => {
   db = opened.db;
   closeDb = opened.close;
   await runMigrations(opened.sqlite);
+  const tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
+  dashboardId = tenant.dashboardId;
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
     trustProxy: false,
@@ -67,6 +71,7 @@ beforeAll(async () => {
     writeGate: new CoordinatorWriteGate(),
     cfg,
     jwtCache,
+    selfHostedTenant: tenant,
   });
 
   const workerKeys = await crypto.subtle.generateKey(
@@ -79,30 +84,38 @@ beforeAll(async () => {
   );
   workerFingerprint = await fingerprintOf(rawPublicKey);
   const now = Date.now();
-  await db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "worker-auth",
-    name: "Worker auth",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await db.insertInto("dashboards").values({
-    id: DASHBOARD_ID,
-    organization_id: ORGANIZATION_ID,
-    slug: "worker-auth",
-    name: "Worker auth",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await db.insertInto("authorized_keys").values({
-    fingerprint: workerFingerprint,
-    public_key: rawPublicKey,
-    label: "test worker",
-    added_at: now,
+  const deviceKeys = await crypto.subtle.generateKey(
+    { name: "Ed25519" },
+    true,
+    ["sign", "verify"],
+  );
+  const rawDevicePublicKey = new Uint8Array(
+    await crypto.subtle.exportKey("raw", deviceKeys.publicKey),
+  );
+  const deviceFingerprint = await fingerprintOf(rawDevicePublicKey);
+  await db.insertInto("authorized_keys").values([
+    {
+      fingerprint: workerFingerprint,
+      public_key: rawPublicKey,
+      label: "test worker",
+      added_at: now,
+    },
+    {
+      fingerprint: deviceFingerprint,
+      public_key: rawDevicePublicKey,
+      label: "test device",
+      added_at: now,
+    },
+  ]).execute();
+  await db.insertInto("account_devices").values({
+    fingerprint: deviceFingerprint,
+    account_id: tenant.accountId,
+    added_at_ms: now,
+    last_seen_at_ms: now,
   }).execute();
   await db.insertInto("workers").values({
     fp: workerFingerprint,
-    dashboard_id: DASHBOARD_ID,
+    dashboard_id: dashboardId,
     label: "test worker",
     os: "linux",
     git_sha: null,
@@ -114,7 +127,7 @@ beforeAll(async () => {
   await db.insertInto("sessions").values([
     {
       id: SESSION_ID,
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: dashboardId,
       worker_fp: workerFingerprint,
       channel: 7,
       kind: "shell",
@@ -138,7 +151,7 @@ beforeAll(async () => {
     },
     {
       id: NEVER_SET_SESSION_ID,
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: dashboardId,
       worker_fp: workerFingerprint,
       channel: 8,
       kind: "shell",
@@ -172,6 +185,16 @@ beforeAll(async () => {
     workerKeys.privateKey,
     workerFingerprint,
   );
+  deviceJwt = await signJwt(
+    {
+      aud: "roost-coordinator",
+      sub: deviceFingerprint,
+      iat: nowSeconds,
+      exp: nowSeconds + 60,
+    },
+    deviceKeys.privateKey,
+    deviceFingerprint,
+  );
 });
 
 afterAll(async () => {
@@ -180,15 +203,25 @@ afterAll(async () => {
   if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
 });
 
-function workerFetch(body: object): Promise<Response> {
+function sessionsListFetch(jwt: string, body: object): Promise<Response> {
   return coord.fetch(new Request(`http://coord${SESSIONS_LIST_PATH}`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${workerJwt}`,
+      authorization: `Bearer ${jwt}`,
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
   }));
+}
+
+function workerFetch(body: object): Promise<Response> {
+  return sessionsListFetch(workerJwt, body);
+}
+
+// A browser device on the sole account: the authority that must never observe
+// the worker's private agent-conversation reference.
+function deviceFetch(body: object): Promise<Response> {
+  return sessionsListFetch(deviceJwt, body);
 }
 
 test("worker JWT lists only its own open sessions through coord.fetch", async () => {
@@ -252,4 +285,21 @@ test("worker JWT cannot broaden its session-list scope", async () => {
     const response = await workerFetch(body);
     expect(response.status).toBe(403);
   }
+});
+
+test("a browser device lists the sessions but never their recovery metadata", async () => {
+  const response = await deviceFetch({ workerFp: workerFingerprint, status: "open" });
+  expect(response.status).toBe(200);
+  const raw = await response.text();
+  const body = JSON.parse(raw) as {
+    sessions?: Array<{ id?: string }>;
+    recoveryMetadata?: unknown[];
+  };
+  expect(body.sessions?.map((session) => session.id)?.sort()).toEqual(
+    [SESSION_ID, NEVER_SET_SESSION_ID].sort(),
+  );
+  expect(body.recoveryMetadata ?? []).toEqual([]);
+  // The private conversation reference is worker-recovery state, so it must be
+  // absent from the ENTIRE browser response, not merely from `sessions`.
+  expect(raw).not.toContain(PRIVATE_REFERENCE_VALUE);
 });

@@ -1,6 +1,6 @@
 // SessionsSpawn RPC handler: forwards a coordinator-selected session UUID to
-// the target worker and dedupes concurrent spawns within the selected dashboard.
-// Exact duplicates share one result while signature conflicts reject before
+// the target worker and dedupes concurrent spawns of that UUID. Exact
+// duplicates share one result while signature conflicts reject before
 // membership changes. Worker replies must match the reserved identity.
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -13,9 +13,8 @@ import {
 import { asSessionId, type ClientControlFrame } from "@roost/shared/wire";
 import { createPendingRpc, rejectPendingRpc } from "../router/pending-rpcs.ts";
 import type { ConnectDeps } from "./router.ts";
-import type { AccountDeviceCaller, DashboardActor } from "./auth-interceptor.ts";
+import type { AccountDeviceCaller } from "./auth-interceptor.ts";
 import { getWorkerHubSocket, sendBrowserCommand } from "./worker-service.ts";
-import { sendBrowserCmd } from "./router-helpers.ts";
 import {
   rejectPendingSpawn,
   reservePendingSpawn,
@@ -60,7 +59,6 @@ export async function handleSessionsSpawn(
   deps: ConnectDeps,
   req: SessionsSpawnRequest,
   caller: AccountDeviceCaller,
-  actor: DashboardActor,
   tabId: string | undefined,
 ): Promise<SessionsSpawnResponse> {
   const callerKey = tabId ? `${caller.fingerprint}:${tabId}` : caller.fingerprint;
@@ -72,7 +70,6 @@ export async function handleSessionsSpawn(
   const worker = await deps.db.selectFrom("workers")
     .select("fp")
     .where("fp", "=", req.workerFp)
-    .where("dashboard_id", "=", actor.dashboardId)
     .where("deleted_at_ms", "is", null)
     .executeTakeFirst();
   if (!worker) throw new ConnectError("worker not found", Code.NotFound);
@@ -80,7 +77,6 @@ export async function handleSessionsSpawn(
   const signature: PendingSpawnSignature = {
     callerKey,
     workerFp: worker.fp,
-    dashboardId: actor.dashboardId,
     kind: req.kind,
     folder: req.folder,
     cols: req.cols,
@@ -103,7 +99,6 @@ export async function handleSessionsSpawn(
       .executeTakeFirst();
     if (existing) {
       rejectPendingSpawn(
-        actor.dashboardId,
         sessionId,
         new ConnectError("session_id already exists", Code.AlreadyExists),
         true,
@@ -112,7 +107,6 @@ export async function handleSessionsSpawn(
       const socket = getWorkerHubSocket(worker.fp);
       if (!socket) {
         rejectPendingSpawn(
-          actor.dashboardId,
           sessionId,
           new ConnectError(
             `worker ${worker.fp.slice(0, 12)} not connected`,
@@ -129,20 +123,19 @@ export async function handleSessionsSpawn(
             || data.channel_id <= 0
           ) {
             rejectPendingSpawn(
-              actor.dashboardId,
               sessionId,
               new ConnectError("worker returned an invalid spawn identity", Code.DataLoss),
               true,
             );
             return;
           }
-          resolvePendingSpawn(actor.dashboardId, sessionId, {
+          resolvePendingSpawn(sessionId, {
             sessionId,
             channelId: data.channel_id,
           });
         }, (error: Error) => {
           const definite = error instanceof ConnectError && error.code === Code.Internal;
-          rejectPendingSpawn(actor.dashboardId, sessionId, error, definite);
+          rejectPendingSpawn(sessionId, error, definite);
         });
         const sent = sendBrowserCommand(worker.fp, {
           browser_id: caller.fingerprint,
@@ -153,7 +146,7 @@ export async function handleSessionsSpawn(
         if (!sent) {
           const error = new ConnectError("worker send failed", Code.Unavailable);
           rejectPendingRpc(pending.request_id, error.message, worker.fp);
-          rejectPendingSpawn(actor.dashboardId, sessionId, error, true);
+          rejectPendingSpawn(sessionId, error, true);
         }
       }
     }

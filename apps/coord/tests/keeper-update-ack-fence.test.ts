@@ -24,7 +24,7 @@ const fixture = createDurablePublicationFixture({
   secondaryFingerprintByte: "aa",
   sessionGroup: "8",
 });
-const { FP, SID_A, DASHBOARD_ID, openedEvent } = fixture;
+const { FP, SID_A, openedEvent } = fixture;
 
 let writer: typeof fixture.writer;
 
@@ -38,7 +38,7 @@ test("a held keeper-update fence withholds the event ACK until release", async (
   const gate = new CoordinatorWriteGate();
   const deps = {
     db: writer.db, pendingPublications: new PendingEventPublicationStore(),
-    writeGate: gate,
+    writeGate: gate, selfHostedTenant: fixture.tenant,
   } as unknown as WorkerServiceDeps;
   const ackedSeqs: bigint[] = [];
   const connection = makeWorkerConn(
@@ -49,8 +49,6 @@ test("a held keeper-update fence withholds the event ACK until release", async (
       return 1;
     },
     () => {},
-    undefined,
-    DASHBOARD_ID,
   );
   await connection.handleUpstream(create(CoordWorkerUpSchema, {
     frame: { case: "hello", value: create(WHelloSchema, { workerFp: FP, version: "test" }) },

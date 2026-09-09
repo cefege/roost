@@ -97,7 +97,7 @@ export function undoAll(): void {
   publish();
   for (const r of restores) r();
 }
-/** Drop all delayed close commands at a dashboard boundary. Restoring a prior
+/** Drop all delayed close commands at a credential boundary. Restoring a prior
  * layout or firing its kill callback would both target a stale resource. */
 export function resetPendingCloses(): void {
   for (const entry of entries.values()) clearTimeout(entry.timer);

@@ -27,7 +27,6 @@ const {
   SID_A,
   SID_B,
   SID_C,
-  DASHBOARD_ID,
   append,
   liveSession,
   openedEvent,
@@ -78,7 +77,7 @@ describe("exact worker snapshot reconciliation", () => {
     const workspaceId = "00000000-0000-4000-8000-000000000099";
     await writer.db.insertInto("workspaces").values({
       id: workspaceId,
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: fixture.dashboardId,
       worker_fp: FP,
       name: "kept",
       folder_path: "/tmp",
@@ -127,7 +126,7 @@ describe("exact worker snapshot reconciliation", () => {
       spawn_cwd: "/tmp",
       workspace_id: workspaceId,
       custom_title: "kept title",
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: fixture.dashboardId,
     });
   });
 
@@ -141,7 +140,7 @@ describe("exact worker snapshot reconciliation", () => {
       writeGate: new CoordinatorWriteGate(),
     } as unknown as ConnectDeps;
     const command = {
-      identity: terminalViewerIdentity("f".repeat(64), "tab-1", undefined, DASHBOARD_ID),
+      identity: terminalViewerIdentity("f".repeat(64), "tab-1"),
       sessionId: SID_B,
       inputSeq: 1n,
       data: new TextEncoder().encode("ls\r"),

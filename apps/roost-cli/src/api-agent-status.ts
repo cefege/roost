@@ -1,4 +1,4 @@
-// Formats and dispatches dashboard-scoped agent-status read and wait commands.
+// Formats and dispatches the agent-status read and wait commands.
 // Read JSON remains an explicit stable projection; waits pin the exact current
 // occupant and print only their terminal outcome.
 

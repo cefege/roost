@@ -321,10 +321,10 @@ export function pruneTerminalInput(sessionId: string): void {
   lastInputSendTs.delete(sessionId);
 }
 
-/** Reject every dashboard-bound input lane. Dashboard switching is a hard
- * transport boundary: queued bytes must never be replayed into the newly
- * selected scope. */
-export function resetTerminalOutboundState(reason = "dashboard switched"): void {
+/** Reject every credential-bound input lane. A credential boundary is a hard
+ * transport boundary: queued bytes must never be replayed onto a newly
+ * accepted socket. */
+export function resetTerminalOutboundState(reason = "credential boundary"): void {
   for (const lane of inputLanes.values()) {
     for (const pending of lane.pending) {
       clearTimeout(pending.timer ?? undefined);

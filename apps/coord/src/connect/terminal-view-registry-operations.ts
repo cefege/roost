@@ -22,16 +22,6 @@ import {
 } from "./terminal-view-registry-state.ts";
 import type { TerminalViewRegistryOptions } from "./terminal-view-registry.ts";
 
-// Dashboard scope is part of ownership because one browser tab can retain its
-// viewer and view ids while switching dashboards.
-export function scopedTerminalViewKey(
-  dashboardId: string,
-  viewerKey: string,
-  viewId: string,
-): string {
-  return terminalViewKey(`${dashboardId}\u0000${viewerKey}`, viewId);
-}
-
 export class TerminalViewRegistryOperations {
   constructor(
     private readonly options: TerminalViewRegistryOptions,
@@ -48,14 +38,9 @@ export class TerminalViewRegistryOperations {
       || !socket.allowsSession(command.sessionId)
       || !isTerminalUuid(command.viewId)
     ) return;
-    const view = this.views.get(scopedTerminalViewKey(
-      socket.dashboardId,
-      socket.viewerKey,
-      command.viewId,
-    ));
+    const view = this.views.get(terminalViewKey(socket.viewerKey, command.viewId));
     if (
       !view
-      || view.dashboardId !== socket.dashboardId
       || view.socketId !== socketId
       || view.parked
       || view.sessionId !== command.sessionId
@@ -81,7 +66,7 @@ export class TerminalViewRegistryOperations {
   replyView(view: View, status: TerminalViewStatus, message: string): void {
     const socket = this.sockets.get(view.socketId);
     const session = this.options.streamState(view.sessionId);
-    if (!socket || socket.dashboardId !== view.dashboardId || !session?.effective) return;
+    if (!socket || !session?.effective) return;
     enqueueTerminalViewState(socket.sink, {
       viewId: view.viewId,
       sessionId: view.sessionId,
@@ -124,21 +109,12 @@ export class TerminalViewRegistryOperations {
     this.views.delete(view.key);
     this.sessionViews.get(view.sessionId)?.delete(view.key);
     this.sockets.get(view.socketId)?.views.delete(view.key);
-    if (save) {
-      this.tombstone(
-        view.key,
-        view.viewerKey,
-        view.dashboardId,
-        revision,
-        intent,
-      );
-    }
+    if (save) this.tombstone(view.key, view.viewerKey, revision, intent);
   }
 
   tombstone(
     key: string,
     viewerKey: string,
-    dashboardId: string,
     revision: bigint,
     intent: TerminalViewIntent,
   ): void {
@@ -147,7 +123,6 @@ export class TerminalViewRegistryOperations {
       this.options.now(),
       key,
       viewerKey,
-      dashboardId,
       revision,
       intent,
     );

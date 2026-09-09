@@ -1,6 +1,6 @@
 // Device lifecycle handlers keep listing, revocation, rotation, and logout under
 // one ownership boundary because each mutation must revoke delegated authority
-// and notify every affected dashboard only after the database transaction commits.
+// and close that fingerprint's live sockets only after the transaction commits.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
@@ -37,7 +37,15 @@ export function makeDeviceHandlers(
       const caller = requireAccountDevice(ctx.values);
       const [keys, workers] = await Promise.all([
         deps.db.selectFrom("authorized_keys")
-          .select(["fingerprint", "label", "added_at"])
+          .select([
+            "fingerprint",
+            "label",
+            "added_at",
+            "paired_from_ip",
+            "paired_country",
+            "paired_user_agent",
+            "paired_edge_identity",
+          ])
           .orderBy("added_at", "desc")
           .execute(),
         deps.db.selectFrom("workers").select("fp").execute(),
@@ -51,6 +59,10 @@ export function makeDeviceHandlers(
             label: key.label,
             addedAtMs: BigInt(key.added_at),
             isSelf: key.fingerprint === caller.fingerprint,
+            pairedFromIp: key.paired_from_ip ?? "",
+            pairedCountry: key.paired_country ?? "",
+            pairedUserAgent: key.paired_user_agent ?? "",
+            pairedEdgeIdentity: key.paired_edge_identity ?? "",
           })),
       });
     },
@@ -62,7 +74,6 @@ export function makeDeviceHandlers(
         throw new ConnectError("use key rotation to revoke this device", Code.InvalidArgument);
       }
 
-      const affectedDashboards = new Set<string>();
       const now = Date.now();
       await deps.db.transaction().execute(async (trx) => {
         const target = await trx.selectFrom("authorized_keys")
@@ -92,18 +103,6 @@ export function makeDeviceHandlers(
           .where("viewer_fp", "=", req.fingerprint)
           .execute();
 
-        const accountDevices = await trx.selectFrom("account_devices")
-          .select("account_id")
-          .where("fingerprint", "=", req.fingerprint)
-          .execute();
-        if (accountDevices.length > 0) {
-          const memberships = await trx.selectFrom("dashboard_memberships")
-            .select("dashboard_id")
-            .where("account_id", "in", accountDevices.map((device) => device.account_id))
-            .execute();
-          for (const membership of memberships) affectedDashboards.add(membership.dashboard_id);
-        }
-
         await trx.deleteFrom("account_devices")
           .where("fingerprint", "=", req.fingerprint)
           .execute();
@@ -114,9 +113,6 @@ export function makeDeviceHandlers(
 
       invalidateJwtKey(deps.jwtCache, req.fingerprint);
       deps.onKeyRevoked?.(req.fingerprint);
-      for (const dashboardId of affectedDashboards) {
-        deps.onDashboardRevoked?.(dashboardId, req.fingerprint);
-      }
       return create(DevicesRevokeResponseSchema, { ok: true });
     },
 
@@ -193,7 +189,6 @@ export function makeDeviceHandlers(
     async authLogout(_req, ctx) {
       const caller = requireAccountDevice(ctx.values);
       const accountId = caller.kind === "account-device" ? caller.accountId : null;
-      const affectedDashboards = new Set<string>();
       const now = Date.now();
       await deps.db.transaction().execute(async (trx) => {
         const currentKey = accountId
@@ -212,13 +207,6 @@ export function makeDeviceHandlers(
           throw new ConnectError("authentication required", Code.Unauthenticated);
         }
 
-        if (accountId) {
-          const memberships = await trx.selectFrom("dashboard_memberships")
-            .select("dashboard_id")
-            .where("account_id", "=", accountId)
-            .execute();
-          for (const membership of memberships) affectedDashboards.add(membership.dashboard_id);
-        }
         await trx.insertInto("authorized_key_revocations").values({
           fingerprint: caller.fingerprint,
           revoked_at_ms: now,
@@ -244,9 +232,6 @@ export function makeDeviceHandlers(
 
       invalidateJwtKey(deps.jwtCache, caller.fingerprint);
       deps.onKeyRevoked?.(caller.fingerprint);
-      for (const dashboardId of affectedDashboards) {
-        deps.onDashboardRevoked?.(dashboardId, caller.fingerprint);
-      }
       return create(AuthLogoutResponseSchema, { ok: true });
     },
   };

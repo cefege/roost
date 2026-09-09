@@ -20,7 +20,7 @@ import { sameWorkerFolder } from "@roost/shared/native-path";
 import type { KyselyDB } from "../db/connection.ts";
 import type { WorkspacesTable } from "../db/schema.ts";
 import { workspaceBus } from "../buses.ts";
-import { requireDashboardActor } from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import { asSessionId, asWorkspaceId } from "@roost/shared/wire";
 import type { SessionId, Workspace } from "@roost/shared/wire";
 import type { ConnectDeps } from "./router.ts";
@@ -29,12 +29,10 @@ import type { ConnectDeps } from "./router.ts";
 // handler here needs after a mutation (for the proto response + the bus wire).
 async function fetchSessionIds(
   db: KyselyDB,
-  dashboardId: string,
   workspaceId: string,
 ): Promise<SessionId[]> {
   return (await db.selectFrom("workspace_sessions").select("session_id")
     .where("workspace_id", "=", workspaceId)
-    .where("dashboard_id", "=", dashboardId)
     .execute()).map(r => asSessionId(r.session_id as string));
 }
 
@@ -54,7 +52,7 @@ function wsRowToWire(row: WorkspacesTable, sessionIds: SessionId[]): Workspace {
 
 // DB-coupled row→proto adapter (loads the workspace's session ids). Kept
 // here as workspaces is its only caller.
-async function workspaceRowToProto(db: KyselyDB, dashboardId: string, row: WorkspacesTable) {
+async function workspaceRowToProto(db: KyselyDB, row: WorkspacesTable) {
   return create(WorkspaceSchema, {
     id: row.id,
     workerFp: row.worker_fp,
@@ -65,7 +63,7 @@ async function workspaceRowToProto(db: KyselyDB, dashboardId: string, row: Works
     version: BigInt(row.version),
     createdAtMs: BigInt(row.created_at_ms),
     updatedAtMs: BigInt(row.updated_at_ms),
-    sessionIds: await fetchSessionIds(db, dashboardId, row.id),
+    sessionIds: await fetchSessionIds(db, row.id),
   });
 }
 
@@ -78,24 +76,22 @@ export type WorkspaceHandlers = Pick<ServiceImpl<typeof CoordinatorService>, Wor
 export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
   return {
     async workspacesList(_req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      requireAccountDevice(ctx.values);
       const rows = await deps.db.selectFrom("workspaces").selectAll()
-        .where("dashboard_id", "=", actor.dashboardId)
         .orderBy("position").execute();
       const workspaces = await Promise.all(
-        rows.map(r => workspaceRowToProto(deps.db, actor.dashboardId, r)),
+        rows.map(r => workspaceRowToProto(deps.db, r)),
       );
       return create(WorkspacesListResponseSchema, { workspaces });
     },
 
     async workspacesCreate(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      requireAccountDevice(ctx.values);
       const id = randomUUID();
       const now = Date.now();
       const result = await deps.db.transaction().execute(async (trx) => {
         const worker = await trx.selectFrom("workers").select("os")
           .where("fp", "=", req.workerFp)
-          .where("dashboard_id", "=", actor.dashboardId)
           .where("deleted_at_ms", "is", null)
           .executeTakeFirst();
         if (!worker) throw new ConnectError("worker not found", Code.NotFound);
@@ -103,7 +99,6 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
         const attachedSessions = req.attachSessionIds.length > 0
           ? await trx.selectFrom("sessions").select(["id", "cwd"])
               .where("id", "in", req.attachSessionIds)
-              .where("dashboard_id", "=", actor.dashboardId)
               .execute()
           : [];
         if (attachedSessions.length !== new Set(req.attachSessionIds).size) {
@@ -129,51 +124,48 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
         // at that path.
         const rows = await trx.selectFrom("workspaces").selectAll()
           .where("worker_fp", "=", req.workerFp)
-          .where("dashboard_id", "=", actor.dashboardId)
           .execute();
         const existing = rows.find((r) => sameWorkerFolder(worker.os, r.folder_path, folderPath));
         if (existing) return { kind: "existing" as const, row: existing };
         const position = await trx.selectFrom("workspaces").select(trx.fn.countAll<number>().as("cnt"))
-          .where("dashboard_id", "=", actor.dashboardId)
           .executeTakeFirst().then(r => Number(r?.cnt ?? 0));
         await trx.insertInto("workspaces").values({
-          id, dashboard_id: actor.dashboardId, worker_fp: req.workerFp, name: req.name,
+          id, dashboard_id: deps.selfHostedTenant.dashboardId,
+          worker_fp: req.workerFp, name: req.name,
           folder_path: folderPath, color: req.color ?? null,
           position, version: 0, created_at_ms: now, updated_at_ms: now,
         }).execute();
         if (req.attachSessionIds.length > 0) {
           await trx.deleteFrom("workspace_sessions")
             .where("session_id", "in", req.attachSessionIds)
-            .where("dashboard_id", "=", actor.dashboardId)
             .execute();
           await trx.insertInto("workspace_sessions").values(req.attachSessionIds.map(sid => ({
-            workspace_id: id, dashboard_id: actor.dashboardId, session_id: sid, added_at_ms: now,
+            workspace_id: id, dashboard_id: deps.selfHostedTenant.dashboardId,
+            session_id: sid, added_at_ms: now,
           }))).execute();
         }
         const row = await trx.selectFrom("workspaces").selectAll()
           .where("id", "=", id)
-          .where("dashboard_id", "=", actor.dashboardId)
           .executeTakeFirstOrThrow();
         return { kind: "created" as const, row };
       });
       if (result.kind === "existing") {
-        const w = await workspaceRowToProto(deps.db, actor.dashboardId, result.row);
+        const w = await workspaceRowToProto(deps.db, result.row);
         return create(WorkspacesCreateResponseSchema, { workspace: w });
       }
-      const w = await workspaceRowToProto(deps.db, actor.dashboardId, result.row);
+      const w = await workspaceRowToProto(deps.db, result.row);
       workspaceBus.publish({
         kind: "created",
-        _dashboard_id: actor.dashboardId,
         workspace: wsRowToWire(
           result.row,
-          await fetchSessionIds(deps.db, actor.dashboardId, result.row.id),
+          await fetchSessionIds(deps.db, result.row.id),
         ),
       });
       return create(WorkspacesCreateResponseSchema, { workspace: w });
     },
 
     async workspacesUpdate(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      requireAccountDevice(ctx.values);
       const now = Date.now();
       const result = await deps.db.updateTable("workspaces").set({
         ...(req.name !== undefined && { name: req.name }),
@@ -184,45 +176,37 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
         version: sql`version + 1`,
       })
         .where("id", "=", req.id)
-        .where("dashboard_id", "=", actor.dashboardId)
         .where("version", "=", Number(req.ifVersion))
         .returningAll().executeTakeFirst();
       if (!result) throw new ConnectError("version mismatch", Code.FailedPrecondition);
-      const w = await workspaceRowToProto(deps.db, actor.dashboardId, result);
+      const w = await workspaceRowToProto(deps.db, result);
       workspaceBus.publish({
         kind: "updated",
-        _dashboard_id: actor.dashboardId,
         workspace: wsRowToWire(
           result,
-          await fetchSessionIds(deps.db, actor.dashboardId, result.id),
+          await fetchSessionIds(deps.db, result.id),
         ),
       });
       return create(WorkspacesUpdateResponseSchema, { workspace: w });
     },
 
     async workspacesDelete(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      requireAccountDevice(ctx.values);
       const result = await deps.db.deleteFrom("workspaces")
         .where("id", "=", req.id)
-        .where("dashboard_id", "=", actor.dashboardId)
         .where("version", "=", Number(req.ifVersion))
         .returningAll().executeTakeFirst();
       if (!result) throw new ConnectError("version mismatch or not found", Code.FailedPrecondition);
-      workspaceBus.publish({
-        kind: "deleted",
-        id: asWorkspaceId(result.id),
-        _dashboard_id: actor.dashboardId,
-      });
+      workspaceBus.publish({ kind: "deleted", id: asWorkspaceId(result.id) });
       return create(WorkspacesDeleteResponseSchema, { ok: true });
     },
 
     async workspacesSetSessions(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
+      requireAccountDevice(ctx.values);
       const now = Date.now();
       const { result, sourceRows, orphanIds } = await deps.db.transaction().execute(async (trx) => {
         const workspace = await trx.selectFrom("workspaces").select("id")
           .where("id", "=", req.id)
-          .where("dashboard_id", "=", actor.dashboardId)
           .where("version", "=", Number(req.ifVersion))
           .executeTakeFirst();
         if (!workspace) throw new ConnectError("version mismatch", Code.FailedPrecondition);
@@ -230,7 +214,6 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
         if (req.sessionIds.length > 0) {
           const sessionRows = await trx.selectFrom("sessions").select("id")
             .where("id", "in", req.sessionIds)
-            .where("dashboard_id", "=", actor.dashboardId)
             .execute();
           if (sessionRows.length !== new Set(req.sessionIds).size) {
             throw new ConnectError("session not found", Code.NotFound);
@@ -241,7 +224,6 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
           updated_at_ms: now, version: sql`version + 1`,
         })
           .where("id", "=", req.id)
-          .where("dashboard_id", "=", actor.dashboardId)
           .where("version", "=", Number(req.ifVersion))
           .returningAll().executeTakeFirst();
         if (!result) throw new ConnectError("version mismatch", Code.FailedPrecondition);
@@ -249,44 +231,39 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
         const sourceWorkspaceIds = req.sessionIds.length > 0
           ? (await trx.selectFrom("workspace_sessions").select("workspace_id")
               .where("session_id", "in", req.sessionIds)
-              .where("dashboard_id", "=", actor.dashboardId)
               .where("workspace_id", "!=", req.id).execute()).map(r => r.workspace_id as string)
           : [];
         const uniqueSources = [...new Set(sourceWorkspaceIds)];
 
         await trx.deleteFrom("workspace_sessions")
           .where("workspace_id", "=", req.id)
-          .where("dashboard_id", "=", actor.dashboardId)
           .execute();
         if (req.sessionIds.length > 0) {
           await trx.deleteFrom("workspace_sessions")
             .where("session_id", "in", req.sessionIds)
-            .where("dashboard_id", "=", actor.dashboardId)
             .where("workspace_id", "!=", req.id)
             .execute();
           await trx.insertInto("workspace_sessions").values(req.sessionIds.map(sid => ({
-            workspace_id: req.id, dashboard_id: actor.dashboardId, session_id: sid, added_at_ms: now,
+            workspace_id: req.id, dashboard_id: deps.selfHostedTenant.dashboardId,
+            session_id: sid, added_at_ms: now,
           }))).execute();
         }
 
         const sourceRows = uniqueSources.length > 0
           ? await trx.selectFrom("workspaces").selectAll()
               .where("id", "in", uniqueSources)
-              .where("dashboard_id", "=", actor.dashboardId)
               .execute()
           : [];
 
         const affectedIds = [req.id, ...uniqueSources];
         const remaining = await trx.selectFrom("workspace_sessions").select(["workspace_id"])
           .where("workspace_id", "in", affectedIds)
-          .where("dashboard_id", "=", actor.dashboardId)
           .execute();
         const haveSessions = new Set(remaining.map(r => r.workspace_id as string));
         const orphanIds = affectedIds.filter(id => !haveSessions.has(id));
         if (orphanIds.length > 0) {
           await trx.deleteFrom("workspaces")
             .where("id", "in", orphanIds)
-            .where("dashboard_id", "=", actor.dashboardId)
             .execute();
         }
         return { result, sourceRows, orphanIds };
@@ -294,16 +271,11 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
 
       const orphanSet = new Set(orphanIds);
       if (orphanSet.has(result.id)) {
-        workspaceBus.publish({
-          kind: "deleted",
-          id: asWorkspaceId(result.id),
-          _dashboard_id: actor.dashboardId,
-        });
+        workspaceBus.publish({ kind: "deleted", id: asWorkspaceId(result.id) });
       } else {
-        const sids = await fetchSessionIds(deps.db, actor.dashboardId, result.id);
+        const sids = await fetchSessionIds(deps.db, result.id);
         workspaceBus.publish({
           kind: "sessions-set",
-          _dashboard_id: actor.dashboardId,
           id: asWorkspaceId(result.id),
           session_ids: sids,
           version: result.version,
@@ -311,16 +283,11 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
       }
       for (const srcRow of sourceRows) {
         if (orphanSet.has(srcRow.id)) {
-          workspaceBus.publish({
-            kind: "deleted",
-            id: asWorkspaceId(srcRow.id),
-            _dashboard_id: actor.dashboardId,
-          });
+          workspaceBus.publish({ kind: "deleted", id: asWorkspaceId(srcRow.id) });
         } else {
-          const sids = await fetchSessionIds(deps.db, actor.dashboardId, srcRow.id);
+          const sids = await fetchSessionIds(deps.db, srcRow.id);
           workspaceBus.publish({
             kind: "sessions-set",
-            _dashboard_id: actor.dashboardId,
             id: asWorkspaceId(srcRow.id),
             session_ids: sids,
             version: srcRow.version,
@@ -339,7 +306,7 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
           }),
         });
       }
-      const w = await workspaceRowToProto(deps.db, actor.dashboardId, result);
+      const w = await workspaceRowToProto(deps.db, result);
       return create(WorkspacesSetSessionsResponseSchema, { workspace: w });
     },
   };

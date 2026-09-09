@@ -47,7 +47,6 @@ export async function registeredWorkerForGrant(
       FROM bootstrap_tokens AS bt
       JOIN workers AS worker
         ON worker.fp = bt.used_by_fp
-       AND worker.dashboard_id = bt.dashboard_id
       JOIN authorized_keys AS authorized_key
         ON authorized_key.fingerprint = worker.fp
       WHERE bt.token_hash = ?

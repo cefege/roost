@@ -1,6 +1,6 @@
-// Pure projection and page reconciliation for dashboard terminal-content search.
+// Pure projection and page reconciliation for global terminal-content search.
 // The controller uses these functions to keep cursor pages identity-safe; the
-// route joins matches only through its current dashboard metadata projection.
+// route joins matches only through its current session metadata projection.
 
 import {
   GlobalSearchPartialReason,

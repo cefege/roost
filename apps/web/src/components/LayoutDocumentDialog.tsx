@@ -1,5 +1,5 @@
 // Presents one local layout document before any pane-store mutation.
-// TerminalDeck owns file reading, dashboard/folder fencing, and application;
+// TerminalDeck owns file reading, credential/folder fencing, and application;
 // this component renders validation state and requires an explicit Apply click.
 // Material primitives supply the dialog, actions, and preview surfaces.
 

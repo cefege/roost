@@ -15,8 +15,10 @@ import { deletePairRequest } from "../store/mutations.ts";
 import { addToast } from "../store/toastStore.ts";
 import { browserSelfLabel } from "../lib/browserSelfLabel.ts";
 import { Button } from "./Settings/md/primitives.tsx";
+import { PairRequestCard, isPairRequestExpired } from "./PairRequestCard.tsx";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
 
+type PairPollStatus = "idle" | "pending" | "approved" | "denied" | "expired" | "error";
 
 export function Onboarding(props: { embedded?: boolean } = {}) {
   const [bootstrapToken, setBootstrapToken] = createSignal("");
@@ -25,8 +27,10 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
 
   // tap-to-pair local state
   const [pairEphemeralId, setPairEphemeralId] = createSignal<string | null>(null);
-  const [pairPollStatus, setPairPollStatus] = createSignal<"idle" | "pending" | "approved" | "denied" | "error">("idle");
+
+  const [pairPollStatus, setPairPollStatus] = createSignal<PairPollStatus>("idle");
   let pairPollTimer: ReturnType<typeof setInterval> | null = null;
+  const [busyRequestId, setBusyRequestId] = createSignal<string | null>(null);
 
   const workerCount = () => Object.keys(rootStore.workers).length;
   // authCoordIdentity is a PUBLIC endpoint — coord_identity is populated
@@ -41,11 +45,21 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     () => rootStore.browser_unauthorized,
     async (unauthorized) => unauthorized ? isResetWebKeyEligible() : false,
   );
-  const pendingPairRequests = createMemo(() => Object.values(rootStore.pair_requests));
+  const [pairRequestClock, setPairRequestClock] = createSignal(Date.now());
+  const pairRequestExpiryTimer = setInterval(() => setPairRequestClock(Date.now()), 1_000);
+  const pendingPairRequests = createMemo(() => {
+    const currentNow = pairRequestClock();
+    return Object.values(rootStore.pair_requests)
+      .filter((request) => !isPairRequestExpired(request, currentNow));
+  });
 
   onCleanup(() => {
     if (pairPollTimer) clearInterval(pairPollTimer);
+    clearInterval(pairRequestExpiryTimer);
   });
+
+  // Pair-request deltas can arrive while this embedded approval list is open.
+  // The expiry clock keeps the list from retaining a stale approval action.
 
   async function redeemToken() {
     setStatus("loading");
@@ -88,7 +102,7 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     pairPollTimer = setInterval(async () => {
       try {
         const { status: s } = await coordClient.pairPoll({ ephemeralId: ephemeral_id });
-        setPairPollStatus(s as "pending" | "approved" | "denied" | "error");
+        setPairPollStatus(s as PairPollStatus);
         if (s === "approved") {
           if (pairPollTimer) clearInterval(pairPollTimer);
           addToast("Browser approved — reloading", "ok");
@@ -96,6 +110,9 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
         } else if (s === "denied") {
           if (pairPollTimer) clearInterval(pairPollTimer);
           addToast("Pair request denied", "warn");
+        } else if (s === "expired") {
+          if (pairPollTimer) clearInterval(pairPollTimer);
+          addToast("Pair request expired — request again", "warn");
         }
       } catch (e) {
         setPairPollStatus("error");
@@ -106,7 +123,9 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     }, 2_000);
   }
 
-  async function approvePairRequest(ephemeral_id: string) {
+  async function approvePairRequest(ephemeral_id: string): Promise<void> {
+    if (busyRequestId()) return;
+    setBusyRequestId(ephemeral_id);
     try {
       await coordClient.pairApprove({ ephemeralId: ephemeral_id });
       deletePairRequest(ephemeral_id);
@@ -114,10 +133,14 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addToast(`Approve failed: ${msg}`, "err");
+    } finally {
+      setBusyRequestId(null);
     }
   }
 
-  async function denyPairRequest(ephemeral_id: string) {
+  async function denyPairRequest(ephemeral_id: string): Promise<void> {
+    if (busyRequestId()) return;
+    setBusyRequestId(ephemeral_id);
     try {
       await coordClient.pairDeny({ ephemeralId: ephemeral_id });
       deletePairRequest(ephemeral_id);
@@ -125,6 +148,8 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       addToast(`Deny failed: ${msg}`, "err");
+    } finally {
+      setBusyRequestId(null);
     }
   }
 
@@ -287,6 +312,7 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
               <Show when={pairPollStatus() === "pending"}>Waiting for approval…</Show>
               <Show when={pairPollStatus() === "approved"}>Approved. Reloading…</Show>
               <Show when={pairPollStatus() === "denied"}>Request denied.</Show>
+              <Show when={pairPollStatus() === "expired"}>Request expired — request again.</Show>
               <Show when={pairPollStatus() === "error"}>Poll error — try again.</Show>
             </p>
           </Show>
@@ -300,40 +326,18 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
             Pending pair requests
           </h3>
           <For each={pendingPairRequests()}>
-            {(req) => (
+            {(request) => (
               <div
                 data-testid="pair-approval-row"
-                data-ephemeral-id={req.ephemeral_id}
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  "justify-content": "space-between",
-                  background: "var(--md-sys-color-surface-container)",
-                  border: "1px solid var(--md-sys-color-outline)",
-                  padding: "8px 12px",
-                  "border-radius": "var(--md-shape-xs)",
-                  "margin-bottom": "6px",
-                }}
+                data-ephemeral-id={request.ephemeral_id}
+                style={{ "margin-bottom": "var(--md-space-3)" }}
               >
-                <div style={{ "font-size": "12px", "font-family": "ui-monospace, SFMono-Regular, Menlo, monospace", color: "var(--md-sys-color-on-surface)" }}>
-                  {req.ephemeral_id}
-                </div>
-                <div style={{ display: "flex", gap: "var(--md-space-2)" }}>
-                  <Button
-                    variant="filled"
-                    data-testid="pair-approve-btn"
-                    onClick={() => approvePairRequest(req.ephemeral_id)}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    variant="text"
-                    data-testid="pair-deny-btn"
-                    onClick={() => denyPairRequest(req.ephemeral_id)}
-                  >
-                    Deny
-                  </Button>
-                </div>
+                <PairRequestCard
+                  request={request}
+                  busy={busyRequestId() === request.ephemeral_id}
+                  onApprove={() => void approvePairRequest(request.ephemeral_id)}
+                  onDeny={() => void denyPairRequest(request.ephemeral_id)}
+                />
               </div>
             )}
           </For>

@@ -21,7 +21,6 @@ import {
 } from "../src/connect/global-search-cursors.ts";
 import { GlobalSearchWorkerLaneOwner } from "../src/connect/global-search-worker-lanes.ts";
 import {
-  GLOBAL_TEST_DASHBOARD_A,
   GLOBAL_TEST_WORKER_A1,
   GLOBAL_TEST_WORKER_A2,
   globalSearchOkEntry as okEntry,
@@ -84,7 +83,6 @@ describe("authorized global scrollback fan-out", () => {
     fixture.installWorker(GLOBAL_TEST_WORKER_A1);
     fixture.installWorker(GLOBAL_TEST_WORKER_A2);
     const binding: GlobalSearchCursorBinding = {
-      dashboardId: GLOBAL_TEST_DASHBOARD_A,
       deviceFingerprint: "global-browser",
       tabId: "global-tab",
       searchId: "reauthorize",

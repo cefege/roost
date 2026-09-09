@@ -266,9 +266,9 @@ before a request is made.
 ## How `roost api` enrolls its key
 
 `roost api` always signs with its path-isolated `~/.roost/cli-key`; it never
-borrows a worker credential. After authorization it resolves
-`AuthDashboardAccess.selected_dashboard_id` and scopes unary and Sync requests
-to that dashboard.
+borrows a worker credential. It confirms the key is authorized with one cheap
+protected call (`WorkersList`), and every unary and Sync request then reaches
+the whole install.
 
 An unknown key can enroll automatically only while the CLI is running on the
 coordinator host: the host mints a scoped one-shot browser grant and the CLI

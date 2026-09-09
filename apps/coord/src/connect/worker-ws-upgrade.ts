@@ -104,7 +104,6 @@ export async function handleWorkerWsUpgrade(
     kind: "worker",
     caller,
     fp,
-    dashboardId: principal.dashboardId,
     conn: null,
     queue: null,
     eventRate: { startedAtMs: null, events: 0 },

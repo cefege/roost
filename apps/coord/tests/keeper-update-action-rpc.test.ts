@@ -13,11 +13,11 @@ import type {
   CoordWorkerDown,
   DKeeperUpdatePrepare,
 } from "@roost/shared/proto/worker_transport_pb";
-import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { createCoord } from "../src/coord-factory.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import {
@@ -26,9 +26,6 @@ import {
 } from "../src/router/pending-rpcs.ts";
 
 const WORKER_FP = "ab".repeat(32);
-const ACCOUNT_ID = "keeper-action-account";
-const ORGANIZATION_ID = "keeper-action-organization";
-const DASHBOARD_ID = "keeper-action-dashboard";
 const EARLIER_SESSION_ID = "10000000-0000-4000-8000-000000000001";
 const LATER_SESSION_ID = "10000000-0000-4000-8000-000000000002";
 const IMPLEMENTATION_DIGEST = "1".repeat(64);
@@ -98,6 +95,7 @@ async function openHarness(
   const directory = mkdtempSync(join(tmpdir(), "roost-keeper-action-rpc-"));
   const opened = openDb(join(directory, "coord.db"));
   await runMigrations(opened.sqlite);
+  const selfHostedTenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
   const browserKeys = await crypto.subtle.generateKey(
     { name: "Ed25519" }, true, ["sign", "verify"],
   );
@@ -112,48 +110,15 @@ async function openHarness(
     label: "keeper-action-browser",
     added_at: now,
   }).execute();
-  await opened.db.insertInto("accounts").values({
-    id: ACCOUNT_ID,
-    email_normalized: "keeper-action@example.test",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
   await opened.db.insertInto("account_devices").values({
     fingerprint: browserFp,
-    account_id: ACCOUNT_ID,
+    account_id: selfHostedTenant.accountId,
     added_at_ms: now,
     last_seen_at_ms: now,
   }).execute();
-  await opened.db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "keeper-action",
-    name: "Keeper action",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await opened.db.insertInto("organization_memberships").values({
-    organization_id: ORGANIZATION_ID,
-    account_id: ACCOUNT_ID,
-    role: "owner",
-    created_at_ms: now,
-  }).execute();
-  await opened.db.insertInto("dashboards").values({
-    id: DASHBOARD_ID,
-    organization_id: ORGANIZATION_ID,
-    slug: "keeper-action",
-    name: "Keeper action",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await opened.db.insertInto("dashboard_memberships").values({
-    dashboard_id: DASHBOARD_ID,
-    account_id: ACCOUNT_ID,
-    role: "admin",
-    created_at_ms: now,
-  }).execute();
   await opened.db.insertInto("workers").values({
     fp: WORKER_FP,
-    dashboard_id: DASHBOARD_ID,
+    dashboard_id: selfHostedTenant.dashboardId,
     label: "keeper-action-worker",
     os: "linux",
     reachable_addr: "127.0.0.1",
@@ -165,7 +130,7 @@ async function openHarness(
   for (const [index, sessionId] of sessionIds.entries()) {
     await opened.db.insertInto("sessions").values({
       id: sessionId,
-      dashboard_id: DASHBOARD_ID,
+      dashboard_id: selfHostedTenant.dashboardId,
       worker_fp: WORKER_FP,
       channel: index + 1,
       kind: "shell",
@@ -194,6 +159,7 @@ async function openHarness(
     cfg,
     jwtCache: newJwtCache(),
     writeGate: new CoordinatorWriteGate(),
+    selfHostedTenant,
   });
   const issuedAt = Math.floor(now / 1_000);
   const jwt = await signJwt({
@@ -208,7 +174,6 @@ async function openHarness(
   let dispatchCount = 0;
   __setConnectWorkerForTest(WORKER_FP, {
     workerFp: WORKER_FP,
-    dashboardId: DASHBOARD_ID,
     send(frame: CoordWorkerDown): number {
       if (frame.frame.case === "keeperUpdatePrepare") {
         keeperFrame = frame.frame.value;
@@ -226,7 +191,6 @@ async function openHarness(
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${jwt}`,
-          [X_ROOST_DASHBOARD_ID]: DASHBOARD_ID,
         },
         body: JSON.stringify({
           workerFp: WORKER_FP,

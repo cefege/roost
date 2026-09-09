@@ -59,6 +59,7 @@ export function createBootstrapHandlerHarnessOwner(): {
       sqlite: opened.sqlite,
       cfg: {},
       jwtCache: newJwtCache(),
+      selfHostedTenant: tenant,
     } as unknown as ConnectDeps;
     cleanups.push(async () => {
       try {

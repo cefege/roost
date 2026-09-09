@@ -179,7 +179,7 @@ export function writeAuditLog(opts: {
   path: string;
   traceId: string | undefined;
   callerFp: string | null;
-  /** Server-confirmed tenant scope when the caller has a selected actor. */
+  /** Retained scope column for the audit row; storage metadata only. */
   dashboardId?: string | null;
   /** Terminal input uses strict mode so a completed write cannot be reported
    * without an explicit audit-persistence outcome. Other request audits remain
@@ -201,13 +201,12 @@ export function writeAuditLog(opts: {
       status: opts.status,
       trace_id: opts.traceId ?? null,
     })
-    .returning(["id", "dashboard_id", "ts", "caller_fp", "method", "path", "status", "trace_id"])
+    .returning(["id", "ts", "caller_fp", "method", "path", "status", "trace_id"])
     .executeTakeFirst()
     .then((inserted) => {
       if (!inserted) return;
       auditBus.publish({
         id: inserted.id as number,
-        _dashboard_id: (inserted.dashboard_id as string | null) ?? undefined,
         ts: inserted.ts as number,
         caller_fp: (inserted.caller_fp as string | null) ?? null,
         caller_label: null,

@@ -227,7 +227,7 @@ export function droppedCellFrameCount(sessionId: string): number {
   return terminalDroppedFrameCounts.get(sessionId) ?? 0;
 }
 
-/** Tear down every dashboard-bound replica before a new dashboard can dial.
+/** Tear down every credential-bound replica before another socket can dial.
  * A smoke-only one-shot renderer-loss arm survives this replay boundary so its
  * first returned baseline still exercises recovery. */
 export function resetTerminalStream(): void {

@@ -21,7 +21,6 @@ export const OTHER_SESSION = "10000000-0000-4000-8000-000000000002";
 export const VIEW_A = "20000000-0000-4000-8000-000000000001";
 export const VIEW_B = "20000000-0000-4000-8000-000000000002";
 export const WORKER = "worker-a";
-export const DASHBOARD = "terminal-view-test-dashboard";
 export const MAX_U64 = (1n << 64n) - 1n;
 
 type StreamSender = NonNullable<TerminalViewHubOptions["sendStreamState"]>;
@@ -162,26 +161,25 @@ export function makeHarness(options: HarnessOptions = {}) {
   const routeCalls: string[] = [];
   const snapshotRequests: Array<{ workerFp: string; sessionId: string; streamId: string }> = [];
   const resolveRoute: ResolveRoute = options.resolveRoute
-    ?? (async (dashboardId) => ({ workerFp: WORKER, channel: 7, dashboardId }));
+    ?? (async () => ({ workerFp: WORKER, channel: 7 }));
   const sendStreamState: StreamSender = options.sendStreamState
     ?? ((_workerFp, state) => admitted(Promise.resolve(resultFor(state))));
   const sendSnapshot = options.sendSnapshot
-    ?? ((_workerFp: string, _sessionId: string, _streamId: string, _dashboardId: string) => true);
+    ?? ((_workerFp: string, _sessionId: string, _streamId: string) => true);
   const hub = new TerminalViewHub({
     db: undefined as never,
     now: () => clock.value,
-    resolveRoute: async (dashboardId, sessionId) => {
+    resolveRoute: async (sessionId) => {
       routeCalls.push(sessionId);
-      const route = await resolveRoute(dashboardId, sessionId);
-      return route && { ...route, dashboardId: route.dashboardId ?? dashboardId };
+      return resolveRoute(sessionId);
     },
     sendStreamState: (workerFp, state) => {
       sent.push({ workerFp, ...state });
       return sendStreamState(workerFp, state);
     },
-    sendSnapshot: (workerFp, sessionId, streamId, dashboardId) => {
+    sendSnapshot: (workerFp, sessionId, streamId) => {
       snapshotRequests.push({ workerFp, sessionId, streamId });
-      return sendSnapshot(workerFp, sessionId, streamId, dashboardId);
+      return sendSnapshot(workerFp, sessionId, streamId);
     },
   });
   liveHubs.push(hub);
@@ -199,7 +197,6 @@ export function register(
     socketId,
     viewerKey,
     callerFingerprint: fingerprint,
-    dashboardId: DASHBOARD,
     allowsSession: () => true,
     sink,
   });

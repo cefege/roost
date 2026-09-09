@@ -1,6 +1,7 @@
-// Connect RPC authentication resolves verified keys and tenant scope before any
-// handler runs. This interceptor owns request context, write-gate leases, and
-// response-aware auditing because no outer layer sees all three safely.
+// Connect RPC authentication resolves verified keys into one application
+// principal before any handler runs. This interceptor owns request context,
+// write-gate leases, and response-aware auditing because no outer layer sees
+// all three safely.
 
 import {
   Code,
@@ -14,6 +15,7 @@ import type { JwtCache } from "../jwt.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import type { CallerOrigin, ListenerTrust } from "../middleware/caller-origin.ts";
+import type { SelfHostedTenant } from "../self-hosted-tenant.ts";
 import { verifyJwt } from "../jwt.ts";
 import {
   recordAuditTelemetry,
@@ -29,7 +31,6 @@ import {
   X_ROOST_ON_HOST,
   X_ROOST_LISTENER_TRUST,
   X_ROOST_TAB_ID,
-  X_ROOST_DASHBOARD_ID,
   X_ROOST_AUTH_LAYER,
   AUTH_LAYER_DEVICE,
   AUTH_LAYER_TRUSTED_PROXY,
@@ -42,17 +43,7 @@ import {
   type LegacySelfHostedPrincipal,
   type WorkerPrincipal,
 } from "./auth-principal.ts";
-import {
-  getDashboardAccessSnapshot,
-  isDashboardActor,
-  resolveDashboardActor,
-  type AccessibleDashboard,
-  type AccessibleOrganization,
-  type DashboardAccessSnapshot,
-  type DashboardActor,
-  type DashboardRole,
-  type OrganizationRole,
-} from "./dashboard-authorization.ts";
+
 
 export {
   resolveCallerPrincipal,
@@ -62,17 +53,7 @@ export {
   type LegacySelfHostedPrincipal,
   type WorkerPrincipal,
 };
-export {
-  getDashboardAccessSnapshot,
-  isDashboardActor,
-  resolveDashboardActor,
-  type AccessibleDashboard,
-  type AccessibleOrganization,
-  type DashboardAccessSnapshot,
-  type DashboardActor,
-  type DashboardRole,
-  type OrganizationRole,
-};
+
 
 // Map a Connect Code → conventional HTTP status. Audit_log records
 // HTTP-semantic status so dashboards reading `WHERE status >= 400`
@@ -97,10 +78,6 @@ function codeToHttpStatus(code: Code): number {
 }
 
 
-function notFound(): never {
-  throw new ConnectError("not found", Code.NotFound);
-}
-
 // Context-key for the caller. Handlers retrieve via `ctx.values.get(callerKey)`.
 export const callerKey = createContextKey<Caller | null>(null);
 
@@ -117,16 +94,15 @@ export const listenerTrustKey = createContextKey<ListenerTrust>("direct");
 // distinct sender/viewer identities.
 export const tabIdKey = createContextKey<string | undefined>(undefined);
 
-/** Client-requested dashboard ID. It is not authority until resolved below. */
-export const requestedDashboardIdKey = createContextKey<string | undefined>(undefined);
-/** Server-confirmed dashboard scope, resolved exactly once by the interceptor. */
-export const dashboardActorKey = createContextKey<DashboardActor | null>(null);
+
 
 export interface AuthInterceptorDeps {
   db: KyselyDB;
   jwtCache: JwtCache;
   cfg: CoordConfig;
   writeGate: CoordinatorWriteGate;
+  /** Storage metadata for audit rows: the single self-hosted dashboard id. */
+  selfHostedTenant: SelfHostedTenant;
 }
 
 
@@ -201,16 +177,8 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
         // leave caller null; authenticated handlers reject
       }
     }
-    const requestedDashboardId = req.header.get(X_ROOST_DASHBOARD_ID)?.trim() || undefined;
-    // A selected dashboard is a request, never a claim. Resolve it after JWT
-    // verification and before any tenant handler can read a resource.
-    const actor = caller?.kind === "account-device" && requestedDashboardId
-      ? await resolveDashboardActor(deps.db, caller.fingerprint, requestedDashboardId)
-      : null;
     const traceId = req.header.get(X_ROOST_TRACE_ID) ?? undefined;
     req.contextValues.set(callerKey, caller);
-    req.contextValues.set(dashboardActorKey, actor);
-    req.contextValues.set(requestedDashboardIdKey, requestedDashboardId);
     req.contextValues.set(traceIdKey, traceId);
     req.contextValues.set(remoteAddressKey, req.header.get(X_ROOST_REMOTE_ADDR) ?? undefined);
     req.contextValues.set(onHostKey, req.header.get(X_ROOST_ON_HOST) === "1");
@@ -244,8 +212,7 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
           path,
           traceId,
           callerFp: caller?.fingerprint ?? null,
-          dashboardId: actor?.dashboardId
-            ?? (caller?.kind === "worker" ? caller.dashboardId : undefined),
+          dashboardId: deps.selfHostedTenant.dashboardId,
           recordTelemetry: false,
         });
       }
@@ -285,7 +252,7 @@ export function requireAccountDevice(values: ContextValues): AccountDeviceCaller
   return authenticationRequired();
 }
 
-/** Requires a persisted worker with a non-null dashboard assignment. */
+/** Requires a persisted, non-tombstoned worker. */
 export function requireWorker(values: ContextValues): WorkerPrincipal {
   const caller = values.get(callerKey);
   if (caller?.kind === "worker") return caller;
@@ -308,41 +275,6 @@ export function requireSearchTabId(values: ContextValues): string {
 }
 
 
-export function requestedDashboardId(values: ContextValues): string | undefined {
-  return values.get(requestedDashboardIdKey);
-}
-
-/** Requires a browser principal and an active selected dashboard membership. */
-export function requireDashboardActor(values: ContextValues): DashboardActor {
-  const caller = requireAccountDevice(values);
-  const actor = values.get(dashboardActorKey);
-  if (
-    isDashboardActor(actor)
-    && actor.deviceFingerprint === caller.fingerprint
-    && (caller.kind !== "account-device" || actor.accountId === caller.accountId)
-  ) {
-    return actor;
-  }
-  return notFound();
-}
-
-/** Dashboard admins manage dashboard resources and configuration. */
-export function requireDashboardAdmin(values: ContextValues): DashboardActor {
-  const actor = requireDashboardActor(values);
-  if (actor.dashboardRole !== "admin") {
-    throw new ConnectError("dashboard admin required", Code.PermissionDenied);
-  }
-  return actor;
-}
-
-/** Organization owners and admins manage organization-level resources. */
-export function requireOrganizationAdmin(values: ContextValues): DashboardActor {
-  const actor = requireDashboardActor(values);
-  if (actor.organizationRole !== "owner" && actor.organizationRole !== "admin") {
-    throw new ConnectError("organization admin required", Code.PermissionDenied);
-  }
-  return actor;
-}
 
 /** Account-device caller if present, else null for on-host recovery paths. */
 export function optionalAccountDevice(values: ContextValues): AccountDeviceCaller | null {

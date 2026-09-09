@@ -1,4 +1,4 @@
-// Debounced, cursor-paged terminal-content search for the current dashboard.
+// Debounced, cursor-paged terminal-content search across the install.
 // One logical search owns one caller ID across pages, one in-flight RPC, and
 // generation-fenced publication. GlobalSearchPage owns and disposes each instance.
 
@@ -19,11 +19,11 @@ import {
 } from "@roost/shared/terminal-search";
 import { coordClient } from "../connect.ts";
 import {
-  captureDashboardResourceToken,
-  isCurrentDashboardResourceToken,
-  type DashboardResourceToken,
-} from "../store/dashboard-selection.ts";
-import { registerDashboardBoundContentSearch } from "./globalContentSearchRuntime.ts";
+  captureAuthResourceToken,
+  isCurrentAuthResourceToken,
+  type AuthResourceToken,
+} from "../store/auth-boundary.ts";
+import { registerAuthBoundContentSearch } from "./globalContentSearchRuntime.ts";
 import {
   mergeGlobalContentSearchMatches,
   reconcileGlobalContentSearchPartials,
@@ -51,10 +51,10 @@ interface GlobalContentSearchRpc {
 
 export interface GlobalContentSearchControllerDependencies {
   readonly rpc?: GlobalContentSearchRpc;
-  readonly captureResourceToken?: () => DashboardResourceToken;
-  readonly isResourceTokenCurrent?: (token: DashboardResourceToken) => boolean;
+  readonly captureResourceToken?: () => AuthResourceToken;
+  readonly isResourceTokenCurrent?: (token: AuthResourceToken) => boolean;
   readonly createSearchId?: () => string;
-  readonly registerRuntime?: typeof registerDashboardBoundContentSearch;
+  readonly registerRuntime?: typeof registerAuthBoundContentSearch;
   readonly schedule?: (callback: () => void, delayMs: number) => () => void;
   readonly recordCancelFailure?: (error: unknown) => void;
 }
@@ -73,9 +73,9 @@ export interface GlobalContentSearchController {
   readonly hasSearched: Accessor<boolean>;
   setSearch(query: string, caseSensitive: boolean): void;
   loadMore(): void;
-  resumeAfterDashboardCutover(): void;
+  resumeAfterAuthBoundary(): void;
   retry(): void;
-  resetForDashboardCutover(): void;
+  resetForAuthBoundary(): void;
   dispose(): void;
 }
 
@@ -83,7 +83,7 @@ export interface GlobalContentSearchController {
 interface ActiveSearchSpec {
   readonly query: string;
   readonly caseSensitive: boolean;
-  readonly resourceToken: DashboardResourceToken;
+  readonly resourceToken: AuthResourceToken;
 }
 
 interface ActivePageRequest {
@@ -101,8 +101,8 @@ export function createGlobalContentSearchController(
   overrides: GlobalContentSearchControllerDependencies = {},
 ): GlobalContentSearchController {
   const rpc = overrides.rpc ?? defaultRpc;
-  const captureResourceToken = overrides.captureResourceToken ?? captureDashboardResourceToken;
-  const isResourceTokenCurrent = overrides.isResourceTokenCurrent ?? isCurrentDashboardResourceToken;
+  const captureResourceToken = overrides.captureResourceToken ?? captureAuthResourceToken;
+  const isResourceTokenCurrent = overrides.isResourceTokenCurrent ?? isCurrentAuthResourceToken;
   const createSearchId = overrides.createSearchId ?? (() => crypto.randomUUID());
   const schedule = overrides.schedule ?? ((callback, delayMs) => {
     const timeout = setTimeout(callback, delayMs);
@@ -111,7 +111,7 @@ export function createGlobalContentSearchController(
   const recordCancelFailure = overrides.recordCancelFailure ?? ((error: unknown) => {
     diag("scrollback.global_search_cancel_failed", { error: String(error) });
   });
-  const registerRuntime = overrides.registerRuntime ?? registerDashboardBoundContentSearch;
+  const registerRuntime = overrides.registerRuntime ?? registerAuthBoundContentSearch;
 
   const [matches, setMatches] = createSignal<readonly SessionsSearchGlobalMatch[]>([]);
   const [partials, setPartials] = createSignal<readonly SessionsSearchGlobalPartial[]>([]);
@@ -131,7 +131,7 @@ export function createGlobalContentSearchController(
   let cancelDebounce: (() => void) | null = null;
   let version = 0;
   let disposed = false;
-  let suspendedResourceToken: DashboardResourceToken | null = null;
+  let suspendedResourceToken: AuthResourceToken | null = null;
   let unregisterRuntime = () => {};
   let desiredSearch = { query: "", caseSensitive: false };
 
@@ -172,13 +172,6 @@ export function createGlobalContentSearchController(
     setLoading(false);
   }
 
-  function sameResourceToken(
-    left: DashboardResourceToken,
-    right: DashboardResourceToken,
-  ): boolean {
-    return left.generation === right.generation && left.dashboardId === right.dashboardId;
-  }
-
   function requestIsCurrent(
     request: ActivePageRequest,
     spec: ActiveSearchSpec,
@@ -197,7 +190,7 @@ export function createGlobalContentSearchController(
     const searchId = activeSearchId;
     if (!spec || !searchId || activePageRequest || disposed) return;
     if (!isResourceTokenCurrent(spec.resourceToken)) {
-      resetForDashboardCutover();
+      resetForAuthBoundary();
       return;
     }
 
@@ -271,17 +264,16 @@ export function createGlobalContentSearchController(
     if (disposed) return;
     desiredSearch = { query, caseSensitive };
     const resourceToken = captureResourceToken();
-    if (suspendedResourceToken && sameResourceToken(suspendedResourceToken, resourceToken)) return;
+    if (suspendedResourceToken?.generation === resourceToken.generation) return;
     suspendedResourceToken = null;
     if (
       activeSpec?.query === query
       && activeSpec.caseSensitive === caseSensitive
-      && sameResourceToken(activeSpec.resourceToken, resourceToken)
+      && activeSpec.resourceToken.generation === resourceToken.generation
     ) return;
 
     stopLogicalSearch();
     clearPublishedState();
-    if (resourceToken.dashboardId === null) return;
     if (!query.trim()) return;
     if ([...query].length > TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS) {
       setError(`Terminal content queries are limited to ${TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS} characters.`);
@@ -312,13 +304,13 @@ export function createGlobalContentSearchController(
     setSearch(query, caseSensitive);
   }
 
-  function resetForDashboardCutover(): void {
+  function resetForAuthBoundary(): void {
     stopLogicalSearch();
     clearPublishedState();
     suspendedResourceToken = captureResourceToken();
   }
 
-  function resumeAfterDashboardCutover(): void {
+  function resumeAfterAuthBoundary(): void {
     if (disposed || !suspendedResourceToken) return;
     suspendedResourceToken = null;
     activeSpec = null;
@@ -347,9 +339,9 @@ export function createGlobalContentSearchController(
     hasSearched,
     setSearch,
     loadMore,
-    resumeAfterDashboardCutover,
+    resumeAfterAuthBoundary,
     retry,
-    resetForDashboardCutover,
+    resetForAuthBoundary,
     dispose,
   };
   unregisterRuntime = registerRuntime(controller);

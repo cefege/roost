@@ -34,6 +34,8 @@ import { makeAuthInterceptor } from "./auth-interceptor.ts";
 import type { PendingEventPublicationStore } from "../pending-event-publications.ts";
 import type { UiLayoutApplyOwner } from "./ui-layout-apply-owner.ts";
 import type { UiStateOwner } from "./ui-state-owner.ts";
+import type { SelfHostedTenant } from "../self-hosted-tenant.ts";
+import type { CloudflareAccessGate } from "../cf-access.ts";
 
 // ─── deps + helpers ───────────────────────────────────────────────────────
 
@@ -47,6 +49,11 @@ export interface ConnectDeps {
   /** Required: the keeper-update fence only holds if every mutation path
    * leases the same gate instance. */
   writeGate: CoordinatorWriteGate;
+  /** Required: the single self-hosted account/organization/dashboard resolved
+   * once at startup. Every scoped write takes its value from here. */
+  selfHostedTenant: SelfHostedTenant;
+  /** Optional browser front-door verifier, derived once from cfg. */
+  cfAccess: CloudflareAccessGate | null;
   pendingPublications?: PendingEventPublicationStore;
   /** Deterministic observation point immediately before the keeper-update
    * handler's final empty-session query. */
@@ -55,20 +62,22 @@ export interface ConnectDeps {
   /** Synchronous post-commit worker fence: revoke every admitted generation,
    * detach its ordered inbound queue, then unregister the current handle. */
   onWorkerDeletedFence?: (fingerprint: string) => void;
-  /** Remove a tombstoned worker from already-open mutable Sync scopes. */
-  onWorkerDeletedSyncScope?: (dashboardId: string, fingerprint: string) => void;
+  /** Remove a tombstoned worker from already-open mutable Sync resource
+   * indexes. */
+  onWorkerDeletedSyncScope?: (fingerprint: string) => void;
   /** Request transport close only after every in-process deletion cleanup. */
   onWorkerDeletedSocketClose?: (fingerprint: string) => void;
-  /** Invoked after a dashboard membership/status mutation commits. A device
-   * fingerprint narrows revocation to that device when present. */
-  onDashboardRevoked?: (dashboardId: string, fingerprint?: string) => void;
 }
 
 // ─── ConnectRouter build ──────────────────────────────────────────────────
 
 export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
   const interceptor = makeAuthInterceptor({
-    db: deps.db, jwtCache: deps.jwtCache, cfg: deps.cfg, writeGate: deps.writeGate,
+    db: deps.db,
+    jwtCache: deps.jwtCache,
+    cfg: deps.cfg,
+    writeGate: deps.writeGate,
+    selfHostedTenant: deps.selfHostedTenant,
   });
 
   const router = createConnectRouter({

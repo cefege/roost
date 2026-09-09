@@ -132,6 +132,18 @@ export interface PairRequestsTable {
   status: string;
   created_at_ms: number;
   decided_at_ms: number | null;
+  user_agent: string | null;
+  client_browser: string | null;
+  client_os: string | null;
+  client_device_type: string | null;
+  source_ip: string | null;
+  country_code: string | null;
+  region: string | null;
+  city: string | null;
+  edge_identity_provider: string | null;
+  edge_identity: string | null;
+  edge_identity_verified: number;
+  expires_at_ms: number;
 }
 
 export interface TasksTable {
@@ -175,6 +187,10 @@ export interface AuthorizedKeysTable {
   public_key: Uint8Array;
   label: string;
   added_at: number;
+  paired_from_ip: string | null;
+  paired_country: string | null;
+  paired_user_agent: string | null;
+  paired_edge_identity: string | null;
 }
 
 export interface AuthorizedKeyRevocationsTable {

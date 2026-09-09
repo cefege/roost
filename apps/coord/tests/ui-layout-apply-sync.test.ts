@@ -22,7 +22,6 @@ import { createSyncV2SocketState } from "../src/connect/sync-ws-v2-state.ts";
 import type { UiLayoutApplyPublication } from "../src/connect/ui-layout-apply-owner.ts";
 import {
   createSyncWsKeepaliveCoordFixture,
-  SYNC_WS_KEEPALIVE_DASHBOARD_ID,
   type SyncWsKeepaliveCoordFixture,
 } from "./sync-ws-keepalive-coord-fixture.ts";
 import {
@@ -31,7 +30,6 @@ import {
 } from "./sync-ws-keepalive-pressure-fixture.ts";
 
 let fixture: SyncWsKeepaliveCoordFixture;
-const dashboardId = SYNC_WS_KEEPALIVE_DASHBOARD_ID;
 
 beforeAll(async () => {
   fixture = await createSyncWsKeepaliveCoordFixture();
@@ -104,7 +102,6 @@ function publishApply(publication: UiLayoutApplyPublication): void {
     targetSocketId: publication.socketId,
     correlationId: publication.correlationId,
     command: layoutCommand(),
-    _dashboard_id: publication.dashboardId,
   });
 }
 
@@ -171,7 +168,6 @@ describe("Sync-v2 layout target eligibility", () => {
 
     let publication: UiLayoutApplyPublication | undefined;
     const pending = fixture.deps.uiLayoutApplies.requestApply(
-      dashboardId,
       fixture.fingerprint,
       "target-tab",
       new AbortController().signal,
@@ -210,7 +206,6 @@ describe("Sync-v2 layout target eligibility", () => {
     handler.open(oldSocket.ws);
     stopKeepalive(oldSocket.socket);
     const oldPending = fixture.deps.uiLayoutApplies.requestApply(
-      dashboardId,
       fixture.fingerprint,
       "replacement-tab",
       new AbortController().signal,
@@ -226,7 +221,6 @@ describe("Sync-v2 layout target eligibility", () => {
 
     let replacementCorrelation = "";
     const replacementPending = fixture.deps.uiLayoutApplies.requestApply(
-      dashboardId,
       fixture.fingerprint,
       "replacement-tab",
       new AbortController().signal,
@@ -256,7 +250,6 @@ describe("Sync-v2 layout result ingress", () => {
     const terminal = target.socket.data.v2!.domains.get(SyncDomain.TERMINAL)!;
     expect(terminal.ready).toBe(false);
     const pending = fixture.deps.uiLayoutApplies.requestApply(
-      dashboardId,
       fixture.fingerprint,
       "pre-ready-tab",
       new AbortController().signal,
@@ -288,7 +281,6 @@ describe("Sync-v2 layout result ingress", () => {
       handler.open(candidate.ws);
       stopKeepalive(candidate.socket);
       const syntheticTarget = {
-        dashboardId,
         fingerprint: fixture.fingerprint,
         tabId: candidate.socket.data.tabId ?? `synthetic-${label}`,
         socketId: candidate.socket.data.v2!.socketId,
@@ -296,7 +288,6 @@ describe("Sync-v2 layout result ingress", () => {
       const unregister = fixture.deps.uiLayoutApplies.registerTarget(syntheticTarget);
       let publishedCorrelation = "";
       const pending = fixture.deps.uiLayoutApplies.requestApply(
-        dashboardId,
         syntheticTarget.fingerprint,
         syntheticTarget.tabId,
         new AbortController().signal,
@@ -325,7 +316,6 @@ describe("Sync-v2 layout result ingress", () => {
       layoutDocument: layoutDocument(),
     });
     fixture.deps.uiStates.report({
-      dashboardId,
       fingerprint: fixture.fingerprint,
       tabId: "reported-tab",
       state: report,
@@ -336,7 +326,6 @@ describe("Sync-v2 layout result ingress", () => {
       targetSocketId: candidate.socket.data.v2!.socketId,
       correlationId: "already-published",
       command: layoutCommand(),
-      _dashboard_id: dashboardId,
     });
     handler.open(candidate.ws);
     stopKeepalive(candidate.socket);

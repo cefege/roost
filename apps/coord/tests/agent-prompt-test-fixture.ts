@@ -1,7 +1,8 @@
-// Agent-prompt tests share one migrated dashboard/session fixture, the exact
-// request builder, and an explicit fake worker transport. The fixture owns
-// status-hub reset and route cleanup so each case can observe waiter and
-// pending-RPC behavior without network I/O.
+// Agent-prompt tests share one migrated install fixture — two workers, the
+// prompted session and a second worker's session — plus the exact request
+// builder and an explicit fake worker transport. The fixture owns status-hub
+// reset and route cleanup so each case can observe waiter and pending-RPC
+// behavior without network I/O.
 
 import { create } from "@bufbuild/protobuf";
 import { createContextValues, type HandlerContext } from "@connectrpc/connect";
@@ -29,9 +30,8 @@ import {
 import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
 import {
   callerKey,
-  dashboardActorKey,
   tabIdKey,
-  type DashboardActor,
+  type AccountDeviceCaller,
 } from "../src/connect/auth-interceptor.ts";
 import { makeAgentPromptHandlers } from "../src/connect/handlers-agent-prompt.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
@@ -39,9 +39,8 @@ import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb } from "../src/db/connection.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 
-export const PROMPT_DASHBOARD = "agent-prompt-dashboard";
-export const FOREIGN_DASHBOARD = "agent-prompt-foreign-dashboard";
 export const PROMPT_WORKER = asWorkerFp("a5".repeat(32));
 export const FOREIGN_WORKER = asWorkerFp("b6".repeat(32));
 export const PROMPT_SESSION = asSessionId("81000000-0000-4000-8000-000000000001");
@@ -69,49 +68,23 @@ export function agentPromptRequest(overrides: Partial<{
   });
 }
 
-const ACTOR: DashboardActor = {
+const ACTOR: AccountDeviceCaller = {
+  kind: "account-device",
+  fingerprint: "agent-prompt-device",
+  label: "prompt test device",
   accountId: "agent-prompt-account",
-  organizationId: "agent-prompt-organization",
-  dashboardId: PROMPT_DASHBOARD,
-  organizationRole: "owner",
-  dashboardRole: "admin",
-  deviceFingerprint: "agent-prompt-device",
 };
 
 export async function startAgentPromptTestFixture() {
   const workdir = mkdtempSync(join(tmpdir(), "roost-agent-prompt-"));
   const opened = openDb(join(workdir, "coord.db"));
   await runMigrations(opened.sqlite);
+  const tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
   const now = Date.now();
-  await opened.db.insertInto("organizations").values({
-    id: ACTOR.organizationId,
-    slug: "agent-prompt",
-    name: "Agent prompt",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await opened.db.insertInto("dashboards").values([
-    {
-      id: PROMPT_DASHBOARD,
-      organization_id: ACTOR.organizationId,
-      slug: "agent-prompt",
-      name: "Agent prompt",
-      status: "active",
-      created_at_ms: now,
-    },
-    {
-      id: FOREIGN_DASHBOARD,
-      organization_id: ACTOR.organizationId,
-      slug: "agent-prompt-foreign",
-      name: "Agent prompt foreign",
-      status: "active",
-      created_at_ms: now,
-    },
-  ]).execute();
   await opened.db.insertInto("workers").values([
     {
       fp: PROMPT_WORKER,
-      dashboard_id: PROMPT_DASHBOARD,
+      dashboard_id: tenant.dashboardId,
       label: "Prompt worker",
       os: "linux",
       registered_at_ms: now,
@@ -119,8 +92,8 @@ export async function startAgentPromptTestFixture() {
     },
     {
       fp: FOREIGN_WORKER,
-      dashboard_id: FOREIGN_DASHBOARD,
-      label: "Foreign worker",
+      dashboard_id: tenant.dashboardId,
+      label: "Second worker",
       os: "linux",
       registered_at_ms: now,
       last_seen_ms: now,
@@ -129,7 +102,7 @@ export async function startAgentPromptTestFixture() {
   await opened.db.insertInto("sessions").values([
     {
       id: PROMPT_SESSION,
-      dashboard_id: PROMPT_DASHBOARD,
+      dashboard_id: tenant.dashboardId,
       worker_fp: PROMPT_WORKER,
       channel: 41,
       kind: "shell",
@@ -139,7 +112,7 @@ export async function startAgentPromptTestFixture() {
     },
     {
       id: FOREIGN_SESSION,
-      dashboard_id: FOREIGN_DASHBOARD,
+      dashboard_id: tenant.dashboardId,
       worker_fp: FOREIGN_WORKER,
       channel: 42,
       kind: "shell",
@@ -151,18 +124,13 @@ export async function startAgentPromptTestFixture() {
   const deps = {
     db: opened.db,
     writeGate: new CoordinatorWriteGate(),
+    selfHostedTenant: tenant,
   } as unknown as ConnectDeps;
   const handlers = makeAgentPromptHandlers(deps);
 
   function context(signal = new AbortController().signal): HandlerContext {
     const values = createContextValues();
-    values.set(callerKey, {
-      kind: "account-device",
-      fingerprint: ACTOR.deviceFingerprint,
-      label: "prompt test device",
-      accountId: ACTOR.accountId,
-    });
-    values.set(dashboardActorKey, ACTOR);
+    values.set(callerKey, ACTOR);
     values.set(tabIdKey, "prompt-test-tab");
     return { values, signal } as unknown as HandlerContext;
   }
@@ -201,7 +169,6 @@ export async function startAgentPromptTestFixture() {
     attachWorker(send: (frame: CoordWorkerDown) => number): void {
       __setConnectWorkerForTest(PROMPT_WORKER, {
         workerFp: PROMPT_WORKER,
-        dashboardId: PROMPT_DASHBOARD,
         send,
       });
     },

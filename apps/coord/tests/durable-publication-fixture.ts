@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, type DbHandle } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant, type SelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { appendEvent, type AppendEventResult } from "../src/event-log.ts";
 import {
   applyDurableChannelIndex,
@@ -36,13 +37,12 @@ export function createDurablePublicationFixture(
   const SID_A = asSessionId(`00000000-0000-4000-8000-0000000000a${options.sessionGroup}`);
   const SID_B = asSessionId(`00000000-0000-4000-8000-0000000000b${options.sessionGroup}`);
   const SID_C = asSessionId(`00000000-0000-4000-8000-0000000000c${options.sessionGroup}`);
-  const ORGANIZATION_ID = `durable-publication-${options.slug}-organization`;
-  const DASHBOARD_ID = `durable-publication-${options.slug}-dashboard`;
 
   let workdir = "";
   let writer: DbHandle | undefined;
   // A separate WAL reader sees only committed transactions, making visibility an ordering proof.
   let reader: DbHandle | undefined;
+  let tenant: SelfHostedTenant | undefined;
   let clientSeq = 0;
 
   function openedEvent(sid: string, channel: number, workerFp = FP): SessionEvent {
@@ -77,11 +77,12 @@ export function createDurablePublicationFixture(
     workerFp: string | null = FP,
   ): Promise<AppendEventResult> {
     if (!writer) throw new Error("durable publication fixture is not initialized");
+    if (!tenant) throw new Error("durable publication fixture is not initialized");
     clientSeq += 1;
     return appendEvent(writer.db, event, {
       worker_fp: workerFp,
       client_seq: workerFp === null ? null : clientSeq,
-      dashboardId: DASHBOARD_ID,
+      dashboardId: tenant.dashboardId,
     });
   }
 
@@ -103,24 +104,10 @@ export function createDurablePublicationFixture(
       const dbPath = join(workdir, "coord.db");
       writer = openDb(dbPath);
       await runMigrations(writer.sqlite);
-      await writer.db.insertInto("organizations").values({
-        id: ORGANIZATION_ID,
-        slug: `durable-publication-${options.slug}`,
-        name: "Durable publication",
-        status: "active",
-        created_at_ms: 1,
-      }).execute();
-      await writer.db.insertInto("dashboards").values({
-        id: DASHBOARD_ID,
-        organization_id: ORGANIZATION_ID,
-        slug: `durable-publication-${options.slug}`,
-        name: "Durable publication",
-        status: "active",
-        created_at_ms: 1,
-      }).execute();
+      tenant = ensureSelfHostedTenant(writer.sqlite, { backfillLegacyScopes: false });
       for (const workerFp of [FP, OTHER_FP]) {
         await writer.db.insertInto("workers").values({
-          dashboard_id: DASHBOARD_ID,
+          dashboard_id: tenant.dashboardId,
           fp: workerFp, label: "test", os: "linux", git_sha: null, host_metrics_json: null,
           registered_at_ms: 1, last_seen_ms: 1,
         }).execute();
@@ -163,7 +150,14 @@ export function createDurablePublicationFixture(
     SID_A,
     SID_B,
     SID_C,
-    DASHBOARD_ID,
+    get tenant(): SelfHostedTenant {
+      if (!tenant) throw new Error("durable publication fixture is not initialized");
+      return tenant;
+    },
+    get dashboardId(): string {
+      if (!tenant) throw new Error("durable publication fixture is not initialized");
+      return tenant.dashboardId;
+    },
     get writer(): DbHandle {
       if (!writer) throw new Error("durable publication fixture is not initialized");
       return writer;

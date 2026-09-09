@@ -10,9 +10,9 @@ import { workerOnline } from "../store/sync.ts";
 import { spawnShell, waitForSession, forceLaunchAgent } from "./spawnSession.ts";
 import { addToast } from "../store/toastStore.ts";
 import {
-  captureDashboardResourceToken,
-  isCurrentDashboardResourceToken,
-} from "../store/dashboard-selection.ts";
+  captureAuthResourceToken,
+  isCurrentAuthResourceToken,
+} from "../store/auth-boundary.ts";
 
 export const CHAT_ROOT = "~/.roost/chats";
 export const CHAT_FOLDER_SEGMENT = "/.roost/chats/";
@@ -48,7 +48,7 @@ export async function startQuickChat(navigate: Navigator): Promise<void> {
     return;
   }
 
-  const dashboardToken = captureDashboardResourceToken();
+  const authToken = captureAuthResourceToken();
   const chatFolder = newChatFolderPath();
   const sessionId = crypto.randomUUID();
   try {
@@ -56,17 +56,17 @@ export async function startQuickChat(navigate: Navigator): Promise<void> {
       workerFp,
       path: chatFolder,
     });
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    if (!isCurrentAuthResourceToken(authToken)) return;
     const resolvedFolder = mkdirResponse.resolvedPath || chatFolder;
     await spawnShell(workerFp, resolvedFolder, sessionId);
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    if (!isCurrentAuthResourceToken(authToken)) return;
     await waitForSession(sessionId);
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    if (!isCurrentAuthResourceToken(authToken)) return;
     navigate(`/s/${sessionId}`);
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    if (!isCurrentAuthResourceToken(authToken)) return;
     forceLaunchAgent(sessionId);
   } catch (error) {
-    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    if (!isCurrentAuthResourceToken(authToken)) return;
     addToast(`New chat failed: ${error instanceof Error ? error.message : String(error)}`, "err");
   }
 }

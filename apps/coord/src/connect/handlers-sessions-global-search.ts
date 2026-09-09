@@ -1,4 +1,4 @@
-// Owns coordinator-authorized, dashboard-wide terminal-content search and cancel.
+// Owns coordinator-authorized, install-wide terminal-content search and cancel.
 // It enumerates live session authority from SQLite, fans one bounded request to
 // each routable worker, validates every worker result, and projects partials.
 // Continuation and cancel ordering are delegated to the injected cursor owner.
@@ -27,7 +27,6 @@ import {
 } from "../router/pending-rpcs.ts";
 import {
   requireAccountDevice,
-  requireDashboardActor,
   requireSearchTabId,
 } from "./auth-interceptor.ts";
 import { sendBrowserCmd } from "./router-helpers.ts";
@@ -61,7 +60,6 @@ export function makeSessionGlobalSearchHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, GlobalSearchMethods> {
   return {
     async sessionsSearchGlobal(req, ctx) {
-      const actor = requireDashboardActor(ctx.values);
       const caller = requireAccountDevice(ctx.values);
       if (!TerminalSearchIdSchema.safeParse(req.searchId).success) {
         throw new ConnectError(
@@ -82,7 +80,6 @@ export function makeSessionGlobalSearchHandlers(
       );
       const viewerId = `${caller.fingerprint}:${tabId}`;
       const identity: GlobalSearchIdentity = {
-        dashboardId: actor.dashboardId,
         deviceFingerprint: caller.fingerprint,
         tabId,
         searchId: req.searchId,
@@ -142,7 +139,6 @@ export function makeSessionGlobalSearchHandlers(
           }
           const reauthorized = await reauthorizeGlobalSearchSessions(
             deps.db,
-            actor.dashboardId,
             pageSessions,
           );
           for (const sessionId of reauthorized.closedSessionIds) {
@@ -159,7 +155,6 @@ export function makeSessionGlobalSearchHandlers(
         } else {
           const authorizedPage = await listAuthorizedGlobalSearchSessions(
             deps.db,
-            actor.dashboardId,
             limits.maxSessions,
           );
           pageSessions = authorizedPage.sessions;

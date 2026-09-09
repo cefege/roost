@@ -4,9 +4,9 @@ import { SETTINGS_GROUPS } from "../src/components/Settings/settingsNavigation.t
 const PANE_IDS = SETTINGS_GROUPS.flatMap((group) => group.panes.map((pane) => pane.id));
 
 describe("Settings navigation", () => {
-  test("keeps scope, network, and agent surfaces in rail order", () => {
-    expect(SETTINGS_GROUPS.find((group) => group.label === "Scope")?.panes.map((pane) => pane.id))
-      .toEqual(["organization", "dashboard"]);
+  test("keeps the whole rail in navigation-contract order", () => {
+    expect(SETTINGS_GROUPS.map((group) => group.label))
+      .toEqual(["Network", "Agents", "Interface", "System"]);
     expect(SETTINGS_GROUPS.find((group) => group.label === "Network")?.panes.map((pane) => pane.id))
       .toEqual(["machines", "connection", "devices"]);
     expect(SETTINGS_GROUPS.find((group) => group.label === "Agents")?.panes.map((pane) => pane.id))

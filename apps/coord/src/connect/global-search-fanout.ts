@@ -1,5 +1,5 @@
 // Owns authorized session selection, worker grouping, result validation, and
-// cancellation fan-out for dashboard-wide terminal search. The RPC handler owns
+// cancellation fan-out for install-wide terminal search. The RPC handler owns
 // request lifecycle and cursors; this module keeps the bounded worker page seam
 // small enough to audit independently.
 
@@ -48,16 +48,15 @@ export interface AuthorizedGlobalSearchPage {
   sessions: GlobalSearchSessionPosition[];
   /** Exact count over the same authorization predicate. The page cap bounds
    *  the work, never the denominator: reporting the cap as the total told the
-   *  browser a 100-session dashboard was fully searched after 32. */
+   *  browser a 100-session install was fully searched after 32. */
   eligibleSessions: number;
 }
 
 export async function listAuthorizedGlobalSearchSessions(
   db: KyselyDB,
-  dashboardId: string,
   maxSessions: number,
 ): Promise<AuthorizedGlobalSearchPage> {
-  const rows = await authorizedGlobalSearchSessions(db, dashboardId)
+  const rows = await authorizedGlobalSearchSessions(db)
     .select([
       "session.id as session_id",
       "session.worker_fp as worker_fp",
@@ -67,7 +66,7 @@ export async function listAuthorizedGlobalSearchSessions(
     .orderBy("session.id", "desc")
     .limit(maxSessions)
     .execute();
-  const counted = await authorizedGlobalSearchSessions(db, dashboardId)
+  const counted = await authorizedGlobalSearchSessions(db)
     .select((eb) => eb.fn.countAll<number>().as("eligible"))
     .executeTakeFirst();
   return {
@@ -80,20 +79,17 @@ export async function listAuthorizedGlobalSearchSessions(
   };
 }
 
-/** The single authorization predicate for dashboard-wide search: the page
+/** The single authorization predicate for install-wide search: the page
  *  query and the denominator count MUST NOT drift apart. */
-function authorizedGlobalSearchSessions(db: KyselyDB, dashboardId: string) {
+function authorizedGlobalSearchSessions(db: KyselyDB) {
   return db.selectFrom("sessions as session")
     .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
-    .where("session.dashboard_id", "=", dashboardId)
     .where("session.status", "=", "open")
-    .where("worker.dashboard_id", "=", dashboardId)
     .where("worker.deleted_at_ms", "is", null);
 }
 
 export async function reauthorizeGlobalSearchSessions(
   db: KyselyDB,
-  dashboardId: string,
   positions: readonly GlobalSearchSessionPosition[],
 ): Promise<{
   authorized: GlobalSearchSessionPosition[];
@@ -103,9 +99,7 @@ export async function reauthorizeGlobalSearchSessions(
     .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
     .select(["session.id as session_id", "session.worker_fp as worker_fp"])
     .where("session.id", "in", positions.map((position) => position.sessionId))
-    .where("session.dashboard_id", "=", dashboardId)
     .where("session.status", "=", "open")
-    .where("worker.dashboard_id", "=", dashboardId)
     .where("worker.deleted_at_ms", "is", null)
     .execute();
   const workerBySession = new Map(

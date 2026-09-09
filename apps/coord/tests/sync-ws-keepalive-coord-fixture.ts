@@ -1,7 +1,7 @@
 /**
  * Owns the database and identity fixture shared by Sync WebSocket keepalive suites.
  * Each discovered suite creates and closes its own instance so mutations cannot leak across files.
- * It depends on real coordinator migrations, key generation, JWT signing, and membership tables.
+ * It depends on real coordinator migrations, key generation, JWT signing, and the self-hosted tenant.
  */
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,13 +12,10 @@ import type { ConnectDeps } from "../src/connect/router.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
-
-const ACCOUNT_ID = "sync-keepalive-account";
-const ORGANIZATION_ID = "sync-keepalive-org";
-export const SYNC_WS_KEEPALIVE_DASHBOARD_ID = "sync-keepalive-dashboard";
 
 export interface SyncWsKeepaliveCoordFixture {
   deps: ConnectDeps;
@@ -36,6 +33,7 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
   const opened = openDb(dbPath);
   const { db, sqlite } = opened;
   await runMigrations(sqlite);
+  const selfHostedTenant = ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
     pushAllowedOrigins: [],
@@ -60,6 +58,8 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     cfg,
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
+    selfHostedTenant,
+    cfAccess: null,
   };
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -72,44 +72,11 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     added_at: Date.now(),
   }).execute();
   const membershipNow = Date.now();
-  await db.insertInto("accounts").values({
-    id: ACCOUNT_ID,
-    email_normalized: "sync-keepalive@example.test",
-    status: "active",
-    created_at_ms: membershipNow,
-  }).execute();
   await db.insertInto("account_devices").values({
     fingerprint,
-    account_id: ACCOUNT_ID,
+    account_id: selfHostedTenant.accountId,
     added_at_ms: membershipNow,
     last_seen_at_ms: membershipNow,
-  }).execute();
-  await db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "sync-keepalive-org",
-    name: "Sync keepalive",
-    status: "active",
-    created_at_ms: membershipNow,
-  }).execute();
-  await db.insertInto("organization_memberships").values({
-    organization_id: ORGANIZATION_ID,
-    account_id: ACCOUNT_ID,
-    role: "owner",
-    created_at_ms: membershipNow,
-  }).execute();
-  await db.insertInto("dashboards").values({
-    id: SYNC_WS_KEEPALIVE_DASHBOARD_ID,
-    organization_id: ORGANIZATION_ID,
-    slug: "sync-keepalive",
-    name: "Sync keepalive",
-    status: "active",
-    created_at_ms: membershipNow,
-  }).execute();
-  await db.insertInto("dashboard_memberships").values({
-    dashboard_id: SYNC_WS_KEEPALIVE_DASHBOARD_ID,
-    account_id: ACCOUNT_ID,
-    role: "admin",
-    created_at_ms: membershipNow,
   }).execute();
   const now = Math.floor(Date.now() / 1000);
   const jwt = await signJwt(

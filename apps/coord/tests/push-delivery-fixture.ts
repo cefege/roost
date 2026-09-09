@@ -8,7 +8,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CoordConfig } from "@roost/shared/config";
 import { fingerprintOf } from "@roost/shared/fingerprint";
-import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { createCoord } from "../src/coord-factory.ts";
 import {
@@ -17,14 +16,13 @@ import {
 } from "../src/connect/terminal-view-hub.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { resetVapidKeysForTest } from "../src/vapid.ts";
 
 export const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 export const VIEW_ID = "33333333-3333-4333-8333-333333333333";
 export const VIEW_SOCKET_ID = "push-delivery-view-socket";
-export const DASHBOARD_ID = "push-delivery-dashboard";
-export const ACCOUNT_ID = "push-delivery-account";
 export const PUSH_ORIGINS = ["https://push.example"] as const;
 
 export interface PushDeliveryFixture {
@@ -32,6 +30,8 @@ export interface PushDeliveryFixture {
   cfg: CoordConfig;
   terminalViews: TerminalViewHub;
   viewerFp: string;
+  dashboardId: string;
+  accountId: string;
   rpc(method: string, body: object, authenticated?: boolean): Promise<Response>;
   reset(): Promise<void>;
   close(): Promise<void>;
@@ -45,6 +45,7 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
   const opened = openDb(dbPath);
   const { db, sqlite } = opened;
   await runMigrations(sqlite);
+  const selfHostedTenant = ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
     trustProxy: false,
@@ -71,44 +72,11 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
     added_at: Date.now(),
   }).execute();
   const fixtureNow = Date.now();
-  await db.insertInto("accounts").values({
-    id: ACCOUNT_ID,
-    email_normalized: "push@example.com",
-    status: "active",
-    created_at_ms: fixtureNow,
-  }).execute();
   await db.insertInto("account_devices").values({
     fingerprint: viewerFp,
-    account_id: ACCOUNT_ID,
+    account_id: selfHostedTenant.accountId,
     added_at_ms: fixtureNow,
     last_seen_at_ms: fixtureNow,
-  }).execute();
-  await db.insertInto("organizations").values({
-    id: "push-delivery-organization",
-    slug: "push-delivery",
-    name: "Push Delivery",
-    status: "active",
-    created_at_ms: fixtureNow,
-  }).execute();
-  await db.insertInto("organization_memberships").values({
-    organization_id: "push-delivery-organization",
-    account_id: ACCOUNT_ID,
-    role: "owner",
-    created_at_ms: fixtureNow,
-  }).execute();
-  await db.insertInto("dashboards").values({
-    id: DASHBOARD_ID,
-    organization_id: "push-delivery-organization",
-    slug: "push-delivery",
-    name: "Push Delivery",
-    status: "active",
-    created_at_ms: fixtureNow,
-  }).execute();
-  await db.insertInto("dashboard_memberships").values({
-    dashboard_id: DASHBOARD_ID,
-    account_id: ACCOUNT_ID,
-    role: "admin",
-    created_at_ms: fixtureNow,
   }).execute();
   const now = Math.floor(Date.now() / 1_000);
   const jwt = await signJwt(
@@ -127,6 +95,7 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
     writeGate: new CoordinatorWriteGate(),
     cfg,
     jwtCache,
+    selfHostedTenant,
   });
 
   return {
@@ -134,9 +103,10 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
     cfg,
     terminalViews,
     viewerFp,
+    dashboardId: selfHostedTenant.dashboardId,
+    accountId: selfHostedTenant.accountId,
     rpc(method, body, authenticated = true) {
       const headers: Record<string, string> = { "content-type": "application/json" };
-      headers[X_ROOST_DASHBOARD_ID] = DASHBOARD_ID;
       if (authenticated) headers.authorization = `Bearer ${jwt}`;
       return coord.fetch(new Request(`http://test/roost.v1.CoordinatorService/${method}`, {
         method: "POST",

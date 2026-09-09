@@ -19,10 +19,8 @@ import {
 } from "@roost/shared/terminal-search";
 import { _pendingRpcStats } from "../src/router/pending-rpcs.ts";
 import {
-  GLOBAL_TEST_DASHBOARD_B,
   GLOBAL_TEST_WORKER_A1,
   GLOBAL_TEST_WORKER_A2,
-  GLOBAL_TEST_WORKER_B,
   globalSearchOkEntry as okEntry,
   globalSearchSessionId as sessionId,
   startGlobalSearchTestFixture,
@@ -38,10 +36,6 @@ describe("authorized global scrollback fan-out", () => {
   test("enumerates only the newest 32 authorized open sessions and sends one capped batch per worker", async () => {
     const workerA1 = fixture.installWorker(GLOBAL_TEST_WORKER_A1);
     const workerA2 = fixture.installWorker(GLOBAL_TEST_WORKER_A2);
-    const foreignWorker = fixture.installWorker(
-      GLOBAL_TEST_WORKER_B,
-      GLOBAL_TEST_DASHBOARD_B,
-    );
     for (let index = 1; index <= 35; index++) {
       await fixture.insertSession({
         id: sessionId(index),
@@ -49,12 +43,6 @@ describe("authorized global scrollback fan-out", () => {
         createdAt: index,
       });
     }
-    await fixture.insertSession({
-      id: sessionId(100),
-      workerFp: GLOBAL_TEST_WORKER_B,
-      dashboardId: GLOBAL_TEST_DASHBOARD_B,
-      createdAt: 100,
-    });
     await fixture.insertSession({
       id: sessionId(101),
       workerFp: GLOBAL_TEST_WORKER_A1,
@@ -75,7 +63,6 @@ describe("authorized global scrollback fan-out", () => {
     );
     const [commandA1] = await workerA1.waitForKind("search-scrollback-batch");
     const [commandA2] = await workerA2.waitForKind("search-scrollback-batch");
-    expect(foreignWorker.commands).toHaveLength(0);
     const commands = [commandA1!, commandA2!];
     const requestedIds = commands.flatMap((command) => {
       expect(command.browserCommand.browserId).toBe("global-browser:global-tab");
@@ -98,7 +85,6 @@ describe("authorized global scrollback fan-out", () => {
     expect(requestedIds).not.toContain(sessionId(1));
     expect(requestedIds).not.toContain(sessionId(2));
     expect(requestedIds).not.toContain(sessionId(3));
-    expect(requestedIds).not.toContain(sessionId(100));
     expect(requestedIds).not.toContain(sessionId(101));
     for (const command of commands) {
       const sessionCount = (command.control.sessions as unknown[]).length;

@@ -1,8 +1,8 @@
-// Shared fixture for the observed-agent read-handler suite: one migrated
-// organization with two dashboards, two workers and five sessions, the exact
-// AgentStatusUpdate builders, and the per-test hub arming those cases read
-// back. Used by agent-status-handlers.test.ts; bun caches this module, so hook
-// registration stays in the suite and this file only exposes the bodies.
+// Shared fixture for the observed-agent read-handler suite: one install with two
+// workers and five sessions, the exact AgentStatusUpdate builders, and the
+// per-test hub arming those cases read back. Used by
+// agent-status-handlers.test.ts; bun caches this module, so hook registration
+// stays in the suite and this file only exposes the bodies.
 
 import { Code, ConnectError, createContextValues, type HandlerContext } from "@connectrpc/connect";
 import { expect } from "bun:test";
@@ -26,8 +26,7 @@ import {
 import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
 import {
   callerKey,
-  dashboardActorKey,
-  type DashboardActor,
+  type AccountDeviceCaller,
 } from "../src/connect/auth-interceptor.ts";
 import {
   makeAgentStatusHandlers,
@@ -36,10 +35,8 @@ import {
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 
-const ORGANIZATION_ID = "agent-status-handlers-organization";
-const DASHBOARD_A = "agent-status-handlers-dashboard-a";
-const DASHBOARD_B = "agent-status-handlers-dashboard-b";
 export const WORKER_A = asWorkerFp("a1".repeat(32));
 const WORKER_B = asWorkerFp("b2".repeat(32));
 export const SESSION_INTEGRATION = asSessionId("10000000-0000-4000-8000-000000000010");
@@ -50,32 +47,25 @@ export const SESSION_FOREIGN = asSessionId("10000000-0000-4000-8000-000000000050
 export const SESSION_MISSING = asSessionId("10000000-0000-4000-8000-000000000999");
 export const STATUS_EPOCH = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 
-export const ACTOR_A: DashboardActor = {
-  accountId: "agent-status-handlers-account-a",
-  organizationId: ORGANIZATION_ID,
-  dashboardId: DASHBOARD_A,
-  organizationRole: "owner",
-  dashboardRole: "admin",
-  deviceFingerprint: "agent-status-handlers-device-a",
+const ACCOUNT_ID = "agent-status-handlers-account";
+
+// Two browser devices of the one account: identity differs, authority does not.
+export const ACTOR_A: AccountDeviceCaller = {
+  kind: "account-device",
+  fingerprint: "agent-status-handlers-device-a",
+  label: "test device a",
+  accountId: ACCOUNT_ID,
 };
-export const ACTOR_B: DashboardActor = {
-  accountId: "agent-status-handlers-account-b",
-  organizationId: ORGANIZATION_ID,
-  dashboardId: DASHBOARD_B,
-  organizationRole: "member",
-  dashboardRole: "member",
-  deviceFingerprint: "agent-status-handlers-device-b",
+export const ACTOR_B: AccountDeviceCaller = {
+  kind: "account-device",
+  fingerprint: "agent-status-handlers-device-b",
+  label: "test device b",
+  accountId: ACCOUNT_ID,
 };
 
-export function actorContext(actor: DashboardActor): HandlerContext {
+export function actorContext(caller: AccountDeviceCaller): HandlerContext {
   const values = createContextValues();
-  values.set(callerKey, {
-    kind: "account-device",
-    fingerprint: actor.deviceFingerprint,
-    label: "test device",
-    accountId: actor.accountId,
-  });
-  values.set(dashboardActorKey, actor);
+  values.set(callerKey, caller);
   return { values } as unknown as HandlerContext;
 }
 
@@ -142,45 +132,21 @@ export async function startAgentStatusHandlersTestFixture(): Promise<AgentStatus
   const opened = openDb(join(workdir, "coord.db"));
   const db = opened.db;
   await runMigrations(opened.sqlite);
+  const tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
   const now = Date.now();
-  await db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "agent-status-handlers",
-    name: "Agent status handlers",
-    status: "active",
-    created_at_ms: now,
-  }).execute();
-  await db.insertInto("dashboards").values([
-    {
-      id: DASHBOARD_A,
-      organization_id: ORGANIZATION_ID,
-      slug: "agent-status-handlers-a",
-      name: "Agent status handlers A",
-      status: "active",
-      created_at_ms: now,
-    },
-    {
-      id: DASHBOARD_B,
-      organization_id: ORGANIZATION_ID,
-      slug: "agent-status-handlers-b",
-      name: "Agent status handlers B",
-      status: "active",
-      created_at_ms: now,
-    },
-  ]).execute();
   await db.insertInto("workers").values([
-    persistedWorker(WORKER_A, DASHBOARD_A, "Agent status A", now),
-    persistedWorker(WORKER_B, DASHBOARD_B, "Agent status B", now),
+    persistedWorker(WORKER_A, tenant.dashboardId, "Agent status A", now),
+    persistedWorker(WORKER_B, tenant.dashboardId, "Agent status B", now),
   ]).execute();
   await db.insertInto("sessions").values([
-    [SESSION_INTEGRATION, DASHBOARD_A, WORKER_A, 10],
-    [SESSION_SCREEN, DASHBOARD_A, WORKER_A, 20],
-    [SESSION_LEGACY, DASHBOARD_A, WORKER_A, 30],
-    [SESSION_NO_STATUS, DASHBOARD_A, WORKER_A, 40],
-    [SESSION_FOREIGN, DASHBOARD_B, WORKER_B, 50],
-  ].map(([id, dashboardId, workerFp, channel]) => ({
+    [SESSION_INTEGRATION, WORKER_A, 10],
+    [SESSION_SCREEN, WORKER_A, 20],
+    [SESSION_LEGACY, WORKER_A, 30],
+    [SESSION_NO_STATUS, WORKER_A, 40],
+    [SESSION_FOREIGN, WORKER_B, 50],
+  ].map(([id, workerFp, channel]) => ({
     id: String(id),
-    dashboard_id: String(dashboardId),
+    dashboard_id: tenant.dashboardId,
     worker_fp: String(workerFp),
     channel: Number(channel),
     kind: "shell" as const,
@@ -201,7 +167,10 @@ export async function startAgentStatusHandlersTestFixture(): Promise<AgentStatus
   }))).execute();
   return {
     db,
-    handlers: makeAgentStatusHandlers({ db } as unknown as ConnectDeps),
+    handlers: makeAgentStatusHandlers({
+      db,
+      selfHostedTenant: tenant,
+    } as unknown as ConnectDeps),
     close: async () => {
       await opened.close();
       rmSync(workdir, { recursive: true, force: true });

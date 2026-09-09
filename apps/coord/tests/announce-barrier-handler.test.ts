@@ -35,7 +35,6 @@ import {
 const WORKER_FP = "c".repeat(64);
 const SESSION = "33333333-3333-4333-8333-333333333333";
 const NEW_CHANNEL = 21;
-const DASHBOARD = "announce-barrier-dashboard";
 
 // message() never reads deps — it decodes, buffers, and drives ws.data.conn.
 const deps = {} as unknown as WorkerServiceDeps;
@@ -114,7 +113,6 @@ function harness(): Harness {
       validUntilMs: Date.now() + 60_000,
     },
     fp: WORKER_FP,
-    dashboardId: DASHBOARD,
     conn,
     queue: null,
     eventRate: { startedAtMs: null, events: 0 },

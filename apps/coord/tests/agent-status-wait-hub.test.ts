@@ -152,15 +152,12 @@ describe("agent status occupant waits", () => {
 
   test("session close wins over the synthetic inactive publication", async () => {
     const waiting = pendingWait();
-    sessionBus.publish({
-      ...SessionEvent.parse({
-        kind: "closed",
-        session_id: SESSION_ID,
-        exit_code: 0,
-        ts: 1_800_000_000_001,
-      }),
-      _dashboard_id: "agent-status-wait-dashboard",
-    });
+    sessionBus.publish(SessionEvent.parse({
+      kind: "closed",
+      session_id: SESSION_ID,
+      exit_code: 0,
+      ts: 1_800_000_000_001,
+    }));
     await expect(waiting).resolves.toEqual({ outcome: "session_closed" });
     expect(_agentStatusWaiterStats()).toEqual({ total: 0, sessions: 0 });
   });

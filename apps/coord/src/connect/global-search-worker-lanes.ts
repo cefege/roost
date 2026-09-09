@@ -1,4 +1,4 @@
-// Owns server-wide serialization for dashboard-global search batches per worker.
+// Owns server-wide serialization for install-global search batches per worker.
 // Session handlers share one instance so separate browsers cannot overlap a worker.
 // Queue admission is bounded and every wait consumes the caller's page deadline.
 

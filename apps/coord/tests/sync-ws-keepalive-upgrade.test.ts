@@ -1,5 +1,5 @@
 /**
- * Owns Sync WebSocket upgrade authentication, dashboard scope, and revocation contracts.
+ * Owns Sync WebSocket upgrade authentication, resource-index admission, and revocation contracts.
  * Bun discovers this module directly and gives it an isolated coordinator fixture for mutations.
  * It depends on the real upgrade handler, persisted device identities, and signed JWTs.
  */
@@ -15,7 +15,6 @@ import {
 import { invalidateJwtKey, signJwt } from "../src/jwt.ts";
 import {
   createSyncWsKeepaliveCoordFixture,
-  SYNC_WS_KEEPALIVE_DASHBOARD_ID,
   type SyncWsKeepaliveCoordFixture,
 } from "./sync-ws-keepalive-coord-fixture.ts";
 
@@ -23,7 +22,6 @@ let fixture: SyncWsKeepaliveCoordFixture;
 let deps: ConnectDeps;
 let jwt: string;
 let fingerprint: string;
-const dashboardId = SYNC_WS_KEEPALIVE_DASHBOARD_ID;
 
 beforeAll(async () => {
   fixture = await createSyncWsKeepaliveCoordFixture();
@@ -74,7 +72,7 @@ test("rejects foreign Origin and negotiates roost-auth for an allowed origin", a
   expect(foreign?.status).toBe(403);
 
   const allowed = await handleSyncWsUpgrade(new Request(
-    `https://public.example/ws/coord-sync?dashboard=${dashboardId}`,
+    "https://public.example/ws/coord-sync",
     {
       headers: {
         origin: "https://public.example",
@@ -84,24 +82,6 @@ test("rejects foreign Origin and negotiates roost-auth for an allowed origin", a
   ), fakeServer, deps);
   expect(allowed).toBeUndefined();
   expect(new Headers(upgradeHeaders).get("sec-websocket-protocol")).toBe("roost-auth");
-});
-
-test("rejects an unavailable selected dashboard before socket upgrade", async () => {
-  const result = await handleSyncWsUpgrade(new Request(
-    "https://public.example/ws/coord-sync?dashboard=foreign-dashboard",
-    {
-      headers: {
-        origin: "https://public.example",
-        "sec-websocket-protocol": `roost-auth, ${jwt}`,
-      },
-    },
-  ), {
-    requestIP: () => ({ address: "127.0.0.1" }),
-    upgrade: () => {
-      throw new Error("foreign dashboard must not upgrade");
-    },
-  }, deps);
-  expect(result?.status).toBe(404);
 });
 
 test("browser Sync bounds a nonblank tab by UTF-8 bytes and preserves unbound semantics", async () => {
@@ -120,20 +100,19 @@ test("browser Sync bounds a nonblank tab by UTF-8 bytes and preserves unbound se
   const exactTabId = "🙂".repeat(UI_TAB_ID_MAX_UTF8_BYTES / 4);
   for (const tabQuery of [encodeURIComponent(exactTabId), "%20%09"]) {
     expect(await handleSyncWsUpgrade(new Request(
-      `https://public.example/ws/coord-sync?dashboard=${dashboardId}&flow=1&sync_v=2&tab=${tabQuery}`,
+      `https://public.example/ws/coord-sync?flow=1&sync_v=2&tab=${tabQuery}`,
       { headers },
     ), fakeServer, deps)).toBeUndefined();
   }
   const rejected = await handleSyncWsUpgrade(new Request(
-    `https://public.example/ws/coord-sync?dashboard=${dashboardId}&tab=${
-      encodeURIComponent(`${exactTabId}x`)
-    }`,
+    `https://public.example/ws/coord-sync?tab=${encodeURIComponent(`${exactTabId}x`)}`,
     { headers },
   ), fakeServer, deps);
   expect(rejected?.status).toBe(400);
   expect(await rejected?.text()).toBe("connection rejected");
   expect(upgradedData).toHaveLength(2);
   expect(upgradedData[0]?.readOnly).toBe(false);
+  expect(upgradedData[0]?.scope.ownerWorkerFp).toBeNull();
   expect(upgradedData[0]?.tabId).toBe(exactTabId);
   expect(upgradedData[0]?.viewerKey).toBe(`${fingerprint}:${exactTabId}`);
   expect(upgradedData[0]?.v2).toBeDefined();
@@ -142,10 +121,13 @@ test("browser Sync bounds a nonblank tab by UTF-8 bytes and preserves unbound se
   expect(deps.uiLayoutApplies.stats().targets).toBe(0);
 });
 
-test("worker Sync derives a read-only scope from its persisted dashboard", async () => {
+test("worker Sync upgrades read-only over its own resources and cannot bind a viewer", async () => {
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
   const raw = new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey));
   const workerFingerprint = await fingerprintOf(raw);
+  const { id: dashboardId } = await deps.db.selectFrom("dashboards")
+    .select("id")
+    .executeTakeFirstOrThrow();
   await deps.db.insertInto("authorized_keys").values({
     fingerprint: workerFingerprint,
     public_key: raw,
@@ -179,19 +161,12 @@ test("worker Sync derives a read-only scope from its persisted dashboard", async
     "sec-websocket-protocol": `roost-auth, ${workerJwt}`,
   };
 
-  expect((await handleSyncWsUpgrade(new Request(
-    "https://public.example/ws/coord-sync",
-    { headers },
-  ), fakeServer, deps))?.status).toBe(404);
-  expect((await handleSyncWsUpgrade(new Request(
-    "https://public.example/ws/coord-sync?dashboard=foreign",
-    { headers },
-  ), fakeServer, deps))?.status).toBe(404);
   expect(await handleSyncWsUpgrade(new Request(
-    `https://public.example/ws/coord-sync?dashboard=${dashboardId}&tab=forged`,
+    "https://public.example/ws/coord-sync?tab=forged",
     { headers },
   ), fakeServer, deps)).toBeUndefined();
-  expect(data?.actor.dashboardId).toBe(dashboardId);
+  expect(data?.scope.ownerWorkerFp).toBe(workerFingerprint);
+  expect([...data?.scope.workerFps ?? []]).toEqual([workerFingerprint]);
   expect(data?.readOnly).toBe(true);
   expect(data?.viewerKey).toBeNull();
   expect(data?.tabId).toBeNull();
@@ -214,7 +189,7 @@ test("only exact flow=1 enables the application window", async () => {
       },
     };
     const result = await handleSyncWsUpgrade(new Request(
-      `https://public.example/ws/coord-sync?dashboard=${dashboardId}${query ? `&${query.slice(1)}` : ""}`,
+      `https://public.example/ws/coord-sync${query}`,
       {
         headers: {
           origin: "https://public.example",
@@ -237,7 +212,7 @@ test("revocation between accepted upgrade and open closes before feed registrati
     },
   };
   const accepted = await handleSyncWsUpgrade(new Request(
-    `https://public.example/ws/coord-sync?dashboard=${dashboardId}`,
+    "https://public.example/ws/coord-sync",
     {
       headers: {
         origin: "https://public.example",

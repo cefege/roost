@@ -49,13 +49,11 @@ export function sessionToRow(
 export async function loadSession(
   db: KyselyDB,
   id: string,
-  dashboardId: string,
 ): Promise<Session | null> {
   const row = await db
     .selectFrom("sessions")
     .select([...SESSION_COLUMNS])
     .where("id", "=", id)
-    .where("dashboard_id", "=", dashboardId)
     .executeTakeFirst();
   if (!row) return null;
   return {
@@ -94,34 +92,29 @@ export async function loadSession(
 // orphaned in DB until the next coord-startup janitor.
 export async function _cascadeClosedSession(
   trx: KyselyDB,
-  dashboardId: string,
   sessionId: string,
 ): Promise<string[]> {
   const ownerRows = await trx
     .selectFrom("workspace_sessions")
     .select("workspace_id")
     .where("session_id", "=", sessionId)
-    .where("dashboard_id", "=", dashboardId)
     .execute();
   const ownerIds = [...new Set(ownerRows.map((row) => row.workspace_id as string))];
   await trx
     .deleteFrom("workspace_sessions")
     .where("session_id", "=", sessionId)
-    .where("dashboard_id", "=", dashboardId)
     .execute();
   if (ownerIds.length === 0) return [];
   const remaining = await trx
     .selectFrom("workspace_sessions")
     .select("workspace_id")
     .where("workspace_id", "in", ownerIds)
-    .where("dashboard_id", "=", dashboardId)
     .execute();
   const stillHasSessions = new Set(remaining.map((row) => row.workspace_id as string));
   const orphanIds = ownerIds.filter((id) => !stillHasSessions.has(id));
   if (orphanIds.length > 0) {
     await trx.deleteFrom("workspaces")
       .where("id", "in", orphanIds)
-      .where("dashboard_id", "=", dashboardId)
       .execute();
   }
   return orphanIds;
@@ -130,7 +123,7 @@ export async function _cascadeClosedSession(
 export async function projectSnapshotSessions(
   tx: KyselyDB,
   event: Extract<SessionEvent, { kind: "snapshot" }>,
-  resolvedDashboardId: string,
+  dashboardId: string,
 ): Promise<void> {
   // Breadcrumb model: sessions open in coord but ABSENT from this worker's
   // snapshot are NOT pruned. A worker restart kills the PTY, but the row
@@ -140,7 +133,7 @@ export async function projectSnapshotSessions(
   // foldEvent's snapshot case (event.ts) so the SPA + coord projections stay
   // in agreement. Only the ANNOUNCED sessions are upserted below.
   for (const session of event.sessions) {
-    const row = sessionToRow(session, resolvedDashboardId);
+    const row = sessionToRow(session, dashboardId);
     // The conflict path mirrors foldEvent's snapshot case exactly: every
     // WORKER-owned column takes the announced value — `channel` above all,
     // because a reconcile can hand a session a new keeper channel, and a DB
@@ -148,7 +141,7 @@ export async function projectSnapshotSessions(
     // restart (and lies to resolveSessionRoute's pre-reconcile fallback).
     // Existing coordinator/DB-owned fields are immutable across a worker
     // snapshot: original creation/spawn time, workspace grouping, custom
-    // title, and dashboard scope.
+    // title, and the retained dashboard column.
     const {
       id: _id,
       dashboard_id: _dashboardId,

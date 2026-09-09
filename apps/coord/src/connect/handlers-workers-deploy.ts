@@ -1,24 +1,20 @@
-// Owns worker deployment RPCs plus their output stream.
-// The scope map is created with each handler set so one dashboard cannot read
-// another dashboard's job, while its delayed eviction outlives every supported
-// Unix or Windows deployment timeout.
+// Owns worker deployment RPCs plus their output stream. handlers-workers.ts
+// spreads these into the single router.service() literal. Job identity,
+// buffered output, and Windows update admission belong to deploy-jobs.ts and
+// windows-update-manifest.ts; this file only authorizes and adapts them.
 
 import { create } from "@bufbuild/protobuf";
 import type { ServiceImpl } from "@connectrpc/connect";
-import { Code, ConnectError } from "@connectrpc/connect";
 import {
   type CoordinatorService,
   WorkersDeployOutputFrameSchema,
   WorkersDeployStartResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
-import { DEPLOY_JOB_TTL_MS, deployOutput, startDeploy } from "../deploy-jobs.ts";
+import { deployOutput, startDeploy } from "../deploy-jobs.ts";
 import { SseQueueOverflowError } from "../sse.ts";
 import { startWindowsDeploy } from "../windows-update-manifest.ts";
-import { WINDOWS_UPDATE_TIMEOUT_MS } from "../windows-update-deploy-record.ts";
-import { requireDashboardAdmin } from "./auth-interceptor.ts";
+import { requireAccountDevice } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
-
-const DEPLOY_JOB_SCOPE_TTL_MS = DEPLOY_JOB_TTL_MS + WINDOWS_UPDATE_TIMEOUT_MS;
 
 type WorkerDeployMethods =
   | "workersDeployOutput"
@@ -80,14 +76,9 @@ export function workerDeployHost(
 export function makeWorkerDeployHandlers(
   deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, WorkerDeployMethods> {
-  const deployJobScopes = new Map<string, { dashboardId: string }>();
-
   return {
     async *workersDeployOutput(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
-      if (deployJobScopes.get(req.jobId)?.dashboardId !== actor.dashboardId) {
-        throw new ConnectError("not found", Code.NotFound);
-      }
+      requireAccountDevice(ctx.values);
       try {
         for await (const msg of deployOutput(req.jobId, ctx.signal)) {
           if (msg.kind === "line") {
@@ -119,11 +110,10 @@ export function makeWorkerDeployHandlers(
     },
 
     async workersDeployStart(req, ctx) {
-      const actor = requireDashboardAdmin(ctx.values);
+      requireAccountDevice(ctx.values);
       const workers = await deps.db
         .selectFrom("workers")
         .select(["fp", "os", "label", "reachable_addr"])
-        .where("dashboard_id", "=", actor.dashboardId)
         .where("deleted_at_ms", "is", null)
         .where((expression) =>
           expression.or([
@@ -157,16 +147,6 @@ export function makeWorkerDeployHandlers(
           req.expectedManifestSha256,
         )
         : startDeploy(host);
-      if (result.ok && result.jobId) {
-        const jobId = result.jobId;
-        const scope = { dashboardId: actor.dashboardId };
-        deployJobScopes.set(jobId, scope);
-        setTimeout(() => {
-          if (deployJobScopes.get(jobId) === scope) {
-            deployJobScopes.delete(jobId);
-          }
-        }, DEPLOY_JOB_SCOPE_TTL_MS);
-      }
       return create(WorkersDeployStartResponseSchema, {
         ok: result.ok,
         jobId: result.jobId ?? "",

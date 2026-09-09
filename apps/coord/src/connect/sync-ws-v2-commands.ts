@@ -34,8 +34,7 @@ export type SyncV2ResultControl = Extract<
 
 export interface SyncV2CommandContext {
   readonly caller: SyncWsData["caller"];
-  /** Persisted selected scope resolved before the WebSocket upgrade. */
-  readonly actor: SyncWsData["actor"];
+  /** Resource ids this socket may observe, resolved before the upgrade. */
   readonly scope: SyncWsData["scope"];
   readonly viewerKey: string | null;
   readonly remoteAddress?: string;
@@ -54,7 +53,6 @@ export interface SyncV2CommandDeps {
   scheduleV2(ws: ServerWebSocket<SyncWsData>): void;
   onV2Command?: (context: SyncV2CommandContext) => void;
   onUiApplyLayoutResult?: (context: {
-    readonly dashboardId: string;
     readonly fingerprint: string;
     readonly tabId: string;
     readonly socketId: string;
@@ -75,7 +73,6 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
     if (command.case === "uiApplyLayoutResult") {
       if (!ws.data.readOnly && ws.data.viewerKey !== null && ws.data.tabId !== null) {
         deps.onUiApplyLayoutResult?.({
-          dashboardId: ws.data.actor.dashboardId,
           fingerprint: ws.data.caller.fingerprint,
           tabId: ws.data.tabId,
           socketId: v2.socketId,
@@ -102,13 +99,13 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
           resetV2Domain(ws, SyncDomain.TERMINAL, "snapshot_token_invalid");
           return;
         }
-        const scopedSessionIds = new Set(
+        const admittedSessionIds = new Set(
           [...sessionIds].filter((sessionId) => ws.data.scope.sessionIds.has(sessionId)),
         );
         v2.announcedSessions.clear();
         v2.pendingSessionAnnouncements.clear();
-        for (const sessionId of scopedSessionIds) v2.announcedSessions.add(sessionId);
-        terminalSessionIds = scopedSessionIds;
+        for (const sessionId of admittedSessionIds) v2.announcedSessions.add(sessionId);
+        terminalSessionIds = admittedSessionIds;
       }
       domain.ready = true;
       void ws.data.feed?.seedDomain(command.value.domain, terminalSessionIds);
@@ -161,7 +158,6 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
     ) return;
     deps.onV2Command?.({
       caller: ws.data.caller,
-      actor: ws.data.actor,
       scope: ws.data.scope,
       viewerKey: ws.data.viewerKey,
       remoteAddress: ws.data.remoteAddress ?? undefined,

@@ -15,15 +15,11 @@ import type { UiStateOwner } from "./ui-state-owner.ts";
 
 export function subscribeUiFeed(options: {
   readonly browserUi: boolean;
-  readonly dashboardId: string;
   readonly targetSocketId: string | null;
   push(frame: FirehoseFrame): void;
 }): () => void {
   return uiBus.subscribe((message) => {
-    if (
-      !options.browserUi
-      || message._dashboard_id !== options.dashboardId
-    ) return;
+    if (!options.browserUi) return;
     if (message.kind === "state") {
       options.push(create(FirehoseFrameSchema, {
         frame: {
@@ -52,14 +48,13 @@ export function subscribeUiFeed(options: {
         }),
       },
     }));
-  }, options.dashboardId);
+  });
 }
 
 export function* uiStateSeedFrames(
   uiStates: UiStateOwner,
-  dashboardId: string,
 ): Generator<FirehoseFrame> {
-  for (const { fp, tabId, state } of uiStates.snapshot(dashboardId)) {
+  for (const { fp, tabId, state } of uiStates.snapshot()) {
     yield create(FirehoseFrameSchema, {
       frame: {
         case: "uiState",

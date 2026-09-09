@@ -33,7 +33,7 @@ import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { sessionFirehoseFrame } from "../src/connect/sync-feed-frames.ts";
 import {
   startSyncFeed,
-  type SyncDashboardScope,
+  type SyncResourceIndex,
 } from "../src/connect/sync-feed.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
@@ -44,7 +44,7 @@ const fixture = createDurablePublicationFixture({
   secondaryFingerprintByte: "e4",
   sessionGroup: "6",
 });
-const { FP, OTHER_FP, SID_A, DASHBOARD_ID, openedEvent } = fixture;
+const { FP, OTHER_FP, SID_A, openedEvent } = fixture;
 const PRIVATE_VALUE = "private-opaque/'$conversation";
 const REFERENCE = AgentConversationReferenceV1Schema.parse({
   schema_version: 1,
@@ -58,6 +58,15 @@ beforeEach(async () => {
   await fixture.append(openedEvent(SID_A, 11));
 });
 afterAll(() => fixture.close());
+
+/** Deps for a worker link whose durable appends stamp the scoped column. */
+function workerDeps(): WorkerServiceDeps {
+  return {
+    db: fixture.writer.db,
+    writeGate: new CoordinatorWriteGate(),
+    selfHostedTenant: fixture.tenant,
+  } as unknown as WorkerServiceDeps;
+}
 
 function referenceEvent(value = REFERENCE): Extract<
   SessionEventValue,
@@ -98,17 +107,16 @@ describe("private event browser exclusion", () => {
     const openedId = Number(openedRow.id);
     const privateResult = await fixture.append(referenceEvent());
     expect(privateResult.published).toBe(false);
-    expect(await getEventsSince(fixture.writer.db, DASHBOARD_ID, openedId)).toEqual([]);
+    expect(await getEventsSince(fixture.writer.db, openedId)).toEqual([]);
     expect(await getEventsThrough(
       fixture.writer.db,
-      DASHBOARD_ID,
       openedId,
       Number.MAX_SAFE_INTEGER,
     )).toEqual([]);
-    expect(await getEventMaxId(fixture.writer.db, DASHBOARD_ID)).toBe(openedId);
+    expect(await getEventMaxId(fixture.writer.db)).toBe(openedId);
 
-    const scope = (): SyncDashboardScope => ({
-      dashboardId: DASHBOARD_ID,
+    const scope = (): SyncResourceIndex => ({
+      ownerWorkerFp: null,
       workerFps: new Set([FP]),
       sessionIds: new Set([SID_A]),
       workspaceIds: new Set(),
@@ -158,11 +166,10 @@ describe("private event browser exclusion", () => {
       expect(stringifyTestValue(v1Frames)).not.toContain(PRIVATE_VALUE);
       expect(stringifyTestValue(v2Frames)).not.toContain(PRIVATE_VALUE);
 
-      const publicMax = await getEventMaxId(fixture.writer.db, DASHBOARD_ID);
+      const publicMax = await getEventMaxId(fixture.writer.db);
       expect(publicMax).toBeGreaterThan(openedId);
       const publicTail = await getEventsThrough(
         fixture.writer.db,
-        DASHBOARD_ID,
         openedId,
         publicMax,
       );
@@ -192,12 +199,9 @@ describe("pre-snapshot durable replay", () => {
     const published: string[] = [];
     const unsubscribe = sessionBus.subscribe((event) => {
       published.push(event.kind);
-    }, DASHBOARD_ID);
+    });
     const connection = makeWorkerConn(
-      {
-        db: fixture.writer.db,
-        writeGate: new CoordinatorWriteGate(),
-      } as unknown as WorkerServiceDeps,
+      workerDeps(),
       { fingerprint: FP },
       (frame) => {
         if (frame.frame.case === "eventAck") {
@@ -206,8 +210,6 @@ describe("pre-snapshot durable replay", () => {
         return 1;
       },
       () => { /* test connection */ },
-      undefined,
-      DASHBOARD_ID,
     );
     try {
       await connection.handleUpstream(create(CoordWorkerUpSchema, {
@@ -256,15 +258,12 @@ describe("pre-snapshot durable replay", () => {
     }), {
       worker_fp: null,
       client_seq: null,
-      dashboardId: DASHBOARD_ID,
+      dashboardId: fixture.dashboardId,
     });
     const clientSeq = fixture.nextClientSeq();
     const acknowledgements: bigint[] = [];
     const connection = makeWorkerConn(
-      {
-        db: fixture.writer.db,
-        writeGate: new CoordinatorWriteGate(),
-      } as unknown as WorkerServiceDeps,
+      workerDeps(),
       { fingerprint: FP },
       (frame) => {
         if (frame.frame.case === "eventAck") {
@@ -273,8 +272,6 @@ describe("pre-snapshot durable replay", () => {
         return 1;
       },
       () => { /* test connection */ },
-      undefined,
-      DASHBOARD_ID,
     );
     try {
       await connection.handleUpstream(create(CoordWorkerUpSchema, {
@@ -300,7 +297,7 @@ describe("pre-snapshot durable replay", () => {
       await appendEvent(fixture.writer.db, openedEvent(SID_A, 12, OTHER_FP), {
         worker_fp: OTHER_FP,
         client_seq: fixture.nextClientSeq(),
-        dashboardId: DASHBOARD_ID,
+        dashboardId: fixture.dashboardId,
       });
       const currentOwnerReference = AgentConversationReferenceV1Schema.parse({
         ...REFERENCE,
@@ -310,7 +307,7 @@ describe("pre-snapshot durable replay", () => {
       await appendEvent(fixture.writer.db, referenceEvent(currentOwnerReference), {
         worker_fp: OTHER_FP,
         client_seq: currentOwnerReferenceSeq,
-        dashboardId: DASHBOARD_ID,
+        dashboardId: fixture.dashboardId,
       });
       await connection.handleUpstream(create(CoordWorkerUpSchema, {
         frame: {
@@ -340,10 +337,7 @@ describe("pre-snapshot durable replay", () => {
     const warnSpy = spyOn(log, "warn").mockImplementation(() => undefined);
     const acknowledgements: bigint[] = [];
     const connection = makeWorkerConn(
-      {
-        db: fixture.writer.db,
-        writeGate: new CoordinatorWriteGate(),
-      } as unknown as WorkerServiceDeps,
+      workerDeps(),
       { fingerprint: FP },
       (frame) => {
         if (frame.frame.case === "eventAck") {
@@ -352,8 +346,6 @@ describe("pre-snapshot durable replay", () => {
         return 1;
       },
       () => { /* test connection */ },
-      undefined,
-      DASHBOARD_ID,
     );
     try {
       await connection.handleUpstream(create(CoordWorkerUpSchema, {

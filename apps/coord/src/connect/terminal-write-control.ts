@@ -62,7 +62,6 @@ export type TerminalWriteAcceptance =
 
 export type TerminalWriteSender = (
   workerFp: string,
-  dashboardId: string,
   deadline: HopDeadline,
 ) => TerminalWorkerRequest<WInputResult>;
 
@@ -150,13 +149,6 @@ export function processTerminalWriteControl(
   acceptance: TerminalWriteAcceptance,
   sendToWorker: TerminalWriteSender,
 ): Promise<TerminalWriteControlResult> {
-  if (command.identity.dashboardId === undefined) {
-    return Promise.resolve(terminalWriteRejected(
-      command,
-      "terminal dashboard scope is unavailable",
-    ));
-  }
-  const dashboardId = command.identity.dashboardId;
   const socketGeneration = command.socketGeneration ?? 0;
   const deadline = command.deadline ?? startHopDeadline(INPUT_CONTROL_TIMEOUT_MS);
   return enqueueLane(
@@ -170,9 +162,9 @@ export function processTerminalWriteControl(
         // Inside the lane, never before it: leasing earlier would let queued
         // input hold the exclusive keeper-update drain open forever.
         lease = deps.writeGate.acquire();
-        const route = await resolveSessionRoute(deps.db, dashboardId, command.sessionId);
+        const route = await resolveSessionRoute(deps.db, command.sessionId);
         if (!route) return terminalWriteRejected(command, "unknown session");
-        const workerCall = sendToWorker(route.workerFp, route.dashboardId, deadline);
+        const workerCall = sendToWorker(route.workerFp, deadline);
         admitted = workerCall.admitted;
         if (!admitted) {
           void workerCall.result.catch(() => undefined);

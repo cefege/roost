@@ -1,6 +1,6 @@
 // Process-wide dedupe of in-flight session spawns keyed by the globally unique
-// session UUID. Exact duplicates join; dashboard/caller/signature conflicts
-// reject before a second worker command can create an orphan PTY.
+// session UUID. Exact duplicates join; caller/signature conflicts reject
+// before a second worker command can create an orphan PTY.
 // Ambiguous failures (transport loss, timeout) deliberately RETAIN the
 // reservation until durable-open reconciliation resolves it — rejecting
 // early here would let one lost rpc-ok turn into a duplicate spawn.
@@ -13,7 +13,6 @@ const MAX_PENDING_SPAWNS = 1_024;
 export interface PendingSpawnSignature {
   callerKey: string;
   workerFp: string;
-  dashboardId: string;
   kind: string;
   folder: string;
   cols?: number;
@@ -50,7 +49,6 @@ function signatureKey(signature: PendingSpawnSignature): string {
   return JSON.stringify({
     callerKey: signature.callerKey,
     workerFp: signature.workerFp,
-    dashboardId: signature.dashboardId,
     kind: signature.kind,
     folder: signature.folder,
     cols: signature.cols ?? null,
@@ -102,16 +100,11 @@ export function reservePendingSpawn(
 
 
 export function resolvePendingSpawn(
-  dashboardId: string,
   sessionId: string,
   result: PendingSpawnResult,
 ): boolean {
   const entry = pendingSpawns.get(sessionId);
-  if (
-    !entry
-    || entry.signature.dashboardId !== dashboardId
-    || entry.state !== "pending"
-  ) return false;
+  if (!entry || entry.state !== "pending") return false;
   clearTimeout(entry.timer);
   entry.state = "resolved";
   entry.resolve(result);
@@ -123,13 +116,12 @@ export function resolvePendingSpawn(
 }
 
 function resolveFromDurableOpened(
-  dashboardId: string,
   sessionId: string,
   entry: PendingSpawnEntry,
 ): boolean {
   const opened = entry.durableOpened;
   if (!opened || !entry.ambiguous || entry.state !== "pending") return false;
-  return resolvePendingSpawn(dashboardId, sessionId, {
+  return resolvePendingSpawn(sessionId, {
     sessionId,
     channelId: opened.channelId,
   });
@@ -139,7 +131,6 @@ function resolveFromDurableOpened(
  * which is ordered after the first full frame. Opened resolves only a lost or
  * otherwise ambiguous worker reply. */
 export function resolvePendingSpawnOpened(
-  dashboardId: string,
   workerFp: string,
   sessionId: string,
   channelId: number,
@@ -148,31 +139,25 @@ export function resolvePendingSpawnOpened(
   if (
     !entry
     || entry.state !== "pending"
-    || entry.signature.dashboardId !== dashboardId
     || entry.signature.workerFp !== workerFp
   ) return false;
   entry.durableOpened = { workerFp, channelId };
-  resolveFromDurableOpened(dashboardId, sessionId, entry);
+  resolveFromDurableOpened(sessionId, entry);
   return true;
 }
 
 /** Transport loss/timeouts are ambiguous and retain the reservation for
  * durable-open reconciliation; definite failures reject immediately. */
 export function rejectPendingSpawn(
-  dashboardId: string,
   sessionId: string,
   error: Error,
   definite: boolean,
 ): boolean {
   const entry = pendingSpawns.get(sessionId);
-  if (
-    !entry
-    || entry.signature.dashboardId !== dashboardId
-    || entry.state !== "pending"
-  ) return false;
+  if (!entry || entry.state !== "pending") return false;
   if (!definite) {
     entry.ambiguous = true;
-    resolveFromDurableOpened(dashboardId, sessionId, entry);
+    resolveFromDurableOpened(sessionId, entry);
     return true;
   }
   clearTimeout(entry.timer);

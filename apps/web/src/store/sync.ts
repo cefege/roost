@@ -14,7 +14,6 @@ import {
 import { signCoordinatorJwt } from "../auth/web-key.ts";
 import { getTabId } from "../auth/tab-id.ts";
 import { coordinatorBaseUrl } from "../connect.ts";
-import { selectedDashboardId } from "./root.ts";
 import {
   canAcceptSyncLink,
   canOpenSyncLink,
@@ -100,20 +99,6 @@ export {
 
 const SYNC_AUTH_REVOKED_CLOSE_CODE = 4001;
 let syncAuthRejected: (() => void) | null = null;
-interface DashboardSwitchHold {
-  promise: Promise<void>;
-  resolve: () => void;
-}
-
-let dashboardSwitchHold: DashboardSwitchHold | null = null;
-
-async function waitForScopeDialPermission(): Promise<void> {
-  while (true) {
-    const currentHold = dashboardSwitchHold;
-    if (!currentHold) return;
-    await currentHold.promise;
-  }
-}
 
 export type TerminalGenerationRecoveryReason =
   | "terminal-view-ack-timeout"
@@ -123,13 +108,9 @@ export function buildSyncWebSocketUrl(
   httpBase: string,
   sinceEventId: number,
   tabId: string,
-  dashboardId: string | null,
 ): string {
   const wsBase = httpBase.replace(/^http/, "ws");
-  const dashboardQuery = dashboardId
-    ? `&dashboard=${encodeURIComponent(dashboardId)}`
-    : "";
-  return `${wsBase}${SYNC_WS_PATH}?since=${sinceEventId}&tab=${encodeURIComponent(tabId)}&flow=${SYNC_QUERY_FLOW_V1}&sync_v=${SYNC_QUERY_V2}${dashboardQuery}`;
+  return `${wsBase}${SYNC_WS_PATH}?since=${sinceEventId}&tab=${encodeURIComponent(tabId)}&flow=${SYNC_QUERY_FLOW_V1}&sync_v=${SYNC_QUERY_V2}`;
 }
 
 export function registerSyncAuthRejectionHandler(handler: () => void): () => void {
@@ -141,31 +122,6 @@ export function registerSyncAuthRejectionHandler(handler: () => void): () => voi
 
 /** Close the live tube intentionally so the existing loop immediately redials. */
 export function _requestSyncRedial(): void {
-  _initiateSyncClose("manual");
-}
-
-/** Stop the live tube and prevent another scope from dialing until the exact
- * dashboard-selection attempt either commits or restores its predecessor. */
-export function holdSyncForDashboardSwitch(): void {
-  dashboardSwitchHold ??= Promise.withResolvers<void>();
-  _initiateSyncClose("manual");
-}
-
-export function releaseSyncAfterDashboardSwitch(): void {
-  const currentHold = dashboardSwitchHold;
-  if (!currentHold) return;
-  dashboardSwitchHold = null;
-  currentHold.resolve();
-  resumeSyncNow();
-}
-
-/** Test/diagnostic seam for the switch transaction's no-dial invariant. */
-export function _syncDashboardSwitchHeld(): boolean {
-  return dashboardSwitchHold !== null;
-}
-
-/** Make terminal commands inert without retaining a resumable switch hold. */
-export function closeSyncForDashboardSwitch(): void {
   _initiateSyncClose("manual");
 }
 
@@ -210,10 +166,8 @@ export function requestSyncGenerationRecovery(
 // FirehoseFrame protobuf bytes and causal ACK semantics remain unchanged.
 export async function _runConnectSync(): Promise<void> {
   while (true) {
-    await waitForScopeDialPermission();
     const permissionWait = _waitForSyncDialPermission();
     if (permissionWait) await permissionWait;
-    await waitForScopeDialPermission();
     let dialLink: LiveSyncLink | null = null;
     let abortReason: SyncAbortReason = null;
     try {
@@ -223,14 +177,11 @@ export async function _runConnectSync(): Promise<void> {
       });
       const coordinatorBase = coordinatorBaseUrl();
       const jwt = await signCoordinatorJwt();
-      // The JWT stays in a subprotocol, never the URL. Capture scope-bound
-      // query values after the final hold; no await may split this from opening.
-      await waitForScopeDialPermission();
+      // The JWT stays in a subprotocol, never the URL.
       const url = buildSyncWebSocketUrl(
         coordinatorBase,
         lastSeenSyncEventId(),
         getTabId(),
-        selectedDashboardId(),
       );
       const ws = new WebSocket(url, [SYNC_AUTH_SUBPROTOCOL, jwt]);
       ws.binaryType = "arraybuffer";

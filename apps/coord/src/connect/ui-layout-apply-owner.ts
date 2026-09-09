@@ -1,12 +1,12 @@
 // Owns live writable tab-bound Sync-v2 targets and their acknowledged layout applies.
 // The UI RPC registers each pending correlation before publishing, while Sync ingress
-// settles it only through the exact dashboard, fingerprint, tab, and socket generation.
-// Explicit count maps bound distinct live targets globally by fingerprint and dashboard.
+// settles it only through the exact fingerprint, tab, and socket generation.
+// Explicit count maps bound distinct live targets globally and per fingerprint.
 
 import { randomUUID } from "node:crypto";
 import { log } from "@roost/shared/log";
 import {
-  UI_STATE_MAX_TABS_PER_DASHBOARD,
+  UI_STATE_MAX_TABS_TOTAL,
   UI_STATE_MAX_TABS_PER_FINGERPRINT,
 } from "@roost/shared/ui-state";
 import {
@@ -28,7 +28,6 @@ export interface UiLayoutApplyClock {
 }
 
 export interface UiLayoutApplyTarget {
-  readonly dashboardId: string;
   readonly fingerprint: string;
   readonly tabId: string;
   readonly socketId: string;
@@ -49,7 +48,7 @@ export interface UiLayoutApplyOwnerOptions {
   readonly timeoutMs?: number;
   readonly maxPending?: number;
   readonly maxTargetsPerFingerprint?: number;
-  readonly maxTargetsPerDashboard?: number;
+  readonly maxTargetsTotal?: number;
   readonly createCorrelationId?: () => string;
 }
 
@@ -84,12 +83,11 @@ export class UiLayoutApplyOwner {
   private readonly targets = new Map<string, UiLayoutApplyTarget>();
   private readonly pending = new Map<string, PendingLayoutApply>();
   private readonly targetCountsByFingerprint = new Map<string, number>();
-  private readonly targetCountsByDashboard = new Map<string, number>();
   private readonly clock: UiLayoutApplyClock;
   private readonly timeoutMs: number;
   private readonly maxPending: number;
   private readonly maxTargetsPerFingerprint: number;
-  private readonly maxTargetsPerDashboard: number;
+  private readonly maxTargetsTotal: number;
   private readonly createCorrelationId: () => string;
 
   constructor(options: UiLayoutApplyOwnerOptions = {}) {
@@ -98,8 +96,8 @@ export class UiLayoutApplyOwner {
     this.maxPending = options.maxPending ?? UI_LAYOUT_APPLY_MAX_PENDING;
     this.maxTargetsPerFingerprint = options.maxTargetsPerFingerprint
       ?? UI_STATE_MAX_TABS_PER_FINGERPRINT;
-    this.maxTargetsPerDashboard = options.maxTargetsPerDashboard
-      ?? UI_STATE_MAX_TABS_PER_DASHBOARD;
+    this.maxTargetsTotal = options.maxTargetsTotal
+      ?? UI_STATE_MAX_TABS_TOTAL;
     this.createCorrelationId = options.createCorrelationId ?? randomUUID;
     requirePositiveSafeInteger(this.timeoutMs, "layout apply timeout");
     requirePositiveSafeInteger(this.maxPending, "layout apply capacity");
@@ -107,32 +105,26 @@ export class UiLayoutApplyOwner {
       this.maxTargetsPerFingerprint,
       "layout target per-fingerprint capacity",
     );
-    requirePositiveSafeInteger(
-      this.maxTargetsPerDashboard,
-      "layout target per-dashboard capacity",
-    );
+    requirePositiveSafeInteger(this.maxTargetsTotal, "layout target capacity");
   }
 
   /** Register after the subscribed frame is sent. The disposer cannot remove a replacement. */
   registerTarget(target: UiLayoutApplyTarget): () => void {
-    const key = targetKey(target.dashboardId, target.fingerprint, target.tabId);
+    const key = targetKey(target.fingerprint, target.tabId);
     const previous = this.targets.get(key);
     if (!previous) {
       if (
         (this.targetCountsByFingerprint.get(target.fingerprint) ?? 0)
           >= this.maxTargetsPerFingerprint
-        || (this.targetCountsByDashboard.get(target.dashboardId) ?? 0)
-          >= this.maxTargetsPerDashboard
+        || this.targets.size >= this.maxTargetsTotal
       ) {
         throw new UiLayoutApplyCapacityError();
       }
       incrementCount(this.targetCountsByFingerprint, target.fingerprint);
-      incrementCount(this.targetCountsByDashboard, target.dashboardId);
     }
     this.targets.set(key, target);
     if (previous) this.settleTargetGoneForTarget(previous, "replaced");
     log.debug("ui-layout-apply", previous ? "target_replaced" : "target_registered", {
-      dashboard_id: target.dashboardId,
       caller_fp: target.fingerprint,
       tab_id: target.tabId,
       socket_id: target.socketId,
@@ -141,10 +133,8 @@ export class UiLayoutApplyOwner {
       if (this.targets.get(key) !== target) return;
       this.targets.delete(key);
       decrementCount(this.targetCountsByFingerprint, target.fingerprint);
-      decrementCount(this.targetCountsByDashboard, target.dashboardId);
       this.settleTargetGoneForTarget(target, "closed");
       log.debug("ui-layout-apply", "target_unregistered", {
-        dashboard_id: target.dashboardId,
         caller_fp: target.fingerprint,
         tab_id: target.tabId,
         socket_id: target.socketId,
@@ -154,7 +144,6 @@ export class UiLayoutApplyOwner {
 
   /** Reserve the selected device's exact live tab socket before publishing once. */
   requestApply(
-    dashboardId: string,
     targetFingerprint: string,
     targetTabId: string,
     signal: AbortSignal,
@@ -163,7 +152,6 @@ export class UiLayoutApplyOwner {
     const correlationId = this.allocateCorrelationId();
     if (signal.aborted) return Promise.reject(new UiLayoutApplyCanceledError());
     const target = this.targets.get(targetKey(
-      dashboardId,
       targetFingerprint,
       targetTabId,
     ));
@@ -222,13 +210,11 @@ export class UiLayoutApplyOwner {
     ) return false;
     const pending = this.pending.get(result.correlationId);
     const currentTarget = this.targets.get(targetKey(
-      source.dashboardId,
       source.fingerprint,
       source.tabId,
     ));
     if (
       !pending
-      || pending.dashboardId !== source.dashboardId
       || pending.fingerprint !== source.fingerprint
       || pending.tabId !== source.tabId
       || pending.socketId !== source.socketId
@@ -254,7 +240,6 @@ export class UiLayoutApplyOwner {
   dispose(): void {
     this.targets.clear();
     this.targetCountsByFingerprint.clear();
-    this.targetCountsByDashboard.clear();
     for (const pending of [...this.pending.values()]) {
       this.resolveTargetGone(pending, "owner_disposed");
     }
@@ -276,8 +261,7 @@ export class UiLayoutApplyOwner {
   private settleTargetGoneForTarget(target: UiLayoutApplyTarget, cause: string): void {
     for (const pending of [...this.pending.values()]) {
       if (
-        pending.dashboardId === target.dashboardId
-        && pending.fingerprint === target.fingerprint
+        pending.fingerprint === target.fingerprint
         && pending.tabId === target.tabId
         && pending.socketId === target.socketId
       ) {
@@ -306,8 +290,8 @@ export class UiLayoutApplyOwner {
   }
 }
 
-function targetKey(dashboardId: string, fingerprint: string, tabId: string): string {
-  return JSON.stringify([dashboardId, fingerprint, tabId]);
+function targetKey(fingerprint: string, tabId: string): string {
+  return JSON.stringify([fingerprint, tabId]);
 }
 
 function incrementCount(counts: Map<string, number>, key: string): void {

@@ -31,7 +31,6 @@ let browserAuthContext: WorkerWsTransportFixture["browserAuthContext"];
 let closeWorkerSockets: WorkerWsTransportFixture["closeWorkerSockets"];
 let connectDeps: WorkerWsTransportFixture["connectDeps"];
 let connectWorker: WorkerWsTransportFixture["connectWorker"];
-let dashboardId: string;
 let deps: WorkerWsTransportFixture["deps"];
 let fenceWorkerSockets: WorkerWsTransportFixture["fenceWorkerSockets"];
 let port: number;
@@ -46,7 +45,6 @@ beforeAll(async () => {
     closeWorkerSockets,
     connectDeps,
     connectWorker,
-    dashboardId,
     deps,
     fenceWorkerSockets,
     port,
@@ -87,7 +85,6 @@ describe("worker↔coord raw-WS transport", () => {
           validUntilMs: Date.now() + 60_000,
         },
         fp: workerFp,
-        dashboardId,
         conn: fakeConn,
         queue: null as WorkerWsData["queue"],
         eventRate: { startedAtMs: null, events: 0 },
@@ -125,7 +122,6 @@ describe("worker↔coord raw-WS transport", () => {
       kind: "worker",
       caller,
       fp: workerFp,
-      dashboardId,
       conn: null,
       queue: null,
       eventRate: { startedAtMs: null, events: 0 },
@@ -148,7 +144,7 @@ describe("worker↔coord raw-WS transport", () => {
     w.sendUp(helloFrame(workerFp));
     await w.waitFor((frame) => frame.frame.case === "helloAck");
     await readyWorker(w, workerFp);
-    expect(listRoutableFps(dashboardId)).toContain(workerFp);
+    expect(listRoutableFps()).toContain(workerFp);
 
     const closed = new Promise<{ code: number; reason: string }>((resolve) => {
       w.ws.addEventListener("close", (event) => {
@@ -168,7 +164,7 @@ describe("worker↔coord raw-WS transport", () => {
     expect(response.ok).toBe(true);
     expect(connectWorkers.has(workerFp)).toBe(false);
     expect(getWorkerHubSocket(workerFp)).toBeNull();
-    expect(listRoutableFps(dashboardId)).not.toContain(workerFp);
+    expect(listRoutableFps()).not.toContain(workerFp);
     expect(await closed).toEqual({ code: 4001, reason: "revoked" });
 
     const reconnect = await handleWorkerWsUpgrade(

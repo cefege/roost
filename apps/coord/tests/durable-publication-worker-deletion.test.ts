@@ -28,7 +28,6 @@ const fixture = createDurablePublicationFixture({
 const {
   FP,
   SID_A,
-  DASHBOARD_ID,
   committedChannel,
   openedEvent,
   respawnedEvent,
@@ -58,7 +57,7 @@ describe("worker deletion publication fence", () => {
     await append(openedEvent(SID_A, 11));
     const liveHandle = {
       workerFp: FP,
-      dashboardId: DASHBOARD_ID,
+      dashboardId: fixture.dashboardId,
       revoked: false,
       send: () => 1,
     };
@@ -70,7 +69,7 @@ describe("worker deletion publication fence", () => {
       await appendEvent(writer.db, respawnedEvent(SID_A, 12), {
         worker_fp: FP,
         client_seq: ++clientSeq,
-        dashboardId: DASHBOARD_ID,
+        dashboardId: fixture.dashboardId,
         canPublish: () => {
           // appendEvent invokes this only after its event/projection transaction
           // committed. Tombstone and fence in this boundary to model deletion
@@ -99,7 +98,7 @@ describe("worker deletion publication fence", () => {
       expect(lookupSessionId(FP, asChannelId(12))).toBeUndefined();
       expect(getCachedSessionWorker(SID_A)).toBeUndefined();
       expect(liveHandle.revoked).toBe(true);
-      expect(listRoutableFps(DASHBOARD_ID)).not.toContain(FP);
+      expect(listRoutableFps()).not.toContain(FP);
     } finally {
       unsub();
       connectWorkers.delete(FP);

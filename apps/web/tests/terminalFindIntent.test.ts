@@ -1,6 +1,6 @@
 // One-shot terminal-find handoff tests for warm and cold pane mounts.
 // They pin latest-pending semantics, identity-safe unregistration, preferred
-// current-epoch metadata forwarding, and dashboard-bound registry reset.
+// current-epoch metadata forwarding, and credential-bound registry reset.
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { TerminalFind } from "../src/lib/terminalFindController.ts";
@@ -9,7 +9,7 @@ import {
   _resetTerminalFindIntentsForTest,
   registerTerminalFind,
   requestTerminalFind,
-  resetTerminalFindIntentsForDashboardSwitch,
+  resetTerminalFindIntentsForAuthBoundary,
 } from "../src/lib/terminalFindIntent.ts";
 
 function fakeFind() {
@@ -84,13 +84,13 @@ describe("terminal find intent registry", () => {
     unregisterSecond();
   });
 
-  test("dashboard reset clears mounted callbacks and cold intents", () => {
+  test("an auth-boundary reset clears mounted callbacks and cold intents", () => {
     const retired = fakeFind();
     registerTerminalFind("mounted-old", retired.find);
-    requestTerminalFind("cold-old", "old dashboard");
+    requestTerminalFind("cold-old", "retired needle");
 
-    resetTerminalFindIntentsForDashboardSwitch();
-    requestTerminalFind("mounted-old", "new dashboard");
+    resetTerminalFindIntentsForAuthBoundary();
+    requestTerminalFind("mounted-old", "next needle");
     expect(retired.openFind).not.toHaveBeenCalled();
 
     const coldReplacement = fakeFind();
@@ -99,6 +99,6 @@ describe("terminal find intent registry", () => {
 
     const mountedReplacement = fakeFind();
     registerTerminalFind("mounted-old", mountedReplacement.find);
-    expect(mountedReplacement.queries[0]?.query).toBe("new dashboard");
+    expect(mountedReplacement.queries[0]?.query).toBe("next needle");
   });
 });

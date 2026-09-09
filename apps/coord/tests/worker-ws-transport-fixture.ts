@@ -23,13 +23,14 @@ import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { signJwt, newJwtCache } from "../src/jwt.ts";
 import {
   handleWorkerWsUpgrade,
   makeWorkerWsHandler,
 } from "../src/connect/worker-ws-handler.ts";
 import type { WorkerServiceDeps } from "../src/connect/worker-service.ts";
-import { callerKey, dashboardActorKey, tabIdKey } from "../src/connect/auth-interceptor.ts";
+import { callerKey, tabIdKey } from "../src/connect/auth-interceptor.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { PendingEventPublicationStore } from "../src/pending-event-publications.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
@@ -63,6 +64,7 @@ export async function startWorkerWsTransportFixture() {
   const db = opened.db;
   const sqlite = opened.sqlite;
   await runMigrations(sqlite);
+  const selfHostedTenant = ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
   const jwtCache = newJwtCache();
   const cfg: CoordConfig = {
     trustProxy: false,
@@ -84,12 +86,14 @@ export async function startWorkerWsTransportFixture() {
     jwtCache,
     cfg,
     writeGate: new CoordinatorWriteGate(),
+    selfHostedTenant,
   };
   const connectDeps: ConnectDeps = {
     ...deps,
     sqlite,
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
+    cfAccess: null,
   };
 
   const workerKeys = await crypto.subtle.generateKey(
@@ -107,24 +111,7 @@ export async function startWorkerWsTransportFixture() {
     label: "test-worker",
     added_at: Date.now(),
   }).execute();
-  const organizationId = "worker-ws-transport-org";
-  const dashboardId = "worker-ws-transport-dashboard";
-  const dashboardNow = Date.now();
-  await db.insertInto("organizations").values({
-    id: organizationId,
-    slug: "worker-ws-transport-org",
-    name: "Worker transport",
-    status: "active",
-    created_at_ms: dashboardNow,
-  }).execute();
-  await db.insertInto("dashboards").values({
-    id: dashboardId,
-    organization_id: organizationId,
-    slug: "worker-ws-transport",
-    name: "Worker transport",
-    status: "active",
-    created_at_ms: dashboardNow,
-  }).execute();
+  const dashboardId = selfHostedTenant.dashboardId;
   await db.insertInto("workers").values({
     fp: workerFp,
     dashboard_id: dashboardId,
@@ -290,26 +277,16 @@ export async function startWorkerWsTransportFixture() {
       kind: "account-device" as const,
       fingerprint: "browser-fp",
       label: "test",
-      accountId: "browser-account",
-    };
-    const actor = {
-      accountId: "browser-account",
-      organizationId,
-      dashboardId,
-      organizationRole: "owner" as const,
-      dashboardRole: "admin" as const,
-      deviceFingerprint: "browser-fp",
+      accountId: selfHostedTenant.accountId,
     };
     return {
       signal,
       values: {
         get: (key: unknown) => key === callerKey
           ? caller
-          : key === dashboardActorKey
-            ? actor
-            : key === tabIdKey
-              ? "test-tab"
-              : null,
+          : key === tabIdKey
+            ? "test-tab"
+            : null,
       },
     } as unknown as HandlerContext;
   }

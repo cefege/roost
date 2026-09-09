@@ -1,5 +1,5 @@
-// Worker-browse launches belong to the dashboard generation that started them.
-// Deferred spawn and projection promises make each cutover boundary deterministic,
+// Worker-browse launches belong to the auth generation that started them.
+// Deferred spawn and projection promises make each credential boundary deterministic,
 // proving stale continuations cannot publish recents, agent input, navigation, or errors.
 
 import { describe, expect, test } from "bun:test";
@@ -23,7 +23,7 @@ interface LaunchHarness {
   readonly projection: Deferred<Session | null>;
   readonly projectionStarted: Deferred<void>;
   readonly dependencies: _WorkerBrowseLaunchDependencies;
-  readonly cutOverDashboard: () => void;
+  readonly crossAuthBoundary: () => void;
   readonly waitCalls: () => number;
   readonly recents: string[];
   readonly agentLaunches: string[];
@@ -36,7 +36,6 @@ function createLaunchHarness() {
   const projection = Promise.withResolvers<Session | null>();
   const projectionStarted = Promise.withResolvers<void>();
   let generation = 1;
-  let dashboardId = "dashboard-a";
   let waitCalls = 0;
   const recents: string[] = [];
   const agentLaunches: string[] = [];
@@ -44,9 +43,8 @@ function createLaunchHarness() {
   const toasts: Array<{ message: string; kind: string }> = [];
 
   const dependencies: _WorkerBrowseLaunchDependencies = {
-    captureDashboardResourceToken: () => ({ generation, dashboardId }),
-    isCurrentDashboardResourceToken: (token) =>
-      token.generation === generation && token.dashboardId === dashboardId,
+    captureAuthResourceToken: () => ({ generation }),
+    isCurrentAuthResourceToken: (token) => token.generation === generation,
     spawnShell: () => spawn.promise,
     waitForSession: () => {
       waitCalls += 1;
@@ -68,10 +66,7 @@ function createLaunchHarness() {
     projection,
     projectionStarted,
     dependencies,
-    cutOverDashboard: () => {
-      generation += 1;
-      dashboardId = "dashboard-b";
-    },
+    crossAuthBoundary: () => { generation += 1; },
     waitCalls: () => waitCalls,
     recents,
     agentLaunches,
@@ -89,12 +84,12 @@ function startLaunch(harness: LaunchHarness): Promise<void> {
   );
 }
 
-describe("worker browse dashboard fencing", () => {
-  test("a cutover while spawn is pending stops before projection or UI mutation", async () => {
+describe("worker browse credential fencing", () => {
+  test("a boundary while spawn is pending stops before projection or UI mutation", async () => {
     const harness = createLaunchHarness();
     const launch = startLaunch(harness);
 
-    harness.cutOverDashboard();
+    harness.crossAuthBoundary();
     harness.spawn.resolve(SESSION.id);
     await launch;
 
@@ -105,13 +100,13 @@ describe("worker browse dashboard fencing", () => {
     expect(harness.toasts).toEqual([]);
   });
 
-  test("a cutover during projection wait cannot record or open the old session", async () => {
+  test("a boundary during projection wait cannot record or open the retired session", async () => {
     const harness = createLaunchHarness();
     const launch = startLaunch(harness);
     harness.spawn.resolve(SESSION.id);
     await harness.projectionStarted.promise;
 
-    harness.cutOverDashboard();
+    harness.crossAuthBoundary();
     harness.projection.resolve(SESSION);
     await launch;
 
@@ -122,12 +117,12 @@ describe("worker browse dashboard fencing", () => {
     expect(harness.toasts).toEqual([]);
   });
 
-  test("a stale rejection does not recreate an old-dashboard toast", async () => {
+  test("a stale rejection does not recreate a retired toast", async () => {
     const harness = createLaunchHarness();
     const launch = startLaunch(harness);
 
-    harness.cutOverDashboard();
-    harness.spawn.reject(new Error("old dashboard failed"));
+    harness.crossAuthBoundary();
+    harness.spawn.reject(new Error("retired credential failed"));
     await launch;
 
     expect(harness.toasts).toEqual([]);

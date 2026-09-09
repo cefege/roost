@@ -1,4 +1,4 @@
-// Route-driven metadata, attention, and terminal-content search for dashboard sessions.
+// Route-driven metadata, attention, and terminal-content search across sessions.
 // Metadata and content join through one scalar navigation projection; content RPC
 // results hand off to pane-local current-epoch find before session navigation.
 
@@ -59,9 +59,9 @@ export function GlobalSearchPage() {
       : "0 sessions. No sessions to search";
   });
   const contentSearch = createGlobalContentSearchController();
-  const dashboardGeneration = createMemo(() => rootStore.dashboard_generation);
+  const authGeneration = createMemo(() => rootStore.auth_generation);
   createEffect(() => {
-    dashboardGeneration();
+    authGeneration();
     if (scope() === "all") contentSearch.setSearch(query(), caseSensitive());
     else contentSearch.setSearch("", false);
   });
@@ -135,7 +135,7 @@ export function GlobalSearchPage() {
               font: "var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font)",
             }}
           >
-            Find sessions by metadata and search retained terminal content across this dashboard.
+            Find sessions by metadata and search retained terminal content across every machine.
           </div>
         </div>
 
@@ -231,7 +231,7 @@ export function GlobalSearchPage() {
                   : "Terminal content matches appear above. Try another metadata term to filter this list."
                 : scope() === "attention"
                   ? "Blocked agents and unseen completions appear here."
-                  : "Sessions in this dashboard appear here as they open."}
+                  : "Sessions appear here as they open."}
             />
           }
         >

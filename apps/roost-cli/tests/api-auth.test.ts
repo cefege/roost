@@ -1,6 +1,5 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { describe, expect, test } from "bun:test";
-import { X_ROOST_DASHBOARD_ID } from "@roost/shared/wire/headers";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +8,6 @@ import {
   CLI_PAIRING_REQUIRED,
   cliKeyPath,
   ensureCliEnrollment,
-  withDashboardScope,
 } from "../src/cli-auth.ts";
 
 describe("CLI device authentication", () => {
@@ -30,53 +28,38 @@ describe("CLI device authentication", () => {
     }
   });
 
-  test("uses AuthDashboardAccess selection for every unary request", async () => {
-    const accessHeaders: Array<string | null> = [];
-    const client = {
-      async authDashboardAccess(_request: Record<string, never>, options?: { headers?: HeadersInit }) {
-        accessHeaders.push(new Headers(options?.headers).get(X_ROOST_DASHBOARD_ID));
-        return { selectedDashboardId: "dashboard-selected" };
+  test("an already enrolled key costs one protected probe and never redeems", async () => {
+    let probes = 0;
+    await ensureCliEnrollment({
+      client: {
+        async workersList() {
+          probes++;
+          return { workers: [] };
+        },
       },
-    };
-    const selected = await ensureCliEnrollment({
-      client,
       publicClient: {
         async authRedeemBrowser() { throw new Error("must not redeem a known key"); },
       },
       publicKeyB64: "public-key",
       label: "roost-cli",
-      requestedDashboardId: "dashboard-requested",
       localDatabasePath: null,
+      async mintHostBrowserToken() { throw new Error("must not mint for a known key"); },
     });
-    expect(selected).toBe("dashboard-selected");
-    expect(accessHeaders).toEqual(["dashboard-requested"]);
-
-    const unaryHeaders: Array<string | null> = [];
-    const scoped = withDashboardScope({
-      async workersList(_request: Record<string, never>, options?: { headers?: HeadersInit }) {
-        unaryHeaders.push(new Headers(options?.headers).get(X_ROOST_DASHBOARD_ID));
-        return { workers: [] };
-      },
-    }, selected);
-    await scoped.workersList({});
-    expect(unaryHeaders).toEqual(["dashboard-selected"]);
+    expect(probes).toBe(1);
   });
 
-  test("host-mints one browser grant and redeems the CLI key", async () => {
-    let accessAttempts = 0;
+  test("host-mints one browser grant, redeems the CLI key, then reprobes", async () => {
+    let probes = 0;
     let mintInput: unknown;
     let redeemed: unknown;
-    const client = {
-      async authDashboardAccess() {
-        accessAttempts++;
-        if (accessAttempts === 1) {
-          throw new ConnectError("unknown key", Code.Unauthenticated);
-        }
-        return { selectedDashboardId: "dashboard-local" };
+    await ensureCliEnrollment({
+      client: {
+        async workersList() {
+          probes++;
+          if (probes === 1) throw new ConnectError("unknown key", Code.Unauthenticated);
+          return { workers: [] };
+        },
       },
-    };
-    const selected = await ensureCliEnrollment({
-      client,
       publicClient: {
         async authRedeemBrowser(request: unknown) { redeemed = request; },
       },
@@ -89,7 +72,6 @@ describe("CLI device authentication", () => {
       },
     });
 
-    expect(selected).toBe("dashboard-local");
     expect(mintInput).toEqual({
       databasePath: "/var/lib/roost/coordinator_v2.db",
       input: { kind: "browser", label: "roost-cli" },
@@ -99,13 +81,14 @@ describe("CLI device authentication", () => {
       sshPubkeyB64: "cli-public-key",
       label: "roost-cli",
     });
-    expect(accessAttempts).toBe(2);
+    // The enrolled key is proven against the coordinator, not assumed.
+    expect(probes).toBe(2);
   });
 
   test("an unknown remote self-hosted key requires explicit pairing", async () => {
     const promise = ensureCliEnrollment({
       client: {
-        async authDashboardAccess() {
+        async workersList() {
           throw new ConnectError("unknown key", Code.Unauthenticated);
         },
       },
@@ -117,5 +100,28 @@ describe("CLI device authentication", () => {
       localDatabasePath: null,
     });
     await expect(promise).rejects.toThrow(CLI_PAIRING_REQUIRED);
+  });
+
+  test("a probe failure that is not an authentication verdict never enrolls", async () => {
+    let mints = 0;
+    const promise = ensureCliEnrollment({
+      client: {
+        async workersList() {
+          throw new ConnectError("coordinator unreachable", Code.Unavailable);
+        },
+      },
+      publicClient: {
+        async authRedeemBrowser() { throw new Error("must not redeem after a transport failure"); },
+      },
+      publicKeyB64: "cli-public-key",
+      label: "roost-cli",
+      localDatabasePath: "/var/lib/roost/coordinator_v2.db",
+      async mintHostBrowserToken() {
+        mints++;
+        return { token: "one-shot-secret", expiresAtMs: 123 };
+      },
+    });
+    await expect(promise).rejects.toThrow("coordinator unreachable");
+    expect(mints).toBe(0);
   });
 });

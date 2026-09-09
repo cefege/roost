@@ -27,7 +27,7 @@ const fixture = createDurablePublicationFixture({
   secondaryFingerprintByte: "a8",
   sessionGroup: "7",
 });
-const { FP, OTHER_FP, SID_A, DASHBOARD_ID, openedEvent } = fixture;
+const { FP, OTHER_FP, SID_A, openedEvent } = fixture;
 
 let deps: WorkerServiceDeps;
 
@@ -36,6 +36,7 @@ beforeEach(async () => {
   deps = {
     db: fixture.writer.db,
     writeGate: new CoordinatorWriteGate(),
+    selfHostedTenant: fixture.tenant,
   } as unknown as WorkerServiceDeps;
 });
 afterAll(() => fixture.close());
@@ -77,8 +78,6 @@ describe("coordinator→worker send failure teardown", () => {
       { fingerprint: OTHER_FP },
       recordSuccessfulSend(otherFrames),
       () => { otherCloseRequests += 1; },
-      undefined,
-      DASHBOARD_ID,
     );
     let failedCloseRequests = 0;
     const failed = makeWorkerConn(
@@ -86,8 +85,6 @@ describe("coordinator→worker send failure teardown", () => {
       { fingerprint: FP },
       (frame) => frame.frame.case === "helloAck" ? 0 : 1,
       () => { failedCloseRequests += 1; },
-      undefined,
-      DASHBOARD_ID,
     );
     let replacement: WorkerConn | null = null;
     try {
@@ -111,8 +108,6 @@ describe("coordinator→worker send failure teardown", () => {
         { fingerprint: FP },
         recordSuccessfulSend(replacementFrames),
         () => { replacementCloseRequests += 1; },
-        undefined,
-        DASHBOARD_ID,
       );
       await replacement.handleUpstream(helloFrame(FP));
 
@@ -142,8 +137,6 @@ describe("coordinator→worker send failure teardown", () => {
         return 1;
       },
       () => { failedCloseRequests += 1; },
-      undefined,
-      DASHBOARD_ID,
     );
     let replacement: WorkerConn | null = null;
     try {
@@ -161,8 +154,6 @@ describe("coordinator→worker send failure teardown", () => {
         { fingerprint: FP },
         recordSuccessfulSend(replacementFrames),
         () => { replacementCloseRequests += 1; },
-        undefined,
-        DASHBOARD_ID,
       );
       await replacement.handleUpstream(helloFrame(FP));
       await replacement.handleUpstream(eventFrame(openedEvent(SID_A, 17), clientSeq));

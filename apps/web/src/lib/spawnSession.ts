@@ -65,7 +65,7 @@ export function buildSpawnShellRequest(
 const autoLaunchedSessionIds = new Set<string>();
 let spawnRuntimeGeneration = 0;
 
-/** Forget per-session launch admission and stop retrying old-dashboard spawns. */
+/** Forget per-session launch admission and stop retrying superseded spawns. */
 export function resetSpawnSessionRuntime(): void {
   spawnRuntimeGeneration++;
   autoLaunchedSessionIds.clear();
@@ -96,12 +96,12 @@ export async function withSpawnRetry<T>(call: () => Promise<T>): Promise<T> {
   let delay = 200;
   for (let attempt = 1; ; attempt++) {
     if (requestGeneration !== spawnRuntimeGeneration) {
-      throw new Error("spawn request was invalidated by a dashboard change");
+      throw new Error("spawn request was invalidated by a credential change");
     }
     try {
       const result = await call();
       if (requestGeneration !== spawnRuntimeGeneration) {
-        throw new Error("spawn request was invalidated by a dashboard change");
+        throw new Error("spawn request was invalidated by a credential change");
       }
       return result;
     } catch (err) {
