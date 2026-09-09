@@ -9,7 +9,7 @@ import {
   type JournaledKeeperUpdateV1,
   type KeeperContractV1,
 } from "@roost/shared/keeper-update";
-import { buildDashboardScopedCliContext } from "./cli-auth.ts";
+import { buildCliContext } from "./cli-auth.ts";
 import { normalizedHost } from "./deploy-windows-channel.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
 import type { DirectKeeperAdmissionOutcome } from "./keeper-admission-staging.ts";
@@ -173,7 +173,7 @@ export function directKeeperUpdateAdmission(
 function defaultJournaledKeeperUpdateRuntime(): JournaledKeeperUpdateCallbackRuntime {
   return {
     prepare: async request => {
-      const { client } = await buildDashboardScopedCliContext();
+      const { client } = await buildCliContext();
       return await client.workersPrepareKeeperUpdate(request);
     },
     inventory: workerInventoryForUpdateAdmission,
