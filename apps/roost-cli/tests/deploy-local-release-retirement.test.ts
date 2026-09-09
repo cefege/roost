@@ -24,6 +24,61 @@ function plainRelease(releaseRoot: string, name: string): string {
   return path;
 }
 
+function runGit(repo: string, args: string[]): void {
+  const result = Bun.spawnSync(["git", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) {
+    throw new Error(new TextDecoder().decode(result.stderr));
+  }
+}
+
+test("a registered release with an invalid git file is retired and pruned", async () => {
+  const { root, releaseRoot, repo } = stage();
+  const prior = join(releaseRoot, "bbbbbbbb-2222");
+  try {
+    runGit(repo, ["init", "-q"]);
+    runGit(repo, ["config", "user.email", "test@example.com"]);
+    runGit(repo, ["config", "user.name", "Roost Test"]);
+    writeFileSync(join(repo, "README"), "release\n");
+    runGit(repo, ["add", "README"]);
+    runGit(repo, ["commit", "-qm", "fixture"]);
+    runGit(repo, ["worktree", "add", "--detach", prior, "HEAD"]);
+    rmSync(join(prior, ".git"));
+    mkdirSync(join(prior, ".git"));
+
+    await _removeManagedPriorRelease(repo, releaseRoot, prior);
+
+    expect(existsSync(prior)).toBe(false);
+    const registered = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], {
+      cwd: repo,
+      stdout: "pipe",
+    });
+    expect(new TextDecoder().decode(registered.stdout)).not.toContain(`worktree ${prior}`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a registered release without git metadata is not recursively removed", async () => {
+  const { root, releaseRoot, repo } = stage();
+  const prior = join(releaseRoot, "cccccccc-3333");
+  try {
+    runGit(repo, ["init", "-q"]);
+    runGit(repo, ["config", "user.email", "test@example.com"]);
+    runGit(repo, ["config", "user.name", "Roost Test"]);
+    writeFileSync(join(repo, "README"), "release\n");
+    runGit(repo, ["add", "README"]);
+    runGit(repo, ["commit", "-qm", "fixture"]);
+    runGit(repo, ["worktree", "add", "--detach", prior, "HEAD"]);
+    rmSync(join(prior, ".git"));
+
+    await expect(_removeManagedPriorRelease(repo, releaseRoot, prior))
+      .rejects.toThrow("cannot retire prior worker release");
+    expect(existsSync(prior)).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("an rsync-staged prior release is retired even though it is no git worktree", async () => {
   const { root, releaseRoot, repo } = stage();
   const prior = plainRelease(releaseRoot, "aaaaaaaa-1111");

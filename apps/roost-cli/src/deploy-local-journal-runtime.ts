@@ -202,18 +202,29 @@ export async function _removeManagedPriorRelease(
     && registered.stdout.split("\n").some((line) =>
       line === `worktree ${priorWorkingDirectory}`
     );
+  const gitMetadata = lstatIfPresent(join(priorWorkingDirectory, ".git"));
+  const hasInvalidGitMetadata = gitMetadata !== null && !gitMetadata.isFile();
+  let removedByGit = false;
   if (isWorktree) {
     const removed = await run(["git", "worktree", "remove", "--force", priorWorkingDirectory], {
       cwd: sourceRepo,
       quiet: true,
     });
-    if (removed.exit !== 0) {
+    if (removed.exit !== 0 && !hasInvalidGitMetadata) {
       throw new Error(
         `cannot retire prior worker release ${priorWorkingDirectory}: ${removed.stderr.trim() || `exit ${removed.exit}`}`,
       );
     }
-  } else {
+    removedByGit = removed.exit === 0;
+  }
+  if (!removedByGit) {
     rmSync(priorWorkingDirectory, { recursive: true, force: true });
+    if (isWorktree) {
+      const pruned = await run(["git", "worktree", "prune"], { cwd: sourceRepo, quiet: true });
+      if (pruned.exit !== 0) {
+        throw new Error(`cannot prune retired worker release ${priorWorkingDirectory}: ${pruned.stderr.trim() || `exit ${pruned.exit}`}`);
+      }
+    }
   }
   if (existsSync(releaseRoot)) await flushDurablePath(releaseRoot);
 }
