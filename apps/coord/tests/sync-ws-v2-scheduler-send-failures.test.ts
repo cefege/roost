@@ -4,7 +4,7 @@
 
 import { expect, test } from "bun:test";
 import { SyncDomain } from "@roost/shared/proto/sync_pb";
-import { V2_DOMAIN_MAX_QUEUED_FRAMES } from "../src/connect/sync-ws-v2-state.ts";
+import { V2_TERMINAL_MAX_RETAINED_FRAMES } from "../src/connect/sync-ws-v2-state.ts";
 import {
   TARGET_SESSION,
   cellIdentity,
@@ -141,9 +141,10 @@ test("a throwing control buffered-amount probe closes the ambiguously sent socke
   expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
 });
 
-test("a failed overflow reset send closes the socket with 1013", () => {
-  const harness = makeHarness("scheduler-test:reset-send-failure", false);
-  for (let seq = 1; seq <= V2_DOMAIN_MAX_QUEUED_FRAMES; seq += 1) {
+test("terminal queue pressure does not send a reset control frame or close the socket", () => {
+  const harness = makeHarness("scheduler-test:terminal-pressure-no-close", false);
+  const generation = harness.terminal.generation;
+  for (let seq = 1; seq <= V2_TERMINAL_MAX_RETAINED_FRAMES; seq += 1) {
     expect(harness.scheduler.enqueueV2Frame(
       harness.ws,
       makeCell(TARGET_SESSION, seq, false),
@@ -153,11 +154,12 @@ test("a failed overflow reset send closes the socket with 1013", () => {
   harness.socket.sendResult = 0;
   expect(harness.scheduler.enqueueV2Frame(
     harness.ws,
-    makeCell(TARGET_SESSION, V2_DOMAIN_MAX_QUEUED_FRAMES + 1, false),
+    makeCell(TARGET_SESSION, V2_TERMINAL_MAX_RETAINED_FRAMES + 1, false),
     { domain: SyncDomain.TERMINAL, lane: "cell", sessionId: TARGET_SESSION },
   )).toBe(false);
-  expect(harness.droppedFrames.at(-1)?.frame).toBe("domainReset");
-  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
+  expect(harness.terminal.generation).toBe(generation);
+  expect(harness.droppedFrames).toEqual([]);
+  expect(harness.socket.closes).toEqual([]);
 });
 
 test("v1 send and buffer-probe exceptions fail closed with 1013", () => {

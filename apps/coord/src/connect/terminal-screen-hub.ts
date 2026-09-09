@@ -47,7 +47,7 @@ export interface TerminalScreenSocketSink {
     sessionId: string,
     streamId: string,
     frames: readonly FirehoseFrame[],
-  ): void;
+  ): boolean;
   enqueueTerminalDelta(
     sessionId: string,
     streamId: string,
@@ -123,11 +123,13 @@ export class TerminalScreenHub {
     socket.sink.beginTerminalStream(sessionId, state.expected.streamId);
   }
 
-  seedSocket(socketId: string, sessionId: string): void {
+  seedSocket(socketId: string, sessionId: string): boolean {
     const socket = this.sockets.get(socketId);
     const state = this.sessions.get(sessionId);
-    if (!socket?.watchedSessions.has(sessionId) || !state?.expected || !state.cache?.valid) return;
-    this.snapshots.seed(socket, sessionId, state.expected.streamId, state.cache.proto);
+    if (!socket?.watchedSessions.has(sessionId) || !state?.expected || !state.cache?.valid) {
+      return false;
+    }
+    return this.snapshots.seed(socket, sessionId, state.expected.streamId, state.cache.proto);
   }
 
   ensureSocketStream(socketId: string, sessionId: string): boolean {
@@ -137,16 +139,16 @@ export class TerminalScreenHub {
     return socket.sink.beginTerminalStream(sessionId, state.expected.streamId);
   }
 
-  resyncSocket(socketId: string, sessionId: string): void {
+  resyncSocket(socketId: string, sessionId: string): boolean {
     const socket = this.sockets.get(socketId);
     const state = this.sessions.get(sessionId);
-    if (!socket?.watchedSessions.has(sessionId) || !state?.expected) return;
+    if (!socket?.watchedSessions.has(sessionId) || !state?.expected) return false;
     socket.sink.beginTerminalStream(sessionId, state.expected.streamId);
     if (state.cache?.valid && !state.resyncLatched) {
-      this.snapshots.seed(socket, sessionId, state.expected.streamId, state.cache.proto);
-      return;
+      return this.snapshots.seed(socket, sessionId, state.expected.streamId, state.cache.proto);
     }
     this.snapshots.retry(sessionId, state, "browser requested terminal rebaseline");
+    return false;
   }
 
   expectStream(sessionId: string, streamId: string, cols: number, rows: number): void {

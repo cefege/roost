@@ -64,9 +64,9 @@ export class TerminalScreenSnapshotController {
     sessionId: string,
     streamId: string,
     proto: PbCellGridFrame,
-  ): void {
+  ): boolean {
     try {
-      socket.sink.replaceTerminalSnapshot(
+      return socket.sink.replaceTerminalSnapshot(
         sessionId,
         streamId,
         terminalSnapshotFrames(clone(PbCellGridFrameSchema, proto)),
@@ -77,6 +77,7 @@ export class TerminalScreenSnapshotController {
         : "terminal snapshot encoding failed";
       this.options.unavailable(sessionId, reason);
       signal("terminal.snapshot_encode_failed", { session_id: sessionId, reason });
+      return false;
     }
   }
 

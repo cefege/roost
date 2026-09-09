@@ -104,6 +104,11 @@ export function makeSyncWsHandler(
     closeForBackpressure: delivery.closeForBackpressure,
     closeForDroppedFrame: delivery.closeForDroppedFrame,
     rearmApplicationDeadline: delivery.rearmApplicationDeadline,
+    requestTerminalRebaseline: (ws, sessionId) => {
+      const socketId = ws.data.v2?.socketId;
+      return socketId !== undefined
+        && options.terminalViews?.screen.resyncSocket(socketId, sessionId) === true;
+    },
   });
   const v2Commands = makeSyncV2CommandHandler({
     sendV2ControlFrame: v2Scheduler.sendV2ControlFrame,
@@ -266,6 +271,9 @@ export function makeSyncWsHandler(
               const generation = terminal?.generation;
               if (v2Scheduler.enqueueTerminalDelta(ws, sessionId, streamId, frame)) {
                 return "queued";
+              }
+              if (v2Scheduler.terminalRebaselinePending(ws, sessionId, streamId)) {
+                return "handled";
               }
               const current = ws.data.v2?.domains.get(SyncDomain.TERMINAL);
               if (

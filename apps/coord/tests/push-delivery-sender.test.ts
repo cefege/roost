@@ -191,7 +191,7 @@ describe("Web Push delivery", () => {
       sink: {
         beginTerminalStream: () => true,
         enqueueTerminalState() {},
-        replaceTerminalSnapshot() {},
+        replaceTerminalSnapshot: () => true,
         enqueueTerminalDelta: () => "queued",
         dropTerminalSession() {},
       },

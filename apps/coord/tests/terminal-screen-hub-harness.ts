@@ -57,9 +57,10 @@ export class TestSink implements TerminalScreenSocketSink {
     sessionId: string,
     streamId: string,
     frames: readonly FirehoseFrame[],
-  ): void {
+  ): boolean {
     this.events.push(`snapshot:${streamId}`);
     this.snapshots.push({ sessionId, streamId, frames });
+    return true;
   }
 
   enqueueTerminalDelta(

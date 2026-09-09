@@ -16,12 +16,17 @@ import type { SyncWsData } from "./sync-ws-handler.ts";
 
 export const V2_DOMAIN_MAX_QUEUED_FRAMES = 512;
 export const V2_DOMAIN_MAX_QUEUED_BYTES = 4 * 1024 * 1024;
-export const V2_AGGREGATE_MAX_QUEUED_FRAMES = 1_024;
-export const V2_AGGREGATE_MAX_QUEUED_BYTES = 8 * 1024 * 1024;
+export const V2_TERMINAL_MAX_RETAINED_FRAMES = 512;
+export const V2_TERMINAL_MAX_RETAINED_BYTES = 4 * 1024 * 1024;
+export const V2_NONTERMINAL_MAX_RETAINED_FRAMES = 512;
+export const V2_NONTERMINAL_MAX_RETAINED_BYTES = 4 * 1024 * 1024;
+export const V2_AGGREGATE_MAX_QUEUED_FRAMES =
+  V2_TERMINAL_MAX_RETAINED_FRAMES + V2_NONTERMINAL_MAX_RETAINED_FRAMES;
+export const V2_AGGREGATE_MAX_QUEUED_BYTES =
+  V2_TERMINAL_MAX_RETAINED_BYTES + V2_NONTERMINAL_MAX_RETAINED_BYTES;
+export const V2_TERMINAL_LANE_MAX_DELTA_FRAMES = 32;
+export const V2_TERMINAL_LANE_MAX_DELTA_BYTES = 4 * 1024 * 1024;
 export const V2_LOW_LANE_MAX_AGE_MS = 100;
-/** Freshly installed snapshot cursors keep attach priority for this long,
- *  matching the 15 s view lease a browser holds on the session. */
-export const V2_ATTACH_PRIORITY_WINDOW_MS = 15_000;
 export const V2_DOMAINS = [
   SyncDomain.TERMINAL,
   SyncDomain.WORKERS,
@@ -60,6 +65,7 @@ export interface SyncV2OwnedFrame {
 
 export interface SyncV2AggregateCharge {
   readonly estimatedBytes: number;
+  readonly terminal: boolean;
   retained: boolean;
 }
 
@@ -88,11 +94,15 @@ export interface SyncTerminalSnapshotCursor {
 export interface SyncTerminalSessionLane {
   streamId: string;
   cursor: SyncTerminalSnapshotCursor | null;
-  /** Terminal view-states awaiting transfer into the domain queue. */
+  /** Terminal view-states awaiting their per-session FIFO turn. */
   readonly pendingStates: SyncV2RetainedFrame[];
-  /** Deadline-clock time of the latest snapshot install; gates whether the
-   * cursor's snapshot frames may jump other sessions' queued deltas. */
-  snapshotStartedAtMs: number | null;
+  stateQueued: boolean;
+  /** Set while this lane is present in the socket's deduplicated ready ring. */
+  ready: boolean;
+  /** A scoped canonical full is needed after the current cursor can release. */
+  rebaselinePending: boolean;
+  /** The next baseline part may pass foreign deltas once for a new stream. */
+  attachPriorityPending: boolean;
 }
 
 
@@ -112,13 +122,17 @@ export interface SyncV2SocketState {
   readonly announcedSessions: Set<string>;
   readonly pendingSessionAnnouncements: Map<string, bigint>;
   readonly terminalSessions: Map<string, SyncTerminalSessionLane>;
+  /** Insertion-ordered, deduplicated terminal lanes with an eligible head. */
+  readonly terminalReadySessions: Set<string>;
+  /** Terminal's half of retained application materialization. */
+  terminalRetainedFrames: number;
+  terminalRetainedBytes: number;
   /** Aggregate payload ownership across domain queues and terminal auxiliaries. */
   queuedFrames: number;
   queuedBytes: number;
   laneCursor: number;
   schedulerPending: boolean;
   schedulerYieldTimer: Timer | null;
-  terminalProgressTimer: Timer | null;
   snapshotDispose: (() => void) | null;
   layoutTargetDispose: (() => void) | null;
   closeNotified: boolean;
@@ -142,12 +156,14 @@ export function createSyncV2SocketState(): SyncV2SocketState {
     announcedSessions: new Set(),
     pendingSessionAnnouncements: new Map(),
     terminalSessions: new Map(),
+    terminalReadySessions: new Set(),
+    terminalRetainedFrames: 0,
+    terminalRetainedBytes: 0,
     queuedFrames: 0,
     queuedBytes: 0,
     laneCursor: 0,
     schedulerPending: false,
     schedulerYieldTimer: null,
-    terminalProgressTimer: null,
     snapshotDispose: null,
     layoutTargetDispose: null,
     closeNotified: false,
@@ -172,16 +188,36 @@ export function tryRetainV2AggregateFrame(
   v2: SyncV2SocketState,
   owned: SyncV2OwnedFrame,
 ): SyncV2RetainedFrame | null {
+  const terminal = owned.frame.domain === SyncDomain.TERMINAL;
+  const retainedFrames = terminal
+    ? v2.terminalRetainedFrames
+    : v2.queuedFrames - v2.terminalRetainedFrames;
+  const retainedBytes = terminal
+    ? v2.terminalRetainedBytes
+    : v2.queuedBytes - v2.terminalRetainedBytes;
+  const frameLimit = terminal
+    ? V2_TERMINAL_MAX_RETAINED_FRAMES
+    : V2_NONTERMINAL_MAX_RETAINED_FRAMES;
+  const byteLimit = terminal
+    ? V2_TERMINAL_MAX_RETAINED_BYTES
+    : V2_NONTERMINAL_MAX_RETAINED_BYTES;
   if (
-    v2.queuedFrames + 1 > V2_AGGREGATE_MAX_QUEUED_FRAMES
+    retainedFrames + 1 > frameLimit
+    || retainedBytes + owned.estimatedBytes > byteLimit
+    || v2.queuedFrames + 1 > V2_AGGREGATE_MAX_QUEUED_FRAMES
     || v2.queuedBytes + owned.estimatedBytes > V2_AGGREGATE_MAX_QUEUED_BYTES
   ) return null;
   const aggregateCharge: SyncV2AggregateCharge = {
     estimatedBytes: owned.estimatedBytes,
+    terminal,
     retained: true,
   };
   v2.queuedFrames++;
   v2.queuedBytes += owned.estimatedBytes;
+  if (terminal) {
+    v2.terminalRetainedFrames++;
+    v2.terminalRetainedBytes += owned.estimatedBytes;
+  }
   return { ...owned, aggregateCharge };
 }
 
@@ -194,6 +230,19 @@ export function releaseV2AggregateFrame(
   charge.retained = false;
   v2.queuedFrames--;
   v2.queuedBytes -= charge.estimatedBytes;
+  if (charge.terminal) {
+    v2.terminalRetainedFrames--;
+    v2.terminalRetainedBytes -= charge.estimatedBytes;
+  }
+}
+
+export function releaseV2TerminalDeltaTail(
+  v2: SyncV2SocketState,
+  cursor: SyncTerminalSnapshotCursor,
+): void {
+  for (const delta of cursor.deltaTail) releaseV2AggregateFrame(v2, delta);
+  cursor.deltaTail.length = 0;
+  cursor.deltaBytes = 0;
 }
 
 export function releaseV2TerminalCursor(
@@ -203,9 +252,7 @@ export function releaseV2TerminalCursor(
   const cursor = lane.cursor;
   if (!cursor) return;
   for (const frame of cursor.frames) releaseV2AggregateFrame(v2, frame);
-  for (const delta of cursor.deltaTail) releaseV2AggregateFrame(v2, delta);
-  cursor.deltaTail.length = 0;
-  cursor.deltaBytes = 0;
+  releaseV2TerminalDeltaTail(v2, cursor);
   lane.cursor = null;
 }
 
@@ -215,6 +262,9 @@ export function releaseV2TerminalLane(
 ): void {
   for (const state of lane.pendingStates) releaseV2AggregateFrame(v2, state);
   lane.pendingStates.length = 0;
+  lane.stateQueued = false;
+  lane.ready = false;
+  lane.rebaselinePending = false;
   releaseV2TerminalCursor(v2, lane);
 }
 
@@ -230,10 +280,6 @@ export const clearV2State = (
     clearTimer(v2.schedulerYieldTimer);
     v2.schedulerYieldTimer = null;
   }
-  if (v2.terminalProgressTimer !== null) {
-    clearTimer(v2.terminalProgressTimer);
-    v2.terminalProgressTimer = null;
-  }
   for (const domain of v2.domains.values()) {
     for (const item of domain.queue) releaseV2AggregateFrame(v2, item);
     domain.queue.length = 0;
@@ -246,8 +292,11 @@ export const clearV2State = (
   }
   v2.queuedFrames = 0;
   v2.queuedBytes = 0;
+  v2.terminalRetainedFrames = 0;
+  v2.terminalRetainedBytes = 0;
   v2.announcedSessions.clear();
   v2.pendingSessionAnnouncements.clear();
+  v2.terminalReadySessions.clear();
   v2.terminalSessions.clear();
   v2.snapshotDispose?.();
   v2.layoutTargetDispose?.();

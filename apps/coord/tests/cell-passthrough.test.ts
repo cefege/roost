@@ -51,13 +51,14 @@ describe("coord cell passthrough", () => {
       enqueueTerminalState: () => {},
       replaceTerminalSnapshot: (sessionId, streamId, frames) => {
         const envelope = frames[0]?.frame;
-        if (envelope?.case !== "cellGrid") return;
+        if (envelope?.case !== "cellGrid") return false;
         got.push({
           sessionId,
           frameSessionId: envelope.value.sessionId,
           streamId,
           gridEpoch: envelope.value.gridEpoch,
         });
+        return true;
       },
       enqueueTerminalDelta: () => "queued",
       dropTerminalSession: () => {},

@@ -110,6 +110,7 @@ export class TestSocket {
   readonly closes: Array<[number | undefined, string | undefined]> = [];
   sendError: Error | null = null;
   bufferedAmountError: Error | null = null;
+  afterBufferedAmount: (() => void) | null = null;
   sendCalls = 0;
   sendResult = 1;
   bufferedAmountCalls = 0;
@@ -160,6 +161,9 @@ export class TestSocket {
   getBufferedAmount(): number {
     this.bufferedAmountCalls++;
     if (this.bufferedAmountError) throw this.bufferedAmountError;
+    const callback = this.afterBufferedAmount;
+    this.afterBufferedAmount = null;
+    callback?.();
     return 0;
   }
 
@@ -184,16 +188,26 @@ export interface SchedulerHarness {
   readonly scheduler: SyncV2Scheduler;
   readonly delivery: Delivery;
   readonly droppedFrames: DroppedFrameCall[];
+  readonly rebaselineRequests: string[];
   readonly terminal: TerminalState;
 }
 
-export function makeHarness(viewerKey: string, terminalReady: boolean): SchedulerHarness {
+export interface SchedulerHarnessOptions {
+  requestTerminalRebaseline?(sessionId: string): boolean;
+}
+
+export function makeHarness(
+  viewerKey: string,
+  terminalReady: boolean,
+  options: SchedulerHarnessOptions = {},
+): SchedulerHarness {
   const clock = new TestDeadlineClock();
   const socket = new TestSocket(viewerKey);
   const ws = socket as unknown as ServerWebSocket<SyncWsData>;
   const terminal = socket.data.v2!.domains.get(SyncDomain.TERMINAL)!;
   terminal.ready = terminalReady;
   const droppedFrames: DroppedFrameCall[] = [];
+  const rebaselineRequests: string[] = [];
 
   let delivery!: Delivery;
   const scheduler = makeSyncV2Scheduler({
@@ -210,6 +224,11 @@ export function makeHarness(viewerKey: string, terminalReady: boolean): Schedule
     rearmApplicationDeadline(target) {
       delivery.rearmApplicationDeadline(target);
     },
+    requestTerminalRebaseline(targetWs, sessionId) {
+      if (targetWs !== ws) return false;
+      rebaselineRequests.push(sessionId);
+      return options.requestTerminalRebaseline?.(sessionId) ?? false;
+    },
   });
   delivery = makeSyncV1Delivery({
     deadlineClock: clock,
@@ -219,7 +238,16 @@ export function makeHarness(viewerKey: string, terminalReady: boolean): Schedule
     scheduleV2: scheduler.scheduleV2,
   });
 
-  return { clock, socket, ws, scheduler, delivery, terminal, droppedFrames };
+  return {
+    clock,
+    socket,
+    ws,
+    scheduler,
+    delivery,
+    terminal,
+    droppedFrames,
+    rebaselineRequests,
+  };
 }
 
 export function makeCell(sessionId: string, seq: number, full: boolean): FirehoseFrame {

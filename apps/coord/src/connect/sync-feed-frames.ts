@@ -47,6 +47,8 @@ export interface SyncFeedFrameMeta {
   /** Scheduler-owned incremental terminal snapshot cursor metadata. */
   readonly terminalStreamId?: string;
   readonly terminalCursorIndex?: number;
+  /** Scheduler-owned terminal view-state fence. */
+  readonly terminalState?: boolean;
   /** Baseline frame of a freshly attached session; the v2 egress scheduler may
    *  jump other sessions' queued deltas but never their snapshots or this
    *  session's own queued frames. */

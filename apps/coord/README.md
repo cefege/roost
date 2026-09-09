@@ -168,10 +168,11 @@ Three orderings depend on the fence; breaking any of them loses live PTYs:
   client frames; `src/connect/sync-ws-v1-delivery.ts` owns ACK/backpressure
   windows; `src/connect/sync-ws-v2-scheduler.ts` is the stable facade over
   `src/connect/sync-ws-v2-egress.ts`, `src/connect/sync-ws-v2-queue.ts`,
-  `src/connect/sync-ws-v2-control.ts`, and
-  `src/connect/sync-ws-v2-terminal.ts`; `src/connect/sync-ws-v2-state.ts`
-  owns socket vocabulary/generations; `src/connect/sync-ws-v2-commands.ts` is
-  the only browser-frame mutation path.
+  `src/connect/sync-ws-v2-control.ts`, `src/connect/sync-ws-v2-terminal.ts`,
+  and `src/connect/sync-ws-v2-terminal-ready.ts` (the per-socket terminal
+  ready ring); `src/connect/sync-ws-v2-state.ts` owns socket
+  vocabulary/generations; `src/connect/sync-ws-v2-commands.ts` is the only
+  browser-frame mutation path.
 - **The v1 ACK-windowed path is supported back-compat, not dead code.**
   `apps/coord/tests/sync-ws-keepalive-flow-control.test.ts` asserts "legacy
   sockets remain unsequenced and unenforced". Do not delete
