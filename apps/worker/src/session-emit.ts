@@ -41,11 +41,10 @@ import {
 import { disposeRawMetadataState } from "./session-raw-metadata.ts";
 import { releaseSyncOutputHold, syncOutputAction } from "./session-sync-output.ts";
 
-// Timer-map values across the cell/raw-metadata governors use NULL for the
-// armed-leading-edge state (a one-shot microtask, nothing cancellable): a real
-// Timeout means the trailing coalesce is armed, absence means nothing is. The
-// old `-1 as unknown as NodeJS.Timeout` sentinel made every reader prove it
-// knew the fake; null plus explicit has-checks keeps the type honest.
+// Cell timer-map values use null for the armed-leading-edge microtask; a real
+// Timeout is the trailing coalesce, and absence means nothing is scheduled.
+// The explicit state avoids a fake Timeout sentinel and keeps timer ownership
+// distinct from the raw-metadata dispatcher's global wake.
 
 // phase-ssb7: emitScrollbackMark + DIR_SCROLLBACK_MARK deleted.
 // Splice ordering is now per-byte end_seq on each FROM_PTY frame

@@ -98,10 +98,7 @@ describe("worker diagnostic snapshot", () => {
       holder: "terminal_resize",
       heldSinceMonoMs: monoNowMs() - 15,
     });
-    manager.rawMetadataQueues.set(CHANNEL_ID, {
-      frames: [{ endSeq: 41, bytes: new Uint8Array([1, 2, 3]) }],
-      bytes: 3,
-    });
+    manager._enqueueRawMetadata(CHANNEL_ID, 41, Buffer.from([1, 2, 3]));
 
     const keeper = getMultiplexedPool();
     const resizeKey = `${CHANNEL_ID}:13`;

@@ -35,8 +35,20 @@ interface PendingRawMetadataFrame {
 	bytes: Uint8Array;
 }
 
+interface PendingRawMetadataFrames {
+	readonly length: number;
+	append(frame: PendingRawMetadataFrame): void;
+	peek(): PendingRawMetadataFrame | undefined;
+	take(): PendingRawMetadataFrame | undefined;
+	clear(): void;
+}
+
+type RawMetadataWake =
+	| { kind: "microtask" }
+	| { kind: "timer"; timer: NodeJS.Timeout };
+
 interface PendingRawMetadataQueue {
-	frames: PendingRawMetadataFrame[];
+	frames: PendingRawMetadataFrames;
 	bytes: number;
 }
 
@@ -60,7 +72,10 @@ export abstract class SessionManagerState {
 	cellEmitTimers = new Map<number, NodeJS.Timeout | null>();
 	cellDirty = new Set<number>();
 	rawMetadataQueues = new Map<number, PendingRawMetadataQueue>();
-	rawMetadataTimers = new Map<number, NodeJS.Timeout | null>();
+	// Insertion order is the round-robin order; Set membership deduplicates it.
+	rawMetadataReadyRing = new Set<number>();
+	rawMetadataWake: RawMetadataWake | null = null;
+	rawMetadataDispatching = false;
 	rawMetadataQueuedBytes = 0;
 	inputSensitiveChannels = new Set<number>();
 	pendingCellRepairs = new Set<number>();
