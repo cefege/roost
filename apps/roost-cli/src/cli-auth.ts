@@ -166,41 +166,6 @@ export interface BuildCliClientOptions {
   localDatabasePath?: string | null;
 }
 
-export interface CliContext {
-  client: CoordClient;
-  key: CliKey;
-  cfg: WorkerConfig;
-}
-
-export async function buildCliContext(
-  options: BuildCliClientOptions = {},
-): Promise<CliContext> {
-  const cfg = loadWorkerConfig(
-    options.coordinatorUrl
-      ? { ROOST_COORDINATOR_URL: options.coordinatorUrl }
-      : undefined,
-  );
-  if (!options.coordinatorUrl && process.env.ROOST_COORD_URL) {
-    cfg.coordinatorUrl = process.env.ROOST_COORD_URL;
-  }
-  const key = await loadCliKey();
-  const client = createCoordClient({
-    cfg,
-    getJwt: () => mintJwt(key, "roost-coordinator"),
-  });
-  const publicClient = createUnauthenticatedCoordClient(cfg.coordinatorUrl);
-  const localDatabase = Object.prototype.hasOwnProperty.call(options, "localDatabasePath")
-    ? options.localDatabasePath ?? null
-    : localCoordinatorDatabasePath();
-  await ensureCliEnrollment({
-    client,
-    publicClient,
-    publicKeyB64: cliPublicKeyB64(key),
-    label: options.label ?? CLI_KEY_LABEL,
-    localDatabasePath: localDatabase,
-  });
-  return { client, key, cfg };
-}
 
 export interface CliContext {
   client: CoordClient;
