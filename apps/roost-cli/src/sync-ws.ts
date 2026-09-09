@@ -12,7 +12,7 @@ import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
 import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import { SYNC_WS_PATH } from "@roost/shared/wire/sync-ws";
 import { mintJwt } from "../../worker/src/jwt.ts";
-import { buildCliContext } from "./cli-auth.ts";
+import { buildCliContext, CLI_DASHBOARD_HEADER } from "./cli-auth.ts";
 
 export interface SyncWsOptions {
   since?: number;
@@ -25,16 +25,27 @@ interface BunWebSocketConstructor {
 
 const BunWebSocket = WebSocket as unknown as BunWebSocketConstructor;
 
-export function buildHeadlessSyncWsUrl(wsBase: string, since = 0): string {
+export function buildHeadlessSyncWsUrl(
+  wsBase: string,
+  since = 0,
+  legacyDashboardId: string | null = null,
+): string {
   const url = new URL(wsBase);
   const prefix = url.pathname.replace(/\/+$/, "");
   url.pathname = `${prefix}${SYNC_WS_PATH}`;
   url.search = "";
   url.searchParams.set("since", String(since));
+  if (legacyDashboardId) url.searchParams.set("dashboard", legacyDashboardId);
   return url.toString();
 }
-export function buildHeadlessSyncWsOptions(token: string): Bun.WebSocketOptions {
-  return { protocols: ["roost-auth", token] };
+export function buildHeadlessSyncWsOptions(
+  token: string,
+  legacyDashboardId: string | null = null,
+): Bun.WebSocketOptions {
+  const protocols = ["roost-auth", token];
+  return legacyDashboardId
+    ? { protocols, headers: { [CLI_DASHBOARD_HEADER]: legacyDashboardId } }
+    : { protocols };
 }
 
 /** Stream FirehoseFrames from the coord WS until the socket closes or `signal`
@@ -46,10 +57,11 @@ export async function* syncWsFrames(
   wsBase: string,
   token: string,
   opts: SyncWsOptions,
+  legacyDashboardId: string | null = null,
 ): AsyncGenerator<FirehoseFrame> {
   const ws = new BunWebSocket(
-    buildHeadlessSyncWsUrl(wsBase, opts.since ?? 0),
-    buildHeadlessSyncWsOptions(token),
+    buildHeadlessSyncWsUrl(wsBase, opts.since ?? 0, legacyDashboardId),
+    buildHeadlessSyncWsOptions(token, legacyDashboardId),
   );
   ws.binaryType = "arraybuffer";
   const queue: FirehoseFrame[] = [];
@@ -83,11 +95,11 @@ export async function* syncWsFrames(
 export async function openSyncWs(
   opts: SyncWsOptions = {},
 ): Promise<AsyncGenerator<FirehoseFrame>> {
-  const { cfg, key } = await buildCliContext();
+  const { cfg, key, legacyDashboardId } = await buildCliContext();
   const token = await mintJwt(key, "roost-coordinator");
   const wsBase = cfg.coordinatorUrl.replace(/^http/, "ws");
   return syncWsFrames(wsBase, token, {
     ...(opts.since !== undefined ? { since: opts.since } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
-  });
+  }, legacyDashboardId);
 }

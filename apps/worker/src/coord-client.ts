@@ -11,16 +11,18 @@ import { log } from "@roost/shared/log";
 export type CoordClientOptions = {
   cfg: WorkerConfigType;
   getJwt: () => Promise<string>;
+  configureRequestHeaders?: (headers: Headers) => void;
 };
 
 export function createCoordClient(opts: CoordClientOptions) {
-  const { cfg, getJwt } = opts;
+  const { cfg, getJwt, configureRequestHeaders } = opts;
   const transport = createConnectTransport({
     baseUrl: cfg.coordinatorUrl,
     httpVersion: "1.1",
     useBinaryFormat: false,
     interceptors: [
       (next) => async (req) => {
+        configureRequestHeaders?.(req.header);
         try {
           const jwt = await getJwt();
           req.header.set("authorization", `Bearer ${jwt}`);
