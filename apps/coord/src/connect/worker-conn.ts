@@ -243,6 +243,9 @@ export function makeWorkerConn(
         workerFp = fp;
         myHandle.workerFp = fp;
         myHandle.ready = false;
+        if (superseded && superseded !== myHandle) {
+          rejectPendingRpcsForWorker(fp, "worker connection superseded");
+        }
         connectWorkers.set(fp, myHandle);
         if (superseded && superseded !== myHandle) {
           log.info("worker-service", "superseded_prior_connection", { worker_fp: fp });

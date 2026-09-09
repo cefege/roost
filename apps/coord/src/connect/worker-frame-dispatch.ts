@@ -23,10 +23,10 @@ import {
 } from "../byte-hub.ts";
 import { appendEvent, dispatchSnapshotOrphanReaps } from "../event-log.ts";
 import { rejectPendingRpc, resolvePendingRpc } from "../router/pending-rpcs.ts";
+import { isTerminalPipelineSnapshotWireShape } from "./worker-terminal-pipeline-snapshot.ts";
 import { resolvePendingSpawnOpened } from "./pending-spawns.ts";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
 import type { WriteLease } from "../coordinator-write-gate.ts";
-
 interface WorkerFrameDispatcherOptions {
   deps: WorkerServiceDeps;
   callerFingerprint: string;
@@ -318,6 +318,19 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
         }
         return true;
       }
+      case "terminalPipelineSnapshot": {
+        const resultWorkerFp = pendingResultWorker("terminal_pipeline_snapshot");
+        if (!resultWorkerFp) return true;
+        const snapshot = frame.frame.value;
+        if (!isTerminalPipelineSnapshotWireShape(snapshot)) {
+          diag("worker.frame_dropped", {
+            reason: "invalid_terminal_pipeline_snapshot", worker_fp: resultWorkerFp,
+          });
+          return true;
+        }
+        resolvePendingRpc(snapshot.requestId, snapshot, resultWorkerFp);
+        return true;
+      }
       case "updateProgress": {
         if (!workerFp) {
           diag("worker.frame_dropped", {
@@ -377,6 +390,5 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
         return false;
     }
   }
-
   return { handleEvent, handleLiveFrame };
 }

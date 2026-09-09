@@ -104,7 +104,6 @@ export function makeWorkerHeartbeatHandler(
 					presenceBus.publish({
 						kind: "registered",
 						worker: workerRowToWirePresence(cleared) as unknown as WireWorker,
-						_dashboard_id: caller.dashboardId,
 					});
 				} else {
 					presenceBus.publish({
@@ -113,7 +112,6 @@ export function makeWorkerHeartbeatHandler(
 						last_seen_ms: now,
 						host_metrics: null,
 						terminal_core_capacity: null,
-						_dashboard_id: caller.dashboardId,
 					});
 				}
 				throw new ConnectError(
@@ -202,7 +200,6 @@ export function makeWorkerHeartbeatHandler(
 					last_seen_ms: now,
 					host_metrics: hm ?? null,
 					terminal_core_capacity: newTerminalCoreCapacity,
-					_dashboard_id: caller.dashboardId,
 				});
 			}
 			return create(WorkersHeartbeatResponseSchema, {});

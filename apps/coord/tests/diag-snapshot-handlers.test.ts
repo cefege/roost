@@ -1,6 +1,6 @@
-// DiagSnapshot handler coverage for normalized session filters, dashboard
-// isolation, and worker fan-out. A migrated database provides the durable
-// session/worker scope while fake connections resolve real pending RPCs.
+// DiagSnapshot handler coverage for normalized session filters and worker
+// fan-out. A migrated single-tenant database provides durable session/worker
+// scope while fake connections resolve real pending RPCs.
 
 import { create } from "@bufbuild/protobuf";
 import {
@@ -10,78 +10,74 @@ import {
 } from "@connectrpc/connect";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { DiagSnapshotRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import {
+  WTerminalPipelineSnapshotSchema,
+} from "@roost/shared/proto/worker_transport_pb";
+import {
+  TerminalPipelineSessionSnapshotSchema,
+} from "@roost/shared/proto/wire_pb";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  callerKey,
-  dashboardActorKey,
-  type DashboardActor,
-} from "../src/connect/auth-interceptor.ts";
+import { callerKey } from "../src/connect/auth-interceptor.ts";
 import { makeSystemHandlers } from "../src/connect/handlers-system.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { rejectPendingRpcsForWorker, resolvePendingRpc } from "../src/router/pending-rpcs.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
+import {
+  ensureSelfHostedTenant,
+  type SelfHostedTenant,
+} from "../src/self-hosted-tenant.ts";
 
-const ORGANIZATION_ID = "diag-snapshot-organization";
-const DASHBOARD_A = "diag-snapshot-dashboard-a";
-const DASHBOARD_B = "diag-snapshot-dashboard-b";
 const WORKER_A = "a1b2c3d4".repeat(8);
 const WORKER_C = "c3d4e5f6".repeat(8);
 const WORKER_LOCAL = "d4e5f6a7".repeat(8);
-const WORKER_FOREIGN = "b2c3d4e5".repeat(8);
 const LOCAL_UNSELECTED_SESSION = "91000000-0000-4000-8000-000000000065";
-const FOREIGN_SESSION = "91000000-0000-4000-8000-000000000066";
+const MISSING_SESSION = "91000000-0000-4000-8000-000000000066";
 const BATCH_SESSION_IDS = Array.from(
   { length: 64 },
   (_, index) => `91000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
 );
 
-const ADMIN_ACTOR: DashboardActor = {
-  accountId: "diag-snapshot-account",
-  organizationId: ORGANIZATION_ID,
-  dashboardId: DASHBOARD_A,
-  organizationRole: "owner",
-  dashboardRole: "admin",
-  deviceFingerprint: "diag-snapshot-admin-device",
-};
-const MEMBER_ACTOR: DashboardActor = {
-  ...ADMIN_ACTOR,
-  dashboardRole: "member",
-  deviceFingerprint: "diag-snapshot-member-device",
-};
 
 type SnapshotPayload = {
   coord: { sessions: Record<string, unknown> };
   workers: Record<string, {
     status: string;
     snapshot?: { sessions: Record<string, unknown> };
+    terminal_pipeline?: {
+      status: string;
+      snapshot?: { sessions: Array<{ session_id: string }> };
+    };
   }>;
 };
 
 let workdir = "";
 let db: KyselyDB;
 let closeDb: () => Promise<void>;
+let tenant: SelfHostedTenant;
 let sentWorkerFps: string[] = [];
+let sentPipelineTargetsByWorker: Record<string, Array<{
+  sessionId: string;
+  viewId: string;
+}>> = {};
 
 const diagnosticSessionsByWorker: Record<string, Record<string, unknown>> = {
   [WORKER_A]: Object.fromEntries(BATCH_SESSION_IDS.slice(0, 32).map((sessionId) => [sessionId, {}])),
   [WORKER_C]: Object.fromEntries(BATCH_SESSION_IDS.slice(32).map((sessionId) => [sessionId, {}])),
   [WORKER_LOCAL]: { [LOCAL_UNSELECTED_SESSION]: {} },
-  [WORKER_FOREIGN]: { [FOREIGN_SESSION]: {} },
 };
 
-function actorContext(actor: DashboardActor): HandlerContext {
+function deviceContext(): HandlerContext {
   const values = createContextValues();
   values.set(callerKey, {
     kind: "account-device",
-    fingerprint: actor.deviceFingerprint,
+    fingerprint: "diag-snapshot-device",
     label: "diagnostic test device",
-    accountId: actor.accountId,
+    accountId: tenant.accountId,
   });
-  values.set(dashboardActorKey, actor);
   return { values, signal: new AbortController().signal } as unknown as HandlerContext;
 }
 
@@ -92,10 +88,10 @@ function diagRequest(overrides: Partial<{
   return create(DiagSnapshotRequestSchema, overrides);
 }
 
-function openSession(id: string, dashboardId: string, workerFp: string, channel: number) {
+function openSession(id: string, workerFp: string, channel: number) {
   return {
     id,
-    dashboard_id: dashboardId,
+    dashboard_id: tenant.dashboardId,
     worker_fp: workerFp,
     channel,
     kind: "shell" as const,
@@ -105,7 +101,8 @@ function openSession(id: string, dashboardId: string, workerFp: string, channel:
   };
 }
 
-function snapshotPayload(response: { snapshotJson: string }): SnapshotPayload {
+function snapshotPayload(response: { snapshotJson?: string }): SnapshotPayload {
+  if (response.snapshotJson === undefined) throw new Error("DiagSnapshot response omitted snapshot JSON");
   return JSON.parse(response.snapshotJson) as SnapshotPayload;
 }
 
@@ -118,25 +115,48 @@ function installedWorkerSnapshot(workerFp: string): Record<string, unknown> {
   };
 }
 
-function installWorker(workerFp: string, dashboardId: string): void {
+function installedPipelineSnapshot(
+  requestId: string,
+  targets: readonly { sessionId: string; viewId: string }[],
+) {
+  return create(WTerminalPipelineSnapshotSchema, {
+    requestId,
+    sessions: targets.map((target) => create(TerminalPipelineSessionSnapshotSchema, target)),
+  });
+}
+
+function installWorker(workerFp: string): void {
   __setConnectWorkerForTest(workerFp, {
     workerFp,
-    dashboardId,
     send(frame) {
-      expect(frame.frame.case).toBe("browserCommand");
-      if (frame.frame.case !== "browserCommand") throw new Error("expected diagnostic browser command");
-      const command = JSON.parse(frame.frame.value.frameJson) as Record<string, unknown>;
-      expect(command).toEqual({
-        kind: "diag-snapshot",
-        request_id: frame.frame.value.requestId,
-      });
-      sentWorkerFps.push(workerFp);
-      expect(resolvePendingRpc(
-        frame.frame.value.requestId,
-        installedWorkerSnapshot(workerFp),
-        workerFp,
-      )).toBe(true);
-      return 1;
+      if (frame.frame.case === "browserCommand") {
+        const command = JSON.parse(frame.frame.value.frameJson) as Record<string, unknown>;
+        expect(command).toEqual({
+          kind: "diag-snapshot",
+          request_id: frame.frame.value.requestId,
+        });
+        sentWorkerFps.push(workerFp);
+        expect(resolvePendingRpc(
+          frame.frame.value.requestId,
+          installedWorkerSnapshot(workerFp),
+          workerFp,
+        )).toBe(true);
+        return 1;
+      }
+      if (frame.frame.case === "terminalPipelineSnapshot") {
+        const request = frame.frame.value;
+        sentPipelineTargetsByWorker[workerFp] = request.targets.map((target) => ({
+          sessionId: target.sessionId,
+          viewId: target.viewId,
+        }));
+        expect(resolvePendingRpc(
+          request.requestId,
+          installedPipelineSnapshot(request.requestId, request.targets),
+          workerFp,
+        )).toBe(true);
+        return 1;
+      }
+      throw new Error("unexpected diagnostic worker frame");
     },
   });
 }
@@ -149,51 +169,46 @@ function returnedSessionIds(snapshot: SnapshotPayload): string[] {
   ).sort();
 }
 
+function returnedPipelineSessionIds(snapshot: SnapshotPayload): string[] {
+  return Object.values(snapshot.workers).flatMap((worker) =>
+    worker.terminal_pipeline?.status === "ok" && worker.terminal_pipeline.snapshot
+      ? worker.terminal_pipeline.snapshot.sessions.map((session) => session.session_id)
+      : []
+  ).sort();
+}
+
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-diag-snapshot-handlers-"));
   const opened = openDb(join(workdir, "coord.db"));
   db = opened.db;
   closeDb = opened.close;
   await runMigrations(opened.sqlite);
-  await db.insertInto("organizations").values({
-    id: ORGANIZATION_ID,
-    slug: "diag-snapshot",
-    name: "Diagnostic snapshots",
-    status: "active",
-    created_at_ms: 1,
-  }).execute();
-  await db.insertInto("dashboards").values([
-    { id: DASHBOARD_A, organization_id: ORGANIZATION_ID, slug: "diag-a", name: "A", status: "active", created_at_ms: 1 },
-    { id: DASHBOARD_B, organization_id: ORGANIZATION_ID, slug: "diag-b", name: "B", status: "active", created_at_ms: 1 },
-  ]).execute();
+  tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
   await db.insertInto("workers").values([
-    { fp: WORKER_A, dashboard_id: DASHBOARD_A, label: "A", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
-    { fp: WORKER_C, dashboard_id: DASHBOARD_A, label: "C", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
-    { fp: WORKER_LOCAL, dashboard_id: DASHBOARD_A, label: "local", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
-    { fp: WORKER_FOREIGN, dashboard_id: DASHBOARD_B, label: "foreign", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
+    { fp: WORKER_A, dashboard_id: tenant.dashboardId, label: "A", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
+    { fp: WORKER_C, dashboard_id: tenant.dashboardId, label: "C", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
+    { fp: WORKER_LOCAL, dashboard_id: tenant.dashboardId, label: "local", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
   ]).execute();
   await db.insertInto("sessions").values([
     ...BATCH_SESSION_IDS.map((sessionId, index) => openSession(
       sessionId,
-      DASHBOARD_A,
       index < 32 ? WORKER_A : WORKER_C,
       index + 1,
     )),
-    openSession(LOCAL_UNSELECTED_SESSION, DASHBOARD_A, WORKER_LOCAL, 65),
-    openSession(FOREIGN_SESSION, DASHBOARD_B, WORKER_FOREIGN, 66),
+    openSession(LOCAL_UNSELECTED_SESSION, WORKER_LOCAL, 65),
   ]).execute();
 });
 
 beforeEach(() => {
   sentWorkerFps = [];
-  installWorker(WORKER_A, DASHBOARD_A);
-  installWorker(WORKER_C, DASHBOARD_A);
-  installWorker(WORKER_LOCAL, DASHBOARD_A);
-  installWorker(WORKER_FOREIGN, DASHBOARD_B);
+  sentPipelineTargetsByWorker = {};
+  installWorker(WORKER_A);
+  installWorker(WORKER_C);
+  installWorker(WORKER_LOCAL);
 });
 
 afterEach(() => {
-  for (const workerFp of [WORKER_A, WORKER_C, WORKER_LOCAL, WORKER_FOREIGN]) {
+  for (const workerFp of [WORKER_A, WORKER_C, WORKER_LOCAL]) {
     rejectPendingRpcsForWorker(workerFp, "test cleanup");
     __setConnectWorkerForTest(workerFp, null);
   }
@@ -210,7 +225,7 @@ describe("DiagSnapshot session filters", () => {
     const sessionId = BATCH_SESSION_IDS[0]!;
     const response = await handlers.diagSnapshot(
       diagRequest({ sessionFilterId: sessionId }),
-      actorContext(MEMBER_ACTOR),
+      deviceContext(),
     );
     const snapshot = snapshotPayload(response);
 
@@ -218,13 +233,17 @@ describe("DiagSnapshot session filters", () => {
     expect(Object.keys(snapshot.workers)).toEqual([WORKER_A]);
     expect(returnedSessionIds(snapshot)).toEqual([sessionId]);
     expect(sentWorkerFps).toEqual([WORKER_A]);
+    expect(returnedPipelineSessionIds(snapshot)).toEqual([sessionId]);
+    expect(sentPipelineTargetsByWorker).toEqual({
+      [WORKER_A]: [{ sessionId, viewId: "" }],
+    });
   });
 
   test("admits 64 local IDs and targets only their workers", async () => {
     const handlers = makeSystemHandlers({ db } as unknown as ConnectDeps);
     const response = await handlers.diagSnapshot(
       diagRequest({ sessionFilterIds: BATCH_SESSION_IDS }),
-      actorContext(MEMBER_ACTOR),
+      deviceContext(),
     );
     const snapshot = snapshotPayload(response);
 
@@ -232,14 +251,16 @@ describe("DiagSnapshot session filters", () => {
     expect(Object.keys(snapshot.workers).sort()).toEqual([WORKER_A, WORKER_C]);
     expect(returnedSessionIds(snapshot)).toEqual([...BATCH_SESSION_IDS].sort());
     expect(sentWorkerFps.sort()).toEqual([WORKER_A, WORKER_C]);
+    expect(returnedPipelineSessionIds(snapshot)).toEqual([...BATCH_SESSION_IDS].sort());
+    expect(Object.keys(sentPipelineTargetsByWorker).sort()).toEqual([WORKER_A, WORKER_C]);
   });
 
-  test("excludes foreign batch IDs and their workers", async () => {
+  test("excludes unknown batch IDs and unrelated workers", async () => {
     const handlers = makeSystemHandlers({ db } as unknown as ConnectDeps);
     const localSessionId = BATCH_SESSION_IDS[0]!;
     const response = await handlers.diagSnapshot(
-      diagRequest({ sessionFilterIds: [localSessionId, FOREIGN_SESSION] }),
-      actorContext(MEMBER_ACTOR),
+      diagRequest({ sessionFilterIds: [localSessionId, MISSING_SESSION] }),
+      deviceContext(),
     );
     const snapshot = snapshotPayload(response);
 
@@ -247,7 +268,11 @@ describe("DiagSnapshot session filters", () => {
     expect(Object.keys(snapshot.workers)).toEqual([WORKER_A]);
     expect(returnedSessionIds(snapshot)).toEqual([localSessionId]);
     expect(sentWorkerFps).toEqual([WORKER_A]);
-    expect(snapshot.workers[WORKER_FOREIGN]).toBeUndefined();
+    expect(returnedPipelineSessionIds(snapshot)).toEqual([localSessionId]);
+    expect(sentPipelineTargetsByWorker).toEqual({
+      [WORKER_A]: [{ sessionId: localSessionId, viewId: "" }],
+    });
+    expect(snapshot.workers[WORKER_LOCAL]).toBeUndefined();
   });
 
   test("rejects oversized and ambiguous filter input before dispatch", async () => {
@@ -259,19 +284,16 @@ describe("DiagSnapshot session filters", () => {
       diagRequest({ sessionFilterIds: [sessionId, sessionId] }),
       diagRequest({ sessionFilterIds: [""] }),
     ]) {
-      await expect(handlers.diagSnapshot(request, actorContext(MEMBER_ACTOR)))
+      await expect(handlers.diagSnapshot(request, deviceContext()))
         .rejects.toMatchObject({ code: Code.InvalidArgument });
     }
     expect(sentWorkerFps).toEqual([]);
+    expect(sentPipelineTargetsByWorker).toEqual({});
   });
 
-  test("reserves unfiltered snapshots for dashboard admins", async () => {
+  test("includes every open session and routable worker unfiltered", async () => {
     const handlers = makeSystemHandlers({ db } as unknown as ConnectDeps);
-    await expect(handlers.diagSnapshot(diagRequest(), actorContext(MEMBER_ACTOR)))
-      .rejects.toMatchObject({ code: Code.PermissionDenied });
-    expect(sentWorkerFps).toEqual([]);
-
-    const response = await handlers.diagSnapshot(diagRequest(), actorContext(ADMIN_ACTOR));
+    const response = await handlers.diagSnapshot(diagRequest(), deviceContext());
     const snapshot = snapshotPayload(response);
 
     expect(Object.keys(snapshot.coord.sessions).sort()).toEqual([
@@ -280,6 +302,9 @@ describe("DiagSnapshot session filters", () => {
     ].sort());
     expect(Object.keys(snapshot.workers).sort()).toEqual([WORKER_A, WORKER_C, WORKER_LOCAL]);
     expect(sentWorkerFps.sort()).toEqual([WORKER_A, WORKER_C, WORKER_LOCAL]);
-    expect(snapshot.workers[WORKER_FOREIGN]).toBeUndefined();
+    expect(returnedPipelineSessionIds(snapshot)).toEqual([
+      ...BATCH_SESSION_IDS,
+      LOCAL_UNSELECTED_SESSION,
+    ].sort());
   });
 });

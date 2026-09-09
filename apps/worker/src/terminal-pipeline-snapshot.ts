@@ -133,7 +133,10 @@ export function terminalPipelineSnapshot(
 function indexSessions(manager: SessionManager): Map<string, SessionRecord> {
   const sessionsById = new Map<string, SessionRecord>();
   for (const session of manager.sessions.values()) {
-    sessionsById.set(String(session.sessionId), session);
+    const sessionId = String(session.sessionId);
+    // Provisional respawn overlap keeps the first inserted record authoritative,
+    // exactly as SessionManager.getBySessionId() does.
+    if (!sessionsById.has(sessionId)) sessionsById.set(sessionId, session);
   }
   return sessionsById;
 }

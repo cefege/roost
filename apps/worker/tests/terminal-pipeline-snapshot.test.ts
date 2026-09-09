@@ -115,6 +115,29 @@ describe("terminal pipeline snapshot", () => {
     }
   });
 
+  test("uses the first session record during provisional respawn overlap", () => {
+    const manager = new SessionManager({
+      workerFp: WORKER_FP,
+      sink: new SessionEventTestSink(),
+    });
+    try {
+      addSession(manager, FIRST_SESSION_ID, FIRST_CHANNEL_ID, 11);
+      addSession(manager, FIRST_SESSION_ID, LAST_CHANNEL_ID, 29);
+
+      expect(manager.getBySessionId(FIRST_SESSION_ID)?.channelId).toBe(FIRST_CHANNEL_ID);
+      const snapshot = terminalPipelineSnapshot(manager, pipelineRequest([
+        { sessionId: FIRST_SESSION_ID, viewId: "overlap-view" },
+      ]), detachedTransport);
+
+      expect(snapshot.sessions).toHaveLength(1);
+      expect(snapshot.sessions[0]?.stages).toHaveLength(7);
+      expect(snapshot.sessions[0]?.stages.every((stage) => stage.sequence === 11n)).toBe(true);
+    } finally {
+      manager.sessions.clear();
+      manager.dispose();
+    }
+  });
+
   test("limits request admission to sixty-four targets", () => {
     const manager = new SessionManager({
       workerFp: WORKER_FP,

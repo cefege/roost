@@ -29,11 +29,8 @@ import {
 } from "./terminal-view-hub.ts";
 import { getCachedSessionWorker } from "../byte-hub.ts";
 import { connectWorkers } from "./worker-registry.ts";
-import {
-  collectWorkerDiagSnapshots,
-  type WorkerDiagSnapshotResult,
-} from "./worker-send.ts";
 import type { ConnectDeps } from "./router.ts";
+import { createScopedWorkerDiagnosticCollector } from "./diag-snapshot-worker-results.ts";
 
 // Coord process boot time — captured at module load (coord startup). Used
 // by miscHealth for uptime.
@@ -71,36 +68,6 @@ function normalizeDiagSnapshotSessionFilterIds(
   return normalizedSessionFilterIds;
 }
 
-/**
- * A worker can retain stale sessions while it is being reassigned. Keep only
- * the session records this snapshot authorized; process-wide worker counters
- * would otherwise disclose activity the query never selected.
- */
-function scopedWorkerDiagnostic(
-  workerFp: string,
-  result: WorkerDiagSnapshotResult,
-  allowedSessionIds: ReadonlySet<string>,
-): WorkerDiagSnapshotResult {
-  if (result.status !== "ok") return result;
-  const sourceSessions = result.snapshot.sessions;
-  const sessions = sourceSessions !== null
-    && typeof sourceSessions === "object"
-    && !Array.isArray(sourceSessions)
-    ? Object.fromEntries(
-      Object.entries(sourceSessions)
-        .filter(([sessionId]) => allowedSessionIds.has(sessionId)),
-    )
-    : {};
-  return {
-    ...result,
-    snapshot: {
-      captured_at_ms: result.snapshot.captured_at_ms,
-      build: result.snapshot.build,
-      worker_fp: workerFp,
-      sessions,
-    },
-  };
-}
 
 type SystemMethods =
   | "miscHealth" | "miscDbExportUrl" | "miscMetrics"
@@ -109,6 +76,7 @@ type SystemMethods =
 export function makeSystemHandlers(
   deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, SystemMethods> {
+  const collectScopedWorkerDiagnostics = createScopedWorkerDiagnosticCollector();
   return {
     // ─── misc ──────────────────────────────────────────────────────────
     async miscHealth(_req, _ctx) {
@@ -312,14 +280,11 @@ export function makeSystemHandlers(
         sessions[row.id] = state;
       }
 
-      const rawWorkers = await collectWorkerDiagSnapshots(dispatchableWorkerFps);
-      const workers = Object.fromEntries(
-        Object.entries(rawWorkers).map(([workerFp, result]) => [
-          workerFp,
-          scopedWorkerDiagnostic(workerFp, result, allowedSessionIds),
-        ] as const),
-      );
-
+      const workers = await collectScopedWorkerDiagnostics({
+        workerFps: dispatchableWorkerFps,
+        sessions: scopedSessionRows,
+        allowedSessionIds,
+      });
       const coordState: Record<string, unknown> = {
         build: {
           git_sha: COORD_GIT_SHA,
