@@ -15,6 +15,7 @@ import type {
   DAgentPrompt,
   CoordWorkerDown,
   DInputRequest,
+  DTerminalPipelineSnapshotRequest,
   DTerminalSnapshotRequest,
   DTerminalStreamState,
   DKeeperUpdatePrepare,
@@ -252,6 +253,10 @@ export function createCoordLinkDownstream(
             reason: message,
           });
         }).finally(() => { terminalStreamRequestsInFlight -= 1; });
+        return;
+      }
+      case "terminalPipelineSnapshot": {
+        deps.onTerminalPipelineSnapshot?.(v as DTerminalPipelineSnapshotRequest);
         return;
       }
       case "terminalSnapshotRequest": {

@@ -7,8 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, WHelloSchema, WPongSchema, WBinarySchema,
   WRpcOkSchema, WRpcErrorSchema,
-  WInputResultSchema, WTerminalStreamResultSchema,
-  WUpdateProgressSchema,
+  WInputResultSchema, WTerminalStreamResultSchema, WUpdateProgressSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
 import type { UpstreamFrame } from "./coord-link-types.ts";
@@ -57,6 +56,10 @@ export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
         phase: f.phase,
         failureKind: f.failure_kind,
       })}});
+    case "terminal-pipeline-snapshot":
+      return create(CoordWorkerUpSchema, {
+        frame: { case: "terminalPipelineSnapshot", value: f.snapshot },
+      });
     case "update-progress":
       return create(CoordWorkerUpSchema, { frame: { case: "updateProgress", value: create(WUpdateProgressSchema, {
         requestId: f.request_id,

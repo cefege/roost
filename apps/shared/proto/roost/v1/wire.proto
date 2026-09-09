@@ -30,6 +30,75 @@ message TerminalCoreCapacityReport {
   uint64 refusal_count = 8;
 }
 
+// Content-free, bounded evidence shared by worker, coordinator, and browser
+// pipeline owners. IDs correlate a sampled path; terminal content never crosses
+// this diagnostic contract.
+message TerminalPipelineTarget {
+  string session_id = 1;
+  string view_id = 2;
+}
+
+enum TerminalPipelineStage {
+  TERMINAL_PIPELINE_STAGE_UNSPECIFIED = 0;
+  TERMINAL_PIPELINE_STAGE_WORKER_PTY = 1;
+  TERMINAL_PIPELINE_STAGE_WORKER_CORE = 2;
+  TERMINAL_PIPELINE_STAGE_WORKER_SCHEDULER = 3;
+  TERMINAL_PIPELINE_STAGE_WORKER_STREAM = 4;
+  TERMINAL_PIPELINE_STAGE_WORKER_STREAM_CONTROL = 5;
+  TERMINAL_PIPELINE_STAGE_WORKER_KEEPER = 6;
+  TERMINAL_PIPELINE_STAGE_WORKER_COORD_LINK = 7;
+  TERMINAL_PIPELINE_STAGE_COORD_WORKER_INGRESS = 8;
+  TERMINAL_PIPELINE_STAGE_COORD_CANONICAL = 9;
+  TERMINAL_PIPELINE_STAGE_COORD_EGRESS = 10;
+  TERMINAL_PIPELINE_STAGE_BROWSER_INGRESS = 11;
+  TERMINAL_PIPELINE_STAGE_BROWSER_REPLICA = 12;
+  TERMINAL_PIPELINE_STAGE_BROWSER_RENDERER = 13;
+}
+
+enum TerminalPipelineReason {
+  TERMINAL_PIPELINE_REASON_UNSPECIFIED = 0;
+  TERMINAL_PIPELINE_REASON_NONE = 1;
+  TERMINAL_PIPELINE_REASON_SESSION_NOT_FOUND = 2;
+  TERMINAL_PIPELINE_REASON_STREAM_NOT_FOUND = 3;
+  TERMINAL_PIPELINE_REASON_STREAM_DISABLED = 4;
+  TERMINAL_PIPELINE_REASON_BASELINE_PENDING = 5;
+  TERMINAL_PIPELINE_REASON_CORE_INVALID = 6;
+  TERMINAL_PIPELINE_REASON_SNAPSHOT_PENDING = 7;
+  TERMINAL_PIPELINE_REASON_CELL_GATE = 8;
+  TERMINAL_PIPELINE_REASON_SYNC_OUTPUT = 9;
+  TERMINAL_PIPELINE_REASON_CELL_DIRTY = 10;
+  TERMINAL_PIPELINE_REASON_PENDING_REPAIR = 11;
+  TERMINAL_PIPELINE_REASON_CONTROL_QUEUED = 12;
+  TERMINAL_PIPELINE_REASON_KEEPER_DISCONNECTED = 13;
+  TERMINAL_PIPELINE_REASON_KEEPER_INPUT_PENDING = 14;
+  TERMINAL_PIPELINE_REASON_KEEPER_RESIZE_PENDING = 15;
+  TERMINAL_PIPELINE_REASON_COORD_LINK_UNAVAILABLE = 16;
+  TERMINAL_PIPELINE_REASON_NATIVE_BUFFERED = 17;
+  TERMINAL_PIPELINE_REASON_RAW_METADATA_PENDING = 18;
+}
+
+message TerminalPipelineStageSnapshot {
+  TerminalPipelineStage stage = 1;
+  TerminalPipelineReason reason = 2;
+  uint64 generation = 3;
+  string stream_id = 4;
+  uint64 sequence = 5;
+  uint64 queue_frames = 6;
+  uint64 queue_bytes = 7;
+  uint64 native_buffered_bytes = 8;
+  uint64 oldest_age_ms = 9;
+  uint64 count = 10;
+  // Buckets count ages at <= 1, 2, 4, 8, 16, 32, 64, 128, 256, 512,
+  // 1000, 2000, 5000, 10000, 30000, and +Inf milliseconds, respectively.
+  // A stage carries at most sixteen counts, never duration samples or content.
+  repeated uint64 histogram_buckets = 11;
+}
+
+message TerminalPipelineSessionSnapshot {
+  string session_id = 1;
+  string view_id = 2;
+  repeated TerminalPipelineStageSnapshot stages = 3;
+}
 
 
 // Keeper artifact identity and post-reconciliation runtime proof. build_sha is

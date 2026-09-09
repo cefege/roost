@@ -3,17 +3,20 @@
 // from coord-link.ts so external import paths stay unchanged.
 
 import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { CoordWorkerUp, CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import type {
+  CoordWorkerDown,
+  CoordWorkerUp,
   DAgentPrompt,
   DInputRequest,
+  DKeeperUpdatePrepare,
+  DTerminalPipelineSnapshotRequest,
   DTerminalSnapshotRequest,
   DTerminalStreamState,
-  DKeeperUpdatePrepare,
   TerminalInputStatus,
   TerminalStreamFailureKind,
   TerminalStreamStatus,
   TerminalWritePhase,
+  WTerminalPipelineSnapshot,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
 import type { SessionEventStore } from "./session-event-store.ts";
@@ -74,6 +77,7 @@ export interface CoordLinkDeps {
   onAgentPrompt?: (request: DAgentPrompt, budget: TerminalRequestBudget) => Promise<void> | void;
   onTerminalStreamState?: (request: DTerminalStreamState, budget: TerminalRequestBudget) => Promise<void> | void;
   onTerminalSnapshotRequest?: (request: DTerminalSnapshotRequest) => Promise<void> | void;
+  onTerminalPipelineSnapshot?: (request: DTerminalPipelineSnapshotRequest) => void;
   onKeeperUpdatePrepare?: (
     request: DKeeperUpdatePrepare,
   ) => Promise<{
@@ -115,6 +119,13 @@ export type TransportSendResult = "sent" | "queued" | "dropped";
  * emission receipt: a snapshot cursor advances only on "sent". */
 export type TerminalCellSendResult = "sent" | "dropped";
 
+export interface CoordLinkPipelineState {
+  queueFrames: number;
+  queueBytes: number;
+  nativeBufferedBytes: number;
+  attached: boolean;
+}
+
 
 export interface CoordLink {
   send(frame: UpstreamFrame): boolean;
@@ -130,6 +141,7 @@ export interface CoordLink {
   snapshotStateChanged(): void;
   sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TerminalCellSendResult;
   dispose(): void;
+  pipelineState(): CoordLinkPipelineState;
 }
 
 // Canonical worker→coord control-frame shape consumed by callers
@@ -175,7 +187,11 @@ export type UpstreamFrame =
       failure_kind: TerminalStreamFailureKind;
       reason?: string;
     }
-  | ({ kind: "update-progress" } & UpdateProgressFrame);
+  | ({ kind: "update-progress" } & UpdateProgressFrame)
+  | {
+      kind: "terminal-pipeline-snapshot";
+      snapshot: WTerminalPipelineSnapshot;
+    };
 
 export type CoordLinkState =
   | { kind: "idle" }
@@ -215,6 +231,7 @@ export interface CoordLinkOutbox {
   waitForDurableSessionEventReplay(signal?: AbortSignal): Promise<void>;
   isAttached(): boolean;
   activeSocket(): WebSocket | null;
+  pipelineState(): CoordLinkPipelineState;
   drainQueues(): void;
   clearDrainTimer(): void;
   ackEvent(seq: number): void;

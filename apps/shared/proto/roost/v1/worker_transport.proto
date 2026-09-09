@@ -10,6 +10,8 @@ package roost.v1;
 
 import "roost/v1/events.proto";
 import "roost/v1/cell.proto";
+import "roost/v1/wire.proto";
+
 
 // ── Upstream (worker → coord) ────────────────────────────────────
 
@@ -139,6 +141,16 @@ message WTerminalStreamResult {
   TerminalStreamFailureKind failure_kind = 12;
 }
 
+// Correlated, content-free evidence for one bounded terminal-pipeline sample.
+// The worker reports only source-owned IDs, counters, ages, and enum states.
+message WTerminalPipelineSnapshot {
+  string request_id = 1;
+  repeated TerminalPipelineSessionSnapshot sessions = 2;
+  uint32 dropped_targets = 3;
+  uint32 dropped_records = 4;
+}
+
+
 
 message CoordWorkerUp {
   reserved 4, 5, 8, 9, 13, 15;
@@ -157,6 +169,8 @@ message CoordWorkerUp {
     WTerminalStreamResult terminal_stream_result = 17;
     WCellGridChunk cell_grid_chunk = 18;
     WUpdateProgress update_progress = 30;
+    WTerminalPipelineSnapshot terminal_pipeline_snapshot = 19;
+
   }
 }
 
@@ -210,6 +224,14 @@ message DTerminalSnapshotRequest {
   string session_id = 1;
   string stream_id = 2;
 }
+
+// The coordinator chooses view-correlated targets; worker ownership ends at
+// session/stream/keeper state and never includes view content.
+message DTerminalPipelineSnapshotRequest {
+  string request_id = 1;
+  repeated TerminalPipelineTarget targets = 2;
+}
+
 
 message DAttachmentChunk {
   string request_id = 1;
@@ -305,6 +327,7 @@ message CoordWorkerDown {
     DUpdateBroker update_broker = 30;
     DKeeperUpdatePrepare keeper_update_prepare = 15;
     DAgentPrompt agent_prompt = 16;
+    DTerminalPipelineSnapshotRequest terminal_pipeline_snapshot = 17;
   }
 }
 

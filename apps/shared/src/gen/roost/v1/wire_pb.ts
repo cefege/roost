@@ -6,15 +6,15 @@
 // @generated from file roost/v1/wire.proto (package roost.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file roost/v1/wire.proto.
  */
 export const file_roost_v1_wire: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS93aXJlLnByb3RvEghyb29zdC52MSLBAQoLSG9zdE1ldHJpY3MSDwoHY3B1X3BjdBgBIAEoARIWCg5tZW1fdXNlZF9ieXRlcxgCIAEoBBIXCg9tZW1fdG90YWxfYnl0ZXMYAyABKAQSFwoPZGlza191c2VkX2J5dGVzGAQgASgEEhgKEGRpc2tfdG90YWxfYnl0ZXMYBSABKAQSEgoKbmV0X3J4X2JwcxgGIAEoBBISCgpuZXRfdHhfYnBzGAcgASgEEhUKDXNhbXBsZWRfYXRfbXMYCCABKAQi4AEKGlRlcm1pbmFsQ29yZUNhcGFjaXR5UmVwb3J0EgwKBHVzZWQYASABKA0SDwoHcGVuZGluZxgCIAEoDRIQCghjYXBhY2l0eRgDIAEoDRIgChhlc3RpbWF0ZWRfcmVzZXJ2ZWRfYnl0ZXMYBCABKAQSJgoeZWZmZWN0aXZlX21lbW9yeV9jZWlsaW5nX2J5dGVzGAUgASgEEhYKDmJvb3RfcnNzX2J5dGVzGAYgASgEEhgKEG92ZXJjb21taXRfY291bnQYByABKA0SFQoNcmVmdXNhbF9jb3VudBgIIAEoBCLlAQoQS2VlcGVyQ29udHJhY3RWMRIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEhoKEnN1cHBvcnRlZF9mZWF0dXJlcxgCIAMoCRIZChFyZXF1aXJlZF9mZWF0dXJlcxgDIAMoCRIiChVpbXBsZW1lbnRhdGlvbl9kaWdlc3QYBCABKAlIAIgBARIPCgdidW5fYWJpGAUgASgJEhAKCHBsYXRmb3JtGAYgASgJEgwKBGFyY2gYByABKAkSEQoJYnVpbGRfc2hhGAggASgJQhgKFl9pbXBsZW1lbnRhdGlvbl9kaWdlc3Qi3QEKGktlZXBlclJ1bnRpbWVPYnNlcnZhdGlvblYxEhYKDnNjaGVtYV92ZXJzaW9uGAEgASgNEjQKEHJ1bm5pbmdfY29udHJhY3QYAiABKAsyGi5yb29zdC52MS5LZWVwZXJDb250cmFjdFYxEhIKCmtlZXBlcl9waWQYAyABKAQSFAoMa2VlcGVyX2Vwb2NoGAQgASgJEhUKDWNoYW5uZWxfY291bnQYBSABKA0SFgoOYmluZGluZ19kaWdlc3QYBiABKAkSGAoQcmVjb25jaWxlZF9hdF9tcxgHIAEoBCLEAwoGV29ya2VyEgoKAmZwGAEgASgJEg0KBWxhYmVsGAIgASgJEgoKAm9zGAMgASgJEhQKB2dpdF9zaGEYBCABKAlIAIgBARIwCgxob3N0X21ldHJpY3MYBSABKAsyFS5yb29zdC52MS5Ib3N0TWV0cmljc0gBiAEBEhgKEHJlZ2lzdGVyZWRfYXRfbXMYBiABKAQSFAoMbGFzdF9zZWVuX21zGAcgASgEEhsKDnJlYWNoYWJsZV9hZGRyGAggASgJSAKIAQESQQoOa2VlcGVyX3J1bnRpbWUYCiABKAsyJC5yb29zdC52MS5LZWVwZXJSdW50aW1lT2JzZXJ2YXRpb25WMUgDiAEBEkkKFnRlcm1pbmFsX2NvcmVfY2FwYWNpdHkYCyABKAsyJC5yb29zdC52MS5UZXJtaW5hbENvcmVDYXBhY2l0eVJlcG9ydEgEiAEBQgoKCF9naXRfc2hhQg8KDV9ob3N0X21ldHJpY3NCEQoPX3JlYWNoYWJsZV9hZGRyQhEKD19rZWVwZXJfcnVudGltZUIZChdfdGVybWluYWxfY29yZV9jYXBhY2l0eUoECAkQClIMa2VlcGVyX3N0YWxlImUKHEFnZW50Q29udmVyc2F0aW9uUmVmZXJlbmNlVjESFgoOc2NoZW1hX3ZlcnNpb24YASABKA0SEAoIYWdlbnRfaWQYAiABKAkSDAoEa2luZBgDIAEoCRINCgV2YWx1ZRgEIAEoCSKRBAoHU2Vzc2lvbhIKCgJpZBgBIAEoCRIRCgl3b3JrZXJfZnAYAiABKAkSDwoHY2hhbm5lbBgDIAEoDRIMCgRraW5kGAQgASgJEgsKA2N3ZBgFIAEoCRIZCgx3b3Jrc3BhY2VfaWQYBiABKAlIAIgBARIOCgZzdGF0dXMYByABKAkSEgoKY3JlYXRlZF9hdBgJIAEoBBIWCgljbG9zZWRfYXQYCiABKARIAYgBARIZCgxjdXN0b21fdGl0bGUYCyABKAlIAogBARIXCgpnaXRfYnJhbmNoGAwgASgJSAOIAQESFwoKZ2l0X3JlbW90ZRgNIAEoCUgEiAEBEhYKCXByX251bWJlchgOIAEoBUgFiAEBEhUKCHByX3N0YXRlGA8gASgJSAaIAQESFgoJcHJfY2hlY2tzGBAgASgJSAeIAQESEwoGcHJfdXJsGBEgASgJSAiIAQESDQoFcG9ydHMYEiADKAUSFgoJc3Bhd25fY3dkGBMgASgJSAmIAQFCDwoNX3dvcmtzcGFjZV9pZEIMCgpfY2xvc2VkX2F0Qg8KDV9jdXN0b21fdGl0bGVCDQoLX2dpdF9icmFuY2hCDQoLX2dpdF9yZW1vdGVCDAoKX3ByX251bWJlckILCglfcHJfc3RhdGVCDAoKX3ByX2NoZWNrc0IJCgdfcHJfdXJsQgwKCl9zcGF3bl9jd2RKBAgIEAki0QEKCVdvcmtzcGFjZRIKCgJpZBgBIAEoCRIRCgl3b3JrZXJfZnAYAiABKAkSDAoEbmFtZRgDIAEoCRITCgtmb2xkZXJfcGF0aBgEIAEoCRISCgVjb2xvchgFIAEoCUgAiAEBEhAKCHBvc2l0aW9uGAYgASgNEg8KB3ZlcnNpb24YByABKAQSFQoNY3JlYXRlZF9hdF9tcxgIIAEoBBIVCg11cGRhdGVkX2F0X21zGAkgASgEEhMKC3Nlc3Npb25faWRzGAogAygJQggKBl9jb2xvciKdAwoEVGFzaxIKCgJpZBgBIAEoCRINCgVzdGF0ZRgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAkSFgoOZW5xdWV1ZWRfYXRfbXMYBCABKAQSGgoNY2xhaW1lZF9hdF9tcxgFIAEoBEgAiAEBEhcKCmNsYWltZWRfYnkYBiABKAlIAYgBARIbCg5maW5pc2hlZF9hdF9tcxgHIAEoBEgCiAEBEhgKC3Jlc3VsdF9qc29uGAggASgJSAOIAQESHQoQY29tcGxldGlvbl9jaGVjaxgJIAEoCUgEiAEBEi0KIGNvbXBsZXRpb25fY2hlY2tfbGFzdF9hdHRlbXB0X21zGAogASgESAWIAQESFAoMY2xhaW1fdHRsX21zGAsgASgEQhAKDl9jbGFpbWVkX2F0X21zQg0KC19jbGFpbWVkX2J5QhEKD19maW5pc2hlZF9hdF9tc0IOCgxfcmVzdWx0X2pzb25CEwoRX2NvbXBsZXRpb25fY2hlY2tCIwohX2NvbXBsZXRpb25fY2hlY2tfbGFzdF9hdHRlbXB0X21zIl8KCE1jcFJlbGF5EgoKAmlkGAEgASgJEg0KBWxhYmVsGAIgASgJEgwKBGtpbmQYAyABKAkSEwoLY29uZmlnX2pzb24YBCABKAkSFQoNY3JlYXRlZF9hdF9tcxgFIAEoBCLZAgoLUGFpclJlcXVlc3QSFAoMZXBoZW1lcmFsX2lkGAEgASgJEg0KBWxhYmVsGAIgASgJEhUKDWNyZWF0ZWRfYXRfbXMYAyABKAQSEgoKdXNlcl9hZ2VudBgEIAEoCRIWCg5jbGllbnRfYnJvd3NlchgFIAEoCRIRCgljbGllbnRfb3MYBiABKAkSGgoSY2xpZW50X2RldmljZV90eXBlGAcgASgJEhEKCXNvdXJjZV9pcBgIIAEoCRIUCgxjb3VudHJ5X2NvZGUYCSABKAkSDgoGcmVnaW9uGAogASgJEgwKBGNpdHkYCyABKAkSHgoWZWRnZV9pZGVudGl0eV9wcm92aWRlchgMIAEoCRIVCg1lZGdlX2lkZW50aXR5GA0gASgJEh4KFmVkZ2VfaWRlbnRpdHlfdmVyaWZpZWQYDiABKAgSFQoNZXhwaXJlc19hdF9tcxgPIAEoBCLGAQoIQXVkaXRSb3cSCgoCaWQYASABKAQSCgoCdHMYAiABKAQSFgoJY2FsbGVyX2ZwGAMgASgJSACIAQESGQoMY2FsbGVyX2xhYmVsGAQgASgJSAGIAQESDgoGbWV0aG9kGAUgASgJEgwKBHBhdGgYBiABKAkSDgoGc3RhdHVzGAcgASgNEhUKCHRyYWNlX2lkGAggASgJSAKIAQFCDAoKX2NhbGxlcl9mcEIPCg1fY2FsbGVyX2xhYmVsQgsKCV90cmFjZV9pZGIGcHJvdG8z");
+  fileDesc("ChNyb29zdC92MS93aXJlLnByb3RvEghyb29zdC52MSLBAQoLSG9zdE1ldHJpY3MSDwoHY3B1X3BjdBgBIAEoARIWCg5tZW1fdXNlZF9ieXRlcxgCIAEoBBIXCg9tZW1fdG90YWxfYnl0ZXMYAyABKAQSFwoPZGlza191c2VkX2J5dGVzGAQgASgEEhgKEGRpc2tfdG90YWxfYnl0ZXMYBSABKAQSEgoKbmV0X3J4X2JwcxgGIAEoBBISCgpuZXRfdHhfYnBzGAcgASgEEhUKDXNhbXBsZWRfYXRfbXMYCCABKAQi4AEKGlRlcm1pbmFsQ29yZUNhcGFjaXR5UmVwb3J0EgwKBHVzZWQYASABKA0SDwoHcGVuZGluZxgCIAEoDRIQCghjYXBhY2l0eRgDIAEoDRIgChhlc3RpbWF0ZWRfcmVzZXJ2ZWRfYnl0ZXMYBCABKAQSJgoeZWZmZWN0aXZlX21lbW9yeV9jZWlsaW5nX2J5dGVzGAUgASgEEhYKDmJvb3RfcnNzX2J5dGVzGAYgASgEEhgKEG92ZXJjb21taXRfY291bnQYByABKA0SFQoNcmVmdXNhbF9jb3VudBgIIAEoBCI9ChZUZXJtaW5hbFBpcGVsaW5lVGFyZ2V0EhIKCnNlc3Npb25faWQYASABKAkSDwoHdmlld19pZBgCIAEoCSLFAgodVGVybWluYWxQaXBlbGluZVN0YWdlU25hcHNob3QSLgoFc3RhZ2UYASABKA4yHy5yb29zdC52MS5UZXJtaW5hbFBpcGVsaW5lU3RhZ2USMAoGcmVhc29uGAIgASgOMiAucm9vc3QudjEuVGVybWluYWxQaXBlbGluZVJlYXNvbhISCgpnZW5lcmF0aW9uGAMgASgEEhEKCXN0cmVhbV9pZBgEIAEoCRIQCghzZXF1ZW5jZRgFIAEoBBIUCgxxdWV1ZV9mcmFtZXMYBiABKAQSEwoLcXVldWVfYnl0ZXMYByABKAQSHQoVbmF0aXZlX2J1ZmZlcmVkX2J5dGVzGAggASgEEhUKDW9sZGVzdF9hZ2VfbXMYCSABKAQSDQoFY291bnQYCiABKAQSGQoRaGlzdG9ncmFtX2J1Y2tldHMYCyADKAQifwofVGVybWluYWxQaXBlbGluZVNlc3Npb25TbmFwc2hvdBISCgpzZXNzaW9uX2lkGAEgASgJEg8KB3ZpZXdfaWQYAiABKAkSNwoGc3RhZ2VzGAMgAygLMicucm9vc3QudjEuVGVybWluYWxQaXBlbGluZVN0YWdlU25hcHNob3Qi5QEKEEtlZXBlckNvbnRyYWN0VjESGAoQcHJvdG9jb2xfdmVyc2lvbhgBIAEoDRIaChJzdXBwb3J0ZWRfZmVhdHVyZXMYAiADKAkSGQoRcmVxdWlyZWRfZmVhdHVyZXMYAyADKAkSIgoVaW1wbGVtZW50YXRpb25fZGlnZXN0GAQgASgJSACIAQESDwoHYnVuX2FiaRgFIAEoCRIQCghwbGF0Zm9ybRgGIAEoCRIMCgRhcmNoGAcgASgJEhEKCWJ1aWxkX3NoYRgIIAEoCUIYChZfaW1wbGVtZW50YXRpb25fZGlnZXN0It0BChpLZWVwZXJSdW50aW1lT2JzZXJ2YXRpb25WMRIWCg5zY2hlbWFfdmVyc2lvbhgBIAEoDRI0ChBydW5uaW5nX2NvbnRyYWN0GAIgASgLMhoucm9vc3QudjEuS2VlcGVyQ29udHJhY3RWMRISCgprZWVwZXJfcGlkGAMgASgEEhQKDGtlZXBlcl9lcG9jaBgEIAEoCRIVCg1jaGFubmVsX2NvdW50GAUgASgNEhYKDmJpbmRpbmdfZGlnZXN0GAYgASgJEhgKEHJlY29uY2lsZWRfYXRfbXMYByABKAQixAMKBldvcmtlchIKCgJmcBgBIAEoCRINCgVsYWJlbBgCIAEoCRIKCgJvcxgDIAEoCRIUCgdnaXRfc2hhGAQgASgJSACIAQESMAoMaG9zdF9tZXRyaWNzGAUgASgLMhUucm9vc3QudjEuSG9zdE1ldHJpY3NIAYgBARIYChByZWdpc3RlcmVkX2F0X21zGAYgASgEEhQKDGxhc3Rfc2Vlbl9tcxgHIAEoBBIbCg5yZWFjaGFibGVfYWRkchgIIAEoCUgCiAEBEkEKDmtlZXBlcl9ydW50aW1lGAogASgLMiQucm9vc3QudjEuS2VlcGVyUnVudGltZU9ic2VydmF0aW9uVjFIA4gBARJJChZ0ZXJtaW5hbF9jb3JlX2NhcGFjaXR5GAsgASgLMiQucm9vc3QudjEuVGVybWluYWxDb3JlQ2FwYWNpdHlSZXBvcnRIBIgBAUIKCghfZ2l0X3NoYUIPCg1faG9zdF9tZXRyaWNzQhEKD19yZWFjaGFibGVfYWRkckIRCg9fa2VlcGVyX3J1bnRpbWVCGQoXX3Rlcm1pbmFsX2NvcmVfY2FwYWNpdHlKBAgJEApSDGtlZXBlcl9zdGFsZSJlChxBZ2VudENvbnZlcnNhdGlvblJlZmVyZW5jZVYxEhYKDnNjaGVtYV92ZXJzaW9uGAEgASgNEhAKCGFnZW50X2lkGAIgASgJEgwKBGtpbmQYAyABKAkSDQoFdmFsdWUYBCABKAkikQQKB1Nlc3Npb24SCgoCaWQYASABKAkSEQoJd29ya2VyX2ZwGAIgASgJEg8KB2NoYW5uZWwYAyABKA0SDAoEa2luZBgEIAEoCRILCgNjd2QYBSABKAkSGQoMd29ya3NwYWNlX2lkGAYgASgJSACIAQESDgoGc3RhdHVzGAcgASgJEhIKCmNyZWF0ZWRfYXQYCSABKAQSFgoJY2xvc2VkX2F0GAogASgESAGIAQESGQoMY3VzdG9tX3RpdGxlGAsgASgJSAKIAQESFwoKZ2l0X2JyYW5jaBgMIAEoCUgDiAEBEhcKCmdpdF9yZW1vdGUYDSABKAlIBIgBARIWCglwcl9udW1iZXIYDiABKAVIBYgBARIVCghwcl9zdGF0ZRgPIAEoCUgGiAEBEhYKCXByX2NoZWNrcxgQIAEoCUgHiAEBEhMKBnByX3VybBgRIAEoCUgIiAEBEg0KBXBvcnRzGBIgAygFEhYKCXNwYXduX2N3ZBgTIAEoCUgJiAEBQg8KDV93b3Jrc3BhY2VfaWRCDAoKX2Nsb3NlZF9hdEIPCg1fY3VzdG9tX3RpdGxlQg0KC19naXRfYnJhbmNoQg0KC19naXRfcmVtb3RlQgwKCl9wcl9udW1iZXJCCwoJX3ByX3N0YXRlQgwKCl9wcl9jaGVja3NCCQoHX3ByX3VybEIMCgpfc3Bhd25fY3dkSgQICBAJItEBCglXb3Jrc3BhY2USCgoCaWQYASABKAkSEQoJd29ya2VyX2ZwGAIgASgJEgwKBG5hbWUYAyABKAkSEwoLZm9sZGVyX3BhdGgYBCABKAkSEgoFY29sb3IYBSABKAlIAIgBARIQCghwb3NpdGlvbhgGIAEoDRIPCgd2ZXJzaW9uGAcgASgEEhUKDWNyZWF0ZWRfYXRfbXMYCCABKAQSFQoNdXBkYXRlZF9hdF9tcxgJIAEoBBITCgtzZXNzaW9uX2lkcxgKIAMoCUIICgZfY29sb3IinQMKBFRhc2sSCgoCaWQYASABKAkSDQoFc3RhdGUYAiABKAkSFAoMcGF5bG9hZF9qc29uGAMgASgJEhYKDmVucXVldWVkX2F0X21zGAQgASgEEhoKDWNsYWltZWRfYXRfbXMYBSABKARIAIgBARIXCgpjbGFpbWVkX2J5GAYgASgJSAGIAQESGwoOZmluaXNoZWRfYXRfbXMYByABKARIAogBARIYCgtyZXN1bHRfanNvbhgIIAEoCUgDiAEBEh0KEGNvbXBsZXRpb25fY2hlY2sYCSABKAlIBIgBARItCiBjb21wbGV0aW9uX2NoZWNrX2xhc3RfYXR0ZW1wdF9tcxgKIAEoBEgFiAEBEhQKDGNsYWltX3R0bF9tcxgLIAEoBEIQCg5fY2xhaW1lZF9hdF9tc0INCgtfY2xhaW1lZF9ieUIRCg9fZmluaXNoZWRfYXRfbXNCDgoMX3Jlc3VsdF9qc29uQhMKEV9jb21wbGV0aW9uX2NoZWNrQiMKIV9jb21wbGV0aW9uX2NoZWNrX2xhc3RfYXR0ZW1wdF9tcyJfCghNY3BSZWxheRIKCgJpZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIMCgRraW5kGAMgASgJEhMKC2NvbmZpZ19qc29uGAQgASgJEhUKDWNyZWF0ZWRfYXRfbXMYBSABKAQi2QIKC1BhaXJSZXF1ZXN0EhQKDGVwaGVtZXJhbF9pZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIVCg1jcmVhdGVkX2F0X21zGAMgASgEEhIKCnVzZXJfYWdlbnQYBCABKAkSFgoOY2xpZW50X2Jyb3dzZXIYBSABKAkSEQoJY2xpZW50X29zGAYgASgJEhoKEmNsaWVudF9kZXZpY2VfdHlwZRgHIAEoCRIRCglzb3VyY2VfaXAYCCABKAkSFAoMY291bnRyeV9jb2RlGAkgASgJEg4KBnJlZ2lvbhgKIAEoCRIMCgRjaXR5GAsgASgJEh4KFmVkZ2VfaWRlbnRpdHlfcHJvdmlkZXIYDCABKAkSFQoNZWRnZV9pZGVudGl0eRgNIAEoCRIeChZlZGdlX2lkZW50aXR5X3ZlcmlmaWVkGA4gASgIEhUKDWV4cGlyZXNfYXRfbXMYDyABKAQixgEKCEF1ZGl0Um93EgoKAmlkGAEgASgEEgoKAnRzGAIgASgEEhYKCWNhbGxlcl9mcBgDIAEoCUgAiAEBEhkKDGNhbGxlcl9sYWJlbBgEIAEoCUgBiAEBEg4KBm1ldGhvZBgFIAEoCRIMCgRwYXRoGAYgASgJEg4KBnN0YXR1cxgHIAEoDRIVCgh0cmFjZV9pZBgIIAEoCUgCiAEBQgwKCl9jYWxsZXJfZnBCDwoNX2NhbGxlcl9sYWJlbEILCglfdHJhY2VfaWQqiAUKFVRlcm1pbmFsUGlwZWxpbmVTdGFnZRInCiNURVJNSU5BTF9QSVBFTElORV9TVEFHRV9VTlNQRUNJRklFRBAAEiYKIlRFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX1dPUktFUl9QVFkQARInCiNURVJNSU5BTF9QSVBFTElORV9TVEFHRV9XT1JLRVJfQ09SRRACEiwKKFRFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX1dPUktFUl9TQ0hFRFVMRVIQAxIpCiVURVJNSU5BTF9QSVBFTElORV9TVEFHRV9XT1JLRVJfU1RSRUFNEAQSMQotVEVSTUlOQUxfUElQRUxJTkVfU1RBR0VfV09SS0VSX1NUUkVBTV9DT05UUk9MEAUSKQolVEVSTUlOQUxfUElQRUxJTkVfU1RBR0VfV09SS0VSX0tFRVBFUhAGEi0KKVRFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX1dPUktFUl9DT09SRF9MSU5LEAcSMAosVEVSTUlOQUxfUElQRUxJTkVfU1RBR0VfQ09PUkRfV09SS0VSX0lOR1JFU1MQCBIrCidURVJNSU5BTF9QSVBFTElORV9TVEFHRV9DT09SRF9DQU5PTklDQUwQCRIoCiRURVJNSU5BTF9QSVBFTElORV9TVEFHRV9DT09SRF9FR1JFU1MQChIrCidURVJNSU5BTF9QSVBFTElORV9TVEFHRV9CUk9XU0VSX0lOR1JFU1MQCxIrCidURVJNSU5BTF9QSVBFTElORV9TVEFHRV9CUk9XU0VSX1JFUExJQ0EQDBIsCihURVJNSU5BTF9QSVBFTElORV9TVEFHRV9CUk9XU0VSX1JFTkRFUkVSEA0q/wYKFlRlcm1pbmFsUGlwZWxpbmVSZWFzb24SKAokVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX1VOU1BFQ0lGSUVEEAASIQodVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX05PTkUQARIuCipURVJNSU5BTF9QSVBFTElORV9SRUFTT05fU0VTU0lPTl9OT1RfRk9VTkQQAhItCilURVJNSU5BTF9QSVBFTElORV9SRUFTT05fU1RSRUFNX05PVF9GT1VORBADEiwKKFRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9TVFJFQU1fRElTQUJMRUQQBBItCilURVJNSU5BTF9QSVBFTElORV9SRUFTT05fQkFTRUxJTkVfUEVORElORxAFEikKJVRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9DT1JFX0lOVkFMSUQQBhItCilURVJNSU5BTF9QSVBFTElORV9SRUFTT05fU05BUFNIT1RfUEVORElORxAHEiYKIlRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9DRUxMX0dBVEUQCBIoCiRURVJNSU5BTF9QSVBFTElORV9SRUFTT05fU1lOQ19PVVRQVVQQCRInCiNURVJNSU5BTF9QSVBFTElORV9SRUFTT05fQ0VMTF9ESVJUWRAKEisKJ1RFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9QRU5ESU5HX1JFUEFJUhALEisKJ1RFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9DT05UUk9MX1FVRVVFRBAMEjAKLFRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9LRUVQRVJfRElTQ09OTkVDVEVEEA0SMQotVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX0tFRVBFUl9JTlBVVF9QRU5ESU5HEA4SMgouVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX0tFRVBFUl9SRVNJWkVfUEVORElORxAPEjMKL1RFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9DT09SRF9MSU5LX1VOQVZBSUxBQkxFEBASLAooVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX05BVElWRV9CVUZGRVJFRBAREjEKLVRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9SQVdfTUVUQURBVEFfUEVORElORxASYgZwcm90bzM");
 
 /**
  * @generated from message roost.v1.HostMetrics
@@ -124,6 +124,130 @@ export const TerminalCoreCapacityReportSchema: GenMessage<TerminalCoreCapacityRe
   messageDesc(file_roost_v1_wire, 1);
 
 /**
+ * Content-free, bounded evidence shared by worker, coordinator, and browser
+ * pipeline owners. IDs correlate a sampled path; terminal content never crosses
+ * this diagnostic contract.
+ *
+ * @generated from message roost.v1.TerminalPipelineTarget
+ */
+export type TerminalPipelineTarget = Message<"roost.v1.TerminalPipelineTarget"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: string view_id = 2;
+   */
+  viewId: string;
+};
+
+/**
+ * Describes the message roost.v1.TerminalPipelineTarget.
+ * Use `create(TerminalPipelineTargetSchema)` to create a new message.
+ */
+export const TerminalPipelineTargetSchema: GenMessage<TerminalPipelineTarget> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 2);
+
+/**
+ * @generated from message roost.v1.TerminalPipelineStageSnapshot
+ */
+export type TerminalPipelineStageSnapshot = Message<"roost.v1.TerminalPipelineStageSnapshot"> & {
+  /**
+   * @generated from field: roost.v1.TerminalPipelineStage stage = 1;
+   */
+  stage: TerminalPipelineStage;
+
+  /**
+   * @generated from field: roost.v1.TerminalPipelineReason reason = 2;
+   */
+  reason: TerminalPipelineReason;
+
+  /**
+   * @generated from field: uint64 generation = 3;
+   */
+  generation: bigint;
+
+  /**
+   * @generated from field: string stream_id = 4;
+   */
+  streamId: string;
+
+  /**
+   * @generated from field: uint64 sequence = 5;
+   */
+  sequence: bigint;
+
+  /**
+   * @generated from field: uint64 queue_frames = 6;
+   */
+  queueFrames: bigint;
+
+  /**
+   * @generated from field: uint64 queue_bytes = 7;
+   */
+  queueBytes: bigint;
+
+  /**
+   * @generated from field: uint64 native_buffered_bytes = 8;
+   */
+  nativeBufferedBytes: bigint;
+
+  /**
+   * @generated from field: uint64 oldest_age_ms = 9;
+   */
+  oldestAgeMs: bigint;
+
+  /**
+   * @generated from field: uint64 count = 10;
+   */
+  count: bigint;
+
+  /**
+   * Buckets count ages at <= 1, 2, 4, 8, 16, 32, 64, 128, 256, 512,
+   * 1000, 2000, 5000, 10000, 30000, and +Inf milliseconds, respectively.
+   * A stage carries at most sixteen counts, never duration samples or content.
+   *
+   * @generated from field: repeated uint64 histogram_buckets = 11;
+   */
+  histogramBuckets: bigint[];
+};
+
+/**
+ * Describes the message roost.v1.TerminalPipelineStageSnapshot.
+ * Use `create(TerminalPipelineStageSnapshotSchema)` to create a new message.
+ */
+export const TerminalPipelineStageSnapshotSchema: GenMessage<TerminalPipelineStageSnapshot> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 3);
+
+/**
+ * @generated from message roost.v1.TerminalPipelineSessionSnapshot
+ */
+export type TerminalPipelineSessionSnapshot = Message<"roost.v1.TerminalPipelineSessionSnapshot"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: string view_id = 2;
+   */
+  viewId: string;
+
+  /**
+   * @generated from field: repeated roost.v1.TerminalPipelineStageSnapshot stages = 3;
+   */
+  stages: TerminalPipelineStageSnapshot[];
+};
+
+/**
+ * Describes the message roost.v1.TerminalPipelineSessionSnapshot.
+ * Use `create(TerminalPipelineSessionSnapshotSchema)` to create a new message.
+ */
+export const TerminalPipelineSessionSnapshotSchema: GenMessage<TerminalPipelineSessionSnapshot> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 4);
+
+/**
  * Keeper artifact identity and post-reconciliation runtime proof. build_sha is
  * provenance only; update admission compares every other contract field.
  *
@@ -176,7 +300,7 @@ export type KeeperContractV1 = Message<"roost.v1.KeeperContractV1"> & {
  * Use `create(KeeperContractV1Schema)` to create a new message.
  */
 export const KeeperContractV1Schema: GenMessage<KeeperContractV1> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 2);
+  messageDesc(file_roost_v1_wire, 5);
 
 /**
  * @generated from message roost.v1.KeeperRuntimeObservationV1
@@ -223,7 +347,7 @@ export type KeeperRuntimeObservationV1 = Message<"roost.v1.KeeperRuntimeObservat
  * Use `create(KeeperRuntimeObservationV1Schema)` to create a new message.
  */
 export const KeeperRuntimeObservationV1Schema: GenMessage<KeeperRuntimeObservationV1> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 3);
+  messageDesc(file_roost_v1_wire, 6);
 
 /**
  * @generated from message roost.v1.Worker
@@ -298,7 +422,7 @@ export type Worker = Message<"roost.v1.Worker"> & {
  * Use `create(WorkerSchema)` to create a new message.
  */
 export const WorkerSchema: GenMessage<Worker> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 4);
+  messageDesc(file_roost_v1_wire, 7);
 
 /**
  * Private opaque continuation metadata. It is carried by durable events and
@@ -333,7 +457,7 @@ export type AgentConversationReferenceV1 = Message<"roost.v1.AgentConversationRe
  * Use `create(AgentConversationReferenceV1Schema)` to create a new message.
  */
 export const AgentConversationReferenceV1Schema: GenMessage<AgentConversationReferenceV1> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 5);
+  messageDesc(file_roost_v1_wire, 8);
 
 /**
  * @generated from message roost.v1.Session
@@ -464,7 +588,7 @@ export type Session = Message<"roost.v1.Session"> & {
  * Use `create(SessionSchema)` to create a new message.
  */
 export const SessionSchema: GenMessage<Session> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 6);
+  messageDesc(file_roost_v1_wire, 9);
 
 /**
  * @generated from message roost.v1.Workspace
@@ -528,7 +652,7 @@ export type Workspace = Message<"roost.v1.Workspace"> & {
  * Use `create(WorkspaceSchema)` to create a new message.
  */
 export const WorkspaceSchema: GenMessage<Workspace> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 7);
+  messageDesc(file_roost_v1_wire, 10);
 
 /**
  * @generated from message roost.v1.Task
@@ -601,7 +725,7 @@ export type Task = Message<"roost.v1.Task"> & {
  * Use `create(TaskSchema)` to create a new message.
  */
 export const TaskSchema: GenMessage<Task> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 8);
+  messageDesc(file_roost_v1_wire, 11);
 
 /**
  * @generated from message roost.v1.McpRelay
@@ -642,7 +766,7 @@ export type McpRelay = Message<"roost.v1.McpRelay"> & {
  * Use `create(McpRelaySchema)` to create a new message.
  */
 export const McpRelaySchema: GenMessage<McpRelay> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 9);
+  messageDesc(file_roost_v1_wire, 12);
 
 /**
  * @generated from message roost.v1.PairRequest
@@ -729,7 +853,7 @@ export type PairRequest = Message<"roost.v1.PairRequest"> & {
  * Use `create(PairRequestSchema)` to create a new message.
  */
 export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 10);
+  messageDesc(file_roost_v1_wire, 13);
 
 /**
  * @generated from message roost.v1.AuditRow
@@ -781,5 +905,192 @@ export type AuditRow = Message<"roost.v1.AuditRow"> & {
  * Use `create(AuditRowSchema)` to create a new message.
  */
 export const AuditRowSchema: GenMessage<AuditRow> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 11);
+  messageDesc(file_roost_v1_wire, 14);
+
+/**
+ * @generated from enum roost.v1.TerminalPipelineStage
+ */
+export enum TerminalPipelineStage {
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_WORKER_PTY = 1;
+   */
+  WORKER_PTY = 1,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_WORKER_CORE = 2;
+   */
+  WORKER_CORE = 2,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_WORKER_SCHEDULER = 3;
+   */
+  WORKER_SCHEDULER = 3,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_WORKER_STREAM = 4;
+   */
+  WORKER_STREAM = 4,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_WORKER_STREAM_CONTROL = 5;
+   */
+  WORKER_STREAM_CONTROL = 5,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_WORKER_KEEPER = 6;
+   */
+  WORKER_KEEPER = 6,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_WORKER_COORD_LINK = 7;
+   */
+  WORKER_COORD_LINK = 7,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_COORD_WORKER_INGRESS = 8;
+   */
+  COORD_WORKER_INGRESS = 8,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_COORD_CANONICAL = 9;
+   */
+  COORD_CANONICAL = 9,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_COORD_EGRESS = 10;
+   */
+  COORD_EGRESS = 10,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_BROWSER_INGRESS = 11;
+   */
+  BROWSER_INGRESS = 11,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_BROWSER_REPLICA = 12;
+   */
+  BROWSER_REPLICA = 12,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_STAGE_BROWSER_RENDERER = 13;
+   */
+  BROWSER_RENDERER = 13,
+}
+
+/**
+ * Describes the enum roost.v1.TerminalPipelineStage.
+ */
+export const TerminalPipelineStageSchema: GenEnum<TerminalPipelineStage> = /*@__PURE__*/
+  enumDesc(file_roost_v1_wire, 0);
+
+/**
+ * @generated from enum roost.v1.TerminalPipelineReason
+ */
+export enum TerminalPipelineReason {
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_NONE = 1;
+   */
+  NONE = 1,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_SESSION_NOT_FOUND = 2;
+   */
+  SESSION_NOT_FOUND = 2,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_STREAM_NOT_FOUND = 3;
+   */
+  STREAM_NOT_FOUND = 3,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_STREAM_DISABLED = 4;
+   */
+  STREAM_DISABLED = 4,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_BASELINE_PENDING = 5;
+   */
+  BASELINE_PENDING = 5,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_CORE_INVALID = 6;
+   */
+  CORE_INVALID = 6,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_SNAPSHOT_PENDING = 7;
+   */
+  SNAPSHOT_PENDING = 7,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_CELL_GATE = 8;
+   */
+  CELL_GATE = 8,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_SYNC_OUTPUT = 9;
+   */
+  SYNC_OUTPUT = 9,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_CELL_DIRTY = 10;
+   */
+  CELL_DIRTY = 10,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_PENDING_REPAIR = 11;
+   */
+  PENDING_REPAIR = 11,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_CONTROL_QUEUED = 12;
+   */
+  CONTROL_QUEUED = 12,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_KEEPER_DISCONNECTED = 13;
+   */
+  KEEPER_DISCONNECTED = 13,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_KEEPER_INPUT_PENDING = 14;
+   */
+  KEEPER_INPUT_PENDING = 14,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_KEEPER_RESIZE_PENDING = 15;
+   */
+  KEEPER_RESIZE_PENDING = 15,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_COORD_LINK_UNAVAILABLE = 16;
+   */
+  COORD_LINK_UNAVAILABLE = 16,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_NATIVE_BUFFERED = 17;
+   */
+  NATIVE_BUFFERED = 17,
+
+  /**
+   * @generated from enum value: TERMINAL_PIPELINE_REASON_RAW_METADATA_PENDING = 18;
+   */
+  RAW_METADATA_PENDING = 18,
+}
+
+/**
+ * Describes the enum roost.v1.TerminalPipelineReason.
+ */
+export const TerminalPipelineReasonSchema: GenEnum<TerminalPipelineReason> = /*@__PURE__*/
+  enumDesc(file_roost_v1_wire, 1);
 

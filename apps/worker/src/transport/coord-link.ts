@@ -266,6 +266,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       outbox.waitForDurableSessionEventReplay,
     activateSnapshotProvider: outbox.activateSnapshotProvider,
     snapshotStateChanged: outbox.snapshotStateChanged,
+    pipelineState: outbox.pipelineState,
     dispose,
   };
 }

@@ -25,7 +25,8 @@ import {
 } from "./coord-link-constants.ts";
 import { createCoordLinkNativeWriter } from "./coord-link-native-writer.ts";
 import type {
-  CoordLinkDeps, CoordLinkOutbox, TerminalCellSendResult, TransportSendResult, UpstreamFrame,
+  CoordLinkDeps, CoordLinkOutbox, CoordLinkPipelineState, TerminalCellSendResult,
+  TransportSendResult, UpstreamFrame,
 } from "./coord-link-types.ts";
 
 interface EncodedPending {
@@ -340,10 +341,22 @@ export function createCoordLinkOutbox(
     agentStatuses.clear();
   }
 
+  function pipelineState(): CoordLinkPipelineState {
+    const nativeBufferedBytes = nativeWriter.activeSocket()?.bufferedAmount ?? 0;
+    return {
+      queueFrames: pendingFrameCount,
+      queueBytes: pendingEncodedBytes,
+      nativeBufferedBytes: Number.isFinite(nativeBufferedBytes) && nativeBufferedBytes > 0
+        ? Math.floor(nativeBufferedBytes)
+        : 0,
+      attached: nativeWriter.isAttached(),
+    };
+  }
+
   return {
     send, sendBinary, sendCellGrid, sendCellGridChunk, sendAgentStatus,
     sendControlProto, sendLivenessProto,
-    encodeUpstream, detachSocket, reset, drainQueues, clearDrainTimer,
+    encodeUpstream, detachSocket, reset, pipelineState, drainQueues, clearDrainTimer,
     forceWrite: nativeWriter.forceWrite,
     attachSocket: (socket, write) => { linkReady = false; nativeWriter.attach(socket, write); },
     acceptHelloAck: (reconnected) => { events.acceptHelloAck(reconnected); drainQueues(); },

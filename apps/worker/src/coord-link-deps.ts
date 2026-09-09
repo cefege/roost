@@ -23,6 +23,7 @@ import type { TerminalStreamFailure } from "./session-terminal-state.ts";
 import type { WorkerInputResult } from "./session-terminal-control.ts";
 import type { CoordLink, CoordLinkDeps } from "./transport/coord-link.ts";
 import type { SessionEventStore } from "./transport/session-event-store.ts";
+import { terminalPipelineSnapshot } from "./terminal-pipeline-snapshot.ts";
 
 const _workerSha8 = (b: Uint8Array): string =>
 	createHash("sha256").update(b).digest("hex").slice(0, 8);
@@ -221,6 +222,17 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 			});
 		},
 		onKeeperUpdatePrepare,
+		onTerminalPipelineSnapshot: (request) => {
+			const snapshot = terminalPipelineSnapshot(
+				mgr(),
+				request,
+				link().pipelineState(),
+			);
+			link().send({
+				kind: "terminal-pipeline-snapshot",
+				snapshot,
+			});
+		},
 		onTerminalSnapshotRequest: (request) => {
 			mgr().requestTerminalSnapshot(request.sessionId, request.streamId);
 		},

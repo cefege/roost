@@ -84,6 +84,11 @@ The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL
   `src/transport/coord-link-constants.ts`, and
   `src/transport/coord-link-types.ts`.
 
+- `src/terminal-pipeline-snapshot.ts` plus
+  `src/terminal-pipeline-snapshot-bounds.ts` — bounded, content-free
+  worker-owned stage evidence. Its typed request/reply route bypasses generic
+  RPC payloads.
+
 All filenames are kebab-case; do not add a parallel PascalCase entry.
 
 ## Keeper
