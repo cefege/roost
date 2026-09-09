@@ -256,3 +256,63 @@ export async function buildDashboardScopedCliContext(
     cfg,
   };
 }
+
+export interface CliContext {
+  client: CoordClient;
+  key: CliKey;
+  cfg: WorkerConfig;
+}
+
+/**
+ * Builds an authenticated client without dashboard selection so rollout
+ * preflight remains compatible with coordinators predating AuthDashboardAccess.
+ */
+export async function buildCliContext(
+  options: BuildCliClientOptions = {},
+): Promise<CliContext> {
+  const cfg = loadWorkerConfig(
+    options.coordinatorUrl
+      ? { ROOST_COORDINATOR_URL: options.coordinatorUrl }
+      : undefined,
+  );
+  if (!options.coordinatorUrl && process.env.ROOST_COORD_URL) {
+    cfg.coordinatorUrl = process.env.ROOST_COORD_URL;
+  }
+  const key = await loadCliKey();
+  const client = createCoordClient({
+    cfg,
+    getJwt: () => mintJwt(key, "roost-coordinator"),
+  });
+  const publicClient = createUnauthenticatedCoordClient(cfg.coordinatorUrl);
+  const localDatabase = Object.prototype.hasOwnProperty.call(options, "localDatabasePath")
+    ? options.localDatabasePath ?? null
+    : localCoordinatorDatabasePath();
+  try {
+    await client.workersList({});
+  } catch (error) {
+    if (!unauthenticated(error)) throw error;
+    if (!localDatabase) throw new Error(CLI_PAIRING_REQUIRED);
+    let bearer = "";
+    try {
+      bearer = (await mintHostBootstrapToken(localDatabase, {
+        kind: "browser",
+        label: options.label ?? CLI_KEY_LABEL,
+      })).token;
+      await publicClient.authRedeemBrowser({
+        token: bearer,
+        sshPubkeyB64: cliPublicKeyB64(key),
+        label: options.label ?? CLI_KEY_LABEL,
+      });
+    } catch (enrollmentError) {
+      if (
+        unauthenticated(enrollmentError)
+        || (enrollmentError instanceof ConnectError && enrollmentError.code === Code.PermissionDenied)
+      ) throw new Error(CLI_PAIRING_REQUIRED);
+      throw enrollmentError;
+    } finally {
+      bearer = "";
+    }
+    await client.workersList({});
+  }
+  return { client, key, cfg };
+}
