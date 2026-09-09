@@ -1,6 +1,6 @@
 # apps/web — the Solid SPA
 
-The browser client. One Solid 1.x app on plain Vite (`bun x vite` on :5174 in dev, `bun x vite build`
+The browser client. One Solid 1.x app on plain Vite (`bun x vite` on :5173 in dev, `bun x vite build`
 into `apps/web/dist/` which coord serves in production). It paints terminal cells the worker already
 rendered; it does not run a terminal core.
 
@@ -14,7 +14,7 @@ security boundary. Startup order:
 1. `captureAndScrubFragmentCredential()` synchronously removes URL-carried
    credentials before the SPA module graph loads.
 2. `entry.ts` dynamically imports `apps/web/src/main.tsx`.
-3. `applyTheme(loadTheme())` sets `data-theme` before first paint.
+3. `applyTheme(loadTheme())` and `applyChromeMode(loadChromeMode())` set `data-theme` and `data-chrome-mode` before first paint.
 4. `installSignalShip()` + `installSpaDiag()` and the global
    error/rejection/chunk-recovery handlers install before render.
 5. `claimTabIdentity()` settles this document's unique identity, then
@@ -54,7 +54,7 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
 | `apps/web/src/lib/` | pure helpers and browser adapters; `layoutDocumentControls.ts` + `layoutDocumentFile.ts` own local transfer, `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, `fragment-credential.ts` (`#pair=<token>`, the only URL credential kind), pairing and tab identity | RPC plumbing (`apps/web/src/connect.ts`) or UI |
-| `apps/web/src/styles/` | six global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules | component-local one-offs |
+| `apps/web/src/styles/` | eight global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules, and `workbench-chrome-*.css` owns the opt-in outer chrome | component-local one-offs |
 | `apps/web/tests/` | recursive `*.test.ts` Bun suites, including the root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
 | `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |

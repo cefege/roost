@@ -12,6 +12,7 @@ import { THEMES, THEMES_BY_ID } from "../../lib/themes.ts";
 import { setTheme, currentThemeChoice, resolveThemeId } from "../../lib/theme.ts";
 import { addToast } from "../../store/toastStore.ts";
 import { Icon } from "./md/primitives.tsx";
+import { ChromeModePicker } from "./ChromeModePicker.tsx";
 
 interface Entry {
   choice: string;   // "auto" | theme id
@@ -59,8 +60,9 @@ export const ThemePane: Component = () => {
 
   return (
     <div data-testid="theme-pane" style={{ "max-width": "560px" }}>
+      <ChromeModePicker />
       <p class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", margin: "0 0 18px 2px" }}>
-        Pick an appearance. The swatches preview each theme's colors. Applies to every device.
+        Pick an appearance. The swatches preview each theme's colors. Applies to this browser profile.
       </p>
       <For each={groups()}>
         {(section) => (

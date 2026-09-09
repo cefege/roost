@@ -1,0 +1,89 @@
+/* Browser-profile interface-mode selector shared by both chrome presentations. */
+.chrome-mode-picker__fieldset {
+  border: none;
+  display: grid;
+  gap: var(--md-space-3);
+  margin: 0;
+  min-inline-size: 0;
+  padding: 0;
+}
+
+.chrome-mode-picker__title {
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-title-s-weight) var(--md-title-s-size) / var(--md-title-s-line) var(--md-font);
+}
+
+.chrome-mode-picker__support {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-m-weight) var(--md-body-m-size) / var(--md-body-m-line) var(--md-font);
+  margin: 0;
+}
+
+.chrome-mode-picker__options {
+  display: grid;
+  gap: var(--md-space-2);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chrome-mode-picker__option {
+  align-items: center;
+  background: var(--md-sys-color-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-sm);
+  color: var(--md-sys-color-on-surface);
+  cursor: pointer;
+  display: grid;
+  gap: var(--md-space-2);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: var(--md-space-9);
+  padding: var(--md-space-3);
+}
+
+.chrome-mode-picker__option:hover {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.chrome-mode-picker__option:focus-within {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.chrome-mode-picker__option[data-selected="true"] {
+  background: var(--md-sys-color-secondary-container);
+  border-color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.chrome-mode-picker__option-control {
+  accent-color: var(--md-sys-color-primary);
+  margin: 0;
+}
+
+.chrome-mode-picker__option-title,
+.chrome-mode-picker__option-support {
+  display: block;
+}
+
+.chrome-mode-picker__option-title {
+  font: var(--md-body-l-weight) var(--md-body-l-size) / var(--md-body-l-line) var(--md-font);
+}
+
+.chrome-mode-picker__option-support {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size) / var(--md-body-s-line) var(--md-font);
+  margin-top: var(--md-space-1);
+}
+
+.chrome-mode-picker__option[data-selected="true"] .chrome-mode-picker__option-support {
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.chrome-mode-picker__option-mark {
+  color: var(--md-sys-color-primary);
+}
+
+@media (max-width: 599px) {
+  .chrome-mode-picker__options {
+    grid-template-columns: 1fr;
+  }
+}

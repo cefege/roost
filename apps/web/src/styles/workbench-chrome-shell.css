@@ -1,0 +1,386 @@
+/*
+ * Workbench chrome overrides.
+ * Keeps the existing application tree while turning shared navigation,
+ * panes, and overlays into a dense, layered work surface.
+ * Activated only by the document mode attribute.
+ */
+
+html[data-chrome-mode="workbench"] {
+  background: var(--surface-0);
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] aside[data-testid="sidebar-desktop"],
+html[data-chrome-mode="workbench"] aside[data-testid="sidebar-drawer"] {
+  background: var(--surface-0);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .roost-drawer {
+  background: var(--surface-0);
+}
+
+html[data-chrome-mode="workbench"] .df-brand-row {
+  background: var(--surface-1);
+  box-shadow: inset 0 -1px 0 var(--md-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .df-brand-row .df-brand-title {
+  color: var(--text-hi);
+  font-weight: var(--md-title-s-weight);
+  letter-spacing: 0.02em;
+}
+
+html[data-chrome-mode="workbench"] .df-brand-row .df-brand-tag {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+html[data-chrome-mode="workbench"] .df-brand-row md-icon-button {
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-fld-tabs {
+  background: var(--surface-1);
+  border-radius: var(--md-shape-xs);
+  box-shadow: inset 0 0 0 1px var(--md-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .df-fld-tab {
+  border-radius: var(--md-shape-xs);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-fld-tab[data-active="true"] {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  box-shadow: inset 0 -2px 0 var(--md-primary);
+}
+
+html[data-chrome-mode="workbench"] .df-group-label {
+  color: var(--text-lo);
+  font-weight: var(--md-label-m-weight);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+html[data-chrome-mode="workbench"] .df-group-label:hover {
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .df-section-divider {
+  border-color: var(--md-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .df-row {
+  border-radius: var(--md-shape-xs);
+  box-shadow: inset 1px 0 0 var(--md-outline-variant);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-row[data-cursor="on"] {
+  background: var(--md-state-focus);
+  box-shadow: inset 0 0 0 1px var(--md-primary);
+}
+
+html[data-chrome-mode="workbench"] .df-row[data-selected="focused"],
+html[data-chrome-mode="workbench"] .df-row[aria-current="page"] {
+  background: var(--md-secondary-container);
+  box-shadow: inset 2px 0 0 var(--md-primary);
+  color: var(--md-on-secondary-container);
+}
+
+html[data-chrome-mode="workbench"] .df-row .df-leading {
+  background: var(--surface-2);
+  border-radius: var(--md-shape-xs);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-row[data-selected="focused"] .df-leading,
+html[data-chrome-mode="workbench"] .df-row[aria-current="page"] .df-leading {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+html[data-chrome-mode="workbench"] .df-flat-time,
+html[data-chrome-mode="workbench"] .df-flat-subtitle,
+html[data-chrome-mode="workbench"] .df-flat-supporting,
+html[data-chrome-mode="workbench"] .df-row .df-trailing {
+  color: var(--text-lo);
+}
+
+html[data-chrome-mode="workbench"] .df-row .df-action {
+  border-radius: var(--md-shape-xs);
+  color: var(--text-lo);
+}
+
+html[data-chrome-mode="workbench"] .df-search {
+  background: var(--surface-0);
+  border-radius: var(--md-shape-xs);
+  box-shadow: inset 0 0 0 1px var(--md-outline-variant);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-search:hover,
+html[data-chrome-mode="workbench"] .df-search:focus-within {
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--md-primary);
+}
+
+html[data-chrome-mode="workbench"] .df-search input {
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .df-search-kbd {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--md-outline-variant);
+  color: var(--text-lo);
+}
+
+html[data-chrome-mode="workbench"] .df-newterm-fab {
+  background: var(--md-primary);
+  border-radius: var(--md-shape-md);
+  box-shadow: var(--md-elev-3);
+  color: var(--md-on-primary);
+}
+
+html[data-chrome-mode="workbench"] .df-tab-bar {
+  background: var(--surface-1);
+  border-bottom-color: var(--md-outline-variant);
+  box-shadow: inset 0 -1px 0 var(--md-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .df-tab-bar[data-focused="true"] {
+  box-shadow: inset 0 1px 0 var(--md-primary), inset 0 -1px 0 var(--md-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .df-tab-indicator {
+  background: var(--md-primary);
+}
+
+html[data-chrome-mode="workbench"] .df-tab {
+  border-radius: var(--md-shape-xs) var(--md-shape-xs) 0 0;
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-tab[data-active="true"] {
+  background: var(--surface-0);
+  box-shadow: inset 0 1px 0 var(--md-primary);
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .df-tab[data-dragging="true"] {
+  background: var(--surface-3);
+  box-shadow: var(--md-elev-3);
+}
+
+html[data-chrome-mode="workbench"] .df-tab-glyph {
+  background: var(--surface-2);
+  border-radius: var(--md-shape-xs);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-tab[data-active="true"] .df-tab-glyph {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+html[data-chrome-mode="workbench"] .df-tab-new,
+html[data-chrome-mode="workbench"] .df-tab-overflow,
+html[data-chrome-mode="workbench"] .df-arrange-btn {
+  background: var(--surface-2);
+  border-radius: var(--md-shape-xs);
+  box-shadow: inset 0 0 0 1px var(--md-outline-variant);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-tab-hovercard {
+  background: var(--surface-3);
+  border-color: var(--md-outline);
+  border-radius: var(--md-shape-sm);
+  box-shadow: var(--md-elev-4);
+}
+
+html[data-chrome-mode="workbench"] [data-testid="mobile-topbar"],
+html[data-chrome-mode="workbench"] [data-testid="mobile-deck-bar"] {
+  background: var(--surface-1) !important;
+  box-shadow: inset 0 -1px 0 var(--md-outline-variant);
+  color: var(--text-hi) !important;
+}
+
+html[data-chrome-mode="workbench"] [data-testid="mobile-topbar"] md-icon-button,
+html[data-chrome-mode="workbench"] [data-testid="mobile-deck-bar"] md-icon-button {
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .mobile-deck-new,
+html[data-chrome-mode="workbench"] .mobile-deck-count {
+  background: var(--surface-2);
+  border-radius: var(--md-shape-xs);
+  box-shadow: inset 0 0 0 1px var(--md-outline-variant);
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .mobile-deck-count {
+  border-color: var(--md-outline);
+}
+
+html[data-chrome-mode="workbench"] [data-testid="workspace-tabs-sheet"] {
+  background: var(--surface-0) !important;
+}
+
+html[data-chrome-mode="workbench"] .workspace-tabs-head {
+  background: var(--surface-1);
+  box-shadow: inset 0 -1px 0 var(--md-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] [data-testid="connection-banner"] {
+  background: var(--surface-2) !important;
+  box-shadow: var(--md-elev-3) !important;
+}
+
+html[data-chrome-mode="workbench"] [data-testid="version-banner"] {
+  background: var(--surface-2) !important;
+  border-color: var(--md-primary) !important;
+  border-radius: var(--md-shape-xs) !important;
+  box-shadow: var(--md-elev-4) !important;
+}
+
+html[data-chrome-mode="workbench"] [data-testid="undo-close-banner"] {
+  background: var(--surface-2) !important;
+  border-radius: var(--md-shape-xs) !important;
+  box-shadow: var(--md-elev-4) !important;
+}
+
+html[data-chrome-mode="workbench"] [data-testid="toast"] {
+  background: var(--surface-2) !important;
+  border-radius: var(--md-shape-xs) !important;
+  box-shadow: var(--md-elev-4) !important;
+}
+
+html[data-chrome-mode="workbench"] .df-menu-enter,
+html[data-chrome-mode="workbench"] [data-testid="browse-server-menu"],
+html[data-chrome-mode="workbench"] [data-testid="browse-crumb-menu"] {
+  background: var(--surface-2) !important;
+  border-color: var(--md-outline) !important;
+  border-radius: var(--md-shape-xs) !important;
+  box-shadow: var(--md-elev-4) !important;
+}
+
+html[data-chrome-mode="workbench"] .df-menu-enter [role="separator"] {
+  background: var(--md-outline-variant) !important;
+}
+
+html[data-chrome-mode="workbench"] .df-menu-enter .df-menu-item:hover,
+html[data-chrome-mode="workbench"] [data-testid="browse-server-option"]:hover,
+html[data-chrome-mode="workbench"] [data-testid="browse-crumb-menu-item"]:hover {
+  background: var(--md-state-hover) !important;
+}
+
+html[data-chrome-mode="workbench"] [data-testid="tab-list-filter"] {
+  background: var(--surface-0) !important;
+  border-radius: var(--md-shape-xs);
+  box-shadow: inset 0 0 0 1px var(--md-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-page {
+  background: var(--surface-0);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-toolbar,
+html[data-chrome-mode="workbench"] .df-browse-actions {
+  background: var(--surface-1);
+  border-color: var(--md-outline-variant);
+  box-shadow: inset 0 -1px 0 var(--md-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-crumbs,
+html[data-chrome-mode="workbench"] .df-browse-recents {
+  background: var(--surface-0);
+  border-color: var(--md-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-back,
+html[data-chrome-mode="workbench"] .df-browse-forward,
+html[data-chrome-mode="workbench"] .df-browse-close,
+html[data-chrome-mode="workbench"] .df-browse-crumb {
+  border-radius: var(--md-shape-xs);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-crumb[data-current="true"] {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-toggle {
+  background: var(--surface-0);
+  border-color: var(--md-outline);
+  border-radius: var(--md-shape-xs);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-toggle-btn {
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-toggle-btn[data-active="true"] {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-new,
+html[data-chrome-mode="workbench"] .df-browse-open {
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+}
+
+html[data-chrome-mode="workbench"] .df-browse-server,
+html[data-chrome-mode="workbench"] .df-browse-recent-chip {
+  background: var(--surface-2);
+  border-color: var(--md-outline-variant);
+  border-radius: var(--md-shape-xs);
+  color: var(--text-mid);
+}
+
+@media (hover: hover) {
+  html[data-chrome-mode="workbench"] .df-row:not([data-selected="focused"]):not([aria-current="page"]):hover {
+    background: var(--md-state-hover);
+    color: var(--text-hi);
+  }
+
+  html[data-chrome-mode="workbench"] .df-row:not([data-selected="focused"]):not([aria-current="page"]):hover .df-leading,
+  html[data-chrome-mode="workbench"] .df-row .df-action:hover {
+    background: var(--surface-3);
+    color: var(--text-hi);
+  }
+
+  html[data-chrome-mode="workbench"] .df-tab:not([data-active="true"]):hover,
+  html[data-chrome-mode="workbench"] .df-tab-new:hover,
+  html[data-chrome-mode="workbench"] .df-tab-overflow:hover,
+  html[data-chrome-mode="workbench"] .df-arrange-btn:hover {
+    background: var(--surface-3);
+    color: var(--text-hi);
+  }
+
+  html[data-chrome-mode="workbench"] .mobile-deck-new:hover,
+  html[data-chrome-mode="workbench"] .mobile-deck-count:hover,
+  html[data-chrome-mode="workbench"] .df-browse-back:hover,
+  html[data-chrome-mode="workbench"] .df-browse-forward:hover,
+  html[data-chrome-mode="workbench"] .df-browse-close:hover,
+  html[data-chrome-mode="workbench"] .df-browse-crumb:not([data-current="true"]):hover,
+  html[data-chrome-mode="workbench"] .df-browse-recent-chip:hover {
+    background: var(--surface-3);
+    color: var(--text-hi);
+  }
+}
+
+html[data-chrome-mode="workbench"] .df-row:focus-visible,
+html[data-chrome-mode="workbench"] .df-fld-tab:focus-visible,
+html[data-chrome-mode="workbench"] .df-tab:focus-visible,
+html[data-chrome-mode="workbench"] .df-browse-back:focus-visible,
+html[data-chrome-mode="workbench"] .df-browse-forward:focus-visible,
+html[data-chrome-mode="workbench"] .df-browse-close:focus-visible,
+html[data-chrome-mode="workbench"] .df-browse-crumb:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: -2px;
+}

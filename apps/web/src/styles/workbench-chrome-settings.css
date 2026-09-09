@@ -1,0 +1,170 @@
+/*
+ * Workbench settings chrome.
+ * This file restyles the existing settings shell and Material primitives only
+ * while the document is in the browser-local workbench presentation mode.
+ */
+
+html[data-chrome-mode="workbench"] .settings-shell {
+  background: var(--surface-0);
+}
+
+html[data-chrome-mode="workbench"] .settings-rail {
+  background: var(--surface-1);
+  border-right-color: var(--md-sys-color-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .settings-rail__brand,
+html[data-chrome-mode="workbench"] .settings-topbar {
+  background: var(--surface-1);
+  border-color: var(--md-sys-color-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .settings-rail__brand {
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .settings-rail__group-label,
+html[data-chrome-mode="workbench"] .md-section-title,
+html[data-chrome-mode="workbench"] .md-card__title,
+html[data-chrome-mode="workbench"] .md-form-row__label {
+  color: var(--text-lo);
+  font-size: var(--md-label-s-size);
+  font-weight: var(--md-label-l-weight);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-chrome-mode="workbench"] .settings-rail__item {
+  border-radius: var(--md-shape-xs);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .settings-rail__item:hover,
+html[data-chrome-mode="workbench"] .settings-rail__item:focus-visible {
+  background: var(--surface-2);
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .settings-rail__item[data-selected="true"] {
+  background: var(--surface-2);
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .settings-rail__item[data-selected="true"] .settings-rail__indicator {
+  background: var(--md-primary);
+}
+
+html[data-chrome-mode="workbench"] .settings-main,
+html[data-chrome-mode="workbench"] .settings-content,
+html[data-chrome-mode="workbench"] .settings-mobile__main,
+html[data-chrome-mode="workbench"] .settings-mobile__list {
+  background: var(--surface-0);
+}
+
+html[data-chrome-mode="workbench"] .settings-topbar__title,
+html[data-chrome-mode="workbench"] .settings-mobile__label {
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .settings-topbar__back,
+html[data-chrome-mode="workbench"] .settings-mobile__icon,
+html[data-chrome-mode="workbench"] .settings-mobile__chev {
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .settings-mobile__group-label {
+  color: var(--text-lo);
+  font-size: var(--md-label-s-size);
+  font-weight: var(--md-label-l-weight);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-chrome-mode="workbench"] .settings-mobile__row {
+  border-color: var(--md-sys-color-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .settings-mobile__row:active,
+html[data-chrome-mode="workbench"] .settings-mobile__row:focus-visible {
+  background: var(--surface-2);
+}
+
+html[data-chrome-mode="workbench"] .md-card,
+html[data-chrome-mode="workbench"] .md-card--elevated,
+html[data-chrome-mode="workbench"] .md-card--outlined,
+html[data-chrome-mode="workbench"] .md-list--container,
+html[data-chrome-mode="workbench"] .md-metric-tile,
+html[data-chrome-mode="workbench"] .md-empty-state {
+  background: var(--surface-1);
+  border-color: var(--md-sys-color-outline-variant);
+  box-shadow: var(--md-elev-0);
+}
+
+html[data-chrome-mode="workbench"] .md-card__supporting,
+html[data-chrome-mode="workbench"] .md-list-row__support,
+html[data-chrome-mode="workbench"] .md-metric-tile__support {
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .md-list-row {
+  border-color: var(--md-sys-color-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .md-list-row:hover,
+html[data-chrome-mode="workbench"] .md-list-row:focus-visible {
+  background: var(--surface-2);
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .md-list-row[data-selected="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+html[data-chrome-mode="workbench"] .md-list-row[data-selected="true"] .md-list-row__support {
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+html[data-chrome-mode="workbench"] .md-divider {
+  background: var(--md-sys-color-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .chrome-mode-picker {
+  background: var(--surface-1);
+  border-color: var(--md-sys-color-outline-variant);
+}
+
+html[data-chrome-mode="workbench"] .chrome-mode-picker__title,
+html[data-chrome-mode="workbench"] .chrome-mode-picker__option-title {
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .chrome-mode-picker__support,
+html[data-chrome-mode="workbench"] .chrome-mode-picker__option-support {
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .chrome-mode-picker__option {
+  background: var(--surface-0);
+  border-color: var(--md-sys-color-outline-variant);
+  color: var(--text-mid);
+}
+
+html[data-chrome-mode="workbench"] .chrome-mode-picker__option:hover,
+html[data-chrome-mode="workbench"] .chrome-mode-picker__option:focus-visible {
+  background: var(--surface-2);
+  border-color: var(--md-primary);
+  color: var(--text-hi);
+}
+
+html[data-chrome-mode="workbench"] .chrome-mode-picker__option[data-selected="true"] {
+  background: var(--md-sys-color-secondary-container);
+  border-color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+html[data-chrome-mode="workbench"] .chrome-mode-picker__option[data-selected="true"] .chrome-mode-picker__option-title,
+html[data-chrome-mode="workbench"] .chrome-mode-picker__option[data-selected="true"] .chrome-mode-picker__option-support,
+html[data-chrome-mode="workbench"] .chrome-mode-picker__option[data-selected="true"] .chrome-mode-picker__option-mark {
+  color: var(--md-sys-color-on-secondary-container);
+}

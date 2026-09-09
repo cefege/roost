@@ -1,12 +1,13 @@
 // SPA entry point — dynamically imported by entry.ts after URL scrubbing.
 // Mounts App into #app. No SolidStart; plain Vite.
-// Applies persisted theme before first render to prevent flash-of-wrong-theme.
-// CSS vars (--bg-base, --bg-elev-1, --border-strong, --text-hi, --text-lo)
-// defined in styles/theme-vars.css; data-theme set here before render.
+// Applies persisted palette and browser-chrome choices before first render.
+// Canonical palette variables live in styles/theme-vars.css.
+// data-theme and data-chrome-mode are both set before rendering.
 
 import { render } from "solid-js/web";
 import { App } from "./App.tsx";
 import { loadTheme, applyTheme } from "./lib/theme.ts";
+import { applyChromeMode, loadChromeMode } from "./lib/chromeMode.ts";
 import { loadAgentConfig } from "./lib/agents.ts";
 import { installSpaDiag, installSignalShip, markPhase } from "./lib/diag.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
@@ -21,11 +22,14 @@ import "./styles/sidebar.css";
 import "./styles/voice-input.css";
 import "./styles/settings-dense.css";
 import "./styles/drive.css";
+import "./styles/workbench-chrome-shell.css";
+import "./styles/workbench-chrome-settings.css";
 
 markPhase("module_start");
 
-// Apply before Solid renders any component so data-theme is set on first paint.
+// Apply presentation choices before Solid renders any component.
 applyTheme(loadTheme());
+applyChromeMode(loadChromeMode());
 
 // Tier-1 signal channel — ALWAYS on (ships anomalies/errors to coord
 // *.err.log even with the diag firehose off). Tier-2 diag firehose is
