@@ -15,14 +15,27 @@
 
 import { signal } from "@roost/shared/diag";
 import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
-import type { McpRelay as McpRelayWire, Task as TaskWire } from "@roost/shared/wire";
-import type { HostMetrics, McpRelay, Task, Workspace } from "@roost/shared/proto/wire_pb";
+import {
+  terminalCoreCapacityReportFromProto,
+} from "@roost/shared/terminal-core-capacity-proto";
+import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
+import type {
+  McpRelay as McpRelayWire,
+  Task as TaskWire,
+} from "@roost/shared/wire";
 import type {
   McpStreamMessageProto,
   TaskDeltaProto,
   WorkerPresenceProto,
   WorkspaceDeltaProto,
 } from "@roost/shared/proto/events_pb";
+import type {
+  HostMetrics,
+  McpRelay,
+  Task,
+  TerminalCoreCapacityReport as TerminalCoreCapacityReportProto,
+  Workspace,
+} from "@roost/shared/proto/wire_pb";
 
 /**
  * Decode one *_json column riding a proto delta or hydration list. Returns
@@ -39,6 +52,25 @@ export function decodeWireJson<T>(raw: string, frame: string): T | undefined {
       cooldownKey: "sync",
     });
     return undefined;
+  }
+}
+
+/** Invalid persisted capacity must not tear down a live Sync stream. */
+export function terminalCoreCapacityProtoToWire(
+  report: TerminalCoreCapacityReportProto | undefined,
+  frame: string,
+): TerminalCoreCapacityReport | null {
+  if (!report) return null;
+  try {
+    return terminalCoreCapacityReportFromProto(report);
+  } catch (error) {
+    signal("diag.corruption_signal", {
+      kind: "terminal_core_capacity_invalid",
+      frame,
+      msg: String(error),
+      cooldownKey: "sync",
+    });
+    return null;
   }
 }
 
@@ -168,14 +200,24 @@ export function _presenceProtoToWire(d: WorkerPresenceProto) {
           keeper_runtime: v.keeperRuntime
             ? keeperRuntimeObservationFromProto(v.keeperRuntime)
             : null,
+          terminal_core_capacity: terminalCoreCapacityProtoToWire(
+            v.terminalCoreCapacity,
+            "worker_presence_registered",
+          ),
         },
       };
     }
     case "heartbeat": {
       const v = d.kind.value;
       return {
-        kind: "heartbeat", fp: v.workerFp, last_seen_ms: Number(v.lastSeenMs),
+        kind: "heartbeat",
+        fp: v.workerFp,
+        last_seen_ms: Number(v.lastSeenMs),
         host_metrics: hostMetricsProtoToWire(v.hostMetrics),
+        terminal_core_capacity: terminalCoreCapacityProtoToWire(
+          v.terminalCoreCapacity,
+          "worker_presence_heartbeat",
+        ),
       };
     }
     case "removedFp": return { kind: "removed", fp: d.kind.value };

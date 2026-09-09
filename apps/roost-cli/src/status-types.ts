@@ -3,6 +3,7 @@
 // from reaching through one another just to describe the same report.
 
 import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
+import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
 
 export interface WorkerStatus {
   fingerprint: string;
@@ -11,6 +12,8 @@ export interface WorkerStatus {
   reachableAddr: string | null;
   gitSha: string | null;
   keeperRuntime: KeeperRuntimeObservationV1 | null;
+  /** Absent for a status fixture or a coordinator predating capacity reporting. */
+  terminalCoreCapacity?: TerminalCoreCapacityReport | null;
   coordinatorOpenSessionIds: readonly string[];
   lastSeenMs: number;
   ageMs: number;

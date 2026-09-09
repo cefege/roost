@@ -16,6 +16,7 @@ import { SessionEventStoreFatalError } from "../src/event-sink.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionEventTestSink } from "./session-event-test-sink.ts";
 import { AgentReferenceAdmissionGate } from "../src/agent-status/reference-admission.ts";
+import { TerminalCoreCapacityError } from "../src/terminal-core-capacity.ts";
 
 const WORKER_FP = asWorkerFp("42".repeat(32));
 const OPEN_SESSIONS = [
@@ -333,6 +334,47 @@ describe("worker boot reconciliation admission", () => {
 		expect(sink.active.size).toBe(0);
 		expect(activation.activateSnapshotProvider).toHaveBeenCalledTimes(1);
 		expect(activation.markReady).toHaveBeenCalledTimes(1);
+	});
+
+	test("capacity refusal leaves a missing coordinator session unresolved", async () => {
+		spyOnKeeperMutation();
+		const sink = new SessionEventTestSink();
+		const manager = freshManager(sink);
+		const advance = vi.fn(async () => {});
+		const resume = vi.fn(async (
+			_options: Parameters<SessionManager["resume"]>[0],
+			reservation: Parameters<SessionManager["resume"]>[1],
+		) => {
+			if (!reservation) throw new Error("test reconcile omitted close reservation");
+			manager.releaseSessionEvent(reservation);
+			return false;
+		});
+		const respawn = vi.fn(async () => {
+			throw new TerminalCoreCapacityError("replacement");
+		});
+		const tombstone = vi.spyOn(manager, "emitClosedTombstone");
+		manager.advanceChannelCounterPastKeeper = advance;
+		manager.resume = resume;
+		manager.respawn = respawn;
+		manager.reapStrayKeeperChannels = vi.fn(async () => 0);
+		const { reconcileOpenSessions } = setupReconcile({
+			...referenceReconcileDependencies(),
+			client: () => clientWithSessionsList(() => sessionsResponse([
+				OPEN_SESSIONS[0],
+			])),
+			workerFp: WORKER_FP,
+			sessionMgr: manager,
+			prepareKeeper: async () => {},
+		});
+		const activation = bootActivation(() => reconcileOpenSessions("boot"));
+
+		await expect(activation.complete()).rejects.toThrow(
+			"terminal core capacity exhausted",
+		);
+		expect(resume).toHaveBeenCalledTimes(1);
+		expect(respawn).toHaveBeenCalledTimes(1);
+		expect(tombstone).not.toHaveBeenCalled();
+		expect(sink.active.size).toBe(0);
 	});
 
 	test("a rejected in-flight reconcile atomically reopens its keeper update boundary", async () => {

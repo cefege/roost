@@ -7,7 +7,6 @@ import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import type { Client } from "@connectrpc/connect";
 import { SyncDomain } from "@roost/shared/proto/sync_pb";
-import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
 import type {
   CoordinatorService,
   SessionsListResponse,
@@ -20,12 +19,17 @@ import type {
   Workspace,
 } from "@roost/shared/wire";
 import { sessionFromProto } from "@roost/shared/wire/session-proto";
+import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
 import { diag } from "@roost/shared/diag";
 import { setRootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { applySessionsSnapshot } from "./projector.ts";
-import { mcpRelayProtoToWire, taskProtoToWire } from "./sync-proto-adapters.ts";
+import {
+  mcpRelayProtoToWire,
+  taskProtoToWire,
+  terminalCoreCapacityProtoToWire,
+} from "./sync-proto-adapters.ts";
 import {
   setSessionsHydrated,
   setTerminalBootstrapStage,
@@ -112,6 +116,10 @@ export function _installBootstrapDomainHydrators(
         keeper_runtime: worker.keeperRuntime
           ? keeperRuntimeObservationFromProto(worker.keeperRuntime)
           : null,
+        terminal_core_capacity: terminalCoreCapacityProtoToWire(
+          worker.terminalCoreCapacity,
+          "workers_list_hydration",
+        ),
       };
     }
     return {

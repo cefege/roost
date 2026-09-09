@@ -18,6 +18,12 @@ import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { muxLocalEndpoint } from "../src/keeper/keeper-pool-config.ts";
 import { KEEPER_TARGET_CONTRACT } from "../src/keeper/keeper-stamp.ts";
 import {
+  TERMINAL_CORE_ALLOCATION_BYTES,
+  TERMINAL_CORE_CAPACITY_ERROR_CODE,
+  TERMINAL_CORE_CAPACITY_ERROR_MESSAGE,
+  TerminalCoreCapacity,
+} from "../src/terminal-core-capacity.ts";
+import {
   FAKE_KEEPER_EPOCH,
   FAKE_KEEPER_PID,
   incompatibleKeeperContract,
@@ -52,6 +58,7 @@ afterEach(async () => {
   await stopFakeKeepers();
   getMultiplexedPool().dispose();
   await cleanupLocalEndpoint(ENDPOINT);
+  getMultiplexedPool()._runningKeeperContract = null;
 });
 
 afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
@@ -68,6 +75,31 @@ test("adopts a survivor that only answers Hello after a slow delay", async () =>
   const after = await probeKeeperCompatible(ENDPOINT, 3_000);
   expect(after.keeperPid).toBe(FAKE_KEEPER_PID);
   expect(after.processEpoch).toBe(FAKE_KEEPER_EPOCH);
+}, 20_000);
+
+test("refuses an over-cap survivor without changing its keeper or contract state", async () => {
+  const server = await startSurvivor({
+    bindings: [{ channel_id: 41, pid: 9191 }],
+  });
+  const capacity = new TerminalCoreCapacity({
+    effectiveMemoryCeilingBytes: 100 * TERMINAL_CORE_ALLOCATION_BYTES,
+    bootRssBytes: 0,
+    terminalCoreCap: 0,
+  });
+  const priorContract = incompatibleKeeperContract();
+  getMultiplexedPool().setRunningKeeperContract(priorContract);
+
+  await expect(handleKeeperSurvivor(new Set(), false, capacity)).rejects
+    .toMatchObject({
+      code: TERMINAL_CORE_CAPACITY_ERROR_CODE,
+      message: TERMINAL_CORE_CAPACITY_ERROR_MESSAGE,
+    });
+
+  const after = await probeKeeperCompatible(ENDPOINT, 3_000);
+  expect(server.listening).toBe(true);
+  expect(existsSync(ENDPOINT.address)).toBe(true);
+  expect(after.bindings).toEqual([{ channel_id: 41, pid: 9191 }]);
+  expect(getMultiplexedPool().getRunningKeeperContract()).toBe(priorContract);
 }, 20_000);
 
 test("authenticates a Hello carrying an unknown future field", async () => {

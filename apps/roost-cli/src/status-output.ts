@@ -9,6 +9,7 @@ function mark(ok: boolean): string {
   return ok ? "✓" : "✗";
 }
 
+
 /** Print the report as ✓/✗ lines, each failing line followed by its remedy. */
 export function printStatusReport(r: StatusReport): void {
   console.log("roost status");
@@ -46,6 +47,13 @@ export function printStatusReport(r: StatusReport): void {
           `${keeper.channel_count} channel(s), bindings ${keeper.binding_digest.slice(0, 12)}, ` +
           `reconciled ${Math.max(0, Math.round((Date.now() - keeper.reconciled_at_ms) / 1000))}s ago`
         : "      keeper: update admission unproven");
+      const terminalCoreCapacity = w.terminalCoreCapacity ?? null;
+      console.log(terminalCoreCapacity
+        ? `      terminal cores: ${terminalCoreCapacity.used}/${terminalCoreCapacity.capacity} resident, ` +
+          `${terminalCoreCapacity.pending} pending, ` +
+          `${Math.round(terminalCoreCapacity.estimated_reserved_bytes / (1024 * 1024))} MiB reserved, ` +
+          `${terminalCoreCapacity.refusal_count} refused`
+        : "      terminal cores: capacity unavailable");
     }
   }
 

@@ -6,6 +6,7 @@ import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
 import type { SessionEventReservation } from "./event-sink.ts";
 import type { ChannelId, SessionId } from "@roost/shared/wire";
+import type { TerminalCoreLease } from "./terminal-core-capacity.ts";
 import { diag } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import { asSessionId } from "@roost/shared/wire";
@@ -38,6 +39,7 @@ export async function spawnShell(
 	let record: SessionRecord | null = null;
 	let spawnAttempted = false;
 	let channelId: ChannelId | null = null;
+	let terminalCoreLease: TerminalCoreLease | null = null;
 	try {
 		if (targetSessionId && this.getBySessionId(targetSessionId)) {
 			throw new Error(`session ${targetSessionId} is already live`);
@@ -62,7 +64,13 @@ export async function spawnShell(
 		const socketPath = `mux:${channelId}`;
 		// Register before keeper spawn so prompt bytes emitted immediately after
 		// SpawnAck already have terminal state to receive them.
-		const wtermCore = await this.createTerminalCore(spawnCols, spawnRows);
+		const allocatedCore = await this.allocateTerminalCore(
+			"fresh",
+			spawnCols,
+			spawnRows,
+		);
+		terminalCoreLease = allocatedCore.lease;
+		const wtermCore = allocatedCore.core;
 		if (wtermCore.getCols() !== spawnCols || wtermCore.getRows() !== spawnRows) {
 			throw new Error("terminal core did not retain validated spawn geometry");
 		}
@@ -82,6 +90,7 @@ export async function spawnShell(
 			query_carry: new Uint8Array(0),
 			...initAgentOscState(),
 			wtermCore,
+			terminalCoreLease: allocatedCore.lease,
 			session_trace_id: newTraceId(),
 			cell_emit: initCellEmitState(newTraceId(), randomUUID()),
 			lastPtyOutMs: 0,
@@ -90,6 +99,7 @@ export async function spawnShell(
 			closeReservation,
 		};
 		this.sessions.set(channelId, record);
+		allocatedCore.lease.activate();
 		this.channelResizeSeq.set(channelId, 0);
 		diag("session.spawn", {
 			sid: sessionId,
@@ -130,6 +140,7 @@ export async function spawnShell(
 		if (channelId !== null && record && this.sessions.get(channelId) === record) {
 			this._dropChannelState(channelId);
 		}
+		terminalCoreLease?.release();
 		if (openedOwned) this.releaseSessionEvent(openedReservation);
 		if (closeOwned) this.releaseSessionEvent(closeReservation);
 		throw error;

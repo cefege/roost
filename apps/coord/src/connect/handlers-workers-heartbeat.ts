@@ -11,6 +11,10 @@ import { log } from "@roost/shared/log";
 import { isSupportedHostPlatform } from "@roost/shared/platform";
 import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
 import {
+	terminalCoreCapacityReportFromProto,
+} from "@roost/shared/terminal-core-capacity-proto";
+import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
+import {
 	type CoordinatorService,
 	WorkersHeartbeatResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
@@ -33,6 +37,21 @@ export function makeWorkerHeartbeatHandler(
 			const fp = caller.fingerprint;
 			let newKeeperRuntimeJson: string | null = null;
 			let keeperRuntimeMalformed = false;
+			let newTerminalCoreCapacityJson: string | null = null;
+			let terminalCoreCapacityMalformed = false;
+			let newTerminalCoreCapacity: TerminalCoreCapacityReport | null = null;
+			if (req.terminalCoreCapacity) {
+				try {
+					newTerminalCoreCapacity = terminalCoreCapacityReportFromProto(
+						req.terminalCoreCapacity,
+					);
+					newTerminalCoreCapacityJson = JSON.stringify(
+						newTerminalCoreCapacity,
+					);
+				} catch {
+					terminalCoreCapacityMalformed = true;
+				}
+			}
 			if (req.keeperRuntime) {
 				try {
 					newKeeperRuntimeJson = JSON.stringify(
@@ -56,6 +75,7 @@ export function makeWorkerHeartbeatHandler(
 					"os",
 					"git_sha",
 					"keeper_runtime_json",
+					"terminal_core_capacity_json",
 					"reachable_addr",
 				])
 				.where("fp", "=", fp)
@@ -66,23 +86,40 @@ export function makeWorkerHeartbeatHandler(
 					"worker not registered; redeem bootstrap token first",
 					Code.Unauthenticated,
 				);
-			if (keeperRuntimeMalformed) {
+			if (keeperRuntimeMalformed || terminalCoreCapacityMalformed) {
 				const cleared = await deps.db
 					.updateTable("workers")
 					.set({
 						last_seen_ms: now,
-						keeper_runtime_json: null,
+						...(keeperRuntimeMalformed && { keeper_runtime_json: null }),
+						...(terminalCoreCapacityMalformed && {
+							terminal_core_capacity_json: null,
+						}),
 					})
 					.where("fp", "=", fp)
 					.where("deleted_at_ms", "is", null)
 					.returningAll()
 					.executeTakeFirstOrThrow();
-				presenceBus.publish({
-					kind: "registered",
-					worker: workerRowToWirePresence(cleared) as unknown as WireWorker,
-				});
+				if (keeperRuntimeMalformed) {
+					presenceBus.publish({
+						kind: "registered",
+						worker: workerRowToWirePresence(cleared) as unknown as WireWorker,
+						_dashboard_id: caller.dashboardId,
+					});
+				} else {
+					presenceBus.publish({
+						kind: "heartbeat",
+						fp: asWorkerFp(fp),
+						last_seen_ms: now,
+						host_metrics: null,
+						terminal_core_capacity: null,
+						_dashboard_id: caller.dashboardId,
+					});
+				}
 				throw new ConnectError(
-					"keeper runtime observation is malformed",
+					terminalCoreCapacityMalformed
+						? "terminal core capacity report is malformed"
+						: "keeper runtime observation is malformed",
 					Code.InvalidArgument,
 				);
 			}
@@ -122,6 +159,7 @@ export function makeWorkerHeartbeatHandler(
 					last_seen_ms: now,
 					...(newGitSha !== undefined && { git_sha: newGitSha }),
 					keeper_runtime_json: newKeeperRuntimeJson,
+					terminal_core_capacity_json: newTerminalCoreCapacityJson,
 					...(hm !== undefined && { host_metrics_json: JSON.stringify(hm) }),
 					...(newReachableAddr !== undefined && {
 						reachable_addr: newReachableAddr,
@@ -163,6 +201,8 @@ export function makeWorkerHeartbeatHandler(
 					fp: asWorkerFp(fp),
 					last_seen_ms: now,
 					host_metrics: hm ?? null,
+					terminal_core_capacity: newTerminalCoreCapacity,
+					_dashboard_id: caller.dashboardId,
 				});
 			}
 			return create(WorkersHeartbeatResponseSchema, {});

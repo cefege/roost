@@ -13,7 +13,10 @@ import {
 	type KeeperRuntimeObservationV1,
 } from "@roost/shared/keeper-update";
 import { keeperRuntimeObservationToProto } from "@roost/shared/keeper-update-proto";
-import type { HostMetrics } from "@roost/shared/wire";
+import {
+	terminalCoreCapacityReportToProto,
+} from "@roost/shared/terminal-core-capacity-proto";
+import type { HostMetrics, TerminalCoreCapacityReport } from "@roost/shared/wire";
 import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
 import { probeKeeperCompatible } from "./keeper/keeper-probe.ts";
 import { muxLocalEndpoint } from "./keeper/keeper-pool-config.ts";
@@ -235,9 +238,15 @@ const DEFAULT_HEARTBEAT_SOURCES: HeartbeatSources = {
 export async function startHeartbeat(opts: {
 	client: () => CoordClient;
 	reconciledAtMs: () => number | null;
+	readTerminalCoreCapacity?: () => TerminalCoreCapacityReport;
 	sources?: HeartbeatSources;
 }): Promise<HeartbeatDisposer> {
-	const { client, reconciledAtMs, sources = DEFAULT_HEARTBEAT_SOURCES } = opts;
+	const {
+		client,
+		reconciledAtMs,
+		readTerminalCoreCapacity,
+		sources = DEFAULT_HEARTBEAT_SOURCES,
+	} = opts;
 	let consecutiveMisses = 0;
 	let stopped = false;
 	let nextTimer: ReturnType<typeof setTimeout> | null = null;
@@ -254,6 +263,17 @@ export async function startHeartbeat(opts: {
 			log.warn("heartbeat", "host metrics sample failed", {
 				error: String(error),
 			});
+		}
+
+		let terminalCoreCapacity: TerminalCoreCapacityReport | null = null;
+		if (readTerminalCoreCapacity) {
+			try {
+				terminalCoreCapacity = readTerminalCoreCapacity();
+			} catch (error) {
+				log.warn("heartbeat", "terminal_core_capacity_snapshot_failed", {
+					error: String(error),
+				});
+			}
 		}
 
 		try {
@@ -294,6 +314,13 @@ export async function startHeartbeat(opts: {
 					? { keeperRuntime: keeperRuntimeObservationToProto(keeperRuntime) }
 					: {}),
 				...(reachable_addr ? { reachableAddr: reachable_addr } : {}),
+				...(terminalCoreCapacity
+					? {
+							terminalCoreCapacity: terminalCoreCapacityReportToProto(
+								terminalCoreCapacity,
+							),
+						}
+					: {}),
 			}, { timeoutMs: HEARTBEAT_RPC_TIMEOUT_MS });
 			log.debug("heartbeat", "beat sent", { reachable_addr });
 			consecutiveMisses = 0;

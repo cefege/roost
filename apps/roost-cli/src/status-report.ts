@@ -10,6 +10,10 @@ import {
   KeeperRuntimeObservationV1Schema,
   type KeeperRuntimeObservationV1,
 } from "@roost/shared/keeper-update";
+import {
+  TerminalCoreCapacityReportSchema,
+  type TerminalCoreCapacityReport,
+} from "@roost/shared/terminal-core-capacity";
 import { coordDataDir, coordServicePath } from "@roost/shared/paths";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
@@ -83,6 +87,20 @@ export function parseKeeperRuntimeJson(
   }
 }
 
+export function parseTerminalCoreCapacityJson(
+  serialized: string | null,
+): TerminalCoreCapacityReport | null {
+  if (!serialized) return null;
+  try {
+    const parsed = TerminalCoreCapacityReportSchema.safeParse(
+      JSON.parse(serialized),
+    );
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 
 interface WorkerInventoryRow {
   fp: string;
@@ -91,6 +109,7 @@ interface WorkerInventoryRow {
   reachable_addr: string | null;
   git_sha: string | null;
   keeper_runtime_json: string | null;
+  terminal_core_capacity_json: string | null;
   last_seen_ms: number;
 }
 
@@ -103,9 +122,17 @@ function readWorkerInventorySnapshot(db: Database): WorkerStatus[] {
     const keeperRuntimeProjection = keeperRuntimeColumn
       ? "keeper_runtime_json"
       : "NULL AS keeper_runtime_json";
+    const terminalCoreCapacityColumn = db.query(
+      `SELECT name FROM pragma_table_info('workers')
+       WHERE name = 'terminal_core_capacity_json'`,
+    ).get();
+    const terminalCoreCapacityProjection = terminalCoreCapacityColumn
+      ? "terminal_core_capacity_json"
+      : "NULL AS terminal_core_capacity_json";
     const rows = db.query(
       `SELECT fp, label, os, reachable_addr, git_sha,
-              ${keeperRuntimeProjection}, last_seen_ms
+              ${keeperRuntimeProjection}, ${terminalCoreCapacityProjection},
+              last_seen_ms
        FROM workers
        WHERE deleted_at_ms IS NULL`,
     ).all() as WorkerInventoryRow[];
@@ -130,6 +157,9 @@ function readWorkerInventorySnapshot(db: Database): WorkerStatus[] {
         reachableAddr: row.reachable_addr,
         gitSha: row.git_sha,
         keeperRuntime: parseKeeperRuntimeJson(row.keeper_runtime_json),
+        terminalCoreCapacity: parseTerminalCoreCapacityJson(
+          row.terminal_core_capacity_json,
+        ),
         coordinatorOpenSessionIds: (
           openSessionIdsByWorker.get(row.fp) ?? []
         ).sort(),

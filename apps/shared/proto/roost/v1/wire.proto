@@ -17,6 +17,20 @@ message HostMetrics {
   uint64 net_tx_bps = 7;
   uint64 sampled_at_ms = 8;
 }
+// Worker-owned terminal-core admission state. `overcommit_count` is the
+// currently reserved replacement slot, while `refusal_count` is cumulative.
+message TerminalCoreCapacityReport {
+  uint32 used = 1;
+  uint32 pending = 2;
+  uint32 capacity = 3;
+  uint64 estimated_reserved_bytes = 4;
+  uint64 effective_memory_ceiling_bytes = 5;
+  uint64 boot_rss_bytes = 6;
+  uint32 overcommit_count = 7;
+  uint64 refusal_count = 8;
+}
+
+
 
 // Keeper artifact identity and post-reconciliation runtime proof. build_sha is
 // provenance only; update admission compares every other contract field.
@@ -59,6 +73,9 @@ message Worker {
   reserved "keeper_stale";
   // Authenticated keeper identity emitted only after boot reconciliation.
   optional KeeperRuntimeObservationV1 keeper_runtime = 10;
+  // The latest worker-owned admission report. It is informational only; live
+  // allocation remains local to the worker that owns its terminal cores.
+  optional TerminalCoreCapacityReport terminal_core_capacity = 11;
 }
 
 // Private opaque continuation metadata. It is carried by durable events and

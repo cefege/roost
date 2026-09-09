@@ -20,6 +20,7 @@ import { initAgentOscState } from "./terminal-stream-scan.ts";
 import { createSbRing } from "./session-scrollback-ring.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 import { resolveShellSpec, type ShellSpec } from "./shell-spec.ts";
+import type { TerminalCoreLease } from "./terminal-core-capacity.ts";
 /** Rebind an existing session_id to a fresh keeper PTY: the boot-time
  *  auto-respawn loop after `resume()` returned false, plus future manual
  *  restarts. Coord's row keeps its identity (workspace + sidebar); only the PTY channel is new.
@@ -43,6 +44,7 @@ export async function respawn(
 	let spawnAttempted = false;
 	let channelId: ChannelId | null = null;
 	let record: SessionRecord | null = null;
+	let terminalCoreLease: TerminalCoreLease | null = null;
 	const existing = this.getBySessionId(opts.oldSessionId);
 	try {
 		const existingSize = existing
@@ -76,7 +78,14 @@ export async function respawn(
 		const fsm = new FsmChannel((from, to, event) =>
 			this._onTransition(opts.oldSessionId, channelId!, from, to, event),
 		);
-		const wtermCore = await this.createTerminalCore(cols, rows);
+		const allocationKind = existing ? "replacement" : "fresh";
+		const allocatedCore = await this.allocateTerminalCore(
+			allocationKind,
+			cols,
+			rows,
+		);
+		terminalCoreLease = allocatedCore.lease;
+		const wtermCore = allocatedCore.core;
 		if (wtermCore.getCols() !== cols || wtermCore.getRows() !== rows) {
 			throw new Error("terminal core did not retain validated respawn geometry");
 		}
@@ -97,6 +106,7 @@ export async function respawn(
 			query_carry: new Uint8Array(0),
 			...initAgentOscState(),
 			wtermCore,
+			terminalCoreLease: allocatedCore.lease,
 			session_trace_id: newTraceId(),
 			cell_emit: initCellEmitState(newTraceId(), randomUUID()),
 			lastPtyOutMs: 0,
@@ -105,6 +115,7 @@ export async function respawn(
 			closeReservation,
 		};
 		this.sessions.set(channelId, record);
+		allocatedCore.lease.activate();
 		diag("session.spawn", {
 			sid: opts.oldSessionId,
 			channel_id: channelId,
@@ -144,6 +155,7 @@ export async function respawn(
 		if (channelId !== null && record && this.sessions.get(channelId) === record) {
 			this._dropChannelState(channelId);
 		}
+		terminalCoreLease?.release();
 		if (releaseReservationsOnFailure) {
 			if (eventOwned) this.releaseSessionEvent(eventReservation);
 			if (closeOwned) this.releaseSessionEvent(closeReservation);
@@ -157,7 +169,12 @@ export async function respawn(
 	if (existing && this.sessions.get(existing.channelId) === existing) {
 		this.releaseSessionEvent(existing.closeReservation);
 		this._dropChannelState(existing.channelId);
+		if (terminalCoreLease?.allocationKind === "replacement") {
+			this.terminalCoreCapacity.completeReplacement(terminalCoreLease);
+		}
 		getMultiplexedPool().kill(existing.channelId);
+	} else if (terminalCoreLease?.allocationKind === "replacement") {
+		this.terminalCoreCapacity.completeReplacement(terminalCoreLease);
 	}
 	this.holdSessionEvent(closeReservation);
 	closeOwned = false;

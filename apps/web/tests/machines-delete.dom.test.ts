@@ -23,6 +23,7 @@ function worker(fp: string, label: string): Worker {
     last_seen_ms: Date.now(),
     reachable_addr: null,
     keeper_runtime: null,
+    terminal_core_capacity: null,
   } as Worker;
 }
 

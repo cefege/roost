@@ -8,7 +8,8 @@ import {
   TerminalViewStatus, type TerminalResyncCommand, type TerminalViewCommand,
 } from "@roost/shared/proto/sync_pb";
 import {
-  TERMINAL_VIEW_LEASE_MS, isTerminalUuid, type TerminalGeometry,
+  TERMINAL_SOCKET_VIEW_CAP, TERMINAL_VIEW_LEASE_MS, isTerminalUuid,
+  type TerminalGeometry,
 } from "@roost/shared/viewport";
 import { TerminalScreenHub, type TerminalScreenSocketSink } from "./terminal-screen-hub.ts";
 import {
@@ -24,7 +25,6 @@ import {
 import type { TerminalStreamState } from "./terminal-view-stream-controller.ts";
 import { TerminalViewRegistryOperations } from "./terminal-view-registry-operations.ts";
 
-const SOCKET_CAP = 64;
 const SESSION_CAP = 256;
 
 export interface TerminalViewRegistryOptions {
@@ -153,7 +153,7 @@ export class TerminalViewRegistry {
         );
         return;
       }
-      if (socket.views.size >= SOCKET_CAP) {
+      if (socket.views.size >= TERMINAL_SOCKET_VIEW_CAP) {
         this.operations.replyCommand(
           socket,
           command,
@@ -242,7 +242,7 @@ export class TerminalViewRegistry {
       this.operations.replyCommand(socket, command, TerminalViewStatus.ACCEPTED, "", true);
       return;
     }
-    if (socket.views.size >= SOCKET_CAP) {
+    if (socket.views.size >= TERMINAL_SOCKET_VIEW_CAP) {
       this.operations.replyCommand(socket, command, TerminalViewStatus.REJECTED, "terminal socket view capacity exceeded", false);
       return;
     }

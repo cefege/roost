@@ -21,6 +21,7 @@ const FIXTURE_WORKER: Worker = {
   last_seen_ms: 1717000000000,
   reachable_addr: null,
   keeper_runtime: null,
+  terminal_core_capacity: null,
 };
 
 const FIXTURE_SESSION: Session = {

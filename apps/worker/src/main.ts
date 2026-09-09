@@ -14,6 +14,7 @@ import { buildSnapshot } from "./snapshot.ts";
 import { startCoordLink } from "./transport/coord-link.ts";
 import { buildCoordLinkDeps, type CoordLinkRefs } from "./coord-link-deps.ts";
 import { handleKeeperSurvivor } from "./boot-keeper.ts";
+import { createWorkerTerminalCoreCapacity } from "./terminal-core-capacity.ts";
 import { spendKeeperForceLiveRetireAuthorization } from "./service-definition-env.ts";
 import {
 	setupReconcile,
@@ -96,6 +97,9 @@ export async function runWorker() {
 	log.info("worker", "config loaded", {
 		coordinatorUrl: cfg.coordinatorUrl,
 		label: cfg.label,
+	});
+	const terminalCoreCapacity = createWorkerTerminalCoreCapacity({
+		terminalCoreCap: cfg.terminalCoreCap,
 	});
 	// The authorization the deploy installed is destructive, so it is spent by
 	// this activation before any keeper work: a value left in the service
@@ -180,6 +184,7 @@ export async function runWorker() {
 			coordLink.sendCellGrid(channelId, frame),
 		sendCellGridChunkUpstream: (channelId, chunk) =>
 			coordLink.sendCellGridChunk(channelId, chunk),
+		terminalCoreCapacity,
 	});
 	refs.sessionMgr = sessionMgr;
 	const agentRegistry = new AgentStatusRegistry({
@@ -233,8 +238,11 @@ export async function runWorker() {
 		workerFp,
 		sessionMgr,
 		prepareKeeper: (coordinatorOpenSessionIds) =>
-			handleKeeperSurvivor(coordinatorOpenSessionIds, cfg.keeperForceLiveRetire),
-		referenceAdmission,
+			handleKeeperSurvivor(
+				coordinatorOpenSessionIds,
+				cfg.keeperForceLiveRetire,
+				terminalCoreCapacity,
+			),
 		restoreAgentConversation: (sessionId, reference, resumedReferenceKeys) =>
 			restoreAgentConversationAfterRespawn({
 				enabled: cfg.agentConversationRestore,
@@ -269,6 +277,19 @@ export async function runWorker() {
 	stopHeartbeat = await startHeartbeat({
 		client: () => client,
 		reconciledAtMs: () => keeperReconciledAtMs,
+		readTerminalCoreCapacity: () => {
+			const snapshot = terminalCoreCapacity.snapshot();
+			return {
+				used: snapshot.used,
+				pending: snapshot.pending,
+				capacity: snapshot.capacity,
+				estimated_reserved_bytes: snapshot.estimatedReservedBytes,
+				effective_memory_ceiling_bytes: snapshot.effectiveMemoryCeilingBytes,
+				boot_rss_bytes: snapshot.bootRssBytes,
+				overcommit_count: snapshot.overcommitCount,
+				refusal_count: snapshot.refusalCount,
+			};
+		},
 	});
 	log.info("worker", "ready", {
 		fingerprint: workerFp,

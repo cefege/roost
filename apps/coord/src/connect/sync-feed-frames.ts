@@ -12,6 +12,9 @@ import {
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import { keeperRuntimeObservationToProto } from "@roost/shared/keeper-update-proto";
 import {
+  terminalCoreCapacityReportToProto,
+} from "@roost/shared/terminal-core-capacity-proto";
+import {
   WorkspaceDeltaProtoSchema, WorkspaceSessionsSetSchema,
   TaskDeltaProtoSchema, McpStreamMessageProtoSchema,
   McpRelayEventSchema, WorkerPresenceProtoSchema, WorkerHeartbeatSchema,
@@ -254,6 +257,9 @@ export const presenceFrame = (e: WorkerPresenceEvent): FirehoseFrame | null => {
         keeperRuntime: e.worker.keeper_runtime
           ? keeperRuntimeObservationToProto(e.worker.keeper_runtime)
           : undefined,
+        terminalCoreCapacity: e.worker.terminal_core_capacity
+          ? terminalCoreCapacityReportToProto(e.worker.terminal_core_capacity)
+          : undefined,
       }) },
     })}});
   }
@@ -262,6 +268,9 @@ export const presenceFrame = (e: WorkerPresenceEvent): FirehoseFrame | null => {
       kind: { case: "heartbeat", value: create(WorkerHeartbeatSchema, {
         workerFp: e.fp, lastSeenMs: BigInt(e.last_seen_ms),
         hostMetrics: e.host_metrics ? hm(e.host_metrics) : undefined,
+        terminalCoreCapacity: e.terminal_core_capacity
+          ? terminalCoreCapacityReportToProto(e.terminal_core_capacity)
+          : undefined,
       }) },
     })}});
   }

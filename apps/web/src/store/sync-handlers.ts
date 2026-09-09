@@ -62,7 +62,13 @@ export function _handleSessionsEvent(event: unknown): void {
 export function _handlePresenceEvent(event: unknown): void {
   const ev = event as
     | { kind: "registered"; worker: Worker }
-    | { kind: "heartbeat"; fp: string; last_seen_ms: number; host_metrics: unknown }
+    | {
+      kind: "heartbeat";
+      fp: string;
+      last_seen_ms: number;
+      host_metrics: unknown;
+      terminal_core_capacity: Worker["terminal_core_capacity"];
+    }
     | { kind: "removed"; fp: string };
   if (ev.kind === "registered") {
     // Timestamp the (re)register so a respawn burst within the grace window is
@@ -72,7 +78,12 @@ export function _handlePresenceEvent(event: unknown): void {
   } else if (ev.kind === "heartbeat") {
     setRootStore("workers", ev.fp, (prev) =>
       prev
-        ? { ...prev, last_seen_ms: ev.last_seen_ms, host_metrics: ev.host_metrics as Worker["host_metrics"] }
+        ? {
+          ...prev,
+          last_seen_ms: ev.last_seen_ms,
+          host_metrics: ev.host_metrics as Worker["host_metrics"],
+          terminal_core_capacity: ev.terminal_core_capacity,
+        }
         : prev,
     );
   } else if (ev.kind === "removed") {

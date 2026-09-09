@@ -20,6 +20,8 @@
     "./agent-conversation-reference-proto": "./src/agent-conversation-reference-proto.ts",
     "./keeper-update": "./src/keeper-update.ts",
     "./keeper-update-proto": "./src/keeper-update-proto.ts",
+    "./terminal-core-capacity": "./src/terminal-core-capacity.ts",
+    "./terminal-core-capacity-proto": "./src/terminal-core-capacity-proto.ts",
     "./config": "./src/config.ts",
     "./coordinator-dial-url": "./src/coordinator-dial-url.ts",
     "./paths": "./src/paths.ts",

@@ -27,6 +27,7 @@ import {
 } from "./session-manager.ts";
 import { resolveShellSpec, type ShellSpec } from "./shell-spec.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
+import { isTerminalCoreCapacityError } from "./terminal-core-capacity.ts";
 
 const BOOT_SESSION_ADMISSION_TIMEOUT_MS = 10_000;
 
@@ -224,6 +225,9 @@ export async function reconcileCoordinatorSessions(
 						break;
 					} catch (error) {
 						if (isSessionEventDurabilityError(error)) {
+							throw error;
+						}
+						if (isTerminalCoreCapacityError(error)) {
 							throw error;
 						}
 						const errorText = String(error);

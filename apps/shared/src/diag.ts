@@ -132,6 +132,7 @@ export type SignalKind =
   | "scrollback.replay_bound"   // a core rebuild could not reproduce the history the core it replaced still held, and/or its monotonic origin pin CLAMPED — the "history shrank / mis-spliced after a resize" class. A rebuild replays a FIXED byte ring, so once that ring no longer reaches as far back as the old core's line ring the history floor silently JUMPS; kv names the pin's before/after values, how many rows the replay could not reach, and whether the clamp fired. The one moment sbOrigin's correctness is in doubt, so it reports even though the rebuild itself succeeded
   | "terminal.gate_over_budget"  // worker cell-emission gate outlived the keeper command budget: a resize transaction (or repair) is stalling frames, so kv names the gate, its monotonic age, the transaction phase, and the captured byte count
   | "terminal.core_failed"      // in-place core resize/recovery trapped; the stream is fail-closed and later PTY bytes stay in ordered recovery records until adoption
+  | "terminal.core_capacity"    // worker refused a new/adopted terminal core before partial construction; kv reports bounded admission counters
   | "terminal.invalid_frame"    // worker canonical full exceeded structural/chunk limits and cannot establish a baseline for the stream
   | "terminal.screen_capacity" // coordinator replica bounds rejected a newly completing screen without evicting an active session
   | "terminal.snapshot_encode_failed" // coordinator could not encode a canonical cached snapshot for incremental recipient delivery

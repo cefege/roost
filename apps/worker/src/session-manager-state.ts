@@ -18,6 +18,17 @@ import {
 	STRAY_REAP_INTERVAL_MS,
 } from "./session-constants.ts";
 import type { SessionRecord } from "./session-record.ts";
+import {
+	createWorkerTerminalCoreCapacity,
+	type TerminalCoreAllocationKind,
+	type TerminalCoreCapacity,
+	type TerminalCoreLease,
+} from "./terminal-core-capacity.ts";
+
+export interface AllocatedTerminalCore {
+	core: TerminalCore;
+	lease: TerminalCoreLease;
+}
 
 interface PendingRawMetadataFrame {
 	endSeq: number;
@@ -38,10 +49,11 @@ export abstract class SessionManagerState {
 	protected pendingSnapshotSessionAdmissions = 0;
 	readonly workerFp: WorkerFp;
 	readonly sink: SessionEventSink;
-	readonly createTerminalCore: (
+	readonly #createTerminalCore: (
 		cols: number,
 		rows: number,
 	) => Promise<TerminalCore>;
+	readonly terminalCoreCapacity: TerminalCoreCapacity;
 	terminalStreams = new Map<number, TerminalStreamState>();
 	protected terminalStreamVersion = 0;
 	lastAppliedSize = new Map<number, { cols: number; rows: number }>();
@@ -154,12 +166,50 @@ export abstract class SessionManagerState {
 			channelId: number,
 			chunk: PbCellGridChunk,
 		) => TerminalCellSendResult | void;
+		terminalCoreCapacity?: TerminalCoreCapacity;
 	}) {
 		this.workerFp = opts.workerFp;
 		this.sink = opts.sink;
-		this.createTerminalCore = opts.createTerminalCore ?? _createWtermCore;
+		this.terminalCoreCapacity =
+			opts.terminalCoreCapacity ?? createWorkerTerminalCoreCapacity();
+		this.#createTerminalCore = opts.createTerminalCore ?? _createWtermCore;
 		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
 		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
 		this.sendCellGridChunkUpstream = opts.sendCellGridChunkUpstream ?? null;
+	}
+
+	reserveTerminalCore(allocationKind: TerminalCoreAllocationKind): TerminalCoreLease {
+		switch (allocationKind) {
+			case "fresh":
+				return this.terminalCoreCapacity.reserveFresh();
+			case "adoption":
+				return this.terminalCoreCapacity.reserveAdoption();
+			case "replacement":
+				return this.terminalCoreCapacity.reserveReplacement();
+		}
+		throw new Error("unsupported terminal core allocation kind");
+	}
+
+	async createTerminalCoreForLease(
+		lease: TerminalCoreLease,
+		cols: number,
+		rows: number,
+	): Promise<TerminalCore> {
+		try {
+			return await this.#createTerminalCore(cols, rows);
+		} catch (error) {
+			lease.release();
+			throw error;
+		}
+	}
+
+	async allocateTerminalCore(
+		allocationKind: TerminalCoreAllocationKind,
+		cols: number,
+		rows: number,
+	): Promise<AllocatedTerminalCore> {
+		const lease = this.reserveTerminalCore(allocationKind);
+		const core = await this.createTerminalCoreForLease(lease, cols, rows);
+		return { core, lease };
 	}
 }

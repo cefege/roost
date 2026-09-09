@@ -4,7 +4,53 @@
 
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { totalmem } from "node:os";
 import type { HostSample } from "./host-sample-types.ts";
+
+type LinuxMemoryFileReader = (path: string) => string;
+
+function readLinuxMemoryFile(path: string): string {
+	return readFileSync(path, "utf8");
+}
+
+function cgroupV2Base(readText: LinuxMemoryFileReader): string | null {
+	const relativePath = (
+		readText("/proc/self/cgroup").match(/^0::(.*)$/m) ?? []
+	)[1];
+	if (relativePath === undefined || !relativePath.startsWith("/")) return null;
+	return relativePath === "/"
+		? "/sys/fs/cgroup"
+		: `/sys/fs/cgroup${relativePath}`;
+}
+
+function finiteCgroupMemoryLimit(value: string): number | null {
+	const normalized = value.trim();
+	if (!/^\d+$/.test(normalized)) return null;
+	const bytes = Number(normalized);
+	return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
+}
+
+/** The worker's memory ceiling is the tightest finite cgroup-v2 high/max
+ * setting; without either cgroup limit, host memory is the only ceiling. */
+export function effectiveLinuxMemoryCeilingBytes(
+	hostMemoryBytes: number = totalmem(),
+	readText: LinuxMemoryFileReader = readLinuxMemoryFile,
+): number {
+	const hostMemory = Number.isSafeInteger(hostMemoryBytes) && hostMemoryBytes >= 0
+		? hostMemoryBytes
+		: 0;
+	try {
+		const base = cgroupV2Base(readText);
+		if (base === null) return hostMemory;
+		const limits = [
+			finiteCgroupMemoryLimit(readText(`${base}/memory.high`)),
+			finiteCgroupMemoryLimit(readText(`${base}/memory.max`)),
+		].filter((limit): limit is number => limit !== null);
+		return limits.length === 0 ? hostMemory : Math.min(...limits);
+	} catch {
+		return hostMemory;
+	}
+}
 
 // CPU% needs two /proc/stat readings: the file holds cumulative jiffies
 // since boot, so a single read says nothing about current load. The
@@ -125,22 +171,19 @@ export function sampleCgroupPressure(): {
 	highEvents: number;
 } | null {
 	try {
-		const rel = (
-			readFileSync("/proc/self/cgroup", "utf8").match(/^0::(.*)$/m) ?? []
-		)[1];
-		if (rel === undefined) return null;
-		const base = `/sys/fs/cgroup${rel}`;
-		const high = readFileSync(`${base}/memory.high`, "utf8").trim();
+		const base = cgroupV2Base(readLinuxMemoryFile);
+		if (base === null) return null;
+		const high = readLinuxMemoryFile(`${base}/memory.high`).trim();
 		if (high === "max") return null;
 		const highBytes = Number(high);
 		if (!Number.isFinite(highBytes)) return null;
 		const currentBytes = Number(
-			readFileSync(`${base}/memory.current`, "utf8").trim(),
+			readLinuxMemoryFile(`${base}/memory.current`).trim(),
 		);
 		if (!Number.isFinite(currentBytes)) return null;
 		const highEvents = Number(
 			(
-				readFileSync(`${base}/memory.events`, "utf8").match(
+				readLinuxMemoryFile(`${base}/memory.events`).match(
 					/^high (\d+)$/m,
 				) ?? []
 			)[1] ?? 0,

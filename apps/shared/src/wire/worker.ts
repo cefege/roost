@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { WorkerFp } from "./brand.ts";
 import { KeeperRuntimeObservationV1Schema } from "../keeper-update.ts";
+import { TerminalCoreCapacityReportSchema } from "../terminal-core-capacity.ts";
+export type { TerminalCoreCapacityReport } from "../terminal-core-capacity.ts";
 
 export const HostMetrics = z.object({
   cpu_pct: z.number().min(0).max(100),
@@ -31,13 +33,20 @@ export const Worker = z.object({
   // the field was added.
   reachable_addr: z.string().nullable(),
   keeper_runtime: KeeperRuntimeObservationV1Schema.nullable(),
+  terminal_core_capacity: TerminalCoreCapacityReportSchema.nullable(),
 });
 export type Worker = z.infer<typeof Worker>;
 
 // Worker presence delta — SSE stream payload.
 export const WorkerPresenceEvent = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("registered"), worker: Worker }),
-  z.object({ kind: z.literal("heartbeat"), fp: WorkerFp, last_seen_ms: z.number().int(), host_metrics: HostMetrics.nullable() }),
+  z.object({
+    kind: z.literal("heartbeat"),
+    fp: WorkerFp,
+    last_seen_ms: z.number().int(),
+    host_metrics: HostMetrics.nullable(),
+    terminal_core_capacity: TerminalCoreCapacityReportSchema.nullable(),
+  }),
   z.object({ kind: z.literal("removed"), fp: WorkerFp }),
 ]);
 export type WorkerPresenceEvent = z.infer<typeof WorkerPresenceEvent>;

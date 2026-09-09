@@ -21,6 +21,11 @@ import {
   KeeperRuntimeObservationV1Schema,
   type KeeperRuntimeObservationV1,
 } from "../keeper-update.ts";
+import { terminalCoreCapacityReportToProto } from "../terminal-core-capacity-proto.ts";
+import {
+  TerminalCoreCapacityReportSchema,
+  type TerminalCoreCapacityReport,
+} from "../terminal-core-capacity.ts";
 
 // Wire-shape (Zod) Worker payload for presenceBus.publish. Used by
 // workersRegister / workersHeartbeat / workersRename — three near-
@@ -32,6 +37,7 @@ export interface WireWorkerPresence {
   registered_at_ms: number; last_seen_ms: number;
   reachable_addr: string | null;
   keeper_runtime: KeeperRuntimeObservationV1 | null;
+  terminal_core_capacity: TerminalCoreCapacityReport | null;
 }
 export function workerRowToWirePresence(row: {
   fp: string; label: string; os: string; git_sha: string | null;
@@ -39,6 +45,7 @@ export function workerRowToWirePresence(row: {
   registered_at_ms: number; last_seen_ms: number;
   reachable_addr: string | null;
   keeper_runtime_json?: string | null;
+  terminal_core_capacity_json?: string | null;
 }): WireWorkerPresence {
   return {
     fp: row.fp, label: row.label, os: row.os,
@@ -48,6 +55,9 @@ export function workerRowToWirePresence(row: {
     last_seen_ms: row.last_seen_ms,
     reachable_addr: row.reachable_addr ?? null,
     keeper_runtime: keeperRuntimeFromJson(row.keeper_runtime_json),
+    terminal_core_capacity: terminalCoreCapacityFromJson(
+      row.terminal_core_capacity_json,
+    ),
   };
 }
 
@@ -57,9 +67,13 @@ export function workerRowToProto(row: {
   registered_at_ms: number; last_seen_ms: number;
   reachable_addr: string | null;
   keeper_runtime_json?: string | null;
+  terminal_core_capacity_json?: string | null;
 }): PbWorker {
   const hostMetricsRaw: any = safeJsonParse(row.host_metrics_json, null, "host_metrics_json");
   const keeperRuntime = keeperRuntimeFromJson(row.keeper_runtime_json);
+  const terminalCoreCapacity = terminalCoreCapacityFromJson(
+    row.terminal_core_capacity_json,
+  );
   return create(WorkerSchema, {
     fp: row.fp,
     label: row.label,
@@ -81,6 +95,9 @@ export function workerRowToProto(row: {
     keeperRuntime: keeperRuntime
       ? keeperRuntimeObservationToProto(keeperRuntime)
       : undefined,
+    terminalCoreCapacity: terminalCoreCapacity
+      ? terminalCoreCapacityReportToProto(terminalCoreCapacity)
+      : undefined,
   });
 }
 
@@ -90,6 +107,19 @@ function keeperRuntimeFromJson(
   if (!serialized) return null;
   const candidate = safeJsonParse(serialized, null, "keeper_runtime_json");
   const parsed = KeeperRuntimeObservationV1Schema.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
+
+function terminalCoreCapacityFromJson(
+  serialized: string | null | undefined,
+): TerminalCoreCapacityReport | null {
+  if (!serialized) return null;
+  const candidate = safeJsonParse(
+    serialized,
+    null,
+    "terminal_core_capacity_json",
+  );
+  const parsed = TerminalCoreCapacityReportSchema.safeParse(candidate);
   return parsed.success ? parsed.data : null;
 }
 

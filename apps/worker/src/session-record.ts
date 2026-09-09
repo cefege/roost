@@ -12,6 +12,7 @@ import type { SbRing } from "./session-scrollback-ring.ts";
 import type { AgentOscState } from "./terminal-stream-scan.ts";
 import type { ShellSpec } from "./shell-spec.ts";
 import type { SessionEventReservation } from "./event-sink.ts";
+import type { TerminalCoreLease } from "./terminal-core-capacity.ts";
 
 /** One distinct escape sequence the core's dispatcher did not recognise, as
  *  first seen on the CURRENT core instance. */
@@ -170,6 +171,8 @@ export interface SessionShellRecord extends SessionRecordCommon, AgentOscState {
 	// @wterm/core WASM bridge that mirrors every PTY byte. Authoritative grid
 	// the cell emitter reads and the resize rebuild replays the ring into.
 	wtermCore: TerminalCore;
+	// Present for every production record from allocation until teardown.
+	terminalCoreLease?: TerminalCoreLease;
 	// R11 cell-grid cell-shipping emitter state. Full/delta decision + seq live in
 	// @roost/shared/cell::nextCellFrame.
 	cell_emit: CellEmitState;

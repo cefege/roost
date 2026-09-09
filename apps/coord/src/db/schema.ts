@@ -34,6 +34,13 @@ export interface WorkersTable {
     string | null | undefined,
     string | null
   >;
+  // Worker-owned live terminal-core admission report. NULL is fail-closed for
+  // workers that have not yet sent a valid capacity heartbeat.
+  terminal_core_capacity_json: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
 }
 
 export interface EventsTable {

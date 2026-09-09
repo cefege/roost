@@ -118,6 +118,37 @@ describe("status front-door reporting", () => {
     expect(statusReportIsHealthy(down)).toBe(false);
     expect(renderedStatus(down).join("\n")).toContain("✗ coord reachable");
   });
+
+  test("prints current terminal-core capacity for each worker", () => {
+    const lines = renderedStatus(report({
+      workers: [{
+        fingerprint: "worker-fp",
+        label: "worker",
+        os: "linux",
+        reachableAddr: null,
+        gitSha: null,
+        keeperRuntime: null,
+        terminalCoreCapacity: {
+          used: 12,
+          pending: 0,
+          capacity: 12,
+          estimated_reserved_bytes: 480 * 1024 * 1024,
+          effective_memory_ceiling_bytes: 2 * 1024 * 1024 * 1024,
+          boot_rss_bytes: 256 * 1024 * 1024,
+          overcommit_count: 0,
+          refusal_count: 3,
+        },
+        coordinatorOpenSessionIds: [],
+        lastSeenMs: Date.now(),
+        ageMs: 0,
+        stale: false,
+      }],
+    }));
+
+    expect(lines).toContain(
+      "      terminal cores: 12/12 resident, 0 pending, 480 MiB reserved, 3 refused",
+    );
+  });
 });
 
 describe("status coordinator liveness", () => {
@@ -187,6 +218,16 @@ describe("status worker inventory", () => {
         binding_digest: "b".repeat(64),
         reconciled_at_ms: 1,
       } as const;
+      const terminalCoreCapacity = {
+        used: 12,
+        pending: 0,
+        capacity: 12,
+        estimated_reserved_bytes: 480 * 1024 * 1024,
+        effective_memory_ceiling_bytes: 2 * 1024 * 1024 * 1024,
+        boot_rss_bytes: 256 * 1024 * 1024,
+        overcommit_count: 0,
+        refusal_count: 3,
+      } as const;
       const sqlite = new Database(databasePath);
       try {
         sqlite.exec(`
@@ -197,6 +238,7 @@ describe("status worker inventory", () => {
             reachable_addr TEXT,
             git_sha TEXT,
             keeper_runtime_json TEXT,
+            terminal_core_capacity_json TEXT,
             last_seen_ms INTEGER NOT NULL,
             deleted_at_ms INTEGER
           );
@@ -220,6 +262,9 @@ describe("status worker inventory", () => {
         sqlite.query(
           "UPDATE workers SET keeper_runtime_json = ? WHERE fp = 'active-fp'",
         ).run(JSON.stringify(keeperRuntime));
+        sqlite.query(
+          "UPDATE workers SET terminal_core_capacity_json = ? WHERE fp = 'active-fp'",
+        ).run(JSON.stringify(terminalCoreCapacity));
       } finally {
         sqlite.close();
       }
@@ -228,6 +273,7 @@ describe("status worker inventory", () => {
       expect(inventory).toHaveLength(1);
       expect(inventory[0]?.fingerprint).toBe("active-fp");
       expect(inventory[0]?.keeperRuntime).toEqual(keeperRuntime);
+      expect(inventory[0]?.terminalCoreCapacity).toEqual(terminalCoreCapacity);
       expect(inventory[0]?.coordinatorOpenSessionIds).toEqual(["a-open", "z-open"]);
     } finally {
       rmSync(root, { recursive: true, force: true });

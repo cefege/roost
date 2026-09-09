@@ -62,3 +62,26 @@ describe("ROOST_AGENT_CONVERSATION_RESTORE", () => {
     }, "win32").agentConversationRestore).toBe(false);
   });
 });
+
+describe("ROOST_WORKER_TERMINAL_CAP", () => {
+  test("accepts a strict nonnegative decimal cap", () => {
+    expect(loadWorkerConfig(BASE_ENV).terminalCoreCap).toBeUndefined();
+    expect(loadWorkerConfig({
+      ...BASE_ENV,
+      ROOST_WORKER_TERMINAL_CAP: "0",
+    }).terminalCoreCap).toBe(0);
+    expect(loadWorkerConfig({
+      ...BASE_ENV,
+      ROOST_WORKER_TERMINAL_CAP: "17",
+    }).terminalCoreCap).toBe(17);
+  });
+
+  test("rejects whitespace, signs, fractions, and unsafe values", () => {
+    for (const value of ["", "-1", "+1", "01", "1.5", " 1", "1 ", "1e2", "4294967296", "9007199254740992"]) {
+      expect(() => loadWorkerConfig({
+        ...BASE_ENV,
+        ROOST_WORKER_TERMINAL_CAP: value,
+      })).toThrow("ROOST_WORKER_TERMINAL_CAP must be a nonnegative decimal integer");
+    }
+  });
+});

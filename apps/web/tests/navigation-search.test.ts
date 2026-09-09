@@ -61,6 +61,7 @@ function worker(fp: typeof ONLINE_FP, label: string): Worker {
     last_seen_ms: Date.now(),
     reachable_addr: null,
     keeper_runtime: null,
+    terminal_core_capacity: null,
   };
 }
 

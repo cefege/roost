@@ -11,6 +11,8 @@ export const TERMINAL_VIEW_HEARTBEAT_MS = 5_000;
 export const TERMINAL_VIEW_SWEEP_MS = 1_000;
 export const TERMINAL_FOREGROUND_IDLE_PROBE_MS = 20_000;
 export const TERMINAL_FOREGROUND_PROBE_DEADLINE_MS = 10_000;
+/** Hard product cap for distinct terminal sessions viewed from one socket. */
+export const TERMINAL_SOCKET_VIEW_CAP = 64;
 
 export interface TerminalGeometry {
   cols: number;

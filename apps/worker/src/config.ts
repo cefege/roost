@@ -20,6 +20,7 @@ export const WorkerConfig = z.object({
   label: z.string().min(1),
   agentConversationRestore: z.boolean().default(false),
   keeperForceLiveRetire: z.boolean().default(false),
+  terminalCoreCap: z.number().int().nonnegative().max(0xffffffff).optional(),
   // Resolved lazily: this module is imported by Windows enrollment paths that
   // validate env BEFORE a host layout exists, and an eager default made the
   // import itself throw "LOCALAPPDATA or USERPROFILE is required" ahead of the
@@ -57,6 +58,7 @@ function withDefaults(
     keeperForceLiveRetire: parseKeeperForceLiveRetire(
       env[KEEPER_FORCE_LIVE_RETIRE_ENV],
     ),
+    terminalCoreCap: parseTerminalCoreCap(env.ROOST_WORKER_TERMINAL_CAP),
     // Prefer the actual machine hostname from node:os over env.HOSTNAME,
     // which isn't set on macOS by default — that was the regression
     // behind every worker registering as the literal string "worker"
@@ -98,4 +100,18 @@ function parseKeeperForceLiveRetire(value: string | undefined): boolean {
     throw new Error(`${KEEPER_FORCE_LIVE_RETIRE_ENV} must be exactly 0 or 1`);
   }
   return true;
+}
+
+/** An operator cap is an integer upper bound on automatic admission, never a
+ * truthy switch or a way to raise the host-derived capacity. */
+function parseTerminalCoreCap(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^(?:0|[1-9]\d*)$/.test(value)) {
+    throw new Error("ROOST_WORKER_TERMINAL_CAP must be a nonnegative decimal integer");
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > 0xffffffff) {
+    throw new Error("ROOST_WORKER_TERMINAL_CAP must be a nonnegative decimal integer");
+  }
+  return parsed;
 }

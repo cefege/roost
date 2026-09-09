@@ -49,6 +49,9 @@ message WorkersHeartbeatRequest {
   // keep a platform written by a different machine that once held this key
   // fingerprint. Absent keeps the stored value.
   optional string os = 6;
+  // Worker-owned terminal-core admission report. Absent only for workers that
+  // predate capacity reporting.
+  optional TerminalCoreCapacityReport terminal_core_capacity = 7;
 }
 message WorkersHeartbeatResponse {
   reserved 1, 2;

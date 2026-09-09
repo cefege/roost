@@ -192,6 +192,7 @@ message WorkerHeartbeat {
   string worker_fp = 1;
   uint64 last_seen_ms = 2;
   optional HostMetrics host_metrics = 3;
+  optional TerminalCoreCapacityReport terminal_core_capacity = 4;
 }
 message WorkerPresenceProto {
   oneof kind {

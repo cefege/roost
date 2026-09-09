@@ -3,8 +3,12 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { setSignalSink } from "@roost/shared/diag";
 import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
 import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
-import type { KeeperRuntimeObservationV1 as KeeperRuntimeObservationProto } from "@roost/shared/proto/wire_pb";
-import type { HostMetrics } from "@roost/shared/wire";
+import type {
+	KeeperRuntimeObservationV1 as KeeperRuntimeObservationProto,
+	TerminalCoreCapacityReport as TerminalCoreCapacityReportProto,
+} from "@roost/shared/proto/wire_pb";
+import { terminalCoreCapacityReportFromProto } from "@roost/shared/terminal-core-capacity-proto";
+import type { HostMetrics, TerminalCoreCapacityReport } from "@roost/shared/wire";
 import type { CoordClient } from "../src/coord-client.ts";
 import {
 	HEARTBEAT_INTERVAL_MS,
@@ -37,12 +41,24 @@ function sources(
 
 interface HeartbeatBeat {
 	keeperRuntime?: KeeperRuntimeObservationProto;
+	terminalCoreCapacity?: TerminalCoreCapacityReportProto;
 }
 
 type HeartbeatRpc = (
 	request: HeartbeatBeat,
 	options: { timeoutMs: number },
 ) => Promise<unknown>;
+
+const TERMINAL_CORE_CAPACITY: TerminalCoreCapacityReport = {
+	used: 2,
+	pending: 1,
+	capacity: 2,
+	estimated_reserved_bytes: 120 * 1024 * 1024,
+	effective_memory_ceiling_bytes: 2 * 1024 * 1024 * 1024,
+	boot_rss_bytes: 256 * 1024 * 1024,
+	overcommit_count: 1,
+	refusal_count: 4,
+};
 
 function clientWith(
 	workersHeartbeat: HeartbeatRpc,
@@ -161,6 +177,28 @@ describe("worker heartbeat supervision", () => {
 			expect(call[1]).toEqual({ timeoutMs: HEARTBEAT_RPC_TIMEOUT_MS });
 		}
 		stopReset();
+	});
+
+	describe("terminal core capacity reporting", () => {
+		test("ships the current worker-owned capacity snapshot", async () => {
+			const readTerminalCoreCapacity = vi.fn(() => TERMINAL_CORE_CAPACITY);
+			const rpc = vi.fn(async (
+				_request: HeartbeatBeat,
+				_options: { timeoutMs: number },
+			) => ({}));
+			const dispose = await startHeartbeat({
+				reconciledAtMs: () => null,
+				client: () => clientWith(rpc),
+				readTerminalCoreCapacity,
+				sources: sources(),
+			});
+
+			expect(readTerminalCoreCapacity).toHaveBeenCalledTimes(1);
+			expect(terminalCoreCapacityReportFromProto(
+				rpc.mock.calls[0]?.[0].terminalCoreCapacity!,
+			)).toEqual(TERMINAL_CORE_CAPACITY);
+			dispose();
+		});
 	});
 });
 

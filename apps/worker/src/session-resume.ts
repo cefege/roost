@@ -33,6 +33,10 @@ import {
 	type PendingResumeEvent,
 	type ResumeStageState,
 } from "./session-resume-events.ts";
+import {
+	isTerminalCoreCapacityError,
+	type TerminalCoreLease,
+} from "./terminal-core-capacity.ts";
 
 /** Rebuild SessionRecord for a session whose keeper survived this
  * worker restart. Probes the mux pool; if the channel is alive in the
@@ -64,6 +68,7 @@ export async function resume(
 	const pendingEvents: PendingResumeEvent[] = [];
 	const stage: ResumeStageState = { overflowed: false };
 	let recordInstalled = false;
+	let terminalCoreLease: TerminalCoreLease | null = null;
 	try {
 		const live = await pool.listChannels();
 		const liveChannel = live.find((c) => c.channelId === opts.channelId);
@@ -71,6 +76,8 @@ export async function resume(
 			this.releaseSessionEvent(closeReservation);
 			return false;
 		}
+		const coreLease = this.reserveTerminalCore("adoption");
+		terminalCoreLease = coreLease;
 		// Reattach must precede the history request so the keeper can establish
 		// its ordered boundary. The SessionRecord cannot exist until that history
 		// has rebuilt a core, so stage post-boundary events instead of feeding
@@ -129,7 +136,11 @@ export async function resume(
 		if (!isTerminalGeometry({ cols: baseCols, rows: baseRows })) {
 			throw new Error("keeper history reported invalid base terminal geometry");
 		}
-		const wtermCore = await this.createTerminalCore(baseCols, baseRows);
+		const wtermCore = await this.createTerminalCoreForLease(
+			coreLease,
+			baseCols,
+			baseRows,
+		);
 		if (wtermCore.getCols() !== baseCols || wtermCore.getRows() !== baseRows) {
 			throw new Error("terminal core did not retain keeper history base geometry");
 		}
@@ -230,6 +241,7 @@ export async function resume(
 			query_carry: new Uint8Array(0),
 			...initAgentOscState(),
 			wtermCore,
+			terminalCoreLease: coreLease,
 			session_trace_id: newTraceId(),
 			cell_emit: initCellEmitState(newTraceId(), randomUUID()),
 			lastPtyOutMs: 0,
@@ -242,6 +254,7 @@ export async function resume(
 			childPid: liveChannel.pid,
 		};
 		this.sessions.set(opts.channelId, record);
+		coreLease.activate();
 		recordInstalled = true;
 		this.channelResizeSeq.set(opts.channelId, terminalState.highestResizeSeq);
 		this.lastAppliedSize.set(opts.channelId, { cols: record.wtermCore.getCols(), rows: record.wtermCore.getRows() });
@@ -278,7 +291,15 @@ export async function resume(
 		});
 		return true;
 	} catch (e) {
-		if (isSessionEventDurabilityError(e)) throw e;
+		if (isTerminalCoreCapacityError(e) && !recordInstalled) {
+			terminalCoreLease?.release();
+			this.releaseSessionEvent(closeReservation);
+			throw e;
+		}
+		if (isSessionEventDurabilityError(e)) {
+			if (!recordInstalled) terminalCoreLease?.release();
+			throw e;
+		}
 		// Adoption failed after the possible reattach. Kill before releasing any
 		// lifecycle capacity so no orphan can race beyond its durable close.
 		pool.kill(opts.channelId);
@@ -292,6 +313,7 @@ export async function resume(
 			// A staged Exit already consumed the record's held reservation.
 		} else {
 			this.emitClosedTombstone(opts.sessionId, closeReservation);
+			terminalCoreLease?.release();
 		}
 		log.warn("session-manager", "resume_probe_failed", { error: String(e) });
 		diag("session.resume_downgraded_respawn", { sid: opts.sessionId, error: String(e) });

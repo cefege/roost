@@ -21,6 +21,10 @@ import {
 } from "./keeper/keeper-probe.ts";
 import { muxLocalEndpoint } from "./keeper/keeper-pool-config.ts";
 import { KEEPER_TARGET_CONTRACT } from "./keeper/keeper-stamp.ts";
+import {
+  isTerminalCoreCapacityError,
+  type TerminalCoreCapacity,
+} from "./terminal-core-capacity.ts";
 
 /** A Hello that is slow is not a claim about occupancy. Retry identity to this
  * deadline so one timeout can never be reported as live sessions, and never
@@ -75,6 +79,10 @@ async function proveKeeperSurvivorIdentity(
 export async function handleKeeperSurvivor(
   coordinatorOpenSessionIds: ReadonlySet<string>,
   forceLiveRetire = false,
+  terminalCoreCapacity?: Pick<
+    TerminalCoreCapacity,
+    "assertCanAdoptSurvivors" | "refuseUnknownSurvivorInventory" | "snapshot"
+  >,
 ): Promise<void> {
   const endpoint = muxLocalEndpoint();
   const probe = await proveKeeperSurvivorIdentity(endpoint);
@@ -84,6 +92,36 @@ export async function handleKeeperSurvivor(
   }
 
   if (probe.authenticated && probe.protocolCompatible) {
+    if (terminalCoreCapacity) {
+      const survivorChannelCount = probe.bindings === undefined
+        || probe.spawningChannels === undefined
+        ? null
+        : new Set([
+          ...probe.bindings.map((binding) => binding.channel_id),
+          ...probe.spawningChannels,
+        ]).size;
+      try {
+        if (survivorChannelCount === null) {
+          terminalCoreCapacity.refuseUnknownSurvivorInventory();
+        }
+        terminalCoreCapacity.assertCanAdoptSurvivors(survivorChannelCount);
+      } catch (error) {
+        if (isTerminalCoreCapacityError(error)) {
+          const snapshot = terminalCoreCapacity.snapshot();
+          log.error("worker", "keeper_survivor_capacity_refused", {
+            endpoint: endpoint.address,
+            kind: endpoint.kind,
+            keeper_pid: probe.keeperPid ?? null,
+            survivor_channels: survivorChannelCount,
+            capacity: snapshot.capacity,
+            used: snapshot.used,
+            pending: snapshot.pending,
+            refusal_count: snapshot.refusalCount,
+          });
+        }
+        throw error;
+      }
+    }
     if (probe.contract) {
       getMultiplexedPool().setRunningKeeperContract(probe.contract);
     }

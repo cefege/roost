@@ -241,6 +241,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 	const stream = this.terminalStreams.get(channelId);
 	if (stream) retireSnapshotCursor(this, channelId, stream);
 	this.sessions.delete(channelId);
+	rec?.terminalCoreLease?.release();
 	this.markRecentlyClosed(channelId);
 	this.terminalStreams.delete(channelId);
 	this.lastAppliedSize.delete(channelId);
