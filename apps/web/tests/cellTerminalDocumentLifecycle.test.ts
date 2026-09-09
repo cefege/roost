@@ -113,8 +113,10 @@ function mountLifecycle(
     view: { refresh: () => events.push("refresh") },
   };
   const presentation = {
+    clearCursorBlink: () => undefined,
     clearFrameActivity: () => events.push("clear-frame-activity"),
     notifyBackfill: () => undefined,
+    refreshCursorBlink: () => undefined,
     refreshTerminalPresentation: () => events.push("refresh-presentation"),
     releasePaintHolds: () => events.push("release-paint-holds"),
   };
