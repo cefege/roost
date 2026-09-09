@@ -38,6 +38,38 @@ import type { ConnectDeps } from "./router.ts";
 // Coord process boot time — captured at module load (coord startup). Used
 // by miscHealth for uptime.
 const BOOT_MS = Date.now();
+const DIAG_SNAPSHOT_MAX_SESSION_FILTER_IDS = 64;
+
+function normalizeDiagSnapshotSessionFilterIds(
+  sessionFilterId: string,
+  sessionFilterIds: readonly string[],
+): string[] {
+  if (sessionFilterId !== "" && sessionFilterIds.length !== 0) {
+    throw new ConnectError(
+      "diag snapshot session_filter_id and session_filter_ids cannot be combined",
+      Code.InvalidArgument,
+    );
+  }
+  if (sessionFilterIds.length > DIAG_SNAPSHOT_MAX_SESSION_FILTER_IDS) {
+    throw new ConnectError(
+      "diag snapshot accepts at most 64 session_filter_ids",
+      Code.InvalidArgument,
+    );
+  }
+  const normalizedSessionFilterIds = sessionFilterId === ""
+    ? [...sessionFilterIds]
+    : [sessionFilterId];
+  if (
+    normalizedSessionFilterIds.some((sessionId) => sessionId === "")
+    || new Set(normalizedSessionFilterIds).size !== normalizedSessionFilterIds.length
+  ) {
+    throw new ConnectError(
+      "diag snapshot session_filter_ids must be unique and nonempty",
+      Code.InvalidArgument,
+    );
+  }
+  return normalizedSessionFilterIds;
+}
 
 /**
  * A worker can retain stale sessions while it is being reassigned. Keep only
@@ -157,16 +189,21 @@ export function makeSystemHandlers(
       return create(DiagDebugLogBatchResponseSchema, { accepted });
     },
 
-    // On-demand state dump. A session-filtered diagnosis narrows to one
-    // session; an unfiltered dump covers the whole fleet.
+    // On-demand state dump. A session-filtered diagnosis narrows to selected
+    // sessions; an unfiltered dump covers the whole fleet.
     async diagSnapshot(req, ctx) {
       requireAccountDevice(ctx.values);
-      const sessionFilterId: string = req.sessionFilterId || "";
+      const requestedSessionFilterIds = req.sessionFilterIds ?? [];
+      const sessionFilterIds = normalizeDiagSnapshotSessionFilterIds(
+        req.sessionFilterId,
+        requestedSessionFilterIds,
+      );
+      const filtered = sessionFilterIds.length !== 0;
       const capturedAtMs = Date.now();
 
       // Resolve every resource boundary from durable session and worker rows
-      // before touching coordinator caches. The filtered attach poller only
-      // looks up its one session's worker, not the whole fleet.
+      // before touching coordinator caches. A filtered diagnostic only looks up
+      // the selected sessions' workers, not the whole fleet.
       let sessionQuery = deps.db.selectFrom("sessions as session")
         .innerJoin("workers as worker", "worker.fp", "session.worker_fp")
         .select([
@@ -176,12 +213,12 @@ export function makeSystemHandlers(
         ])
         .where("session.status", "=", "open")
         .where("worker.deleted_at_ms", "is", null);
-      if (sessionFilterId !== "") {
-        sessionQuery = sessionQuery.where("session.id", "=", sessionFilterId);
+      if (filtered) {
+        sessionQuery = sessionQuery.where("session.id", "in", sessionFilterIds);
       }
       const scopedSessionRows = await sessionQuery.execute();
       const sessionWorkerFps = [...new Set(scopedSessionRows.map((row) => row.worker_fp))];
-      const scopedWorkerRows = sessionFilterId !== ""
+      const scopedWorkerRows = filtered
         ? sessionWorkerFps.length === 0
           ? []
           : await deps.db.selectFrom("workers")
@@ -195,16 +232,11 @@ export function makeSystemHandlers(
           .execute();
       const allowedSessionIds = new Set(scopedSessionRows.map((row) => row.id));
       const allowedWorkerFps = new Set(scopedWorkerRows.map((row) => row.fp));
-      const workerFpsToDiagnose = new Set(
-        sessionFilterId === ""
-          ? allowedWorkerFps
-          : sessionWorkerFps.filter((workerFp) => allowedWorkerFps.has(workerFp)),
-      );
 
       // The registry is volatile, so a route, a connection bit, or a worker
       // dispatch is only taken for a worker the durable predicate admitted.
       const dispatchableWorkerFps = new Set<string>();
-      for (const workerFp of workerFpsToDiagnose) {
+      for (const workerFp of allowedWorkerFps) {
         const handle = connectWorkers.get(workerFp);
         if (
           handle !== undefined

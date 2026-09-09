@@ -1099,6 +1099,9 @@ message DiagSnapshotRequest {
                                  // coord answers from in-memory state for
                                  // this one session and queries only its
                                  // own worker (attach-progress polling).
+  // Optional batch filter; at most 64 nonempty unique IDs. Mutually exclusive
+  // with session_filter_id.
+  repeated string session_filter_ids = 3;
 }
 message DiagSnapshotResponse {
   string snapshot_json = 1;      // dump of coord + worker state
