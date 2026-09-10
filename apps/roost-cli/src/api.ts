@@ -18,6 +18,7 @@ import { buildCliContext } from "./cli-auth.ts";
 import { dispatchAgentStatusApi } from "./api-agent-status.ts";
 import { dispatchAgentPromptApi } from "./api-agent-prompt.ts";
 import { dispatchUiApi, prepareUiApplyLayout, type PreparedUiApplyLayout } from "./api-ui.ts";
+import { dispatchTerminalBridgeApi } from "./api-terminal-bridge.ts";
 import { openSyncWs } from "./sync-ws.ts";
 
 export type AuthorizedApiClient = CoordClient;
@@ -201,18 +202,11 @@ async function dispatch(
   rest: string[],
   preparedUiApplyLayout?: PreparedUiApplyLayout,
 ): Promise<void> {
+  if (await dispatchTerminalBridgeApi(c, verb, rest)) return;
   if (await dispatchAgentPromptApi(c, verb, rest)) return;
   if (await dispatchAgentStatusApi(c, verb, rest)) return;
   if (await dispatchUiApi(c, verb, rest, {}, preparedUiApplyLayout)) return;
   switch (verb) {
-    case "sessions": {
-      const { sessions } = await c.sessionsList({ status: "all" });
-      for (const s of sessions) {
-        const title = s.customTitle || "";
-        console.log([s.id, s.workerFp, s.kind, s.cwd, title].join("\t"));
-      }
-      break;
-    }
     case "workers": {
       const { workers, routableFps } = await c.workersList({});
       const routable = new Set(routableFps);
@@ -252,14 +246,6 @@ async function dispatch(
       // output path. Use `cells` verb (sessionsGetScrollbackCells) instead.
       console.error("cat: removed in cell-phase-4 — use `cells` for scrollback, or `events` for live output");
       process.exit(1);
-      break;
-    }
-    case "input": {
-      const sid = requireArg(rest[0], "sessionId");
-      const raw = requireArg(rest[1], "text");
-      let text = raw.replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\r/g, "\r");
-      if (rest.includes("--enter")) text += "\r";
-      await c.sessionsInput({ sessionId: sid, data: new TextEncoder().encode(text) });
       break;
     }
     case "attach": {

@@ -178,8 +178,7 @@ rejection prints only the input line. Rejected or ambiguous input and every
 non-matched wait set a nonzero exit code. Neither component retries ambiguous
 input or prints/logs the prompt text.
 
-`roost api input <session> <text> [--enter]` remains the unfenced raw-input
-surface: its documented backslash expansion and optional CR are unchanged.
+`roost api input <session> (<escaped-text> | --stdin) [--enter]` remains the unfenced raw-input surface. `--stdin` reads one raw byte sequence; `--enter` appends exactly one CR. Neither accepted, rejected, nor ambiguous transport outcomes retry a terminal write.
 
 ### `roost api ui`
 
