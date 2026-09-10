@@ -300,4 +300,27 @@ describe("prediction-engine hardening", () => {
     expect(d.confirmedEpoch).toBeGreaterThan(0); // reconcile confirmed (buggy array-index → 0)
     expect(d.srtt).toBeGreaterThan(0);           // round-trip sampled
   });
+  test("unrelated sparse delta does not judge a pending prediction", () => {
+    const pe = mk("always");
+    pe.predict(enc("a"));
+    clock.t = 20;
+    pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] }));
+    pe.predict(enc("b"));
+    expect(pe._debug().visible).toBe(1);
+
+    const unrelatedDelta = {
+      streamId: "test-stream:0",
+      gridEpoch: "test-grid:0",
+      cols: 80, rows: 24, cursorRow: 4, cursorCol: 1, cursorVisible: true,
+      altScreen: false, cursorKeysApp: false, bracketedPaste: false, full: false,
+      viewportRows: [{ index: 4, spans: [{ text: "x", columns: 1, fg: 256, bg: 256, flags: 0 }] }],
+      mouseTracking: 0, mouseSgr: false, focusEvents: false,
+      scrollbackRows: [], scrollbackAppend: [], scrollbackTotal: 0, sbBase: 0,
+      baseSeq: 2, seq: 3,
+    } as CellGridFrame;
+    pe.onFrame(unrelatedDelta);
+
+    expect(pe._debug().total).toBe(1);
+    expect(pe._debug().visible).toBe(1);
+  });
 });

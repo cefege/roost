@@ -43,17 +43,13 @@ interface Pred {
   bornSeq: number;      // frame seq when predicted — confirm only against a LATER frame
 }
 
-/** Text painted at viewport (row,col) in a frame's run-length spans, or "" if
- *  blank/oob. Looks the row up by its `.index`, NOT array position: a DELTA
- *  frame's viewportRows holds only the CHANGED rows, so array position ≠ grid
- *  row — indexing by position would read the wrong cell for any cursor off row 0
- *  (the common bottom-prompt case) and block confirmation entirely. For full
- *  frames index === position, so this matches the old behavior. Column lookup
- *  goes through columnText because a span's text length is not its width. */
-function cellCharAt(frame: CellGridFrame, row: number, col: number): string {
-  const r = frame.viewportRows.find((rr) => rr.index === row);
-  if (!r) return "";
-  return columnText(r.spans, col);
+/** Text painted at viewport (row,col) in a frame's run-length spans.
+ * `null` means a sparse delta did not include the row, while `""` means the
+ * represented row is blank or ends before the requested column. */
+function cellCharAt(frame: CellGridFrame, row: number, col: number): string | null {
+  const viewportRow = frame.viewportRows.find((candidate) => candidate.index === row);
+  if (!viewportRow) return null;
+  return columnText(viewportRow.spans, col);
 }
 
 export class PredictiveEcho {
@@ -223,6 +219,11 @@ export class PredictiveEcho {
         continue;
       }
       const actual = cellCharAt(frame, p.row, p.col);
+      if (actual === null) {
+        // A sparse delta for another row cannot judge this prediction yet.
+        survivors.push(p);
+        continue;
+      }
       if (actual === p.ch) {
         // Correct → confirm: unlock display for this epoch, sample RTT, retire.
         this.confirmedEpoch = Math.max(this.confirmedEpoch, p.epoch);

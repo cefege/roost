@@ -348,7 +348,7 @@
   --workbench-tab-height: var(--workbench-tab-strip-height);
   --workbench-statusbar-height: 22px;
   --workbench-sidebar-resizer-width: 4px;
-  --workbench-command-center-max-width: 520px;
+  --workbench-help-max-width: 520px;
   --workbench-focus-ring: var(--wb-focus);
   --workbench-border: var(--wb-border);
   --workbench-pane-divider: var(--border-strong);
