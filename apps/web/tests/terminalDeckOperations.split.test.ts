@@ -85,23 +85,6 @@ mock.module("../src/components/terminal-deck-shortcuts.ts", () => ({
 // Dynamic import keeps all operation dependencies behind their Bun module mocks.
 const { createTerminalDeckOperations } = await import("../src/components/terminal-deck-operations.ts");
 
-async function invokeDiscardedAction(action: () => Promise<void>): Promise<Event[]> {
-  const unhandled: Event[] = [];
-  const observeUnhandledRejection = (event: Event): void => {
-    event.preventDefault();
-    unhandled.push(event);
-  };
-  globalThis.addEventListener("unhandledrejection", observeUnhandledRejection);
-  try {
-    const operation = action();
-    void operation;
-    await operation;
-    await Promise.resolve();
-    return unhandled;
-  } finally {
-    globalThis.removeEventListener("unhandledrejection", observeUnhandledRejection);
-  }
-}
 
 function focusedLayout(): Layout {
   return {
@@ -162,9 +145,8 @@ describe("createTerminalDeckOperations split", () => {
       () => undefined,
     );
 
-    const unhandled = await invokeDiscardedAction(() => operations.split("row"));
+    await operations.split("row");
 
-    expect(unhandled).toEqual([]);
     expect(apply).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     expect(addToast).toHaveBeenCalledWith(

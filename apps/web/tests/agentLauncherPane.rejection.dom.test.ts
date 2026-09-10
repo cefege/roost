@@ -1,7 +1,7 @@
 // AgentLauncherPane dispatches persistence through void UI callbacks. This virtual
 // Solid DOM suite forces the coordinator update gate to reject and observes the
 // callbacks' user-visible error path without loading browser-only M3 elements.
-// The auto-launch assertion tracks the signal that directly supplies Switch.checked.
+// Browser smoke owns the native md-switch controlled-state restoration proof.
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
