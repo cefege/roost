@@ -111,7 +111,7 @@ async function typeTrustedMarker(page: Page, sessionId: string, marker: string):
 }
 
 
-function tabWrapper(page: Page, sessionId: string) { return page.locator(`.df-tab:is([data-testid="tab-${sessionId}"], :has([data-testid="tab-${sessionId}"]))`).first(); }
+function tabWrapper(page: Page, sessionId: string) { return page.locator(`.df-tab[data-testid="tab-${sessionId}"]`).first(); }
 
 async function dragTab(
   page: Page,

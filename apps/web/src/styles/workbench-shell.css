@@ -34,9 +34,11 @@
   display: flex;
   gap: var(--md-space-3);
   grid-area: titlebar;
-  justify-content: space-between;
   min-width: 0;
   padding: 0 var(--md-space-2);
+}
+.workbench-titlebar__left {
+  min-width: 0;
 }
 .workbench-titlebar__right {
   align-items: center;
@@ -69,9 +71,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.workbench-titlebar__actions {
-  display: flex;
-  justify-content: flex-end;
+.workbench-command-center {
+  color: var(--text-mid);
 }
 .workbench-titlebar__help {
   align-items: center;

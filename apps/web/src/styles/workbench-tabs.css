@@ -308,7 +308,7 @@
 .df-tab-hovercard-line,
 .df-tab-hovercard-cwd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .df-tab-hovercard-cwd { color: var(--text-lo); font-family: var(--font-mono); font-size: var(--md-label-s-size); }
-.df-tab-hovercard-preview { block-size: calc(var(--md-space-9) * 2); margin-block-start: var(--md-space-1); overflow: hidden; border-radius: var(--md-shape-sm); background: var(--term-bg); }
+.df-tab-hovercard-preview { block-size: calc(var(--md-space-9) * 2); margin-block-start: var(--md-space-1); overflow: hidden; border-radius: var(--md-shape-sm); background: var(--terminal-grid-bg); }
 @keyframes df-hovercard-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .df-tab-hovercard { animation: none; } }
 

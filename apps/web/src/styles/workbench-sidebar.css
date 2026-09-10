@@ -365,26 +365,6 @@ aside[data-overscroll="bottom"] {
   --md-icon-button-icon-size: var(--md-body-m-size);
 }
 .df-newterm-fab:hover { background: var(--workbench-active); color: var(--workbench-active-contrast); }
-[data-m3flat].df-all-view { background: var(--workbench-sidebar); display: flex; flex-direction: column; min-height: 100%; }
-[data-m3flat] [data-testid="folder-list"] { background: var(--workbench-sidebar); flex: 1 0 auto; }
-[data-m3flat] .df-flat-group { gap: 0; }
-[data-m3flat] .df-flat-group .df-row[data-density="flat"] { background: var(--surface-0); border-radius: var(--md-shape-md); box-shadow: none; }
-[data-m3flat] .df-flat-group .df-row-swipe,
-[data-m3flat] .df-flat-group .df-row-del { border-radius: var(--md-shape-md); }
-[data-m3flat] .df-flat-group .df-row-swipe:first-child,
-[data-m3flat] .df-flat-group .df-row-swipe:first-child .df-row[data-density="flat"],
-[data-m3flat] .df-flat-group > .df-row[data-density="flat"]:first-child { border-start-start-radius: var(--md-shape-xl); border-start-end-radius: var(--md-shape-xl); }
-[data-m3flat] .df-flat-group .df-row-swipe:last-child,
-[data-m3flat] .df-flat-group .df-row-swipe:last-child .df-row[data-density="flat"],
-[data-m3flat] .df-flat-group > .df-row[data-density="flat"]:last-child { border-end-start-radius: var(--md-shape-xl); border-end-end-radius: var(--md-shape-xl); }
-[data-m3flat] .df-flat-group .df-row-swipe:only-child,
-[data-m3flat] .df-flat-group .df-row-swipe:only-child .df-row[data-density="flat"],
-[data-m3flat] .df-flat-group > .df-row[data-density="flat"]:only-child { border-radius: var(--md-shape-xl); }
-[data-m3flat] .df-flat-group .df-row .df-leading { inline-size: var(--md-space-7); block-size: var(--md-space-7); border-radius: var(--md-shape-full); background: var(--avatar-bg, var(--surface-2)); }
-@media (hover: hover) {
-  [data-m3flat] .df-flat-group .df-row[data-density="flat"]:hover { background: color-mix(in srgb, var(--text-hi) 7%, var(--surface-0)); }
-}
-[data-m3flat] .df-flat-group .df-row[data-density="flat"][data-selected="focused"] { background: var(--md-secondary-container); box-shadow: none; color: var(--md-on-secondary-container); }
 [data-collapsed="true"] .workbench-sidebar-title { justify-content: center; padding-inline: 0; }
 [data-collapsed="true"] .workbench-sidebar-title__label,
 [data-collapsed="true"] [data-testid="brand-row-search"],

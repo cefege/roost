@@ -38,7 +38,6 @@ import {
 import "@material/web/ripple/ripple.js";
 
 function FolderStatusRollup(props: { group: FolderGroup }) {
-  const dotStatus = AGENT_STATUS_PRESENTATION[props.group.agentStatus.level].dotStatus;
   return (
     <Show when={props.group.agentStatus.total > 0 && props.group.agentStatus.level !== "unknown"}>
       <span
@@ -46,7 +45,10 @@ function FolderStatusRollup(props: { group: FolderGroup }) {
         data-level={props.group.agentStatus.level}
         data-testid={`folder-agent-status-${props.group.key}`}
       >
-        <StatusDot status={dotStatus} size={7} />
+        <StatusDot
+          status={AGENT_STATUS_PRESENTATION[props.group.agentStatus.level].dotStatus}
+          size={7}
+        />
         <span>{formatAgentStatusCounts(props.group.agentStatus.counts)}</span>
       </span>
     </Show>
