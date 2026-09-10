@@ -40,28 +40,28 @@ export function PaneTabHoverCard(props: PaneTabHoverCardProps) {
         level={3}
         elevation={3}
         radius="md"
-        class="df-tab-hovercard workbench-tab-hovercard"
+        class="df-tab-hovercard"
         data-testid="tab-hovercard"
         style={{
           left: `${left}px`,
           top: `${props.rect.bottom + VIEWPORT_MARGIN}px`,
         }}
       >
-        <div class="df-tab-hovercard-head workbench-tab-hovercard__head">
-          <Icon name="terminal" class="workbench-tab-hovercard__icon" size="sm" />
-          <span class="df-tab-hovercard-title workbench-tab-hovercard__title">
+        <div class="df-tab-hovercard-head">
+          <Icon name="terminal" size="sm" />
+          <span class="df-tab-hovercard-title">
             {sessionTitle(props.session)}
           </span>
           <AgentStatusIndicator sessionId={props.session.id} />
         </div>
         <Show when={subtitle()}>
-          <div class="df-tab-hovercard-line workbench-tab-hovercard__line">{subtitle()}</div>
+          <div class="df-tab-hovercard-line">{subtitle()}</div>
         </Show>
-        <div class="df-tab-hovercard-cwd workbench-tab-hovercard__cwd">
+        <div class="df-tab-hovercard-cwd">
           {shortCwd(props.session.cwd, props.session.worker_fp)}
         </div>
         <div
-          class="df-tab-hovercard-preview workbench-tab-hovercard__preview"
+          class="df-tab-hovercard-preview"
           data-preview={hasPreview() ? "true" : "false"}
         >
           <div ref={previewElement} class="terminal-card-preview-text" />

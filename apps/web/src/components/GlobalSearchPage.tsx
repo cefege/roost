@@ -26,7 +26,6 @@ import {
   TextField,
 } from "./Settings/md/primitives.tsx";
 import { GlobalSearchContentResults } from "./GlobalSearchContentResults.tsx";
-import "./Settings/md/tokens.css";
 
 type SearchScope = "all" | "attention";
 

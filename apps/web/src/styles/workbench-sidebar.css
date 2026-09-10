@@ -3,12 +3,6 @@
  * AppShell supplies the region; sidebar components retain selection, drawer,
  * resize, search, grouping, and route-close behavior.
  */
-.workbench-sidebar-region,
-aside[data-testid="sidebar-desktop"],
-aside[data-testid="sidebar-drawer"] {
-  min-width: 0;
-  min-height: 0;
-}
 aside[data-testid="sidebar-desktop"],
 aside[data-testid="sidebar-drawer"] {
   --df-row-h: calc(var(--md-space-6) + var(--md-space-2));
@@ -18,10 +12,16 @@ aside[data-testid="sidebar-drawer"] {
   background: var(--workbench-sidebar);
   color: var(--text-mid);
   font: var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+  min-width: 0;
+  min-height: 0;
 }
 aside[data-testid="sidebar-desktop"] {
   border-right: var(--workbench-border-width) solid var(--workbench-sidebar-border);
+  box-sizing: border-box;
+  height: 100%;
+  overflow: hidden auto;
   transition: box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+  width: var(--workbench-sidebar-width);
 }
 aside[data-overscroll="top"] {
   box-shadow: inset 0 var(--md-space-7) var(--md-space-5) calc(var(--md-space-5) * -1)

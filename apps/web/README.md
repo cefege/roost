@@ -54,7 +54,7 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
 | `apps/web/src/lib/` | pure helpers and browser adapters; `layoutDocumentControls.ts` + `layoutDocumentFile.ts` own local transfer, `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, `fragment-credential.ts` (`#pair=<token>`, the only URL credential kind), pairing and tab identity | RPC plumbing (`apps/web/src/connect.ts`) or UI |
-| `apps/web/src/styles/` | global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph and defines the 35px `--workbench-tab-strip-height`; `sidebar.css` owns terminal `.wterm` rules; `workbench-shell.css`, `workbench-sidebar.css`, and `workbench-tabs.css` each own one desktop chrome region | component-local one-offs |
+| `apps/web/src/styles/` | global stylesheets imported once by `main.tsx`; `theme-vars.css` owns canonical theme tokens and aliases; `components/Settings/md/tokens.css` owns shared settings primitives; `sidebar.css` owns terminal `.wterm` and legacy drawer rules; `workbench-shell.css`, `workbench-sidebar.css`, and `workbench-tabs.css` own desktop shell, sidebar, and tab/deck presentation respectively | component-local one-offs |
 | `apps/web/tests/` | recursive `*.test.ts` Bun suites, including the root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
 | `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
@@ -209,7 +209,7 @@ Break one of these and you get back the history-corruption class this repo keeps
   transformation, implicit Enter, or retry.
 - **Design system: no raw values in components.** No hex, `rgb()`, or px font-size outside the
   token-declaration files — `apps/web/src/styles/theme-vars.css`,
-  `apps/web/src/styles/syntax-vars.css`, `apps/web/src/styles/voice-input.css`,
+  `apps/web/src/styles/voice-input.css`,
   `apps/web/src/components/Settings/md/tokens.css`,
   `apps/web/src/components/Settings/md/icon.css` — plus the two palette sources
   `apps/web/src/lib/themes.ts` and `apps/web/src/lib/agents.ts`. Reference tokens via `var(--…)` with

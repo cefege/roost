@@ -9,7 +9,6 @@ import type {
   LayoutDocumentV1,
 } from "@roost/shared/layout-document";
 import { Button, Dialog, Surface } from "./Settings/md/primitives.tsx";
-import "./Settings/md/tokens.css";
 
 interface LayoutDocumentDialogProps {
   open: boolean;

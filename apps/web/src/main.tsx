@@ -15,7 +15,7 @@ import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via -
 import { diag, signal } from "@roost/shared/diag";
 import { effectiveAttempts, shouldReloadForChunkError } from "./lib/chunkError.ts";
 import "./styles/theme-vars.css";
-import "./styles/syntax-vars.css";
+import "./components/Settings/md/tokens.css";
 import "./styles/sidebar.css";
 import "./styles/voice-input.css";
 import "./styles/settings-dense.css";

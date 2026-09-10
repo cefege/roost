@@ -165,13 +165,6 @@
   position: relative;
 }
 
-.workbench-sidebar-region > aside[data-testid="sidebar-desktop"] {
-  background: var(--workbench-sidebar);
-  box-sizing: border-box;
-  height: 100%;
-  overflow: hidden auto;
-  width: var(--workbench-sidebar-width);
-}
 
 .workbench-sidebar-resizer {
   background: transparent;

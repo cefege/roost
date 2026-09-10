@@ -10,7 +10,6 @@ import { SETTINGS_GROUPS, type SettingsPaneSpec } from "./settingsNavigation.ts"
 import { SettingsPane } from "./SettingsPane.tsx";
 import { MobileSettingsList } from "./MobileSettingsList.tsx";
 import { MobileSettingsDetail } from "./MobileSettingsDetail.tsx";
-import "./md/tokens.css";
 
 
 export function SettingsRoot() {

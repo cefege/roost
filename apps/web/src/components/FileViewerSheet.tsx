@@ -9,7 +9,6 @@ import { Show, createSignal, createEffect, createMemo, onCleanup, For, Index } f
 import { useLocation, useNavigate, useParams } from "@solidjs/router";
 import { coordClient } from "../connect.ts";
 import { tokenizeLines, shouldHighlight, extFromPath, type Token } from "../lib/syntaxLite.ts";
-import "../styles/syntax-vars.css";
 import { decodeWorkerPathRoute } from "../lib/nativePath.ts";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";

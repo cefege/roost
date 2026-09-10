@@ -6,7 +6,6 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import { Card, Chip, Button, StatusDot, List, ListRow } from "./Settings/md/primitives.tsx";
 import type { PairRequest } from "../store/root.ts";
-import "./Settings/md/tokens.css";
 
 export interface PairRequestCardProps {
   request: PairRequest;

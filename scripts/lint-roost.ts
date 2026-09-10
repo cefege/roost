@@ -326,12 +326,11 @@ function runColorFallbackCheck(): Violation[] {
     [...theme.matchAll(/--([a-z0-9-]+)\s*:/gi)].map((m) => m[1]!),
   );
   // Other CSS files also declare tokens (sidebar.css has --df-row-h
-  // scoped to aside; syntax-vars.css has --syntax-* per theme block).
+  // scoped to aside).
   // Any token referenced by var(...) must resolve in at least one of
   // these declaration files.
   for (const css of [
     "apps/web/src/styles/sidebar.css",
-    "apps/web/src/styles/syntax-vars.css",
     // M3 shape/spacing/typography tokens (--md-space-*, --md-title-*, etc.)
     // live here, not in theme-vars.css.
     "apps/web/src/components/Settings/md/tokens.css",
@@ -353,8 +352,7 @@ function runColorFallbackCheck(): Violation[] {
     // themselves.
     if (
       rel.endsWith("/theme-vars.css") ||
-      rel.endsWith("/sidebar.css") ||
-      rel.endsWith("/syntax-vars.css")
+      rel.endsWith("/sidebar.css")
     ) continue;
     let text: string;
     try { text = readFileSync(file, "utf8"); } catch { continue; }
@@ -434,7 +432,6 @@ const RAW_VALUE_ALLOW = new Set([
   // .md-icon--sm/--lg reference — moved verbatim out of md/tokens.css, same
   // definition-file exemption.
   "apps/web/src/components/Settings/md/icon.css",
-  "apps/web/src/styles/syntax-vars.css",
   "apps/web/src/styles/voice-input.css",
   // themes.ts DEFINES the theme palettes — raw hex is the source of the
   // canonical tokens here, not drift. Exempt (design-system phase 2 triage).

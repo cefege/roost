@@ -3,10 +3,9 @@
  * ALL --md-* tokens (color, shape, elevation, spacing, type ramp, --md-font,
  * --md-ref-typeface-*, state layers) are declared ONCE in
  * styles/theme-vars.css :root — eager via main.tsx, so global surfaces
- * (voice-input.css, sidebar.css) resolve them from first paint; this
- * lazy-loaded file declares NO custom properties (design-system phase 2).
+ * resolve them from first paint; this file declares NO custom properties.
  *
- * Imported once by SettingsRoot.tsx via `import "./md/tokens.css"`.
+ * Imported once by main.tsx for shared settings primitives and utilities.
  */
 
 /* ─── Type utility classes ─────────────────────────────────────── */
