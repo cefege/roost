@@ -19,8 +19,11 @@ import { resolveSessionRoute } from "./terminal-control-lane.ts";
 import {
   sendTerminalSnapshotRequest,
   sendTerminalStreamStateRequest,
+  type HopDeadline,
   type TerminalWorkerRequest,
 } from "./worker-send.ts";
+import { TerminalStreamDispatcher } from "./terminal-stream-dispatcher.ts";
+import { currentRoutableWorker } from "./worker-send-target.ts";
 import {
   TerminalScreenHub,
   type TerminalScreenSocketSink,
@@ -35,10 +38,13 @@ import {
 export interface TerminalViewHubOptions {
   db: KyselyDB;
   now?: () => number;
+  createStreamDeadline?: () => HopDeadline;
   resolveRoute?: (sessionId: string) => Promise<TerminalStreamRoute | null>;
+  currentWorker?: (workerFp: string) => unknown | null;
   sendStreamState?: (
     workerFp: string,
     state: Omit<TerminalStreamDesired, "retry"> & { sessionId: string },
+    deadline?: HopDeadline,
   ) => TerminalWorkerRequest<WTerminalStreamResult>;
   sendSnapshot?: (workerFp: string, sessionId: string, streamId: string) => boolean;
 }
@@ -110,17 +116,22 @@ export class TerminalViewHub {
     this.now = options.now ?? Date.now;
     const resolveRoute = options.resolveRoute
       ?? ((sessionId: string) => resolveSessionRoute(options.db, sessionId));
-    const sendStream = options.sendStreamState
-      ?? ((workerFp: string, state: Omit<TerminalStreamDesired, "retry"> & {
-        sessionId: string;
-      }) => sendTerminalStreamStateRequest(workerFp, state));
+    const streamDispatcher = new TerminalStreamDispatcher({
+      resolveRoute,
+      sendStream: (workerFp, state, deadline) => options.sendStreamState
+        ? options.sendStreamState(workerFp, state, deadline)
+        : sendTerminalStreamStateRequest(workerFp, state, deadline),
+      currentWorker: options.currentWorker
+        ?? (options.sendStreamState ? undefined : currentRoutableWorker),
+    });
     const sendSnapshot = options.sendSnapshot
       ?? ((workerFp: string, sessionId: string, streamId: string) =>
         sendTerminalSnapshotRequest(workerFp, { sessionId, streamId }));
 
     this.streams = new TerminalViewStreamController({
       resolveRoute,
-      sendStream,
+      streamDispatcher,
+      createStreamDeadline: options.createStreamDeadline,
       sendSnapshot,
       geometries: (sessionId) => this.registry.geometries(sessionId),
       broadcast: (sessionId, status, message) => {

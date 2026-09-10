@@ -13,54 +13,36 @@ import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
 import { signal } from "@roost/shared/diag";
 import type { TerminalGeometry } from "@roost/shared/viewport";
 import { TerminalScreenHub } from "./terminal-screen-hub.ts";
-import type { TerminalWorkerRequest } from "./worker-send.ts";
+import {
+  TERMINAL_STREAM_CONTROL_TIMEOUT_MS,
+  startHopDeadline,
+  type HopDeadline,
+} from "./worker-send.ts";
 import { truncateTerminalReason } from "./terminal-view-protocol.ts";
+import type {
+  TerminalStreamDesired,
+  TerminalStreamState,
+  TerminalUnavailablePolicy,
+  TerminalViewStreamControllerOptions,
+} from "./terminal-view-stream-controller-types.ts";
 
-export interface TerminalStreamDesired {
-  streamId: string;
-  enabled: boolean;
-  cols: number;
-  rows: number;
-  retry: number;
-}
+export type {
+  TerminalStreamDesired,
+  TerminalStreamRoute,
+  TerminalStreamState,
+  TerminalUnavailablePolicy,
+  TerminalViewStreamControllerOptions,
+} from "./terminal-view-stream-controller-types.ts";
 
-export interface TerminalStreamRoute {
-  workerFp: string;
-  channel: number;
-}
-
-export type TerminalUnavailablePolicy = "heartbeat" | "route" | "never";
-
-export interface TerminalStreamState {
-  effective: TerminalGeometry | null;
-  streamId: string;
-  unavailable: boolean;
-  unavailableReason: string;
-  unavailablePolicy: TerminalUnavailablePolicy;
-}
-
+type TerminalStreamWork = TerminalStreamDesired & { deadline: HopDeadline };
 interface TerminalStreamSession extends TerminalStreamState {
-  inFlight: TerminalStreamDesired | null;
-  latest: TerminalStreamDesired | null;
+  inFlight: TerminalStreamWork | null;
+  latest: TerminalStreamWork | null;
+  replacementWork: TerminalStreamWork | null;
 }
-
-export interface TerminalViewStreamControllerOptions {
-  resolveRoute(sessionId: string): Promise<TerminalStreamRoute | null>;
-  sendStream(
-    workerFp: string,
-    state: Omit<TerminalStreamDesired, "retry"> & { sessionId: string },
-  ): TerminalWorkerRequest<WTerminalStreamResult>;
-  sendSnapshot(workerFp: string, sessionId: string, streamId: string): boolean;
-  geometries(sessionId: string): readonly TerminalGeometry[];
-  broadcast(sessionId: string, status: TerminalViewStatus, message: string): void;
-  closeViews(sessionId: string): void;
-  presence(sessionId: string): void | Promise<void>;
-}
-
 export class TerminalViewStreamController {
   readonly screen: TerminalScreenHub;
   private readonly sessions = new Map<string, TerminalStreamSession>();
-
   constructor(private readonly options: TerminalViewStreamControllerOptions) {
     this.screen = new TerminalScreenHub({
       requestSnapshot: (sessionId, streamId) => {
@@ -72,16 +54,14 @@ export class TerminalViewStreamController {
       },
     });
   }
-
   dispose(): void {
+    this.options.streamDispatcher.dispose();
     this.screen.dispose();
     this.sessions.clear();
   }
-
   state(sessionId: string): TerminalStreamState | null {
     return this.sessions.get(sessionId) ?? null;
   }
-
   recompute(sessionId: string): boolean {
     const session = this.session(sessionId);
     const geometries = this.options.geometries(sessionId);
@@ -116,13 +96,14 @@ export class TerminalViewStreamController {
     void this.options.presence(sessionId);
     return true;
   }
-
   redrive(sessionId: string): void {
     const session = this.sessions.get(sessionId);
-    if (session?.effective) this.desire(sessionId, session.effective, 0);
+    if (session?.effective && session.unavailablePolicy !== "route") {
+      this.desire(sessionId, session.effective, 0);
+    }
   }
-
   closeSession(sessionId: string): void {
+    this.options.streamDispatcher.cancelSession(sessionId);
     const session = this.sessions.get(sessionId);
     if (session) {
       session.effective = null;
@@ -134,19 +115,18 @@ export class TerminalViewStreamController {
     this.screen.dropSession(sessionId);
     void this.options.presence(sessionId);
   }
-
   workerReplacement(workerFp: string): void {
+    this.options.streamDispatcher.workerReplacement(workerFp);
     this.reconcileRoutes(workerFp, this.sessions.keys());
   }
-
   routeReconciled(workerFp: string, sessionIds: Iterable<string>): void {
     this.reconcileRoutes(workerFp, sessionIds);
   }
-
-  workerRetired(_workerFp: string, sessionIds: Iterable<string>): void {
-    for (const sessionId of sessionIds) this.closeSession(sessionId);
+  workerRetired(workerFp: string, sessionIds: Iterable<string>): void {
+    const retiredSessionIds = [...sessionIds];
+    this.options.streamDispatcher.workerRetired(workerFp, retiredSessionIds);
+    for (const sessionId of retiredSessionIds) this.closeSession(sessionId);
   }
-
   private reconcileRoutes(workerFp: string, sessionIds: Iterable<string>): void {
     for (const sessionId of sessionIds) {
       const session = this.sessions.get(sessionId);
@@ -160,12 +140,16 @@ export class TerminalViewStreamController {
           && this.sessions.get(sessionId) === session
           && session.effective
         ) {
-          this.desire(sessionId, session.effective, 0);
+          const currentWork = session.replacementWork?.streamId === session.streamId
+            ? session.replacementWork
+            : session.latest?.streamId === session.streamId
+              ? session.latest
+              : session.inFlight?.streamId === session.streamId ? session.inFlight : null;
+          this.desire(sessionId, session.effective, 0, currentWork?.deadline);
         }
       });
     }
   }
-
   private session(sessionId: string): TerminalStreamSession {
     let session = this.sessions.get(sessionId);
     if (!session) {
@@ -177,12 +161,12 @@ export class TerminalViewStreamController {
         unavailablePolicy: "heartbeat",
         inFlight: null,
         latest: null,
+        replacementWork: null,
       };
       this.sessions.set(sessionId, session);
     }
     return session;
   }
-
   private announceDeferred(
     sessionId: string,
     geometry: TerminalGeometry,
@@ -198,21 +182,23 @@ export class TerminalViewStreamController {
     session.unavailablePolicy = unavailablePolicy;
     this.options.broadcast(sessionId, TerminalViewStatus.UNAVAILABLE, unavailableReason);
   }
-
-  private desire(sessionId: string, geometry: TerminalGeometry | null, retry: number): void {
+  private desire(sessionId: string, geometry: TerminalGeometry | null, retry: number, deadline?: HopDeadline): void {
     const session = this.session(sessionId);
-    const desired: TerminalStreamDesired = {
+    session.replacementWork = null;
+    const desired: TerminalStreamWork = {
       streamId: randomUUID(),
       enabled: geometry !== null,
       cols: geometry?.cols ?? 0,
       rows: geometry?.rows ?? 0,
       retry,
+      deadline: deadline ?? this.options.createStreamDeadline?.() ?? startHopDeadline(TERMINAL_STREAM_CONTROL_TIMEOUT_MS),
     };
     session.streamId = desired.streamId;
     session.unavailable = false;
     session.unavailableReason = "";
     session.unavailablePolicy = "heartbeat";
     session.latest = desired;
+    this.options.streamDispatcher.cancelSession(sessionId, "superseded");
     if (geometry) {
       this.screen.expectStream(sessionId, desired.streamId, desired.cols, desired.rows);
     } else {
@@ -221,30 +207,47 @@ export class TerminalViewStreamController {
     this.options.broadcast(sessionId, TerminalViewStatus.ACCEPTED, "");
     void this.drive(sessionId, session);
   }
-
   private async drive(sessionId: string, session: TerminalStreamSession): Promise<void> {
     if (session.inFlight || !session.latest) return;
     const desired = session.latest;
     session.latest = null;
     session.inFlight = desired;
     try {
-      const route = await this.options.resolveRoute(sessionId);
-      if (this.sessions.get(sessionId) !== session || session.latest) return;
-      if (!route) {
-        return this.unavailable(sessionId, "terminal worker is unavailable");
-      }
-      const request = this.options.sendStream(route.workerFp, {
+      const dispatch = this.options.streamDispatcher.enqueue({
         sessionId,
-        ...desired,
+        streamId: desired.streamId,
+        enabled: desired.enabled,
+        cols: desired.cols,
+        rows: desired.rows,
+        deadline: desired.deadline,
       });
+      const completion = await dispatch.completion;
+      if (completion.kind === "cancelled") {
+        if (session.streamId === desired.streamId) {
+          if (completion.reason === "route_changed") {
+            this.desire(sessionId, session.effective, 0, desired.deadline);
+          } else if (completion.reason === "worker_generation_replaced") {
+            session.replacementWork = desired;
+            this.unavailable(sessionId, "terminal worker is unavailable", "route");
+          }
+        }
+        return;
+      }
+      const request = completion.request;
       if (!request.admitted) {
         void request.result.catch(() => undefined);
-        return this.unavailable(sessionId, "terminal worker transport is unavailable");
+        if (session.streamId === desired.streamId) {
+          this.unavailable(sessionId, "terminal worker transport is unavailable");
+        }
+        return;
       }
       try {
         this.classify(sessionId, session, desired, await request.result);
       } catch (error) {
-        if (session.streamId === desired.streamId) {
+        if (session.streamId === desired.streamId && completion.workerGenerationReplaced?.()) {
+          session.replacementWork = desired;
+          this.unavailable(sessionId, "terminal worker is unavailable", "route");
+        } else if (session.streamId === desired.streamId) {
           this.unavailable(
             sessionId,
             error instanceof Error ? error.message : "terminal stream result unavailable",
@@ -256,7 +259,6 @@ export class TerminalViewStreamController {
       if (session.latest) void this.drive(sessionId, session);
     }
   }
-
   private classify(
     sessionId: string,
     session: TerminalStreamSession,
@@ -301,7 +303,6 @@ export class TerminalViewStreamController {
       this.desire(sessionId, session.effective, 1);
       return;
     }
-
     const message = result.reason || "terminal stream is unavailable";
     switch (result.failureKind) {
       case TerminalStreamFailureKind.RETRYABLE_PRE_WRITE:
@@ -348,19 +349,14 @@ export class TerminalViewStreamController {
     this.options.broadcast(sessionId, TerminalViewStatus.UNAVAILABLE, session.unavailableReason);
   }
 
-  private redriveFreshStream(
-    sessionId: string,
-    expectedStreamId: string,
-    _reason: string,
-  ): void {
+  private redriveFreshStream(sessionId: string, expectedStreamId: string, _reason: string): void {
     const session = this.sessions.get(sessionId);
     if (
-      !session?.effective
-      || session.streamId !== expectedStreamId
+      !session?.effective || session.streamId !== expectedStreamId
+      || session.unavailablePolicy === "route"
     ) return;
     this.desire(sessionId, session.effective, 0);
   }
-
   private async requestFull(sessionId: string, streamId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session?.effective || session.streamId !== streamId) return;

@@ -146,6 +146,8 @@ export function deferred<T>() {
 
 interface HarnessOptions {
   clock?: { value: number };
+  createStreamDeadline?: NonNullable<TerminalViewHubOptions["createStreamDeadline"]>;
+  currentWorker?: NonNullable<TerminalViewHubOptions["currentWorker"]>;
   resolveRoute?: ResolveRoute;
   sendStreamState?: StreamSender;
   sendSnapshot?: NonNullable<TerminalViewHubOptions["sendSnapshot"]>;
@@ -171,13 +173,15 @@ export function makeHarness(options: HarnessOptions = {}) {
   const hub = new TerminalViewHub({
     db: undefined as never,
     now: () => clock.value,
+    createStreamDeadline: options.createStreamDeadline,
+    currentWorker: options.currentWorker,
     resolveRoute: async (sessionId) => {
       routeCalls.push(sessionId);
       return resolveRoute(sessionId);
     },
-    sendStreamState: (workerFp, state) => {
+    sendStreamState: (workerFp, state, deadline) => {
       sent.push({ workerFp, ...state });
-      return sendStreamState(workerFp, state);
+      return sendStreamState(workerFp, state, deadline);
     },
     sendSnapshot: (workerFp, sessionId, streamId) => {
       snapshotRequests.push({ workerFp, sessionId, streamId });
@@ -209,6 +213,19 @@ export function sweep(hub: TerminalViewHub): void {
   (hub as unknown as { sweep(): void }).sweep();
 }
 
+// A task turn flushes the dispatcher/controller microtask chain without advancing fake time.
+function completeCurrentEventLoopTurn(): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => {
+    channel.port1.close();
+    channel.port2.close();
+    resolve();
+  };
+  channel.port2.postMessage(undefined);
+  return promise;
+}
+
 export async function settle(): Promise<void> {
-  for (let index = 0; index < 8; index += 1) await Promise.resolve();
+  await completeCurrentEventLoopTurn();
 }

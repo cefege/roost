@@ -161,7 +161,8 @@ export interface TerminalWorkerRequest<T> {
   result: Promise<T>;
 }
 
-function unsentRequest<T>(reason: string, expired: boolean): TerminalWorkerRequest<T> {
+/** Creates a definite pre-write failure for schedulers that expire before socket admission. */
+export function unsentTerminalWorkerRequest<T>(reason: string, expired: boolean): TerminalWorkerRequest<T> {
   return {
     admitted: false,
     expired,
@@ -185,10 +186,10 @@ export function sendTerminalInputRequest(
 ): TerminalWorkerRequest<WInputResult> {
   const worker = currentRoutableWorker(workerFp);
   if (!worker) {
-    return unsentRequest("worker offline", false);
+    return unsentTerminalWorkerRequest("worker offline", false);
   }
   const budgetMs = workerBudgetMs(deadline);
-  if (budgetMs === null) return unsentRequest("terminal input budget expired before send", true);
+  if (budgetMs === null) return unsentTerminalWorkerRequest("terminal input budget expired before send", true);
   const pending = createPendingRpc<WInputResult>(
     Math.max(1, Math.ceil(deadline.remainingMs())),
     workerFp,
@@ -243,10 +244,10 @@ export function sendAgentPromptRequest(
 ): TerminalWorkerRequest<WInputResult> {
   const worker = currentRoutableWorker(workerFp);
   if (!worker) {
-    return unsentRequest("worker offline", false);
+    return unsentTerminalWorkerRequest("worker offline", false);
   }
   const budgetMs = workerBudgetMs(deadline);
-  if (budgetMs === null) return unsentRequest("agent prompt budget expired before send", true);
+  if (budgetMs === null) return unsentTerminalWorkerRequest("agent prompt budget expired before send", true);
   const pending = createPendingRpc<WInputResult>(
     Math.max(1, Math.ceil(deadline.remainingMs())),
     workerFp,
@@ -303,10 +304,10 @@ export function sendTerminalStreamStateRequest(
 ): TerminalWorkerRequest<WTerminalStreamResult> {
   const worker = currentRoutableWorker(workerFp);
   if (!worker) {
-    return unsentRequest("worker offline", false);
+    return unsentTerminalWorkerRequest("worker offline", false);
   }
   const budgetMs = workerBudgetMs(deadline);
-  if (budgetMs === null) return unsentRequest("terminal stream budget expired before send", true);
+  if (budgetMs === null) return unsentTerminalWorkerRequest("terminal stream budget expired before send", true);
   const pending = createPendingRpc<WTerminalStreamResult>(
     Math.max(1, Math.ceil(deadline.remainingMs())),
     workerFp,

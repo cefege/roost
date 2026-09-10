@@ -3,6 +3,7 @@ import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
 import {
   TerminalStreamFailureKind,
   TerminalStreamStatus,
+  type WTerminalStreamResult,
 } from "@roost/shared/proto/worker_transport_pb";
 import {
   SESSION,
@@ -17,6 +18,7 @@ import {
   resultFor,
   settle,
   statesFor,
+  uuid,
   viewCommand,
 } from "./terminal-view-hub-harness.ts";
 import { deltaFrame } from "./terminal-screen-hub-harness.ts";
@@ -63,6 +65,71 @@ describe("TerminalViewHub worker transition ownership", () => {
     expect(sent[0]).toMatchObject({ enabled: true, cols: 100, rows: 40 });
     expect(sent[0]!.streamId).toBe(desiredStreams.at(-1)!);
     expect(hub.snapshot(SESSION)?.streamId).toBe(sent[0]!.streamId);
+  });
+
+  test("redrives a current stream after its pre-write route changes", async () => {
+    let routeCalls = 0;
+    const { hub, sent } = makeHarness({
+      resolveRoute: async () => {
+        routeCalls += 1;
+        return {
+          workerFp: routeCalls === 1 ? WORKER : "worker-b",
+          channel: 7,
+        };
+      },
+    });
+    const sink = register(hub);
+    hub.handleViewCommand("socket-a", viewCommand(VIEW_A, 1n));
+    await settle();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.workerFp).toBe("worker-b");
+    const streamIds = statesFor(sink, VIEW_A).map((state) => state.streamId);
+    expect(streamIds).toHaveLength(2);
+    expect(new Set(streamIds).size).toBe(2);
+    expect(sent[0]?.streamId).toBe(streamIds[1]);
+    expect(routeCalls).toBe(4);
+    expect(hub.snapshot(SESSION)?.unavailable).toBe(false);
+  });
+
+  test("keeps a locally queued stream available until transport rejects it", async () => {
+    const held: Array<{ resolve(): void }> = [];
+    const { hub, sent } = makeHarness({
+      sendStreamState: (_workerFp, state) => {
+        if (held.length < 32) {
+          const result = deferred<WTerminalStreamResult>();
+          held.push({ resolve: () => result.resolve(resultFor(state)) });
+          return admitted(result.promise);
+        }
+        return {
+          admitted: false,
+          expired: false,
+          requestId: null,
+          result: Promise.reject(new Error("worker transport dropped stream state")),
+        };
+      },
+    });
+    const sink = register(hub);
+    for (let index = 0; index < 32; index += 1) {
+      hub.handleViewCommand("socket-a", viewCommand(uuid(index + 1), 1n, {
+        sessionId: uuid(index + 1_000),
+      }));
+    }
+    await settle();
+    expect(held).toHaveLength(32);
+
+    const targetSession = uuid(2_000);
+    const targetView = uuid(3_000);
+    hub.handleViewCommand("socket-a", viewCommand(targetView, 1n, { sessionId: targetSession }));
+    await settle();
+    expect(sent.some((state) => state.sessionId === targetSession)).toBe(false);
+    expect(hub.snapshot(targetSession)?.unavailable).toBe(false);
+
+    held[0]!.resolve();
+    await settle();
+    expect(sent.some((state) => state.sessionId === targetSession)).toBe(true);
+    expect(hub.snapshot(targetSession)?.unavailable).toBe(true);
+    expect(statesFor(sink, targetView).at(-1)?.status).toBe(TerminalViewStatus.UNAVAILABLE);
   });
 
   test("uses a fresh stream ID for the single retryable pre-write retry", async () => {

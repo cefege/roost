@@ -78,8 +78,8 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 
 - `src/connect/` — everything protocol-facing: the 16 handler domains and
   focused facade leaves, auth interceptor, both split WS transports, Sync
-  feed/scheduler, terminal view/screen hubs, raw terminal input lane, guarded
-  agent-prompt orchestration, worker facade,
+  feed/scheduler, terminal view/screen hubs, terminal stream dispatcher, raw
+  terminal input lane, guarded agent-prompt orchestration, worker facade,
   announced-channel barrier, and pending spawns.
 - SQLite access — `src/db/connection.ts` (Kysely over `kysely-bun-sqlite`, WAL + busy timeout), `src/db/schema.ts` (the `DB`
   interface), `src/db/migrate.ts` (custom runner over `apps/coord/migrations/*.sql`, throws on any failure), `src/db/snapshot.ts`
