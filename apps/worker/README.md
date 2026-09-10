@@ -60,10 +60,12 @@ The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL
   native WebSocket byte admission. `src/transport/coord-link-agent-status.ts`
   retains the last possibly-sent occupant retirement plus the latest active
   occupant per session, so backpressure cannot invert a replacement.
+  `src/transport/coord-link-terminal-metadata.ts` owns the bounded,
+  latest-per-channel semantic metadata lane.
 - `src/transport/coord-link-unacked.ts` — one-at-a-time
-  hello → durable replay → snapshot → live protocol driver. It coalesces
-  metadata in memory, hands exact durable-event ACKs to the store, and exposes
-  a replay-drained barrier before snapshot-provider activation.
+  hello → durable replay → snapshot → live protocol driver. It hands exact
+  durable-event ACKs to the store and exposes a replay-drained barrier before
+  snapshot-provider activation.
 - `src/transport/session-event-store.ts` and its focused database/schema/
   sequence modules — bounded SQLite `SessionEventStore`: crash-safe
   `opened`/`closed`/`respawned`/`agent_reference` rows, pre-mutation capacity
@@ -129,7 +131,7 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/boot-reconcile.ts`, `src/install.ts`, `src/service-definition-env.ts`,
   `src/config.ts`, `src/jwt.ts`.
   **`src/transport/`** — the outbound link, durable session-event store,
-  schema migration, and replay barrier (above). **`src/keeper/`** — the PTY
+  semantic metadata relay, and replay barrier (above). **`src/keeper/`** — the PTY
   host (above).
 - **Session family**, one owner split across `this`-bound modules:
   `src/session-manager.ts` (facade/delegating wrappers),
@@ -141,8 +143,9 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/session-terminal-control.ts`, `src/session-terminal-state.ts`,
   `src/session-terminal-txn.ts`, `src/session-resize-capture.ts`,
   `src/session-diag-snapshot.ts`, `src/session-raw-metadata.ts`,
-  `src/session-control-lanes.ts`, `src/session-scrollback.ts`,
-  `src/session-scrollback-ring.ts`, `src/session-unhandled-seq.ts`,
+  `src/session-terminal-metadata.ts`, `src/session-control-lanes.ts`,
+  `src/session-scrollback.ts`, `src/session-scrollback-ring.ts`,
+  `src/session-unhandled-seq.ts`,
   `src/session-git-ports.ts`, `src/terminal-replay-align.ts`, plus
   `src/fsm.ts`.
 - **Browser RPCs** — `src/browser-command-handler.ts` owns the exhaustive

@@ -31,6 +31,7 @@ import style is now correct instead of two.
 | `@roost/shared/wire/headers` | shared `x-roost-*` header names and listener-trust sentinel values |
 | `@roost/shared/terminal-search` | bounded paging limits, Unicode code-point utilities, stop reasons, worker-result validation |
 | `@roost/shared/terminal-input` | terminal newline/paste encoding plus guarded-prompt byte and wait bounds |
+| `@roost/shared/terminal-metadata` | incremental OSC 0/2 parsing, title normalization, metadata negotiation, and activity throttle |
 | `@roost/shared/layout-document` | portable v1 pane-tree types, one resource-bounded strict parser, and inclusive split-ratio bounds |
 | `@roost/shared/layout-document-proto` | preflighted, validated `LayoutDocumentV1` ↔ protobuf recursion adapter |
 | `@roost/shared/agent-conversation-reference` | bounded private OMP reference + sequence-aware recovery fold |
@@ -94,6 +95,8 @@ producers and consumers.
   owner shared by the browser composer and the worker's guarded prompt path.
   It normalizes every newline spelling to CR and, when bracketed paste is
   active, strips ESC from the text and wraps it; `CR_BYTES` supplies submit.
+- **Terminal metadata** — `src/terminal-metadata.ts` owns incremental OSC 0/2 parsing, normalized titles, the capability name, and the activity throttle shared by worker and coordinator.
+
 - **Portable layout document** — `src/layout-document.ts` owns the browser-safe
   v1 pane tree, leaf/slot session bindings, strict parser, and shared ratio
   bounds; `src/layout-document-preflight.ts` rejects excessive identifiers,

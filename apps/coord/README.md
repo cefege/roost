@@ -79,8 +79,8 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 - `src/connect/` — everything protocol-facing: the 16 handler domains and
   focused facade leaves, auth interceptor, both split WS transports, Sync
   feed/scheduler, terminal view/screen hubs, raw terminal input lane, guarded
-  agent-prompt orchestration, worker facade, announced-channel barrier, and
-  pending spawns.
+  agent-prompt orchestration, worker facade,
+  announced-channel barrier, and pending spawns.
 - SQLite access — `src/db/connection.ts` (Kysely over `kysely-bun-sqlite`, WAL + busy timeout), `src/db/schema.ts` (the `DB`
   interface), `src/db/migrate.ts` (custom runner over `apps/coord/migrations/*.sql`, throws on any failure), `src/db/snapshot.ts`
   (online SQLite copy backing `/api/db-export`).
@@ -108,10 +108,12 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/event-transaction.ts` (durable append/projection transaction),
   `src/pending-event-publications.ts` (bounded post-commit recovery and ordered
   publication), `src/byte-hub.ts` (durable worker/channel routing),
-  `src/agent-conversation-recovery.ts` (sequence-aware private reference
-  projection), `src/session-event-visibility.ts` (the fail-closed public/private
-  event boundary), `src/connect/session-list-projection.ts` (separate public and
-  owning-worker recovery queries),
+  `src/terminal-metadata-adapter.ts` (semantic worker metadata plus old-worker
+  compatibility), `src/terminal-route-retirement.ts` (exact volatile route
+  lifecycle), `src/agent-conversation-recovery.ts` (sequence-aware private
+  reference projection), `src/session-event-visibility.ts` (the fail-closed
+  public/private event boundary), `src/connect/session-list-projection.ts`
+  (separate public and owning-worker recovery queries),
   `src/connect/terminal-view-hub.ts` (browser membership and SCD geometry),
   `src/connect/terminal-screen-hub.ts` (canonical cell replica and resumable
   per-socket cursors), `src/buses.ts` (`BoundedBus<T>`, one per non-terminal

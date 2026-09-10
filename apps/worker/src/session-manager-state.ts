@@ -6,7 +6,12 @@ import type { TerminalControlLane, KeeperAdmissionLane } from "./session-control
 import type { TerminalStreamState } from "./session-terminal-state.ts";
 import type { CellGateSuppression } from "./session-emit.ts";
 import type { SyncOutputHold } from "./session-sync-output.ts";
-import type { TerminalCellSendResult, TransportSendResult } from "./transport/coord-link-types.ts";
+import type { TerminalMetadataState } from "./session-terminal-metadata.ts";
+import type {
+	TerminalCellSendResult,
+	TerminalMetadataFrame,
+	TransportSendResult,
+} from "./transport/coord-link-types.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { log } from "@roost/shared/log";
 import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
@@ -77,6 +82,12 @@ export abstract class SessionManagerState {
 	rawMetadataWake: RawMetadataWake | null = null;
 	rawMetadataDispatching = false;
 	rawMetadataQueuedBytes = 0;
+	terminalMetadataByChannel = new Map<number, TerminalMetadataState>();
+	terminalMetadataReadyRing = new Set<number>();
+	terminalMetadataFlushScheduled = false;
+	terminalMetadataFlushToken = 0;
+	terminalMetadataFlushing = false;
+	terminalMetadataNegotiated = false;
 	inputSensitiveChannels = new Set<number>();
 	pendingCellRepairs = new Set<number>();
 	pendingSyncCellSnapshots = new Set<number>();
@@ -106,6 +117,9 @@ export abstract class SessionManagerState {
 			endSeq: number,
 			bytes: Uint8Array,
 		) => TransportSendResult | void)
+		| null;
+	readonly sendTerminalMetadataUpstream:
+		| ((metadata: TerminalMetadataFrame) => TransportSendResult | void)
 		| null;
 	readonly sendCellGridUpstream:
 		| ((channelId: number, frame: PbCellGridFrame) => TerminalCellSendResult | void)
@@ -173,6 +187,9 @@ export abstract class SessionManagerState {
 			endSeq: number,
 			bytes: Uint8Array,
 		) => TransportSendResult | void;
+		sendTerminalMetadataUpstream?: (
+			metadata: TerminalMetadataFrame,
+		) => TransportSendResult | void;
 		sendCellGridUpstream?: (
 			channelId: number,
 			frame: PbCellGridFrame,
@@ -191,6 +208,7 @@ export abstract class SessionManagerState {
 		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
 		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
 		this.sendCellGridChunkUpstream = opts.sendCellGridChunkUpstream ?? null;
+		this.sendTerminalMetadataUpstream = opts.sendTerminalMetadataUpstream ?? null;
 	}
 
 	reserveTerminalCore(allocationKind: TerminalCoreAllocationKind): TerminalCoreLease {

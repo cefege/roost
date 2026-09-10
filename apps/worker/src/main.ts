@@ -173,13 +173,15 @@ export async function runWorker() {
 	startAttachmentReaper();
 
 
-	// Session manager. phase-24d-1: ALL PTY bytes flow upstream on
-	// CoordLink — no inbound worker WSS exists anymore.
+	// Session manager emits cells plus negotiated semantic metadata through
+	// CoordLink; WBinary remains only for an old coordinator acknowledgement.
 	const sessionMgr = new SessionManager({
 		workerFp,
 		sink,
 		sendBinaryUpstream: (channelId, direction, endSeq, bytes) =>
 			coordLink.sendBinary(channelId, direction, endSeq, bytes),
+		sendTerminalMetadataUpstream: (metadata) =>
+			coordLink.sendTerminalMetadata(metadata),
 		sendCellGridUpstream: (channelId, frame) =>
 			coordLink.sendCellGrid(channelId, frame),
 		sendCellGridChunkUpstream: (channelId, chunk) =>

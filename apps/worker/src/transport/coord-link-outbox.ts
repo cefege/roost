@@ -1,13 +1,8 @@
 // Encoded-outbox and pending-lane engine for coord-link.ts. It orders durable
-// replay, agent status, controls, cells, and raw metadata around the native
-// byte writer in coord-link-native-writer.ts. The factory is per link, so all
-// volatile queue state stays with one coordinator connection owner.
-//
-// drainQueues()'s ordering is load-bearing and documented inline: durable and
-// control chronology always fences cells and raw metadata, which is what
-// preserves `opened` -> first full when native buffering is saturated. Do not
-// reorder it.
-
+// replay, agent status, controls, cells, legacy raw metadata, and coalesced
+// semantic metadata around the native byte writer.
+// drainQueues() preserves durable/control chronology before terminal frames so
+// an opened event always precedes its first terminal publication.
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, WCellGridSchema, WCellGridChunkSchema,
@@ -17,30 +12,34 @@ import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_
 import type { AgentStatusUpdate } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
-import { frameToProto, binaryFrameToProto } from "./coord-link-codec.ts";
+import {
+  frameToProto,
+  binaryFrameToProto,
+  terminalMetadataFrameToProto,
+} from "./coord-link-codec.ts";
 import { createCoordLinkAgentStatusOutbox } from "./coord-link-agent-status.ts";
-import { createCoordLinkUnacked } from "./coord-link-unacked.ts";
+import { createCoordLinkTerminalMetadataOutbox } from "./coord-link-terminal-metadata.ts";
 import {
   PENDING_CAP, PENDING_BYTES_CAP, RAW_METADATA_MAX_AGE_MS, WS_DRAIN_RETRY_MS,
 } from "./coord-link-constants.ts";
 import { createCoordLinkNativeWriter } from "./coord-link-native-writer.ts";
+import { createCoordLinkUnacked } from "./coord-link-unacked.ts";
 import type {
   CoordLinkDeps, CoordLinkOutbox, CoordLinkPipelineState, TerminalCellSendResult,
-  TransportSendResult, UpstreamFrame,
+  TerminalMetadataFrame, TransportSendResult, UpstreamFrame,
 } from "./coord-link-types.ts";
-
 interface EncodedPending {
   bytes: Uint8Array;
   queuedAtMs: number;
   kind: "liveness" | "control" | "raw";
 }
-
 export function createCoordLinkOutbox(
   deps: CoordLinkDeps,
   isDisposed: () => boolean,
 ): CoordLinkOutbox {
   const nativeWriter = createCoordLinkNativeWriter();
   let linkReady = false;
+  let terminalMetadataNegotiated = false;
   let drainTimer: NodeJS.Timeout | null = null;
   let pendingFrameCount = 0;
   let pendingEncodedBytes = 0;
@@ -66,11 +65,14 @@ export function createCoordLinkOutbox(
     tryWriteEncoded: nativeWriter.tryWrite,
     scheduleDrain,
   });
-
+  const terminalMetadata = createCoordLinkTerminalMetadataOutbox({
+    encode: (metadata) => encodeUpstream(terminalMetadataFrameToProto(metadata)),
+    tryWriteEncoded: nativeWriter.tryWrite,
+    scheduleDrain,
+  });
   function clearDrainTimer(): void {
     if (drainTimer !== null) { clearTimeout(drainTimer); drainTimer = null; }
   }
-
   function encodeUpstream(frame: CoordWorkerUp): Uint8Array | null {
     try {
       return toBinary(CoordWorkerUpSchema, frame);
@@ -81,13 +83,10 @@ export function createCoordLinkOutbox(
       return null;
     }
   }
-
-
   function scheduleDrain(): void {
     if (isDisposed() || !nativeWriter.isAttached() || drainTimer !== null) return;
     drainTimer = setTimeout(drainQueues, WS_DRAIN_RETRY_MS);
   }
-
   function enqueueEncoded(kind: EncodedPending["kind"], bytes: Uint8Array): boolean {
     if (
       pendingFrameCount >= PENDING_CAP ||
@@ -109,7 +108,6 @@ export function createCoordLinkOutbox(
     scheduleDrain();
     return true;
   }
-
   function removePendingHead(queue: EncodedPending[]): EncodedPending | undefined {
     const item = queue.shift();
     if (!item) return undefined;
@@ -117,12 +115,10 @@ export function createCoordLinkOutbox(
     pendingEncodedBytes -= item.bytes.byteLength;
     return item;
   }
-
   function rawMetadataAged(now = Date.now()): boolean {
     const oldest = rawPending[0];
     return oldest !== undefined && now - oldest.queuedAtMs >= RAW_METADATA_MAX_AGE_MS;
   }
-
   function drainLiveness(): void {
     while (livenessPending.length > 0) {
       const item = livenessPending[0]!;
@@ -130,7 +126,6 @@ export function createCoordLinkOutbox(
       removePendingHead(livenessPending);
     }
   }
-
   function drainControls(): void {
     while (controlPending.length > 0) {
       const item = controlPending[0]!;
@@ -198,7 +193,14 @@ export function createCoordLinkOutbox(
     }
     if (rawMetadataAged()) drainOneRaw();
     while (rawPending.length > 0 && drainOneRaw()) { /* FIFO */ }
-    if (rawPending.length > 0 || writableNotificationPending) scheduleDrain();
+    const metadataDrained = terminalMetadata.drain();
+    if (metadataDrained) {
+      writableNotificationPending = true;
+      maybeNotifyWritable();
+    }
+    if (rawPending.length > 0 || terminalMetadata.hasPending() || writableNotificationPending) {
+      scheduleDrain();
+    }
   }
 
   function sendControlProto(frame: CoordWorkerUp): TransportSendResult {
@@ -238,6 +240,7 @@ export function createCoordLinkOutbox(
     data: Uint8Array,
   ): TransportSendResult {
     if (isDisposed()) return "dropped";
+    if (terminalMetadataNegotiated) return "dropped";
     const bytes = encodeUpstream(binaryFrameToProto(channelId, direction, endSeq, data));
     if (!bytes) return "dropped";
     if (
@@ -249,6 +252,16 @@ export function createCoordLinkOutbox(
       nativeWriter.tryWrite(bytes)
     ) return "sent";
     return enqueueEncoded("raw", bytes) ? "queued" : "dropped";
+  }
+
+  function sendTerminalMetadata(metadata: TerminalMetadataFrame): TransportSendResult {
+    if (isDisposed() || !terminalMetadataNegotiated) return "dropped";
+    return terminalMetadata.send(metadata,
+      linkReady
+      && events.unsentCount() === 0
+      && controlPending.length === 0
+      && !agentStatuses.hasPending()
+      && rawPending.length === 0);
   }
 
   function sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult {
@@ -323,9 +336,11 @@ export function createCoordLinkOutbox(
   function detachSocket(): void {
     nativeWriter.detach();
     linkReady = false;
+    terminalMetadataNegotiated = false;
     while (livenessPending.length > 0) removePendingHead(livenessPending);
     while (controlPending.length > 0) removePendingHead(controlPending);
     while (rawPending.length > 0) removePendingHead(rawPending);
+    terminalMetadata.disconnect();
     writableNotificationPending = false;
     events.disconnect();
     agentStatuses.disconnect();
@@ -335,6 +350,8 @@ export function createCoordLinkOutbox(
     livenessPending.length = 0;
     controlPending.length = 0;
     rawPending.length = 0;
+    terminalMetadata.clear();
+    terminalMetadataNegotiated = false;
     pendingFrameCount = 0;
     pendingEncodedBytes = 0;
     events.clear();
@@ -354,12 +371,21 @@ export function createCoordLinkOutbox(
   }
 
   return {
-    send, sendBinary, sendCellGrid, sendCellGridChunk, sendAgentStatus,
+    send, sendBinary, sendTerminalMetadata, sendCellGrid, sendCellGridChunk, sendAgentStatus,
     sendControlProto, sendLivenessProto,
     encodeUpstream, detachSocket, reset, pipelineState, drainQueues, clearDrainTimer,
     forceWrite: nativeWriter.forceWrite,
-    attachSocket: (socket, write) => { linkReady = false; nativeWriter.attach(socket, write); },
-    acceptHelloAck: (reconnected) => { events.acceptHelloAck(reconnected); drainQueues(); },
+    attachSocket: (socket, write) => {
+      linkReady = false;
+      terminalMetadataNegotiated = false;
+      nativeWriter.attach(socket, write);
+    },
+    acceptHelloAck: (reconnected, metadataNegotiated = false) => {
+      terminalMetadataNegotiated = metadataNegotiated;
+      if (metadataNegotiated) while (rawPending.length > 0) removePendingHead(rawPending);
+      events.acceptHelloAck(reconnected);
+      drainQueues();
+    },
     activateSnapshotProvider: (provider) => { events.activateSnapshotProvider(provider); drainQueues(); },
     snapshotStateChanged: () => { events.snapshotStateChanged(); drainQueues(); },
     protocolPhase: () => events.phase(),

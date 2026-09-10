@@ -24,6 +24,11 @@ import type { WorkerInputResult } from "./session-terminal-control.ts";
 import type { CoordLink, CoordLinkDeps } from "./transport/coord-link.ts";
 import type { SessionEventStore } from "./transport/session-event-store.ts";
 import { terminalPipelineSnapshot } from "./terminal-pipeline-snapshot.ts";
+import {
+	flushTerminalMetadata,
+	replayTerminalMetadata,
+	setTerminalMetadataNegotiated,
+} from "./session-terminal-metadata.ts";
 
 const _workerSha8 = (b: Uint8Array): string =>
 	createHash("sha256").update(b).digest("hex").slice(0, 8);
@@ -142,13 +147,27 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		workerVersion: "v2",
 		sessionEventStore: ctx.sessionEventStore,
 		mintJwt: ctx.mintJwt,
-		onHelloAck: ({ reconnected }) => {
-			if (reconnected) refs.sessionMgr?.invalidateTerminalStreamsForReconnect();
+		onHelloAck: ({ reconnected, terminalMetadataNegotiated }) => {
+			const sessionMgr = refs.sessionMgr;
+			if (!sessionMgr) return;
+			setTerminalMetadataNegotiated(sessionMgr, terminalMetadataNegotiated);
+			if (reconnected) sessionMgr.invalidateTerminalStreamsForReconnect();
+		},
+		onOpen: () => {
+			const sessionMgr = refs.sessionMgr;
+			if (sessionMgr) setTerminalMetadataNegotiated(sessionMgr, false);
+		},
+		onDetach: () => {
+			const sessionMgr = refs.sessionMgr;
+			if (sessionMgr) setTerminalMetadataNegotiated(sessionMgr, false);
 		},
 		onWritable: () => {
 			refs.sessionMgr?.resumeTerminalSnapshots();
+			if (refs.sessionMgr) flushTerminalMetadata(refs.sessionMgr);
 		},
 		onSnapshotReady: ({ reconnected }) => {
+			const sessionMgr = refs.sessionMgr;
+			if (sessionMgr) replayTerminalMetadata(sessionMgr);
 			refs.agentRegistry?.resend();
 			void replayDurableWindowsUpdateProgress(link()).catch((error) => {
 				log.warn("windows-update", "progress_replay_failed", { error: String(error) });

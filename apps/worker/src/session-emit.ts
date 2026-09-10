@@ -1,7 +1,7 @@
-// Upstream PTY-byte and cell-grid emission. Called with a SessionManager `this`
-// (see wrappers in session-manager.ts). The raw-metadata staging lane lives in
-// session-raw-metadata.ts and the synchronized-output holds in
-// session-sync-output.ts; this file owns the rate governor and frame emitter.
+// Upstream PTY-byte and cell-grid emission for SessionManager.
+// Cells retain their cadence; metadata records use the negotiated semantic lane
+// or bounded old-coordinator raw compatibility state after each chunk.
+// Synchronized-output holds remain owned by session-sync-output.ts.
 
 import type { SessionManager } from "./session-manager.ts";
 import type { ChannelId } from "@roost/shared/wire";
@@ -39,6 +39,10 @@ import {
 	validateRenewalHistorySnapshot,
 } from "./session-snapshot-cursor.ts";
 import { disposeRawMetadataState } from "./session-raw-metadata.ts";
+import {
+	disposeTerminalMetadataState,
+	observeTerminalMetadata,
+} from "./session-terminal-metadata.ts";
 import { releaseSyncOutputHold, syncOutputAction } from "./session-sync-output.ts";
 
 // Cell timer-map values use null for the armed-leading-edge microtask; a real
@@ -60,7 +64,7 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	const rec = this.sessions.get(channelId);
 	if (rec && rec.lastPtyOutMs === 0) rec.lastPtyOutMs = Date.now();
 	diag("cell.recv", { sid: String(rec?.sessionId ?? ""), channel_id: channelId, len: chunk.length });
-	if (!this.sendBinaryUpstream) {
+	if (!this.sendBinaryUpstream && !this.sendTerminalMetadataUpstream) {
 		log.warn("session-manager", "emit_no_upstream", {
 			channelId,
 			len: chunk.length,
@@ -115,12 +119,10 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 			this._scheduleCellEmit(channelId, promoteInputEcho);
 		}
 	}
-	// Schedule cells first. Its leading microtask/timer is therefore registered
-	// ahead of the lower-priority raw metadata lane.
-	this._enqueueRawMetadata(channelId, endSeq, chunk);
+	// Cell scheduling is registered before semantic metadata publication.
+	observeTerminalMetadata(this, channelId, chunk);
+	if (!this.terminalMetadataNegotiated) this._enqueueRawMetadata(channelId, endSeq, chunk);
 }
-
-
 export function resumeTerminalSnapshots(this: SessionManager): void {
 	for (const [channelId, state] of this.terminalStreams) {
 		if (!this.sessions.has(channelId) || !state.enabled || !state.coreValid) continue;
@@ -167,8 +169,6 @@ function noteCellGateSuppression(
 	state.overBudget = true;
 	noteGateOverBudget(mgr, channelId, ageMs);
 }
-
-
 /** Watch the core's fixed OSC 8 link table for the one transition that is
  *  otherwise invisible. At saturation the terminal keeps painting perfectly and
  *  every NEW distinct hyperlink silently degrades to plain text — no error, no
@@ -194,12 +194,10 @@ function noteHyperlinkSaturation(mgr: SessionManager, channelId: number, core: T
 		cooldownKey: sid,
 	});
 }
-
-
 export function _disposeOutputState(this: SessionManager, channelId: number): void {
-	// Raw-metadata staging and synchronized-output holds own their own teardown;
-	// the remaining per-channel flags are plain Set/Map drops.
+	// Compatibility and semantic metadata retain independent per-channel state.
 	disposeRawMetadataState(this, channelId);
+	disposeTerminalMetadataState(this, channelId);
 	this.inputSensitiveChannels.delete(channelId);
 	this.pendingCellRepairs.delete(channelId);
 	this.pendingSyncCellSnapshots.delete(channelId);

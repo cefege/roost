@@ -1,19 +1,17 @@
-// Bridges the worker-open chronology gap: frames for an announced channel are
-// buffered between synchronous decode of opened/respawned and its durable DB
-// append plus channel-map publication. Unannounced channels never enter here.
-// Each channel keeps its tighter 64-frame / 4-MiB / 3s repair window while
-// every retained frame also consumes the worker socket's aggregate budget.
-// A later full frame can repair dropped cells, but not one-shot OSC metadata.
+// Bridges worker-open frames until their durable channel route publishes.
+// Cell loss invalidates the stream; one compact semantic record survives until
+// the exact route commits. Every retained frame consumes the socket work budget.
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
+import {
+  AnnouncedChannelSemanticRetention,
+  isCompactTerminalMetadataFrame,
+  mergeTerminalMetadataFrames,
+  type RetainedTerminalMetadataFrame,
+} from "./announced-channel-semantic-retention.ts";
 import type { WorkerRetainedWorkBudget } from "./worker-frame-queue.ts";
-
 export const ANNOUNCED_CHANNEL_MAX_FRAMES = 64;
 export const ANNOUNCED_CHANNEL_MAX_BYTES = 4 * 1024 * 1024;
 export const ANNOUNCED_CHANNEL_MAX_MS = 3_000;
-
-/** Why an announced channel abandoned its buffer. Cells and PTY bytes are lost
- * differently: a later full frame recreates the grid, but a one-time OSC 0/2
- * title only ever crosses the binary lane once. */
 export type AnnouncedDropReason =
   | "overflow"
   | "timeout"
@@ -22,114 +20,122 @@ export type AnnouncedDropReason =
   | "superseded"
   | "append_failed"
   | "publish_failed";
-
-/** Everything still unpublished when the barrier gave up, plus the phase that
- * decides how much is at risk: a `pending` channel has no committed route yet,
- * so cells arriving after the drop are dropped as unmapped too. */
 export interface AnnouncedDrop {
   channelId: number;
   sessionId: string;
   reason: AnnouncedDropReason;
   phase: AnnouncedPhase;
   cellFrames: number;
+  metadataFrames: number;
   binaryFrames: number;
   binaryBytes: number;
 }
-
 export type AnnouncedPhase = "pending" | "draining";
-
 export type AnnouncedEnqueueResult = "not-announced" | "buffered" | "dropped";
-
 export interface AnnouncedBarrierStats {
   channels: number;
   frames: number;
   bytes: number;
   pending: number;
   draining: number;
+  preAnnouncedMetadata: number;
+  recoveryMetadata: number;
 }
-
-interface BufferedFrame {
-  frame: CoordWorkerUp;
+type Timer = NodeJS.Timeout;
+interface RetainedFrame {
   encodedBytes: number;
-  cell: boolean;
-  binaryBytes: number;
   retained: boolean;
+}
+interface BufferedFrame extends RetainedFrame {
+  frame: CoordWorkerUp;
+  cell: boolean;
+  metadata: boolean;
+  binaryBytes: number;
   delivering: boolean;
 }
-
 interface AnnouncedChannel {
   sessionId: string;
   phase: AnnouncedPhase;
   buffered: BufferedFrame[];
   bytes: number;
   cellFrames: number;
+  metadataFrames: number;
   binaryFrames: number;
   binaryBytes: number;
   sawCellFrame: boolean;
   lastCellSeq: bigint;
+  metadata: BufferedFrame | null;
   timer: Timer;
 }
-
-/** Bridges only the worker-open chronology gap: an `opened`/`respawned` event
- * has been decoded synchronously, but its DB append and channel-map publication
- * are still queued. Both fan-out lanes — cell grids and raw PTY binary — buffer
- * here in their exact arrival order, because a respawn's first binary frame can
- * carry the only copy of its title/OSC mapping and must publish after the
- * durable commit yet still ahead of the cell frames that followed it.
- * Unannounced channels never enter this structure. */
+/** Holds only the short pre-publication interval. A cell-loss drop retains its
+ * latest semantic state only until the matching durable route finishes. */
 export class AnnouncedChannelBarrier {
   private readonly channels = new Map<number, AnnouncedChannel>();
+  private readonly semanticRetention: AnnouncedChannelSemanticRetention;
   private readonly onDrop: ((drop: AnnouncedDrop) => void) | undefined;
   private retainedWorkBudget: WorkerRetainedWorkBudget | null;
-
   constructor(
     onDrop?: (drop: AnnouncedDrop) => void,
     retainedWorkBudget?: WorkerRetainedWorkBudget,
   ) {
     this.onDrop = onDrop;
     this.retainedWorkBudget = retainedWorkBudget ?? null;
+    this.semanticRetention = new AnnouncedChannelSemanticRetention(retainedWorkBudget);
   }
-
   bindRetainedWorkBudget(retainedWorkBudget: WorkerRetainedWorkBudget): void {
     if (this.retainedWorkBudget === retainedWorkBudget) return;
     if (this.retainedWorkBudget || this.channels.size !== 0) {
       throw new Error("announced-channel barrier budget already bound");
     }
     this.retainedWorkBudget = retainedWorkBudget;
+    this.semanticRetention.bindRetainedWorkBudget(retainedWorkBudget);
   }
-
   announce(channelId: number, sessionId: string): void {
-    // A second announcement before the first committed means the earlier
-    // buffer can never bind its route: report it instead of silently freeing it.
     this.fail(channelId, "superseded");
+    // A same-session retry carries its compact recovery into the new barrier.
+    const recoveredMetadata = this.semanticRetention.takeRecoveryForSession(
+      channelId,
+      sessionId,
+    );
     const announced: AnnouncedChannel = {
       sessionId,
       phase: "pending",
       buffered: [],
       bytes: 0,
       cellFrames: 0,
+      metadataFrames: 0,
       binaryFrames: 0,
       binaryBytes: 0,
       sawCellFrame: false,
       lastCellSeq: 0n,
+      metadata: null,
       timer: undefined as unknown as Timer,
     };
-    // One absolute deadline from announcement covers both phases: a durable
-    // append that never commits and a drain that stops making progress.
+    const earlyMetadata = this.semanticRetention.takePreAnnounced(channelId);
+    if (recoveredMetadata) this.appendRetainedMetadata(announced, recoveredMetadata);
+    if (earlyMetadata) this.appendRetainedMetadata(announced, earlyMetadata);
     announced.timer = setTimeout(() => {
       if (this.channels.get(channelId) === announced) this.drop(channelId, announced, "timeout");
     }, ANNOUNCED_CHANNEL_MAX_MS);
     announced.timer.unref?.();
     this.channels.set(channelId, announced);
   }
-
-  /** Cheap pre-check for the fan-out hot path: measuring a frame means encoding
-   *  it, which is affordable only inside a channel's short announcement window —
-   *  the steady-state PTY/cell lanes must never re-serialize. */
   isAnnounced(channelId: number): boolean {
     return this.channels.has(channelId);
   }
-
+  reconcileRetainedMetadata(channelId: number, sessionId: string): boolean {
+    return this.semanticRetention.reconcileMappedRoute(channelId, sessionId);
+  }
+  retainUnannouncedMetadata(
+    channelId: number,
+    frame: CoordWorkerUp,
+    encodedBytes: number,
+    routeSessionId: string | null = null,
+  ): boolean {
+    return this.semanticRetention.retainUnannounced(
+      channelId, frame, encodedBytes, routeSessionId,
+    );
+  }
   enqueue(
     channelId: number,
     frame: CoordWorkerUp,
@@ -137,76 +143,99 @@ export class AnnouncedChannelBarrier {
   ): AnnouncedEnqueueResult {
     const announced = this.channels.get(channelId);
     if (!announced) return "not-announced";
-    const cell = frame.frame.case === "cellGrid" ? frame.frame.value.frame ?? null : null;
+    const cell = frame.frame.case === "cellGrid"
+      ? frame.frame.value.frame ?? null
+      : frame.frame.case === "cellGridChunk"
+        ? frame.frame.value.chunk?.part ?? null
+        : null;
     const binary = frame.frame.case === "binary" ? frame.frame.value : null;
-    // Only the two unordered fan-out lanes may cross a barrier. Anything else
-    // belongs on the serialized event tail, so treat it as a lost ordering.
-    if (!cell && !binary) {
+    const metadata = frame.frame.case === "terminalMetadata" ? frame.frame.value : null;
+    if (!cell && !binary && !metadata) {
       this.drop(channelId, announced, "out_of_order");
       return "dropped";
     }
+    const replacementMetadata = metadata && announced.metadata && !announced.metadata.delivering
+      ? announced.metadata
+      : null;
+    const previousMetadataBytes = replacementMetadata?.encodedBytes ?? 0;
     const binaryBytes = binary?.data.byteLength ?? 0;
+    const rejected = {
+      cellFrames: Number(cell !== null),
+      metadataFrames: Number(metadata !== null),
+      binaryFrames: Number(binary !== null),
+      binaryBytes,
+    };
     if (
-      encodedBytes <= 0
-      || announced.buffered.length >= ANNOUNCED_CHANNEL_MAX_FRAMES
-      || announced.bytes + encodedBytes > ANNOUNCED_CHANNEL_MAX_BYTES
+      !Number.isSafeInteger(encodedBytes)
+      || encodedBytes <= 0
+      || (metadata !== null && !isCompactTerminalMetadataFrame(frame, encodedBytes))
     ) {
-      this.drop(channelId, announced, "overflow", {
-        cellFrames: cell ? 1 : 0,
-        binaryFrames: binary ? 1 : 0,
-        binaryBytes,
-      });
+      this.drop(channelId, announced, "overflow", rejected);
       return "dropped";
     }
-    // Cell continuity is checked across the cell frames alone: a binary frame
-    // legitimately precedes the channel's first full grid.
-    if (cell) {
-      const ordered = cell.full
-        || (announced.sawCellFrame && cell.seq === announced.lastCellSeq + 1n);
-      if (!ordered) {
-        this.drop(channelId, announced, "out_of_order", { cellFrames: 1, binaryFrames: 0, binaryBytes: 0 });
-        return "dropped";
-      }
+    const retainedMetadata = replacementMetadata
+      ? mergeTerminalMetadataFrames(replacementMetadata.frame, frame)
+      : { frame, encodedBytes };
+    const bufferedFrames = announced.buffered.length - Number(replacementMetadata !== null);
+    const bufferedBytes = announced.bytes - previousMetadataBytes;
+    if (
+      (metadata !== null && !isCompactTerminalMetadataFrame(
+        retainedMetadata.frame,
+        retainedMetadata.encodedBytes,
+      ))
+      || bufferedFrames >= ANNOUNCED_CHANNEL_MAX_FRAMES
+      || bufferedBytes + retainedMetadata.encodedBytes > ANNOUNCED_CHANNEL_MAX_BYTES
+    ) {
+      this.drop(channelId, announced, "overflow", rejected);
+      return "dropped";
+    }
+    if (
+      cell
+      && !cell.full
+      && (!announced.sawCellFrame || cell.seq !== announced.lastCellSeq + 1n)
+    ) {
+      this.drop(channelId, announced, "out_of_order", rejected);
+      return "dropped";
     }
     const retainedWorkBudget = this.retainedWorkBudget;
-    if (!retainedWorkBudget) {
-      throw new Error("announced-channel barrier budget is not bound");
-    }
-    const retained = retainedWorkBudget.retain(encodedBytes);
-    if (retained !== "retained") {
-      this.drop(channelId, announced, "overflow", {
-        cellFrames: cell ? 1 : 0,
-        binaryFrames: binary ? 1 : 0,
-        binaryBytes,
-      });
+    if (!retainedWorkBudget) throw new Error("announced-channel barrier budget is not bound");
+    if (replacementMetadata) this.releaseRetained(replacementMetadata);
+    if (retainedWorkBudget.retain(retainedMetadata.encodedBytes) !== "retained") {
+      if (replacementMetadata) announced.metadata = null;
+      this.drop(channelId, announced, "overflow", rejected);
       return "dropped";
     }
+    if (replacementMetadata) {
+      replacementMetadata.frame = retainedMetadata.frame;
+      replacementMetadata.encodedBytes = retainedMetadata.encodedBytes;
+      replacementMetadata.retained = true;
+      announced.bytes += retainedMetadata.encodedBytes - previousMetadataBytes;
+      return "buffered";
+    }
+    const buffered: BufferedFrame = {
+      frame: retainedMetadata.frame,
+      encodedBytes: retainedMetadata.encodedBytes,
+      cell: cell !== null,
+      metadata: metadata !== null,
+      binaryBytes,
+      retained: true,
+      delivering: false,
+    };
+    announced.buffered.push(buffered);
+    announced.bytes += buffered.encodedBytes;
     if (cell) {
       announced.sawCellFrame = true;
       announced.lastCellSeq = cell.seq;
       announced.cellFrames += 1;
+    } else if (metadata) {
+      announced.metadataFrames += 1;
+      announced.metadata = buffered;
     } else {
       announced.binaryFrames += 1;
       announced.binaryBytes += binaryBytes;
     }
-    announced.buffered.push({
-      frame,
-      encodedBytes,
-      cell: cell !== null,
-      binaryBytes,
-      retained: true,
-      delivering: false,
-    });
-    announced.bytes += encodedBytes;
     return "buffered";
   }
-
-  /** Commit only after appendEvent returned and the durable publication
-   * installed the exact worker/channel→session mapping. The buffer then drains
-   * on the caller's socket lane: each frame is awaited in arrival order and
-   * arrivals during the drain join the same tail, so no later fast-path frame
-   * can overtake the channel's first frames. The channel is marked open — its
-   * entry removed — only once the buffer is empty. */
   async commit(
     channelId: number,
     sessionId: string,
@@ -214,40 +243,42 @@ export class AnnouncedChannelBarrier {
     deliver: (frame: CoordWorkerUp) => Promise<void>,
   ): Promise<boolean> {
     const announced = this.channels.get(channelId);
-    if (!announced || announced.sessionId !== sessionId) return false;
+    if (!announced) return this.semanticRetention.commitRecovery(
+      channelId, sessionId, mappingMatches, deliver,
+    );
+    if (announced.sessionId !== sessionId) return false;
     if (!mappingMatches()) {
       this.drop(channelId, announced, "mapping_mismatch");
       return false;
     }
     announced.phase = "draining";
     while (announced.buffered.length > 0) {
-      // A timeout, overflow, or replacement may retire this entry while its
-      // current delivery is awaited. That item stays charged until settlement.
       if (this.channels.get(channelId) !== announced) return false;
       const next = announced.buffered[0]!;
       next.delivering = true;
-      let failed = false;
       let failure: unknown;
       try {
         await deliver(next.frame);
       } catch (error) {
-        failed = true;
         failure = error;
       } finally {
         this.releaseRetained(next);
       }
       if (this.channels.get(channelId) !== announced) {
-        if (failed) throw failure;
+        if (failure) throw failure;
         return false;
       }
       announced.buffered.shift();
       announced.bytes -= next.encodedBytes;
       if (next.cell) announced.cellFrames -= 1;
-      else {
+      else if (next.metadata) {
+        announced.metadataFrames -= 1;
+        if (announced.metadata === next) announced.metadata = null;
+      } else {
         announced.binaryFrames -= 1;
         announced.binaryBytes -= next.binaryBytes;
       }
-      if (failed) {
+      if (failure) {
         this.drop(channelId, announced, "publish_failed");
         throw failure;
       }
@@ -257,16 +288,11 @@ export class AnnouncedChannelBarrier {
     this.channels.delete(channelId);
     return true;
   }
-
   fail(channelId: number, reason: AnnouncedDropReason = "append_failed"): void {
     const announced = this.channels.get(channelId);
-    if (!announced) return;
-    this.drop(channelId, announced, reason);
+    if (announced) this.drop(channelId, announced, reason);
+    else if (reason === "append_failed") this.semanticRetention.discardRecovery(channelId);
   }
-
-  /** Socket teardown. The returning worker's reconcile snapshot is a producer
-   * generation change that already forces a full frame for every active owner,
-   * so a dying route needs no per-channel loss report. */
   clear(): void {
     for (const announced of this.channels.values()) {
       clearTimeout(announced.timer);
@@ -276,8 +302,8 @@ export class AnnouncedChannelBarrier {
       announced.buffered.length = 0;
     }
     this.channels.clear();
+    this.semanticRetention.clear();
   }
-
   stats(): AnnouncedBarrierStats {
     let frames = 0;
     let bytes = 0;
@@ -289,42 +315,73 @@ export class AnnouncedChannelBarrier {
       if (announced.phase === "pending") pending += 1;
       else draining += 1;
     }
-    return { channels: this.channels.size, frames, bytes, pending, draining };
+    const semantic = this.semanticRetention.stats();
+    return {
+      channels: this.channels.size,
+      frames: frames + semantic.frames,
+      bytes: bytes + semantic.bytes,
+      pending,
+      draining,
+      preAnnouncedMetadata: semantic.preAnnounced,
+      recoveryMetadata: semantic.recovery,
+    };
   }
-
+  private appendRetainedMetadata(
+    announced: AnnouncedChannel,
+    metadata: RetainedTerminalMetadataFrame,
+  ): void {
+    const buffered: BufferedFrame = {
+      frame: metadata.frame,
+      encodedBytes: metadata.encodedBytes,
+      cell: false,
+      metadata: true,
+      binaryBytes: 0,
+      retained: metadata.retained,
+      delivering: false,
+    };
+    announced.buffered.push(buffered);
+    announced.bytes += buffered.encodedBytes;
+    announced.metadataFrames += 1;
+    announced.metadata = buffered;
+  }
   private drop(
     channelId: number,
     announced: AnnouncedChannel,
     reason: AnnouncedDropReason,
-    rejected: { cellFrames: number; binaryFrames: number; binaryBytes: number } = {
-      cellFrames: 0,
-      binaryFrames: 0,
-      binaryBytes: 0,
-    },
+    rejected = { cellFrames: 0, metadataFrames: 0, binaryFrames: 0, binaryBytes: 0 },
   ): void {
     clearTimeout(announced.timer);
     if (this.channels.get(channelId) === announced) this.channels.delete(channelId);
+    const retainedMetadata = announced.phase === "pending"
+      && (reason === "overflow" || reason === "timeout" || reason === "out_of_order")
+      ? announced.metadata
+      : null;
     const drop: AnnouncedDrop = {
       channelId,
       sessionId: announced.sessionId,
       reason,
       phase: announced.phase,
       cellFrames: announced.cellFrames + rejected.cellFrames,
+      metadataFrames: announced.metadataFrames + rejected.metadataFrames,
       binaryFrames: announced.binaryFrames + rejected.binaryFrames,
       binaryBytes: announced.binaryBytes + rejected.binaryBytes,
     };
     for (const frame of announced.buffered) {
-      if (!frame.delivering) this.releaseRetained(frame);
+      if (frame !== retainedMetadata && !frame.delivering) this.releaseRetained(frame);
     }
     announced.buffered.length = 0;
     announced.bytes = 0;
     announced.cellFrames = 0;
+    announced.metadataFrames = 0;
     announced.binaryFrames = 0;
     announced.binaryBytes = 0;
+    announced.metadata = null;
+    if (retainedMetadata) {
+      this.semanticRetention.parkRecovery(channelId, announced.sessionId, retainedMetadata);
+    }
     this.onDrop?.(drop);
   }
-
-  private releaseRetained(frame: BufferedFrame): void {
+  private releaseRetained(frame: RetainedFrame): void {
     if (!frame.retained) return;
     frame.retained = false;
     this.retainedWorkBudget!.release(frame.encodedBytes);

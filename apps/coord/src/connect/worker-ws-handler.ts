@@ -216,10 +216,9 @@ export function makeWorkerWsHandler(
         return;
       }
       const fcase = frame.frame.case;
-      // The raw socket exists before the worker's exact snapshot barrier. Keep
-      // liveness and durable lifecycle replay flowing, but do not let ordinary
-      // frames bypass the ordered connection-level readiness gate through the
-      // cell/binary fast path.
+      // The socket exists before the worker's exact snapshot barrier. Keep
+      // liveness and durable lifecycle replay flowing, but do not let terminal
+      // metadata or cell frames bypass the connection-level readiness gate.
       if (
         !conn.isReady()
         && fcase !== "hello"
@@ -253,10 +252,8 @@ export function makeWorkerWsHandler(
         return;
       }
       // `opened` AND `respawned` both bind a NEW (worker, channel) route whose
-      // durable append is still queued. Recognizing them synchronously here is
-      // what lets their first cell/binary frames wait for that binding instead
-      // of racing it — a respawn's first binary frame can carry the only copy of
-      // the new PTY's title/OSC mapping.
+      // durable append is still queued. Recognizing them synchronously here
+      // makes their first cell or metadata frame wait for that binding.
       let announced: { sessionId: string; channelId: number } | null = null;
       if (fcase === "event") {
         try {
@@ -286,11 +283,15 @@ export function makeWorkerWsHandler(
           // The normal worker-conn decoder owns protocol diagnostics.
         }
       }
-      // Fast path: in-memory terminal bus publishes — no DB write or ordering
-      // constraint. A cell grid or PTY chunk for a synchronously announced
-      // channel waits behind only that channel's durable append, and both lanes
-      // share one buffer so their original arrival order survives the barrier.
-      if (fcase === "cellGrid" || fcase === "cellGridChunk" || fcase === "binary") {
+      // Fast path: terminal frames do not require a DB write. A frame for a
+      // synchronously announced channel waits behind only that channel's
+      // durable append, and both lanes preserve original arrival order.
+      if (
+        fcase === "cellGrid"
+        || fcase === "cellGridChunk"
+        || fcase === "binary"
+        || fcase === "terminalMetadata"
+      ) {
         const channelId = frame.frame.value.channelId;
         // Reuse the copied wire length; never re-serialize PTY/cell hot-path
         // frames just to account for a short announcement barrier.
@@ -302,6 +303,22 @@ export function makeWorkerWsHandler(
           );
           if (queued !== "not-announced") return;
         }
+        // A semantic frame can precede the opened/respawned event that makes
+        // its channel routable. A replacement route releases a retained fact
+        // for its prior session before direct delivery; no PTY bytes are retained.
+        const mappedSessionId = fcase === "terminalMetadata"
+          ? lookupSessionId(asWorkerFp(ws.data.fp), asChannelId(channelId))
+          : undefined;
+        if (
+          fcase === "terminalMetadata"
+          && (
+            mappedSessionId === undefined
+            || ws.data.announcedChannels.reconcileRetainedMetadata(channelId, mappedSessionId)
+          )
+          && ws.data.announcedChannels.retainUnannouncedMetadata(
+            channelId, frame, frameBytes, mappedSessionId ?? null,
+          )
+        ) return;
         void conn.handleUpstream(frame).catch((e) => {
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
         });

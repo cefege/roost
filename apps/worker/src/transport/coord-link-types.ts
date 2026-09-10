@@ -64,12 +64,15 @@ export interface CoordLinkDeps {
   // repair preserves opened → full → reply ordering.
   // Edge-triggered only after a cell send reported "dropped".
   onWritable?: () => void;
-  // Hello only establishes the socket generation. The worker remains unready
-  // while durable session-event replay and the snapshot barrier are in progress.
-  onHelloAck?: (msg: { reconnected: boolean }) => void;
+  // Hello establishes a negotiated transport capability set before the worker
+  // chooses its terminal metadata encoding.
+  onHelloAck?: (msg: { reconnected: boolean; terminalMetadataNegotiated: boolean }) => void;
   // Socket-open observation only. Application traffic remains fenced until
   // onSnapshotReady, which fires after the exact snapshot ACK.
   onOpen?: (reconnected: boolean) => void;
+  // Fired synchronously when the active native transport detaches, before a
+  // replacement generation can negotiate its capabilities.
+  onDetach?: () => void;
   onSnapshotReady?: (msg: { reconnected: boolean }) => void;
   onBrowserCommand?: (msg: { browser_id: string; viewer_id: string; request_id: string; frame: ClientControlFrame }) => void;
   onBinary?: (channelId: number, dir: number, bytes: Uint8Array) => void;
@@ -119,6 +122,15 @@ export type TransportSendResult = "sent" | "queued" | "dropped";
  * emission receipt: a snapshot cursor advances only on "sent". */
 export type TerminalCellSendResult = "sent" | "dropped";
 
+/** Bounded semantic state for one channel's latest terminal metadata update. */
+export interface TerminalMetadataFrame {
+  channelId: number;
+  titleChanged: boolean;
+  title: string;
+  activityChanged: boolean;
+  activityTsMs: number;
+}
+
 export interface CoordLinkPipelineState {
   queueFrames: number;
   queueBytes: number;
@@ -130,6 +142,7 @@ export interface CoordLinkPipelineState {
 export interface CoordLink {
   send(frame: UpstreamFrame): boolean;
   sendBinary(channelId: number, direction: number, endSeq: number, data: Uint8Array): TransportSendResult;
+  sendTerminalMetadata(metadata: TerminalMetadataFrame): TransportSendResult;
   sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult;
   /** True when written or retained by the ordered in-memory status repair lane. */
   sendAgentStatus(status: AgentStatusUpdate): boolean;
@@ -148,7 +161,7 @@ export interface CoordLink {
 // (session-manager.ts, event-sink.ts, snapshot.ts). frameToProto
 // converts to wire CoordWorkerUp before sending on the WebSocket.
 export type UpstreamFrame =
-  | { kind: "hello"; worker_fp: string; version: string }
+  | { kind: "hello"; worker_fp: string; version: string; capabilities?: readonly string[] }
   | { kind: "pong"; ts: number }
   | {
       kind: "event";
@@ -212,6 +225,7 @@ export type CoordLinkState =
 export interface CoordLinkOutbox {
   send(frame: UpstreamFrame): boolean;
   sendBinary(channelId: number, direction: number, endSeq: number, data: Uint8Array): TransportSendResult;
+  sendTerminalMetadata(metadata: TerminalMetadataFrame): TransportSendResult;
   sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult;
   /** True when written or retained by the ordered in-memory status repair lane. */
   sendAgentStatus(status: AgentStatusUpdate): boolean;
@@ -223,7 +237,7 @@ export interface CoordLinkOutbox {
   forceWrite(bytes: Uint8Array): boolean;
   attachSocket(socket: WebSocket, write: (bytes: Uint8Array) => void): void;
   detachSocket(): void;
-  acceptHelloAck(reconnected: boolean): void;
+  acceptHelloAck(reconnected: boolean, terminalMetadataNegotiated?: boolean): void;
   activateSnapshotProvider(provider: WorkerSnapshotProvider): void;
   snapshotStateChanged(): void;
   protocolPhase(): CoordLinkProtocolPhase;

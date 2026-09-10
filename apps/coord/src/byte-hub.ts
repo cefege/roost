@@ -1,39 +1,24 @@
-// Per-session PTY byte fan-out hub. Worker upstream binary frames
-// (2-byte BE channel_id + 1-byte dir + raw bytes per
-// `@roost/shared/wire/control.ts`) get demuxed via the channel→session
-// map (built from `opened` events) and published into globalBytesBus.
-// Browser Sync never receives these bytes. Coordinator-only title, activity,
-// and OSC-8 consumers share a 16 ms leading-edge coalescer so a flooding PTY
-// cannot force redundant parser scans.
-//
-// The per-session BoundedBus<Uint8Array> + reaper that this module used
-// to host was retired — no external code subscribes to it. Only the
-// channel→session map (with its reverse index for O(1) closed-prune)
-// stays.
+// Per-session terminal route index and cell-frame fan-out.
+// Durable channel bindings resolve worker cell frames into session identities;
+// semantic terminal metadata is handled separately by terminal-metadata-adapter.
+// Browser Sync never receives PTY bytes.
 //
 // The channel→session index is mutated ONLY by appendEvent's post-commit
 // durable-publication step (event-log.ts → applyDurableChannelIndex), never
-// from a sessionBus subscription: the retired bus hook raced browser Sync
-// fan-out, so a tab could observe `opened`/`respawned`/`snapshot` before its
-// exact worker/channel binding existed and route the first claim/keystroke
-// into a channel no keeper owned.
-
+// from a sessionBus subscription. This keeps route publication atomic with
+// the durable event before browser Sync observes it.
 import type { SessionEvent, SessionId, WorkerFp, ChannelId } from "@roost/shared/wire";
 import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import {
   currentTerminalScreenHub,
   notifyTerminalRouteReconciled,
 } from "./connect/terminal-view-hub.ts";
-import { log } from "@roost/shared/log";
 import { signal, diag } from "@roost/shared/diag";
-import {
-  dropCoalescedBytes,
-  publishCoalescedBytes,
-} from "./byte-hub-coalescer.ts";
+import { publishTerminalRouteRetirement } from "./terminal-route-retirement.ts";
 
-// (workerFp, channelId) → SessionId. Built from `opened` SessionEvents.
-// Worker binary frames carry channel_id only; coord needs the session_id
-// to fan out. Pruned on `closed`.
+// (workerFp, channelId) → SessionId. Built from durable session events.
+// Worker terminal frames carry channel_id only; coord needs the session_id
+// before projecting them into the owning terminal state.
 const _channelToSession = new Map<string, SessionId>();
 // Reverse index: SessionId → Set of (workerFp, channelId) keys
 // registered for that session. Lets `closed` prune in O(1) instead of
@@ -140,19 +125,10 @@ function _clearUnmappedDrop(workerFp: WorkerFp, channelId: ChannelId): void {
 }
 
 function _bindKey(key: string, sessionId: SessionId): void {
-  // If `key` is already bound to a DIFFERENT session, scrub the old
-  // session's reverse-index entry first. Otherwise a future `closed`
-  // for the old session would walk its keys set, hit this key, and
-  // delete the NEW session's mapping — silently dropping every
-  // subsequent PTY chunk for it as drop_unmapped_chunk.
-  const prev = _channelToSession.get(key);
-  if (prev !== undefined && prev !== sessionId) {
-    const prevKeys = _sessionToKeys.get(prev);
-    if (prevKeys) {
-      prevKeys.delete(key);
-      if (prevKeys.size === 0) _sessionToKeys.delete(prev);
-    }
-  }
+  // A channel may move between sessions only after the prior parser state has
+  // retired; otherwise a split legacy OSC sequence crosses the new binding.
+  const previous = _channelToSession.get(key);
+  if (previous !== undefined && previous !== sessionId) _forgetKey(key);
   _channelToSession.set(key, sessionId);
   let keys = _sessionToKeys.get(sessionId);
   if (!keys) { keys = new Set(); _sessionToKeys.set(sessionId, keys); }
@@ -171,8 +147,9 @@ function _forgetKey(key: string): void {
       keys.delete(key);
       if (keys.size === 0) _sessionToKeys.delete(sessionId);
     }
+    _channelToSession.delete(key);
+    publishTerminalRouteRetirement(key);
   }
-  _channelToSession.delete(key);
   _unmappedDrops.delete(key);
 }
 
@@ -181,11 +158,10 @@ function _forgetKey(key: string): void {
 function _unbindSessionKeys(sessionId: SessionId): void {
   const keys = _sessionToKeys.get(sessionId);
   if (!keys) return;
-  for (const key of keys) {
-    _channelToSession.delete(key);
-    _unmappedDrops.delete(key);
+  while (keys.size > 0) {
+    const key = keys.values().next().value!;
+    _forgetKey(key);
   }
-  _sessionToKeys.delete(sessionId);
 }
 
 export function lookupSessionId(workerFp: WorkerFp, channelId: ChannelId): SessionId | undefined {
@@ -206,20 +182,6 @@ export function primeChannelMap(rows: Array<{ id: string; worker_fp: string; cha
 }
 
 
-export function publishBytes(workerFp: WorkerFp, channelId: ChannelId, bytes: Uint8Array): void {
-  const sessionId = _channelToSession.get(_key(workerFp, channelId));
-  if (!sessionId) {
-    diag("byte-hub.drop_unmapped_chunk", {
-      worker_fp: workerFp,
-      channel_id: channelId,
-      bytes: bytes.length,
-    });
-    _recordUnmappedDrop(workerFp, channelId);
-    return;
-  }
-  _clearUnmappedDrop(workerFp, channelId);
-  publishCoalescedBytes(sessionId, bytes);
-}
 
 // Worker cell frames carry only channel_id. Stamp the durable session binding
 // and deliver them directly to the canonical TerminalScreenHub.
@@ -415,7 +377,6 @@ export function retireWorkerRoutes(workerFp: WorkerFp): SessionId[] {
     if (key.startsWith(prefix)) sessionIds.add(sessionId);
   }
   replaceWorkerChannelIndex(workerFp, []);
-  for (const sessionId of sessionIds) dropCoalescedBytes(sessionId);
   return [...sessionIds];
 }
 
@@ -450,7 +411,6 @@ export function applyDurableChannelIndex(
       // appends per-ghost synthetic closes back to back.
       _unbindSessionKeys(event.session_id);
       evictSessionWorker(event.session_id);
-      dropCoalescedBytes(event.session_id);
       return;
     case "respawned":
       if (authenticatedWorkerFp === null) {

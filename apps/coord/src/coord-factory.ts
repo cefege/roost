@@ -20,6 +20,7 @@ import { buildConnectRouter } from "./connect/router.ts";
 import { makeConnectBunHandler } from "./connect/bun-handler.ts";
 import { startTerminalTitleHub } from "./terminal-title-hub.ts";
 import { startLastActivityHub } from "./last-activity-hub.ts";
+import { startTerminalMetadataAdapter } from "./terminal-metadata-adapter.ts";
 import { startAgentStatusHub, stopAgentStatusHub } from "./agent-status-hub.ts";
 import { log } from "@roost/shared/log";
 import type { KyselyDB } from "./db/connection.ts";
@@ -82,13 +83,10 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   const connectRouter = buildConnectRouter({ ...deps, uiLayoutApplies, uiStates, cfAccess });
   const connectHandler = makeConnectBunHandler(connectRouter);
 
-  // Coord-authoritative OSC terminal title: parse it off the relayed byte
-  // stream and broadcast changes via Sync. Replaces the dead per-browser
-  // onTitle path without requiring a headless grid.
+  // Coordinator-retained terminal metadata arrives as semantic worker frames;
+  // the compatibility adapter derives the same observations from old WBinary.
+  const stopTerminalMetadataAdapter = startTerminalMetadataAdapter();
   const stopTerminalTitleHub = startTerminalTitleHub();
-  // Coord-authoritative last-activity timestamp: stamp it off the same relayed
-  // byte stream (throttled), broadcast via Sync. Drives the sidebar "Last
-  // activity" filter aging out idle open sessions.
   const stopLastActivityHub = startLastActivityHub();
   // Volatile coding-agent status: validate worker ownership, retain the latest
   // active revision per session, and clear it on terminal close.
@@ -175,9 +173,9 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   }
 
   function dispose(): void {
+    stopTerminalMetadataAdapter();
     stopTerminalTitleHub();
     stopLastActivityHub();
-    stopAgentStatusHub();
     uiLayoutApplies.dispose();
     uiStates.dispose();
   }

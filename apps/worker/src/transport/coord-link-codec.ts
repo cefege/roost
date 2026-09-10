@@ -6,16 +6,18 @@
 import { create } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, WHelloSchema, WPongSchema, WBinarySchema,
-  WRpcOkSchema, WRpcErrorSchema,
+  WTerminalMetadataSchema, WRpcOkSchema, WRpcErrorSchema,
   WInputResultSchema, WTerminalStreamResultSchema, WUpdateProgressSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import type { UpstreamFrame } from "./coord-link-types.ts";
+import type { TerminalMetadataFrame, UpstreamFrame } from "./coord-link-types.ts";
 
 export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
   switch (f.kind) {
     case "hello":
-      return create(CoordWorkerUpSchema, { frame: { case: "hello", value: create(WHelloSchema, { workerFp: f.worker_fp, version: f.version }) }});
+      return create(CoordWorkerUpSchema, { frame: { case: "hello", value: create(WHelloSchema, {
+        workerFp: f.worker_fp, version: f.version, capabilities: [...(f.capabilities ?? [])],
+      }) }});
     case "pong":
       return create(CoordWorkerUpSchema, { frame: { case: "pong", value: create(WPongSchema, { ts: BigInt(f.ts) }) }});
     // "event" kind no longer routes through frameToProto — sendEvent
@@ -89,6 +91,19 @@ export function binaryFrameToProto(
       direction,
       seq: BigInt(endSeq),
       data,
+    })},
+  });
+}
+
+/** Build one compact semantic metadata frame without retaining PTY bytes. */
+export function terminalMetadataFrameToProto(metadata: TerminalMetadataFrame): CoordWorkerUp {
+  return create(CoordWorkerUpSchema, {
+    frame: { case: "terminalMetadata", value: create(WTerminalMetadataSchema, {
+      channelId: metadata.channelId,
+      titleChanged: metadata.titleChanged,
+      title: metadata.title,
+      activityChanged: metadata.activityChanged,
+      activityTsMs: BigInt(metadata.activityTsMs),
     })},
   });
 }

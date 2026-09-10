@@ -13,8 +13,8 @@
 // survives past TTL we proactively close + reconnect at exp-T-30s.
 //
 // Frame schemas: `@roost/shared/proto/worker_transport_pb` (proto).
-// Binary PTY bytes still flow on the same stream as WBinary frames.
-//
+// Old coordinators receive compatibility WBinary; negotiated links send only
+// compact terminal metadata records upstream.
 // This file is the composer. The three engines it wires together are the
 // encoded outbox + backpressure lanes (coord-link-outbox.ts, which owns the
 // at-least-once event ledger in coord-link-unacked.ts), the reconnect ladder
@@ -29,6 +29,7 @@ import {
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { diag, signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
 import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
 import { createCoordLinkOutbox } from "./coord-link-outbox.ts";
 import { createCoordLinkReconnect } from "./coord-link-reconnect.ts";
@@ -41,7 +42,8 @@ import type {
   CoordLinkDeps, CoordLink, CoordLinkState,
 } from "./coord-link-types.ts";
 export type {
-  CoordLinkDeps, CoordLink, TerminalCellSendResult, TransportSendResult, TerminalRequestBudget,
+  CoordLinkDeps, CoordLink, TerminalCellSendResult, TerminalMetadataFrame,
+  TransportSendResult, TerminalRequestBudget,
 } from "./coord-link-types.ts";
 
 // ─── implementation ──────────────────────────────────────────────────
@@ -151,6 +153,13 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       outbox.clearDrainTimer();
       if (staleTimer !== null) { clearInterval(staleTimer); staleTimer = null; }
       outbox.detachSocket();
+      try {
+        deps.onDetach?.();
+      } catch (error) {
+        log.warn("coord-link", "on_detach_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       closeStream = null;
       reconnect.noteDialClosed();
       if (!disposed) reconnect.scheduleReconnect();
@@ -193,6 +202,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
           frame: { case: "hello", value: create(WHelloSchema, {
             workerFp: deps.workerFp,
             version: deps.workerVersion,
+            capabilities: [TERMINAL_METADATA_CAPABILITY],
           }) },
         }));
         if (!hello) throw new Error("hello encode failed");
@@ -256,6 +266,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   return {
     send: outbox.send,
     sendBinary: outbox.sendBinary,
+    sendTerminalMetadata: outbox.sendTerminalMetadata,
     sendCellGrid: outbox.sendCellGrid,
     sendCellGridChunk: outbox.sendCellGridChunk,
     sendAgentStatus: outbox.sendAgentStatus,

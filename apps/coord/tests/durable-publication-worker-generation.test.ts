@@ -6,7 +6,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema,
-  WBinarySchema,
+  WTerminalMetadataSchema,
   WHelloSchema,
   WSessionEventSchema,
 } from "@roost/shared/proto/worker_transport_pb";
@@ -19,7 +19,7 @@ import {
   applyDurableChannelIndex,
   lookupSessionId,
 } from "../src/byte-hub.ts";
-import { globalBytesBus, sessionBus, workspaceBus } from "../src/buses.ts";
+import { sessionBus, titleBus, workspaceBus } from "../src/buses.ts";
 import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
 import { connectWorkers, listRoutableFps } from "../src/connect/worker-registry.ts";
 import { getWorkerHubSocket } from "../src/connect/worker-send.ts";
@@ -143,28 +143,27 @@ describe("superseded worker generation fence", () => {
       await newConn.handleUpstream(upFrame(openedEvent(SID_A, 11), 101));
       expect(getWorkerHubSocket(FP)).toBeNull();
       expect(listRoutableFps()).not.toContain(FP);
-      const preReadyBytes: string[] = [];
-      const unsubBytes = globalBytesBus.subscribe((message) => {
-        if (message.session_id === SID_A) {
-          preReadyBytes.push(new TextDecoder().decode(message.bytes));
-        }
+      const preReadyTitles: string[] = [];
+      const unsubscribe = titleBus.subscribe((message) => {
+        if (message.session_id === SID_A) preReadyTitles.push(message.title);
       });
       try {
         await newConn.handleUpstream(create(CoordWorkerUpSchema, {
           frame: {
-            case: "binary",
-            value: create(WBinarySchema, {
+            case: "terminalMetadata",
+            value: create(WTerminalMetadataSchema, {
               channelId: 11,
-              direction: 1,
-              seq: 1n,
-              data: new TextEncoder().encode("too-early"),
+              titleChanged: true,
+              title: "too-early",
+              activityChanged: true,
+              activityTsMs: 1n,
             }),
           },
         }));
       } finally {
-        unsubBytes();
+        unsubscribe();
       }
-      expect(preReadyBytes).toEqual([]);
+      expect(preReadyTitles).toEqual([]);
 
       const snapshotPublication: Array<{ ready: boolean; route: string | undefined }> = [];
       const unsubSessions = sessionBus.subscribe((event) => {

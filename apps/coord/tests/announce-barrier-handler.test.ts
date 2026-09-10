@@ -11,9 +11,15 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema,
   WBinarySchema,
+  WCellGridChunkSchema,
   WSessionEventSchema,
+  WTerminalMetadataSchema,
   type CoordWorkerUp,
 } from "@roost/shared/proto/worker_transport_pb";
+import {
+  PbCellGridChunkSchema,
+  PbCellGridFrameSchema,
+} from "@roost/shared/proto/cell_pb";
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
 import {
@@ -64,8 +70,44 @@ function binaryFrame(text: string, seq: number, channelId = NEW_CHANNEL): CoordW
   });
 }
 
+function metadataFrame(title: string): CoordWorkerUp {
+  return create(CoordWorkerUpSchema, {
+    frame: { case: "terminalMetadata", value: create(WTerminalMetadataSchema, {
+      channelId: NEW_CHANNEL,
+      titleChanged: true,
+      title,
+      activityChanged: true,
+      activityTsMs: 1n,
+    }) },
+  });
+}
+function chunkFrame(seq: number): CoordWorkerUp {
+  return create(CoordWorkerUpSchema, {
+    frame: { case: "cellGridChunk", value: create(WCellGridChunkSchema, {
+      channelId: NEW_CHANNEL,
+      chunk: create(PbCellGridChunkSchema, {
+        snapshotId: SESSION,
+        chunkIndex: 0,
+        chunkCount: 1,
+        part: create(PbCellGridFrameSchema, {
+          sessionId: SESSION,
+          streamId: SESSION,
+          full: true,
+          seq: BigInt(seq),
+          cols: 80,
+          rows: 24,
+          gridEpoch: "announced",
+        }),
+      }),
+    }) },
+  });
+}
+
+
 function label(frame: CoordWorkerUp): string {
   if (frame.frame.case === "binary") return `binary:${new TextDecoder().decode(frame.frame.value.data)}`;
+  if (frame.frame.case === "cellGridChunk") return `chunk:${frame.frame.value.chunk?.part?.seq}`;
+  if (frame.frame.case === "terminalMetadata") return `metadata:${frame.frame.value.title}`;
   return `event:${frame.frame.case}`;
 }
 
@@ -172,6 +214,71 @@ test("a respawn's binary frames publish after the commit in arrival order", asyn
   await h.ws.data.queue!.whenIdle();
   await Promise.resolve();
   expect(h.published[h.published.length - 1]).toBe("binary:after-drain");
+});
+
+test("a pre-bind snapshot chunk enters the announced-channel FIFO", async () => {
+  const h = harness();
+  h.deliver(respawnedFrame());
+  h.deliver(chunkFrame(10));
+
+  await Promise.resolve();
+  expect(h.published).toEqual([]);
+  expect(h.ws.data.announcedChannels.stats()).toMatchObject({
+    channels: 1, frames: 1, pending: 1,
+  });
+
+  h.commitAppend();
+  await h.ws.data.queue!.whenIdle();
+  expect(h.published).toEqual(["event:respawned", "chunk:10"]);
+  h.close();
+});
+
+test("semantic metadata preceding a respawn waits for the exact route binding", async () => {
+  const h = harness();
+  h.deliver(metadataFrame("early-title"));
+  await Promise.resolve();
+  expect(h.published).toEqual([]);
+  expect(h.ws.data.announcedChannels.stats()).toMatchObject({
+    channels: 0,
+    frames: 1,
+    preAnnouncedMetadata: 1,
+  });
+
+  h.deliver(respawnedFrame());
+  h.commitAppend();
+  await h.ws.data.queue!.whenIdle();
+
+  expect(h.published).toEqual(["event:respawned", "metadata:early-title"]);
+  h.close();
+});
+
+test("a stale recovery cannot absorb metadata after exact route replacement", async () => {
+  const oldSessionId = "33333333-3333-4333-8333-333333333334";
+  const replacementSessionId = "33333333-3333-4333-8333-333333333335";
+  primeChannelMap([{ id: oldSessionId, worker_fp: WORKER_FP, channel: NEW_CHANNEL }]);
+  const h = harness();
+  h.deliver(binaryFrame("bootstrap", 1));
+  await Promise.resolve();
+  h.published.length = 0;
+
+  const barrier = h.ws.data.announcedChannels;
+  barrier.announce(NEW_CHANNEL, oldSessionId);
+  expect(barrier.enqueue(NEW_CHANNEL, metadataFrame("old-title"), 40)).toBe("buffered");
+  expect(barrier.enqueue(
+    NEW_CHANNEL, binaryFrame("overflow", 2), ANNOUNCED_CHANNEL_MAX_BYTES,
+  )).toBe("dropped");
+  expect(barrier.stats()).toMatchObject({ recoveryMetadata: 1 });
+
+  replaceWorkerChannelIndex(asWorkerFp(WORKER_FP), [{
+    sessionId: asSessionId(replacementSessionId),
+    channelId: asChannelId(NEW_CHANNEL),
+  }]);
+  h.deliver(metadataFrame("replacement-title"));
+  await Promise.resolve();
+
+  expect(h.published).toEqual(["metadata:replacement-title"]);
+  expect(barrier.stats()).toMatchObject({ recoveryMetadata: 0 });
+  h.close();
 });
 
 test("socket frame cap includes an in-flight append and every announced channel", async () => {

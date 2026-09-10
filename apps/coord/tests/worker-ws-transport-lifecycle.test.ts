@@ -10,6 +10,7 @@ import {
 } from "@roost/shared/proto/worker_transport_pb";
 import { WorkersDeleteRequestSchema } from "@roost/shared/proto/coordinator_pb";
 import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
 import { invalidateJwtKey, verifyJwt } from "../src/jwt.ts";
 import {
   createAnnouncedChannelBarrier,
@@ -110,6 +111,16 @@ describe("worker↔coord raw-WS transport", () => {
     const [firstSeen] = seen;
     if (firstSeen === undefined) throw new Error("expected one handled frame");
     expect(Array.from(firstSeen)).toEqual([0x1b, 0x5b, 0x41, 0x99]);
+  });
+
+  test("acknowledges terminal metadata only for an advertising worker", async () => {
+    const worker = connectWorker(workerFp, workerJwt);
+    await worker.opened;
+    worker.sendUp(helloFrame(workerFp, [TERMINAL_METADATA_CAPABILITY]));
+    const acknowledgement = await worker.waitFor((frame) => frame.frame.case === "helloAck");
+    if (acknowledgement.frame.case !== "helloAck") throw new Error("expected hello acknowledgement");
+    expect(acknowledgement.frame.value.capabilities).toEqual([TERMINAL_METADATA_CAPABILITY]);
+    worker.close();
   });
 
   test("revocation between accepted upgrade and open closes before connection registration", async () => {

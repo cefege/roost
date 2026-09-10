@@ -1,8 +1,7 @@
-// Coordinator-only raw-metadata lane: copied PTY bytes remain bounded and
-// source-ordered per channel while one manager-owned dispatcher drains them.
-// Its ready ring rotates one head frame per channel and uses one global wake,
-// so metadata never becomes a higher-priority terminal-data path than cells.
-// Called from session-emit's emitUpstreamChunk; state lives on SessionManager.
+// Old-coordinator raw-metadata compatibility lane.
+// It retains copied PTY bytes only while semantic metadata was not negotiated;
+// the SessionManager-owned dispatcher preserves legacy channel ordering.
+// New links clear this state and use session-terminal-metadata instead.
 
 import type { SessionManager } from "./session-manager.ts";
 import { diag, signal } from "@roost/shared/diag";
@@ -75,6 +74,7 @@ export function _enqueueRawMetadata(
 	endSeq: number,
 	chunk: Buffer,
 ): void {
+	if (this.terminalMetadataNegotiated) return;
 	let queue = this.rawMetadataQueues.get(channelId);
 	const channelBytes = queue?.bytes ?? 0;
 	if (
@@ -178,6 +178,10 @@ function drainRawMetadataHead(
 	mgr: SessionManager,
 	channelId: number,
 ): RawMetadataDrainResult {
+	if (mgr.terminalMetadataNegotiated) {
+		disposeRawMetadataState(mgr, channelId);
+		return "skipped";
+	}
 	const queue = mgr.rawMetadataQueues.get(channelId);
 	if (!queue || queue.frames.length === 0) {
 		if (queue) mgr.rawMetadataQueues.delete(channelId);

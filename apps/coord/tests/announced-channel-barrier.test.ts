@@ -1,17 +1,15 @@
-// Announcement barrier: an `opened`/`respawned` event is recognized
-// synchronously, but its durable append is still queued. Until that append
-// commits and binds (workerFp, channelId) → session, BOTH fan-out lanes buffer
-// here — cell grids and raw PTY binary — and drain in their exact arrival order
-// on the socket lane. A respawn's first binary frame can carry the only copy of
-// the new PTY's title/OSC mapping, so it may not be reordered behind (or ahead
-// of) the first cell frames.
+// Announcement barrier coverage for terminal frames that arrive before an
+// opened/respawned route commits. Cell grids, old-worker binary, and semantic
+// metadata must all drain in their original channel order after the binding.
 
 import { afterEach, beforeEach, expect, test, vi } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
+import { PbCellGridChunkSchema, PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
 import {
   CoordWorkerUpSchema,
   WBinarySchema,
+  WTerminalMetadataSchema,
+  WCellGridChunkSchema,
   WCellGridSchema,
   type CoordWorkerUp,
 } from "@roost/shared/proto/worker_transport_pb";
@@ -45,6 +43,31 @@ function cell(seq: number, full: boolean): CoordWorkerUp {
   });
 }
 
+function chunk(seq: number): CoordWorkerUp {
+  return create(CoordWorkerUpSchema, {
+    frame: {
+      case: "cellGridChunk",
+      value: create(WCellGridChunkSchema, {
+        channelId: 7,
+        chunk: create(PbCellGridChunkSchema, {
+          snapshotId: "00000000-0000-4000-8000-000000000717",
+          chunkIndex: 0,
+          chunkCount: 1,
+          part: create(PbCellGridFrameSchema, {
+            sessionId: SESSION,
+            streamId: "00000000-0000-4000-8000-000000000717",
+            seq: BigInt(seq),
+            full: true,
+            cols: 80,
+            rows: 24,
+            gridEpoch: "announced",
+          }),
+        }),
+      }),
+    },
+  });
+}
+
 function binary(seq: number, text: string): CoordWorkerUp {
   return create(CoordWorkerUpSchema, {
     frame: {
@@ -59,12 +82,38 @@ function binary(seq: number, text: string): CoordWorkerUp {
   });
 }
 
+function metadata(
+  title: string,
+  titleChanged = true,
+  activityChanged = true,
+  activityTsMs = 1n,
+): CoordWorkerUp {
+  return create(CoordWorkerUpSchema, {
+    frame: {
+      case: "terminalMetadata",
+      value: create(WTerminalMetadataSchema, {
+        channelId: 7,
+        titleChanged,
+        title,
+        activityChanged,
+        activityTsMs,
+      }),
+    },
+  });
+}
+
 function label(frame: CoordWorkerUp): string {
   if (frame.frame.case === "cellGrid") {
     return `cell:${frame.frame.value.frame?.seq}:${frame.frame.value.frame?.full ? "full" : "delta"}`;
   }
+  if (frame.frame.case === "cellGridChunk") {
+    return `chunk:${frame.frame.value.chunk?.part?.seq}`;
+  }
   if (frame.frame.case === "binary") {
     return `binary:${new TextDecoder().decode(frame.frame.value.data)}`;
+  }
+  if (frame.frame.case === "terminalMetadata") {
+    return `metadata:${frame.frame.value.title}`;
   }
   return `other:${frame.frame.case}`;
 }
@@ -94,7 +143,7 @@ test("a respawn's metadata binary frame and its cell frames drain in arrival ord
   expect(barrier.enqueue(7, cell(10, true), 100)).toBe("buffered");
   expect(barrier.enqueue(7, binary(2, "prompt$ "), 40)).toBe("buffered");
   expect(barrier.enqueue(7, cell(11, false), 100)).toBe("buffered");
-  expect(barrier.stats()).toEqual({ channels: 1, frames: 4, bytes: 300, pending: 1, draining: 0 });
+  expect(barrier.stats()).toMatchObject({ channels: 1, frames: 4, bytes: 300, pending: 1, draining: 0 });
 
   const events: string[] = [];
   const committed = await barrier.commit(7, SESSION, () => true, async (frame) => {
@@ -117,6 +166,72 @@ test("a respawn's metadata binary frame and its cell frames drain in arrival ord
   ]);
   expect(barrier.stats().channels).toBe(0);
   expect(drops).toEqual([]);
+});
+
+test("semantic metadata waits for the announced channel route", async () => {
+  barrier.announce(7, SESSION);
+  expect(barrier.enqueue(7, metadata("fresh-title"), 40)).toBe("buffered");
+  expect(barrier.enqueue(7, cell(10, true), 100)).toBe("buffered");
+
+  const delivered: string[] = [];
+  await barrier.commit(7, SESSION, () => true, async (frame) => {
+    delivered.push(label(frame));
+  });
+
+  expect(delivered).toEqual(["metadata:fresh-title", "cell:10:full"]);
+  expect(drops).toEqual([]);
+});
+test("early title and activity facts merge before the route announces", async () => {
+  expect(barrier.retainUnannouncedMetadata(
+    7, metadata("early title", true, false, 11n), 40,
+  )).toBe(true);
+  expect(barrier.retainUnannouncedMetadata(
+    7, metadata("", false, true, 22n), 40,
+  )).toBe(true);
+  barrier.announce(7, SESSION);
+  const delivered: CoordWorkerUp[] = [];
+  await expect(barrier.commit(7, SESSION, () => true, async (frame) => {
+    delivered.push(frame);
+  })).resolves.toBe(true);
+  expect(delivered).toHaveLength(1);
+  expect(delivered[0]!.frame).toMatchObject({
+    case: "terminalMetadata",
+    value: {
+      title: "early title", titleChanged: true, activityChanged: true, activityTsMs: 22n,
+    },
+  });
+});
+
+
+test("a pre-bind snapshot chunk establishes the barrier baseline", async () => {
+  barrier.announce(7, SESSION);
+  expect(barrier.enqueue(7, chunk(10), 100)).toBe("buffered");
+  expect(barrier.enqueue(7, cell(11, false), 100)).toBe("buffered");
+
+  const delivered: string[] = [];
+  await barrier.commit(7, SESSION, () => true, async (frame) => {
+    delivered.push(label(frame));
+  });
+
+  expect(delivered).toEqual(["chunk:10", "cell:11:delta"]);
+});
+
+test("coalesced metadata retains its original channel order", async () => {
+  barrier.announce(7, SESSION);
+  barrier.enqueue(7, metadata("retained-title", true, false), 40);
+  barrier.enqueue(7, cell(10, true), 100);
+  barrier.enqueue(7, metadata("", false, true), 40);
+
+  const delivered: CoordWorkerUp[] = [];
+  await barrier.commit(7, SESSION, () => true, async (frame) => {
+    delivered.push(frame);
+  });
+
+  expect(delivered.map(label)).toEqual(["metadata:retained-title", "cell:10:full"]);
+  expect(delivered[0]!.frame).toMatchObject({
+    case: "terminalMetadata",
+    value: { titleChanged: true, title: "retained-title", activityChanged: true },
+  });
 });
 
 test("frames arriving during the drain join the tail instead of overtaking it", async () => {
@@ -176,15 +291,48 @@ test("byte-cap overflow drops the buffer and reports the dropped PTY bytes", () 
   expect(drops[0]!.binaryBytes).toBe("title-bytes".length + "flood".length);
 });
 
-test("a durable append that never commits times out and reports its loss", () => {
+test("metadata survives an overflowed cell barrier until the route commits", async () => {
+  barrier.announce(7, SESSION);
+  barrier.enqueue(7, metadata("survives-overflow"), 40);
+  barrier.enqueue(7, cell(10, true), 100);
+  expect(barrier.enqueue(7, binary(1, "flood"), ANNOUNCED_CHANNEL_MAX_BYTES)).toBe("dropped");
+  expect(barrier.stats()).toMatchObject({ channels: 0, frames: 1, recoveryMetadata: 1 });
+
+  const delivered: string[] = [];
+  expect(await barrier.commit(7, SESSION, () => true, async (frame) => {
+    delivered.push(label(frame));
+  })).toBe(true);
+
+  expect(delivered).toEqual(["metadata:survives-overflow"]);
+  expect(barrier.stats().frames).toBe(0);
+});
+
+test("matching recovery survives a same-session reannouncement", async () => {
+  barrier.announce(7, SESSION);
+  barrier.enqueue(7, metadata("reannounced"), 40);
+  expect(barrier.enqueue(
+    7, binary(1, "overflow"), ANNOUNCED_CHANNEL_MAX_BYTES,
+  )).toBe("dropped");
+
+  barrier.announce(7, SESSION);
+  expect(barrier.stats()).toMatchObject({
+    channels: 1, frames: 1, recoveryMetadata: 0,
+  });
+  const delivered: string[] = [];
+  expect(await barrier.commit(7, SESSION, () => true, async (frame) => {
+    delivered.push(label(frame));
+  })).toBe(true);
+  expect(delivered).toEqual(["metadata:reannounced"]);
+});
+
+test("a timed-out cell barrier retains latest metadata through route binding", async () => {
   vi.useFakeTimers();
   barrier.announce(7, SESSION);
+  barrier.enqueue(7, metadata("survives-timeout"), 40);
   barrier.enqueue(7, cell(10, true), 100);
   barrier.enqueue(7, binary(1, "osc8-link"), 32);
 
-  vi.advanceTimersByTime(ANNOUNCED_CHANNEL_MAX_MS - 1);
-  expect(drops).toEqual([]);
-  vi.advanceTimersByTime(1);
+  vi.advanceTimersByTime(ANNOUNCED_CHANNEL_MAX_MS);
 
   expect(drops).toHaveLength(1);
   expect(drops[0]!.reason).toBe("timeout");
@@ -192,7 +340,13 @@ test("a durable append that never commits times out and reports its loss", () =>
   expect(drops[0]!.cellFrames).toBe(1);
   expect(drops[0]!.binaryFrames).toBe(1);
   expect(drops[0]!.binaryBytes).toBe("osc8-link".length);
-  expect(barrier.stats().channels).toBe(0);
+  expect(barrier.stats()).toMatchObject({ channels: 0, frames: 1, recoveryMetadata: 1 });
+
+  const delivered: string[] = [];
+  expect(await barrier.commit(7, SESSION, () => true, async (frame) => {
+    delivered.push(label(frame));
+  })).toBe(true);
+  expect(delivered).toEqual(["metadata:survives-timeout"]);
 });
 
 test("a delta before the channel's first full grid is an ordering loss", () => {
@@ -241,5 +395,5 @@ test("a replacement announcement reports the buffer it can never bind", () => {
   expect(drops).toHaveLength(1);
   expect(drops[0]!.reason).toBe("superseded");
   expect(drops[0]!.cellFrames).toBe(1);
-  expect(barrier.stats()).toEqual({ channels: 1, frames: 0, bytes: 0, pending: 1, draining: 0 });
+  expect(barrier.stats()).toMatchObject({ channels: 1, frames: 0, bytes: 0, pending: 1, draining: 0 });
 });

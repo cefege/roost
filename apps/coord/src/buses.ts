@@ -112,20 +112,17 @@ export const auditBus       = new BoundedBus<AuditRow>(256);
 export const pairBus        = new BoundedBus<PairRequestDelta>(32);
 
 
-// OSC 0/2 terminal title, parsed CENTRALLY by coord (terminal-title-hub) from
-// the same relayed byte stream and fanned out via Sync. VOLATILE —
-// one value per session, published only on CHANGE, seeded to
-// fresh Sync subscribers. The title is coord-authoritative: it is parsed once
-// here, never per-browser, so every viewer of a session agrees on it.
+// OSC 0/2 terminal title, supplied as semantic worker metadata and fanned out
+// via Sync. One value per session is published only on meaningful change and
+// seeded to fresh Sync subscribers; browser clients never parse PTY bytes.
 export const titleBus = new BoundedBus<{
   session_id: string;
   title: string;
 }>(256);
 
-// Last-activity timestamp (ms) per session, stamped by coord (last-activity-hub)
-// on PTY byte flow and fanned out via Sync (throttled, not per-byte). VOLATILE
-// like the two above — seeded to fresh Sync subscribers, throttled live updates
-// after. Drives the sidebar "Last activity" filter aging out idle OPEN sessions.
+// Last-activity timestamp (ms) from semantic worker observations. The
+// coordinator throttles live fan-out while retained snapshots let a fresh
+// subscriber age idle OPEN sessions immediately.
 export const lastActivityBus = new BoundedBus<{
   session_id: string;
   ts_ms: number;
@@ -139,15 +136,8 @@ export const lastActivityBus = new BoundedBus<{
 // on the periodic workersList snapshot (the "active server shows red" bug).
 export const workerRoutableBus = new BoundedBus<{ fps: string[] }>(64);
 
-// phase-26 firehose: session_id-tagged global fanouts for PTY bytes
-// and presence frames. publishBytes / publishPresence dual-publish to
-// these so the firehose subscription can deliver all session bytes +
-// presence in a single SSE stream. Eliminates the N-subs-per-Terminal
-// pressure on Chrome's 6-per-origin HTTP/1.1 connection budget.
-export const globalBytesBus = new BoundedBus<{
-  session_id: string;
-  bytes: Uint8Array;
-}>(512);
+// Global worker-presence fan-out. Presence frames share one stream so a
+// browser need not subscribe independently for each monitored worker.
 export const globalPresenceBus = new BoundedBus<{
   session_id: string;
   data: unknown;

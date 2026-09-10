@@ -15,7 +15,11 @@ import "roost/v1/wire.proto";
 
 // ── Upstream (worker → coord) ────────────────────────────────────
 
-message WHello { string worker_fp = 1; string version = 2; }
+message WHello {
+  string worker_fp = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+}
 message WPong { uint64 ts = 1; }
 // D-4b at-least-once delivery: worker stamps a per-worker monotonic
 // client_seq on every SessionEvent. Coord inserts under a unique
@@ -30,6 +34,16 @@ message WSessionEvent {
 message WRpcOk { string request_id = 1; string data_json = 2; }
 message WRpcError { string request_id = 1; string message = 2; }
 message WBinary { uint32 channel_id = 1; uint32 direction = 2; uint64 seq = 3; bytes data = 4; }
+
+// Compact semantic terminal metadata. The booleans preserve an intentional
+// empty title and distinguish an unchanged field from a reconnect replay.
+message WTerminalMetadata {
+  uint32 channel_id = 1;
+  bool title_changed = 2;
+  string title = 3;
+  bool activity_changed = 4;
+  uint64 activity_ts_ms = 5;
+}
 
 // T2.2 — in-band JWT rotation. Worker sends this BEFORE the current
 // JWT expires; coord-side auth interceptor verifies the new token and
@@ -170,6 +184,7 @@ message CoordWorkerUp {
     WCellGridChunk cell_grid_chunk = 18;
     WUpdateProgress update_progress = 30;
     WTerminalPipelineSnapshot terminal_pipeline_snapshot = 19;
+    WTerminalMetadata terminal_metadata = 20;
 
   }
 }
@@ -179,6 +194,7 @@ message CoordWorkerUp {
 message DHelloAck {
   reserved 1, 2;
   reserved "coord_pubkey_b64", "coord_pubkey_kid";
+  repeated string capabilities = 3;
 }
 message DPing { uint64 ts = 1; }
 message DBrowserCommand {

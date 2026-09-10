@@ -16,11 +16,8 @@ import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { log } from "@roost/shared/log";
 import { diag, signal } from "@roost/shared/diag";
 import { dispatchWorkerAgentStatusFrame } from "./worker-agent-status-frame.ts";
-import {
-  publishBytes,
-  publishCellGrid,
-  publishCellGridChunk,
-} from "../byte-hub.ts";
+import { publishCellGrid, publishCellGridChunk } from "../byte-hub.ts";
+import { dispatchLegacyTerminalMetadataFrame, dispatchTerminalMetadataFrame } from "./worker-terminal-metadata-frame.ts";
 import { appendEvent, dispatchSnapshotOrphanReaps } from "../event-log.ts";
 import { rejectPendingRpc, resolvePendingRpc } from "../router/pending-rpcs.ts";
 import { isTerminalPipelineSnapshotWireShape } from "./worker-terminal-pipeline-snapshot.ts";
@@ -34,6 +31,7 @@ interface WorkerFrameDispatcherOptions {
   getWorkerFp(): string | null;
   isSnapshotReady(): boolean;
   isCurrentGeneration(): boolean;
+  terminalMetadataNegotiated?(): boolean;
   fenced(what: string): boolean;
   sendBestEffort(what: string, frame: CoordWorkerDown): boolean;
   markSnapshotReady(): boolean;
@@ -249,18 +247,18 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
 
   function handleLiveFrame(frame: CoordWorkerUp): boolean {
     const workerFp = options.getWorkerFp();
+    const metadataNegotiated = options.terminalMetadataNegotiated?.() ?? false;
     switch (frame.frame.case) {
-      case "binary": {
-        const binary = frame.frame.value;
+      case "binary":
         if (workerFp && !options.fenced("binary")) {
-          publishBytes(
-            asWorkerFp(workerFp),
-            asChannelId(binary.channelId),
-            binary.data,
-          );
+          dispatchLegacyTerminalMetadataFrame(workerFp, metadataNegotiated, frame.frame.value);
         }
         return true;
-      }
+      case "terminalMetadata":
+        if (workerFp && !options.fenced("terminal_metadata")) {
+          dispatchTerminalMetadataFrame(workerFp, metadataNegotiated, frame.frame.value);
+        }
+        return true;
       case "cellGrid": {
         const cellGrid = frame.frame.value;
         if (workerFp && cellGrid.frame && !options.fenced("cell_grid")) {

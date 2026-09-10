@@ -1,27 +1,19 @@
-// last-activity-hub — coord-authoritative last-activity timestamp per session.
-//
-// Stamps "last saw PTY output" (ms) per session from the SAME bytes coord
-// already relays (globalBytesBus), and publishes it to lastActivityBus →
-// the Sync stream fans it to every browser. Drives the sidebar "Last activity"
-// filter: an OPEN session whose last activity is older than the window ages
-// out (a long-idle terminal stops cluttering the list).
-//
-// Mirrors terminal-title-hub (one per coord, started from createCoord), but
-// No parsing is needed: every byte is activity. Published throttled rather than
-// per byte; the consumer ages open sessions from this timestamp.
-//
-// Depends on: buses (globalBytesBus in, lastActivityBus out, sessionBus reap).
+// Coordinator-owned retained terminal activity timestamps.
+// The worker transport adapter supplies semantic activity observations; this
+// hub preserves first-publication and local 60-second fan-out throttling.
+// Session close events release retained state.
 
 import { diag } from "@roost/shared/diag";
-import { globalBytesBus, sessionBus, lastActivityBus } from "./buses.ts";
+import { TERMINAL_METADATA_ACTIVITY_THROTTLE_MS } from "@roost/shared/terminal-metadata";
+import { sessionBus, lastActivityBus } from "./buses.ts";
 
-// Don't fan a frame on every byte — coalesce to at most one publish per session
-// per window. Days-granularity filter → a minute of slack is invisible.
-const THROTTLE_MS = 60_000;
+// Do not fan a frame on every semantic activity observation. Local receipt
+// time gates publication so worker clock differences cannot alter the bound.
+export const LAST_ACTIVITY_THROTTLE_MS = TERMINAL_METADATA_ACTIVITY_THROTTLE_MS;
 
 interface Entry {
-  lastTs: number;          // last byte seen (ms) — the snapshot value
-  lastPublishedTs: number; // last value fanned to subscribers (throttle gate)
+  lastTs: number;
+  lastPublishedAtMs: number;
 }
 
 const _entries = new Map<string, Entry>();
@@ -35,35 +27,31 @@ export function getLastActivitySnapshot(): Array<{ session_id: string; ts_ms: nu
   return out;
 }
 
+/** Accept one semantic terminal activity observation from a worker route. */
+export function observeTerminalActivity(sessionId: string, observedAtMs: number): void {
+  const receivedAtMs = Date.now();
+  const timestamp = Number.isSafeInteger(observedAtMs) && observedAtMs >= 0
+    ? observedAtMs
+    : receivedAtMs;
+  let entry = _entries.get(sessionId);
+  if (!entry) {
+    entry = { lastTs: timestamp, lastPublishedAtMs: receivedAtMs };
+    _entries.set(sessionId, entry);
+    lastActivityBus.publish({ session_id: sessionId, ts_ms: timestamp });
+    return;
+  }
+  entry.lastTs = timestamp;
+  if (receivedAtMs - entry.lastPublishedAtMs < LAST_ACTIVITY_THROTTLE_MS) return;
+  entry.lastPublishedAtMs = receivedAtMs;
+  lastActivityBus.publish({ session_id: sessionId, ts_ms: timestamp });
+  diag("last_activity.publish", { sid: sessionId, ts_ms: timestamp });
+}
+
 export function startLastActivityHub(): () => void {
-  const unsubBytes = globalBytesBus.subscribe(({ session_id, bytes }) => {
-    if (bytes.byteLength === 0) return;
-    const now = Date.now();
-    let e = _entries.get(session_id);
-    if (!e) {
-      // First byte for this session: publish immediately so a session that
-      // just woke from idle reflects right away (not up to THROTTLE_MS late).
-      e = { lastTs: now, lastPublishedTs: now };
-      _entries.set(session_id, e);
-      lastActivityBus.publish({ session_id, ts_ms: now });
-      return;
-    }
-    e.lastTs = now;
-    if (now - e.lastPublishedTs >= THROTTLE_MS) {
-      e.lastPublishedTs = now;
-      lastActivityBus.publish({ session_id, ts_ms: now });
-      diag("last_activity.publish", { sid: session_id, ts_ms: now });
-    }
+  const unsubSessions = sessionBus.subscribe((event) => {
+    if (event.kind === "closed") _entries.delete(event.session_id);
   });
-
-  // Drop a session's timestamp when it closes (mirrors terminal-title-hub).
-  const unsubSessions = sessionBus.subscribe((ev) => {
-    if (ev.kind !== "closed") return;
-    _entries.delete(ev.session_id);
-  });
-
   return () => {
-    unsubBytes();
     unsubSessions();
     _entries.clear();
   };

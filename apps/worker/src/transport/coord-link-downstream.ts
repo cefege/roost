@@ -13,6 +13,7 @@ import {
 } from "@roost/shared/proto/worker_transport_pb";
 import type {
   DAgentPrompt,
+  DHelloAck,
   CoordWorkerDown,
   DInputRequest,
   DTerminalPipelineSnapshotRequest,
@@ -22,6 +23,7 @@ import type {
 } from "@roost/shared/proto/worker_transport_pb";
 import { ClientControlFrame } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
 import { log } from "@roost/shared/log";
 import {
   INPUT_REQUEST_INFLIGHT_CAP, TERMINAL_STREAM_REQUEST_INFLIGHT_CAP,
@@ -81,9 +83,15 @@ export function createCoordLinkDownstream(
     const v = frame.frame.value;
     switch (k) {
       case "helloAck": {
-        deps.onHelloAck?.({ reconnected });
-        outbox.acceptHelloAck(reconnected);
-        log.info("coord-link", "hello_ack", { reconnected });
+        if (outbox.activeSocket() !== socket) {
+          log.warn("coord-link", "hello_ack_stale_socket", {});
+          return;
+        }
+        const helloAck = v as DHelloAck;
+        const terminalMetadataNegotiated = helloAck.capabilities.includes(TERMINAL_METADATA_CAPABILITY);
+        outbox.acceptHelloAck(reconnected, terminalMetadataNegotiated);
+        deps.onHelloAck?.({ reconnected, terminalMetadataNegotiated });
+        log.info("coord-link", "hello_ack", { reconnected, terminal_metadata_v1: terminalMetadataNegotiated });
         return;
       }
       case "ping": {

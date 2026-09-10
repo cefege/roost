@@ -6,6 +6,7 @@
 import { create } from "@bufbuild/protobuf";
 import { CoordWorkerDownSchema, DHelloAckSchema } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp, CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
 import {
   jwtKeyGeneration,
   verifyJwt,
@@ -41,6 +42,7 @@ export function makeWorkerConn(
   onAuthRefreshed?: (caller: VerifiedJwtCaller) => void,
 ): WorkerConn {
   let workerFp: string | null = null;
+  let terminalMetadataNegotiated = false;
   let done = false;
   let respawnTimer: ReturnType<typeof setTimeout> | null = null;
   // Cleanup is identity-stamped so a reconnecting worker's delayed old socket
@@ -132,6 +134,7 @@ export function makeWorkerConn(
     isSnapshotReady: () => myHandle.ready,
     isCurrentGeneration: _isCurrentGeneration,
     fenced: _fenced,
+    terminalMetadataNegotiated: () => terminalMetadataNegotiated,
     sendBestEffort: trySend,
     markSnapshotReady: () => {
       const becameReady = !myHandle.ready;
@@ -264,10 +267,19 @@ export function makeWorkerConn(
         // Hello claims only the socket generation. It deliberately does not
         // prime DB breadcrumbs into the live channel index: no route, control
         // dispatch, callback, or respawn is admitted before the exact snapshot.
+        const acknowledgedCapabilities = f.frame.value.capabilities.includes(TERMINAL_METADATA_CAPABILITY)
+          ? [TERMINAL_METADATA_CAPABILITY]
+          : [];
+        terminalMetadataNegotiated = acknowledgedCapabilities.length > 0;
         trySend("hello_ack", create(CoordWorkerDownSchema, {
-          frame: { case: "helloAck", value: create(DHelloAckSchema, {}) },
+          frame: { case: "helloAck", value: create(DHelloAckSchema, {
+            capabilities: acknowledgedCapabilities,
+          }) },
         }));
-        log.info("worker-service", "hello", { worker_fp: fp });
+        log.info("worker-service", "hello", {
+          worker_fp: fp,
+          terminal_metadata_v1: terminalMetadataNegotiated,
+        });
         return;
       }
       case "pong": {

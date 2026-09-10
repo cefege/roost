@@ -47,10 +47,10 @@ export interface TestWorkerConnection {
   close(): void;
 }
 
-export const helloFrame = (fingerprint: string) => create(CoordWorkerUpSchema, {
+export const helloFrame = (fingerprint: string, capabilities: string[] = []) => create(CoordWorkerUpSchema, {
   frame: {
     case: "hello",
-    value: create(WHelloSchema, { workerFp: fingerprint, version: "test" }),
+    value: create(WHelloSchema, { workerFp: fingerprint, version: "test", capabilities }),
   },
 });
 

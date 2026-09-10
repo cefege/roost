@@ -13,6 +13,7 @@
     "./wire/headers": "./src/wire/headers.ts",
     "./terminal-search": "./src/terminal-search.ts",
     "./terminal-input": "./src/terminal-input.ts",
+    "./terminal-metadata": "./src/terminal-metadata.ts",
     "./layout-document": "./src/layout-document.ts",
     "./layout-document-proto": "./src/layout-document-proto.ts",
     "./ui-state": "./src/ui-state.ts",

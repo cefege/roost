@@ -1,14 +1,8 @@
-// Verifies that respawn publication swaps channel routes atomically for PTY output and input.
-// Bun discovers this suite directly and drives an isolated durable-publication fixture.
-// The contract depends on event-log projection, byte-hub routing, and the global bytes bus.
+// Verifies that respawn publication atomically replaces the live channel route.
+// The durable route is shared by terminal cells, semantic metadata, and input.
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import {
-  getCachedSessionWorker,
-  lookupSessionId,
-  publishBytes,
-} from "../src/byte-hub.ts";
-import { globalBytesBus } from "../src/buses.ts";
+import { getCachedSessionWorker, lookupSessionId } from "../src/byte-hub.ts";
 import { SessionEvent, asChannelId } from "@roost/shared/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 
@@ -31,29 +25,12 @@ beforeEach(() => fixture.reset());
 afterAll(() => fixture.close());
 
 describe("respawned channel-index operation", () => {
-  test("routes PTY metadata on the new channel immediately, old channel dead", async () => {
+  test("binds the new channel immediately and removes the stale route", async () => {
     await append(openedEvent(SID_A, 11));
+    await append(respawnedEvent(SID_A, 12));
 
-    const bytes: string[] = [];
-    const unsubBytes = globalBytesBus.subscribe((m) => {
-      if (m.session_id === SID_A) bytes.push(new TextDecoder().decode(m.bytes));
-    });
-    try {
-      await append(respawnedEvent(SID_A, 12));
-
-      // No browser reconnect, no re-`opened`: the new channel is already live.
-      publishBytes(FP, asChannelId(12), new TextEncoder().encode("\x1b]0;new title\x07"));
-      // The dead channel routes nothing — a surviving stale key would fan the
-      // old core's trailing output into the same session.
-      publishBytes(FP, asChannelId(11), new TextEncoder().encode("stale"));
-    } finally {
-      unsubBytes();
-    }
-
-    expect(bytes).toEqual(["\x1b]0;new title\x07"]);
     expect(lookupSessionId(FP, asChannelId(11))).toBeUndefined();
     expect(lookupSessionId(FP, asChannelId(12))).toBe(SID_A);
-    // Input/claim routing (getCachedSessionWorker) moves in the same step.
     expect(getCachedSessionWorker(SID_A)).toEqual({ worker_fp: FP, channel: 12 });
     expect(committedChannel(SID_A)).toBe(12);
   });
