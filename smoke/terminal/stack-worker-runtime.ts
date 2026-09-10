@@ -54,7 +54,7 @@ export function createTerminalWorkerStarter(
           ROOST_WORKER_DATA_DIR: config.dataDir,
           ROOST_WORKER_KEY_PATH: join(config.dataDir, "worker.key"),
           ROOST_KEEPER_QUIET: "1",
-          ...(config.gitSha ? { GIT_SHA: config.gitSha } : {}),
+          ...(config.gitSha ? { GIT_SHA: config.gitSha, ROOST_GIT_SHA: config.gitSha } : {}),
           ...(config.forceLiveKeeperRetire ? { [KEEPER_FORCE_LIVE_RETIRE_ENV]: "1" } : {}),
           ...(config.shell ? { SHELL: config.shell, ROOST_SHELL: config.shell } : {}),
         }),
