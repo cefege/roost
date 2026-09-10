@@ -3,7 +3,6 @@
 // and the compact drawer/settings shell without synthetic clients or renderers.
 
 import type { Page } from "@playwright/test";
-import type { TerminalTestStack } from "./stack.ts";
 import { test, expect } from "./fixtures.ts";
 import {
   navigateToSmokeSession,
@@ -12,6 +11,7 @@ import {
   switchToSmokeSession,
 } from "./terminal-helpers.ts";
 import { readRenderedLayout } from "./layout-document-snapshots.ts";
+import { expectStatusTruth } from "./workbench-status.ts";
 
 const WIDE_VIEWPORT = { width: 1440, height: 900 } as const;
 const NARROW_VIEWPORT = { width: 1024, height: 768 } as const;
@@ -110,26 +110,6 @@ async function typeTrustedMarker(page: Page, sessionId: string, marker: string):
   await expect.poll(() => slot.textContent(), { timeout: 30_000 }).toContain(marker);
 }
 
-async function expectStatusTruth(page: Page, stack: TerminalTestStack): Promise<void> {
-  const status = page.getByTestId("workbench-status-bar");
-  await expect(status).toBeVisible();
-  await expect.poll(() => status.getByTestId("workbench-status-sync").textContent())
-    .toContain("Synced");
-  await expect(status.getByTestId("workbench-status-worker")).toContainText("roost-terminal-test");
-  const [{ sessions }, { workers, routableFps }] = await Promise.all([
-    stack.client.sessionsList({ status: "all" }),
-    stack.client.workersList({}),
-  ]);
-  const openCount = sessions.filter((session) => session.status === "open").length;
-  const routable = new Set(routableFps);
-  const onlineCount = workers.filter((worker) => routable.has(worker.fp)).length;
-  const counts = status.getByTestId("workbench-status-counts");
-  await expect(counts).toContainText(`${openCount} ${openCount === 1 ? "session" : "sessions"}`);
-  await expect(counts).toContainText(`${onlineCount}/${workers.length} workers`);
-  await expect(status.getByTestId("workbench-status-agent")).toHaveCount(0);
-  const revision = await status.getByTestId("workbench-status-revision").textContent();
-  expect(revision).toMatch(/^[0-9a-f]{7}$/);
-}
 
 function tabWrapper(page: Page, sessionId: string) { return page.locator(`.df-tab:is([data-testid="tab-${sessionId}"], :has([data-testid="tab-${sessionId}"]))`).first(); }
 

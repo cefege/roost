@@ -77,7 +77,7 @@ export function TerminalDeck(props: TerminalDeckProps) {
       }}
     >
       <Show when={model.openSessions().length === 0}>
-        <div style={{ position: "absolute", inset: "0", display: "flex", "align-items": "center", "justify-content": "center", color: "var(--text-lo)", "font-size": "13px" }}>
+        <div class="workbench-terminal-deck__empty">
           No session selected.
         </div>
       </Show>

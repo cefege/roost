@@ -21,6 +21,7 @@ import "./styles/voice-input.css";
 import "./styles/settings-dense.css";
 import "./styles/drive.css";
 import "./styles/workbench-shell.css";
+import "./styles/workbench-settings.css";
 import "./styles/workbench-sidebar.css";
 import "./styles/workbench-tabs.css";
 

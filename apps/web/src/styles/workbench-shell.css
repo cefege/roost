@@ -92,7 +92,6 @@
   text-decoration: none;
   width: var(--workbench-activity-width);
 }
-
 .workbench-titlebar__help:hover {
   background: var(--md-state-hover);
   color: var(--text-hi);
@@ -195,6 +194,15 @@
   outline-offset: calc(var(--workbench-border-width) * -1);
 }
 
+.workbench-terminal-deck__empty {
+  align-items: center;
+  color: var(--text-lo);
+  display: flex;
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+}
 .workbench-editor-region {
   background: var(--workbench-editor);
   display: flex;
@@ -277,63 +285,6 @@
   white-space: nowrap;
 }
 
-.workbench-editor-slot .settings-shell,
-.workbench-editor-slot .settings-mobile__main {
-  background: var(--workbench-editor);
-  height: 100%;
-  min-height: 0;
-}
-
-.workbench-editor-slot .settings-shell {
-  color: var(--text-hi);
-  width: 100%;
-}
-
-.workbench-editor-slot .settings-rail {
-  background: var(--workbench-sidebar);
-  border-right-color: var(--workbench-border);
-  width: calc(var(--md-space-9) * 5);
-}
-
-.workbench-editor-slot .settings-rail__brand,
-.workbench-editor-slot .settings-topbar {
-  background: var(--workbench-editor);
-  border-color: var(--workbench-border);
-}
-
-.workbench-editor-slot .settings-rail__brand,
-.workbench-editor-slot .settings-topbar__title,
-.workbench-editor-slot .settings-mobile__label {
-  color: var(--text-hi);
-}
-
-.workbench-editor-slot .settings-rail__group-label,
-.workbench-editor-slot .settings-mobile__group-label {
-  color: var(--text-lo);
-}
-
-.workbench-editor-slot .settings-rail__item {
-  border-radius: var(--md-shape-xs);
-  color: var(--text-mid);
-}
-
-.workbench-editor-slot .settings-rail__item:hover,
-.workbench-editor-slot .settings-rail__item:focus-visible,
-.workbench-editor-slot .settings-mobile__row:active,
-.workbench-editor-slot .settings-mobile__row:focus-visible {
-  background: var(--md-state-hover);
-  color: var(--text-hi);
-}
-
-.workbench-editor-slot .settings-rail__item[data-selected="true"] {
-  background: var(--workbench-sidebar-selected);
-  color: var(--workbench-sidebar-selected-text);
-}
-
-.workbench-editor-slot .settings-content,
-.workbench-editor-slot .settings-mobile__list {
-  background: var(--workbench-editor);
-}
 
 .workbench-help {
   background: var(--workbench-editor);
