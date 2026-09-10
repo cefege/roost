@@ -67,6 +67,7 @@ import type { TerminalDeckProps } from "./terminal-deck-model.ts";
 import { bindTerminalDeckShortcuts } from "./terminal-deck-shortcuts.ts";
 import { folderPathOf } from "../lib/folderKey.ts";
 import { scheduleUiStateReport } from "../lib/uiStateReport.ts";
+import { addToast } from "../store/toastStore.ts";
 
 
 interface DeckOperationModel {
@@ -211,13 +212,21 @@ export function createTerminalDeckOperations(
     if (!anchor) return;
     const authToken = captureAuthResourceToken();
     releaseActiveComposeFocus();
-    const { sessionId } = await spawnSibling(anchor);
-    if (!isCurrentAuthResourceToken(authToken)) return;
-    await waitForSession(sessionId);
-    if (!isCurrentAuthResourceToken(authToken)) return;
-    maybeAutoLaunchAgent(sessionId);
-    model.apply((current) => splitLeaf(current, paneId, dir, sessionId, false));
-    model.navigate(`/s/${sessionId}`);
+    try {
+      const { sessionId } = await spawnSibling(anchor);
+      if (!isCurrentAuthResourceToken(authToken)) return;
+      await waitForSession(sessionId);
+      if (!isCurrentAuthResourceToken(authToken)) return;
+      maybeAutoLaunchAgent(sessionId);
+      model.apply((current) => splitLeaf(current, paneId, dir, sessionId, false));
+      model.navigate(`/s/${sessionId}`);
+    } catch (error) {
+      if (!isCurrentAuthResourceToken(authToken)) return;
+      addToast(
+        `Split terminal failed: ${error instanceof Error ? error.message : String(error)}`,
+        "err",
+      );
+    }
   }
   function spotlight(): void {
     if (spotlightSessionId()) {

@@ -26,15 +26,31 @@ export const AgentLauncherPane: Component = () => {
 
   async function onSelect(v: string): Promise<void> {
     setDraftSelected(v);
-    if (v !== "custom") {
+    if (v === "custom") return;
+    try {
       await saveAgentConfig(v, currentCustomCommand());
       addToast("Default agent saved");
+    } catch (error) {
+      setDraftSelected(currentSelected());
+      addToast(`Default agent save failed: ${error instanceof Error ? error.message : String(error)}`, "err");
     }
   }
 
   async function saveCustom(): Promise<void> {
-    await saveAgentConfig("custom", draftCustom().trim());
-    addToast("Default agent saved");
+    try {
+      await saveAgentConfig("custom", draftCustom().trim());
+      addToast("Default agent saved");
+    } catch (error) {
+      addToast(`Default agent save failed: ${error instanceof Error ? error.message : String(error)}`, "err");
+    }
+  }
+
+  async function onAutoLaunchChange(enabled: boolean): Promise<void> {
+    try {
+      await saveAutoLaunch(enabled);
+    } catch (error) {
+      addToast(`Auto-launch save failed: ${error instanceof Error ? error.message : String(error)}`, "err");
+    }
   }
 
   return (
@@ -88,7 +104,7 @@ export const AgentLauncherPane: Component = () => {
       <div style={{ "margin-top": "22px", display: "flex", "align-items": "center", gap: "12px" }}>
         <Switch
           checked={autoLaunchEnabled()}
-          onChange={(v) => void saveAutoLaunch(v)}
+          onChange={(v) => void onAutoLaunchChange(v)}
           label="Auto-launch agent in new terminal windows"
           testId="agent-auto-launch-toggle"
         />
