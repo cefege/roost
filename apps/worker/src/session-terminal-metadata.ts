@@ -142,7 +142,7 @@ export function flushTerminalMetadata(manager: SessionManager): void {
         return;
       }
       if (titleChanged && state.title === title) state.titleDirty = false;
-      if (activityChanged) state.lastActivityPublishedAtMs = activityTsMs;
+      if (activityChanged) state.lastActivityPublishedAtMs = Date.now();
       if (activityChanged && state.activityTsMs === activityTsMs) state.activityDirty = false;
       if (
         (state.titleDirty || state.activityDirty)

@@ -136,6 +136,32 @@ test("replays the latest activity retained during worker throttling", async () =
   expect(sent[1]?.activityTsMs).toBe(2_000);
 });
 
+test("does not republish activity immediately after a delayed replay", async () => {
+  const sent: TerminalMetadataFrame[] = [];
+  const manager = createManager((metadata) => {
+    sent.push({ ...metadata });
+    return "sent";
+  });
+
+  vi.useFakeTimers();
+  setSystemTime(new Date(1_000));
+  setTerminalMetadataNegotiated(manager, true);
+  observeTerminalMetadata(manager, 7, new Uint8Array([0x61]));
+  await flushMicrotasks();
+  expect(sent).toHaveLength(1);
+
+  setTerminalMetadataNegotiated(manager, false);
+  setSystemTime(new Date(61_000));
+  setTerminalMetadataNegotiated(manager, true);
+  await flushMicrotasks();
+  expect(sent).toHaveLength(2);
+  expect(sent[1]?.activityTsMs).toBe(1_000);
+
+  observeTerminalMetadata(manager, 7, new Uint8Array([0x62]));
+  await flushMicrotasks();
+  expect(sent).toHaveLength(2);
+});
+
 test("does not spin after a refused semantic send", async () => {
   let attempts = 0;
   const manager = createManager(() => {
