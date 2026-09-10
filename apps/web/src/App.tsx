@@ -179,10 +179,10 @@ export function App() {
           />
           <Route path={ROUTES.BROWSE_ROOT} component={BrowseRedirect} />
           <Route path={ROUTES.BROWSE} component={BrowsePage} />
+          <Route path={ROUTES.SETTINGS} component={SettingsRoot} />
+          <Route path={ROUTES.HELP} component={Help} />
         </Route>
-        <Route path={ROUTES.SETTINGS} component={SettingsRoot} />
         <Route path={ROUTES.PAIR} component={() => <Onboarding />} />
-        <Route path={ROUTES.HELP} component={Help} />
         <Route path={ROUTES.DESIGN} component={DesignGallery} />
         <Route path="*" component={() => <Navigate href="/" />} />
       </Router>

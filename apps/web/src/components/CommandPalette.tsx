@@ -8,7 +8,7 @@
 // Open/close + folder context live in lib/keyboardShortcuts.ts.
 // Callers: App.tsx (mounted after protected route access; gated on cmdPaletteOpen).
 
-import { Show, lazy } from "solid-js";
+import { Show, createEffect, lazy } from "solid-js";
 import { cmdPaletteOpen } from "../lib/keyboardShortcuts.ts";
 import { createOverlayPresence } from "../lib/overlayMotion.ts";
 
@@ -20,7 +20,26 @@ const PaletteBody = lazy(() =>
 );
 
 export function CommandPalette() {
+  let restoreTarget: HTMLElement | null = null;
+  let paletteWasOpen = false;
   const { present, setPanelRef } = createOverlayPresence(cmdPaletteOpen, "panel");
+  createEffect(() => {
+    const open = cmdPaletteOpen();
+    if (open) {
+      if (!paletteWasOpen) {
+        restoreTarget = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        paletteWasOpen = true;
+      }
+      return;
+    }
+    if (!paletteWasOpen) return;
+    const target = restoreTarget;
+    restoreTarget = null;
+    paletteWasOpen = false;
+    queueMicrotask(() => {
+      if (target?.isConnected) target.focus();
+    });
+  });
   return (
     <Show when={present()}>
       <PaletteBody setPanelRef={setPanelRef} />

@@ -1,11 +1,12 @@
-// "+ New terminal" for the flat sidebar. One click → /browse/<server> (the
-// Google-Drive-style file manager): live folder grid, drill, recents,
-// New-folder, Open-terminal-here. Spawn happens on the browse page
-// (pickFolder → sessionsSpawn shell). Pre-pointed at the most-recent server.
+// New-terminal action for the primary sidebar.
+// It preserves the existing browse-first workflow and picks the most recent
+// worker before navigating; only its workbench presentation lives here.
+
 
 import { rootStore } from "../../store/root.ts";
 import { allSessions } from "../../store/selectors.ts";
 import { useNavigate } from "@solidjs/router";
+import { IconButton } from "../Settings/md/IconButton.tsx";
 
 export function FlatNewTerminal() {
   const navigate = useNavigate();
@@ -17,21 +18,14 @@ export function FlatNewTerminal() {
     navigate(`/browse/${fp}`);
   }
 
-  // M3 circular FAB: icon-only "+" pinned bottom-right of the sidebar, teal
-  // primary-container. Opens /browse (the Drive file manager).
   return (
-    <button
-      type="button"
-      class="df-newterm-fab"
+    <IconButton
+      icon="add"
+      label="New session"
+      class="df-newterm-fab workbench-sidebar-new-terminal"
       data-testid="flat-new-terminal-button"
       onClick={open}
-      aria-label="New session"
       title="New session"
-    >
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 5v14M5 12h14" />
-      </svg>
-    </button>
+    />
   );
 }

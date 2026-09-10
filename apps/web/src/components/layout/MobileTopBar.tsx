@@ -8,67 +8,26 @@
 
 import { createMemo } from "solid-js";
 import { useLocation } from "@solidjs/router";
-import { rootStore } from "../../store/root.ts";
-import { activeSessionForPath } from "../../store/selectors.ts";
 import { openSidebar } from "../../store/uiStore.ts";
+import { workbenchTitle } from "../../lib/workbenchTitle.ts";
 import { IconButton } from "../Settings/md/primitives.tsx";
-import { workerPathBasename } from "../../lib/nativePath.ts";
 
 
 export function MobileTopBar() {
   const location = useLocation();
 
-  // Title from the URL: search/file get labels; a session shows its OSC
-  // terminal title (what the shell sets) falling back to the cwd leaf.
-  const title = createMemo(() => {
-    const path = location.pathname;
-    if (path.startsWith("/search")) return "Search";
-    if (path.startsWith("/file/")) return "Files";
-    const session = activeSessionForPath(path);
-    if (session) {
-      const osc = rootStore.terminal_title[session.id]?.trim();
-      if (osc) return osc.slice(0, 60);
-      return workerPathBasename(session.worker_fp, session.cwd) || "~";
-    }
-    if (path.startsWith("/s/") || path.startsWith("/t/") || path.startsWith("/w/")) return "Terminal";
-    return "Roost";
-  });
+  const title = createMemo(() => workbenchTitle(location.pathname));
 
   return (
-    <header
-      data-testid="mobile-topbar"
-      style={{
-        display: "flex",
-        "align-items": "center",
-        gap: "8px",
-        height: "48px",
-        "flex-shrink": 0,
-        padding: "0 10px",
-        background: "var(--surface-1)",
-        "border-bottom": "1px solid var(--border-subtle)",
-        color: "var(--text-hi)",
-      }}
-    >
+    <header data-testid="mobile-topbar" class="mobile-topbar">
       <IconButton
+        class="mobile-topbar__menu"
         icon="menu"
         label="Open sidebar"
         data-testid="mobile-topbar-menu"
         onClick={openSidebar}
-        style={{ "flex-shrink": 0 }}
       />
-      <span
-        style={{
-          flex: "1 1 0",
-          "min-width": 0,
-          "font-size": "14px",
-          "font-weight": 600,
-          overflow: "hidden",
-          "text-overflow": "ellipsis",
-          "white-space": "nowrap",
-        }}
-      >
-        {title()}
-      </span>
+      <span class="mobile-topbar__title">{title()}</span>
     </header>
   );
 }

@@ -80,6 +80,7 @@ export interface AgentStatusPresentation {
   tooltip: string;
   color: string;
   priority: number;
+  dotStatus: "warn" | "ok" | "info" | "idle";
 }
 
 export const AGENT_STATUS_PRESENTATION: Readonly<Record<AgentStatusLevel, AgentStatusPresentation>> = {
@@ -89,6 +90,7 @@ export const AGENT_STATUS_PRESENTATION: Readonly<Record<AgentStatusLevel, AgentS
     tooltip: "The agent is waiting for your input",
     color: "var(--md-warning)",
     priority: 4,
+    dotStatus: "warn",
   },
   done: {
     label: "Done",
@@ -96,6 +98,7 @@ export const AGENT_STATUS_PRESENTATION: Readonly<Record<AgentStatusLevel, AgentS
     tooltip: "The agent finished since you last viewed this terminal",
     color: "var(--md-secondary)",
     priority: 3,
+    dotStatus: "ok",
   },
   working: {
     label: "Working",
@@ -103,6 +106,7 @@ export const AGENT_STATUS_PRESENTATION: Readonly<Record<AgentStatusLevel, AgentS
     tooltip: "The agent is working",
     color: "var(--md-primary)",
     priority: 2,
+    dotStatus: "info",
   },
   idle: {
     label: "Idle",
@@ -110,6 +114,7 @@ export const AGENT_STATUS_PRESENTATION: Readonly<Record<AgentStatusLevel, AgentS
     tooltip: "The agent is idle",
     color: "var(--md-success)",
     priority: 1,
+    dotStatus: "idle",
   },
   unknown: {
     label: "Unknown",
@@ -117,6 +122,7 @@ export const AGENT_STATUS_PRESENTATION: Readonly<Record<AgentStatusLevel, AgentS
     tooltip: "Agent status is unavailable",
     color: "var(--md-on-surface-variant)",
     priority: 0,
+    dotStatus: "idle",
   },
 };
 

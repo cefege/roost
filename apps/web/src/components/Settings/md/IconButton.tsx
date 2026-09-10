@@ -27,6 +27,7 @@ export const IconButton: Component<
     "label",
     "children",
     "type",
+    "class",
     "data-testid",
     "menuPopup",
     "controlsId",
@@ -58,7 +59,8 @@ export const IconButton: Component<
     <Dynamic
       component="md-icon-button"
       ref={captureButtonElement}
-      type={own.type ?? "button"}
+      attr:class={own.class}
+      attr:type={own.type ?? "button"}
       {...rest}
     >
       <Icon name={own.icon} />

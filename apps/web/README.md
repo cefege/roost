@@ -14,7 +14,7 @@ security boundary. Startup order:
 1. `captureAndScrubFragmentCredential()` synchronously removes URL-carried
    credentials before the SPA module graph loads.
 2. `entry.ts` dynamically imports `apps/web/src/main.tsx`.
-3. `applyTheme(loadTheme())` and `applyChromeMode(loadChromeMode())` set `data-theme` and `data-chrome-mode` before first paint.
+3. `applyTheme(loadTheme())` sets `data-theme` before first paint.
 4. `installSignalShip()` + `installSpaDiag()` and the global
    error/rejection/chunk-recovery handlers install before render.
 5. `claimTabIdentity()` settles this document's unique identity, then
@@ -45,8 +45,8 @@ lives in that row's directory; prefixed refs follow the convention above.
 | Directory | Owns | Must not own |
 | --- | --- | --- |
 | `apps/web/src/` (root files) | `entry.ts` (credential scrub + deferred graph load), `main.tsx` (post-scrub bootstrap + mount), `App.tsx` (router + overlay shell), `routes.ts` (URL table), `connect.ts` (Connect-RPC client), `css-imports.d.ts` and `md-elements.d.ts` (ambient imports/elements) | feature-shaped UI |
-| `apps/web/src/components/` | screens/dialogs; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets plus local layout transfer and `LayoutDocumentDialog.tsx` owns explicit import preview/apply; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `cell-terminal-document-lifecycle.ts` fans one page-lifecycle listener set to mounted terminal panes; `TerminalDeck.tsx` owns persistent keyed mounting | direct store writes, wire framing, persistence |
-| `apps/web/src/components/layout/` | `AppShell.tsx` (sidebar + route slot), `MobileTopBar.tsx` | route-specific content |
+| `apps/web/src/components/` | screens/dialogs; `DesignGallery.tsx` is the visual reference for theme tokens, shared primitives, and the canonical title/activity/sidebar/editor/status composition; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets plus local layout transfer and `LayoutDocumentDialog.tsx` owns explicit import preview/apply; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `cell-terminal-document-lifecycle.ts` fans one page-lifecycle listener set to mounted terminal panes; `TerminalDeck.tsx` owns persistent keyed mounting | direct store writes, wire framing, persistence |
+| `apps/web/src/components/layout/` | `AppShell.tsx` owns the canonical desktop workbench grid and compact/mobile shell; `WorkbenchTitleBar.tsx`, `WorkbenchActivityBar.tsx`, and `WorkbenchStatusBar.tsx` own truthful desktop chrome; `SidebarResizer.tsx` and `MobileSidebarDrawer.tsx` retain sidebar interaction seams; `MobileTopBar.tsx` owns compact route context | route-specific content |
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
 | `apps/web/src/components/Settings/` | settings shell/panes; `MachinesPane.tsx` owns workers, `DevicesPane.tsx` is the only identity surface, `settingsNavigation.ts` owns the single `SETTINGS_GROUPS` list | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
@@ -54,10 +54,28 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
 | `apps/web/src/lib/` | pure helpers and browser adapters; `layoutDocumentControls.ts` + `layoutDocumentFile.ts` own local transfer, `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
 | `apps/web/src/auth/` | web-key/IndexedDB, `fragment-credential.ts` (`#pair=<token>`, the only URL credential kind), pairing and tab identity | RPC plumbing (`apps/web/src/connect.ts`) or UI |
-| `apps/web/src/styles/` | eight global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules, and `workbench-chrome-*.css` owns the opt-in outer chrome | component-local one-offs |
+| `apps/web/src/styles/` | global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph and defines the 35px `--workbench-tab-strip-height`; `sidebar.css` owns terminal `.wterm` rules; `workbench-shell.css`, `workbench-sidebar.css`, and `workbench-tabs.css` each own one desktop chrome region | component-local one-offs |
 | `apps/web/tests/` | recursive `*.test.ts` Bun suites, including the root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
 | `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
+
+## Canonical workbench
+
+`AppShell` owns the persistent desktop title bar, activity rail, primary sidebar,
+editor/deck, and status bar. `MainPane` remains the single route-array owner of
+the warm `TerminalDeck`; navigation across session, file, and search routes
+does not remount its terminal renderers. Desktop tab geometry reads the resolved
+`--workbench-tab-strip-height` once during deck sizing, while compact mode keeps
+its 48px mobile strip.
+
+The compact shell removes desktop rails, opens the existing drawer for
+navigation, and keeps route context in one `MobileTopBar`. Settings uses the
+shared list-row primitives for its mobile list/detail/back flow.
+
+Real-surface proof lives in `smoke/terminal/workbench-shell.spec.ts` and the
+targeted terminal Playwright tier. Manual visual captures use
+`bun smoke/terminal/live-stack.ts --pair`; the `/design` route is the static
+token and primitive reference, not a substitute for a real terminal run.
 
 `/search` is a dashboard-local metadata, terminal-content, and agent-attention
 surface. Its default scope filters the same scalar metadata projection used by

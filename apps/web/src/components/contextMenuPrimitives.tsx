@@ -18,11 +18,11 @@ export function ctxMenuSurfaceStyle(
 		top: `${y}px`,
 		"z-index": String(zIndex),
 		"min-width": "180px",
-		background: "var(--bg-elev-2)",
-		border: "1px solid var(--border-strong)",
+		background: "var(--md-surface-container-high)",
+		border: "1px solid var(--md-outline-variant)",
 		"border-radius": "var(--md-shape-sm)",
 		"box-shadow": "var(--md-elev-3)",
-		padding: "4px",
+		padding: "var(--md-space-1)",
 		"user-select": "none",
 		color: "var(--text-hi)",
 		"font-size": "var(--md-body-s-size)",
@@ -34,9 +34,9 @@ export function CtxMenuSeparator() {
 		<div
 			role="separator"
 			style={{
-				height: "1px",
-				background: "var(--border-strong)",
-				margin: "4px 0",
+				border: "0 solid var(--md-outline-variant)",
+				"border-block-start-width": "var(--workbench-border-width)",
+				margin: "var(--md-space-1) 0",
 			}}
 		/>
 	);
@@ -45,40 +45,38 @@ export function CtxMenuSeparator() {
  * sequential tab order; `disabled` makes unreachable actions unavailable to
  * both roving focus and pointer activation. */
 export function CtxMenuItem(props: {
-	testid: string;
-	onClick: (e: MouseEvent) => void;
-	danger?: boolean;
-	disabled?: boolean;
-	title?: string;
-	children: JSX.Element;
+  testid: string;
+  onClick: (e: MouseEvent) => void;
+  danger?: boolean;
+  disabled?: boolean;
+  selected?: boolean;
+  highlighted?: boolean;
+  class?: string;
+  onFocus?: (event: FocusEvent) => void;
+  onMouseEnter?: (event: MouseEvent) => void;
+  title?: string;
+  children: JSX.Element;
 }) {
-	return (
-		<button
-			type="button"
-			data-testid={props.testid}
-			class="df-menu-item"
-			role="menuitem"
-			tabIndex={-1}
-			disabled={props.disabled}
-			aria-disabled={props.disabled ? "true" : undefined}
-			title={props.title}
-			onClick={props.onClick}
-			style={{
-				display: "block",
-				width: "100%",
-				padding: "6px 10px",
-				border: "none",
-				"border-radius": "var(--md-shape-xs)",
-				cursor: props.disabled ? "default" : "pointer",
-				opacity: props.disabled ? "0.4" : "1",
-				color: props.danger ? "var(--color-err)" : "var(--text-hi)",
-				font: "inherit",
-				"text-align": "left",
-			}}
-		>
-			{props.children}
-		</button>
-	);
+  return (
+    <button
+      type="button"
+      data-testid={props.testid}
+      class={`df-menu-item${props.danger ? " df-menu-item--danger" : ""}${props.class ? ` ${props.class}` : ""}`}
+      role="menuitem"
+      tabIndex={-1}
+      disabled={props.disabled}
+      aria-disabled={props.disabled ? "true" : undefined}
+      aria-current={props.selected ? "page" : undefined}
+      data-selected={props.selected ? "true" : undefined}
+      data-highlighted={props.highlighted ? "true" : undefined}
+      title={props.title}
+      onFocus={props.onFocus}
+      onMouseEnter={props.onMouseEnter}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </button>
+  );
 }
 
 export type MenuFocusEdge = "first" | "last";
@@ -189,40 +187,41 @@ export function anchoredMenuPosition(btn: Element): AnchoredMenuPos {
  *  the trigger-derived `right` applied. `extra` wins for per-menu overrides
  *  (max-width, padding, layout) on top of the shared chrome. */
 export function anchoredMenuSurfaceStyle(
-	pos: AnchoredMenuPos,
-	opts: { minWidth: string; zIndex?: number; extra?: JSX.CSSProperties },
+  pos: AnchoredMenuPos,
+  opts: { minWidth: string; zIndex?: number; extra?: JSX.CSSProperties },
 ): JSX.CSSProperties {
-	const s: JSX.CSSProperties = {
-		...ctxMenuSurfaceStyle(0, pos.y, opts.zIndex),
-		"min-width": opts.minWidth,
-		right: `${pos.right}px`,
-		...opts.extra,
-	};
-	delete s.left;
-	return s;
+  const s: JSX.CSSProperties = {
+    ...ctxMenuSurfaceStyle(0, pos.y, opts.zIndex),
+    "min-width": opts.minWidth,
+    right: `${pos.right}px`,
+    ...opts.extra,
+  };
+  delete s.left;
+  return s;
 }
 
 /** Outside-click + Escape dismissal for a floating menu, registered for the
- *  owning reactive scope's lifetime. A click closes UNLESS it landed inside an
- *  element produced by `within` (the trigger button, the menu itself) — item
- *  clicks close explicitly instead, keeping ordering deterministic against
- *  Solid's delegated events. */
+ * owning reactive scope's lifetime. A click closes UNLESS it landed inside an
+ * element produced by `within` (the trigger button, the menu itself) — item
+ * clicks close explicitly instead, keeping ordering deterministic against
+ * Solid's delegated events. */
 export function trackFloatingMenuDismiss(opts: {
-	onClose(): void;
-	within?: Array<() => Element | undefined | null>;
+  onClose(): void;
+  onEscape?(): void;
+  within?: Array<() => Element | undefined | null>;
 }): void {
-	const onDocClick = (e: MouseEvent) => {
-		const t = e.target as Node | null;
-		if (t) for (const el of opts.within ?? []) if (el()?.contains(t)) return;
-		opts.onClose();
-	};
-	const onEsc = (e: KeyboardEvent) => {
-		if (e.key === "Escape") opts.onClose();
-	};
-	document.addEventListener("click", onDocClick);
-	document.addEventListener("keydown", onEsc);
-	onCleanup(() => {
-		document.removeEventListener("click", onDocClick);
-		document.removeEventListener("keydown", onEsc);
-	});
+  const onDocClick = (e: MouseEvent) => {
+    const t = e.target as Node | null;
+    if (t) for (const el of opts.within ?? []) if (el()?.contains(t)) return;
+    opts.onClose();
+  };
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape") (opts.onEscape ?? opts.onClose)();
+  };
+  document.addEventListener("click", onDocClick);
+  document.addEventListener("keydown", onEsc);
+  onCleanup(() => {
+    document.removeEventListener("click", onDocClick);
+    document.removeEventListener("keydown", onEsc);
+  });
 }

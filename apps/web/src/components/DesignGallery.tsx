@@ -1,7 +1,6 @@
-// DesignGallery — the single visual reference for the Roost design system
-// (design-system phase 1). Renders every color token, the type ramp, the
-// spacing/shape/elevation scales, and a live example of every md primitive
-// so a design-reviewer agent can see the whole system on one /design page.
+// DesignGallery — the single visual reference for the Roost design system.
+// Renders the canonical workbench shell, color tokens, type, density scales,
+// and live examples of every shared Material primitive on one /design page.
 //
 // HARD RULE: colors + font-sizes come ONLY from theme tokens via var(--…).
 // No raw hex / rgb() / px font-size (ratcheted by scripts/lint-roost.ts).
@@ -15,6 +14,7 @@ import {
   SectionTitle, List, ListRow, MetricTile, EmptyState, Surface, StatusDot,
   Sheet, Icon,
 } from "./Settings/md/primitives";
+import { WorkbenchShellSpecimen } from "./WorkbenchShellSpecimen.tsx";
 
 // ─── token catalogs (grep-tokens; each maps 1:1 to a declared theme var) ─────
 const COLOR_GROUPS: { title: string; tokens: string[] }[] = [
@@ -100,6 +100,7 @@ const grid = (min: string): JSX.CSSProperties => ({
   gap: "16px",
 });
 
+
 // ─── page ────────────────────────────────────────────────────────────────────
 export const DesignGallery: Component = () => {
   const [switchOn, setSwitchOn] = createSignal(true);
@@ -126,6 +127,13 @@ export const DesignGallery: Component = () => {
           "font-size": "var(--md-body-m-size)", "line-height": "var(--md-body-m-line)",
         }}>Every token + primitive on one page. Colors + type are token-only.</p>
       </header>
+
+      <Section title="Canonical workbench shell">
+        <p style={{ margin: "0 0 var(--md-space-4)", color: "var(--text-mid)", "font-size": "var(--md-body-s-size)", "line-height": "var(--md-body-s-line)" }}>
+          Title bar, activity rail, primary sidebar, terminal editor, and truthful status bar share one contiguous desktop surface.
+        </p>
+        <WorkbenchShellSpecimen />
+      </Section>
 
       {/* 1. Color roles */}
       <Section title="Color roles">

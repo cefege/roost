@@ -63,9 +63,6 @@ import { pulseArrange } from "../lib/resizeDrag.ts";
 import { arrangeLayout, type ArrangeKind } from "../store/paneLayoutPresets.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { syncDeckPaneFocus } from "../lib/deckRouteSelection.ts";
-import {
-  TERMINAL_STRIP_HEIGHT,
-} from "./terminal-deck-geometry.ts";
 import type { TerminalDeckProps } from "./terminal-deck-model.ts";
 import { bindTerminalDeckShortcuts } from "./terminal-deck-shortcuts.ts";
 import { folderPathOf } from "../lib/folderKey.ts";
@@ -85,6 +82,7 @@ interface DeckOperationModel {
   setDropOverlay: Setter<{ rect: Rect; zone: DropZone } | null>;
   size: Accessor<{ w: number; h: number }>;
   spotlightPane: Accessor<PaneView | null>;
+  stripH: Accessor<number>;
   view: Accessor<{ panes: PaneView[] }>;
 }
 
@@ -270,7 +268,7 @@ export function createTerminalDeckOperations(
       originPaneId,
       point.x,
       point.y,
-      TERMINAL_STRIP_HEIGHT,
+      model.stripH(),
     );
   }
   function onTabDragMove(originPaneId: string, clientX: number, clientY: number): void {

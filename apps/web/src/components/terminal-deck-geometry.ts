@@ -5,7 +5,6 @@
 
 import type { PaneView, Rect } from "../store/paneLayout.ts";
 
-export const TERMINAL_STRIP_HEIGHT = 40;
 export const MOBILE_TERMINAL_STRIP_HEIGHT = 48;
 
 export interface TerminalSessionSlot {

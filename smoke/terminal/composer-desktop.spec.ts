@@ -42,7 +42,8 @@ test("desktop active terminal keeps a permanent reserved composer after send", a
     const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
     const terminal = slot?.querySelector('[data-testid="terminal-display"]');
     const composer = slot?.querySelector('[data-testid="mobile-chat-input"]');
-    if (!(terminal instanceof HTMLElement) || !(composer instanceof HTMLElement)) return null;
+    const statusbar = document.querySelector('[data-testid="workbench-status-bar"]');
+    if (!(terminal instanceof HTMLElement) || !(composer instanceof HTMLElement) || !(statusbar instanceof HTMLElement)) return null;
 
     const terminalRect = terminal.getBoundingClientRect();
     const composerRect = composer.getBoundingClientRect();
@@ -57,6 +58,7 @@ test("desktop active terminal keeps a permanent reserved composer after send", a
       composerTop: composerRect.top,
       composerHeight: composerRect.height,
       bottomGap: viewportBottom - composerRect.bottom,
+      statusbarHeight: statusbar.getBoundingClientRect().height,
       composerLeft: composerRect.left,
       sidebarRight: sidebarRect?.right ?? 0,
     };
@@ -71,8 +73,9 @@ test("desktop active terminal keeps a permanent reserved composer after send", a
   }, { message: "desktop terminal content must end above the composer dock" }).toBe(true);
   await expect.poll(async () => {
     const geometry = await readGeometry();
-    return geometry ? Math.abs(geometry.bottomGap - 8) : Number.POSITIVE_INFINITY;
-  }, { message: "desktop composer must rest about 8px above the viewport bottom" }).toBeLessThanOrEqual(4);
+    return geometry ? Math.abs(geometry.bottomGap - geometry.statusbarHeight - 8) : Number.POSITIVE_INFINITY;
+  }, { message: "desktop composer must rest about 8px above the status bar" }).toBeLessThanOrEqual(4);
+
   await expect.poll(async () => {
     const geometry = await readGeometry();
     return geometry ? geometry.composerLeft - geometry.sidebarRight : Number.NEGATIVE_INFINITY;
@@ -116,6 +119,7 @@ test("desktop split panes each own and route their composer", async ({ smokePage
   expect(sessionIds).toContain(initialSessionId);
   expect(sessionIds.every(Boolean)).toBe(true);
   expect(new Set(sessionIds).size).toBe(2);
+  await smokePage.evaluate((id) => window.__smoke.trackCreatedSession(id), sessionIds.find((id) => id !== initialSessionId)!);
 
   const sessionA = sessionIds[0]!;
   const sessionB = sessionIds[1]!;
@@ -291,6 +295,7 @@ test("desktop split panes each own and route their composer", async ({ smokePage
     ).find((id) => id && !existingIds.includes(id)),
   [sessionA, sessionB]);
   expect(spawnedSessionId).toBeTruthy();
+  await smokePage.evaluate((id) => window.__smoke.trackCreatedSession(id), spawnedSessionId!);
   const spawnedSlot = smokePage.getByTestId(`terminal-slot-${spawnedSessionId!}`);
   await expect(spawnedSlot).toHaveAttribute("data-focused", "true");
   await expect.poll(() => smokePage.evaluate((id) =>

@@ -16,9 +16,9 @@ interface UIState {
 
 const SIDEBAR_COLLAPSED_KEY = "roost.sidebarCollapsed";
 const SIDEBAR_WIDTH_KEY = "roost.sidebarWidth";
-const SIDEBAR_WIDTH_DEFAULT = 300;
-const SIDEBAR_WIDTH_MIN = 200;
-const SIDEBAR_WIDTH_MAX = 600;
+export const SIDEBAR_WIDTH_DEFAULT = 300;
+export const SIDEBAR_WIDTH_MIN = 200;
+export const SIDEBAR_WIDTH_MAX = 600;
 const HOME_FOLDER_VIEW_MODE_KEY = "roost.homeFolderViewMode";
 const HOME_FOLDER_SHOW_FILES_KEY = "roost.homeFolderShowFiles";
 function loadCollapsed(): boolean {

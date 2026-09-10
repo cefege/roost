@@ -11,8 +11,7 @@ import type { Theme, ThemeGroup } from "../../lib/themeTokens.ts";
 import { THEMES, THEMES_BY_ID } from "../../lib/themes.ts";
 import { setTheme, currentThemeChoice, resolveThemeId } from "../../lib/theme.ts";
 import { addToast } from "../../store/toastStore.ts";
-import { Icon } from "./md/primitives.tsx";
-import { ChromeModePicker } from "./ChromeModePicker.tsx";
+import { Button, Icon } from "./md/primitives.tsx";
 
 interface Entry {
   choice: string;   // "auto" | theme id
@@ -60,7 +59,6 @@ export const ThemePane: Component = () => {
 
   return (
     <div data-testid="theme-pane" style={{ "max-width": "560px" }}>
-      <ChromeModePicker />
       <p class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", margin: "0 0 18px 2px" }}>
         Pick an appearance. The swatches preview each theme's colors. Applies to this browser profile.
       </p>
@@ -78,7 +76,8 @@ export const ThemePane: Component = () => {
                 {(entry) => {
                   const selected = createMemo(() => currentThemeChoice() === entry.choice);
                   return (
-                    <button
+                    <Button
+                      variant="text"
                       type="button"
                       data-testid={`theme-row-${entry.choice}`}
                       data-selected={selected() ? "true" : "false"}
@@ -92,7 +91,6 @@ export const ThemePane: Component = () => {
                         color: selected() ? "var(--md-sys-color-on-secondary-container)" : "var(--md-sys-color-on-surface)",
                       }}
                     >
-                      {/* swatch strip */}
                       <span style={{ display: "flex", "flex-shrink": 0, "border-radius": "var(--md-shape-sm)", overflow: "hidden", border: "1px solid var(--border-subtle)" }}>
                         <For each={SWATCH_TOKENS}>
                           {(tok) => (
@@ -105,7 +103,7 @@ export const ThemePane: Component = () => {
                         <span style={{ display: "block", "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)" }}>{entry.support}</span>
                       </span>
                       <Icon name={selected() ? "check_circle" : "radio_button_unchecked"} filled={selected()} />
-                    </button>
+                    </Button>
                   );
                 }}
               </For>

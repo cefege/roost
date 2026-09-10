@@ -13,6 +13,7 @@ type SmokeCreatedResourceMethods = Pick<
   "cleanupCreated" | "kill" | "spawnShell" | "trackCreatedSession" | "createWorkspace"
 >;
 
+
 export function createSmokeCreatedResourceMethods(): SmokeCreatedResourceMethods {
   const spawned = new Set<string>();
   const workspaces = new Set<string>();

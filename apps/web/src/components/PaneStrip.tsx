@@ -1,30 +1,22 @@
-// Per-pane tab strip (tabs-in-panes). One strip per layout pane: renders
-// that pane's tabs, click selects, drag reorders within the strip, ✕ closes,
-// + spawns a sibling. Data + actions come from props (the layout store drives
-// it) — extracted from the old URL-scoped TabBar so the machinery isn't forked.
-// The M3 sliding indicator + pointer drag-reorder are ported verbatim.
-// Callers: MainPane.tsx TerminalDeck (one per pane). Drag-to-EDGE (split) is
-// added in P2 on top of this reorder.
+/*
+ * Per-pane terminal tab state owner.
+ * TerminalDeck supplies layout callbacks; this component measures tabs, runs drag
+ * transitions, and coordinates overflow/hover state without owning a session route.
+ * PaneTab, PaneTabList, and PaneTabHoverCard render the split presentational pieces.
+ */
 
-import { For, createMemo, createSignal, createEffect, on, onCleanup, onMount, Show, type JSX } from "solid-js";
-import { Portal } from "solid-js/web";
-import { sessionTitle, programSubtitle } from "../lib/sessionTitle.ts";
-import { shortCwd } from "../lib/sidebarFormat.ts";
-import { IconButton } from "./Settings/md/IconButton.tsx";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import type { Session } from "@roost/shared/wire";
 import { dragArmed } from "../lib/dragThreshold.ts";
 import { animateSpring, SPRING_SNAP } from "../lib/spring.ts";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
-import { renderPreview } from "../lib/terminalPreview.ts";
-import {
-	anchoredMenuPosition,
-	anchoredMenuSurfaceStyle,
-	trackFloatingMenuDismiss,
-} from "./contextMenuPrimitives.tsx";
+import { anchoredMenuPosition } from "./contextMenuPrimitives.tsx";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
-import type { Session } from "@roost/shared/wire";
-import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
-import "@material/web/ripple/ripple.js";
+import { IconButton } from "./Settings/md/IconButton.tsx";
+import { PaneTab } from "./PaneTab.tsx";
+import { PaneTabHoverCard } from "./PaneTabHoverCard.tsx";
+import { PaneTabList } from "./PaneTabList.tsx";
 
 export interface PaneStripProps {
   paneId: string;
@@ -32,359 +24,299 @@ export interface PaneStripProps {
   selectedTab: string;
   focused: boolean;
   onSelect: (id: string) => void;
-  onClose: (s: Session) => void;
+  onClose: (session: Session) => void;
   onReorder: (orderedIds: string[]) => void;
   onNewTab: () => void;
-  // Drag-to-tile (P2): report the live pointer so the deck can preview a drop
-  // zone; on release the deck may split/merge and return true (skip reorder).
   onTabDragMove?: (clientX: number, clientY: number) => void;
   onTabTileDrop?: (tabId: string, clientX: number, clientY: number) => boolean;
   onTabDragEnd?: () => void;
 }
 
+type TabRect = {
+  left: number;
+  width: number;
+  center: number;
+};
+
+type DragState = {
+  id: string;
+  fromIdx: number;
+  toIdx: number;
+  dx: number;
+  slot: number;
+  rects: TabRect[];
+  released: boolean;
+};
 
 export function PaneStrip(props: PaneStripProps) {
-  // M3 sliding active-indicator (ported from TabBar). Painted as a 1px bar
-  // scaled via transform (translateX + scaleX) — compositor-only, no width
-  // paint (sidebar.css .df-tab-indicator).
-  let barEl: HTMLDivElement | undefined;
+  let barElement: HTMLDivElement | undefined;
+  let overflowButtonElement: HTMLButtonElement | undefined;
+  let indicatorFrame = 0;
+  let hoverTimer = 0;
+  let cancelSettle: (() => void) | undefined;
+
   const [indicator, setIndicator] = createSignal({ left: 0, width: 0, ready: false });
-  // Overflow (Chrome tab-list chevron): true when the strip's tabs exceed its
-  // width so the trailing chevron + filterable all-tabs popup appear. Measured
-  // off the same rAF as the indicator (post-layout) plus a barEl ResizeObserver
-  // for pane resizes that don't change tab count.
   const [overflow, setOverflow] = createSignal(false);
+  const [drag, setDrag] = createSignal<DragState | null>(null);
+  const [closing, setClosing] = createSignal<Set<string>>(new Set());
+  const [listOpen, setListOpen] = createSignal<{ right: number; y: number } | null>(null);
+  const [hover, setHover] = createSignal<{ id: string; rect: DOMRect } | null>(null);
+  const tabIdsKey = createMemo(() => props.tabs.map((session) => session.id).join("\u0000"));
+  const hoveredSession = createMemo(() => {
+    const hovered = hover();
+    return hovered ? props.tabs.find((tab) => tab.id === hovered.id) : null;
+  });
+  const setTimeoutTracked = createTrackedTimeouts();
+
   function measureOverflow(): void {
-    if (!barEl) return;
-    const over = barEl.scrollWidth > barEl.clientWidth + 1;
-    setOverflow((p) => (p === over ? p : over));
+    if (!barElement) return;
+    const isOverflowing = barElement.scrollWidth > barElement.clientWidth + 1;
+    setOverflow((previous) => previous === isOverflowing ? previous : isOverflowing);
   }
-  // Re-measure the sliding indicator on two triggers: (1) selection / tab-set
-  // changes drive the M3 slide (the effect below); (2) tabResizeObs re-measures
-  // on any real .df-tab pixel-size change — live titles, status dot toggling,
-  // font load. RO fires ONLY on actual size changes and its callback reads
-  // layout post-layout/pre-paint, so per-tick title updates that don't change
-  // width cost nothing (setIndicator also dedupes identical values).
-  const tabIdsKey = createMemo(() => props.tabs.map((s) => s.id).join("\u0000"));
-  let indicatorRaf = 0;
+
   function measureTabIndicator(): void {
-    const active = barEl?.querySelector<HTMLElement>('[data-active="true"]');
-    if (active) {
-      const left = active.offsetLeft, width = active.offsetWidth;
-      setIndicator((p) => (p.ready && p.left === left && p.width === width ? p : { left, width, ready: true }));
-    } else {
-      setIndicator((p) => (p.ready ? { ...p, ready: false } : p));
+    const activeTab = barElement?.querySelector<HTMLElement>('[data-active="true"]');
+    if (!activeTab) {
+      setIndicator((previous) => previous.ready ? { ...previous, ready: false } : previous);
+      measureOverflow();
+      return;
     }
+    const left = activeTab.offsetLeft;
+    const width = activeTab.offsetWidth;
+    setIndicator((previous) =>
+      previous.ready && previous.left === left && previous.width === width
+        ? previous
+        : { left, width, ready: true });
     measureOverflow();
   }
-  const tabResizeObs = new ResizeObserver(measureTabIndicator);
-  // A dedicated RO on the bar itself: pane resize changes clientWidth without a
-  // tab-set/selection change, so tabResizeObs (tabs only) wouldn't refire.
-  const barResizeObs = new ResizeObserver(measureOverflow);
-  onMount(() => { if (barEl) barResizeObs.observe(barEl); measureOverflow(); });
-  onCleanup(() => barResizeObs.disconnect());
+
+  const tabResizeObserver = new ResizeObserver(measureTabIndicator);
+  const barResizeObserver = new ResizeObserver(measureOverflow);
+
+  onMount(() => {
+    if (barElement) barResizeObserver.observe(barElement);
+    measureOverflow();
+  });
   createEffect(on([() => props.selectedTab, tabIdsKey], () => {
-    cancelAnimationFrame(indicatorRaf);
-    indicatorRaf = requestAnimationFrame(() => {
-      indicatorRaf = 0;
-      tabResizeObs.disconnect();
-      const els = barEl?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
-      for (const el of els) tabResizeObs.observe(el);
+    cancelAnimationFrame(indicatorFrame);
+    indicatorFrame = requestAnimationFrame(() => {
+      indicatorFrame = 0;
+      tabResizeObserver.disconnect();
+      const tabs = barElement?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
+      for (const tab of tabs) tabResizeObserver.observe(tab);
       measureTabIndicator();
     });
   }));
-  onCleanup(() => { cancelAnimationFrame(indicatorRaf); tabResizeObs.disconnect(); cancelSettle?.(); });
+  onCleanup(() => {
+    cancelAnimationFrame(indicatorFrame);
+    tabResizeObserver.disconnect();
+    barResizeObserver.disconnect();
+    cancelSettle?.();
+    clearTimeout(hoverTimer);
+  });
 
-  // --- Drag-to-reorder within the strip (ported from TabBar) ---
-  type TabRect = { left: number; width: number; center: number };
-  type DragState = {
-    id: string; fromIdx: number; toIdx: number; dx: number; slot: number; rects: TabRect[]; released: boolean;
-  };
-  const [drag, setDrag] = createSignal<DragState | null>(null);
-  // Tabs mid close-collapse (Chrome-style width→0 exit); onClose fires after.
-  const [closing, setClosing] = createSignal<Set<string>>(new Set());
-  // Cancel handle for the in-flight spring reorder settle (rAF driver).
-  let cancelSettle: (() => void) | undefined;
-  // --- Overflow tab-list popup + desktop hover cards ---
-  // Popup: anchored below the chevron (right-aligned, like ArrangeMenu).
-  let overflowBtnEl: HTMLButtonElement | undefined;
-  const [listOpen, setListOpen] = createSignal<{ right: number; y: number } | null>(null);
-  const toggleList = () => {
-    if (listOpen()) { setListOpen(null); return; }
-    clearHover(); // mutual exclusion: a hover card and the popup never coexist
-    setListOpen(anchoredMenuPosition(overflowBtnEl!));
-  };
-  // Hover card: desktop-only, ~450ms dwell. Inert on touch/compact, while
-  // dragging, or while the popup is open.
-  const [hover, setHover] = createSignal<{ id: string; rect: DOMRect } | null>(null);
-  let hoverTimer = 0;
-  const hoverEnabled = () => !isCompact() && !isTouchDevice();
   function clearHover(): void {
-    if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = 0; }
-    setHover((p) => (p ? null : p));
+    if (hoverTimer) {
+      clearTimeout(hoverTimer);
+      hoverTimer = 0;
+    }
+    setHover((previous) => previous ? null : previous);
   }
+
+  function toggleList(): void {
+    if (listOpen()) {
+      setListOpen(null);
+      return;
+    }
+    if (!overflowButtonElement) return;
+    clearHover();
+    setListOpen(anchoredMenuPosition(overflowButtonElement));
+  }
+
   function armHover(id: string, rect: DOMRect): void {
-    if (!hoverEnabled() || drag() || listOpen()) return;
+    if (isCompact() || isTouchDevice() || drag() || listOpen()) return;
     clearHover();
     hoverTimer = window.setTimeout(() => setHover({ id, rect }), 450);
   }
-  onCleanup(() => clearTimeout(hoverTimer));
 
-  const setTimeoutTracked = createTrackedTimeouts();
-
-  // Chrome-style close: collapse the tab's width (siblings reflow) then commit.
-  // Reduced-motion or a double-fire → close immediately.
-  function closeTab(s: Session): void {
-    if (prefersReducedMotion() || closing().has(s.id)) { props.onClose(s); return; }
-    setClosing((prev) => new Set(prev).add(s.id));
+  function closeTab(session: Session): void {
+    if (prefersReducedMotion() || closing().has(session.id)) {
+      props.onClose(session);
+      return;
+    }
+    setClosing((previous) => new Set(previous).add(session.id));
     setTimeoutTracked(() => {
-      props.onClose(s);
-      setClosing((prev) => { const n = new Set(prev); n.delete(s.id); return n; });
-    }, 220); // ≈ --md-sys-motion-duration-short4 (200ms) + slack
+      props.onClose(session);
+      setClosing((previous) => {
+        const next = new Set(previous);
+        next.delete(session.id);
+        return next;
+      });
+    }, 220);
   }
+
   function tabRects(): TabRect[] {
-    const els = barEl?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
-    return Array.from(els).map((el) => ({
-      left: el.offsetLeft, width: el.offsetWidth, center: el.offsetLeft + el.offsetWidth / 2,
+    const elements = barElement?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
+    return Array.from(elements).map((element) => ({
+      left: element.offsetLeft,
+      width: element.offsetWidth,
+      center: element.offsetLeft + element.offsetWidth / 2,
     }));
   }
-  function restingDx(d: DragState): number {
-    if (d.toIdx === d.fromIdx) return 0;
-    const r = d.rects;
-    if (d.toIdx > d.fromIdx) return r[d.toIdx].left + r[d.toIdx].width - r[d.fromIdx].width - r[d.fromIdx].left;
-    return r[d.toIdx].left - r[d.fromIdx].left;
+
+  function restingDx(currentDrag: DragState): number {
+    if (currentDrag.toIdx === currentDrag.fromIdx) return 0;
+    const { rects, fromIdx, toIdx } = currentDrag;
+    if (toIdx > fromIdx) {
+      return rects[toIdx].left + rects[toIdx].width - rects[fromIdx].width - rects[fromIdx].left;
+    }
+    return rects[toIdx].left - rects[fromIdx].left;
   }
-  // Window-listener drag (mirrors PaneDivider.tsx). Snapshot start point +
-  // callbacks at pointerdown, then listen on WINDOW so a drag that leaves the
-  // 40px-tall tab button keeps flowing: a straight-down split-drag exits the
-  // button before any horizontal delta, and the old per-button handler + X-only
-  // threshold dropped it (drag never armed). Arm on Euclidean distance so ANY
-  // direction triggers. No setPointerCapture → survives a <For> node recreate
-  // and stays synthetic-pointer testable (feedback_for_recreates_node_kills_pointer_capture).
-  function onTabPointerDown(e: PointerEvent, id: string) {
-    if (e.button !== 0) return;
-    cancelSettle?.(); // a new grab interrupts any in-flight reorder settle
+
+  function onTabPointerDown(event: PointerEvent, id: string): void {
+    if (event.button !== 0) return;
+    cancelSettle?.();
     clearHover();
-    const idx = props.tabs.findIndex((t) => t.id === id);
-    if (idx < 0) return;
-    const start = { x: e.clientX, y: e.clientY, id, idx };
-    const onDragMove = props.onTabDragMove;
-    const onTileDrop = props.onTabTileDrop;
-    const onDragEnd = props.onTabDragEnd;
+    const index = props.tabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+
+    const start = { x: event.clientX, y: event.clientY, id, index };
+    const onTabDragMove = props.onTabDragMove;
+    const onTabTileDrop = props.onTabTileDrop;
+    const onTabDragEnd = props.onTabDragEnd;
     const onReorder = props.onReorder;
 
-    const onMove = (ev: PointerEvent) => {
-      const current = drag();
-      if (!current) {
-        if (!dragArmed(start, ev.clientX, ev.clientY)) return;
+    function teardown(): void {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+    }
+
+    function onMove(moveEvent: PointerEvent): void {
+      const currentDrag = drag();
+      if (!currentDrag) {
+        if (!dragArmed(start, moveEvent.clientX, moveEvent.clientY)) return;
         const rects = tabRects();
-        setDrag({ id: start.id, fromIdx: start.idx, toIdx: start.idx, dx: ev.clientX - start.x, slot: rects[start.idx].width + 2, rects, released: false });
-        onDragMove?.(ev.clientX, ev.clientY);
+        setDrag({
+          id: start.id,
+          fromIdx: start.index,
+          toIdx: start.index,
+          dx: moveEvent.clientX - start.x,
+          slot: rects[start.index].width + 2,
+          rects,
+          released: false,
+        });
+        onTabDragMove?.(moveEvent.clientX, moveEvent.clientY);
         return;
       }
-      const dx = ev.clientX - start.x;
-      const center = current.rects[current.fromIdx].center + dx;
-      let toIdx = current.fromIdx;
-      while (toIdx < current.rects.length - 1 && center > current.rects[toIdx + 1].center) toIdx++;
-      while (toIdx > 0 && center < current.rects[toIdx - 1].center) toIdx--;
-      setDrag({ ...current, dx, toIdx });
-      onDragMove?.(ev.clientX, ev.clientY);
-    };
-    const onUp = (ev: PointerEvent) => {
+
+      const dx = moveEvent.clientX - start.x;
+      const center = currentDrag.rects[currentDrag.fromIdx].center + dx;
+      let toIdx = currentDrag.fromIdx;
+      while (toIdx < currentDrag.rects.length - 1 && center > currentDrag.rects[toIdx + 1].center) toIdx++;
+      while (toIdx > 0 && center < currentDrag.rects[toIdx - 1].center) toIdx--;
+      setDrag({ ...currentDrag, dx, toIdx });
+      onTabDragMove?.(moveEvent.clientX, moveEvent.clientY);
+    }
+
+    function onUp(upEvent: PointerEvent): void {
       teardown();
-      const d = drag();
-      if (!d) return; // not armed → onClick fires → selects
+      const currentDrag = drag();
+      if (!currentDrag) return;
 
-      // Swallow the trailing click so a drag (tile-drop or reorder) doesn't
-      // also fire onClick→onSelect. The one-shot capture listener runs before
-      // the button's click handler and cancels only that completed drag.
-      const swallowClick = () => {
-        window.addEventListener("click",
-          (ce) => { ce.stopPropagation(); ce.preventDefault(); },
-          { capture: true, once: true });
-      };
+      function swallowClick(): void {
+        window.addEventListener(
+          "click",
+          (clickEvent) => {
+            clickEvent.stopPropagation();
+            clickEvent.preventDefault();
+          },
+          { capture: true, once: true },
+        );
+      }
 
-      // Drag-to-tile wins: if the drop lands on a pane edge / another pane, the
-      // deck splits/merges and returns true → skip the in-strip reorder.
-      const tiled = onTileDrop?.(d.id, ev.clientX, ev.clientY) ?? false;
-      onDragEnd?.();
-      if (tiled) { swallowClick(); setDrag(null); return; }
-
-      // Reorder: spring the grabbed tab to its resting slot (Chrome tab-drop
-      // feel), then commit the order and clear. Swallow the trailing click.
-      if (d.toIdx !== d.fromIdx) {
+      const tiled = onTabTileDrop?.(currentDrag.id, upEvent.clientX, upEvent.clientY) ?? false;
+      onTabDragEnd?.();
+      if (tiled) {
         swallowClick();
-        const { fromIdx, toIdx } = d;
+        setDrag(null);
+        return;
+      }
+
+      if (currentDrag.toIdx !== currentDrag.fromIdx) {
+        swallowClick();
+        const { fromIdx, toIdx } = currentDrag;
         const commit = (): void => {
-          const ids = props.tabs.map((t) => t.id);
+          const ids = props.tabs.map((tab) => tab.id);
           const [moved] = ids.splice(fromIdx, 1);
           ids.splice(toIdx, 0, moved);
           onReorder(ids);
           setDrag(null);
         };
-        const rest = restingDx(d);
-        if (prefersReducedMotion()) { commit(); return; }
-        setDrag({ ...d, released: true });
+        const rest = restingDx(currentDrag);
+        if (prefersReducedMotion()) {
+          commit();
+          return;
+        }
+        setDrag({ ...currentDrag, released: true });
         cancelSettle = animateSpring(
-          { position: d.dx, velocity: 0 }, rest, SPRING_SNAP,
-          (pos) => setDrag((cur) => (cur ? { ...cur, dx: pos, released: true } : null)),
+          { position: currentDrag.dx, velocity: 0 },
+          rest,
+          SPRING_SNAP,
+          (position) => setDrag((activeDrag) =>
+            activeDrag ? { ...activeDrag, dx: position, released: true } : null),
           commit,
         );
         return;
       }
 
-      // Armed but no reorder (touch jitter): clear immediately, let onClick
-      // through to select. This was the double-tap-on-touch bug — the old
-      // draggedRecently flag swallowed the click even when fromIdx===toIdx.
       setDrag(null);
-    };
-    const onCancel = () => { teardown(); setDrag(null); onDragEnd?.(); };
-    function teardown() {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onCancel);
     }
+
+    function onCancel(): void {
+      teardown();
+      setDrag(null);
+      onTabDragEnd?.();
+    }
+
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
   }
-  function tabDragStyle(i: number): Record<string, string> {
-    const d = drag();
-    if (!d) return {};
-    if (i === d.fromIdx) {
-      // Grabbed tab: spring drives dx per frame on release (transition none);
-      // no transition while actively dragged either.
-      return { transform: `translateX(${d.dx}px)`, transition: "none", "z-index": "3" };
+
+  function tabDragStyle(index: number): Record<string, string> {
+    const currentDrag = drag();
+    if (!currentDrag) return {};
+    if (index === currentDrag.fromIdx) {
+      return {
+        transform: `translateX(${currentDrag.dx}px)`,
+        transition: "none",
+        "z-index": "3",
+      };
     }
     let shift = 0;
-    if (d.fromIdx < d.toIdx && i > d.fromIdx && i <= d.toIdx) shift = -d.slot;
-    else if (d.fromIdx > d.toIdx && i >= d.toIdx && i < d.fromIdx) shift = d.slot;
-    return { transform: shift ? `translateX(${shift}px)` : "translateX(0)", transition: "transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized)" };
-  }
-  // Filterable all-tabs popup (Chrome's overflow tab-list). Anchored below the
-  // chevron; doc-click / Escape dismiss (deterministic, like ArrangeMenu).
-  function PaneTabList(p: { pos: { right: number; y: number }; onClose: () => void }) {
-    const [filter, setFilter] = createSignal("");
-    const [hi, setHi] = createSignal(0);
-    let menuEl: HTMLDivElement | undefined;
-    let inputEl: HTMLInputElement | undefined;
-    const matches = createMemo(() =>
-      props.tabs.filter((s) => sessionTitle(s).toLowerCase().includes(filter().trim().toLowerCase())),
-    );
-    const choose = (s: Session) => {
-      p.onClose();
-      props.onSelect(s.id);
-      queueMicrotask(() =>
-        barEl?.querySelector(`[data-testid="tab-${s.id}"]`)?.scrollIntoView({ inline: "nearest", block: "nearest" }),
-      );
+    if (currentDrag.fromIdx < currentDrag.toIdx && index > currentDrag.fromIdx && index <= currentDrag.toIdx) {
+      shift = -currentDrag.slot;
+    } else if (currentDrag.fromIdx > currentDrag.toIdx && index >= currentDrag.toIdx && index < currentDrag.fromIdx) {
+      shift = currentDrag.slot;
+    }
+    return {
+      transform: shift ? `translateX(${shift}px)` : "translateX(0)",
+      transition: "transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized)",
     };
-    const onKey = (e: KeyboardEvent) => {
-      const list = matches();
-      if (e.key === "ArrowDown") { e.preventDefault(); setHi((i) => Math.min(list.length - 1, i + 1)); }
-      else if (e.key === "ArrowUp") { e.preventDefault(); setHi((i) => Math.max(0, i - 1)); }
-      else if (e.key === "Enter") { e.preventDefault(); const s = list[hi()]; if (s) choose(s); }
-    };
-    trackFloatingMenuDismiss({ within: [() => overflowBtnEl, () => menuEl], onClose: p.onClose });
-    onMount(() => { inputEl?.focus(); });
-    const surfaceStyle = (): JSX.CSSProperties =>
-      anchoredMenuSurfaceStyle(p.pos, {
-        minWidth: "240px",
-        extra: {
-          "max-width": "340px",
-          padding: "0", overflow: "hidden", display: "flex", "flex-direction": "column",
-        },
-      });
-    return (
-      <Portal>
-        <div ref={menuEl} data-testid="tab-list-popup" class="df-menu-enter" style={surfaceStyle()}>
-          <div style={{ display: "flex", "align-items": "center", gap: "8px", padding: "8px 12px", "border-bottom": "1px solid var(--md-sys-color-outline-variant)" }}>
-            <input
-              ref={inputEl}
-              type="text"
-              value={filter()}
-              onKeyDown={onKey}
-              onInput={(e) => { setFilter(e.currentTarget.value); setHi(0); }}
-              placeholder="Filter terminals…"
-              data-testid="tab-list-filter"
-              style={{ flex: "1", background: "transparent", border: "none", outline: "none", color: "var(--text-hi)", "font-size": "var(--md-body-s-size)" }}
-            />
-          </div>
-          <div style={{ "max-height": "50vh", "overflow-y": "auto", padding: "4px" }}>
-            <Show
-              when={matches().length > 0}
-              fallback={<div style={{ padding: "16px 12px", "text-align": "center", color: "var(--text-lo)", "font-size": "var(--md-body-s-size)" }}>No matches</div>}
-            >
-              <For each={matches()}>
-                {(s, i) => {
-                  return (
-                    <button
-                      type="button"
-                      data-testid={`tab-list-item-${s.id}`}
-                      onMouseEnter={() => setHi(i())}
-                      onClick={() => choose(s)}
-                      style={{
-                        width: "100%", display: "flex", "align-items": "center", gap: "8px",
-                        padding: "6px 8px", border: "none", cursor: "pointer",
-                        "border-radius": "var(--md-shape-xs)", "text-align": "left",
-                        background: hi() === i() ? "var(--md-state-hover)" : "transparent",
-                        color: "var(--text-hi)", "font-size": "var(--md-body-s-size)",
-                      }}
-                    >
-                      <span class="df-tab-glyph">$</span>
-                      <span style={{ flex: "1", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap", "min-width": "0" }}>{sessionTitle(s)}</span>
-                      <Show when={s.id === props.selectedTab}>
-                        <span style={{ color: "var(--md-sys-color-primary)", "flex-shrink": "0" }}>✓</span>
-                      </Show>
-                    </button>
-                  );
-                }}
-              </For>
-            </Show>
-          </div>
-        </div>
-      </Portal>
-    );
   }
-
-  // Desktop hover card: title + process line + cwd + live preview thumbnail.
-  function TabHoverCard(p: { s: Session; rect: DOMRect }) {
-    let previewRef: HTMLDivElement | undefined;
-    const [hasPreview, setHasPreview] = createSignal(false);
-    onMount(() => { if (previewRef) setHasPreview(renderPreview(p.s.id, previewRef)); });
-    const subtitle = createMemo(() => programSubtitle(p.s));
-    const left = Math.max(8, Math.min(p.rect.left, window.innerWidth - 280 - 8));
-    return (
-      <Portal>
-        <div class="df-tab-hovercard" data-testid="tab-hovercard" style={{ left: `${left}px`, top: `${p.rect.bottom + 4}px` }}>
-          <div class="df-tab-hovercard-head">
-            <span class="df-tab-glyph">$</span>
-            <span class="df-tab-hovercard-title">{sessionTitle(p.s)}</span>
-            <AgentStatusIndicator sessionId={p.s.id} />
-          </div>
-          <Show when={subtitle()}>
-            <div class="df-tab-hovercard-line">{subtitle()}</div>
-          </Show>
-          <div class="df-tab-hovercard-cwd">{shortCwd(p.s.cwd, p.s.worker_fp)}</div>
-          <div class="df-tab-hovercard-preview" style={{ display: hasPreview() ? "block" : "none" }}>
-            <div ref={previewRef} class="terminal-card-preview-text" />
-          </div>
-        </div>
-      </Portal>
-    );
-  }
-
 
   return (
     <div
-      class="df-tab-bar"
+      ref={barElement}
+      class="df-tab-bar workbench-pane-tab-strip"
       data-testid={`pane-strip-${props.paneId}`}
       data-pane-strip={props.paneId}
       data-focused={props.focused ? "true" : "false"}
       data-dragging={drag() ? "true" : "false"}
-      ref={barEl}
     >
       <div
-        class="df-tab-indicator"
+        class="df-tab-indicator workbench-pane-tab-strip__indicator"
         aria-hidden="true"
         style={{
           transform: `translateX(${indicator().left}px) scaleX(${indicator().width})`,
@@ -392,83 +324,72 @@ export function PaneStrip(props: PaneStripProps) {
         }}
       />
       <For each={props.tabs}>
-        {(s, i) => {
-          const isActive = createMemo(() => s.id === props.selectedTab);
-          const label = createMemo(() => sessionTitle(s));
-          return (
-            <button
-              type="button"
-              class="df-tab"
-              data-testid={`tab-${s.id}`}
-              data-active={isActive() ? "true" : "false"}
-              data-dragging={drag()?.id === s.id ? "true" : "false"}
-              data-closing={closing().has(s.id) ? "true" : "false"}
-              style={tabDragStyle(i())}
-              onPointerDown={(e) => onTabPointerDown(e, s.id)}
-              onClick={() => { clearHover(); props.onSelect(s.id); }}
-              onMouseEnter={(e) => armHover(s.id, e.currentTarget.getBoundingClientRect())}
-              onMouseLeave={clearHover}
-              title={label()}
-            >
-              <md-ripple />
-              <span class="df-tab-glyph">$</span>
-              <span class="df-tab-label">{label()}</span>
-              <AgentStatusIndicator sessionId={s.id} compact />
-              <IconButton
-                icon="close"
-                label="Close terminal"
-                class="df-tab-close"
-                data-testid={`tab-close-${s.id}`}
-                style={{ "--md-icon-button-icon-size": "14px" }}
-                onClick={(e: MouseEvent) => { e.stopPropagation(); e.preventDefault(); closeTab(s); }}
-              />
-            </button>
-          );
-        }}
+        {(session, index) => (
+          <PaneTab
+            session={session}
+            active={session.id === props.selectedTab}
+            dragging={drag()?.id === session.id}
+            closing={closing().has(session.id)}
+            style={tabDragStyle(index())}
+            onPointerDown={(event) => onTabPointerDown(event, session.id)}
+            onSelect={() => {
+              clearHover();
+              props.onSelect(session.id);
+            }}
+            onHoverStart={(element) => armHover(session.id, element.getBoundingClientRect())}
+            onHoverEnd={clearHover}
+            onClose={(event) => {
+              event.stopPropagation();
+              event.preventDefault();
+              closeTab(session);
+            }}
+          />
+        )}
       </For>
       <Show when={overflow()}>
-        <button
-          ref={overflowBtnEl}
-          type="button"
-          class="df-tab-overflow"
+        <IconButton
+          ref={overflowButtonElement}
+          icon="keyboard_arrow_down"
+          label="All terminals in this pane"
+          class="df-tab-overflow workbench-pane-tab-control"
           data-testid="tab-overflow"
-          aria-label="All terminals in this pane"
           title="All terminals"
           onClick={toggleList}
-        >
-          <md-ripple />
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 9l6 6 6-6" />
-          </svg>
-        </button>
+        />
       </Show>
-      <button
-        type="button"
-        class="df-tab-new"
+      <IconButton
+        icon="add"
+        label="New terminal — same folder and server"
+        class="df-tab-new workbench-pane-tab-control"
         data-testid="tab-new"
-        aria-label="New terminal — same folder & server"
         title="New terminal in this folder (or double-click the empty bar)"
-        onClick={() => props.onNewTab()}
-      >
-        <md-ripple />
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </button>
+        onClick={props.onNewTab}
+      />
       <div
-        class="df-tab-filler"
+        class="df-tab-filler workbench-pane-tab-strip__filler"
         data-testid="tab-filler"
         title="Double-click to open a new terminal in this folder"
-        onDblClick={() => props.onNewTab()}
+        onDblClick={props.onNewTab}
       />
       <Show when={listOpen()}>
-        {(pos) => <PaneTabList pos={pos()} onClose={() => setListOpen(null)} />}
+        {(position) => (
+          <PaneTabList
+            position={position()}
+            tabs={props.tabs}
+            selectedTab={props.selectedTab}
+            trigger={() => overflowButtonElement}
+            tabBar={() => barElement}
+            onSelect={props.onSelect}
+            onClose={() => setListOpen(null)}
+          />
+        )}
       </Show>
       <Show when={hover()}>
-        {(h) => {
-          const s = createMemo(() => props.tabs.find((t) => t.id === h().id));
-          return <Show when={s()}>{(sess) => <TabHoverCard s={sess()} rect={h().rect} />}</Show>;
-        }}
+        {(hovered) => (
+          <Show when={hoveredSession()}>
+            {(session) => <PaneTabHoverCard session={session()} rect={hovered().rect} />}
+          </Show>
+        )}
       </Show>
     </div>
   );

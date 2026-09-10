@@ -1,8 +1,8 @@
-// Sidebar body: FolderList (folder rows) — the ONE
-// sidebar layout; the Status/Folder/Folders view modes were deleted
-// 2026-07-04. Brand row + ⌘F search on top; SidebarEmptyState when no
-// machines are registered.
-// Reads rootStore workers plus the shared navigation projection.
+// Primary sessions-sidebar body.
+// This is the one route-stable navigation tree: it owns search debounce and
+// delegates workspace grouping, rows, and empty states to focused siblings.
+// The workbench title bar owns product branding and application destinations.
+
 
 import { createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
@@ -19,9 +19,8 @@ import { SidebarSearch } from "./SidebarSearch.tsx";
 import { SidebarEmptyState } from "./SidebarEmptyState.tsx";
 import { SessionRow } from "./SessionRow.tsx";
 import { FolderList } from "./FolderList.tsx";
-import { BrandMark } from "../BrandMark.tsx";
+import { IconButton } from "../Settings/md/IconButton.tsx";
 import { settingsPaneHref } from "../../routes.ts";
-import "@material/web/iconbutton/icon-button.js";
 
 // Debounce interval for the search query → filtered-sessions recompute.
 // Keystrokes update `query()` immediately (controlled input stays snappy);
@@ -33,8 +32,8 @@ export function AllView() {
   const navigate = useNavigate();
   const [query, setQuery] = createSignal("");
   const [debouncedQuery, setDebouncedQuery] = createSignal("");
-  // Search is collapsed by default — opened via the brand-row 🔍 button or ⌘F —
-  // so the resting sidebar isn't dominated by a search box.
+  // Search is collapsed by default and opens from the sidebar title or ⌘F.
+  // The resting tree remains dense and immediately scannable.
   const [searchOpen, setSearchOpen] = createSignal(false);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   function onQueryChange(next: string) {
@@ -78,50 +77,36 @@ export function AllView() {
   });
 
   return (
-    <div class="df-all-view" data-testid="all-view" data-m3flat="1">
-      <div class="df-brand-row">
-        <BrandMark size={26} class="brand-mark" />
-        <span class="df-brand-title">Roost</span>
-        <span style={{ "margin-left": "auto", display: "inline-flex", "align-items": "center", gap: "2px", position: "relative" }}>
-          <md-icon-button
-            aria-label="Search"
+    <div class="df-all-view workbench-sidebar-content" data-testid="all-view">
+      <header class="workbench-sidebar-title">
+        <h2 class="workbench-sidebar-title__label">Sessions</h2>
+        <div class="workbench-sidebar-title__actions">
+          <IconButton
+            icon="search"
+            label="Search sessions and workspaces"
+            class="workbench-sidebar-title__action"
             title={`Search sessions & workspaces (${platformShortcutLabel("sidebarSearch", "⌘F")})`}
             onClick={toggleSearch}
             data-testid="brand-row-search"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={{ width: "20px", height: "20px" }}>
-              <circle cx="11" cy="11" r="7" />
-              <path d="M21 21l-4.3-4.3" />
-            </svg>
-          </md-icon-button>
-
-          <md-icon-button
-            aria-label="Settings"
+          />
+          <IconButton
+            icon="settings"
+            label="Settings"
+            class="workbench-sidebar-title__action"
             title="Settings"
             onClick={() => navigate(settingsPaneHref("devices"))}
             data-testid="brand-row-settings"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={{ width: "20px", height: "20px" }}>
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
-          </md-icon-button>
-          <md-icon-button
-            aria-label="Collapse sidebar"
+          />
+          <IconButton
+            icon="chevron_left"
+            label="Collapse sidebar"
+            class="workbench-sidebar-title__action"
             title={`Collapse sidebar (${platformShortcutLabel("toggleSidebar", "⌘B")})`}
             data-testid="brand-row-collapse"
-            // Mobile: the drawer is driven by sidebarOpen, NOT sidebarCollapsed
-            // (a desktop-only icon-rail concept) — so toggleSidebarCollapsed did
-            // nothing on a phone. Close the drawer instead. Desktop keeps the
-            // collapse-to-rail behavior.
             onClick={() => (isCompact() ? closeSidebar() : toggleSidebarCollapsed())}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={{ width: "20px", height: "20px" }}>
-              <path d="M15 6l-6 6 6 6" />
-            </svg>
-          </md-icon-button>
-        </span>
-      </div>
+          />
+        </div>
+      </header>
 
       <Show when={searchOpen()}>
         <SidebarSearch

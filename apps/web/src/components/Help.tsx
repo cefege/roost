@@ -26,23 +26,21 @@ export function Help() {
   onCleanup(() => window.removeEventListener("keydown", onKey));
 
   return (
-    <div style={{ padding: "40px", color: "var(--text-hi)", "max-width": "480px" }}>
-      <h2 style={{ "font-size": "18px", "margin-bottom": "20px" }}>Help / Keybindings</h2>
-      <table style={{ width: "100%", "border-collapse": "collapse", "font-size": "13px" }}>
-        <tbody>
-          {KEYBINDINGS.map((kb) => (
-            <tr style={{ "border-bottom": "1px solid var(--bg-elev-2)" }}>
-              <td style={{ padding: "6px 0", color: "var(--color-ok)", "font-family": "monospace", width: "140px" }}>
-                {kb.key}
-              </td>
-              <td style={{ padding: "6px 0", color: "var(--text-hi)" }}>{kb.action}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p style={{ "margin-top": "24px", "font-size": "12px", color: "var(--text-lo)" }}>
-        Press Esc to close.
-      </p>
+    <div class="workbench-help">
+      <div class="workbench-help__content">
+        <h2 class="workbench-help__title">Help / Keybindings</h2>
+        <table class="workbench-help__table">
+          <tbody>
+            {KEYBINDINGS.map((kb) => (
+              <tr>
+                <td class="workbench-help__key">{kb.key}</td>
+                <td>{kb.action}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p class="workbench-help__hint">Press Esc to close.</p>
+      </div>
     </div>
   );
 }

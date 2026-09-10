@@ -9,6 +9,8 @@
 
 import type { JSX } from "solid-js";
 import { platformShortcutLabel } from "../../lib/browserPlatform.ts";
+import { Icon } from "../Settings/md/Icon.tsx";
+import { IconButton } from "../Settings/md/IconButton.tsx";
 
 interface SidebarSearchProps {
   query: string;
@@ -30,52 +32,32 @@ export function SidebarSearch(props: SidebarSearchProps) {
   };
 
   return (
-    <div class="df-search" data-testid="sidebar-search-wrapper">
-      <svg
-        width="13" height="13" viewBox="0 0 24 24" fill="none"
-        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-        style={{ "flex-shrink": 0 }}
-        aria-hidden="true"
-      >
-        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-      </svg>
+    <div class="df-search workbench-sidebar-search" data-testid="sidebar-search-wrapper">
+      <Icon name="search" class="workbench-sidebar-search__icon" size="sm" />
       <input
+        class="workbench-sidebar-search__input"
         ref={props.inputRef}
         type="text"
         value={props.query}
-        onInput={(e) => props.onChange(e.currentTarget.value)}
+        onInput={(event) => props.onChange(event.currentTarget.value)}
         onKeyDown={handleKeyDown}
         placeholder={props.placeholder ?? "Search sessions, workspaces…"}
         aria-label="Filter sidebar"
         data-testid="sidebar-search"
       />
       {props.query ? (
-        <button
-          type="button"
+        <IconButton
+          icon="close"
+          label="Clear search"
+          class="workbench-sidebar-search__clear"
           onClick={() => props.onChange("")}
           title="Clear (Esc)"
-          aria-label="Clear search"
           data-testid="sidebar-search-clear"
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--text-lo)",
-            "flex-shrink": 0,
-            display: "inline-flex",
-            "align-items": "center",
-            padding: 0,
-            "font-family": "inherit",
-          }}
-        >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-            aria-hidden="true">
-            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-          </svg>
-        </button>
+        />
       ) : (
-        <span class="df-search-kbd" aria-hidden="true">{platformShortcutLabel("sidebarSearch", "⌘F")}</span>
+        <span class="df-search-kbd workbench-sidebar-search__shortcut" aria-hidden="true">
+          {platformShortcutLabel("sidebarSearch", "⌘F")}
+        </span>
       )}
     </div>
   );

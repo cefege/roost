@@ -7,6 +7,7 @@ import {
   agentStatusTooltip,
   deriveAgentStatusLevel,
 } from "../lib/agentStatus.ts";
+import { StatusDot } from "./Settings/md/StatusDot.tsx";
 
 export function AgentStatusIndicator(props: {
   sessionId: string;
@@ -25,18 +26,20 @@ export function AgentStatusIndicator(props: {
   return (
     <Show when={status()}>
       {(current) => (
-        <span
-          class={`agent-status ${props.compact ? "agent-status--compact" : ""} ${props.class ?? ""}`.trim()}
-          data-testid={`agent-status-${props.sessionId}`}
-          data-level={level()}
-          title={agentStatusTooltip(current(), seenAgentRevision(current()))}
-          aria-label={presentation().label}
-        >
-          <span class="agent-status__dot" aria-hidden="true" />
-          <Show when={!props.compact}>
-            <span class="agent-status__label">{presentation().label}</span>
-          </Show>
-        </span>
+        <Show when={level() !== "unknown"}>
+          <span
+            class={`agent-status ${props.compact ? "agent-status--compact" : ""} ${props.class ?? ""}`.trim()}
+            data-testid={`agent-status-${props.sessionId}`}
+            data-level={level()}
+            title={agentStatusTooltip(current(), seenAgentRevision(current()))}
+            aria-label={presentation().label}
+          >
+            <StatusDot status={presentation().dotStatus} size={7} />
+            <Show when={!props.compact}>
+              <span class="agent-status__label">{presentation().label}</span>
+            </Show>
+          </span>
+        </Show>
       )}
     </Show>
   );

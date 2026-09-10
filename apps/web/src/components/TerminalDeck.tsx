@@ -31,7 +31,6 @@ import {
 } from "./terminal-deck-model.ts";
 import {
   MOBILE_TERMINAL_STRIP_HEIGHT,
-  TERMINAL_STRIP_HEIGHT,
   sameTerminalSessionSlot,
 } from "./terminal-deck-geometry.ts";
 import { createTerminalDeckOperations } from "./terminal-deck-operations.ts";
@@ -61,6 +60,7 @@ export function TerminalDeck(props: TerminalDeckProps) {
 
   return (
     <div
+      class="workbench-terminal-deck"
       ref={deckElement}
       data-testid="terminal-deck"
       data-multi-pane={model.view().panes.length > 1 ? "true" : "false"}
@@ -96,6 +96,7 @@ export function TerminalDeck(props: TerminalDeckProps) {
             <Show when={session()}>
               {(currentSession) => (
                 <div
+                  class="workbench-terminal-slot"
                   data-testid={`terminal-slot-${sessionId}`}
                   data-pane-slot
                   data-pane
@@ -199,6 +200,7 @@ export function TerminalDeck(props: TerminalDeckProps) {
             return (
               <Show when={pane.paneId !== model.spotlightPane()?.paneId}>
                 <div
+                  class="workbench-editor-group"
                   data-pane
                   data-pane-id={pane.paneId}
                   style={{
@@ -206,7 +208,7 @@ export function TerminalDeck(props: TerminalDeckProps) {
                     left: `${rect().x}px`,
                     top: `${rect().y}px`,
                     width: `${rect().w}px`,
-                    height: `${TERMINAL_STRIP_HEIGHT}px`,
+                    height: `${model.stripH()}px`,
                     "z-index": "3",
                   }}
                 >
@@ -245,7 +247,7 @@ export function TerminalDeck(props: TerminalDeckProps) {
         <Show when={model.dropOverlay()}>
           {(overlay) => (
             <div
-              class="pane-drop-overlay"
+              class="pane-drop-overlay workbench-pane-drop-overlay"
               data-zone={overlay().zone}
               style={{
                 position: "absolute",
@@ -261,11 +263,12 @@ export function TerminalDeck(props: TerminalDeckProps) {
         </Show>
         <Show when={model.liveIds().length > 0}>
           <div
+            class="workbench-editor-actions"
             style={{
               position: "absolute",
               top: "0",
               right: "0",
-              height: `${TERMINAL_STRIP_HEIGHT}px`,
+              height: `${model.stripH()}px`,
               display: "flex",
               "align-items": "center",
               padding: "0 var(--md-space-2)",

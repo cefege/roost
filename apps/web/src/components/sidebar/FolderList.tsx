@@ -30,18 +30,23 @@ import { FlatNewTerminal } from "./FlatNewTerminal.tsx";
 import { FolderGlyph } from "../FolderGlyph.tsx";
 import { IconButton } from "../Settings/md/IconButton.tsx";
 import { Button } from "../Settings/md/Button.tsx";
-import { formatAgentStatusCounts } from "../../lib/agentStatus.ts";
+import { StatusDot } from "../Settings/md/StatusDot.tsx";
+import {
+  AGENT_STATUS_PRESENTATION,
+  formatAgentStatusCounts,
+} from "../../lib/agentStatus.ts";
 import "@material/web/ripple/ripple.js";
 
 function FolderStatusRollup(props: { group: FolderGroup }) {
+  const dotStatus = AGENT_STATUS_PRESENTATION[props.group.agentStatus.level].dotStatus;
   return (
-    <Show when={props.group.agentStatus.total > 0}>
+    <Show when={props.group.agentStatus.total > 0 && props.group.agentStatus.level !== "unknown"}>
       <span
         class="agent-status-rollup"
         data-level={props.group.agentStatus.level}
         data-testid={`folder-agent-status-${props.group.key}`}
       >
-        <span class="agent-status__dot" aria-hidden="true" />
+        <StatusDot status={dotStatus} size={7} />
         <span>{formatAgentStatusCounts(props.group.agentStatus.counts)}</span>
       </span>
     </Show>
@@ -302,7 +307,8 @@ export function FolderList() {
           selected states. Content maps folder→session: name→headline,
           activity/branch→subtitle, machine→supporting server line. */}
       <div class="df-fld-tabs" role="tablist" data-testid="sidebar-tabs">
-        <button
+        <Button
+          variant="text"
           type="button"
           role="tab"
           class="df-fld-tab"
@@ -310,8 +316,9 @@ export function FolderList() {
           aria-selected={sidebarTab() === "code"}
           data-testid="sidebar-tab-code"
           onClick={() => setSidebarTab("code")}
-        >Code</button>
-        <button
+        >Code</Button>
+        <Button
+          variant="text"
           type="button"
           role="tab"
           class="df-fld-tab"
@@ -319,7 +326,7 @@ export function FolderList() {
           aria-selected={sidebarTab() === "chat"}
           data-testid="sidebar-tab-chat"
           onClick={() => setSidebarTab("chat")}
-        >Chat</button>
+        >Chat</Button>
       </div>
       <Show when={sidebarTab() === "chat"}>
         <Button

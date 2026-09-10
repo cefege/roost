@@ -52,7 +52,6 @@ import {
 } from "../lib/deckSwipe.ts";
 import {
   MOBILE_TERMINAL_STRIP_HEIGHT,
-  TERMINAL_STRIP_HEIGHT,
   sameTerminalPaneView,
   sameTerminalParkSizes,
   terminalSessionStyle,
@@ -100,15 +99,26 @@ export function createTerminalDeckModel(
   });
 
   const [size, setSize] = createSignal({ w: 0, h: 0 });
+  const [desktopStripHeight, setDesktopStripHeight] = createSignal(0);
   onMount(() => {
-    const observer = new ResizeObserver(() => {
+    const measureDeck = (): void => {
       const deckElement = getDeckElement();
-      if (deckElement) setSize({ w: deckElement.clientWidth, h: deckElement.clientHeight });
-    });
+      if (!deckElement) return;
+      setSize({ w: deckElement.clientWidth, h: deckElement.clientHeight });
+      const resolvedStripHeight = Number.parseFloat(
+        getComputedStyle(deckElement).getPropertyValue("--workbench-tab-strip-height"),
+      );
+      setDesktopStripHeight(
+        Number.isFinite(resolvedStripHeight) && resolvedStripHeight > 0
+          ? resolvedStripHeight
+          : 0,
+      );
+    };
+    const observer = new ResizeObserver(measureDeck);
     const deckElement = getDeckElement();
     if (deckElement) {
       observer.observe(deckElement);
-      setSize({ w: deckElement.clientWidth, h: deckElement.clientHeight });
+      measureDeck();
     }
     onCleanup(() => observer.disconnect());
   });
@@ -239,8 +249,8 @@ export function createTerminalDeckModel(
     const warmIds = warmSessionIds();
     const selectedIds = slotBySession();
     return openSessions()
-      .filter((session) => warmIds.has(session.id) || selectedIds.has(session.id))
-      .map((session) => session.id);
+      .map((session) => session.id)
+      .filter((sessionId) => warmIds.has(sessionId) || selectedIds.has(sessionId));
   });
 
   let panesCache = new Map<string, PaneView>();
@@ -278,7 +288,7 @@ export function createTerminalDeckModel(
 
   const stripH = () => isCompact()
     ? MOBILE_TERMINAL_STRIP_HEIGHT
-    : TERMINAL_STRIP_HEIGHT;
+    : desktopStripHeight();
   const parkSizeBySession = createMemo(
     () => {
       const sizes = new Map<string, { w: number; h: number }>();

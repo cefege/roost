@@ -16,6 +16,7 @@ export const ListRow: Component<{
   href?: string;
   selected?: boolean;
   testId?: string;
+  class?: string;
 }> = (props) => {
   const inner = (
     <>
@@ -42,7 +43,7 @@ export const ListRow: Component<{
   return props.href ? (
     <A
       href={props.href}
-      class="md-list-row"
+      class={props.class ? `md-list-row ${props.class}` : "md-list-row"}
       data-selected={props.selected ? "true" : undefined}
       attr:data-testid={props.testId}
     >
@@ -51,7 +52,7 @@ export const ListRow: Component<{
   ) : props.onClick ? (
     <button
       type="button"
-      class="md-list-row"
+      class={props.class ? `md-list-row ${props.class}` : "md-list-row"}
       data-selected={props.selected ? "true" : undefined}
       attr:data-testid={props.testId}
       onClick={props.onClick}
@@ -60,7 +61,7 @@ export const ListRow: Component<{
     </button>
   ) : (
     <div
-      class="md-list-row"
+      class={props.class ? `md-list-row ${props.class}` : "md-list-row"}
       data-selected={props.selected ? "true" : undefined}
       attr:data-testid={props.testId}
     >
