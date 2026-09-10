@@ -10,6 +10,15 @@ import type { WindowsUpdateJournalV1 } from "../src/windows/windows-update-journ
 import type { WorkerServiceHealth } from "@roost/shared/service-health";
 import { readHealthByRole } from "./test-helpers.ts";
 
+const WINDOWS_SUBPROCESS_ENV = {
+  ...process.env,
+  LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local",
+  USERPROFILE: "C:\\Users\\tester",
+  ProgramData: "C:\\ProgramData",
+  ROOST_INTERACTIVE_SID: "S-1-5-21-1-2-3-1001",
+  ROOST_SYSTEM32: "C:\\Windows\\System32",
+};
+
 /** Serves the worker descriptor and fails loudly if a test probes the coordinator. */
 function workerHealthEndpoint(worker: WorkerServiceHealth): WindowsLocalEndpointHealth {
   return {
@@ -84,14 +93,7 @@ describe("Windows service recovery topology", () => {
     `;
     const result = Bun.spawnSync(["bun", "-e", script], {
       cwd: root,
-      env: {
-        ...process.env,
-        LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local",
-        USERPROFILE: "C:\\Users\\tester",
-        ProgramData: "C:\\ProgramData",
-        ROOST_INTERACTIVE_SID: "S-1-5-21-1-2-3-1001",
-        ROOST_SYSTEM32: "C:\\Windows\\System32",
-      },
+      env: WINDOWS_SUBPROCESS_ENV,
     });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
     const definitions = JSON.parse(result.stdout.toString()) as {
@@ -128,7 +130,10 @@ describe("Windows service recovery topology", () => {
           log: () => {},
         });
       `;
-      const result = Bun.spawnSync(["bun", "-e", script], { cwd: root });
+      const result = Bun.spawnSync(["bun", "-e", script], {
+        cwd: root,
+        env: WINDOWS_SUBPROCESS_ENV,
+      });
 
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr.toString())
@@ -153,7 +158,10 @@ describe("Windows service recovery topology", () => {
         log: () => {},
       });
     `;
-    const result = Bun.spawnSync(["bun", "-e", script], { cwd: root });
+    const result = Bun.spawnSync(["bun", "-e", script], {
+      cwd: root,
+      env: WINDOWS_SUBPROCESS_ENV,
+    });
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString())
