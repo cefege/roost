@@ -75,6 +75,43 @@ test("mapped metadata during recovery drain follows the recovered fact", async (
   barrier.clear();
 });
 
+test("same-session reannouncement keeps draining recovery ahead of newer metadata", async () => {
+  const budget = new WorkerRetainedWorkBudget(() => {
+    throw new Error("unexpected socket-wide overflow");
+  });
+  const barrier = new AnnouncedChannelBarrier(undefined, budget);
+  barrier.announce(7, SESSION);
+  expect(barrier.enqueue(7, metadata("older"), 40)).toBe("buffered");
+  expect(barrier.enqueue(
+    7, overflowBinary(), ANNOUNCED_CHANNEL_MAX_BYTES,
+  )).toBe("dropped");
+
+  const releaseRecovery = Promise.withResolvers<void>();
+  const delivered: string[] = [];
+  const recovering = barrier.commit(7, SESSION, () => true, async (frame) => {
+    if (frame.frame.case !== "terminalMetadata") throw new Error("expected metadata");
+    delivered.push(frame.frame.value.title);
+    await releaseRecovery.promise;
+  });
+  await Promise.resolve();
+
+  expect(barrier.reconcileRetainedMetadata(7, SESSION)).toBe(true);
+  expect(barrier.retainUnannouncedMetadata(7, metadata("newer"), 40, SESSION)).toBe(true);
+  barrier.announce(7, SESSION);
+  expect(barrier.stats()).toMatchObject({
+    channels: 1, pending: 1, preAnnouncedMetadata: 0, recoveryMetadata: 1,
+  });
+
+  releaseRecovery.resolve();
+  await expect(recovering).resolves.toBe(true);
+  await expect(barrier.commit(7, SESSION, () => true, async (frame) => {
+    if (frame.frame.case !== "terminalMetadata") throw new Error("expected metadata");
+    delivered.push(frame.frame.value.title);
+  })).resolves.toBe(true);
+  expect(delivered).toEqual(["older", "newer"]);
+  barrier.clear();
+});
+
 test("a draining recovery cannot release a replacement session's recovery", async () => {
   const replacementSession = "00000000-0000-4000-8000-000000000718";
   const budget = new WorkerRetainedWorkBudget(() => {
