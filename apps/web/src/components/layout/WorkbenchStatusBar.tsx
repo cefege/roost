@@ -102,45 +102,49 @@ export function WorkbenchStatusBar() {
 
   return (
     <footer class="workbench-status-bar" data-testid="workbench-status-bar" aria-label="Workbench status">
-      <span class="workbench-status-item" data-testid="workbench-status-sync" data-status={syncState().status}>
-        <StatusDot status={syncState().status} />
-        <span>{syncState().label}</span>
-      </span>
-      <Show when={activeWorker()}>
-        {(worker) => (
-          <span class="workbench-status-item workbench-status-item--optional" data-testid="workbench-status-worker">
-            <StatusDot status={workerOnline(worker()) ? "ok" : "offline"} />
-            <span>{worker().label || String(worker().fp)}</span>
-          </span>
-        )}
-      </Show>
-      <Show when={activeAgent()}>
-        {(agent) => (
-          <span class="workbench-status-item workbench-status-item--optional" data-testid="workbench-status-agent">
-            <StatusDot status={agent().status} />
-            <span>{agent().label}</span>
-          </span>
-        )}
-      </Show>
-      <Show when={sessionContext()}>
-        {(context) => (
-          <span class="workbench-status-item workbench-status-item--context" data-testid="workbench-status-context">
-            {context()}
-          </span>
-        )}
-      </Show>
-      <span class="workbench-status-item" data-testid="workbench-status-counts">
-        {openSessionCount()} {openSessionCount() === 1 ? "session" : "sessions"}
-        <span aria-hidden="true">·</span>
-        {workerCounts().online}/{workerCounts().total} workers
-      </span>
-      <Show when={revision()}>
-        {(shortRevision) => (
-          <span class="workbench-status-item workbench-status-item--revision" data-testid="workbench-status-revision">
-            {shortRevision()}
-          </span>
-        )}
-      </Show>
+      <div class="workbench-status-bar__left">
+        <span class="workbench-status-item" data-testid="workbench-status-sync" data-status={syncState().status}>
+          <StatusDot status={syncState().status} />
+          <span>{syncState().label}</span>
+        </span>
+        <Show when={activeWorker()}>
+          {(worker) => (
+            <span class="workbench-status-item workbench-status-item--optional" data-testid="workbench-status-worker">
+              <StatusDot status={workerOnline(worker()) ? "ok" : "offline"} />
+              <span>{worker().label || String(worker().fp)}</span>
+            </span>
+          )}
+        </Show>
+        <Show when={activeAgent()}>
+          {(agent) => (
+            <span class="workbench-status-item workbench-status-item--optional" data-testid="workbench-status-agent">
+              <StatusDot status={agent().status} />
+              <span>{agent().label}</span>
+            </span>
+          )}
+        </Show>
+        <Show when={sessionContext()}>
+          {(context) => (
+            <span class="workbench-status-item workbench-status-item--context" data-testid="workbench-status-context">
+              {context()}
+            </span>
+          )}
+        </Show>
+      </div>
+      <div class="workbench-status-bar__right">
+        <span class="workbench-status-item" data-testid="workbench-status-counts">
+          {openSessionCount()} {openSessionCount() === 1 ? "session" : "sessions"}
+          <span aria-hidden="true">·</span>
+          {workerCounts().online}/{workerCounts().total} workers
+        </span>
+        <Show when={revision()}>
+          {(shortRevision) => (
+            <span class="workbench-status-item workbench-status-item--revision" data-testid="workbench-status-revision">
+              {shortRevision()}
+            </span>
+          )}
+        </Show>
+      </div>
     </footer>
   );
 }

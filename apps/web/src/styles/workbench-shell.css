@@ -64,20 +64,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .workbench-command-center {
   justify-self: center;
   max-width: 100%;
   min-width: 0;
   width: 100%;
 }
-
 .workbench-command-center kbd {
   color: var(--text-lo);
   font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--font-mono);
   margin-inline-start: var(--md-space-3);
 }
-
 .workbench-titlebar__actions {
   display: flex;
   justify-content: flex-end;
@@ -131,7 +128,8 @@
 }
 
 .workbench-activity-bar__item[data-active="true"] {
-  color: var(--workbench-active);
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
 }
 
 .workbench-activity-bar__item[data-active="true"]::before {
@@ -290,11 +288,13 @@
   overflow: hidden;
   padding-inline: var(--md-space-2);
 }
+.workbench-status-bar__left, .workbench-status-bar__right { display: contents; }
 
 .workbench-status-item {
   align-items: center;
   display: inline-flex;
   flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
   gap: var(--md-space-1);
   min-width: 0;
   white-space: nowrap;

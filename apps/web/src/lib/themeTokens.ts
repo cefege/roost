@@ -25,6 +25,14 @@ export const CANONICAL_TOKENS = [
   // state (nav rail, list-row, theme tile). Pairs with on-secondary-container
   // for the text/icon on top. Replaces the old ad-hoc bg/border-selected tints.
   "secondary-container", "on-secondary-container",
+  // Workbench roles mirror the VS Code 1.137.0 Dark Modern / Light Modern
+  // surface vocabulary while keeping the existing --workbench-* aliases as
+  // the consumer-facing seam. The engine writes these with every theme.
+  "wb-titlebar", "wb-activity", "wb-sidebar", "wb-editor", "wb-statusbar",
+  "wb-border", "wb-active", "wb-active-contrast", "wb-focus",
+  "wb-selected", "wb-selected-contrast",
+  "wb-tab-active", "wb-tab-inactive", "wb-tab-hover",
+  "wb-pane-drop", "wb-pane-focus",
   // ANSI 16. Cell spans emit inline var(--term-color-N), and the .wterm bridge
   // in sidebar.css points those names at this canonical palette. Theme changes
   // therefore repaint existing rows without reconstructing their DOM.

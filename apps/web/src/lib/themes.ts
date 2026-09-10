@@ -1,15 +1,12 @@
-// Theme registry — TWO themes only (Author 2026-06-28: "just Dark/Light, the
-// Google ones"). Both sampled pixel-exact from Gmail Android (Material You):
-// Dark = the cool teal-tinted night palette, Light = the grey page + raised
-// white cards. Each is a complete canonical palette (themeTokens.ts
-// CanonicalToken contract; the compiler rejects an incomplete one). lib/theme.ts
-// applies a theme by writing every token onto documentElement; styles/
-// theme-vars.css aliases the rest of the app's tokens to these.
+// Theme registry for the two supported appearances.
+// Existing app surface, status, syntax, and ANSI roles remain stable while
+// wb-* roles mirror the VS Code 1.137.0 Dark Modern and Light Modern chrome.
+// lib/theme.ts applies every canonical token to documentElement; styles/
+// theme-vars.css aliases the rest of the app to those tokens.
 
 import type { Theme } from "./themeTokens.ts";
 
-// ── Dark — Gmail Android night mode (cool teal-tinted). Page #141a1e, recessed
-//    cards #0a0f11, teal primary-container #20586e. ────────────────────────
+// Dark appearance: the existing app palette plus VS Code Dark Modern chrome.
 const DARK: Theme = {
   id: "graphite", label: "Dark", group: "Dark", appearance: "dark",
   tokens: {
@@ -21,6 +18,13 @@ const DARK: Theme = {
     "status-ok": "#81c995", "status-warn": "#fdd663", "status-err": "#f28b82", "status-info": "#7fd1ec",
     "syntax-plain": "#e3e3e1", "syntax-keyword": "#7fd1ec", "syntax-string": "#81c995", "syntax-number": "#fdd663", "syntax-comment": "#8c969b",
     "secondary-container": "#242d33", "on-secondary-container": "#e3e3e1",
+    // VS Code 1.137.0 Dark Modern workbench roles.
+    "wb-titlebar": "#181818", "wb-activity": "#181818", "wb-sidebar": "#181818",
+    "wb-editor": "#1f1f1f", "wb-statusbar": "#181818", "wb-border": "#2b2b2b",
+    "wb-active": "#0078d4", "wb-active-contrast": "#ffffff", "wb-focus": "#0078d4",
+    "wb-selected": "#37373d", "wb-selected-contrast": "#ffffff",
+    "wb-tab-active": "#1f1f1f", "wb-tab-inactive": "#181818", "wb-tab-hover": "#1f1f1f",
+    "wb-pane-drop": "#53595d80", "wb-pane-focus": "#0078d4",
     "ansi-black": "#242d33", "ansi-red": "#f28b82", "ansi-green": "#81c995", "ansi-yellow": "#fdd663",
     "ansi-blue": "#7fd1ec", "ansi-magenta": "#c58af9", "ansi-cyan": "#78d9ec", "ansi-white": "#e3e3e1",
     "ansi-bright-black": "#5a646a", "ansi-bright-red": "#f6aea9", "ansi-bright-green": "#a8dab5", "ansi-bright-yellow": "#fde293",
@@ -28,9 +32,7 @@ const DARK: Theme = {
   },
 };
 
-// ── Light — Gmail Android light mode. Grey page #e9eef4 with RAISED white cards
-//    (#ffffff, lighter than the page — opposite of dark's recessed wells),
-//    light-blue compose FAB #a1d6f7, dark text. ──────────────────────────────
+// Light appearance: the existing app palette plus VS Code Light Modern chrome.
 const LIGHT: Theme = {
   id: "light", label: "Light", group: "Light", appearance: "light",
   tokens: {
@@ -42,6 +44,13 @@ const LIGHT: Theme = {
     "status-ok": "#188038", "status-warn": "#b06000", "status-err": "#c5221f", "status-info": "#0b57d0",
     "syntax-plain": "#383a42", "syntax-keyword": "#a626a4", "syntax-string": "#50a14f", "syntax-number": "#c18401", "syntax-comment": "#a0a1a7",
     "secondary-container": "#c2e7ff", "on-secondary-container": "#001d35",
+    // VS Code 1.137.0 Light Modern workbench roles.
+    "wb-titlebar": "#f8f8f8", "wb-activity": "#f8f8f8", "wb-sidebar": "#f8f8f8",
+    "wb-editor": "#ffffff", "wb-statusbar": "#f8f8f8", "wb-border": "#e5e5e5",
+    "wb-active": "#005fb8", "wb-active-contrast": "#ffffff", "wb-focus": "#005fb8",
+    "wb-selected": "#e4e6f1", "wb-selected-contrast": "#333333",
+    "wb-tab-active": "#ffffff", "wb-tab-inactive": "#f8f8f8", "wb-tab-hover": "#ffffff",
+    "wb-pane-drop": "#2677cb2e", "wb-pane-focus": "#005fb8",
     "ansi-black": "#383a42", "ansi-red": "#e45649", "ansi-green": "#50a14f", "ansi-yellow": "#c18401",
     "ansi-blue": "#4078f2", "ansi-magenta": "#a626a4", "ansi-cyan": "#0184bc", "ansi-white": "#a0a1a7",
     "ansi-bright-black": "#696c77", "ansi-bright-red": "#e45649", "ansi-bright-green": "#50a14f", "ansi-bright-yellow": "#986801",
