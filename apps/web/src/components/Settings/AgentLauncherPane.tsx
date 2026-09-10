@@ -4,7 +4,7 @@
 // Server-stored via lib/agents.ts (app_settings KV), so the choice applies to
 // every device. Callers: SettingsRoot.tsx.
 
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, createEffect, createSignal, Show } from "solid-js";
 import { Select, TextField, Button, Switch } from "./md/primitives.tsx";
 import { addToast } from "../../store/toastStore.ts";
 import { AgentTile } from "../AgentGlyph.tsx";
@@ -16,6 +16,8 @@ import {
 export const AgentLauncherPane: Component = () => {
   const [draftSelected, setDraftSelected] = createSignal(currentSelected());
   const [draftCustom, setDraftCustom] = createSignal(currentCustomCommand());
+  const [draftAutoLaunch, setDraftAutoLaunch] = createSignal(autoLaunchEnabled());
+  createEffect(() => setDraftAutoLaunch(autoLaunchEnabled()));
 
   const options = [
     ...BUILTIN_AGENTS.map((a) => ({ value: a.id, label: a.label })),
@@ -46,9 +48,11 @@ export const AgentLauncherPane: Component = () => {
   }
 
   async function onAutoLaunchChange(enabled: boolean): Promise<void> {
+    setDraftAutoLaunch(enabled);
     try {
       await saveAutoLaunch(enabled);
     } catch (error) {
+      setDraftAutoLaunch(autoLaunchEnabled());
       addToast(`Auto-launch save failed: ${error instanceof Error ? error.message : String(error)}`, "err");
     }
   }
@@ -103,7 +107,7 @@ export const AgentLauncherPane: Component = () => {
 
       <div style={{ "margin-top": "22px", display: "flex", "align-items": "center", gap: "12px" }}>
         <Switch
-          checked={autoLaunchEnabled()}
+          checked={draftAutoLaunch()}
           onChange={(v) => void onAutoLaunchChange(v)}
           label="Auto-launch agent in new terminal windows"
           testId="agent-auto-launch-toggle"
