@@ -14,11 +14,7 @@
 // vary; the 30s test timeout is the hard bound).
 
 import { describe, test, expect } from "bun:test";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { buildAuthorizedApiClient } from "../apps/roost-cli/src/api.ts";
-import { loadWorkerConfig } from "../apps/worker/src/config.ts";
+import { buildApiClient } from "../apps/roost-cli/src/api.ts";
 import { openSyncWs } from "../apps/roost-cli/src/sync-ws.ts";
 // Relative import, not "@roost/shared/...": the smoke workspace declares no
 // @roost deps, so the bare specifier only resolves from files living under
@@ -32,10 +28,7 @@ if (!coordinatorUrl) {
     "ROOST_COORD_URL is required; run ROOST_COORD_URL=https://<current-tailnet-coord>:4102 bun run test:live-api",
   );
 }
-const workerConfig = loadWorkerConfig();
-const keyPath = existsSync(workerConfig.workerKeyPath)
-  ? workerConfig.workerKeyPath
-  : join(homedir(), ".roost", "cli-key");
+const liveApiClient = () => buildApiClient({ coordinatorUrl });
 
 /**
  * Bounded poll: re-run `fn` every 100ms until it returns a truthy value
@@ -97,7 +90,7 @@ function transferWorkerFp(
 describe("api smoke (headless, live coord)", () => {
   test("spawn → echo → rename → workspace lifecycle → sync stream → kill", async () => {
     const t0 = performance.now();
-    const c = await buildAuthorizedApiClient({ coordinatorUrl, keyPath, label: "api-smoke" });
+    const c = await liveApiClient();
 
     // Cleanup ledger — the finally block below kills/deletes anything a
     // mid-flight failure left behind, so a red run never litters the live
@@ -241,11 +234,17 @@ describe("api smoke (headless, live coord)", () => {
       // The collector runs in the background; the 8s timeout is the hard
       // upper bound, the AbortController is the happy-path terminator.
       const seen: Array<{ kind: string; session_id: string }> = [];
+      const syncReady = Promise.withResolvers<void>();
+      let receivedSyncFrame = false;
       const ac = new AbortController();
       const collector = (async () => {
         try {
           const signal = AbortSignal.any([ac.signal, AbortSignal.timeout(8000)]);
           for await (const frame of await openSyncWs({ signal })) {
+            if (!receivedSyncFrame) {
+              receivedSyncFrame = true;
+              syncReady.resolve();
+            }
             if (frame.frame.case !== "sessionEvent") continue;
             const ev = protoToEvent(frame.frame.value as never) as
               | (Record<string, unknown> & { kind: string; session_id?: string })
@@ -253,12 +252,15 @@ describe("api smoke (headless, live coord)", () => {
             // snapshot events carry no session_id — irrelevant here, skip.
             if (ev?.session_id) seen.push({ kind: ev.kind, session_id: ev.session_id });
           }
-        } catch (e) {
+        } catch (error) {
+          syncReady.reject(error);
           // connect surfaces our abort as a stream error — normal terminator
           // (same regex as the roost-cli events verb).
-          if (!/abort|timed?.?out|deadline|cancel/i.test(String(e))) throw e;
+          if (!/abort|timed?.?out|deadline|cancel/i.test(String(error))) throw error;
         }
+        if (!receivedSyncFrame) syncReady.reject(new Error("sync stream did not become ready"));
       })();
+      await syncReady.promise;
 
       const throwaway = await c.sessionsSpawn({ workerFp, kind: "shell", folder: "/tmp" });
       const tsid = throwaway.sessionId;
@@ -299,7 +301,7 @@ describe("api smoke (headless, live coord)", () => {
   }, 30_000);
 
   test("upload (chunked) → dedup probe → chunked download round-trips >25MB", async () => {
-    const c = await buildAuthorizedApiClient({ coordinatorUrl, keyPath, label: "api-smoke" });
+    const c = await liveApiClient();
     const spawnedSessions = new Set<string>();
     try {
       const { workers, routableFps } = await c.workersList({});
