@@ -50,7 +50,7 @@ function capacityPresenceReports(): {
         report: message.terminal_core_capacity as typeof CAPACITY_REPORT | null,
       });
     }
-  }, DASHBOARD_ID);
+  });
   return { seen, stop };
 }
 
@@ -64,7 +64,7 @@ test("a valid terminal-core capacity report persists and projects", async () => 
       create(WorkersHeartbeatRequestSchema, {
         terminalCoreCapacity: terminalCoreCapacityReportToProto(CAPACITY_REPORT),
       }),
-      workerHeartbeatContext(DASHBOARD_ID),
+      workerHeartbeatContext(),
     );
   } finally {
     presence.stop();
@@ -94,7 +94,7 @@ test("a malformed terminal-core capacity report clears stale capacity", async ()
           used: 13,
         }),
       }),
-      workerHeartbeatContext(DASHBOARD_ID),
+      workerHeartbeatContext(),
     );
   } catch (error) {
     rejection = error;
@@ -122,7 +122,7 @@ test("an omitted terminal-core capacity report retires stale capacity", async ()
 
   await handlers.workersHeartbeat(
     create(WorkersHeartbeatRequestSchema, {}),
-    workerHeartbeatContext(DASHBOARD_ID),
+    workerHeartbeatContext(),
   );
 
   expect(database.patches[0]).toMatchObject({ terminal_core_capacity_json: null });

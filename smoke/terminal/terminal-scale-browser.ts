@@ -5,7 +5,7 @@
 
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { setTimeout as delay } from "node:timers/promises";
-import { enrollDashboardBrowser } from "./fixtures.ts";
+import { enrollSmokeBrowser } from "./fixtures.ts";
 import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 import { assertFleetCapacity, type ScaleWorkerCapacity, workerFolder } from "./terminal-scale-preflight.ts";
 
@@ -115,12 +115,11 @@ export async function waitForScaleCondition(
   throw new Error(`terminal scale qualification timed out waiting for ${label} after ${timeoutMs}ms`);
 }
 
-async function installScaleSmokeInit(context: BrowserContext, dashboardId: string): Promise<void> {
-  await context.addInitScript((selectedDashboardId) => {
+async function installScaleSmokeInit(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
     localStorage.setItem("roostSmoke", "1");
     localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
-    localStorage.setItem("roost.dashboardId", selectedDashboardId);
-  }, dashboardId);
+  });
 }
 
 async function waitForSmokePage(page: Page, workerFps: readonly string[]): Promise<void> {
@@ -140,7 +139,7 @@ async function enrollScalePage(
   stack: TerminalTestStack,
   workerFps: readonly string[],
 ): Promise<void> {
-  await enrollDashboardBrowser(page, stack);
+  await enrollSmokeBrowser(page, stack);
   await waitForSmokePage(page, workerFps);
   await forceScalePageVisible(page, true);
 }
@@ -164,7 +163,7 @@ export async function createScaleDocuments(options: {
   try {
     if (initialPage) {
       const initialContext = initialPage.context();
-      await installScaleSmokeInit(initialContext, stack.dashboardId);
+      await installScaleSmokeInit(initialContext);
       await waitForSmokePage(initialPage, workerFps);
       await forceScalePageVisible(initialPage, true);
       documents.push({ page: initialPage, context: initialContext, initial: true, ownsContext: false });
@@ -179,7 +178,7 @@ export async function createScaleDocuments(options: {
     for (let contextIndex = 0; contextIndex < contextsRemaining; contextIndex++) {
       const context = await browser.newContext({ viewport: DEFAULT_VIEWPORT });
       createdContexts.push(context);
-      await installScaleSmokeInit(context, stack.dashboardId);
+      await installScaleSmokeInit(context);
       for (let pageIndex = 0; pageIndex < pagesPerContext; pageIndex++) {
         const page = await context.newPage();
         documents.push({ page, context, initial: false, ownsContext: true });
