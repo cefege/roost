@@ -3,19 +3,20 @@
 // No browser echo or mocked RPC can satisfy this exact-byte terminal bridge proof.
 
 import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "./fixtures.ts";
 
-const bunExecutable = process.env.ROOST_TEST_BUN ?? Bun.which("bun");
-if (!bunExecutable) throw new Error("terminal CLI smoke requires Bun");
+const bunExecutable = process.env.ROOST_TEST_BUN ?? Bun.which("bun") ?? (() => {
+  throw new Error("terminal CLI smoke requires Bun");
+})();
 
 async function runCli(
   args: string[],
   environment: Record<string, string>,
   stdin?: Uint8Array,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const cli = Bun.spawn([bunExecutable, "apps/roost-cli/src/main.ts", "api", ...args], {
+  const cli = Bun.spawn([bunExecutable, `--env-file=${devNull}`, "apps/roost-cli/src/main.ts", "api", ...args], {
     cwd: join(import.meta.dir, "..", ".."),
     env: environment,
     stdin: "pipe",
@@ -40,7 +41,9 @@ test("CLI sessions JSON discovers a PTY and stdin input paints its marker", asyn
     await mkdir(join(cliHome, ".roost"), { recursive: true, mode: 0o700 });
     await copyFile(stack.apiKeyPath, cliKeyPath);
     const environment = {
-      ...Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)),
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(([key, value]) => value !== undefined && !key.startsWith("ROOST_")),
+      ),
       HOME: cliHome,
       ROOST_COORD_URL: stack.baseUrl,
     } as Record<string, string>;
