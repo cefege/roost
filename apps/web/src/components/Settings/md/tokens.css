@@ -32,135 +32,18 @@
 /* ─── Settings surface — shared shell styles ──────────────────── */
 .settings-shell {
   display: flex;
+  min-width: 0;
   height: 100vh;
-  background: var(--md-sys-color-surface);
-  color: var(--md-sys-color-on-surface);
-  font-family: var(--md-font);
 }
 
 .settings-rail {
-  width: 360px;
-  flex-shrink: 0;
-  background: var(--md-sys-color-surface);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--md-sys-color-outline-variant);
+  flex-shrink: 0;
+  width: 360px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-top: env(safe-area-inset-top, 0px);
 }
-
-.settings-rail__brand {
-  font: var(--md-headline-s-weight) var(--md-headline-s-size)/var(--md-headline-s-line) var(--md-font);
-  color: var(--md-sys-color-on-surface);
-  padding: var(--md-space-5) var(--md-space-4) var(--md-space-3);
-  text-align: left;
-  letter-spacing: 0;
-  display: block;
-  width: 100%;
-  background: var(--md-sys-color-surface);
-  border: none;
-  cursor: pointer;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  flex-shrink: 0;
-}
-.settings-rail__brand:hover { background: var(--md-state-hover); }
-
-.settings-rail__group {
-  padding: 0 var(--md-space-2);
-}
-/* No border between groups — the group label separates, matching mobile/Pixel. */
-
-.settings-rail__group-label {
-  font: var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  text-align: left;
-  color: var(--md-on-surface-dim, var(--md-sys-color-on-surface-variant));
-  padding: var(--md-space-5) var(--md-space-4) var(--md-space-2);
-}
-
-.settings-rail__item {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: var(--md-space-4);
-  width: 100%;
-  min-height: 56px;
-  padding: 0 var(--md-space-4);
-  cursor: pointer;
-  color: var(--md-sys-color-on-surface-variant);
-  border: none;
-  background: transparent;
-  text-align: left;
-  position: relative;
-  font-family: inherit;
-  border-radius: var(--md-shape-full);
-  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
-}
-
-.settings-rail__item + .settings-rail__item::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: calc(var(--md-space-4) + 40px + var(--md-space-4)); /* 72px — text start */
-  right: 0;
-  height: 1px;
-  background: var(--md-sys-color-outline-variant);
-}
-.settings-rail__item[data-selected="true"]::before,
-.settings-rail__item[data-selected="true"] + .settings-rail__item::before {
-  display: none;
-}
-
-.settings-rail__item:focus-visible { outline: none; }
-.settings-rail__item:focus-visible .settings-rail__indicator {
-  outline: 2px solid var(--md-sys-color-primary);
-  outline-offset: 2px;
-}
-.settings-rail__item:hover { background: var(--md-state-hover); }
-
-.settings-rail__item[data-selected="true"] {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-}
-
-.settings-rail__indicator {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--md-shape-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: var(--md-sys-color-surface-container-high);
-}
-.settings-rail__item[data-selected="true"] .settings-rail__indicator {
-  background: transparent;
-}
-
-.settings-rail__icon {
-  font-family: "Material Symbols Rounded";
-  font-size: 24px;
-  font-weight: 400;
-  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
-  line-height: 1;
-  color: inherit;
-}
-.settings-rail__item[data-selected="true"] .settings-rail__icon {
-  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
-}
-
-.settings-rail__label {
-  font: var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font);
-  letter-spacing: 0;
-  flex: 1;
-  min-width: 0;
-}
-
-.settings-rail__spacer { flex: 1; }
 
 .settings-main {
   flex: 1;

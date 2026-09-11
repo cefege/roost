@@ -362,6 +362,12 @@
   --workbench-tab-inactive: var(--wb-tab-inactive);
   --workbench-tab-hover: var(--wb-tab-hover);
   --workbench-tab-border: var(--wb-border);
+  --workbench-tab-active-foreground: var(--text-hi);
+  --workbench-tab-inactive-foreground: var(--text-mid);
+  --workbench-tab-hover-foreground: var(--text-hi);
+  --workbench-tab-unfocused-active: var(--workbench-editor);
+  --workbench-tab-unfocused-active-foreground: var(--text-mid);
+  --workbench-editor-actions-reserve: calc(var(--workbench-tab-action-size) + var(--md-space-4));
   --workbench-pane-focus: var(--wb-pane-focus);
   --workbench-pane-drop: var(--wb-pane-drop);
   --workbench-tab-menu: var(--surface-2);

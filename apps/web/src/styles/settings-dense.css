@@ -14,6 +14,88 @@
   letter-spacing: -0.01em;
 }
 
+/* ── Desktop workbench Settings rail ───────────────────────────────────────── */
+[data-density="dense"] .settings-shell {
+  background: var(--workbench-editor);
+}
+[data-density="dense"] .settings-rail {
+  width: var(--workbench-sidebar-width);
+  background: var(--workbench-sidebar);
+  border-inline-end: var(--workbench-border-width) solid var(--workbench-border);
+}
+[data-density="dense"] .settings-rail__title {
+  margin: 0;
+  padding: var(--md-space-4) var(--md-space-3) var(--md-space-2);
+  background: var(--workbench-sidebar);
+  color: var(--text-hi);
+  font: var(--md-title-s-weight) var(--md-title-s-size)/var(--md-title-s-line) var(--md-font);
+}
+[data-density="dense"] .settings-rail__group {
+  padding-block: var(--md-space-2);
+}
+[data-density="dense"] .settings-rail__group-label {
+  margin: 0;
+  padding: var(--md-space-2) var(--md-space-3);
+  color: var(--text-lo);
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+  text-transform: uppercase;
+}
+[data-density="dense"] .settings-rail__item.md-list-row {
+  min-block-size: calc(var(--md-space-4) + var(--md-space-5));
+  padding: 0 var(--md-space-3);
+  border: 0;
+  border-inline-start: var(--workbench-border-width) solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-mid);
+}
+[data-density="dense"] .settings-rail__item.md-list-row + .settings-rail__item.md-list-row {
+  margin: 0;
+  border-top: 0;
+  border-inline-start: var(--workbench-border-width) solid transparent;
+}
+[data-density="dense"] .settings-rail__item .md-list-row__leading {
+  min-inline-size: 0;
+  inline-size: auto;
+  block-size: auto;
+  margin-inline-end: var(--md-space-2);
+  border-radius: 0;
+  background: transparent;
+}
+[data-density="dense"] .settings-rail__item .md-list-row__leading .md-icon {
+  font-size: var(--md-body-m-size);
+}
+[data-density="dense"] .settings-rail__item .md-list-row__headline {
+  color: inherit;
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+}
+[data-density="dense"] .settings-rail__item[data-selected="true"] {
+  border-inline-start-color: var(--workbench-active);
+  background: var(--workbench-sidebar-selected);
+  color: var(--workbench-sidebar-selected-text);
+}
+[data-density="dense"] .settings-rail__item[data-selected="true"] .md-list-row__headline {
+  font-weight: var(--md-label-l-weight);
+}
+@media (hover: hover) {
+  [data-density="dense"] .settings-rail__item:hover {
+    background: var(--workbench-sidebar-row-hover);
+    color: var(--text-hi);
+  }
+  [data-density="dense"] .settings-rail__item[data-selected="true"]:hover {
+    background: var(--workbench-sidebar-selected);
+    color: var(--workbench-sidebar-selected-text);
+  }
+}
+[data-density="dense"] .settings-rail__item:focus-visible {
+  outline: var(--workbench-border-width) solid var(--workbench-focus-ring);
+  outline-offset: calc(var(--workbench-border-width) * -1);
+}
+[data-density="dense"] .settings-main,
+[data-density="dense"] .settings-content {
+  background: var(--workbench-editor);
+}
+
 /* ── Cards → flat hairline groups (no elevation, no rounded chrome) ──────────── */
 [data-density="dense"] .md-card,
 [data-density="dense"] .md-card--elevated,

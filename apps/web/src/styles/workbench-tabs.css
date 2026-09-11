@@ -5,25 +5,43 @@
  */
 
 .workbench-tab-strip,
-.workbench-pane-tab-strip,
-.df-tab-bar {
+.workbench-pane-tab-strip {
   display: flex;
   align-items: center;
   min-width: 0;
   min-height: var(--workbench-tab-strip-height);
   block-size: var(--workbench-tab-strip-height);
-  padding: 0 var(--md-space-3);
-  gap: var(--md-space-1);
   box-sizing: border-box;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   position: relative;
   background: var(--workbench-tab-strip);
   border-bottom: var(--workbench-border-width) solid var(--workbench-tab-border);
-  scrollbar-width: none;
   isolation: isolate;
 }
-.df-tab-bar::-webkit-scrollbar { display: none; }
+.workbench-pane-tab-strip {
+  padding-inline-end: var(--workbench-editor-actions-reserve);
+}
+.df-tab-bar.workbench-pane-tab-strip__tabs {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--workbench-tab-strip-height);
+  block-size: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.df-tab-bar.workbench-pane-tab-strip__tabs::-webkit-scrollbar { display: none; }
+.workbench-pane-tab-strip__actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  block-size: 100%;
+  gap: var(--md-space-1);
+  padding-inline: var(--md-space-1);
+  background: var(--workbench-tab-strip);
+}
 
 .workbench-pane-tab,
 .df-tab {
@@ -41,9 +59,9 @@
   overflow: hidden;
   border: 0;
   border-inline-end: var(--workbench-border-width) solid var(--workbench-tab-border);
+  border-radius: 0;
   background: var(--workbench-tab-inactive);
-  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
-  color: var(--text-mid);
+  color: var(--workbench-tab-inactive-foreground);
   font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
   cursor: pointer;
   touch-action: pan-y;
@@ -61,21 +79,31 @@
   padding: 0;
   background: transparent;
   border: 0;
-  color: inherit;
+  color: var(--workbench-tab-inactive-foreground);
   font: inherit;
   text-align: start;
   cursor: pointer;
+  --md-text-button-label-text-color: var(--workbench-tab-inactive-foreground);
+  --md-text-button-hover-label-text-color: var(--workbench-tab-hover-foreground);
+  --md-text-button-focus-label-text-color: var(--workbench-tab-hover-foreground);
+  --md-text-button-pressed-label-text-color: var(--workbench-tab-hover-foreground);
 }
 .workbench-pane-tab:hover,
-.df-tab:hover { background: var(--workbench-tab-hover); color: var(--text-hi); }
+.df-tab:hover {
+  background: var(--workbench-tab-hover);
+  color: var(--workbench-tab-hover-foreground);
+}
 .workbench-pane-tab[data-active="true"],
 .df-tab[data-active="true"] {
-  background: var(--workbench-tab-active);
-  color: var(--text-hi);
+  background: var(--workbench-editor);
+  color: var(--workbench-tab-active-foreground);
 }
-.df-tab[data-active="false"] {
-  background: var(--workbench-tab-inactive);
-  color: var(--text-mid);
+.df-tab[data-active="true"] .workbench-pane-tab__select {
+  color: var(--workbench-tab-active-foreground);
+  --md-text-button-label-text-color: var(--workbench-tab-active-foreground);
+  --md-text-button-hover-label-text-color: var(--workbench-tab-active-foreground);
+  --md-text-button-focus-label-text-color: var(--workbench-tab-active-foreground);
+  --md-text-button-pressed-label-text-color: var(--workbench-tab-active-foreground);
 }
 .df-tab[data-selected="true"]:not([data-active="true"]) {
   background: var(--md-secondary-container);
@@ -84,20 +112,26 @@
 .df-tab[data-active="true"]::after {
   position: absolute;
   inset-inline: 0;
-  inset-block-end: 0;
-  block-size: calc(var(--workbench-border-width) * 2);
-  background: var(--workbench-active);
+  inset-block-end: calc(var(--workbench-border-width) * -1);
+  block-size: var(--workbench-border-width);
+  background: var(--workbench-editor);
   content: "";
   pointer-events: none;
 }
 .df-tab-bar[data-focused="false"] .df-tab[data-active="true"] {
-  background: var(--workbench-tab-inactive);
-  color: var(--text-mid);
+  background: var(--workbench-tab-unfocused-active);
+  color: var(--workbench-tab-unfocused-active-foreground);
+}
+.df-tab-bar[data-focused="false"] .df-tab[data-active="true"] .workbench-pane-tab__select {
+  color: var(--workbench-tab-unfocused-active-foreground);
+  --md-text-button-label-text-color: var(--workbench-tab-unfocused-active-foreground);
+  --md-text-button-hover-label-text-color: var(--workbench-tab-unfocused-active-foreground);
+  --md-text-button-focus-label-text-color: var(--workbench-tab-unfocused-active-foreground);
+  --md-text-button-pressed-label-text-color: var(--workbench-tab-unfocused-active-foreground);
 }
 .df-tab-bar[data-focused="false"] .df-tab[data-active="true"]::after {
-  background: var(--workbench-tab-border);
+  background: var(--workbench-tab-unfocused-active);
 }
-.df-tab-bar[data-focused="false"] .df-tab-indicator { background: var(--workbench-tab-border); }
 .workbench-pane-tab:focus-within,
 .df-tab:focus-within,
 .workbench-pane-tab[data-focused="true"],
@@ -105,7 +139,10 @@
   outline: var(--workbench-border-width) solid var(--workbench-focus-ring);
   outline-offset: calc(var(--workbench-border-width) * -1);
 }
-.workbench-pane-tab__icon { flex: 0 0 auto; color: var(--workbench-active); }
+.workbench-pane-tab__icon {
+  flex: 0 0 auto;
+  color: currentColor;
+}
 .workbench-pane-tab__close,
 .df-tab-close {
   flex: 0 0 auto;
@@ -141,19 +178,6 @@
 .df-tab md-ripple,
 .workbench-pane-tab md-ripple { --md-ripple-hover-color: var(--md-on-surface); --md-ripple-pressed-color: var(--md-primary); }
 
-.df-tab-indicator {
-  position: absolute;
-  inset-block-end: 0;
-  inset-inline-start: 0;
-  inline-size: var(--workbench-border-width);
-  block-size: calc(var(--workbench-border-width) * 2);
-  background: var(--workbench-active);
-  z-index: 2;
-  pointer-events: none;
-  transform-origin: 0 50%;
-  transition: transform var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized),
-    opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
-}
 .df-tab-bar[data-dragging="true"] { user-select: none; cursor: grabbing; }
 .df-tab[data-dragging="true"] {
   position: relative;
@@ -173,23 +197,6 @@
     padding var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-accelerate),
     opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
 }
-.df-tab-glyph {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  inline-size: var(--md-space-4);
-  block-size: var(--md-space-4);
-  border-radius: var(--md-shape-xs);
-  background: var(--md-surface-container-high);
-  color: var(--text-mid);
-  font-family: var(--font-mono);
-  font-size: var(--md-label-s-size);
-}
-.df-tab[data-active="true"] .df-tab-glyph {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-}
 .df-tab-filler { flex: 1 1 auto; align-self: stretch; min-width: var(--md-space-5); cursor: default; }
 
 .df-tab-new,
@@ -203,20 +210,13 @@
   block-size: var(--workbench-tab-action-size);
   padding: 0;
   border: 0;
-  border-radius: var(--md-shape-sm);
+  border-radius: 0;
   background: var(--workbench-tab-strip);
   color: var(--text-mid);
   cursor: pointer;
-}
-.df-tab-new,
-.df-tab-overflow {
-  position: sticky;
-  z-index: 3;
   transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard),
     color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
 }
-.df-tab-new { inset-inline-end: 0; margin-inline-start: var(--md-space-1); }
-.df-tab-overflow { inset-inline-end: var(--workbench-tab-action-size); box-shadow: calc(var(--md-space-2) * -1) 0 var(--md-space-2) calc(var(--md-space-2) * -1) color-mix(in srgb, var(--md-scrim) 40%, transparent); }
 .df-tab-new:hover,
 .df-tab-overflow:hover,
 .df-arrange-btn:hover { background: var(--md-state-hover); color: var(--text-hi); }

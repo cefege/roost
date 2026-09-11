@@ -15,6 +15,7 @@ import {
   Sheet, Icon,
 } from "./Settings/md/primitives";
 import { WorkbenchShellSpecimen } from "./WorkbenchShellSpecimen.tsx";
+import { SettingsNavigationSpecimen } from "./SettingsNavigationSpecimen.tsx";
 
 // ─── token catalogs (grep-tokens; each maps 1:1 to a declared theme var) ─────
 const COLOR_GROUPS: { title: string; tokens: string[] }[] = [
@@ -133,6 +134,10 @@ export const DesignGallery: Component = () => {
           Title bar, activity rail, primary sidebar, terminal editor, and truthful status bar share one contiguous desktop surface.
         </p>
         <WorkbenchShellSpecimen />
+      </Section>
+
+      <Section title="Settings navigation">
+        <SettingsNavigationSpecimen />
       </Section>
 
       {/* 1. Color roles */}

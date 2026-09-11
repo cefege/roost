@@ -49,13 +49,12 @@ type DragState = {
 };
 
 export function PaneStrip(props: PaneStripProps) {
-  let barElement: HTMLDivElement | undefined;
+  let tabRailElement: HTMLDivElement | undefined;
   let overflowButtonElement: HTMLButtonElement | undefined;
-  let indicatorFrame = 0;
+  let measurementFrame = 0;
   let hoverTimer = 0;
   let cancelSettle: (() => void) | undefined;
 
-  const [indicator, setIndicator] = createSignal({ left: 0, width: 0, ready: false });
   const [overflow, setOverflow] = createSignal(false);
   const [drag, setDrag] = createSignal<DragState | null>(null);
   const [closing, setClosing] = createSignal<Set<string>>(new Set());
@@ -69,48 +68,32 @@ export function PaneStrip(props: PaneStripProps) {
   const setTimeoutTracked = createTrackedTimeouts();
 
   function measureOverflow(): void {
-    if (!barElement) return;
-    const isOverflowing = barElement.scrollWidth > barElement.clientWidth + 1;
+    if (!tabRailElement) return;
+    const isOverflowing = tabRailElement.scrollWidth > tabRailElement.clientWidth + 1;
     setOverflow((previous) => previous === isOverflowing ? previous : isOverflowing);
   }
 
-  function measureTabIndicator(): void {
-    const activeTab = barElement?.querySelector<HTMLElement>('[data-active="true"]');
-    if (!activeTab) {
-      setIndicator((previous) => previous.ready ? { ...previous, ready: false } : previous);
-      measureOverflow();
-      return;
-    }
-    const left = activeTab.offsetLeft;
-    const width = activeTab.offsetWidth;
-    setIndicator((previous) =>
-      previous.ready && previous.left === left && previous.width === width
-        ? previous
-        : { left, width, ready: true });
-    measureOverflow();
-  }
-
-  const tabResizeObserver = new ResizeObserver(measureTabIndicator);
-  const barResizeObserver = new ResizeObserver(measureOverflow);
+  const tabResizeObserver = new ResizeObserver(measureOverflow);
+  const tabRailResizeObserver = new ResizeObserver(measureOverflow);
 
   onMount(() => {
-    if (barElement) barResizeObserver.observe(barElement);
+    if (tabRailElement) tabRailResizeObserver.observe(tabRailElement);
     measureOverflow();
   });
   createEffect(on([() => props.selectedTab, tabIdsKey], () => {
-    cancelAnimationFrame(indicatorFrame);
-    indicatorFrame = requestAnimationFrame(() => {
-      indicatorFrame = 0;
+    cancelAnimationFrame(measurementFrame);
+    measurementFrame = requestAnimationFrame(() => {
+      measurementFrame = 0;
       tabResizeObserver.disconnect();
-      const tabs = barElement?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
+      const tabs = tabRailElement?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
       for (const tab of tabs) tabResizeObserver.observe(tab);
-      measureTabIndicator();
+      measureOverflow();
     });
   }));
   onCleanup(() => {
-    cancelAnimationFrame(indicatorFrame);
+    cancelAnimationFrame(measurementFrame);
     tabResizeObserver.disconnect();
-    barResizeObserver.disconnect();
+    tabRailResizeObserver.disconnect();
     cancelSettle?.();
     clearTimeout(hoverTimer);
   });
@@ -156,12 +139,15 @@ export function PaneStrip(props: PaneStripProps) {
   }
 
   function tabRects(): TabRect[] {
-    const elements = barElement?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
-    return Array.from(elements).map((element) => ({
-      left: element.offsetLeft,
-      width: element.offsetWidth,
-      center: element.offsetLeft + element.offsetWidth / 2,
-    }));
+    const elements = tabRailElement?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
+    return Array.from(elements).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        width: rect.width,
+        center: rect.left + rect.width / 2,
+      };
+    });
   }
 
   function restingDx(currentDrag: DragState): number {
@@ -308,72 +294,72 @@ export function PaneStrip(props: PaneStripProps) {
 
   return (
     <div
-      ref={barElement}
-      class="df-tab-bar workbench-pane-tab-strip"
+      class="workbench-pane-tab-strip"
       data-testid={`pane-strip-${props.paneId}`}
       data-pane-strip={props.paneId}
       data-focused={props.focused ? "true" : "false"}
       data-dragging={drag() ? "true" : "false"}
     >
       <div
-        class="df-tab-indicator workbench-pane-tab-strip__indicator"
-        aria-hidden="true"
-        style={{
-          transform: `translateX(${indicator().left}px) scaleX(${indicator().width})`,
-          opacity: indicator().ready && !drag() ? "1" : "0",
-        }}
-      />
-      <For each={props.tabs}>
-        {(session, index) => (
-          <PaneTab
-            session={session}
-            active={session.id === props.selectedTab}
-            dragging={drag()?.id === session.id}
-            closing={closing().has(session.id)}
-            style={tabDragStyle(index())}
-            onPointerDown={(event) => onTabPointerDown(event, session.id)}
-            onSelect={() => {
-              clearHover();
-              props.onSelect(session.id);
-            }}
-            onHoverStart={(element) => armHover(session.id, element.getBoundingClientRect())}
-            onHoverEnd={clearHover}
-            onClose={(event) => {
-              event.stopPropagation();
-              event.preventDefault();
-              closeTab(session);
-            }}
-          />
-        )}
-      </For>
-      <Show when={overflow()}>
-        <IconButton
-          ref={overflowButtonElement}
-          icon="keyboard_arrow_down"
-          label="All terminals in this pane"
-          class="df-tab-overflow workbench-pane-tab-control"
-          data-testid="tab-overflow"
-          menuPopup="menu"
-          controlsId="tab-list-popup"
-          expanded={listOpen() !== null}
-          title="All terminals"
-          onClick={toggleList}
+        ref={tabRailElement}
+        class="df-tab-bar workbench-pane-tab-strip__tabs"
+        data-focused={props.focused ? "true" : "false"}
+        data-dragging={drag() ? "true" : "false"}
+      >
+        <For each={props.tabs}>
+          {(session, index) => (
+            <PaneTab
+              session={session}
+              active={session.id === props.selectedTab}
+              dragging={drag()?.id === session.id}
+              closing={closing().has(session.id)}
+              style={tabDragStyle(index())}
+              onPointerDown={(event) => onTabPointerDown(event, session.id)}
+              onSelect={() => {
+                clearHover();
+                props.onSelect(session.id);
+              }}
+              onHoverStart={(element) => armHover(session.id, element.getBoundingClientRect())}
+              onHoverEnd={clearHover}
+              onClose={(event) => {
+                event.stopPropagation();
+                event.preventDefault();
+                closeTab(session);
+              }}
+            />
+          )}
+        </For>
+        <div
+          class="df-tab-filler workbench-pane-tab-strip__filler"
+          data-testid="tab-filler"
+          title="Double-click to open a new terminal in this folder"
+          onDblClick={props.onNewTab}
         />
-      </Show>
-      <IconButton
-        icon="add"
-        label="New terminal — same folder and server"
-        class="df-tab-new workbench-pane-tab-control"
-        data-testid="tab-new"
-        title="New terminal in this folder (or double-click the empty bar)"
-        onClick={props.onNewTab}
-      />
-      <div
-        class="df-tab-filler workbench-pane-tab-strip__filler"
-        data-testid="tab-filler"
-        title="Double-click to open a new terminal in this folder"
-        onDblClick={props.onNewTab}
-      />
+      </div>
+      <div class="workbench-pane-tab-strip__actions" role="toolbar" aria-label="Terminal actions">
+        <Show when={overflow()}>
+          <IconButton
+            ref={overflowButtonElement}
+            icon="keyboard_arrow_down"
+            label="All terminals in this pane"
+            class="df-tab-overflow workbench-pane-tab-control"
+            data-testid="tab-overflow"
+            menuPopup="menu"
+            controlsId="tab-list-popup"
+            expanded={listOpen() !== null}
+            title="All terminals"
+            onClick={toggleList}
+          />
+        </Show>
+        <IconButton
+          icon="add"
+          label="New terminal — same folder and server"
+          class="df-tab-new workbench-pane-tab-control"
+          data-testid="tab-new"
+          title="New terminal in this folder (or double-click the empty bar)"
+          onClick={props.onNewTab}
+        />
+      </div>
       <Show when={listOpen()}>
         {(position) => (
           <PaneTabList
@@ -381,7 +367,7 @@ export function PaneStrip(props: PaneStripProps) {
             tabs={props.tabs}
             selectedTab={props.selectedTab}
             trigger={() => overflowButtonElement}
-            tabBar={() => barElement}
+            tabBar={() => tabRailElement}
             onSelect={props.onSelect}
             onClose={() => setListOpen(null)}
           />

@@ -70,44 +70,29 @@ export const WorkbenchShellSpecimen: Component = () => (
       <div style={{ color: "var(--text-lo)", "font-size": "var(--md-label-s-size)" }}>roost · main</div>
     </aside>
     <main class="workbench-editor-region" style={{ display: "grid", "grid-template-rows": "var(--workbench-tab-strip-height) minmax(0, 1fr)", "min-width": 0 }}>
-    <div class="df-tab-bar" aria-label="Workbench tabs">
-      <div class="df-tab workbench-pane-tab" data-testid="tab-roost-main" data-active="true">
-        <Button variant="text" class="workbench-pane-tab__select" aria-label="Select roost main">
-          <Icon name="terminal" size="sm" />
-          roost · main
-        </Button>
-        <IconButton icon="close" label="Close roost main" class="df-tab-close workbench-pane-tab__close" />
-      </div>
-      <div class="df-tab workbench-pane-tab" data-testid="tab-roost-logs" data-active="false" data-focused="true">
-        <Button variant="text" class="workbench-pane-tab__select" aria-label="Select worker logs">
-          <Icon name="description" size="sm" />
-          worker logs
-        </Button>
-        <IconButton icon="close" label="Close worker logs" class="df-tab-close workbench-pane-tab__close" />
-      </div>
-      <Surface
-        level={2}
-        elevation={3}
-        radius="sm"
-        class="df-menu-enter workbench-tab-list"
-        style={{ position: "static" }}
-      >
-        <div class="workbench-tab-list__filter">
-          <Icon name="search" class="workbench-tab-list__filter-icon" size="sm" />
-          <input class="workbench-tab-list__input" aria-label="Filter terminals in this pane" placeholder="Filter terminals" />
+      <div class="workbench-pane-tab-strip" aria-label="Workbench tabs">
+        <div class="df-tab-bar workbench-pane-tab-strip__tabs">
+          <div class="df-tab workbench-pane-tab" data-testid="tab-roost-main" data-active="true">
+            <Button variant="text" class="workbench-pane-tab__select" aria-label="Select roost main">
+              <Icon name="terminal" size="sm" />
+              roost · main
+            </Button>
+            <IconButton icon="close" label="Close roost main" class="df-tab-close workbench-pane-tab__close" />
+          </div>
+          <div class="df-tab workbench-pane-tab" data-testid="tab-roost-logs" data-active="false" data-focused="true">
+            <Button variant="text" class="workbench-pane-tab__select" aria-label="Select worker logs">
+              <Icon name="description" size="sm" />
+              worker logs
+            </Button>
+            <IconButton icon="close" label="Close worker logs" class="df-tab-close workbench-pane-tab__close" />
+          </div>
+          <div class="df-tab-filler workbench-pane-tab-strip__filler" />
         </div>
-        <div class="workbench-tab-list__items" role="menu" aria-label="Open terminals in this pane">
-          <Button variant="text" class="workbench-tab-list__item df-menu-item" role="menuitem" data-selected="true">
-            <Icon name="terminal" class="workbench-tab-list__item-icon" size="sm" />
-            <span class="workbench-tab-list__item-label">roost · main</span>
-          </Button>
-          <Button variant="text" class="workbench-tab-list__item df-menu-item" role="menuitem">
-            <Icon name="description" class="workbench-tab-list__item-icon" size="sm" />
-            <span class="workbench-tab-list__item-label">worker logs</span>
-          </Button>
+        <div class="workbench-pane-tab-strip__actions" role="toolbar" aria-label="Terminal actions">
+          <IconButton icon="keyboard_arrow_down" label="All terminals in this pane" class="df-tab-overflow" />
+          <IconButton icon="add" label="New terminal" class="df-tab-new" />
         </div>
-      </Surface>
-    </div>
+      </div>
       <div style={{ padding: "var(--md-space-4)", color: "var(--terminal-grid-fg)", "font-family": "var(--term-font-family)", "font-size": "var(--md-body-s-size)" }}>$ roost status</div>
     </main>
     <footer class="workbench-status-bar" style={{ "grid-column": "1 / -1", display: "flex", "align-items": "center", gap: "var(--md-space-3)", padding: "0 var(--md-space-3)", background: "var(--workbench-status)", color: "var(--text-mid)", "font-size": "var(--md-label-s-size)" }}>

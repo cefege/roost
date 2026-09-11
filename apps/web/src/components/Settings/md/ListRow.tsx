@@ -15,6 +15,7 @@ export const ListRow: Component<{
   onClick?: () => void;
   href?: string;
   selected?: boolean;
+  ariaCurrent?: "page";
   testId?: string;
   class?: string;
 }> = (props) => {
@@ -46,6 +47,7 @@ export const ListRow: Component<{
       class={props.class ? `md-list-row ${props.class}` : "md-list-row"}
       data-selected={props.selected ? "true" : undefined}
       attr:data-testid={props.testId}
+      aria-current={props.ariaCurrent}
     >
       {inner}
     </A>

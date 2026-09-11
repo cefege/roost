@@ -13,6 +13,7 @@ import {
 import { readRenderedLayout } from "./layout-document-snapshots.ts";
 import { expectStatusTruth } from "./workbench-status.ts";
 import { exerciseSidebarAgents, swipeFromEdge } from "./workbench-shell-interactions.ts";
+import { expectConnectedWorkbenchTabStrip } from "./workbench-shell-tab-strip.ts";
 
 const WIDE_VIEWPORT = { width: 1440, height: 900 } as const;
 const NARROW_VIEWPORT = { width: 1024, height: 768 } as const;
@@ -20,6 +21,7 @@ const COMPACT_VIEWPORT = { width: 390, height: 844 } as const;
 const SIDEBAR_WIDTH_DEFAULT = 300;
 
 type Rect = { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number };
+
 
 type ShellGeometry = {
   viewport: { width: number; height: number };
@@ -211,6 +213,8 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   await navigateToSmokeSession(smokePage, createdIds[0]!);
   await typeTrustedMarker(smokePage, createdIds[0]!, `WB_NARROW_${crypto.randomUUID().replaceAll("-", "")}`);
   await expectDesktopGeometry(smokePage, createdIds[0]!, NARROW_VIEWPORT);
+  await expectConnectedWorkbenchTabStrip(smokePage);
+
 
   const initial = await readRenderedLayout(smokePage, createdIds);
   const initialOrder = initial.panes[0]?.tabs ?? [];
@@ -259,6 +263,10 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   const popup = smokePage.getByTestId("tab-list-popup");
   const filter = smokePage.getByTestId("tab-list-filter");
   await expect(popup).toBeVisible();
+  const overflowRect = await overflow.boundingBox();
+  const popupRect = await popup.boundingBox();
+  if (!overflowRect || !popupRect) throw new Error("overflow menu lacks a right anchor");
+  expect(Math.abs(popupRect.x + popupRect.width - (overflowRect.x + overflowRect.width))).toBeLessThanOrEqual(1);
   const firstLabel = (await popup.locator('[data-testid^="tab-list-item-"] .workbench-tab-list__item-label').first().textContent())?.trim();
   if (!firstLabel) throw new Error("overflow filter has no terminal label");
   await filter.fill("__roost_no_matching_terminal__");
@@ -349,6 +357,7 @@ test("compact workbench owns one drawer/settings header and returns trusted inpu
 
   await mobileSmokePage.goto(`${stack.baseUrl}/settings`, { waitUntil: "domcontentloaded" });
   const settingsRoot = mobileSmokePage.locator(".settings-mobile__main");
+  await expect(mobileSmokePage.locator(".settings-rail")).toHaveCount(0);
   await expect(settingsRoot).toHaveCount(1);
   await expect(settingsRoot.locator(".settings-topbar")).toHaveCount(1);
   await expect(mobileSmokePage.getByTestId("mobile-topbar")).toHaveCount(0);

@@ -1,10 +1,10 @@
-// Settings root. Material 3 navigation rail (left) + top app bar
-// (with back action) + scrollable content area. Pane router based on
-// /settings/:pane param.
+// Settings root owns the URL-derived desktop workbench rail and compact route split.
+// Desktop keeps a static Settings rail with the selected pane in editor content.
+// Mobile preserves its list/detail transition model through the dedicated components.
 
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, For, Show } from "solid-js";
-import { Button, Icon, IconButton } from "./md/primitives.tsx";
+import { Icon, IconButton, ListRow } from "./md/primitives.tsx";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { SETTINGS_GROUPS, type SettingsPaneSpec } from "./settingsNavigation.ts";
 import { SettingsPane } from "./SettingsPane.tsx";
@@ -35,33 +35,29 @@ export function SettingsRoot() {
   return (
     <Show when={isCompact()} fallback={
       <div class="settings-shell">
-        <nav class="settings-rail" aria-label="Settings sections">
-          <Button variant="text" class="settings-rail__brand" aria-label="Back to app" onClick={() => navigate("/")}>Settings</Button>
+        <aside class="settings-rail" aria-label="Settings sections">
+          <h1 class="settings-rail__title">Settings</h1>
           <For each={SETTINGS_GROUPS}>
             {(group) => (
-              <div class="settings-rail__group">
-                <div class="settings-rail__group-label">{group.label}</div>
+              <section class="settings-rail__group">
+                <h2 class="settings-rail__group-label">{group.label}</h2>
                 <For each={group.panes}>
                   {(pane) => (
-                    <Button
-                      variant="text"
+                    <ListRow
                       class="settings-rail__item"
-                      data-selected={activePane().id === pane.id ? "true" : "false"}
-                      data-testid={`rail-${pane.id}`}
-                      onClick={() => navigate(settingsPaneHref(pane.id))}
-                    >
-                      <span class="settings-rail__indicator">
-                        <Icon name={pane.icon} filled={activePane().id === pane.id} class="settings-rail__icon" />
-                      </span>
-                      <span class="settings-rail__label">{pane.label}</span>
-                    </Button>
+                      href={settingsPaneHref(pane.id)}
+                      selected={activePane().id === pane.id}
+                      ariaCurrent={activePane().id === pane.id ? "page" : undefined}
+                      testId={`rail-${pane.id}`}
+                      leading={<Icon name={pane.icon} />}
+                      headline={pane.label}
+                    />
                   )}
                 </For>
-              </div>
+              </section>
             )}
           </For>
-          <div class="settings-rail__spacer" />
-        </nav>
+        </aside>
 
         <main class="settings-main">
           <header class="settings-topbar">

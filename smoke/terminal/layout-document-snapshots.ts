@@ -35,10 +35,10 @@ export async function readRenderedLayout(
     };
     const panes = Array.from(document.querySelectorAll<HTMLElement>("[data-pane-strip]"))
       .map((strip) => ({
-        tabs: Array.from(strip.querySelectorAll(":scope > .df-tab"))
+        tabs: Array.from(strip.querySelectorAll(":scope > .workbench-pane-tab-strip__tabs > .df-tab"))
           .map((tab) => idFromTab(tab))
           .filter((id): id is string => id !== null),
-        selected: idFromTab(strip.querySelector(":scope > .df-tab[data-active='true']")),
+        selected: idFromTab(strip.querySelector(":scope > .workbench-pane-tab-strip__tabs > .df-tab[data-active='true']")),
         focused: strip.getAttribute("data-focused") === "true",
       }));
     const slot = (sessionId: string) => document.querySelector<HTMLElement>(
