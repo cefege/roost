@@ -169,8 +169,9 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/util/mono.ts` is the monotonic clock behind every terminal-control
   deadline; `src/util/path.ts` owns worker-native path handling.
 - **Host + coord plumbing** — `src/heartbeat.ts` with
-  `src/host-sample-darwin.ts`, `src/host-sample-linux.ts`,
-  `src/host-sample-win32.ts`, and `src/host-sample-types.ts`;
+  `src/host-identity.ts`, `src/host-sample-darwin.ts`,
+  `src/host-sample-linux.ts`, `src/host-sample-win32.ts`, and
+  `src/host-sample-types.ts`;
   `src/coord-client.ts` (Connect client, boot calls only — events ride CoordLink); `src/event-sink.ts`;
   `src/snapshot.ts`.
 - **Session metadata pushed to the SPA** — `src/git-branch.ts`, `src/pr-status.ts`, `src/listening-ports.ts`.

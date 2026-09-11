@@ -49,6 +49,7 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
     const inactiveIcon = inactiveTab.querySelector<HTMLElement>(".workbench-pane-tab__icon");
     const activeLabel = activeTab.querySelector<HTMLElement>(".workbench-pane-tab__label");
     const inactiveLabel = inactiveTab.querySelector<HTMLElement>(".workbench-pane-tab__label");
+    const inactiveSelect = inactiveTab.querySelector<HTMLElement>(".workbench-pane-tab__select");
     return {
       shellScrolls: shell.scrollWidth > shell.clientWidth + 1,
       railScrolls: rail.scrollWidth > rail.clientWidth + 1,
@@ -60,6 +61,7 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
       activeRadius: getComputedStyle(activeTab).borderTopLeftRadius,
       activeBackground: getComputedStyle(activeTab).backgroundColor,
       editorBackground: getComputedStyle(editor).backgroundColor,
+      inactiveSelectRadius: inactiveSelect ? getComputedStyle(inactiveSelect).borderTopLeftRadius : "",
       activeIconColor: activeIcon ? getComputedStyle(activeIcon).color : "",
       inactiveIconColor: inactiveIcon ? getComputedStyle(inactiveIcon).color : "",
       activeLabelColor: activeLabel ? getComputedStyle(activeLabel).color : "",
@@ -72,6 +74,7 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
   expect(tabStripLayout.actionIntersectsTab).toBe(false);
   expect(tabStripLayout.arrangeIntersectsAction).toBe(false);
   expect(tabStripLayout.activeRadius).toBe("0px");
+  expect(tabStripLayout.inactiveSelectRadius).toBe("0px");
   expect(tabStripLayout.activeBackground).toBe(tabStripLayout.editorBackground);
   expect(tabStripLayout.inactiveIconColor).not.toBe(tabStripLayout.activeIconColor);
   expect(tabStripLayout.inactiveLabelColor).not.toBe(tabStripLayout.activeLabelColor);

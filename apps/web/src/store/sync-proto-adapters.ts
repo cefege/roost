@@ -193,6 +193,11 @@ export function _presenceProtoToWire(d: WorkerPresenceProto) {
         kind: "registered",
         worker: {
           fp: v.fp, label: v.label, os: v.os, git_sha: v.gitSha ?? null,
+          host_identity: v.hostIdentity ? {
+            hardware_model: v.hostIdentity.hardwareModel ?? null,
+            chip: v.hostIdentity.chip ?? null,
+            linux_distribution: v.hostIdentity.linuxDistribution ?? null,
+          } : null,
           host_metrics: hostMetricsProtoToWire(v.hostMetrics),
           registered_at_ms: Number(v.registeredAtMs),
           last_seen_ms: Number(v.lastSeenMs),

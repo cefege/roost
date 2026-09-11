@@ -15,6 +15,7 @@ const FIXTURE_WORKER: Worker = {
   fp: "a".repeat(64) as Worker["fp"],
   label: "m1",
   os: "darwin",
+  host_identity: null,
   git_sha: "abc123def456",
   host_metrics: null,
   registered_at_ms: 1717000000000,

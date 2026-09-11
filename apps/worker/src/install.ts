@@ -6,12 +6,14 @@
 // Callers: main.ts.
 
 import { log } from "@roost/shared/log";
+import { hostIdentityToProto } from "@roost/shared/host-identity-proto";
 import { supportedHostPlatform } from "@roost/shared/platform";
 import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 import type { CoordClient } from "./coord-client.ts";
 import type { WorkerConfig as WorkerConfigType } from "./config.ts";
 import { loadWorkerKey } from "./jwt.ts";
 import { scrubServiceDefinitionEnv } from "./service-definition-env.ts";
+import { staticHostIdentity } from "./host-identity.ts";
 export { resolveTailnetDnsName } from "@roost/shared/tailnet";
 
 // Boot-time coord RPCs MUST time out. runInstall runs BEFORE heartbeat +
@@ -43,6 +45,7 @@ interface InstallOptions {
 
 async function installWorker(opts: InstallOptions): Promise<string> {
   const { cfg, client } = opts;
+  const hostIdentity = staticHostIdentity();
   const key = await loadWorkerKey(cfg.workerKeyPath);
   const fingerprint = key.fingerprint;
   const os = supportedHostPlatform();
@@ -80,6 +83,7 @@ async function installWorker(opts: InstallOptions): Promise<string> {
       os,
       ...(git_sha ? { gitSha: git_sha } : {}),
       ...(reachable_addr ? { reachableAddr: reachable_addr } : {}),
+      hostIdentity: hostIdentityToProto(hostIdentity),
     }, { timeoutMs: BOOT_RPC_TIMEOUT_MS });
     authorized = true;
     log.info("install", "registered with coord", { fingerprint });
@@ -124,6 +128,7 @@ export async function runStrictEnrollment(opts: InstallOptions): Promise<StrictE
   const fingerprint = key.fingerprint;
   const os = supportedHostPlatform();
   const git_sha = process.env.GIT_SHA;
+  const hostIdentity = staticHostIdentity();
   let redeemed = false;
   let redeemError: unknown;
 
@@ -151,6 +156,7 @@ export async function runStrictEnrollment(opts: InstallOptions): Promise<StrictE
       os,
       ...(git_sha ? { gitSha: git_sha } : {}),
       ...(reachable_addr ? { reachableAddr: reachable_addr } : {}),
+      hostIdentity: hostIdentityToProto(hostIdentity),
     }, { timeoutMs: BOOT_RPC_TIMEOUT_MS });
     registrationConfirmed = true;
   } catch (registrationError) {

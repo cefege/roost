@@ -1,8 +1,8 @@
 // Owns the worker heartbeat RPC: the per-beat liveness write and the presence
 // frame it publishes. Split from handlers-workers.ts, which spreads this
 // handler into the single router.service() literal.
-// Every field this beat re-asserts (git_sha, reachable_addr, os) self-heals a
-// row that would otherwise keep an enrollment-time value forever.
+// Every field this beat re-asserts (git_sha, reachable_addr, os, host identity)
+// self-heals a row that would otherwise keep an enrollment-time value forever.
 
 import { create } from "@bufbuild/protobuf";
 import type { ServiceImpl } from "@connectrpc/connect";
@@ -24,6 +24,7 @@ import { presenceBus } from "../buses.ts";
 import { truncatePersistedUtf8 } from "../persistence-input.ts";
 import { requireWorker } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
+import { hostIdentityFromProto } from "@roost/shared/host-identity-proto";
 
 export function makeWorkerHeartbeatHandler(
 	deps: ConnectDeps,
@@ -68,6 +69,14 @@ export function makeWorkerHeartbeatHandler(
 				req.reachableAddr && req.reachableAddr.length > 0
 					? truncatePersistedUtf8(req.reachableAddr)
 					: undefined;
+			const hostIdentity = req.hostIdentity === undefined
+				? undefined
+				: hostIdentityFromProto(req.hostIdentity);
+			const newHostIdentityJson = hostIdentity === undefined
+				? undefined
+				: hostIdentity === null
+					? null
+					: JSON.stringify(hostIdentity);
 			const now = Date.now();
 			const prior = await deps.db
 				.selectFrom("workers")
@@ -77,6 +86,7 @@ export function makeWorkerHeartbeatHandler(
 					"keeper_runtime_json",
 					"terminal_core_capacity_json",
 					"reachable_addr",
+					"host_identity_json",
 				])
 				.where("fp", "=", fp)
 				.where("deleted_at_ms", "is", null)
@@ -163,6 +173,9 @@ export function makeWorkerHeartbeatHandler(
 						reachable_addr: newReachableAddr,
 					}),
 					...(req.os !== undefined && { os: req.os }),
+					...(newHostIdentityJson !== undefined && {
+						host_identity_json: newHostIdentityJson,
+					}),
 				})
 				.where("fp", "=", fp)
 				.where("deleted_at_ms", "is", null)
@@ -180,14 +193,18 @@ export function makeWorkerHeartbeatHandler(
 			const reachableChanged =
 				newReachableAddr !== undefined &&
 				prior.reachable_addr !== newReachableAddr;
-			// A platform flip must ride the full row frame, not the light heartbeat
-			// delta: the SPA's worker record keeps its stale os until a registered
-			// frame replaces it.
+			const hostIdentityChanged =
+				newHostIdentityJson !== undefined
+				&& (prior.host_identity_json ?? null) !== newHostIdentityJson;
+			// A static Worker field change must ride the full row frame, not the
+			// light heartbeat delta: the SPA's Worker record stays stale until a
+			// registered frame replaces it.
 			if (
 				gitShaChanged
 				|| keeperRuntimeChanged
 				|| reachableChanged
 				|| osChanged
+				|| hostIdentityChanged
 			) {
 				presenceBus.publish({
 					kind: "registered",

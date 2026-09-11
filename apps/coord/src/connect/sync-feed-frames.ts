@@ -11,6 +11,7 @@ import {
 } from "@roost/shared/proto/sync_pb";
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import { keeperRuntimeObservationToProto } from "@roost/shared/keeper-update-proto";
+import { hostIdentityToProto } from "@roost/shared/host-identity-proto";
 import {
   terminalCoreCapacityReportToProto,
 } from "@roost/shared/terminal-core-capacity-proto";
@@ -251,6 +252,9 @@ export const presenceFrame = (e: WorkerPresenceEvent): FirehoseFrame | null => {
     return create(FirehoseFrameSchema, { frame: { case: "workerPresence", value: create(WorkerPresenceProtoSchema, {
       kind: { case: "registered", value: create(WorkerPbSchema, {
         fp: e.worker.fp, label: e.worker.label, os: e.worker.os,
+        hostIdentity: e.worker.host_identity
+          ? hostIdentityToProto(e.worker.host_identity)
+          : undefined,
         gitSha: e.worker.git_sha ?? undefined,
         hostMetrics: e.worker.host_metrics ? hm(e.worker.host_metrics) : undefined,
         registeredAtMs: BigInt(e.worker.registered_at_ms),

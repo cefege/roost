@@ -27,6 +27,7 @@ message WorkersRegisterRequest {
   optional string os = 2;  // darwin|linux|win32
   optional string git_sha = 3;
   optional string reachable_addr = 4;
+  optional HostIdentity host_identity = 5;
 }
 message WorkersRegisterResponse { Worker worker = 1; }
 
@@ -52,6 +53,9 @@ message WorkersHeartbeatRequest {
   // Worker-owned terminal-core admission report. Absent only for workers that
   // predate capacity reporting.
   optional TerminalCoreCapacityReport terminal_core_capacity = 7;
+  // Static machine identity is re-sent so a reused worker key converges to the
+  // machine actually beating. It publishes through the full Worker presence.
+  optional HostIdentity host_identity = 8;
 }
 message WorkersHeartbeatResponse {
   reserved 1, 2;

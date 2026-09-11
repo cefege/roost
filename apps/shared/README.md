@@ -36,6 +36,7 @@ import style is now correct instead of two.
 | `@roost/shared/layout-document-proto` | preflighted, validated `LayoutDocumentV1` ↔ protobuf recursion adapter |
 | `@roost/shared/agent-conversation-reference` | bounded private OMP reference + sequence-aware recovery fold |
 | `@roost/shared/agent-conversation-reference-proto` | strict reference/recovery metadata ↔ protobuf adapters |
+| `@roost/shared/host-identity-proto` | static Worker host identity ↔ protobuf adapter |
 | `@roost/shared/ui-state` | allocation-free UTF-8 measurement plus UI report text, cardinality, and identity-rate limits |
 | `@roost/shared/cell` | cell-grid model, emitter, delta apply, bounded snapshot chunking/assembly (R11) |
 | `@roost/shared/cell/cell-proto` | cell frame ↔ proto |

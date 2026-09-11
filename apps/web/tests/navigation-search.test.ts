@@ -55,6 +55,7 @@ function worker(fp: typeof ONLINE_FP, label: string): Worker {
     fp,
     label,
     os: "linux",
+    host_identity: null,
     git_sha: null,
     host_metrics: null,
     registered_at_ms: 1,

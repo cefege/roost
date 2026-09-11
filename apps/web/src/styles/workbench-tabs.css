@@ -79,6 +79,7 @@
   padding: 0;
   background: transparent;
   border: 0;
+  border-radius: 0;
   color: var(--workbench-tab-inactive-foreground);
   font: inherit;
   text-align: start;
@@ -87,6 +88,7 @@
   --md-text-button-hover-label-text-color: var(--workbench-tab-hover-foreground);
   --md-text-button-focus-label-text-color: var(--workbench-tab-hover-foreground);
   --md-text-button-pressed-label-text-color: var(--workbench-tab-hover-foreground);
+  --md-text-button-container-shape: 0;
 }
 .workbench-pane-tab:hover,
 .df-tab:hover {

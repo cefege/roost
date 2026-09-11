@@ -100,6 +100,11 @@ export function _installBootstrapDomainHydrators(
         label: worker.label,
         os: worker.os as never,
         git_sha: worker.gitSha ?? null,
+        host_identity: worker.hostIdentity ? {
+          hardware_model: worker.hostIdentity.hardwareModel ?? null,
+          chip: worker.hostIdentity.chip ?? null,
+          linux_distribution: worker.hostIdentity.linuxDistribution ?? null,
+        } : null,
         host_metrics: worker.hostMetrics ? {
           cpu_pct: worker.hostMetrics.cpuPct,
           mem_used_bytes: Number(worker.hostMetrics.memUsedBytes),

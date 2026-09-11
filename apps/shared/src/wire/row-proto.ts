@@ -13,6 +13,7 @@ import {
   type Task as PbTask,
   type McpRelay as PbMcpRelay,
 } from "../gen/roost/v1/wire_pb.ts";
+import { hostIdentityToProto } from "../host-identity-proto.ts";
 import { safeJsonParse } from "../json.ts";
 import {
   keeperRuntimeObservationToProto,
@@ -26,12 +27,14 @@ import {
   TerminalCoreCapacityReportSchema,
   type TerminalCoreCapacityReport,
 } from "../terminal-core-capacity.ts";
+import { normalizeHostIdentity, type HostIdentity } from "./worker.ts";
 
 // Wire-shape (Zod) Worker payload for presenceBus.publish. Used by
 // workersRegister / workersHeartbeat / workersRename — three near-
 // identical inline blocks before this helper existed.
 export interface WireWorkerPresence {
   fp: string; label: string; os: string;
+  host_identity: HostIdentity | null;
   git_sha: string | null;
   host_metrics: unknown;
   registered_at_ms: number; last_seen_ms: number;
@@ -44,11 +47,13 @@ export function workerRowToWirePresence(row: {
   host_metrics_json: string | null;
   registered_at_ms: number; last_seen_ms: number;
   reachable_addr: string | null;
+  host_identity_json?: string | null;
   keeper_runtime_json?: string | null;
   terminal_core_capacity_json?: string | null;
 }): WireWorkerPresence {
   return {
     fp: row.fp, label: row.label, os: row.os,
+    host_identity: hostIdentityFromJson(row.host_identity_json),
     git_sha: row.git_sha ?? null,
     host_metrics: safeJsonParse(row.host_metrics_json, null, "host_metrics_json"),
     registered_at_ms: row.registered_at_ms,
@@ -66,6 +71,7 @@ export function workerRowToProto(row: {
   host_metrics_json: string | null;
   registered_at_ms: number; last_seen_ms: number;
   reachable_addr: string | null;
+  host_identity_json?: string | null;
   keeper_runtime_json?: string | null;
   terminal_core_capacity_json?: string | null;
 }): PbWorker {
@@ -74,10 +80,12 @@ export function workerRowToProto(row: {
   const terminalCoreCapacity = terminalCoreCapacityFromJson(
     row.terminal_core_capacity_json,
   );
+  const hostIdentity = hostIdentityFromJson(row.host_identity_json);
   return create(WorkerSchema, {
     fp: row.fp,
     label: row.label,
     os: row.os,
+    hostIdentity: hostIdentity ? hostIdentityToProto(hostIdentity) : undefined,
     gitSha: row.git_sha ?? undefined,
     hostMetrics: hostMetricsRaw ? create(HostMetricsSchema, {
       cpuPct: hostMetricsRaw.cpu_pct,
@@ -99,6 +107,15 @@ export function workerRowToProto(row: {
       ? terminalCoreCapacityReportToProto(terminalCoreCapacity)
       : undefined,
   });
+}
+
+function hostIdentityFromJson(
+  serialized: string | null | undefined,
+): HostIdentity | null {
+  if (!serialized) return null;
+  return normalizeHostIdentity(
+    safeJsonParse(serialized, null, "host_identity_json"),
+  );
 }
 
 function keeperRuntimeFromJson(

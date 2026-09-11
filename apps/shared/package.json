@@ -23,6 +23,7 @@
     "./keeper-update-proto": "./src/keeper-update-proto.ts",
     "./terminal-core-capacity": "./src/terminal-core-capacity.ts",
     "./terminal-core-capacity-proto": "./src/terminal-core-capacity-proto.ts",
+    "./host-identity-proto": "./src/host-identity-proto.ts",
     "./config": "./src/config.ts",
     "./coordinator-dial-url": "./src/coordinator-dial-url.ts",
     "./paths": "./src/paths.ts",

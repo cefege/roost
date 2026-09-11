@@ -109,6 +109,11 @@ export async function refreshCoordAndWorkers(): Promise<void> {
         label: w.label,
         os: w.os as never,
         git_sha: w.gitSha ?? null,
+        host_identity: w.hostIdentity ? {
+          hardware_model: w.hostIdentity.hardwareModel ?? null,
+          chip: w.hostIdentity.chip ?? null,
+          linux_distribution: w.hostIdentity.linuxDistribution ?? null,
+        } : null,
         host_metrics: w.hostMetrics ? {
           cpu_pct: w.hostMetrics.cpuPct,
           mem_used_bytes: Number(w.hostMetrics.memUsedBytes),

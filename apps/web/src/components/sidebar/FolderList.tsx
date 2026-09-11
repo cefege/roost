@@ -22,6 +22,7 @@ import { relTimeTickMs } from "./SessionRow.tsx";
 import { FolderRowContextMenu } from "./FolderRowContextMenu.tsx";
 import { FlatNewTerminal } from "./FlatNewTerminal.tsx";
 import { FolderGlyph } from "../FolderGlyph.tsx";
+import { MachineIdentityMark } from "../MachineIdentityMark.tsx";
 import { IconButton } from "../Settings/md/IconButton.tsx";
 import { StatusDot } from "../Settings/md/StatusDot.tsx";
 import {
@@ -127,8 +128,8 @@ export function FolderList() {
       style={{ "--avatar-bg": `hsl(${colorForFp(g.key).hue} 48% 42%)` }}
     >
       <md-ripple />
-      <span class="df-leading" aria-hidden="true">
-        <FolderGlyph size={16} />
+      <span class="df-leading df-leading--machine">
+        <MachineIdentityMark worker={rootStore.workers[g.spawnFp]} contextTitle={g.spawnCwd} />
       </span>
       <span class="df-flat-body">
         <span class="df-flat-top">

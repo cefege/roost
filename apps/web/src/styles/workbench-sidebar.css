@@ -168,7 +168,11 @@ aside[data-overscroll="bottom"] {
 .workbench-sidebar-section--agents { flex: 1 1 auto; }
 .workbench-sidebar-section .workbench-sidebar-content {
   min-block-size: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+}
+.workbench-sidebar-section--spaces > .df-all-view.workbench-sidebar-content {
+  overflow-x: hidden;
 }
 [data-split="false"] .workbench-sidebar-section--spaces { flex: 1 1 auto; }
 .workbench-sidebar-section-resizer {
@@ -264,6 +268,32 @@ aside[data-overscroll="bottom"] {
 .df-row[aria-current="page"] .df-leading {
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
+}
+.df-leading--machine { overflow: visible; }
+.machine-identity-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+.machine-identity-mark__linux-logo {
+  inline-size: var(--md-space-5);
+  block-size: var(--md-space-5);
+  fill: currentColor;
+}
+.machine-identity-mark__chip {
+  position: absolute;
+  inset-block-end: calc(var(--md-space-1) * -1);
+  inset-inline-start: 50%;
+  padding-inline: var(--md-space-1);
+  border: var(--workbench-border-width) solid currentColor;
+  border-radius: var(--md-shape-full);
+  background: var(--surface-1);
+  color: var(--text-hi);
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--font-mono);
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 .df-flat-body {
   display: flex;

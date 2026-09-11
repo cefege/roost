@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import type { CoordClient } from "./coord-client.ts";
 import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
 import { signal } from "@roost/shared/diag";
+import { hostIdentityToProto } from "@roost/shared/host-identity-proto";
 import { log } from "@roost/shared/log";
 import {
 	keeperBindingDigestInput,
@@ -18,6 +19,7 @@ import {
 } from "@roost/shared/terminal-core-capacity-proto";
 import type { HostMetrics, TerminalCoreCapacityReport } from "@roost/shared/wire";
 import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+import { staticHostIdentity } from "./host-identity.ts";
 import { probeKeeperCompatible } from "./keeper/keeper-probe.ts";
 import { muxLocalEndpoint } from "./keeper/keeper-pool-config.ts";
 import { resolveTailnetDnsName } from "./install.ts";
@@ -247,6 +249,7 @@ export async function startHeartbeat(opts: {
 		readTerminalCoreCapacity,
 		sources = DEFAULT_HEARTBEAT_SOURCES,
 	} = opts;
+	const hostIdentity = staticHostIdentity();
 	let consecutiveMisses = 0;
 	let stopped = false;
 	let nextTimer: ReturnType<typeof setTimeout> | null = null;
@@ -310,6 +313,7 @@ export async function startHeartbeat(opts: {
 					: undefined,
 				...(git_sha ? { gitSha: git_sha } : {}),
 				os: HOST_PLATFORM,
+				hostIdentity: hostIdentityToProto(hostIdentity),
 				...(keeperRuntime
 					? { keeperRuntime: keeperRuntimeObservationToProto(keeperRuntime) }
 					: {}),

@@ -144,6 +144,8 @@ test("desktop workbench keeps measured geometry, status truth, and navigation", 
   await expect(search).toHaveAttribute("href", "/search");
   await expect(files).toHaveAttribute("href", "/browse");
   await expect(settings).toHaveAttribute("href", "/settings/machines");
+  await expect(smokePage.locator("[data-testid='sidebar-spaces'] .workbench-sidebar-content"))
+    .toHaveCSS("overflow-x", "hidden");
   await expect(help).toHaveAttribute("href", "/help");
 
   const originalUrl = smokePage.url();
@@ -168,17 +170,11 @@ test("desktop workbench keeps measured geometry, status truth, and navigation", 
   await navigateToSmokeSession(smokePage, sessionId);
   await expect(smokePage.getByTestId("sidebar-resizer")).toHaveAttribute("aria-valuenow", String(SIDEBAR_WIDTH_DEFAULT));
 
-  const command = smokePage.locator(".workbench-command-center");
-  await smokePage.locator(".workbench-titlebar__help").focus();
-  await smokePage.keyboard.press("Shift+Tab");
-  await expect(command).toBeFocused();
-  await expect.poll(() => command.evaluate((element) =>
-    element.matches(":focus-within") && getComputedStyle(element).outlineStyle !== "none")).toBe(true);
-  await command.click();
+  await expect(smokePage.locator(".workbench-command-center")).toHaveCount(0);
+  await pressPlatformShortcut(smokePage, "commandPalette", "k");
   await expect(smokePage.getByTestId("command-palette")).toBeVisible();
   await smokePage.keyboard.press("Escape");
   await expect(smokePage.getByTestId("command-palette")).toHaveCount(0);
-  await expect(command).toBeFocused();
 
   await search.click();
   await expect(smokePage).toHaveURL(`${stack.baseUrl}/search`);

@@ -34,6 +34,7 @@ import { log } from "@roost/shared/log";
 import { makeWorkerDeployHandlers } from "./handlers-workers-deploy.ts";
 import { makeWorkerHeartbeatHandler } from "./handlers-workers-heartbeat.ts";
 import { truncatePersistedUtf8 } from "../persistence-input.ts";
+import { hostIdentityFromProto } from "@roost/shared/host-identity-proto";
 export {
 	resolveWorkerDeployTarget,
 	workerDeployHost,
@@ -98,6 +99,14 @@ export function makeWorkerHandlers(
 			const reachableAddr = req.reachableAddr === undefined
 				? undefined
 				: truncatePersistedUtf8(req.reachableAddr);
+			const hostIdentity = req.hostIdentity === undefined
+				? undefined
+				: hostIdentityFromProto(req.hostIdentity);
+			const hostIdentityJson = hostIdentity === undefined
+				? undefined
+				: hostIdentity === null
+					? null
+					: JSON.stringify(hostIdentity);
 			const existing = await deps.db
 				.selectFrom("workers")
 				.selectAll()
@@ -117,6 +126,9 @@ export function makeWorkerHandlers(
 					os: req.os ?? existing.os,
 					git_sha: gitSha ?? existing.git_sha,
 					reachable_addr: reachableAddr ?? existing.reachable_addr,
+					...(hostIdentityJson !== undefined && {
+						host_identity_json: hostIdentityJson,
+					}),
 					keeper_runtime_json: null,
 					last_seen_ms: now,
 				})

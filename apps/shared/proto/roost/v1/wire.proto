@@ -17,6 +17,14 @@ message HostMetrics {
   uint64 net_tx_bps = 7;
   uint64 sampled_at_ms = 8;
 }
+
+// Static, local machine identity. The worker never reports a serial number or
+// other hardware identifier; each optional value is safe for direct display.
+message HostIdentity {
+  optional string hardware_model = 1;
+  optional string chip = 2;
+  optional string linux_distribution = 3;
+}
 // Worker-owned terminal-core admission state. `overcommit_count` is the
 // currently reserved replacement slot, while `refusal_count` is cumulative.
 message TerminalCoreCapacityReport {
@@ -145,6 +153,7 @@ message Worker {
   // The latest worker-owned admission report. It is informational only; live
   // allocation remains local to the worker that owns its terminal cores.
   optional TerminalCoreCapacityReport terminal_core_capacity = 11;
+  optional HostIdentity host_identity = 12;
 }
 
 // Private opaque continuation metadata. It is carried by durable events and

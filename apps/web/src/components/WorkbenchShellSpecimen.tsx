@@ -32,7 +32,7 @@ export const WorkbenchShellSpecimen: Component = () => (
       style={{
         "grid-column": "1 / -1",
         display: "grid",
-        "grid-template-columns": "minmax(0, 1fr) auto minmax(0, 1fr)",
+        "grid-template-columns": "minmax(0, 1fr) auto",
         "align-items": "center",
         padding: "0 var(--md-space-3)",
         background: "var(--workbench-titlebar)",
@@ -43,10 +43,6 @@ export const WorkbenchShellSpecimen: Component = () => (
         <span style={{ "font-size": "var(--md-title-s-size)", "font-weight": "var(--md-title-s-weight)" }}>Roost</span>
         <span style={{ color: "var(--text-lo)", "font-size": "var(--md-label-m-size)" }}>Sessions</span>
       </div>
-      <Button class="workbench-command-center" variant="text" icon="search" aria-label="Open command palette">
-        <span class="workbench-command-center__label">Command palette{" "}</span>
-        <span class="workbench-command-center__shortcut" aria-hidden="true">⌘K</span>
-      </Button>
       <div class="workbench-titlebar__right" style={{ display: "flex", "justify-content": "flex-end" }}>
         <a class="workbench-titlebar__help" href="/help" aria-label="Help" title="Help">
           <Icon name="help" />

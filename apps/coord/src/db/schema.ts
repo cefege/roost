@@ -27,6 +27,13 @@ export interface WorkersTable {
   // worker no longer has an inbound surface so this is informational
   // only (not used by coord to dial the worker).
   reachable_addr: string | null;
+  // Static worker-sampled model, chip, and Linux distribution. Old workers and
+  // rows predate this optional display metadata.
+  host_identity_json: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
   // Authenticated post-reconciliation KeeperRuntimeObservationV1. Heartbeats
   // clear it to NULL whenever fresh complete proof is unavailable.
   keeper_runtime_json: ColumnType<
