@@ -10,6 +10,7 @@ import { SETTINGS_GROUPS, type SettingsPaneSpec } from "./settingsNavigation.ts"
 import { SettingsPane } from "./SettingsPane.tsx";
 import { MobileSettingsList } from "./MobileSettingsList.tsx";
 import { MobileSettingsDetail } from "./MobileSettingsDetail.tsx";
+import { settingsPaneHref } from "../../routes.ts";
 
 
 export function SettingsRoot() {
@@ -47,7 +48,7 @@ export function SettingsRoot() {
                       class="settings-rail__item"
                       data-selected={activePane().id === pane.id ? "true" : "false"}
                       data-testid={`rail-${pane.id}`}
-                      onClick={() => navigate(`/settings/${pane.id}`)}
+                      onClick={() => navigate(settingsPaneHref(pane.id))}
                     >
                       <span class="settings-rail__indicator">
                         <Icon name={pane.icon} filled={activePane().id === pane.id} class="settings-rail__icon" />

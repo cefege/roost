@@ -27,12 +27,31 @@ export const WorkbenchShellSpecimen: Component = () => (
       background: "var(--workbench-editor)",
     }}
   >
-    <header class="workbench-titlebar" style={{ "grid-column": "1 / -1", display: "flex", "align-items": "center", gap: "var(--md-space-3)", padding: "0 var(--md-space-3)", background: "var(--workbench-titlebar)" }}>
-      <Icon name="terminal" filled />
-      <span style={{ "font-size": "var(--md-title-s-size)", "font-weight": "var(--md-title-s-weight)" }}>Roost</span>
-      <span style={{ color: "var(--text-lo)", "font-size": "var(--md-label-m-size)" }}>Sessions</span>
-      <span style={{ margin: "0 auto", color: "var(--text-mid)", "font-size": "var(--md-label-m-size)" }}>Search commands</span>
-      <IconButton icon="help" label="Help" />
+    <header
+      class="workbench-titlebar"
+      style={{
+        "grid-column": "1 / -1",
+        display: "grid",
+        "grid-template-columns": "minmax(0, 1fr) auto minmax(0, 1fr)",
+        "align-items": "center",
+        padding: "0 var(--md-space-3)",
+        background: "var(--workbench-titlebar)",
+      }}
+    >
+      <div class="workbench-titlebar__left" style={{ display: "flex", "align-items": "center", gap: "var(--md-space-3)" }}>
+        <Icon name="terminal" filled />
+        <span style={{ "font-size": "var(--md-title-s-size)", "font-weight": "var(--md-title-s-weight)" }}>Roost</span>
+        <span style={{ color: "var(--text-lo)", "font-size": "var(--md-label-m-size)" }}>Sessions</span>
+      </div>
+      <Button class="workbench-command-center" variant="text" icon="search" aria-label="Open command palette">
+        <span class="workbench-command-center__label">Command palette{" "}</span>
+        <span class="workbench-command-center__shortcut" aria-hidden="true">⌘K</span>
+      </Button>
+      <div class="workbench-titlebar__right" style={{ display: "flex", "justify-content": "flex-end" }}>
+        <a class="workbench-titlebar__help" href="/help" aria-label="Help" title="Help">
+          <Icon name="help" />
+        </a>
+      </div>
     </header>
     <nav class="workbench-activity-bar" aria-label="Workbench activity" style={{ display: "flex", "flex-direction": "column", "align-items": "center", gap: "var(--md-space-2)", padding: "var(--md-space-2)", background: "var(--workbench-activity)" }}>
       <Icon style={{ color: "var(--workbench-active)" }} name="terminal" filled />
@@ -41,10 +60,14 @@ export const WorkbenchShellSpecimen: Component = () => (
       <span style={{ flex: 1 }} />
       <Icon name="settings" />
     </nav>
-    <aside class="workbench-sidebar-region workbench-sidebar" style={{ padding: "var(--md-space-3)", background: "var(--workbench-sidebar)" }}>
-      <div style={{ display: "flex", "justify-content": "space-between", color: "var(--text-lo)", "font-size": "var(--md-label-m-size)", "font-weight": "var(--md-label-m-weight)" }}><span>SESSIONS</span><Icon name="search" size="sm" /></div>
+    <aside class="workbench-sidebar-region workbench-sidebar" style={{ display: "flex", "flex-direction": "column", padding: "var(--md-space-3)", background: "var(--workbench-sidebar)" }}>
+      <div style={{ display: "flex", "justify-content": "space-between", color: "var(--text-lo)", "font-size": "var(--md-label-m-size)", "font-weight": "var(--md-label-m-weight)" }}><span>SPACES</span><Icon name="search" size="sm" /></div>
       <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)", margin: "var(--md-space-3) 0", color: "var(--text-hi)", "font-size": "var(--md-body-s-size)" }}><StatusDot status="running" /><span>roost · main</span></div>
       <div style={{ color: "var(--text-lo)", "font-size": "var(--md-label-s-size)" }}>~/projects/roost</div>
+      <div style={{ "border-block-start": "var(--workbench-border-width) solid var(--workbench-sidebar-border)", margin: "var(--md-space-3) 0" }} />
+      <div style={{ color: "var(--text-lo)", "font-size": "var(--md-label-m-size)", "font-weight": "var(--md-label-m-weight)" }}>AGENTS</div>
+      <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)", margin: "var(--md-space-2) 0", color: "var(--text-hi)", "font-size": "var(--md-body-s-size)" }}><StatusDot status="running" /><span>omp · working</span></div>
+      <div style={{ color: "var(--text-lo)", "font-size": "var(--md-label-s-size)" }}>roost · main</div>
     </aside>
     <main class="workbench-editor-region" style={{ display: "grid", "grid-template-rows": "var(--workbench-tab-strip-height) minmax(0, 1fr)", "min-width": 0 }}>
     <div class="df-tab-bar" aria-label="Workbench tabs">

@@ -79,7 +79,7 @@ export function AllView() {
   return (
     <div class="df-all-view workbench-sidebar-content" data-testid="all-view">
       <header class="workbench-sidebar-title">
-        <h2 class="workbench-sidebar-title__label">Sessions</h2>
+        <h2 class="workbench-sidebar-title__label">Spaces</h2>
         <div class="workbench-sidebar-title__actions">
           <IconButton
             icon="search"

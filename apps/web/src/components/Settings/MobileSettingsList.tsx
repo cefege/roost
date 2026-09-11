@@ -7,13 +7,14 @@ import { useNavigate } from "@solidjs/router";
 import { Icon, IconButton, List, ListRow } from "./md/primitives.tsx";
 import { SETTINGS_GROUPS } from "./settingsNavigation.ts";
 import { withViewTransition } from "../../lib/viewTransition.ts";
+import { settingsPaneHref } from "../../routes.ts";
 
 export function MobileSettingsList() {
   const navigate = useNavigate();
 
   function openSettingsPane(paneId: string) {
     document.documentElement.style.setProperty("--settings-nav-dir", "1");
-    withViewTransition(() => navigate(`/settings/${paneId}`));
+    withViewTransition(() => navigate(settingsPaneHref(paneId)));
   }
 
   return (

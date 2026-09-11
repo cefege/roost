@@ -33,6 +33,7 @@
   flex: 0 0 auto;
   min-width: 0;
   min-height: var(--workbench-tab-strip-height);
+  block-size: var(--workbench-tab-strip-height);
   max-width: calc(var(--md-space-9) * 5);
   padding: 0 var(--md-space-2);
   gap: var(--md-space-1);

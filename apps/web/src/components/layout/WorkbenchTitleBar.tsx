@@ -1,10 +1,11 @@
 // Desktop workbench title region: product context and quiet utility actions.
 // AppShell places it above the navigation rail and editor grid.
-// Command access is a compact icon action; the global shortcut remains canonical.
+// The centered command control keeps its stable name when narrow layouts hide its text.
 
 import { A, useLocation } from "@solidjs/router";
 import { createMemo, Show } from "solid-js";
 import { openCmdPalette } from "../../lib/keyboardShortcuts.ts";
+import { platformShortcutLabel } from "../../lib/browserPlatform.ts";
 import { workbenchTitle } from "../../lib/workbenchTitle.ts";
 import { ROUTES } from "../../routes.ts";
 import { Button } from "../Settings/md/Button.tsx";
@@ -24,20 +25,23 @@ export function WorkbenchTitleBar() {
         </Show>
       </A>
     </div>
+    <Button
+      class="workbench-command-center"
+      variant="text"
+      icon="search"
+      aria-label="Open command palette"
+      title="Command palette"
+      onClick={() => openCmdPalette()}
+    >
+      <span class="workbench-command-center__label">Command palette{" "}</span>
+      <span class="workbench-command-center__shortcut" aria-hidden="true">
+        {platformShortcutLabel("commandPalette", "⌘K")}
+      </span>
+    </Button>
     <div class="workbench-titlebar__right">
-      <div class="workbench-titlebar__actions">
-        <Button
-          class="workbench-command-center"
-          variant="text"
-          icon="search"
-          aria-label="Open command palette"
-          title="Command palette"
-          onClick={openCmdPalette}
-        />
-        <A class="workbench-titlebar__help" href={ROUTES.HELP} aria-label="Help" title="Help">
-          <Icon name="help" />
-        </A>
-      </div>
+      <A class="workbench-titlebar__help" href={ROUTES.HELP} aria-label="Help" title="Help">
+        <Icon name="help" />
+      </A>
     </div>
   </header>;
 }

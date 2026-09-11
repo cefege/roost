@@ -105,6 +105,10 @@ export function createTerminalDeckModel(
       const deckElement = getDeckElement();
       if (!deckElement) return;
       setSize({ w: deckElement.clientWidth, h: deckElement.clientHeight });
+    };
+    const measureDesktopStripHeight = (): void => {
+      const deckElement = getDeckElement();
+      if (!deckElement) return;
       const resolvedStripHeight = Number.parseFloat(
         getComputedStyle(deckElement).getPropertyValue("--workbench-tab-strip-height"),
       );
@@ -119,6 +123,7 @@ export function createTerminalDeckModel(
     if (deckElement) {
       observer.observe(deckElement);
       measureDeck();
+      measureDesktopStripHeight();
     }
     onCleanup(() => observer.disconnect());
   });

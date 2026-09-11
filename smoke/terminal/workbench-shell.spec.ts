@@ -1,6 +1,6 @@
 // Exercises the canonical workbench against a real coordinator, worker, keeper,
-// and PTY. The three scenarios cover desktop geometry, narrow tab/deck behavior,
-// and the compact drawer/settings shell without synthetic clients or renderers.
+// and PTY. The scenarios cover desktop geometry, the Spaces/Agents split, narrow tab/deck
+// behavior, and the compact drawer/settings shell without synthetic clients or renderers.
 
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
@@ -12,27 +12,20 @@ import {
 } from "./terminal-helpers.ts";
 import { readRenderedLayout } from "./layout-document-snapshots.ts";
 import { expectStatusTruth } from "./workbench-status.ts";
+import { exerciseSidebarAgents, swipeFromEdge } from "./workbench-shell-interactions.ts";
 
 const WIDE_VIEWPORT = { width: 1440, height: 900 } as const;
 const NARROW_VIEWPORT = { width: 1024, height: 768 } as const;
 const COMPACT_VIEWPORT = { width: 390, height: 844 } as const;
 const SIDEBAR_WIDTH_DEFAULT = 300;
 
-type Rect = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  top: number;
-  right: number;
-  bottom: number;
-};
+type Rect = { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number };
 
 type ShellGeometry = {
   viewport: { width: number; height: number };
   domOrder: string[];
   title: Rect | null; rail: Rect | null; sidebar: Rect | null; editor: Rect | null;
-  status: Rect | null; strip: Rect | null; terminalRows: Rect | null;
+  status: Rect | null; strip: Rect | null; visibleRows: Rect[];
 };
 
 async function readShellGeometry(page: Page, sessionId: string): Promise<ShellGeometry> {
@@ -41,7 +34,6 @@ async function readShellGeometry(page: Page, sessionId: string): Promise<ShellGe
     const slot = document.querySelector<HTMLElement>(
       `[data-testid="terminal-slot-${CSS.escape(id)}"]`,
     );
-    const rows = slot?.querySelector<HTMLElement>(".cell-grid, .terminal-display");
     const names = (element: Element): string => {
       if (element.classList.contains("workbench-titlebar")) return "title";
       if (element.classList.contains("workbench-activity-bar")) return "rail";
@@ -56,6 +48,11 @@ async function readShellGeometry(page: Page, sessionId: string): Promise<ShellGe
       return { x: box.x, y: box.y, width: box.width, height: box.height,
         top: box.top, right: box.right, bottom: box.bottom };
     };
+    const slotRect = rect(slot);
+    const visibleRows = Array.from(slot?.querySelectorAll<HTMLElement>(".cell-row") ?? [])
+      .map(rect)
+      .filter((row): row is Rect => row !== null && row.width > 0 && row.height > 0
+        && !!slotRect && row.top < slotRect.bottom && row.bottom > slotRect.top);
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight },
       domOrder: shell ? Array.from(shell.children).map(names) : [],
@@ -65,23 +62,19 @@ async function readShellGeometry(page: Page, sessionId: string): Promise<ShellGe
       editor: rect(document.querySelector(".workbench-editor-region")),
       status: rect(document.querySelector(".workbench-status-bar")),
       strip: rect(document.querySelector("[data-pane-strip]")),
-      terminalRows: rect(rows ?? null),
+      visibleRows,
     };
   }, sessionId);
 }
 
-async function expectDesktopGeometry(
-  page: Page,
-  sessionId: string,
-  viewport: { width: number; height: number },
-): Promise<void> {
+async function expectDesktopGeometry(page: Page, sessionId: string, viewport: { width: number; height: number }): Promise<void> {
   await expect.poll(() => readShellGeometry(page, sessionId)).toMatchObject({
     viewport,
     domOrder: ["title", "rail", "sidebar", "editor", "status"],
   });
   const geometry = await readShellGeometry(page, sessionId);
-  const { title, rail, sidebar, editor, status, strip, terminalRows } = geometry;
-  if (!title || !rail || !sidebar || !editor || !status || !strip || !terminalRows) {
+  const { title, rail, sidebar, editor, status, strip, visibleRows } = geometry;
+  if (!title || !rail || !sidebar || !editor || !status || !strip) {
     throw new Error("desktop workbench did not expose every measured region");
   }
   expect(title.height).toBe(35);
@@ -97,8 +90,11 @@ async function expectDesktopGeometry(
   expect(sidebar.x).toBe(48);
   expect(editor.x).toBeGreaterThan(sidebar.x);
   expect(editor.right).toBe(viewport.width);
-  expect(terminalRows.top).toBeGreaterThanOrEqual(strip.bottom - 1);
-  expect(terminalRows.bottom).toBeLessThanOrEqual(status.top + 1);
+  expect(visibleRows.length).toBeGreaterThan(0);
+  for (const row of visibleRows) {
+    expect(row.top).toBeGreaterThanOrEqual(strip.bottom - 1);
+    expect(row.bottom).toBeLessThanOrEqual(status.top + 1);
+  }
 }
 
 async function typeTrustedMarker(page: Page, sessionId: string, marker: string): Promise<void> {
@@ -113,11 +109,7 @@ async function typeTrustedMarker(page: Page, sessionId: string, marker: string):
 
 function tabWrapper(page: Page, sessionId: string) { return page.locator(`.df-tab[data-testid="tab-${sessionId}"]`).first(); }
 
-async function dragTab(
-  page: Page,
-  sessionId: string,
-  destination: { x: number; y: number },
-): Promise<void> {
+async function dragTab(page: Page, sessionId: string, destination: { x: number; y: number }): Promise<void> {
   const select = tabWrapper(page, sessionId).locator(".workbench-pane-tab__select");
   const box = await select.boundingBox();
   if (!box) throw new Error(`tab ${sessionId} has no selectable bounds`);
@@ -127,39 +119,6 @@ async function dragTab(
   await page.mouse.up();
 }
 
-async function swipeFromEdge(page: Page, startX: number, endX: number, y: number): Promise<void> {
-  await page.evaluate(({ startX: initialX, endX: finalX, y: clientY }) => {
-    const target = document.body;
-    const touch = (clientX: number) => new Touch({
-      identifier: 1,
-      target,
-      clientX,
-      clientY,
-      screenX: clientX,
-      screenY: clientY,
-      pageX: clientX,
-      pageY: clientY,
-    });
-    target.dispatchEvent(new TouchEvent("touchstart", {
-      bubbles: true,
-      cancelable: true,
-      changedTouches: [touch(initialX)],
-      touches: [touch(initialX)],
-    }));
-    target.dispatchEvent(new TouchEvent("touchmove", {
-      bubbles: true,
-      cancelable: true,
-      changedTouches: [touch(finalX)],
-      touches: [touch(finalX)],
-    }));
-    target.dispatchEvent(new TouchEvent("touchend", {
-      bubbles: true,
-      cancelable: true,
-      changedTouches: [touch(finalX)],
-      touches: [],
-    }));
-  }, { startX, endX, y });
-}
 test("desktop workbench keeps measured geometry, status truth, and navigation", async ({
   smokePage,
   stack,
@@ -171,6 +130,8 @@ test("desktop workbench keeps measured geometry, status truth, and navigation", 
   await typeTrustedMarker(smokePage, sessionId, `WB_WIDE_${crypto.randomUUID().replaceAll("-", "")}`);
   await expectDesktopGeometry(smokePage, sessionId, WIDE_VIEWPORT);
   await expectStatusTruth(smokePage, stack);
+  const coordIdentity = await stack.client.authCoordIdentity({});
+  await expect(smokePage.getByTestId("workbench-status-revision")).toHaveText(coordIdentity.gitSha.slice(0, 7));
 
   const sessions = smokePage.getByTestId("workbench-activity-sessions");
   const search = smokePage.getByTestId("workbench-activity-search");
@@ -198,19 +159,19 @@ test("desktop workbench keeps measured geometry, status truth, and navigation", 
   await expect(resizer).toHaveAttribute("aria-valuenow", String(initialWidth + 10));
   await smokePage.reload({ waitUntil: "domcontentloaded" });
   await navigateToSmokeSession(smokePage, sessionId);
-  await expect(smokePage.getByTestId("sidebar-resizer")).toHaveAttribute(
-    "aria-valuenow",
-    String(initialWidth + 10),
-  );
+  await expect(smokePage.getByTestId("sidebar-resizer")).toHaveAttribute("aria-valuenow", String(initialWidth + 10));
   await smokePage.getByTestId("sidebar-resizer").dblclick();
-  await expect(smokePage.getByTestId("sidebar-resizer")).toHaveAttribute(
-    "aria-valuenow",
-    String(SIDEBAR_WIDTH_DEFAULT),
-  );
+  await expect(smokePage.getByTestId("sidebar-resizer")).toHaveAttribute("aria-valuenow", String(SIDEBAR_WIDTH_DEFAULT));
+  await smokePage.reload({ waitUntil: "domcontentloaded" });
+  await navigateToSmokeSession(smokePage, sessionId);
+  await expect(smokePage.getByTestId("sidebar-resizer")).toHaveAttribute("aria-valuenow", String(SIDEBAR_WIDTH_DEFAULT));
 
   const command = smokePage.locator(".workbench-command-center");
-  await command.focus();
+  await smokePage.locator(".workbench-titlebar__help").focus();
+  await smokePage.keyboard.press("Shift+Tab");
   await expect(command).toBeFocused();
+  await expect.poll(() => command.evaluate((element) =>
+    element.matches(":focus-within") && getComputedStyle(element).outlineStyle !== "none")).toBe(true);
   await command.click();
   await expect(smokePage.getByTestId("command-palette")).toBeVisible();
   await smokePage.keyboard.press("Escape");
@@ -224,6 +185,15 @@ test("desktop workbench keeps measured geometry, status truth, and navigation", 
   await expect(smokePage).toHaveURL(`${stack.baseUrl}/help`);
   await expect(smokePage.locator(".workbench-help")).toBeVisible();
   await navigateToSmokeSession(smokePage, sessionId);
+});
+test("desktop sidebar keeps Spaces and Agents independently navigable", async ({
+  multiWorkerSmokePage,
+  stack,
+  secondWorker,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Chromium desktop Spaces/Agents contract");
+  test.setTimeout(180_000);
+  await exerciseSidebarAgents(multiWorkerSmokePage, stack, secondWorker);
 });
 test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coherent", async ({
   smokePage,
@@ -260,6 +230,7 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   const closedId = initialOrder.at(-1)!;
   await tabWrapper(smokePage, closedId).locator(".df-tab-close").click();
   await expect(tabWrapper(smokePage, closedId)).toHaveCount(0);
+  await expect(smokePage).toHaveURL(`${stack.baseUrl}/s/${selectedId}`);
   const undo = smokePage.getByTestId("undo-snackbar-action");
   await expect(undo).toBeVisible();
   await undo.click();
@@ -293,6 +264,9 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   await filter.fill("__roost_no_matching_terminal__");
   await expect(popup.locator(".workbench-tab-list__empty")).toHaveText("No matches");
   await expect(popup.locator('[data-testid^="tab-list-item-"]')).toHaveCount(0);
+  await filter.press("Enter");
+  await expect(popup).toBeVisible();
+  await expect(smokePage).toHaveURL(`${stack.baseUrl}/s/${selectedId}`);
   await filter.fill(firstLabel);
   const matchingItem = popup.locator('[data-testid^="tab-list-item-"]').first();
   await expect(matchingItem).toBeVisible();
@@ -343,7 +317,7 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   await expect(smokePage.locator(".workbench-pane-drop-overlay")).toHaveCount(0);
   const tiled = await readRenderedLayout(smokePage, createdIds);
   expect(tiled.panes.flatMap((pane) => pane.tabs)).toContain(sourceId);
-  expect(tiled.panes.length).toBeGreaterThanOrEqual(2);
+  expect(tiled.panes.length).toBe(3);
   const sourcePaneAfter = tiled.panes.findIndex((pane) => pane.tabs.includes(sourceId));
   expect(sourcePaneAfter).not.toBe(sourcePaneIndex);
 });

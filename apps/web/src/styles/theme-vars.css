@@ -372,6 +372,7 @@
   --workbench-tab-action-size: 28px;
   --workbench-border-width: 1px;
   --workbench-sidebar-width: 300px;
+  --workbench-sidebar-split-ratio: 0.6;
   --workbench-tab-menu-min-width: 220px;
   --avatar-bg: var(--surface-3);
   --workbench-sidebar-resizer-active-width: var(--workbench-sidebar-resizer-width);

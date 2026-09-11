@@ -36,7 +36,7 @@ export function PaneTabList(props: PaneTabListProps) {
   let inputElement: HTMLInputElement | undefined;
   let cancelPendingFocus: (() => void) | null = null;
   let focusRequest = 0;
-
+  let selectionFocusPending = false;
   const matchingTabs = createMemo(() => {
     const normalizedFilter = filter().trim().toLowerCase();
     return props.tabs.filter((session) =>
@@ -57,33 +57,20 @@ export function PaneTabList(props: PaneTabListProps) {
 
   function chooseTab(session: Session): void {
     cancelQueuedFocus();
+    const request = focusRequest;
+    selectionFocusPending = true;
     props.onSelect(session.id);
-    const request = ++focusRequest;
+    props.onClose();
     queueMicrotask(() => {
       if (request !== focusRequest) return;
-      const tab = props.tabBar()?.querySelector<HTMLElement>(
-        `[data-testid="tab-${session.id}"]`,
-      );
-      tab?.scrollIntoView({ inline: "nearest", block: "nearest" });
-      props.onClose();
-      restoreTabFocus(session.id);
+      const tab = document.querySelector<HTMLElement>(`[data-testid="tab-${session.id}"]`);
+      const select = tab?.querySelector<HTMLElement>(".workbench-pane-tab__select");
+      if (tab && select) {
+        select.focus({ preventScroll: true });
+        tab.scrollIntoView({ inline: "nearest", block: "nearest" });
+      }
+      selectionFocusPending = false;
     });
-  }
-
-  function restoreTabFocus(sessionId: string): void {
-    let attempts = 0;
-    let stableFrames = 0;
-    const retry = () => {
-      const select = document.querySelector<HTMLElement>(
-        `[data-testid="tab-${sessionId}"] .workbench-pane-tab__select`,
-      );
-      select?.focus();
-      stableFrames = document.activeElement === select ? stableFrames + 1 : 0;
-      attempts++;
-      if (stableFrames >= 2 || attempts >= 12) return;
-      requestAnimationFrame(retry);
-    };
-    requestAnimationFrame(retry);
   }
 
   function focusMatchingEdge(edge: "first" | "last", index: number): void {
@@ -139,7 +126,9 @@ export function PaneTabList(props: PaneTabListProps) {
   });
 
   onMount(() => inputElement?.focus());
-  onCleanup(cancelQueuedFocus);
+  onCleanup(() => {
+    if (!selectionFocusPending) cancelQueuedFocus();
+  });
 
   return (
     <Portal>

@@ -353,6 +353,9 @@ export function PaneStrip(props: PaneStripProps) {
           label="All terminals in this pane"
           class="df-tab-overflow workbench-pane-tab-control"
           data-testid="tab-overflow"
+          menuPopup="menu"
+          controlsId="tab-list-popup"
+          expanded={listOpen() !== null}
           title="All terminals"
           onClick={toggleList}
         />

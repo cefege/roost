@@ -81,7 +81,7 @@ export function terminalSessionStyle(
       visibility: "inherit",
       "z-index": "9",
       overflow: "hidden",
-      "border-radius": "12px",
+      "border-radius": "var(--md-shape-md)",
     };
   }
   return {

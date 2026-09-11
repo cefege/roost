@@ -641,47 +641,6 @@
   }
 }
 
-
-
-/* ── Mobile slide-out drawer ───────────────────────────────────────────
-   AppShell drives the open state through the reactive data-open attribute.
-   It covers the phone screen in both orientations and closes when a session
-   is selected. */
-.roost-drawer {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100%;
-  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
-    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
-  box-sizing: border-box;
-  background: var(--bg-elev-1);
-  overflow: hidden auto;
-  z-index: 50;
-  transform: translateX(-100%);
-  /* Closing (→ off-screen): emphasized-ACCELERATE, quick. M3 exits accelerate. */
-  transition: transform var(--md-sys-motion-duration-short4, 200ms)
-      var(--md-sys-motion-easing-emphasized-accelerate, cubic-bezier(0.3, 0, 0.8, 0.15)),
-    box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
-  will-change: transform;
-}
-.roost-drawer[data-open="true"] {
-  transform: translateX(0);
-  /* Opening (→ on-screen): emphasized-DECELERATE, slightly longer so it settles
-     in rather than snapping. The asymmetry (decelerate in / accelerate out) is
-     what reads as native Material. */
-  transition: transform var(--md-sys-motion-duration-medium2, 300ms)
-      var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1)),
-    box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
-}
-
-/* No backdrop: a full-screen drawer has nothing behind it to dim. The
-   element stays in the DOM (AppShell) but renders nothing. */
-.roost-drawer-overlay {
-  display: none;
-}
-
-
 /* ── Home landing ("hello" pane at "/") ──────────────────────────────────
    Rendered by components/HomeLanding.tsx when workers exist but no session
    is auto-opened. Roost mark + "+ New" composer + recents grid. */

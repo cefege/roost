@@ -34,7 +34,7 @@ export function AgentStatusIndicator(props: {
             title={agentStatusTooltip(current(), seenAgentRevision(current()))}
             aria-label={presentation().label}
           >
-            <StatusDot status={presentation().dotStatus} size={7} />
+            <StatusDot status={presentation().dotStatus} />
             <Show when={!props.compact}>
               <span class="agent-status__label">{presentation().label}</span>
             </Show>

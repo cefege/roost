@@ -1,14 +1,10 @@
-// Folder list — sidebar body with Code and Chat categories. Both use the same
-// worker-and-folder grouping as the terminal deck; Code shows full workspace
-// rows and Chat shows terminal-backed scratch-folder rows. Rows are sorted by
-// recent terminal activity.
+// Folder list — sidebar body for non-chat workspace groups.
+// Groups use the same worker-and-folder identity as the terminal deck and sort
+// by recent terminal activity.
 // Owns the sidebar keyboard surface: cursor order and ⏎ activation.
-// Classes are `df-fld-*` (NOT `df-folder-*` — that prefix is the legacy
-// MachineSection tree; distinct namespace avoids style collisions).
-//
 // Reads the session store; no writes.
 
-import { batch, createComputed, createEffect, createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
+import { createComputed, createEffect, createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { A, useNavigate, useLocation } from "@solidjs/router";
 import { rootStore } from "../../store/root.ts";
@@ -21,15 +17,12 @@ import { folderKeyOf } from "../../lib/folderKey.ts";
 import { colorForFp } from "../../lib/fpColor.ts";
 import { buildFolderGroups, type FolderGroup, PR_CHECK_GLYPH, PR_CHECK_COLOR } from "../../lib/folderGroups.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";
-import { isChatFolder, startQuickChat } from "../../lib/quickChat.ts";
-import { scheduleClose } from "../../lib/pendingClose.ts";
-import { closeLabelsFor, killAfterUndo } from "../../lib/closeSession.ts";
+import { isChatFolder } from "../../lib/quickChat.ts";
 import { relTimeTickMs } from "./SessionRow.tsx";
 import { FolderRowContextMenu } from "./FolderRowContextMenu.tsx";
 import { FlatNewTerminal } from "./FlatNewTerminal.tsx";
 import { FolderGlyph } from "../FolderGlyph.tsx";
 import { IconButton } from "../Settings/md/IconButton.tsx";
-import { Button } from "../Settings/md/Button.tsx";
 import { StatusDot } from "../Settings/md/StatusDot.tsx";
 import {
   AGENT_STATUS_PRESENTATION,
@@ -45,10 +38,7 @@ function FolderStatusRollup(props: { group: FolderGroup }) {
         data-level={props.group.agentStatus.level}
         data-testid={`folder-agent-status-${props.group.key}`}
       >
-        <StatusDot
-          status={AGENT_STATUS_PRESENTATION[props.group.agentStatus.level].dotStatus}
-          size={7}
-        />
+        <StatusDot status={AGENT_STATUS_PRESENTATION[props.group.agentStatus.level].dotStatus} />
         <span>{formatAgentStatusCounts(props.group.agentStatus.counts)}</span>
       </span>
     </Show>
@@ -68,7 +58,6 @@ export function FolderList() {
   >(null);
 
   const activeSession = createMemo(() => activeSessionForPath(location.pathname));
-  const activeId = createMemo(() => activeSession()?.id ?? null);
 
   const activeFolderKey = createMemo(() => {
     const s = activeSession();
@@ -101,17 +90,14 @@ export function FolderList() {
   const [gs, setGs] = createStore<{ rows: FolderGroup[] }>({ rows: [] });
   createComputed(() => setGs("rows", reconcile(buildFolderGroups(), { key: "key" })));
 
-  const [sidebarTab, setSidebarTab] = createSignal<"code" | "chat">("code");
-  const chatRows = createMemo(() => gs.rows.filter((g) => isChatFolder(g.spawnCwd)));
-  const folderRows = createMemo(() => gs.rows.filter((g) => !isChatFolder(g.spawnCwd)));
-  const visibleRows = createMemo(() => (sidebarTab() === "chat" ? chatRows() : folderRows()));
+  const folderRows = createMemo(() => gs.rows.filter((group) => !isChatFolder(group.spawnCwd)));
 
-  // Keyboard cursor order follows only rows visible in the active category.
+  // Cursor order follows the folders shown in this single Spaces projection.
   createEffect(() => {
-    setOrderedSessionIds(visibleRows().map((g) => g.leadId));
+    setOrderedSessionIds(folderRows().map((group) => group.leadId));
   });
 
-  // Extracted so both tabs render identical row chrome.
+  // Render each non-chat folder with the established row chrome.
   const renderFolderRow = (g: FolderGroup) => {
     // Reopen the tab last visited in this folder (if still open), falling back
     // to the folder's most-recent terminal.
@@ -241,114 +227,13 @@ export function FolderList() {
     );
   };
 
-  function closeChat(g: FolderGroup) {
-    const viewed = g.sessionIds.includes(activeId() ?? "");
-    batch(() => {
-      for (const sid of g.sessionIds) {
-        const session = rootStore.sessions[sid];
-        if (session) scheduleClose(sid, closeLabelsFor(session), killAfterUndo(sid));
-      }
-      if (viewed) navigate("/");
-    });
-  }
-
-  const renderChatRow = (g: FolderGroup) => {
-    const targetId = () => targetIdFor(g);
-    return (
-      <A
-        href={`/s/${targetId()}`}
-        class="df-row"
-        title={g.spawnCwd}
-        data-density="flat"
-        data-chat="true"
-        data-testid={`folder-row-${g.key}`}
-        data-selected={activeFolderKey() === g.key ? "focused" : ""}
-        data-cursor={cursorSessionId() === g.leadId ? "on" : undefined}
-        onClick={() => { pushRecent(targetId()); closeSidebar(); }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setFolderCtxMenu({
-            x: e.clientX, y: e.clientY,
-            workerFp: g.spawnFp, folderPath: g.spawnCwd,
-            displayName: g.name, sessionIds: [...g.sessionIds],
-          });
-        }}
-        style={{ "--avatar-bg": `hsl(${colorForFp(g.key).hue} 48% 42%)` }}
-      >
-        <md-ripple />
-        <span class="df-leading" aria-hidden="true">
-          <FolderGlyph size={16} />
-        </span>
-        <span class="df-flat-body">
-          <span class="df-flat-top">
-            <span class="df-label df-flat-headline">{g.subtitle || "New chat"}</span>
-            <span class="df-flat-time">{(relTimeTickMs(), relTimeSince(g.latestActivity))}</span>
-          </span>
-          <FolderStatusRollup group={g} />
-        </span>
-        <IconButton
-          icon="close"
-          label="Close chat"
-          class="df-action df-action-always"
-          data-testid={`chat-close-${g.key}`}
-          title="Close chat"
-          style={{ "--md-icon-button-icon-size": "14px" }}
-          onClick={(e: MouseEvent) => { e.stopPropagation(); e.preventDefault(); closeChat(g); }}
-        />
-      </A>
-    );
-  };
 
 
   return (
     <div data-testid="folder-list">
-      {/* Reuse the flat session-list card shell (df-flat-group + df-row[flat] +
-          df-leading avatar + df-flat-body) so the folder view reads IDENTICALLY
-          to the strip — same recessed cards, circular avatar, hover +
-          selected states. Content maps folder→session: name→headline,
-          activity/branch→subtitle, machine→supporting server line. */}
-      <div class="df-fld-tabs" role="tablist" data-testid="sidebar-tabs">
-        <Button
-          variant="text"
-          type="button"
-          role="tab"
-          class="df-fld-tab"
-          data-active={sidebarTab() === "code" ? "true" : "false"}
-          aria-selected={sidebarTab() === "code"}
-          data-testid="sidebar-tab-code"
-          onClick={() => setSidebarTab("code")}
-        >Code</Button>
-        <Button
-          variant="text"
-          type="button"
-          role="tab"
-          class="df-fld-tab"
-          data-active={sidebarTab() === "chat" ? "true" : "false"}
-          aria-selected={sidebarTab() === "chat"}
-          data-testid="sidebar-tab-chat"
-          onClick={() => setSidebarTab("chat")}
-        >Chat</Button>
-      </div>
-      <Show when={sidebarTab() === "chat"}>
-        <Button
-          variant="tonal"
-          icon="add"
-          data-testid="sidebar-new-chat"
-          aria-label="New chat"
-          title="New chat"
-          style={{
-            display: "flex",
-            width: "calc(100% - var(--md-space-4))",
-            margin: "0 var(--md-space-2) var(--md-space-2)",
-            "--md-filled-tonal-button-with-leading-icon-trailing-space": "16px",
-          }}
-          onClick={() => { closeSidebar(); void startQuickChat(navigate); }}
-        >New chat</Button>
-      </Show>
       <div class="df-flat-group">
-        <For each={visibleRows()}>
-          {(g) => (sidebarTab() === "chat" ? renderChatRow(g) : renderFolderRow(g))}
+        <For each={folderRows()}>
+          {(group) => renderFolderRow(group)}
         </For>
       </div>
       <FlatNewTerminal />

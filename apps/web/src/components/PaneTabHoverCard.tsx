@@ -13,9 +13,6 @@ import { renderPreview } from "../lib/terminalPreview.ts";
 import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
 import { Icon, Surface } from "./Settings/md/primitives.tsx";
 
-const HOVER_CARD_WIDTH = 336;
-const VIEWPORT_MARGIN = 8;
-
 export interface PaneTabHoverCardProps {
   session: Session;
   rect: DOMRect;
@@ -25,10 +22,7 @@ export function PaneTabHoverCard(props: PaneTabHoverCardProps) {
   let previewElement: HTMLDivElement | undefined;
   const [hasPreview, setHasPreview] = createSignal(false);
   const subtitle = createMemo(() => programSubtitle(props.session));
-  const left = Math.max(
-    VIEWPORT_MARGIN,
-    Math.min(props.rect.left, window.innerWidth - HOVER_CARD_WIDTH - VIEWPORT_MARGIN),
-  );
+  const left = `max(var(--md-space-2), min(${props.rect.left}px, calc(100vw - var(--workbench-tab-hovercard-width) - var(--md-space-2))))`;
 
   onMount(() => {
     if (previewElement) setHasPreview(renderPreview(props.session.id, previewElement));
@@ -43,8 +37,8 @@ export function PaneTabHoverCard(props: PaneTabHoverCardProps) {
         class="df-tab-hovercard"
         data-testid="tab-hovercard"
         style={{
-          left: `${left}px`,
-          top: `${props.rect.bottom + VIEWPORT_MARGIN}px`,
+          left,
+          top: `calc(${props.rect.bottom}px + var(--md-space-2))`,
         }}
       >
         <div class="df-tab-hovercard-head">
