@@ -22,7 +22,6 @@ import { QueueTaskDialog } from "./components/QueueTaskDialog.tsx";
 import { ToastContainer } from "./components/ToastContainer.tsx";
 import { PairRequestNotifier } from "./components/PairRequestNotifier.tsx";
 import { UndoCloseBanner } from "./components/UndoCloseBanner.tsx";
-import { TransferDialogHost } from "./components/TransferDialog.tsx";
 import { RenameDialogHost } from "./components/RenameDialog.tsx";
 import { getLastTerminalPath } from "./lib/lastVisited.ts";
 import { shouldBootRestore, consumeBootRestore } from "./lib/bootRestore.ts";
@@ -142,7 +141,6 @@ export function App() {
           <ToastContainer />
           <PairRequestNotifier />
           <UndoCloseBanner />
-          <TransferDialogHost />
           <RenameDialogHost />
           <TransferStack />
         </Show>

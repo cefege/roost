@@ -1,5 +1,5 @@
 // Exercises the canonical workbench against a real coordinator, worker, keeper,
-// and PTY. The scenarios cover desktop geometry, the Spaces/Agents split, narrow tab/deck
+// and PTY. The scenarios cover desktop geometry, the retained Spaces/Agents selector, narrow tab/deck
 // behavior, and the compact drawer/settings shell without synthetic clients or renderers.
 
 import type { Page } from "@playwright/test";
@@ -18,99 +18,71 @@ import { expectConnectedWorkbenchTabStrip } from "./workbench-shell-tab-strip.ts
 const WIDE_VIEWPORT = { width: 1440, height: 900 } as const;
 const NARROW_VIEWPORT = { width: 1024, height: 768 } as const;
 const COMPACT_VIEWPORT = { width: 390, height: 844 } as const;
+const COMPACT_LANDSCAPE_VIEWPORT = { width: 844, height: 390 } as const;
+const SHORT_SIDE_BOUNDARY_VIEWPORT = { width: 844, height: 600 } as const;
 const SIDEBAR_WIDTH_DEFAULT = 300;
-
 type Rect = { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number };
-
-
 type ShellGeometry = {
-  viewport: { width: number; height: number };
-  domOrder: string[];
+  viewport: { width: number; height: number }; domOrder: string[];
   title: Rect | null; rail: Rect | null; sidebar: Rect | null; editor: Rect | null;
   status: Rect | null; strip: Rect | null; visibleRows: Rect[];
 };
-
 async function readShellGeometry(page: Page, sessionId: string): Promise<ShellGeometry> {
   return page.evaluate((id) => {
     const shell = document.querySelector<HTMLElement>(".workbench-shell");
-    const slot = document.querySelector<HTMLElement>(
-      `[data-testid="terminal-slot-${CSS.escape(id)}"]`,
-    );
+    const slot = document.querySelector<HTMLElement>(`[data-testid="terminal-slot-${CSS.escape(id)}"]`);
     const names = (element: Element): string => {
       if (element.classList.contains("workbench-titlebar")) return "title";
       if (element.classList.contains("workbench-activity-bar")) return "rail";
       if (element.classList.contains("workbench-sidebar-region")) return "sidebar";
       if (element.classList.contains("workbench-editor-region")) return "editor";
-      if (element.classList.contains("workbench-status-bar")) return "status";
-      return "other";
+      return element.classList.contains("workbench-status-bar") ? "status" : "other";
     };
     const rect = (element: Element | null): Rect | null => {
       if (!(element instanceof HTMLElement)) return null;
       const box = element.getBoundingClientRect();
-      return { x: box.x, y: box.y, width: box.width, height: box.height,
-        top: box.top, right: box.right, bottom: box.bottom };
+      return { x: box.x, y: box.y, width: box.width, height: box.height, top: box.top, right: box.right, bottom: box.bottom };
     };
     const slotRect = rect(slot);
-    const visibleRows = Array.from(slot?.querySelectorAll<HTMLElement>(".cell-row") ?? [])
-      .map(rect)
+    const visibleRows = Array.from(slot?.querySelectorAll<HTMLElement>(".cell-row") ?? []).map(rect)
       .filter((row): row is Rect => row !== null && row.width > 0 && row.height > 0
         && !!slotRect && row.top < slotRect.bottom && row.bottom > slotRect.top);
     return {
-      viewport: { width: window.innerWidth, height: window.innerHeight },
-      domOrder: shell ? Array.from(shell.children).map(names) : [],
-      title: rect(document.querySelector(".workbench-titlebar")),
-      rail: rect(document.querySelector(".workbench-activity-bar")),
-      sidebar: rect(document.querySelector(".workbench-sidebar-region")),
-      editor: rect(document.querySelector(".workbench-editor-region")),
-      status: rect(document.querySelector(".workbench-status-bar")),
-      strip: rect(document.querySelector("[data-pane-strip]")),
-      visibleRows,
+      viewport: { width: window.innerWidth, height: window.innerHeight }, domOrder: shell ? Array.from(shell.children).map(names) : [],
+      title: rect(document.querySelector(".workbench-titlebar")), rail: rect(document.querySelector(".workbench-activity-bar")),
+      sidebar: rect(document.querySelector(".workbench-sidebar-region")), editor: rect(document.querySelector(".workbench-editor-region")),
+      status: rect(document.querySelector(".workbench-status-bar")), strip: rect(document.querySelector("[data-pane-strip]")), visibleRows,
     };
   }, sessionId);
 }
-
 async function expectDesktopGeometry(page: Page, sessionId: string, viewport: { width: number; height: number }): Promise<void> {
-  await expect.poll(() => readShellGeometry(page, sessionId)).toMatchObject({
-    viewport,
-    domOrder: ["title", "rail", "sidebar", "editor", "status"],
-  });
+  await expect.poll(() => readShellGeometry(page, sessionId)).toMatchObject({ viewport, domOrder: ["title", "rail", "sidebar", "editor", "status"] });
   const geometry = await readShellGeometry(page, sessionId);
   const { title, rail, sidebar, editor, status, strip, visibleRows } = geometry;
-  if (!title || !rail || !sidebar || !editor || !status || !strip) {
-    throw new Error("desktop workbench did not expose every measured region");
-  }
-  expect(title.height).toBe(35);
-  expect(rail.width).toBe(48);
-  expect(status.height).toBe(22);
-  expect(title.top).toBe(0);
-  expect(rail.top).toBe(title.bottom);
-  expect(editor.top).toBe(title.bottom);
-  expect(strip.height).toBe(35);
-  expect(strip.top).toBe(editor.top);
-  expect(status.bottom).toBe(viewport.height);
-  expect(status.top).toBe(viewport.height - 22);
-  expect(sidebar.x).toBe(48);
-  expect(editor.x).toBeGreaterThan(sidebar.x);
-  expect(editor.right).toBe(viewport.width);
+  if (!title || !rail || !sidebar || !editor || !status || !strip) throw new Error("desktop workbench did not expose every measured region");
+  expect(title.height).toBe(35); expect(rail.width).toBe(48); expect(status.height).toBe(22);
+  expect(title.top).toBe(0); expect(rail.top).toBe(title.bottom); expect(editor.top).toBe(title.bottom);
+  expect(strip.height).toBe(35); expect(strip.top).toBe(editor.top);
+  expect(status.bottom).toBe(viewport.height); expect(status.top).toBe(viewport.height - 22);
+  expect(sidebar.x).toBe(48); expect(editor.x).toBeGreaterThan(sidebar.x); expect(editor.right).toBe(viewport.width);
   expect(visibleRows.length).toBeGreaterThan(0);
-  for (const row of visibleRows) {
-    expect(row.top).toBeGreaterThanOrEqual(strip.bottom - 1);
-    expect(row.bottom).toBeLessThanOrEqual(status.top + 1);
-  }
+  for (const row of visibleRows) { expect(row.top).toBeGreaterThanOrEqual(strip.bottom - 1); expect(row.bottom).toBeLessThanOrEqual(status.top + 1); }
 }
-
+async function expectCollapsedSidebarGeometry(page: Page, sessionId: string): Promise<void> {
+  await expect.poll(async () => (await readShellGeometry(page, sessionId)).sidebar?.width ?? -1).toBe(0);
+  const geometry = await readShellGeometry(page, sessionId);
+  const { rail, sidebar, editor } = geometry;
+  if (!rail || !sidebar || !editor) throw new Error("collapsed workbench lost a measured region");
+  expect(sidebar.width).toBe(0); expect(Math.abs(editor.x - rail.right)).toBeLessThanOrEqual(1);
+}
 async function typeTrustedMarker(page: Page, sessionId: string, marker: string): Promise<void> {
   const slot = page.getByTestId(`terminal-slot-${sessionId}`);
   await slot.getByTestId("terminal-display").click();
   await expect(slot).toHaveAttribute("data-focused", "true");
-  await page.keyboard.type(`printf '%s\\n' ${marker}`);
-  await page.keyboard.press("Enter");
+  await page.keyboard.type(`printf '%s\\n' ${marker}`); await page.keyboard.press("Enter");
   await expect.poll(() => slot.textContent(), { timeout: 30_000 }).toContain(marker);
 }
-
-
 function tabWrapper(page: Page, sessionId: string) { return page.locator(`.df-tab[data-testid="tab-${sessionId}"]`).first(); }
-
 async function dragTab(page: Page, sessionId: string, destination: { x: number; y: number }): Promise<void> {
   const select = tabWrapper(page, sessionId).locator(".workbench-pane-tab__select");
   const box = await select.boundingBox();
@@ -129,7 +101,8 @@ test("desktop workbench keeps measured geometry, status truth, and navigation", 
   await smokePage.setViewportSize(WIDE_VIEWPORT);
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
-  await typeTrustedMarker(smokePage, sessionId, `WB_WIDE_${crypto.randomUUID().replaceAll("-", "")}`);
+  const trustedMarker = `WB_WIDE_${crypto.randomUUID().replaceAll("-", "")}`;
+  await typeTrustedMarker(smokePage, sessionId, trustedMarker);
   await expectDesktopGeometry(smokePage, sessionId, WIDE_VIEWPORT);
   await expectStatusTruth(smokePage, stack);
   const coordIdentity = await stack.client.authCoordIdentity({});
@@ -144,18 +117,36 @@ test("desktop workbench keeps measured geometry, status truth, and navigation", 
   await expect(search).toHaveAttribute("href", "/search");
   await expect(files).toHaveAttribute("href", "/browse");
   await expect(settings).toHaveAttribute("href", "/settings/machines");
-  await expect(smokePage.locator("[data-testid='sidebar-spaces'] .workbench-sidebar-content"))
-    .toHaveCSS("overflow-x", "hidden");
+  await expect(smokePage.getByTestId("all-view")).toHaveCSS("overflow-x", "hidden");
+  await expect(smokePage.getByTestId("sidebar-search")).toBeVisible();
   await expect(help).toHaveAttribute("href", "/help");
 
   const originalUrl = smokePage.url();
-  await sessions.click();
+  const desktopSidebar = smokePage.getByTestId("sidebar-desktop");
+  const terminalSlot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  const terminalPaneId = await terminalSlot.getAttribute("data-pane-id");
+  if (!terminalPaneId) throw new Error("terminal slot did not expose a pane id");
+  await smokePage.getByTestId("sidebar-search").focus();
+  await pressPlatformShortcut(smokePage, "toggleSidebar", "b");
   await expect(smokePage).toHaveURL(originalUrl);
-  await expect(smokePage.getByTestId("sidebar-desktop")).toHaveAttribute("data-collapsed", "true");
+  await expect(desktopSidebar).toHaveAttribute("data-collapsed", "true");
+  await expect(sessions).toBeFocused();
+  await expectCollapsedSidebarGeometry(smokePage, sessionId);
   await sessions.click();
-  await expect(smokePage.getByTestId("sidebar-desktop")).toHaveAttribute("data-collapsed", "false");
+  await expect(desktopSidebar).toHaveAttribute("data-collapsed", "false");
 
   const resizer = smokePage.getByTestId("sidebar-resizer");
+  await resizer.focus();
+  await pressPlatformShortcut(smokePage, "toggleSidebar", "b");
+  await expect(smokePage).toHaveURL(originalUrl);
+  await expect(desktopSidebar).toHaveAttribute("data-collapsed", "true");
+  await expect(sessions).toBeFocused();
+  await expect(terminalSlot).toBeVisible();
+  await expect(terminalSlot).toHaveAttribute("data-pane-id", terminalPaneId);
+  await expect(terminalSlot).toContainText(trustedMarker);
+  await expectCollapsedSidebarGeometry(smokePage, sessionId);
+  await sessions.click();
+  await expect(desktopSidebar).toHaveAttribute("data-collapsed", "false");
   const initialWidth = Number(await resizer.getAttribute("aria-valuenow"));
   expect(initialWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
   await resizer.focus();
@@ -198,15 +189,16 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   stack,
 }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "Chromium desktop tab/deck contract");
-  await smokePage.evaluate(() => localStorage.removeItem("roost.paneLayout.v1"));
+  await smokePage.addInitScript(() => localStorage.removeItem("roost.paneLayout.v1"));
   await smokePage.reload({ waitUntil: "domcontentloaded" });
   await smokePage.waitForFunction((workerFp) => !!window.__smoke?.state().workers[workerFp], stack.workerFp);
   await smokePage.setViewportSize(NARROW_VIEWPORT);
-  const createdIds: string[] = [];
-  for (let index = 0; index < 6; index++) {
+  const createdIds: string[] = [(await spawnSmokeShell(smokePage, stack.workerFp)).session_id];
+  for (let index = 1; index < 6; index++) {
     createdIds.push((await spawnSmokeShell(smokePage, stack.workerFp)).session_id);
   }
   await navigateToSmokeSession(smokePage, createdIds[0]!);
+  await expect(smokePage.locator("[data-pane-slot]")).toHaveCount(1);
   await typeTrustedMarker(smokePage, createdIds[0]!, `WB_NARROW_${crypto.randomUUID().replaceAll("-", "")}`);
   await expectDesktopGeometry(smokePage, createdIds[0]!, NARROW_VIEWPORT);
   await expectConnectedWorkbenchTabStrip(smokePage);
@@ -325,11 +317,12 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   const sourcePaneAfter = tiled.panes.findIndex((pane) => pane.tabs.includes(sourceId));
   expect(sourcePaneAfter).not.toBe(sourcePaneIndex);
 });
-test("compact workbench owns one drawer/settings header and returns trusted input", async ({
+test("compact workbench preserves drawer navigation and settings padding across boundary sizes", async ({
   mobileSmokePage,
   stack,
 }) => {
   await mobileSmokePage.setViewportSize(COMPACT_VIEWPORT);
+  await expect(mobileSmokePage.locator(".workbench-shell")).toHaveAttribute("data-compact", "true");
   const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(mobileSmokePage, sessionId);
   await expect(mobileSmokePage.getByTestId("mobile-deck-bar")).toBeVisible();
@@ -338,11 +331,18 @@ test("compact workbench owns one drawer/settings header and returns trusted inpu
   await expect(mobileSmokePage.locator(".workbench-titlebar")).toHaveCount(0);
   await expect(mobileSmokePage.locator(".workbench-activity-bar")).toHaveCount(0);
   await expect(mobileSmokePage.getByTestId("mobile-deck-bar")).toContainText(/\S/);
-
   const drawer = mobileSmokePage.getByTestId("sidebar-drawer");
   await mobileSmokePage.getByTestId("mobile-deck-bar-menu").tap();
   await expect(drawer).toHaveAttribute("data-open", "true");
   await expect(mobileSmokePage.getByTestId("sidebar-overlay")).toHaveAttribute("data-open", "true");
+  const sidebarSearch = mobileSmokePage.getByTestId("sidebar-search");
+  await expect(mobileSmokePage.getByTestId("sidebar-view-spaces")).toHaveAttribute("aria-pressed", "true");
+  await expect(sidebarSearch).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("folder-list")).toBeVisible();
+  await sidebarSearch.fill("/tmp");
+  await expect(mobileSmokePage.locator(`[data-testid="sidebar-session-row"][data-session-id="${sessionId}"]`)).toBeVisible();
+  await sidebarSearch.fill("");
+  await expect(mobileSmokePage.getByTestId("folder-list")).toBeVisible();
   await mobileSmokePage.getByTestId("brand-row-collapse").tap();
   await expect(drawer).toHaveAttribute("data-open", "false");
   await swipeFromEdge(mobileSmokePage, 1, 250, 420);
@@ -350,7 +350,6 @@ test("compact workbench owns one drawer/settings header and returns trusted inpu
   await mobileSmokePage.getByTestId("brand-row-settings").tap();
   await expect(mobileSmokePage).toHaveURL(`${stack.baseUrl}/settings/devices`);
   await expect(drawer).toHaveAttribute("data-open", "false");
-
   await mobileSmokePage.goto(`${stack.baseUrl}/settings`, { waitUntil: "domcontentloaded" });
   const settingsRoot = mobileSmokePage.locator(".settings-mobile__main");
   await expect(mobileSmokePage.locator(".settings-rail")).toHaveCount(0);
@@ -365,11 +364,36 @@ test("compact workbench owns one drawer/settings header and returns trusted inpu
   await mobileSmokePage.getByTestId("settings-detail-back").click();
   await expect(mobileSmokePage).toHaveURL(`${stack.baseUrl}/settings`);
   await expect(settingsRoot.locator(".settings-topbar")).toHaveCount(1);
-
   await switchToSmokeSession(mobileSmokePage, sessionId);
-  await typeTrustedMarker(
-    mobileSmokePage,
-    sessionId,
-    `WB_COMPACT_${crypto.randomUUID().replaceAll("-", "")}`,
-  );
+  await typeTrustedMarker(mobileSmokePage, sessionId, `WB_COMPACT_${crypto.randomUUID().replaceAll("-", "")}`);
+  await mobileSmokePage.setViewportSize(COMPACT_LANDSCAPE_VIEWPORT);
+  await expect(mobileSmokePage.locator(".workbench-shell")).toHaveAttribute("data-compact", "true");
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+  await expect(mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+  await mobileSmokePage.goto(`${stack.baseUrl}/settings/devices`, { waitUntil: "domcontentloaded" });
+  await expect(settingsRoot).toBeVisible();
+  const compactSettingsContent = settingsRoot.locator(".settings-content");
+  expect(await compactSettingsContent.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft]
+      .every((padding) => padding === style.getPropertyValue("--md-space-4").trim());
+  })).toBe(true);
+  await mobileSmokePage.setViewportSize({ width: 700, height: 700 });
+  await expect(mobileSmokePage.locator(".workbench-shell")).toHaveAttribute("data-compact", "false");
+  await expect(mobileSmokePage.getByTestId("workbench-activity-sessions")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("sidebar-desktop")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("folder-list")).toBeVisible();
+  await mobileSmokePage.setViewportSize(SHORT_SIDE_BOUNDARY_VIEWPORT);
+  await expect(mobileSmokePage.locator(".workbench-shell")).toHaveAttribute("data-compact", "false");
+  await mobileSmokePage.goto(`${stack.baseUrl}/settings/machines`, { waitUntil: "domcontentloaded" });
+  await expect(settingsRoot).toHaveCount(0);
+  const desktopSettingsContent = mobileSmokePage.locator(".settings-main .settings-content");
+  await expect(desktopSettingsContent).toBeVisible();
+  expect(await desktopSettingsContent.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const blockPadding = style.getPropertyValue("--md-space-6").trim();
+    const inlinePadding = style.getPropertyValue("--md-space-7").trim();
+    return [style.paddingTop, style.paddingBottom].every((padding) => padding === blockPadding)
+      && [style.paddingRight, style.paddingLeft].every((padding) => padding === inlinePadding);
+  })).toBe(true);
 });

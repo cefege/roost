@@ -9,8 +9,9 @@ import {
   createSignal,
   onCleanup,
   untrack,
-  type JSX,
 } from "solid-js";
+import type { JSX } from "solid-js";
+import { Button, Surface } from "./Settings/md/primitives.tsx";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { terminalLoadingProgressView } from "../lib/terminalLoadingProgress.ts";
 import type { TerminalViewHandleStatus } from "../store/terminal-stream.ts";
@@ -148,7 +149,7 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
         display: "flex",
         "align-items": "center",
         "justify-content": "center",
-        padding: "24px",
+        padding: "var(--md-space-6)",
         "pointer-events": "none",
         "z-index": "5",
       }}
@@ -187,36 +188,39 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
       >
         {announcement().title}. {announcement().detail}
       </div>
-      <div
+      <Surface
+        level={1}
+        elevation={2}
+        radius="md"
+        pad={5}
+        border
         style={{
-          "max-width": "360px",
+          width: "min(100%, 45ch)",
           display: "flex",
           "flex-direction": "column",
-          gap: "10px",
-          padding: "20px 22px",
-          "border-radius": "12px",
-          background: "var(--surface-1)",
-          border: "1px solid var(--border-strong)",
-          color: "var(--text-hi)",
+          gap: "var(--md-space-3)",
+          color: "var(--md-sys-color-on-surface)",
           "text-align": "center",
         }}
       >
         <div
           data-testid="terminal-loading-title"
-          style={{ "font-size": "15px", "font-weight": "600" }}
+          class="md-title-s"
         >
           {props.title}
         </div>
         <div
           data-testid="terminal-loading-detail"
-          style={{ "font-size": "13px", color: "var(--text-lo)", "line-height": "1.4" }}
+          class="md-body-m"
+          style={{ color: "var(--md-sys-color-on-surface-variant)" }}
         >
           {props.detail}
         </div>
         <div
           aria-hidden="true"
           data-testid="terminal-loading-elapsed"
-          style={{ "font-size": "12px", color: "var(--text-lo)" }}
+          class="md-label-m"
+          style={{ color: "var(--md-sys-color-on-surface-variant)" }}
         >
           This step has taken {elapsedSeconds()}s
         </div>
@@ -272,7 +276,7 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
               <div
                 data-testid="terminal-loading-progress-label"
                 class="md-label-m"
-                style={{ color: "var(--text-mid)" }}
+                style={{ color: "var(--md-sys-color-on-surface-variant)" }}
               >
                 {view().label}
               </div>
@@ -284,7 +288,7 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
             <div
               data-testid="terminal-loading-stuck-reason"
               class="md-body-s"
-              style={{ color: "var(--text-mid)", "line-height": "1.4" }}
+              style={{ color: "var(--md-sys-color-on-surface-variant)" }}
             >
               {reason()}
             </div>
@@ -294,16 +298,16 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
           <div
             style={{
               display: "flex",
-              gap: "8px",
+              gap: "var(--md-space-2)",
               "justify-content": "center",
-              "margin-top": "6px",
+              "margin-top": "var(--md-space-1)",
               "pointer-events": "auto",
             }}
           >
             {props.actions}
           </div>
         </Show>
-      </div>
+      </Surface>
     </div>
   );
 }
@@ -324,7 +328,7 @@ export function TerminalOfflineNotice(props: TerminalOfflineNoticeProps) {
         display: "flex",
         "align-items": "center",
         "justify-content": "center",
-        padding: "24px",
+        padding: "var(--md-space-6)",
         "pointer-events": "none",
         "z-index": "5",
       }}
@@ -332,67 +336,52 @@ export function TerminalOfflineNotice(props: TerminalOfflineNoticeProps) {
       {/* Discrete state change (pane went dead / came back), not a stream — safe
           to announce. The cell grid itself must NEVER get a live region: a
           streaming pane would flood the screen reader row by row. */}
-      <div
+      <Surface
+        level={1}
+        elevation={2}
+        radius="md"
+        pad={5}
+        border
         aria-live="polite"
         style={{
-          "pointer-events": "auto",
-          "max-width": "360px",
+          width: "min(100%, 45ch)",
           display: "flex",
           "flex-direction": "column",
-          gap: "10px",
-          padding: "20px 22px",
-          "border-radius": "12px",
-          background: "var(--surface-1)",
-          border: "1px solid var(--border-strong)",
-          color: "var(--text-hi)",
+          gap: "var(--md-space-3)",
+          color: "var(--md-sys-color-on-surface)",
           "text-align": "center",
+          "pointer-events": "auto",
         }}
       >
-        <div style={{ "font-size": "15px", "font-weight": "600" }}>
+        <div class="md-title-s">
           This terminal isn't responding
         </div>
-        <div style={{ "font-size": "13px", color: "var(--text-lo)", "line-height": "1.4" }}>
+        <div class="md-body-m" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
           Its process may have stopped. The tab stays put so you keep your place.
         </div>
-        <div style={{ display: "flex", gap: "8px", "justify-content": "center", "margin-top": "6px" }}>
-          <button
+        <div style={{ display: "flex", gap: "var(--md-space-2)", "justify-content": "center", "margin-top": "var(--md-space-1)", "flex-wrap": "wrap" }}>
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             data-testid="terminal-offline-retry"
             onClick={() => props.onRetry()}
-            style={{
-              "font-family": "inherit",
-              "font-size": "13px",
-              padding: "7px 14px",
-              "border-radius": "8px",
-              border: "1px solid var(--border-strong)",
-              background: "var(--surface-2)",
-              color: "var(--text-hi)",
-              cursor: "pointer",
-            }}
           >
             Retry
-          </button>
+          </Button>
           <Show when={props.hasSibling}>
-            <button
+            <Button
               type="button"
+              variant="default"
+              size="sm"
               data-testid="terminal-offline-open-sibling"
               onClick={() => props.onOpenSibling()}
-              style={{
-                "font-family": "inherit",
-                "font-size": "13px",
-                padding: "7px 14px",
-                "border-radius": "8px",
-                border: "1px solid transparent",
-                background: "var(--accent)",
-                color: "var(--on-accent)",
-                cursor: "pointer",
-              }}
             >
               Open another terminal here
-            </button>
+            </Button>
           </Show>
         </div>
-      </div>
+      </Surface>
     </div>
   );
 }

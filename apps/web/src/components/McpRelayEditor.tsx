@@ -81,19 +81,11 @@ export function McpRelayEditor(props: McpRelayEditorProps) {
       </Show>
 
       <div style={{ display: "flex", gap: "8px" }}>
-        <Button
-          variant="filled"
-          data-testid="mcp-editor-save"
-          onClick={() => void handleSave()}
-          disabled={!canSubmit()}
-        >
-          {saving() ? "Adding…" : "Add relay"}
-        </Button>
-        <Button
-          variant="text"
-          data-testid="mcp-editor-cancel"
-          onClick={props.onCancel}
-        >
+        <Button variant="default" data-testid="mcp-editor-save"
+        onClick={() => void handleSave()}
+        disabled={!canSubmit()}>{saving() ? "Adding…" : "Add relay"}</Button>
+        <Button variant="ghost" data-testid="mcp-editor-cancel"
+        onClick={props.onCancel}>
           Cancel
         </Button>
       </div>

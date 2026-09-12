@@ -72,10 +72,9 @@ test("agent status reaches every browser surface and notification ACK", async ({
   await expect(folderStatus).toHaveAttribute("data-level", "working");
   await expect(folderStatus).toContainText("1 working");
 
-  // Search switches the sidebar from folder rows to the full per-session row
-  // without changing the active terminal. This locks the distinct session-row
-  // surface as well as the folder rollup above.
-  await smokePage.getByTestId("brand-row-search").click();
+  // The always-visible Spaces filter exposes the per-session rows without
+  // changing the active terminal, preserving the distinct session-row surface.
+  await smokePage.getByTestId("sidebar-view-spaces").click();
   await smokePage.getByTestId("sidebar-search").fill("/tmp");
   const sessionRow = smokePage.locator(
     `[data-testid="sidebar-session-row"][data-session-id="${backgroundId}"]`,

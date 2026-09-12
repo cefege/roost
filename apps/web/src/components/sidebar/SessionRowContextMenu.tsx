@@ -1,10 +1,10 @@
 // Right-click action menu for a sidebar SessionRow: duplicate/restart/
-// open-in-finder/transfer/close. Rendered as a fixed-position popover at
-// the cursor with a click-away scrim. Owns its own duplicate/restart/
-// finder/transfer handlers; "Close terminal" delegates to the row's
-// soft-close (props.onDelete) — the SAME action as the row's ✕ — so the
-// 5s undo window stays single-sourced in SessionRow. Extracted from
-// SessionRow.tsx to keep it under the 400-line cap (CLAUDE.md standards).
+// open-in-finder/close. Rendered as a fixed-position popover at the cursor
+// with a click-away scrim. Owns its own duplicate/restart/finder handlers;
+// "Close terminal" delegates to the row's soft-close (props.onDelete) — the
+// SAME action as the row's ✕ — so the 5s undo window stays single-sourced in
+// SessionRow. Extracted from SessionRow.tsx to keep it under the 400-line cap
+// (CLAUDE.md standards).
 //
 // Props: session, pos {x,y}, onClose(), onDelete(MouseEvent).
 
@@ -20,7 +20,6 @@ import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { invokeMachineAction, machineActionsForWorker } from "../../lib/machineActions.ts";
 import type { MachineActionDefinition } from "../../lib/machineActions.ts";
 import { addToast } from "../../store/toastStore.ts";
-import { openTransferDialog } from "../../lib/transferDialog.ts";
 import {
 	ctxMenuSurfaceStyle,
 	CtxMenuItem,
@@ -33,7 +32,6 @@ interface SessionRowContextMenuProps {
 	onClose: () => void;
 	onDelete: (e: MouseEvent) => void;
 }
-
 
 export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 	const navigate = useNavigate();
@@ -73,11 +71,6 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 				"err",
 			);
 		}
-	}
-
-	function handleTransfer() {
-		props.onClose();
-		openTransferDialog();
 	}
 
 	// New terminal on the same server, in the same cwd. Unlike Restart it
@@ -174,16 +167,6 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 			onClick: () => void handleRestart(),
 		},
 		...machineItems(),
-		// Cross-worker transfer only when there's another worker to target.
-		...(Object.keys(rootStore.workers).length > 1
-			? [
-					{
-						label: "Transfer files (beta)…",
-						testid: "transfer",
-						onClick: () => void handleTransfer(),
-					},
-				]
-			: []),
 	];
 	// Destructive actions — rendered below a separator (matches the terminal menu).
 	const dangerItems = () => [

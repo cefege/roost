@@ -48,7 +48,9 @@ test("terminal replay and Ctrl keys stay owned by the PTY", async ({ smokePage, 
   await smokePage.keyboard.press("Enter");
   await expect.poll(() => slot.textContent()).toContain("^B^F^K");
   await expect(sidebar).toHaveAttribute("data-collapsed", collapsed ?? "false");
-  await expect(smokePage.getByTestId("sidebar-search")).toHaveCount(0);
+  const sidebarSearch = smokePage.getByTestId("sidebar-search");
+  await expect(sidebarSearch).toBeVisible();
+  await expect(sidebarSearch).toHaveValue("");
   await expect(smokePage.getByTestId("command-palette")).toHaveCount(0);
   await smokePage.keyboard.press("Control+C");
 });

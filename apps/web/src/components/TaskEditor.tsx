@@ -10,7 +10,7 @@ import { rootStore } from "../store/root.ts";
 import { TextField, Select, Button } from "./Settings/md/primitives.tsx";
 
 
-const MONO: Record<string, string> = { "--md-outlined-field-content-font": "ui-monospace, monospace" };
+const MONO: Record<string, string> = { "font-family": "var(--font-mono)" };
 
 // ─── types ─────────────────────────────────────────────────────────────────
 
@@ -94,7 +94,7 @@ export const TaskEditor: Component<TaskEditorProps> = (props) => {
         value={cwd()}
         onInput={setCwd}
         placeholder="/Users/you/code/repo"
-        style={MONO}
+        controlStyle={MONO}
       />
 
       <Show when={workers().length > 0}>
@@ -125,7 +125,7 @@ export const TaskEditor: Component<TaskEditorProps> = (props) => {
         value={completionCheck()}
         onInput={setCompletionCheck}
         placeholder="gh pr view --json state -q .state | grep MERGED"
-        style={MONO}
+        controlStyle={MONO}
       />
 
       <Show when={error()}>
@@ -136,16 +136,11 @@ export const TaskEditor: Component<TaskEditorProps> = (props) => {
 
       <div style={{ display: "flex", gap: "8px", "justify-content": "flex-end" }}>
         <Show when={props.showCancel !== false && props.onCancel}>
-          <Button variant="text" onClick={props.onCancel}>Cancel</Button>
+          <Button variant="outline" onClick={props.onCancel}>Cancel</Button>
         </Show>
-        <Button
-          variant="filled"
-          data-testid="task-editor-submit"
-          disabled={submitting()}
-          onClick={() => void handleSubmit()}
-        >
-          {submitting() ? "Queuing…" : "Queue  ⌘↩"}
-        </Button>
+        <Button variant="default" data-testid="task-editor-submit"
+        disabled={submitting()}
+        onClick={() => void handleSubmit()}>{submitting() ? "Queuing…" : "Queue  ⌘↩"}</Button>
       </div>
     </div>
   );

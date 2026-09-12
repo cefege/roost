@@ -87,9 +87,8 @@ session href and asks that pane's find controller to rerun the literal query
 against its current grid epoch before revealing anything. `scope=attention`
 retains current blocked rows and unseen completions without issuing content
 search RPCs; opening a completed session acknowledges it. Search never inspects
-agent transcripts. Cross-worker transfer remains a beta placeholder: its item
-opens an explanatory dialog without issuing a transfer RPC. Attachment
-upload/download through `TransferStack` remains supported.
+agent transcripts. Attachment upload/download through `TransferStack` remains
+supported.
 
 Portable layouts remain browser-owned. `paneLayoutStore` keeps the active
 runtime tree and private pane/split UUIDs under `roost.paneLayout.v1`;

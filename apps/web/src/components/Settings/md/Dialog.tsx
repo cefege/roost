@@ -1,50 +1,77 @@
-import { type JSX, type Component, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import "@material/web/dialog/dialog.js";
+// Shared accessible modal primitive.
+// It owns Kobalte's portal, modal dismissal, and scroll containment.
+// Consumers supply the dialog content and optional action band; Sheet composes it.
 
-// ─── Dialog → real md-dialog (scrim + enter motion + focus-trap + ESC) ──────
-// Replaces hand-rolled position:fixed backdrop modals that snapped in with no
-// motion. `open` controls visibility; md-dialog fires `closed` on ESC / scrim /
-// action — onClose should set the caller's open signal false.
-//
-// A showModal() <dialog> makes the whole rest of the document inert, and
-// md-dialog keeps its native dialog open for the entire ~155ms exit animation.
-// focus() elsewhere is silently dropped for that window, so a ⌘K palette opened
-// right after a dialog closed accepted no keystrokes. `quick` skips the exit, so
-// the top layer is released in the same task the close starts. Releasing it at
-// the START of an animated exit is not possible here: md-dialog's own
-// `dialog[open]{display:flex}` stops rendering the container the instant the
-// native dialog closes, leaving only the scrim to animate — the lingering-scrim
-// artifact overlayMotion.ts already rejected, where close is likewise instant.
+import * as KobalteDialog from "@kobalte/core/dialog";
+import { type Component, type JSX, Show } from "solid-js";
+import { Icon } from "./Icon.tsx";
+import "./overlays.css";
+
 export const Dialog: Component<{
   open: boolean;
   onClose: () => void;
   headline?: string;
   children: JSX.Element;
   actions?: JSX.Element;
-}> = (props) => (
-  <Dynamic
-    component="md-dialog"
-    prop:quick={!props.open}
-    prop:open={props.open}
-    on:close={skipExitAnimation}
-    on:closed={() => props.onClose()}
-  >
-    <Show when={props.headline}>
-      <div slot="headline">{props.headline}</div>
-    </Show>
-    <div slot="content">{props.children}</div>
-    <Show when={props.actions}>
-      <div slot="actions">{props.actions}</div>
-    </Show>
-  </Dynamic>
-);
+  description?: JSX.Element;
+  class?: string;
+  testId?: string;
+  onOpenAutoFocus?: (event: Event) => void;
+  onCloseAutoFocus?: (event: Event) => void;
+  showCloseButton?: boolean;
+}> = (props) => {
+  let openerElement: HTMLElement | undefined;
 
-/** ESC and scrim clicks are closes md-dialog starts itself, with `open` still
- *  true — so the bound `quick` above cannot cover them. md-dialog dispatches
- *  `close` synchronously at the head of every exit, which is still in time for
- *  the animation to read the flag. */
-function skipExitAnimation(event: Event): void {
-  const host = event.currentTarget;
-  if (host !== null && typeof host === "object" && "quick" in host) host.quick = true;
-}
+  return (
+    <KobalteDialog.Dialog
+      open={props.open}
+      onOpenChange={(open) => { if (!open) props.onClose(); }}
+    >
+      <KobalteDialog.Dialog.Portal>
+        <KobalteDialog.Dialog.Overlay class="roost-dialog__overlay" />
+        <KobalteDialog.Dialog.Content
+          class={`roost-dialog${props.class ? ` ${props.class}` : ""}`}
+          data-testid={props.testId}
+          onOpenAutoFocus={(event) => {
+            if (document.activeElement instanceof HTMLElement) {
+              openerElement = document.activeElement;
+            }
+            props.onOpenAutoFocus?.(event);
+          }}
+          onCloseAutoFocus={(event) => {
+            props.onCloseAutoFocus?.(event);
+            if (event.defaultPrevented || !openerElement?.isConnected) return;
+            event.preventDefault();
+            openerElement.focus({ preventScroll: true });
+          }}
+        >
+          <Show when={props.headline || props.description || (props.showCloseButton ?? !props.actions)}>
+            <div class="roost-dialog__header">
+              <div class="roost-dialog__heading">
+                <Show when={props.headline}>
+                  <KobalteDialog.Dialog.Title class="roost-dialog__title">
+                    {props.headline}
+                  </KobalteDialog.Dialog.Title>
+                </Show>
+                <Show when={props.description}>
+                  <KobalteDialog.Dialog.Description class="roost-dialog__description">
+                    {props.description}
+                  </KobalteDialog.Dialog.Description>
+                </Show>
+              </div>
+              <Show when={props.showCloseButton ?? !props.actions}>
+                <KobalteDialog.Dialog.CloseButton class="roost-dialog__close" aria-label="Close">
+                  <Icon name="close" />
+                </KobalteDialog.Dialog.CloseButton>
+              </Show>
+            </div>
+          </Show>
+          <div class="roost-dialog__body">{props.children}</div>
+          <Show when={props.actions}>
+            <div class="roost-dialog__actions">{props.actions}</div>
+          </Show>
+        </KobalteDialog.Dialog.Content>
+      </KobalteDialog.Dialog.Portal>
+    </KobalteDialog.Dialog>
+  );
+};

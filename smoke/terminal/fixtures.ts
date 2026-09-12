@@ -50,7 +50,16 @@ export async function enrollSmokeBrowser(
     (workerFp) => !!window.__smoke?.state().workers[workerFp],
     stack.workerFp,
   );
-  await expect(page.getByTestId("folder-list")).toBeVisible();
+  const workbenchShell = page.locator(".workbench-shell[data-compact]");
+  await expect(workbenchShell).toHaveAttribute("data-compact", /^(?:true|false)$/);
+  const compactState = await workbenchShell.getAttribute("data-compact");
+  if (compactState !== "true" && compactState !== "false") {
+    throw new Error("workbench shell data-compact must be true or false");
+  }
+  const compactLayout = compactState === "true";
+  const folderList = page.getByTestId("folder-list");
+  await expect(folderList).toHaveCount(1);
+  if (!compactLayout) await expect(folderList).toBeVisible();
   await expect(page.getByTestId("error-boundary")).toHaveCount(0);
 }
 
@@ -66,6 +75,11 @@ async function useSmokePage(
   await context.addInitScript(() => {
     localStorage.setItem("roostSmoke", "1");
     localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
+    if (!sessionStorage.getItem("roost.sidebarViewSeeded")) {
+      localStorage.setItem("roost.sidebarView", "spaces");
+      localStorage.setItem("roost.sidebarCollapsed", "0");
+      sessionStorage.setItem("roost.sidebarViewSeeded", "1");
+    }
   });
   const page = await context.newPage();
   try {

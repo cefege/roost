@@ -260,9 +260,9 @@ test("same session metadata updates preserve the mounted terminal DOM", async ({
     smokeWindow.__terminalIdentityProbe = { slot, grid, textarea };
   }, sessionId);
 
-  // Folder rows collapse sessions by cwd; search switches the sidebar to the
+  // Folder rows collapse sessions by cwd; the Spaces filter exposes the
   // per-session rows that carry the rename menu (same surface agent-status uses).
-  await smokePage.getByTestId("brand-row-search").click();
+  await smokePage.getByTestId("sidebar-view-spaces").click();
   await smokePage.getByTestId("sidebar-search").fill("/tmp");
   const sessionRow = smokePage.locator(
     `[data-testid="sidebar-session-row"][data-session-id="${sessionId}"]`,

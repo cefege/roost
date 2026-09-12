@@ -146,7 +146,6 @@ export function AttachmentsPane() {
             label="Session"
             value={selectedId() ?? ""}
             onChange={(v) => setSelectedId(v || null)}
-            class="md-input"
             options={sessionOptions().map((s) => ({
               value: s.id,
               label: `${s.kind} — ${workerPathBasename(s.worker_fp, s.cwd) || s.cwd} (${s.id.slice(0, 8)})`,
@@ -236,19 +235,15 @@ export function AttachmentsPane() {
                       trailing={
                         <>
                           <Show when={insertionFor(entry.absPath) !== null}>
-                            <Button variant="text" icon="content_paste_go" onClick={() => void injectPath(entry.absPath)}>
+                            <Button variant="ghost" icon="content_paste_go" onClick={() => void injectPath(entry.absPath)}>
                               Inject
                             </Button>
                           </Show>
-                          <Button variant="text" icon="content_copy" onClick={() => copyPathToClipboard(entry.absPath)}>
+                          <Button variant="ghost" icon="content_copy" onClick={() => copyPathToClipboard(entry.absPath)}>
                             Copy
                           </Button>
-                          <Button
-                            variant="text"
-                            icon="delete_outline"
-                            style={{ color: "var(--md-sys-color-error)" }}
-                            onClick={() => sid && deleteAttachment(sid, entry.filename)}
-                          >
+                          <Button variant="destructive" icon="delete_outline"
+                          onClick={() => sid && deleteAttachment(sid, entry.filename)}>
                             Delete
                           </Button>
                         </>

@@ -2,7 +2,7 @@
 // Push is enabled only after permission and coordinator subscription succeed.
 
 import { createMemo, createSignal, Show } from "solid-js";
-import { Card, Switch, Icon } from "./md/primitives.tsx";
+import { Card, Icon, SwitchRow } from "./md/primitives.tsx";
 import {
   disableDesktopNotifications,
   enableDesktopNotifications,
@@ -15,34 +15,6 @@ import {
   unsubscribeFromPush,
 } from "../../lib/push-client.ts";
 
-function SwitchRow(props: {
-  headline: string;
-  support: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  testId: string;
-  disabled?: boolean;
-}) {
-  return (
-    <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-4)" }}>
-      <div style={{ flex: 1, "min-width": 0 }}>
-        <div class="md-body-m" style={{ color: "var(--md-sys-color-on-surface)" }}>
-          {props.headline}
-        </div>
-        <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
-          {props.support}
-        </div>
-      </div>
-      <Switch
-        checked={props.checked}
-        onChange={props.onChange}
-        label={props.headline}
-        testId={props.testId}
-        disabled={props.disabled}
-      />
-    </div>
-  );
-}
 
 export function NotificationsPane() {
   const initialPermission = pushAvailable() ? Notification.permission : "unsupported";
@@ -91,8 +63,7 @@ export function NotificationsPane() {
       data-testid="settings-notifications-pane"
       style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-5)" }}
     >
-      <section
-        class="md-card"
+      <Card
         data-testid="notifications-status"
         style={{ display: "flex", "align-items": "center", gap: "var(--md-space-4)" }}
       >
@@ -116,7 +87,7 @@ export function NotificationsPane() {
             Know when a background coding agent needs input or finishes. Saved per browser.
           </div>
         </div>
-      </section>
+      </Card>
 
       <Card title="Surfaces">
         <SwitchRow

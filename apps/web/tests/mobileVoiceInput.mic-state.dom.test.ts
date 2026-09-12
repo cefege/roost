@@ -11,8 +11,8 @@
 // fake the exact DOM/globals the components touch, mock the transport modules,
 // and dynamically import the components under test. Two extra seams make them
 // executable under bun's own TSX transform:
-//   • `solid-js` is remocked onto its CLIENT dist build, so signals/effects
-//     actually run inside createRoot;
+//   • `solid-js` and `solid-js/web` are remocked onto their CLIENT dist builds,
+//     so signals/effects and Kobalte primitives run inside createRoot;
 //   • bun lowers JSX classically to a bare `React.createElement` reference,
 //     which is given a virtual renderer: function tags run like
 //     createComponent (with the enclosing owner), intrinsic tags record their
@@ -23,6 +23,7 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { Session } from "@roost/shared/wire";
 import type * as SolidApi from "solid-js";
+import type * as SolidWebApi from "solid-js/web";
 import { releaseMic, micIdle, captureQuirks } from "../src/lib/audioPcmCapture.ts";
 
 // ── globals the components/engine touch ─────────────────────────────────────
@@ -96,6 +97,10 @@ g.window = {
 	innerHeight: 900,
 	AudioContext: WorkletCtx,
 	WebSocket: FakeWS,
+	history: {
+		state: null as unknown,
+		replaceState(data: unknown) { this.state = data; },
+	},
 	addEventListener: () => {},
 	removeEventListener: () => {},
 	matchMedia: () => ({ matches: false }),
@@ -109,17 +114,26 @@ URL.createObjectURL = () => "blob:fake";
 URL.revokeObjectURL = () => {};
 g.document = {
 	activeElement: null,
+	body: {
+		addEventListener: () => {},
+		removeEventListener: () => {},
+},
 	addEventListener: () => {},
 	removeEventListener: () => {},
 	getSelection: () => null,
 };
 
-// ── solid client build + virtual renderer ───────────────────────────────────
-	// solid-js ships no types for its dist entry; the cast below restores the
-	// package's public API surface.
-	// @ts-expect-error TS7016
-	const S = await import("solid-js/dist/solid.js") as unknown as typeof SolidApi;
+// ── solid client builds + virtual renderer ──────────────────────────────────
+// solid-js ships no types for its dist entries; these casts restore each
+// package's public API surface.
+// @ts-expect-error TS7016
+const S = await import("solid-js/dist/solid.js") as unknown as typeof SolidApi;
 mock.module("solid-js", () => ({ ...S }));
+// TerminalComposeButton's primitive barrel imports Kobalte, so this must load
+// before its dynamic import can resolve Kobalte's client-only web APIs.
+// @ts-expect-error TS7016
+const SolidWeb = await import("solid-js/web/dist/web.js") as unknown as typeof SolidWebApi;
+mock.module("solid-js/web", () => ({ ...SolidWeb }));
 
 interface VNode { tag: unknown; props: Record<string, unknown>; rendered?: unknown }
 

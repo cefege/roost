@@ -4,7 +4,7 @@
 // Owns the sidebar keyboard surface: cursor order and ⏎ activation.
 // Reads the session store; no writes.
 
-import { createComputed, createEffect, createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
+import { createComputed, createEffect, createMemo, createSignal, For, Show, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { A, useNavigate, useLocation } from "@solidjs/router";
 import { rootStore } from "../../store/root.ts";
@@ -29,7 +29,6 @@ import {
   AGENT_STATUS_PRESENTATION,
   formatAgentStatusCounts,
 } from "../../lib/agentStatus.ts";
-import "@material/web/ripple/ripple.js";
 
 function FolderStatusRollup(props: { group: FolderGroup }) {
   return (
@@ -45,7 +44,11 @@ function FolderStatusRollup(props: { group: FolderGroup }) {
     </Show>
   );
 }
-export function FolderList() {
+interface FolderListProps {
+  active: boolean;
+}
+
+export function FolderList(props: FolderListProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -75,9 +78,10 @@ export function FolderList() {
   }
 
 
-  // Cursor ⏎ opens a session: same effect as a row click (push MRU + nav).
-  onMount(() => setActivateHandler((id) => { pushRecent(id); navigate(`/s/${id}`); }));
-  onCleanup(() => setActivateHandler(null));
+  function activateFolderSession(sessionId: string): void {
+    pushRecent(sessionId);
+    navigate(`/s/${sessionId}`);
+  }
 
 
   // ── Folder rows ────────────────────────────────────────────────────
@@ -93,9 +97,20 @@ export function FolderList() {
 
   const folderRows = createMemo(() => gs.rows.filter((group) => !isChatFolder(group.spawnCwd)));
 
-  // Cursor order follows the folders shown in this single Spaces projection.
+  // Cursor commands must only target rows in the visible Spaces projection.
   createEffect(() => {
+    if (!props.active) {
+      setActivateHandler(null);
+      setOrderedSessionIds([]);
+      return;
+    }
+    setActivateHandler(activateFolderSession);
     setOrderedSessionIds(folderRows().map((group) => group.leadId));
+  });
+
+  onCleanup(() => {
+    setActivateHandler(null);
+    setOrderedSessionIds([]);
   });
 
   // Render each non-chat folder with the established row chrome.
@@ -104,8 +119,7 @@ export function FolderList() {
     // to the folder's most-recent terminal.
     const targetId = () => targetIdFor(g);
     return (
-    <A
-      href={`/s/${targetId()}`}
+    <div
       class="df-row"
       // Row-level title = full cwd. In the collapsed icon rail the
       // body text is hidden, so hovering the glyph must still reveal
@@ -115,7 +129,6 @@ export function FolderList() {
       data-testid={`folder-row-${g.key}`}
       data-selected={activeFolderKey() === g.key ? "focused" : ""}
       data-cursor={cursorSessionId() === g.leadId ? "on" : undefined}
-      onClick={() => { pushRecent(targetId()); closeSidebar(); }}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -127,7 +140,14 @@ export function FolderList() {
       }}
       style={{ "--avatar-bg": `hsl(${colorForFp(g.key).hue} 48% 42%)` }}
     >
-      <md-ripple />
+      <A
+        href={`/s/${targetId()}`}
+        class="df-row__primary"
+        aria-label={`Open ${g.name}`}
+        style={{ position: "absolute", inset: "0", "z-index": 1 }}
+        onClick={() => { pushRecent(targetId()); closeSidebar(); }}
+      />
+      <span class="df-row__visual" style={{ display: "contents", "pointer-events": "none" }}>
       <span class="df-leading df-leading--machine">
         <MachineIdentityMark worker={rootStore.workers[g.spawnFp]} contextTitle={g.spawnCwd} />
       </span>
@@ -175,6 +195,7 @@ export function FolderList() {
                 target="_blank"
                 rel="noopener noreferrer"
                 title={`PR #${pr().number} · ${pr().state} · checks ${pr().checks}`}
+                style={{ position: "relative", "z-index": 2, "pointer-events": "auto" }}
                 onClick={(e) => { e.stopPropagation(); if (!pr().url) e.preventDefault(); }}
               >
                 <svg class="df-flat-pr-icon" width="11" height="11" viewBox="0 0 24 24" fill="none"
@@ -200,19 +221,27 @@ export function FolderList() {
                 target="_blank"
                 rel="noopener noreferrer"
                 title={g.reachAddr ? `Open http://${g.reachAddr}:${port}` : `Listening on :${port}`}
+                style={{ position: "relative", "z-index": 2, "pointer-events": "auto" }}
                 onClick={(e) => { e.stopPropagation(); if (!g.reachAddr) e.preventDefault(); }}
               >:{port}</a>
             )}
           </For>
         </span>
       </span>
+      </span>
       <IconButton
         icon="more_vert"
         label="Folder actions"
+        size="icon-sm"
         class="df-action"
         data-testid={`folder-more-${g.key}`}
         title="Folder actions"
-        style={{ "--md-icon-button-icon-size": "14px" }}
+        style={{
+          "--md-icon-button-icon-size": "14px",
+          position: "relative",
+          "z-index": 2,
+          "pointer-events": "auto",
+        }}
         onClick={(e) => {
           e.stopPropagation();
           e.preventDefault();
@@ -224,7 +253,7 @@ export function FolderList() {
           });
         }}
       />
-    </A>
+    </div>
     );
   };
 

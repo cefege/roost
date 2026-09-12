@@ -12,13 +12,16 @@ import { tokenizeLines, shouldHighlight, extFromPath, type Token } from "../lib/
 import { decodeWorkerPathRoute } from "../lib/nativePath.ts";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
+import { getLastTerminalPath } from "../lib/lastVisited.ts";
 import { rootStore } from "../store/root.ts";
 import { workersHydrated } from "../store/sync-bootstrap.ts";
+import { ROUTES } from "../routes.ts";
 import {
   captureAuthResourceToken,
   isCurrentAuthResourceToken,
 } from "../store/auth-boundary.ts";
 import { Button } from "./Settings/md/Button.tsx";
+import { Sheet } from "./Settings/md/Sheet.tsx";
 import { EmptyState } from "./Settings/md/EmptyState.tsx";
 
 function parseLineFromHash(): number {
@@ -168,35 +171,33 @@ export function FileViewerSheet() {
   const hasTarget = createMemo(() => !!workerFp() && !!filePath());
   const tl = createMemo(() => targetLine());
 
+  function closeFilePreview(): void {
+    const lastTerminalPath = getLastTerminalPath();
+    const destination = lastTerminalPath &&
+      (lastTerminalPath.startsWith("/s/") ||
+        lastTerminalPath.startsWith("/t/") ||
+        lastTerminalPath.startsWith("/w/"))
+      ? lastTerminalPath
+      : ROUTES.ROOT;
+    navigate(destination, { replace: true });
+  }
+
   return (
     <Show when={hasTarget()}>
-      <div
-        style={{
-          position: "fixed",
-          inset: "0",
-          background: "color-mix(in srgb, var(--md-scrim) 70%, transparent)",
-          display: "flex",
-          "align-items": "center",
-          "justify-content": "center",
-          "z-index": "50",
+      <Sheet
+        open
+        onClose={closeFilePreview}
+        headline="File preview"
+        side="center"
+        class="roost-dialog--wide roost-dialog--file-viewer"
+        onOpenAutoFocus={(event) => {
+          if (scopeUnavailable()) event.preventDefault();
         }}
       >
         <div
           data-testid="file-viewer-sheet"
-          style={{
-            background: "var(--bg-base)",
-            border: "1px solid var(--border-strong)",
-            "box-sizing": "border-box",
-            "border-radius": "8px",
-            padding: "20px",
-            width: "700px",
-            "max-width": "94vw",
-            "max-height": "80vh",
-            display: "flex",
-            "flex-direction": "column",
-            gap: "10px",
-            overflow: "hidden",
-          }}
+          class="roost-file-viewer-sheet"
+          style={{ gap: "var(--md-space-3)" }}
         >
           <div style={{ display: "flex", "align-items": "center", gap: "10px" }}>
             <span
@@ -253,11 +254,11 @@ export function FileViewerSheet() {
                 title="File unavailable"
                 supporting="This file isn't available on this coordinator."
                 action={
-                  <Button variant="tonal" data-testid="file-viewer-unavailable-home"
+                  <Button variant="secondary" data-testid="file-viewer-unavailable-home"
                     onFocus={(event) => event.currentTarget.scrollIntoView({ block: "center" })}
                     onClick={() => navigate("/", { replace: true })}>
-                    Go home
-                  </Button>
+                  Go home
+                                    </Button>
                 }
               />
             </div>
@@ -370,7 +371,7 @@ export function FileViewerSheet() {
             </div>
           </Show>
         </div>
-      </div>
+      </Sheet>
       <style>{`
         .fvs-line:hover .fvs-copy-btn { opacity: 1 !important; }
       `}</style>

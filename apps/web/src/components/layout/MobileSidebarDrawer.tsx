@@ -7,7 +7,6 @@ import { SidebarRoot } from "../sidebar/SidebarRoot.tsx";
 import { uiStore, closeSidebar } from "../../store/uiStore.ts";
 import { EDGE_PX, closeOffsetPx, lockAxis, openOffsetPx, shouldClose, shouldOpen } from "../../lib/edgeSwipeDrawer.ts";
 import { dragDrawer, registerDrawer, settleDrawerClose, settleDrawerOpen } from "../../lib/drawerDrag.ts";
-import { attachElasticOverscroll } from "../../lib/overscroll.ts";
 
 type DrawerGestureMode = "open" | "close" | null;
 type TouchSample = { x: number; t: number };
@@ -21,7 +20,6 @@ export function MobileSidebarDrawer() {
   let gestureArmed = false;
   let gestureCandidate = false;
   let gestureSamples: TouchSample[] = [];
-  let detachElasticOverscroll: (() => void) | undefined;
 
   function resetGesture() {
     drawerGestureMode = null;
@@ -135,7 +133,6 @@ export function MobileSidebarDrawer() {
     window.removeEventListener("touchmove", handleTouchMove, true);
     window.removeEventListener("touchend", handleTouchEnd, true);
     window.removeEventListener("touchcancel", handleTouchEnd, true);
-    detachElasticOverscroll?.();
     registerDrawer(null);
   });
 
@@ -153,10 +150,7 @@ export function MobileSidebarDrawer() {
         data-testid="sidebar-drawer"
         data-open={uiStore.sidebarOpen ? "true" : "false"}
         aria-hidden={!uiStore.sidebarOpen}
-        ref={(element) => {
-          registerDrawer(element);
-          detachElasticOverscroll = attachElasticOverscroll(element);
-        }}
+        ref={registerDrawer}
       >
         <SidebarRoot />
       </aside>

@@ -6,25 +6,24 @@
 
 import type { Theme } from "./themeTokens.ts";
 
-// Dark appearance: the existing app palette plus VS Code Dark Modern chrome.
+// Dark appearance: restrained neutral chrome while terminal/status/syntax roles stay stable.
 const DARK: Theme = {
   id: "graphite", label: "Dark", group: "Dark", appearance: "dark",
   tokens: {
-    "bg-base": "#141a1e", "surface-0": "#0a0f11", "surface-1": "#141a1e",
-    "surface-2": "#1f272c", "surface-3": "#242d33", "term-bg": "#0a0f11",
-    "text-hi": "#e3e3e1", "text-mid": "#c1c9cc", "text-lo": "#8c969b", "term-fg": "#e3e3e1",
-    "accent": "#7fd1ec", "on-accent": "#00363f", "accent-container": "#20586e", "on-accent-container": "#bde9ff",
-    "border-strong": "#5a646a", "border-subtle": "#2a343a",
+    "bg-base": "#0a0a0a", "surface-0": "#0a0a0a", "surface-1": "#171717",
+    "surface-2": "#262626", "surface-3": "#404040", "term-bg": "#0a0f11",
+    "text-hi": "#fafafa", "text-mid": "#d4d4d4", "text-lo": "#a3a3a3", "term-fg": "#e3e3e1",
+    "accent": "#fafafa", "on-accent": "#171717", "accent-container": "#262626", "on-accent-container": "#fafafa",
+    "border-strong": "#525252", "border-subtle": "#262626",
     "status-ok": "#81c995", "status-warn": "#fdd663", "status-err": "#f28b82", "status-info": "#7fd1ec",
     "syntax-plain": "#e3e3e1", "syntax-keyword": "#7fd1ec", "syntax-string": "#81c995", "syntax-number": "#fdd663", "syntax-comment": "#8c969b",
-    "secondary-container": "#242d33", "on-secondary-container": "#e3e3e1",
-    // VS Code 1.137.0 Dark Modern workbench roles.
-    "wb-titlebar": "#181818", "wb-activity": "#181818", "wb-sidebar": "#181818",
-    "wb-editor": "#1f1f1f", "wb-statusbar": "#181818", "wb-border": "#2b2b2b",
-    "wb-active": "#0078d4", "wb-active-contrast": "#ffffff", "wb-focus": "#0078d4",
-    "wb-selected": "#37373d", "wb-selected-contrast": "#ffffff",
-    "wb-tab-active": "#1f1f1f", "wb-tab-inactive": "#181818", "wb-tab-hover": "#1f1f1f",
-    "wb-pane-drop": "#53595d80", "wb-pane-focus": "#0078d4",
+    "secondary-container": "#262626", "on-secondary-container": "#fafafa",
+    "wb-titlebar": "#171717", "wb-activity": "#171717", "wb-sidebar": "#171717",
+    "wb-editor": "#0a0a0a", "wb-statusbar": "#171717", "wb-border": "#262626",
+    "wb-active": "#fafafa", "wb-active-contrast": "#0a0a0a", "wb-focus": "#fafafa",
+    "wb-selected": "#262626", "wb-selected-contrast": "#fafafa",
+    "wb-tab-active": "#0a0a0a", "wb-tab-inactive": "#171717", "wb-tab-hover": "#262626",
+    "wb-pane-drop": "#fafafa26", "wb-pane-focus": "#fafafa",
     "ansi-black": "#242d33", "ansi-red": "#f28b82", "ansi-green": "#81c995", "ansi-yellow": "#fdd663",
     "ansi-blue": "#7fd1ec", "ansi-magenta": "#c58af9", "ansi-cyan": "#78d9ec", "ansi-white": "#e3e3e1",
     "ansi-bright-black": "#5a646a", "ansi-bright-red": "#f6aea9", "ansi-bright-green": "#a8dab5", "ansi-bright-yellow": "#fde293",
@@ -32,25 +31,24 @@ const DARK: Theme = {
   },
 };
 
-// Light appearance: the existing app palette plus VS Code Light Modern chrome.
+// Light appearance: restrained neutral chrome while terminal/status/syntax roles stay stable.
 const LIGHT: Theme = {
   id: "light", label: "Light", group: "Light", appearance: "light",
   tokens: {
-    "bg-base": "#e9eef4", "surface-0": "#ffffff", "surface-1": "#e9eef4",
-    "surface-2": "#dde3ea", "surface-3": "#cdd5de", "term-bg": "#ffffff",
-    "text-hi": "#1f1f1f", "text-mid": "#444746", "text-lo": "#5f6368", "term-fg": "#1f1f1f",
-    "accent": "#0b57d0", "on-accent": "#ffffff", "accent-container": "#a1d6f7", "on-accent-container": "#001d35",
-    "border-strong": "#747775", "border-subtle": "#c4c7c5",
+    "bg-base": "#ffffff", "surface-0": "#ffffff", "surface-1": "#fafafa",
+    "surface-2": "#f5f5f5", "surface-3": "#e5e5e5", "term-bg": "#ffffff",
+    "text-hi": "#171717", "text-mid": "#525252", "text-lo": "#737373", "term-fg": "#1f1f1f",
+    "accent": "#171717", "on-accent": "#fafafa", "accent-container": "#f5f5f5", "on-accent-container": "#171717",
+    "border-strong": "#d4d4d4", "border-subtle": "#e5e5e5",
     "status-ok": "#188038", "status-warn": "#b06000", "status-err": "#c5221f", "status-info": "#0b57d0",
     "syntax-plain": "#383a42", "syntax-keyword": "#a626a4", "syntax-string": "#50a14f", "syntax-number": "#c18401", "syntax-comment": "#a0a1a7",
-    "secondary-container": "#c2e7ff", "on-secondary-container": "#001d35",
-    // VS Code 1.137.0 Light Modern workbench roles.
-    "wb-titlebar": "#f8f8f8", "wb-activity": "#f8f8f8", "wb-sidebar": "#f8f8f8",
-    "wb-editor": "#ffffff", "wb-statusbar": "#f8f8f8", "wb-border": "#e5e5e5",
-    "wb-active": "#005fb8", "wb-active-contrast": "#ffffff", "wb-focus": "#005fb8",
-    "wb-selected": "#e4e6f1", "wb-selected-contrast": "#333333",
-    "wb-tab-active": "#ffffff", "wb-tab-inactive": "#f8f8f8", "wb-tab-hover": "#ffffff",
-    "wb-pane-drop": "#2677cb2e", "wb-pane-focus": "#005fb8",
+    "secondary-container": "#f5f5f5", "on-secondary-container": "#171717",
+    "wb-titlebar": "#fafafa", "wb-activity": "#fafafa", "wb-sidebar": "#fafafa",
+    "wb-editor": "#ffffff", "wb-statusbar": "#fafafa", "wb-border": "#e5e5e5",
+    "wb-active": "#171717", "wb-active-contrast": "#ffffff", "wb-focus": "#171717",
+    "wb-selected": "#f5f5f5", "wb-selected-contrast": "#171717",
+    "wb-tab-active": "#ffffff", "wb-tab-inactive": "#fafafa", "wb-tab-hover": "#f5f5f5",
+    "wb-pane-drop": "#17171726", "wb-pane-focus": "#171717",
     "ansi-black": "#383a42", "ansi-red": "#e45649", "ansi-green": "#50a14f", "ansi-yellow": "#c18401",
     "ansi-blue": "#4078f2", "ansi-magenta": "#a626a4", "ansi-cyan": "#0184bc", "ansi-white": "#a0a1a7",
     "ansi-bright-black": "#696c77", "ansi-bright-red": "#e45649", "ansi-bright-green": "#50a14f", "ansi-bright-yellow": "#986801",

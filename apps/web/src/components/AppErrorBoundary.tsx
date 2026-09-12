@@ -3,11 +3,12 @@
 // Callers: App.tsx (outermost wrapper).
 // Depends on: @roost/shared/log for warn on clipboard failure.
 
-import { type Component, type JSX, ErrorBoundary, onCleanup } from "solid-js";
+import { ErrorBoundary, onCleanup } from "solid-js";
+import type { Component, JSX } from "solid-js";
 import { log } from "@roost/shared/log";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import { credentialFreeUrl } from "../auth/fragment-credential.ts";
-
+import { Button, Icon, Surface } from "./Settings/md/primitives.tsx";
 interface Props {
   children: JSX.Element;
 }
@@ -48,64 +49,68 @@ function ErrorFallback(err: unknown, reset: () => void): JSX.Element {
   return (
     <div
       data-testid="error-boundary"
-      class="h-screen w-screen grid place-items-center"
-      style={{ background: "var(--bg-base)", color: "var(--text-hi)" }}
+      style={{
+        "min-height": "100dvh",
+        "min-width": "100vw",
+        display: "grid",
+        "place-items": "center",
+        padding: "var(--md-space-6)",
+        background: "var(--surface-0)",
+        color: "var(--md-sys-color-on-surface)",
+      }}
     >
-      <div
-        class="max-w-md w-full rounded-lg p-6 flex flex-col gap-4"
-        style={{ background: "var(--surface-1)", border: "1px solid var(--surface-2)", "border-radius": "var(--md-shape-md)" }}
+      <Surface
+        level={1}
+        elevation={3}
+        radius="md"
+        pad={6}
+        border
+        style={{
+          width: "min(100%, 64ch)",
+          display: "flex",
+          "flex-direction": "column",
+          gap: "var(--md-space-4)",
+        }}
       >
-        <h1
-          style={{ "font-size": "15px", "font-weight": "600", color: "var(--status-err)" }}
-        >
-          Unexpected error
-        </h1>
+        <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
+          <Icon name="error" style={{ color: "var(--md-sys-color-error)" }} />
+          <h1 class="md-title-m" style={{ margin: 0, color: "var(--md-sys-color-error)" }}>
+            Unexpected error
+          </h1>
+        </div>
         <p
+          class="md-body-s"
           style={{
-            "font-size": "12px",
-            "font-family": "monospace",
+            margin: 0,
+            "font-family": "var(--font-mono)",
             "word-break": "break-all",
-            color: "var(--text-lo)",
+            "white-space": "pre-wrap",
+            "user-select": "text",
+            color: "var(--md-sys-color-on-surface-variant)",
           }}
         >
           {msg}
         </p>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button
-            type="button"
+        <div style={{ display: "flex", gap: "var(--md-space-2)", "flex-wrap": "wrap" }}>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => void copyDiagnostic()}
-            style={{
-              "font-size": "13px",
-              padding: "6px 12px",
-              "border-radius": "var(--md-shape-sm)",
-              background: "var(--surface-3)",
-              color: "var(--text-hi)",
-              border: "none",
-              cursor: "pointer",
-            }}
           >
             Copy diagnostic
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
             onClick={() => {
               reset();
               window.location.reload();
             }}
-            style={{
-              "font-size": "13px",
-              padding: "6px 12px",
-              "border-radius": "var(--md-shape-sm)",
-              background: "var(--status-info)",
-              color: "var(--bg-base)",
-              border: "none",
-              cursor: "pointer",
-            }}
           >
             Reload
-          </button>
+          </Button>
         </div>
-      </div>
+      </Surface>
     </div>
   );
 }

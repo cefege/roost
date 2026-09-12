@@ -25,7 +25,6 @@ import { resetSpawnSessionRuntime } from "../lib/spawnSession.ts";
 import { resetResizeDrags } from "../lib/resizeDrag.ts";
 import { resetScrollbackBackfillState } from "../lib/scrollbackBackfillState.ts";
 import { closeCmdPalette, closeHelp } from "../lib/keyboardShortcuts.ts";
-import { closeTransferDialog } from "../lib/transferDialog.ts";
 import { clearCommandPaletteCacheForAccountBoundary } from "../components/CommandPalette.data.ts";
 import { resetAgentStatusProjection } from "./agent-status.ts";
 import { resetSyncHandlerRuntimeForAuthBoundary } from "./sync-handlers.ts";
@@ -86,7 +85,6 @@ function clearAuthScopedRuntimeState(): void {
 /** Discard overlays that may retain paths, names, or actions. */
 function clearAuthScopedOverlayState(): void {
   closeHelp();
-  closeTransferDialog();
   closeRenameDialog();
   clearQueueTaskDialogForLogout();
   clearTransfersForLogout();

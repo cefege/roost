@@ -1,15 +1,12 @@
-// Canonical Material outlined text field shared by settings and public account forms.
-// Callers own field state; this wrapper forwards validation, accessibility, and focus
-// properties to the form-associated Material host without exposing its shadow input.
+// Native text field primitive for settings and account forms.
+// It owns native input semantics while the wrapper supplies shared layout hooks.
+// Callers retain controlled state and receive the focused native element.
 
-import { type JSX, type Component } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import type { MdOutlinedTextField } from "@material/web/textfield/outlined-text-field.js";
-import "@material/web/textfield/outlined-text-field.js";
+import { type Component, type JSX } from "solid-js";
 
-export type TextFieldElement = MdOutlinedTextField;
+export type TextFieldElement = HTMLInputElement | HTMLTextAreaElement;
 
-export const TextField: Component<{
+export type TextFieldProps = {
   value: string;
   onInput: (value: string) => void;
   label?: string;
@@ -17,12 +14,13 @@ export const TextField: Component<{
   placeholder?: string;
   class?: string;
   style?: JSX.CSSProperties;
+  controlStyle?: JSX.CSSProperties;
   testId?: string;
   rows?: number;
   min?: number;
   max?: number;
   autocomplete?: string;
-  inputMode?: string;
+  inputMode?: JSX.InputHTMLAttributes<HTMLInputElement>["inputMode"];
   required?: boolean;
   minLength?: number;
   maxLength?: number;
@@ -32,32 +30,97 @@ export const TextField: Component<{
   disabled?: boolean;
   ariaLabel?: string;
   ref?: (element: TextFieldElement) => void;
-}> = (props) => (
-  <Dynamic
-    component="md-outlined-text-field"
-    ref={(element: HTMLElement) => props.ref?.(element as TextFieldElement)}
-    prop:value={props.value}
-    label={props.label}
-    type={props.type ?? "text"}
-    rows={props.rows}
-    min={props.min}
-    max={props.max}
-    prop:autocomplete={props.autocomplete ?? ""}
-    prop:inputMode={props.inputMode ?? ""}
-    prop:required={props.required ?? false}
-    prop:minLength={props.minLength ?? -1}
-    prop:maxLength={props.maxLength ?? -1}
-    placeholder={props.placeholder}
-    class={props.class}
-    style={props.style}
-    attr:data-testid={props.testId}
-    attr:aria-describedby={props.ariaDescribedBy}
-    attr:autofocus={props.autofocus ? "" : undefined}
-    prop:disabled={props.disabled ?? false}
-    attr:aria-label={props.ariaLabel}
-    on:keydown={props.onKeyDown}
-    on:input={(event: Event) =>
-      props.onInput((event.currentTarget as TextFieldElement).value)
-    }
-  />
-);
+  id?: string;
+  description?: JSX.Element;
+  error?: JSX.Element;
+  ariaInvalid?: boolean;
+};
+
+export const TextField: Component<TextFieldProps> = (props) => {
+  const generatedId = `roost-text-field-${globalThis.crypto.randomUUID()}`;
+  const controlId = () => props.id ?? generatedId;
+  const descriptionId = () => `${controlId()}-description`;
+  const errorId = () => `${controlId()}-error`;
+  const invalid = () => props.ariaInvalid || Boolean(props.error);
+  const describedBy = () => {
+    const ids = [
+      props.ariaDescribedBy,
+      props.description ? descriptionId() : undefined,
+      props.error ? errorId() : undefined,
+    ].filter((id): id is string => Boolean(id));
+    return ids.length > 0 ? ids.join(" ") : undefined;
+  };
+
+  return (
+    <div
+      class={props.class ? `roost-text-field ${props.class}` : "roost-text-field"}
+      style={props.style}
+      data-invalid={invalid() ? "true" : undefined}
+    >
+      {props.label && (
+        <label class="roost-text-field__label" for={controlId()}>
+          {props.label}
+        </label>
+      )}
+      {props.type === "textarea" ? (
+        <textarea
+          ref={(element) => props.ref?.(element)}
+          id={controlId()}
+          class="roost-text-field__control"
+          style={props.controlStyle}
+          value={props.value}
+          rows={props.rows}
+          placeholder={props.placeholder}
+          autocomplete={props.autocomplete}
+          inputMode={props.inputMode}
+          required={props.required}
+          minLength={props.minLength}
+          maxLength={props.maxLength}
+          autofocus={props.autofocus}
+          disabled={props.disabled}
+          data-testid={props.testId}
+          aria-describedby={describedBy()}
+          aria-invalid={invalid() ? "true" : undefined}
+          aria-label={props.ariaLabel}
+          onKeyDown={props.onKeyDown}
+          onInput={(event) => props.onInput(event.currentTarget.value)}
+        />
+      ) : (
+        <input
+          ref={(element) => props.ref?.(element)}
+          id={controlId()}
+          class="roost-text-field__control"
+          style={props.controlStyle}
+          type={props.type ?? "text"}
+          value={props.value}
+          min={props.min}
+          max={props.max}
+          placeholder={props.placeholder}
+          autocomplete={props.autocomplete}
+          inputMode={props.inputMode}
+          required={props.required}
+          minLength={props.minLength}
+          maxLength={props.maxLength}
+          autofocus={props.autofocus}
+          disabled={props.disabled}
+          data-testid={props.testId}
+          aria-describedby={describedBy()}
+          aria-invalid={invalid() ? "true" : undefined}
+          aria-label={props.ariaLabel}
+          onKeyDown={props.onKeyDown}
+          onInput={(event) => props.onInput(event.currentTarget.value)}
+        />
+      )}
+      {props.description && (
+        <div id={descriptionId()} class="roost-text-field__description">
+          {props.description}
+        </div>
+      )}
+      {props.error && (
+        <div id={errorId()} class="roost-text-field__error">
+          {props.error}
+        </div>
+      )}
+    </div>
+  );
+};

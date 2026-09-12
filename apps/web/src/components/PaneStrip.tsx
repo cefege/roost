@@ -342,6 +342,7 @@ export function PaneStrip(props: PaneStripProps) {
             ref={overflowButtonElement}
             icon="keyboard_arrow_down"
             label="All terminals in this pane"
+            size="icon-sm"
             class="df-tab-overflow workbench-pane-tab-control"
             data-testid="tab-overflow"
             menuPopup="menu"
@@ -354,6 +355,7 @@ export function PaneStrip(props: PaneStripProps) {
         <IconButton
           icon="add"
           label="New terminal — same folder and server"
+          size="icon-sm"
           class="df-tab-new workbench-pane-tab-control"
           data-testid="tab-new"
           title="New terminal in this folder (or double-click the empty bar)"

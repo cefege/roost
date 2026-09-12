@@ -49,6 +49,7 @@ export function SidebarSearch(props: SidebarSearchProps) {
         <IconButton
           icon="close"
           label="Clear search"
+          size="icon-sm"
           class="workbench-sidebar-search__clear"
           onClick={() => props.onChange("")}
           title="Clear (Esc)"

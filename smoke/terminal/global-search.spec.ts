@@ -1,24 +1,19 @@
-// Browser proof for install-wide metadata/content search and the unavailable cross-worker transfer surface.
-// Two real workers expose distinct retained PTY markers; selecting a global result
-// re-runs pane-local find while the transfer item remains informational and side-effect free.
+// Browser proof for install-wide metadata/content search across two real
+// workers. Selecting a global result re-runs pane-local find in the retained
+// terminal.
 
 import { test, expect } from "./fixtures.ts";
 import { inputSmokeTerminal, spawnSmokeShell } from "./terminal-helpers.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 
-const TRANSFER_RPC_SUFFIXES = [
-  "/roost.v1.CoordinatorService/TransfersStart",
-  "/roost.v1.CoordinatorService/TransfersOutput",
-] as const;
-
-test("metadata and global content search preserve the cross-worker transfer beta boundary", async ({
+test("metadata and global content search preserve result navigation and pane-local find", async ({
   multiWorkerSmokePage,
   stack,
   secondWorker,
 }, testInfo) => {
   test.skip(
     !testInfo.project.name.startsWith("chromium"),
-    "desktop multi-worker beta-surface contract",
+    "desktop multi-worker search contract",
   );
 
   const customTitle = `metadata-${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
@@ -161,35 +156,4 @@ test("metadata and global content search preserve the cross-worker transfer beta
   await secondaryTerminal.getByTestId("terminal-find-close").click();
   await expect(secondaryFindInput).toHaveCount(0);
 
-  await multiWorkerSmokePage.getByTestId("brand-row-search").click();
-  await multiWorkerSmokePage.getByTestId("sidebar-search").fill(customTitle);
-  const sessionRow = multiWorkerSmokePage.locator(
-    `[data-testid="sidebar-session-row"][data-session-id="${sessionId}"]`,
-  );
-  await expect(sessionRow).toBeVisible();
-
-  const transferRpcRequests: string[] = [];
-  multiWorkerSmokePage.on("request", (request) => {
-    const pathname = new URL(request.url()).pathname;
-    if (TRANSFER_RPC_SUFFIXES.some((suffix) => pathname.endsWith(suffix))) {
-      transferRpcRequests.push(pathname);
-    }
-  });
-
-  await sessionRow.click({ button: "right" });
-  const transferItem = multiWorkerSmokePage.getByTestId(`session-ctx-transfer-${sessionId}`);
-  await expect(transferItem).toHaveText("Transfer files (beta)…");
-  await transferItem.click();
-
-  await expect(
-    multiWorkerSmokePage.getByText("Cross-worker transfer (beta)", { exact: true }),
-  ).toBeVisible();
-  await expect(multiWorkerSmokePage.getByTestId("transfer-dialog-body")).toHaveText(
-    "Cross-worker transfer is not available in v0.5.0. Use the terminal to run rsync or scp.",
-  );
-  const closeButton = multiWorkerSmokePage.getByTestId("transfer-dialog-close");
-  await expect(closeButton).toHaveText("Close");
-  await closeButton.click();
-  await expect(multiWorkerSmokePage.getByTestId("transfer-dialog-body")).toBeHidden();
-  expect(transferRpcRequests).toEqual([]);
 });

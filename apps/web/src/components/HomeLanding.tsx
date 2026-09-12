@@ -18,14 +18,14 @@ export function HomeLanding() {
           <button type="button" class="home-landing-menu"
             data-testid="home-open-sidebar" aria-label="Open sidebar"
             onClick={openSidebar}>☰</button>
+          <FlatNewTerminal />
         </Show>
         <BrandMark size={28} />
         <span class="home-landing-mark">Roost</span>
-        <FlatNewTerminal />
       </div>
 
       <p class="home-landing-tagline" data-testid="home-tagline">
-        Press <kbd class="home-landing-kbd">{platformShortcutLabel("commandPalette", "⌘K")}</kbd> to open a terminal ·{" "}
+        Press <kbd class="home-landing-kbd">{platformShortcutLabel("commandPalette", "⌘K")}</kbd> to open the Command palette ·{" "}
         <kbd class="home-landing-kbd">{platformShortcutLabel("sidebarSearch", "⌘F")}</kbd> to filter the sidebar ·{" "}
         <kbd class="home-landing-kbd">Shift ?</kbd> for shortcuts
       </p>
@@ -36,7 +36,7 @@ export function HomeLanding() {
         </div>
         <div class="home-landing-empty-title">Open a workspace</div>
         <div class="home-landing-empty-sub">
-          Select a workspace from the sidebar, or press <kbd class="home-landing-kbd">{platformShortcutLabel("commandPalette", "⌘K")}</kbd> to open a new terminal.
+          Select a workspace from the sidebar, or press <kbd class="home-landing-kbd">{platformShortcutLabel("commandPalette", "⌘K")}</kbd> to open the Command palette.
         </div>
       </div>
     </div>

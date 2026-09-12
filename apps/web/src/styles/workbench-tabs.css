@@ -80,19 +80,18 @@
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: var(--workbench-tab-inactive-foreground);
+  color: inherit;
   font: inherit;
   text-align: start;
   cursor: pointer;
-  --md-text-button-label-text-color: var(--workbench-tab-inactive-foreground);
-  --md-text-button-hover-label-text-color: var(--workbench-tab-hover-foreground);
-  --md-text-button-focus-label-text-color: var(--workbench-tab-hover-foreground);
-  --md-text-button-pressed-label-text-color: var(--workbench-tab-hover-foreground);
-  --md-text-button-container-shape: 0;
 }
 .workbench-pane-tab:hover,
 .df-tab:hover {
   background: var(--workbench-tab-hover);
+  color: var(--workbench-tab-hover-foreground);
+}
+.workbench-pane-tab:not([data-active="true"]):hover .workbench-pane-tab__select,
+.workbench-pane-tab:not([data-active="true"]):focus-within .workbench-pane-tab__select {
   color: var(--workbench-tab-hover-foreground);
 }
 .workbench-pane-tab[data-active="true"],
@@ -100,39 +99,13 @@
   background: var(--workbench-editor);
   color: var(--workbench-tab-active-foreground);
 }
-.df-tab[data-active="true"] .workbench-pane-tab__select {
-  color: var(--workbench-tab-active-foreground);
-  --md-text-button-label-text-color: var(--workbench-tab-active-foreground);
-  --md-text-button-hover-label-text-color: var(--workbench-tab-active-foreground);
-  --md-text-button-focus-label-text-color: var(--workbench-tab-active-foreground);
-  --md-text-button-pressed-label-text-color: var(--workbench-tab-active-foreground);
-}
 .df-tab[data-selected="true"]:not([data-active="true"]) {
   background: var(--md-secondary-container);
   color: var(--md-on-secondary-container);
 }
-.df-tab[data-active="true"]::after {
-  position: absolute;
-  inset-inline: 0;
-  inset-block-end: calc(var(--workbench-border-width) * -1);
-  block-size: var(--workbench-border-width);
-  background: var(--workbench-editor);
-  content: "";
-  pointer-events: none;
-}
 .df-tab-bar[data-focused="false"] .df-tab[data-active="true"] {
   background: var(--workbench-tab-unfocused-active);
   color: var(--workbench-tab-unfocused-active-foreground);
-}
-.df-tab-bar[data-focused="false"] .df-tab[data-active="true"] .workbench-pane-tab__select {
-  color: var(--workbench-tab-unfocused-active-foreground);
-  --md-text-button-label-text-color: var(--workbench-tab-unfocused-active-foreground);
-  --md-text-button-hover-label-text-color: var(--workbench-tab-unfocused-active-foreground);
-  --md-text-button-focus-label-text-color: var(--workbench-tab-unfocused-active-foreground);
-  --md-text-button-pressed-label-text-color: var(--workbench-tab-unfocused-active-foreground);
-}
-.df-tab-bar[data-focused="false"] .df-tab[data-active="true"]::after {
-  background: var(--workbench-tab-unfocused-active);
 }
 .workbench-pane-tab:focus-within,
 .df-tab:focus-within,
@@ -153,8 +126,6 @@
   margin-inline-start: var(--md-space-1);
   color: var(--text-lo);
   opacity: 0;
-  --md-icon-button-state-layer-width: var(--workbench-tab-action-size);
-  --md-icon-button-state-layer-height: var(--workbench-tab-action-size);
 }
 .workbench-pane-tab__close:hover,
 .df-tab-close:hover {
@@ -177,8 +148,6 @@
 }
 .df-tab-label,
 .workbench-pane-tab__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.df-tab md-ripple,
-.workbench-pane-tab md-ripple { --md-ripple-hover-color: var(--md-on-surface); --md-ripple-pressed-color: var(--md-primary); }
 
 .df-tab-bar[data-dragging="true"] { user-select: none; cursor: grabbing; }
 .df-tab[data-dragging="true"] {

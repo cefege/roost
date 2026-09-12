@@ -5,7 +5,6 @@
 //      browser sees the request in #pair-approval-list and approves it.
 // When already authorized, the pair-approval-list lets this browser approve
 // pending requests from other browsers (rootStore.pair_requests).
-
 import { createSignal, createMemo, createResource, For, Show, onCleanup } from "solid-js";
 import { coordClient } from "../connect.ts";
 import { getPublicKeyB64, isResetWebKeyEligible, resetWebKey } from "../auth/web-key.ts";
@@ -14,7 +13,15 @@ import { rootStore } from "../store/root.ts";
 import { deletePairRequest } from "../store/mutations.ts";
 import { addToast } from "../store/toastStore.ts";
 import { browserSelfLabel } from "../lib/browserSelfLabel.ts";
-import { Button } from "./Settings/md/primitives.tsx";
+import {
+  Button,
+  Card,
+  EmptyState,
+  SectionTitle,
+  StatusDot,
+  Surface,
+  TextField,
+} from "./Settings/md/primitives.tsx";
 import { PairRequestCard, isPairRequestExpired } from "./PairRequestCard.tsx";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
 
@@ -52,7 +59,19 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     return Object.values(rootStore.pair_requests)
       .filter((request) => !isPairRequestExpired(request, currentNow));
   });
-
+  const pairPollStatusIndicator = createMemo(() => {
+    switch (pairPollStatus()) {
+      case "approved":
+        return "ok";
+      case "denied":
+      case "expired":
+        return "warn";
+      case "error":
+        return "error";
+      default:
+        return "info";
+    }
+  });
   onCleanup(() => {
     if (pairPollTimer) clearInterval(pairPollTimer);
     clearInterval(pairRequestExpiryTimer);
@@ -72,6 +91,14 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
       setErrorMsg(res.error);
       addToast(`Redeem failed: ${res.error}`, "err");
     }
+  }
+
+  function autoRedeemPastedToken(event: ClipboardEvent): void {
+    const pastedToken = event.clipboardData?.getData("text") ?? "";
+    if (!pastedToken.startsWith("roost_bt_")) return;
+    setBootstrapToken(pastedToken);
+    setTimeout(() => void redeemToken(), 0);
+    event.preventDefault();
   }
 
   // tap-to-pair: this browser publishes its pubkey, then polls until
@@ -163,175 +190,172 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
   }
 
   return (
-    <div ref={animateOverlayPanel} data-testid="onboarding" style={{ padding: props.embedded ? "0" : "40px", color: "var(--md-sys-color-on-surface)", "max-width": "520px" }}>
+    <div
+      ref={animateOverlayPanel}
+      data-testid="onboarding"
+      style={{
+        display: "flex",
+        "flex-direction": "column",
+        gap: "var(--md-space-5)",
+        padding: props.embedded ? "0" : "var(--md-space-6)",
+        "max-width": "var(--roost-dialog-max-inline-size)",
+      }}
+    >
       <Show when={!props.embedded}>
-        <h2 style={{ "font-size": "20px", "margin-bottom": "6px", color: "var(--md-sys-color-on-surface)" }}>Pair this browser</h2>
+        <h2 class="md-headline-s" style={{ margin: 0 }}>Pair this browser</h2>
       </Show>
-      {/* Embedded in DevicesPane: when this browser is already authorized and
-          nothing is pending, the card would otherwise be blank. */}
       <Show when={props.embedded && isAuthorized() && pendingPairRequests().length === 0}>
-        <p data-testid="onboarding-no-pending" style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface-variant)", margin: "0", "line-height": "1.5" }}>
-          No browsers are waiting for approval. When you open Roost in a new
-          browser and request access, it'll show up here to approve.
-        </p>
+        <div data-testid="onboarding-no-pending">
+          <EmptyState
+            icon="devices"
+            title="No browsers are waiting for approval"
+            supporting="When you open Roost in a new browser and request access, it'll show up here to approve."
+          />
+        </div>
       </Show>
       <Show when={!isAuthorized()}>
-        <p style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface-variant)", "margin-bottom": "24px", "line-height": "1.5" }}>
+        <p
+          class="md-body-m"
+          style={{ margin: 0, color: "var(--md-sys-color-on-surface-variant)" }}
+        >
           This browser isn't authorized by the coordinator yet. Either paste a
           pairing code below, or request approval from a browser that's
           already paired.
         </p>
       </Show>
-        <Show when={resetEligible()}>
-          <Button variant="tonal" onClick={() => void resetRejectedKey()}>
+      <Show when={resetEligible()}>
+        <div>
+          <Button variant="secondary" onClick={() => void resetRejectedKey()}>
             Reset this device key
           </Button>
-        </Show>
+        </div>
+      </Show>
       <Show when={isAuthorized() && workerCount() === 0}>
-        <p style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface-variant)", "margin-bottom": "20px" }}>
+        <p
+          class="md-body-m"
+          style={{ margin: 0, color: "var(--md-sys-color-on-surface-variant)" }}
+        >
           This browser is authorized, but no machines have registered as workers yet.
         </p>
       </Show>
 
-      {/* Card A — paste a pairing code (PRIMARY path for cross-Mac access) */}
       <Show when={!isAuthorized()}>
-        <div
+        <Card
           data-testid="onboarding-token-step"
-          style={{
-            background: "var(--md-sys-color-surface-container)",
-            border: "1px solid var(--md-sys-color-outline)",
-            "border-radius": "var(--md-shape-sm)",
-            padding: "20px",
-            "margin-bottom": "16px",
-          }}
+          title="I have a pairing code"
+          supporting="Paste the roost_bt_… token you minted on the coordinator host."
+          variant="outlined"
         >
-          <div style={{ "font-size": "14px", "font-weight": 600, color: "var(--md-sys-color-on-surface)", "margin-bottom": "4px" }}>
-            I have a pairing code
+          <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}>
+            <TextField
+              type="text"
+              testId="onboarding-token-input"
+              value={bootstrapToken()}
+              onInput={setBootstrapToken}
+              placeholder="roost_bt_..."
+              label="Pairing code"
+              autofocus
+              ref={(element) => {
+                if (element instanceof HTMLInputElement) {
+                  element.onpaste = autoRedeemPastedToken;
+                }
+              }}
+            />
+            <div>
+              <Button
+                variant="default"
+                data-testid="onboarding-token-submit"
+                onClick={redeemToken}
+                disabled={!bootstrapToken() || status() === "loading"}
+              >
+                {status() === "loading" ? "Pairing…" : "Pair"}
+              </Button>
+            </div>
           </div>
-          <div style={{ "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)", "margin-bottom": "12px" }}>
-            Paste the <code style={{ color: "var(--md-sys-color-on-surface)" }}>roost_bt_…</code> token you minted on the coordinator host.
-          </div>
-          <input
-            type="text"
-            data-testid="onboarding-token-input"
-            value={bootstrapToken()}
-            onInput={(e) => setBootstrapToken(e.currentTarget.value)}
-            onPaste={(e) => {
-              // Auto-submit on paste of a valid-looking token so the user
-              // doesn't have to hunt for a button after pasting.
-              const text = e.clipboardData?.getData("text") ?? "";
-              if (text.startsWith("roost_bt_")) {
-                setBootstrapToken(text);
-                setTimeout(() => void redeemToken(), 0);
-                e.preventDefault();
-              }
-            }}
-            placeholder="roost_bt_..."
-            autofocus
-            style={{
-              width: "100%",
-              background: "var(--md-sys-color-surface)",
-              border: "1px solid var(--md-sys-color-outline)",
-              color: "var(--md-sys-color-on-surface)",
-              padding: "10px 12px",
-              "font-size": "13px",
-              "font-family": "ui-monospace, SFMono-Regular, Menlo, monospace",
-              "border-radius": "var(--md-shape-xs)",
-            }}
-          />
-          <Button
-            variant="filled"
-            data-testid="onboarding-token-submit"
-            onClick={redeemToken}
-            disabled={!bootstrapToken() || status() === "loading"}
-            style={{ "margin-top": "10px" }}
-          >
-            {status() === "loading" ? "Pairing…" : "Pair"}
-          </Button>
-        </div>
+        </Card>
       </Show>
 
-      {/* Card B — tap to pair (request approval from another browser) */}
       <Show when={!isAuthorized()}>
-        <div
+        <Card
           data-testid="onboarding-pair-step"
-          style={{
-            background: "var(--md-sys-color-surface-container)",
-            border: "1px solid var(--md-sys-color-outline)",
-            "border-radius": "var(--md-shape-sm)",
-            padding: "20px",
-            "margin-bottom": "20px",
-          }}
+          title="I don't have a code"
+          supporting="Request approval from a browser that's already paired."
+          variant="outlined"
         >
-          <div style={{ "font-size": "14px", "font-weight": 600, color: "var(--md-sys-color-on-surface)", "margin-bottom": "4px" }}>
-            I don't have a code
-          </div>
           <Show
             when={pairEphemeralId() !== null}
             fallback={
-              <>
-                <div style={{ "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)", "margin-bottom": "12px", "line-height": "1.5" }}>
-                  Request approval from a browser that's already paired.
-                  You'll get a short code — open Roost on the paired
-                  browser and approve the request from <strong>Settings →
-                  Devices</strong>.
-                </div>
-                <Button
-                  variant="tonal"
-                  data-testid="onboarding-pair-start-btn"
-                  onClick={startPairFlow}
-                  disabled={status() === "loading"}
+              <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}>
+                <p
+                  class="md-body-m"
+                  style={{ margin: 0, color: "var(--md-sys-color-on-surface-variant)" }}
                 >
-                  {status() === "loading" ? "..." : "Request approval"}
-                </Button>
-              </>
+                  You'll get a short code — open Roost on the paired browser and approve the
+                  request from <strong>Settings → Devices</strong>.
+                </p>
+                <div>
+                  <Button
+                    variant="secondary"
+                    data-testid="onboarding-pair-start-btn"
+                    onClick={startPairFlow}
+                    disabled={status() === "loading"}
+                  >
+                    {status() === "loading" ? "..." : "Request approval"}
+                  </Button>
+                </div>
+              </div>
             }
           >
-            <div style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface-variant)", "margin-bottom": "8px", "line-height": "1.5" }}>
-              On the already-paired browser, open <strong>Settings → Devices</strong>.
-              You'll see this code listed under "Pending pair requests" — click
-              <strong> Approve</strong>. This page reloads itself when approved.
+            <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}>
+              <p
+                class="md-body-m"
+                style={{ margin: 0, color: "var(--md-sys-color-on-surface-variant)" }}
+              >
+                On the already-paired browser, open <strong>Settings → Devices</strong>.
+                You'll see this code listed under "Pending pair requests" — click
+                <strong> Approve</strong>. This page reloads itself when approved.
+              </p>
+              <Surface
+                level={2}
+                radius="sm"
+                pad={3}
+                border
+                data-testid="onboarding-pair-ephemeral-id"
+              >
+                <code class="md-title-m" style={{ display: "block", "overflow-wrap": "anywhere" }}>
+                  {pairEphemeralId()}
+                </code>
+              </Surface>
+              <div
+                data-testid="onboarding-pair-poll-status"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}
+              >
+                <StatusDot status={pairPollStatusIndicator()} />
+                <span class="md-body-s">
+                  <Show when={pairPollStatus() === "pending"}>Waiting for approval…</Show>
+                  <Show when={pairPollStatus() === "approved"}>Approved. Reloading…</Show>
+                  <Show when={pairPollStatus() === "denied"}>Request denied.</Show>
+                  <Show when={pairPollStatus() === "expired"}>Request expired — request again.</Show>
+                  <Show when={pairPollStatus() === "error"}>Poll error — try again.</Show>
+                </span>
+              </div>
             </div>
-            <div
-              data-testid="onboarding-pair-ephemeral-id"
-              style={{
-                background: "var(--md-sys-color-surface-container)",
-                border: "1px solid var(--md-sys-color-outline)",
-                padding: "10px 14px",
-                "font-family": "ui-monospace, SFMono-Regular, Menlo, monospace",
-                "font-size": "14px",
-                color: "var(--md-sys-color-on-surface)",
-                "border-radius": "var(--md-shape-xs)",
-                "margin-bottom": "10px",
-                "word-break": "break-all",
-              }}
-            >
-              {pairEphemeralId()}
-            </div>
-            <p data-testid="onboarding-pair-poll-status" style={{ "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)" }}>
-              <Show when={pairPollStatus() === "pending"}>Waiting for approval…</Show>
-              <Show when={pairPollStatus() === "approved"}>Approved. Reloading…</Show>
-              <Show when={pairPollStatus() === "denied"}>Request denied.</Show>
-              <Show when={pairPollStatus() === "expired"}>Request expired — request again.</Show>
-              <Show when={pairPollStatus() === "error"}>Poll error — try again.</Show>
-            </p>
           </Show>
-        </div>
+        </Card>
       </Show>
 
-      {/* approve-list (visible to already-authorized browsers) */}
       <Show when={isAuthorized() && pendingPairRequests().length > 0}>
-        <div data-testid="pair-approval-list" style={{ "margin-bottom": "20px" }}>
-          <h3 style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface)", "margin-bottom": "8px" }}>
-            Pending pair requests
-          </h3>
+        <div
+          data-testid="pair-approval-list"
+          style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}
+        >
+          <SectionTitle>Pending pair requests</SectionTitle>
           <For each={pendingPairRequests()}>
             {(request) => (
-              <div
-                data-testid="pair-approval-row"
-                data-ephemeral-id={request.ephemeral_id}
-                style={{ "margin-bottom": "var(--md-space-3)" }}
-              >
+              <div data-testid="pair-approval-row" data-ephemeral-id={request.ephemeral_id}>
                 <PairRequestCard
                   request={request}
                   busy={busyRequestId() === request.ephemeral_id}
@@ -345,10 +369,30 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
       </Show>
 
       <Show when={status() === "done"}>
-        <p style={{ color: "var(--md-sys-color-primary)", "font-size": "13px" }}>Registered. Reload to connect.</p>
+        <Surface
+          level={2}
+          radius="sm"
+          pad={3}
+          border
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
+            <StatusDot status="ok" />
+            <span class="md-body-m">Registered. Reload to connect.</span>
+          </div>
+        </Surface>
       </Show>
       <Show when={status() === "error"}>
-        <p style={{ color: "var(--md-sys-color-error)", "font-size": "13px" }}>Error: {errorMsg()}</p>
+        <Surface level={2} radius="sm" pad={3} border role="alert">
+          <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
+            <StatusDot status="error" />
+            <span class="md-body-m" style={{ color: "var(--md-sys-color-error)" }}>
+              Error: {errorMsg()}
+            </span>
+          </div>
+        </Surface>
       </Show>
     </div>
   );

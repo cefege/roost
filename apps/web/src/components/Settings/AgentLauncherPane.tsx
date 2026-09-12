@@ -81,12 +81,9 @@ export const AgentLauncherPane: Component = () => {
             testId="agent-custom-command"
             style={{ flex: "1 1 auto" }}
           />
-          <Button
-            variant="filled"
-            data-testid="agent-custom-save"
-            disabled={draftCustom().trim() === ""}
-            onClick={() => void saveCustom()}
-          >
+          <Button variant="default" data-testid="agent-custom-save"
+          disabled={draftCustom().trim() === ""}
+          onClick={() => void saveCustom()}>
             Save
           </Button>
         </div>

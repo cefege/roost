@@ -18,7 +18,6 @@ import { SessionRowContextMenu } from "./SessionRowContextMenu.tsx";
 import { closeSidebar } from "../../store/uiStore.ts";
 import { colorForFp } from "../../lib/fpColor.ts";
 import { IconButton } from "../Settings/md/IconButton.tsx";
-import "@material/web/ripple/ripple.js";
 import { SessionRowFlat } from "./SessionRowFlat.tsx";
 import { ROW_BASE, relTimeTickMs } from "./SessionRow.constants.ts";
 import { AgentStatusIndicator } from "../AgentStatusIndicator.tsx";
@@ -133,8 +132,8 @@ export function SessionRow(props: SessionRowProps) {
   }
 
   function onClickRow(e: MouseEvent) {
-    // Row is an <A> now. A swipe-release fires a click too — suppress the
-    // anchor's native nav via preventDefault (solid-router's <A> bails when
+    // A swipe-release fires a click on the primary link too — suppress its
+    // native nav via preventDefault (solid-router's <A> bails when
     // defaultPrevented). Modifier/middle clicks fall through to the browser
     // (open-in-new-tab) untouched — <A> ignores them itself.
     if (_swiped) { _swiped = false; e.preventDefault(); return; }
@@ -188,8 +187,7 @@ export function SessionRow(props: SessionRowProps) {
           <path d="M10 11v6M14 11v6" />
         </svg>
       </div>
-    <A
-      href={`/s/${session().id}`}
+    <div
       data-testid="sidebar-session-row"
       data-session-id={session().id}
       data-worker-fp={session().worker_fp}
@@ -210,7 +208,6 @@ export function SessionRow(props: SessionRowProps) {
           ? "none"
           : "transform var(--md-sys-motion-duration-short4, 200ms) var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))",
       }}
-      onClick={onClickRow}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -221,7 +218,14 @@ export function SessionRow(props: SessionRowProps) {
       }}
       title={`${title()} — ${session().cwd} — right-click for actions`}
     >
-      <md-ripple />
+      <A
+        href={`/s/${session().id}`}
+        class="df-row__primary"
+        aria-label={`Open ${title()}`}
+        style={{ position: "absolute", inset: "0", "z-index": 1 }}
+        onClick={onClickRow}
+      />
+      <span class="df-row__visual" style={{ display: "contents", "pointer-events": "none" }}>
       <span class="df-leading" aria-hidden="true">$</span>
       <Show
         when={density() === "flat"}
@@ -244,14 +248,21 @@ export function SessionRow(props: SessionRowProps) {
           offline={offline()}
         />
       </Show>
+      </span>
       <IconButton
         icon="close"
         label="Close pane"
+        size="icon-sm"
         class="df-action df-action-always"
         data-testid={`session-close-${session().id}`}
         title="Close pane"
         onClick={(e: MouseEvent) => { e.stopPropagation(); e.preventDefault(); void handleKill(e); }}
-        style={{ "--md-icon-button-icon-size": "14px" }}
+        style={{
+          "--md-icon-button-icon-size": "14px",
+          position: "relative",
+          "z-index": 2,
+          "pointer-events": "auto",
+        }}
       />
       <Show when={ctxMenu()}>
         {(pos) => (
@@ -263,7 +274,7 @@ export function SessionRow(props: SessionRowProps) {
           />
         )}
       </Show>
-    </A>
+    </div>
     </div>
   );
 }

@@ -124,18 +124,6 @@ export function handleKeydown(e: KeyboardEvent): void {
 	)
 		return;
 
-	// Escape: close whichever modal is open (highest-z first).
-	if (e.key === "Escape") {
-		if (_cmdPaletteOpen()) {
-			closeCmdPalette();
-			return;
-		}
-		if (_helpOpen()) {
-			closeHelp();
-			return;
-		}
-		return;
-	}
 
 	// Platform command-palette chord (macOS/Linux behavior is unchanged).
 	if (matchesPlatformShortcut(e, "commandPalette", platform)) {

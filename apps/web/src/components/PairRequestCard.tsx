@@ -49,9 +49,14 @@ export function PairRequestCard(props: PairRequestCardProps) {
         data-ephemeral-id={props.request.ephemeral_id}
         style={{ width: "100%" }}
       >
-        <Card title="New browser wants to pair" variant="elevated">
+        <Card
+          title="New browser wants to pair"
+          supporting="Review the browser and network details before allowing access."
+          variant="elevated"
+        >
           <List contained>
             <ListRow
+              leading="devices"
               testId="pair-request-device"
               headline={<span class="md-body-m">{deviceLabel()}</span>}
               trailing={
@@ -61,14 +66,17 @@ export function PairRequestCard(props: PairRequestCardProps) {
               }
             />
             <ListRow
+              leading="location_on"
               testId="pair-request-location"
               headline={<span class="md-body-m">{locationLabel()}</span>}
             />
             <ListRow
+              leading="lan"
               testId="pair-request-network"
               headline={<span class="md-body-m">{networkLabel()}</span>}
             />
             <ListRow
+              leading="verified_user"
               testId="pair-request-identity"
               headline={
                 <span
@@ -99,6 +107,7 @@ export function PairRequestCard(props: PairRequestCardProps) {
               }
             />
             <ListRow
+              leading="language"
               testId="pair-request-user-agent"
               headline={<span class="md-label-m">User agent</span>}
               support={
@@ -119,21 +128,24 @@ export function PairRequestCard(props: PairRequestCardProps) {
               }
             />
             <ListRow
+              leading="key"
               testId="pair-request-code"
               headline={<span class="md-body-m">Code: {props.request.ephemeral_id}</span>}
               support={<span class="md-body-s">{relativeAge()} · {expiryLabel()}</span>}
             />
           </List>
           <div
+            role="group"
+            aria-label="Pair request actions"
             style={{
               display: "flex",
               "justify-content": "flex-end",
               gap: "var(--md-space-2)",
-              "margin-top": "var(--md-space-1)",
             }}
           >
             <Button
-              variant="text"
+              variant="outline"
+              icon="close"
               data-testid="pair-card-dismiss"
               disabled={props.busy}
               onClick={() => props.onDeny()}
@@ -141,7 +153,8 @@ export function PairRequestCard(props: PairRequestCardProps) {
               Deny
             </Button>
             <Button
-              variant="filled"
+              variant="default"
+              icon="check"
               data-testid="pair-card-approve"
               disabled={props.busy}
               onClick={() => props.onApprove()}

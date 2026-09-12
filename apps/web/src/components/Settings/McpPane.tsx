@@ -96,13 +96,10 @@ export function McpPane() {
         title="MCP relays"
         supporting="Bridge agents to external tools and data sources. Each relay points at an MCP server (binary path or URL); agents on any worker can call it."
         trailing={
-          <Show when={!showEditor()}>
-            <Button
-              variant="filled"
-              icon="add"
-              data-testid="mcp-add-btn"
-              onClick={() => setShowEditor(true)}
-            >
+          <Show when={relays().length > 0 && !showEditor()}>
+            <Button variant="default" icon="add"
+            data-testid="mcp-add-btn"
+            onClick={() => setShowEditor(true)}>
               Add relay
             </Button>
           </Show>
@@ -121,7 +118,7 @@ export function McpPane() {
           <div data-testid="mcp-load-err" style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
             <Icon name="error" style={{ color: "var(--md-sys-color-error)" }} />
             <span class="md-body-m" style={{ color: "var(--md-sys-color-error)" }}>Failed to load relays: {loadErr()}</span>
-            <Button variant="text" data-testid="mcp-reload-btn" onClick={() => void reload()}>
+            <Button variant="ghost" data-testid="mcp-reload-btn" onClick={() => void reload()}>
               Retry
             </Button>
           </div>
@@ -138,7 +135,7 @@ export function McpPane() {
               supporting="Add a relay to make MCP-served tools available to every agent on every machine."
               action={
                 <Show when={!showEditor()}>
-                  <Button variant="filled" icon="add" onClick={() => setShowEditor(true)}>
+                  <Button variant="default" icon="add" onClick={() => setShowEditor(true)}>
                     Add relay
                   </Button>
                 </Show>
@@ -178,30 +175,19 @@ export function McpPane() {
                     <Show
                       when={confirmingId() === relay.id}
                       fallback={
-                        <Button
-                          variant="text"
-                          icon="delete_outline"
-                          data-testid={`mcp-delete-${relay.id}`}
-                          onClick={() => beginConfirm(relay.id)}
-                          style={{ color: "var(--md-sys-color-error)" }}
-                        >
+                        <Button variant="destructive" icon="delete_outline"
+                        data-testid={`mcp-delete-${relay.id}`}
+                        onClick={() => beginConfirm(relay.id)}>
                           Remove
                         </Button>
                       }
                     >
-                      <Button
-                        variant="filled"
-                        data-testid={`mcp-confirm-delete-${relay.id}`}
-                        onClick={() => void handleDelete(relay.id as McpRelayId)}
-                        style={{ background: "var(--md-sys-color-error)", color: "var(--md-on-primary)" }}
-                      >
+                      <Button variant="destructive" data-testid={`mcp-confirm-delete-${relay.id}`}
+                      onClick={() => void handleDelete(relay.id as McpRelayId)}>
                         Confirm
                       </Button>
-                      <Button
-                        variant="text"
-                        data-testid={`mcp-cancel-delete-${relay.id}`}
-                        onClick={cancelConfirm}
-                      >
+                      <Button variant="ghost" data-testid={`mcp-cancel-delete-${relay.id}`}
+                      onClick={cancelConfirm}>
                         Cancel
                       </Button>
                     </Show>

@@ -108,34 +108,29 @@ export function GlobalSearchPage() {
         color: "var(--md-sys-color-on-surface)",
       }}
     >
-      <div
+      <Surface
+        as="section"
+        level={1}
+        radius="lg"
+        pad={5}
+        border
         style={{
           display: "flex",
           "flex-direction": "column",
           gap: "var(--md-space-4)",
-          padding: "var(--md-space-5)",
-          "border-bottom": "1px solid var(--md-sys-color-outline-variant)",
           "flex-shrink": 0,
         }}
       >
-        <div>
-          <h1
-            id="global-search-title"
-            style={{
-              margin: 0,
-              font: "var(--md-headline-s-weight) var(--md-headline-s-size)/var(--md-headline-s-line) var(--md-font)",
-            }}
-          >
+        <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-1)" }}>
+          <h1 id="global-search-title" class="md-headline-s" style={{ margin: 0 }}>
             Search sessions
           </h1>
-          <div
-            style={{
-              color: "var(--md-sys-color-on-surface-variant)",
-              font: "var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font)",
-            }}
+          <p
+            class="md-body-m"
+            style={{ margin: 0, color: "var(--md-sys-color-on-surface-variant)" }}
           >
             Find sessions by metadata and search retained terminal content across every machine.
-          </div>
+          </p>
         </div>
 
         <TextField
@@ -145,7 +140,6 @@ export function GlobalSearchPage() {
           placeholder={scope() === "attention" ? "Title, path, agent status…" : "Title, path, or terminal text…"}
           testId="global-search-input"
           autofocus
-          style={{ width: "100%" }}
         />
 
         <div
@@ -177,14 +171,19 @@ export function GlobalSearchPage() {
             />
           </Show>
         </div>
-      </div>
+      </Surface>
 
-      <div style={{
-        flex: "1",
-        overflow: "auto",
-        padding: "var(--md-space-3) var(--md-space-5) var(--md-space-5)",
-        "padding-bottom": "calc(var(--md-space-5) + var(--kb-offset))",
-      }}>
+      <div
+        style={{
+          flex: "1",
+          overflow: "auto",
+          padding: "var(--md-space-3) var(--md-space-5) var(--md-space-5)",
+          "padding-bottom": "calc(var(--md-space-5) + var(--kb-offset))",
+          display: "flex",
+          "flex-direction": "column",
+          gap: "var(--md-space-4)",
+        }}
+      >
         <Show when={scope() === "all"}>
           <GlobalSearchContentResults
             controller={contentSearch}
@@ -193,118 +192,119 @@ export function GlobalSearchPage() {
             onOpenResult={openContentResult}
           />
         </Show>
-        <h2
-          style={{
-            margin: 0,
-            font: "var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font)",
-            "margin-top": "var(--md-space-4)",
-          }}
+        <Surface
+          as="section"
+          level={1}
+          radius="lg"
+          pad={4}
+          border
+          aria-labelledby="global-search-metadata-title"
+          style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)" }}
         >
-          {scope() === "attention" ? "Agent attention" : "Session metadata"}
-        </h2>
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          style={{
-            color: "var(--md-sys-color-on-surface-variant)",
-            font: "var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font)",
-            "margin-bottom": "var(--md-space-2)",
-          }}
-        >
-          {metadataSummary()}
-        </div>
-        <Show
-          when={results().length > 0}
-          fallback={
-            <EmptyState
-              icon={scope() === "attention" ? "notifications_none" : "search_off"}
-              title={query().trim()
-                ? scope() === "attention" ? "No matching sessions" : "No matching session metadata"
-                : scope() === "attention"
-                  ? "Nothing needs attention"
-                  : "No sessions to search"}
-              supporting={query().trim()
-                ? scope() === "attention"
-                  ? "Try another title, path, workspace, machine, or agent term."
-                  : "Terminal content matches appear above. Try another metadata term to filter this list."
-                : scope() === "attention"
-                  ? "Blocked agents and unseen completions appear here."
-                  : "Sessions appear here as they open."}
-            />
-          }
-        >
+          <h2 id="global-search-metadata-title" class="md-title-m" style={{ margin: 0 }}>
+            {scope() === "attention" ? "Agent attention" : "Session metadata"}
+          </h2>
           <div
-            data-testid="global-search-results"
-            style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)" }}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            class="md-label-m"
+            style={{ color: "var(--md-sys-color-on-surface-variant)" }}
           >
-            <List contained>
-              <For each={results()}>
-                {(document) => {
-                  const metadata = [
-                    document.workspaceName,
-                    document.workerLabel,
-                    document.gitBranch ? `branch ${document.gitBranch}` : null,
-                    document.gitRemote,
-                    document.pullRequestNumber === null ? null : `PR #${document.pullRequestNumber}`,
-                    document.portLabel,
-                  ].filter((value): value is string => value !== null).join(" · ");
-                  const attentionLabel = document.agentAttention
-                    ? AGENT_STATUS_PRESENTATION[document.agentAttention].label
-                    : null;
-                  return (
-                    <ListRow
-                      leading="terminal"
-                      headline={
-                        <span data-testid={`global-search-title-${document.sessionId}`}>
-                          {document.displayTitle}
-                        </span>
-                      }
-                      support={
-                        <span style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-1)" }}>
-                          <span>{document.cwd}</span>
-                          <Show when={metadata}>
-                            <span>{metadata}</span>
-                          </Show>
-                          <Show when={document.agentMessage}>
-                            {(message) => <span>{message()}</span>}
-                          </Show>
-                        </span>
-                      }
-                      trailing={
-                        <span
-                          style={{
-                            display: "flex",
-                            "align-items": "center",
-                            gap: "var(--md-space-2)",
-                            color: "var(--md-sys-color-on-surface-variant)",
-                            font: "var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font)",
-                            "white-space": "nowrap",
-                          }}
-                        >
-                          <Show when={attentionLabel}>
-                            <span data-testid={`global-search-attention-${document.sessionId}`}>
-                              {attentionLabel}
-                            </span>
-                          </Show>
-                          <StatusDot
-                            status={document.available ? "ok" : "offline"}
-                            title={document.available ? "Available" : "Machine unavailable"}
-                          />
-                          <span data-testid={`global-search-availability-${document.sessionId}`}>
-                            {document.available ? relTimeSince(document.activityAt) : "Unavailable"}
-                          </span>
-                        </span>
-                      }
-                      href={document.href}
-                      testId={`global-search-result-${document.sessionId}`}
-                    />
-                  );
-                }}
-              </For>
-            </List>
+            {metadataSummary()}
           </div>
-        </Show>
+          <Show
+            when={results().length > 0}
+            fallback={
+              <EmptyState
+                icon={scope() === "attention" ? "notifications_none" : "search_off"}
+                title={query().trim()
+                  ? scope() === "attention" ? "No matching sessions" : "No matching session metadata"
+                  : scope() === "attention"
+                    ? "Nothing needs attention"
+                    : "No sessions to search"}
+                supporting={query().trim()
+                  ? scope() === "attention"
+                    ? "Try another title, path, workspace, machine, or agent term."
+                    : "Terminal content matches appear above. Try another metadata term to filter this list."
+                  : scope() === "attention"
+                    ? "Blocked agents and unseen completions appear here."
+                    : "Sessions appear here as they open."}
+              />
+            }
+          >
+            <div
+              data-testid="global-search-results"
+              style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)" }}
+            >
+              <List contained>
+                <For each={results()}>
+                  {(document) => {
+                    const metadata = [
+                      document.workspaceName,
+                      document.workerLabel,
+                      document.gitBranch ? `branch ${document.gitBranch}` : null,
+                      document.gitRemote,
+                      document.pullRequestNumber === null ? null : `PR #${document.pullRequestNumber}`,
+                      document.portLabel,
+                    ].filter((value): value is string => value !== null).join(" · ");
+                    const attentionLabel = document.agentAttention
+                      ? AGENT_STATUS_PRESENTATION[document.agentAttention].label
+                      : null;
+                    return (
+                      <ListRow
+                        leading="terminal"
+                        headline={
+                          <span data-testid={`global-search-title-${document.sessionId}`}>
+                            {document.displayTitle}
+                          </span>
+                        }
+                        support={
+                          <span style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-1)" }}>
+                            <span>{document.cwd}</span>
+                            <Show when={metadata}>
+                              <span>{metadata}</span>
+                            </Show>
+                            <Show when={document.agentMessage}>
+                              {(message) => <span>{message()}</span>}
+                            </Show>
+                          </span>
+                        }
+                        trailing={
+                          <span
+                            style={{
+                              display: "flex",
+                              "align-items": "center",
+                              gap: "var(--md-space-2)",
+                              color: "var(--md-sys-color-on-surface-variant)",
+                              font: "var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font)",
+                              "white-space": "nowrap",
+                            }}
+                          >
+                            <Show when={attentionLabel}>
+                              <span data-testid={`global-search-attention-${document.sessionId}`}>
+                                {attentionLabel}
+                              </span>
+                            </Show>
+                            <StatusDot
+                              status={document.available ? "ok" : "offline"}
+                              title={document.available ? "Available" : "Machine unavailable"}
+                            />
+                            <span data-testid={`global-search-availability-${document.sessionId}`}>
+                              {document.available ? relTimeSince(document.activityAt) : "Unavailable"}
+                            </span>
+                          </span>
+                        }
+                        href={document.href}
+                        testId={`global-search-result-${document.sessionId}`}
+                      />
+                    );
+                  }}
+                </For>
+              </List>
+            </div>
+          </Show>
+        </Surface>
       </div>
     </Surface>
   );

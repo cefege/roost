@@ -4,7 +4,10 @@
 
 import { mkdirSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
-import { navigateToSmokeSession } from "./terminal-helpers.ts";
+import {
+  navigateToSmokeSession,
+  pressPlatformShortcut,
+} from "./terminal-helpers.ts";
 
 test("layout transfer controls are keyboard and compact reachable", async ({
   smokePage,
@@ -22,6 +25,23 @@ test("layout transfer controls are keyboard and compact reachable", async ({
   await navigateToSmokeSession(smokePage, sessionId);
   const focusIsOutsideMenu = () => smokePage.evaluate(() =>
     document.activeElement?.closest('[role="menu"]') === null);
+  const activateSearchFromCommandPalette = async (): Promise<void> => {
+    await pressPlatformShortcut(smokePage, "commandPalette", "k");
+    const commandPaletteDialog = smokePage.getByRole("dialog", {
+      name: "Command palette",
+    });
+    await expect(commandPaletteDialog).toBeVisible();
+    const commandPaletteInput = commandPaletteDialog.getByTestId("command-palette-input");
+    await expect(commandPaletteInput).toBeFocused();
+    await commandPaletteInput.fill("global search sessions workspaces workers git ports");
+    const commandPaletteResults = commandPaletteDialog.getByTestId("command-palette-item");
+    await expect(commandPaletteResults).toHaveCount(1);
+    await expect(commandPaletteResults.first()).toContainText("Search all sessions");
+    await smokePage.keyboard.press("Enter");
+    await expect(commandPaletteDialog).toHaveCount(0);
+    await expect(smokePage).toHaveURL(`${stack.baseUrl}/search`);
+    await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toHaveCount(1);
+  };
 
   const trigger = smokePage.getByTestId("arrange-btn");
   await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
@@ -74,18 +94,18 @@ test("layout transfer controls are keyboard and compact reachable", async ({
   await smokePage.getByTestId("mobile-tab-count").click();
   await expect(smokePage.getByTestId("workspace-tabs-sheet")).toBeVisible();
   const workspaceMenuTrigger = smokePage.getByTestId("workspace-tabs-menu");
-  await expect(workspaceMenuTrigger).toHaveAttribute("data-aria-label", "More options");
-  await expect(workspaceMenuTrigger).toHaveAttribute("data-aria-haspopup", "menu");
-  await expect(workspaceMenuTrigger).toHaveAttribute("data-aria-expanded", "false");
+  await expect(workspaceMenuTrigger).toHaveAttribute("aria-label", "More options");
+  await expect(workspaceMenuTrigger).toHaveAttribute("aria-haspopup", "menu");
+  await expect(workspaceMenuTrigger).toHaveAttribute("aria-expanded", "false");
   await expect(workspaceMenuTrigger)
     .toHaveAttribute("aria-controls", "workspace-tabs-menu-popup");
   await workspaceMenuTrigger.focus();
   await smokePage.keyboard.press("ArrowDown");
-  await expect(workspaceMenuTrigger).toHaveAttribute("data-aria-expanded", "true");
+  await expect(workspaceMenuTrigger).toHaveAttribute("aria-expanded", "true");
   await expect(smokePage.getByTestId("workspace-tabs-close-all")).toBeFocused();
   await smokePage.keyboard.press("Tab");
   await expect(smokePage.getByTestId("workspace-tabs-menu-popup")).toHaveCount(0);
-  await expect(workspaceMenuTrigger).toHaveAttribute("data-aria-expanded", "false");
+  await expect(workspaceMenuTrigger).toHaveAttribute("aria-expanded", "false");
   await expect.poll(focusIsOutsideMenu).toBe(true);
   await workspaceMenuTrigger.focus();
   await smokePage.keyboard.press("ArrowUp");
@@ -118,8 +138,32 @@ test("layout transfer controls are keyboard and compact reachable", async ({
   });
   await expect(smokePage.getByTestId("layout-import-preview")).toBeVisible();
   await expect(smokePage.getByTestId("layout-import-apply")).toBeEnabled();
-  await smokePage.locator("md-dialog")
-    .filter({ has: smokePage.getByTestId("layout-import-preview") })
-    .getByText("Cancel", { exact: true }).click();
+  const importPreviewDialog = smokePage.getByRole("dialog", {
+    name: "Import pane layout",
+  });
+  await expect(importPreviewDialog).toBeVisible();
+  await importPreviewDialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(smokePage.getByTestId("layout-import-preview")).toHaveCount(0);
+  await activateSearchFromCommandPalette();
+
+  await navigateToSmokeSession(smokePage, sessionId);
+  await smokePage.getByTestId("mobile-tab-count").click();
+  await expect(smokePage.getByTestId("workspace-tabs-sheet")).toBeVisible();
+  await workspaceMenuTrigger.click();
+  await expect(smokePage.getByTestId("layout-import")).toBeVisible();
+  const [secondFileChooser] = await Promise.all([
+    smokePage.waitForEvent("filechooser"),
+    smokePage.getByTestId("layout-import").click(),
+  ]);
+  await secondFileChooser.setFiles({
+    name: "roost-layout-v1.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(documentText),
+  });
+  await expect(smokePage.getByTestId("layout-import-preview")).toBeVisible();
+  await expect(smokePage.getByTestId("layout-import-apply")).toBeEnabled();
+  await expect(importPreviewDialog).toBeVisible();
+  await smokePage.keyboard.press("Escape");
+  await expect(smokePage.getByTestId("layout-import-preview")).toHaveCount(0);
+  await activateSearchFromCommandPalette();
 });

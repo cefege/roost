@@ -39,7 +39,7 @@ import {
 	transcriptionConfig,
 } from "../lib/voiceState.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
-
+import { IconButton } from "./Settings/md/primitives.tsx";
 // The capture pipeline stays warm after a recording so the next tap skips a
 // 1–2 s cold device open. On a PHONE that window is also how long iOS/Android
 // keep their recording indicator lit — a minute of orange dot after every
@@ -407,7 +407,6 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		if (!props.active && voiceState() !== "idle") forceFinish(false);
 	});
 
-	const isActive = () => voiceState() !== "idle";
 	// Material Symbols ligature per state; finalizing inserts into the draft
 	// (intentionally no direct-send voice mode).
 	const micIcon = () =>
@@ -438,21 +437,23 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 
 			{/* Active extras (✕ discard) belong to the owner alone. */}
 			<div class="voice-input__cluster">
-				<Show when={isActive() && ownsVoice()}>
-					<button
+				<Show when={voiceState() !== "idle" && ownsVoice()}>
+					<IconButton
 						type="button"
+						variant="ghost"
+						size="icon-lg"
 						class="voice-fab voice-fab--discard"
 						data-testid="voice-discard"
 						onMouseDown={(event) => event.preventDefault()}
 						onClick={() => discard()}
-						aria-label="Discard recording"
-					>
-						<span class="voice-fab__icon">close</span>
-					</button>
+						icon="close"
+						label="Discard recording"
+					/>
 				</Show>
-
-				<button
+				<IconButton
 					type="button"
+					variant="secondary"
+					size="icon-lg"
 					class="voice-fab"
 					data-testid="voice-mic"
 					data-recording={voiceState() === "listening" ? "true" : "false"}
@@ -471,12 +472,11 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 						}
 					}}
 					onClick={() => toggleRecord()}
-					aria-label={
+					icon={micIcon()}
+					label={
 						({ idle: "Start recording", starting: "Starting recording", listening: "Stop and insert", finalizing: "Inserting" })[voiceState()]
 					}
-				>
-					<span class="voice-fab__icon">{micIcon()}</span>
-				</button>
+				/>
 			</div>
 		</div>
 	);

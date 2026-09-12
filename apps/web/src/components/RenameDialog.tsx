@@ -1,11 +1,6 @@
-// Rename a session — small M3 modal opened from SessionRow's right-click menu
-// (promptRename: a prompt, NOT inline editing). Uses the shared md-dialog
-// Dialog primitive so it gets real Material scrim, elevation, 28px shape,
-// headline typography, focus-trap, ESC/scrim-close and enter motion for
-// free. Pre-fills the current name; Enter/Rename commits, Cancel/ESC/scrim
-// cancels, "Reset to auto" clears the override (sends ""). Commit →
-// coordClient.sessionsRename → coord appends a `renamed` event → sessionBus →
-// every SPA's store updates live. Mounted once in App.tsx as <RenameDialogHost/>.
+// Rename-dialog host for a session context-menu action.
+// Shared Dialog owns focus containment, dismissal, and modal presentation.
+// The store supplies one active rename request and routes mutation outcomes.
 
 import { createSignal, createEffect, Show } from "solid-js";
 import { coordClient } from "../connect.ts";
@@ -57,15 +52,13 @@ export function RenameDialogHost() {
       actions={
         <>
           <Show when={activeRenameDialog()?.hasCustom}>
-            <Button variant="text" data-testid="rename-reset" onClick={() => void commit("")}>
+            <Button variant="ghost" data-testid="rename-reset" onClick={() => void commit("")}>
               Reset to auto
             </Button>
           </Show>
           <span style={{ flex: "1" }} />
-          <Button variant="text" onClick={() => closeRenameDialog()}>Cancel</Button>
-          <Button variant="filled" data-testid="rename-confirm" onClick={() => void commit(name())} disabled={busy()}>
-            {busy() ? "Renaming…" : "Rename"}
-          </Button>
+          <Button variant="outline" onClick={() => closeRenameDialog()}>Cancel</Button>
+          <Button variant="default" data-testid="rename-confirm" onClick={() => void commit(name())} disabled={busy()}>{busy() ? "Renaming…" : "Rename"}</Button>
         </>
       }
     >

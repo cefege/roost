@@ -253,43 +253,31 @@
   align-items: center;
   gap: var(--md-space-2);
   padding: var(--md-space-1) var(--md-space-2);
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--md-outline-variant);
+  background: var(--md-sys-color-surface-container-high);
+  border-bottom: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
 }
 .term-find-input {
   flex: 1;
   min-width: 0;
-  background: var(--surface-1);
-  color: var(--text-hi);
-  border: 1px solid var(--md-outline-variant);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-shape-xs);
   padding: var(--md-space-1) var(--md-space-2);
-  font-family: var(--term-font-family);
-  font-size: var(--md-body-s-size);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--term-font-family);
 }
-.term-find-input:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
-.term-find-input[data-failed="true"] { border-color: var(--md-error); }
+.term-find-input:focus-visible {
+  outline: var(--workbench-border-width) solid var(--md-sys-color-primary);
+  outline-offset: calc(-1 * var(--workbench-border-width));
+}
+.term-find-input[data-failed="true"] { border-color: var(--md-sys-color-error); }
 .term-find-count,
 .term-find-note {
-  color: var(--text-mid);
-  font-size: var(--md-body-s-size);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
   white-space: nowrap;
 }
-.term-find-toggle {
-  background: transparent;
-  color: var(--text-mid);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: var(--md-shape-xs);
-  padding: 0 var(--md-space-2);
-  font-family: var(--term-font-family);
-  font-size: var(--md-body-s-size);
-  cursor: pointer;
-}
-.term-find-toggle[data-on="true"] {
-  background: var(--md-secondary-container);
-  color: var(--md-on-secondary-container);
-  border-color: var(--md-secondary-container);
-}
+.term-find-toggle { flex: 0 0 auto; }
 
 /* Ghost cursors — remote viewers' cursor cells (CellGridRenderer.setGhosts).
    Positioned in ch/lh viewport coords like the real cursor. */
@@ -643,105 +631,82 @@
 
 /* ── Home landing ("hello" pane at "/") ──────────────────────────────────
    Rendered by components/HomeLanding.tsx when workers exist but no session
-   is auto-opened. Roost mark + "+ New" composer + recents grid. */
+   is auto-opened. It owns the brand row, compact navigation access, and empty state. */
 .home-landing {
   height: 100%;
   overflow-y: auto;
-  padding: 32px max(24px, env(safe-area-inset-left, 0px)) max(24px, env(safe-area-inset-bottom, 0px))
-    max(24px, env(safe-area-inset-left, 0px));
+  padding: var(--md-space-7) max(var(--md-space-6), env(safe-area-inset-left, 0px))
+    max(var(--md-space-6), env(safe-area-inset-bottom, 0px))
+    max(var(--md-space-6), env(safe-area-inset-left, 0px));
   box-sizing: border-box;
 }
 .home-landing-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 28px;
+  gap: var(--md-space-3);
+  margin-bottom: var(--md-space-7);
 }
 .home-landing-menu {
-  width: 40px;
-  height: 40px;
+  width: var(--control-touch-target);
+  height: var(--control-touch-target);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   background: transparent;
   border: none;
-  border-radius: 8px;
-  color: var(--text-hi);
-  font-size: 20px;
-  line-height: 1;
-  font-family: inherit;
+  border-radius: var(--md-shape-full);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font);
   cursor: pointer;
 }
 .home-landing-mark {
-  font-size: var(--md-title-l-size);
-  font-weight: 700;
+  font: var(--md-title-l-weight) var(--md-title-l-size)/var(--md-title-l-line) var(--md-font);
   letter-spacing: 0.5px;
-  color: var(--text-hi);
+  color: var(--md-sys-color-on-surface);
 }
 
-/* Teach the core actions (audit E): a persistent shortcut hint under the brand,
-   and a real zero-state hero (was: a blank page) when there are no recents. */
+/* Keep shortcut labels compact so the landing state stays scannable in narrow panes. */
 .home-landing-tagline {
-  margin: -16px 0 28px;
-  font-size: var(--md-body-s-size);
-  color: var(--text-lo);
+  margin: calc(-1 * var(--md-space-4)) 0 var(--md-space-7);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+  color: var(--md-sys-color-on-surface-variant);
 }
 .home-landing-kbd {
-  font-family: inherit;
-  font-size: 11px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--bg-elev-2);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-mid);
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+  padding: 0 var(--md-space-1);
+  border-radius: var(--md-shape-xs);
+  background: var(--md-sys-color-surface-container-high);
+  border: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
   white-space: nowrap;
 }
 .home-landing-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: var(--md-space-3);
   text-align: center;
-  padding: 56px 24px;
-  color: var(--text-lo);
+  padding: var(--md-space-9) var(--md-space-6);
+  color: var(--md-sys-color-on-surface-variant);
 }
 .home-landing-empty-icon {
-  width: 56px;
-  height: 56px;
+  width: calc(var(--control-touch-target) + var(--md-space-3));
+  height: calc(var(--control-touch-target) + var(--md-space-3));
   display: grid;
   place-items: center;
-  border-radius: 16px;
-  background: var(--bg-elev-1);
-  border: 1px solid var(--border-subtle);
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-mid);
+  border-radius: var(--md-shape-lg);
+  background: var(--md-sys-color-surface-container-low);
+  border: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
 }
 .home-landing-empty-title {
-  font-size: var(--md-title-m-size);
-  font-weight: 600;
-  color: var(--text-hi);
+  font: var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font);
+  color: var(--md-sys-color-on-surface);
 }
 .home-landing-empty-sub {
-  font-size: 13px;
-  max-width: 340px;
-  line-height: 1.5;
-}
-.home-landing-empty-cta {
-  margin-top: 8px;
-  padding: 9px 18px;
-  border-radius: var(--md-shape-md);
-  background: var(--accent-container);
-  border: none;
-  color: var(--md-sys-color-on-primary);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.home-landing-empty-cta:hover {
-  filter: brightness(1.08);
+  max-width: 42ch;
+  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
 }
 
 /* M3 context-menu enter motion + state-layers (M3 wave 2).

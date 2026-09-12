@@ -100,14 +100,9 @@ export function PairDevicePane() {
             </div>
           </Show>
 
-          <Button
-            variant="tonal"
-            data-testid="pair-device-regenerate"
-            onClick={mintAndRender}
-            disabled={status() === "loading"}
-          >
-            {status() === "loading" ? "…" : status() === "ready" ? "New code" : "Generate code"}
-          </Button>
+          <Button variant="secondary" data-testid="pair-device-regenerate"
+          onClick={mintAndRender}
+          disabled={status() === "loading"}>{status() === "loading" ? "…" : status() === "ready" ? "New code" : "Generate code"}</Button>
         </div>
       </Show>
     </div>

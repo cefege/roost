@@ -214,12 +214,9 @@ export function CellTerminal(props: CellTerminalProps) {
 					"touch-action": "pan-y",
 				}}
 			/>
-			{/* Unbracketed multi-line paste confirmation. Registered in FOCUS_OWNERS
-          (md-dialog) so the pane's focus guards let its buttons take focus.
-          Mounted ONLY while a paste is pending: md-dialog keeps its slotted
-          content in the DOM even when closed, and this subtree sits inside the
-          pane, so leaving it mounted would fold dialog prose into the pane's
-          textContent — which the smoke harness reads as terminal output. */}
+			{/* Mounted only while a multi-line paste is pending. Keeping a closed
+          dialog inside this pane would fold its prose into terminal textContent,
+          which the smoke harness reads as painted terminal output. */}
 			<Show when={input.pendingPaste() !== null}>
 				<Dialog
 					open
@@ -227,22 +224,16 @@ export function CellTerminal(props: CellTerminalProps) {
 					headline="Paste multiple lines?"
 					actions={
 						<>
-							<Button
-								variant="text"
-								data-testid="paste-guard-cancel"
-								onClick={() => input.setPendingPaste(null)}
-							>
+							<Button variant="outline" data-testid="paste-guard-cancel"
+								onClick={() => input.setPendingPaste(null)}>
 								Cancel
 							</Button>
-							<Button
-								variant="filled"
-								data-testid="paste-guard-send"
+							<Button variant="default" data-testid="paste-guard-send"
 								onClick={() => {
 									const text = input.pendingPaste();
 									input.setPendingPaste(null);
 									if (text !== null) input.sendTerminalText(text);
-								}}
-							>
+								}}>
 								Paste {input.pendingPasteLines()} lines
 							</Button>
 						</>

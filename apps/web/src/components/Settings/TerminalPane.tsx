@@ -6,8 +6,7 @@
 //    vs native browser select/scroll (lib/mouseForwardPref).
 // Callers: SettingsRoot.tsx.
 
-import { Show } from "solid-js";
-import { Card, Switch, IconButton, Button } from "./md/primitives.tsx";
+import { Card, SwitchRow, IconButton, Button } from "./md/primitives.tsx";
 import { Select } from "./md/Select.tsx";
 import { keyboardResize, setKeyboardResize } from "../../lib/keyboardResizePref.ts";
 import { mouseForwardEnabled, toggleMouseForward } from "../../lib/mouseForwardPref.ts";
@@ -19,19 +18,6 @@ import {
 import { copyOnSelect, setCopyOnSelect } from "../../lib/copyOnSelectPref.ts";
 import { platformShortcutLabel } from "../../lib/browserPlatform.ts";
 
-function SwitchRow(props: { headline: string; support?: string; checked: boolean; onChange: (v: boolean) => void; testId?: string }) {
-  return (
-    <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-4)" }}>
-      <div style={{ flex: 1, "min-width": 0 }}>
-        <div class="md-body-m" style={{ color: "var(--md-sys-color-on-surface)" }}>{props.headline}</div>
-        <Show when={props.support}>
-          <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>{props.support}</div>
-        </Show>
-      </div>
-      <Switch checked={props.checked} onChange={props.onChange} testId={props.testId} label={props.headline} />
-    </div>
-  );
-}
 
 export function TerminalPane() {
   return (
@@ -88,11 +74,8 @@ export function TerminalPane() {
               disabled={termFontSize() >= TERM_FONT_MAX_PX}
               onClick={() => stepTermFontSize(1)}
             />
-            <Button
-              variant="text"
-              data-testid="term-font-reset"
-              onClick={resetTermFontSize}
-            >
+            <Button variant="ghost" data-testid="term-font-reset"
+            onClick={resetTermFontSize}>
               Reset
             </Button>
           </div>

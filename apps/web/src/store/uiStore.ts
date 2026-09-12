@@ -6,11 +6,13 @@
 import { diag } from "@roost/shared/diag";
 import { createStore } from "solid-js/store";
 
+export type SidebarView = "spaces" | "agents";
+
 interface UIState {
   sidebarOpen: boolean;               // mobile: drawer open; desktop: ignored
-  sidebarCollapsed: boolean;          // desktop: collapses to icon rail (⌘B)
+  sidebarCollapsed: boolean;          // desktop sidebar visibility
+  sidebarView: SidebarView;           // selected retained sidebar projection
   sidebarWidth: number;               // desktop: pixel width — drag-resizable
-  sidebarSplitRatio: number;          // desktop: proportion allotted to Spaces above Agents
   homeFolderViewMode: "grid" | "list"; // home page: grid vs dense list of folders
   homeFolderShowFiles: boolean;        // home/browse: reveal view-only files alongside folders
 }
@@ -18,13 +20,10 @@ interface UIState {
 
 const SIDEBAR_COLLAPSED_KEY = "roost.sidebarCollapsed";
 const SIDEBAR_WIDTH_KEY = "roost.sidebarWidth";
+const SIDEBAR_VIEW_KEY = "roost.sidebarView";
 export const SIDEBAR_WIDTH_DEFAULT = 300;
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 600;
-const SIDEBAR_SPLIT_RATIO_KEY = "roost.sidebarSplitRatio";
-export const SIDEBAR_SPLIT_DEFAULT = 0.6;
-export const SIDEBAR_SPLIT_MIN = 0.2;
-export const SIDEBAR_SPLIT_MAX = 0.8;
 const HOME_FOLDER_VIEW_MODE_KEY = "roost.homeFolderViewMode";
 const HOME_FOLDER_SHOW_FILES_KEY = "roost.homeFolderShowFiles";
 function loadCollapsed(): boolean {
@@ -32,6 +31,17 @@ function loadCollapsed(): boolean {
 }
 function persistCollapsed(v: boolean) {
   try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, v ? "1" : "0"); } catch { /* ignore */ }
+}
+function loadSidebarView(): SidebarView {
+  try {
+    const value = localStorage.getItem(SIDEBAR_VIEW_KEY);
+    return value === "agents" || value === "spaces" ? value : "spaces";
+  } catch {
+    return "spaces";
+  }
+}
+function persistSidebarView(view: SidebarView): void {
+  try { localStorage.setItem(SIDEBAR_VIEW_KEY, view); } catch { /* ignore */ }
 }
 function loadHomeFolderViewMode(): "grid" | "list" {
   try {
@@ -61,51 +71,29 @@ function persistWidth(v: number) {
   try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(v)); } catch { /* ignore */ }
 }
 
-function loadSidebarSplitRatio(): number {
-  try {
-    const stored = localStorage.getItem(SIDEBAR_SPLIT_RATIO_KEY);
-    if (stored === null || stored.trim() === "") return SIDEBAR_SPLIT_DEFAULT;
-    const ratio = Number(stored);
-    return Number.isFinite(ratio)
-      ? Math.max(SIDEBAR_SPLIT_MIN, Math.min(SIDEBAR_SPLIT_MAX, ratio))
-      : SIDEBAR_SPLIT_DEFAULT;
-  } catch {
-    return SIDEBAR_SPLIT_DEFAULT;
-  }
-}
-function persistSidebarSplitRatio(ratio: number): void {
-  try { localStorage.setItem(SIDEBAR_SPLIT_RATIO_KEY, String(ratio)); } catch { /* ignore */ }
-}
 
 export const [uiStore, setUiStore] = createStore<UIState>({
   sidebarOpen: false,
   sidebarCollapsed: loadCollapsed(),
+  sidebarView: loadSidebarView(),
   sidebarWidth: loadWidth(),
-  sidebarSplitRatio: loadSidebarSplitRatio(),
   homeFolderViewMode: loadHomeFolderViewMode(),
   homeFolderShowFiles: loadHomeFolderShowFiles(),
 });
 
+export const setSidebarView = (view: SidebarView): void => {
+  const from = uiStore.sidebarView;
+  if (from === view) return;
+  setUiStore("sidebarView", view);
+  persistSidebarView(view);
+  diag("sidebar.view_changed", { from, to: view });
+};
 export const setSidebarWidth = (px: number) => {
   const clamped = Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, Math.round(px)));
   setUiStore("sidebarWidth", clamped);
   persistWidth(clamped);
 };
 
-export const setSidebarSplitRatio = (ratio: number): void => {
-  if (!Number.isFinite(ratio)) {
-    diag("sidebar.split_ratio_rejected", { value: String(ratio) });
-    return;
-  }
-  const nextRatio = Math.max(SIDEBAR_SPLIT_MIN, Math.min(SIDEBAR_SPLIT_MAX, ratio));
-  if (uiStore.sidebarSplitRatio === nextRatio) {
-    persistSidebarSplitRatio(nextRatio);
-    return;
-  }
-  setUiStore("sidebarSplitRatio", nextRatio);
-  persistSidebarSplitRatio(nextRatio);
-  diag("sidebar.split_ratio_changed", { ratio: nextRatio });
-};
 
 export const openSidebar = () => setUiStore("sidebarOpen", true);
 export const closeSidebar = () => setUiStore("sidebarOpen", false);

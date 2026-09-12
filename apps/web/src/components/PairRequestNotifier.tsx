@@ -4,6 +4,7 @@
 // Approval and rendering are delegated to PairRequestCard so every surface
 // presents the same provenance and controls.
 
+import { useLocation } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { rootStore } from "../store/root.ts";
@@ -19,6 +20,12 @@ export function PairRequestNotifier() {
   const [busyRequestId, setBusyRequestId] = createSignal<string | null>(null);
   const expiryTimer = setInterval(() => setNow(Date.now()), 1_000);
   onCleanup(() => clearInterval(expiryTimer));
+
+  const location = useLocation();
+  const isPairRequestNotifierSuppressed = createMemo(() =>
+    location.pathname === "/settings/devices"
+    || (location.pathname === "/pair" && canApprovePairRequests())
+  );
 
   const pending = createMemo(() => {
     const currentNow = now();
@@ -55,7 +62,7 @@ export function PairRequestNotifier() {
   }
 
   return (
-    <Show when={canApprovePairRequests() && pending().length > 0}>
+    <Show when={canApprovePairRequests() && !isPairRequestNotifierSuppressed() && pending().length > 0}>
       <Portal mount={document.body}>
         <div
           data-testid="pair-request-notifier"

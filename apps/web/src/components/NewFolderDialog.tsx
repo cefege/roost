@@ -26,11 +26,9 @@ export function NewFolderDialog(props: {
       actions={
         <>
           <span style={{ flex: "1" }} />
-          <Button variant="text" onClick={props.onClose}>Cancel</Button>
-          <Button variant="filled" data-testid="newfolder-confirm"
-            onClick={props.onCreate} disabled={props.busy || !props.name.trim()}>
-            {props.busy ? "Creating…" : "Create"}
-          </Button>
+          <Button variant="outline" onClick={props.onClose}>Cancel</Button>
+          <Button variant="default" data-testid="newfolder-confirm"
+            onClick={props.onCreate} disabled={props.busy || !props.name.trim()}>{props.busy ? "Creating…" : "Create"}</Button>
         </>
       }
     >

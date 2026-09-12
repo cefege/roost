@@ -257,11 +257,8 @@ export function MainPane() {
               detail={loading().detail}
               actions={stuckKind() === "connecting"
                 ? (
-                  <Button
-                    variant="tonal"
-                    data-testid="stuck-terminal-home"
-                    onClick={() => { consumeBootRestore(); navigate("/"); }}
-                  >
+                  <Button variant="secondary" data-testid="stuck-terminal-home"
+                  onClick={() => { consumeBootRestore(); navigate("/"); }}>
                     Go home
                   </Button>
                 )
@@ -291,10 +288,10 @@ export function MainPane() {
               This browser isn't trusted by this coordinator yet. Pair it to open terminals.
             </div>
             <div style={{ display: "flex", gap: "8px", "margin-top": "4px" }}>
-              <Button variant="filled" data-testid="stuck-terminal-pair" onClick={() => navigate("/pair")}>
+              <Button variant="default" data-testid="stuck-terminal-pair" onClick={() => navigate("/pair")}>
                 Pair this browser
               </Button>
-              <Button variant="tonal" data-testid="stuck-terminal-home" onClick={() => { consumeBootRestore(); navigate("/"); }}>
+              <Button variant="secondary" data-testid="stuck-terminal-home" onClick={() => { consumeBootRestore(); navigate("/"); }}>
                 Go home
               </Button>
             </div>

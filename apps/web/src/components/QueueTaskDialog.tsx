@@ -17,11 +17,13 @@ export const QueueTaskDialog: Component = () => {
   };
 
   return (
-    <Dialog open={queueTaskDialogStore.isOpen()} onClose={handleClose} headline="Queue a task">
-      {/* Show gate (perf sweep C1.4): the always-mounted CLOSED dialog must
-          not keep TaskEditor's 5 MWC fields mounted — workerOptions() would
-          recompute on every worker write from boot. Mounted only while open. */}
-      <Show when={queueTaskDialogStore.isOpen()}>
+    <Show when={queueTaskDialogStore.isOpen()}>
+      <Dialog
+        open
+        onClose={handleClose}
+        headline="Queue a task"
+        showCloseButton={false}
+      >
         <TaskEditor
           defaultBody={queueTaskDialogStore.prefillBody()}
           defaultCwd={queueTaskDialogStore.prefillCwd()}
@@ -30,7 +32,7 @@ export const QueueTaskDialog: Component = () => {
           onCancel={handleClose}
           showCancel={true}
         />
-      </Show>
-    </Dialog>
+      </Dialog>
+    </Show>
   );
 };

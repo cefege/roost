@@ -10,7 +10,7 @@ import { workerOnline } from "../../store/sync.ts";
 import { applyWorkerDeleteResponse } from "../../store/worker-removal.ts";
 import { coordClient } from "../../connect.ts";
 import { addToast } from "../../store/toastStore.ts";
-import { Card, Button, MetricTile, Icon, TextField } from "./md/primitives.tsx";
+import { Card, Button, MetricTile, Icon, StatusDot, TextField } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { machinePlatformIcon } from "../../lib/machineActions.ts";
@@ -125,10 +125,7 @@ export function MachineCard(props: { worker: Worker }) {
           color: isStale() ? "var(--md-sys-color-on-surface-variant)" : "var(--md-sys-color-on-secondary-container)",
         }}
       >
-        <span style={{
-          width: "8px", height: "8px", "border-radius": "50%",
-          background: isStale() ? "var(--md-sys-color-on-surface-variant)" : "var(--md-success)",
-        }} />
+        <StatusDot status={isStale() ? "offline" : "ok"} />
         {isStale() ? "Stale" : "Online"}
       </span>
       <span class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
@@ -155,10 +152,8 @@ export function MachineCard(props: { worker: Worker }) {
                 onInput={(v) => setRenameLabel(v)}
                 style={{ flex: 1, "min-width": 0 }}
               />
-              <Button variant="filled" data-testid="machines-rename-save" disabled={renameBusy()}>
-                {renameBusy() ? "Saving…" : "Save"}
-              </Button>
-              <Button variant="text" data-testid="machines-rename-cancel" onClick={cancelRename}>
+              <Button variant="default" data-testid="machines-rename-save" disabled={renameBusy()}>{renameBusy() ? "Saving…" : "Save"}</Button>
+              <Button variant="ghost" data-testid="machines-rename-cancel" onClick={cancelRename}>
                 Cancel
               </Button>
             </form>
@@ -240,12 +235,9 @@ export function MachineCard(props: { worker: Worker }) {
 
         <Show when={!renaming()}>
           <div style={{ display: "flex", "justify-content": "flex-end", gap: "var(--md-space-2)" }}>
-            <Button
-              variant="text"
-              icon="edit"
-              data-testid={`machines-rename-btn-${w().fp}`}
-              onClick={beginRename}
-            >
+            <Button variant="ghost" icon="edit"
+            data-testid={`machines-rename-btn-${w().fp}`}
+            onClick={beginRename}>
               Rename
             </Button>
             <Show when={confirmDelete()}>
@@ -260,31 +252,20 @@ export function MachineCard(props: { worker: Worker }) {
             <Show
               when={confirmDelete()}
               fallback={
-                <Button
-                  variant="text"
-                  icon="delete_outline"
-                  data-testid={`machines-delete-btn-${w().fp}`}
-                  onClick={beginConfirmDelete}
-                  disabled={deleteBusy()}
-                  style={{ color: "var(--md-sys-color-error)" }}
-                >
+                <Button variant="destructive" icon="delete_outline"
+                data-testid={`machines-delete-btn-${w().fp}`}
+                onClick={beginConfirmDelete}
+                disabled={deleteBusy()}>
                   Remove
                 </Button>
               }
             >
-              <Button
-                variant="filled"
-                data-testid={`machines-confirm-delete-btn-${w().fp}`}
-                onClick={() => void doDelete()}
-                style={{ background: "var(--md-sys-color-error)", color: "var(--md-on-primary)" }}
-              >
+              <Button variant="destructive" data-testid={`machines-confirm-delete-btn-${w().fp}`}
+              onClick={() => void doDelete()}>
                 Confirm remove
               </Button>
-              <Button
-                variant="text"
-                data-testid={`machines-cancel-delete-btn-${w().fp}`}
-                onClick={cancelConfirmDelete}
-              >
+              <Button variant="ghost" data-testid={`machines-cancel-delete-btn-${w().fp}`}
+              onClick={cancelConfirmDelete}>
                 Cancel
               </Button>
             </Show>

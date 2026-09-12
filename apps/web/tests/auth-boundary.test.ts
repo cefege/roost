@@ -6,7 +6,6 @@
 import { expect, test } from "bun:test";
 import { activeRenameDialog, openRenameDialog } from "../src/store/renameDialog.ts";
 import { queueTaskDialogStore } from "../src/store/queueTaskDialog.ts";
-import { openTransferDialog, transferDialogOpen } from "../src/lib/transferDialog.ts";
 import { addTransfer, transfers } from "../src/store/transfers.ts";
 import { setSpotlightSessionId, spotlightSessionId } from "../src/store/spotlight.ts";
 import { registerAuthBoundContentSearch } from "../src/lib/globalContentSearchRuntime.ts";
@@ -99,7 +98,6 @@ test("suspending authenticated client state releases overlays, runtime owners, a
     body: "retired task",
     workerFp: "worker-a",
   });
-  openTransferDialog();
   addTransfer({
     id: "retired-transfer",
     name: "retired.txt",
@@ -132,7 +130,6 @@ test("suspending authenticated client state releases overlays, runtime owners, a
   expect(queueTaskDialogStore.prefillCwd()).toBeUndefined();
   expect(queueTaskDialogStore.prefillBody()).toBeUndefined();
   expect(queueTaskDialogStore.prefillWorkerFp()).toBeUndefined();
-  expect(transferDialogOpen()).toBe(false);
   expect(Object.keys(transfers)).toEqual([]);
   expect(spotlightSessionId()).toBeNull();
 

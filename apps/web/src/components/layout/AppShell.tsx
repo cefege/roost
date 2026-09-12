@@ -15,7 +15,6 @@ import { uiStore, closeSidebar, toggleSidebarCollapsed } from "../../store/uiSto
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { keyboardResize } from "../../lib/keyboardResizePref.ts";
 import { resetResizeDrags } from "../../lib/resizeDrag.ts";
-import { attachElasticOverscroll } from "../../lib/overscroll.ts";
 import { composerActive, composerHeightPx } from "../TerminalComposeButton.tsx";
 import { matchesPlatformShortcut } from "../../lib/browserPlatform.ts";
 import { ROUTES } from "../../routes.ts";
@@ -25,9 +24,10 @@ function shellStyle() {
     height: keyboardResize() && !composerActive()
       ? "calc(100svh - var(--kb-offset))"
       : "100svh",
+    "--workbench-sidebar-expanded-width": `${uiStore.sidebarWidth}px`,
     "--workbench-sidebar-width": uiStore.sidebarCollapsed
-      ? "var(--workbench-sidebar-compact-width)"
-      : `${uiStore.sidebarWidth}px`,
+      ? "0px"
+      : "var(--workbench-sidebar-expanded-width)",
     "--workbench-sidebar-resizer-active-width": uiStore.sidebarCollapsed
       ? "0px"
       : "var(--workbench-sidebar-resizer-width)",
@@ -49,6 +49,7 @@ function editorStyle(isTerminalRoute: boolean) {
 
 export function AppShell(props: ParentProps) {
   const location = useLocation();
+  let desktopSidebarRegion: HTMLElement | undefined;
   const compact = isCompact;
   const terminalRoute = createMemo(() => {
     const pathname = location.pathname;
@@ -65,7 +66,7 @@ export function AppShell(props: ParentProps) {
 
   createEffect(() => {
     const sidebarOffset = uiStore.sidebarCollapsed
-      ? "var(--workbench-sidebar-compact-width)"
+      ? "0px"
       : `calc(${uiStore.sidebarWidth}px + var(--workbench-sidebar-resizer-width))`;
     const mainOffset = compact()
       ? "0px"
@@ -77,10 +78,29 @@ export function AppShell(props: ParentProps) {
     if (compact()) closeSidebar();
   }, { defer: true }));
 
+  function focusActivityBeforeSidebarCollapse(): boolean {
+    if (
+      compact()
+      || uiStore.sidebarCollapsed
+      || !desktopSidebarRegion?.contains(document.activeElement)
+    ) return false;
+    document.getElementById("workbench-activity-sessions")?.focus();
+    return true;
+  }
+
+  function toggleDesktopSidebar(): void {
+    const restoreActivityFocus = focusActivityBeforeSidebarCollapse();
+    toggleSidebarCollapsed();
+    if (!restoreActivityFocus) return;
+    const sessionsControl = document.getElementById("workbench-activity-sessions");
+    sessionsControl?.focus();
+    requestAnimationFrame(() => window.setTimeout(() => sessionsControl?.focus(), 0));
+  }
+
   function handleShellKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || !matchesPlatformShortcut(event, "toggleSidebar")) return;
     event.preventDefault();
-    toggleSidebarCollapsed();
+    toggleDesktopSidebar();
   }
 
   onMount(() => {
@@ -98,13 +118,20 @@ export function AppShell(props: ParentProps) {
     <div class="workbench-shell" data-compact={compact() ? "true" : "false"} style={shellStyle()}>
       <Show when={!compact()}>
         <WorkbenchTitleBar />
-        <WorkbenchActivityBar />
-        <div class="workbench-sidebar-region">
+        <WorkbenchActivityBar onToggleSidebar={toggleDesktopSidebar} />
+        <div
+          class="workbench-sidebar-region"
+          ref={(element) => {
+            desktopSidebarRegion = element;
+          }}
+          data-collapsed={uiStore.sidebarCollapsed ? "true" : "false"}
+          inert={uiStore.sidebarCollapsed ? true : undefined}
+          aria-hidden={uiStore.sidebarCollapsed ? "true" : undefined}
+        >
           <aside
             class="workbench-sidebar"
             data-testid="sidebar-desktop"
             data-collapsed={uiStore.sidebarCollapsed ? "true" : "false"}
-            ref={(element) => onCleanup(attachElasticOverscroll(element))}
           >
             <SidebarRoot />
           </aside>

@@ -82,20 +82,9 @@ export const WhatsNewDialog: Component = () => {
       onClose={dismiss}
       headline={entry()?.title}
       actions={
-        <div
-          class="whats-new-dialog__actions"
-          style={{
-            background: "var(--md-sys-color-surface-container-high)",
-            display: "flex",
-            "inline-size": "100%",
-            "justify-content": "flex-end",
-            "padding-block-start": "var(--md-space-2)",
-          }}
-        >
-          <Button variant="filled" onClick={dismiss} data-testid="whats-new-dismiss">
-            Got it
-          </Button>
-        </div>
+        <Button variant="default" onClick={dismiss} data-testid="whats-new-dismiss">
+          Got it
+        </Button>
       }
     >
       <div

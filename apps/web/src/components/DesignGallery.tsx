@@ -1,6 +1,6 @@
 // DesignGallery — the single visual reference for the Roost design system.
 // Renders the canonical workbench shell, color tokens, type, density scales,
-// and live examples of every shared Material primitive on one /design page.
+// and live examples of every shared settings primitive on one /design page.
 //
 // HARD RULE: colors + font-sizes come ONLY from theme tokens via var(--…).
 // No raw hex / rgb() / px font-size (ratcheted by scripts/lint-roost.ts).
@@ -8,14 +8,15 @@
 // Owner: routes.ts ROUTES.DESIGN → App.tsx <Route>. Depends on:
 //   ./Settings/md/primitives.tsx + theme-vars.css.
 
-import { type JSX, type Component, For, createSignal } from "solid-js";
+import { type JSX, type Component, For } from "solid-js";
 import {
-  Button, IconButton, Chip, Switch, Checkbox, Select, TextField, Card,
-  SectionTitle, List, ListRow, MetricTile, EmptyState, Surface, StatusDot,
-  Sheet, Icon,
+  Button, IconButton, Card, SectionTitle, List, ListRow, MetricTile, EmptyState,
+  Surface, StatusDot, Icon,
 } from "./Settings/md/primitives";
 import { WorkbenchShellSpecimen } from "./WorkbenchShellSpecimen.tsx";
 import { SettingsNavigationSpecimen } from "./SettingsNavigationSpecimen.tsx";
+import { DesignControlStates } from "./DesignControlStates.tsx";
+import { DesignOverlayStates } from "./DesignOverlayStates.tsx";
 
 // ─── token catalogs (grep-tokens; each maps 1:1 to a declared theme var) ─────
 const COLOR_GROUPS: { title: string; tokens: string[] }[] = [
@@ -45,29 +46,29 @@ const STATUS_DOTS = ["ok", "running", "idle", "error", "offline"] as const;
 
 // ─── leaf helpers ────────────────────────────────────────────────────────────
 const Swatch: Component<{ token: string }> = (props) => (
-  <div style={{ display: "flex", "flex-direction": "column", gap: "4px", "min-width": 0 }}>
+  <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-1)", "min-width": 0 }}>
     <div style={{
-      height: "56px",
+      height: "calc(var(--md-space-7) + var(--md-space-6))",
       background: `var(${props.token})`,
       "border-radius": "var(--md-shape-sm)",
-      border: "1px solid var(--md-outline-variant)",
+      border: "var(--workbench-border-width) solid var(--md-outline-variant)",
     }} />
     <span style={{
       "font-size": "var(--md-label-s-size)",
       "line-height": "var(--md-label-s-line)",
       color: "var(--text-mid)",
-      "font-family": "ui-monospace, monospace",
+      "font-family": "var(--font-mono)",
       "overflow-wrap": "anywhere",
     }}>{props.token}</span>
   </div>
 );
 
 const RampRow: Component<{ step: string }> = (props) => (
-  <div style={{ display: "flex", "align-items": "baseline", gap: "16px", padding: "6px 0", "border-bottom": "1px solid var(--md-outline-variant)" }}>
+  <div style={{ display: "flex", "align-items": "baseline", gap: "var(--md-space-4)", padding: "var(--md-space-2) 0", "border-bottom": "var(--workbench-border-width) solid var(--md-outline-variant)" }}>
     <span style={{
-      "flex-shrink": 0, width: "110px",
+      "flex-shrink": 0, width: "calc(var(--md-space-9) * 2 + var(--md-space-3))",
       "font-size": "var(--md-label-m-size)", "line-height": "var(--md-label-m-line)",
-      color: "var(--text-lo)", "font-family": "ui-monospace, monospace",
+      color: "var(--text-lo)", "font-family": "var(--font-mono)",
     }}>{props.step}</span>
     <span style={{
       color: "var(--text-hi)",
@@ -81,7 +82,7 @@ const RampRow: Component<{ step: string }> = (props) => (
 
 const SectionHeader: Component<{ children: JSX.Element }> = (props) => (
   <h2 style={{
-    color: "var(--text-hi)", margin: "0 0 16px",
+    color: "var(--text-hi)", margin: "0 0 var(--md-space-4)",
     "font-size": "var(--md-title-l-size)",
     "line-height": "var(--md-title-l-line)",
     "font-weight": "var(--md-title-l-weight)",
@@ -89,7 +90,7 @@ const SectionHeader: Component<{ children: JSX.Element }> = (props) => (
 );
 
 const Section: Component<{ title: string; children: JSX.Element }> = (props) => (
-  <Surface level={1} elevation={1} radius="lg" pad={6} border style={{ display: "block", "margin-bottom": "24px" }}>
+  <Surface level={1} elevation={1} radius="lg" pad={6} border style={{ display: "block", "margin-bottom": "var(--md-space-6)" }}>
     <SectionHeader>{props.title}</SectionHeader>
     {props.children}
   </Surface>
@@ -98,25 +99,19 @@ const Section: Component<{ title: string; children: JSX.Element }> = (props) => 
 const grid = (min: string): JSX.CSSProperties => ({
   display: "grid",
   "grid-template-columns": `repeat(auto-fill, minmax(${min}, 1fr))`,
-  gap: "16px",
+  gap: "var(--md-space-4)",
 });
 
 
 // ─── page ────────────────────────────────────────────────────────────────────
 export const DesignGallery: Component = () => {
-  const [switchOn, setSwitchOn] = createSignal(true);
-  const [checked, setChecked] = createSignal(false);
-  const [selectVal, setSelectVal] = createSignal("m3");
-  const [textVal, setTextVal] = createSignal("");
-  const [sheetOpen, setSheetOpen] = createSignal(false);
-
   return (
     <div style={{
       "min-height": "100vh", "overflow-y": "auto",
       background: "var(--bg-base)", color: "var(--text-hi)",
-      padding: "24px", "box-sizing": "border-box",
+      padding: "var(--md-space-6)", "box-sizing": "border-box",
     }}>
-      <header style={{ "margin-bottom": "24px" }}>
+      <header style={{ "margin-bottom": "var(--md-space-6)" }}>
         <h1 style={{
           margin: 0, color: "var(--text-hi)",
           "font-size": "var(--md-display-s-size)",
@@ -124,7 +119,7 @@ export const DesignGallery: Component = () => {
           "font-weight": "var(--md-display-s-weight)",
         }}>Design system</h1>
         <p style={{
-          margin: "8px 0 0", color: "var(--text-mid)",
+          margin: "var(--md-space-2) 0 0", color: "var(--text-mid)",
           "font-size": "var(--md-body-m-size)", "line-height": "var(--md-body-m-line)",
         }}>Every token + primitive on one page. Colors + type are token-only.</p>
       </header>
@@ -144,9 +139,9 @@ export const DesignGallery: Component = () => {
       <Section title="Color roles">
         <For each={COLOR_GROUPS}>
           {(group) => (
-            <div style={{ "margin-bottom": "20px" }}>
+            <div style={{ "margin-bottom": "var(--md-space-5)" }}>
               <SectionTitle>{group.title}</SectionTitle>
-              <div style={grid("120px")}>
+              <div style={grid("calc(var(--md-space-9) * 2 + var(--md-space-6))")}>
                 <For each={group.tokens}>{(t) => <Swatch token={t} />}</For>
               </div>
             </div>
@@ -161,17 +156,17 @@ export const DesignGallery: Component = () => {
 
       {/* 3. Spacing scale */}
       <Section title="Spacing scale">
-        <div style={{ display: "flex", "flex-direction": "column", gap: "10px" }}>
+        <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)" }}>
           <For each={SPACE_STEPS}>
             {(n) => (
-              <div style={{ display: "flex", "align-items": "center", gap: "12px" }}>
+              <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-3)" }}>
                 <span style={{
-                  width: "90px", "flex-shrink": 0, color: "var(--text-lo)",
+                  width: "calc(var(--md-space-9) * 2)", "flex-shrink": 0, color: "var(--text-lo)",
                   "font-size": "var(--md-label-m-size)", "line-height": "var(--md-label-m-line)",
-                  "font-family": "ui-monospace, monospace",
+                  "font-family": "var(--font-mono)",
                 }}>--md-space-{n}</span>
                 <div style={{
-                  height: "16px", width: `var(--md-space-${n})`,
+                  height: "var(--md-space-4)", width: `var(--md-space-${n})`,
                   background: "var(--md-primary)", "border-radius": "var(--md-shape-xs)",
                 }} />
               </div>
@@ -182,18 +177,18 @@ export const DesignGallery: Component = () => {
 
       {/* 4. Shape / radii */}
       <Section title="Shape / radii">
-        <div style={grid("120px")}>
+        <div style={grid("calc(var(--md-space-9) * 2 + var(--md-space-6))")}>
           <For each={SHAPE_STEPS}>
             {(s) => (
-              <div style={{ display: "flex", "flex-direction": "column", gap: "8px", "align-items": "center" }}>
+              <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)", "align-items": "center" }}>
                 <div style={{
-                  width: "88px", height: "88px",
+                  width: "calc(var(--md-space-9) * 2 - var(--md-space-2))", height: "calc(var(--md-space-9) * 2 - var(--md-space-2))",
                   background: "var(--md-primary-container)",
-                  border: "1px solid var(--md-outline)",
+                  border: "var(--workbench-border-width) solid var(--md-outline)",
                   "border-radius": `var(--md-shape-${s})`,
                 }} />
                 <span style={{
-                  color: "var(--text-mid)", "font-family": "ui-monospace, monospace",
+                  color: "var(--text-mid)", "font-family": "var(--font-mono)",
                   "font-size": "var(--md-label-s-size)", "line-height": "var(--md-label-s-line)",
                 }}>--md-shape-{s}</span>
               </div>
@@ -204,14 +199,14 @@ export const DesignGallery: Component = () => {
 
       {/* 5. Elevation */}
       <Section title="Elevation">
-        <div style={grid("140px")}>
+        <div style={grid("calc(var(--md-space-9) * 3)")}>
           <For each={ELEV_STEPS}>
             {(n) => (
               <div style={{
-                height: "88px", display: "flex", "align-items": "center", "justify-content": "center",
+                height: "calc(var(--md-space-9) * 2 - var(--md-space-2))", display: "flex", "align-items": "center", "justify-content": "center",
                 background: "var(--surface-2)", "border-radius": "var(--md-shape-md)",
                 "box-shadow": `var(--md-elev-${n})`,
-                color: "var(--text-mid)", "font-family": "ui-monospace, monospace",
+                color: "var(--text-mid)", "font-family": "var(--font-mono)",
                 "font-size": "var(--md-label-s-size)", "line-height": "var(--md-label-s-line)",
               }}>--md-elev-{n}</div>
             )}
@@ -219,47 +214,14 @@ export const DesignGallery: Component = () => {
         </div>
       </Section>
 
-      {/* 6. Primitives */}
-      <Section title="Primitives">
-        <SectionTitle>Buttons</SectionTitle>
-        <div style={{ display: "flex", gap: "12px", "flex-wrap": "wrap", "align-items": "center", "margin-bottom": "20px" }}>
-          <Button variant="filled">Filled</Button>
-          <Button variant="filled" icon="check">Filled + icon</Button>
-          <Button variant="tonal">Tonal</Button>
-          <Button variant="tonal" icon="settings">Tonal + icon</Button>
-          <Button variant="text">Text</Button>
-          <Button variant="text" icon="folder">Text + icon</Button>
-          <IconButton icon="close" label="Close" />
-          <IconButton icon="settings" label="Settings" />
-        </div>
+      <Section title="Control states">
+        <DesignControlStates />
+      </Section>
 
-        <SectionTitle>Chips</SectionTitle>
-        <div style={{ display: "flex", gap: "12px", "flex-wrap": "wrap", "margin-bottom": "20px" }}>
-          <Chip label="Plain" />
-          <Chip label="With icon" icon="bolt" />
-          <Chip label="Folder" icon="folder" />
-        </div>
-
-        <SectionTitle>Selection controls</SectionTitle>
-        <div style={{ display: "flex", gap: "24px", "flex-wrap": "wrap", "align-items": "center", "margin-bottom": "20px" }}>
-          <Switch checked={switchOn()} onChange={setSwitchOn} label="Demo switch" />
-          <Checkbox checked={checked()} onChange={setChecked} label="Demo checkbox" />
-        </div>
-
-        <SectionTitle>Inputs</SectionTitle>
-        <div style={{ display: "flex", gap: "16px", "flex-wrap": "wrap", "align-items": "center", "margin-bottom": "20px" }}>
-          <TextField value={textVal()} onInput={setTextVal} label="Text field" placeholder="type here" />
-          <Select
-            value={selectVal()}
-            onChange={setSelectVal}
-            label="Select"
-            options={[{ value: "m3", label: "Material 3" }, { value: "ansi", label: "ANSI" }, { value: "surface", label: "Surface" }]}
-          />
-        </div>
-
+      <Section title="Content primitives">
         <SectionTitle>Cards</SectionTitle>
-        <div style={{ ...grid("240px"), "margin-bottom": "20px" }}>
-          <Card variant="filled" title="Filled card" supporting="variant=filled">
+        <div style={{ ...grid("calc(var(--md-space-9) * 5)"), "margin-bottom": "var(--md-space-5)" }}>
+          <Card title="Default card" supporting="default variant">
             <span style={{ color: "var(--text-mid)", "font-size": "var(--md-body-s-size)", "line-height": "var(--md-body-s-line)" }}>Body content.</span>
           </Card>
           <Card variant="elevated" title="Elevated card" supporting="variant=elevated" trailing={<IconButton icon="more_vert" label="More" />}>
@@ -276,22 +238,22 @@ export const DesignGallery: Component = () => {
           <ListRow leading="folder" headline="Clickable row" support="onClick set" onClick={() => {}} trailing={<Icon name="chevron_right" />} />
           <ListRow leading={<Icon name="check_circle" />} headline="Selected row" support="selected=true" selected onClick={() => {}} trailing={<StatusDot status="ok" />} />
         </List>
-        <div style={{ height: "20px" }} />
+        <div style={{ height: "var(--md-space-5)" }} />
 
         <SectionTitle>Metric tiles</SectionTitle>
-        <div style={{ ...grid("180px"), "margin-bottom": "20px" }}>
+        <div style={{ ...grid("calc(var(--md-space-9) * 4)"), "margin-bottom": "var(--md-space-5)" }}>
           <MetricTile label="CPU" icon="memory" value="42%" support="8 cores" ratio={0.42} />
           <MetricTile label="Memory" icon="memory" value="11.3 GB" support="of 16 GB" ratio={0.71} />
           <MetricTile label="Disk" icon="storage" value="220 GB" support="of 512 GB" ratio={0.43} />
         </div>
 
         <SectionTitle>Empty state</SectionTitle>
-        <div style={{ "margin-bottom": "20px" }}>
-          <EmptyState icon="inbox" title="Nothing here yet" supporting="Empty-state primitive with an icon, title, supporting text, and an action." action={<Button variant="tonal" icon="add">Create</Button>} />
+        <div style={{ "margin-bottom": "var(--md-space-5)" }}>
+          <EmptyState icon="inbox" title="Nothing here yet" supporting="Empty-state primitive with an icon, title, supporting text, and an action." action={<Button variant="secondary" icon="add">Create</Button>} />
         </div>
 
         <SectionTitle>Surface (level / elevation / radius / pad)</SectionTitle>
-        <div style={{ ...grid("180px"), "margin-bottom": "20px" }}>
+        <div style={{ ...grid("calc(var(--md-space-9) * 4)"), "margin-bottom": "var(--md-space-5)" }}>
           <Surface level={2} elevation={0} radius="sm" pad={4} border>
             <span style={{ "font-size": "var(--md-label-m-size)", "line-height": "var(--md-label-m-line)", color: "var(--text-mid)" }}>level=2 elev=0 sm pad=4 border</span>
           </Surface>
@@ -303,32 +265,25 @@ export const DesignGallery: Component = () => {
           </Surface>
         </div>
 
-        <SectionTitle>Status dots (filled + hollow)</SectionTitle>
-        <div style={{ display: "flex", gap: "20px", "flex-wrap": "wrap", "margin-bottom": "20px" }}>
+        <SectionTitle>Status dots (solid + hollow)</SectionTitle>
+        <div style={{ display: "flex", gap: "var(--md-space-5)", "flex-wrap": "wrap", "margin-bottom": "var(--md-space-5)" }}>
           <For each={STATUS_DOTS}>
             {(s) => (
-              <div style={{ display: "flex", "flex-direction": "column", gap: "8px", "align-items": "center" }}>
-                <div style={{ display: "flex", gap: "8px" }}>
+              <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)", "align-items": "center" }}>
+                <div style={{ display: "flex", gap: "var(--md-space-2)" }}>
                   <StatusDot status={s} size={12} title={s} />
                   <StatusDot status={s} size={12} hollow title={`${s} hollow`} />
                 </div>
-                <span style={{ color: "var(--text-lo)", "font-size": "var(--md-label-s-size)", "line-height": "var(--md-label-s-line)", "font-family": "ui-monospace, monospace" }}>{s}</span>
+                <span style={{ color: "var(--text-lo)", "font-size": "var(--md-label-s-size)", "line-height": "var(--md-label-s-line)", "font-family": "var(--font-mono)" }}>{s}</span>
               </div>
             )}
           </For>
         </div>
 
-        <SectionTitle>Sheet</SectionTitle>
-        <Button variant="filled" icon="open_in_full" onClick={() => setSheetOpen(true)}>Open demo Sheet</Button>
-        <Sheet open={sheetOpen()} onClose={() => setSheetOpen(false)} side="center">
-          <div style={{ padding: "24px", display: "flex", "flex-direction": "column", gap: "16px", "min-width": "min(420px, 90vw)" }}>
-            <h3 style={{ margin: 0, color: "var(--text-hi)", "font-size": "var(--md-title-m-size)", "line-height": "var(--md-title-m-line)", "font-weight": "var(--md-title-m-weight)" }}>Demo Sheet</h3>
-            <p style={{ margin: 0, color: "var(--text-mid)", "font-size": "var(--md-body-m-size)", "line-height": "var(--md-body-m-line)" }}>side="center" — scrim + token-driven panel. Close via scrim, Esc, or the button.</p>
-            <div style={{ display: "flex", "justify-content": "flex-end" }}>
-              <Button variant="tonal" onClick={() => setSheetOpen(false)}>Close</Button>
-            </div>
-          </div>
-        </Sheet>
+      </Section>
+
+      <Section title="Overlay states">
+        <DesignOverlayStates />
       </Section>
     </div>
   );

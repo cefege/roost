@@ -8,7 +8,7 @@
 // the in-bar key handling.
 
 import { Show } from "solid-js";
-import { IconButton } from "./Settings/md/primitives.tsx";
+import { Button, IconButton } from "./Settings/md/primitives.tsx";
 import type { TerminalFind } from "../lib/terminalFindController.ts";
 
 export function TerminalFindBar(props: {
@@ -78,28 +78,34 @@ export function TerminalFindBar(props: {
         disabled={find.matches().length === 0}
         onClick={() => find.step(1)}
       />
-      <button
+      <Button
         type="button"
+        variant={find.caseSensitive() ? "secondary" : "outline"}
+        size="xs"
         class="term-find-toggle"
         data-testid="terminal-find-case"
         data-on={find.caseSensitive() ? "true" : "false"}
+        data-active={find.caseSensitive() ? "true" : "false"}
         aria-pressed={find.caseSensitive()}
         title="Match case"
         onClick={() => find.toggleCaseSensitive()}
       >
         Aa
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
+        variant={find.regex() ? "secondary" : "outline"}
+        size="xs"
         class="term-find-toggle"
         data-testid="terminal-find-regex"
         data-on={find.regex() ? "true" : "false"}
+        data-active={find.regex() ? "true" : "false"}
         aria-pressed={find.regex()}
         title="Regular expression"
         onClick={() => find.toggleRegex()}
       >
         .*
-      </button>
+      </Button>
       <Show when={props.altScreen}>
         <span class="term-find-note">visible rows only</span>
       </Show>

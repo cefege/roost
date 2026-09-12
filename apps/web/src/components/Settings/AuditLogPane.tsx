@@ -26,6 +26,8 @@ interface AuditRow {
 
 const PAGE_LIMIT = 100;
 
+const MONO: Record<string, string> = { "font-family": "var(--font-mono)" };
+
 function statusTone(status: number): { bg: string; fg: string } {
   if (status < 300) return { bg: "var(--md-sys-color-secondary-container)", fg: "var(--md-sys-color-on-secondary-container)" };
   if (status < 400) return { bg: "var(--md-sys-color-surface-container-high)", fg: "var(--md-sys-color-on-surface)" };
@@ -166,7 +168,7 @@ export function AuditLogPane() {
             testId="audit-filter-fp" label="Caller fp prefix"
             value={filterFp()} onInput={(v) => setFilterFp(v)}
             placeholder="deadbeef"
-            style={{ "font-family": "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+            controlStyle={MONO}
           />
           <TextField
             testId="audit-filter-method" label="Method"
@@ -177,7 +179,7 @@ export function AuditLogPane() {
             testId="audit-filter-path" label="Path contains"
             value={filterPath()} onInput={(v) => setFilterPath(v)}
             placeholder="Sessions"
-            style={{ "font-family": "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+            controlStyle={MONO}
           />
           <TextField
             testId="audit-filter-status-min" label="Status ≥"
@@ -191,7 +193,7 @@ export function AuditLogPane() {
           />
         </div>
         <div style={{ display: "flex", "justify-content": "flex-end" }}>
-          <Button variant="text" icon="filter_alt_off" onClick={clearFilters} data-testid="audit-filter-clear">
+          <Button variant="ghost" icon="filter_alt_off" onClick={clearFilters} data-testid="audit-filter-clear">
             Clear filters
           </Button>
         </div>
@@ -302,15 +304,10 @@ export function AuditLogPane() {
 
         <div style={{ display: "flex", gap: "var(--md-space-3)", "align-items": "center" }}>
           <Show when={nextCursor() !== null}>
-            <Button
-              variant="tonal"
-              icon="expand_more"
-              disabled={loading()}
-              onClick={() => void fetchPage(nextCursor() ?? undefined)}
-              data-testid="audit-load-more"
-            >
-              {loading() ? "Loading…" : "Load more"}
-            </Button>
+            <Button variant="secondary" icon="expand_more"
+            disabled={loading()}
+            onClick={() => void fetchPage(nextCursor() ?? undefined)}
+            data-testid="audit-load-more">{loading() ? "Loading…" : "Load more"}</Button>
           </Show>
           <Show when={loading() && nextCursor() === null}>
             <span class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>Loading…</span>

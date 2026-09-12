@@ -4,8 +4,10 @@
 // Callers: App.tsx (always mounted; internal Show gate).
 // Exposes: data-testid="connection-banner" data-banner-reason="offline"|"coord-unreachable"|"coord-mixed-content"
 
-import { type Component, createSignal, onMount, onCleanup, Show } from "solid-js";
-import { Button } from "./Settings/md/Button.tsx";
+import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { Button, StatusDot, Surface } from "./Settings/md/primitives.tsx";
+import { reconnectNow } from "../store/sync.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
 
 export interface CoordHealthSnapshot {
@@ -83,51 +85,47 @@ export const ConnectionBanner: Component = () => {
         title={detail() || undefined}
         style={{
           position: "fixed",
-          top: "0",
-          left: "0",
-          right: "0",
+          inset: "0 0 auto",
           "z-index": "50",
-          display: "flex",
-          "align-items": "center",
-          "justify-content": "center",
-          gap: "10px",
-          padding: "8px 16px",
-          "font-size": "13px",
-          "font-family":
-            'Roboto, "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
-          // M3 dark-theme error surface: container-high bg + on-surface
-          // text + error-colored accent dot + a hairline error border.
-          background: "var(--md-surface-container-high)",
-          color: "var(--md-on-surface)",
-          "border-bottom": "1px solid var(--md-error)",
-          "box-shadow": "var(--md-elev-2)",
         }}
       >
-        <span
-          aria-hidden="true"
+        <Surface
+          level={2}
+          elevation={2}
+          radius="xs"
           style={{
-            width: "8px", height: "8px", "border-radius": "50%",
-            background: "var(--md-error)", "flex-shrink": "0",
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "var(--md-space-3)",
+            padding: "var(--md-space-2) var(--md-space-4)",
+            "border-bottom": "var(--workbench-border-width) solid var(--md-sys-color-error)",
+            color: "var(--md-sys-color-on-surface)",
+            font: "var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font)",
           }}
-        />
-        <Show when={reason() === "offline"}>
-          <span>Offline — check your network connection</span>
-        </Show>
-        <Show when={reason() === "coord-unreachable"}>
-          <span>Coordinator unreachable — sessions paused</span>
-          <Button
-            variant="tonal"
-            data-testid="connection-banner-reconnect"
-            onClick={async () => {
-              const { reconnectNow } = await import("../store/sync.ts");
-              reconnectNow();
-              setReason(null); // optimistic; evaluate() re-confirms in ≤2s
-            }}
-          >Reconnect</Button>
-        </Show>
-        <Show when={reason() === "coord-mixed-content"}>
-          <span>Coordinator HTTP blocked (mixed content) — use HTTPS</span>
-        </Show>
+        >
+          <StatusDot status="error" />
+          <Show when={reason() === "offline"}>
+            <span>Offline — check your network connection</span>
+          </Show>
+          <Show when={reason() === "coord-unreachable"}>
+            <span>Coordinator unreachable — sessions paused</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="connection-banner-reconnect"
+              onClick={() => {
+                reconnectNow();
+                setReason(null); // optimistic; evaluate() re-confirms in ≤2s
+              }}
+            >
+              Reconnect
+            </Button>
+          </Show>
+          <Show when={reason() === "coord-mixed-content"}>
+            <span>Coordinator HTTP blocked (mixed content) — use HTTPS</span>
+          </Show>
+        </Surface>
       </div>
     </Show>
   );

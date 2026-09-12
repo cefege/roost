@@ -9,7 +9,7 @@
 import { createEffect, createResource, createSignal, Show } from "solid-js";
 import { coordClient } from "../../connect.ts";
 import { invalidateDeepgramKey } from "../../lib/deepgramKey.ts";
-import { Card, Button, Icon, Switch, TextField, Select } from "./md/primitives.tsx";
+import { Card, Button, Icon, StatusDot, SwitchRow, TextField, Select } from "./md/primitives.tsx";
 
 // Deepgram nova-3 languages, verbatim from the official support matrix:
 // https://developers.deepgram.com/docs/models-languages-overview — every code
@@ -111,49 +111,8 @@ const LANGUAGES: { value: string; label: string }[] = [
 ];
 import { keytermBiasing, setKeytermBiasing } from "../../lib/keytermBiasingPref.ts";
 
-function Field(props: { label: string; hint?: string; children: unknown }) {
-  return (
-    <label style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-1)" }}>
-      <span class="md-label-m" style={{ color: "var(--md-sys-color-on-surface)" }}>{props.label}</span>
-      {props.children as never}
-      <Show when={props.hint}>
-        <span class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>{props.hint}</span>
-      </Show>
-    </label>
-  );
-}
 
-// Pill toggle — role=switch, no global CSS. Used for dictation preferences.
-function SwitchRow(props: { headline: string; support?: string; checked: boolean; onChange: (v: boolean) => void; testId?: string }) {
-  return (
-    <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-4)" }}>
-      <div style={{ flex: 1, "min-width": 0 }}>
-        <div class="md-body-m" style={{ color: "var(--md-sys-color-on-surface)" }}>{props.headline}</div>
-        <Show when={props.support}>
-          <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>{props.support}</div>
-        </Show>
-      </div>
-      <Switch checked={props.checked} onChange={props.onChange} testId={props.testId} label={props.headline} />
-    </div>
-  );
-}
 
-// Status dot — ok (green) | warn (amber) | off (outline).
-function Dot(props: { tone: "ok" | "warn" | "off" }) {
-  const color = () =>
-    props.tone === "ok" ? "var(--status-ok)"
-      : props.tone === "warn" ? "var(--status-warn)"
-        : "var(--md-sys-color-outline)";
-  return (
-    <span
-      style={{
-        width: "9px", height: "9px", "border-radius": "50%", flex: "0 0 auto",
-        background: color(),
-        "box-shadow": props.tone === "ok" ? "0 0 0 3px color-mix(in srgb, var(--status-ok) 22%, transparent)" : "none",
-      }}
-    />
-  );
-}
 
 export function TranscriptionPane() {
   const [config, { refetch }] = createResource(() => coordClient.transcriptionGetConfig({}));
@@ -221,8 +180,7 @@ export function TranscriptionPane() {
   return (
     <div data-testid="settings-transcription-pane" style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-5)" }}>
       {/* ── Status hero ── */}
-      <section
-        class="md-card"
+      <Card
         data-testid="transcription-status"
         style={{ display: "flex", "align-items": "center", gap: "var(--md-space-4)" }}
       >
@@ -238,7 +196,7 @@ export function TranscriptionPane() {
         </div>
         <div style={{ flex: 1, "min-width": 0 }}>
           <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
-            <Dot tone={deepgramOn() ? "ok" : "warn"} />
+            <StatusDot status={deepgramOn() ? "ok" : "warn"} />
             <span class="md-title-m" style={{ color: "var(--md-sys-color-on-surface)" }}>
               {deepgramOn() ? "Deepgram" : "Browser speech"}
             </span>
@@ -249,7 +207,7 @@ export function TranscriptionPane() {
               : "Browser's built-in speech — add a Deepgram key below to upgrade."}
           </div>
         </div>
-      </section>
+      </Card>
 
       {/* ── Dictation behavior (client pref) ── */}
       <Card title="Dictation">
@@ -268,7 +226,7 @@ export function TranscriptionPane() {
         supporting="Stored on the coordinator. For direct Deepgram dictation, Roost returns the configured key to this authenticated admin browser, which connects to Deepgram directly. Leave it empty to use the browser's built-in speech."
         trailing={
           <span style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
-            <Dot tone={deepgramOn() ? "ok" : "off"} />
+            <StatusDot status={deepgramOn() ? "ok" : "offline"} hollow={!deepgramOn()} />
             <span class="md-label-m" style={{ color: deepgramOn() ? "var(--status-ok)" : "var(--md-sys-color-on-surface-variant)" }}>
               {deepgramOn() ? "Configured" : "Not set"}
             </span>
@@ -276,37 +234,30 @@ export function TranscriptionPane() {
         }
       >
         <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-4)" }}>
-          <Field
+          <TextField
             label="Deepgram API key"
-            hint={deepgramOn() ? "A key is saved. Type a new one to replace it." : "Paste a key, or leave blank to use the browser's built-in speech."}
-          >
-            <TextField
-              type="password"
-              testId="transcription-deepgram-key"
-              placeholder={config()?.deepgramKeyMasked || "paste API key"}
-              value={dgKey()}
-              onInput={setDgKey}
-            />
-          </Field>
+            description={deepgramOn() ? "A key is saved. Type a new one to replace it." : "Paste a key, or leave blank to use the browser's built-in speech."}
+            type="password"
+            testId="transcription-deepgram-key"
+            placeholder={config()?.deepgramKeyMasked || "paste API key"}
+            value={dgKey()}
+            onInput={setDgKey}
+          />
 
-          <Field label="Language" hint="Keyterm biasing (project jargon → accurate transcription) applies in English only.">
-            <Select
-              testId="transcription-language"
-              value={lang()}
-              onChange={setLang}
-              options={LANGUAGES}
-            />
-          </Field>
+          <Select
+            label="Language"
+            description="Keyterm biasing (project jargon → accurate transcription) applies in English only."
+            testId="transcription-language"
+            value={lang()}
+            onChange={setLang}
+            options={LANGUAGES}
+          />
 
           <div style={{ display: "flex", "align-items": "center", "flex-wrap": "wrap", gap: "var(--md-space-3)" }}>
-            <Button variant="filled" data-testid="transcription-save" onClick={() => void save()} disabled={saving()}>
-              {saving() ? "Saving…" : "Save"}
-            </Button>
-            <Button variant="tonal" icon="check_circle" data-testid="transcription-test" onClick={() => void testKey()} disabled={testing() || !deepgramOn()}>
-              {testing() ? "Testing…" : "Test"}
-            </Button>
+            <Button variant="default" data-testid="transcription-save" onClick={() => void save()} disabled={saving()}>{saving() ? "Saving…" : "Save"}</Button>
+            <Button variant="secondary" icon="check_circle" data-testid="transcription-test" onClick={() => void testKey()} disabled={testing() || !deepgramOn()}>{testing() ? "Testing…" : "Test"}</Button>
             <Show when={deepgramOn()}>
-              <Button variant="text" data-testid="transcription-clear" onClick={() => void clearKey()} disabled={saving()}>
+              <Button variant="ghost" data-testid="transcription-clear" onClick={() => void clearKey()} disabled={saving()}>
                 Remove key
               </Button>
             </Show>

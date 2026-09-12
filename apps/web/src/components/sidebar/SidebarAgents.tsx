@@ -1,4 +1,4 @@
-// Lower sidebar panel for retained coding-agent sessions.
+// Agents sidebar panel for retained coding-agent sessions.
 // It projects navigation documents through the existing folder order and status
 // presentation, then delegates terminal navigation to the shared list primitives.
 // FolderList remains the sole owner of global sidebar cursor behavior.
@@ -44,9 +44,6 @@ export function SidebarAgents(): JSX.Element {
 
   return (
     <section class="workbench-sidebar-agents" data-testid="sidebar-agents" aria-label="Agents">
-      <header class="workbench-sidebar-agents__header">
-        <h2 class="workbench-sidebar-agents__title">Agents</h2>
-      </header>
       <Show
         when={groups().length > 0}
         fallback={(

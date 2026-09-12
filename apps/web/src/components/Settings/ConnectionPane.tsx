@@ -95,7 +95,7 @@ export function ConnectionPane() {
           headline="This server (default)"
           support={active === "" ? "Connected" : "Same origin that served this page"}
           selected={active === ""}
-          trailing={active === "" ? <Icon name="check" /> : <Button variant="text" onClick={() => switchTo("")}>Use</Button>}
+          trailing={active === "" ? <Icon name="check" /> : <Button variant="ghost" onClick={() => switchTo("")}>Use</Button>}
           testId="coord-default"
         />
         <For each={saved()}>
@@ -108,10 +108,10 @@ export function ConnectionPane() {
               trailing={
                 <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
                   <Show when={active !== coord.url}>
-                    <Button variant="text" onClick={() => switchTo(coord.url)}>Use</Button>
+                    <Button variant="ghost" onClick={() => switchTo(coord.url)}>Use</Button>
                   </Show>
                   <Show when={active === coord.url}><Icon name="check" /></Show>
-                  <Button variant="text" icon="delete" aria-label="Remove" onClick={() => removeCoord(coord.url)} />
+                  <Button variant="ghost" icon="delete" aria-label="Remove" onClick={() => removeCoord(coord.url)} />
                 </div>
               }
               testId={`coord-row-${coord.url}`}
@@ -135,7 +135,7 @@ export function ConnectionPane() {
             <div class="md-body-s" style={{ color: "var(--md-sys-color-error)" }}>{error()}</div>
           </Show>
           <div>
-            <Button variant="filled" icon="add" onClick={addCoord}>Add</Button>
+            <Button variant="default" icon="add" onClick={addCoord}>Add</Button>
           </div>
         </div>
       </Card>

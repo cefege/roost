@@ -8,6 +8,16 @@
 
 import { For, Show } from "solid-js";
 import type { Crumb, CrumbView } from "../lib/folderPalette.ts";
+import { Button } from "./Settings/md/Button.tsx";
+import { IconButton } from "./Settings/md/IconButton.tsx";
+import {
+  ctxMenuSurfaceStyle,
+  CtxMenuItem,
+  focusMenuEdge,
+  handleMenuKeyboardNavigation,
+  trackFloatingMenuDismiss,
+} from "./contextMenuPrimitives.tsx";
+import type { MenuFocusEdge } from "./contextMenuPrimitives.tsx";
 
 export function BrowseBreadcrumbs(props: {
   /** Collapsed views the strip paints (collapseCrumbsTo output). */
@@ -22,78 +32,151 @@ export function BrowseBreadcrumbs(props: {
   setStripRef: (el: HTMLDivElement) => void;
   setMirrorRef: (el: HTMLDivElement) => void;
 }) {
-  let crumbOverflowBtn: HTMLButtonElement | undefined;
+  let crumbOverflowButton: HTMLButtonElement | undefined;
+  let crumbMenuElement: HTMLDivElement | undefined;
+  let cancelPendingFocus: (() => void) | null = null;
+
+  function closeCrumbMenu(restoreTriggerFocus = false): void {
+    if (!props.menuOpen) return;
+    cancelPendingFocus?.();
+    cancelPendingFocus = null;
+    props.setMenuOpen(false);
+    if (restoreTriggerFocus) queueMicrotask(() => crumbOverflowButton?.focus());
+  }
+  function openCrumbMenu(edge: MenuFocusEdge = "first"): void {
+    if (!crumbOverflowButton) return;
+    cancelPendingFocus?.();
+    const bounds = crumbOverflowButton.getBoundingClientRect();
+    props.setMenuPos({ top: bounds.bottom + 4, left: bounds.left });
+    props.setMenuOpen(true);
+    cancelPendingFocus = focusMenuEdge(() => crumbMenuElement, edge);
+  }
+  function toggleCrumbMenu(): void {
+    if (props.menuOpen) closeCrumbMenu();
+    else openCrumbMenu();
+  }
+  function chooseCrumb(path: string): void {
+    closeCrumbMenu();
+    props.onNavigate(path);
+  }
+  function onOverflowTriggerKeyDown(event: KeyboardEvent): void {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      openCrumbMenu(event.key === "ArrowDown" ? "first" : "last");
+    } else if (event.key === "Escape" && props.menuOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeCrumbMenu();
+    }
+  }
+  function onCrumbMenuKeyDown(event: KeyboardEvent): void {
+    handleMenuKeyboardNavigation(
+      event,
+      crumbMenuElement,
+      () => closeCrumbMenu(true),
+      () => closeCrumbMenu(),
+    );
+  }
+
+  trackFloatingMenuDismiss({
+    within: [() => crumbOverflowButton, () => crumbMenuElement],
+    onClose: () => closeCrumbMenu(),
+    onEscape: () => closeCrumbMenu(true),
+  });
+
   return (
     <>
       <div class="df-browse-crumbs" ref={props.setStripRef} data-testid="browse-crumbs">
         <For each={props.crumbViews}>
-          {(v, i) => (
+          {(view, index) => (
             <>
-              <Show when={i() > 0}>
+              <Show when={index() > 0}>
                 <span class="df-browse-crumb-sep" aria-hidden="true">▸</span>
               </Show>
               <Show
-                when={v.kind === "crumb"}
+                when={view.kind === "crumb"}
                 fallback={
-                  <div style={{ position: "relative", "flex-shrink": "0" }}>
-                    <button type="button" class="df-browse-crumb df-browse-crumb-overflow"
-                      ref={crumbOverflowBtn}
-                      data-testid="browse-crumb-overflow" aria-label="Show hidden folders"
-                      aria-haspopup="menu" aria-expanded={props.menuOpen}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const willOpen = !props.menuOpen;
-                        if (willOpen && crumbOverflowBtn) {
-                          const r = crumbOverflowBtn.getBoundingClientRect();
-                          props.setMenuPos({ top: r.bottom + 6, left: r.left });
-                        }
-                        props.setMenuOpen(willOpen);
-                      }}
-                    >…</button>
-                    <Show when={props.menuOpen}>
-                      <div onClick={() => props.setMenuOpen(false)}
-                        style={{ position: "fixed", inset: "0", "z-index": "1" }} />
-                      <div data-testid="browse-crumb-menu"
-                        style={{ position: "fixed", top: `${props.menuPos.top}px`, left: `${props.menuPos.left}px`, "min-width": "180px", "max-height": "50vh", overflow: "auto", "z-index": "2", display: "flex", "flex-direction": "column", padding: "4px", background: "var(--md-sys-color-surface-container-high)", border: "1px solid var(--md-sys-color-outline-variant)", "border-radius": "var(--md-shape-md)", "box-shadow": "var(--md-elev-2)" }}
-                      >
-                        <For each={(v as Extract<CrumbView, { kind: "ellipsis" }>).hidden}>
-                          {(h) => (
-                            <button type="button" data-testid="browse-crumb-menu-item"
-                              onClick={(e) => { e.stopPropagation(); props.setMenuOpen(false); props.onNavigate(h.path); }}
-                              title={h.path}
-                              style={{ display: "flex", "align-items": "center", gap: "8px", width: "100%", padding: "6px 10px", "border-radius": "var(--md-shape-sm)", border: "none", background: "transparent", color: "var(--md-sys-color-on-surface)", "font-size": "var(--md-body-s-size)", "font-family": "inherit", cursor: "pointer", "text-align": "left", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}
-                            >{h.label}</button>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </div>
+                  <IconButton
+                    ref={crumbOverflowButton}
+                    id="browse-crumb-overflow"
+                    class="df-browse-crumb-overflow"
+                    data-testid="browse-crumb-overflow"
+                    icon="more_horiz"
+                    label="Show hidden folders"
+                    title="Show hidden folders"
+                    menuPopup="menu"
+                    controlsId="browse-crumb-menu"
+                    expanded={props.menuOpen}
+                    onClick={toggleCrumbMenu}
+                    onKeyDown={onOverflowTriggerKeyDown}
+                  />
                 }
               >
-                <button type="button" class="df-browse-crumb" data-testid="browse-crumb"
-                  data-current={i() === props.crumbViews.length - 1 ? "true" : "false"}
-                  onClick={() => props.onNavigate((v as Extract<CrumbView, { kind: "crumb" }>).path)}
-                  title={(v as Extract<CrumbView, { kind: "crumb" }>).path}
-                >{(v as Extract<CrumbView, { kind: "crumb" }>).label}</button>
+                <Button
+                  class="df-browse-crumb"
+                  variant={index() === props.crumbViews.length - 1 ? "secondary" : "ghost"}
+                  size="sm"
+                  data-testid="browse-crumb"
+                  data-current={index() === props.crumbViews.length - 1 ? "true" : undefined}
+                  aria-current={index() === props.crumbViews.length - 1 ? "page" : undefined}
+                  onClick={() => chooseCrumb((view as Extract<CrumbView, { kind: "crumb" }>).path)}
+                  title={(view as Extract<CrumbView, { kind: "crumb" }>).path}
+                >
+                  {(view as Extract<CrumbView, { kind: "crumb" }>).label}
+                </Button>
               </Show>
             </>
           )}
         </For>
       </div>
+      <Show when={props.menuOpen}>
+        <div
+          ref={crumbMenuElement}
+          id="browse-crumb-menu"
+          class="df-menu-enter df-browse-crumb-menu"
+          data-testid="browse-crumb-menu"
+          role="menu"
+          aria-labelledby="browse-crumb-overflow"
+          style={ctxMenuSurfaceStyle(props.menuPos.left, props.menuPos.top)}
+          onKeyDown={onCrumbMenuKeyDown}
+        >
+          <For each={props.crumbViews}>
+            {(view) => (
+              <Show when={view.kind === "ellipsis"}>
+                <For each={(view as Extract<CrumbView, { kind: "ellipsis" }>).hidden}>
+                  {(hidden) => (
+                    <CtxMenuItem
+                      class="df-browse-crumb-menu-item"
+                      testid="browse-crumb-menu-item"
+                      title={hidden.path}
+                      onClick={() => chooseCrumb(hidden.path)}
+                    >
+                      <span>{hidden.label}</span>
+                    </CtxMenuItem>
+                  )}
+                </For>
+              </Show>
+            )}
+          </For>
+        </div>
+      </Show>
       <div class="df-browse-crumbs-measure" ref={props.setMirrorRef} aria-hidden="true">
         <For each={props.crumbs}>
-          {(c, i) => (
+          {(crumb, index) => (
             <>
-              <Show when={i() > 0}>
+              <Show when={index() > 0}>
                 <span class="df-browse-crumb-sep" data-mirror-sep aria-hidden="true">▸</span>
               </Show>
-              <button type="button" class="df-browse-crumb" data-mirror-crumb tabindex="-1">{c.label}</button>
+              <button type="button" class="roost-button roost-button--ghost roost-button--sm df-browse-crumb"
+                data-mirror-crumb tabIndex={-1}>{crumb.label}</button>
             </>
           )}
         </For>
-        {/* one sample of each non-crumb token so its width is measurable */}
         <span class="df-browse-crumb-sep" aria-hidden="true">▸</span>
-        <button type="button" class="df-browse-crumb df-browse-crumb-overflow" data-mirror-overflow tabindex="-1">…</button>
+        <button type="button"
+          class="roost-button roost-button--ghost roost-button--icon roost-icon-button df-browse-crumb-overflow"
+          data-mirror-overflow tabIndex={-1}>…</button>
       </div>
     </>
   );

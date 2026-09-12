@@ -43,14 +43,13 @@ export function PaneTab(props: PaneTabProps) {
       onMouseLeave={props.onHoverEnd}
     >
       <Button
-        variant="text"
+        variant="ghost"
         class="workbench-pane-tab__select"
         aria-current={props.active ? "page" : undefined}
         onPointerDown={props.onPointerDown}
         onClick={props.onSelect}
         title={sessionTitle(props.session)}
       >
-        <md-ripple />
         <Icon name="terminal" class="workbench-pane-tab__icon" />
         <span class="df-tab-label workbench-pane-tab__label">{sessionTitle(props.session)}</span>
         <AgentStatusIndicator sessionId={props.session.id} compact />
@@ -58,6 +57,7 @@ export function PaneTab(props: PaneTabProps) {
       <IconButton
         icon="close"
         label="Close terminal"
+        size="icon-sm"
         class="df-tab-close workbench-pane-tab__close"
         data-testid={`tab-close-${props.session.id}`}
         onClick={props.onClose}

@@ -5,7 +5,6 @@
 import { A, useLocation } from "@solidjs/router";
 import { Icon } from "../Settings/md/primitives.tsx";
 import { ROUTES, settingsPaneHref } from "../../routes.ts";
-import { toggleSidebarCollapsed } from "../../store/uiStore.ts";
 
 function isSessionsRoute(pathname: string): boolean {
   return pathname === ROUTES.ROOT
@@ -14,7 +13,11 @@ function isSessionsRoute(pathname: string): boolean {
     || pathname.startsWith("/w/");
 }
 
-export function WorkbenchActivityBar() {
+interface WorkbenchActivityBarProps {
+  onToggleSidebar: () => void;
+}
+
+export function WorkbenchActivityBar(props: WorkbenchActivityBarProps) {
   const location = useLocation();
   const sessionsActive = () => isSessionsRoute(location.pathname);
   const searchActive = () => location.pathname.startsWith(ROUTES.SEARCH);
@@ -26,13 +29,14 @@ export function WorkbenchActivityBar() {
     if (!sessionsActive() || event.defaultPrevented || event.button !== 0
       || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    toggleSidebarCollapsed();
+    props.onToggleSidebar();
   }
 
   return (
     <nav class="workbench-activity-bar" aria-label="Workbench navigation">
       <div class="workbench-activity-bar__group">
         <A
+          id="workbench-activity-sessions"
           class="workbench-activity-bar__item"
           data-active={sessionsActive() ? "true" : "false"}
           data-testid="workbench-activity-sessions"

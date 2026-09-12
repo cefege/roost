@@ -12,7 +12,6 @@ import { For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { transfers, removeTransfer, type Transfer } from "../store/transfers.ts";
 import { formatBytes, formatSpeed, formatEta } from "../lib/format.ts";
-import "@material/web/progress/linear-progress.js";
 
 export function TransferStack() {
   return (
@@ -44,6 +43,17 @@ function TransferCard(props: { t: Transfer }) {
   const done = () => t().state === "ok" || t().state === "dedup" || t().state === "err";
   // % is live during "active"; guard total=0 (unknown/empty) → 0.
   const pct = () => (t().bytes_total > 0 ? Math.round((t().bytes_done / t().bytes_total) * 100) : 0);
+  const progressValue = () => {
+    const transfer = t();
+    if (
+      transfer.state === "hashing"
+      || (transfer.state === "active" && transfer.bytes_total === 0)
+    ) {
+      return undefined;
+    }
+    if (transfer.bytes_total === 0) return 0;
+    return Math.min(1, Math.max(0, transfer.bytes_done / transfer.bytes_total));
+  };
   const meta = () => {
     const s = t();
     if (s.state === "hashing") return "Checking…";
@@ -114,11 +124,15 @@ function TransferCard(props: { t: Transfer }) {
           }}
         >✕</button>
       </div>
-      <Show when={!done()}>
-        <md-linear-progress
-          prop:value={t().bytes_total > 0 ? t().bytes_done / t().bytes_total : 0}
-          prop:indeterminate={t().state === "hashing" || (t().state === "active" && t().bytes_total === 0)}
-        />
+      <Show
+        when={!done() && progressValue() !== undefined}
+        fallback={
+          <Show when={!done()}>
+            <progress aria-label="Transfer progress" max={1} style={{ width: "100%", height: "var(--md-space-1)", "accent-color": "var(--accent)" }} />
+          </Show>
+        }
+      >
+        <progress aria-label="Transfer progress" max={1} value={progressValue()!} style={{ width: "100%", height: "var(--md-space-1)", "accent-color": "var(--accent)" }} />
       </Show>
       <div style={{ "font-size": "var(--md-body-s-size)", "line-height": "16px", color: metaColor() }}>
         {meta()}

@@ -121,13 +121,8 @@ export function SidebarEmptyState(props: SidebarEmptyStateProps) {
       {/* CTA */}
       <Show when={ctaLabel()}>
         {(label) => (
-          <Button
-            variant="tonal"
-            data-testid="sidebar-empty-state-cta"
-            onClick={() => navigate(ctaHref())}
-          >
-            {label()}
-          </Button>
+          <Button variant="secondary" data-testid="sidebar-empty-state-cta"
+          onClick={() => navigate(ctaHref())}>{label()}</Button>
         )}
       </Show>
     </div>

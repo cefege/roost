@@ -1,32 +1,46 @@
-// Material chip primitive for compact actions and selected filters.
-// Callers opt into filter-chip semantics by passing selected; assist chips
-// remain the default for stateless actions.
+// Native chip primitive for compact labels and actions.
+// Its host is passive unless callers provide an onClick callback.
+// Shared control CSS owns the visual treatment.
 
 import { type Component, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import "@material/web/chips/assist-chip.js";
-import "@material/web/chips/filter-chip.js";
 import { Icon } from "./Icon.tsx";
 
-export const Chip: Component<{
+export type ChipProps = {
   label: string;
   icon?: string;
   selected?: boolean;
   onClick?: () => void;
   testId?: string;
-}> = (props) => (
-  <Dynamic
-    component={props.selected === undefined ? "md-assist-chip" : "md-filter-chip"}
-    label={props.label}
-    selected={props.selected}
-    aria-pressed={props.selected}
-    data-testid={props.testId}
-    onClick={props.onClick}
-  >
-    <Show when={props.icon}>
-      <span slot="icon" style={{ display: "inline-flex" }}>
+};
+
+export const Chip: Component<ChipProps> = (props) => {
+  const content = (
+    <>
+      <Show when={props.icon}>
         <Icon name={props.icon!} size="sm" />
-      </span>
-    </Show>
-  </Dynamic>
-);
+      </Show>
+      {props.label}
+    </>
+  );
+
+  return props.onClick ? (
+    <button
+      type="button"
+      class="roost-chip"
+      data-selected={props.selected ? "true" : undefined}
+      aria-pressed={props.selected === undefined ? undefined : props.selected}
+      data-testid={props.testId}
+      onClick={props.onClick}
+    >
+      {content}
+    </button>
+  ) : (
+    <span
+      class="roost-chip"
+      data-selected={props.selected ? "true" : undefined}
+      data-testid={props.testId}
+    >
+      {content}
+    </span>
+  );
+};

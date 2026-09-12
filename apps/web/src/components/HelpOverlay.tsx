@@ -5,12 +5,12 @@
 // Callers: App.tsx (always rendered; internally gated on helpOpen).
 // Depends on: keyboardShortcuts signals only — no store reads.
 
-import { createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { helpOpen, closeHelp } from "../lib/keyboardShortcuts.ts";
-import { Button } from "./Settings/md/primitives.tsx";
+import { Button, TextField } from "./Settings/md/primitives.tsx";
+import { Sheet } from "./Settings/md/Sheet.tsx";
 import { copyToClipboard } from "../lib/clipboard.ts";
-import { createOverlayPresence } from "../lib/overlayMotion.ts";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 import { credentialFreeUrl } from "../auth/fragment-credential.ts";
 
@@ -25,7 +25,7 @@ interface ShortcutEntry {
 
 const SHORTCUTS: ShortcutEntry[] = [
   // Navigation
-  { category: "Navigation", label: "Command palette / open terminal", binding: platformShortcutLabel("commandPalette", "⌘K") },
+  { category: "Navigation", label: "Command palette", binding: platformShortcutLabel("commandPalette", "⌘K") },
   { category: "Navigation", label: "Filter the sidebar", binding: platformShortcutLabel("sidebarSearch", "⌘F (no terminal on screen) / Ctrl+F") },
   { category: "Navigation", label: "Toggle sidebar", binding: platformShortcutLabel("toggleSidebar", "⌘B") },
   { category: "Navigation", label: "Move / open in sidebar", binding: "↑ ↓ ↵" },
@@ -53,164 +53,100 @@ const SHORTCUTS: ShortcutEntry[] = [
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function HelpOverlay() {
-  const { present, setPanelRef } = createOverlayPresence(helpOpen, "panel");
   const [filter, setFilter] = createSignal("");
-  let inputRef: HTMLInputElement | undefined;
+  let inputRef: HTMLElement | undefined;
 
-  // Auto-focus filter input when overlay opens.
   createMemo(() => {
-    if (helpOpen()) {
-      requestAnimationFrame(() => inputRef?.focus());
-    }
+    if (helpOpen()) requestAnimationFrame(() => inputRef?.focus());
   });
 
   const filteredShortcuts = createMemo<ShortcutEntry[]>(() => {
     const q = filter().toLowerCase().trim();
     if (!q) return SHORTCUTS;
     return SHORTCUTS.filter(
-      (s) =>
-        s.label.toLowerCase().includes(q) ||
-        s.category.toLowerCase().includes(q) ||
-        (s.description?.toLowerCase().includes(q) ?? false),
+      (shortcut) =>
+        shortcut.label.toLowerCase().includes(q) ||
+        shortcut.category.toLowerCase().includes(q) ||
+        (shortcut.description?.toLowerCase().includes(q) ?? false),
     );
   });
 
   const grouped = createMemo(() => {
-    const out = new Map<string, ShortcutEntry[]>();
-    for (const s of filteredShortcuts()) {
-      const list = out.get(s.category) ?? [];
-      list.push(s);
-      out.set(s.category, list);
+    const groups = new Map<string, ShortcutEntry[]>();
+    for (const shortcut of filteredShortcuts()) {
+      const shortcuts = groups.get(shortcut.category) ?? [];
+      shortcuts.push(shortcut);
+      groups.set(shortcut.category, shortcuts);
     }
-    return out;
+    return groups;
   });
 
-  function onEsc(e: KeyboardEvent) {
-    if (e.key === "Escape" && helpOpen()) {
-      closeHelp();
-    }
-  }
-  onMount(() => window.addEventListener("keydown", onEsc));
-  onCleanup(() => window.removeEventListener("keydown", onEsc));
-
   return (
-    <Show when={present()}>
-      <div
-        style={{
-          position: "fixed",
-          inset: "0",
-          display: "grid",
-          "place-items": "center",
-          background: "rgba(0,0,0,0.55)",
-          "z-index": "60",
-        }}
-        data-testid="help-overlay"
-        onClick={closeHelp}
-      >
-        <div
-          ref={setPanelRef}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            width: "640px",
-            "max-height": "80vh",
-            display: "flex",
-            "flex-direction": "column",
-            background: "var(--surface-2)",
-            border: "1px solid var(--border-subtle)",
-            "border-radius": "var(--md-shape-sm)",
-            overflow: "hidden",
-          }}
-        >
-          {/* Header */}
-          <div
-            style={{
-              display: "flex",
-              "align-items": "center",
-              "justify-content": "space-between",
-              padding: "14px 20px 10px",
-              "border-bottom": "1px solid var(--border-subtle)",
-            }}
-          >
-            <span style={{ "font-size": "15px", "font-weight": "600", color: "var(--text-hi)" }}>
-              Roost help
-            </span>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <Button
-                variant="tonal"
-                data-testid="help-overlay-copy-diagnostic"
-                onClick={() => void copyDiagnostic()}
-              >
-                Copy diagnostic
-              </Button>
-              <Button variant="text" onClick={closeHelp}>
-                esc
-              </Button>
-            </div>
+    <Sheet
+      open={helpOpen()}
+      onClose={closeHelp}
+      headline="Keyboard shortcuts"
+      side="center"
+      class="roost-dialog--wide roost-dialog--help"
+    >
+      <Show when={helpOpen()}>
+        <div data-testid="help-overlay" class="roost-help-overlay">
+          <div class="roost-help-overlay__tools">
+            <Button variant="secondary" data-testid="help-overlay-copy-diagnostic"
+              onClick={() => void copyDiagnostic()}>
+              Copy diagnostic
+            </Button>
           </div>
 
-          {/* Filter */}
-          <div style={{ padding: "10px 20px 6px" }}>
-            <input
-              ref={inputRef}
-              type="text"
+          <div style={{ padding: "var(--md-space-3) var(--md-space-5) var(--md-space-2)" }}>
+            <TextField
+              ref={(element) => { inputRef = element; }}
               value={filter()}
-              onInput={(e) => setFilter(e.currentTarget.value)}
+              onInput={setFilter}
               placeholder="Filter shortcuts…"
-              data-testid="help-overlay-filter"
-              style={{
-                width: "100%",
-                padding: "6px 10px",
-                "border-radius": "var(--md-shape-xs)",
-                background: "var(--surface-1)",
-                border: "1px solid var(--border-subtle)",
-                color: "var(--text-hi)",
-                "font-size": "13px",
-                outline: "none",
-                "box-sizing": "border-box",
-              }}
+              ariaLabel="Filter shortcuts"
+              testId="help-overlay-filter"
+              style={{ width: "100%" }}
             />
           </div>
 
-          {/* Shortcut list */}
-          <div style={{ flex: "1", "overflow-y": "auto", padding: "6px 20px 16px" }}>
+          <div style={{ flex: "1", "min-height": "0", "overflow-y": "auto", padding: "var(--md-space-2) var(--md-space-5) var(--md-space-4)" }}>
             <Show when={filteredShortcuts().length === 0}>
-              <p style={{ "font-size": "var(--md-body-s-size)", color: "var(--text-lo)", "margin-top": "8px" }}>
+              <p class="md-body-s" style={{ color: "var(--text-lo)", "margin-top": "var(--md-space-2)" }}>
                 No matches.
               </p>
             </Show>
             <For each={Array.from(grouped().entries())}>
-              {([cat, list]) => (
-                <section style={{ "margin-bottom": "14px" }}>
+              {([category, shortcuts]) => (
+                <section style={{ "margin-bottom": "var(--md-space-4)" }}>
                   <h2
+                    class="md-label-s"
                     style={{
-                      "font-size": "10px",
-                      "font-weight": "600",
                       "text-transform": "uppercase",
-                      "letter-spacing": "0.06em",
                       color: "var(--text-lo)",
-                      "margin-bottom": "4px",
+                      "margin-bottom": "var(--md-space-1)",
                     }}
                   >
-                    {cat}
+                    {category}
                   </h2>
                   <ul style={{ "list-style": "none", margin: "0", padding: "0" }}>
-                    <For each={list}>
-                      {(s) => (
+                    <For each={shortcuts}>
+                      {(shortcut) => (
                         <li
+                          class="md-body-s"
                           data-testid="help-overlay-action"
-                          data-action-id={`${s.category}:${s.label}`}
+                          data-action-id={`${shortcut.category}:${shortcut.label}`}
                           style={{
                             display: "flex",
                             "justify-content": "space-between",
                             "align-items": "center",
-                            gap: "8px",
-                            padding: "3px 0",
-                            "font-size": "13px",
+                            gap: "var(--md-space-2)",
+                            padding: "var(--md-space-1) 0",
                           }}
                         >
-                          <span style={{ color: "var(--text-hi)" }}>{s.label}</span>
-                          <Show when={s.binding}>
-                            <BindingChip>{s.binding}</BindingChip>
+                          <span style={{ color: "var(--text-hi)" }}>{shortcut.label}</span>
+                          <Show when={shortcut.binding}>
+                            <BindingChip>{shortcut.binding}</BindingChip>
                           </Show>
                         </li>
                       )}
@@ -221,8 +157,8 @@ export function HelpOverlay() {
             </For>
           </div>
         </div>
-      </div>
-    </Show>
+      </Show>
+    </Sheet>
   );
 }
 
@@ -231,13 +167,12 @@ export function HelpOverlay() {
 function BindingChip(props: { children: JSX.Element }) {
   return (
     <kbd style={{
-      "font-size": "11px",
-      padding: "1px 6px",
+      font: "var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--font-mono)",
+      padding: "var(--md-space-1) var(--md-space-2)",
       "border-radius": "var(--md-shape-xs)",
       background: "var(--surface-1)",
-      border: "1px solid var(--border-subtle)",
+      border: "var(--workbench-border-width) solid var(--md-sys-color-outline-variant)",
       color: "var(--text-mid)",
-      "font-family": "monospace",
       "white-space": "nowrap",
     }}>
       {props.children}

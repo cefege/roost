@@ -120,24 +120,16 @@ function AuthorizedDevicesCard() {
                     when={!device.isSelf}
                     fallback={
                       <Show when={keyInfo()?.extractable}>
-                        <Button
-                          variant="tonal"
-                          disabled={busyFingerprint() !== null}
-                          onClick={() => void rotate()}
-                        >
+                        <Button variant="secondary" disabled={busyFingerprint() !== null}
+                        onClick={() => void rotate()}>
                           Upgrade key security
                         </Button>
                       </Show>
                     }
                   >
-                    <Button
-                      variant="tonal"
-                      aria-label={`Revoke ${device.label || "unnamed browser"}`}
-                      disabled={busyFingerprint() !== null}
-                      onClick={() => void revoke(device.fingerprint, device.label)}
-                    >
-                      {busyFingerprint() === device.fingerprint ? "Revoking…" : "Revoke"}
-                    </Button>
+                    <Button variant="secondary" aria-label={`Revoke ${device.label || "unnamed browser"}`}
+                    disabled={busyFingerprint() !== null}
+                    onClick={() => void revoke(device.fingerprint, device.label)}>{busyFingerprint() === device.fingerprint ? "Revoking…" : "Revoke"}</Button>
                   </Show>
                 }
                 testId={`authorized-device-${device.fingerprint}`}

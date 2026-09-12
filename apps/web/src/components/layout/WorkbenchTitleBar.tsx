@@ -1,12 +1,10 @@
-// Desktop workbench title region: product context and quiet utility actions.
+// Desktop workbench title region: product and route context.
 // AppShell places it above the navigation rail and editor grid.
-// Command-palette access remains keyboard-only, avoiding a competing titlebar surface.
+// Command-palette access remains keyboard-only.
 
 import { A, useLocation } from "@solidjs/router";
 import { createMemo, Show } from "solid-js";
 import { workbenchTitle } from "../../lib/workbenchTitle.ts";
-import { ROUTES } from "../../routes.ts";
-import { Icon } from "../Settings/md/primitives.tsx";
 import { BrandMark } from "../BrandMark.tsx";
 
 export function WorkbenchTitleBar() {
@@ -20,11 +18,6 @@ export function WorkbenchTitleBar() {
         <Show when={context() !== "Roost"}>
           <span class="workbench-titlebar__context">{context()}</span>
         </Show>
-      </A>
-    </div>
-    <div class="workbench-titlebar__right">
-      <A class="workbench-titlebar__help" href={ROUTES.HELP} aria-label="Help" title="Help">
-        <Icon name="help" />
       </A>
     </div>
   </header>;

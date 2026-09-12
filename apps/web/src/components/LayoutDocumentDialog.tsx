@@ -1,7 +1,7 @@
 // Presents one local layout document before any pane-store mutation.
 // TerminalDeck owns file reading, credential/folder fencing, and application;
 // this component renders validation state and requires an explicit Apply click.
-// Material primitives supply the dialog, actions, and preview surfaces.
+// Shared primitives supply the dialog, actions, and preview surfaces.
 
 import { For, Show, createMemo } from "solid-js";
 import type {
@@ -32,13 +32,10 @@ export function LayoutDocumentDialog(props: LayoutDocumentDialogProps) {
       headline="Import pane layout"
       actions={
         <>
-          <Button variant="text" onClick={props.onClose}>Cancel</Button>
-          <Button
-            variant="filled"
-            data-testid="layout-import-apply"
-            disabled={props.reading || !props.document || !!props.error}
-            onClick={props.onApply}
-          >
+          <Button variant="outline" onClick={props.onClose}>Cancel</Button>
+          <Button variant="default" data-testid="layout-import-apply"
+          disabled={props.reading || !props.document || !!props.error}
+          onClick={props.onApply}>
             Apply layout
           </Button>
         </>

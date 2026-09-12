@@ -9,7 +9,7 @@ import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
 import { workersHydrated } from "../store/sync-bootstrap.ts";
 import { coordClient } from "../connect.ts";
-import { browseHref } from "../routes.ts";
+import { ROUTES, browseHref } from "../routes.ts";
 import { computeFolderActivity, type FolderActivity } from "../lib/folderActivity.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { addToast } from "../store/toastStore.ts";
@@ -21,7 +21,6 @@ import { childPath, pathCrumbs, collapseCrumbsTo, type CrumbView } from "../lib/
 import { workerPathBasename } from "../lib/nativePath.ts";
 import { initHistory, pushHistory as pushHistoryFn, goBack as goBackFn, goForward as goForwardFn, canGoBack as canBackFn, canGoForward as canFwdFn, type HistoryState } from "../lib/browseHistory.ts";
 import { uiStore, setHomeFolderViewMode, setHomeFolderShowFiles } from "../store/uiStore.ts";
-import { FolderGlyph } from "./FolderGlyph.tsx";
 import { BrowseToolbar } from "./BrowseToolbar.tsx";
 import { BrowseBreadcrumbs } from "./BrowseBreadcrumbs.tsx";
 import { BrowseFolderGrid, type DirEntry } from "./BrowseFolderGrid.tsx";
@@ -31,7 +30,7 @@ import { launchWorkerBrowseTerminal } from "./workerBrowseActions.ts";
 import type { WorkerFp } from "@roost/shared/wire";
 import { Button } from "./Settings/md/Button.tsx";
 import { EmptyState } from "./Settings/md/EmptyState.tsx";
-
+import { Sheet } from "./Settings/md/Sheet.tsx";
 export function WorkerBrowsePage(props: { workerFp: string }) {
   const workerFp = props.workerFp;
   const navigate = useNavigate();
@@ -48,7 +47,7 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
   const [serverMenuOpen, setServerMenuOpen] = createSignal(false);
   const [crumbMenuOpen, setCrumbMenuOpen] = createSignal(false);
   const [crumbMenuPos, setCrumbMenuPos] = createSignal<{ top: number; left: number }>({ top: 0, left: 0 });
-  let resultsRef: HTMLDivElement | undefined;
+  let browseSurfaceRef: HTMLDivElement | undefined, resultsRef: HTMLDivElement | undefined;
   let unavailableRef: HTMLDivElement | undefined;
   const [newFolderOpen, setNewFolderOpen] = createSignal(false);
   const [newFolderName, setNewFolderName] = createSignal("");
@@ -224,25 +223,38 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     setServerMenuOpen(false);
     navigate(browseHref(fp));
   }
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      const dlg = document.querySelector("md-dialog");
-      if (dlg && dlg.open) return;          // let New-folder dialog close itself
-      e.preventDefault(); navigate("/"); return;
+  function onKeydown(event: KeyboardEvent) {
+    if (event.defaultPrevented) return;
+    if (newFolderOpen()) return;
+    const eventPath = event.composedPath();
+    if (!browseSurfaceRef || !eventPath.includes(browseSurfaceRef)) return;
+    if (event.key === "Escape") {
+      if (isCompact()) {
+        event.preventDefault();
+        navigate(ROUTES.ROOT);
+      }
+      return;
     }
-    if (!scopedWorker()) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(filteredDirs().length - 1, i + 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); }
-    else if (e.key === "ArrowRight") {
-      const d = filteredDirs()[activeIdx()];
-      if (d) { e.preventDefault(); drill(d.name); }
+    if (!scopedWorker() || !resultsRef || !eventPath.includes(resultsRef)) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIdx((idx) => Math.min(filteredDirs().length - 1, idx + 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIdx((idx) => Math.max(0, idx - 1));
+    } else if (event.key === "ArrowRight") {
+      const directory = filteredDirs()[activeIdx()];
+      if (directory) {
+        event.preventDefault();
+        drill(directory.name);
+      }
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      goBack();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      void pickFolder(cwdNow());
     }
-    else if (e.key === "ArrowLeft") { e.preventDefault(); goBack(); }
-    else if (e.key === "Tab") {
-      const d = filteredDirs()[activeIdx()];
-      if (d) { e.preventDefault(); drill(d.name); }
-    }
-    else if (e.key === "Enter") { e.preventDefault(); void pickFolder(cwdNow()); }
   }
   onMount(() => window.addEventListener("keydown", onKeydown));
   onCleanup(() => window.removeEventListener("keydown", onKeydown));
@@ -252,7 +264,7 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
   const compact = isCompact;
 
   const innerContent = (
-    <div class="df-browse-page" data-testid="browse-page" data-compact={compact() ? "true" : "false"} data-overlay={!compact() ? "true" : undefined}>
+    <div ref={(element) => { browseSurfaceRef = element; }} class="df-browse-page" data-testid="browse-page" data-compact={compact() ? "true" : "false"} data-overlay={!compact() ? "true" : undefined}>
       <Show when={scopeState() === "loading"}>
         <div class="df-browse-area" aria-busy="true">
           <EmptyState
@@ -279,11 +291,8 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
             title="Machine unavailable"
             supporting="This machine isn't available on this coordinator."
             action={
-              <Button
-                variant="tonal"
-                data-testid="browse-worker-unavailable-home"
-                onClick={() => navigate("/", { replace: true })}
-              >
+              <Button variant="secondary" data-testid="browse-worker-unavailable-home"
+              onClick={() => navigate("/", { replace: true })}>
                 Go home
               </Button>
             }
@@ -304,7 +313,7 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
         onlineWorkers={onlineWorkers()}
         serverMenuOpen={serverMenuOpen()}
         setServerMenuOpen={(open) => setServerMenuOpen(open)}
-        onCancel={() => navigate("/")}
+        onCancel={() => navigate(ROUTES.ROOT)}
         onBack={goBack}
         onForward={goForward}
         onViewMode={setHomeFolderViewMode}
@@ -327,15 +336,13 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
 
       <Show when={cwd() === startDir() && folderRecents().length > 0}>
         <div class="df-browse-recents">
-          <span class="df-browse-recents-label">Recent</span>
+          <span class="df-browse-recents-label md-label-s">Recent</span>
           <For each={folderRecents()}>
             {(r) => (
-              <button type="button" class="df-browse-recent-chip" data-testid="browse-recent"
-                onClick={() => void pickFolder(r)} title={r}
-              >
-                <FolderGlyph size={11} />
+              <Button class="df-browse-recent-chip" variant="outline" size="sm"
+                data-testid="browse-recent" icon="folder" onClick={() => void pickFolder(r)} title={r}>
                 {workerPathBasename(folderServer(), r) || r}
-              </button>
+              </Button>
             )}
           </For>
         </div>
@@ -355,17 +362,14 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
         subtitles={folderSubtitles()}
         onActivate={(idx) => setActiveIdx(idx)}
         onDrill={drill}
-        onNewFolder={newFolder}
         setAreaRef={(el) => { resultsRef = el; }}
       />
 
       <div class="df-browse-actions">
-        <button type="button" class="df-browse-open" data-testid="browse-open"
-          onClick={() => void pickFolder(cwdNow())}
-        >
-          <span aria-hidden="true">❯</span>
+        <Button class="df-browse-open" data-testid="browse-open" icon="terminal"
+          onClick={() => void pickFolder(cwdNow())}>
           Open terminal here
-        </button>
+        </Button>
       </div>
       <NewFolderDialog
         open={newFolderOpen()}
@@ -382,16 +386,10 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
   )
 
   return !compact() ? (
-    <div
-      style={{ position: "fixed", inset: 0, "z-index": "100", display: "flex", "align-items": "center", "justify-content": "center", background: "color-mix(in srgb, var(--md-scrim) 55%, transparent)" }}
-      onClick={() => navigate("/")}
-    >
-      <div
-        style={{ width: "min(640px, 94vw)", "height": "85vh", display: "flex", "flex-direction": "column", background: "var(--md-sys-color-surface)", "border-radius": "var(--md-shape-xl)", "box-shadow": "var(--md-elev-3)", overflow: "hidden" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {innerContent}
-      </div>
-    </div>
-  ) : innerContent
+    <Sheet open onClose={() => navigate(ROUTES.ROOT)} headline="Browse folders" side="center"
+      class="roost-dialog--wide roost-dialog--browse" showCloseButton={scopeState() === "loading"}
+      onOpenAutoFocus={(event) => event.preventDefault()}>
+      {innerContent}
+    </Sheet>
+  ) : innerContent;
 }

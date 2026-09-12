@@ -20,14 +20,13 @@ export function MachinesPane() {
         supporting="Each machine running the Roost worker registers here automatically. A single machine can host the coordinator, the worker, and the browser — N=1 is first-class."
         title="Machines"
         trailing={
-          <Button
-            variant="filled"
-            icon="add"
+          <Show when={workers().length > 0}>
+            <Button variant="default" icon="add"
             data-testid="machines-add-btn"
-            onClick={() => setShowDeploy(true)}
-          >
-            Add machine
-          </Button>
+            onClick={() => setShowDeploy(true)}>
+              Add machine
+            </Button>
+          </Show>
         }
       >
         <Show when={workers().length === 0}>
@@ -36,7 +35,7 @@ export function MachinesPane() {
             title="No machines yet"
             supporting="Pair your first machine to start spawning sessions. The worker registers itself the first time it boots."
             action={
-              <Button variant="filled" icon="add" onClick={() => setShowDeploy(true)}>
+              <Button variant="default" icon="add" onClick={() => setShowDeploy(true)}>
                 Add machine
               </Button>
             }

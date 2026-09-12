@@ -17,8 +17,9 @@
 // whole app layout down). Elevated + primary-bordered so it reads as important.
 // Callers: App.tsx (always mounted; internal Show gate).
 
-import { type Component, Show, createSignal, onCleanup, onMount } from "solid-js";
-import { Button } from "./Settings/md/Button.tsx";
+import { Show, createSignal, onCleanup, onMount } from "solid-js";
+import type { Component } from "solid-js";
+import { Button, Icon, Surface } from "./Settings/md/primitives.tsx";
 
 const BUILD_SHA = (import.meta.env as { VITE_BUILD_SHA?: string }).VITE_BUILD_SHA;
 
@@ -69,52 +70,55 @@ export const VersionBanner: Component = () => {
         data-testid="version-banner"
         style={{
           position: "fixed",
-          bottom: "16px",
-          left: "16px",
-          "max-width": "340px",
+          bottom: "var(--md-space-4)",
+          left: "var(--md-space-4)",
           "z-index": "49", // just under ConnectionBanner (50)
-          display: "flex",
-          "align-items": "flex-start",
-          gap: "12px",
-          padding: "12px 14px",
-          "border-radius": "var(--md-shape-md)",
-          "font-size": "13px",
-          "font-family":
-            'Roboto, "Helvetica Neue", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
-          background: "var(--md-surface-container-high)",
-          color: "var(--md-on-surface)",
-          border: "1px solid var(--md-primary)",
-          "box-shadow": "var(--md-elev-3)",
         }}
       >
-        <svg
-          aria-hidden="true" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="var(--md-primary)" stroke-width="2.2"
-          stroke-linecap="round" stroke-linejoin="round"
-          style={{ "flex-shrink": "0" }}
+        <Surface
+          level={2}
+          elevation={3}
+          radius="md"
+          style={{
+            display: "flex",
+            "align-items": "flex-start",
+            gap: "var(--md-space-3)",
+            padding: "var(--md-space-3) var(--md-space-4)",
+            "max-width": "min(42ch, calc(100vw - var(--md-space-8)))",
+            border: "var(--workbench-border-width) solid var(--md-sys-color-primary)",
+            color: "var(--md-sys-color-on-surface)",
+          }}
         >
-          <path d="M12 19V5M5 12l7-7 7 7" />
-        </svg>
-        <span
-          style={{ display: "flex", "flex-direction": "column", gap: "8px", "line-height": "1.35" }}
-        >
-          <span style={{ "font-weight": "600" }}>Roost just updated</span>
-          <span style={{ color: "var(--md-on-surface-variant)" }}>
-            A newer version is ready. Your sessions are safe — reload when convenient.
-          </span>
-          <span style={{ display: "flex", gap: "8px", "margin-top": "2px" }}>
-            <Button
-              variant="filled"
-              data-testid="version-banner-reload"
-              onClick={() => window.location.reload()}
-            >Reload now</Button>
-            <Button
-              variant="text"
-              data-testid="version-banner-later"
-              onClick={() => setDismissedSha(servedSha())}
-            >Later</Button>
-          </span>
-        </span>
+          <Icon
+            name="arrow_upward"
+            size="sm"
+            style={{ "flex-shrink": "0", color: "var(--md-sys-color-primary)" }}
+          />
+          <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)" }}>
+            <span class="md-title-s">Roost just updated</span>
+            <span class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
+              A newer version is ready. Your sessions are safe — reload when convenient.
+            </span>
+            <div style={{ display: "flex", gap: "var(--md-space-2)", "margin-top": "var(--md-space-1)" }}>
+              <Button
+                variant="default"
+                size="sm"
+                data-testid="version-banner-reload"
+                onClick={() => window.location.reload()}
+              >
+                Reload now
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="version-banner-later"
+                onClick={() => setDismissedSha(servedSha())}
+              >
+                Later
+              </Button>
+            </div>
+          </div>
+        </Surface>
       </div>
     </Show>
   );

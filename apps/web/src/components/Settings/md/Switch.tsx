@@ -1,26 +1,35 @@
-import { type Component } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import "@material/web/switch/switch.js";
+// Native boolean switch primitive for settings controls.
+// It remains controlled even when a caller ignores or rejects a requested change.
+// The input owns keyboard, focus, and accessibility semantics.
 
-// ─── Switch (real M3 md-switch — ripple, keyboard, focus ring for free) ──────
-// Replaces the hand-rolled track+thumb <button> that was copy-pasted across
-// Settings panes. md-switch dispatches `change`; the new state is on
-// e.currentTarget.selected. prop:selected keeps it controlled/reactive.
-export const Switch: Component<{
+import { type Component } from "solid-js";
+
+export type SwitchProps = {
   checked: boolean;
-  onChange: (v: boolean) => void;
+  onChange: (value: boolean) => void;
   label: string;
   testId?: string;
   disabled?: boolean;
-}> = (props) => (
-  <Dynamic
-    component="md-switch"
-    prop:selected={props.checked}
+  ariaDescribedBy?: string;
+};
+
+export const Switch: Component<SwitchProps> = (props) => (
+  <input
+    class="roost-switch"
+    type="checkbox"
+    role="switch"
+    checked={props.checked}
+    disabled={props.disabled}
+    data-testid={props.testId}
     aria-label={props.label}
-    prop:disabled={props.disabled}
-    attr:data-testid={props.testId}
-    on:change={(e: Event) =>
-      props.onChange((e.currentTarget as HTMLElement & { selected: boolean }).selected)
-    }
+    aria-describedby={props.ariaDescribedBy}
+    onChange={(event) => {
+      const requested = event.currentTarget.checked;
+      try {
+        props.onChange(requested);
+      } finally {
+        event.currentTarget.checked = props.checked;
+      }
+    }}
   />
 );

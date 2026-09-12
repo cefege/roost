@@ -6,7 +6,7 @@ import { onMount, onCleanup } from "solid-js";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 
 const KEYBINDINGS: Array<{ key: string; action: string }> = [
-  { key: platformShortcutLabel("commandPalette", "⌘K"), action: "Command palette / open terminal" },
+  { key: platformShortcutLabel("commandPalette", "⌘K"), action: "Command palette" },
   { key: platformShortcutLabel("sidebarSearch", "⌘F"), action: "Search" },
   { key: platformShortcutLabel("toggleSidebar", "⌘B"), action: "Toggle sidebar" },
   { key: "↑ ↓ ↵", action: "Move / open in sidebar" },

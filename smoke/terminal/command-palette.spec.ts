@@ -21,10 +21,12 @@ async function keyboardActivateCoreAction(
   expectedLabel: string,
 ): Promise<void> {
   await pressPlatformShortcut(page, "commandPalette", "k");
-  const palette = page.getByTestId("command-palette");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
   await expect(palette).toBeVisible();
-  await page.getByTestId("command-palette-input").fill(query);
-  const results = page.getByTestId("command-palette-item");
+  const paletteInput = palette.getByTestId("command-palette-input");
+  await expect(paletteInput).toBeFocused();
+  await paletteInput.fill(query);
+  const results = palette.getByTestId("command-palette-item");
   await expect(results).toHaveCount(1);
   await expect(results.first()).toContainText(expectedLabel);
   await page.keyboard.press("Enter");
@@ -83,12 +85,7 @@ test("command palette keyboard activates core navigation and folder actions", as
       return String(valueHost.value);
     },
   )).toBe("/tmp");
-  await expect.poll(() => smokePage.getByTestId("task-editor-worker").evaluate(
-    (element) => {
-      const valueHost = element as HTMLElement & { value: string };
-      return String(valueHost.value);
-    },
-  )).toBe(stack.workerFp);
+  await expect(smokePage.getByTestId("task-editor-worker")).toContainText("roost-terminal-test");
   await taskEditor.getByText("Cancel", { exact: true }).click();
   await expect(taskEditor).toHaveCount(0);
 

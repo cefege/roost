@@ -1,21 +1,34 @@
-import { type Component } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import "@material/web/checkbox/checkbox.js";
+// Native checkbox primitive for settings controls.
+// It returns ownership of checked state to the caller after every native change.
+// The input retains browser keyboard, focus, and accessibility behavior.
 
-// ─── Checkbox → real md-checkbox (selection; distinct from Switch=on/off) ────
-export const Checkbox: Component<{
+import { type Component } from "solid-js";
+
+export type CheckboxProps = {
   checked: boolean;
-  onChange: (v: boolean) => void;
+  onChange: (value: boolean) => void;
   label: string;
   testId?: string;
-}> = (props) => (
-  <Dynamic
-    component="md-checkbox"
-    prop:checked={props.checked}
+  disabled?: boolean;
+  ariaDescribedBy?: string;
+};
+
+export const Checkbox: Component<CheckboxProps> = (props) => (
+  <input
+    class="roost-checkbox"
+    type="checkbox"
+    checked={props.checked}
+    disabled={props.disabled}
+    data-testid={props.testId}
     aria-label={props.label}
-    attr:data-testid={props.testId}
-    on:change={(e: Event) =>
-      props.onChange((e.currentTarget as HTMLInputElement & { checked: boolean }).checked)
-    }
+    aria-describedby={props.ariaDescribedBy}
+    onChange={(event) => {
+      const requested = event.currentTarget.checked;
+      try {
+        props.onChange(requested);
+      } finally {
+        event.currentTarget.checked = props.checked;
+      }
+    }}
   />
 );

@@ -86,13 +86,7 @@ export function GlobalSearchContentResults(props: GlobalSearchContentResultsProp
       style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}
     >
       <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-1)" }}>
-        <h2
-          id="global-content-search-title"
-          style={{
-            margin: 0,
-            font: "var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font)",
-          }}
-        >
+        <h2 id="global-content-search-title" class="md-title-m" style={{ margin: 0 }}>
           Terminal content
         </h2>
         <div
@@ -102,10 +96,8 @@ export function GlobalSearchContentResults(props: GlobalSearchContentResultsProp
           aria-live="polite"
           aria-atomic="true"
           data-testid="global-content-summary"
-          style={{
-            color: "var(--md-sys-color-on-surface-variant)",
-            font: "var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font)",
-          }}
+          class="md-body-m"
+          style={{ color: "var(--md-sys-color-on-surface-variant)" }}
         >
           {resultSummary()}
         </div>
@@ -128,7 +120,7 @@ export function GlobalSearchContentResults(props: GlobalSearchContentResultsProp
                     ? "Some sessions or retained rows could not be searched."
                     : "No retained terminal row contains this literal query.")}
                 action={props.controller.error() && props.controller.retryable()
-                  ? <Button variant="tonal" icon="refresh" onClick={retrySearch}>Retry</Button>
+                  ? <Button variant="secondary" icon="refresh" onClick={retrySearch}>Retry</Button>
                   : undefined}
               />
             </Show>
@@ -175,34 +167,38 @@ export function GlobalSearchContentResults(props: GlobalSearchContentResultsProp
             aria-atomic="true"
             style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)" }}
           >
-            <strong>Search incomplete</strong>
+            <span class="md-title-s">Search incomplete</span>
             <Show when={props.controller.nextCursor()}>
-              <span>More retained terminal rows are available.</span>
+              <span class="md-body-m">More retained terminal rows are available.</span>
             </Show>
             <Show when={partialCoverage()}>
-              <span data-testid="global-content-unsearched">
+              <span data-testid="global-content-unsearched" class="md-body-m">
                 {unsearchedSessions()} of {props.controller.eligibleSessions()} eligible
                 {unsearchedSessions() === 1 ? " session was" : " sessions were"} not searched.
               </span>
             </Show>
             <Show when={props.controller.truncated() && !props.controller.nextCursor()}>
-              <span>The bounded page ended before every retained row could be searched.</span>
+              <span class="md-body-m">The bounded page ended before every retained row could be searched.</span>
             </Show>
             <Show when={missingProjectionMatches() > 0}>
-              <span>
+              <span class="md-body-m">
                 {missingProjectionMatches()} {missingProjectionMatches() === 1 ? "match belongs" : "matches belong"} to
                 sessions no longer present in the current session list.
               </span>
             </Show>
             <Show when={props.controller.error()}>
-              {(message) => <span>{message()}</span>}
+              {(message) => (
+                <span class="md-body-m" style={{ color: "var(--md-sys-color-error)" }}>
+                  {message()}
+                </span>
+              )}
             </Show>
             <Show when={props.controller.error() && props.controller.retryable()}>
-              <Button variant="tonal" icon="refresh" onClick={retrySearch}>Retry search</Button>
+              <Button variant="secondary" icon="refresh" onClick={retrySearch}>Retry search</Button>
             </Show>
             <For each={props.controller.partials()}>
               {(partial) => (
-                <span data-testid={`global-content-partial-${partial.sessionId}`}>
+                <span data-testid={`global-content-partial-${partial.sessionId}`} class="md-body-m">
                   {documentsBySession().get(partial.sessionId)?.displayTitle
                     ?? "A session no longer in the current view"} {globalContentSearchPartialLabel(partial.reason)}.
                 </span>
@@ -212,9 +208,13 @@ export function GlobalSearchContentResults(props: GlobalSearchContentResultsProp
         </Show>
 
         <Show when={props.controller.nextCursor() && !props.controller.error()}>
-          <div style={{ display: "flex", "justify-content": "center" }}>
+          <div
+            role="group"
+            aria-label="Terminal content pagination"
+            style={{ display: "flex", "justify-content": "center" }}
+          >
             <Button
-              variant="tonal"
+              variant="secondary"
               icon="expand_more"
               disabled={props.controller.loading()}
               onClick={props.controller.loadMore}

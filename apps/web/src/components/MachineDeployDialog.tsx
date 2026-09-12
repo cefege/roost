@@ -6,9 +6,8 @@
 import { createSignal, Show } from "solid-js";
 import { coordClient, coordinatorBaseUrl } from "../connect.ts";
 import { rootStore } from "../store/root.ts";
-import { TextField, Button, IconButton, Select } from "./Settings/md/primitives.tsx";
+import { TextField, Button, Dialog, Select } from "./Settings/md/primitives.tsx";
 import { workerCoordinatorUrl } from "../lib/workerCoordinatorUrl.ts";
-import { animateOverlayPanel } from "../lib/overlayMotion.ts";
 import { browserPlatform } from "../lib/browserPlatform.ts";
 import { buildMachineJoinCommand, machinePlatformLabel } from "@roost/shared/machine-join-command";
 import { copyToClipboard } from "../lib/clipboard.ts";
@@ -19,25 +18,6 @@ interface MachineDeployDialogProps {
   onClose: () => void;
 }
 
-const OVERLAY_STYLE = {
-  position: "fixed" as const,
-  inset: "0",
-  background: "color-mix(in srgb, var(--md-scrim) 65%, transparent)",
-  display: "flex",
-  "align-items": "center",
-  "justify-content": "center",
-  "z-index": "200",
-};
-
-const DIALOG_STYLE = {
-  background: "var(--bg-elev-1)",
-  border: "1px solid var(--border-strong)",
-  "border-radius": "var(--md-shape-md)",
-  padding: "24px",
-  width: "520px",
-  "max-width": "calc(100vw - 32px)",
-  "box-shadow": "var(--md-elev-5)",
-};
 
 
 export function MachineDeployDialog(props: MachineDeployDialogProps) {
@@ -97,23 +77,51 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
     copyTimer = setTimeout(() => { copyTimer = null; setCopied(false); }, 2000);
   }
 
-  function onKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") props.onClose();
-    else if (e.key === "Enter" && !deployCmd()) void mintAndShowCmd();
+  function mintOnFieldEnter(event: KeyboardEvent): void {
+    if (event.defaultPrevented || event.key !== "Enter" || deployCmd()) return;
+    event.preventDefault();
+    void mintAndShowCmd();
   }
 
+
   return (
-    <div
-      data-testid="machine-deploy-dialog"
-      style={OVERLAY_STYLE}
-      onClick={(e) => { if (e.target === e.currentTarget) props.onClose(); }}
-      onKeyDown={onKeyDown}
+    <Dialog
+      open
+      onClose={props.onClose}
+      headline="Add Machine"
+      testId="machine-deploy-dialog"
+      actions={rootStore.coord_identity
+        ? (deployCmd()
+          ? (
+            <>
+              <Button
+                variant="secondary"
+                data-testid="machine-deploy-copy"
+                onClick={() => void copyCmd()}
+                style={{ color: copied() ? "var(--color-ok)" : undefined }}
+              >
+                {copied() ? "Copied ✓" : "Copy command"}
+              </Button>
+              <Button variant="outline" onClick={props.onClose}>Done</Button>
+            </>
+          )
+          : (
+            <>
+              <Button variant="outline" onClick={props.onClose}>Cancel</Button>
+              <Button
+                variant="default"
+                data-testid="machine-deploy-mint"
+                onClick={() => void mintAndShowCmd()}
+                disabled={loading()}
+              >
+                {loading() ? "Minting…" : "Mint token"}
+              </Button>
+            </>
+          ))
+        : undefined}
+      showCloseButton={!rootStore.coord_identity}
     >
-      <div ref={animateOverlayPanel} style={DIALOG_STYLE}>
-        <div style={{ display: "flex", "justify-content": "space-between", "align-items": "center", "margin-bottom": "20px" }}>
-          <h2 style={{ "font-size": "15px", color: "var(--text-hi)", margin: "0" }}>Add Machine</h2>
-          <IconButton icon="close" label="Close" onClick={props.onClose} />
-        </div>
+      <div>
 
         <p style={{ "font-size": "var(--md-body-s-size)", color: "var(--text-lo)", "margin-bottom": "16px", "line-height": "1.5" }}>
           Mint a one-time bootstrap token for a new worker. Run the generated
@@ -161,6 +169,7 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
                 label="Trusted release-publisher SHA-256"
                 value={windowsPublisherSha256()}
                 onInput={(value) => setWindowsPublisherSha256(value)}
+                onKeyDown={mintOnFieldEnter}
                 placeholder="64 hexadecimal characters"
                 style={{ width: "100%" }}
               />
@@ -175,7 +184,8 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
               testId="machine-deploy-label"
               label="Machine label"
               value={label()}
-              onInput={(v) => setLabel(v)}
+              onInput={(value) => setLabel(value)}
+              onKeyDown={mintOnFieldEnter}
               placeholder="optional — defaults to the machine's hostname"
               style={{ width: "100%" }}
             />
@@ -185,19 +195,7 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
             <p style={{ color: "var(--color-err)", "font-size": "var(--md-body-s-size)", "margin-bottom": "10px" }}>{error()}</p>
           </Show>
 
-          <div style={{ display: "flex", gap: "8px", "justify-content": "flex-end" }}>
-            <Button variant="text" onClick={props.onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="filled"
-              data-testid="machine-deploy-mint"
-              onClick={() => void mintAndShowCmd()}
-              disabled={loading()}
-            >
-              {loading() ? "Minting…" : "Mint token"}
-            </Button>
-          </div>
+
         </Show>
 
         <Show when={deployCmd()}>
@@ -220,23 +218,10 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
               {deployCmd()}
             </div>
 
-            <div style={{ display: "flex", gap: "8px", "justify-content": "flex-end" }}>
-              <Button
-                variant="tonal"
-                data-testid="machine-deploy-copy"
-                onClick={() => void copyCmd()}
-                style={{ color: copied() ? "var(--color-ok)" : undefined }}
-              >
-                {copied() ? "Copied ✓" : "Copy command"}
-              </Button>
-              <Button variant="filled" onClick={props.onClose}>
-                Done
-              </Button>
-            </div>
           </div>
         </Show>
         </Show>
       </div>
-    </div>
+    </Dialog>
   );
 }

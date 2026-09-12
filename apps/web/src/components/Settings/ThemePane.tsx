@@ -76,34 +76,29 @@ export const ThemePane: Component = () => {
                 {(entry) => {
                   const selected = createMemo(() => currentThemeChoice() === entry.choice);
                   return (
-                    <Button
-                      variant="text"
-                      type="button"
-                      data-testid={`theme-row-${entry.choice}`}
-                      data-selected={selected() ? "true" : "false"}
-                      onClick={() => pick(entry.choice)}
-                      style={{
-                        display: "flex", "align-items": "center", gap: "var(--md-space-3)",
-                        width: "100%", padding: "var(--md-space-3) var(--md-space-3)", "text-align": "left",
-                        background: selected() ? "var(--md-sys-color-secondary-container)" : "var(--md-sys-color-surface-container-low)",
-                        border: "1px solid var(--md-sys-color-outline-variant)",
-                        "border-radius": "var(--md-shape-md)", cursor: "pointer",
-                        color: selected() ? "var(--md-sys-color-on-secondary-container)" : "var(--md-sys-color-on-surface)",
-                      }}
-                    >
-                      <span style={{ display: "flex", "flex-shrink": 0, "border-radius": "var(--md-shape-sm)", overflow: "hidden", border: "1px solid var(--border-subtle)" }}>
-                        <For each={SWATCH_TOKENS}>
-                          {(tok) => (
-                            <span style={{ width: "16px", height: "32px", background: entry.theme().tokens[tok] }} />
-                          )}
-                        </For>
-                      </span>
-                      <span style={{ flex: 1, "min-width": 0 }}>
-                        <span style={{ display: "block", "font-size": "14px", "font-weight": 600 }}>{entry.label}</span>
-                        <span style={{ display: "block", "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)" }}>{entry.support}</span>
-                      </span>
-                      <Icon name={selected() ? "check_circle" : "radio_button_unchecked"} filled={selected()} />
-                    </Button>
+                    <Button variant="ghost" type="button"
+                    data-testid={`theme-row-${entry.choice}`}
+                    data-selected={selected() ? "true" : "false"}
+                    onClick={() => pick(entry.choice)}
+                    style={{
+                      display: "flex", "align-items": "center", gap: "var(--md-space-3)",
+                      width: "100%", padding: "var(--md-space-3) var(--md-space-3)", "text-align": "left",
+                      background: selected() ? "var(--md-sys-color-secondary-container)" : "var(--md-sys-color-surface-container-low)",
+                      border: "1px solid var(--md-sys-color-outline-variant)",
+                      "border-radius": "var(--md-shape-md)", cursor: "pointer",
+                      color: selected() ? "var(--md-sys-color-on-secondary-container)" : "var(--md-sys-color-on-surface)",
+                    }}><span style={{ display: "flex", "flex-shrink": 0, "border-radius": "var(--md-shape-sm)", overflow: "hidden", border: "1px solid var(--border-subtle)" }}>
+                      <For each={SWATCH_TOKENS}>
+                        {(tok) => (
+                          <span style={{ width: "16px", height: "32px", background: entry.theme().tokens[tok] }} />
+                        )}
+                      </For>
+                    </span>
+                    <span style={{ flex: 1, "min-width": 0 }}>
+                      <span style={{ display: "block", "font-size": "14px", "font-weight": 600 }}>{entry.label}</span>
+                      <span style={{ display: "block", "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)" }}>{entry.support}</span>
+                    </span>
+                    <Icon name={selected() ? "check_circle" : "radio_button_unchecked"} filled={selected()} /></Button>
                   );
                 }}
               </For>

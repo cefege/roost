@@ -47,25 +47,26 @@
 
   --roost-main-left: 0px;
   /* ── 1. CANONICAL FALLBACK (Dark) — engine overrides via inline style ── */
-  --bg-base: #1a1719;
-  --surface-0: #141113;
-  --surface-1: #261f22;
-  --surface-2: #312b2d;
-  --surface-3: #3c3538;
-  --term-bg: #1f1f1e;
-  --text-hi: #f1dfde;
-  --text-mid: #d7c1bf;
-  --text-lo: #a8908d;
-  --term-fg: #f1dfde;
-  --accent: #ffb59f;
-  /* Fixed Roost brand coral — theme-independent sidebar selected-rail tick
-     and terminal-tab glyph mark. NOT --accent (which retints per theme). */
+  --bg-base: #0a0a0a;
+  --surface-0: #0a0a0a;
+  --surface-1: #171717;
+  --surface-2: #262626;
+  --surface-3: #404040;
+  --term-bg: #0a0f11;
+  --text-hi: #fafafa;
+  --text-mid: #d4d4d4;
+  --text-lo: #a3a3a3;
+  --term-fg: #e3e3e1;
+  --accent: #fafafa;
+  /* Fixed Roost brand coral remains product identity, not selection chrome. */
   --brand-coral: #db7556;
-  --on-accent: #56200f;
-  --accent-container: #743523;
-  --on-accent-container: #ffdbcf;
-  --border-strong: #524345;
-  --border-subtle: rgba(255, 255, 255, 0.06);
+  --on-accent: #171717;
+  --accent-container: #262626;
+  --on-accent-container: #fafafa;
+  --secondary-container: #262626;
+  --on-secondary-container: #fafafa;
+  --border-strong: #525252;
+  --border-subtle: #262626;
   --status-ok: #4caf50;
   --status-warn: #ff9800;
   --status-err: #f44336;
@@ -212,14 +213,9 @@
      weight. Use display for hero numbers, headline for pane titles,
      title for card headers, body for content, label for chips +
      button text. */
-  /* Match the rest of the app (sidebar.css uses this exact stack). The app
-     renders in system-ui (SF on macOS) — NOT Roboto. md-web was the only
-     surface forced to Roboto Flex, so its popups looked alien. Keep the M3
-     components on the same system font as everything else. */
-  --md-font: "Anthropic Sans", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-  /* Material Web custom elements read --md-ref-typeface-* (NOT --md-font) for
-     their typescale; left unset they default to literal "Roboto". Point both
-     at --md-font so every md-button/field/dialog uses the app's system font. */
+  /* UI typography. Terminal and path roles retain their dedicated monospace
+     stacks below; all application controls resolve through this system stack. */
+  --md-font: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
   --md-ref-typeface-brand: var(--md-font);
   --md-ref-typeface-plain: var(--md-font);
 
@@ -229,10 +225,10 @@
 
   --md-headline-l-size: 32px; --md-headline-l-line: 40px; --md-headline-l-weight: 400;
   --md-headline-m-size: 28px; --md-headline-m-line: 36px; --md-headline-m-weight: 400;
-  --md-headline-s-size: 24px; --md-headline-s-line: 32px; --md-headline-s-weight: 400;
+  --md-headline-s-size: 24px; --md-headline-s-line: 32px; --md-headline-s-weight: 600;
 
   --md-title-l-size: 22px;    --md-title-l-line: 28px;    --md-title-l-weight: 500;
-  --md-title-m-size: 16px;    --md-title-m-line: 24px;    --md-title-m-weight: 500;
+  --md-title-m-size: 16px;    --md-title-m-line: 24px;    --md-title-m-weight: 600;
   --md-title-s-size: 14px;    --md-title-s-line: 20px;    --md-title-s-weight: 500;
 
   --md-body-l-size: 16px;     --md-body-l-line: 24px;     --md-body-l-weight: 400;
@@ -242,6 +238,12 @@
   --md-label-l-size: 14px;    --md-label-l-line: 20px;    --md-label-l-weight: 500;
   --md-label-m-size: 12px;    --md-label-m-line: 16px;    --md-label-m-weight: 500;
   --md-label-s-size: 11px;    --md-label-s-line: 16px;    --md-label-s-weight: 500;
+
+  --control-height-xs: 24px;
+  --control-height-sm: 28px;
+  --control-height: 32px;
+  --control-height-lg: 36px;
+  --control-touch-target: 44px;
 
   /* MWC reads --md-sys-color-* — mirror the --md-* aliases. */
   --md-sys-color-surface: var(--md-surface);
@@ -320,21 +322,21 @@
   --terminal-cursor: var(--accent);
   --terminal-selection: var(--md-sys-color-secondary-container);
   --wb-titlebar: var(--surface-1);
-  --wb-activity: var(--surface-0);
+  --wb-activity: var(--surface-1);
   --wb-sidebar: var(--surface-1);
-  --wb-editor: var(--surface-0);
-  --wb-statusbar: var(--surface-2);
+  --wb-editor: var(--bg-base);
+  --wb-statusbar: var(--surface-1);
   --wb-border: var(--border-subtle);
-  --wb-active: var(--accent);
-  --wb-active-contrast: var(--on-accent);
-  --wb-focus: var(--accent);
-  --wb-selected: var(--md-sys-color-secondary-container);
-  --wb-selected-contrast: var(--md-sys-color-on-secondary-container);
-  --wb-tab-active: var(--surface-0);
+  --wb-active: var(--text-hi);
+  --wb-active-contrast: var(--bg-base);
+  --wb-focus: var(--text-hi);
+  --wb-selected: var(--secondary-container);
+  --wb-selected-contrast: var(--text-hi);
+  --wb-tab-active: var(--bg-base);
   --wb-tab-inactive: var(--surface-1);
-  --wb-tab-hover: var(--surface-2);
-  --wb-pane-drop: var(--accent-container);
-  --wb-pane-focus: var(--accent);
+  --wb-tab-hover: var(--secondary-container);
+  --wb-pane-drop: color-mix(in srgb, var(--text-hi) 15%, transparent);
+  --wb-pane-focus: var(--text-hi);
   --workbench-titlebar: var(--wb-titlebar);
   --workbench-activity: var(--wb-activity);
   --workbench-sidebar: var(--wb-sidebar);
@@ -344,7 +346,6 @@
   --workbench-active-contrast: var(--wb-active-contrast);
   --workbench-titlebar-height: 35px;
   --workbench-activity-width: 48px;
-  --workbench-sidebar-compact-width: 52px;
   --workbench-tab-height: var(--workbench-tab-strip-height);
   --workbench-statusbar-height: 22px;
   --workbench-sidebar-resizer-width: 4px;
@@ -352,7 +353,6 @@
   --workbench-focus-ring: var(--wb-focus);
   --workbench-border: var(--wb-border);
   --workbench-pane-divider: var(--border-strong);
-  --workbench-sidebar-title: var(--wb-sidebar);
   --workbench-sidebar-border: var(--wb-border);
   --workbench-sidebar-row-hover: var(--surface-2);
   --workbench-sidebar-selected: var(--wb-selected);
@@ -377,11 +377,17 @@
   --md-icon-button-icon-size: 24px;
   --workbench-tab-action-size: 28px;
   --workbench-border-width: 1px;
-  --workbench-sidebar-width: 300px;
-  --workbench-sidebar-split-ratio: 0.6;
+  --workbench-sidebar-expanded-width: 300px;
+  --workbench-sidebar-width: var(--workbench-sidebar-expanded-width);
   --workbench-tab-menu-min-width: 220px;
   --avatar-bg: var(--surface-3);
   --workbench-sidebar-resizer-active-width: var(--workbench-sidebar-resizer-width);
+  --kb-select-content-transform-origin: center;
+  --roost-dialog-max-inline-size: 512px;
+  --roost-dialog-wide-max-inline-size: 720px;
+  --roost-dialog-viewport-margin: 16px;
+  --roost-dialog-max-block-size: calc(100dvh - 32px);
+  --roost-sheet-bottom-max-block-size: 90dvh;
   /* ── 3. Non-color tokens (font / shape / density) — theme-independent. ── */
   --term-font-family: Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
   --term-font-size: 14px;
@@ -394,6 +400,13 @@
      default keeps the keyframe var() resolvable from first paint. */
   --settings-nav-dir: 1;
 }
+@media (any-pointer: coarse) {
+  :root {
+    --workbench-tab-strip-height: var(--control-touch-target);
+    --workbench-tab-action-size: var(--control-touch-target);
+  }
+}
+
 
 /* Honor OS "reduce motion" — kills every infinite animation (roost-zzz-float,
    voice-pulse) + transitions in one place; battery + a11y. */

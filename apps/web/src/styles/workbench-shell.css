@@ -31,20 +31,12 @@
   align-items: center;
   background: var(--workbench-titlebar);
   border-bottom: var(--workbench-border-width) solid var(--workbench-border);
-  display: grid;
-  gap: var(--md-space-3);
+  display: flex;
   grid-area: titlebar;
-  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   padding: 0 var(--md-space-2);
 }
 .workbench-titlebar__left {
-  min-width: 0;
-}
-.workbench-titlebar__right {
-  align-items: center;
-  display: flex;
-  justify-content: flex-end;
   min-width: 0;
 }
 .workbench-titlebar__brand {
@@ -67,24 +59,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.workbench-titlebar__help {
-  align-items: center;
-  border-radius: var(--md-shape-full);
-  color: var(--text-lo);
-  display: inline-flex;
-  height: var(--workbench-titlebar-height);
-  justify-content: center;
-  text-decoration: none;
-  width: var(--workbench-titlebar-height);
-}
-.workbench-titlebar__help:hover {
-  background: var(--md-state-hover);
-  color: var(--text-hi);
-}
-.workbench-titlebar__help:focus-visible {
-  background: var(--md-state-focus);
-  color: var(--text-hi);
 }
 
 .workbench-activity-bar {
@@ -135,8 +109,7 @@
 }
 
 .workbench-activity-bar__item:focus-visible,
-.workbench-titlebar__brand:focus-visible,
-.workbench-titlebar__help:focus-visible {
+.workbench-titlebar__brand:focus-visible {
   outline: var(--workbench-border-width) solid var(--workbench-focus-ring);
   outline-offset: calc(var(--workbench-border-width) * -1);
 }
@@ -153,6 +126,10 @@
   min-width: 0;
   overflow: hidden;
   position: relative;
+}
+
+.workbench-sidebar-region[data-collapsed="true"] {
+  border-right: 0;
 }
 
 

@@ -3,15 +3,12 @@
 // Pane composers claim native focus while editing; releasing that ownership
 // synchronously blurs the field so terminal shortcuts can route trusted keys.
 // AppShell reserves the viewport dock without resizing the terminal deck.
-
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { MobileVoiceInput } from "./MobileVoiceInput.tsx";
-import {
-  createTerminalComposeSelection,
-  type TerminalSelectionGuard,
-} from "./TerminalComposeSelection.ts";
-export type { TerminalSelectionGuard } from "./TerminalComposeSelection.ts";
+import { IconButton } from "./Settings/md/primitives.tsx";
+import { createTerminalComposeSelection } from "./TerminalComposeSelection.ts";
+import type { TerminalSelectionGuard } from "./TerminalComposeSelection.ts";
 import {
   getComposerDraft,
   saveComposerDraft,
@@ -21,6 +18,7 @@ import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import type { TerminalContext } from "../lib/keytermContext.ts";
 import type { Session } from "@roost/shared/wire";
 import type { InputAdmission } from "../ws/sync-outbound.ts";
+export type { TerminalSelectionGuard } from "./TerminalComposeSelection.ts";
 
 interface Props {
   placement: "viewport" | "pane";
@@ -361,18 +359,19 @@ export function TerminalComposeButton(props: Props) {
         onFocusOut={releasePaneClaimIfUnfocused}
       >
         <div class="term-chat__box" data-testid="chat-box" data-compact={isCompact() ? "true" : "false"}>
-          <button
+          <IconButton
             type="button"
+            variant="ghost"
+            size="icon-lg"
             class="term-chat__ctl term-chat__attach"
             data-testid="chat-attach"
             disabled={!props.active || pendingSubmission() !== null}
             onMouseDown={keepKeyboard}
             onClick={() => { if (props.active) props.onAttachFiles(); }}
-            aria-label="Attach files"
+            icon="attach_file"
+            label="Attach files"
             title="Attach files"
-          >
-            <span class="term-chat__icon">attach_file</span>
-          </button>
+          />
           <textarea
             class="term-chat__input"
             data-testid="chat-input"
@@ -428,17 +427,18 @@ export function TerminalComposeButton(props: Props) {
               the compact action row, preventing half-finalized speech from
               sending without changing the textarea's full-width row. */}
           <Show when={!dictating()}>
-            <button
+            <IconButton
               type="button"
+              variant="default"
+              size="icon-lg"
               class="term-chat__ctl term-chat__send"
               data-testid="chat-send"
               disabled={!props.active || pendingSubmission() !== null}
               onMouseDown={keepKeyboard}
               onClick={sendLine}
-              aria-label="Send to terminal"
-            >
-              <span class="term-chat__icon">send</span>
-            </button>
+              icon="send"
+              label="Send to terminal"
+            />
           </Show>
         </div>
         <Show when={submissionStatus()}>
