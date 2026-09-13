@@ -7,10 +7,9 @@
 import type { JSX } from "solid-js";
 import type { Session } from "@roost/shared/wire";
 import { sessionTitle } from "../lib/sessionTitle.ts";
-import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
 import { Button } from "./Settings/md/Button.tsx";
-import { Icon } from "./Settings/md/Icon.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
+import { Icon } from "./Settings/md/Icon.tsx";
 
 export interface PaneTabProps {
   session: Session;
@@ -50,9 +49,8 @@ export function PaneTab(props: PaneTabProps) {
         onClick={props.onSelect}
         title={sessionTitle(props.session)}
       >
-        <Icon name="terminal" class="workbench-pane-tab__icon" />
+        <Icon name="terminal" size="sm" class="workbench-pane-tab__icon" />
         <span class="df-tab-label workbench-pane-tab__label">{sessionTitle(props.session)}</span>
-        <AgentStatusIndicator sessionId={props.session.id} compact />
       </Button>
       <IconButton
         icon="close"

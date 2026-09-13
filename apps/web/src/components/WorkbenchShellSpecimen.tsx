@@ -95,22 +95,24 @@ export const WorkbenchShellSpecimen: Component = () => {
       <div class="workbench-pane-tab-strip" aria-label="Workbench tabs">
         <div class="df-tab-bar workbench-pane-tab-strip__tabs">
           <div class="df-tab workbench-pane-tab" data-testid="tab-roost-main" data-active="true">
-            <Button variant="ghost" class="workbench-pane-tab__select" aria-label="Select roost main"><Icon name="terminal" size="sm" />
-            roost · main
-                        </Button>
+            <Button variant="ghost" class="workbench-pane-tab__select" aria-label="Select roost main">
+              <Icon name="terminal" size="sm" class="workbench-pane-tab__icon" />
+              <span class="df-tab-label workbench-pane-tab__label">roost · main</span>
+            </Button>
             <IconButton icon="close" label="Close roost main" size="icon-sm" class="df-tab-close workbench-pane-tab__close" />
           </div>
           <div class="df-tab workbench-pane-tab" data-testid="tab-roost-logs" data-active="false" data-focused="true">
-            <Button variant="ghost" class="workbench-pane-tab__select" aria-label="Select worker logs"><Icon name="description" size="sm" />
-            worker logs
-                        </Button>
+            <Button variant="ghost" class="workbench-pane-tab__select" aria-label="Select worker logs">
+              <Icon name="terminal" size="sm" class="workbench-pane-tab__icon" />
+              <span class="df-tab-label workbench-pane-tab__label">worker logs</span>
+            </Button>
             <IconButton icon="close" label="Close worker logs" size="icon-sm" class="df-tab-close workbench-pane-tab__close" />
           </div>
+          <IconButton icon="add" label="New terminal" size="icon-sm" class="df-tab-new" />
           <div class="df-tab-filler workbench-pane-tab-strip__filler" />
         </div>
         <div class="workbench-pane-tab-strip__actions" role="toolbar" aria-label="Terminal actions">
           <IconButton icon="keyboard_arrow_down" label="All terminals in this pane" size="icon-sm" class="df-tab-overflow" />
-          <IconButton icon="add" label="New terminal" size="icon-sm" class="df-tab-new" />
         </div>
       </div>
       <div style={{ padding: "var(--md-space-4)", color: "var(--terminal-grid-fg)", "font-family": "var(--term-font-family)", "font-size": "var(--md-body-s-size)" }}>$ roost status</div>

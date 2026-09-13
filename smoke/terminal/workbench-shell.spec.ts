@@ -202,7 +202,6 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   await expectDesktopGeometry(smokePage, createdIds[0]!, NARROW_VIEWPORT);
   await expectConnectedWorkbenchTabStrip(smokePage);
 
-
   const initial = await readRenderedLayout(smokePage, createdIds);
   const initialOrder = initial.panes[0]?.tabs ?? [];
   expect(initialOrder).toHaveLength(createdIds.length);
@@ -212,21 +211,22 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
     await expect(wrapper).toHaveAttribute("data-testid", `tab-${id}`);
     await expect(wrapper.locator(".workbench-pane-tab__select")).toBeVisible();
   }
-
   const selectedId = initialOrder[1] ?? initialOrder[0]!;
   await tabWrapper(smokePage, selectedId).locator(".workbench-pane-tab__select").click();
   await expect(tabWrapper(smokePage, selectedId)).toHaveAttribute("data-active", "true");
   await expect(smokePage).toHaveURL(`${stack.baseUrl}/s/${selectedId}`);
-
   const closedId = initialOrder.at(-1)!;
-  await tabWrapper(smokePage, closedId).locator(".df-tab-close").click();
-  await expect(tabWrapper(smokePage, closedId)).toHaveCount(0);
+  const closedTab = tabWrapper(smokePage, closedId);
+  const closedTabClose = closedTab.locator(".df-tab-close");
+  await closedTab.hover();
+  await expect(closedTabClose).toBeVisible();
+  await closedTabClose.click();
+  await expect(closedTab).toHaveCount(0);
   await expect(smokePage).toHaveURL(`${stack.baseUrl}/s/${selectedId}`);
   const undo = smokePage.getByTestId("undo-snackbar-action");
   await expect(undo).toBeVisible();
   await undo.click();
   await expect(tabWrapper(smokePage, closedId)).toBeVisible();
-
   const beforeReorder = (await readRenderedLayout(smokePage, createdIds)).panes[0]?.tabs ?? [];
   const movedId = beforeReorder[0]!;
   const lastId = beforeReorder.at(-1)!;
