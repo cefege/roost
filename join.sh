@@ -53,7 +53,36 @@ if [ -z "${ROOST_COORDINATOR_URL:-}" ] || [ -z "${ROOST_BOOTSTRAP_TOKEN:-}" ]; t
       "    ROOST_BOOTSTRAP_TOKEN=\"roost_bt_…\" bash"
 fi
 
-# 2. Bun.
+# 2. Preserve an existing dirty checkout before any installer or Git mutation.
+if [ -e "$ROOST_DIR/.git" ]; then
+  SOURCE_STATUS="$(git -C "$ROOST_DIR" status --porcelain)" \
+    || die "Could not inspect existing checkout at $ROOST_DIR; leaving it untouched."
+  if [ -n "$SOURCE_STATUS" ]; then
+    SOURCE_DIR="$ROOST_DIR"
+    WORKER_DIR="${SOURCE_DIR}-worker"
+    if [ -e "$WORKER_DIR" ] || [ -L "$WORKER_DIR" ]; then
+      if [ ! -e "$WORKER_DIR/.git" ]; then
+        die "Cannot reuse worker checkout at $WORKER_DIR because it is not a Git checkout."
+      fi
+      WORKER_ORIGIN="$(git -C "$WORKER_DIR" remote get-url origin)" \
+        || die "Cannot reuse worker checkout at $WORKER_DIR because its origin cannot be inspected."
+      if [ "$WORKER_ORIGIN" != "$REPO_URL" ]; then
+        die "Cannot reuse worker checkout at $WORKER_DIR because its origin is not $REPO_URL."
+      fi
+      WORKER_STATUS="$(git -C "$WORKER_DIR" status --porcelain)" \
+        || die "Cannot reuse worker checkout at $WORKER_DIR because its status cannot be inspected."
+      if [ -n "$WORKER_STATUS" ]; then
+        die "Cannot reuse dirty worker checkout at $WORKER_DIR; leaving it untouched."
+      fi
+      say "preserving dirty source $SOURCE_DIR; reusing clean worker checkout $WORKER_DIR"
+    else
+      say "preserving dirty source $SOURCE_DIR; using clean worker checkout $WORKER_DIR"
+    fi
+    ROOST_DIR="$WORKER_DIR"
+  fi
+fi
+
+# 3. Bun.
 if ! command -v bun >/dev/null 2>&1; then
   say "installing Bun"
   curl -fsSL https://bun.sh/install | bash
@@ -61,8 +90,8 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 command -v bun >/dev/null 2>&1 || die "Bun install did not land on PATH." "Open a new shell and re-run, or add ~/.bun/bin to PATH."
 
-# 3. Source — clone or fetch (do NOT pull yet; step 4 pins the checkout).
-if [ -d "$ROOST_DIR/.git" ]; then
+# 4. Source — clone or fetch (do NOT pull yet; step 5 pins the checkout).
+if [ -e "$ROOST_DIR/.git" ]; then
   say "fetching $ROOST_DIR"
   git -C "$ROOST_DIR" fetch --quiet origin
 else
@@ -70,7 +99,7 @@ else
   git clone "$REPO_URL" "$ROOST_DIR"
 fi
 
-# 4. Version pin (load-bearing) — stamp the SAME commit the coord runs, else
+# 5. Version pin (load-bearing) — stamp the SAME commit the coord runs, else
 # the drift badge fires on this fresh Mac. Fetch the coord's live HEAD from
 # the PUBLIC MiscHealth RPC (no auth) and detach-checkout it. Best-effort: on
 # a 'dev'/unpushed/unreachable SHA, stay on main and warn (same semantics as
@@ -87,12 +116,12 @@ else
   git -C "$ROOST_DIR" checkout --quiet main && git -C "$ROOST_DIR" pull --ff-only --quiet || true
 fi
 
-# 5. Install deps (no native deps → fast, no codesign/quarantine repairs).
+# 6. Install deps (no native deps → fast, no codesign/quarantine repairs).
 cd "$ROOST_DIR"
 say "bun install"
 bun install
 
-# 6. Install + register the local worker. ROOST_COORDINATOR_URL /
+# 7. Install + register the local worker. ROOST_COORDINATOR_URL /
 # ROOST_BOOTSTRAP_TOKEN / ROOST_WORKER_LABEL are already in the env and inherited.
 say "roost join"
 exec bun apps/roost-cli/src/main.ts join
