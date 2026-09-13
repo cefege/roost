@@ -157,7 +157,7 @@ ENDPOINT_PLIST=$'\n    <key>ROOST_TRUST_PROXY</key>\n    <string>1</string>'
 cmd="${1:-status}"
 
 write_plist() {
-  mkdir -p "$DATA_DIR" "$LOG_DIR"
+  mkdir -p "$(dirname "$PLIST")" "$DATA_DIR" "$LOG_DIR"
   # ProgramArguments/workdir/dist switch by execution form: ROOST_EXEC_BIN set
   # means compiled binary (`roost coord`); unset means from-source
   # (`bun …/main.ts`). The selected network mode's endpoint environment is

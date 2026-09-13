@@ -649,6 +649,24 @@ have reported success against a coordinator that was never running.
 `write-plist` verb and runs `systemd-analyze --user verify` on them, so a re-quoted path directive fails in CI
 rather than on the first `roost push`.
 
+### A fresh macOS account has no LaunchAgents directory
+
+**Symptom** — "`roost join` reaches `activate staged com.roost.worker-v2` and
+fails `mktemp: mkstemp failed on ~/Library/LaunchAgents/com.roost.worker-v2.plist.new.*:
+No such file or directory`; no worker service is installed."
+
+**Wrong** — create only worker data and log directories before atomically staging
+the plist. `mktemp "${PLIST}.new.XXXXXX"` stages beside the target, so the first
+install fails whenever the plist parent has not already been created.
+
+**Right** — every macOS `write_plist` creates `dirname "$PLIST"` together with
+its data and log directories before staging. The coordinator and worker installers
+share that first-install invariant.
+
+**Guard** — `apps/roost-cli/tests/install-plist-write.test.ts` removes the fake
+`Library/LaunchAgents` directory and proves both installers recreate it before
+publishing a mode-0600 plist.
+
 ### A remote deploy hands the target the deploying box's identity
 
 **Symptom** — "the machine I deployed to came up with another machine's name" — the coordinator lists two

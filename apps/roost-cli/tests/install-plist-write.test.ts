@@ -107,6 +107,16 @@ describe("macOS LaunchAgent write", () => {
       );
     });
 
+    test(`${role} installer creates a missing LaunchAgents directory`, () => {
+      const host = fakeMacHost(role);
+      fs.rmSync(host.agentsDir, { recursive: true });
+
+      expect(writePlist(host).exitCode).toBe(0);
+
+      expect(fs.existsSync(host.agentsDir)).toBe(true);
+      expect(fs.statSync(host.plist).mode & 0o777).toBe(0o600);
+    });
+
     test(`${role} installer keeps the installed agent when the write dies mid-document`, () => {
       // A truncated body is the shape an interrupted or short write leaves behind.
       const host = fakeMacHost(role, { cat: "#!/usr/bin/env bash\nhead -c 120\nexit 1\n" });

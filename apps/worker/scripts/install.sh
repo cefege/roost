@@ -233,7 +233,7 @@ fi
 cmd="${1:-status}"
 
 write_plist() {
-  mkdir -p "$DATA_DIR" "$LOG_DIR"
+  mkdir -p "$(dirname "$PLIST")" "$DATA_DIR" "$LOG_DIR"
   # ProgramArguments/workdir switch by mode: ROOST_EXEC_BIN set → compiled
   # binary (`roost worker`); unset → from-source (`bun …/main.ts`).
   local prog_bin prog_arg2 workdir label_xml prog_bin_xml prog_arg2_xml workdir_xml home_xml data_dir_xml coordinator_url_xml diag_xml log_dir_xml plist_xml
