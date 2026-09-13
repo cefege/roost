@@ -6,8 +6,6 @@
 // mirroring the home page's FolderCard grid — tap a card to switch, ✕ to close.
 //
 // Rendered by TerminalDeck at the top of the deck when isCompact().
-// Terminal actions reuse the deck operations; the sheet overflow also exposes
-// the same browser-local copy/download/import controls as desktop Arrange.
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { sessionTitle, programSubtitle } from "../lib/sessionTitle.ts";
@@ -40,9 +38,6 @@ export interface MobileDeckBarProps {
   onSelect: (id: string) => void;
   onClose: (s: Session) => void;
   onNewTab: () => void;
-  onCopyLayout: () => void;
-  onDownloadLayout: () => void;
-  onImportLayout: () => void;
 }
 
 export function MobileDeckBar(props: MobileDeckBarProps) {
@@ -120,9 +115,6 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
           onClose={props.onClose}
           onNewTab={props.onNewTab}
           onCloseSheet={() => setSheetOpen(false)}
-          onCopyLayout={props.onCopyLayout}
-          onDownloadLayout={props.onDownloadLayout}
-          onImportLayout={props.onImportLayout}
         />
       </Show>
     </>
@@ -146,9 +138,6 @@ interface WorkspaceTabsSheetProps {
   onClose: (s: Session) => void;
   onNewTab: () => void;
   onCloseSheet: () => void;
-  onCopyLayout: () => void;
-  onDownloadLayout: () => void;
-  onImportLayout: () => void;
 }
 
 function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
@@ -254,12 +243,6 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
             onSelectTabs={enterSelection}
             onSelectAll={selectAll}
             onCloseSelected={closeSelected}
-            onCopyLayout={props.onCopyLayout}
-            onDownloadLayout={props.onDownloadLayout}
-            onImportLayout={() => {
-              props.onCloseSheet();
-              props.onImportLayout();
-            }}
           />
         </div>
 

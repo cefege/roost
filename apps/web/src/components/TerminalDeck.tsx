@@ -35,8 +35,6 @@ import {
 } from "./terminal-deck-geometry.ts";
 import { createTerminalDeckOperations } from "./terminal-deck-operations.ts";
 import { bindTerminalDeckSwipe } from "./terminal-deck-swipe.ts";
-import { LayoutDocumentDialog } from "./LayoutDocumentDialog.tsx";
-import { createLayoutDocumentControls } from "../lib/layoutDocumentControls.ts";
 
 export function TerminalDeck(props: TerminalDeckProps) {
   let deckElement: HTMLDivElement | undefined;
@@ -53,10 +51,6 @@ export function TerminalDeck(props: TerminalDeckProps) {
     getDeckElement,
   );
 
-  const layoutDocuments = createLayoutDocumentControls({
-    folderKey: model.folderKey,
-    navigate: model.navigate,
-  });
 
   return (
     <div
@@ -147,9 +141,6 @@ export function TerminalDeck(props: TerminalDeckProps) {
             onSelect={operations.select}
             onClose={operations.close}
             onNewTab={() => void operations.newTab(model.layout()?.focusedPaneId ?? "")}
-            onCopyLayout={layoutDocuments.copyLayout}
-            onDownloadLayout={layoutDocuments.downloadLayout}
-            onImportLayout={layoutDocuments.importLayout}
           />
         </div>
         <Show when={model.barNeighborId()}>
@@ -172,9 +163,6 @@ export function TerminalDeck(props: TerminalDeckProps) {
                 onSelect={operations.select}
                 onClose={operations.close}
                 onNewTab={() => void operations.newTab(model.layout()?.focusedPaneId ?? "")}
-                onCopyLayout={layoutDocuments.copyLayout}
-                onDownloadLayout={layoutDocuments.downloadLayout}
-                onImportLayout={layoutDocuments.importLayout}
               />
             </div>
           )}
@@ -278,28 +266,11 @@ export function TerminalDeck(props: TerminalDeckProps) {
             <ArrangeMenu
               canArrange={model.liveIds().length >= 2}
               onArrange={operations.arrange}
-              onCopyLayout={layoutDocuments.copyLayout}
-              onDownloadLayout={layoutDocuments.downloadLayout}
-              onImportLayout={layoutDocuments.importLayout}
             />
           </div>
         </Show>
       </Show>
       <TerminalDeckSpotlight rect={model.spotlightRect()} />
-      <Show when={layoutDocuments.preview()}>
-        {(preview) => (
-          <LayoutDocumentDialog
-            open
-            fileName={preview().fileName}
-            document={preview().document}
-            droppedSessionCount={preview().droppedSessionCount}
-            error={preview().error}
-            reading={preview().reading}
-            onClose={layoutDocuments.closeImport}
-            onApply={layoutDocuments.applyImportedLayout}
-          />
-        )}
-      </Show>
     </div>
   );
 }

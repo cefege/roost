@@ -1,6 +1,6 @@
 // Owns the compact workspace sheet's anchored overflow menu.
-// MobileDeckBar supplies tab-selection actions and browser-local layout transfer;
-// shared context-menu primitives provide the focusable menu controls and chrome.
+// MobileDeckBar supplies tab-selection actions; shared context-menu primitives
+// provide the focusable menu controls and chrome.
 
 import { Show, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -9,7 +9,6 @@ import {
   anchoredMenuPosition,
   anchoredMenuSurfaceStyle,
   CtxMenuItem,
-  CtxMenuSeparator,
   focusMenuEdge,
   handleMenuKeyboardNavigation,
   trackFloatingMenuDismiss,
@@ -22,9 +21,6 @@ interface WorkspaceTabsMenuProps {
   onSelectTabs: () => void;
   onSelectAll: () => void;
   onCloseSelected: () => void;
-  onCopyLayout: () => void;
-  onDownloadLayout: () => void;
-  onImportLayout: () => void;
 }
 
 export function WorkspaceTabsMenu(props: WorkspaceTabsMenuProps) {
@@ -115,16 +111,6 @@ export function WorkspaceTabsMenu(props: WorkspaceTabsMenuProps) {
                 </CtxMenuItem>
                 <CtxMenuItem testid="workspace-tabs-select" onClick={() => choose(props.onSelectTabs)}>
                   Select tabs
-                </CtxMenuItem>
-                <CtxMenuSeparator />
-                <CtxMenuItem testid="layout-copy" onClick={() => choose(props.onCopyLayout)}>
-                  Copy layout
-                </CtxMenuItem>
-                <CtxMenuItem testid="layout-download" onClick={() => choose(props.onDownloadLayout)}>
-                  Download layout
-                </CtxMenuItem>
-                <CtxMenuItem testid="layout-import" onClick={() => choose(props.onImportLayout)}>
-                  Import layout…
                 </CtxMenuItem>
               </Show>
               <Show when={props.selectionMode}>

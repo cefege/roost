@@ -1,8 +1,8 @@
-// Deck-level pane-layout menu: preset arrangement plus local portable-document
-// copy, download, and import actions. TerminalDeck owns every mutation and I/O
-// callback; this file only anchors and dismisses the shared floating menu.
-// Presets keep their existing pane/tab/focus behavior and disable for a
-// one-session folder while document actions remain available.
+// Deck-level pane-layout menu: preset arrangement actions.
+// TerminalDeck owns the resulting layout mutations; this file only anchors
+// and dismisses the shared floating menu.
+// Presets preserve existing pane/tab/focus behavior and disable for a
+// one-session folder.
 
 import { Show, createSignal, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -22,9 +22,6 @@ import type { MenuFocusEdge } from "./contextMenuPrimitives.tsx";
 interface Props {
   canArrange: boolean;
   onArrange: (kind: ArrangeKind) => void;
-  onCopyLayout: () => void;
-  onDownloadLayout: () => void;
-  onImportLayout: () => void;
 }
 
 interface Item {
@@ -119,10 +116,6 @@ export function ArrangeMenu(props: Props) {
     props.onArrange(kind);
   };
 
-  const chooseAction = (action: () => void) => {
-    closeMenu(true);
-    action();
-  };
 
   const onTriggerKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -158,11 +151,11 @@ export function ArrangeMenu(props: Props) {
         type="button"
         class="df-arrange-btn"
         data-testid="arrange-btn"
-        aria-label="Arrange or transfer pane layout"
+        aria-label="Arrange pane layout"
         aria-haspopup="menu"
         aria-controls="arrange-menu"
         aria-expanded={open() !== null}
-        title="Arrange or transfer pane layout"
+        title="Arrange pane layout"
         onClick={toggle}
         onKeyDown={onTriggerKeyDown}
       >
@@ -213,16 +206,6 @@ export function ArrangeMenu(props: Props) {
                   <ArrangeRow kind={item.kind} label={item.label} hint={item.hint} />
                 </CtxMenuItem>
               ))}
-              <CtxMenuSeparator />
-              <CtxMenuItem testid="layout-copy" onClick={() => chooseAction(props.onCopyLayout)}>
-                Copy layout
-              </CtxMenuItem>
-              <CtxMenuItem testid="layout-download" onClick={() => chooseAction(props.onDownloadLayout)}>
-                Download layout
-              </CtxMenuItem>
-              <CtxMenuItem testid="layout-import" onClick={() => chooseAction(props.onImportLayout)}>
-                Import layout…
-              </CtxMenuItem>
             </div>
           </Portal>
         )}

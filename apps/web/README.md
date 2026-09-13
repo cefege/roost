@@ -45,14 +45,14 @@ lives in that row's directory; prefixed refs follow the convention above.
 | Directory | Owns | Must not own |
 | --- | --- | --- |
 | `apps/web/src/` (root files) | `entry.ts` (credential scrub + deferred graph load), `main.tsx` (post-scrub bootstrap + mount), `App.tsx` (router + overlay shell), `routes.ts` (URL table), `connect.ts` (Connect-RPC client), `css-imports.d.ts` and `md-elements.d.ts` (ambient imports/elements) | feature-shaped UI |
-| `apps/web/src/components/` | screens/dialogs; `DesignGallery.tsx` is the visual reference for theme tokens, shared primitives, and the canonical title/activity/sidebar/editor/status composition; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets plus local layout transfer and `LayoutDocumentDialog.tsx` owns explicit import preview/apply; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `cell-terminal-document-lifecycle.ts` fans one page-lifecycle listener set to mounted terminal panes; `TerminalDeck.tsx` owns persistent keyed mounting | direct store writes, wire framing, persistence |
+| `apps/web/src/components/` | screens/dialogs; `DesignGallery.tsx` is the visual reference for theme tokens, shared primitives, and the canonical title/activity/sidebar/editor/status composition; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `cell-terminal-document-lifecycle.ts` fans one page-lifecycle listener set to mounted terminals | global state, transport, or terminal cell parsing |
 | `apps/web/src/components/layout/` | `AppShell.tsx` owns the canonical desktop workbench grid and compact/mobile shell; `WorkbenchTitleBar.tsx`, `WorkbenchActivityBar.tsx`, and `WorkbenchStatusBar.tsx` own truthful desktop chrome; `SidebarResizer.tsx` and `MobileSidebarDrawer.tsx` retain sidebar interaction seams; `MobileTopBar.tsx` owns compact route context | route-specific content |
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
 | `apps/web/src/components/Settings/` | settings shell/panes; `MachinesPane.tsx` owns workers, `DevicesPane.tsx` is the only identity surface, `settingsNavigation.ts` owns the single `SETTINGS_GROUPS` list | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
-| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves (`terminal-stream-renewal-scheduler.ts` owns one document renewal timer and `terminal-stream-progress.ts` pushes chunk progress), pane/UI stores; `paneLayoutDocument.ts` is the portable-document adapter over the browser-local pane store — strict for every apply, degrading only for the human-confirmed import preview; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `auth-boundary.ts` owns the credential-boundary generation guard and authenticated-state teardown | JSX or module-global socket/reconnect state |
+| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves (`terminal-stream-renewal-scheduler.ts` owns one document renewal timer and `terminal-stream-progress.ts` pushes chunk progress), pane/UI stores; `paneLayoutDocument.ts` is the portable-document adapter over the browser-local pane store; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `auth-boundary.ts` owns the credential-boundary generation guard and authenticated-state teardown | JSX or module-global socket/reconnect state |
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
-| `apps/web/src/lib/` | pure helpers and browser adapters; `layoutDocumentControls.ts` + `layoutDocumentFile.ts` own local transfer, `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
+| `apps/web/src/lib/` | pure helpers and browser adapters; `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream owner |
 | `apps/web/src/auth/` | web-key/IndexedDB, `fragment-credential.ts` (`#pair=<token>`, the only URL credential kind), pairing and tab identity | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | global stylesheets imported once by `main.tsx`; `theme-vars.css` owns canonical theme tokens and aliases; `components/Settings/md/tokens.css` owns shared settings primitives; `sidebar.css` owns terminal `.wterm` and legacy drawer rules; `workbench-shell.css` owns desktop shell and workbench-mounted Settings presentation; `workbench-sidebar.css` and `workbench-tabs.css` own sidebar and tab/deck presentation respectively | component-local one-offs |
 | `apps/web/tests/` | recursive `*.test.ts` Bun suites, including the root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
@@ -90,17 +90,15 @@ search RPCs; opening a completed session acknowledges it. Search never inspects
 agent transcripts. Attachment upload/download through `TransferStack` remains
 supported.
 
-Portable layouts remain browser-owned. `paneLayoutStore` keeps the active
-runtime tree and private pane/split UUIDs under `roost.paneLayout.v1`;
-`@roost/shared/layout-document` is the strict versioned boundary. Export and
-folder-scoped `UiReportState` documents replace runtime IDs with deterministic
-preorder leaf/slot keys; reports send typed protobuf rather than embedded
-runtime JSON, and off-folder routes omit the document.
-Local import previews before mutation. The acknowledged remote exception
-targets one page's current Sync socket, but that page still derives the
-URL-active folder and canonical live membership and calls the same
-`applyLayoutDocument`. No coordinator record, storage event, or open peer tab
-owns or live-folds another page's layout.
+Browser-local layouts remain in `paneLayoutStore`, which keeps the active
+runtime tree and private pane/split UUIDs under `roost.paneLayout.v1`.
+`@roost/shared/layout-document` is the strict versioned boundary for
+folder-scoped `UiReportState`; reports replace runtime IDs with deterministic
+preorder leaf/slot keys and send typed protobuf rather than embedded runtime
+JSON. The acknowledged remote exception targets one page's current Sync
+socket, while that page derives the URL-active folder and canonical live
+membership before calling `applyLayoutDocument`. No coordinator record,
+storage event, or open peer tab owns or live-folds another page's layout.
 
 ## Invariants
 
@@ -136,22 +134,19 @@ Break one of these and you get back the history-corruption class this repo keeps
   V1 parser rejects unknown keys/versions, invalid graph references, and
   excessive identifiers, depth, nodes, slots, or bindings before recursion.
   `liveSessionIdsForFolder()` is the only folder membership/order selector used
-  by the deck, reporter, command adapters, and import controls; the optimistic
-  spawn projection removes client-only identities for reports and exposes their
-  presence so acknowledged apply can fail closed. Export and reporting contain
-  stable leaf/slot keys only; runtime pane/split UUIDs, focused pane IDs, and
-  redundant visible-session lists never cross the wire.
-  The adapter validates and materializes entirely in locals before
-  `commitLayout()` exactly once; rejection cannot create a pane signal,
-  subscriber call, persistence timer, or localStorage write. A leaf holding no
-  session collapses into its sibling before that commit, so no pane commits
-  without a tab strip to close it; a single empty root leaf is the only legal
-  empty result. A human-confirmed import drops bindings whose session is no
-  longer live, collapses the panes they emptied, and reports that count in the
-  confirm dialog; acknowledged apply stays exact and rejects the same document.
+  by the deck, reporter, and command adapters; the optimistic spawn projection
+  removes client-only identities for reports and exposes their presence so
+  acknowledged apply can fail closed. Reporting contains stable leaf/slot keys
+  only; runtime pane/split UUIDs, focused pane IDs, and redundant
+  visible-session lists never cross the wire. The adapter validates and
+  materializes entirely in locals before `commitLayout()` exactly once;
+  rejection cannot create a pane signal, subscriber call, persistence timer, or
+  localStorage write. A leaf holding no session collapses into its sibling
+  before that commit, so no pane commits without a tab strip to close it; a
+  single empty root leaf is the only legal empty result. Acknowledged apply
+  stays exact and rejects any document whose bindings are no longer live.
   Legacy runtime ratios normalize into the shared bounds before rendering or
-  export. Desktop Arrange and the compact workspace-sheet overflow expose the
-  same controls, including for one-session folders. Compact rendering projects
+  reporting. Desktop Arrange exposes presets only. Compact rendering projects
   the live URL session (or first occupied leaf) without changing the preserved
   desktop focus/topology.
 - **Acknowledged apply never transfers layout ownership.** `uiLayoutApplyCore.ts`
