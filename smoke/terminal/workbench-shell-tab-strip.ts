@@ -1,4 +1,4 @@
-// Workbench tab strip browser assertions own the nested rail and fixed-action contract.
+// Workbench tab strip browser assertions own the nested rail and overflow-action contract.
 // workbench-shell.spec.ts calls this after creating six real terminal sessions.
 // The helper reads rendered geometry only; session and layout operations stay in the scenario.
 // It depends on Playwright's live browser surface and fixture assertions.
@@ -14,10 +14,12 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
     const actions = shell.querySelector<HTMLElement>(":scope > .workbench-pane-tab-strip__actions");
     const activeTab = rail?.querySelector<HTMLElement>(".df-tab[data-active='true']");
     const inactiveTab = rail?.querySelector<HTMLElement>(".df-tab[data-active='false']");
-    const newTab = actions?.querySelector<HTMLElement>("[data-testid='tab-new']");
+    const newTab = rail?.querySelector<HTMLElement>("[data-testid='tab-new']");
     const editor = shell.closest<HTMLElement>(".workbench-editor-region");
     const arrange = document.querySelector<HTMLElement>("[data-testid='arrange-btn']");
-    if (!rail || !actions || !activeTab || !inactiveTab || !newTab || !editor || !arrange) {
+    const tabs = rail ? Array.from(rail.querySelectorAll<HTMLElement>(".df-tab")) : [];
+    const lastTab = tabs.at(-1);
+    if (!rail || !actions || !activeTab || !inactiveTab || !newTab || !lastTab || !editor || !arrange) {
       throw new Error("workbench tab shell is incomplete");
     }
 
@@ -25,14 +27,14 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
       const rect = element.getBoundingClientRect();
       return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
     };
-    const railRect = toRect(rail);
+    const railRectAtStart = toRect(rail);
     const actionRects = Array.from(actions.querySelectorAll<HTMLElement>("button")).map(toRect);
-    const visibleTabRects = Array.from(rail.querySelectorAll<HTMLElement>(".df-tab"))
+    const visibleTabRects = tabs
       .map(toRect)
       .map((rect) => ({
         ...rect,
-        left: Math.max(rect.left, railRect.left),
-        right: Math.min(rect.right, railRect.right),
+        left: Math.max(rect.left, railRectAtStart.left),
+        right: Math.min(rect.right, railRectAtStart.right),
       }))
       .filter((rect) => rect.left < rect.right);
     const intersects = (
@@ -43,10 +45,11 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
       && first.top < second.bottom
       && first.bottom > second.top;
     const actionRectsBeforeScroll = Array.from(actions.querySelectorAll<HTMLElement>("button")).map(toRect);
-    const newTabRectBeforeScroll = toRect(newTab);
+    const newTabRectAtStart = toRect(newTab);
     rail.scrollLeft = rail.scrollWidth;
+    const railRectAtEnd = toRect(rail);
+    const newTabRectAtEnd = toRect(newTab);
     const actionRectsAfterScroll = Array.from(actions.querySelectorAll<HTMLElement>("button")).map(toRect);
-    const newTabRectAfterScroll = toRect(newTab);
     rail.scrollLeft = 0;
     const activeIcon = activeTab.querySelector<HTMLElement>(".workbench-pane-tab__icon");
     const inactiveIcon = inactiveTab.querySelector<HTMLElement>(".workbench-pane-tab__icon");
@@ -57,12 +60,17 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
       shellScrolls: shell.scrollWidth > shell.clientWidth + 1,
       railScrolls: rail.scrollWidth > rail.clientWidth + 1,
       actionsAreSibling: actions.parentElement === shell,
-      newTabIsActionChild: newTab.parentElement === actions,
-      newTabRectBeforeScroll,
-      newTabRectAfterScroll,
-      newTabIntersectsVisibleTab: visibleTabRects.some((tab) => intersects(newTabRectBeforeScroll, tab)),
+      newTabFollowsLastTab: lastTab.nextElementSibling === newTab,
       actionRectsBeforeScroll,
       actionRectsAfterScroll,
+      newTabWithinRailAtStart: newTabRectAtStart.left >= railRectAtStart.left
+        && newTabRectAtStart.right <= railRectAtStart.right
+        && newTabRectAtStart.top >= railRectAtStart.top
+        && newTabRectAtStart.bottom <= railRectAtStart.bottom,
+      newTabWithinRailAtEnd: newTabRectAtEnd.left >= railRectAtEnd.left
+        && newTabRectAtEnd.right <= railRectAtEnd.right
+        && newTabRectAtEnd.top >= railRectAtEnd.top
+        && newTabRectAtEnd.bottom <= railRectAtEnd.bottom,
       arrangeIntersectsAction: actionRects.some((action) => intersects(toRect(arrange), action)),
       actionIntersectsTab: actionRects.some((action) => visibleTabRects.some((tab) => intersects(action, tab))),
       activeRadius: getComputedStyle(activeTab).borderTopLeftRadius,
@@ -77,15 +85,16 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
   expect(tabStripLayout.shellScrolls).toBe(false);
   expect(tabStripLayout.railScrolls).toBe(true);
   expect(tabStripLayout.actionsAreSibling).toBe(true);
-  expect(tabStripLayout.newTabIsActionChild).toBe(true);
-  expect(tabStripLayout.newTabIntersectsVisibleTab).toBe(false);
+  expect(tabStripLayout.newTabFollowsLastTab).toBe(true);
+  expect(tabStripLayout.newTabWithinRailAtStart).toBe(true);
+  expect(tabStripLayout.newTabWithinRailAtEnd).toBe(true);
   expect(tabStripLayout.arrangeIntersectsAction).toBe(false);
+  expect(tabStripLayout.actionIntersectsTab).toBe(false);
   expect(tabStripLayout.activeRadius).toBe("0px");
   expect(tabStripLayout.inactiveSelectRadius).toBe("0px");
   expect(tabStripLayout.activeBackground).toBe(tabStripLayout.editorBackground);
   expect(tabStripLayout.inactiveIconColor).not.toBe(tabStripLayout.activeIconColor);
   expect(tabStripLayout.inactiveLabelColor).not.toBe(tabStripLayout.activeLabelColor);
   expect(tabStripLayout.actionRectsAfterScroll).toEqual(tabStripLayout.actionRectsBeforeScroll);
-  expect(tabStripLayout.newTabRectAfterScroll).toEqual(tabStripLayout.newTabRectBeforeScroll);
   expect(await tabRail.evaluate((rail) => rail.scrollLeft)).toBe(0);
 }

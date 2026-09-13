@@ -33,6 +33,12 @@
   scrollbar-width: none;
 }
 .df-tab-bar.workbench-pane-tab-strip__tabs::-webkit-scrollbar { display: none; }
+.df-tab-bar.workbench-pane-tab-strip__tabs > .df-tab-new {
+  position: sticky;
+  inset-inline-end: 0;
+  z-index: 1;
+  background: var(--workbench-tab-strip);
+}
 .workbench-pane-tab-strip__actions {
   display: flex;
   align-items: center;

@@ -346,15 +346,6 @@ export function PaneStrip(props: PaneStripProps) {
         />
       </div>
       <div class="workbench-pane-tab-strip__actions" role="toolbar" aria-label="Terminal actions">
-        <IconButton
-          icon="add"
-          label="New terminal — same folder and server"
-          size="icon-sm"
-          class="df-tab-new workbench-pane-tab-control"
-          data-testid="tab-new"
-          title="New terminal in this folder (or double-click the empty bar)"
-          onClick={props.onNewTab}
-        />
         <Show when={overflow()}>
           <IconButton
             ref={overflowButtonElement}
