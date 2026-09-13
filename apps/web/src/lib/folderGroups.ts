@@ -17,6 +17,7 @@ import {
   type AgentStatusRollup,
 } from "./agentStatus.ts";
 import { seenAgentRevision } from "./agentSeen.ts";
+import { normalizeNavigationSearchQuery } from "../store/navigation-search.ts";
 
 
 // Lead-session PR status, shaped for the row badge. null = no PR to show.
@@ -45,6 +46,24 @@ export interface FolderGroup {
   reachAddr: string | null; // worker host for port click-through (reachable_addr)
   agentStatus: AgentStatusRollup; // max-priority state + per-state counts
 }
+/** Keep a folder when every normalized query term occurs in its visible metadata. */
+export function filterFolderGroups(
+  groups: readonly FolderGroup[],
+  query: string,
+): readonly FolderGroup[] {
+  const normalizedQuery = normalizeNavigationSearchQuery(query);
+  if (!normalizedQuery) return groups;
+  const terms = normalizedQuery.split(" ");
+  return groups.filter((group) => {
+    const searchText = normalizeNavigationSearchQuery([
+      group.name,
+      group.server,
+      group.spawnCwd,
+    ].join("\n"));
+    return terms.every((term) => searchText.includes(term));
+  });
+}
+
 
 // Check glyph + token color per rollup state. none → no glyph (just #123).
 export const PR_CHECK_GLYPH: Record<PrBadge["checks"], string> = {

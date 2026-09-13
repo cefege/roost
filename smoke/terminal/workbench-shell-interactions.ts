@@ -17,10 +17,8 @@ import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 
 const WIDE_VIEWPORT = { width: 1440, height: 900 } as const;
 const AGENT_SESSION_COUNT = 14;
-
 type SidebarView = "spaces" | "agents";
 type SidebarEdge = "top" | "bottom";
-
 type ScrollState = {
   overflowY: string;
   scrollTop: number;
@@ -29,7 +27,6 @@ type ScrollState = {
 };
 type SidebarPanelState = { ariaHidden: string | null; inert: boolean; scroll: ScrollState };
 type SidebarSurface = { spaces: SidebarPanelState; agents: SidebarPanelState };
-
 function sidebarPanelTestId(view: SidebarView): string {
   return view === "spaces" ? "sidebar-spaces" : "sidebar-agents-section";
 }
@@ -96,7 +93,6 @@ async function selectSidebarView(page: Page, view: SidebarView): Promise<void> {
   await sidebarViewButton(page, view).click();
   await expectSidebarView(page, view);
 }
-
 async function expectInactivePanelSkippedByTab(page: Page, activeView: SidebarView): Promise<void> {
   const inactiveView: SidebarView = activeView === "spaces" ? "agents" : "spaces";
   await sidebarViewButton(page, "agents").focus();
@@ -109,25 +105,25 @@ async function expectInactivePanelSkippedByTab(page: Page, activeView: SidebarVi
       `[data-testid="${inactivePanelTestId}"]`,
     );
     const focused = document.activeElement;
+    const search = document.querySelector<HTMLElement>('[data-testid="sidebar-search"]');
     return {
       inActivePanel: !!focused && !!activePanel?.contains(focused),
       inInactivePanel: !!focused && !!inactivePanel?.contains(focused),
+      inSharedSearch: focused === search,
     };
   }, {
     activePanelTestId: sidebarPanelTestId(activeView),
     inactivePanelTestId: sidebarPanelTestId(inactiveView),
   });
   expect(focusState.inInactivePanel).toBe(false);
-  expect(focusState.inActivePanel).toBe(true);
+  expect(focusState.inActivePanel || focusState.inSharedSearch).toBe(true);
 }
-
 async function wheelWithinTestId(page: Page, testId: string, deltaY: number): Promise<void> {
   const bounds = await page.getByTestId(testId).boundingBox();
   if (!bounds) throw new Error(`${testId} has no visible scroll surface`);
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
   await page.mouse.wheel(0, deltaY);
 }
-
 async function setPanelScrollEdge(page: Page, view: SidebarView, edge: SidebarEdge): Promise<void> {
   await page.getByTestId(sidebarScrollTestId(view)).evaluate((element, targetEdge) => {
     const scrollHost = element as HTMLElement;
@@ -149,7 +145,6 @@ async function expectPanelAtEdge(page: Page, view: SidebarView, edge: SidebarEdg
     return Math.abs(scroll.scrollTop - expectedScrollTop);
   }, { timeout: 30_000 }).toBeLessThanOrEqual(1);
 }
-
 async function dispatchTouchScroll(page: Page, testId: string, deltaY: number): Promise<void> {
   await page.evaluate(({ scrollTestId, movementY }) => {
     const scrollHost = document.querySelector<HTMLElement>(`[data-testid="${scrollTestId}"]`);
@@ -189,7 +184,6 @@ async function dispatchTouchScroll(page: Page, testId: string, deltaY: number): 
     }));
   }, { scrollTestId: testId, movementY: deltaY });
 }
-
 async function expectEdgeGesturesPreserveView(
   page: Page,
   view: SidebarView,
@@ -204,7 +198,6 @@ async function expectEdgeGesturesPreserveView(
   await expectSidebarView(page, view);
   await expectPanelAtEdge(page, view, edge);
 }
-
 async function scrollPanel(page: Page, view: SidebarView, deltaY: number): Promise<number> {
   await wheelWithinTestId(page, sidebarScrollTestId(view), deltaY);
   await expect.poll(async () => (await readSidebarSurface(page))?.[view].scroll.scrollTop ?? 0, {
@@ -214,7 +207,6 @@ async function scrollPanel(page: Page, view: SidebarView, deltaY: number): Promi
   if (!surface) throw new Error("sidebar surface disappeared after scrolling");
   return surface[view].scroll.scrollTop;
 }
-
 async function expectRetainedPanelPosition(
   page: Page,
   view: SidebarView,
@@ -225,7 +217,6 @@ async function expectRetainedPanelPosition(
     return Math.abs((surface?.[view].scroll.scrollTop ?? Number.POSITIVE_INFINITY) - expectedScrollTop);
   }, { timeout: 30_000 }).toBeLessThanOrEqual(1);
 }
-
 async function spawnWorkingAgents(
   page: Page,
   stack: TerminalTestStack,
@@ -251,9 +242,8 @@ async function spawnWorkingAgents(
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
-
   await navigateToSmokeSession(page, primarySessionId);
-  for (const sessionId of agentSessionIds) {
+  for (const [index, sessionId] of agentSessionIds.entries()) {
     await navigateToSmokeSession(page, sessionId);
     await launchIntegratedAgent(page, sessionId);
     await pollAgentStatus(
@@ -262,7 +252,7 @@ async function spawnWorkingAgents(
       "idle",
       (status) => status.source === "screen",
     );
-    await reportAgentStatus(sessionId, "working", 1);
+    await reportAgentStatus(sessionId, "working", 1, true, `agent-filter-${index}`);
     await expect(page.getByTestId(`terminal-slot-${sessionId}`)).toContainText(
       'STATUS_ACK_1 {"ok":true}',
       { timeout: 30_000 },
@@ -277,7 +267,6 @@ async function spawnWorkingAgents(
   await navigateToSmokeSession(page, primarySessionId);
   return { primarySessionId, agentSessionIds };
 }
-
 function expectNoLegacyChatControls(page: Page): Promise<void> {
   const sidebarPanels = page.locator(
     '[data-testid="sidebar-spaces"], [data-testid="sidebar-agents-section"]',
@@ -306,6 +295,7 @@ export async function exerciseSidebarAgents(
   await expectSidebarView(page, "agents");
 
   const { primarySessionId, agentSessionIds } = await spawnWorkingAgents(page, stack, secondWorker);
+  const activeAgentFilter = "agent-filter-0";
   const activeAgentSessionId = agentSessionIds[0];
   if (!activeAgentSessionId) throw new Error("agent fixture did not create an agent session");
   expect(agentSessionIds).toHaveLength(AGENT_SESSION_COUNT);
@@ -321,11 +311,21 @@ export async function exerciseSidebarAgents(
   await expectInactivePanelSkippedByTab(page, "spaces");
   const sidebarSearch = page.getByTestId("sidebar-search");
   await expect(sidebarSearch).toBeVisible();
+  await expect(sidebarSearch).toHaveAttribute("placeholder", "Filter spaces…");
   await sidebarSearch.fill("/tmp");
-  await expect.poll(() => page.getByTestId("sidebar-session-row").count(), {
+  await expect.poll(() => page.locator('[data-testid^="folder-row-"]').count(), {
     timeout: 30_000,
-  }).toBeGreaterThanOrEqual(agentSessionIds.length + 1);
-
+  }).toBeGreaterThanOrEqual(agentSessionIds.length);
+  await expect(page.getByTestId("sidebar-session-row")).toHaveCount(0);
+  await selectSidebarView(page, "agents");
+  await expect(sidebarSearch).toHaveAttribute("placeholder", "Filter agents…");
+  await sidebarSearch.fill(activeAgentFilter);
+  await expect(page.locator('[data-testid^="sidebar-agent-row-"]')).toHaveCount(1);
+  await expect(activeAgentRow).toBeVisible();
+  await sidebarSearch.fill("__roost_no_matching_agent__");
+  await expect(page.getByTestId("sidebar-agents")).toContainText("No matching agents");
+  await sidebarSearch.fill("");
+  await expect(activeAgentRow).toBeVisible();
   const overflowingPanels = await expectSidebarHosts(page);
   expect(overflowingPanels.spaces.scroll.scrollHeight).toBeGreaterThan(
     overflowingPanels.spaces.scroll.clientHeight,

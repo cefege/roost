@@ -14,9 +14,10 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
     const actions = shell.querySelector<HTMLElement>(":scope > .workbench-pane-tab-strip__actions");
     const activeTab = rail?.querySelector<HTMLElement>(".df-tab[data-active='true']");
     const inactiveTab = rail?.querySelector<HTMLElement>(".df-tab[data-active='false']");
+    const newTab = rail?.querySelector<HTMLElement>("[data-testid='tab-new']");
     const editor = shell.closest<HTMLElement>(".workbench-editor-region");
     const arrange = document.querySelector<HTMLElement>("[data-testid='arrange-btn']");
-    if (!rail || !actions || !activeTab || !inactiveTab || !editor || !arrange) {
+    if (!rail || !actions || !activeTab || !inactiveTab || !newTab || !editor || !arrange) {
       throw new Error("workbench tab shell is incomplete");
     }
 
@@ -54,6 +55,9 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
       shellScrolls: shell.scrollWidth > shell.clientWidth + 1,
       railScrolls: rail.scrollWidth > rail.clientWidth + 1,
       actionsAreSibling: actions.parentElement === shell,
+      newTabFollowsLastTab: newTab.previousElementSibling === Array.from(
+        rail.querySelectorAll(".df-tab"),
+      ).at(-1),
       actionRectsBeforeScroll,
       actionRectsAfterScroll,
       actionIntersectsTab: actionRects.some((action) => visibleTabRects.some((tab) => intersects(action, tab))),
@@ -64,13 +68,13 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
       inactiveSelectRadius: inactiveSelect ? getComputedStyle(inactiveSelect).borderTopLeftRadius : "",
       activeIconColor: activeIcon ? getComputedStyle(activeIcon).color : "",
       inactiveIconColor: inactiveIcon ? getComputedStyle(inactiveIcon).color : "",
-      activeLabelColor: activeLabel ? getComputedStyle(activeLabel).color : "",
       inactiveLabelColor: inactiveLabel ? getComputedStyle(inactiveLabel).color : "",
     };
   });
   expect(tabStripLayout.shellScrolls).toBe(false);
   expect(tabStripLayout.railScrolls).toBe(true);
   expect(tabStripLayout.actionsAreSibling).toBe(true);
+  expect(tabStripLayout.newTabFollowsLastTab).toBe(true);
   expect(tabStripLayout.actionIntersectsTab).toBe(false);
   expect(tabStripLayout.arrangeIntersectsAction).toBe(false);
   expect(tabStripLayout.activeRadius).toBe("0px");

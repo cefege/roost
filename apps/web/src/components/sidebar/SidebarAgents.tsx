@@ -12,16 +12,25 @@ import { AGENT_STATUS_PRESENTATION } from "../../lib/agentStatus.ts";
 import { buildFolderGroups } from "../../lib/folderGroups.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";
-import { navigationSearchDocuments } from "../../store/navigation-search.ts";
+import {
+  filterNavigationSearchDocuments,
+  navigationSearchDocuments,
+  normalizeNavigationSearchQuery,
+} from "../../store/navigation-search.ts";
 import { rootStore } from "../../store/root.ts";
 import { closeSidebar } from "../../store/uiStore.ts";
 import { projectSidebarAgentGroups } from "./sidebarAgentsProjection.ts";
 
-export function SidebarAgents(): JSX.Element {
+interface SidebarAgentsProps {
+  readonly query: string;
+}
+
+export function SidebarAgents(props: SidebarAgentsProps): JSX.Element {
   const location = useLocation();
   const activeSessionId = createMemo(() => activeSessionForPath(location.pathname)?.id ?? null);
+  const filterActive = createMemo(() => normalizeNavigationSearchQuery(props.query).length > 0);
   const groups = createMemo(() => projectSidebarAgentGroups({
-    documents: navigationSearchDocuments(),
+    documents: filterNavigationSearchDocuments(navigationSearchDocuments(), props.query),
     folderGroups: buildFolderGroups(),
     sessions: rootStore.sessions,
     agentStatuses: rootStore.agent_status,
@@ -47,11 +56,22 @@ export function SidebarAgents(): JSX.Element {
       <Show
         when={groups().length > 0}
         fallback={(
-          <EmptyState
-            icon="smart_toy"
-            title="No active agents"
-            supporting="Active coding agents appear here while their terminal sessions remain open."
-          />
+          <Show
+            when={filterActive()}
+            fallback={(
+              <EmptyState
+                icon="smart_toy"
+                title="No active agents"
+                supporting="Active coding agents appear here while their terminal sessions remain open."
+              />
+            )}
+          >
+            <EmptyState
+              icon="search_off"
+              title="No matching agents"
+              supporting="Try a different filter."
+            />
+          </Show>
         )}
       >
         <For each={groups()}>

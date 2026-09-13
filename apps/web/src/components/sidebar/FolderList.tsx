@@ -15,7 +15,13 @@ import { cursorSessionId, setActivateHandler, setOrderedSessionIds } from "../..
 import { relTimeSince } from "../../lib/relTime.ts";
 import { folderKeyOf } from "../../lib/folderKey.ts";
 import { colorForFp } from "../../lib/fpColor.ts";
-import { buildFolderGroups, type FolderGroup, PR_CHECK_GLYPH, PR_CHECK_COLOR } from "../../lib/folderGroups.ts";
+import {
+  buildFolderGroups,
+  filterFolderGroups,
+  type FolderGroup,
+  PR_CHECK_GLYPH,
+  PR_CHECK_COLOR,
+} from "../../lib/folderGroups.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { isChatFolder } from "../../lib/quickChat.ts";
 import { relTimeTickMs } from "./SessionRow.tsx";
@@ -29,6 +35,8 @@ import {
   AGENT_STATUS_PRESENTATION,
   formatAgentStatusCounts,
 } from "../../lib/agentStatus.ts";
+import { normalizeNavigationSearchQuery } from "../../store/navigation-search.ts";
+import { SidebarEmptyState } from "./SidebarEmptyState.tsx";
 
 function FolderStatusRollup(props: { group: FolderGroup }) {
   return (
@@ -46,6 +54,7 @@ function FolderStatusRollup(props: { group: FolderGroup }) {
 }
 interface FolderListProps {
   active: boolean;
+  query: string;
 }
 
 export function FolderList(props: FolderListProps) {
@@ -95,7 +104,11 @@ export function FolderList(props: FolderListProps) {
   const [gs, setGs] = createStore<{ rows: FolderGroup[] }>({ rows: [] });
   createComputed(() => setGs("rows", reconcile(buildFolderGroups(), { key: "key" })));
 
-  const folderRows = createMemo(() => gs.rows.filter((group) => !isChatFolder(group.spawnCwd)));
+  const folderRows = createMemo(() => filterFolderGroups(
+    gs.rows.filter((group) => !isChatFolder(group.spawnCwd)),
+    props.query,
+  ));
+  const hasActiveFilter = createMemo(() => normalizeNavigationSearchQuery(props.query).length > 0);
 
   // Cursor commands must only target rows in the visible Spaces projection.
   createEffect(() => {
@@ -261,11 +274,21 @@ export function FolderList(props: FolderListProps) {
 
   return (
     <div data-testid="folder-list">
-      <div class="df-flat-group">
-        <For each={folderRows()}>
-          {(group) => renderFolderRow(group)}
-        </For>
-      </div>
+      <Show
+        when={folderRows().length > 0}
+        fallback={(
+          <SidebarEmptyState
+            kind={hasActiveFilter() ? "search-empty" : "view-empty"}
+            query={props.query}
+          />
+        )}
+      >
+        <div class="df-flat-group">
+          <For each={folderRows()}>
+            {(group) => renderFolderRow(group)}
+          </For>
+        </div>
+      </Show>
       <FlatNewTerminal />
       <Show when={folderCtxMenu()}>
         {(m) => (

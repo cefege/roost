@@ -329,6 +329,15 @@ export function PaneStrip(props: PaneStripProps) {
             />
           )}
         </For>
+        <IconButton
+          icon="add"
+          label="New terminal — same folder and server"
+          size="icon-sm"
+          class="df-tab-new workbench-pane-tab-control"
+          data-testid="tab-new"
+          title="New terminal in this folder (or double-click the empty bar)"
+          onClick={props.onNewTab}
+        />
         <div
           class="df-tab-filler workbench-pane-tab-strip__filler"
           data-testid="tab-filler"
@@ -352,15 +361,6 @@ export function PaneStrip(props: PaneStripProps) {
             onClick={toggleList}
           />
         </Show>
-        <IconButton
-          icon="add"
-          label="New terminal — same folder and server"
-          size="icon-sm"
-          class="df-tab-new workbench-pane-tab-control"
-          data-testid="tab-new"
-          title="New terminal in this folder (or double-click the empty bar)"
-          onClick={props.onNewTab}
-        />
       </div>
       <Show when={listOpen()}>
         {(position) => (
