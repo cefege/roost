@@ -90,6 +90,7 @@ function touchEvent(clientY: number): TouchStub {
 interface Harness {
 	display: FakeDisplay;
 	readerReasons: string[];
+	selectionReleases(): number;
 	sent: Uint8Array[];
 	setNativeScrollFallback(): void;
 	fireWheel(deltaY: number, shiftKey?: boolean): WheelStub;
@@ -105,9 +106,11 @@ function makeHarness(tracking = 0): Harness {
 	const display = new FakeDisplay();
 	const readerReasons: string[] = [];
 	const sent: Uint8Array[] = [];
+	let selectionReleases = 0;
 	let readerIntent: "live" | "reading" = "live";
 	let readerReason: string | null = null;
 	const renderer = {
+		finishLiveSelectionRelease: () => { selectionReleases += 1; },
 		enterReading: (reason: string) => {
 			readerReasons.push(reason);
 			readerIntent = "reading";
@@ -151,6 +154,7 @@ function makeHarness(tracking = 0): Harness {
 		display,
 		readerReasons,
 		sent,
+		selectionReleases: () => selectionReleases,
 		setNativeScrollFallback(): void {
 			readerIntent = "reading";
 			readerReason = "native_scroll";
@@ -189,6 +193,7 @@ describe("terminal mouse native reader intent", () => {
 		expect(h.readerReasons).toEqual([]);
 		h.fireWheel(20); // wheel down can move toward the live tail
 		expect(h.readerReasons).toEqual(["wheel"]);
+		expect(h.selectionReleases()).toBe(1);
 
 		h.readerReasons.length = 0;
 		h.display.scrollTop = 200;
@@ -196,6 +201,7 @@ describe("terminal mouse native reader intent", () => {
 		expect(h.readerReasons).toEqual([]);
 		h.fireWheel(-20); // wheel up can move into history
 		expect(h.readerReasons).toEqual(["wheel"]);
+		expect(h.selectionReleases()).toBe(2);
 	});
 
 	test("touch gestures with no overflow leave live painting enabled", () => {
@@ -234,6 +240,7 @@ describe("terminal mouse native reader intent", () => {
 		expect(touch.defaultPrevented).toBe(true);
 		expect(h.sent).toHaveLength(2);
 		expect(h.readerReasons).toEqual([]);
+		expect(h.selectionReleases()).toBe(0);
 	});
 
 	test("upgrades a passive native-scroll fallback to wheel intent", () => {

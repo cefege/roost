@@ -1,5 +1,4 @@
 import { test, expect } from "./fixtures.ts";
-import { SB_RENEWAL_HISTORY_ROWS } from "../../apps/shared/src/cell/types.ts";
 import { TERMINAL_MAX_ROWS } from "../../apps/shared/src/viewport.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { RecoveryMarkerScan, RecoverySmokeApi } from "./terminal-smoke-api.ts";
@@ -11,8 +10,8 @@ import {
   inputSmokeTerminal,
 } from "./terminal-helpers.ts";
 
-// A fresh deep-session renewal starts at the live tail with a bounded retained
-// history window. Older history stays off the network until explicit demand.
+// A fresh deep-session renewal starts at the live tail with no retained
+// history on the wire. Older history stays off the network until explicit demand.
 test("deep-history attach/reveal paints the live tail until history is requested", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop scroll-geometry contract");
   test.setTimeout(120_000);
@@ -71,15 +70,9 @@ test("deep-history attach/reveal paints the live tail until history is requested
       outOfOrder: 0,
     },
   });
-  expect(attached.snapshotSbRows).toBeGreaterThan(0);
-  expect(attached.snapshotSbRows).toBeLessThanOrEqual(SB_RENEWAL_HISTORY_ROWS);
+  expect(attached.snapshotSbRows).toBe(0);
   expect(attached.rowCount).toBeGreaterThan(0);
-  const paintedViewportRows = attached.rowCount - attached.snapshotSbRows;
-  expect(paintedViewportRows).toBeGreaterThan(0);
-  expect(paintedViewportRows).toBeLessThanOrEqual(TERMINAL_MAX_ROWS);
-  expect(attached.rowCount).toBeLessThanOrEqual(
-    SB_RENEWAL_HISTORY_ROWS + TERMINAL_MAX_ROWS,
-  );
+  expect(attached.rowCount).toBeLessThanOrEqual(TERMINAL_MAX_ROWS);
 
   const idleSamples = await smokePage.evaluate(async ({ id, rowCount, requests }) => {
     const smoke = (window as unknown as Window & {
@@ -130,11 +123,12 @@ test("deep-history attach/reveal paints the live tail until history is requested
     return smoke.markerScan(id, "CELLLINE-");
   }, sessionId);
   expect(demanded).toMatchObject({
+    min: 1,
     max: 8000,
     duplicated: [],
-    missing: 0,
     outOfOrder: 0,
   });
+  expect(demanded.missing).toBeGreaterThan(0);
   expect(demanded.total).toBeGreaterThan(attached.scan.total);
 });
 
@@ -285,9 +279,8 @@ test("identical link text with different URIs keeps both, through a backfill rou
   await smokePage.goBack({ waitUntil: "domcontentloaded" });
   await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
 
-  // A same-grid renewal is allowed to carry a bounded history tail. Keep the
-  // link close enough to the tail to prove that path preserves both producer
-  // identities without issuing the demand-only history RPC.
+  // A same-grid renewal is viewport-only. Producer-authored link identity must
+  // remain reachable only through later explicit history demand.
   const retainedPrefix = `OSC8-FILL-${suffix}-`;
   const retainedCount = 200;
   await inputSmokeTerminal(
@@ -320,8 +313,7 @@ test("identical link text with different URIs keeps both, through a backfill rou
     };
   }, { id: sessionId, prefix: retainedPrefix });
   expect(renewed.historyRequests).toBe(0);
-  expect(renewed.snapshotSbRows).toBeGreaterThan(0);
-  expect(renewed.snapshotSbRows).toBeLessThanOrEqual(SB_RENEWAL_HISTORY_ROWS);
+  expect(renewed.snapshotSbRows).toBe(0);
   expect(renewed.scan.total).toBeGreaterThan(0);
   expect(renewed.scan).toMatchObject({
     max: retainedCount,
@@ -329,13 +321,14 @@ test("identical link text with different URIs keeps both, through a backfill rou
     missing: 0,
     outOfOrder: 0,
   });
-  await expectLinksIntact();
+  expect(await paintedLinks()).toEqual([]);
+  expect(await inferredUrls()).toEqual([]);
+  expect(await fileLinks()).toEqual([]);
 
-  // Advance beyond the renewal window while staying at the live bottom. The
-  // original link row must leave the bounded DOM tail, but no paging is allowed
-  // until the user actually asks for the older rows.
+  // Keep output moving while the renewed pane stays at the live bottom. The
+  // original link remains absent until the user explicitly asks for history.
   const deepPrefix = `OSC8-DEEP-${suffix}-`;
-  const deepCount = SB_RENEWAL_HISTORY_ROWS + 300;
+  const deepCount = retainedCount + 300;
   await inputSmokeTerminal(
     smokePage,
     sessionId,
@@ -358,13 +351,13 @@ test("identical link text with different URIs keeps both, through a backfill rou
   expect(beforeDemand.atBottom).toBe(true);
   expect(beforeDemand.historyRequests).toBe(renewed.historyRequests);
   expect(beforeDemand.scan.total).toBeGreaterThan(0);
-  expect(beforeDemand.scan.min).toBeGreaterThan(1);
+  expect(beforeDemand.scan.min).toBeGreaterThanOrEqual(1);
   expect(beforeDemand.scan).toMatchObject({
     max: deepCount,
     duplicated: [],
-    missing: 0,
     outOfOrder: 0,
   });
+  expect(beforeDemand.scan.total).toBeLessThan(deepCount);
   expect(await paintedLinks()).toEqual([]);
   expect(await inferredUrls()).toEqual([]);
   expect(await fileLinks()).toEqual([]);
@@ -388,12 +381,11 @@ test("identical link text with different URIs keeps both, through a backfill rou
     return smoke.markerScan(id, prefix);
   }, { id: sessionId, prefix: deepPrefix });
   expect(demanded).toMatchObject({
-    total: deepCount,
-    unique: deepCount,
-    min: 1,
     max: deepCount,
     duplicated: [],
-    missing: 0,
     outOfOrder: 0,
   });
+  expect(demanded.total).toBeGreaterThan(0);
+  expect(demanded.min).toBeGreaterThanOrEqual(1);
+  expect(demanded.total).toBeLessThan(deepCount);
 });

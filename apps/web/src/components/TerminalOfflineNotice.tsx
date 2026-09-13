@@ -38,6 +38,8 @@ export interface TerminalLoadingNoticeProps {
   progress?: { received: number; total: number } | null;
   /** Diagnosis line explaining where a stalled attach is stuck. */
   stuckReason?: string | null;
+  /** Smoke diagnostics bind a loading transition to its terminal owner. */
+  sessionId?: string;
 }
 
 const VIEWPORT_CONFLICT_DETAIL =
@@ -142,6 +144,7 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
     <div
       data-testid="terminal-loading-status"
       data-stage={props.stage}
+      data-session-id={props.sessionId}
       data-elapsed-seconds={elapsedSeconds()}
       style={{
         position: "absolute",

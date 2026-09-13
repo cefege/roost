@@ -353,14 +353,11 @@ scale with session depth and mutates the painted grid without reader demand;
 equally wrong: racing history away or reordering a mixed history+viewport
 repaint (breaks the single scroll writer).
 
-**Right** — a fresh stream and any grid-incompatible authoritative FULL are
-viewport-only and epoch-addressed: no scrollback rows, a base equal to the
-total, and an opaque `gridEpoch`. A compatible same-grid renewal may carry only
-the bounded `SB_RENEWAL_HISTORY_ROWS` tail already retained by the worker; this
-restores the recent painted window without issuing a history RPC or scaling
-with total session depth. The renderer installs the current viewport and
-truthful spacer immediately. Only explicit scroll/find demand fetches older
-disjoint `SessionsGetScrollbackCells` ranges carrying that epoch
+**Right** — every authoritative FULL is viewport-only and epoch-addressed: no
+scrollback rows, a base equal to the total, and an opaque `gridEpoch`.
+The renderer installs the current viewport and truthful spacer immediately.
+Only explicit scroll/find demand fetches disjoint
+`SessionsGetScrollbackCells` ranges carrying that epoch
 (`apps/coord/src/connect/handlers-sessions-scrollback.ts` relays it); the worker
 checks the epoch before and after each cooperative slice and returns an error
 rather than splice re-numbered rows. While the reader is off-bottom, every FULL

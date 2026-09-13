@@ -5,6 +5,7 @@
 
 import type { ServerWebSocket } from "bun";
 import { clone, create, toBinary } from "@bufbuild/protobuf";
+import { diag } from "@roost/shared/diag";
 import {
   FirehoseFrameSchema,
   SyncDomainResetFrameSchema,
@@ -33,6 +34,7 @@ import {
   type SyncV2QueuedFrame,
   type SyncV2RetainedFrame,
 } from "./sync-ws-v2-state.ts";
+import { prepareTerminalApplicationFrame } from "./sync-ws-v2-terminal-payload.ts";
 import { makeSyncV2TerminalScheduler } from "./sync-ws-v2-terminal.ts";
 import { coalesceV2BufferedFrame, removeTerminalQueued, selectV2Candidate, v2TerminalPriorityInsertIndex } from "./sync-ws-v2-queue.ts";
 
@@ -52,6 +54,7 @@ export interface SyncV2SchedulerDeps {
     bufferedBytes: number,
   ): void;
   rearmApplicationDeadline(ws: ServerWebSocket<SyncWsData>): void;
+  encodeApplicationFrame?(frame: FirehoseFrame): Uint8Array;
   requestTerminalRebaseline?(
     ws: ServerWebSocket<SyncWsData>,
     sessionId: string,
@@ -71,6 +74,7 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     closeForDroppedFrame,
     rearmApplicationDeadline,
     requestTerminalRebaseline = () => false,
+    encodeApplicationFrame = (frame) => toBinary(FirehoseFrameSchema, frame),
   } = deps;
   const sendV2ControlFrame = makeSyncV2ControlSender(deps);
 
@@ -251,14 +255,31 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
         if (!candidate) return;
       }
       const nextSeq = ws.data.lastSentDeliverySeq + 1n;
-      const outbound = clone(FirehoseFrameSchema, candidate.item.frame);
-      outbound.deliverySeq = nextSeq;
-      const binary = toBinary(FirehoseFrameSchema, outbound);
+      const terminal = candidate.item.aggregateCharge.terminal;
       if (
-        ws.data.deliveryQueue.length >= APPLICATION_MAX_UNACKED_FRAMES
-        || ws.data.unackedEncodedBytes + binary.byteLength > APPLICATION_MAX_UNACKED_BYTES
+        terminal
+        && (
+          ws.data.deliveryQueue.length >= APPLICATION_MAX_UNACKED_FRAMES
+          || ws.data.unackedEncodedBytes + candidate.item.estimatedBytes
+            > APPLICATION_MAX_UNACKED_BYTES
+        )
       ) return;
-
+      const prepared = terminal
+        ? prepareTerminalApplicationFrame(v2, candidate.item, nextSeq, deadlineClock.now())
+        : {
+          frame: clone(FirehoseFrameSchema, candidate.item.frame),
+          chunkTransfer: null,
+        };
+      const outbound = prepared.frame;
+      if (!terminal) outbound.deliverySeq = nextSeq;
+      const binary = encodeApplicationFrame(outbound);
+      if (
+        !terminal
+        && (
+          ws.data.deliveryQueue.length >= APPLICATION_MAX_UNACKED_FRAMES
+          || ws.data.unackedEncodedBytes + binary.byteLength > APPLICATION_MAX_UNACKED_BYTES
+        )
+      ) return;
       const sentAtMs = deadlineClock.now();
       const frameKind = outbound.frame.case ?? "application";
       let result: number;
@@ -310,6 +331,15 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
 
       terminalScheduler.onFrameDelivered(ws, candidate.item.meta);
       terminalScheduler.onEgressProgress(ws);
+      if (prepared.chunkTransfer) {
+        diag("cell.chunk_fanout", {
+          session_id: prepared.chunkTransfer.sessionId,
+          snapshot_id: prepared.chunkTransfer.snapshotId,
+          chunk_index: prepared.chunkTransfer.chunkIndex,
+          chunk_count: prepared.chunkTransfer.chunkCount,
+          coord_transfer_ms: prepared.chunkTransfer.transferMs,
+        });
+      }
 
       if (bufferedBytes > backpressureLimitBytes) {
         closeForBackpressure(ws, "high_water", frameKind);

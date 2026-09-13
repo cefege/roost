@@ -77,6 +77,49 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
     expect(c.scrollTopWrites).toBe(1);
   });
 
+  test("a pending owned bottom placement repins a compatible full after late geometry", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "old")], nRows(400));
+    const bottom = c.scrollHeight - c.clientHeight;
+    c.scrollTop = bottom - ROW_PX;
+    r.prepareLiveInteraction();
+
+    c.clientHeight -= ROW_PX;
+    expect(r.atBottom()).toBe(false);
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    c.resetScrollTopWrites();
+
+    expect(r.apply({ ...fullFrame(80, [row(0, "after-layout")], 401), seq: 3 })).toBe(true);
+
+    expect(r.readerIntent).toBe("live");
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
+  });
+
+  test("a user scroll clears a late owned placement before a compatible full", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "old")], nRows(400));
+    const bottom = c.scrollHeight - c.clientHeight;
+    c.scrollTop = bottom - ROW_PX;
+    r.prepareLiveInteraction();
+
+    c.clientHeight -= ROW_PX;
+    r.handleScroll();
+    const readerTop = c.scrollTop - ROW_PX;
+    c.scrollTop = readerTop;
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("reading");
+    c.resetScrollTopWrites();
+
+    expect(r.apply({ ...fullFrame(80, [row(0, "new")], 401), seq: 3 })).toBe(true);
+
+    expect(r.currentFrame!.seq).toBe(2);
+    expect(c.scrollTop).toBe(readerTop);
+    expect(c.scrollTopWrites).toBe(0);
+  });
+
   test("off-bottom reader is untouched by a box shrink", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);

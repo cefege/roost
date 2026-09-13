@@ -9,7 +9,10 @@ import {
   expectPaintedScrollbackWellFormed,
   readTerminalStreamProbe,
 } from "./terminal-probe-helpers.ts";
-
+import {
+  demandInitialResumeScrollback,
+  returnResumeScrollbackToBottom,
+} from "./terminal-render-resume-history-demand.ts";
 test("long hidden deep-history resume paints the current viewport before history", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop visibility and geometry contract");
   test.setTimeout(180_000);
@@ -29,7 +32,15 @@ test("long hidden deep-history resume paints the current viewport before history
     }).__smoke;
     return smoke.renderProbe(id).mode;
   }, sessionId)).toBe("cell");
-
+  const { initialGrid, initialPainted, demandedRows } = await demandInitialResumeScrollback(
+    smokePage,
+    sessionId,
+  );
+  expect(demandedRows.length).toBeGreaterThan(1);
+  expect(demandedRows.map((row) => row.index)).toEqual(
+    Array.from({ length: demandedRows.length }, (_, offset) => demandedRows[0]!.index + offset),
+  );
+  await returnResumeScrollbackToBottom(smokePage, sessionId);
   const control = await smokePage.context().newPage();
   try {
     await control.goto(`${stack.baseUrl}/s/${sessionId}`, { waitUntil: "domcontentloaded" });
@@ -48,7 +59,6 @@ test("long hidden deep-history resume paints the current viewport before history
       return smoke.viewportText(id).includes("HIDDEN-9000");
     }, sessionId);
     await smokePage.bringToFront();
-
     const sentinel = await smokePage.evaluate((id) => {
       const key = `__roostResumeSentinel_${crypto.randomUUID().replaceAll("-", "")}`;
       const nonce = crypto.randomUUID();
@@ -86,16 +96,22 @@ test("long hidden deep-history resume paints the current viewport before history
       return result;
     }, sessionId);
     expect(before.atBottom).toBe(true);
-    expect(before.rowCount).toBeGreaterThan(1500);
+    expect(before.rowCount).toBeGreaterThan(0);
     expectPaintedScrollbackWellFormed(before.painted);
     expect(before.painted.rows.length).toBeGreaterThan(0);
+    expect(before.painted.headSpacerPx + before.painted.tailGapPx).toBeGreaterThan(0);
+    const beforeIndices = new Set(before.painted.rows.map((row) => row.index));
+    const demandedSegment = demandedRows.filter((row) => beforeIndices.has(row.index));
+    expect(demandedSegment.length).toBeGreaterThan(1);
+    expect(demandedSegment.map((row) => row.index)).toEqual(
+      Array.from({ length: demandedSegment.length }, (_, offset) => demandedSegment[0]!.index + offset),
+    );
     expect(before.scan).toMatchObject({
       max: 9000,
       duplicated: [],
-      missing: 0,
       outOfOrder: 0,
     });
-
+    expect(before.scan.missing).toBeGreaterThan(0);
     // A VISIBLE page must heal from the capped-backoff floor with no resume
     // event and no reload. Drive the control viewer there now so the dormancy
     // window below doubles as its recovery budget (the cap is 30 s), and so the
@@ -108,7 +124,6 @@ test("long hidden deep-history resume paints the current viewport before history
     });
     expect(controlParked.status.hiddenParked).toBe(false);
     expect(controlParked.status.nextDelayMs).toBe(30_000);
-
     // Stay dormant beyond the retired 60 s hidden-stream grace. No cell frames
     // may reach this withdrawn viewer during the entire interval.
     await smokePage.waitForTimeout(62_000);
@@ -151,7 +166,6 @@ test("long hidden deep-history resume paints the current viewport before history
       }).__smoke;
       return smoke.cellFrameCount(id);
     }, sessionId)).toBe(before.frames);
-
     await smokePage.evaluate(({ id, marker }) => {
       type ResumeSample = {
         current: boolean;
@@ -200,7 +214,6 @@ test("long hidden deep-history resume paints the current viewport before history
       };
       requestAnimationFrame(sample);
     }, { id: sessionId, marker: currentMarker });
-
     await smokePage.evaluate(() => {
       const smoke = (window as unknown as Window & {
         __smoke: { forceHidden(on: boolean): void };
@@ -256,12 +269,11 @@ test("long hidden deep-history resume paints the current viewport before history
     );
     expect(authoritative.snapshotSbRows).toBeGreaterThanOrEqual(0);
     expect(authoritative.historyRequests).toBe(before.requests);
-    expect(authoritative.rowCount).toBeGreaterThan(1500);
+    expect(authoritative.rowCount).toBeGreaterThanOrEqual(before.rowCount);
     expect(recovered.samples.slice(authoritativeAt).every((sample) =>
       sample.rowCount === authoritative.rowCount
       && sample.historyRequests === before.requests
     )).toBe(true);
-
     const afterResume = await smokePage.evaluate((id) => {
       const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
       const smoke = smokeWindow.__smoke;
@@ -272,13 +284,20 @@ test("long hidden deep-history resume paints the current viewport before history
       };
     }, sessionId);
     expect(afterResume.requests).toBe(before.requests);
-    expectPaintedRowsPreserved(before.painted, afterResume.painted, true);
-    expect(afterResume.scan.total).toBeGreaterThan(1500);
+    const transitionedRows = afterResume.painted.rows.filter((row) => !beforeIndices.has(row.index));
+    expect(transitionedRows.length).toBeGreaterThan(0);
+    expect(transitionedRows.map((row) => row.index)).toEqual(
+      Array.from({ length: transitionedRows.length }, (_, offset) => transitionedRows[0]!.index + offset),
+    );
+    expect(authoritative.rowCount).toBe(before.rowCount + transitionedRows.length);
+    expectPaintedRowsPreserved({ ...before.painted, rows: demandedSegment }, afterResume.painted);
+    expect(afterResume.scan.total).toBeGreaterThan(0);
     expect(afterResume.scan, JSON.stringify(afterResume.scan)).toMatchObject({
+      max: 9000,
       duplicated: [],
       outOfOrder: 0,
     });
-
+    expect(afterResume.scan.missing).toBeGreaterThan(0);
     // The resume itself re-dialed: the park is gone, the generation advanced,
     // and the document, slot, and renderer DOM above all survived.
     const resumed = await smokePage.evaluate(() => {
@@ -297,23 +316,30 @@ test("long hidden deep-history resume paints the current viewport before history
       surface_active: true,
       css_visible: true,
     });
-    // Enter reader mode after reconnect. The backfill controller may eagerly
-    // extend the retained window if native scroll anchoring lands near its head.
+    // Demand a visible gap only after the resumed viewport has committed.
     await expect.poll(() => smokePage.evaluate((id) => {
       const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
       return smokeWindow.__smoke.renderProbe(id).atBottom;
     }, sessionId)).toBe(true);
-    const resumedBox = await smokePage.getByTestId(`terminal-slot-${sessionId}`).boundingBox();
-    if (!resumedBox) throw new Error("resumed pane has no box to scroll");
-    await smokePage.mouse.move(
-      resumedBox.x + resumedBox.width / 2,
-      resumedBox.y + resumedBox.height / 2,
-    );
-    await smokePage.mouse.wheel(0, -1000);
-    await expect.poll(() => smokePage.evaluate((id) => {
-      const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-      return smokeWindow.__smoke.renderProbe(id).atBottom;
-    }, sessionId)).toBe(false);
+    const resumedBox = await initialGrid.boundingBox();
+    if (!resumedBox) throw new Error("resumed terminal has no scroll container");
+    const priorHistory = await smokePage.evaluate(
+      (id) => window.__smoke.paintedScrollback(id).rows, sessionId);
+    await smokePage.evaluate((id) => {
+      const container = document.querySelector<HTMLElement>(`[data-testid="terminal-slot-${id}"] .wterm`);
+      if (!container) throw new Error("resumed terminal has no scroll container");
+      const gap = [...container.querySelectorAll<HTMLElement>(".cell-sb-gap")]
+        .find((candidate) => candidate.offsetHeight > container.clientHeight + 1);
+      if (!gap) throw new Error("resumed terminal has no demandable scrollback gap");
+      const gapTop = gap.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      container.scrollTop += gapTop + Math.min(container.clientHeight, gap.offsetHeight - container.clientHeight - 1);
+    }, sessionId);
+    await smokePage.mouse.move(resumedBox.x + resumedBox.width / 2, resumedBox.y + resumedBox.height / 2);
+    await smokePage.mouse.wheel(0, -100);
+    await smokePage.waitForFunction(({ id, requests, count }) =>
+      window.__smoke.scrollbackBackfillRequestCount(id) > requests
+        && window.__smoke.paintedScrollback(id).rows.length > count,
+    { id: sessionId, requests: before.requests, count: priorHistory.length }, { timeout: 10_000 });
     await smokePage.evaluate(async () => {
       for (let frame = 0; frame < 8; frame++) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -328,13 +354,20 @@ test("long hidden deep-history resume paints the current viewport before history
         scan: smoke.markerScan(id, "HIDDEN-"),
       };
     }, sessionId);
-    expect(history.requests).toBeGreaterThanOrEqual(before.requests);
+    expect(history.requests).toBeGreaterThan(before.requests);
     expectPaintedScrollbackWellFormed(history.painted);
+    const newlyPaintedRows = history.painted.rows.filter((row) =>
+      !priorHistory.some((previous) => previous.index === row.index),
+    );
+    expect(newlyPaintedRows.some((row, index) =>
+      index > 0 && row.index === newlyPaintedRows[index - 1]!.index + 1)).toBe(true);
     expect(history.painted.readerAnchor).not.toBeNull();
     expect(history.scan).toMatchObject({
+      max: 9000,
       duplicated: [],
       outOfOrder: 0,
     });
+    expect(history.scan.missing).toBeGreaterThan(0);
   } finally {
     await smokePage.evaluate(() => {
       const smoke = (window as unknown as Window & {

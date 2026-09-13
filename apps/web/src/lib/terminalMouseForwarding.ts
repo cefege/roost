@@ -100,7 +100,10 @@ export function attachTerminalMouseForwarding(
 				renderer?.readerIntent === "reading"
 				&& renderer.readerReason === "native_scroll"
 			)
-		) renderer?.enterReading(reason);
+		) {
+			renderer?.finishLiveSelectionRelease();
+			renderer?.enterReading(reason);
+		}
 	};
 	const report = (gesture: MouseGesture): boolean => {
 		const bytes = terminalMouseReport(

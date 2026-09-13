@@ -44,7 +44,10 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const h0 = rows0[0];
     const h1 = rows0[1];
 
-    r.apply(deltaFrame(80, 2, [row(1, "v1b")], [row(2, "h2")], 3));
+    r.apply({
+      ...deltaFrame(80, 2, [row(1, "v1b")], [row(2, "h2")], 3),
+      scrollbackTotal: 3,
+    });
     // Append-only: the two original nodes are the SAME objects (not re-rendered),
     // the third is new. A full re-render would replace all three.
     const rows1 = sbRows(scrollbackEl);
@@ -62,10 +65,16 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     seedHeldHistory(r, 80, [row(0, "v0")], []);
     expect(r.canonicalFrameSeq()).toBe(1); // fullFrame() carries seq 1
 
-    r.apply(deltaFrame(80, 1, [row(0, "v0b")], [row(1, "h1")], 2));
+    r.apply({
+      ...deltaFrame(80, 1, [row(0, "v0b")], [row(0, "h1")], 2),
+      scrollbackTotal: 1,
+    });
     expect(r.canonicalFrameSeq()).toBe(2);
 
-    r.apply(deltaFrame(80, 1, [row(0, "v0c")], [], 3));
+    r.apply({
+      ...deltaFrame(80, 1, [row(0, "v0c")], [], 3),
+      scrollbackTotal: 1,
+    });
     expect(r.canonicalFrameSeq()).toBe(3);
   });
 
@@ -90,7 +99,10 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     seedHeldHistory(r, 80, [row(0, "v0")], [row(0, "h0"), row(1, "h1")]);
     const before = sbRows(scrollbackEl);
 
-    r.apply(deltaFrame(80, 1, [row(0, "v0-changed")], [], 2));
+    r.apply({
+      ...deltaFrame(80, 1, [row(0, "v0-changed")], [], 2),
+      scrollbackTotal: 2,
+    });
     const after = sbRows(scrollbackEl);
     expect(after.length).toBe(2);
     expect(after[0]).toBe(before[0]);
@@ -259,18 +271,18 @@ describe("CellGridRenderer DOM — viewport-only frames + backfill", () => {
       sbBase: 4,
     });
     expect(sbRows(scrollbackEl)).toHaveLength(0);
-    r.prependScrollback([row(2, "h2"), row(3, "h3")]);
+    expect(r.insertHistoryPage([row(2, "h2"), row(3, "h3")], false)).toBe(true);
     const a0 = r.backfillAnchor()!;
     expect(a0.sbBase).toBe(2);
     expect(a0.gridEpoch).toBe("test-grid:0");
     const newestPage = sbRows(scrollbackEl);
-    r.prependScrollback([row(0, "h0"), row(1, "h1")]);
+    expect(r.insertHistoryPage([row(0, "h0"), row(1, "h1")], false)).toBe(true);
     const all = sbRows(scrollbackEl);
     expect(all.map((n) => n.children[0].textContent)).toEqual(["h0", "h1", "h2", "h3"]);
     expect(all[2]).toBe(newestPage[0]);
     expect(all[3]).toBe(newestPage[1]);
     expect(r.backfillAnchor()!.sbBase).toBe(0);
-    r.prependScrollback([row(0, "stale")]);
+    expect(r.insertHistoryPage([row(0, "stale")], false)).toBe(false);
     expect(sbRows(scrollbackEl)).toHaveLength(4);
   });
 
@@ -283,11 +295,11 @@ describe("CellGridRenderer DOM — viewport-only frames + backfill", () => {
       scrollbackTotal: 2,
       sbBase: 2,
     });
-    r.prependScrollback([row(1, "h1")]);
+    expect(r.insertHistoryPage([row(1, "h1")], false)).toBe(true);
     r.apply({ ...deltaFrame(80, 1, [], [row(2, "h2")], 2), scrollbackTotal: 3 });
     expect(sbRows(scrollbackEl)).toHaveLength(2);
     expect(r.backfillAnchor()!.sbBase).toBe(1);
-    r.prependScrollback([row(0, "h0")]);
+    expect(r.insertHistoryPage([row(0, "h0")], false)).toBe(true);
     expect(sbRows(scrollbackEl).map((n) => n.children[0].textContent)).toEqual(["h0", "h1", "h2"]);
   });
 });

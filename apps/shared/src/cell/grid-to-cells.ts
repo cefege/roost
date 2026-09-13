@@ -1,8 +1,8 @@
 // Cell reader — turns a @wterm/core grid into a CellGridFrame (R11).
-// Runs on the worker (the single emulator owner). Pure given the core:
-// reads via getCell / getScrollbackCell, never mutates. rowToSpans is the
-// run-length encoder (group consecutive equal-style cells, right-trim
-// trailing default spaces) and is the inverse of the renderer's paint.
+// Runs on the worker (the single emulator owner). It uses a factory-registered
+// packed row reader when the verified WTerm ABI permits, otherwise public cell
+// getters; rowToSpans remains the sole run-length encoder and copies all output.
+// It is the inverse of the renderer's paint.
 //
 // Indexing note (verified in wterm-serialize.ts): wterm-core stores
 // scrollback NEWEST-FIRST — offset 0 = line just above the viewport,
@@ -26,6 +26,7 @@
 // stream or matches link text to find them.
 
 import type { TerminalCore, CellData } from "@wterm/core";
+import { wtermRowReader } from "./wterm-row-reader.ts";
 import { diag } from "../diag.ts";
 import {
   DEFAULT_COLOR, MAX_LINK_URI_BYTES, linkUriWithinCap,
@@ -91,7 +92,10 @@ function _width(c: CellData): number {
 }
 
 /** Run-length encode one row of cells into right-trimmed style spans.
- *  Trailing default-style blanks are dropped (empty row → []).
+ *
+ * `length` bounds a borrowed fixed-capacity row, including trimming and
+ * wide-cell lookahead, so stale scratch cells never enter a canonical span.
+ * Trailing default-style blanks are dropped (empty row → []).
  *
  *  A wide glyph's width-0 continuation column is FOLDED into its lead span's
  *  `columns` — never emitted as its own space-bearing cell, which would paint
@@ -107,11 +111,11 @@ function _width(c: CellData): number {
  *  with no separate message. */
 type MutableCellSpan = { -readonly [K in keyof CellSpan]: CellSpan[K] };
 
-export function rowToSpans(cells: CellData[]): CellSpan[] {
+export function rowToSpans(cells: readonly CellData[], length = cells.length): CellSpan[] {
   // Right-trim trailing default-style blanks. A width-0 cell backed by a wide
   // lead is that glyph's SECOND COLUMN, not padding: trimming it would shrink
   // the lead's occupancy and un-align the row's tail.
-  let end = cells.length;
+  let end = length;
   while (end > 0) {
     const c = cells[end - 1];
     if (!_isBlankDefault(c)) break;
@@ -170,7 +174,7 @@ export function rowToSpans(cells: CellData[]): CellSpan[] {
     if (width >= 2) {
       // The lead owns every continuation column that follows it. A lead in the
       // last column of a truncated row has none and occupies exactly one.
-      while (col + columns < cells.length && _width(cells[col + columns]) === 0) columns++;
+      while (col + columns < end && _width(cells[col + columns]) === 0) columns++;
     }
     spans.push({
       text: width === 0 ? " " : (c.chars ?? _char(c.char)), columns,
@@ -196,6 +200,11 @@ export function rowToSpans(cells: CellData[]): CellSpan[] {
  *  its text offsets into the SAME column space the wire carries, and deriving
  *  that from a second, private cell reader is how the two drift apart. */
 export function viewportRowSpans(core: TerminalCore, row: number, cols: number): CellSpan[] {
+  const reader = wtermRowReader(core);
+  if (reader !== null) {
+    const borrowed = reader.viewportRow(row, cols);
+    if (borrowed !== null) return rowToSpans(borrowed.cells, borrowed.length);
+  }
   const cells: CellData[] = new Array(cols);
   for (let col = 0; col < cols; col++) cells[col] = core.getCell(row, col);
   return rowToSpans(cells);
@@ -205,6 +214,11 @@ export function viewportRowSpans(core: TerminalCore, row: number, cols: number):
  *  offset. wterm keeps a line at its write-time width, which can exceed the
  *  current grid — the stored length, never `cols`, bounds the read. */
 export function scrollbackOffsetSpans(core: TerminalCore, offset: number): CellSpan[] {
+  const reader = wtermRowReader(core);
+  if (reader !== null) {
+    const borrowed = reader.scrollbackRow(offset);
+    if (borrowed !== null) return rowToSpans(borrowed.cells, borrowed.length);
+  }
   const len = core.getScrollbackLineLen(offset);
   const cells: CellData[] = new Array(len);
   for (let col = 0; col < len; col++) cells[col] = core.getScrollbackCell(offset, col);

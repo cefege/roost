@@ -77,9 +77,7 @@ export class FakeEl {
   }
   resetScrollTopWrites(): void { this.scrollTopWrites = 0; }
   clientHeight = 500;
-  // scrollbackEl's offset inside .wterm (its offset parent). A preceding
-  // .cell-sb-spacer sibling pushes it down, exactly as in real layout — which
-  // is what makes nearHistoryTop() true for a reader inside reserved space.
+  // The leading spacer keeps absolute history offsets truthful in the fake layout.
   get offsetTop(): number {
     if (this.className !== "cell-scrollback") return PAD_TOP;
     const sp = (this.parentElement?.children as FakeEl[] | undefined)?.find((x) => x.className === "cell-sb-spacer");

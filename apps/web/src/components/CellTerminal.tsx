@@ -84,14 +84,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	onMount(() => {
 		const view = createTerminalView(sessionId);
 		runtime.view = view;
-		releaseViewStatus = view.subscribeStatus((status) => {
-			presentation.setViewStatus(status);
-			presentation.setViewportLiveReady(
-				status.status === "accepted"
-					&& status.active
-					&& status.baselineReady,
-			);
-		});
+		releaseViewStatus = view.subscribeStatus(presentation.setViewStatus);
 		releaseViewProgress = view.subscribeProgress(presentation.setAttachProgress);
 		try {
 			runWithOwner(cellOwner, () => {
@@ -299,6 +292,7 @@ export function CellTerminal(props: CellTerminalProps) {
 						{...notice()}
 						progress={presentation.loadingProgress()}
 						stuckReason={presentation.stuckReason()}
+						sessionId={runtime.sessionId}
 					/>
 				)}
 			</Show>

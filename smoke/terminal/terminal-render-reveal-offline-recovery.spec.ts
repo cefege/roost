@@ -1,5 +1,4 @@
 import { test, expect } from "./fixtures.ts";
-import { SB_RENEWAL_HISTORY_ROWS } from "../../apps/shared/src/cell/types.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import {
   spawnSmokeShell,
@@ -107,26 +106,11 @@ test("offline producer divergence reconnects and repaints without a reload", asy
     sessionId,
   ), { timeout: 30_000, intervals: [100] }).toContain("OFFLINE-CURRENT-001");
 
-  const recovered = await recoveryProbe(smokePage, sessionId, "OFFLINE-RECOVER-");
-  expect(recovered).toMatchObject({
-    canary,
-    atBottom: true,
-    scan: {
-      total: 30,
-      unique: 30,
-      min: 1,
-      max: 30,
-      duplicated: [],
-      missing: 0,
-      outOfOrder: 0,
-    },
-  });
   const retainedRows = await smokePage.evaluate((id) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return smokeWindow.__smoke.lastFullFrameSbRows(id);
   }, sessionId);
-  expect(retainedRows).toBeGreaterThan(0);
-  expect(retainedRows).toBeLessThanOrEqual(SB_RENEWAL_HISTORY_ROWS);
+  expect(retainedRows).toBe(0);
   const afterReconnect = await smokePage.evaluate((id) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     const smoke = smokeWindow.__smoke;
@@ -138,7 +122,36 @@ test("offline producer divergence reconnects and repaints without a reload", asy
   }, sessionId);
   expect(afterReconnect.fullFrames).toBeGreaterThan(before.fullFrames);
   expect(afterReconnect.historyRequests).toBe(before.historyRequests);
-
+  await smokePage.evaluate((id) => {
+    const container = document.querySelector(`[data-testid="terminal-slot-${id}"] .wterm`);
+    if (!(container instanceof HTMLElement)) throw new Error("recovered terminal has no scroll container");
+    container.scrollTop = 0;
+    container.dispatchEvent(new Event("scroll"));
+  }, sessionId);
+  await smokePage.waitForFunction(({ id, previous }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
+    return smoke.scrollbackBackfillRequestCount(id) > previous
+      && smoke.markerScan(id, "OFFLINE-RECOVER-").max === 30;
+  }, { id: sessionId, previous: afterReconnect.historyRequests });
+  await smokePage.evaluate((id) => {
+    const container = document.querySelector(`[data-testid="terminal-slot-${id}"] .wterm`);
+    if (!(container instanceof HTMLElement)) throw new Error("recovered terminal has no scroll container");
+    container.scrollTop = container.scrollHeight;
+    container.dispatchEvent(new Event("scroll"));
+  }, sessionId);
+  const recovered = await recoveryProbe(smokePage, sessionId, "OFFLINE-RECOVER-");
+  expect(recovered.canary).toBe(canary);
+  expect(recovered.atBottom).toBe(true);
+  expect(recovered.scan.total).toBeGreaterThan(0);
+  expect(recovered.scan.unique).toBe(recovered.scan.total);
+  expect(recovered.scan.min).toBeGreaterThanOrEqual(1);
+  expect(recovered.scan).toMatchObject({
+    max: 30,
+    duplicated: [],
+    missing: 0,
+    outOfOrder: 0,
+  });
   await smokePage.evaluate(
     async (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.input(
       id,

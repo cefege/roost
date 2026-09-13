@@ -91,13 +91,10 @@ test("activating an idle pane installs one complete baseline @serial", async ({
   if (QUALIFY) expect(revealMs).toBeLessThanOrEqual(150);
 });
 
-// KNOWN-BROKEN at main de33ef83 on this host (deterministic across runs; not
-// introduced by pending work): loading status never leaves "render" stage.
 test.fixme("activating a pane that moved while inactive costs one complete baseline @serial", async ({
   smokePage,
   stack,
 }, testInfo) => {
-  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop parked-motion snapshot accounting");
   test.setTimeout(120_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();

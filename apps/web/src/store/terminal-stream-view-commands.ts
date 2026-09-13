@@ -16,6 +16,7 @@ import {
   isTerminalUuid,
 } from "@roost/shared/viewport";
 import { isPageVisible } from "../lib/pageVisible.ts";
+import { markPhase } from "../lib/diag.ts";
 import {
   currentSyncV2TerminalState,
   sendSyncV2Command,
@@ -215,6 +216,12 @@ export function dispatchTerminalViewState(
       effectiveCols: frame.effectiveCols,
       effectiveRows: frame.effectiveRows,
       baselineReady: session.baselineReady,
+    });
+    markPhase("viewport_accept", {
+      sessionId: session.sessionId,
+      revision: frame.revision.toString(),
+      cols: frame.effectiveCols,
+      rows: frame.effectiveRows,
     });
     notifyTerminalBaselineProgress(session);
     sendLatchedTerminalResync(session);

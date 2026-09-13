@@ -1,7 +1,7 @@
-// Owns the live Bun worker WebSocket after authenticated upgrade: ordered
-// frame admission, announced-channel barriers, and connection teardown.
-// The copied decode buffer and queue ordering are required because Bun does
-// not await message handlers and recycles each inbound message buffer.
+// Owns the live Bun worker WebSocket after authenticated upgrade: ordered durable
+// and control-frame admission, direct correlated terminal result dispatch, and
+// connection teardown. The copied decode buffer and queue ordering are required
+// because Bun does not await message handlers and recycles each inbound buffer.
 
 import type { ServerWebSocket } from "bun";
 import { fromBinary, toBinary } from "@bufbuild/protobuf";
@@ -229,6 +229,20 @@ export function makeWorkerWsHandler(
         diag("worker-ws.frame_before_snapshot_ready", {
           worker_fp: ws.data.fp,
           frame: fcase,
+        });
+        return;
+      }
+      // Completion frames have no durable effect or channel-order dependency. The
+      // existing dispatcher still fences worker identity, readiness, and request ID.
+      if (
+        fcase === "inputResult"
+        || fcase === "terminalStreamResult"
+      ) {
+        void conn.handleUpstream(frame).catch((error) => {
+          log.warn("worker-ws", "handle_failed", {
+            worker_fp: ws.data.fp,
+            error: String(error),
+          });
         });
         return;
       }

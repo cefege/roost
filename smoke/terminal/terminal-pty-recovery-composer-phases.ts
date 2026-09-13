@@ -17,7 +17,7 @@ import {
   readTerminalStreamProbe,
   waitForCanonicalAdvance,
   expectCanonicalAdvanceHeld,
-  expectRecoveredLive,
+  waitForRecoveredLive,
   coordinatorTerminalViewState,
 } from "./terminal-probe-helpers.ts";
 
@@ -125,7 +125,10 @@ export async function proveComposerRecovery({
   await expect(composerInput).toHaveValue("");
   await expect.poll(async () => (await composerDock.boundingBox())?.height ?? Number.POSITIVE_INFINITY)
     .toBeLessThanOrEqual(restingComposer.height + 1);
-  expectRecoveredLive(altPending, await readTerminalStreamProbe(page, sessionId));
+  await waitForRecoveredLive(page, sessionId, altPending, {
+    streamTransition: "rebaseline",
+    rebaselineEpoch: "changed",
+  });
 
   // Reverse the ordering: hold fixture output behind a deterministic delay so
   // accepted admission clears and shrinks the composer before the response.

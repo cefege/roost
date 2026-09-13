@@ -122,17 +122,27 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
     subscribeRenderer(renderer, onDelivery, isForeground = alwaysForeground): () => void {
       if (view.disposed) return () => undefined;
       let subscriber: TerminalRendererSubscriber;
-      const scheduler = new TerminalRenderScheduler(renderer, sessionId, (frame) => {
-        subscriber.streamId = frame.streamId;
-        subscriber.gridEpoch = frame.gridEpoch;
-        subscriber.seq = frame.seq;
-        markPhaseOnce("first_cell_apply", sessionId, {
-          sessionId,
-          sequence: frame.seq,
-          full: frame.full,
-        });
-        subscriber.onDelivery?.({ frame, full: frame.full });
-      });
+      const scheduler = new TerminalRenderScheduler(
+        renderer,
+        sessionId,
+        (frame, canonical, scrollbackAppended, hadWireFull) => {
+          subscriber.streamId = frame.streamId;
+          subscriber.gridEpoch = frame.gridEpoch;
+          subscriber.seq = frame.seq;
+          markPhaseOnce("first_cell_apply", sessionId, {
+            sessionId,
+            sequence: frame.seq,
+            full: frame.full,
+          });
+          subscriber.onDelivery?.({
+            frame,
+            full: frame.full,
+            canonical,
+            scrollbackAppended,
+            hadWireFull,
+          });
+        },
+      );
       subscriber = {
         sessionId,
         scheduler,

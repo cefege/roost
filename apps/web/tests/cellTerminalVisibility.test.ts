@@ -6,6 +6,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
 import type { CellTerminalInteractions } from "../src/components/cell-terminal-interactions.ts";
 
+const linkActivity: boolean[] = [];
+const initialLinkActivity: boolean[] = [];
+
 const fakeDocument = Object.assign(new EventTarget(), {
   visibilityState: "visible",
   activeElement: null as EventTarget | null,
@@ -37,7 +40,16 @@ mock.module("../src/components/TerminalComposeButton.tsx", () => ({
   activeComposeSessionId: () => null,
 }));
 mock.module("../src/components/terminal-links.ts", () => ({
-  attachTerminalLinks: () => ({ dispose: () => undefined }),
+  attachTerminalLinks: (
+    _display: unknown,
+    options: { initialActive?: boolean } = {},
+  ) => {
+    initialLinkActivity.push(options.initialActive ?? true);
+    return {
+      setActive: (active: boolean) => linkActivity.push(active),
+      dispose: () => undefined,
+    };
+  },
 }));
 mock.module("../src/lib/terminalMouseForwarding.ts", () => ({
   attachTerminalMouseForwarding: () => ({
@@ -78,11 +90,13 @@ afterEach(() => {
   setForceHidden(false);
   setForceVisible(false);
   fakeDocument.activeElement = null;
+  linkActivity.length = 0;
+  initialLinkActivity.length = 0;
 });
 
 describe("terminal foreground visibility", () => {
   test("pending, covered, and hidden panes wait until an active visible pane can own focus", () => {
-    const [viewActive, setViewActive] = Solid.createSignal(true);
+    const [viewActive, setViewActive] = Solid.createSignal(false);
     const [pending, setPending] = Solid.createSignal(true);
     const textarea = new FakeTextarea();
     const controller = {
@@ -146,9 +160,15 @@ describe("terminal foreground visibility", () => {
 
     expect(controller.forceFocusCalls).toBe(0);
     expect(fakeDocument.activeElement).toBeNull();
+    expect(initialLinkActivity).toEqual([false]);
     expect(_terminalFocusAllowed(viewport as never, true, !pending())).toBe(false);
 
     setPending(false);
+    expect(controller.forceFocusCalls).toBe(0);
+    expect(fakeDocument.activeElement).toBeNull();
+    expect(_terminalFocusAllowed(viewport as never, true, !pending())).toBe(false);
+
+    setViewActive(true);
     expect(controller.forceFocusCalls).toBe(1);
     expect(fakeDocument.activeElement).toBe(textarea);
     expect(_terminalFocusAllowed(viewport as never, true, !pending())).toBe(true);
@@ -166,6 +186,7 @@ describe("terminal foreground visibility", () => {
     expect(textarea.blurCalls).toBe(2);
     expect(fakeDocument.activeElement).toBeNull();
     expect(_terminalFocusAllowed(viewport as never, true, !pending())).toBe(false);
+    expect(linkActivity.slice(-3)).toEqual([false, true, false]);
 
     interactions.dispose();
     disposeRoot();

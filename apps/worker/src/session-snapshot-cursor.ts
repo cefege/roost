@@ -1,15 +1,13 @@
 // Immutable full-snapshot cursors for cell emission: when an oversized delta
 // or a forced baseline must ship as chunked parts, the frame is parked here as
 // a cancellable cursor the emitter drains part-by-part across subsequent
-// emits. Also validates renewal-history snapshots so a stale grid epoch can
-// never pass as a full frame. Called only from session-emit.ts.
+// emits. Renewal epoch compatibility lives beside cursor installation because
+// forced fulls bypass the emitter's semantic-reframe decision.
 import {
 	assertCellGridSnapshot,
 	CELL_GRID_PART_MAX_BYTES,
 	chunkCellGridFrame,
 	encodedCellGridFrameSize,
-	SB_RENEWAL_HISTORY_ROWS,
-	SB_SNAPSHOT_HISTORY_ROWS,
 	scrollbackOrigin,
 	type CellEmitState,
 } from "@roost/shared/cell";
@@ -50,10 +48,9 @@ export function retireSnapshotCursor(
 	}
 }
 
-/** Select the bounded history tail for a same-grid renewal full. An
- * incompatible renewal advances the epoch so a viewport-only full cannot be
- * mistaken for a continuation of the prior grid. */
-export function renewalHistoryRows(core: TerminalCore, emit: CellEmitState): number {
+/** Preserve a same-grid renewal epoch only while its absolute history range
+ * still overlaps the prior canonical checkpoint. */
+export function prepareCellRenewalEpoch(core: TerminalCore, emit: CellEmitState): void {
 	const sbDropped = scrollbackOrigin(core, emit);
 	const scrollbackTotal = sbDropped + core.getScrollbackCount();
 	const compatible = core.getCols() === emit.cols
@@ -61,23 +58,7 @@ export function renewalHistoryRows(core: TerminalCore, emit: CellEmitState): num
 		&& core.usingAltScreen() === emit.alt
 		&& sbDropped <= emit.lastSbTotal
 		&& scrollbackTotal >= emit.lastSbTotal;
-	if (compatible) return SB_RENEWAL_HISTORY_ROWS;
-	emit.gridEpochRevision++;
-	return SB_SNAPSHOT_HISTORY_ROWS;
-}
-
-/** Exercise the same snapshot and chunk bounds as cursor installation before
- * committing renewal history to the emitter state. */
-export function validateRenewalHistorySnapshot(pb: PbCellGridFrame): boolean {
-	try {
-		assertCellGridSnapshot(pb);
-		if (encodedCellGridFrameSize(pb) > CELL_GRID_PART_MAX_BYTES) {
-			chunkCellGridFrame(pb, randomUUID());
-		}
-		return true;
-	} catch {
-		return false;
-	}
+	if (!compatible) emit.gridEpochRevision++;
 }
 
 function sendSnapshotPart(

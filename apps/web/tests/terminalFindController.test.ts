@@ -34,6 +34,15 @@ describe("terminal find paging and epoch fence", () => {
     expect(h.last()).toEqual({ rows: [120], active: { row: 120, col: 3 } });
   });
 
+  test("F1b — a same-epoch tail match waits for real row coverage", async () => {
+    const h = harness();
+    setSearchRpc(async () => reply([1_500], EPOCH_A));
+    h.find.setQuery("tail");
+    await fireDebounce();
+    expect(h.pulled).toEqual([1_500]);
+    expect(h.jumps).toEqual([1_500]);
+  });
+
   test("F2 — a retired-epoch set is discarded and re-searched before reveal", async () => {
     const h = harness();
     setSearchRpc(async () => reply([1200], EPOCH_A));

@@ -1,13 +1,12 @@
 // Owns current canonical terminal screens and source-pinned predecessor versions.
-// Invalid baselines or deltas fail closed and request repair instead of serving
-// wrong pixels. Residency remains charged until every slow socket cursor releases
-// the immutable source it was given.
+// Invalid baselines or deltas fail closed and request repair instead of serving wrong pixels.
+// Active snapshot cursors keep their immutable source versions resident.
 
 import { clone } from "@bufbuild/protobuf";
 import {
-  applyDelta, assertCellGridSnapshot, CELL_GRID_PART_MAX_BYTES,
-  CELL_GRID_SNAPSHOT_MAX_SPANS, cloneCellGridFrame, encodedCellGridFrameSize,
-  normalizeCellGridFrame,
+  applyDelta, assertCellGridSnapshot, CELL_GRID_COORD_FANOUT_STAMP_MAX_ENCODED_BYTES,
+  CELL_GRID_PART_MAX_BYTES, CELL_GRID_SNAPSHOT_MAX_SPANS, cloneCellGridFrame,
+  encodedCellGridFrameSize, normalizeCellGridFrame,
   type CellGridFrame,
 } from "@roost/shared/cell";
 import { cellFrameToProto, protoToCellFrame } from "@roost/shared/cell/cell-proto";
@@ -20,54 +19,41 @@ import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import { diag, signal } from "@roost/shared/diag";
 import {
   cellGridEnvelope,
-  countCellGridSpans,
-  countCellGridRows,
+  countTerminalScreenCacheSpans,
   terminalScreenSnapshot,
   terminalSnapshotSource,
   type TerminalScreenSnapshot,
   type TerminalSnapshotSource,
 } from "./terminal-screen-frames.ts";
 import {
+  attachTerminalScreenWatcher,
+  detachTerminalScreenSocket,
+  detachTerminalScreenSockets,
+  detachTerminalScreenWatcher,
+  detachTerminalScreenWatchers, stampTerminalSnapshotReceipt,
   type SessionScreen,
   type SocketRegistration,
 } from "./terminal-screen-hub-state.ts";
 import { TerminalScreenResidency } from "./terminal-screen-residency.ts";
 import { TerminalScreenSnapshotController } from "./terminal-screen-snapshot-controller.ts";
+import type {
+  TerminalScreenHubOptions,
+  TerminalScreenSocketSink,
+} from "./terminal-screen-hub-contract.ts";
 
 export const TERMINAL_SCREEN_MAX_RESIDENT_ROWS = 65_536;
 export const TERMINAL_SCREEN_MAX_RESIDENT_SPANS = 2_097_152;
 export { TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS } from "./terminal-screen-snapshot-controller.ts";
-
-export type TerminalDeltaEnqueueResult = "queued" | "needs_snapshot" | "handled";
-
-export interface TerminalScreenSocketSink {
-  beginTerminalStream(sessionId: string, streamId: string): boolean;
-  enqueueTerminalState(frame: FirehoseFrame, sessionId: string): void;
-  replaceTerminalSnapshot(
-    sessionId: string,
-    streamId: string,
-    source: TerminalSnapshotSource,
-  ): boolean;
-  enqueueTerminalDelta(
-    sessionId: string,
-    streamId: string,
-    frame: FirehoseFrame,
-  ): TerminalDeltaEnqueueResult;
-  dropTerminalSession(sessionId: string): void;
-}
-
-export interface TerminalScreenHubOptions {
-  requestSnapshot(sessionId: string, streamId: string): void;
-  unavailable?(sessionId: string, reason: string): void;
-  requestFreshStream(sessionId: string, expectedStreamId: string, reason: string): void;
-  setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
-  clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
-  now?: () => number;
-}
+export type {
+  TerminalDeltaEnqueueResult,
+  TerminalScreenHubOptions,
+  TerminalScreenSocketSink,
+} from "./terminal-screen-hub-contract.ts";
 
 export class TerminalScreenHub {
   private readonly sessions = new Map<string, SessionScreen>();
   private readonly sockets = new Map<string, SocketRegistration>();
+  private readonly watchersBySession = new Map<string, Set<string>>();
   private readonly unavailable: NonNullable<TerminalScreenHubOptions["unavailable"]>;
   private readonly now: () => number;
   private readonly snapshots: TerminalScreenSnapshotController;
@@ -84,8 +70,13 @@ export class TerminalScreenHub {
       requestSnapshot: options.requestSnapshot,
       unavailable: this.unavailable,
       requestFreshStream: options.requestFreshStream,
-      snapshotSource: (cache) =>
-        terminalSnapshotSource(cache.proto, this.residency.sourceLease(cache)),
+      snapshotSource: (sessionId, cache) => {
+        const frame = cache.frame;
+        return terminalSnapshotSource(
+          () => Object.assign(cellFrameToProto(frame, sessionId), { coordRecvMs: cache.coordRecvMs }),
+          this.residency.sourceLease(cache),
+        );
+      },
       setTimer: options.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs)),
       clearTimer: options.clearTimer ?? clearTimeout,
       now: this.now,
@@ -93,35 +84,38 @@ export class TerminalScreenHub {
   }
 
   dispose(): void {
-    for (const socketId of [...this.sockets.keys()]) this.unregisterSocket(socketId);
+    const detached = detachTerminalScreenSockets(this.watchersBySession, this.sockets);
     for (const state of this.sessions.values()) {
       this.snapshots.reset(state, true);
       this.dropCache(state);
     }
     this.sessions.clear();
+    for (const [socket, sessionId] of detached) socket.sink.dropTerminalSession(sessionId);
+    detachTerminalScreenSockets(this.watchersBySession, this.sockets);
   }
 
   registerSocket(socketId: string, sink: TerminalScreenSocketSink): void {
     this.unregisterSocket(socketId);
+    // A retirement callback can install a newer registration that must not be overwritten.
+    if (this.sockets.has(socketId)) return;
     this.sockets.set(socketId, { sink, watchedSessions: new Set() });
   }
 
   unregisterSocket(socketId: string): void {
     const socket = this.sockets.get(socketId);
     if (!socket) return;
-    for (const sessionId of socket.watchedSessions) socket.sink.dropTerminalSession(sessionId);
-    this.sockets.delete(socketId);
+    const watchedSessionIds = detachTerminalScreenSocket(this.watchersBySession, this.sockets, socketId, socket);
+    for (const sessionId of watchedSessionIds) socket.sink.dropTerminalSession(sessionId);
   }
 
   setWatching(socketId: string, sessionId: string, watching: boolean): void {
     const socket = this.sockets.get(socketId);
     if (!socket) return;
     if (!watching) {
-      if (socket.watchedSessions.delete(sessionId)) socket.sink.dropTerminalSession(sessionId);
+      if (detachTerminalScreenWatcher(this.watchersBySession, socketId, socket, sessionId)) socket.sink.dropTerminalSession(sessionId);
       return;
     }
-    if (socket.watchedSessions.has(sessionId)) return;
-    socket.watchedSessions.add(sessionId);
+    if (!attachTerminalScreenWatcher(this.watchersBySession, socketId, socket, sessionId)) return;
     const state = this.sessions.get(sessionId);
     if (!state?.expected) return;
     socket.sink.beginTerminalStream(sessionId, state.expected.streamId);
@@ -161,11 +155,7 @@ export class TerminalScreenHub {
       && state.expected.cols === cols
       && state.expected.rows === rows) return;
     this.snapshots.reset(state, true);
-    for (const socket of this.sockets.values()) {
-      if (socket.watchedSessions.has(sessionId)) {
-        socket.sink.beginTerminalStream(sessionId, streamId);
-      }
-    }
+    this.forEachWatcher(sessionId, (socket) => socket.sink.beginTerminalStream(sessionId, streamId));
     this.dropCache(state);
     state.hold.clear();
     state.expected = { streamId, cols, rows };
@@ -173,14 +163,15 @@ export class TerminalScreenHub {
   }
 
   dropSession(sessionId: string): void {
-    for (const socket of this.sockets.values()) {
-      if (socket.watchedSessions.delete(sessionId)) socket.sink.dropTerminalSession(sessionId);
-    }
+    const detached = detachTerminalScreenWatchers(this.watchersBySession, this.sockets, sessionId);
     const state = this.sessions.get(sessionId);
-    if (!state) return;
-    this.snapshots.reset(state, true);
-    this.dropCache(state);
-    this.sessions.delete(sessionId);
+    if (state) {
+      this.snapshots.reset(state, true);
+      this.dropCache(state);
+      this.sessions.delete(sessionId);
+    }
+    for (const [, socket] of detached) socket.sink.dropTerminalSession(sessionId);
+    detachTerminalScreenWatchers(this.watchersBySession, this.sockets, sessionId);
   }
 
   failClosed(sessionId: string, reason: string): void {
@@ -226,11 +217,12 @@ export class TerminalScreenHub {
     else this.acceptDelta(sessionId, state, frame);
   }
 
-  publishChunk(sessionId: string, chunk: PbCellGridChunk): void {
+  publishChunk(sessionId: string, chunk: PbCellGridChunk, receivedAtMs = BigInt(this.now())): void {
     const state = this.sessions.get(sessionId);
     if (!state?.expected) return;
     if (chunk.part?.streamId !== state.expected.streamId) return;
     if (chunk.part) chunk.part.sessionId = sessionId;
+    stampTerminalSnapshotReceipt(state.chunks, chunk, receivedAtMs);
     try {
       const firstChunk = state.chunks.assembler.activeSnapshotId === null;
       const result = state.chunks.assembler.push(chunk, this.now());
@@ -260,16 +252,13 @@ export class TerminalScreenHub {
       if (!assembled && encodedCellGridFrameSize(proto) > CELL_GRID_PART_MAX_BYTES) {
         throw new Error("unchunked terminal full exceeds part limit");
       }
-      const stats = assertCellGridSnapshot(proto);
+      assertCellGridSnapshot(proto);
       if (proto.cols !== expected.cols || proto.rows !== expected.rows) {
         throw new Error("terminal baseline geometry does not match expected stream");
       }
       const frame = cloneCellGridFrame(normalizeCellGridFrame(protoToCellFrame(proto)));
-      const canonical = cellFrameToProto(frame, sessionId);
-      canonical.streamId = expected.streamId;
-      canonical.baseSeq = 0n;
       this.snapshots.complete(state);
-      this.installCache(sessionId, state, frame, canonical, stats.spans);
+      this.installCache(sessionId, state, frame, countTerminalScreenCacheSpans(frame), proto.coordRecvMs);
     } catch (error) {
       this.snapshots.retry(sessionId,
       state,
@@ -299,25 +288,23 @@ export class TerminalScreenHub {
         || proto.rows !== expected.rows) {
         throw new Error("terminal delta does not follow the canonical baseline");
       }
-      if (encodedCellGridFrameSize(proto) > CELL_GRID_PART_MAX_BYTES) {
-        throw new Error("terminal delta exceeds part limit");
+      if (encodedCellGridFrameSize(proto)
+        > CELL_GRID_PART_MAX_BYTES - CELL_GRID_COORD_FANOUT_STAMP_MAX_ENCODED_BYTES) {
+        throw new Error("terminal delta leaves no fanout stamp headroom");
       }
       const folded = applyDelta(cloneCellGridFrame(cache.frame), protoToCellFrame(proto));
       if (!folded) throw new Error("terminal delta cannot be folded into baseline");
       normalizeCellGridFrame(folded);
-      const spans = countCellGridSpans(folded);
-      const rows = countCellGridRows(folded);
+      const spans = countTerminalScreenCacheSpans(folded);
+      const rows = folded.rows;
       if (spans > CELL_GRID_SNAPSHOT_MAX_SPANS) throw new Error("terminal cache span limit exceeded");
       if (!this.residency.canReplace(state, rows, spans)) {
         throw new Error("coordinator terminal cache capacity exceeded");
       }
-      const canonical = cellFrameToProto(folded, sessionId);
-      canonical.streamId = expected.streamId;
-      canonical.baseSeq = 0n;
       const nextCache = {
         screen: state,
         frame: folded,
-        proto: canonical,
+        coordRecvMs: proto.coordRecvMs,
         source: null,
         sourceLeaseCount: 0,
         rows,
@@ -329,17 +316,18 @@ export class TerminalScreenHub {
       }
       state.resyncLatched = false;
       const outbound = cellGridEnvelope(clone(PbCellGridFrameSchema, proto));
-      for (const socket of this.sockets.values()) {
-        if (!socket.watchedSessions.has(sessionId)) continue;
+      this.forEachWatcher(sessionId, (socket, socketId) => {
         const result = socket.sink.enqueueTerminalDelta(
           sessionId,
           expected.streamId,
           outbound,
         );
-        if (result === "needs_snapshot") {
-          this.snapshots.seed(socket, sessionId, expected.streamId, nextCache);
-        }
-      }
+        if (
+          result === "needs_snapshot"
+          && this.sockets.get(socketId) === socket
+          && socket.watchedSessions.has(sessionId)
+        ) this.snapshots.seed(socket, sessionId, expected.streamId, nextCache);
+      });
     } catch (error) {
       cache.valid = false;
       this.snapshots.latch(sessionId,
@@ -351,11 +339,9 @@ export class TerminalScreenHub {
   private installCache(
     sessionId: string,
     state: SessionScreen,
-    frame: CellGridFrame,
-    proto: PbCellGridFrame,
-    spans: number,
+    frame: CellGridFrame, spans: number, coordRecvMs: bigint,
   ): void {
-    const rows = countCellGridRows(frame);
+    const rows = frame.rows;
     if (!this.residency.canReplace(state, rows, spans)) {
       this.dropCache(state);
       const reason = "coordinator terminal cache capacity exceeded";
@@ -366,7 +352,7 @@ export class TerminalScreenHub {
     const nextCache = {
       screen: state,
       frame,
-      proto,
+      coordRecvMs,
       source: null,
       sourceLeaseCount: 0,
       rows,
@@ -376,15 +362,21 @@ export class TerminalScreenHub {
     if (!this.residency.replace(state, nextCache)) return;
     state.resyncLatched = false;
     const streamId = state.expected!.streamId;
-    for (const socket of this.sockets.values()) {
-      if (socket.watchedSessions.has(sessionId)) this.snapshots.seed(socket, sessionId, streamId, nextCache);
-    }
+    this.forEachWatcher(
+      sessionId,
+      (socket) => this.snapshots.seed(socket, sessionId, streamId, nextCache),
+    );
   }
 
+  private forEachWatcher(sessionId: string, callback: (socket: SocketRegistration, socketId: string) => void): void {
+    for (const socketId of [...(this.watchersBySession.get(sessionId) ?? [])]) {
+      const socket = this.sockets.get(socketId);
+      if (socket?.watchedSessions.has(sessionId)) callback(socket, socketId);
+    }
+  }
   private dropCache(state: SessionScreen): void {
     this.residency.drop(state);
   }
-
   snapshot(sessionId: string): TerminalScreenSnapshot | null {
     const state = this.sessions.get(sessionId);
     return terminalScreenSnapshot(state?.expected, state?.cache);

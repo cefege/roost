@@ -19,7 +19,8 @@ interface TerminalLinkScannerOptions {
 }
 
 export interface TerminalLinkScannerAttachment {
-  requestFullScan(): void;
+  requestCurrentScan(): void;
+  setActive(active: boolean): void;
   dispose(): void;
 }
 
@@ -31,19 +32,29 @@ type IdleScheduler = {
 export function attachTerminalLinkScanner(
   container: HTMLElement,
   options: TerminalLinkScannerOptions,
+  initialActive = true,
 ): TerminalLinkScannerAttachment {
+  let active = false;
+  let disposed = false;
+  let observing = false;
+  let listeningForVisibility = false;
   let scanScheduled = false;
   let scanHandle = 0;
   let scanHandleIsIdle = false;
-  let fullScanNeeded = true;
+  let activationFrame: number | null = null;
+  let hotTailScanNeeded = false;
+  let discardDirtyUntilActivationScan = false;
   const dirtyRows = new Set<HTMLElement>();
   const idleWindow = window as Window & IdleScheduler;
 
   const cancelScan = (): void => {
-    if (!scanHandle) return;
-    if (scanHandleIsIdle) idleWindow.cancelIdleCallback?.(scanHandle);
-    else cancelAnimationFrame(scanHandle);
+    if (scanHandle !== 0) {
+      if (scanHandleIsIdle) idleWindow.cancelIdleCallback?.(scanHandle);
+      else cancelAnimationFrame(scanHandle);
+    }
     scanHandle = 0;
+    scanHandleIsIdle = false;
+    scanScheduled = false;
   };
 
   const rowOf = (node: Node | null): HTMLElement | null => {
@@ -112,25 +123,36 @@ export function attachTerminalLinkScanner(
   const scan = (): void => {
     scanScheduled = false;
     scanHandle = 0;
-    if (!isPageVisible()) return;
+    scanHandleIsIdle = false;
+    if (!active || !isPageVisible()) return;
     const colsRaw = container.style.getPropertyValue("--cell-cols");
     const cols = colsRaw ? parseInt(colsRaw, 10) || 0 : 0;
     const ownerRepo = options.githubOwnerRepo?.();
-    const dirtyOverflow = dirtyRows.size > DIRTY_LIMIT && !fullScanNeeded;
+    if (hotTailScanNeeded) {
+      hotTailScanNeeded = false;
+      const discardDirty = discardDirtyUntilActivationScan;
+      discardDirtyUntilActivationScan = false;
+      const hot = hotRows();
+      if (discardDirty) {
+        dirtyRows.clear();
+      } else {
+        for (const row of hot) dirtyRows.delete(row);
+      }
+      if (hot.length > 0) {
+        linkifyTerminalRows(hot, cols, options.resolveFile, ownerRepo);
+      }
+      if (!discardDirty && dirtyRows.size > 0) scheduleScan();
+      return;
+    }
+    const dirtyOverflow = dirtyRows.size > DIRTY_LIMIT;
     const hot = dirtyOverflow ? hotRows() : [];
     const hotSet = new Set(hot);
     const hotStreamOverflow = dirtyOverflow
       && hot.length > 0
       && !Array.from(dirtyRows).some((row) => row.isConnected && !hotSet.has(row));
-    if (fullScanNeeded || hotStreamOverflow) {
-      // Connected cold rows mean retained history materialized; scan them rather
-      // than mistaking the append for a hot-stream-only overflow.
+    if (hotStreamOverflow) {
       dirtyRows.clear();
-      const rows = hotStreamOverflow
-        ? hot
-        : Array.from(container.querySelectorAll<HTMLElement>(ROW_SELECTOR));
-      fullScanNeeded = hotStreamOverflow;
-      linkifyTerminalRows(rows, cols, options.resolveFile, ownerRepo);
+      linkifyTerminalRows(hot, cols, options.resolveFile, ownerRepo);
       return;
     }
     if (dirtyRows.size === 0) return;
@@ -159,7 +181,7 @@ export function attachTerminalLinkScanner(
   };
 
   const scheduleScan = (): void => {
-    if (scanScheduled) return;
+    if (!active || scanScheduled) return;
     scanScheduled = true;
     const requestIdle = idleWindow.requestIdleCallback;
     if (requestIdle) {
@@ -170,14 +192,29 @@ export function attachTerminalLinkScanner(
       scanHandle = requestAnimationFrame(scan);
     }
   };
-  const requestFullScan = (): void => {
-    fullScanNeeded = true;
-    scheduleScan();
+  const requestCurrentScan = (): void => {
+    if (!active) return;
+    hotTailScanNeeded = true;
+    if (activationFrame === null) scheduleScan();
   };
 
-  const observer = new MutationObserver((mutations) => {
+  const cancelCurrentScanAfterPaint = (): void => {
+    if (activationFrame === null) return;
+    cancelAnimationFrame(activationFrame);
+    activationFrame = null;
+  };
+  const scheduleCurrentScanAfterPaint = (): void => {
+    if (activationFrame !== null) return;
+    activationFrame = requestAnimationFrame(() => {
+      activationFrame = null;
+      requestCurrentScan();
+    });
+  };
+
+  const observeMutations = (mutations: MutationRecord[]): void => {
+    if (!active || discardDirtyUntilActivationScan) return;
     if (!isPageVisible()) {
-      requestFullScan();
+      requestCurrentScan();
       return;
     }
     for (const mutation of mutations) {
@@ -191,24 +228,65 @@ export function attachTerminalLinkScanner(
       for (const node of mutation.addedNodes) noteAdded(node);
     }
     scheduleScan();
-  });
-  observer.observe(container, { childList: true, characterData: true, subtree: true });
-  scheduleScan();
+  };
+  let observer: MutationObserver | null = null;
+  const attachObserver = (): void => {
+    if (observing) return;
+    observer ??= new MutationObserver(observeMutations);
+    observer.observe(container, { childList: true, characterData: true, subtree: true });
+    observing = true;
+  };
+  const detachObserver = (): void => {
+    if (!observing) return;
+    observer?.disconnect();
+    observing = false;
+  };
 
   // Browsers may drop a hidden tab's queued animation frame. Reset both handle
   // and latch on visibility recovery so future mutation scans cannot deadlock.
   const onVisibilityChange = (): void => {
-    if (!isPageVisible()) return;
+    if (!active || !isPageVisible()) return;
+    cancelCurrentScanAfterPaint();
     cancelScan();
-    scanScheduled = false;
-    requestFullScan();
+    requestCurrentScan();
   };
-  document.addEventListener("visibilitychange", onVisibilityChange);
+  const attachVisibilityListener = (): void => {
+    if (listeningForVisibility) return;
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    listeningForVisibility = true;
+  };
+  const detachVisibilityListener = (): void => {
+    if (!listeningForVisibility) return;
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    listeningForVisibility = false;
+  };
+  const setActive = (nextActive: boolean): void => {
+    if (disposed || nextActive === active) return;
+    active = nextActive;
+    if (!active) {
+      cancelScan();
+      cancelCurrentScanAfterPaint();
+      dirtyRows.clear();
+      hotTailScanNeeded = false;
+      discardDirtyUntilActivationScan = false;
+      detachObserver();
+      detachVisibilityListener();
+      return;
+    }
+    // Canonical repaint mutations may include retained history; activation owns
+    // one current-tail scan instead of replaying that history as dirty rows.
+    discardDirtyUntilActivationScan = true;
+    attachObserver();
+    attachVisibilityListener();
+    scheduleCurrentScanAfterPaint();
+  };
+
+  if (initialActive) setActive(true);
 
   const dispose = (): void => {
-    observer.disconnect();
-    cancelScan();
-    document.removeEventListener("visibilitychange", onVisibilityChange);
+    if (disposed) return;
+    setActive(false);
+    disposed = true;
   };
-  return { requestFullScan, dispose };
+  return { requestCurrentScan, setActive, dispose };
 }

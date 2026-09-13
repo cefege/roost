@@ -263,11 +263,11 @@ export function publishCellGridChunk(
     return;
   }
   _clearUnmappedDrop(workerFp, channelId);
+  const receivedAtMs = BigInt(Date.now());
   if (chunk.part) {
     chunk.part.sessionId = sessionId;
-    chunk.part.coordRecvMs = BigInt(Date.now());
   }
-  currentTerminalScreenHub()?.publishChunk(sessionId, chunk);
+  currentTerminalScreenHub()?.publishChunk(sessionId, chunk, receivedAtMs);
   diag("cell.chunk_relay", {
     sid: sessionId,
     channel_id: channelId,

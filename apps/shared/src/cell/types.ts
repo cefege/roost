@@ -7,10 +7,10 @@
 // wterm-serialize.ts cell-shape note) so a span round-trips byte-for-style.
 //
 // A "span" is a run of consecutive cells sharing one style. A "row" is an
-// ordered list of spans (right-trimmed: trailing default-style spaces emit
-// no span, so a blank row = empty spans[]). A frame is either FULL (the whole
-// viewport plus an optional bounded same-grid renewal tail) or a DELTA (changed
-// viewport rows plus newly appended scrollback rows).
+// ordered list of spans (right-trimmed: trailing default-style spaces emit no
+// span). `CellGridFrame` carries cols, rows, cursor, alt-screen, viewport rows,
+// scrollback append, totals, stream ID, base sequence and epoch. Authoritative
+// checkpoints are viewport-only; retained history is demand-paged separately.
 //
 // COLUMN OCCUPANCY. `CellSpan.columns` — not `text.length` — is the terminal
 // width of a span, because the core's cell model is neither one column per
@@ -146,13 +146,13 @@ export interface CellGridFrame {
   mouseSgr: boolean;
   /** DECSET 1004; the SPA reports real textarea focus/blur as CSI I / CSI O. */
   focusEvents: boolean;
-  /** true = full snapshot (viewportRows = all rows; scrollbackRows is empty
-   *  except for a bounded compatible same-grid renewal tail). false = delta
-   *  (viewportRows = changed only, scrollbackAppend = newly pushed lines). */
+  /** true = full snapshot (viewportRows = all rows). Canonical checkpoints
+   *  carry no history; rolling producers may still send validated history rows.
+   *  false = delta (viewportRows = changed only, scrollbackAppend = newly
+   *  pushed lines). */
   full: boolean;
   viewportRows: CellRow[];
-  /** Full frames carry either no retained history or a bounded compatible
-   *  renewal tail. Older history remains available through explicit paging. */
+  /** History carried by a full frame before canonical normalization. */
   scrollbackRows: CellRow[];
   /** Delta frames only: scrollback lines appended since the prior frame,
    *  oldest → newest, index = absolute line number. */
@@ -169,11 +169,9 @@ export interface CellGridFrame {
   seq: number;
 }
 
-// Initial and ordinary repair FULLs stay viewport-only. A renewed stream over
-// the same grid carries the newest renderer-sized history window so any output
-// emitted during unsubscribe races overlaps the browser's retained 2,000 rows.
+// Authoritative production checkpoints are viewport-only. Pure full-frame
+// callers retain this explicit zero-tail value instead of a second policy.
 export const SB_SNAPSHOT_HISTORY_ROWS = 0;
-export const SB_RENEWAL_HISTORY_ROWS = 2_000;
 
 // ── Column geometry ────────────────────────────────────────────────────
 // The single implementation of "which grid column is this text at", shared by

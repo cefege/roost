@@ -9,7 +9,7 @@ import { isPageVisible } from "../lib/pageVisible.ts";
 import type { CellTerminalRuntime } from "./cell-terminal-runtime.ts";
 import type { CellTerminalPresentation } from "./cell-terminal-presentation.ts";
 
-const VIEWPORT_DEBOUNCE_MS = 150;
+const VIEWPORT_DEBOUNCE_MS = 50;
 
 export interface CellTerminalViewport {
 	readonly viewActive: Accessor<boolean>;
@@ -31,7 +31,6 @@ export function createCellTerminalViewport(
 	viewActive: Accessor<boolean>,
 ): CellTerminalViewport {
 	let viewportTimer: ReturnType<typeof setTimeout> | null = null;
-	let viewportCandidate: { cols: number; rows: number } | null = null;
 	let unmeasuredFrame = 0;
 	let unmeasuredRetryUsed = false;
 
@@ -83,10 +82,8 @@ export function createCellTerminalViewport(
 	const publishInactive = (): void => {
 		presentation.clearFrameActivity();
 		presentation.clearCursorBlink();
-		presentation.setViewportLiveReady(false);
 		runtime.backfill?.suspend();
 		cancelScheduled();
-		viewportCandidate = null;
 		if (unmeasuredFrame !== 0) {
 			cancelAnimationFrame(unmeasuredFrame);
 			unmeasuredFrame = 0;
@@ -135,32 +132,11 @@ export function createCellTerminalViewport(
 		cancelScheduled();
 		viewportTimer = setTimeout(() => {
 			viewportTimer = null;
-			if (!shouldPublishActive()) {
-				viewportCandidate = null;
-				publishViewport();
-				return;
-			}
-			const measured = measureViewport();
-			if (!measured) {
-				viewportCandidate = null;
-				publishViewport();
-				return;
-			}
-			if (
-				viewportCandidate?.cols !== measured.cols
-				|| viewportCandidate.rows !== measured.rows
-			) {
-				viewportCandidate = measured;
-				scheduleViewport();
-				return;
-			}
-			viewportCandidate = null;
 			publishViewport();
 		}, VIEWPORT_DEBOUNCE_MS);
 	};
 	const publishViewportNow = (): boolean => {
 		cancelScheduled();
-		viewportCandidate = null;
 		return publishViewport();
 	};
 

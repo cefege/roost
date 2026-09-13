@@ -9,6 +9,7 @@
 // readiness instead (main.ts awaits prepareWtermCoreModule() at boot).
 
 import { WasmBridge, type TerminalCore, type UnhandledSequence } from "@wterm/core";
+import { registerWtermRowReader } from "./cell/wterm-row-reader.ts";
 import { WTERM_ROOST_WASM_PATH, expectedRoostWasmSha256 } from "./wterm-wasm.ts";
 import { log } from "./log.ts";
 import {
@@ -267,6 +268,7 @@ export async function createWtermCore(cols: number, rows: number): Promise<Termi
   const bridge = new WasmBridge(instance);
   bridge.init(geometry.cols, geometry.rows);
   assertWtermCoreGeometry(bridge, geometry);
+  registerWtermRowReader(bridge, instance);
   const ring = makeUnhandledSequenceRing(instance);
   _unhandledRings.set(bridge, ring);
   // Leave no second, wrong way to read the same ring: the interface method now

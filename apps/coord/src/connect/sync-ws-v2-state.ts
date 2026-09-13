@@ -11,12 +11,34 @@ import {
   SyncDomain,
   type FirehoseFrame,
 } from "@roost/shared/proto/sync_pb";
-import type { SyncFeedFrameMeta, SyncFeedLane } from "./sync-feed.ts";
+import type { SyncFeedLane } from "./sync-feed.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
+import {
+  conservativeTerminalApplicationFrameBytes,
+  ownTerminalApplicationFrame,
+} from "./sync-ws-v2-terminal-payload.ts";
 import type {
-  TerminalSnapshotCursor as TerminalSnapshotPartsCursor,
-} from "./terminal-screen-frames.ts";
-
+  SyncTerminalDeltaFrame,
+  SyncTerminalSessionLane,
+  SyncTerminalSnapshotCursor,
+  SyncV2AggregateCharge,
+  SyncV2DomainState,
+  SyncV2OwnedFrame,
+  SyncV2QueuedFrame,
+  SyncV2RetainedFrame,
+  SyncV2SocketState,
+} from "./sync-ws-v2-state-types.ts";
+export type {
+  SyncTerminalDeltaFrame,
+  SyncTerminalSessionLane,
+  SyncTerminalSnapshotCursor,
+  SyncV2AggregateCharge,
+  SyncV2DomainState,
+  SyncV2OwnedFrame,
+  SyncV2QueuedFrame,
+  SyncV2RetainedFrame,
+  SyncV2SocketState,
+} from "./sync-ws-v2-state-types.ts";
 export const V2_DOMAIN_MAX_QUEUED_FRAMES = 512;
 export const V2_DOMAIN_MAX_QUEUED_BYTES = 4 * 1024 * 1024;
 export const V2_TERMINAL_MAX_RETAINED_FRAMES = 512;
@@ -72,91 +94,7 @@ function isTerminalCellMaterial(frame: FirehoseFrame): boolean {
   return frame.frame.case === "cellGrid" || frame.frame.case === "cellGridChunk";
 }
 
-export interface SyncV2OwnedFrame {
-  readonly frame: FirehoseFrame;
-  readonly estimatedBytes: number;
-}
 
-export interface SyncV2AggregateCharge {
-  readonly estimatedBytes: number;
-  readonly terminal: boolean;
-  readonly terminalCell: boolean;
-  retained: boolean;
-}
-
-export interface SyncV2RetainedFrame extends SyncV2OwnedFrame {
-  readonly aggregateCharge: SyncV2AggregateCharge;
-}
-export interface SyncTerminalDeltaFrame extends SyncV2RetainedFrame {
-  readonly payloadBytes: number;
-}
-
-
-export interface SyncV2QueuedFrame extends SyncV2RetainedFrame {
-  readonly meta: SyncFeedFrameMeta;
-  readonly queuedAtMs: number;
-}
-
-export interface SyncTerminalSnapshotCursor {
-  readonly streamId: string;
-  source: TerminalSnapshotPartsCursor | null;
-  index: number;
-  queued: boolean;
-  /** The one source part currently charged to terminal materialization. */
-  materialized: SyncV2RetainedFrame | null;
-  readonly deltaTail: SyncTerminalDeltaFrame[];
-  deltaBytes: number;
-}
-
-export interface SyncTerminalSessionLane {
-  streamId: string;
-  cursor: SyncTerminalSnapshotCursor | null;
-  /** Terminal view-states awaiting their per-session FIFO turn. */
-  readonly pendingStates: SyncV2RetainedFrame[];
-  stateQueued: boolean;
-  /** Set while this lane is present in the socket's deduplicated ready ring. */
-  ready: boolean;
-  /** A scoped canonical full is needed after the current cursor can release. */
-  rebaselinePending: boolean;
-  /** The next baseline part may pass foreign deltas once for a new stream. */
-  attachPriorityPending: boolean;
-}
-
-
-export interface SyncV2DomainState {
-  generation: bigint;
-  subscribed: boolean;
-  ready: boolean;
-  queue: SyncV2QueuedFrame[];
-  queuedBytes: number;
-  /** Next insertion point for the retained snapshot preceding buffered live frames. */
-  seedInsertIndex: number;
-}
-
-export interface SyncV2SocketState {
-  readonly socketId: string;
-  readonly domains: Map<SyncDomain, SyncV2DomainState>;
-  readonly announcedSessions: Set<string>;
-  readonly pendingSessionAnnouncements: Map<string, bigint>;
-  readonly terminalSessions: Map<string, SyncTerminalSessionLane>;
-  /** Insertion-ordered, deduplicated terminal lanes with an eligible head. */
-  readonly terminalReadySessions: Set<string>;
-  /** Terminal's half of retained application materialization. */
-  terminalRetainedFrames: number;
-  terminalRetainedBytes: number;
-  /** Charged cell payloads, capped below terminal's reliable semantic reserve. */
-  terminalCellRetainedFrames: number;
-  terminalCellRetainedBytes: number;
-  /** Aggregate payload ownership across domain queues and terminal auxiliaries. */
-  queuedFrames: number;
-  queuedBytes: number;
-  laneCursor: number;
-  schedulerPending: boolean;
-  schedulerYieldTimer: Timer | null;
-  snapshotDispose: (() => void) | null;
-  layoutTargetDispose: (() => void) | null;
-  closeNotified: boolean;
-}
 
 export function createSyncV2SocketState(): SyncV2SocketState {
   const domains = new Map<SyncDomain, SyncV2DomainState>();
@@ -196,6 +134,13 @@ export function ownV2ApplicationFrame(
   domain: SyncDomain,
   generation: bigint,
 ): SyncV2OwnedFrame {
+  if (domain === SyncDomain.TERMINAL) {
+    const owned = ownTerminalApplicationFrame(frame, generation);
+    return {
+      frame: owned,
+      estimatedBytes: conservativeTerminalApplicationFrameBytes(owned),
+    };
+  }
   const owned = clone(FirehoseFrameSchema, frame);
   owned.deliverySeq = 0n;
   owned.domain = domain;

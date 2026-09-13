@@ -113,7 +113,7 @@ jobs:
       - name: terminal
         run: bun run test:terminal
       - name: terminal artifacts
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: terminal-playwright-artifacts-${{ matrix.os }}

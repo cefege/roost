@@ -24,10 +24,11 @@ describe("terminalBrowserStreamSnapshot — the range this document holds", () =
   const nRows = (n: number, from = 0) =>
     Array.from({ length: n }, (_, i) => row(from + i, `r${from + i}`));
 
-  test("reports the held range, not the frame's total, and follows a prepend", () => {
+  test("reports the held range, not the frame total, after a history page", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    // 250 painted rows of a 750-row history: the shape a full frame always has.
+    // 250 painted rows of a 750-row history held independently of the
+    // viewport-only canonical checkpoint.
     seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
     const release = registerRenderer("probe-session", r);
 
@@ -41,9 +42,9 @@ describe("terminalBrowserStreamSnapshot — the range this document holds", () =
       floor: null,
     });
 
-    // A backfill page moves the held range down; the probe must move with it or a
-    // stale sb_base reads as history the browser does not actually have.
-    r.prependScrollback(nRows(100, 400));
+    // The diagnostic bound follows renderer-owned painted history, not the
+    // canonical checkpoint's empty history range.
+    expect(r.insertHistoryPage(nRows(100, 400), false)).toBe(true);
     const after = terminalBrowserStreamSnapshot("probe-session").history;
     expect(after.sb_base).toBe(400);
     expect(after.rows_held).toBe(350);

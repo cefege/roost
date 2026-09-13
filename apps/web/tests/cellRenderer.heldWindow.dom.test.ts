@@ -33,8 +33,7 @@ import {
 // scrollbackBackfill re-pulls the evicted range on scroll-up. These lock the
 // cap, the invariant + DOM↔array alignment, and the freeze under a scrolled-up
 // reader.
-// leading block never desyncs (every backfill prepend is < SB_BLOCK because
-// the overlap row is stripped at scrollbackBackfill.ts:111).
+// A partial leading page must never desync the first block from painted rows.
 describe("CellGridRenderer DOM — held-window eviction", () => {
   const BLOCK = 250; // mirrors cellRenderer SB_BLOCK
   // Delta that appends `append` scrollback rows, carrying the cumulative
@@ -70,6 +69,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     expect(total).toBe(idx); // sanity: total tracks the last appended index
   });
 
+
   test("returning to the bottom reconciles pending history and re-enables eviction", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
@@ -93,7 +93,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     expect(c.scrollTopWrites).toBe(1);
   });
 
-  test("a partial leading block (backfill prepend) never desyncs DOM from array", () => {
+  test("a partial leading history page never desyncs DOM from painted rows", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const scrollbackEl = sbEl(c);
@@ -101,12 +101,14 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     const total = 2500;
     const tailStart = total - 100;
     seedHeldHistory(r, 80, [row(0, "v")], seq(100).map((k) => row(tailStart + k, `h${tailStart + k}`)), total);
-    // Backfill with a PARTIAL chunk (< BLOCK): every real backfill batch is
-    // < SB_BLOCK (overlap row stripped), so this is the realistic case. The
-    // leading block becomes partial (180 rows) — the first block eviction removes.
+    // A partial page creates the realistic partially filled leading block that
+    // live eviction removes first.
     const chunk = 180;
-    r.prependScrollback(seq(chunk).map((k) => row(tailStart - chunk + k, `b${k}`)));
-    expect(r.currentFrame!.scrollbackRows.length).toBe(100 + chunk);
+    expect(r.insertHistoryPage(
+      seq(chunk).map((k) => row(tailStart - chunk + k, `b${k}`)),
+      false,
+    )).toBe(true);
+    expect(r.paintedScrollbackRowCount()).toBe(100 + chunk);
     // Stream past the cap; check invariant + DOM alignment every apply.
     let idx = total, running = total;
     for (let i = 0; i < 12; i++) {
@@ -116,10 +118,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
       const f = r.currentFrame!;
       expect(f.scrollbackTotal - f.sbBase).toBe(f.scrollbackRows.length);
       expect(f.scrollbackRows.length).toBeLessThanOrEqual(MAX_HELD_SCROLLBACK_ROWS);
-      // Killer assertion: painted DOM row count must track the array. A hardcoded
-      // dropped = SB_BLOCK would leave the 180-row block's worth of DOM behind
-      // while slicing 250 off the array → DOM count > array length.
-      expect(sbRows(scrollbackEl).length).toBe(f.scrollbackRows.length);
+      expect(sbRows(scrollbackEl).length).toBe(r.paintedScrollbackRowCount());
     }
   });
 
@@ -131,7 +130,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     expect((scrollbackEl.children[0] as FakeEl).style["overflow-anchor"]).toBeUndefined();
     expect((scrollbackEl.children[1] as FakeEl).style["overflow-anchor"]).toBe("none");
 
-    r.prependScrollback([row(299, "backfill")]);
+    expect(r.insertHistoryPage([row(299, "backfill")], false)).toBe(true);
     expect((scrollbackEl.children[2] as FakeEl).style["overflow-anchor"]).toBeUndefined();
 
     r.apply(appDelta([row(600, "stream")], 601, 3));

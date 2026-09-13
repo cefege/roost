@@ -103,7 +103,7 @@ test("independent browsers share one continuous terminal replica and effective g
   });
   expect(joinedHistory.control.streamId).not.toBe(currentStreamId);
   currentStreamId = joinedHistory.control.streamId;
-  expectReaderReframeHeld(readerBeforeJoin, joinedHistory.probes[0]!, crossedMinimum);
+  await expectReaderReframeHeld(widePage, sessionId, readerBeforeJoin, joinedHistory.probes[0]!, crossedMinimum);
   await expectHistoryAnchorPreserved(widePage, sessionId, historyAnchor);
   await waitForPainted(narrowPage, sessionId, `${historyPrefix}${historyCount}`);
 
@@ -118,11 +118,10 @@ test("independent browsers share one continuous terminal replica and effective g
   });
   expect(releasedHistory.control.streamId).not.toBe(currentStreamId);
   currentStreamId = releasedHistory.control.streamId;
-  expectReaderReframeHeld(
-    joinedHistory.probes[0]!,
-    releasedHistory.probes[0]!,
-    { cols: wideSolo.control.cols, rows: wideSolo.control.rows },
-  );
+  await expectReaderReframeHeld(widePage, sessionId, joinedHistory.probes[0]!, releasedHistory.probes[0]!, {
+    cols: wideSolo.control.cols,
+    rows: wideSolo.control.rows,
+  });
   await expectHistoryAnchorPreserved(widePage, sessionId, historyAnchor);
 
   await forceHidden(narrowPage, false);
@@ -135,7 +134,7 @@ test("independent browsers share one continuous terminal replica and effective g
   });
   expect(rejoinedHistory.control.streamId).not.toBe(currentStreamId);
   currentStreamId = rejoinedHistory.control.streamId;
-  expectReaderReframeHeld(releasedHistory.probes[0]!, rejoinedHistory.probes[0]!, crossedMinimum);
+  await expectReaderReframeHeld(widePage, sessionId, releasedHistory.probes[0]!, rejoinedHistory.probes[0]!, crossedMinimum);
   await expectHistoryAnchorPreserved(widePage, sessionId, historyAnchor);
   await widePage.mouse.wheel(0, 100_000);
   await expect.poll(async () => {

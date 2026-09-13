@@ -175,7 +175,10 @@ export class PredictiveEcho {
 
   /** An authoritative cell frame landed. Update grid state, reconcile every
    *  prediction against it, then repaint survivors. */
-  onFrame(frame: CellGridFrame): void {
+  onFrame(
+    frame: CellGridFrame,
+    scrollbackAppended = frame.scrollbackAppend.length > 0,
+  ): void {
     const prevAlt = this.altScreen;
     const prevCols = this.cols;            // capture BEFORE overwrite (resize detect)
     const prevRows = this.rows;
@@ -200,7 +203,7 @@ export class PredictiveEcho {
     // and drifts every frame, which would wipe on every delta and keep SRTT at 0.
     const resized = prevCols !== 0 &&
       (frame.cols !== prevCols || frame.rows !== prevRows);
-    if (this.altScreen || prevAlt !== this.altScreen || frame.scrollbackAppend.length > 0 || resized) {
+    if (this.altScreen || prevAlt !== this.altScreen || scrollbackAppended || resized) {
       this.resetAll();
       this.predCursorCol = -1;
       return;

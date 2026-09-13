@@ -3,6 +3,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   CELL_GRID_CHUNK_STALL_MS,
   chunkCellGridFrame,
+  cloneCellGridFrame,
   type CellGridFrame,
   type CellRow,
 } from "@roost/shared/cell";
@@ -91,6 +92,7 @@ mock.module("../../src/store/sync.ts", () => ({
 }));
 
 mock.module("../../src/lib/diag.ts", () => ({
+  markPhase: () => undefined,
   markPhaseOnce: () => undefined,
   recordCellLag: () => undefined,
 }));
@@ -257,17 +259,21 @@ function rejectView(
 class RecordingRenderer {
   readonly fullFrames: CellGridFrame[] = [];
   readonly deltaFrames: CellGridFrame[] = [];
+  readonly deltaBatches: CellGridFrame[][] = [];
   mutateRows = false;
 
   applyFullFrame(frame: CellGridFrame): boolean {
-    this.fullFrames.push(frame);
-    if (this.mutateRows && frame.viewportRows[0]) frame.viewportRows[0].index = 99;
+    const owned = cloneCellGridFrame(frame);
+    this.fullFrames.push(owned);
+    if (this.mutateRows && owned.viewportRows[0]) owned.viewportRows[0].index = 99;
     return true;
   }
 
-  applyDeltaFrame(frame: CellGridFrame): boolean {
-    this.deltaFrames.push(frame);
-    if (this.mutateRows && frame.viewportRows[0]) frame.viewportRows[0].index = 99;
+  applyDeltaFrames(frames: readonly CellGridFrame[]): boolean {
+    this.deltaBatches.push([...frames]);
+    this.deltaFrames.push(...frames);
+    const first = frames[0];
+    if (this.mutateRows && first?.viewportRows[0]) first.viewportRows[0].index = 99;
     return true;
   }
 }

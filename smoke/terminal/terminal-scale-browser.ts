@@ -5,10 +5,14 @@
 
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { setTimeout as delay } from "node:timers/promises";
+import type { LayoutDocumentV1 } from "@roost/shared/layout-document";
+import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
+import { UiApplyLayoutOutcome } from "@roost/shared/proto/sync_pb";
+import type { SmokeApi } from "../../apps/web/src/lib/smokeTypes.ts";
 import { enrollSmokeBrowser } from "./fixtures.ts";
 import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 import { assertFleetCapacity, type ScaleWorkerCapacity, workerFolder } from "./terminal-scale-preflight.ts";
-
+import type { PaintedMarkerProof } from "../../apps/web/src/lib/smokeHarness.ts";
 export const SCALE_FIXTURE_READY = "ROOST_PTY_READY/1";
 export const SCALE_MARKER_TIMEOUT_MS = 45_000;
 export const SCALE_SPAWN_PACE_MS = 75;
@@ -21,9 +25,7 @@ export const SCALE_SOAK_SESSIONS = 500;
 export const SCALE_SOAK_DOCUMENTS = 32;
 export const SCALE_SOAK_CONTEXTS = 8;
 export const SCALE_SOAK_PAGES_PER_CONTEXT = 4;
-
 const DEFAULT_VIEWPORT = { width: 1_280, height: 800 };
-
 export interface ScaleMarkerScan {
   total: number;
   unique: number;
@@ -33,7 +35,6 @@ export interface ScaleMarkerScan {
   missing: number;
   outOfOrder: number;
 }
-
 export interface ScaleRetainedMarkerScan {
   markerMin: number;
   markerMax: number;
@@ -41,67 +42,40 @@ export interface ScaleRetainedMarkerScan {
   markerDuplicated: number[];
   markerOutOfOrder: number;
 }
-
-export interface ScaleInputCapture {
-  batches: Array<{ sessionId: string; data: number[] }>;
-  droppedBatches: number;
-}
-
-export interface ScaleSmokeWindow {
-  __smoke: {
-    input(sessionId: string, text: string): Promise<void>;
-    navigate(href: string): void;
-    waitForPaintedMarker(sessionId: string, marker: string, timeoutMs?: number): Promise<unknown>;
-    markerScan(sessionId: string, prefix: string): ScaleMarkerScan;
-    cellFullFrameCount(sessionId: string): number;
-    retainedMarkerScan(
-      sessionId: string,
-      prefix: string,
-      pageRows?: number,
-    ): Promise<ScaleRetainedMarkerScan>;
-    syncWsGeneration(): number;
-    dropNextTerminalWireDelta(sessionId: string): void;
-    forceVisible(on: boolean): void;
-    forceHidden(on: boolean): void;
-    paneFocused(sessionId: string): { focused: boolean };
-    resetTerminalInputCapture(): void;
-    terminalInputCapture(): ScaleInputCapture;
-    terminalDimensions(sessionId: string): { cols: number; rows: number };
-    state(): { workers: Record<string, unknown> };
-  };
-}
-
+export interface ScaleInputCapture { batches: Array<{ sessionId: string; data: number[] }>; droppedBatches: number; }
+type ScaleSmokeApi = Pick<
+  SmokeApi,
+  | "input" | "navigate" | "waitForPaintedMarker" | "markerScan" | "renderProbe"
+  | "cellFullFrameCount" | "retainedMarkerScan" | "syncWsGeneration"
+  | "dropNextTerminalWireDelta" | "forceVisible" | "forceHidden"
+  | "paneFocused" | "resetTerminalInputCapture" | "terminalInputCapture"
+  | "terminalDimensions" | "state" | "beginTerminalTiming" | "finishTerminalTiming"
+  | "pauseSyncTransport" | "resumeSyncTransport" | "viewportText" | "cellGridEpoch"
+  | "perfProbe"
+>;
+export interface ScaleSmokeWindow { __smoke: ScaleSmokeApi; }
 export interface ScaleSession {
   id: string;
   worker: TerminalTestWorker;
   markerPrefix: string;
 }
-
 export interface ScaleDocument {
   page: Page;
   context: BrowserContext;
   initial: boolean;
   ownsContext: boolean;
 }
-
 export interface ScaleSlot {
   document: ScaleDocument;
   session: ScaleSession;
 }
-
-export interface ScaleFrameState {
-  fullFrames: number;
-  syncGeneration: number;
-}
-
+export interface ScaleFrameState { fullFrames: number; syncGeneration: number; }
 export function assertScale(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`terminal scale qualification: ${message}`);
 }
-
 export function scaleRunId(): string {
   return crypto.randomUUID().replaceAll("-", "").slice(0, 12);
 }
-
 export async function waitForScaleCondition(
   label: string,
   timeoutMs: number,
@@ -114,14 +88,12 @@ export async function waitForScaleCondition(
   }
   throw new Error(`terminal scale qualification timed out waiting for ${label} after ${timeoutMs}ms`);
 }
-
 async function installScaleSmokeInit(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
     localStorage.setItem("roostSmoke", "1");
     localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
   });
 }
-
 async function waitForSmokePage(page: Page, workerFps: readonly string[]): Promise<void> {
   await page.waitForFunction(() => {
     const smokeWindow = window as unknown as Partial<ScaleSmokeWindow>;
@@ -133,7 +105,6 @@ async function waitForSmokePage(page: Page, workerFps: readonly string[]): Promi
     return expectedWorkerFps.every((workerFp) => !!state.workers[workerFp]);
   }, workerFps);
 }
-
 async function enrollScalePage(
   page: Page,
   stack: TerminalTestStack,
@@ -143,7 +114,6 @@ async function enrollScalePage(
   await waitForSmokePage(page, workerFps);
   await forceScalePageVisible(page, true);
 }
-
 /** Opens exactly the requested document topology, enrolling pages one at a time. */
 export async function createScaleDocuments(options: {
   browser: Browser;
@@ -196,7 +166,6 @@ export async function createScaleDocuments(options: {
     }
   }
 }
-
 export async function closeScaleDocuments(documents: readonly ScaleDocument[]): Promise<void> {
   const ownedContexts = new Set<BrowserContext>();
   for (const document of documents) if (document.ownsContext) ownedContexts.add(document.context);
@@ -213,7 +182,6 @@ export async function closeScaleDocuments(documents: readonly ScaleDocument[]): 
   }
   for (const context of ownedContexts) await context.close().catch(() => undefined);
 }
-
 /** Spawn sequentially against the pre-reserved per-worker capacity budget. */
 export async function spawnScaleSessions(options: {
   stack: TerminalTestStack;
@@ -262,7 +230,6 @@ export async function spawnScaleSessions(options: {
   }
   return sessions;
 }
-
 export async function cleanupScaleSessions(
   stack: TerminalTestStack,
   sessions: readonly ScaleSession[],
@@ -276,21 +243,24 @@ export async function cleanupScaleSessions(
   }
   if (failures.length > 0) throw new Error(`scale session cleanup failed: ${failures.join("; ")}`);
 }
-
-export async function sendFixtureCommand(page: Page, sessionId: string, command: string): Promise<void> {
-  await page.evaluate(async ({ id, frame }) => {
+export async function sendFixtureCommand(page: Page, sessionId: string, command: string): Promise<number> {
+  return page.evaluate(async ({ id, frame }) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
+    const dispatchedMonotonicMs = performance.now();
     await smokeWindow.__smoke.input(id, frame);
+    return dispatchedMonotonicMs;
   }, { id: sessionId, frame: command });
 }
-
-export async function waitForPaintedScaleMarker(page: Page, sessionId: string, marker: string): Promise<void> {
-  await page.evaluate(async ({ id, expected, timeoutMs }) => {
+export async function waitForPaintedScaleMarker(
+  page: Page,
+  sessionId: string,
+  marker: string,
+): Promise<PaintedMarkerProof> {
+  return page.evaluate(async ({ id, expected, timeoutMs }) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
-    await smokeWindow.__smoke.waitForPaintedMarker(id, expected, timeoutMs);
+    return smokeWindow.__smoke.waitForPaintedMarker(id, expected, timeoutMs);
   }, { id: sessionId, expected: marker, timeoutMs: SCALE_MARKER_TIMEOUT_MS });
 }
-
 export async function navigateAndPaint(page: Page, sessionId: string, marker = SCALE_FIXTURE_READY): Promise<void> {
   await page.evaluate(async ({ id, expected, timeoutMs }) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
@@ -298,7 +268,64 @@ export async function navigateAndPaint(page: Page, sessionId: string, marker = S
     await smokeWindow.__smoke.waitForPaintedMarker(id, expected, timeoutMs);
   }, { id: sessionId, expected: marker, timeoutMs: SCALE_MARKER_TIMEOUT_MS });
 }
-
+/** Applies a two-leaf same-folder layout through the acknowledged UI route. */
+export async function applyScaleSplitPairLayout(options: {
+  page: Page;
+  stack: TerminalTestStack;
+  firstSessionId: string;
+  secondSessionId: string;
+}): Promise<void> {
+  const { page, stack, firstSessionId, secondSessionId } = options;
+  assertScale(firstSessionId !== secondSessionId, "split pair requires distinct sessions");
+  await navigateAndPaint(page, firstSessionId);
+  const targetTabId = await page.evaluate(() => sessionStorage.getItem("roost.tabId"));
+  assertScale(targetTabId, "split target did not claim a tab identity");
+  let targetFingerprint = "";
+  await waitForScaleCondition(`layout report for ${targetTabId}`, SCALE_MARKER_TIMEOUT_MS, async () => {
+    const target = (await stack.client.uiListStates({})).tabs
+      .find((candidate) => candidate.tabId === targetTabId);
+    const state = target?.state;
+    targetFingerprint = target?.fp ?? "";
+    return targetFingerprint !== ""
+      && state?.activePath === `/s/${firstSessionId}`
+      && state?.layoutDocument !== undefined;
+  });
+  const layoutDocument: LayoutDocumentV1 = {
+    schema_version: 1,
+    root: {
+      kind: "split", direction: "row", ratio: 0.5,
+      first: { kind: "leaf", leaf_key: "fleet-first", slot_keys: ["fleet-slot-1"], selected_slot_key: "fleet-slot-1" },
+      second: { kind: "leaf", leaf_key: "fleet-second", slot_keys: ["fleet-slot-2"], selected_slot_key: "fleet-slot-2" },
+    },
+    focused_leaf_key: "fleet-first",
+    bindings: [
+      { slot_key: "fleet-slot-1", session_id: firstSessionId },
+      { slot_key: "fleet-slot-2", session_id: secondSessionId },
+    ],
+  };
+  const result = await stack.client.uiApplyLayout({
+    targetTabId,
+    targetFingerprint,
+    document: layoutDocumentToProto(layoutDocument),
+  });
+  assertScale(
+    result.outcome === UiApplyLayoutOutcome.APPLIED && result.correlationId !== "",
+    `split layout was not applied: ${result.reason ?? String(result.outcome)}`,
+  );
+  await waitForScaleCondition(`visible split pair ${targetTabId}`, SCALE_MARKER_TIMEOUT_MS, () =>
+    page.evaluate((ids) => {
+      const visible = ids.every((id) => {
+        const slot = document.querySelector<HTMLElement>(`[data-testid="terminal-slot-${CSS.escape(id)}"]`);
+        const rect = slot?.getBoundingClientRect();
+        return slot !== null && getComputedStyle(slot).visibility !== "hidden"
+          && (rect?.width ?? 0) > 0 && (rect?.height ?? 0) > 0;
+      });
+      return visible && document.querySelector("[data-testid='terminal-deck']")
+        ?.getAttribute("data-multi-pane") === "true";
+    }, [firstSessionId, secondSessionId]),
+  );
+  await waitForPaintedScaleMarker(page, secondSessionId, SCALE_FIXTURE_READY);
+}
 export async function readScaleFrameState(page: Page, sessionId: string): Promise<ScaleFrameState> {
   return page.evaluate((id) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
@@ -309,21 +336,18 @@ export async function readScaleFrameState(page: Page, sessionId: string): Promis
     };
   }, sessionId);
 }
-
 export async function readScaleMarkerScan(page: Page, sessionId: string, prefix: string): Promise<ScaleMarkerScan> {
   return page.evaluate(({ id, markerPrefix }) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
     return smokeWindow.__smoke.markerScan(id, markerPrefix);
   }, { id: sessionId, markerPrefix: prefix });
 }
-
 export async function readScaleDimensions(page: Page, sessionId: string): Promise<{ cols: number; rows: number }> {
   return page.evaluate((id) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
     return smokeWindow.__smoke.terminalDimensions(id);
   }, sessionId);
 }
-
 export async function runPacedBatches<T>(
   entries: readonly T[],
   concurrency: number,
@@ -337,42 +361,36 @@ export async function runPacedBatches<T>(
     if (offset + batch.length < entries.length) await delay(paceMs);
   }
 }
-
 export async function forceScalePageHidden(page: Page, hidden: boolean): Promise<void> {
   await page.evaluate((on) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
     smokeWindow.__smoke.forceHidden(on);
   }, hidden);
 }
-
 export async function forceScalePageVisible(page: Page, visible: boolean): Promise<void> {
   await page.evaluate((on) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
     smokeWindow.__smoke.forceVisible(on);
   }, visible);
 }
-
 export async function dropNextScaleWireDelta(page: Page, sessionId: string): Promise<void> {
   await page.evaluate((id) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
     smokeWindow.__smoke.dropNextTerminalWireDelta(id);
   }, sessionId);
 }
-
 export async function scalePaneFocused(page: Page, sessionId: string): Promise<boolean> {
   return page.evaluate((id) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
     return smokeWindow.__smoke.paneFocused(id).focused;
   }, sessionId);
 }
-
 export async function resetScaleInputCapture(page: Page): Promise<void> {
   await page.evaluate(() => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
     smokeWindow.__smoke.resetTerminalInputCapture();
   });
 }
-
 export async function readScaleInputCapture(page: Page): Promise<ScaleInputCapture> {
   return page.evaluate(() => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;

@@ -152,17 +152,18 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     expect(r.readerReason).toBe("native_scroll");
   });
 
-  test("transient off-bottom geometry does not freeze a live frame", () => {
+  test("an unobserved off-bottom position stays unmoved despite live reader intent", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
-    c.scrollTop = c.scrollHeight - c.clientHeight - 1;
+    const before = c.scrollHeight - c.clientHeight - 1;
+    c.scrollTop = before;
     c.resetScrollTopWrites();
 
     r.apply(appDelta([row(400, "new")], 401, 3));
 
-    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
-    expect(c.scrollTopWrites).toBe(1);
+    expect(c.scrollTop).toBe(before);
+    expect(c.scrollTopWrites).toBe(0);
     expect(r.readerIntent).toBe("live");
   });
 
@@ -341,7 +342,7 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     expect(r.atBottom()).toBe(true);
   });
 
-  test("a non-bottom backfill prepend performs no application scroll write", () => {
+  test("a non-bottom history page performs no application scroll write", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const total = 1000, held = 300;
@@ -350,13 +351,13 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     const before = c.scrollTop;
     c.resetScrollTopWrites();
 
-    r.prependScrollback(nRows(100, total - held - 100));
+    expect(r.insertHistoryPage(nRows(100, total - held - 100), false)).toBe(true);
 
     expect(c.scrollTop).toBe(before);
     expect(c.scrollTopWrites).toBe(0);
     expect(r.backfillAnchor()!.sbBase).toBe(total - held - 100);
     expect(sbRows(sbEl(c)).length).toBe(held + 100);
-    expect(r.currentFrame!.scrollbackRows.length).toBe(held + 100);
+    expect(r.currentFrame!.scrollbackRows.length).toBe(held);
   });
 
   test("live intent persists through box changes before ResizeObserver runs", () => {

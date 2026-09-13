@@ -185,7 +185,7 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
   viewportRows: PbCellRow[];
 
   /**
-   * full only; empty or bounded same-grid renewal tail
+   * full only; current authoritative fulls are empty
    *
    * @generated from field: repeated roost.v1.PbCellRow scrollback_rows = 10;
    */
@@ -209,8 +209,8 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
   seq: bigint;
 
   /**
-   * Absolute index represented before scrollback_rows. Fresh/incompatible full
-   * frames set this to scrollback_total; compatible renewals may include a tail.
+   * Absolute index represented before scrollback_rows. Current full frames set
+   * this to scrollback_total; old-worker input is validated before normalization.
    *
    * @generated from field: uint64 sb_base = 14;
    */

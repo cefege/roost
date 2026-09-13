@@ -196,8 +196,8 @@ export function makeSyncWsHandler(
           v2.socketId,
           ws.data.caller.fingerprint,
         );
-        // startSyncFeed subscribes synchronously and performs no v2 seeding.
-        // Only after every listener exists may the subscribed barrier escape.
+        // startSyncFeed installs every eager listener synchronously and performs
+        // no v2 seeding. Only then may the subscribed barrier escape.
         feed = startSyncFeed(
           deps,
           ws.data.scope,

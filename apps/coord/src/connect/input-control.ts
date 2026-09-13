@@ -17,10 +17,14 @@ import {
   terminalWriteRejected,
   type TerminalWriteControlResult,
 } from "./terminal-write-control.ts";
-import { writeAuditLog } from "../middleware/security.ts";
+import {
+  writeAuditLogs,
+  type AuditLogOptions,
+} from "../middleware/security.ts";
 
 const MAX_INPUT_BYTES = 64 * 1024;
 const INPUT_AUDIT_QUEUE_CAP = 1_024;
+const INPUT_AUDIT_BATCH_MAX = 64;
 
 export type InputControlResult = TerminalWriteControlResult;
 
@@ -51,8 +55,31 @@ interface QueuedInputAudit extends InputAuditRecord {
 }
 
 const inputAuditQueue: QueuedInputAudit[] = [];
-const inputAuditCapacityWaiters: Array<() => void> = [];
+const inputAuditCapacityWaiters: QueuedInputAudit[] = [];
+let inputAuditInFlight = 0;
 let inputAuditPumping = false;
+
+
+function refillInputAuditCapacity(): void {
+  while (
+    inputAuditQueue.length + inputAuditInFlight < INPUT_AUDIT_QUEUE_CAP
+    && inputAuditCapacityWaiters.length > 0
+  ) {
+    inputAuditQueue.push(inputAuditCapacityWaiters.shift()!);
+  }
+}
+
+function takeInputAuditBatch(): QueuedInputAudit[] {
+  const first = inputAuditQueue.shift()!;
+  const batch = [first];
+  while (
+    batch.length < INPUT_AUDIT_BATCH_MAX
+    && inputAuditQueue[0]?.deps.db === first.deps.db
+  ) {
+    batch.push(inputAuditQueue.shift()!);
+  }
+  return batch;
+}
 
 function pumpInputAudits(): void {
   if (inputAuditPumping) return;
@@ -60,22 +87,29 @@ function pumpInputAudits(): void {
   queueMicrotask(async () => {
     try {
       while (inputAuditQueue.length > 0) {
-        const next = inputAuditQueue.shift()!;
-        inputAuditCapacityWaiters.shift()?.();
+        const batch = takeInputAuditBatch();
+        inputAuditInFlight += batch.length;
         try {
-          await writeAuditLog({
-            db: next.deps.db,
-            status: next.outcome === "accepted" ? 200 : next.outcome === "ambiguous" ? 409 : 422,
-            method: "SYNC",
-            path: `/ws/coord-sync/input/${next.outcome}/${next.writtenBytes}/SessionsInput`,
-            traceId: next.traceId,
-            callerFp: next.callerFingerprint,
-            throwOnFailure: true,
-            dashboardId: next.deps.selfHostedTenant.dashboardId,
-          });
-          next.resolve();
+          const auditEntries: AuditLogOptions[] = [];
+          for (const entry of batch) {
+            auditEntries.push({
+              db: entry.deps.db,
+              status: entry.outcome === "accepted" ? 200 : entry.outcome === "ambiguous" ? 409 : 422,
+              method: "SYNC",
+              path: `/ws/coord-sync/input/${entry.outcome}/${entry.writtenBytes}/SessionsInput`,
+              traceId: entry.traceId,
+              callerFp: entry.callerFingerprint,
+              throwOnFailure: true,
+              dashboardId: entry.deps.selfHostedTenant.dashboardId,
+            });
+          }
+          await writeAuditLogs(auditEntries);
+          for (const entry of batch) entry.resolve();
         } catch (error) {
-          next.reject(error);
+          for (const entry of batch) entry.reject(error);
+        } finally {
+          inputAuditInFlight -= batch.length;
+          refillInputAuditCapacity();
         }
       }
     } finally {
@@ -85,16 +119,18 @@ function pumpInputAudits(): void {
   });
 }
 
-async function enqueueInputAudit(entry: InputAuditRecord): Promise<void> {
-  if (inputAuditQueue.length >= INPUT_AUDIT_QUEUE_CAP) {
-    signal("audit.input_queue_backpressure", {
-      caller_fp: entry.callerFingerprint,
-      cooldownKey: "terminal-input",
-    });
-    await new Promise<void>((resolve) => inputAuditCapacityWaiters.push(resolve));
-  }
+function enqueueInputAudit(entry: InputAuditRecord): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    inputAuditQueue.push({ ...entry, resolve, reject });
+    const queued = { ...entry, resolve, reject };
+    if (inputAuditQueue.length + inputAuditInFlight >= INPUT_AUDIT_QUEUE_CAP) {
+      signal("audit.input_queue_backpressure", {
+        caller_fp: entry.callerFingerprint,
+        cooldownKey: "terminal-input",
+      });
+      inputAuditCapacityWaiters.push(queued);
+      return;
+    }
+    inputAuditQueue.push(queued);
     pumpInputAudits();
   });
 }

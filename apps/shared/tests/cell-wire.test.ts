@@ -7,8 +7,8 @@ import { describe, test, expect } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import type { TerminalCore, CellData, CursorState } from "@wterm/core";
 import {
-  nextCellFrame, initCellEmitState, cloneCellGridFrame, SB_SNAPSHOT_HISTORY_ROWS,
-  DEFAULT_COLOR, CELL_BOLD,
+  nextCellFrame, initCellEmitState, cloneCellGridFrame, normalizeCellGridFrame,
+  LIVE_DELTA_SCROLLBACK_ROWS_CAP, SB_SNAPSHOT_HISTORY_ROWS, DEFAULT_COLOR, CELL_BOLD,
   type CellGridFrame,
 } from "../src/cell/index.ts";
 import {
@@ -35,6 +35,8 @@ class MockCore {
   cursor: CursorState = { row: 0, col: 0, visible: true };
   alt = false;
   dirty = new Set<number>();
+  scrollbackCellReads = 0;
+  scrollbackLineLenReads = 0;
   /** Roll the ring: drop the oldest `count` lines and count them as gone. */
   evict(count: number) { this.sb.splice(0, count); this.discarded += count; }
   getCols() { return this.grid[0]?.length ?? 0; }
@@ -44,12 +46,21 @@ class MockCore {
   usingAltScreen() { return this.alt; }
   cursorApp = false;
   bracketed = false;
+  mouseTracking?: () => 0 | 1000 | 1002;
+  mouseSgr?: () => boolean;
+  focusEvents?: () => boolean;
   cursorKeysApp() { return this.cursorApp; }
   bracketedPaste() { return this.bracketed; }
   getScrollbackCount() { return this.sb.length; }
   getScrollbackDiscardedCount() { return this.discarded; }
-  getScrollbackCell(off: number, c: number) { return this.sb[this.sb.length - 1 - off][c] ?? cell(" "); }
-  getScrollbackLineLen(off: number) { return this.sb[this.sb.length - 1 - off].length; }
+  getScrollbackCell(off: number, c: number) {
+    this.scrollbackCellReads++;
+    return this.sb[this.sb.length - 1 - off][c] ?? cell(" ");
+  }
+  getScrollbackLineLen(off: number) {
+    this.scrollbackLineLenReads++;
+    return this.sb[this.sb.length - 1 - off].length;
+  }
   isDirtyRow(r: number) { return this.dirty.has(r); }
   clearDirty() { this.dirty.clear(); }
 }
@@ -186,6 +197,66 @@ describe("nextCellFrame", () => {
     expect(r.frame.gridEpoch).toBe("test-grid:1");
     expect(r.frame.scrollbackTotal).toBe(10);
   });
+
+  test("caps ordinary live scrollback after semantic reframe selection", () => {
+    const atCapCore = new MockCore();
+    const atCapBase = nextCellFrame(asCore(atCapCore), initCellEmitState("test-grid", STREAM_ID), false, 0);
+    atCapCore.clearDirty();
+    atCapCore.sb = Array.from(
+      { length: LIVE_DELTA_SCROLLBACK_ROWS_CAP },
+      (_, index) => row(`h${index}`, 5),
+    );
+    const atCap = nextCellFrame(asCore(atCapCore), atCapBase.state, false, 0);
+    expect(atCap.frame).toMatchObject({
+      full: false, gridEpoch: "test-grid:0", seq: 2, baseSeq: 1,
+      scrollbackTotal: LIVE_DELTA_SCROLLBACK_ROWS_CAP,
+    });
+    expect(atCap.frame.scrollbackAppend).toHaveLength(LIVE_DELTA_SCROLLBACK_ROWS_CAP);
+
+    const checkpointCore = new MockCore();
+    const checkpointBase = nextCellFrame(
+      asCore(checkpointCore),
+      initCellEmitState("test-grid", STREAM_ID),
+      false,
+      0,
+    );
+    checkpointCore.clearDirty();
+    checkpointCore.sb = Array.from(
+      { length: LIVE_DELTA_SCROLLBACK_ROWS_CAP + 1 },
+      (_, index) => row(`h${index}`, 5),
+    );
+    checkpointCore.cursor = { row: 1, col: 3, visible: false };
+    checkpointCore.cursorApp = true;
+    checkpointCore.bracketed = true;
+    checkpointCore.mouseTracking = () => 1002;
+    checkpointCore.mouseSgr = () => true;
+    checkpointCore.focusEvents = () => true;
+    const checkpoint = nextCellFrame(asCore(checkpointCore), checkpointBase.state, false, 0);
+    expect(checkpoint.frame).toMatchObject({
+      full: true, gridEpoch: "test-grid:0", seq: 2, baseSeq: 0,
+      scrollbackTotal: LIVE_DELTA_SCROLLBACK_ROWS_CAP + 1,
+      sbBase: LIVE_DELTA_SCROLLBACK_ROWS_CAP + 1,
+      cursorRow: 1, cursorCol: 3, cursorVisible: false,
+      cursorKeysApp: true, bracketedPaste: true,
+      mouseTracking: 1002, mouseSgr: true, focusEvents: true,
+    });
+    expect(checkpoint.frame.scrollbackRows).toEqual([]);
+    expect(checkpoint.state).toMatchObject({ gridEpochRevision: 0, seq: 2 });
+    expect(checkpoint.frame.scrollbackAppend).toEqual([]);
+    expect(checkpointCore.scrollbackCellReads).toBe(0);
+    expect(checkpointCore.scrollbackLineLenReads).toBe(0);
+
+    const semanticCore = new MockCore();
+    const semanticBase = nextCellFrame(asCore(semanticCore), initCellEmitState("test-grid", STREAM_ID), false, 0);
+    semanticCore.sb = Array.from(
+      { length: LIVE_DELTA_SCROLLBACK_ROWS_CAP + 1 },
+      (_, index) => row(`h${index}`, 5),
+    );
+    semanticCore.alt = true;
+    const semantic = nextCellFrame(asCore(semanticCore), semanticBase.state, false, 0);
+    expect(semantic.frame).toMatchObject({ full: true, gridEpoch: "test-grid:1", seq: 2 });
+    expect(semantic.state.gridEpochRevision).toBe(1);
+  });
 });
 
 describe("cell-proto round-trip", () => {
@@ -240,6 +311,37 @@ describe("cell-proto round-trip", () => {
     expect(shallow.viewportRows[0]!.spans).toBe(frame.viewportRows[0]!.spans);
   });
 
+  test("normalizes canonical checkpoints without clearing aliased incoming history", () => {
+    const canonical = makeFrame();
+    const originalHistory = canonical.scrollbackRows;
+    const incomingDelta = {
+      ...makeFrame(),
+      full: false,
+      scrollbackRows: [],
+      scrollbackAppend: [{ index: 1, spans: originalHistory[0]!.spans }],
+      baseSeq: 41,
+      seq: 42,
+    };
+    const incomingAppend = incomingDelta.scrollbackAppend;
+    canonical.scrollbackAppend = incomingAppend;
+
+    const normalized = normalizeCellGridFrame(canonical);
+
+    expect(normalized).toBe(canonical);
+    expect(normalized).toMatchObject({
+      full: true,
+      baseSeq: 0,
+      scrollbackRows: [],
+      scrollbackAppend: [],
+      scrollbackTotal: 1,
+      sbBase: 1,
+    });
+    expect(normalized.scrollbackRows).not.toBe(originalHistory);
+    expect(normalized.scrollbackAppend).not.toBe(incomingAppend);
+    expect(normalized.scrollbackRows).not.toBe(normalized.scrollbackAppend);
+    expect(incomingDelta.scrollbackAppend).toBe(incomingAppend);
+    expect(incomingDelta.scrollbackAppend).toEqual([{ index: 1, spans: originalHistory[0]!.spans }]);
+  });
 
   test("nonzero sbBase and grid epoch survive the proto round-trip", () => {
     const f = makeFrame();

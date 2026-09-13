@@ -16,6 +16,10 @@ import {
   probeOffscreenLoad,
   probeStalledConsumerRecovery,
 } from "./perf-load-probes.ts";
+import {
+  probeFleetComposition,
+  probeFleetDelayedWorkerLink,
+} from "./perf-fleet-probes.ts";
 
 type SmokeWindow = Window & {
   readonly __smoke: SmokeApi;
@@ -49,9 +53,7 @@ declare const window: SmokeWindow;
 // `default`, deliberately not `serial`: both keep this file's cases on ONE
 // worker in declaration order, but serial mode SKIPS the rest of the group
 // after a failure, which would turn one flake into five unrun tests and hide
-// failures. Costs no wall time either way — the six perf cases total ~110s
-// against a critical path of ~340s — and it also stops four 20k-line floods
-// from competing with each other.
+// failures. It avoids flood-heavy performance cases competing with each other.
 test.describe.configure({ mode: "default" });
 
 test("real PTY fixture preserves framing and deterministic armed operations @serial", async ({
@@ -277,20 +279,14 @@ test(
   probeNavigationAndFlood,
 );
 
-// KNOWN-BROKEN at main de33ef83 on this host (deterministic across runs; not
-// introduced by pending work): loading stage stalls past its budget.
 test.fixme(
   "terminal perf: trusted key, shallow/deep reveal, and child-observed resize @serial",
   probeTerminalInteractions,
 );
-
-// KNOWN-BROKEN at main de33ef83 on this host (deterministic across runs; not
-// introduced by pending work).
 test.fixme(
   "terminal perf: optimistic first marker paints while spawn response is held @serial",
   probeOptimisticPaint,
 );
-
 test(
   "offscreen mounted terminals receive no cell frames under load @serial",
   probeOffscreenLoad,
@@ -298,4 +294,12 @@ test(
 test(
   "stalled browser consumer reconnects without reloading and resumes input @serial",
   probeStalledConsumerRecovery,
+);
+test(
+  "terminal perf: two-worker split fleet typing and output drain @serial",
+  probeFleetComposition,
+);
+test(
+  "terminal perf: delayed worker-link split recovery @serial",
+  probeFleetDelayedWorkerLink,
 );

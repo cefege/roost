@@ -3,15 +3,49 @@
 // the signed Windows release installs native SCM services without bash/SSH.
 import { resolve } from "node:path";
 import { _deployLocal } from "./deploy-local.ts";
-import { resolvePublishedGitShaOrDie } from "./deploy-exec.ts";
-import { createJournaledKeeperUpdateCallbacks } from "./direct-keeper-update.ts";
+import { DeployFailure, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
+import {
+  createJournaledKeeperUpdateCallbacks,
+  type JournaledKeeperUpdateCallbacks,
+} from "./direct-keeper-update.ts";
 import {
   installWorkerAgent,
   readWindowsServiceCredentials,
 } from "./install-binary-agents.ts";
 import { ROOST_VERSION } from "./version.ts";
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
+type JoinPosixDeploy = (
+  host: string,
+  options: {
+    sourceRoot: string;
+    gitSha: string;
+    keeperUpdate: null;
+    workerFingerprint: null;
+    keeperCallbacks: JournaledKeeperUpdateCallbacks;
+  },
+) => Promise<void>;
 
+export async function _deployJoinedPosixWorker(
+  sourceRoot: string,
+  deployLocal: JoinPosixDeploy,
+  keeperCallbacks: JournaledKeeperUpdateCallbacks,
+): Promise<void> {
+  await deployLocal("this machine", {
+    sourceRoot,
+    gitSha: _resolveJoinGitShaOrDie(sourceRoot),
+    keeperUpdate: null,
+    workerFingerprint: null,
+    keeperCallbacks,
+  });
+}
+
+export function _resolveJoinGitShaOrDie(sourceRoot: string = REPO_ROOT): string {
+  const gitSha = resolveLocalGitShaOrDie(sourceRoot);
+  if (gitSha.endsWith("-dirty")) {
+    throw new DeployFailure(7, "a joined worker requires a clean committed source snapshot");
+  }
+  return gitSha;
+}
 
 export async function join(args: string[]): Promise<void> {
   const coordUrl = process.env.ROOST_COORDINATOR_URL;
@@ -31,13 +65,7 @@ export async function join(args: string[]): Promise<void> {
   switch (process.platform) {
     case "darwin":
     case "linux":
-      await _deployLocal("this machine", {
-        sourceRoot: REPO_ROOT,
-        gitSha: resolvePublishedGitShaOrDie(REPO_ROOT),
-        keeperUpdate: null,
-        workerFingerprint: null,
-        keeperCallbacks,
-      });
+      await _deployJoinedPosixWorker(REPO_ROOT, _deployLocal, keeperCallbacks);
       break;
     case "win32": {
       if (!args.includes("--windows-service-credential-stdin")) {

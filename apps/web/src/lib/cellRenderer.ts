@@ -2,13 +2,20 @@
 // VT reflow. Scrollback is append-only while normal deltas patch only dirty
 // viewport rows. DOM/history and diagnostic helpers live in adjacent modules.
 import {
-  applyDelta as foldCellDelta,
   cloneCellGridFrame,
-  deltaViewportShift,
+  foldCellDeltaBatch,
   type CellGridFrame,
   type CellRow,
 } from "@roost/shared/cell";
 import { renderRow, rowHash, type FindHit } from "./cellRow.ts";
+import {
+  cellHistoryInsertionIndex,
+  hasCellHistoryRange,
+  hasContiguousCellHistoryRows,
+  missingCellHistoryRange,
+  missingCellHistoryRanges,
+  type CellHistoryRange,
+} from "./cellHistoryRanges.ts";
 import {
   DEFAULT_CELL_ROW_PX as DEFAULT_ROW_PX,
   SCROLLBACK_BLOCK_ROWS as SB_BLOCK,
@@ -61,6 +68,22 @@ export type {
   RendererPresentationSnapshot,
   RendererTerminalModeSnapshot,
 } from "./cellRendererPresentation.ts";
+
+function sameScrollbackRow(left: CellRow, right: CellRow): boolean {
+  if (left === right || (left.index === right.index && left.spans === right.spans)) return true;
+  if (left.index !== right.index || left.spans.length !== right.spans.length) return false;
+  for (let index = 0; index < left.spans.length; index++) {
+    const a = left.spans[index]!;
+    const b = right.spans[index]!;
+    if (
+      a.text !== b.text || a.columns !== b.columns || a.fg !== b.fg || a.bg !== b.bg
+      || a.flags !== b.flags || a.fgRgb !== b.fgRgb || a.bgRgb !== b.bgRgb
+      || a.linkUri !== b.linkUri || a.linkKey !== b.linkKey
+    ) return false;
+  }
+  return true;
+}
+
 export class CellGridRenderer {
   private frame: CellGridFrame | null = null;
   // Canonical frames advance while explicit reading keeps the DOM immutable.
@@ -68,78 +91,46 @@ export class CellGridRenderer {
   private readerPendingFrameRetainsHistory = true;
   private _readerIntent: ReaderIntent = "live";
   private _readerReason: ReaderIntentReason | null = null;
-  // Global reader anchor retained across incompatible full-frame repairs.
   private _readerAnchor: ReaderAnchor | null = null;
   private _readerAnchorNeedsRestore = false;
-  // Selection and armed-link holds compose into one atomic repaint gate.
   private _holdMask = 0;
   private pendingRender = false;
-  // Renderer-owned scroll writes carry one asynchronous event epoch.
   private _nextOwnedScrollEpoch = 0;
   private _ownedScrollEpoch = 0;
   private _ownedScrollTop = 0;
-  // Clearing a retained document Selection while the terminal textarea owns
-  // focus can make Chromium reveal the editing surface at scrollTop=0 after
-  // animation callbacks. The source owner brackets that scroll until it arrives
-  // or a later admitted input / explicit reader gesture supersedes it.
+  // A pending selection-release scroll is consumed before native reader intent.
   private _liveSelectionReleasePending = false;
-  // Scrollback rows are packed into content-visibility "blocks" of SB_BLOCK rows.
-  // Off-screen blocks skip layout/paint, so scrollHeight reads and reveal reflow
-  // stay O(history / SB_BLOCK), not O(history) — the fix for the pane-switch
-  // freeze (a deep-history pane used to relayout every line on reveal). The last
-  // block stays open until it fills; full blocks are immutable (append-only model).
   private _curBlock: HTMLElement | null = null;
   private _curBlockRows = 0;
   private readonly spacerEl: HTMLElement;
   private readonly scrollbackEl: HTMLElement;
   private readonly viewportEl: HTMLElement;
   private readonly cursorEl: HTMLElement;
-  // Ghost cursors — remote viewers' cursor positions, same viewport space as the
-  // real cursor (ch/lh units → grid-aligned, letterbox/scroll-immune). Replaces
-  // byte-mode's pixel-math GhostCursorOverlay; fed via setGhosts().
+  // Ghost cursors share the viewport overlay host.
   private readonly ghostsEl: HTMLElement;
   private readonly doc: Document;
-  // Viewport diff cache: painted row elements + their rowHash, in order.
-  // renderViewport re-renders ONLY rows whose hash changed — idle frames and
-  // cursor-only deltas cost zero DOM writes (the old replaceChildren rebuilt
-  // every row on every frame: ~1.5k nodes/3s per idle pane, the deck-wide
-  // background churn). renderFull/dispose reset both.
+  // Viewport row elements and hashes make ordinary deltas O(dirty rows).
   private _rowEls: HTMLElement[] = [];
   private _rowHashes: number[] = [];
-  private _replaceViewportOnReconcile = false;
-  private _rowH = 0;      // measured px height of one .cell-row; 0 = not measured yet
-  private _lastBoxH = 0;  // clientHeight at the last box observation (constructor + noteBoxResize)
-  // Find highlights, keyed by ABSOLUTE row index (the space the worker's match
-  // rows and PbCellRow.index share). Empty by default, so the whole feature
-  // costs one Map lookup per painted row when nothing is being searched.
+  private _rowH = 0;
+  private _lastBoxH = 0;
+  // Find hits are keyed in the worker's absolute row space.
   private _findHits: ReadonlyMap<number, FindHit[]> = new Map();
   private _activeHit: { row: number; col: number } | null = null;
-  // Cached DOM state: a cursor-only delta should update model/ACK state without
-  // repeating identical class/style writes.
   private _paintedCols: number | null = null;
   private _paintedAltScreen: boolean | null = null;
   private _paintedCursorVisible: boolean | null = null;
   private _paintedCursorRow = -1;
   private _paintedCursorCol = -1;
   private _paintedSpacerHeight = "";
-  // Absolute history range represented by scrollbackEl. Canonical state may
-  // advance under a hold, so it cannot be derived from this.frame then.
   private _paintedSbBase = 0;
-  // Painted history is presentation-owned and may be disjoint after a
-  // viewport-only repair skipped output. The DOM carries an exact-height gap
-  // for every unpainted run; row objects remain ordered by global index.
+  // The DOM may retain disjoint immutable rows separated by exact-height gaps.
   private _paintedRows: CellRow[] = [];
   private _scrollbackLayoutEnd = 0;
   private _gapRows = 0;
   private _paintedGapRowHeight = 0;
   private _tailGapEl: HTMLElement | null = null;
-  // Reused duplicate/tail-validation stamps. Sized only on a full repair, so a
-  // sparse delta allocates nothing regardless of pane count.
-  private _dirtyMarks = new Uint32Array(0);
-  private _dirtyMarkGeneration = 0;
-  // Canonical frame acceptance and DOM reconciliation are deliberately
-  // separate watermarks. Holds may advance the former while leaving the
-  // latter unchanged; scalar storage keeps the frame hot path allocation-free.
+  // Canonical and reconciled watermarks remain separate across holds.
   private _reconciledGridEpoch: string | null = null;
   private _reconciledSeq: number | null = null;
   private _reconciledAltScreen: boolean | null = null;
@@ -165,15 +156,7 @@ export class CellGridRenderer {
     this.cursorEl.dataset.blink = "false";
     this.ghostsEl = elements.ghosts;
     this._lastBoxH = container.clientHeight;
-    // A late webfont swap changes the line box under us — drop the cached row
-    // height so the next derivation re-measures instead of anchoring on stale px,
-    // and re-pin every block already in the DOM to the fresh height. Without the
-    // re-pin those blocks would keep a pre-swap placeholder for the life of the
-    // pane (only renderFull re-runs sizeBlock across everything), skewing
-    // scrollHeight — and the placeholder is a bare length now, so the browser
-    // no longer self-corrects it when a block materializes.
-    // Re-sizing the placeholders moves scrollHeight, so sample the bottom BEFORE
-    // and pin after — same sample-then-pin discipline as apply()/renderFull().
+    // Font swaps invalidate exact history placeholders; preserve a bottom placement.
     void this.doc.fonts?.ready?.then(() => {
       const wasAtBottom = this.atBottom();
       this._rowH = 0;
@@ -190,120 +173,81 @@ export class CellGridRenderer {
     if (this.cursorEl.dataset.blink === value) return;
     this.cursorEl.dataset.blink = value;
   }
-  /** Remote viewers' cursors (ghost cursors). Rendered in the viewport at
-   *  ch/lh grid coords — same space as the real cursor. Re-attached after every
-   *  renderViewport (replaceChildren wipes overlays). */
+  /** Attach remote cursor overlays to the viewport. */
   setGhosts(ghosts: ReadonlyMap<string, { x: number; y: number; label?: string }>): void {
     const boxes = createGhostElements(this.doc, ghosts);
     this.ghostsEl.replaceChildren(...boxes);
     if (this.ghostsEl.parentElement !== this.viewportEl) this.viewportEl.appendChild(this.ghostsEl);
   }
-  // ─── frame application ───
-  /** Compatibility dispatcher for non-hot-path callers. CellTerminal names the
-   * full-repair versus sparse-delta contract explicitly. */
+  /** Apply either an authoritative full or one sparse delta. */
   apply(incoming: CellGridFrame): boolean {
     return incoming.full
       ? this.applyFullFrame(incoming)
-      : this.applyDeltaFrame(incoming);
+      : this.applyDeltaFrames([incoming]);
   }
-  /** Apply an authoritative full repair. Reader intervals retain every full
-   * off-DOM; compatible checkpoints may carry painted history into that
-   * pending canonical shell, while incompatible repairs wait for release. */
+  /** Apply an authoritative full while preserving a compatible painted history. */
   applyFullFrame(incoming: CellGridFrame): boolean {
     if (!incoming.full || incoming.viewportRows.length !== incoming.rows) return false;
     for (let i = 0; i < incoming.viewportRows.length; i++) {
       if (incoming.viewportRows[i]!.index !== i) return false;
     }
-    if (this._dirtyMarks.length !== incoming.rows) {
-      this._dirtyMarks = new Uint32Array(incoming.rows);
-      this._dirtyMarkGeneration = 0;
-    }
     const owned = cloneCellGridFrame(incoming);
-    const retainsHistory = this._mergePaintedHistoryInto(owned, true);
-    if (retainsHistory) this._replaceViewportOnReconcile = true;
+    const retainsHistory = this._canRetainPaintedHistory(owned);
     if (this._readerIntent === "reading" || this.readerPendingFrame) {
       this.readerPendingFrame = owned;
       this.readerPendingFrameRetainsHistory = retainsHistory;
       if (this._readerIntent === "live") this.pendingRender = true;
       return true;
     }
+    const previousFrame = this.frame;
     this.frame = owned;
     if (this.holding) {
       this.pendingRender = true;
       return true;
     }
-    // Live intent is persistent. A resize may have moved the literal maximum
-    // between layout and this frame; geometry alone must never turn output into
-    // a reader freeze.
-    this._reconcileCanonical(true);
+    this._reconcileCanonical(true, false, previousFrame);
     return true;
   }
-  /** Apply one sparse delta. Only incoming.viewportRows is hashed/patched; held
-   * rows outside that list are never visited on the normal frame hot path. */
-  applyDeltaFrame(incoming: CellGridFrame): boolean {
-    if (incoming.full) return false;
-    let base = this.readerPendingFrame ?? this.frame;
-    if (!base
-      || incoming.gridEpoch !== base.gridEpoch
-      || incoming.cols !== base.cols
-      || incoming.rows !== base.rows
-      || incoming.altScreen !== base.altScreen
-      || base.viewportRows.length !== base.rows
-      || incoming.scrollbackRows.length !== 0) return false;
-    const dirty = incoming.viewportRows;
-    let generation = (this._dirtyMarkGeneration + 1) >>> 0;
-    if (generation === 0) {
-      this._dirtyMarks.fill(0);
-      generation = 1;
-    }
-    this._dirtyMarkGeneration = generation;
-    for (const row of dirty) {
-      if (!Number.isInteger(row.index) || row.index < 0 || row.index >= base.rows
-        || this._dirtyMarks[row.index] === generation) return false;
-      this._dirtyMarks[row.index] = generation;
-    }
-    // A scrollback append is not by itself proof that the viewport shifted:
-    // immutable history can advance while the visible grid stays unchanged.
-    // Shift/reuse only across the exact held-head boundary; then every newly
-    // exposed tail row must still be authoritative.
-    const scrolled = deltaViewportShift(base, incoming);
-    for (let i = base.rows - scrolled; i < base.rows; i++) {
-      if (this._dirtyMarks[i] !== generation) return false;
-    }
+  applyDeltaFrames(deltas: readonly CellGridFrame[]): boolean {
+    const base = this.readerPendingFrame ?? this.frame;
     if (
-      this._readerIntent === "live"
-      && !this.holding
-      && this._rowEls.length !== base.rows
+      !base
+      || base.viewportRows.length !== base.rows
+      || (
+        this._readerIntent === "live"
+        && !this.holding
+        && this._rowEls.length !== base.rows
+      )
     ) return false;
-    const appended = incoming.scrollbackAppend;
-    // applyDelta owns and mutates its base. On the first delta of a reading
-    // interval, copy the frame shell/row coordinates so the model backing the
-    // frozen DOM stays immutable. Span arrays remain shared and immutable.
-    if (this._readerIntent === "reading" && !this.readerPendingFrame) {
-      base = cloneCellGridFrame(base);
-    }
-    const folded = foldCellDelta(base, incoming);
-    if (!folded) return false;
+    const batch = foldCellDeltaBatch(base, deltas);
+    if (!batch) return false;
+    const { frame, dirtyRows, scrollbackAppend, viewportShift } = batch;
     if (this._readerIntent === "reading" || this.readerPendingFrame) {
-      this.readerPendingFrame = folded;
+      this.readerPendingFrame = frame;
       if (this._readerIntent === "live") this.pendingRender = true;
       return true;
     }
-    this.frame = folded;
+    const wasAtBottom = this._atBottomOrOwnedPlacement();
+    this.frame = frame;
     if (this.holding) {
       this.pendingRender = true;
       return true;
     }
-    if (appended.length > 0) this._appendScrollback(appended, true);
-    this.renderDelta(dirty, scrolled);
+    this._extendScrollbackGap(frame.scrollbackTotal);
+    if (
+      scrollbackAppend.length > 0
+      && !this.insertHistoryPage(scrollbackAppend, true)
+    ) {
+      this.renderFull(wasAtBottom);
+      return true;
+    }
+    this.renderDelta(dirtyRows, viewportShift);
     this.setGridWidth();
     this._syncAltScreen();
-    this._pinToBottom(true);
-    this._recordPaintedHistory();
+    this._pinToBottom(wasAtBottom);
     this._markReconciledIfCurrent();
     return true;
   }
-  /** Keep alternate-screen ownership reflected in the presentation container. */
   private _syncAltScreen(): void {
     this._paintedAltScreen = syncAlternateScreen(
       this.container,
@@ -311,7 +255,6 @@ export class CellGridRenderer {
       this._paintedAltScreen,
     );
   }
-  /** True while ANY interaction hold freezes viewport/scrollback repaints. */
   private get holding(): boolean {
     return this._holdMask !== 0;
   }
@@ -321,14 +264,10 @@ export class CellGridRenderer {
   get readerReason(): ReaderIntentReason | null {
     return this._readerReason;
   }
-  /** Public composed mask for owner diagnostics and atomic interaction cleanup. */
   get holdMask(): number {
     return this._holdMask;
   }
-  // ─── reader-intent holds ───
-  /** Begin an explicit reading interval before a gesture can race a frame. */
   enterReading(reason: ReaderIntentReason): void {
-    // Explicit intent always wins a still-pending lifecycle classification.
     this._liveSelectionReleasePending = false;
     if (
       reason === "selection"
@@ -357,7 +296,6 @@ export class CellGridRenderer {
       this._scrollbackLayoutEnd,
     );
   }
-  /** Freeze/thaw DOM repaints while selection owns either endpoint in this pane. */
   setSelectionHold(active: boolean): LiveInteractionResult {
     const held = (this._holdMask & RENDERER_HOLD_SELECTION) !== 0;
     if (held === active) return NO_LIVE_INTERACTION_RESULT;
@@ -369,7 +307,6 @@ export class CellGridRenderer {
     this._holdMask &= ~RENDERER_HOLD_SELECTION;
     return this._flushIfReleased();
   }
-  /** Freeze/thaw DOM repaints while Cmd-hover keeps a terminal link stable. */
   setArmedHold(active: boolean): LiveInteractionResult {
     const held = (this._holdMask & RENDERER_HOLD_LINK) !== 0;
     if (held === active) return NO_LIVE_INTERACTION_RESULT;
@@ -380,9 +317,6 @@ export class CellGridRenderer {
     this._holdMask &= ~RENDERER_HOLD_LINK;
     return this._flushIfReleased();
   }
-  /** Flush the latest canonical frame after every hold clears. Selection owns
-   * its reader interval, so releasing its last hold resumes live; independent
-   * scroll, touch, wheel, and find intent remains protected. */
   private _flushIfReleased(): LiveInteractionResult {
     if (this.holding) return NO_LIVE_INTERACTION_RESULT;
     if (
@@ -393,6 +327,7 @@ export class CellGridRenderer {
   }
   private _resumeLive(clearHolds: boolean, explicit = false): LiveInteractionResult {
     if (!explicit && this._readerReason === "find") return NO_LIVE_INTERACTION_RESULT;
+    const pinOnResume = explicit || this._readerReason === "selection";
     const before = this.backfillAnchor();
     this._readerIntent = "live";
     this._readerReason = null;
@@ -400,8 +335,9 @@ export class CellGridRenderer {
     this._readerAnchor = null;
     this._readerAnchorNeedsRestore = false;
     if (this.holding) return NO_LIVE_INTERACTION_RESULT;
+    let previousFrame: CellGridFrame | null = null;
     if (this.readerPendingFrame) {
-      this._mergePaintedHistoryInto(this.readerPendingFrame, false);
+      previousFrame = this.frame;
       this.frame = this.readerPendingFrame;
       this.readerPendingFrame = null;
       this.pendingRender = true;
@@ -418,7 +354,7 @@ export class CellGridRenderer {
       )
     ) {
       this.pendingRender = false;
-      this._reconcileCanonical(true);
+      this._reconcileCanonical(true, pinOnResume, previousFrame);
       reconciled = true;
     } else {
       this._pinToBottom(true);
@@ -431,93 +367,79 @@ export class CellGridRenderer {
     if (!reconciled && !anchorChanged) return NO_LIVE_INTERACTION_RESULT;
     return { reconciled, anchorChanged };
   }
-  /** Retain presentation-owned immutable rows in a newer canonical shell.
-   * A viewport-only full has no row array of its own, while a held delta may
-   * already carry an unpainted suffix. Only that suffix survives beside the
-   * rows proven painted in this grid/width. */
-  private _mergePaintedHistoryInto(frame: CellGridFrame, _viewportOnly: boolean): boolean {
+  private _canRetainPaintedHistory(frame: CellGridFrame): boolean {
     if (
       this._reconciledGridEpoch === null
       || this._reconciledGridEpoch !== frame.gridEpoch
       || this._paintedCols !== frame.cols
+      || this._rowEls.length !== frame.rows
       || this._paintedAltScreen !== frame.altScreen
-      || frame.scrollbackTotal < this._scrollbackLayoutEnd
     ) return false;
-
-    const suffix: CellRow[] = [];
-    let next = this._scrollbackLayoutEnd;
-    for (const row of frame.scrollbackRows) {
-      if (row.index < this._scrollbackLayoutEnd) continue;
-      if (row.index !== next || row.index >= frame.scrollbackTotal) return false;
-      suffix.push(row);
-      next = row.index + 1;
-    }
-    if (frame.scrollbackRows.length > 0 && next !== frame.scrollbackTotal) return false;
-    frame.scrollbackRows = this._paintedRows.concat(suffix);
-    frame.sbBase = this._paintedSbBase;
-    return true;
+    return frame.scrollbackTotal >= this._scrollbackLayoutEnd;
   }
-  /** Reconcile a stale canonical frame without throwing away clean viewport
-   * rows. The explicit-reading/hold path is cold, so it may inspect all rows;
-   * normal deltas retain their sparse O(dirty) path. */
-  private _reconcileCanonical(pinToBottom: boolean): void {
+  private _promoteTransitionedViewportRows(
+    previousFrame: CellGridFrame | null,
+  ): boolean {
+    const frame = this.frame;
+    if (
+      !frame
+      || !previousFrame
+      || !frame.full
+      || previousFrame.gridEpoch !== frame.gridEpoch
+      || previousFrame.cols !== frame.cols
+      || previousFrame.rows !== frame.rows
+      || previousFrame.altScreen !== frame.altScreen
+      || previousFrame.scrollbackTotal >= frame.scrollbackTotal
+    ) return true;
+    const transitioned = Math.min(
+      previousFrame.rows,
+      frame.scrollbackTotal - previousFrame.scrollbackTotal,
+    );
+    if (transitioned === 0) return true;
+    const rows = previousFrame.viewportRows.slice(0, transitioned).map((row) => ({
+      index: previousFrame.scrollbackTotal + row.index,
+      spans: row.spans,
+    }));
+    // A compatible checkpoint retains rows visible in the old viewport.
+    // Authoritative history must agree; insertion fills only missing subranges.
+    return this._insertAuthoritativeHistory(rows, false);
+  }
+  private _reconcileCanonical(
+    followTail: boolean,
+    forcePin = false,
+    previousFrame: CellGridFrame | null = null,
+  ): void {
     const frame = this.frame;
     if (!frame) return;
     const sameGrid = this._reconciledGridEpoch === frame.gridEpoch
       && this._paintedCols === frame.cols
+      && this._rowEls.length === frame.rows
       && this._paintedAltScreen === frame.altScreen;
-    let canExtendHistory = sameGrid
-      && this._paintedSbBase === frame.sbBase
-      && this._scrollbackLayoutEnd <= frame.scrollbackTotal
-      && this._paintedRows.length <= frame.scrollbackRows.length;
-    if (canExtendHistory) {
-      for (let i = 0; i < this._paintedRows.length; i++) {
-        const painted = this._paintedRows[i]!;
-        const held = frame.scrollbackRows[i]!;
-        if (painted.index !== held.index || painted.spans !== held.spans) {
-          canExtendHistory = false;
-          break;
-        }
-      }
-    }
-    if (!canExtendHistory) {
-      this.renderFull(pinToBottom);
+    const shouldPin = forcePin || (followTail && this._atBottomOrOwnedPlacement());
+    if (!sameGrid || frame.scrollbackTotal < this._scrollbackLayoutEnd) {
+      this.renderFull(followTail, shouldPin);
       return;
     }
-    if (this._paintedRows.length < frame.scrollbackRows.length) {
-      this._appendScrollback(
-        frame.scrollbackRows.slice(this._paintedRows.length),
-        pinToBottom,
-      );
-    } else {
-      this._syncSpacer();
-    }
     this._extendScrollbackGap(frame.scrollbackTotal);
-    frame.scrollbackRows = this._paintedRows.slice();
-    frame.sbBase = this._paintedSbBase;
-    if (this._replaceViewportOnReconcile) {
-      this.viewportEl.replaceChildren();
-      this._rowEls = [];
-      this._rowHashes = [];
-      this._replaceViewportOnReconcile = false;
+    const authoritativeHistory = frame.full ? frame.scrollbackRows : frame.scrollbackAppend;
+    if (
+      !this._promoteTransitionedViewportRows(previousFrame)
+      || !this._insertAuthoritativeHistory(authoritativeHistory, followTail)
+    ) {
+      this.renderFull(followTail, shouldPin);
+      return;
     }
+    this._syncSpacer();
     this.renderViewportRepair();
     this.setGridWidth();
     this._syncAltScreen();
-    this._pinToBottom(pinToBottom);
-    this._recordPaintedHistory();
+    this._pinToBottom(shouldPin);
     this._markReconciledIfCurrent();
   }
-  /** Atomically return an admitted local PTY interaction to persistent live
-   * rendering. Both interaction holds clear before the single stale check. */
   prepareLiveInteraction(): LiveInteractionResult {
     this._liveSelectionReleasePending = false;
     return this._resumeLive(true, true);
   }
-  /** Bracket the native scroll Chromium emits when an admitted interaction
-   * clears this pane's retained Selection while its terminal textarea is
-   * focused. The matching scroll consumes it; every later admitted input or
-   * explicit reader interaction clears an unused bracket first. */
   beginLiveSelectionRelease(): void {
     this._liveSelectionReleasePending = this._readerIntent === "live";
   }
@@ -525,89 +447,40 @@ export class CellGridRenderer {
     this._liveSelectionReleasePending = false;
   }
 
-  /** Rebuild the whole grid from this.frame for a fresh mount or incompatible
-   * reset. Compatible full checkpoints use _reconcileCanonical instead. */
-  private renderFull(followTail: boolean): void {
-    if (!this.frame) return;
-    // Reserve the incoming frame's [0, sbBase) hole BEFORE wiping painted
-    // content: the scroll maximum must never transiently collapse below
-    // scrollTop, or the browser clamps the reader into blank reserved space.
+  private renderFull(followTail: boolean, shouldPin = followTail): void {
+    const frame = this.frame;
+    if (!frame) return;
+    this._paintedSbBase = frame.scrollbackTotal;
+    this._scrollbackLayoutEnd = frame.scrollbackTotal;
+    this._gapRows = 0;
+    this._tailGapEl = null;
     this._syncSpacer();
     this._rowH = 0;
     this.scrollbackEl.replaceChildren();
     this._curBlock = null;
     this._curBlockRows = 0;
-    this._tailGapEl = null;
     this._paintedRows = [];
-    this._gapRows = 0;
-    this._paintedSbBase = this.frame.sbBase;
-    this._scrollbackLayoutEnd = this.frame.sbBase;
     this.viewportEl.replaceChildren();
     this._rowEls = [];
     this._rowHashes = [];
-    this._replaceViewportOnReconcile = false;
-    this._appendScrollback(this.frame.scrollbackRows, followTail);
-    this._extendScrollbackGap(this.frame.scrollbackTotal);
-    this.frame.scrollbackRows = this._paintedRows.slice();
-    this.frame.sbBase = this._paintedSbBase;
+    this._insertAuthoritativeHistory(frame.scrollbackRows, followTail);
+    this._syncSpacer();
     this.renderViewportRepair();
     this.setGridWidth();
     this._syncAltScreen();
-    this._pinToBottom(followTail);
-    this._recordPaintedHistory();
+    this._pinToBottom(shouldPin);
     this._markReconciledIfCurrent();
   }
-  /** Append rows to the scrollback, packing them into content-visibility "blocks"
-   *  of SB_BLOCK. Off-screen blocks skip layout/paint, so a reveal reflow or a
-   *  scrollHeight read walks ~history/SB_BLOCK blocks, not every line — the fix
-   *  for the pane-switch freeze. Rows are immutable + append-only, so the last
-   *  block stays open until it fills. The mutable tail is never a browser anchor:
-   *  Chromium otherwise follows a one-pixel-above-bottom stream without any
-   *  application scroll write.
-   *
-   *  The OPEN tail block also opts OUT of content-visibility until it seals: a
-   *  skipped subtree contributes its last-evaluated intrinsic size, and that is
-   *  re-evaluated at rendering-lifecycle time, not when we append. Appending into
-   *  a locked tail therefore leaves scrollHeight stale for the rest of the task,
-   *  so even an explicit live pin can target a bottom that no longer exists.
-   * Only the tail can grow; every sealed block's exact placeholder keeps this
-   * bounded without changing layout.
-   */
-  private _appendScrollback(rows: readonly CellRow[], followTail: boolean): void {
-    this._curBlock?.style.setProperty("overflow-anchor", "none");
-    for (const r of rows) {
-      if (r.index < this._scrollbackLayoutEnd) continue;
-      if (r.index > this._scrollbackLayoutEnd) this._extendScrollbackGap(r.index);
-      this._tailGapEl = null;
-      if (!this._curBlock || this._curBlockRows >= SB_BLOCK) {
-        this._sealCurrentBlock();
-        const blk = this.doc.createElement("div");
-        blk.className = "cell-block";
-        blk.style.setProperty("overflow-anchor", "none");
-        blk.style.setProperty("content-visibility", "visible");
-        this.scrollbackEl.appendChild(blk);
-        this._curBlock = blk;
-        this._curBlockRows = 0;
-      }
-      this._curBlock.appendChild(this._renderScrollbackRow(r));
-      this._curBlockRows++;
-      this._paintedRows.push(r);
-      this._scrollbackLayoutEnd = r.index + 1;
-    }
-    if (this._curBlock) sizeBlock(this._curBlock, this._curBlockRows, this.rowHeight());
-    this._evictScrollback(followTail);
-    this._syncSpacer();
-  }
-  private _sealCurrentBlock(): void {
+  private _sealCurrentBlock(retainTail = false): void {
     if (!this._curBlock) return;
     sizeBlock(this._curBlock, this._curBlockRows, this.rowHeight());
     this._curBlock.style.removeProperty("overflow-anchor");
     this._curBlock.style.removeProperty("content-visibility");
+    if (retainTail) return;
     this._curBlock = null;
     this._curBlockRows = 0;
   }
 
-  /** Re-pin block placeholders and exact-height gaps after font metrics move. */
   private _resizeHistoryPlaceholders(rowH: number): void {
     for (const child of this.scrollbackEl.children) {
       const el = child as HTMLElement;
@@ -621,33 +494,202 @@ export class CellGridRenderer {
     this._paintedGapRowHeight = rowH;
   }
 
-  /** Extend the represented global history range without inventing rows. */
+  private _gapRange(gap: HTMLElement): CellHistoryRange | null {
+    const start = Number(gap.dataset.startRow);
+    const end = Number(gap.dataset.endRow);
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= end) {
+      return null;
+    }
+    return { start, end };
+  }
+
+  private _setGapRange(gap: HTMLElement, start: number, end: number): void {
+    gap.dataset.startRow = String(start);
+    gap.dataset.endRow = String(end);
+    gap.style.setProperty("height", blockPlaceholder(end - start, this.rowHeight()));
+  }
+
+  private _createGap(start: number, end: number): HTMLElement {
+    const gap = this.doc.createElement("div");
+    gap.className = "cell-sb-gap";
+    gap.style.setProperty("overflow-anchor", "none");
+    this._setGapRange(gap, start, end);
+    return gap;
+  }
+
+  private _insertPageBlocks(
+    rows: readonly CellRow[],
+    reference: HTMLElement | null,
+    reuseTail: boolean,
+    opensTail: boolean,
+  ): void {
+    let offset = 0;
+    if (reuseTail && this._curBlock) {
+      this._curBlock.style.setProperty("overflow-anchor", "none");
+      this._curBlock.style.setProperty("content-visibility", "visible");
+      while (offset < rows.length && this._curBlockRows < SB_BLOCK) {
+        this._curBlock.appendChild(this._renderScrollbackRow(rows[offset++]!));
+        this._curBlockRows++;
+      }
+      sizeBlock(this._curBlock, this._curBlockRows, this.rowHeight());
+      if (this._curBlockRows === SB_BLOCK) this._sealCurrentBlock();
+    }
+    let lastBlock: HTMLElement | null = null;
+    let lastRows = 0;
+    while (offset < rows.length) {
+      const block = this.doc.createElement("div");
+      block.className = "cell-block";
+      this.scrollbackEl.insertBefore(block, reference);
+      let blockRows = 0;
+      while (offset < rows.length && blockRows < SB_BLOCK) {
+        block.appendChild(this._renderScrollbackRow(rows[offset++]!));
+        blockRows++;
+      }
+      sizeBlock(block, blockRows, this.rowHeight());
+      lastBlock = block;
+      lastRows = blockRows;
+    }
+    if (opensTail && lastBlock && lastRows < SB_BLOCK) {
+      lastBlock.style.setProperty("overflow-anchor", "none");
+      lastBlock.style.setProperty("content-visibility", "visible");
+      this._curBlock = lastBlock;
+      this._curBlockRows = lastRows;
+    }
+  }
+
+  private _insertPageIntoPlaceholder(
+    rows: readonly CellRow[],
+    start: number,
+    end: number,
+  ): boolean {
+    const headEnd = this._paintedSbBase;
+    if (start < headEnd) {
+      if (end > headEnd) return false;
+      const first = this.scrollbackEl.firstElementChild as HTMLElement | null;
+      const tailTarget = headEnd === this._scrollbackLayoutEnd;
+      if (this._curBlock && !tailTarget) this._sealCurrentBlock(true);
+      this._insertPageBlocks(rows, first, false, tailTarget);
+      this._paintedSbBase = start;
+      if (end < headEnd) {
+        const right = this._createGap(end, headEnd);
+        this.scrollbackEl.insertBefore(right, first);
+        this._gapRows += headEnd - end;
+        if (tailTarget) this._tailGapEl = right;
+      } else if (tailTarget) {
+        this._tailGapEl = null;
+      }
+      return true;
+    }
+
+    for (let index = 0; index < this.scrollbackEl.children.length; index++) {
+      const gap = this.scrollbackEl.children[index] as HTMLElement;
+      if (gap.className !== "cell-sb-gap") continue;
+      const range = this._gapRange(gap);
+      if (!range || start < range.start || end > range.end) continue;
+      const next = (this.scrollbackEl.children[index + 1] as HTMLElement | undefined) ?? null;
+      const tailTarget = range.end === this._scrollbackLayoutEnd;
+      const reuseTail = tailTarget && start === range.start && this._curBlock !== null;
+      if (!tailTarget && this._curBlock) this._sealCurrentBlock(true);
+      this._gapRows -= end - start;
+      if (start === range.start) {
+        if (end < range.end) {
+          this._setGapRange(gap, end, range.end);
+          this._insertPageBlocks(rows, gap, reuseTail, tailTarget);
+          if (tailTarget) this._tailGapEl = gap;
+        } else {
+          gap.remove();
+          this._insertPageBlocks(rows, next, reuseTail, tailTarget);
+          if (tailTarget) this._tailGapEl = null;
+        }
+      } else {
+        if (tailTarget && this._curBlock) this._sealCurrentBlock();
+        this._setGapRange(gap, range.start, start);
+        this._insertPageBlocks(rows, next, false, tailTarget);
+        if (end < range.end) {
+          const right = this._createGap(end, range.end);
+          this.scrollbackEl.insertBefore(right, next);
+          if (tailTarget) this._tailGapEl = right;
+        } else if (tailTarget) {
+          this._tailGapEl = null;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  insertHistoryPage(rows: readonly CellRow[], followTail: boolean): boolean {
+    const frame = this.frame;
+    const start = rows[0]?.index;
+    const end = start === undefined ? undefined : start + rows.length;
+    if (
+      !frame
+      || start === undefined
+      || end === undefined
+      || this._scrollbackLayoutEnd !== frame.scrollbackTotal
+      || !hasContiguousCellHistoryRows(rows, start, end)
+    ) return false;
+    const missing = missingCellHistoryRange(this._paintedRows, frame.scrollbackTotal, start);
+    if (!missing || end > missing.end || !this._insertPageIntoPlaceholder(rows, start, end)) {
+      return false;
+    }
+    this._paintedRows.splice(cellHistoryInsertionIndex(this._paintedRows, start), 0, ...rows);
+    if (followTail) this._evictScrollback(true);
+    this._syncSpacer();
+    return true;
+  }
+
+  private _insertAuthoritativeHistory(rows: readonly CellRow[], followTail: boolean): boolean {
+    const frame = this.frame;
+    const start = rows[0]?.index;
+    const end = start === undefined ? undefined : start + rows.length;
+    if (rows.length === 0) return true;
+    if (
+      !frame
+      || start === undefined
+      || end === undefined
+      || this._scrollbackLayoutEnd !== frame.scrollbackTotal
+      || !hasContiguousCellHistoryRows(rows, start, end)
+      || end > frame.scrollbackTotal
+    ) return false;
+    for (const row of rows) {
+      const painted = this._paintedRow(row.index);
+      if (painted && !sameScrollbackRow(painted, row)) return false;
+    }
+    const missing = missingCellHistoryRanges(
+      this._paintedRows,
+      frame.scrollbackTotal,
+      start,
+      end,
+    );
+    for (const range of missing) {
+      const from = range.start - start;
+      const through = range.end - start;
+      if (!this.insertHistoryPage(rows.slice(from, through), followTail && range.end === end)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private _extendScrollbackGap(end: number): void {
     if (end <= this._scrollbackLayoutEnd) return;
-    this._sealCurrentBlock();
     const start = this._scrollbackLayoutEnd;
-    const added = end - start;
-    this._gapRows += added;
-    let gap = this._tailGapEl;
-    if (!gap) {
-      gap = this.doc.createElement("div");
-      gap.className = "cell-sb-gap";
-      gap.dataset.startRow = String(start);
-      gap.style.setProperty("overflow-anchor", "none");
-      this.scrollbackEl.appendChild(gap);
-      this._tailGapEl = gap;
+    const gap = this._tailGapEl;
+    const range = gap ? this._gapRange(gap) : null;
+    if (gap && range?.end === start) {
+      this._setGapRange(gap, range.start, end);
+    } else {
+      const tail = this._createGap(start, end);
+      this.scrollbackEl.appendChild(tail);
+      this._tailGapEl = tail;
     }
-    gap.dataset.endRow = String(end);
-    gap.style.setProperty("height", blockPlaceholder(
-      Number(gap.dataset.endRow) - Number(gap.dataset.startRow),
-      this.rowHeight(),
-    ));
+    this._gapRows += end - start;
     this._scrollbackLayoutEnd = end;
   }
 
-  /** Evict the exact excess, trimming the leading block rather than over-evicting. */
   private _evictScrollback(followTail: boolean): void {
-    if (!followTail || !this.frame) return;
+    if (!followTail) return;
     while (this._paintedRows.length > MAX_HELD_SCROLLBACK_ROWS) {
       this._collapseLeadingGaps();
       const lead = this.scrollbackEl.firstElementChild as HTMLElement | null;
@@ -655,116 +697,113 @@ export class CellGridRenderer {
       const dropped = Math.min(this._paintedRows.length - MAX_HELD_SCROLLBACK_ROWS, lead.children.length);
       if (dropped === 0) break;
       const nextBase = this._paintedRows[dropped - 1]!.index + 1;
-      if (dropped === lead.children.length) {
-        lead.remove();
-      } else {
+      if (dropped === lead.children.length) lead.remove();
+      else {
         for (let index = 0; index < dropped; index++) lead.firstElementChild?.remove();
         sizeBlock(lead, lead.children.length, this.rowHeight());
       }
       this._paintedRows.splice(0, dropped);
-      this.frame.scrollbackRows.splice(0, dropped);
-      this.frame.sbBase = nextBase;
       this._paintedSbBase = nextBase;
     }
     this._collapseLeadingGaps();
+    const frame = this.frame;
+    if (frame && frame.scrollbackRows.length > MAX_HELD_SCROLLBACK_ROWS) {
+      frame.scrollbackRows.splice(0, frame.scrollbackRows.length - MAX_HELD_SCROLLBACK_ROWS);
+      frame.sbBase = frame.scrollbackRows[0]?.index ?? frame.scrollbackTotal;
+    }
   }
 
   private _collapseLeadingGaps(): void {
-    if (!this.frame) return;
     for (;;) {
       const lead = this.scrollbackEl.firstElementChild as HTMLElement | null;
       if (!lead || lead.className !== "cell-sb-gap") return;
-      const start = Number(lead.dataset.startRow);
-      const end = Number(lead.dataset.endRow);
-      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return;
-      this._gapRows -= end - start;
+      const range = this._gapRange(lead);
+      if (!range || range.start !== this._paintedSbBase) return;
+      this._gapRows -= range.end - range.start;
       if (this._tailGapEl === lead) this._tailGapEl = null;
+      this._paintedSbBase = range.end;
       lead.remove();
-      this.frame.sbBase = Math.max(this.frame.sbBase, end);
-      this._paintedSbBase = this.frame.sbBase;
     }
   }
 
-  private _recordPaintedHistory(): void {
-    if (!this.frame) {
-      this._paintedSbBase = 0;
-      return;
-    }
-    this._paintedSbBase = this.frame.sbBase;
-  }
-
-  /** Prepend a contiguous fetched page that meets sbBase; anchoring handles position. */
-  prependScrollback(rows: readonly CellRow[]): void {
-    const wasAtBottom = this.atBottom();
-    if (!this.frame || rows.length === 0) return;
-    if (rows[rows.length - 1]!.index + 1 !== this.frame.sbBase) return;
-    // The tail does not mutate during a prepend, so restore it as an anchor
-    // before the browser lays out the new blocks above the inspected history.
-    this._curBlock?.style.removeProperty("overflow-anchor");
-    const rowH = this.rowHeight();
-    const frag = this.doc.createDocumentFragment();
-    let blk: HTMLElement | null = null;
-    let blkRows = 0;
-    for (const r of rows) {
-      if (!blk || blkRows >= SB_BLOCK) {
-        if (blk) sizeBlock(blk, blkRows, rowH);
-        blk = this.doc.createElement("div");
-        blk.className = "cell-block";
-        frag.appendChild(blk);
-        blkRows = 0;
-      }
-      blk.appendChild(this._renderScrollbackRow(r));
-      blkRows++;
-    }
-    if (blk) sizeBlock(blk, blkRows, rowH);
-    this.scrollbackEl.prepend(frag);
-    this._paintedRows = rows.concat(this._paintedRows);
-    // Not the hot path (once per backfill chunk, not per frame), so this keeps
-    // the plain rebuild rather than an unshift with a `rows`-sized arg spread.
-    this.frame = {
-      ...this.frame,
-      scrollbackRows: rows.concat(this.frame.scrollbackRows),
-      sbBase: this.frame.sbBase - rows.length,
-    };
-    this._syncSpacer();
-    this._pinToBottom(wasAtBottom);
-    this._recordPaintedHistory();
-  }
-
-  /** Reserve the unpainted [0, sbBase) history as truthful pixel space. A page
-   * prepend shrinks it by the exact rows painted; eviction grows it likewise. */
   private _syncSpacer(): void {
-    const rows = this.frame ? this.frame.sbBase : 0;
     const rowH = this.rowHeight();
     if (rowH > 0 && rowH !== this._paintedGapRowHeight) {
       this._resizeHistoryPlaceholders(rowH);
     }
-    const height = `${(rows * (rowH > 0 ? rowH : DEFAULT_ROW_PX)).toFixed(2)}px`;
+    const height = `${(
+      this._paintedSbBase * (rowH > 0 ? rowH : DEFAULT_ROW_PX)
+    ).toFixed(2)}px`;
     if (height === this._paintedSpacerHeight) return;
     this._paintedSpacerHeight = height;
     this.spacerEl.style.setProperty("height", height);
   }
 
-  /** Immutable identity and absolute range for demand-driven history paging. */
   backfillAnchor(): BackfillAnchor | null {
     if (
       !this.frame
       || (this.readerPendingFrame && !this.readerPendingFrameRetainsHistory)
     ) return null;
     return {
-      sbBase: this.frame.sbBase,
+      sbBase: this._paintedSbBase,
       cols: this.frame.cols,
       total: this.frame.scrollbackTotal,
       gridEpoch: this.frame.gridEpoch,
     };
   }
-  /** Anchor awaiting history materialization after an incompatible full. */
+
+  missingScrollbackRange(row: number): CellHistoryRange | null {
+    const anchor = this.backfillAnchor();
+    if (!anchor || this._scrollbackLayoutEnd !== anchor.total) return null;
+    return missingCellHistoryRange(this._paintedRows, anchor.total, row);
+  }
+
+  missingScrollbackRangeAtScroll(): (CellHistoryRange & { focusRow: number }) | null {
+    const anchor = this.backfillAnchor();
+    const rowH = this.rowHeight();
+    if (
+      !anchor
+      || this._scrollbackLayoutEnd !== anchor.total
+      || rowH <= 0
+      || this.container.clientHeight <= 0
+    ) return null;
+    const visibleStart = Math.max(
+      0,
+      Math.floor((this.container.scrollTop - this.spacerEl.offsetTop) / rowH),
+    );
+    const visibleEnd = Math.min(
+      anchor.total,
+      Math.ceil((this.container.scrollTop + this.container.clientHeight - this.spacerEl.offsetTop) / rowH),
+    );
+    if (visibleStart >= visibleEnd) return null;
+    const gaps = missingCellHistoryRanges(
+      this._paintedRows,
+      anchor.total,
+      visibleStart,
+      visibleEnd,
+    );
+    const visibleGap = gaps.at(-1);
+    if (!visibleGap) return null;
+    const focusRow = visibleGap.start;
+    const gap = missingCellHistoryRange(this._paintedRows, anchor.total, focusRow);
+    return gap ? { ...gap, focusRow } : null;
+  }
+
+  hasPaintedScrollbackRange(start: number, end: number): boolean {
+    const anchor = this.backfillAnchor();
+    return anchor !== null
+      && this._scrollbackLayoutEnd === anchor.total
+      && hasCellHistoryRange(this._paintedRows, anchor.total, start, end);
+  }
+
+  paintedScrollbackRowCount(): number {
+    return this._paintedRows.length;
+  }
   readerAnchorForBackfill(): ReaderAnchor | null {
     if (!this._readerAnchorNeedsRestore || this._readerIntent !== "reading") return null;
     return this._readerAnchor ? { ...this._readerAnchor } : null;
   }
 
-  /** Restore only the still-current anchor and only after its row is painted. */
   restoreReaderAnchor(anchor: ReaderAnchor): boolean {
     const current = this.readerAnchorForBackfill();
     if (
@@ -786,7 +825,6 @@ export class CellGridRenderer {
     return paintedRowAt(this._paintedRows, index);
   }
 
-  /** Bounded paint probe consumed by the smoke-only adapter. */
   paintPresentation(rowLimit?: number): RendererPaintPresentation {
     if (this._readerIntent === "reading" && !this._readerAnchorNeedsRestore) {
       this._captureReaderAnchor();
@@ -802,13 +840,10 @@ export class CellGridRenderer {
     });
   }
 
-  /** Sequence of the latest accepted canonical frame. */
   canonicalFrameSeq(): number {
     return this.readerPendingFrame?.seq ?? this.frame?.seq ?? 0;
   }
 
-  /** Latest accepted canonical model watermark. A reader-pending repair is
-   * canonical even though it has not changed the DOM. */
   canonicalEpochSeq(): RendererEpochSeq {
     const frame = this._canonicalFrame();
     return {
@@ -817,8 +852,6 @@ export class CellGridRenderer {
     };
   }
 
-  /** Latest frame whose rows, mode, width, and authoritative cursor completed
-   * DOM reconciliation. This is not a raster-paint claim. */
   reconciledEpochSeq(): RendererEpochSeq {
     return {
       grid_epoch: this._reconciledGridEpoch,
@@ -826,7 +859,6 @@ export class CellGridRenderer {
     };
   }
 
-  /** Why the canonical model is currently prevented from reconciling to DOM. */
   reconcileBlockReason(): ReconcileBlockReason {
     if (this.readerPendingFrame) return "reader_pending_frame";
     const selection = (this._holdMask & RENDERER_HOLD_SELECTION) !== 0;
@@ -847,7 +879,6 @@ export class CellGridRenderer {
     return null;
   }
 
-  /** Bounded scalar snapshot of canonical model versus reconciled DOM state. */
   presentationSnapshot(): RendererPresentationSnapshot {
     return createRendererPresentationSnapshot({
       canonical: this._canonicalFrame(),
@@ -874,9 +905,6 @@ export class CellGridRenderer {
     return this.readerPendingFrame ?? this.frame;
   }
 
-  /** Commit the DOM watermark only from a completed reconciliation path.
-   * Row correctness is established procedurally by renderViewportRepair or
-   * renderDelta; the scalar checks cover the remaining mode/cursor surface. */
   private _markReconciledIfCurrent(): void {
     const frame = this.frame;
     if (
@@ -912,8 +940,6 @@ export class CellGridRenderer {
     this.onReconcile?.();
   }
 
-  /** Full viewport reconciliation is reserved for authoritative repairs, hold
-   * release, and explicit find-highlight changes. Normal deltas never call it. */
   private renderViewportRepair(): void {
     if (!this.frame) return;
     const rows = this.frame.viewportRows;
@@ -942,8 +968,6 @@ export class CellGridRenderer {
     this.attachViewportOverlays();
   }
 
-  /** Shift scroll-reused nodes, compare only authoritative dirty rows, then
-   * build any newly exposed tail. No untouched held row is read or hashed. */
   private renderDelta(dirtyRows: readonly CellRow[], scrolled: number): void {
     if (!this.frame) return;
     const rows = this.frame.viewportRows;
@@ -968,8 +992,6 @@ export class CellGridRenderer {
       this._rowHashes[index] = hash;
     }
 
-    // Validation in applyDeltaFrame guarantees every missing tail index arrived
-    // in dirtyRows. Read it from the already-folded canonical model once here.
     while (this._rowEls.length < rows.length) {
       const index = this._rowEls.length;
       const row = rows[index]!;
@@ -989,10 +1011,6 @@ export class CellGridRenderer {
     this.updateCursor();
   }
 
-  // Predicted-cursor override (ConditionalCursorMove): when predictive echo
-  // is showing type-ahead, the cursor sits at the PREDICTED column, not the
-  // authoritative one — so the caret leads the echoed chars. null =
-  // use the authoritative position. Set via setPredictedCursor().
   private predictedCol: number | null = null;
   setPredictedCursor(col: number | null): void {
     if (this.predictedCol === col) return;
@@ -1001,10 +1019,6 @@ export class CellGridRenderer {
     this._markReconciledIfCurrent();
   }
 
-  // Block cursor overlay at the worker's reported (row,col) — or the predicted
-  // column when predictive echo overrides it. lh/ch units pin it to the
-  // monospace grid; blink + look live in CSS (.cell-cursor). Hidden when the
-  // program hides the cursor (cursorVisible=false).
   private updateCursor(): void {
     if (!this.frame) return;
     const c = this.cursorEl;
@@ -1028,7 +1042,6 @@ export class CellGridRenderer {
     }
   }
 
-  // Pin the painted width to the grid's cols so wider panes letterbox.
   private setGridWidth(): void {
     this._paintedCols = paintCellGridWidth(
       this.container,
@@ -1037,29 +1050,18 @@ export class CellGridRenderer {
     );
   }
 
-  /** Canonical/model viewport text (one row per line). This can advance while
-   *  reader/selection/link holds leave the reconciled DOM stale; it is never
-   *  presentation or paint proof. */
   gridText(): string {
     return cellGridText(this._canonicalFrame());
   }
 
-  /** Accepted model frame, or null before the first frame. A readerPendingFrame
-   * may be newer, while a live interaction hold may leave this model ahead of
-   * DOM; use canonicalEpochSeq and presentationSnapshot for explicit truth. */
   get currentFrame(): CellGridFrame | null { return this.frame; }
 
-  /** Last `maxRows` scrollback lines as text (oldest→newest), capped so a 10k
-   *  ring never drowns the keyterm signal. Recency-decayed by the caller. */
   scrollbackText(maxRows = 250): string {
     return cellScrollbackText(this.frame, maxRows);
   }
 
-  /** The viewport element (position:relative) — overlay host for the cursor
-   *  and the predictive-echo layer. */
   get predictionHost(): HTMLElement { return this.viewportEl; }
 
-  /** Measured px height of one cell row, cached until font metrics change. */
   rowHeight(): number {
     if (this._rowH > 0) return this._rowH;
     const height = measureCellRowHeight(this.doc, this.viewportEl);
@@ -1067,7 +1069,6 @@ export class CellGridRenderer {
     return this._rowH;
   }
 
-  /** Client-space geometry of the painted viewport grid for pointer hit-testing. */
   viewportCellGeometry(): TerminalCellGeometry | null {
     const frame = this._canonicalFrame();
     if (!frame) return null;
@@ -1078,18 +1079,12 @@ export class CellGridRenderer {
     );
   }
 
-  /** Drop the cached row height so the next read re-measures. The terminal-zoom
-   *  preference changes the cell box without resizing the container, so nothing
-   *  else would invalidate it — and a stale height leaves every block
-   *  placeholder and the spacer sized for the old font. */
   invalidateRowHeight(): void {
     this._rowH = 0;
     this._paintedSpacerHeight = "";
     this._paintedGapRowHeight = 0;
   }
 
-  /** Scrollback rows are immutable and append-only, so their painted element is
-   *  built once — including whatever highlights were current at the time. */
   private _renderScrollbackRow(row: CellRow): HTMLElement {
     const hits = this._findHits.get(row.index);
     const activeCol = this._activeHit?.row === row.index ? this._activeHit.col : undefined;
@@ -1098,9 +1093,6 @@ export class CellGridRenderer {
     return el;
   }
 
-  /** Install the find result set. Viewport rows pick the change up through the
-   *  row hash on the next paint; scrollback rows are immutable, so the affected
-   *  ones are replaced here — bounded by the server's match cap. */
   setFindHighlights(hits: ReadonlyMap<number, FindHit[]>, active: { row: number; col: number } | null): void {
     const affected = new Set<number>();
     for (const row of this._findHits.keys()) affected.add(row);
@@ -1116,7 +1108,6 @@ export class CellGridRenderer {
     this.renderViewportRepair();
   }
 
-  /** Replace one painted scrollback row in place by its global index. */
   private _repaintScrollbackRow(absIndex: number): void {
     const row = this._paintedRow(absIndex);
     if (!row) return;
@@ -1131,9 +1122,8 @@ export class CellGridRenderer {
     }
   }
 
-  /** Explicit find navigation is a reader action. Enter reading before the one
-   * owned write so its asynchronous scroll event cannot immediately cancel it. */
   scrollToScrollbackRow(absIndex: number): void {
+    if (!this.hasPaintedScrollbackRange(absIndex, absIndex + 1)) return;
     const rowH = this.rowHeight();
     if (rowH <= 0) return;
     this.enterReading("find");
@@ -1142,14 +1132,10 @@ export class CellGridRenderer {
     this._writeScrollTop(Math.max(0, Math.min(top - this.container.clientHeight / 3, max)));
   }
 
-  /** Name the region for assistive tech. The owner sets it from the session's
-   *  display title, which is the only thing that distinguishes one pane's log
-   *  from another's. */
   setAccessibleLabel(label: string): void {
     this.container.setAttribute("aria-label", label);
   }
 
-  // ─── scroll ownership ───
   private _writeScrollTop(value: number): void {
     const before = this.container.scrollTop;
     if (before !== value) this.container.scrollTop = value;
@@ -1161,38 +1147,35 @@ export class CellGridRenderer {
       }
       this._ownedScrollTop = after;
     } else if (this._ownedScrollEpoch !== 0) {
-      // Layout may clamp between two pins before their one coalesced event.
       this._ownedScrollTop = after;
     }
   }
 
-  /** Pin only when requested and only when the live anchor actually moved. */
+  // Preserve an exact renderer-owned placement when late geometry moves its bottom.
+  private _atBottomOrOwnedPlacement(): boolean {
+    return this.atBottom() || (
+      this._ownedScrollEpoch !== 0
+      && this.container.scrollTop === this._ownedScrollTop
+    );
+  }
+
   private _pinToBottom(shouldPin: boolean): void {
     if (!shouldPin) return;
     const bottom = Math.max(0, this.container.scrollHeight - this.container.clientHeight);
     this._writeScrollTop(bottom);
   }
 
-  /** Is the viewport at the literal maximum scroll offset? */
   atBottom(): boolean {
     const el = this.container;
     return el.scrollTop >= Math.max(0, el.scrollHeight - el.clientHeight);
   }
 
-  /** Classify one active-surface scroll event. A matching renderer epoch is
-   * consumed at its final coalesced position. Any mismatch clears ownership
-   * before native intent is classified, so the next genuine scroll cannot be
-   * swallowed by a stale pin. Clearing a retained Selection can first reveal
-   * the focused off-screen textarea at scrollTop=0; that bracketed lifecycle
-   * event re-pins and its resulting owned event is consumed normally. A genuine
-   * return to literal bottom adopts pending canonical state synchronously. */
   handleScroll(): LiveInteractionResult {
     if (this._ownedScrollEpoch !== 0) {
       const owned = this.container.scrollTop === this._ownedScrollTop;
-      this._ownedScrollEpoch = 0;
+      if (!owned || this.atBottom()) this._ownedScrollEpoch = 0;
       if (owned) return NO_LIVE_INTERACTION_RESULT;
     }
-    // Ignore placeholder-layout clamp events while backfill restores the held row.
     if (this._readerAnchorNeedsRestore) return NO_LIVE_INTERACTION_RESULT;
     if (this._readerIntent === "reading" && this._readerReason === "find") {
       this._captureReaderAnchor();
@@ -1203,17 +1186,11 @@ export class CellGridRenderer {
       return this._resumeLive(false);
     }
     if (this.atBottom() && this._readerReason !== "find") return this._resumeLive(false);
-    // wheel/touch/selection/find listeners identify stronger explicit intent
-    // before their native scroll event; do not degrade that reason to fallback.
     if (this._readerIntent === "live") this.enterReading("native_scroll");
     this._captureReaderAnchor();
     return NO_LIVE_INTERACTION_RESULT;
   }
 
-  /** Container box changed (deck restyle, window resize, divider drag, keyboard
-   * inset). Detect the OLD literal bottom from the previous box height. A frame
-   * can arrive after layout but before ResizeObserver; resuming and reconciling
-   * here closes that interleave without depending on a scroll event. */
   noteBoxResize(): LiveInteractionResult {
     const el = this.container;
     const h = el.clientHeight;
@@ -1225,24 +1202,11 @@ export class CellGridRenderer {
     const wasAtOldBottom =
       el.scrollTop >= Math.max(0, el.scrollHeight - Math.max(prev, h));
     if (!wasAtOldBottom) return NO_LIVE_INTERACTION_RESULT;
-    // A pre-scroll wheel/touch, selection, or find interval is explicit and must
-    // survive geometry. native_scroll may instead be the resize's own event.
     if (
       this._readerIntent === "reading"
       && this._readerReason !== "native_scroll"
     ) return NO_LIVE_INTERACTION_RESULT;
-    return this._resumeLive(false);
-  }
-
-  /** Within one viewport of the top of the painted scrollback — the backfill
-   *  controller's "pull deeper" trigger. Draining the whole ring the moment the
-   *  user leaves the bottom built 250 rows of DOM per frame while they were
-   *  mid-gesture; pulling only on approach keeps history reachable without the
-   *  sustained jank. */
-  nearHistoryTop(): boolean {
-    if (!this.frame || this.frame.altScreen) return false;
-    const el = this.container;
-    return el.scrollTop - (this.scrollbackEl.offsetTop ?? 0) < el.clientHeight;
+    return this._resumeLive(false, true);
   }
 
   dispose(): void {
@@ -1264,7 +1228,6 @@ export class CellGridRenderer {
     this._ownedScrollTop = 0;
     this._liveSelectionReleasePending = false;
     this.pendingRender = false;
-    this._replaceViewportOnReconcile = false;
     this._paintedSbBase = 0;
     this._paintedRows = [];
     this._scrollbackLayoutEnd = 0;

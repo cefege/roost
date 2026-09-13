@@ -72,11 +72,9 @@ export interface CellTerminalPresentation {
   setAttachProgress: Setter<BaselineProgress | null>;
   setHasReconciledFrame: Setter<boolean>;
   setViewStatus: Setter<TerminalViewHandleStatus | null>;
-  setViewportLiveReady: Setter<boolean>;
   stuckReason: Accessor<string | null>;
   syncNativeSelectionHold(): void;
   viewStatus: Accessor<TerminalViewHandleStatus | null>;
-  viewportLiveReady: Accessor<boolean>;
 }
 
 export function createCellTerminalPresentation(
@@ -92,7 +90,6 @@ export function createCellTerminalPresentation(
     getBackfill: () => runtime.backfill,
     getLinkAttachment: () => runtime.linkAttachment,
   });
-  const [viewportLiveReady, setViewportLiveReady] = createSignal(false);
   const [viewStatus, setViewStatus] =
     createSignal<TerminalViewHandleStatus | null>(null);
   const [hasReconciledFrame, setHasReconciledFrame] = createSignal(false);
@@ -283,7 +280,7 @@ export function createCellTerminalPresentation(
       !viewActive()
       || !pageVisible()
       || offline()
-      || (hasReconciledFrame() && viewportLiveReady())
+      || (hasReconciledFrame() && foregroundViewReady())
       || retainsReconciledFrameDuringRefresh()
     ) return null;
     return terminalViewportLoadingNotice(pending(), viewStatus());
@@ -349,10 +346,8 @@ export function createCellTerminalPresentation(
     setAttachProgress,
     setHasReconciledFrame,
     setViewStatus,
-    setViewportLiveReady,
     stuckReason,
     syncNativeSelectionHold,
     viewStatus,
-    viewportLiveReady,
   };
 }

@@ -3,7 +3,7 @@
 // retained snapshots seed volatile state, and live bus fan-out follows them.
 // Session-keyed frames are gated by the socket's resource index, which the
 // upgrade seeds and durable events keep current; sync-feed-seed.ts owns the
-// retained half.
+// retained half while this owner toggles v2's lazy audit source.
 
 import { create } from "@bufbuild/protobuf";
 import {
@@ -57,6 +57,7 @@ export interface SyncFeed {
   readonly seeded: Promise<void>;
   backfill(): Promise<void>;
   seedDomain(domain: SyncDomain, sessionIds?: ReadonlySet<string>): Promise<void>;
+  setDomainSubscribed(domain: SyncDomain, subscribed: boolean): void;
   dispose(): void;
 }
 
@@ -166,6 +167,24 @@ export function startSyncFeed(
   const ownsWorker = (workerFp: string): boolean =>
     scope.ownerWorkerFp === null || scope.ownerWorkerFp === workerFp;
   const installWideViewer = scope.ownerWorkerFp === null;
+  let auditUnsubscribe: (() => void) | null = null;
+  const setAuditSubscribed = (subscribed: boolean): void => {
+    if (subscribed) {
+      if (auditUnsubscribe !== null) return;
+      auditUnsubscribe = auditBus.subscribe((event) => {
+        if (installWideViewer) push(auditFrame(event));
+      });
+      return;
+    }
+    auditUnsubscribe?.();
+    auditUnsubscribe = null;
+  };
+  const setDomainSubscribed = (domain: SyncDomain, subscribed: boolean): void => {
+    if (domain !== SyncDomain.AUDIT || v2Options === null || disposed || !installWideViewer) return;
+    setAuditSubscribed(subscribed);
+  };
+  // V1 has no domain commands, so preserve its eager audit delivery.
+  if (v2Options === null) setAuditSubscribed(true);
   const unsubs = [
     sessionBus.subscribe((event) => {
       if (event.kind === "snapshot") {
@@ -199,8 +218,8 @@ export function startSyncFeed(
       const frame = workspaceFrame(event);
       if (frame) push(frame);
     }),
-    // Tasks, MCP relays, audit rows and pair requests are install-wide with no
-    // worker owner, so a read-only worker socket is not one of their viewers.
+    // Tasks, MCP relays, and pair requests are install-wide with no worker
+    // owner, so a read-only worker socket is not one of their viewers.
     taskBus.subscribe((event) => {
       if (installWideViewer) push(taskFrame(event));
     }),
@@ -208,9 +227,6 @@ export function startSyncFeed(
       if (!installWideViewer) return;
       const frame = mcpFrame(event);
       if (frame) push(frame);
-    }),
-    auditBus.subscribe((event) => {
-      if (installWideViewer) push(auditFrame(event));
     }),
     pairBus.subscribe((event) => {
       if (installWideViewer) push(pairFrame(event));
@@ -359,6 +375,7 @@ export function startSyncFeed(
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
+    setAuditSubscribed(false);
     v1SeedDelivery?.dispose();
     recoveringSessions = false;
     collectingRecoveryBoundary = false;
@@ -376,6 +393,7 @@ export function startSyncFeed(
     seeded,
     backfill,
     seedDomain: (domain, sessionIds) => seedDomain(seedCtx, scope, domain, sessionIds),
+    setDomainSubscribed,
     dispose,
   };
 }

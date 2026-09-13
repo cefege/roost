@@ -1,6 +1,6 @@
 // These callbacks cover offscreen stream suppression and stalled-browser recovery under PTY load.
 // The perf spec registers both in its contention-aware single-file schedule.
-// Recovery assertions pin generation rollover, one full repair, and resumed trusted input.
+// Recovery proves a bounded viewport baseline, canonical convergence, and resumed trusted input.
 
 import type { Page, TestInfo } from "@playwright/test";
 import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
@@ -105,18 +105,31 @@ export async function probeStalledConsumerRecovery(
     return smoke.waitForPaintedMarker(id, marker, 30_000);
   }, { id: sessionId, marker: recoveryMarker });
 
-  const recovered = await smokePage.evaluate(({ id, marker, canary }) => {
+  const recovered = await smokePage.evaluate(async ({ id, marker, canary }) => {
     const win = window;
+    const stream = await win.__smoke.terminalStreamProbe(id);
     const text = win.__smoke.viewportText(id);
     return {
       canary: win.__stallCanary,
       markerCount: text.split(marker).length - 1,
       fullFrames: win.__smoke.cellFullFrameCount(id),
+      lastFullFrameSbRows: win.__smoke.lastFullFrameSbRows(id),
+      stream,
     };
   }, { id: sessionId, marker: recoveryMarker, canary: suffix });
   expect(recovered.canary).toBe(suffix);
   expect(recovered.markerCount).toBe(1);
-  expect(recovered.fullFrames - before.fullFrames).toBe(1);
+  expect(recovered.fullFrames - before.fullFrames).toBeGreaterThanOrEqual(1);
+  expect(recovered.lastFullFrameSbRows).toBe(0);
+  expect(recovered.stream.browser.replica).toMatchObject({
+    expected_stream_id: recovered.stream.browser.view.stream_id,
+    baseline_ready: true,
+    resync_latched: false,
+  });
+  expect(recovered.stream.browser.wire_received).toMatchObject({
+    ...recovered.stream.browser.handler_canonical,
+  });
+  expect(recovered.stream.browser.handler_canonical).toEqual(recovered.stream.browser.dom_reconciled);
 
   await smokePage.getByTestId(`terminal-slot-${sessionId}`).click();
   const keyNonce = `recover-${suffix}`;

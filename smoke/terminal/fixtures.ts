@@ -101,6 +101,12 @@ async function useSmokePage(
           contentType: "text/plain",
         });
       }
+      if (existsSync(stack.secondPtyFixtureWorkerLogPath)) {
+        await testInfo.attach("second-pty-fixture-worker.log", {
+          body: readFileSync(stack.secondPtyFixtureWorkerLogPath),
+          contentType: "text/plain",
+        });
+      }
       if (existsSync(stack.secondWorkerLogPath)) {
         await testInfo.attach("second-worker.log", {
           body: readFileSync(stack.secondWorkerLogPath),
@@ -146,6 +152,12 @@ async function useColdSmokePage(
       if (existsSync(stack.ptyFixtureWorkerLogPath)) {
         await testInfo.attach("pty-fixture-worker.log", {
           body: readFileSync(stack.ptyFixtureWorkerLogPath),
+          contentType: "text/plain",
+        });
+      }
+      if (existsSync(stack.secondPtyFixtureWorkerLogPath)) {
+        await testInfo.attach("second-pty-fixture-worker.log", {
+          body: readFileSync(stack.secondPtyFixtureWorkerLogPath),
           contentType: "text/plain",
         });
       }

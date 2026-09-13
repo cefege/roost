@@ -268,18 +268,19 @@ export function createTerminalFind(opts: {
     const anchor = renderer.backfillAnchor();
     if (!anchor) return;
     if (anchor.gridEpoch !== match.epoch) { invalidate(epochRetryBudget); return; }
-    // Viewport matches need no scrollback jump.
+    // Viewport matches need no scrollback jump. Every history match waits for
+    // actual DOM coverage, including an interior or tail gap.
     if (match.row >= anchor.total) return;
-    if (match.row < anchor.sbBase) {
-      const ok = await opts.backfill()?.ensureRowPainted(match.row);
-      if (disposed || mine !== token) return;
-      // A rejected/evicted pull gets at most the remaining epoch retry.
-      if (!ok) {
-        if (epochRetryBudget > 0) void searchNow(epochRetryBudget - 1);
-        return;
-      }
-      if (paneEpoch() !== match.epoch) { invalidate(epochRetryBudget); return; }
+    const backfill = opts.backfill();
+    if (!backfill) return;
+    const ok = await backfill.ensureRowPainted(match.row);
+    if (disposed || mine !== token) return;
+    // A rejected/evicted pull gets at most the remaining epoch retry.
+    if (!ok) {
+      if (epochRetryBudget > 0) void searchNow(epochRetryBudget - 1);
+      return;
     }
+    if (paneEpoch() !== match.epoch) { invalidate(epochRetryBudget); return; }
     opts.renderer()?.scrollToScrollbackRow(match.row);
   }
 

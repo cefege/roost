@@ -201,4 +201,31 @@ describe("worker terminal stream baseline and sequence contract", () => {
     harness.manager.requestTerminalSnapshot(SESSION_ID, STREAM_A);
     expect(harness.frameAttempts).toHaveLength(2);
   });
+
+  test("keeps a compatible renewal epoch while emitting a viewport-only full", async () => {
+    trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
+    const core = await createWtermCore(TEST_COLS, TEST_ROWS);
+    core.writeString(Array.from({ length: TEST_ROWS * 3 }, (_, index) => `H${index}\r\n`).join(""));
+    expect(core.getScrollbackCount()).toBeGreaterThan(0);
+    const harness = await makeHarness(core);
+
+    await enableStream(harness.manager, STREAM_A);
+    const initial = harness.frameAttempts.at(-1);
+    if (!initial) throw new Error("initial terminal baseline was not emitted");
+
+    await enableStream(harness.manager, STREAM_B);
+    const renewal = harness.frameAttempts.at(-1);
+    if (!renewal) throw new Error("renewal terminal baseline was not emitted");
+
+    expect(renewal).toMatchObject({
+      full: true,
+      streamId: STREAM_B,
+      baseSeq: 0n,
+      seq: 1n,
+      scrollbackRows: [],
+      scrollbackAppend: [],
+    });
+    expect(renewal.gridEpoch).toBe(initial.gridEpoch);
+    expect(renewal.sbBase).toBe(renewal.scrollbackTotal);
+  });
 });

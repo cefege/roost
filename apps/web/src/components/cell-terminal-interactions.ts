@@ -5,6 +5,7 @@
 
 import {
   createEffect,
+  createMemo,
   onCleanup,
   type Accessor,
 } from "solid-js";
@@ -54,10 +55,14 @@ export function mountCellTerminalInteractions(
     throw new Error("terminal interactions mounted before input controller");
   }
 
+  const foregroundWorkActive = createMemo(
+    () => viewport.viewActive() && pageVisible(),
+  );
   runtime.linkAttachment = attachTerminalLinks(display, {
     resolveFile: input.resolveFile,
     onOpenFile: navigate,
     githubOwnerRepo: () => props.session.git_remote ?? undefined,
+    initialActive: foregroundWorkActive(),
     onArmedHoverChange: (active) => {
       presentation.notifyBackfill(runtime.renderer?.setArmedHold(active));
     },
@@ -181,7 +186,12 @@ export function mountCellTerminalInteractions(
     document.removeEventListener("drop", onDrop);
   };
   createEffect(() => {
-    if (disposed || !viewport.viewActive() || !pageVisible()) return;
+    const foregroundWorkEnabled = !disposed && foregroundWorkActive();
+    runtime.linkAttachment?.setActive(foregroundWorkEnabled);
+    if (!foregroundWorkEnabled) {
+      detachGlobalListeners();
+      return;
+    }
     globalListenersAttached = true;
     document.addEventListener("selectionchange", onSelectionChange);
     window.addEventListener("pointerup", onSelectionSettled);

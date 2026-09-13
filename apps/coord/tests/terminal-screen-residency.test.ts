@@ -4,7 +4,6 @@
 
 import { expect, test } from "bun:test";
 import { CellGridChunkAssembler, type CellGridFrame } from "@roost/shared/cell";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import {
   TerminalAssemblyHold,
   type ResidentCache,
@@ -21,6 +20,7 @@ function screen(): SessionScreen {
       assembler: new CellGridChunkAssembler(),
       timer: null,
       timerGeneration: null,
+      snapshotCoordRecvMs: null,
     },
     resyncLatched: false,
     repair: {
@@ -36,7 +36,7 @@ function cache(screenState: SessionScreen, rows: number): ResidentCache {
   return {
     screen: screenState,
     frame: {} as CellGridFrame,
-    proto: {} as PbCellGridFrame,
+    coordRecvMs: 0n,
     source: null,
     sourceLeaseCount: 0,
     rows,

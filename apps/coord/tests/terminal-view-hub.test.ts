@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
 import { TERMINAL_VIEW_LEASE_MS } from "@roost/shared/viewport";
+import { deltaFrame, fullFrame } from "./terminal-screen-hub-harness.ts";
 import {
   MAX_U64,
   OTHER_SESSION,
@@ -282,6 +283,27 @@ describe("TerminalViewHub membership ownership", () => {
       TerminalViewStatus.ACCEPTED,
       TerminalViewStatus.REJECTED,
     ]);
+  });
+
+  test("removes a revoked fingerprint's sink before a later terminal delta", async () => {
+    const { hub } = makeHarness();
+    const revoked = register(hub, "revoked", "fingerprint-a:tab-a", "fingerprint-a");
+    const retained = register(hub, "retained", "fingerprint-b:tab-b", "fingerprint-b");
+    hub.handleViewCommand("revoked", viewCommand(VIEW_A, 1n));
+    hub.handleViewCommand("retained", viewCommand(VIEW_B, 1n));
+    await settle();
+
+    const streamId = hub.snapshot(SESSION)?.streamId;
+    if (!streamId) throw new Error("expected active terminal stream");
+    hub.screen.publishFrame(SESSION, fullFrame({ streamId, cols: 80, rows: 24 }));
+    expect(revoked.snapshots).toHaveLength(1);
+    expect(retained.snapshots).toHaveLength(1);
+
+    hub.removeFingerprint("fingerprint-a");
+    hub.screen.publishFrame(SESSION, deltaFrame({ streamId, cols: 80, rows: 24 }));
+
+    expect(revoked.deltas).toHaveLength(0);
+    expect(retained.deltas).toHaveLength(1);
   });
 
   test("purges membership and tombstones on fingerprint or session revocation", async () => {

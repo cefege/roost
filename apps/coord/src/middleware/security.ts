@@ -168,11 +168,8 @@ export function recordAuditTelemetry(path: string, status: number): void {
 }
 
 
-/**
- * Writes one audit_log row + emits to auditBus. Best-effort: any
- * write failure is swallowed.
- */
-export function writeAuditLog(opts: {
+/** Audit metadata accepted by the durable audit writer. */
+export interface AuditLogOptions {
   db: KyselyDB;
   status: number;
   method: string;
@@ -188,36 +185,71 @@ export function writeAuditLog(opts: {
   /** Set false when the caller already recorded telemetry before applying a
    * durable-audit predicate. */
   recordTelemetry?: boolean;
-}): Promise<void> {
-  if (opts.recordTelemetry !== false) recordAuditTelemetry(opts.path, opts.status);
-  return opts.db
-    .insertInto("audit_log")
-    .values({
-      ts: Date.now(),
-      caller_fp: opts.callerFp,
-      dashboard_id: opts.dashboardId ?? null,
-      method: opts.method,
-      path: opts.path,
-      status: opts.status,
-      trace_id: opts.traceId ?? null,
-    })
-    .returning(["id", "ts", "caller_fp", "method", "path", "status", "trace_id"])
-    .executeTakeFirst()
-    .then((inserted) => {
-      if (!inserted) return;
-      auditBus.publish({
-        id: inserted.id as number,
-        ts: inserted.ts as number,
-        caller_fp: (inserted.caller_fp as string | null) ?? null,
-        caller_label: null,
-        method: inserted.method as string,
-        path: inserted.path as string,
-        status: inserted.status as number,
-        trace_id: (inserted.trace_id as string | null) ?? null,
-      });
-    })
-    .catch((e) => {
-      signal("audit.write_failed", { error: String(e), path: opts.path, cooldownKey: "audit" });
-      if (opts.throwOnFailure) throw e;
+}
+
+/** Writes a same-database audit batch atomically, then publishes its committed
+ * rows in durable ID order. */
+export async function writeAuditLogs(entries: readonly AuditLogOptions[]): Promise<void> {
+  if (entries.length === 0) return;
+  const db = entries[0]!.db;
+  for (const entry of entries) {
+    if (entry.db !== db) throw new Error("audit batch must use one database");
+  }
+  let shouldThrowOnFailure = false;
+  for (const entry of entries) {
+    if (entry.recordTelemetry !== false) recordAuditTelemetry(entry.path, entry.status);
+    if (entry.throwOnFailure) shouldThrowOnFailure = true;
+  }
+  const rows = entries.map((entry) => {
+    const timestamp = Date.now();
+    return {
+      ts: timestamp,
+      caller_fp: entry.callerFp,
+      dashboard_id: entry.dashboardId ?? null,
+      method: entry.method,
+      path: entry.path,
+      status: entry.status,
+      trace_id: entry.traceId ?? null,
+    };
+  });
+  try {
+    const inserted = await db.transaction().execute(async (transaction) => {
+      const insert = transaction
+        .insertInto("audit_log")
+        .values(rows)
+        .returning(["id", "ts", "caller_fp", "method", "path", "status", "trace_id"]);
+      return insert.execute();
     });
+    inserted.sort((left, right) => {
+      const leftId = Number(left.id);
+      const rightId = Number(right.id);
+      return leftId - rightId;
+    });
+    for (const row of inserted) {
+      auditBus.publish({
+        id: row.id as number,
+        ts: row.ts as number,
+        caller_fp: (row.caller_fp as string | null) ?? null,
+        caller_label: null,
+        method: row.method as string,
+        path: row.path as string,
+        status: row.status as number,
+        trace_id: (row.trace_id as string | null) ?? null,
+      });
+    }
+  } catch (error) {
+    for (const entry of entries) {
+      signal("audit.write_failed", {
+        error: String(error),
+        path: entry.path,
+        cooldownKey: "audit",
+      });
+    }
+    if (shouldThrowOnFailure) throw error;
+  }
+}
+
+/** Writes one audit_log row + emits to auditBus. Best-effort by default. */
+export function writeAuditLog(opts: AuditLogOptions): Promise<void> {
+  return writeAuditLogs([opts]);
 }

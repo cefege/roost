@@ -13,6 +13,8 @@ import { gridToCellFrame, gridDeltaFrame } from "./grid-to-cells.ts";
 import type { CellGridFrame } from "./types.ts";
 import { isTerminalUuid } from "../viewport.ts";
 
+export const LIVE_DELTA_SCROLLBACK_ROWS_CAP = 250;
+
 export interface CellEmitState {
   /** Coordinator-minted generation addressed by every emitted frame. */
   streamId: string;
@@ -82,7 +84,8 @@ export function scrollbackOrigin(core: TerminalCore, state: CellEmitState): numb
 /** Reframe on first emit, force, or a semantic grid transition. A force-only
  * claim snapshot keeps the held epoch; a non-forced dimension/alt/rewind/ring
  * transition after the initial frame advances the epoch because old absolute
- * rows no longer identify the same grid. `tailRows` bounds full-frame history. */
+ * rows no longer identify the same grid. `tailRows` bounds explicit full-frame
+ * history; capped live checkpoints are always viewport-only. */
 export function nextCellFrame(
   core: TerminalCore, st: CellEmitState, force: boolean, tailRows?: number,
 ): { frame: CellGridFrame; state: CellEmitState } {
@@ -105,12 +108,23 @@ export function nextCellFrame(
     // way; an honest reframe is the only truthful frame left.
     || sbDropped > st.lastSbTotal
   );
-  const reframe = force || !st.sentFull || semanticReframe;
   const gridEpochRevision = st.gridEpochRevision + (semanticReframe ? 1 : 0);
+  // Count the newly retained rows before extracting any of their cells. A
+  // checkpoint preserves the stream identity and current viewport, while the
+  // worker remains the source for demand-paged history.
+  const liveDeltaExceedsScrollbackCap = !force
+    && st.sentFull
+    && !semanticReframe
+    && monoTotal - st.lastSbTotal > LIVE_DELTA_SCROLLBACK_ROWS_CAP;
+  const reframe = force || !st.sentFull || semanticReframe || liveDeltaExceedsScrollbackCap;
   const gridEpoch = `${st.gridEpochBase}:${gridEpochRevision}`;
   const seq = st.seq + 1;
   const frame = reframe
-    ? gridToCellFrame(core, seq, gridEpoch, st.streamId, tailRows, sbDropped)
+    ? gridToCellFrame(
+      core, seq, gridEpoch, st.streamId,
+      liveDeltaExceedsScrollbackCap ? 0 : tailRows,
+      sbDropped,
+    )
     : gridDeltaFrame(core, st.lastSbTotal, seq, st.seq, gridEpoch, st.streamId, sbDropped);
   return {
     frame,

@@ -6,6 +6,8 @@ import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
 import {
   gridToCellFrame,
   initCellEmitState,
+  LIVE_DELTA_SCROLLBACK_ROWS_CAP,
+  nextCellFrame,
   type CellRow,
 } from "@roost/shared/cell";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
@@ -137,6 +139,45 @@ describe("viewport-only frame and epoch-addressed history", () => {
       expect(collected[index]!.index).toBe(index);
       expect(rowText(collected[index]!)).toBe(rowText(reference.scrollbackRows[index]!));
     }
+  });
+
+  test("a capped live checkpoint leaves retained rows demand-pageable", async () => {
+    const manager = freshManager();
+    const record = await injectSession(manager);
+    const initial = nextCellFrame(record.wtermCore, record.cell_emit, false, 0);
+    record.cell_emit = initial.state;
+    record.wtermCore.clearDirty();
+
+    const appended = Array.from(
+      { length: LIVE_DELTA_SCROLLBACK_ROWS_CAP + 1 },
+      (_, index) => `checkpoint-${index}`,
+    ).join("\r\n") + "\r\n";
+    record.wtermCore.writeRaw(new TextEncoder().encode(appended));
+    const checkpoint = nextCellFrame(record.wtermCore, record.cell_emit, false, 0);
+    record.cell_emit = checkpoint.state;
+    expect(checkpoint.frame).toMatchObject({
+      full: true,
+      gridEpoch: GRID_EPOCH,
+      seq: 2,
+      baseSeq: 0,
+      scrollbackRows: [],
+      scrollbackAppend: [],
+    });
+    expect(checkpoint.frame.scrollbackTotal - initial.frame.scrollbackTotal)
+      .toBeGreaterThan(LIVE_DELTA_SCROLLBACK_ROWS_CAP);
+
+    const { coordLink, sent } = linkCapture();
+    await handleGetScrollbackCells(
+      request(checkpoint.frame.scrollbackTotal, 1, checkpoint.frame.gridEpoch),
+      "req",
+      { coordLink, sessionMgr: manager },
+    );
+
+    const reply = sent[0] as RpcOk;
+    expect(reply.kind).toBe("rpc-ok");
+    expect(reply.data.rows).toHaveLength(1);
+    expect(reply.data.rows[0]!.index).toBe(checkpoint.frame.scrollbackTotal - 1);
+    expect(rowText(reply.data.rows[0]!)).toContain("checkpoint-");
   });
 
   test("an empty headless epoch binds the read to the current grid", async () => {

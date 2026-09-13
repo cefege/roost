@@ -35,8 +35,7 @@ import { noteUnhandledSequences } from "./session-unhandled-seq.ts";
 import {
 	drainSnapshotCursor,
 	installSnapshotCursor,
-	renewalHistoryRows,
-	validateRenewalHistorySnapshot,
+	prepareCellRenewalEpoch,
 } from "./session-snapshot-cursor.ts";
 import { disposeRawMetadataState } from "./session-raw-metadata.ts";
 import {
@@ -342,23 +341,14 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		if (pending !== null) clearTimeout(pending);
 		this.cellEmitTimers.delete(channelId);
 	}
-	let tailRows = 0;
 	if (fullOwed && rec.cell_emit.sentFull && rec.cell_emit.seq === 0) {
-		tailRows = renewalHistoryRows(core, rec.cell_emit);
+		prepareCellRenewalEpoch(core, rec.cell_emit);
 	}
-	let next = nextCellFrame(core, rec.cell_emit, fullOwed, tailRows);
+	let next = nextCellFrame(core, rec.cell_emit, fullOwed, 0);
 	let pb = cellFrameToProto(next.frame, String(rec.sessionId));
 	pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());
 	pb.workerEmitMs = BigInt(Date.now());
 	if (!next.frame.full && encodedCellGridFrameSize(pb) > CELL_GRID_PART_MAX_BYTES) {
-		next = nextCellFrame(core, rec.cell_emit, true, tailRows);
-		pb = cellFrameToProto(next.frame, String(rec.sessionId));
-		pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());
-		pb.workerEmitMs = BigInt(Date.now());
-	}
-	if (tailRows > 0 && !validateRenewalHistorySnapshot(pb)) {
-		rec.cell_emit.gridEpochRevision++;
-		tailRows = 0;
 		next = nextCellFrame(core, rec.cell_emit, true, 0);
 		pb = cellFrameToProto(next.frame, String(rec.sessionId));
 		pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());

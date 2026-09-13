@@ -15,6 +15,7 @@ import {
   type SyncClientFrame,
   type UiApplyLayoutResult,
 } from "@roost/shared/proto/sync_pb";
+import { log } from "@roost/shared/log";
 import { consumeSyncSessionSnapshot } from "./sync-snapshot-registry.ts";
 import {
   allocateDomainGeneration,
@@ -118,14 +119,30 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
       const domain = v2.domains.get(domainId);
       if (!domain || command.value.generation !== domain.generation) return;
       if (command.case === "domainSubscribe") {
+        if (domain.subscribed) return;
         domain.subscribed = true;
         domain.ready = false;
+        // This listener closes the snapshot/live gap before domainReady permits delivery.
+        ws.data.feed?.setDomainSubscribed(domainId, true);
+        log.info("sync-ws", "audit_subscription_changed", {
+          caller_fp: ws.data.caller.fingerprint,
+          socket_id: v2.socketId,
+          domain: "audit",
+          subscribed: true,
+        });
         return;
       }
-      clearV2DomainQueue(ws, domain);
       domain.subscribed = false;
       domain.ready = false;
+      ws.data.feed?.setDomainSubscribed(domainId, false);
+      clearV2DomainQueue(ws, domain);
       domain.generation = allocateDomainGeneration();
+      log.info("sync-ws", "audit_subscription_changed", {
+        caller_fp: ws.data.caller.fingerprint,
+        socket_id: v2.socketId,
+        domain: "audit",
+        subscribed: false,
+      });
       sendV2ControlFrame(ws, create(FirehoseFrameSchema, {
         frame: {
           case: "domainReset",

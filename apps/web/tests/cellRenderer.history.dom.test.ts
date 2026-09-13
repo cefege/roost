@@ -11,19 +11,12 @@ import {
   deltaFrame,
   seedHeldHistory,
   sbEl,
-  vpEl,
   sbRows,
 } from "./helpers/cellRendererFakeDom.ts";
 
 // ── truthful scroll space: the [0, sbBase) history spacer ─────────────────
-// A full frame ships only a scrollback TAIL, so the painted DOM used to occupy
-// the WHOLE scroll space while describing ~250 rows: every backfill prepend
-// grew scrollHeight (thumb shrank + jumped with no user action) and a reframe's
-// replaceChildren left the browser's pixel offset over completely different
-// rows (the "scrollbar all over the place after a tab switch" report).
-// .cell-sb-spacer reserves the unpainted history, so an absolute row index has
-// a FIXED pixel offset for the epoch and native scrollTop preserves the
-// reader's row across prepend / evict / reframe with ZERO scroll writes.
+// A full may retain only a tail. The leading spacer and in-place gap pages keep
+// every absolute row at a stable pixel offset while history materializes.
 describe("CellGridRenderer DOM — truthful scroll space", () => {
   const spEl = (c: FakeEl): FakeEl => c.children.find((x: FakeEl) => x.className === "cell-sb-spacer") as FakeEl;
   const spPx = (c: FakeEl): number => parseFloat(String(spEl(c).style.height));
@@ -47,12 +40,17 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     expect(spEl(c).style.height).toBe("8000.00px"); // 500 unpainted rows × 16px
     // 750 rows of history in the scroll space, not the 250 that are painted.
     expect(c.scrollHeight).toBe(PAD_TOP + (750 + 1) * ROW_PX); // +1 viewport row
-    // A reader in reserved space is "near the painted top" → the drain pulls to them.
+    // The pager targets the actual visible gap, not the diagnostic base.
     c.scrollTop = PAD_TOP + 100 * ROW_PX;
-    expect(r.nearHistoryTop()).toBe(true);
+    expect(r.missingScrollbackRangeAtScroll()).toEqual({
+      start: 0,
+      end: 500,
+      focusRow: 100,
+    });
   });
 
-  test("a backfill prepend shrinks the spacer by exactly the rows it adds", () => {
+
+  test("a head page shrinks the spacer by exactly the rows it adds", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
@@ -61,13 +59,52 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     const readerBefore = rowAtReader(c);
     c.resetScrollTopWrites();
 
-    r.prependScrollback(nRows(250, 250));
+    expect(r.insertHistoryPage(nRows(250, 250), false)).toBe(true);
 
     expect(spEl(c).style.height).toBe("4000.00px"); // 8000 - 250×16
     expect(c.scrollHeight).toBe(heightBefore);      // the thumb does not move
     expect(c.scrollTopWrites).toBe(0);
     expect(rowAtReader(c)).toBe(readerBefore);      // same absolute row, same offset
     expect(readerBefore).toBe("r600");
+  });
+
+  test("targeted pages split a tail gap without replacing existing rows", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
+    expect(r.applyFullFrame({ ...fullFrame(80, [row(0, "v")], 760), seq: 3 })).toBe(true);
+    const existing = sbRows(sbEl(c)).slice();
+
+    expect(r.missingScrollbackRange(755)).toEqual({ start: 751, end: 760 });
+    expect(r.insertHistoryPage(nRows(6, 751), false)).toBe(true);
+    expect(r.insertHistoryPage([row(756, "duplicate"), row(757, "new")], false)).toBe(false);
+    expect(r.missingScrollbackRange(759)).toEqual({ start: 757, end: 760 });
+    expect(r.paintPresentation().tailGapPx).toBe(3 * ROW_PX);
+    for (let index = 0; index < existing.length; index++) {
+      expect(sbRows(sbEl(c))[index]).toBe(existing[index]);
+    }
+
+    expect(r.insertHistoryPage(nRows(3, 757), false)).toBe(true);
+    expect(r.hasPaintedScrollbackRange(750, 760)).toBe(true);
+    expect(r.missingScrollbackRange(759)).toBeNull();
+    expect(sbRows(sbEl(c))).toHaveLength(260);
+  });
+
+  test("an interior page splits only its placeholder", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
+    const existing = sbRows(sbEl(c)).slice();
+
+    expect(r.insertHistoryPage(nRows(50, 250), false)).toBe(true);
+    expect(r.missingScrollbackRange(375)).toEqual({ start: 300, end: 500 });
+    expect(r.insertHistoryPage(nRows(50, 350), false)).toBe(true);
+    expect(r.missingScrollbackRange(325)).toEqual({ start: 300, end: 350 });
+    expect(r.missingScrollbackRange(450)).toEqual({ start: 400, end: 500 });
+    const after = sbRows(sbEl(c)).slice(-existing.length);
+    for (let index = 0; index < existing.length; index++) {
+      expect(after[index]).toBe(existing[index]);
+    }
   });
 
   test("an eviction grows the spacer by exactly the rows it drops", () => {
@@ -105,20 +142,24 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     expect(repair.scrollbackRows).toEqual([]);
     expect(r.currentFrame).not.toBe(repair);
     expect(r.currentFrame!.viewportRows).not.toBe(repair.viewportRows);
-    expect(r.currentFrame!.sbBase).toBe(500);
-    expect(r.currentFrame!.scrollbackRows[0]!.index).toBe(500);
-    expect(sbRows(sbEl(c))).toHaveLength(250);
+    expect(r.currentFrame!.sbBase).toBe(760);
+    expect(r.currentFrame!.scrollbackRows).toEqual([]);
+    expect(r.backfillAnchor()).toMatchObject({ sbBase: 500, total: 760 });
+    expect(sbRows(sbEl(c))).toHaveLength(251);
     for (let i = 0; i < historyNodes.length; i++) {
       expect(sbRows(sbEl(c))[i]).toBe(historyNodes[i]);
     }
     expect(r.gridText()).toBe("repair-v");
     expect(r.paintPresentation()).toEqual({
-      rows: nRows(250, 500).map((entry) => ({
-        index: entry.index,
-        text: spansText(entry.spans),
-      })),
+      rows: [
+        ...nRows(250, 500).map((entry) => ({
+          index: entry.index,
+          text: spansText(entry.spans),
+        })),
+        { index: 750, text: "old-v" },
+      ],
       headSpacerPx: 500 * ROW_PX,
-      tailGapPx: 10 * ROW_PX,
+      tailGapPx: 9 * ROW_PX,
       readerAnchor: null,
     });
 
@@ -133,7 +174,7 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     const after = sbRows(sbEl(c));
     for (let i = 0; i < historyNodes.length; i++) expect(after[i]).toBe(historyNodes[i]);
     expect(r.currentFrame!.scrollbackRows.map((entry) => entry.index).slice(-2)).toEqual([760, 761]);
-    expect(r.paintPresentation().tailGapPx).toBe(10 * ROW_PX);
+    expect(r.paintPresentation().tailGapPx).toBe(9 * ROW_PX);
     expect(r.gridText()).toBe("delta-2");
   });
 
@@ -169,15 +210,14 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     }
 
     expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
-    expect(r.currentFrame!.scrollbackTotal).toBe(761);
-    expect(r.currentFrame!.sbBase).toBe(500);
-    expect(r.currentFrame!.scrollbackRows[0]!.index).toBe(500);
-    expect(r.currentFrame!.scrollbackRows.at(-1)!.index).toBe(760);
+    expect(r.currentFrame!.sbBase).toBe(760);
+    expect(r.currentFrame!.scrollbackRows.map((entry) => entry.index)).toEqual([760]);
+    expect(r.backfillAnchor()).toMatchObject({ sbBase: 500, total: 761 });
     expect(spansText((r.currentFrame!.viewportRows[0]!).spans)).toBe("latest-v");
     for (let i = 0; i < historyNodes.length; i++) {
       expect(sbRows(sbEl(c))[i]).toBe(historyNodes[i]);
     }
-    expect(r.paintPresentation().tailGapPx).toBe(10 * ROW_PX);
+    expect(r.paintPresentation().tailGapPx).toBe(9 * ROW_PX);
     expect(c.scrollTopWrites).toBe(1);
     expect(r.atBottom()).toBe(true);
     expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 4 });
@@ -185,24 +225,27 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
   });
 
 
-  test("a renewal full appends its authoritative parked-history bridge", () => {
+  test("a viewport-only renewal retains equivalent painted rows without a bridge", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    seedHeldHistory(r, 80, [row(0, "old-v")], nRows(250, 500), 750);
+    const history = nRows(250, 500);
+    seedHeldHistory(r, 80, [row(0, "old-v")], history, 750);
+    const existing = sbRows(sbEl(c)).slice();
 
     expect(r.applyFullFrame({
       ...fullFrame(80, [row(0, "new-v")], 752),
       streamId: "test-stream:2",
       gridEpoch: "test-grid:0",
       seq: 2,
-      sbBase: 750,
-      scrollbackRows: [row(750, "bridge-750"), row(751, "bridge-751")],
     })).toBe(true);
 
-    expect(r.currentFrame!.scrollbackRows.slice(-2).map((held) =>
-      [held.index, spansText(held.spans)]
-    )).toEqual([[750, "bridge-750"], [751, "bridge-751"]]);
+    expect(r.currentFrame!.scrollbackRows).toEqual([]);
+    expect(r.currentFrame!.sbBase).toBe(752);
+    for (let index = 0; index < existing.length; index++) {
+      expect(sbRows(sbEl(c))[index]).toBe(existing[index]);
+    }
   });
+
 
   test("an incompatible full keeps the reader window immutable until explicit resume", () => {
     const c = makeContainer();
@@ -258,4 +301,42 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
     expect(c.scrollTopWrites).toBe(1);
   });
+  test("a compatible viewport-only checkpoint retains rows that just left the viewport", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const oldViewport = [row(0, "old-0"), row(1, "old-1"), row(2, "old-2")];
+
+    expect(r.applyFullFrame({ ...fullFrame(80, oldViewport, 10), seq: 1 })).toBe(true);
+    expect(r.applyFullFrame({
+      ...fullFrame(80, [row(0, "new-0"), row(1, "new-1"), row(2, "new-2")], 12),
+      seq: 2,
+    })).toBe(true);
+
+    expect(r.currentFrame!.scrollbackRows).toEqual([]);
+    expect(r.hasPaintedScrollbackRange(10, 12)).toBe(true);
+    expect(r.paintPresentation().rows).toEqual([
+      { index: 10, text: "old-0" },
+      { index: 11, text: "old-1" },
+    ]);
+    expect(r.missingScrollbackRange(10)).toBeNull();
+    expect(r.missingScrollbackRange(11)).toBeNull();
+  });
+
+  test("checkpoint tail promotion does not evict demanded head coverage", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const history = nRows(MAX_HELD_SCROLLBACK_ROWS);
+
+    expect(seedHeldHistory(r, 80, [row(0, "old-v")], history, MAX_HELD_SCROLLBACK_ROWS)).toBe(true);
+    expect(r.applyFullFrame({
+      ...fullFrame(80, [row(0, "new-v")], MAX_HELD_SCROLLBACK_ROWS + 1),
+      seq: 3,
+    })).toBe(true);
+
+    expect(r.hasPaintedScrollbackRange(0, MAX_HELD_SCROLLBACK_ROWS + 1)).toBe(true);
+    expect(r.paintPresentation(MAX_HELD_SCROLLBACK_ROWS + 1).rows).toHaveLength(
+      MAX_HELD_SCROLLBACK_ROWS + 1,
+    );
+  });
+
 });

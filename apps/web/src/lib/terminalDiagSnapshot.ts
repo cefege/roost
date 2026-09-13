@@ -136,9 +136,7 @@ export function terminalBrowserStreamSnapshot(sessionId: string): TerminalBrowse
     // A diagnostic read must never perturb terminal ownership or rendering.
   }
   const stream = terminalStreamDiagnosticSnapshot(sessionId);
-  // backfillAnchor is the SAME four values the paging controller addresses history
-  // with, so the probe reports the range the browser is actually asking about
-  // rather than a second derivation of it.
+  // The anchor names the current history epoch and diagnostic lower bound.
   const anchor = renderer?.backfillAnchor() ?? null;
   return {
     session_id: sessionId,
@@ -163,7 +161,7 @@ export function terminalBrowserStreamSnapshot(sessionId: string): TerminalBrowse
       sb_base: anchor?.sbBase ?? null,
       total: anchor?.total ?? null,
       cols: anchor?.cols ?? null,
-      rows_held: renderer?.currentFrame?.scrollbackRows.length ?? 0,
+      rows_held: renderer?.paintedScrollbackRowCount() ?? 0,
       floor: scrollbackHistoryFloor(sessionId),
     },
     last_geometry_proof: entry?.lastGeometryProof ?? null,

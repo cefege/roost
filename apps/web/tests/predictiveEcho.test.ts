@@ -220,6 +220,16 @@ describe("prediction-engine hardening", () => {
     expect(d.srtt).toBe(0);           // never judged
   });
 
+  test("a batch history signal clears predictions from an earlier delta", () => {
+    const pe = mk("always");
+    pe.predict(enc("a"));
+    expect(pe._debug().total).toBe(1);
+
+    pe.onFrame(frame({ seq: 2, full: true, cc: 0, rows: [null] }), true);
+
+    expect(pe._debug().total).toBe(0);
+  });
+
   test("hysteresis: shows through the 20–30 ms dead-band once armed", () => {
     const pe = mk();
     // Arm: a high-RTT confirmation (SRTT/2 > SHOW_ON arms srttTrigger).
@@ -257,9 +267,9 @@ describe("prediction-engine hardening", () => {
     // grid-to-cells.ts:112-114), so viewportRows.length is the dirty-row COUNT,
     // not the viewport height. Resize must be detected via frame.rows (the
     // stable height), else consecutive deltas with differing dirty counts wipe
-    // every prediction and SRTT never gets sampled — the exact failure Step 3
-    // fixes. (The wire hands the predictor the RAW delta, not a diff-grid-
-    // reconstructed full frame — see sync-dispatch._dispatchCell.)
+    // every prediction and SRTT never gets sampled. A single delta reaches the
+    // predictor as sparse input; a coalesced batch supplies its final canonical
+    // viewport so every changed row is judgeable.
     clock.t = 0;
     const pe = new PredictiveEcho(fakeHost(), { mode: () => "adaptive", now: () => clock.t });
     // First FULL frame: 2 viewport rows → seeds the height tracker.

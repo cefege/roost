@@ -105,6 +105,7 @@ export function isTerminalLinkActivationGesture(
 }
 
 export interface TerminalLinkAttachment {
+  setActive(active: boolean): void;
   releaseInteraction(): void;
   openLink(anchor: HTMLAnchorElement): boolean;
   describeLink(anchor: HTMLAnchorElement): string | null;
@@ -117,6 +118,8 @@ export interface TerminalLinkOpts {
   onOpenFile?: (href: string) => void;
   /** Getter so scans see a Git remote that resolves after pane mount. */
   githubOwnerRepo?: () => string | undefined;
+  /** Foreground state at construction; hidden panes install no link work. */
+  initialActive?: boolean;
   /** Holds renderer paint only while the modifier and pointer are both active. */
   onArmedHoverChange?: (active: boolean) => void;
 }
@@ -126,8 +129,11 @@ export function attachTerminalLinks(
   opts: TerminalLinkOpts = {},
 ): TerminalLinkAttachment {
   injectTerminalLinkCssOnce();
-  const scanner = attachTerminalLinkScanner(container, opts);
+  const initialActive = opts.initialActive ?? true;
+  const scanner = attachTerminalLinkScanner(container, opts, initialActive);
   const modKey = terminalLinkModifierKey();
+  let active = initialActive;
+  let disposed = false;
   let armed = false;
   let pointerInside = false;
   let holding = false;
@@ -137,8 +143,8 @@ export function attachTerminalLinks(
     if (next === holding) return;
     holding = next;
     opts.onArmedHoverChange?.(next);
-    // Repaint can have replaced every inferred anchor since the last hover.
-    if (armed) scanner.requestFullScan();
+    // Repaint can have replaced inferred anchors in the current terminal tail.
+    if (active && armed) scanner.requestCurrentScan();
   };
   const setArmed = (next: boolean): void => {
     if (next === armed) return;
@@ -179,13 +185,6 @@ export function attachTerminalLinks(
   const onPointerModifiers = (event: MouseEvent): void => {
     setArmed(modifierHeld(event));
   };
-  window.addEventListener("keydown", onKeyDown);
-  window.addEventListener("keyup", onKeyUp);
-  window.addEventListener("blur", releaseInteraction);
-  container.addEventListener("mouseenter", onPointerEnter);
-  container.addEventListener("mouseleave", onPointerLeave);
-  container.addEventListener("mousemove", onPointerModifiers);
-  container.addEventListener("mousedown", onPointerModifiers);
 
   const showHint = (anchor: HTMLElement): void => {
     const text = anchor.dataset.hint;
@@ -251,12 +250,25 @@ export function attachTerminalLinks(
     }
     hideHint();
   };
-  container.addEventListener("mouseover", onOver);
-  container.addEventListener("mouseout", onOut);
-  container.addEventListener("click", onClick);
 
-  const dispose = (): void => {
-    scanner.dispose();
+  let interactionListenersAttached = false;
+  const attachInteractionListeners = (): void => {
+    if (interactionListenersAttached) return;
+    interactionListenersAttached = true;
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", releaseInteraction);
+    container.addEventListener("mouseover", onOver);
+    container.addEventListener("mouseout", onOut);
+    container.addEventListener("mouseenter", onPointerEnter);
+    container.addEventListener("mouseleave", onPointerLeave);
+    container.addEventListener("mousemove", onPointerModifiers);
+    container.addEventListener("mousedown", onPointerModifiers);
+    container.addEventListener("click", onClick);
+  };
+  const detachInteractionListeners = (): void => {
+    if (!interactionListenersAttached) return;
+    interactionListenersAttached = false;
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
     window.removeEventListener("blur", releaseInteraction);
@@ -267,9 +279,29 @@ export function attachTerminalLinks(
     container.removeEventListener("mousemove", onPointerModifiers);
     container.removeEventListener("mousedown", onPointerModifiers);
     container.removeEventListener("click", onClick);
-    releaseInteraction();
+  };
+  const setActive = (nextActive: boolean): void => {
+    if (disposed || nextActive === active) return;
+    active = nextActive;
+    if (!active) {
+      detachInteractionListeners();
+      releaseInteraction();
+      scanner.setActive(false);
+      return;
+    }
+    scanner.setActive(true);
+    attachInteractionListeners();
+  };
+
+  if (active) attachInteractionListeners();
+
+  const dispose = (): void => {
+    if (disposed) return;
+    setActive(false);
+    disposed = true;
+    scanner.dispose();
     hintElement?.remove();
     hintElement = null;
   };
-  return { releaseInteraction, openLink, describeLink, dispose };
+  return { setActive, releaseInteraction, openLink, describeLink, dispose };
 }

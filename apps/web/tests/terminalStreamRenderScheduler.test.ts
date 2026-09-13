@@ -108,7 +108,7 @@ describe("terminal stream renderer scheduling", () => {
     }
   });
 
-  test("repairs a renderer-only dropped delta with retained scrollback", () => {
+  test("repairs a renderer-only dropped delta with a viewport-only checkpoint", () => {
     const frames = installAnimationFrameQueue();
     try {
       const view = terminalStream.createTerminalView(SESSION_ID);
@@ -143,10 +143,10 @@ describe("terminal stream renderer scheduling", () => {
         full: true,
         baseSeq: 0,
         seq: 3,
-        sbBase: 0,
+        sbBase: 2,
         scrollbackTotal: 2,
       });
-      expect(repair?.scrollbackRows.map((row) => row.spans[0]?.text)).toEqual(["A", "B"]);
+      expect(repair?.scrollbackRows).toEqual([]);
       view.dispose();
     } finally {
       frames.restore();

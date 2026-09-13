@@ -114,6 +114,7 @@ export class TestSocket {
   sendCalls = 0;
   sendResult = 1;
   bufferedAmountCalls = 0;
+  encodedApplicationFrames = 0;
 
   constructor(viewerKey: string) {
     this.data = {
@@ -224,6 +225,10 @@ export function makeHarness(
     rearmApplicationDeadline(target) {
       delivery.rearmApplicationDeadline(target);
     },
+    encodeApplicationFrame(frame) {
+      socket.encodedApplicationFrames++;
+      return toBinary(FirehoseFrameSchema, frame);
+    },
     requestTerminalRebaseline(targetWs, sessionId) {
       if (targetWs !== ws) return false;
       rebaselineRequests.push(sessionId);
@@ -284,13 +289,6 @@ export function makeState(sessionId: string, streamId: string): FirehoseFrame {
   });
 }
 
-export function estimatedTerminalBytes(frame: FirehoseFrame, generation: bigint): number {
-  const owned = clone(FirehoseFrameSchema, frame);
-  owned.deliverySeq = 0n;
-  owned.domain = SyncDomain.TERMINAL;
-  owned.domainGeneration = generation;
-  return toBinary(FirehoseFrameSchema, owned).byteLength + 10;
-}
 export function snapshotSource(frames: readonly FirehoseFrame[]): TerminalSnapshotSource {
   const sourceFrames = frames.map((frame) => clone(FirehoseFrameSchema, frame));
   return {

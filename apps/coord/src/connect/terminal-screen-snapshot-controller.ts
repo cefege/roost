@@ -23,7 +23,7 @@ interface TerminalScreenSnapshotControllerOptions {
   requestSnapshot(sessionId: string, streamId: string): void;
   unavailable(sessionId: string, reason: string): void;
   requestFreshStream(sessionId: string, expectedStreamId: string, reason: string): void;
-  snapshotSource(cache: ResidentCache): TerminalSnapshotSource;
+  snapshotSource(sessionId: string, cache: ResidentCache): TerminalSnapshotSource;
   setTimer(callback: () => void, delayMs: number): NodeJS.Timeout;
   clearTimer(timer: NodeJS.Timeout): void;
   now(): number;
@@ -43,6 +43,7 @@ export class TerminalScreenSnapshotController {
           assembler: new CellGridChunkAssembler(),
           timer: null,
           timerGeneration: null,
+          snapshotCoordRecvMs: null,
         },
         resyncLatched: false,
         repair: {
@@ -64,7 +65,7 @@ export class TerminalScreenSnapshotController {
     cache: ResidentCache,
   ): boolean {
     try {
-      const source = cache.source ?? this.options.snapshotSource(cache);
+      const source = cache.source ?? this.options.snapshotSource(sessionId, cache);
       cache.source = source;
       return socket.sink.replaceTerminalSnapshot(sessionId, streamId, source);
     } catch (error) {
@@ -97,6 +98,7 @@ export class TerminalScreenSnapshotController {
       state.chunks.timer = null;
       state.chunks.timerGeneration = null;
       if (!state.chunks.assembler.expire(this.options.now())) return;
+      state.chunks.snapshotCoordRecvMs = null;
       state.hold.clear();
       this.retry(sessionId, state, "terminal snapshot chunk transfer stalled");
     }, CELL_GRID_CHUNK_STALL_MS);
@@ -110,6 +112,7 @@ export class TerminalScreenSnapshotController {
     state.chunks.timer = null;
     state.chunks.timerGeneration = null;
     state.chunks.assembler.reset();
+    state.chunks.snapshotCoordRecvMs = null;
   }
 
   cancelRequestTimer(state: SessionScreen, resetAttempt: boolean): void {

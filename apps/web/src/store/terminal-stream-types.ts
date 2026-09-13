@@ -30,8 +30,16 @@ export type TerminalViewHandleStatus =
     };
 
 export interface TerminalRendererDelivery {
+  /** Last wire-frame state in the applied operation, retained for activity semantics. */
   frame: CellGridFrame;
+  /** Whether the last wire frame was an authoritative full baseline. */
   full: boolean;
+  /** The applied operation includes a wire full baseline. */
+  hadWireFull: boolean;
+  /** Complete canonical frame after the applied operation, used by non-DOM consumers. */
+  canonical: CellGridFrame;
+  /** Any batched delta appended history, even if the final delta did not. */
+  scrollbackAppended: boolean;
 }
 
 /** Chunked-baseline attach progress for one session replica. Mirrors

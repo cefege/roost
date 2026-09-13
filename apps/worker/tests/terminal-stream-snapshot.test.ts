@@ -7,14 +7,18 @@ import {
   type PbCellGridChunk,
   type PbCellGridFrame,
 } from "@roost/shared/proto/cell_pb";
-import { installSnapshotCursor } from "../src/session-snapshot-cursor.ts";
+import {
+  installSnapshotCursor,
+  prepareCellRenewalEpoch,
+} from "../src/session-snapshot-cursor.ts";
 import {
   CELL_GRID_PART_MAX_BYTES,
   encodedCellGridChunkSize,
+  initCellEmitState,
 } from "@roost/shared/cell";
-import type { TerminalCellSendResult } from "../src/transport/coord-link-types.ts";
 import type { SessionManager } from "../src/session-manager.ts";
 import type { TerminalStreamState } from "../src/session-terminal-state.ts";
+import type { TerminalCellSendResult } from "../src/transport/coord-link-types.ts";
 import { applyResizeResultAtBoundary, installLiveResizeCapture } from "../src/session-resize-capture.ts";
 import { installAutoKeeper } from "./keeper-fake-pool.ts";
 import {
@@ -31,7 +35,54 @@ import {
 
 afterEach(cleanupStreamHarnesses);
 
+function renewalCore(options: {
+  cols?: number;
+  rows?: number;
+  alt?: boolean;
+  scrollbackCount?: number;
+  discarded?: number;
+} = {}): TerminalCore {
+  return {
+    getCols: () => options.cols ?? 80,
+    getRows: () => options.rows ?? 24,
+    usingAltScreen: () => options.alt ?? false,
+    getScrollbackCount: () => options.scrollbackCount ?? 15,
+    getScrollbackDiscardedCount: () => options.discarded ?? 2,
+  } as unknown as TerminalCore;
+}
+
+function renewalEmitState() {
+  return {
+    ...initCellEmitState("renewal-grid", STREAM_A),
+    gridEpochRevision: 7,
+    sentFull: true,
+    cols: 80,
+    rows: 24,
+    alt: false,
+    lastSbTotal: 20,
+    sbOrigin: 3,
+    sbDropped: 5,
+  };
+}
+
 describe("worker terminal snapshot cursor", () => {
+  test("preserves only compatible renewal epochs", () => {
+    const compatible = renewalEmitState();
+    prepareCellRenewalEpoch(renewalCore(), compatible);
+    expect(compatible.gridEpochRevision).toBe(7);
+
+    for (const core of [
+      renewalCore({ cols: 81 }),
+      renewalCore({ alt: true }),
+      renewalCore({ discarded: 18 }),
+      renewalCore({ scrollbackCount: 14 }),
+    ]) {
+      const incompatible = renewalEmitState();
+      prepareCellRenewalEpoch(core, incompatible);
+      expect(incompatible.gridEpochRevision).toBe(8);
+    }
+  });
+
   test("resumes the exact chunk and promotes an oversized dirty delta to a second full", async () => {
     trackKeeper(installAutoKeeper({ cols: 256, rows: 256 }));
     const core = new DenseLinkedCore();

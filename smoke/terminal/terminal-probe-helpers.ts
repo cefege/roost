@@ -10,6 +10,12 @@ import type {
   RecoverySmokeApi,
 } from "./terminal-smoke-api.ts";
 
+type RecoveredLiveOptions = {
+  predictiveCursor?: boolean;
+  streamTransition?: "continuous" | "rebaseline";
+  rebaselineEpoch?: "same" | "changed";
+};
+
 export async function readTerminalStreamProbe(page: Page, sessionId: string): Promise<TerminalStreamProbe> {
   return page.evaluate((id) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
@@ -125,14 +131,51 @@ export function expectCanonicalAdvanceHeld(
 export function expectRecoveredLive(
   pending: TerminalStreamProbe,
   recovered: TerminalStreamProbe,
-  options: { predictiveCursor?: boolean } = {},
+  options: RecoveredLiveOptions = {},
 ): void {
   const pendingCanonical = pending.browser.handler_canonical;
   const canonical = recovered.browser.handler_canonical;
-  if (pendingCanonical.seq === null || canonical.seq === null) {
-    throw new Error("terminal stream recovery omitted a canonical sequence");
+  const pendingStreamId = pending.browser.replica.expected_stream_id;
+  const recoveredStreamId = recovered.browser.replica.expected_stream_id;
+  if (
+    pendingCanonical.seq === null
+    || pendingCanonical.grid_epoch === null
+    || canonical.seq === null
+    || canonical.grid_epoch === null
+    || pendingStreamId === null
+    || recoveredStreamId === null
+  ) {
+    throw new Error("terminal stream recovery omitted a canonical stream watermark");
   }
-  expect(canonical.seq).toBeGreaterThanOrEqual(pendingCanonical.seq);
+  expect(pending.browser.view.stream_id).toBe(pendingStreamId);
+  expect(recovered.browser.view.stream_id).toBe(recoveredStreamId);
+  expect(recovered.browser.replica).toMatchObject({
+    expected_stream_id: recoveredStreamId,
+    baseline_ready: true,
+    resync_latched: false,
+  });
+  expect(recovered.browser.wire_received).toEqual({
+    stream_id: recoveredStreamId,
+    ...canonical,
+  });
+  if (options.streamTransition === "rebaseline") {
+    const pendingRevision = pending.browser.view.revision;
+    const recoveredRevision = recovered.browser.view.revision;
+    if (pendingRevision === null || recoveredRevision === null) {
+      throw new Error("terminal stream rebaseline omitted a view revision");
+    }
+    expect(recoveredStreamId).not.toBe(pendingStreamId);
+    expect(BigInt(recoveredRevision)).toBeGreaterThan(BigInt(pendingRevision));
+    if (options.rebaselineEpoch === "changed") {
+      expect(canonical.grid_epoch).not.toBe(pendingCanonical.grid_epoch);
+    } else if (options.rebaselineEpoch === "same") {
+      expect(canonical.grid_epoch).toBe(pendingCanonical.grid_epoch);
+    }
+    expect(canonical.seq).toBe(1);
+  } else {
+    expect(recoveredStreamId).toBe(pendingStreamId);
+    expect(canonical.seq).toBeGreaterThanOrEqual(pendingCanonical.seq);
+  }
   expect(recovered.browser.dom_reconciled).toEqual(canonical);
   expect(recovered.browser.presentation?.canonical).toEqual(canonical);
   expect(recovered.browser.presentation?.reconciled).toEqual(canonical);
@@ -148,6 +191,22 @@ export function expectRecoveredLive(
   } else {
     expect(recovered.browser.reconcile_block_reason).toBeNull();
   }
+}
+
+export async function waitForRecoveredLive(
+  page: Page,
+  sessionId: string,
+  pending: TerminalStreamProbe,
+  options: RecoveredLiveOptions = {},
+): Promise<TerminalStreamProbe> {
+  let recovered: TerminalStreamProbe | null = null;
+  await expect.poll(async () => {
+    recovered = await readTerminalStreamProbe(page, sessionId);
+    return recoveredWatermarksConverged(pending, recovered, options);
+  }, { timeout: 10_000, intervals: [50, 100, 250] }).toBe(true);
+  if (recovered === null) throw new Error("terminal stream recovery did not return a probe");
+  expectRecoveredLive(pending, recovered, options);
+  return recovered;
 }
 export function expectPaintedScrollbackWellFormed(
   painted: PaintedScrollbackProbe,
@@ -192,6 +251,57 @@ export function expectPaintedRowsPreserved(
   }
 }
 
+function recoveredWatermarksConverged(
+  pending: TerminalStreamProbe,
+  recovered: TerminalStreamProbe,
+  options: RecoveredLiveOptions,
+): boolean {
+  const pendingCanonical = pending.browser.handler_canonical;
+  const canonical = recovered.browser.handler_canonical;
+  const pendingStreamId = pending.browser.replica.expected_stream_id;
+  const recoveredStreamId = recovered.browser.replica.expected_stream_id;
+  const presentation = recovered.browser.presentation;
+  if (
+    pendingCanonical.seq === null
+    || pendingCanonical.grid_epoch === null
+    || canonical.seq === null
+    || canonical.grid_epoch === null
+    || pendingStreamId === null
+    || recoveredStreamId === null
+    || !recovered.browser.replica.baseline_ready
+    || recovered.browser.replica.resync_latched
+    || recovered.browser.view.stream_id !== recoveredStreamId
+    || recovered.browser.wire_received.stream_id !== recoveredStreamId
+    || recovered.browser.wire_received.grid_epoch !== canonical.grid_epoch
+    || recovered.browser.wire_received.seq !== canonical.seq
+    || recovered.browser.dom_reconciled.grid_epoch !== canonical.grid_epoch
+    || recovered.browser.dom_reconciled.seq !== canonical.seq
+    || presentation === null
+    || presentation.canonical.grid_epoch !== canonical.grid_epoch
+    || presentation.canonical.seq !== canonical.seq
+    || presentation.reconciled.grid_epoch !== canonical.grid_epoch
+    || presentation.reconciled.seq !== canonical.seq
+  ) return false;
+  if (options.streamTransition !== "rebaseline") {
+    return recoveredStreamId === pendingStreamId && canonical.seq >= pendingCanonical.seq;
+  }
+  const pendingRevision = pending.browser.view.revision;
+  const recoveredRevision = recovered.browser.view.revision;
+  if (
+    pendingRevision === null
+    || recoveredRevision === null
+    || recoveredStreamId === pendingStreamId
+    || canonical.seq !== 1
+    || BigInt(recoveredRevision) <= BigInt(pendingRevision)
+  ) return false;
+  if (options.rebaselineEpoch === "changed") {
+    return canonical.grid_epoch !== pendingCanonical.grid_epoch;
+  }
+  if (options.rebaselineEpoch === "same") {
+    return canonical.grid_epoch === pendingCanonical.grid_epoch;
+  }
+  return true;
+}
 
 function unknownRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)

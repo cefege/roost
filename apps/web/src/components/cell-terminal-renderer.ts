@@ -84,10 +84,13 @@ export function mountCellTerminalRenderer(
 			presentation.notifyBackfill(currentRenderer.prepareLiveInteraction());
 			return;
 		}
-		presentation.notifyBackfill(currentRenderer.handleScroll());
-		if (!currentRenderer.atBottom() && currentRenderer.nearHistoryTop()) {
-			backfill.onUserScrollUp();
+		const interaction = currentRenderer.handleScroll();
+		presentation.notifyBackfill(interaction);
+		if (currentRenderer.atBottom()) {
+			if (currentRenderer.readerIntent === "live") backfill.suspend();
+			return;
 		}
+		backfill.onUserScroll();
 	};
 	display.addEventListener("scroll", onScroll, { passive: true });
 	const detachPointerGestureGuard = presentation.attachPointerGestureGuard();
@@ -135,7 +138,12 @@ export function mountCellTerminalRenderer(
 		},
 	);
 	const ghostMap = new Map<string, { x: number; y: number; label?: string }>();
-	const unsubscribeRenderer = view.subscribeRenderer(renderer, ({ frame }) => {
+	const unsubscribeRenderer = view.subscribeRenderer(renderer, ({
+		frame,
+		canonical: canonicalFrame,
+		scrollbackAppended,
+		hadWireFull,
+	}) => {
 		const diagnosticsEnabled = isDiagEnabled();
 		const frameArrivedAt = diagnosticsEnabled ? performance.now() : 0;
 		const sentAt = consumeLastInputSendTs(runtime.sessionId);
@@ -200,8 +208,8 @@ export function mountCellTerminalRenderer(
 		signals.setMouseTracking(frame.mouseTracking);
 		lastCursorRow = frame.cursorRow;
 		lastCursorCol = frame.cursorCol;
-		runtime.predictor?.onFrame(frame);
-		if (frame.full) backfill.onFullFrame();
+		runtime.predictor?.onFrame(canonicalFrame, scrollbackAppended);
+		if (hadWireFull) backfill.onFullFrame();
 	}, () => _terminalForegroundWorkAllowed(viewport));
 	markPhase("terminal_mount", { sessionId: runtime.sessionId });
 

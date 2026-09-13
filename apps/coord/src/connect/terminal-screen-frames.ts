@@ -4,9 +4,11 @@
 import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import {
+  CELL_GRID_COORD_FANOUT_STAMP_MAX,
   createCellGridSnapshotSource,
   type CellGridFrame,
   type CellGridSnapshotCursor,
+  type CellGridSnapshotSource,
 } from "@roost/shared/cell";
 import { type PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import {
@@ -59,17 +61,26 @@ function firehoseSnapshotCursor(
   };
 }
 
+function reserveFanoutStamp(frame: PbCellGridFrame): PbCellGridFrame {
+  // Snapshot planning includes the egress-only value that replaces this per recipient.
+  return { ...frame, coordFanoutMs: CELL_GRID_COORD_FANOUT_STAMP_MAX };
+}
+
 export function terminalSnapshotSource(
-  full: PbCellGridFrame,
+  produceFull: () => PbCellGridFrame,
   lease?: TerminalSnapshotLease,
 ): TerminalSnapshotSource {
-  const source = createCellGridSnapshotSource(full);
+  let materializedSource: CellGridSnapshotSource | null = null;
   return {
     createCursor() {
       if (lease && !lease.acquire()) {
         throw new Error("terminal snapshot source is no longer resident");
       }
       try {
+        // A cache may be superseded before scheduler admission; only a leased cursor may encode it.
+        const source = materializedSource
+          ?? createCellGridSnapshotSource(reserveFanoutStamp(produceFull()));
+        materializedSource = source;
         return firehoseSnapshotCursor(source.createCursor(randomUUID()), lease);
       } catch (error) {
         lease?.release();
@@ -79,17 +90,13 @@ export function terminalSnapshotSource(
   };
 }
 
-export function countCellGridSpans(frame: CellGridFrame): number {
+/** Cache residency is viewport-only even when an older worker supplies a
+ * history-bearing frame that was validated before canonical normalization. */
+export function countTerminalScreenCacheSpans(frame: CellGridFrame): number {
   let spans = 0;
-  for (const row of frame.scrollbackRows) spans += row.spans.length;
   for (const row of frame.viewportRows) spans += row.spans.length;
   return spans;
 }
-
-export function countCellGridRows(frame: CellGridFrame): number {
-  return frame.scrollbackRows.length + frame.rows;
-}
-
 
 export interface TerminalScreenSnapshot {
   streamId: string;

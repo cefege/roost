@@ -1,3 +1,7 @@
+// Scrollback demand-paging tests exercise request fencing without a browser DOM.
+// The renderer harness models absolute painted rows and exact missing intervals.
+// DOM insertion and placeholder ownership remain covered by renderer DOM tests.
+
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { CellRow } from "@roost/shared/cell";
 import { ScrollbackHistoryFloor } from "@roost/shared/proto/coordinator_pb";
@@ -34,11 +38,6 @@ mock.module("../src/connect.ts", () => ({
   },
 }));
 
-// `diag` is a no-op unless ROOST_DIAG was set BEFORE @roost/shared/diag first
-// evaluated, and bun shares one module registry across test files — so any file
-// that loads diag earlier in the profile bakes the disabled emitter in. Mock the
-// emitter instead of racing that gate: order-independent, and the always-on
-// signal channel plus the sink setters stay real for every other module.
 const diagEvents: Array<Record<string, unknown>> = [];
 const realDiag = await import("@roost/shared/diag");
 mock.module("@roost/shared/diag", () => ({
@@ -46,8 +45,6 @@ mock.module("@roost/shared/diag", () => ({
   diag(evt: string, kv: Record<string, unknown>) { diagEvents.push({ evt, ...kv }); },
 }));
 
-// The Connect client and the diag emitter must both be mocked before the
-// controller module is evaluated.
 const {
   createScrollbackBackfill,
   scrollbackHistoryFloor,
@@ -58,61 +55,115 @@ const GRID_EPOCH = "test-grid:0";
 function response(
   startRow: number,
   endRow: number,
-  total = 1000,
-  historyFloor = ScrollbackHistoryFloor.UNSPECIFIED,
+  total: number,
+  options: {
+    gridEpoch?: string;
+    cols?: number;
+    historyFloor?: ScrollbackHistoryFloor;
+  } = {},
 ): ScrollResponse {
   return {
-    cols: 80,
+    cols: options.cols ?? 80,
     scrollbackTotal: BigInt(total),
     startRow: BigInt(startRow),
     endRow: BigInt(endRow),
-    gridEpoch: GRID_EPOCH,
-    historyFloor,
+    gridEpoch: options.gridEpoch ?? GRID_EPOCH,
+    historyFloor: options.historyFloor ?? ScrollbackHistoryFloor.UNSPECIFIED,
     rows: Array.from({ length: endRow - startRow }, (_, offset) => {
-      const text = `row-${startRow + offset}`;
-      return { index: startRow + offset, spans: [{ text, columns: text.length, fg: 256, bg: 256, flags: 0 }] };
+      const index = startRow + offset;
+      return {
+        index,
+        spans: [{ text: `row-${index}`, columns: 5, fg: 256, bg: 256, flags: 0 }],
+      };
     }),
   };
 }
 
-/** `stopAt` is the sbBase the paint is expected to settle on: 0 for a wave that
- *  reaches the beginning, the retained floor for one that is clamped short. */
-function harness(bottom: boolean, opts?: { sessionId?: string; stopAt?: number }) {
-  const sessionId = opts?.sessionId ?? "session-1";
-  const stopAt = opts?.stopAt ?? 0;
-  const anchor = { sbBase: 1000, cols: 80, total: 1000, gridEpoch: GRID_EPOCH };
-  const prepends: CellRow[][] = [];
-  let painted: CellRow[] = [];
-  const paintComplete = Promise.withResolvers<void>();
+function harness(options: {
+  total?: number;
+  painted?: readonly number[];
+  focus?: number | null;
+  sessionId?: string;
+  bottom?: boolean;
+  readerAnchor?: { row: number; offsetPx: number };
+} = {}) {
+  const anchor = {
+    sbBase: options.painted?.[0] ?? options.total ?? 0,
+    cols: 80,
+    total: options.total ?? 760,
+    gridEpoch: GRID_EPOCH,
+  };
+  const painted = new Set(options.painted ?? []);
+  const insertions: CellRow[][] = [];
+  let visibleFocus = options.focus ?? null;
+  let bottom = options.bottom ?? false;
   let active = true;
+  const restoredAnchors: Array<{ row: number; offsetPx: number }> = [];
+  function missing(absIndex: number): { start: number; end: number } | null {
+    if (!Number.isInteger(absIndex) || absIndex < 0 || absIndex >= anchor.total || painted.has(absIndex)) {
+      return null;
+    }
+    let start = absIndex;
+    let end = absIndex + 1;
+    while (start > 0 && !painted.has(start - 1)) start--;
+    while (end < anchor.total && !painted.has(end)) end++;
+    return { start, end };
+  }
+
   const renderer = {
     backfillAnchor: () => ({ ...anchor }),
-    nearHistoryTop: () => true,
     atBottom: () => bottom,
-    prependScrollback(rows: readonly CellRow[]) {
-      const copy = Array.from(rows);
-      prepends.push(copy);
-      painted = copy.concat(painted);
-      anchor.sbBase -= copy.length;
-      if (anchor.sbBase === stopAt) paintComplete.resolve();
+    missingScrollbackRange: missing,
+    missingScrollbackRangeAtScroll: () => {
+      const focus = visibleFocus;
+      const gap = focus === null ? null : missing(focus);
+      return gap === null || focus === null ? null : { ...gap, focusRow: focus };
     },
-  } as unknown as CellGridRenderer;
+    hasPaintedScrollbackRange(start: number, end: number) {
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start >= end || end > anchor.total) {
+        return false;
+      }
+      for (let index = start; index < end; index++) if (!painted.has(index)) return false;
+      return true;
+    },
+    insertHistoryPage(rows: readonly CellRow[]) {
+      const start = rows[0]?.index;
+      const end = start === undefined ? undefined : start + rows.length;
+      const gap = start === undefined ? null : missing(start);
+      if (!gap || end === undefined || end > gap.end) return false;
+      for (let offset = 0; offset < rows.length; offset++) {
+        if (rows[offset]!.index !== start + offset) return false;
+      }
+      insertions.push(Array.from(rows));
+      for (const row of rows) painted.add(row.index);
+      if (start < anchor.sbBase) anchor.sbBase = start;
+      return true;
+    },
+    readerAnchorForBackfill: () => options.readerAnchor ? { ...options.readerAnchor } : null,
+    restoreReaderAnchor(anchor: { row: number; offsetPx: number }) {
+      restoredAnchors.push(anchor);
+      return true;
+    },
+  };
   const controller = createScrollbackBackfill({
-    sessionId,
+    sessionId: options.sessionId ?? "session-1",
     renderer: () => renderer,
     active: () => active,
   });
   return {
     anchor,
-    prepends,
-    painted: () => painted,
-    complete: paintComplete.promise,
+    painted,
+    insertions,
+    restoredAnchors,
     controller,
+    setFocus(next: number | null) { visibleFocus = next; },
+    setBottom(next: boolean) { bottom = next; },
+    setActive(next: boolean) { active = next; },
   };
 }
 
 async function flushWork(): Promise<void> {
-  for (let i = 0; i < 4; i++) await Promise.resolve();
+  for (let index = 0; index < 24; index++) await Promise.resolve();
 }
 
 const originalAnimationFrame = globalThis.requestAnimationFrame;
@@ -139,236 +190,201 @@ afterAll(() => {
 beforeEach(() => {
   rpcCalls.length = 0;
   diagEvents.length = 0;
-  rpcImpl = async () => response(0, 1000);
+  rpcImpl = async (request) => response(
+    Number(request.endRow) - request.maxRows,
+    Number(request.endRow),
+    760,
+  );
 });
 
-describe("ScrollbackBackfill demand and cancellation", () => {
-  test("a bottom full frame performs no history RPC", async () => {
-    const h = harness(true);
+describe("ScrollbackBackfill arbitrary gap paging", () => {
+  test("fills a bounded short tail gap from its reader focus", async () => {
+    const h = harness({
+      total: 760,
+      painted: Array.from({ length: 250 }, (_, index) => index + 500),
+      focus: 755,
+    });
+    rpcImpl = async (request) => response(750, Number(request.endRow), 760);
+
+    h.controller.onUserScroll();
+    await flushWork();
+    expect(rpcCalls[0]).toEqual({
+      sessionId: "session-1", endRow: 760n, maxRows: 10, gridEpoch: GRID_EPOCH,
+    });
+    expect(h.insertions[0]!.map((row) => row.index)).toEqual(
+      Array.from({ length: 10 }, (_, index) => index + 750),
+    );
+    expect(h.painted.has(759)).toBe(true);
+    h.controller.dispose();
+  });
+
+  test("pages head and interior gaps without inferring coverage from sbBase", async () => {
+    const head = harness({ total: 300, focus: 50 });
+    rpcImpl = async (request) => response(0, Number(request.endRow), 300);
+    head.controller.onUserScroll();
+    await flushWork();
+    expect(rpcCalls[0]!.endRow).toBe(300n);
+    expect(rpcCalls[0]!.maxRows).toBe(300);
+
+    rpcCalls.length = 0;
+    const painted = [
+      ...Array.from({ length: 100 }, (_, index) => index),
+      ...Array.from({ length: 100 }, (_, index) => index + 200),
+    ];
+    const interior = harness({ total: 300, painted, focus: 150 });
+    rpcImpl = async (request) => response(100, Number(request.endRow), 300);
+    interior.controller.onUserScroll();
+    await flushWork();
+    expect(rpcCalls[0]).toEqual({
+      sessionId: "session-1", endRow: 200n, maxRows: 100, gridEpoch: GRID_EPOCH,
+    });
+    expect(interior.painted.has(150)).toBe(true);
+    head.controller.dispose();
+    interior.controller.dispose();
+  });
+
+  test("bounds a deep-gap request to a forward page containing the reader", async () => {
+    const h = harness({ total: 12_000, focus: 10_000 });
+    rpcImpl = async (request) => response(
+      Number(request.endRow) - request.maxRows,
+      Number(request.endRow),
+      12_000,
+    );
+
+    h.controller.onUserScroll();
+    await flushWork();
+
+    expect(rpcCalls[0]).toEqual({
+      sessionId: "session-1", endRow: 11_000n, maxRows: 1_000, gridEpoch: GRID_EPOCH,
+    });
+    expect(h.painted.has(10_000)).toBe(true);
+    h.controller.dispose();
+  });
+
+  test("a short interior response records its actual retained floor, not the gap edge", async () => {
+    const painted = [
+      ...Array.from({ length: 100 }, (_, index) => index),
+      ...Array.from({ length: 100 }, (_, index) => index + 200),
+    ];
+    const h = harness({ total: 300, painted, focus: 150, sessionId: "interior-floor" });
+    rpcImpl = async (request) => response(
+      120,
+      Number(request.endRow),
+      300,
+      { historyFloor: ScrollbackHistoryFloor.EVICTED },
+    );
+
+    h.controller.onUserScroll();
+    await flushWork();
+    expect(scrollbackHistoryFloor("interior-floor")).toEqual({ row: 120, reason: "evicted" });
+    expect(h.painted.has(150)).toBe(true);
+    expect(h.painted.has(119)).toBe(false);
+    h.controller.dispose();
+  });
+
+  test("find supersedes an obsolete scroll response before it can paint", async () => {
+    const h = harness({
+      total: 760,
+      painted: Array.from({ length: 250 }, (_, index) => index + 500),
+      focus: 755,
+    });
+    const stale = Promise.withResolvers<ScrollResponse>();
+    let calls = 0;
+    rpcImpl = (request) => ++calls === 1
+      ? stale.promise
+      : Promise.resolve(response(0, Number(request.endRow), 760));
+
+    h.controller.onUserScroll();
+    await flushWork();
+    const ensured = h.controller.ensureRowPainted(100);
+    await flushWork();
+    stale.resolve(response(750, 756, 760));
+    expect(await ensured).toBe(true);
+    await flushWork();
+    expect(h.painted.has(755)).toBe(false);
+    expect(h.painted.has(100)).toBe(true);
+    h.controller.dispose();
+  });
+
+
+  test("a user scroll supersedes a delayed reader-anchor restore", async () => {
+    const h = harness({ total: 760, focus: 100, readerAnchor: { row: 700, offsetPx: 0 } });
+    const delayedRestore = Promise.withResolvers<ScrollResponse>();
+    let calls = 0;
+    rpcImpl = (request) => ++calls === 1
+      ? delayedRestore.promise
+      : Promise.resolve(response(0, Number(request.endRow), 760));
+
+    h.controller.onFullFrame();
+    await flushWork();
+    h.controller.onUserScroll();
+    await flushWork();
+    expect(rpcCalls).toHaveLength(2);
+
+    delayedRestore.resolve(response(0, 760, 760));
+    await flushWork();
+    expect(h.restoredAnchors).toEqual([]);
+    expect(h.painted.has(100)).toBe(true);
+    h.controller.dispose();
+  });
+  test("rejects stale responses, cancels suspended or rewound work, and accepts monotonic growth", async () => {
+    const staleEpoch = harness({ total: 300, focus: 100 });
+    rpcImpl = async (request) => response(0, Number(request.endRow), 300, { gridEpoch: "other:0" });
+    staleEpoch.controller.onUserScroll();
+    await flushWork();
+    expect(staleEpoch.insertions).toHaveLength(0);
+    expect(diagEvents.find((event) => event.guard === "epoch")).toBeDefined();
+
+    const cancelled = harness({ total: 300, focus: 100 });
+    const pending = Promise.withResolvers<ScrollResponse>();
+    rpcImpl = () => pending.promise;
+    cancelled.controller.onUserScroll();
+    await flushWork();
+    cancelled.controller.suspend();
+    pending.resolve(response(0, 101, 300));
+    await flushWork();
+    expect(cancelled.insertions).toHaveLength(0);
+
+    const rewound = harness({ total: 300, focus: 100 });
+    const rewindResponse = Promise.withResolvers<ScrollResponse>();
+    rpcImpl = () => rewindResponse.promise;
+    rewound.controller.onUserScroll();
+    await flushWork();
+    rewound.anchor.total = 99;
+    rewound.controller.onFullFrame();
+    rewindResponse.resolve(response(0, 101, 300));
+    await flushWork();
+    expect(rewound.insertions).toHaveLength(0);
+
+    const growing = harness({ total: 300, focus: 100 });
+    const growingResponse = Promise.withResolvers<ScrollResponse>();
+    rpcImpl = () => growingResponse.promise;
+    growing.controller.onUserScroll();
+    await flushWork();
+    growing.anchor.total = 360;
+    growingResponse.resolve(response(0, 300, 360));
+    await flushWork();
+    expect(growing.painted.has(100)).toBe(true);
+    staleEpoch.controller.dispose();
+    cancelled.controller.dispose();
+    rewound.controller.dispose();
+    growing.controller.dispose();
+  });
+
+  test("full frames do not prefetch and ensureRowPainted resolves only after insertion", async () => {
+    const h = harness({ total: 300, focus: 100, bottom: false });
     h.controller.onFullFrame();
     await flushWork();
     expect(rpcCalls).toHaveLength(0);
-    expect(h.prepends).toHaveLength(0);
-    h.controller.dispose();
-  });
 
-  test("an off-bottom scroll requests a disjoint epoch page and prepends it", async () => {
-    const h = harness(false);
-    h.controller.onUserScrollUp();
-    await h.complete;
-
-    expect(rpcCalls[0]).toEqual({
-      sessionId: "session-1",
-      endRow: 1000n,
-      maxRows: 1000,
-      gridEpoch: GRID_EPOCH,
-    });
-    expect(h.anchor.sbBase).toBe(0);
-    expect(h.painted().map((row) => row.index)).toEqual(
-      Array.from({ length: 1000 }, (_, index) => index),
-    );
-    h.controller.dispose();
-  });
-
-  test("a same-identity full frame does not cancel pending history", async () => {
     const pending = Promise.withResolvers<ScrollResponse>();
     rpcImpl = () => pending.promise;
-    const h = harness(false);
-
-    h.controller.onFullFrame();
-    expect(rpcCalls).toHaveLength(1);
-    h.controller.onFullFrame();
-    expect(rpcCalls).toHaveLength(1);
-
-    pending.resolve(response(0, 1000));
-    await h.complete;
-    expect(h.anchor.sbBase).toBe(0);
-    expect(h.painted()).toHaveLength(1000);
-    h.controller.dispose();
-  });
-
-  test("an incompatible full fetches through the reader anchor before restoring it", async () => {
-    const order: string[] = [];
-    const pending = Promise.withResolvers<ScrollResponse>();
-    const restoreComplete = Promise.withResolvers<void>();
-    rpcImpl = () => {
-      order.push("request");
-      return pending.promise;
-    };
-    const anchor = {
-      sbBase: 1000,
-      cols: 80,
-      total: 1000,
-      gridEpoch: GRID_EPOCH,
-    };
-    let readerAnchor: { row: number; offsetPx: number } | null = null;
-    const renderer = {
-      backfillAnchor: () => ({ ...anchor }),
-      readerAnchorForBackfill: () => readerAnchor,
-      atBottom: () => true,
-      prependScrollback(rows: readonly CellRow[]) {
-        order.push("prepend");
-        anchor.sbBase = rows[0]!.index;
-      },
-      restoreReaderAnchor(restored: { row: number; offsetPx: number }) {
-        order.push("restore");
-        expect(restored).toEqual({ row: 800, offsetPx: 4 });
-        restoreComplete.resolve();
-        return true;
-      },
-    } as unknown as CellGridRenderer;
-    const controller = createScrollbackBackfill({
-      sessionId: "session-reader-anchor",
-      renderer: () => renderer,
-      active: () => true,
-    });
-
-    controller.onFullFrame();
-    anchor.gridEpoch = "test-grid:1";
-    readerAnchor = { row: 800, offsetPx: 4 };
-    controller.onFullFrame();
-
-    expect(rpcCalls[0]).toEqual({
-      sessionId: "session-reader-anchor",
-      endRow: 1000n,
-      maxRows: 1000,
-      gridEpoch: "test-grid:1",
-    });
-    expect(order).toEqual(["request"]);
-
-    pending.resolve({ ...response(0, 1000), gridEpoch: "test-grid:1" });
-    await flushWork();
-    await restoreComplete.promise;
-    expect(order).toEqual(["request", "prepend", "restore"]);
-    controller.dispose();
-  });
-
-  test("a short page paints the retained suffix and parks at its floor", async () => {
-    rpcImpl = async (request) =>
-      request.endRow === 1000n
-        ? response(76, 1000)
-        : response(76, 76);
-    const h = harness(false);
-
-    h.controller.onUserScrollUp();
-    for (let attempt = 0; attempt < 8 && h.anchor.sbBase !== 76; attempt++) {
-      await flushWork();
-    }
-    await flushWork();
-
-    expect(h.anchor.sbBase).toBe(76);
-    expect(h.painted()).toHaveLength(924);
-    expect(h.painted()[0]!.index).toBe(76);
-    expect(h.painted()[923]!.index).toBe(999);
-    expect(rpcCalls).toHaveLength(1);
-
-    h.controller.onUserScrollUp();
+    const ensured = h.controller.ensureRowPainted(100);
     await flushWork();
     expect(rpcCalls).toHaveLength(1);
-    h.controller.dispose();
-  });
-
-  test("suspend discards a pending response and later demand starts fresh", async () => {
-    const firstResponse = Promise.withResolvers<ScrollResponse>();
-    rpcImpl = () => firstResponse.promise;
-    const h = harness(false);
-
-    h.controller.onUserScrollUp();
-    expect(rpcCalls).toHaveLength(1);
-    h.controller.suspend();
-    firstResponse.resolve(response(0, 1000));
-    await flushWork();
-    expect(h.prepends).toHaveLength(0);
-
-    rpcImpl = async () => response(0, 1000);
-    h.controller.onUserScrollUp();
-    await h.complete;
-    expect(rpcCalls).toHaveLength(2);
-    expect(h.anchor.sbBase).toBe(0);
-    expect(h.painted()).toHaveLength(1000);
-    h.controller.dispose();
-  });
-
-  // A rejected page and "this session has no more history" look identical from
-  // outside: history simply stops loading as the reader scrolls up. The reason
-  // must be recoverable after the fact, or a rebuild racing a backfill wave is
-  // undiagnosable.
-  test("a page from another epoch paints nothing and names the guard it failed", async () => {
-    rpcImpl = async () => ({ ...response(0, 1000), gridEpoch: "other-grid:0" });
-    const h = harness(false);
-
-    h.controller.onUserScrollUp();
-    await flushWork();
-
-    // Fail-closed behaviour is unchanged: nothing painted, the wave stops.
-    expect(h.prepends).toHaveLength(0);
-    expect(h.anchor.sbBase).toBe(1000);
-    expect(rpcCalls).toHaveLength(1);
-
-    const rejected = diagEvents.filter((e) => e.evt === "scrollback.backfill_rejected");
-    expect(rejected).toHaveLength(1);
-    expect(rejected[0]).toMatchObject({
-      sid: "session-1",
-      guard: "epoch",
-      requested_end: 1000,
-      anchor_epoch: GRID_EPOCH,
-      response_epoch: "other-grid:0",
-    });
-    h.controller.dispose();
-  });
-
-  // A blank region at the top of history is the SAME observation whether those
-  // rows are gone forever or were merely unreachable by a resize-forced replay.
-  // The reason has to survive the page that proved the floor, or the top of
-  // history is permanently unattributable.
-  test("a page clamped at the retained floor records the floor AND why it is there", async () => {
-    rpcImpl = async () => response(400, 1000, 1000, ScrollbackHistoryFloor.RESIZE_REPLAY);
-    const h = harness(false, { sessionId: "session-replay-floor", stopAt: 400 });
-
-    h.controller.onUserScrollUp();
-    await h.complete;
-    await flushWork();
-
-    // Paging stops at the floor instead of re-asking for rows the worker just
-    // said it does not have.
-    expect(h.anchor.sbBase).toBe(400);
-    expect(rpcCalls).toHaveLength(1);
-    expect(scrollbackHistoryFloor("session-replay-floor")).toEqual({
-      row: 400,
-      reason: "resize_replay",
-    });
-    h.controller.dispose();
-  });
-
-  test("genuine eviction reads differently at the same floor row, and a new epoch clears it", async () => {
-    rpcImpl = async () => response(400, 1000, 1000, ScrollbackHistoryFloor.EVICTED);
-    const h = harness(false, { sessionId: "session-evicted-floor", stopAt: 400 });
-
-    h.controller.onUserScrollUp();
-    await h.complete;
-    await flushWork();
-
-    expect(scrollbackHistoryFloor("session-evicted-floor")).toEqual({
-      row: 400,
-      reason: "evicted",
-    });
-
-    // A rebuild renumbers history, so the previous epoch's floor says nothing
-    // about the new one until a page comes back short in it.
-    h.anchor.total = 2000;
-    h.controller.onFullFrame();
-    expect(scrollbackHistoryFloor("session-evicted-floor")).toBeNull();
-    h.controller.dispose();
-  });
-
-  test("a page served in full claims no floor at all", async () => {
-    const h = harness(false, { sessionId: "session-no-floor" });
-
-    h.controller.onUserScrollUp();
-    await h.complete;
-
-    expect(h.anchor.sbBase).toBe(0);
-    expect(scrollbackHistoryFloor("session-no-floor")).toBeNull();
+    pending.resolve(response(0, 300, 300));
+    expect(await ensured).toBe(true);
+    expect(h.insertions.flat().some((row) => row.index === 100)).toBe(true);
     h.controller.dispose();
   });
 });

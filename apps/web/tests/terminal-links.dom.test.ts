@@ -1,13 +1,10 @@
 // attachTerminalLinks visibility-recovery tripwire.
 //
-// The scan latch (`scanScheduled`) has exactly one reset path: `scan` running
-// (terminal-links.ts), which only happens via the rAF queued in `scheduleScan`.
-// If the browser DROPS that queued rAF during a long-backgrounded / throttled /
-// slept tab — not merely defers it — the latch sticks `true` forever, every
-// later `scheduleScan()` no-ops, and the cell renderer's per-frame row rebuilds
-// destroy <a> anchors with no re-linkify → Cmd arms but there's nothing to
-// click → "dead" until a refresh. The fix: a `visibilitychange` listener that
-// cancels any stale/deferred frame, resets the latch, and forces a full scan.
+// The scan latch (`scanScheduled`) resets only when a scheduled scan runs or
+// the attachment explicitly cancels it. If a browser drops that rAF while the
+// tab is hidden, later mutations cannot queue work and rebuilt anchors remain
+// unlinked. Visibility recovery cancels stale work and queues one bounded
+// hot-tail pass instead of revisiting retained history.
 //
 // No jsdom (by design — see cellRenderer.dom.test.ts). A typed fake DOM covers
 // exactly the recovery path. Rows carry no linkable text so `_linkifyRows`
@@ -30,18 +27,17 @@ class FakeEl {
 	parentElement: FakeEl | null = null;
 	style = { getPropertyValue: (_k: string): string => "" };
 	classList = { add: () => {}, remove: () => {}, contains: () => false, toggle: () => false };
-	// Mutable so a test can spy on the full-scan querySelectorAll call.
-	querySelectorAll: (_sel: string) => FakeEl[];
+	querySelector: (_sel: string) => FakeEl | null = () => null;
+	querySelectorAll: (_sel: string) => FakeEl[] = () => [];
 	constructor(tag: string, doc: unknown) {
 		this.tagName = tag;
 		this.ownerDocument = doc;
-		this.querySelectorAll = () => [];
 	}
 	appendChild(c: FakeEl): FakeEl { c.parentElement = this; this.children.push(c); return c; }
 	setAttribute(k: string, v: string): void { this.attrs.set(k, v); }
 	getAttribute(k: string): string | null { return this.attrs.get(k) ?? null; }
+	hasAttribute(k: string): boolean { return this.attrs.has(k); }
 	removeAttribute(k: string): void { this.attrs.delete(k); }
-	querySelector(_sel: string): FakeEl | null { return null; }
 	closest(selector: string): FakeEl | null {
 		if (selector.startsWith("a.") && this.tagName === "a" && this.className === "wterm-link") return this;
 		return this.parentElement?.closest(selector) ?? null;
@@ -55,6 +51,7 @@ class FakeEl {
 	dispatchEvent(ev: { type: string; [key: string]: unknown }): void {
 		for (const fn of this.listeners.get(ev.type) ?? []) fn(ev);
 	}
+	listenerCount(type: string): number { return this.listeners.get(type)?.size ?? 0; }
 	remove(): void {}
 	replaceWith(...nodes: unknown[]): void { this.replacedWith = nodes; }
 }
@@ -72,6 +69,7 @@ class FakeEventTarget {
 	dispatchEvent(ev: { type: string; [key: string]: unknown }): void {
 		for (const fn of this.listeners.get(ev.type) ?? []) fn(ev);
 	}
+	listenerCount(type: string): number { return this.listeners.get(type)?.size ?? 0; }
 }
 
 class FakeDoc extends FakeEventTarget {
@@ -82,9 +80,14 @@ class FakeDoc extends FakeEventTarget {
 }
 
 class FakeMutationObserver {
-	constructor(public cb: (muts: unknown[]) => void) {}
-	observe(): void {}
-	disconnect(): void {}
+	static instances: FakeMutationObserver[] = [];
+	observeCalls = 0;
+	disconnectCalls = 0;
+	constructor(public cb: (muts: unknown[]) => void) {
+		FakeMutationObserver.instances.push(this);
+	}
+	observe(): void { this.observeCalls += 1; }
+	disconnect(): void { this.disconnectCalls += 1; }
 }
 
 interface RafEntry { handle: number; cb: () => void }
@@ -100,6 +103,7 @@ interface Harness {
 }
 
 function makeHarness(): Harness {
+	FakeMutationObserver.instances = [];
 	const doc = new FakeDoc();
 	const container = new FakeEl("div", doc);
 	const win = new FakeEventTarget();
@@ -163,19 +167,35 @@ function clickEvent(target: FakeEl, fields: Partial<MouseEvent> = {}) {
 	};
 	return event;
 }
-
 describe("attachTerminalLinks — visibility recovery", () => {
 	let h: Harness | undefined;
 	afterEach(() => { h?.restore(); h = undefined; });
 
-	test("initial rAF fires → scan runs (happy path, no regression)", () => {
+	test("initial activation waits for paint, then scans only the current tail", () => {
 		h = makeHarness();
 		const attachment = attachTerminalLinks(asEl(h.container), {});
 		expect(h.rafQueue.length).toBe(1);
+		let retainedHistoryScans = 0;
+		h.container.querySelectorAll = () => {
+			retainedHistoryScans += 1;
+			return [];
+		};
 		let scans = 0;
-		h.container.querySelectorAll = () => { scans++; return []; };
+		const viewport = new FakeEl("div", h.doc);
+		viewport.querySelectorAll = () => {
+			scans += 1;
+			return [];
+		};
+		h.container.querySelector = (selector: string) =>
+			selector === ".cell-viewport" ? viewport : null;
+		FakeMutationObserver.instances[0]?.cb([]);
+		expect(h.rafQueue).toHaveLength(1);
+		h.fireNextRaf();
+		expect(scans).toBe(0);
+		expect(h.rafQueue).toHaveLength(1);
 		h.fireNextRaf();
 		expect(scans).toBe(1);
+		expect(retainedHistoryScans).toBe(0);
 		attachment.dispose();
 	});
 
@@ -185,9 +205,9 @@ describe("attachTerminalLinks — visibility recovery", () => {
 		expect(h.rafQueue.length).toBe(1);
 		const staleHandle = h.rafQueue[0]!.handle;
 
-		// Model the bug: the browser DROPS the queued rAF during a long-backgrounded
-		// tab (callback removed, never fires) but `scanScheduled` stays true. No
-		// later scheduleScan() can queue a new frame — it no-ops while stuck.
+		// Model a browser dropping the post-paint activation rAF. The stale handle
+		// remains armed, so visibility recovery must cancel it before it can queue
+		// a replacement current-tail scan.
 		h.rafQueue.length = 0;
 		expect(h.rafQueue.length).toBe(0);
 
@@ -195,13 +215,19 @@ describe("attachTerminalLinks — visibility recovery", () => {
 		h.doc.visibilityState = "visible";
 		h.doc.dispatchEvent({ type: "visibilitychange" });
 
-		// Recovery re-armed: a fresh rAF is queued (without the fix there is no
-		// visibilitychange listener, so this stays 0 and scan never runs).
+		// Recovery re-armed: a fresh rAF is queued for the current tail.
+		// Without the visibility listener this remains 0 and links stay stale.
 		expect(h.rafQueue.length).toBe(1);
 		expect(h.rafQueue[0]!.handle).not.toBe(staleHandle);
 
 		let scans = 0;
-		h.container.querySelectorAll = () => { scans++; return []; };
+		const viewport = new FakeEl("div", h.doc);
+		viewport.querySelectorAll = () => {
+			scans += 1;
+			return [];
+		};
+		h.container.querySelector = (selector: string) =>
+			selector === ".cell-viewport" ? viewport : null;
 		h.fireNextRaf();
 		expect(scans).toBe(1);
 		attachment.dispose();
@@ -225,7 +251,13 @@ describe("attachTerminalLinks — visibility recovery", () => {
 		expect(h.rafQueue[0]!.handle).not.toBe(staleHandle);
 
 		let scans = 0;
-		h.container.querySelectorAll = () => { scans++; return []; };
+		const viewport = new FakeEl("div", h.doc);
+		viewport.querySelectorAll = () => {
+			scans += 1;
+			return [];
+		};
+		h.container.querySelector = (selector: string) =>
+			selector === ".cell-viewport" ? viewport : null;
 		h.fireAllRaf();
 		expect(scans).toBe(1);
 		attachment.dispose();
@@ -239,6 +271,68 @@ describe("attachTerminalLinks — visibility recovery", () => {
 		h.doc.visibilityState = "visible";
 		h.doc.dispatchEvent({ type: "visibilitychange" });
 		expect(h.rafQueue.length).toBe(0);
+	});
+
+	test("inactive panes release scanner and modifier work, then restore producer link activation", () => {
+		h = makeHarness();
+		const opened: string[] = [];
+		const holds: boolean[] = [];
+		const attachment = attachTerminalLinks(asEl(h.container), {
+			resolveFile: (path, line) => `/file/W/${path}${line ? `#L${line}` : ""}`,
+			onOpenFile: (href) => opened.push(href),
+			onArmedHoverChange: (active) => holds.push(active),
+		});
+		const file = new FakeEl("a", h.doc);
+		file.className = "wterm-link";
+		file.setAttribute("data-terminal-target", "s/f.ts:9");
+		file.setAttribute("href", "/file/W/s/f.ts#L9");
+		h.container.appendChild(file);
+		let retainedHistoryScans = 0;
+		h.container.querySelectorAll = () => {
+			retainedHistoryScans += 1;
+			return [];
+		};
+		let scans = 0;
+		const viewport = new FakeEl("div", h.doc);
+		viewport.querySelectorAll = () => {
+			scans += 1;
+			return [];
+		};
+		h.container.querySelector = (selector: string) =>
+			selector === ".cell-viewport" ? viewport : null;
+
+		h.container.dispatchEvent({ type: "mouseenter" });
+		h.win.dispatchEvent({ type: "keydown", key: "Meta" });
+		expect(holds).toEqual([true]);
+		attachment.setActive(false);
+
+		expect(h.rafQueue).toHaveLength(0);
+		expect(FakeMutationObserver.instances[0]?.disconnectCalls).toBe(1);
+		expect(h.doc.listenerCount("visibilitychange")).toBe(0);
+		expect(h.win.listenerCount("keydown")).toBe(0);
+		expect(h.container.listenerCount("click")).toBe(0);
+		expect(h.container.getAttribute("data-link-armed")).toBeNull();
+		expect(holds).toEqual([true, false]);
+
+		attachment.setActive(true);
+		expect(FakeMutationObserver.instances[0]?.observeCalls).toBe(2);
+		expect(h.doc.listenerCount("visibilitychange")).toBe(1);
+		expect(h.win.listenerCount("keydown")).toBe(1);
+		expect(h.container.listenerCount("click")).toBe(1);
+		expect(h.rafQueue).toHaveLength(1);
+		h.fireNextRaf();
+		expect(scans).toBe(0);
+		expect(h.rafQueue).toHaveLength(1);
+		h.fireNextRaf();
+		expect(scans).toBe(1);
+		expect(retainedHistoryScans).toBe(0);
+		expect(file.parentElement).toBe(h.container);
+
+		const event = clickEvent(file, { metaKey: true });
+		h.container.dispatchEvent(event);
+		expect(event.defaultPrevented).toBe(true);
+		expect(opened).toEqual(["/file/W/s/f.ts#L9"]);
+		attachment.dispose();
 	});
 
 	test("releaseInteraction clears modifier and pointer state and releases a hold once", () => {

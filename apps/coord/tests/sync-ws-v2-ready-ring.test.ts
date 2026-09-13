@@ -15,6 +15,7 @@ import { terminalSnapshotSource } from "../src/connect/terminal-screen-frames.ts
 import {
   V2_TERMINAL_CELL_MAX_RETAINED_FRAMES,
   V2_TERMINAL_LANE_MAX_DELTA_FRAMES,
+  ownV2ApplicationFrame,
 } from "../src/connect/sync-ws-v2-state.ts";
 import { APPLICATION_MAX_UNACKED_FRAMES } from "../src/connect/sync-ws-v1-delivery.ts";
 import {
@@ -22,7 +23,6 @@ import {
   TARGET_SESSION,
   cellIdentity,
   decodedFrames,
-  estimatedTerminalBytes,
   fillApplicationAckWindow,
   flushMicrotasks,
   makeCell,
@@ -136,8 +136,15 @@ test("a lane overflow preserves an active snapshot, then installs one scoped can
     makeCell(TARGET_SESSION, 3 + V2_TERMINAL_LANE_MAX_DELTA_FRAMES, false),
   )).toBe(false);
 
-  const retainedBeforeDrain = estimatedTerminalBytes(finalSnapshotPart, generation)
-    + estimatedTerminalBytes(otherDelta, generation);
+  const retainedBeforeDrain = ownV2ApplicationFrame(
+    finalSnapshotPart,
+    SyncDomain.TERMINAL,
+    generation,
+  ).estimatedBytes + ownV2ApplicationFrame(
+    otherDelta,
+    SyncDomain.TERMINAL,
+    generation,
+  ).estimatedBytes;
   expect(targetLane.rebaselinePending).toBe(true);
   expect(targetLane.cursor?.deltaTail).toEqual([]);
   expect(harness.rebaselineRequests).toEqual([]);
@@ -234,7 +241,7 @@ test("a >4 MiB canonical full retains one lazy cursor head until application cre
   const v2 = harness.socket.data.v2!;
   v2.announcedSessions.add(TARGET_SESSION);
   fillApplicationAckWindow(harness);
-  const source = terminalSnapshotSource(largeCanonicalSnapshot());
+  const source = terminalSnapshotSource(() => largeCanonicalSnapshot());
   const inspectionCursor = source.createCursor();
   const partCount = inspectionCursor.partCount;
   inspectionCursor.release();

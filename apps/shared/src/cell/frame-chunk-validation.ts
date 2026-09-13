@@ -17,6 +17,9 @@ import { assertCellRowSpans } from "./types.ts";
 
 /** Maximum canonical protobuf encoding of one PbCellGridChunk. */
 export const CELL_GRID_PART_MAX_BYTES = 1024 * 1024;
+/** Largest protobuf encoding of the coordinator's uint64 fanout stamp. */
+export const CELL_GRID_COORD_FANOUT_STAMP_MAX_ENCODED_BYTES = 12;
+export const CELL_GRID_COORD_FANOUT_STAMP_MAX = (1n << 64n) - 1n;
 /** Maximum sum of encoded chunks accepted for one atomic snapshot. */
 export const CELL_GRID_SNAPSHOT_MAX_BYTES = 64 * 1024 * 1024;
 export const CELL_GRID_SNAPSHOT_MAX_CHUNKS = 256;

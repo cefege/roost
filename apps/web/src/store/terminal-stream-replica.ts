@@ -192,7 +192,22 @@ function validFull(session: TerminalSessionReplica, frame: CellGridFrame): boole
   if (historyIndex !== frame.scrollbackTotal) return false;
   return true;
 }
-
+function fullFollowsCanonical(
+  session: TerminalSessionReplica,
+  frame: CellGridFrame,
+): boolean {
+  const canonical = session.canonical;
+  return canonical === null
+    || canonical.streamId !== frame.streamId
+    || frame.seq > canonical.seq
+    || (
+      frame.seq === canonical.seq
+      && frame.gridEpoch === canonical.gridEpoch
+      && frame.cols === canonical.cols
+      && frame.rows === canonical.rows
+      && frame.altScreen === canonical.altScreen
+    );
+}
 
 function acceptFull(
   session: TerminalSessionReplica,
@@ -203,9 +218,11 @@ function acceptFull(
     requestTerminalResync(session, "invalid full terminal baseline", owner);
     return;
   }
-  frame.full = true;
-  frame.baseSeq = 0;
-  frame.scrollbackAppend = [];
+  if (!fullFollowsCanonical(session, frame)) {
+    requestTerminalResync(session, "terminal full conflicted with canonical state", owner);
+    return;
+  }
+  normalizeCellGridFrame(frame);
   session.canonical = frame;
   session.baselineReady = true;
   session.requiresFreshBaseline = false;

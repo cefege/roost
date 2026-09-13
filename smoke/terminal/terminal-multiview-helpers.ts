@@ -233,7 +233,7 @@ async function waitForHistoryAnchor(
 
   const painted = await readPaintedScrollback(page, sessionId);
   assertPaintedScrollback(painted);
-  expect(painted.headSpacerPx).toBeGreaterThan(0);
+  expect(painted.headSpacerPx + painted.tailGapPx).toBeGreaterThan(0);
   if (painted.readerAnchor === null) throw new Error("reader omitted its global anchor");
   const row = painted.rows.find((candidate) => candidate.index === painted.readerAnchor!.row);
   if (!row) throw new Error("reader anchor was outside the painted scrollback rows");
@@ -261,14 +261,22 @@ async function expectHistoryAnchorPreserved(
   });
   const painted = await readPaintedScrollback(page, sessionId);
   assertPaintedScrollback(painted);
-  expect(painted.headSpacerPx).toBeGreaterThan(0);
+  expect(painted.headSpacerPx + painted.tailGapPx).toBeGreaterThan(0);
 }
 
-function expectReaderReframeHeld(
+async function expectReaderReframeHeld(
+  page: Page,
+  sessionId: string,
   previous: TerminalStreamProbe,
   current: TerminalStreamProbe,
   geometry: EffectiveGeometry,
-): void {
+): Promise<void> {
+  await expect.poll(async () => {
+    current = await readTerminalStreamProbe(page, sessionId);
+    const { presentation, handler_canonical: canonical } = current.browser;
+    return presentation?.canonical.grid_epoch === canonical.grid_epoch
+      && presentation.canonical.seq === canonical.seq;
+  }, { timeout: 30_000, intervals: [50, 100, 250] }).toBe(true);
   const previousPresentation = previous.browser.presentation;
   const presentation = current.browser.presentation;
   if (!previousPresentation || !presentation) {
