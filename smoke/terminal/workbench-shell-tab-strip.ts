@@ -14,7 +14,7 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
     const actions = shell.querySelector<HTMLElement>(":scope > .workbench-pane-tab-strip__actions");
     const activeTab = rail?.querySelector<HTMLElement>(".df-tab[data-active='true']");
     const inactiveTab = rail?.querySelector<HTMLElement>(".df-tab[data-active='false']");
-    const newTab = rail?.querySelector<HTMLElement>("[data-testid='tab-new']");
+    const newTab = actions?.querySelector<HTMLElement>("[data-testid='tab-new']");
     const editor = shell.closest<HTMLElement>(".workbench-editor-region");
     const arrange = document.querySelector<HTMLElement>("[data-testid='arrange-btn']");
     if (!rail || !actions || !activeTab || !inactiveTab || !newTab || !editor || !arrange) {
@@ -42,9 +42,11 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
       && first.right > second.left
       && first.top < second.bottom
       && first.bottom > second.top;
-    const actionRectsBeforeScroll = actionRects;
+    const actionRectsBeforeScroll = Array.from(actions.querySelectorAll<HTMLElement>("button")).map(toRect);
+    const newTabRectBeforeScroll = toRect(newTab);
     rail.scrollLeft = rail.scrollWidth;
     const actionRectsAfterScroll = Array.from(actions.querySelectorAll<HTMLElement>("button")).map(toRect);
+    const newTabRectAfterScroll = toRect(newTab);
     rail.scrollLeft = 0;
     const activeIcon = activeTab.querySelector<HTMLElement>(".workbench-pane-tab__icon");
     const inactiveIcon = inactiveTab.querySelector<HTMLElement>(".workbench-pane-tab__icon");
@@ -55,13 +57,14 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
       shellScrolls: shell.scrollWidth > shell.clientWidth + 1,
       railScrolls: rail.scrollWidth > rail.clientWidth + 1,
       actionsAreSibling: actions.parentElement === shell,
-      newTabFollowsLastTab: newTab.previousElementSibling === Array.from(
-        rail.querySelectorAll(".df-tab"),
-      ).at(-1),
+      newTabIsActionChild: newTab.parentElement === actions,
+      newTabRectBeforeScroll,
+      newTabRectAfterScroll,
+      newTabIntersectsVisibleTab: visibleTabRects.some((tab) => intersects(newTabRectBeforeScroll, tab)),
       actionRectsBeforeScroll,
       actionRectsAfterScroll,
-      actionIntersectsTab: actionRects.some((action) => visibleTabRects.some((tab) => intersects(action, tab))),
       arrangeIntersectsAction: actionRects.some((action) => intersects(toRect(arrange), action)),
+      actionIntersectsTab: actionRects.some((action) => visibleTabRects.some((tab) => intersects(action, tab))),
       activeRadius: getComputedStyle(activeTab).borderTopLeftRadius,
       activeBackground: getComputedStyle(activeTab).backgroundColor,
       editorBackground: getComputedStyle(editor).backgroundColor,
@@ -74,8 +77,8 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
   expect(tabStripLayout.shellScrolls).toBe(false);
   expect(tabStripLayout.railScrolls).toBe(true);
   expect(tabStripLayout.actionsAreSibling).toBe(true);
-  expect(tabStripLayout.newTabFollowsLastTab).toBe(true);
-  expect(tabStripLayout.actionIntersectsTab).toBe(false);
+  expect(tabStripLayout.newTabIsActionChild).toBe(true);
+  expect(tabStripLayout.newTabIntersectsVisibleTab).toBe(false);
   expect(tabStripLayout.arrangeIntersectsAction).toBe(false);
   expect(tabStripLayout.activeRadius).toBe("0px");
   expect(tabStripLayout.inactiveSelectRadius).toBe("0px");
@@ -83,5 +86,6 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
   expect(tabStripLayout.inactiveIconColor).not.toBe(tabStripLayout.activeIconColor);
   expect(tabStripLayout.inactiveLabelColor).not.toBe(tabStripLayout.activeLabelColor);
   expect(tabStripLayout.actionRectsAfterScroll).toEqual(tabStripLayout.actionRectsBeforeScroll);
+  expect(tabStripLayout.newTabRectAfterScroll).toEqual(tabStripLayout.newTabRectBeforeScroll);
   expect(await tabRail.evaluate((rail) => rail.scrollLeft)).toBe(0);
 }

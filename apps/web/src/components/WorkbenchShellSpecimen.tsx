@@ -75,14 +75,14 @@ export const WorkbenchShellSpecimen: Component = () => {
           Agents
         </Button>
       </div>
+      <SidebarSearch
+        query={sidebarQuery()}
+        onChange={setSidebarQuery}
+        placeholder="Filter spaces…"
+      />
       <div class="workbench-sidebar-panels">
         <div class="workbench-sidebar-panel workbench-sidebar-panel--spaces" data-active="true">
           <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)", padding: "var(--md-space-3)", color: "var(--text-hi)" }}>
-            <SidebarSearch
-              query={sidebarQuery()}
-              onChange={setSidebarQuery}
-              placeholder="Filter spaces…"
-            />
             <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)", "font-size": "var(--md-body-s-size)" }}>
               <StatusDot status="running" /><span>roost · main</span>
             </div>

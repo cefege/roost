@@ -36,7 +36,7 @@ import {
   formatAgentStatusCounts,
 } from "../../lib/agentStatus.ts";
 import { normalizeNavigationSearchQuery } from "../../store/navigation-search.ts";
-import { SidebarEmptyState } from "./SidebarEmptyState.tsx";
+import { EmptyState } from "../Settings/md/primitives.tsx";
 
 function FolderStatusRollup(props: { group: FolderGroup }) {
   return (
@@ -277,10 +277,22 @@ export function FolderList(props: FolderListProps) {
       <Show
         when={folderRows().length > 0}
         fallback={(
-          <SidebarEmptyState
-            kind={hasActiveFilter() ? "search-empty" : "view-empty"}
-            query={props.query}
-          />
+          <Show
+            when={hasActiveFilter()}
+            fallback={(
+              <EmptyState
+                icon="folder_off"
+                title="No spaces yet"
+                supporting="Open a terminal to create your first space."
+              />
+            )}
+          >
+            <EmptyState
+              icon="search_off"
+              title="No matches"
+              supporting={`Nothing matches "${props.query}". Esc clears the search.`}
+            />
+          </Show>
         )}
       >
         <div class="df-flat-group">
