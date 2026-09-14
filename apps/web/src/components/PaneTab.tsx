@@ -10,7 +10,7 @@ import { sessionTitle } from "../lib/sessionTitle.ts";
 import { Button } from "./Settings/md/Button.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { Icon } from "./Settings/md/Icon.tsx";
-
+import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
 export interface PaneTabProps {
   session: Session;
   active: boolean;
@@ -51,6 +51,7 @@ export function PaneTab(props: PaneTabProps) {
       >
         <Icon name="terminal" size="sm" class="workbench-pane-tab__icon" />
         <span class="df-tab-label workbench-pane-tab__label">{sessionTitle(props.session)}</span>
+        <AgentStatusIndicator sessionId={props.session.id} compact />
       </Button>
       <IconButton
         icon="close"

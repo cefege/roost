@@ -16,7 +16,7 @@ import { diag } from "@roost/shared/diag";
 export interface FragmentDispatcherDependencies {
   peek(): CapturedFragmentCredential | null;
   clear(expectedKind: CapturedFragmentCredentialKind): boolean;
-  reload(): void;
+  redirectHome(): void;
   redeemPair(token: string): Promise<RedeemResult>;
   warn(message: string): void;
 }
@@ -34,7 +34,7 @@ export async function dispatchCapturedFragmentCredential(
     return false;
   }
   deps.clear("pair");
-  deps.reload();
+  deps.redirectHome();
   return true;
 }
 
@@ -43,7 +43,7 @@ export async function _dispatchCapturedFragmentCredential(): Promise<boolean> {
   return dispatchCapturedFragmentCredential({
     peek: peekCapturedFragmentCredential,
     clear: clearCapturedFragmentCredential,
-    reload: () => location.reload(),
+    redirectHome: () => location.replace("/"),
     redeemPair: redeemPairToken,
     warn: (message) => diag("pair.redeem_failed", { msg: message }),
   });

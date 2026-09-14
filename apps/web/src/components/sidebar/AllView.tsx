@@ -1,6 +1,6 @@
 // Spaces sidebar panel.
-// SidebarRoot owns the shared filter input and debounce; this panel keeps the
-// folder projection mounted while a filter changes its visible folder rows.
+// SidebarRoot owns the shared filter input and debounce; FolderList remains
+// mounted while it switches between folder and filtered-session projections.
 // FolderList retains selection and keyboard-cursor ownership.
 
 import { createMemo, Show } from "solid-js";

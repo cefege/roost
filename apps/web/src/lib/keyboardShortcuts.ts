@@ -89,6 +89,11 @@ export function setSettingsOpener(open: (() => void) | null): void { _openSettin
 export function handleKeydown(e: KeyboardEvent): void {
 	if (e.defaultPrevented) return;
 	const platform = browserPlatform();
+	if (_cmdPaletteOpen() && e.key === "Escape") {
+		e.preventDefault();
+		closeCmdPalette();
+		return;
+	}
 	// Font and Settings chords are punctuation/digit based, so they are safe to
 	// handle before terminal focus recovery on every platform.
 	if (terminalOwnsKeyboard()) {

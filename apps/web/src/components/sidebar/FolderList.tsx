@@ -1,12 +1,13 @@
-// Folder list — sidebar body for non-chat workspace groups.
-// Groups use the same worker-and-folder identity as the terminal deck and sort
-// by recent terminal activity.
+// Spaces list — sidebar body for non-chat workspace groups and active filters.
+// Unfiltered rows group by current worker-and-folder identity and sort by recent
+// terminal activity; an active folder filter exposes each matching group's terminal rows.
 // Owns the sidebar keyboard surface: cursor order and ⏎ activation.
 // Reads the session store; no writes.
 
 import { createComputed, createEffect, createMemo, createSignal, For, Show, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { A, useNavigate, useLocation } from "@solidjs/router";
+import type { Session } from "@roost/shared/wire";
 import { rootStore } from "../../store/root.ts";
 import { closeSidebar } from "../../store/uiStore.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";
@@ -24,9 +25,10 @@ import {
 } from "../../lib/folderGroups.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { isChatFolder } from "../../lib/quickChat.ts";
-import { relTimeTickMs } from "./SessionRow.tsx";
+import { isPendingClose } from "../../lib/pendingClose.ts";
+import { SessionRow, relTimeTickMs } from "./SessionRow.tsx";
 import { FolderRowContextMenu } from "./FolderRowContextMenu.tsx";
-import { FlatNewTerminal } from "./FlatNewTerminal.tsx";
+import { SidebarNewTerminal } from "./SidebarNewTerminal.tsx";
 import { FolderGlyph } from "../FolderGlyph.tsx";
 import { MachineIdentityMark } from "../MachineIdentityMark.tsx";
 import { IconButton } from "../Settings/md/IconButton.tsx";
@@ -55,6 +57,11 @@ function FolderStatusRollup(props: { group: FolderGroup }) {
 interface FolderListProps {
   active: boolean;
   query: string;
+}
+
+function isVisibleSpaceSession(session: Session | undefined): session is Session {
+  if (!session || session.kind !== "shell") return false;
+  return !isPendingClose(session.id) && !isChatFolder(session.cwd);
 }
 
 export function FolderList(props: FolderListProps) {
@@ -109,6 +116,15 @@ export function FolderList(props: FolderListProps) {
     props.query,
   ));
   const hasActiveFilter = createMemo(() => normalizeNavigationSearchQuery(props.query).length > 0);
+  const filteredSessionRows = createMemo(() => {
+    if (!hasActiveFilter()) return [];
+    return folderRows()
+      .flatMap((group) => group.sessionIds.map((sessionId) => rootStore.sessions[sessionId]))
+      .filter(isVisibleSpaceSession);
+  });
+  const visibleSessionIds = createMemo(() => hasActiveFilter()
+    ? filteredSessionRows().map((session) => session.id)
+    : folderRows().map((group) => group.leadId));
 
   // Cursor commands must only target rows in the visible Spaces projection.
   createEffect(() => {
@@ -118,7 +134,7 @@ export function FolderList(props: FolderListProps) {
       return;
     }
     setActivateHandler(activateFolderSession);
-    setOrderedSessionIds(folderRows().map((group) => group.leadId));
+    setOrderedSessionIds(visibleSessionIds());
   });
 
   onCleanup(() => {
@@ -273,12 +289,12 @@ export function FolderList(props: FolderListProps) {
 
 
   return (
-    <div data-testid="folder-list">
+    <div class="workbench-sidebar-folder-list__body" data-testid="folder-list">
       <Show
-        when={folderRows().length > 0}
+        when={hasActiveFilter()}
         fallback={(
           <Show
-            when={hasActiveFilter()}
+            when={folderRows().length > 0}
             fallback={(
               <EmptyState
                 icon="folder_off"
@@ -287,21 +303,38 @@ export function FolderList(props: FolderListProps) {
               />
             )}
           >
+            <div class="df-flat-group">
+              <For each={folderRows()}>
+                {(group) => renderFolderRow(group)}
+              </For>
+            </div>
+          </Show>
+        )}
+      >
+        <Show
+          when={filteredSessionRows().length > 0}
+          fallback={(
             <EmptyState
               icon="search_off"
               title="No matches"
               supporting={`Nothing matches "${props.query}". Esc clears the search.`}
             />
-          </Show>
-        )}
-      >
-        <div class="df-flat-group">
-          <For each={folderRows()}>
-            {(group) => renderFolderRow(group)}
-          </For>
-        </div>
+          )}
+        >
+          <div class="df-flat-group">
+            <For each={filteredSessionRows()}>
+              {(session) => (
+                <SessionRow
+                  session={session}
+                  density="flat"
+                  cursor={cursorSessionId() === session.id}
+                />
+              )}
+            </For>
+          </div>
+        </Show>
       </Show>
-      <FlatNewTerminal />
+      <SidebarNewTerminal />
       <Show when={folderCtxMenu()}>
         {(m) => (
           <FolderRowContextMenu

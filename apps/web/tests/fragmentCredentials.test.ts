@@ -186,7 +186,7 @@ describe("synchronous entry capture", () => {
           events.push(`clear:${expectedKind}`);
           return clearCapturedFragmentCredential(expectedKind);
         },
-        reload: () => events.push("reload"),
+        redirectHome: () => events.push("redirect:/"),
         redeemPair: async (token) => {
           events.push(`pair:${token}`);
           return { ok: true };
@@ -198,7 +198,7 @@ describe("synchronous entry capture", () => {
         "replace:/workspace?view=terminal#keep=1",
         "pair:pair-secret",
         "clear:pair",
-        "reload",
+        "redirect:/",
       ]);
       expect(peekCapturedFragmentCredential()).toBeNull();
     } finally {

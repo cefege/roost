@@ -13,7 +13,6 @@ import { buildFolderGroups } from "../../lib/folderGroups.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";
 import {
-  filterNavigationSearchDocuments,
   navigationSearchDocuments,
   normalizeNavigationSearchQuery,
 } from "../../store/navigation-search.ts";
@@ -30,7 +29,8 @@ export function SidebarAgents(props: SidebarAgentsProps): JSX.Element {
   const activeSessionId = createMemo(() => activeSessionForPath(location.pathname)?.id ?? null);
   const filterActive = createMemo(() => normalizeNavigationSearchQuery(props.query).length > 0);
   const groups = createMemo(() => projectSidebarAgentGroups({
-    documents: filterNavigationSearchDocuments(navigationSearchDocuments(), props.query),
+    documents: navigationSearchDocuments(),
+    query: props.query,
     folderGroups: buildFolderGroups(),
     sessions: rootStore.sessions,
     agentStatuses: rootStore.agent_status,

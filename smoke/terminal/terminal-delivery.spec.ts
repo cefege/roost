@@ -142,8 +142,10 @@ test("new-terminal server switch resets browse path before listing and spawning"
   const aChildName = `a-only-${suffix}`;
   const aChildPath = join(stack.workerHome, aChildName);
   const bDefaultPath = join(secondWorker.home, `b-default-${suffix}`);
+  const bChildName = `b-only-${suffix}`;
+  const bChildPath = join(bDefaultPath, bChildName);
   mkdirSync(aChildPath, { recursive: true });
-  mkdirSync(bDefaultPath, { recursive: true });
+  mkdirSync(bChildPath, { recursive: true });
 
   const bSeedSessionId = await multiWorkerSmokePage.evaluate(async ({ workerFp, cwd }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
@@ -154,8 +156,6 @@ test("new-terminal server switch resets browse path before listing and spawning"
     return !!smokeWindow.__smoke.state().sessions[sessionId]?.cwd;
   }, bSeedSessionId);
 
-  // FlatNewTerminal chooses the globally newest session. Cross a timestamp
-  // boundary, then seed A so the sidebar-scoped plus deterministically opens A.
   await delay(10);
   const aSeedSessionId = await multiWorkerSmokePage.evaluate(async ({ workerFp, cwd }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
@@ -165,6 +165,7 @@ test("new-terminal server switch resets browse path before listing and spawning"
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return !!smokeWindow.__smoke.state().sessions[sessionId]?.cwd;
   }, aSeedSessionId);
+  await navigateToSmokeSession(multiWorkerSmokePage, aSeedSessionId);
 
   const seedCwds = await multiWorkerSmokePage.evaluate(({ aId, bId }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
@@ -190,10 +191,10 @@ test("new-terminal server switch resets browse path before listing and spawning"
     }
   });
 
-  await multiWorkerSmokePage
-    .getByTestId("folder-list")
-    .getByTestId("flat-new-terminal-button")
-    .click();
+  const sidebarFooter = multiWorkerSmokePage.getByTestId("sidebar-new-terminal");
+  await expect(sidebarFooter).toContainText("new");
+  await expect(sidebarFooter.getByTestId("sidebar-new-terminal-machine")).toContainText("roost-terminal-test");
+  await sidebarFooter.getByTestId("flat-new-terminal-button").click();
   await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/browse/${stack.workerFp}`);
   await expect(multiWorkerSmokePage.getByTestId("browse-server")).toHaveAttribute("title", "roost-terminal-test");
   await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", stack.workerHome);
@@ -202,15 +203,20 @@ test("new-terminal server switch resets browse path before listing and spawning"
     .locator('[data-testid="browse-tile"], [data-testid="browse-row"]')
     .filter({ hasText: aChildName });
   await expect(aFolder).toHaveCount(1);
-  await aFolder.click();
-  await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", aChildPath);
-  await expect(multiWorkerSmokePage.getByTestId("browse-back")).toBeEnabled();
 
-  await multiWorkerSmokePage.getByTestId("browse-server").click();
+  await multiWorkerSmokePage.goBack();
+  await expect(multiWorkerSmokePage.getByTestId("folder-list")).toBeVisible();
+  const sidebarUrl = multiWorkerSmokePage.url();
+  await sidebarFooter.getByTestId("sidebar-new-terminal-machine").click();
   await multiWorkerSmokePage
-    .getByTestId("browse-server-option")
+    .getByTestId("sidebar-new-terminal-machine-menu")
+    .getByTestId("sidebar-new-terminal-machine-option")
     .filter({ hasText: secondWorker.label })
     .click();
+  await expect(multiWorkerSmokePage).toHaveURL(sidebarUrl);
+  await expect(sidebarFooter.getByTestId("sidebar-new-terminal-machine")).toHaveAttribute("title", secondWorker.label);
+
+  await sidebarFooter.getByTestId("flat-new-terminal-button").click();
   await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/browse/${secondWorker.workerFp}`);
   await expect(multiWorkerSmokePage.getByTestId("browse-server")).toHaveAttribute("title", secondWorker.label);
   await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", bDefaultPath);
@@ -220,12 +226,35 @@ test("new-terminal server switch resets browse path before listing and spawning"
     () => listRequests.some((request) =>
       request.workerFp === secondWorker.workerFp && request.path === bDefaultPath),
   ).toBe(true);
+
+  const bFolder = multiWorkerSmokePage
+    .locator('[data-testid="browse-tile"], [data-testid="browse-row"]')
+    .filter({ hasText: bChildName });
+  await expect(bFolder).toHaveCount(1);
+  await bFolder.click();
+  await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", bChildPath);
+  await expect(multiWorkerSmokePage.getByTestId("browse-back")).toBeEnabled();
+
+  await multiWorkerSmokePage.getByTestId("browse-server").click();
+  await multiWorkerSmokePage
+    .getByTestId("browse-server-option")
+    .filter({ hasText: /^roost-terminal-test$/ })
+    .click();
+  await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/browse/${stack.workerFp}`);
+  await expect(multiWorkerSmokePage.getByTestId("browse-server")).toHaveAttribute("title", "roost-terminal-test");
+  await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", stack.workerHome);
+  await expect(multiWorkerSmokePage.getByTestId("browse-back")).toBeDisabled();
+
+  await expect.poll(
+    () => listRequests.some((request) =>
+      request.workerFp === stack.workerFp && request.path === stack.workerHome),
+  ).toBe(true);
   expect(decodeErrors).toEqual([]);
-  expect(listRequests).not.toContainEqual({ workerFp: secondWorker.workerFp, path: aChildPath });
+  expect(listRequests).not.toContainEqual({ workerFp: stack.workerFp, path: bChildPath });
 
   await multiWorkerSmokePage.getByTestId("browse-open").click();
   await expect(multiWorkerSmokePage).toHaveURL(
-    `${stack.baseUrl}/t/${secondWorker.workerFp}/${encodeFolderPath(bDefaultPath)}`,
+    `${stack.baseUrl}/t/${stack.workerFp}/${encodeFolderPath(stack.workerHome)}`,
   );
   await expect.poll(() => multiWorkerSmokePage.evaluate(({ workerFp, cwd, seedId }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
@@ -236,7 +265,7 @@ test("new-terminal server switch resets browse path before listing and spawning"
       && session.cwd === cwd
       && session.spawn_cwd === cwd
     ).length;
-  }, { workerFp: secondWorker.workerFp, cwd: bDefaultPath, seedId: bSeedSessionId })).toBe(1);
+  }, { workerFp: stack.workerFp, cwd: stack.workerHome, seedId: aSeedSessionId })).toBe(1);
 });
 
 test("same session metadata updates preserve the mounted terminal DOM", async ({

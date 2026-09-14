@@ -1,6 +1,6 @@
 // Pure projection for the Agents sidebar panel.
-// SidebarAgents supplies the canonical navigation documents, folders, sessions,
-// statuses, and acknowledgement reader; this module only groups and orders rows.
+// SidebarAgents supplies canonical navigation documents, filter text, folders,
+// sessions, statuses, and acknowledgement reader; this module filters, groups, and orders rows.
 // Folder identity stays worker-inclusive through folderKeyOf and FolderGroup.key.
 
 import type { AgentStatus, Session } from "@roost/shared/wire";
@@ -8,7 +8,7 @@ import type { AgentStatusLevel } from "../../lib/agentStatus.ts";
 import { AGENT_STATUS_PRESENTATION, deriveAgentStatusLevel } from "../../lib/agentStatus.ts";
 import type { FolderGroup } from "../../lib/folderGroups.ts";
 import { folderKeyOf } from "../../lib/folderKey.ts";
-import type { NavigationSearchDocument } from "../../store/navigation-search.ts";
+import { filterNavigationSearchDocuments, type NavigationSearchDocument } from "../../store/navigation-search.ts";
 
 export type SidebarAgentLevel = Exclude<AgentStatusLevel, "unknown">;
 
@@ -25,6 +25,7 @@ export interface SidebarAgentGroup {
 
 export interface SidebarAgentProjectionInput {
   readonly documents: readonly NavigationSearchDocument[];
+  readonly query: string;
   readonly folderGroups: readonly FolderGroup[];
   readonly sessions: Readonly<Record<string, Session>>;
   readonly agentStatuses: Readonly<Record<string, AgentStatus>>;
@@ -36,7 +37,7 @@ export function projectSidebarAgentGroups(
 ): readonly SidebarAgentGroup[] {
   const rowsByFolderKey = new Map<string, SidebarAgentRow[]>();
 
-  for (const document of input.documents) {
+  for (const document of filterNavigationSearchDocuments(input.documents, input.query)) {
     const session = input.sessions[document.sessionId];
     if (!session || session.kind !== "shell" || session.status !== "open") continue;
 

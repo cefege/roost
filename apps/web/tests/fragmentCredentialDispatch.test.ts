@@ -27,7 +27,7 @@ function dispatcherHarness(credential: CapturedFragmentCredential): DispatcherHa
         state.credential = null;
         return true;
       },
-      reload: () => events.push("reload"),
+      redirectHome: () => events.push("redirect:/"),
       redeemPair: async (token) => {
         events.push(`pair:${token}`);
         return { ok: true };
@@ -38,13 +38,13 @@ function dispatcherHarness(credential: CapturedFragmentCredential): DispatcherHa
 }
 
 describe("captured fragment credential dispatcher", () => {
-  test("pair success clears before reload", async () => {
+  test("pair success clears before redirecting home", async () => {
     const pair = dispatcherHarness({ kind: "pair", token: "pair-secret" });
     expect(await dispatchCapturedFragmentCredential(pair.deps)).toBe(true);
     expect(pair.events).toEqual([
       "pair:pair-secret",
       "clear:pair",
-      "reload",
+      "redirect:/",
     ]);
     expect(pair.state.credential).toBeNull();
   });

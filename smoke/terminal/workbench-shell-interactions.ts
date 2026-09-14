@@ -313,14 +313,33 @@ export async function exerciseSidebarAgents(
   await expect(sidebarSearch).toBeVisible();
   await expect(sidebarSearch).toHaveAttribute("placeholder", "Filter spaces…");
   await sidebarSearch.fill("/tmp");
+  await expect.poll(() => page.getByTestId("sidebar-session-row").count(), {
+    timeout: 30_000,
+  }).toBeGreaterThanOrEqual(agentSessionIds.length);
+  await expect(page.locator('[data-testid^="folder-row-"]')).toHaveCount(0);
+  for (const sessionId of agentSessionIds) {
+    await expect(page.locator(
+      `[data-testid="sidebar-session-row"][data-session-id="${sessionId}"]`,
+    )).toBeVisible();
+  }
+  await sidebarSearch.fill("");
   await expect.poll(() => page.locator('[data-testid^="folder-row-"]').count(), {
     timeout: 30_000,
   }).toBeGreaterThanOrEqual(agentSessionIds.length);
   await expect(page.getByTestId("sidebar-session-row")).toHaveCount(0);
   await selectSidebarView(page, "agents");
   await expect(sidebarSearch).toHaveAttribute("placeholder", "Filter agents…");
+  await reportAgentStatus(activeAgentSessionId, "working", 2, true, activeAgentFilter);
+  await pollAgentStatus(
+    stack.client,
+    activeAgentSessionId,
+    "working",
+    (status) => status.source === "integration" && status.message === activeAgentFilter,
+  );
   await sidebarSearch.fill(activeAgentFilter);
-  await expect(page.locator('[data-testid^="sidebar-agent-row-"]')).toHaveCount(1);
+  await expect.poll(() => page.locator('[data-testid^="sidebar-agent-row-"]').count(), {
+    timeout: 30_000,
+  }).toBe(1);
   await expect(activeAgentRow).toBeVisible();
   await sidebarSearch.fill("__roost_no_matching_agent__");
   await expect(page.getByTestId("sidebar-agents")).toContainText("No matching agents");
@@ -364,36 +383,5 @@ export async function exerciseSidebarAgents(
   await expect(activeAgentRow).toHaveAttribute("data-selected", "true");
 }
 
-export async function swipeFromEdge(page: Page, startX: number, endX: number, y: number): Promise<void> {
-  await page.evaluate(({ startX: initialX, endX: finalX, y: clientY }) => {
-    const target = document.body;
-    const touch = (clientX: number) => new Touch({
-      identifier: 1,
-      target,
-      clientX,
-      clientY,
-      screenX: clientX,
-      screenY: clientY,
-      pageX: clientX,
-      pageY: clientY,
-    });
-    target.dispatchEvent(new TouchEvent("touchstart", {
-      bubbles: true,
-      cancelable: true,
-      changedTouches: [touch(initialX)],
-      touches: [touch(initialX)],
-    }));
-    target.dispatchEvent(new TouchEvent("touchmove", {
-      bubbles: true,
-      cancelable: true,
-      changedTouches: [touch(finalX)],
-      touches: [touch(finalX)],
-    }));
-    target.dispatchEvent(new TouchEvent("touchend", {
-      bubbles: true,
-      cancelable: true,
-      changedTouches: [touch(finalX)],
-      touches: [],
-    }));
-  }, { startX, endX, y });
-}
+export { swipeFromEdge } from "./workbench-shell-edge-swipe.ts";
+

@@ -70,11 +70,13 @@ function agentStatus(
   state: AgentStatus["state"],
   revision: number,
   completedRevision = 0,
+  message?: string,
 ): AgentStatus {
   return {
     session_id: sessionId,
     agent_id: "omp" as AgentStatus["agent_id"],
     state,
+    message,
     revision,
     completed_revision: completedRevision,
     updated_at: revision,
@@ -104,11 +106,13 @@ function seedAgentStatuses(values: readonly AgentStatus[]): void {
 function projectAgents(
   sessions: readonly Session[] = Object.values(rootStore.sessions),
   statuses: readonly AgentStatus[] = Object.values(rootStore.agent_status),
+  query = "",
 ) {
   const sessionById = Object.fromEntries(sessions.map((value) => [value.id, value]));
   const statusBySessionId = Object.fromEntries(statuses.map((value) => [value.session_id, value]));
   return projectSidebarAgentGroups({
     documents: _projectNavigationSearchDocuments(),
+    query,
     folderGroups: buildFolderGroups([...sessions]),
     sessions: sessionById,
     agentStatuses: statusBySessionId,
@@ -146,6 +150,20 @@ describe("Agents sidebar projection", () => {
     const documents = _projectNavigationSearchDocuments();
     expect(documents).toMatchObject([{ sessionId: SESSION_A, agentStatus: "unknown" }]);
     expect(projectAgents()).toEqual([]);
+  });
+
+  test("filters agent rows through canonical navigation metadata", () => {
+    const first = session(SESSION_A);
+    const second = session(SESSION_B);
+    const matching = agentStatus(SESSION_A, "working", 1, 0, "agent-filter-0");
+    const other = agentStatus(SESSION_B, "working", 1, 0, "other-agent");
+    seedSessions([first, second]);
+    seedAgentStatuses([matching, other]);
+
+    const matchedRows = projectAgents([first, second], [matching, other], "agent-filter-0")
+      .flatMap((group) => group.rows.map((row) => row.document.sessionId));
+    expect(matchedRows).toEqual([SESSION_A]);
+    expect(projectAgents([first, second], [matching, other], "__no_matching_agent__")).toEqual([]);
   });
 
   test("keeps identical folder paths on distinct workers in their existing group order", () => {

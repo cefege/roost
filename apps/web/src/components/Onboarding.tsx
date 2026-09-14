@@ -76,16 +76,16 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     if (pairPollTimer) clearInterval(pairPollTimer);
     clearInterval(pairRequestExpiryTimer);
   });
-
-  // Pair-request deltas can arrive while this embedded approval list is open.
-  // The expiry clock keeps the list from retaining a stale approval action.
-
+  // Pair-request deltas can arrive while this embedded approval list is open; the expiry clock removes stale actions.
+  function redirectAfterPairing(): void {
+    window.location.replace("/");
+  }
   async function redeemToken() {
     setStatus("loading");
     const res = await redeemPairToken(bootstrapToken());
     if (res.ok) {
       setStatus("done");
-      window.location.reload();
+      redirectAfterPairing();
     } else {
       setStatus("error");
       setErrorMsg(res.error);
@@ -102,8 +102,8 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
   }
 
   // tap-to-pair: this browser publishes its pubkey, then polls until
-  // another authorized browser approves. On approve → reload so
-  // bootstrapSync re-runs with the now-authorized JWT.
+  // another authorized browser approves. On approval, restart from the home
+  // route so the newly authorized browser cannot remain on the pairing surface.
   async function startPairFlow() {
     setStatus("loading");
     try {
@@ -132,8 +132,8 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
         setPairPollStatus(s as PairPollStatus);
         if (s === "approved") {
           if (pairPollTimer) clearInterval(pairPollTimer);
-          addToast("Browser approved — reloading", "ok");
-          window.location.reload();
+          addToast("Browser approved — opening home", "ok");
+          redirectAfterPairing();
         } else if (s === "denied") {
           if (pairPollTimer) clearInterval(pairPollTimer);
           addToast("Pair request denied", "warn");

@@ -1,5 +1,5 @@
 import { test as base, expect, devices, type Browser, type Page, type TestInfo } from "@playwright/test";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { startTerminalTestStack, type TerminalTestStack, type TerminalTestWorker } from "./stack.ts";
 
 type Fixtures = {
@@ -24,43 +24,129 @@ type SmokePageOptions = {
 
 const { defaultBrowserType: _defaultBrowserType, ...iphone15 } = devices["iPhone 15"];
 
+// Keep default test-time headroom for teardown and service-log attachments.
+const SMOKE_BROWSER_READINESS_TIMEOUT_MS = 90_000;
+
+function remainingSmokeReadinessMs(readinessDeadline: number): number {
+  const remaining = readinessDeadline - Date.now();
+  if (remaining <= 0) {
+    throw new Error(`smoke browser readiness timed out after ${SMOKE_BROWSER_READINESS_TIMEOUT_MS}ms`);
+  }
+  return remaining;
+}
+
+async function waitForSmokeWorkers(
+  page: Page,
+  workerFps: readonly string[],
+  readinessDeadline: number,
+): Promise<void> {
+  await page.waitForFunction(
+    (expectedWorkerFps) => expectedWorkerFps.every(
+      (workerFp) => !!window.__smoke?.state().workers[workerFp],
+    ),
+    workerFps,
+    { timeout: remainingSmokeReadinessMs(readinessDeadline) },
+  );
+}
+
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && error.code === "ENOENT";
+}
+
+async function attachStackLog(
+  testInfo: TestInfo,
+  attachmentName: string,
+  logPath: string,
+  required: boolean,
+): Promise<void> {
+  let body: Buffer | undefined;
+  try {
+    body = readFileSync(logPath);
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error;
+  }
+  if (body === undefined) {
+    if (required) {
+      await testInfo.attach(`${attachmentName}.unavailable`, {
+        body: `Stack log was unavailable during fixture teardown: ${logPath}`,
+        contentType: "text/plain",
+      });
+    }
+    return;
+  }
+  await testInfo.attach(attachmentName, { body, contentType: "text/plain" });
+}
+
+async function attachStackLogs(testInfo: TestInfo, stack: TerminalTestStack): Promise<void> {
+  await attachStackLog(testInfo, "coord.log", stack.coordLogPath, true);
+  await attachStackLog(testInfo, "worker.log", stack.workerLogPath, true);
+  await attachStackLog(testInfo, "pty-fixture-worker.log", stack.ptyFixtureWorkerLogPath, false);
+  await attachStackLog(
+    testInfo,
+    "second-pty-fixture-worker.log",
+    stack.secondPtyFixtureWorkerLogPath,
+    false,
+  );
+  await attachStackLog(testInfo, "second-worker.log", stack.secondWorkerLogPath, false);
+}
+
 /**
  * Redeem a pairing token in this page's browser context. Fragment scrubbing is
  * not enrollment on its own: the dispatcher clears `#pair` before its redeem
  * reload has produced an authenticated client, so this waits until the enrolled
  * page actually serves install state — smoke runtime installed, the primary
- * worker routable, the folder list painted, and no error boundary. Every wait
- * reads `window.__smoke` optionally: that reload lands mid-wait, and a document
- * whose smoke chunk has not been imported yet must poll again, not throw.
+ * worker routable, the folder list painted, and no error boundary. Enrollment
+ * has one deadline so a broken stack fails before fixture teardown loses its
+ * service-log window. Every wait reads `window.__smoke` optionally: that reload
+ * lands mid-wait, and a document whose smoke chunk has not been imported yet
+ * must poll again, not throw.
  */
 export async function enrollSmokeBrowser(
   page: Page,
   stack: TerminalTestStack,
   client = stack.client,
+  readinessDeadline = Date.now() + SMOKE_BROWSER_READINESS_TIMEOUT_MS,
 ): Promise<void> {
   const token = (await client.authMintBootstrap({
     kind: "browser",
     label: "roost-terminal-test-browser",
-  })).token;
+  }, { timeoutMs: remainingSmokeReadinessMs(readinessDeadline) })).token;
   await page.goto(`${stack.baseUrl}/#pair=${encodeURIComponent(token)}`, {
     waitUntil: "domcontentloaded",
+    timeout: remainingSmokeReadinessMs(readinessDeadline),
   });
-  await page.waitForFunction(() => location.hash === "");
   await page.waitForFunction(
-    (workerFp) => !!window.__smoke?.state().workers[workerFp],
-    stack.workerFp,
+    () => location.hash === "",
+    undefined,
+    { timeout: remainingSmokeReadinessMs(readinessDeadline) },
   );
+  await waitForSmokeWorkers(page, [stack.workerFp], readinessDeadline);
   const workbenchShell = page.locator(".workbench-shell[data-compact]");
-  await expect(workbenchShell).toHaveAttribute("data-compact", /^(?:true|false)$/);
+  await expect(workbenchShell).toHaveAttribute(
+    "data-compact",
+    /^(?:true|false)$/,
+    { timeout: remainingSmokeReadinessMs(readinessDeadline) },
+  );
   const compactState = await workbenchShell.getAttribute("data-compact");
   if (compactState !== "true" && compactState !== "false") {
     throw new Error("workbench shell data-compact must be true or false");
   }
   const compactLayout = compactState === "true";
   const folderList = page.getByTestId("folder-list");
-  await expect(folderList).toHaveCount(1);
-  if (!compactLayout) await expect(folderList).toBeVisible();
-  await expect(page.getByTestId("error-boundary")).toHaveCount(0);
+  await expect(folderList).toHaveCount(1, {
+    timeout: remainingSmokeReadinessMs(readinessDeadline),
+  });
+  if (!compactLayout) {
+    await expect(folderList).toBeVisible({
+      timeout: remainingSmokeReadinessMs(readinessDeadline),
+    });
+  }
+  await expect(page.getByTestId("error-boundary")).toHaveCount(0, {
+    timeout: remainingSmokeReadinessMs(readinessDeadline),
+  });
 }
 
 async function useSmokePage(
@@ -71,54 +157,37 @@ async function useSmokePage(
   options: SmokePageOptions = {},
 ): Promise<void> {
   const expectedWorkerFps = options.expectedWorkerFps ?? [stack.workerFp];
+  const readinessDeadline = Date.now() + SMOKE_BROWSER_READINESS_TIMEOUT_MS;
   const context = await browser.newContext(options.contextOptions);
-  await context.addInitScript(() => {
-    localStorage.setItem("roostSmoke", "1");
-    localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
-    if (!sessionStorage.getItem("roost.sidebarViewSeeded")) {
-      localStorage.setItem("roost.sidebarView", "spaces");
-      localStorage.setItem("roost.sidebarCollapsed", "0");
-      sessionStorage.setItem("roost.sidebarViewSeeded", "1");
-    }
-  });
-  const page = await context.newPage();
+  let page: Page | undefined;
+  let setupComplete = false;
   try {
-    await enrollSmokeBrowser(page, stack);
-    await page.waitForFunction(
-      (workerFps) => workerFps.every(
-        (workerFp) => !!window.__smoke?.state().workers[workerFp],
-      ),
-      expectedWorkerFps,
-    );
+    await context.addInitScript(() => {
+      localStorage.setItem("roostSmoke", "1");
+      localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
+      if (!sessionStorage.getItem("roost.sidebarViewSeeded")) {
+        localStorage.setItem("roost.sidebarView", "spaces");
+        localStorage.setItem("roost.sidebarCollapsed", "0");
+        sessionStorage.setItem("roost.sidebarViewSeeded", "1");
+      }
+    });
+    page = await context.newPage();
+    await enrollSmokeBrowser(page, stack, stack.client, readinessDeadline);
+    await waitForSmokeWorkers(page, expectedWorkerFps, readinessDeadline);
+    setupComplete = true;
     await use(page);
   } finally {
-    if (testInfo.status !== testInfo.expectedStatus) {
-      await testInfo.attach("coord.log", { body: readFileSync(stack.coordLogPath), contentType: "text/plain" });
-      await testInfo.attach("worker.log", { body: readFileSync(stack.workerLogPath), contentType: "text/plain" });
-      if (existsSync(stack.ptyFixtureWorkerLogPath)) {
-        await testInfo.attach("pty-fixture-worker.log", {
-          body: readFileSync(stack.ptyFixtureWorkerLogPath),
-          contentType: "text/plain",
-        });
-      }
-      if (existsSync(stack.secondPtyFixtureWorkerLogPath)) {
-        await testInfo.attach("second-pty-fixture-worker.log", {
-          body: readFileSync(stack.secondPtyFixtureWorkerLogPath),
-          contentType: "text/plain",
-        });
-      }
-      if (existsSync(stack.secondWorkerLogPath)) {
-        await testInfo.attach("second-worker.log", {
-          body: readFileSync(stack.secondWorkerLogPath),
-          contentType: "text/plain",
-        });
-      }
+    // Setup errors have not reached Playwright's status tracker yet.
+    if (!setupComplete || testInfo.status !== testInfo.expectedStatus) {
+      await attachStackLogs(testInfo, stack);
     }
-    await page.evaluate(async () => {
-      const smoke = window.__smoke;
-      smoke?.forceVisible(false);
-      await smoke?.cleanupCreated();
-    }).catch(() => undefined);
+    if (page) {
+      await page.evaluate(async () => {
+        const smoke = window.__smoke;
+        smoke?.forceVisible(false);
+        await smoke?.cleanupCreated();
+      }).catch(() => undefined);
+    }
     await context.close();
   }
 }
@@ -129,44 +198,38 @@ async function useColdSmokePage(
   use: (page: Page) => Promise<void>,
   testInfo: TestInfo,
 ): Promise<void> {
+  const readinessDeadline = Date.now() + SMOKE_BROWSER_READINESS_TIMEOUT_MS;
   const context = await browser.newContext();
-  await context.addInitScript(() => {
-    localStorage.setItem("roostSmoke", "1");
-    localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
-    const driverEpoch = Number(new URL(location.href).searchParams.get("__roost_driver_nav"));
-    if (Number.isFinite(driverEpoch) && driverEpoch > 0) {
-      (window as Window & { __roostDriverBeforeNavigationEpochMs?: number })
-        .__roostDriverBeforeNavigationEpochMs = driverEpoch;
-    }
-  });
-  const enrollmentPage = await context.newPage();
-  await enrollSmokeBrowser(enrollmentPage, stack);
-  await enrollmentPage.close();
-  const page = await context.newPage();
+  let page: Page | undefined;
+  let setupComplete = false;
   try {
+    await context.addInitScript(() => {
+      localStorage.setItem("roostSmoke", "1");
+      localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
+      const driverEpoch = Number(new URL(location.href).searchParams.get("__roost_driver_nav"));
+      if (Number.isFinite(driverEpoch) && driverEpoch > 0) {
+        (window as Window & { __roostDriverBeforeNavigationEpochMs?: number })
+          .__roostDriverBeforeNavigationEpochMs = driverEpoch;
+      }
+    });
+    const enrollmentPage = await context.newPage();
+    await enrollSmokeBrowser(enrollmentPage, stack, stack.client, readinessDeadline);
+    await enrollmentPage.close();
+    page = await context.newPage();
+    setupComplete = true;
     await use(page);
   } finally {
-    if (testInfo.status !== testInfo.expectedStatus) {
-      await testInfo.attach("coord.log", { body: readFileSync(stack.coordLogPath), contentType: "text/plain" });
-      await testInfo.attach("worker.log", { body: readFileSync(stack.workerLogPath), contentType: "text/plain" });
-      if (existsSync(stack.ptyFixtureWorkerLogPath)) {
-        await testInfo.attach("pty-fixture-worker.log", {
-          body: readFileSync(stack.ptyFixtureWorkerLogPath),
-          contentType: "text/plain",
-        });
-      }
-      if (existsSync(stack.secondPtyFixtureWorkerLogPath)) {
-        await testInfo.attach("second-pty-fixture-worker.log", {
-          body: readFileSync(stack.secondPtyFixtureWorkerLogPath),
-          contentType: "text/plain",
-        });
-      }
+    // Setup errors have not reached Playwright's status tracker yet.
+    if (!setupComplete || testInfo.status !== testInfo.expectedStatus) {
+      await attachStackLogs(testInfo, stack);
     }
-    await page.evaluate(async () => {
-      const smoke = window.__smoke;
-      smoke?.forceVisible(false);
-      await smoke?.cleanupCreated();
-    }).catch(() => undefined);
+    if (page) {
+      await page.evaluate(async () => {
+        const smoke = window.__smoke;
+        smoke?.forceVisible(false);
+        await smoke?.cleanupCreated();
+      }).catch(() => undefined);
+    }
     await context.close();
   }
 }

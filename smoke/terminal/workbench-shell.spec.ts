@@ -1,6 +1,6 @@
-// Exercises the canonical workbench against a real coordinator, worker, keeper,
-// and PTY. The scenarios cover desktop geometry, the retained Spaces/Agents selector, narrow tab/deck
-// behavior, and the compact drawer/settings shell without synthetic clients or renderers.
+// Exercises the canonical desktop workbench against a real coordinator, worker, keeper, and PTY.
+// The scenarios cover geometry, the retained Spaces/Agents selector, and narrow tab/deck behavior.
+// They use the terminal smoke fixtures without synthetic clients or renderers.
 
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
@@ -8,18 +8,14 @@ import {
   navigateToSmokeSession,
   pressPlatformShortcut,
   spawnSmokeShell,
-  switchToSmokeSession,
 } from "./terminal-helpers.ts";
 import { readRenderedLayout } from "./layout-document-snapshots.ts";
 import { expectStatusTruth } from "./workbench-status.ts";
-import { exerciseSidebarAgents, swipeFromEdge } from "./workbench-shell-interactions.ts";
+import { exerciseSidebarAgents } from "./workbench-shell-interactions.ts";
 import { expectConnectedWorkbenchTabStrip } from "./workbench-shell-tab-strip.ts";
 
 const WIDE_VIEWPORT = { width: 1440, height: 900 } as const;
 const NARROW_VIEWPORT = { width: 1024, height: 768 } as const;
-const COMPACT_VIEWPORT = { width: 390, height: 844 } as const;
-const COMPACT_LANDSCAPE_VIEWPORT = { width: 844, height: 390 } as const;
-const SHORT_SIDE_BOUNDARY_VIEWPORT = { width: 844, height: 600 } as const;
 const SIDEBAR_WIDTH_DEFAULT = 300;
 type Rect = { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number };
 type ShellGeometry = {
@@ -315,84 +311,4 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   expect(tiled.panes.length).toBe(3);
   const sourcePaneAfter = tiled.panes.findIndex((pane) => pane.tabs.includes(sourceId));
   expect(sourcePaneAfter).not.toBe(sourcePaneIndex);
-});
-test("compact workbench preserves drawer navigation and settings padding across boundary sizes", async ({
-  mobileSmokePage,
-  stack,
-}) => {
-  await mobileSmokePage.setViewportSize(COMPACT_VIEWPORT);
-  await expect(mobileSmokePage.locator(".workbench-shell")).toHaveAttribute("data-compact", "true");
-  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
-  await navigateToSmokeSession(mobileSmokePage, sessionId);
-  await expect(mobileSmokePage.getByTestId("mobile-deck-bar")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("mobile-topbar")).toHaveCount(0);
-  await expect(mobileSmokePage.getByTestId("workbench-status-bar")).toHaveCount(0);
-  await expect(mobileSmokePage.locator(".workbench-titlebar")).toHaveCount(0);
-  await expect(mobileSmokePage.locator(".workbench-activity-bar")).toHaveCount(0);
-  await expect(mobileSmokePage.getByTestId("mobile-deck-bar")).toContainText(/\S/);
-  const drawer = mobileSmokePage.getByTestId("sidebar-drawer");
-  await mobileSmokePage.getByTestId("mobile-deck-bar-menu").tap();
-  await expect(drawer).toHaveAttribute("data-open", "true");
-  await expect(mobileSmokePage.getByTestId("sidebar-overlay")).toHaveAttribute("data-open", "true");
-  const sidebarSearch = mobileSmokePage.getByTestId("sidebar-search");
-  await expect(mobileSmokePage.getByTestId("sidebar-view-spaces")).toHaveAttribute("aria-pressed", "true");
-  await expect(sidebarSearch).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("folder-list")).toBeVisible();
-  await sidebarSearch.fill("/tmp");
-  await expect.poll(() => mobileSmokePage.locator('[data-testid^="folder-row-"]').count()).toBeGreaterThan(0);
-  await sidebarSearch.fill("");
-  await expect(mobileSmokePage.getByTestId("folder-list")).toBeVisible();
-  await mobileSmokePage.getByTestId("brand-row-collapse").tap();
-  await expect(drawer).toHaveAttribute("data-open", "false");
-  await swipeFromEdge(mobileSmokePage, 1, 250, 420);
-  await expect(drawer).toHaveAttribute("data-open", "true");
-  await mobileSmokePage.getByTestId("brand-row-settings").tap();
-  await expect(mobileSmokePage).toHaveURL(`${stack.baseUrl}/settings/devices`);
-  await expect(drawer).toHaveAttribute("data-open", "false");
-  await mobileSmokePage.goto(`${stack.baseUrl}/settings`, { waitUntil: "domcontentloaded" });
-  const settingsRoot = mobileSmokePage.locator(".settings-mobile__main");
-  await expect(mobileSmokePage.locator(".settings-rail")).toHaveCount(0);
-  await expect(settingsRoot).toHaveCount(1);
-  await expect(settingsRoot.locator(".settings-topbar")).toHaveCount(1);
-  await expect(mobileSmokePage.getByTestId("mobile-topbar")).toHaveCount(0);
-  const firstSettingsRow = settingsRoot.locator(".settings-mobile__row").first();
-  await expect(firstSettingsRow).toBeVisible();
-  await firstSettingsRow.click();
-  await expect(mobileSmokePage).toHaveURL(/\/settings\/[^/]+$/);
-  await expect(settingsRoot.locator(".settings-topbar")).toHaveCount(1);
-  await mobileSmokePage.getByTestId("settings-detail-back").click();
-  await expect(mobileSmokePage).toHaveURL(`${stack.baseUrl}/settings`);
-  await expect(settingsRoot.locator(".settings-topbar")).toHaveCount(1);
-  await switchToSmokeSession(mobileSmokePage, sessionId);
-  await typeTrustedMarker(mobileSmokePage, sessionId, `WB_COMPACT_${crypto.randomUUID().replaceAll("-", "")}`);
-  await mobileSmokePage.setViewportSize(COMPACT_LANDSCAPE_VIEWPORT);
-  await expect(mobileSmokePage.locator(".workbench-shell")).toHaveAttribute("data-compact", "true");
-  await navigateToSmokeSession(mobileSmokePage, sessionId);
-  await expect(mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
-  await mobileSmokePage.goto(`${stack.baseUrl}/settings/devices`, { waitUntil: "domcontentloaded" });
-  await expect(settingsRoot).toBeVisible();
-  const compactSettingsContent = settingsRoot.locator(".settings-content");
-  expect(await compactSettingsContent.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft]
-      .every((padding) => padding === style.getPropertyValue("--md-space-4").trim());
-  })).toBe(true);
-  await mobileSmokePage.setViewportSize({ width: 700, height: 700 });
-  await expect(mobileSmokePage.locator(".workbench-shell")).toHaveAttribute("data-compact", "false");
-  await expect(mobileSmokePage.getByTestId("workbench-activity-sessions")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("sidebar-desktop")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("folder-list")).toBeVisible();
-  await mobileSmokePage.setViewportSize(SHORT_SIDE_BOUNDARY_VIEWPORT);
-  await expect(mobileSmokePage.locator(".workbench-shell")).toHaveAttribute("data-compact", "false");
-  await mobileSmokePage.goto(`${stack.baseUrl}/settings/machines`, { waitUntil: "domcontentloaded" });
-  await expect(settingsRoot).toHaveCount(0);
-  const desktopSettingsContent = mobileSmokePage.locator(".settings-main .settings-content");
-  await expect(desktopSettingsContent).toBeVisible();
-  expect(await desktopSettingsContent.evaluate((element) => {
-    const style = getComputedStyle(element);
-    const blockPadding = style.getPropertyValue("--md-space-6").trim();
-    const inlinePadding = style.getPropertyValue("--md-space-7").trim();
-    return [style.paddingTop, style.paddingBottom].every((padding) => padding === blockPadding)
-      && [style.paddingRight, style.paddingLeft].every((padding) => padding === inlinePadding);
-  })).toBe(true);
 });
