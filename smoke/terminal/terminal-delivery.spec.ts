@@ -207,12 +207,25 @@ test("new-terminal server switch resets browse path before listing and spawning"
   await multiWorkerSmokePage.goBack();
   await expect(multiWorkerSmokePage.getByTestId("folder-list")).toBeVisible();
   const sidebarUrl = multiWorkerSmokePage.url();
-  await sidebarFooter.getByTestId("sidebar-new-terminal-machine").click();
-  await multiWorkerSmokePage
-    .getByTestId("sidebar-new-terminal-machine-menu")
-    .getByTestId("sidebar-new-terminal-machine-option")
-    .filter({ hasText: secondWorker.label })
-    .click();
+  const machineTrigger = sidebarFooter.getByTestId("sidebar-new-terminal-machine");
+  await machineTrigger.focus();
+  await machineTrigger.press("ArrowDown");
+  await expect(multiWorkerSmokePage.getByTestId("sidebar-new-terminal-machine-menu")).toBeVisible();
+  await multiWorkerSmokePage.keyboard.press("Escape");
+  await expect(multiWorkerSmokePage.getByTestId("sidebar-new-terminal-machine-menu")).toHaveCount(0);
+  await expect(machineTrigger).toBeFocused();
+  await machineTrigger.click();
+  await expect(multiWorkerSmokePage.getByTestId("sidebar-new-terminal-machine-menu")).toBeVisible();
+  await multiWorkerSmokePage.locator("body").click({ position: { x: 1, y: 1 } });
+  await expect(multiWorkerSmokePage.getByTestId("sidebar-new-terminal-machine-menu")).toHaveCount(0);
+  await expect(machineTrigger).toBeFocused();
+
+  await machineTrigger.press("ArrowDown");
+  await multiWorkerSmokePage.keyboard.press("End");
+  await expect(multiWorkerSmokePage.locator(":focus")).toContainText(secondWorker.label);
+  await multiWorkerSmokePage.keyboard.press("Enter");
+  await expect(multiWorkerSmokePage.getByTestId("sidebar-new-terminal-machine-menu")).toHaveCount(0);
+  await expect(machineTrigger).toBeFocused();
   await expect(multiWorkerSmokePage).toHaveURL(sidebarUrl);
   await expect(sidebarFooter.getByTestId("sidebar-new-terminal-machine")).toHaveAttribute("title", secondWorker.label);
 
