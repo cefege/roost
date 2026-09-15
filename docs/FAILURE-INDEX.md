@@ -382,6 +382,11 @@ handshake — that dispatch order is not guaranteed, so a mark set in the resize
 it was meant to classify. Geometry events the user did not aim at the bottom
 (`noteBoxResize`) still preserve a find park unless the box has no scroll range left. Dismissing the find bar
 must NOT resume: it would yank a reader off the match they are still looking at.
+The suppression is one-shot per SHRINK, not per gesture — the maximum is recorded before every classification,
+so no event can leave a larger value behind and the next event on settled geometry resumes. An animation that
+shrinks the maximum over consecutive frames (divider drag, mobile keyboard) therefore refuses an anchor release
+once per frame; the position still moves, zero range removes the suppression outright, and the cost is bounded
+to one event of latency for an anchor park whose last gesture event coincided with the final shrink frame.
 
 **Guard** — `apps/web/tests/cellRenderer.findPark.dom.test.ts` —
 `"a user scroll to the exact bottom resumes a find park"`,
@@ -390,7 +395,9 @@ must NOT resume: it would yank a reader off the match they are still looking at.
 `"a box-grow clamp onto the bottom keeps a find park"`,
 `"a clamp that leaves no scroll range resumes a find park"`;
 `apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
-`"a wheel park clamped onto the bottom by a box grow resumes"` for the position-only side.
+`"a wheel park clamped onto the bottom by a box grow resumes"` for the position-only side; and
+`"a gesture after a clamp still resumes a find park"`, which pins the one-shot property — making the record
+conditional on `clamped` turns it red.
 
 ### A dismissed find bar leaves the pane parked on a dead find anchor
 

@@ -129,6 +129,39 @@ describe("CellGridRenderer DOM — find park scroll contract", () => {
     expect(r.currentFrame!.seq).toBe(3);
     expect(vpEl(c).textContent).toBe("latest-v");
   });
+
+  // The suppression is one-shot by construction: every observed event records
+  // the maximum it saw, so the gesture after a clamp sees an unchanged one.
+  test("a gesture after a clamp still resumes a find park", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
+    c.scrollTop = PAD_TOP + 50 * ROW_PX;
+    r.handleScroll(); // observes the pre-grow maximum
+    r.scrollToScrollbackRow(300); // a mid-history hit, well off the bottom
+    r.handleScroll();
+    r.apply(newerFrame());
+
+    c.clientHeight = 1800; // the maximum drops below the parked position
+    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
+    c.resetScrollTopWrites();
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerReason).toBe("find");
+    expect(vpEl(c).textContent).toBe("v");
+    expect(c.scrollTopWrites).toBe(0);
+
+    expect(r.handleScroll().reconciled).toBe(true); // same maximum: a gesture
+    expect(r.readerIntent).toBe("live");
+    expect(vpEl(c).textContent).toBe("latest-v");
+
+    // Nothing lingers: a fresh park on this geometry resumes like any other.
+    r.scrollToScrollbackRow(300);
+    r.handleScroll();
+    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("live");
+    expect(r.readerReason).toBeNull();
+  });
   test("closing the find bar ends the park without moving or painting", () => {
     const { c, r } = findPark();
     const find = openBar(r);
