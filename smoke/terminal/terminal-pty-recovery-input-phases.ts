@@ -308,9 +308,7 @@ export async function proveFindPasteRecovery({
   const preFindRows = (await readTerminalStreamProbe(page, sessionId))
     .browser.presentation?.rows.dom;
   if (preFindRows === undefined) throw new Error("pre-find presentation omitted DOM rows");
-  // A real one-line paste, not closing Find, adopts its pending frame. Closing
-  // it ends the find INTERVAL — the reason downgrades to an ordinary scroll
-  // park — without moving the view or painting.
+  // A real one-line paste, not closing Find, adopts its pending frame; closing it only downgrades the park.
   await pressPlatformShortcut(page, "terminalFind", "F");
   const findInput = page.getByTestId("terminal-find-input");
   await expect(findInput).toBeVisible();

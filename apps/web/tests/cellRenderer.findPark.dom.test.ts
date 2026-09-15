@@ -17,6 +17,7 @@ import {
   row,
   deltaFrame,
   seedHeldHistory,
+  vpEl,
 } from "./helpers/cellRendererFakeDom.ts";
 
 const openBar = (renderer: CellGridRenderer) => createTerminalFind({
@@ -87,6 +88,46 @@ describe("CellGridRenderer DOM — find park scroll contract", () => {
     expect(r.currentFrame!.seq).toBe(3);
     expect(spansText(r.currentFrame!.viewportRows[0]!.spans)).toBe("latest-v");
     expect(r.reconcileBlockReason()).toBeNull();
+  });
+
+  // A find park parked at the tail, whose box grew: the browser clamps it onto
+  // the smaller maximum and dispatches a scroll the user never performed.
+  const clampedTailPark = (grownBoxPx: number) => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
+    c.scrollTop = PAD_TOP + 50 * ROW_PX;
+    r.handleScroll();
+    r.scrollToScrollbackRow(399); // a tail hit lands the park on the bottom
+    r.handleScroll(); // observes the pre-grow maximum
+    r.apply(newerFrame());
+    c.clientHeight = grownBoxPx;
+    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight); // the browser's own clamp
+    c.resetScrollTopWrites();
+    return { c, r };
+  };
+
+  test("a box-grow clamp onto the bottom keeps a find park", () => {
+    const { c, r } = clampedTailPark(700); // scroll range remains
+
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("find");
+    expect(r.currentFrame!.seq).toBe(2);
+    expect(vpEl(c).textContent).toBe("v");
+    expect(c.scrollTopWrites).toBe(0);
+  });
+
+  test("a clamp that leaves no scroll range resumes a find park", () => {
+    const { c, r } = clampedTailPark(6500); // taller than the frozen content
+    expect(c.scrollHeight).toBeLessThanOrEqual(c.clientHeight);
+
+    expect(r.handleScroll().reconciled).toBe(true);
+
+    expect(r.readerIntent).toBe("live");
+    expect(r.currentFrame!.seq).toBe(3);
+    expect(vpEl(c).textContent).toBe("latest-v");
   });
   test("closing the find bar ends the park without moving or painting", () => {
     const { c, r } = findPark();

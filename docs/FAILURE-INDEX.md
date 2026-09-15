@@ -362,22 +362,35 @@ type"
 returning before the at-bottom resume whenever the reason is `find`. `closeFind()`
 (`apps/web/src/lib/terminalFindController.ts`) only clears highlights and query state — it never resumes the
 reader — so before this change no gesture at any position could un-park the pane after a dismissal, and a box
-change with scroll range remaining refused it too. Equally wrong: resuming on any at-bottom event regardless of
-origin,
-which lets `scrollToScrollbackRow()`'s own write to a TAIL hit clamp onto the bottom and instantly un-park the
-navigation the user just asked for.
+change with scroll range remaining refused it too. Equally wrong: resuming on any at-bottom event regardless
+of origin, which lets `scrollToScrollbackRow()`'s own write to a TAIL hit clamp onto the bottom and instantly
+un-park the navigation the user just asked for — and, the same mistake one layer out, treating every NON-owned
+at-bottom event as a gesture: a box grow that drops the scroll maximum below a near-bottom find reader makes
+the browser clamp `scrollTop` and dispatch a scroll the user never performed, releasing the anchor park
+`noteBoxResize` had just deliberately refused to touch.
 
 **Right** — a user scroll onto the exact bottom is the universal return to live and means the same thing for
 every reason, `find` included: resume explicitly, so the find bail is bypassed and the pin lands. Distinguish
-origin with the renderer-owned epoch already computed at the top of `handleScroll()` — an `owned` event keeps
-the anchor it just aimed at, a non-owned one resumes. Geometry events the user did not aim at the bottom
+origin from the facts the event itself carries: the renderer-owned epoch already computed at the top of
+`handleScroll()`, plus the last observed scroll MAXIMUM (`scrollHeight - clientHeight`, recorded on every
+observed event and on every pin, never in `noteBoxResize` — recording the shrunken maximum there would make the
+clamp that follows look like a gesture, whatever the dispatch order). An `owned` event keeps the anchor it just
+aimed at, and so does an event whose maximum SHRANK since the last observation; only a non-owned event on an
+unchanged maximum is a return to live. A maximum of zero is never a clamp: with no range nothing can be aimed
+at, so every park yields. Never classify this with a timer, a task-ordering flag or a ResizeObserver-to-scroll
+handshake — that dispatch order is not guaranteed, so a mark set in the resize path can arrive after the event
+it was meant to classify. Geometry events the user did not aim at the bottom
 (`noteBoxResize`) still preserve a find park unless the box has no scroll range left. Dismissing the find bar
 must NOT resume: it would yank a reader off the match they are still looking at.
 
 **Guard** — `apps/web/tests/cellRenderer.findPark.dom.test.ts` —
 `"a user scroll to the exact bottom resumes a find park"`,
 `"a renderer-owned write that lands at the bottom keeps the find park"`,
-`"a find park survives a scroll that does not reach the bottom"`.
+`"a find park survives a scroll that does not reach the bottom"`,
+`"a box-grow clamp onto the bottom keeps a find park"`,
+`"a clamp that leaves no scroll range resumes a find park"`;
+`apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
+`"a wheel park clamped onto the bottom by a box grow resumes"` for the position-only side.
 
 ### A dismissed find bar leaves the pane parked on a dead find anchor
 

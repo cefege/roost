@@ -71,7 +71,7 @@ export function expectCanonicalAdvanceHeld(
   pending: TerminalStreamProbe,
   options: {
     epoch?: "same" | "changed";
-    readerReason?: "find" | "selection" | "touch" | "wheel";
+    readerReason?: "native_scroll" | "find" | "selection" | "touch" | "wheel";
     selectionHold?: boolean;
   } = {},
 ): void {

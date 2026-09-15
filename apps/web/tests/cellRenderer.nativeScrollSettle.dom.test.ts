@@ -5,6 +5,7 @@ import { expect, test } from "bun:test";
 import { CellGridRenderer } from "../src/lib/cellRenderer.ts";
 import type { CellGridFrame, CellRow } from "@roost/shared/cell";
 import {
+  ROW_PX,
   deltaFrame,
   makeContainer,
   row,
@@ -76,6 +77,27 @@ test("a wheel park clamped to the bottom settles without a second scroll event",
     expect(renderer.readerIntent).toBe("live");
     expect(renderer.currentFrame!.seq).toBe(3);
     expect(renderer.canonicalEpochSeq()).toEqual(renderer.reconciledEpochSeq());
+  });
+});
+// A shrunken maximum withholds only an ANCHOR park's release: a position-only
+// park has nothing to protect at the bottom, however it got there.
+test("a wheel park clamped onto the bottom by a box grow resumes", async () => {
+  await withAnimationFrames(async () => {
+    const container = makeContainer();
+    const renderer = new CellGridRenderer(container as unknown as HTMLElement);
+    seedHeldHistory(renderer, 80, [row(0, "v")], scrollbackRows(400));
+    container.scrollTop = container.scrollHeight - container.clientHeight - 4 * ROW_PX;
+    renderer.handleScroll(); // observes the pre-grow maximum
+    renderer.enterReading("wheel");
+    renderer.apply(appendedFrame(3));
+    expect(renderer.currentFrame!.seq).toBe(2);
+
+    container.clientHeight = 700; // the maximum drops below the parked position
+    container.scrollTop = container.scrollHeight - container.clientHeight;
+
+    expect(renderer.handleScroll().reconciled).toBe(true);
+    expect(renderer.readerIntent).toBe("live");
+    expect(renderer.currentFrame!.seq).toBe(3);
   });
 });
 test("native scroll settle keeps a true off-bottom reader held", async () => {

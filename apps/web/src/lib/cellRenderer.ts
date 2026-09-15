@@ -89,6 +89,8 @@ export class CellGridRenderer {
   private _nextOwnedScrollEpoch = 0;
   private _ownedScrollEpoch = 0;
   private _ownedScrollTop = 0;
+  // Scroll maximum last observed with a position; a smaller one means a clamp.
+  private _lastScrollMax = 0;
   // A pending selection-release scroll is consumed before native reader intent.
   private _liveSelectionReleasePending = false;
   // A position-only park can be clamped to bottom with no second scroll event.
@@ -1140,28 +1142,23 @@ export class CellGridRenderer {
     const before = this.container.scrollTop;
     if (before !== value) this.container.scrollTop = value;
     const after = this.container.scrollTop;
-    if (after !== before) {
-      if (this._ownedScrollEpoch === 0) {
-        this._nextOwnedScrollEpoch += 1;
-        this._ownedScrollEpoch = this._nextOwnedScrollEpoch;
-      }
-      this._ownedScrollTop = after;
-    } else if (this._ownedScrollEpoch !== 0) {
-      this._ownedScrollTop = after;
+    if (after !== before && this._ownedScrollEpoch === 0) {
+      this._nextOwnedScrollEpoch += 1;
+      this._ownedScrollEpoch = this._nextOwnedScrollEpoch;
     }
+    if (this._ownedScrollEpoch !== 0) this._ownedScrollTop = after;
   }
 
   // Preserve an exact renderer-owned placement when late geometry moves its bottom.
   private _atBottomOrOwnedPlacement(): boolean {
-    return this.atBottom() || (
-      this._ownedScrollEpoch !== 0
-      && this.container.scrollTop === this._ownedScrollTop
-    );
+    return this.atBottom()
+      || (this._ownedScrollEpoch !== 0 && this.container.scrollTop === this._ownedScrollTop);
   }
 
   private _pinToBottom(shouldPin: boolean): void {
     if (!shouldPin) return;
     const bottom = Math.max(0, this.container.scrollHeight - this.container.clientHeight);
+    this._lastScrollMax = bottom;
     this._writeScrollTop(bottom);
   }
 
@@ -1171,6 +1168,11 @@ export class CellGridRenderer {
   }
 
   handleScroll(): LiveInteractionResult {
+    // A scroll that only follows a shrunken maximum is a clamp no gesture
+    // aimed at, so an anchor park outranks it; with no range, nothing is aimed.
+    const max = Math.max(0, this.container.scrollHeight - this.container.clientHeight);
+    const clamped = max > 0 && max < this._lastScrollMax;
+    this._lastScrollMax = max;
     let owned = false;
     if (this._ownedScrollEpoch !== 0) {
       owned = this.container.scrollTop === this._ownedScrollTop;
@@ -1181,9 +1183,7 @@ export class CellGridRenderer {
       if (owned && !bottom) return NO_LIVE_INTERACTION_RESULT;
     }
     if (this._readerIntent === "reading" && this._readerReason === "find") {
-      // A user scroll onto the exact bottom is the universal return to live;
-      // only the renderer's own find write keeps the anchor it just aimed at.
-      if (owned || !this.atBottom()) {
+      if (owned || clamped || !this.atBottom()) {
         this._captureReaderAnchor();
         return NO_LIVE_INTERACTION_RESULT;
       }
