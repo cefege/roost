@@ -757,6 +757,28 @@ adding one, check it is not a readline/TUI binding.
 **Guard** — `smoke/terminal/` — `"terminal replay and Ctrl keys stay owned by the PTY"` asserts `^B^F^K`
 round-trips.
 
+### A global key router claims bare ↑/↓/⏎ on routes that have no cursor
+
+**Symptom** — "I can't scroll" on a TV remote / D-pad — including on `/pair`; also "OK does nothing on
+Request approval / Pair / Approve / Deny"
+
+**Wrong** — a `window` CAPTURE-phase handler that `preventDefault()`s bare `ArrowUp`/`ArrowDown`/`Enter`
+whenever no modal is open and no terminal deck is mounted, then routes them to a list cursor. Off the sidebar
+that cursor's id list is EMPTY, so the keys move nothing while still cancelling the browser's work. Also wrong:
+"fixing" it per-route, or gating on the route path — the predicate is whether a cursor target exists, not where
+you are.
+
+**Right** — **claim a key only when there is something to move.** `apps/web/src/lib/keyboardShortcuts.ts`'s
+arrow/⏎ branch bails before `preventDefault()` on `!hasCursorTargets()` (arrows) and `cursorSessionId() === null`
+(⏎), both from `apps/web/src/lib/sidebarCursor.ts`. Two distinct defaults are at stake and both are invisible
+until they are gone: arrows are the DOCUMENT'S native scroll, and keydown `preventDefault()` cancels a focused
+`<button>`'s click activation — so ⏎ on a real button dies silently with no console trace. Generalizable rule:
+a capture-phase router must prove it will act before it cancels.
+
+**Guard** — `apps/web/tests/keyboardShortcuts.test.ts` — `"↑/↓ stay the document's native scroll when no cursor
+rows exist"` and `"⏎ stays a focused button's activation when no cursor row is highlighted"`;
+`smoke/terminal/tv-dpad.spec.ts` asserts the `/pair` ArrowDown arrives with `defaultPrevented === false`.
+
 ---
 
 ## Worker, keeper and host
@@ -1330,6 +1352,29 @@ sink dispatch in one guard per function that reports through `log.warn` with str
 cannot re-throw on the reporting line. One guard at the facade covers every sink.
 
 **Guard** — `apps/web/tests/diag.test.ts`; `apps/shared/tests/json.test.ts`.
+
+### env(safe-area-inset-*) is 0px on a television, and a portal escapes the shell's padding
+
+**Symptom** — "buttons/keys are cut off at the edge of the TV screen / I can't see the bottom-right control on
+the TV"
+
+**Wrong** — rely on `env(safe-area-inset-*)` to keep chrome off a bezel-cropped edge. TV browsers report all
+four as `0px`, so the padding that protects an iPhone notch protects nothing here. Equally wrong: add the
+overscan gutter only to `.workbench-shell` — a `position: fixed` surface portaled to `<body>`
+(`TerminalNavButtons`, `apps/web/src/components/TerminalNavButtons.tsx`) is not inside that box and keeps its
+own viewport-relative offsets.
+
+**Right** — **explicit overscan tokens, applied to the shell AND to every portaled fixed surface.**
+`--tv-overscan-inline` / `--tv-overscan-block` are declared in `apps/web/src/styles/theme-vars.css` (~2.5% of a
+1080p frame) and applied under `[data-tv="true"]` in `apps/web/src/styles/tv.css`. When raising a fixed
+surface's `bottom`, raise any `max-height` that subtracts a literal mirroring that offset — `.term-nav`
+subtracts a `220px` twin of its own `bottom`, so a raised offset without a matching subtraction lets the sheet
+run off the TOP of the frame. Subtract the block overscan twice: once for the raised bottom, once to keep the
+surface's own top edge clear.
+
+**Guard** — `smoke/terminal/tv-dpad.spec.ts` reads the tokens off the computed root and asserts both portaled
+surfaces sit inside the safe rect on the right, bottom AND top edges; removing the `tv.css` override fails it at
+`16px` against the `48px` inline overscan.
 
 ---
 
