@@ -5,6 +5,7 @@
 
 import { verifyJwt, type Caller as VerifiedJwtCaller } from "../jwt.ts";
 import { log } from "@roost/shared/log";
+import { DEFAULT_WORKER_LOCAL_UI_ORIGIN } from "@roost/shared/config";
 import { signal } from "@roost/shared/diag";
 import {
   UI_TAB_ID_MAX_UTF8_BYTES,
@@ -50,6 +51,10 @@ function isAllowedWsOrigin(
     || origin === cfg.publicUrl
     || cfg.corsAllowedOrigins.includes(origin)
     || origin === `https://${host}`
+    // The worker-served loopback SPA dials this socket cross-origin. Exact
+    // match only: any prefix or regex on 127.0.0.1 would admit an attacker's
+    // page served from another loopback port.
+    || origin === DEFAULT_WORKER_LOCAL_UI_ORIGIN
   ) return true;
   return cfg.relaxedCsp && origin === `http://${host}`;
 }

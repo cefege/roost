@@ -10,7 +10,8 @@ import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { acquireKeeperAdmission, enqueueTerminalControl } from "./session-control-lanes.ts";
 import { applyTerminalStreamNow } from "./session-terminal-txn.ts";
-import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
+import { retireStreamDelivery } from "./session-snapshot-cursor.ts";
+import { clearStreamDeliveryDirty } from "./session-cell-sinks.ts";
 import { cancelCellEmission } from "./session-cell-scheduler.ts";
 import type {
 	TerminalStreamState,
@@ -74,7 +75,11 @@ async function writeAcknowledgedInputBatch(
 	budget?: TerminalRequestBudget,
 ): Promise<WorkerInputResult> {
 	if (bytes.byteLength === 0) return { status: "accepted", writtenBytes: 0 };
-	const ticket = acquireKeeperAdmission(manager, channelId, "terminal_input");
+	const admission = acquireKeeperAdmission(manager, channelId, "terminal_input");
+	if (!admission.admitted) {
+		return { status: "rejected", writtenBytes: 0, reason: admission.reason };
+	}
+	const ticket = admission.ticket;
 	const owned = bytes.slice();
 	let command;
 	try {
@@ -202,23 +207,33 @@ export function applyTerminalStreamState(
 		return current.operation
 			?? Promise.resolve(settledStateResult(current, this.channelResizeSeq.get(channelId) ?? 0));
 	}
+	// Admission is taken before any stream-state mutation so a refused write
+	// leaves the previous stream, cursor and epoch exactly as they were.
+	const admission = acquireKeeperAdmission(this, channelId, "terminal_resize");
+	if (!admission.admitted) {
+		return Promise.resolve({
+			...invalidResult(intent, admission.reason),
+			failure: "retryable_pre_write",
+		});
+	}
+	const ticket = admission.ticket;
 	if (current) {
 		cancelCellEmission(this, channelId);
 		this.cellDirty.delete(channelId);
-		current.baselineDirty = false;
-		retireSnapshotCursor(this, channelId, current);
+		clearStreamDeliveryDirty(current);
+		retireStreamDelivery(this, channelId, current);
 	}
 
+	// Empty deliveries: every sink owes a baseline on this generation before it
+	// can take a delta.
 	const next: TerminalStreamState = {
 		streamId: intent.streamId,
 		enabled: intent.enabled,
 		cols: intent.cols,
 		rows: intent.rows,
 		version: this.nextTerminalStreamVersion(),
-		baselineReady: !intent.enabled,
 		coreValid: current?.coreValid ?? true,
-		baselineDirty: false,
-		snapshotCursor: null,
+		deliveries: new Map(),
 		resizeCapture: current?.resizeCapture ?? null,
 	};
 	this.terminalStreams.set(channelId, next);
@@ -241,7 +256,6 @@ export function applyTerminalStreamState(
 		sbOrigin: previousEmit.sbOrigin,
 		sbDropped: previousEmit.sbDropped,
 	};
-	const ticket = acquireKeeperAdmission(this, channelId, "terminal_resize");
 	const operation = enqueueTerminalControl(
 		this,
 		channelId,
@@ -261,8 +275,7 @@ export function requestTerminalSnapshot(
 	if (!rec) return;
 	const state = this.terminalStreams.get(rec.channelId);
 	if (!state || !state.enabled || !state.coreValid || state.streamId !== streamId) return;
-	retireSnapshotCursor(this, rec.channelId, state);
-	state.baselineReady = false;
-	state.baselineDirty = false;
+	retireStreamDelivery(this, rec.channelId, state);
+	clearStreamDeliveryDirty(state);
 	this.installTerminalBaseline(rec.channelId);
 }

@@ -41,6 +41,10 @@ import {
 } from "./keeper/multiplexed-client.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
+import {
+  aggregateStreamDelivery,
+  type StreamDeliveryAggregate,
+} from "./session-cell-sinks.ts";
 import type { TerminalStreamState } from "./session-terminal-state.ts";
 import type { CoordLinkPipelineState } from "./transport/coord-link-types.ts";
 import { monoNowMs } from "./util/mono.ts";
@@ -229,9 +233,9 @@ function snapshotSession(
   const controlLane = manager.terminalControlChains.get(channelId);
   const admissionLane = manager.keeperAdmissionLane.get(channelId);
   const keeperFacts = keeperFactsByChannel.get(channelId) ?? emptyKeeperFacts();
-  const remainingSnapshotParts = stream?.snapshotCursor
-    ? Math.max(0, stream.snapshotCursor.parts.length - stream.snapshotCursor.nextPart)
-    : 0;
+  // Snapshot debt is summed over every ACTIVE sink, so a stalled local socket
+  // is as visible here as a stalled coordinator link.
+  const delivery = aggregateStreamDelivery(manager, stream);
   const controlDepth = terminalPipelineNonnegativeInteger(controlLane?.depth ?? 0);
   const admissionDepth = terminalPipelineNonnegativeInteger(admissionLane?.depth ?? 0);
   const controlRunning = controlLane?.running ? 1 : 0;
@@ -290,12 +294,12 @@ function snapshotSession(
       }),
       terminalPipelineStage({
         stage: TerminalPipelineStage.WORKER_STREAM,
-        reason: streamReason(stream, pendingRepair),
+        reason: streamReason(stream, delivery, pendingRepair),
         generation,
         streamId,
         sequence,
-        queueFrames: remainingSnapshotParts,
-        count: stream?.snapshotCursor?.parts.length ?? 0,
+        queueFrames: delivery.remainingSnapshotParts,
+        count: delivery.snapshotPartCount,
       }),
       terminalPipelineStage({
         stage: TerminalPipelineStage.WORKER_STREAM_CONTROL,
@@ -359,13 +363,16 @@ function schedulerReason(
 
 function streamReason(
   stream: TerminalStreamState | undefined,
+  delivery: StreamDeliveryAggregate,
   pendingRepair: boolean,
 ): TerminalPipelineReason {
   if (!stream) return TerminalPipelineReason.STREAM_NOT_FOUND;
   if (!stream.enabled) return TerminalPipelineReason.STREAM_DISABLED;
   if (!stream.coreValid) return TerminalPipelineReason.CORE_INVALID;
-  if (stream.snapshotCursor) return TerminalPipelineReason.SNAPSHOT_PENDING;
-  if (!stream.baselineReady) return TerminalPipelineReason.BASELINE_PENDING;
+  if (delivery.snapshotPending) return TerminalPipelineReason.SNAPSHOT_PENDING;
+  if (delivery.activeSinks > 0 && !delivery.baselineReady) {
+    return TerminalPipelineReason.BASELINE_PENDING;
+  }
   return pendingRepair ? TerminalPipelineReason.PENDING_REPAIR : TerminalPipelineReason.NONE;
 }
 

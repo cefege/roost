@@ -10,17 +10,10 @@ import {
 import { markPhaseOnce } from "../lib/diag.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { TerminalRenderScheduler } from "../lib/terminal-render-scheduler.ts";
-import {
-  registerSyncV2GenerationHandler,
-  type SyncV2TerminalState,
-} from "./sync.ts";
-import { clearTerminalChunkTransfer } from "./terminal-stream-chunks.ts";
 import { subscribeTerminalBaselineProgress } from "./terminal-stream-progress.ts";
+import { installTerminalTransportRetarget } from "./terminal-stream-retarget.ts";
 import {
-  beginTerminalViewRenewalBatch,
   cancelTerminalViewRenewal,
-  endTerminalViewRenewalBatch,
-  invalidateTerminalViewRenewals,
   registerTerminalViewRenewalHandler,
 } from "./terminal-stream-renewal-scheduler.ts";
 import {
@@ -34,19 +27,10 @@ import {
   deliverCanonicalToSubscriber,
   repairStaleTerminalSubscriberOnHeartbeat,
   requestTerminalDomReconcileRecovery,
-  sendLatchedTerminalResync,
-  terminalGenerationKey,
-  terminalGenerationMatches,
-  terminalGenerationToken,
 } from "./terminal-stream-replica.ts";
 import {
-  emitTerminalViewStatus,
   pruneTerminalSessionState,
-  terminalBlackholeFaults,
-  terminalGenerationObservation,
   terminalSessionReplica,
-  terminalSessions,
-  terminalWireDeltaFaults,
 } from "./terminal-stream-state.ts";
 import type {
   TerminalRendererForegroundPredicate,
@@ -61,10 +45,9 @@ const alwaysForeground = (): boolean => true;
 
 export function createTerminalView(sessionId: string): TerminalViewHandle {
   const session = terminalSessionReplica(sessionId);
-  const viewId = crypto.randomUUID();
   const view: TerminalViewRecord = {
     session,
-    viewId,
+    viewId: crypto.randomUUID(),
     revisionFloor: 0n,
     desired: null,
     accepted: null,
@@ -82,11 +65,13 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
     pendingViewAckRevision: null,
     disposed: false,
   };
-  session.handles.set(viewId, view);
+  session.handles.set(view.viewId, view);
 
   return {
     sessionId,
-    viewId,
+    // A transport change rotates this id, so the handle reports the live one
+    // instead of the identity it was created with.
+    get viewId(): string { return view.viewId; },
     recoverUnreconciledDom(): void {
       requestTerminalDomReconcileRecovery(session);
     },
@@ -196,7 +181,7 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
         session.subscribers.delete(subscriber);
       }
       view.rendererSubscribers.clear();
-      session.handles.delete(viewId);
+      session.handles.delete(view.viewId);
       if (session.handles.size === 0) pruneTerminalSessionState(sessionId);
     },
   };
@@ -220,72 +205,8 @@ function renewTerminalView(view: TerminalViewRecord): void {
   }
 }
 
-function handleGeneration(state: SyncV2TerminalState | null): void {
-  const nextGenerationKey = state ? terminalGenerationKey(state) : null;
-  const generationChanged = terminalGenerationObservation.initialized
-    && terminalGenerationObservation.key !== nextGenerationKey;
-  terminalGenerationObservation.initialized = true;
-  terminalGenerationObservation.key = nextGenerationKey;
-  if (generationChanged) invalidateTerminalViewRenewals();
-  if (import.meta.env.VITE_ROOST_SMOKE === "1" && generationChanged) {
-    for (const [sessionId, fault] of terminalBlackholeFaults) {
-      if (!terminalGenerationMatches(fault.generation, state)) {
-        terminalBlackholeFaults.delete(sessionId);
-      }
-    }
-    for (const [sessionId, fault] of terminalWireDeltaFaults) {
-      if (!terminalGenerationMatches(fault.generation, state)) {
-        terminalWireDeltaFaults.delete(sessionId);
-      }
-    }
-  }
-  beginTerminalViewRenewalBatch();
-  try {
-    for (const session of terminalSessions.values()) {
-      session.generation = state ? terminalGenerationToken(state) : null;
-      clearTerminalChunkTransfer(session);
-      if (generationChanged) {
-        clearTerminalSessionLiveness(session, "generation_reset");
-        if (state !== null) {
-          // The replayed view command is this generation's one authoritative
-          // baseline request. A resync latch belongs to the prior socket and
-          // would otherwise race that replay with a duplicate full frame.
-          session.requiresFreshBaseline = true;
-          session.baselineReady = false;
-          session.resyncLatched = false;
-        }
-      }
-      for (const view of session.handles.values()) {
-        if (generationChanged) clearViewAck(view);
-        if (view.disposed || !view.desired) continue;
-        if (view.desired.active && !isPageVisible()) {
-          cancelTerminalViewRenewal(view);
-          continue;
-        }
-        if (
-          generationChanged
-          && (
-            view.status?.status !== "pending"
-            || view.status.revision !== view.desired.revision
-          )
-        ) {
-          emitTerminalViewStatus(view, {
-            status: "pending",
-            revision: view.desired.revision,
-            active: view.desired.active,
-          });
-        }
-        publishIntent(view, view.desired, state);
-      }
-      if (state?.ready) sendLatchedTerminalResync(session);
-    }
-  } finally {
-    endTerminalViewRenewalBatch();
-  }
-}
-
 registerTerminalViewRenewalHandler(renewTerminalView);
-queueMicrotask(() => registerSyncV2GenerationHandler(handleGeneration));
+queueMicrotask(installTerminalTransportRetarget);
 
 function setRendererSubscribersForeground(
   view: TerminalViewRecord,

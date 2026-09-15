@@ -17,11 +17,7 @@ import {
 } from "@roost/shared/viewport";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { markPhase } from "../lib/diag.ts";
-import {
-  currentSyncV2TerminalState,
-  sendSyncV2Command,
-  type SyncV2TerminalState,
-} from "./sync.ts";
+import { currentSyncV2TerminalState } from "./sync.ts";
 import { notifyTerminalBaselineProgress } from "./terminal-stream-progress.ts";
 import {
   armTerminalViewRenewal,
@@ -34,15 +30,18 @@ import {
   requestTerminalLivenessChallenge,
   sendLatchedTerminalResync,
   terminalGenerationMatches,
-  terminalGenerationToken,
 } from "./terminal-stream-replica.ts";
+import {
+  currentTerminalGenerationToken,
+  terminalPublicationTarget,
+} from "./terminal-stream-publication.ts";
+import { localTerminalTransport } from "./terminal-stream-transport.ts";
 import {
   emitTerminalViewStatus,
   terminalSessions,
 } from "./terminal-stream-state.ts";
 import type {
   TerminalGenerationToken,
-  TerminalOutboundCommand,
   TerminalSessionReplica,
   TerminalViewIntent,
   TerminalViewRecord,
@@ -69,9 +68,14 @@ export function publishIntent(
   sync = currentSyncV2TerminalState(),
 ): boolean {
   const statusCurrent = view.status?.revision === intent.revision;
+  const sessionId = view.session.sessionId;
+  if (!view.disposed && intent.active) {
+    localTerminalTransport()?.noteViewPublished(sessionId);
+  }
+  const target = terminalPublicationTarget(sessionId, sync);
   if (
     view.disposed
-    || !sync?.ready
+    || !target
     || (intent.active && !isPageVisible())
   ) {
     cancelTerminalViewRenewal(view);
@@ -84,23 +88,19 @@ export function publishIntent(
     }
     return false;
   }
-  if (!terminalGenerationMatches(view.session.generation, sync)) {
+  if (!terminalGenerationMatches(view.session.generation, target.token)) {
     clearTerminalSessionLiveness(view.session, "generation_reset");
-    view.session.generation = terminalGenerationToken(sync);
+    view.session.generation = target.token;
   }
-  const outbound: TerminalOutboundCommand = {
-    case: "terminalView",
-    value: create(TerminalViewCommandSchema, {
-      viewId: view.viewId,
-      sessionId: view.session.sessionId,
-      cols: intent.cols,
-      rows: intent.rows,
-      revision: intent.revision,
-      active: intent.active,
-      domainGeneration: sync.domainGeneration,
-    }),
-  };
-  const sent = sendSyncV2Command(outbound);
+  const sent = target.publishView(create(TerminalViewCommandSchema, {
+    viewId: view.viewId,
+    sessionId,
+    cols: intent.cols,
+    rows: intent.rows,
+    revision: intent.revision,
+    active: intent.active,
+    domainGeneration: target.domainGeneration,
+  }));
   if (!sent) {
     cancelTerminalViewRenewal(view);
     return false;
@@ -110,7 +110,7 @@ export function publishIntent(
     : null;
   if (intent.active) {
     armTerminalViewRenewal(view);
-    if (isPageVisible()) armViewAckDeadline(view, intent, sync);
+    if (isPageVisible()) armViewAckDeadline(view, intent, target.token);
   } else {
     cancelTerminalViewRenewal(view);
     clearViewAck(view);
@@ -288,15 +288,14 @@ function acknowledgeTerminalViewState(
 function armViewAckDeadline(
   view: TerminalViewRecord,
   intent: TerminalViewIntent,
-  sync: SyncV2TerminalState,
+  owner: TerminalGenerationToken,
 ): void {
   if (
     view.pendingViewAckAtMs !== null
     && view.pendingViewAckRevision === intent.revision
-    && terminalGenerationMatches(view.pendingViewAckGeneration, sync)
+    && terminalGenerationMatches(view.pendingViewAckGeneration, owner)
   ) return;
   clearViewAck(view);
-  const owner = terminalGenerationToken(sync);
   const startedAt = performance.now();
   view.pendingViewAckAtMs = startedAt;
   view.pendingViewAckGeneration = owner;
@@ -304,7 +303,7 @@ function armViewAckDeadline(
   const timer = setTimeout(() => {
     if (view.viewAckTimer !== timer) return;
     view.viewAckTimer = null;
-    const current = currentSyncV2TerminalState();
+    const current = currentTerminalGenerationToken(view.session.sessionId);
     if (
       view.disposed
       || !view.desired?.active

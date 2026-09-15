@@ -247,9 +247,7 @@ export class TerminalScreenHub {
     } catch (error) {
       state.hold.clear();
       this.snapshots.resetChunks(state);
-      this.snapshots.retry(sessionId,
-      state,
-      error instanceof Error ? error.message : "invalid terminal snapshot chunk",);
+      this.snapshots.retry(sessionId, state, error instanceof Error ? error.message : "invalid terminal snapshot chunk");
     }
   }
 
@@ -273,9 +271,7 @@ export class TerminalScreenHub {
       this.snapshots.complete(state);
       this.installCache(sessionId, state, frame, countTerminalScreenCacheSpans(frame), proto.coordRecvMs);
     } catch (error) {
-      this.snapshots.retry(sessionId,
-      state,
-      error instanceof Error ? error.message : "invalid terminal baseline",);
+      this.snapshots.retry(sessionId, state, error instanceof Error ? error.message : "invalid terminal baseline");
     }
     state.hold.replay(
       () => (state.cache ? BigInt(state.cache.frame.seq) : null),
@@ -377,10 +373,7 @@ export class TerminalScreenHub {
     const streamId = state.expected!.streamId;
     this.options.fullAccepted?.(sessionId, streamId);
     if (state.expected?.streamId !== streamId || state.cache !== nextCache) return;
-    this.forEachWatcher(
-      sessionId,
-      (socket) => this.snapshots.seed(socket, sessionId, streamId, nextCache),
-    );
+    this.forEachWatcher(sessionId, (socket) => this.snapshots.seed(socket, sessionId, streamId, nextCache));
   }
 
   private forEachWatcher(sessionId: string, callback: (socket: SocketRegistration, socketId: string) => void): void {
@@ -395,5 +388,11 @@ export class TerminalScreenHub {
   snapshot(sessionId: string): TerminalScreenSnapshot | null {
     const state = this.sessions.get(sessionId);
     return terminalScreenSnapshot(state?.expected, state?.cache);
+  }
+  /** The stream the replica currently expects, whether or not it holds a
+   * baseline for it. snapshot() answers null without a cache, so it cannot
+   * tell a brand-new stream from one whose baseline was lost. */
+  expectedStreamId(sessionId: string): string | null {
+    return this.sessions.get(sessionId)?.expected?.streamId ?? null;
   }
 }

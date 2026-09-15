@@ -9,6 +9,7 @@ import { setSignalSink } from "@roost/shared/diag";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { initCellEmitState } from "@roost/shared/cell";
 import { SessionManager } from "../src/session-manager.ts";
+import { COORD_CELL_SINK_ID, registerCellSink } from "../src/session-cell-sinks.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import { SessionEventTestSink } from "./session-event-test-sink.ts";
@@ -24,7 +25,11 @@ async function saturationHarness() {
     workerFp: asWorkerFp("00".repeat(32)),
     sink: new SessionEventTestSink(),
     sendBinaryUpstream: () => "sent",
-    sendCellGridUpstream: () => "sent",
+  });
+  registerCellSink(mgr, {
+    id: COORD_CELL_SINK_ID,
+    sendFrame: () => "sent",
+    sendChunk: () => "sent",
   });
   const wtermCore = await WasmBridge.load();
   wtermCore.init(40, 6);
@@ -55,10 +60,10 @@ async function saturationHarness() {
     cols: 40,
     rows: 6,
     version: 1,
-    baselineReady: true,
     coreValid: true,
-    baselineDirty: false,
-    snapshotCursor: null,
+    deliveries: new Map([
+      [COORD_CELL_SINK_ID, { cursor: null, baselineReady: true, baselineDirty: false }],
+    ]),
     resizeCapture: null,
   });
   return { mgr, links, signals };

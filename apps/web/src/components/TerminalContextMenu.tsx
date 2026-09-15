@@ -370,6 +370,7 @@ function SheetItem(props: {
       data-testid={props.testid}
       role="menuitem"
       aria-disabled={props.disabled ? "true" : undefined}
+      tabIndex={props.disabled ? -1 : 0}
       onClick={() => { if (!props.disabled) props.onClick(); }}
       style={{
         padding: "14px 20px",

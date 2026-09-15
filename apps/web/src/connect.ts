@@ -13,6 +13,7 @@ import { CoordinatorService, type WorkersListResponse } from "@roost/shared/prot
 import { signCoordinatorJwt } from "./auth/web-key.ts";
 import { getTabId } from "./auth/tab-id.ts";
 import { signal } from "@roost/shared/diag";
+import { readLocalBootstrap } from "./lib/localBootstrap.ts";
 import {
   AUTH_LAYER_DEVICE,
   X_ROOST_AUTH_LAYER,
@@ -52,14 +53,19 @@ export function classifyAuthFailure(error: unknown, rpcPath: string): AuthFailur
 }
 
 
-// Coord URL: the Settings → Connection override for pointing this browser at a
-// coordinator on another origin; otherwise same-origin (proxied by Vite to
-// :4102 in dev, served same-origin in prod by coord).
+// Coord URL: the worker-served loopback page is told which coordinator to
+// dial; otherwise the Settings → Connection override for pointing this browser
+// at a coordinator on another origin; otherwise same-origin (proxied by Vite
+// to :4102 in dev, served same-origin in prod by coord).
 
-/** The coordinator this SPA is actually talking to: the Settings → Connection
- * override once same-origin discovery has confirmed this deployment, otherwise
- * same-origin. Worker and WebSocket callers must use this too. */
+/** The coordinator this SPA is actually talking to: the origin the local
+ * bootstrap advertised when this page came from a worker, else the
+ * Settings → Connection override once same-origin discovery has confirmed this
+ * deployment, otherwise same-origin. Worker and WebSocket callers must use
+ * this too. */
 export function coordBase(): string {
+  const local = readLocalBootstrap();
+  if (local) return local.coordinatorUrl;
   if (typeof localStorage === "undefined") return "";
   if (localStorage.getItem(DEPLOYMENT_MODE_KEY) !== "self-hosted") return "";
   return localStorage.getItem(COORDINATOR_OVERRIDE_KEY) ?? "";
@@ -117,12 +123,14 @@ export function makeCoordinatorClientForSigner(
 }
 
 /** Public pre-device client used by identity discovery. It deliberately sends
- * no device JWT, and always targets same-origin so discovery cannot be steered
- * by a stale coordinator override. */
+ * no device JWT. Same-origin is the target so discovery cannot be steered by a
+ * stale coordinator override — except on the worker-served loopback page,
+ * whose own origin serves no coordinator at all, so discovery must use the
+ * bootstrap-advertised coordinator. */
 export const publicCoordClient = createClient(
   CoordinatorService,
   createConnectTransport({
-    baseUrl: sameOriginBase(),
+    baseUrl: readLocalBootstrap() ? coordinatorBaseUrl() : sameOriginBase(),
     useBinaryFormat: true,
     interceptors: [
       (next) => async (req) => {

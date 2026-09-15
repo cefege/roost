@@ -41,14 +41,14 @@ export class DelayedFrameStream {
   #stopped = false;
   #onDrained: (() => void) | undefined;
   readonly #destination: Socket;
-  readonly #oneWayDelayMs: 0 | 25;
+  readonly #oneWayDelayMs: 0 | 25 | 200;
   readonly #closePair: () => void;
   readonly #workerFrameFilter: WorkerFrameFilter | undefined;
   readonly #onFilterFailure: ((message: string) => void) | undefined;
 
   constructor(
     destination: Socket,
-    oneWayDelayMs: 0 | 25,
+    oneWayDelayMs: 0 | 25 | 200,
     closePair: () => void,
     workerFrameFilter?: WorkerFrameFilter,
     onFilterFailure?: (message: string) => void,

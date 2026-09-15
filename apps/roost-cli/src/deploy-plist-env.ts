@@ -97,12 +97,23 @@ export type DeployEnvTarget = "self" | "remote";
  *  installs the target under another machine's label and reachable address —
  *  the coordinator then lists two workers with one name and the target's real
  *  identity vanishes from the fleet. Every other deploy key
- *  (ROOST_COORDINATOR_URL, ROOST_BOOTSTRAP_TOKEN, ROOST_DIAG_*) is fleet-wide
- *  and keeps its ambient fallback. */
+ *  (ROOST_COORDINATOR_URL, ROOST_BOOTSTRAP_TOKEN, ROOST_DIAG_*, and the
+ *  host-local settings below) keeps its ambient fallback. */
 const DEPLOY_IDENTITY_ENV_FLAGS: Record<string, string> = {
   ROOST_WORKER_LABEL: "--label",
   ROOST_REACHABLE_ADDR: "--reachable-addr",
 };
+
+/** Worker settings that belong to whichever machine runs the worker: the
+ *  loopback bind of its local UI door and the SPA build that door serves.
+ *  Neither names the machine in the fleet nor carries a secret, so they follow
+ *  the non-identity rule above — the target's installed value wins and the
+ *  deploying shell only seeds a first install. A deploy that dropped them
+ *  would silently move an operator's local UI door back to its default port. */
+export const DEPLOY_HOST_LOCAL_ENV_KEYS = [
+  "ROOST_WORKER_LOCAL_UI_BIND",
+  "ROOST_WEB_DIST_PATH",
+] as const;
 
 export interface DeployIdentityInvocation {
   workerLabel?: string;
@@ -163,7 +174,12 @@ export function resolveRemoteDeployIdentityEnv(
  *  Linux. All identity keys are always read so ambient values cannot hide an
  *  enrolled target's installed identity. */
 export async function _backfillEnvFromPlist(host: string | "self"): Promise<HostEnvBackfill> {
-  const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL"];
+  const KEYS = [
+    "ROOST_COORDINATOR_URL",
+    "ROOST_REACHABLE_ADDR",
+    "ROOST_WORKER_LABEL",
+    ...DEPLOY_HOST_LOCAL_ENV_KEYS,
+  ];
   const PLIST = "Library/LaunchAgents/com.roost.worker-v2.plist";
   const UNIT = `.config/systemd/user/${WORKER_UNIT}`;
   // Whichever the box has. Both parsers key off their own syntax, so

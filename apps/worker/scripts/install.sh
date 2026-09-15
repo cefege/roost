@@ -174,7 +174,10 @@ systemd_env() {
 #               ROOST_KEEPER_FORCE_LIVE_RETIRE (one-shot, strict 0|1, spent by
 #               the activation that receives it), ROOST_WORKER_LABEL,
 #               ROOST_REACHABLE_ADDR,
-#               ROOST_AGENT_CONVERSATION_RESTORE (strict 0|1)
+#               ROOST_AGENT_CONVERSATION_RESTORE (strict 0|1),
+#               ROOST_WORKER_LOCAL_UI_BIND (loopback host:port for the
+#               worker-served local UI), ROOST_WEB_DIST_PATH (SPA build the
+#               local UI serves; unset → the embedded assets)
 ROOST_COORDINATOR_URL="${ROOST_COORDINATOR_URL:-}"
 if [[ -z "$ROOST_COORDINATOR_URL" && "${1:-status}" == "install" ]]; then
   echo "ERROR: ROOST_COORDINATOR_URL env var is required for install" >&2
@@ -188,6 +191,8 @@ KEEPER_FORCE_LIVE_RETIRE_PLIST=""
 LABEL_PLIST=""
 REACHABLE_ADDR_PLIST=""
 CONVERSATION_RESTORE_PLIST=""
+LOCAL_UI_BIND_PLIST=""
+WEB_DIST_PATH_PLIST=""
 if [[ -n "${ROOST_BOOTSTRAP_TOKEN:-}" ]]; then
   BOOTSTRAP_TOKEN_PLIST=$'\n    <key>ROOST_BOOTSTRAP_TOKEN</key>\n    <string>'"$(xml_escape "${ROOST_BOOTSTRAP_TOKEN}")"$'</string>'
 fi
@@ -206,6 +211,12 @@ if [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]; then
 fi
 if [[ "${ROOST_AGENT_CONVERSATION_RESTORE+x}" == "x" ]]; then
   CONVERSATION_RESTORE_PLIST=$'\n    <key>ROOST_AGENT_CONVERSATION_RESTORE</key>\n    <string>'"$(xml_escape "${ROOST_AGENT_CONVERSATION_RESTORE}")"$'</string>'
+fi
+if [[ -n "${ROOST_WORKER_LOCAL_UI_BIND:-}" ]]; then
+  LOCAL_UI_BIND_PLIST=$'\n    <key>ROOST_WORKER_LOCAL_UI_BIND</key>\n    <string>'"$(xml_escape "${ROOST_WORKER_LOCAL_UI_BIND}")"$'</string>'
+fi
+if [[ -n "${ROOST_WEB_DIST_PATH:-}" ]]; then
+  WEB_DIST_PATH_PLIST=$'\n    <key>ROOST_WEB_DIST_PATH</key>\n    <string>'"$(xml_escape "${ROOST_WEB_DIST_PATH}")"$'</string>'
 fi
 
 # Stamp the current repo HEAD into the LaunchAgent so the running worker
@@ -280,7 +291,7 @@ write_plist() {
     <key>ROOST_DIAG</key>
     <string>${diag_xml}</string>
     <key>ROOST_WORKER_SERVICE_PATH</key>
-    <string>${plist_xml}</string>${BOOTSTRAP_TOKEN_PLIST}${KEEPER_FORCE_LIVE_RETIRE_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${CONVERSATION_RESTORE_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
+    <string>${plist_xml}</string>${BOOTSTRAP_TOKEN_PLIST}${KEEPER_FORCE_LIVE_RETIRE_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${CONVERSATION_RESTORE_PLIST}${LOCAL_UI_BIND_PLIST}${WEB_DIST_PATH_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -362,6 +373,8 @@ EOF
     [[ -n "${ROOST_WORKER_LABEL:-}" ]]    && systemd_env "ROOST_WORKER_LABEL" "$ROOST_WORKER_LABEL"
     [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]  && systemd_env "ROOST_REACHABLE_ADDR" "$ROOST_REACHABLE_ADDR"
     [[ "${ROOST_AGENT_CONVERSATION_RESTORE+x}" == "x" ]] && systemd_env "ROOST_AGENT_CONVERSATION_RESTORE" "$ROOST_AGENT_CONVERSATION_RESTORE"
+    [[ -n "${ROOST_WORKER_LOCAL_UI_BIND:-}" ]] && systemd_env "ROOST_WORKER_LOCAL_UI_BIND" "$ROOST_WORKER_LOCAL_UI_BIND"
+    [[ -n "${ROOST_WEB_DIST_PATH:-}" ]]   && systemd_env "ROOST_WEB_DIST_PATH" "$ROOST_WEB_DIST_PATH"
     [[ -n "$GIT_SHA_RESOLVED" ]]          && systemd_env "GIT_SHA" "$GIT_SHA_RESOLVED"
     [[ -n "${ROOST_EXEC_BIN:-}" ]]        && systemd_env "ROOST_EXEC_BIN" "$ROOST_EXEC_BIN"
     [[ -n "${ROOST_WORKDIR:-}" ]]         && systemd_env "ROOST_WORKDIR" "$ROOST_WORKDIR"

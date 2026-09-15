@@ -20,7 +20,7 @@ type TargetEndpoint = { host: string; port: number };
 
 export type DelayedWorkerLinkOptions = {
   targetUrl: string;
-  oneWayDelayMs: 0 | 25;
+  oneWayDelayMs: 0 | 25 | 200;
   workerFrameFilter?: (frame: CoordWorkerUp) => boolean;
 };
 
@@ -32,8 +32,8 @@ export interface DelayedWorkerLink {
 export async function startDelayedWorkerLink(
   options: DelayedWorkerLinkOptions,
 ): Promise<DelayedWorkerLink> {
-  if (options.oneWayDelayMs !== 0 && options.oneWayDelayMs !== 25) {
-    throw new Error("delayed worker link only accepts a 0 ms or 25 ms one-way delay");
+  if (options.oneWayDelayMs !== 0 && options.oneWayDelayMs !== 25 && options.oneWayDelayMs !== 200) {
+    throw new Error("delayed worker link only accepts a 0 ms, 25 ms, or 200 ms one-way delay");
   }
   let parsedTarget: URL;
   try {
@@ -125,7 +125,7 @@ class SocketPair {
   constructor(
     client: Socket,
     target: Socket,
-    oneWayDelayMs: 0 | 25,
+    oneWayDelayMs: 0 | 25 | 200,
     workerFrameFilter: WorkerFrameFilter | undefined,
     onClosed: () => void,
     onFilterFailure: (error: Error) => void,

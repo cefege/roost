@@ -10,6 +10,7 @@ type Fixtures = {
   coldSmokePage: Page;
   mobileSmokePage: Page;
   multiWorkerSmokePage: Page;
+  tvSmokePage: Page;
 };
 
 type WorkerFixtures = {
@@ -20,6 +21,8 @@ type WorkerFixtures = {
 type SmokePageOptions = {
   contextOptions?: Parameters<Browser["newContext"]>[0];
   expectedWorkerFps?: readonly string[];
+  /** Force TV mode on before first paint (lib/tvMode.ts reads this at boot). */
+  tvMode?: boolean;
 };
 
 const { defaultBrowserType: _defaultBrowserType, ...iphone15 } = devices["iPhone 15"];
@@ -171,6 +174,14 @@ async function useSmokePage(
         sessionStorage.setItem("roost.sidebarViewSeeded", "1");
       }
     });
+    // Seeded, not detected: the spec asserts what TV mode DOES, and a UA/pointer
+    // heuristic in the assertion path would make a detection miss look like a
+    // navigation bug.
+    if (options.tvMode) {
+      await context.addInitScript(() => {
+        localStorage.setItem("roost.tvMode", "on");
+      });
+    }
     page = await context.newPage();
     await enrollSmokeBrowser(page, stack, stack.client, readinessDeadline);
     await waitForSmokeWorkers(page, expectedWorkerFps, readinessDeadline);
@@ -263,6 +274,12 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
   },
   mobileSmokePage: async ({ browser, stack }, use, testInfo) => {
     await useSmokePage(browser, stack, use, testInfo, { contextOptions: iphone15 });
+  },
+  tvSmokePage: async ({ browser, stack }, use, testInfo) => {
+    await useSmokePage(browser, stack, use, testInfo, {
+      contextOptions: { viewport: { width: 1920, height: 1080 }, hasTouch: false },
+      tvMode: true,
+    });
   },
 });
 

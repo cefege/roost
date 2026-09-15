@@ -19,20 +19,14 @@ import {
   startHopDeadline,
   type HopDeadline,
 } from "./worker-send.ts";
-import { truncateTerminalReason } from "./terminal-view-protocol.ts";
+import {
+  truncateTerminalReason,
+  type TerminalStreamState,
+  type TerminalUnavailablePolicy,
+} from "@roost/shared/terminal-view";
 import type {
   TerminalStreamDesired,
   TerminalStreamRoute,
-  TerminalStreamState,
-  TerminalUnavailablePolicy,
-  TerminalViewStreamControllerOptions,
-} from "./terminal-view-stream-controller-types.ts";
-
-export type {
-  TerminalStreamDesired,
-  TerminalStreamRoute,
-  TerminalStreamState,
-  TerminalUnavailablePolicy,
   TerminalViewStreamControllerOptions,
 } from "./terminal-view-stream-controller-types.ts";
 type TerminalStreamWork = TerminalStreamDesired & { deadline: HopDeadline };
@@ -372,7 +366,14 @@ export class TerminalViewStreamController {
   }
   private async requestFull(sessionId: string, streamId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
-    if (!session || !this.isCurrentSnapshotRequest(sessionId, streamId, session)) return;
+    // A session this controller never minimized belongs to a worker that owns
+    // its own terminal views; its repair leaves through that worker, not this
+    // desire loop, which holds no stream for it to resolve.
+    if (!session) {
+      this.options.repairUnownedSession?.(sessionId, streamId);
+      return;
+    }
+    if (!this.isCurrentSnapshotRequest(sessionId, streamId, session)) return;
     let route: TerminalStreamRoute | null;
     try {
       route = await this.options.resolveRoute(sessionId);
@@ -388,11 +389,9 @@ export class TerminalViewStreamController {
     try {
       if (!this.options.sendSnapshot(route.workerFp, sessionId, streamId)) {
         if (this.isCurrentSnapshotRequest(sessionId, streamId, session)) this.unavailable(sessionId, "snapshot request could not reach worker");
-        return;
       }
     } catch {
       if (this.isCurrentSnapshotRequest(sessionId, streamId, session)) this.unavailable(sessionId, "snapshot request could not reach worker");
-      return;
     }
   }
 }

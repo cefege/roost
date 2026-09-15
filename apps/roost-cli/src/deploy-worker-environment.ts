@@ -7,6 +7,7 @@ import {
   AGENT_CONVERSATION_RESTORE_ENV as CONVERSATION_RESTORE_ENV,
   KEEPER_FORCE_LIVE_RETIRE_ENV,
 } from "@roost/shared/worker-service-env";
+import { DEPLOY_HOST_LOCAL_ENV_KEYS } from "./deploy-plist-env.ts";
 
 export { KEEPER_FORCE_LIVE_RETIRE_ENV };
 
@@ -36,11 +37,15 @@ export function workerInstallEnvironmentValues(
     if (value === undefined) delete values[key];
     else values[key] = value;
   }
-  const conversationRestore = installed[CONVERSATION_RESTORE_ENV]
-    ?? overrides[CONVERSATION_RESTORE_ENV]
-    ?? ambient[CONVERSATION_RESTORE_ENV];
-  if (conversationRestore === undefined) delete values[CONVERSATION_RESTORE_ENV];
-  else values[CONVERSATION_RESTORE_ENV] = conversationRestore;
+  // Settings whose value belongs to the target machine: the installed choice is
+  // the last decision an operator made ON that box, so it outranks this shell,
+  // which only seeds a first install. Absent everywhere the key is removed
+  // rather than defaulted, leaving the worker's own config default in charge.
+  for (const key of [CONVERSATION_RESTORE_ENV, ...DEPLOY_HOST_LOCAL_ENV_KEYS]) {
+    const resolved = installed[key] ?? overrides[key] ?? ambient[key];
+    if (resolved === undefined) delete values[key];
+    else values[key] = resolved;
+  }
   values.GIT_SHA = gitSha;
   return values;
 }

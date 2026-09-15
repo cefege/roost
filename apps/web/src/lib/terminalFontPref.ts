@@ -7,18 +7,26 @@
 // really is a PTY resize round trip; it is unavoidable and correct.
 
 import { createSignal } from "solid-js";
+import { tvModeActive } from "./tvMode.ts";
 
 const KEY = "roost.termFontSize";
 const DEFAULT_PX = 14;
+const TV_DEFAULT_PX = 20;
 // Below 9px the cell box stops being legible; above 28px a normal pane holds so
 // few columns that most TUIs letterbox into uselessness.
 export const TERM_FONT_MIN_PX = 9;
 export const TERM_FONT_MAX_PX = 28;
 
+// A TV sits ~3 m away, where a 14px cell is unreadable. Only the FIRST-RUN size
+// moves; a stored user value still wins below.
+function defaultPx(): number {
+  return tvModeActive() ? TV_DEFAULT_PX : DEFAULT_PX;
+}
+
 function readStored(): number {
-  if (typeof localStorage === "undefined") return DEFAULT_PX;
+  if (typeof localStorage === "undefined") return defaultPx();
   const raw = Number(localStorage.getItem(KEY));
-  return Number.isFinite(raw) && raw > 0 ? clamp(raw) : DEFAULT_PX;
+  return Number.isFinite(raw) && raw > 0 ? clamp(raw) : defaultPx();
 }
 
 function clamp(px: number): number {
@@ -43,7 +51,7 @@ export function stepTermFontSize(delta: number): void {
 }
 
 export function resetTermFontSize(): void {
-  setTermFontSize(DEFAULT_PX);
+  setTermFontSize(defaultPx());
 }
 
 /** Push the current value onto the document element. Called once at boot (before

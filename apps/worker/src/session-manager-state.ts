@@ -1,8 +1,10 @@
-// SessionManagerState owns the mutable maps and transport callbacks for terminal sessions.
-// SessionManager extends it with lifecycle operations while collaborator modules share the state.
+// SessionManagerState owns the mutable maps, transport callbacks and the
+// registered cell sinks for terminal sessions. SessionManager extends it with
+// lifecycle operations while collaborator modules share the state.
 // Keeper maintenance starts only after boot admits the complete coordinator session set.
 
 import type { TerminalControlLane, KeeperAdmissionLane } from "./session-control-lanes.ts";
+import type { CellSinkRegistration } from "./session-cell-sinks.ts";
 import type { TerminalStreamState } from "./session-terminal-state.ts";
 import type {
 	CellEmissionSchedule,
@@ -11,13 +13,11 @@ import type {
 import type { SyncOutputHold } from "./session-sync-output.ts";
 import type { TerminalMetadataState } from "./session-terminal-metadata.ts";
 import type {
-	TerminalCellSendResult,
 	TerminalMetadataFrame,
 	TransportSendResult,
 } from "./transport/coord-link-types.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { log } from "@roost/shared/log";
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { TerminalCore } from "@wterm/core";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { SessionId, WorkerFp } from "@roost/shared/wire";
@@ -124,12 +124,7 @@ export abstract class SessionManagerState {
 	readonly sendTerminalMetadataUpstream:
 		| ((metadata: TerminalMetadataFrame) => TransportSendResult | void)
 		| null;
-	readonly sendCellGridUpstream:
-		| ((channelId: number, frame: PbCellGridFrame) => TerminalCellSendResult | void)
-		| null;
-	readonly sendCellGridChunkUpstream:
-		| ((channelId: number, chunk: PbCellGridChunk) => TerminalCellSendResult | void)
-		| null;
+	readonly cellSinks = new Map<string, CellSinkRegistration>();
 
 	_noSessionBurst: number[] = [];
 	recentlyClosed = new Map<number, number>();
@@ -193,14 +188,6 @@ export abstract class SessionManagerState {
 		sendTerminalMetadataUpstream?: (
 			metadata: TerminalMetadataFrame,
 		) => TransportSendResult | void;
-		sendCellGridUpstream?: (
-			channelId: number,
-			frame: PbCellGridFrame,
-		) => TerminalCellSendResult | void;
-		sendCellGridChunkUpstream?: (
-			channelId: number,
-			chunk: PbCellGridChunk,
-		) => TerminalCellSendResult | void;
 		terminalCoreCapacity?: TerminalCoreCapacity;
 	}) {
 		this.workerFp = opts.workerFp;
@@ -209,8 +196,6 @@ export abstract class SessionManagerState {
 			opts.terminalCoreCapacity ?? createWorkerTerminalCoreCapacity();
 		this.#createTerminalCore = opts.createTerminalCore ?? _createWtermCore;
 		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
-		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
-		this.sendCellGridChunkUpstream = opts.sendCellGridChunkUpstream ?? null;
 		this.sendTerminalMetadataUpstream = opts.sendTerminalMetadataUpstream ?? null;
 	}
 

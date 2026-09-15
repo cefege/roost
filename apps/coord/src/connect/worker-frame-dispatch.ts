@@ -18,6 +18,7 @@ import { diag, signal } from "@roost/shared/diag";
 import { dispatchWorkerAgentStatusFrame } from "./worker-agent-status-frame.ts";
 import { publishCellGrid, publishCellGridChunk } from "../byte-hub.ts";
 import { dispatchLegacyTerminalMetadataFrame, dispatchTerminalMetadataFrame } from "./worker-terminal-metadata-frame.ts";
+import { applyWorkerTerminalViewProjection, dispatchWorkerTerminalViewState } from "./terminal-view-hub.ts";
 import { appendEvent, dispatchSnapshotOrphanReaps } from "../event-log.ts";
 import { rejectPendingRpc, resolvePendingRpc } from "../router/pending-rpcs.ts";
 import { isTerminalPipelineSnapshotWireShape } from "./worker-terminal-pipeline-snapshot.ts";
@@ -259,6 +260,16 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
           dispatchTerminalMetadataFrame(workerFp, metadataNegotiated, frame.frame.value);
         }
         return true;
+      case "terminalViewState":
+        if (workerFp && !options.fenced("terminal_view_state")) {
+          dispatchWorkerTerminalViewState(workerFp, frame.frame.value);
+        }
+        return true;
+      case "terminalViewProjection":
+        if (workerFp && !options.fenced("terminal_view_projection")) {
+          applyWorkerTerminalViewProjection(workerFp, frame.frame.value);
+        }
+        return true;
       case "cellGrid": {
         const cellGrid = frame.frame.value;
         if (workerFp && cellGrid.frame && !options.fenced("cell_grid")) {
@@ -294,25 +305,13 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
         dispatchWorkerAgentStatusFrame(workerFp, frame.frame.value);
         return true;
       }
-      case "terminalStreamResult": {
-        const resultWorkerFp = pendingResultWorker("terminal_stream_result");
-        if (resultWorkerFp) {
-          resolvePendingRpc(
-            frame.frame.value.requestId,
-            frame.frame.value,
-            resultWorkerFp,
-          );
-        }
-        return true;
-      }
+      case "terminalStreamResult":
       case "inputResult": {
-        const resultWorkerFp = pendingResultWorker("input_result");
+        const resultWorkerFp = pendingResultWorker(
+          frame.frame.case === "inputResult" ? "input_result" : "terminal_stream_result",
+        );
         if (resultWorkerFp) {
-          resolvePendingRpc(
-            frame.frame.value.requestId,
-            frame.frame.value,
-            resultWorkerFp,
-          );
+          resolvePendingRpc(frame.frame.value.requestId, frame.frame.value, resultWorkerFp);
         }
         return true;
       }

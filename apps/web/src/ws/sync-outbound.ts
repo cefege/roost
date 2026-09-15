@@ -1,9 +1,12 @@
-// Generation-aware terminal input transport. View membership and screen
-// continuity live in store/terminal-stream.ts; this module owns only atomic
-// input admission/result correlation.
+// Generation-aware terminal input transport for Sync, and the single routing
+// point that hands a session's input to the local worker socket instead. View
+// membership and screen continuity live in store/terminal-stream.ts; queue
+// caps, correlations and timeouts live in ws/terminal-input-lanes.ts. This
+// module owns only the Sync fence and the Sync wire send.
 
 import { diag, signal } from "@roost/shared/diag";
 import { getSessionTraceId } from "../lib/diag.ts";
+import { localTerminalTransport } from "../store/terminal-stream-transport.ts";
 import {
   currentSyncV2TerminalState,
   registerSyncV2ControlHandler,
@@ -12,81 +15,48 @@ import {
   type SyncV2Control,
   type SyncV2TerminalState,
 } from "../store/sync.ts";
+import { _resetSmokeOutboundForTest } from "./sync-outbound-smoke.ts";
 import {
-  currentSmokeTerminalInputObserver,
-  _resetSmokeOutboundForTest,
-} from "./sync-outbound-smoke.ts";
+  createTerminalInputLanes,
+  resetTerminalInputLanes,
+  type InputAdmission,
+  type InputOutcome,
+  type PendingTerminalInput,
+} from "./terminal-input-lanes.ts";
 
 export { setSmokeTerminalInputObserver } from "./sync-outbound-smoke.ts";
 export type { SmokeTerminalInputObserver } from "./sync-outbound-smoke.ts";
-
-const MAX_INPUT_BYTES = 64 * 1024;
-const MAX_PENDING_INPUTS_PER_SESSION = 200;
-const MAX_PENDING_INPUT_BYTES_PER_SESSION = 256 * 1024;
-const INPUT_RESULT_TIMEOUT_MS = 10_000;
 
 type TerminalState = SyncV2TerminalState;
 type ResultControl = SyncV2Control;
 type OutboundCommand = Parameters<typeof sendSyncV2Command>[0];
 
-export type InputOutcome =
-  | { status: "accepted"; inputSeq: bigint; writtenBytes: number }
-  | { status: "rejected"; inputSeq: bigint; writtenBytes: 0; reason: string }
-  | { status: "ambiguous"; inputSeq: bigint; writtenBytes: number; reason: string };
-
-export type InputAdmission =
-  | { accepted: false; reason: string }
-  | { accepted: true; inputSeq: bigint; result: Promise<InputOutcome> };
-
-interface PendingInput {
-  sessionId: string;
-  viewId: string | undefined;
-  inputSeq: bigint;
-  bytes: Uint8Array;
+/** The Sync socket and terminal domain generation a batch was admitted under. */
+interface SyncInputFence {
   socketId: string;
   domainGeneration: bigint;
-  started: boolean;
-  resolve: (result: InputOutcome) => void;
-  timer: ReturnType<typeof setTimeout> | null;
 }
 
-interface InputLane {
-  pending: PendingInput[];
-  bytes: number;
-}
+type SyncPendingInput = PendingTerminalInput<SyncInputFence>;
 
-const inputLanes = new Map<string, InputLane>();
-const lastInputSendTs = new Map<string, number>();
+const lanes = createTerminalInputLanes<SyncInputFence>();
 let observedSocketId: string | null = null;
 let observedDomainGeneration: bigint | null = null;
-let nextInputSeq = 0n;
 
 function command(value: unknown): OutboundCommand {
   return value as OutboundCommand;
 }
 
-function finishInput(pending: PendingInput, outcome: InputOutcome): void {
-  const lane = inputLanes.get(pending.sessionId);
-  if (!lane) return;
-  const index = lane.pending.indexOf(pending);
-  if (index < 0) return;
-  lane.pending.splice(index, 1);
-  lane.bytes -= pending.bytes.byteLength;
-  clearTimeout(pending.timer ?? undefined);
-  if (lane.pending.length === 0) inputLanes.delete(pending.sessionId);
-  pending.resolve(outcome);
-}
-
 function trySendInput(
-  pending: PendingInput,
+  pending: SyncPendingInput,
   state = currentSyncV2TerminalState(),
 ): void {
   if (pending.started || !state?.ready) return;
   if (
-    state.socketId !== pending.socketId
-    || state.domainGeneration !== pending.domainGeneration
+    state.socketId !== pending.fence.socketId
+    || state.domainGeneration !== pending.fence.domainGeneration
   ) {
-    finishInput(pending, {
+    lanes.finish(pending, {
       status: "rejected",
       inputSeq: pending.inputSeq,
       writtenBytes: 0,
@@ -100,12 +70,12 @@ function trySendInput(
       sessionId: pending.sessionId,
       inputSeq: pending.inputSeq,
       data: pending.bytes,
-      domainGeneration: pending.domainGeneration,
+      domainGeneration: pending.fence.domainGeneration,
       ...(pending.viewId === undefined ? {} : { viewId: pending.viewId }),
     },
   }));
   if (!sent) {
-    finishInput(pending, {
+    lanes.finish(pending, {
       status: "rejected",
       inputSeq: pending.inputSeq,
       writtenBytes: 0,
@@ -113,15 +83,7 @@ function trySendInput(
     });
     return;
   }
-  pending.started = true;
-  pending.timer = setTimeout(() => {
-    finishInput(pending, {
-      status: "ambiguous",
-      inputSeq: pending.inputSeq,
-      writtenBytes: 0,
-      reason: "input result timed out; the batch will not be retried",
-    });
-  }, INPUT_RESULT_TIMEOUT_MS);
+  lanes.markStarted(pending);
   diag("bytes.up_send", {
     sid: pending.sessionId,
     session_trace_id: getSessionTraceId(pending.sessionId),
@@ -132,12 +94,6 @@ function trySendInput(
   });
 }
 
-function findInput(sessionId: string, inputSeq: bigint): PendingInput | null {
-  return inputLanes.get(sessionId)?.pending.find(
-    (entry) => entry.inputSeq === inputSeq,
-  ) ?? null;
-}
-
 function handleControl(control: ResultControl, state: TerminalState): void {
   if (
     control.case !== "inputAccepted"
@@ -145,25 +101,25 @@ function handleControl(control: ResultControl, state: TerminalState): void {
     && control.case !== "inputAmbiguous"
   ) return;
   const value = control.value;
-  const pending = findInput(value.sessionId, value.inputSeq);
+  const pending = lanes.find(value.sessionId, value.inputSeq);
   if (
     !pending
     || !pending.started
-    || pending.socketId !== state.socketId
-    || pending.domainGeneration !== value.domainGeneration
-    || pending.domainGeneration !== state.domainGeneration
+    || pending.fence.socketId !== state.socketId
+    || pending.fence.domainGeneration !== value.domainGeneration
+    || pending.fence.domainGeneration !== state.domainGeneration
   ) return;
 
   if (control.case === "inputAccepted") {
     const accepted = control.value;
     if (accepted.writtenBytes === pending.bytes.byteLength) {
-      finishInput(pending, {
+      lanes.finish(pending, {
         status: "accepted",
         inputSeq: pending.inputSeq,
         writtenBytes: accepted.writtenBytes,
       });
     } else {
-      finishInput(pending, {
+      lanes.finish(pending, {
         status: "ambiguous",
         inputSeq: pending.inputSeq,
         writtenBytes: accepted.writtenBytes,
@@ -173,7 +129,7 @@ function handleControl(control: ResultControl, state: TerminalState): void {
     return;
   }
   if (control.case === "inputRejected") {
-    finishInput(pending, {
+    lanes.finish(pending, {
       status: "rejected",
       inputSeq: pending.inputSeq,
       writtenBytes: 0,
@@ -181,7 +137,7 @@ function handleControl(control: ResultControl, state: TerminalState): void {
     });
     return;
   }
-  finishInput(pending, {
+  lanes.finish(pending, {
     status: "ambiguous",
     inputSeq: pending.inputSeq,
     writtenBytes: control.value.writtenBytes,
@@ -196,45 +152,41 @@ export function handleGeneration(state: TerminalState | null): void {
   if (changed) {
     const closingSocket = observedSocketId;
     const closingDomain = observedDomainGeneration;
-    for (const lane of Array.from(inputLanes.values())) {
-      for (const pending of [...lane.pending]) {
-        if (
-          closingSocket !== null
-          && (pending.socketId !== closingSocket
-            || pending.domainGeneration !== closingDomain)
-        ) continue;
-        const outcome: InputOutcome = pending.started
-          ? {
-              status: "ambiguous",
-              inputSeq: pending.inputSeq,
-              writtenBytes: 0,
-              reason: "Sync closed after input was sent; the batch will not be retried",
-            }
-          : {
-              status: "rejected",
-              inputSeq: pending.inputSeq,
-              writtenBytes: 0,
-              reason: "Sync closed before input was sent",
-            };
-        finishInput(pending, outcome);
-        signal("input.drop_burst", {
-          sid: pending.sessionId,
-          reason: outcome.status === "ambiguous"
-            ? "generation_ambiguous"
-            : "generation_closed",
-          cooldownKey: pending.sessionId,
-        });
-      }
+    for (const pending of lanes.pending()) {
+      if (
+        closingSocket !== null
+        && (pending.fence.socketId !== closingSocket
+          || pending.fence.domainGeneration !== closingDomain)
+      ) continue;
+      const outcome: InputOutcome = pending.started
+        ? {
+            status: "ambiguous",
+            inputSeq: pending.inputSeq,
+            writtenBytes: 0,
+            reason: "Sync closed after input was sent; the batch will not be retried",
+          }
+        : {
+            status: "rejected",
+            inputSeq: pending.inputSeq,
+            writtenBytes: 0,
+            reason: "Sync closed before input was sent",
+          };
+      lanes.finish(pending, outcome);
+      signal("input.drop_burst", {
+        sid: pending.sessionId,
+        reason: outcome.status === "ambiguous"
+          ? "generation_ambiguous"
+          : "generation_closed",
+        cooldownKey: pending.sessionId,
+      });
     }
     observedSocketId = state?.socketId ?? null;
     observedDomainGeneration = state?.domainGeneration ?? null;
-    nextInputSeq = 0n;
+    lanes.resetSequence();
   }
 
   if (!state?.ready) return;
-  for (const lane of inputLanes.values()) {
-    for (const pending of [...lane.pending]) trySendInput(pending, state);
-  }
+  for (const pending of lanes.pending()) trySendInput(pending, state);
 }
 
 queueMicrotask(() => {
@@ -242,105 +194,41 @@ queueMicrotask(() => {
   registerSyncV2GenerationHandler(handleGeneration);
 });
 
-/** Admit one complete PTY input batch. `viewId` is attribution only; callers
- * without a mounted browser view intentionally omit it. */
+/** Admit one complete PTY input batch on the transport that owns the session.
+ * `viewId` is attribution only; callers without a mounted browser view
+ * intentionally omit it. */
 export function sendTerminalInput(
   sessionId: string,
   bytes: Uint8Array,
   viewId?: string,
 ): InputAdmission {
+  const local = localTerminalTransport();
+  if (local?.ownsSession(sessionId)) return local.sendInput(sessionId, bytes, viewId);
   const state = currentSyncV2TerminalState();
   if (!state) return { accepted: false, reason: "terminal Sync is not connected" };
-  if (bytes.byteLength > MAX_INPUT_BYTES) {
-    return { accepted: false, reason: "input exceeds 64 KiB" };
-  }
-  let lane = inputLanes.get(sessionId);
-  if (!lane) {
-    lane = { pending: [], bytes: 0 };
-    inputLanes.set(sessionId, lane);
-  }
-  if (
-    lane.pending.length >= MAX_PENDING_INPUTS_PER_SESSION
-    || lane.bytes + bytes.byteLength > MAX_PENDING_INPUT_BYTES_PER_SESSION
-  ) {
-    if (lane.pending.length === 0) inputLanes.delete(sessionId);
-    return { accepted: false, reason: "terminal input queue is full" };
-  }
+  const refusal = lanes.refuse(sessionId, bytes.byteLength);
+  if (refusal) return { accepted: false, reason: refusal };
   if (
     observedSocketId !== state.socketId
     || observedDomainGeneration !== state.domainGeneration
   ) handleGeneration(state);
-  const inputSeq = ++nextInputSeq;
-  const owned = bytes.slice();
-  const { promise, resolve } = Promise.withResolvers<InputOutcome>();
-  const pending: PendingInput = {
-    sessionId,
-    viewId,
-    inputSeq,
-    bytes: owned,
+  const admitted = lanes.enqueue(sessionId, bytes, viewId, {
     socketId: state.socketId,
     domainGeneration: state.domainGeneration,
-    started: false,
-    resolve,
-    timer: null,
-  };
-  lane.pending.push(pending);
-  lane.bytes += owned.byteLength;
-  lastInputSendTs.set(sessionId, performance.now());
-  try {
-    currentSmokeTerminalInputObserver()?.(sessionId, owned.slice());
-  } catch {
-    // Smoke instrumentation must never perturb delivery.
-  }
-  trySendInput(pending, state);
-  return { accepted: true, inputSeq, result: promise };
+  });
+  trySendInput(admitted.pending, state);
+  return { accepted: true, inputSeq: admitted.inputSeq, result: admitted.result };
 }
 
-export function consumeLastInputSendTs(sessionId: string): number | undefined {
-  const value = lastInputSendTs.get(sessionId);
-  if (value !== undefined) lastInputSendTs.delete(sessionId);
-  return value;
-}
-
-export function inputMapSizes(): number {
-  return lastInputSendTs.size + inputLanes.size;
-}
-
-export function pruneTerminalInput(sessionId: string): void {
-  const lane = inputLanes.get(sessionId);
-  if (lane) {
-    for (const pending of [...lane.pending]) {
-      finishInput(pending, {
-        status: pending.started ? "ambiguous" : "rejected",
-        inputSeq: pending.inputSeq,
-        writtenBytes: 0,
-        reason: "session closed",
-      });
-    }
-  }
-  lastInputSendTs.delete(sessionId);
-}
-
-/** Reject every credential-bound input lane. A credential boundary is a hard
- * transport boundary: queued bytes must never be replayed onto a newly
- * accepted socket. */
+/** Reject every credential-bound input lane and drop the local fast path. A
+ * credential boundary is a hard transport boundary: queued bytes must never be
+ * replayed onto a newly accepted socket, and a grant minted for the retired
+ * credential must not survive it. */
 export function resetTerminalOutboundState(reason = "credential boundary"): void {
-  for (const lane of inputLanes.values()) {
-    for (const pending of lane.pending) {
-      clearTimeout(pending.timer ?? undefined);
-      pending.resolve({
-        status: pending.started ? "ambiguous" : "rejected",
-        inputSeq: pending.inputSeq,
-        writtenBytes: 0,
-        reason,
-      });
-    }
-  }
-  inputLanes.clear();
-  lastInputSendTs.clear();
+  resetTerminalInputLanes(reason);
   observedSocketId = null;
   observedDomainGeneration = null;
-  nextInputSeq = 0n;
+  localTerminalTransport()?.reset(reason);
 }
 
 export function _resetTerminalOutboundForTest(): void {

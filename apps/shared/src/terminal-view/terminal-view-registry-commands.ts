@@ -7,9 +7,9 @@
 
 import {
   TerminalViewStatus, type TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
-import { TERMINAL_SOCKET_VIEW_CAP, TERMINAL_VIEW_LEASE_MS } from "@roost/shared/viewport";
+} from "../gen/roost/v1/sync_pb.ts";
+import { log } from "../log.ts";
+import { TERMINAL_SOCKET_VIEW_CAP, TERMINAL_VIEW_LEASE_MS } from "../viewport.ts";
 import {
   equalTerminalViewIntent, terminalViewIntent, terminalViewKey,
   validateTerminalViewCommand,

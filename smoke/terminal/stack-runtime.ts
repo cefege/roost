@@ -59,6 +59,10 @@ function authorizeTerminalTestApiKey(
   const script = `
     import { Database } from "bun:sqlite";
     const db = new Database(process.env.ROOST_TERMINAL_DB);
+    // The coordinator is already live on this file and takes short write locks
+    // of its own, so an unqualified BEGIN IMMEDIATE races it. Wait the lock out
+    // rather than failing the stack on a contended box.
+    db.exec("PRAGMA busy_timeout=10000");
     const now = Number(process.env.ROOST_TERMINAL_NOW);
     const key = Buffer.from(process.env.ROOST_TERMINAL_PUBLIC_KEY, "base64");
     const fp = process.env.ROOST_TERMINAL_DEVICE_FP;
@@ -161,6 +165,10 @@ export interface CoordinatorServiceConfig {
   bind: string;
   dbPath: string;
   logPath: string;
+  /** Extra origins the coordinator accepts cross-origin RPC and Sync upgrades
+   *  from; the harness's worker-served local UI origins are not the 4104
+   *  default the product pre-allowlists. */
+  corsAllowedOrigins?: readonly string[];
   gitSha: string;
 }
 
@@ -182,6 +190,9 @@ export function startCoordinatorService(config: CoordinatorServiceConfig): Runni
         // committed, so a prior-release checkout has none to serve.
         ROOST_WEB_DIST_PATH: join(REPOSITORY_ROOT, "apps/web/dist"),
         ROOST_GIT_SHA: config.gitSha,
+        ...(config.corsAllowedOrigins?.length
+          ? { ROOST_CORS_ALLOWED_ORIGINS: config.corsAllowedOrigins.join(",") }
+          : {}),
       }),
       stdio: ["ignore", coordLog, coordLog],
     }),

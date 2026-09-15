@@ -18,7 +18,6 @@ import {
   type AgentPromptControlDeps,
 } from "../src/agent-prompt-control.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
-import { acquireKeeperAdmission } from "../src/session-control-lanes.ts";
 import type { SessionManager } from "../src/session-manager.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import type { TerminalRequestBudget } from "../src/transport/coord-link-types.ts";
@@ -26,6 +25,7 @@ import { installFakeKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import {
   CHANNEL_ID,
   cleanupStreamHarnesses,
+  holdKeeperAdmission,
   makeHarness,
   SESSION_ID,
   trackKeeper,
@@ -215,7 +215,7 @@ describe("agent prompt pre-write fences", () => {
   test("drains a queued ticket when the initial process proof is rejected", async () => {
     const harness = await fenceHarness({}, () => null);
     const keeper = inputAckKeeper();
-    const blocker = acquireKeeperAdmission(
+    const blocker = holdKeeperAdmission(
       harness.deps.sessions,
       CHANNEL_ID,
       "terminal_resize",
@@ -312,7 +312,7 @@ describe("agent prompt pre-write fences", () => {
     const keeper = trackKeeper(installFakeKeeper());
     for (const mutation of ["revision", "replacement", "closed"] as const) {
       const harness = await fenceHarness();
-      const blocker = acquireKeeperAdmission(
+      const blocker = holdKeeperAdmission(
         harness.deps.sessions,
         CHANNEL_ID,
         "terminal_resize",

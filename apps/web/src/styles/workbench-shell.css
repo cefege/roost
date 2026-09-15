@@ -345,3 +345,18 @@
     display: none;
   }
 }
+
+/* /pair renders outside the workbench shell, so this element is the page's own
+   column and the document is its scroller. Class-driven (not inline style) so
+   styles/tv.css can widen it for a ten-foot viewport. */
+.onboarding-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-5);
+  padding: var(--md-space-6);
+  max-width: var(--roost-dialog-max-inline-size);
+}
+
+.onboarding-root[data-embedded="true"] {
+  padding: 0;
+}

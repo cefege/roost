@@ -12,7 +12,7 @@
 import { diag, signal } from "@roost/shared/diag";
 import { rootStore } from "../store/root.ts";
 import { cellFrameCountSize } from "../store/terminal-stream.ts";
-import { inputMapSizes } from "../ws/sync-outbound.ts";
+import { inputMapSizes } from "../ws/terminal-input-lanes.ts";
 import { sessionTraceSize } from "./diag.ts";
 
 // Always-on input→echo RTT ring. Fed by recordInputRtt() from the CellTerminal

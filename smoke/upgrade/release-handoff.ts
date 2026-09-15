@@ -41,6 +41,7 @@ const WorkerServiceSpecSchema = z.object({
   tmpDir: z.string().min(1),
   bootstrapToken: z.string().min(1),
   gitSha: z.string().min(1).optional(),
+  localUiBind: z.string().min(1).optional(),
   shell: z.string().min(1).optional(),
 }).strict();
 

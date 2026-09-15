@@ -14,6 +14,10 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { collectCounts, runRatchet, walk, type RatchetSpec } from "./lint-ratchet.ts";
 import { join } from "node:path";
+import {
+  WEB_SOCKET_CLIENT_ALLOW,
+  WEB_SOCKET_LISTENER_ALLOW,
+} from "./lint-transport-allowlists.ts";
 
 const REPO = new URL("..", import.meta.url).pathname;
 
@@ -163,28 +167,16 @@ const CHECKS: Check[] = [
     memory: "docs/archive/phase-24.md",
     files: /apps\/(web|worker)\/src\/.*\.(ts|tsx)$/,
     ok: (file, _i, lines) => {
-      const ALLOW = [
-        // trpc.ts deleted in crpc6. deepgramDictation dials Deepgram's live
-        // STT endpoint — a genuine external WS, not an intra-Roost transport.
-        "apps/web/src/lib/deepgramDictation.ts",
-        "apps/worker/src/transport/coord-link.ts",
-        // sync.ts holds the canonical web↔coord Sync-stream client (the only
-        // web-side sync WebSocket; the SPA analog of CoordLink on the worker).
-        "apps/web/src/store/sync.ts",
-      ];
-      if (ALLOW.some((s) => file.endsWith(s))) return true;
+      if (WEB_SOCKET_CLIENT_ALLOW.some((s) => file.endsWith(s))) return true;
       return !/new\s+WebSocket\s*\(/.test(lines.join("\n"));
     },
   },
   {
-    rule: "phase-24: `Bun.serve({ websocket })` outside coord main",
+    rule: "phase-24: `Bun.serve({ websocket })` outside coord main and the worker's local UI door",
     memory: "docs/archive/phase-24.md",
     files: /apps\/(coord|worker)\/src\/.*\.ts$/,
     ok: (file, _i, lines) => {
-      const ALLOW = [
-        "apps/coord/src/main.ts",
-      ];
-      if (ALLOW.some((s) => file.endsWith(s))) return true;
+      if (WEB_SOCKET_LISTENER_ALLOW.some((s) => file.endsWith(s))) return true;
       return !/Bun\.serve\s*\(\s*\{[\s\S]*?\bwebsocket\s*:/.test(lines.join("\n"));
     },
   },

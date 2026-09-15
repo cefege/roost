@@ -9,15 +9,21 @@ import type {
   DAgentPrompt,
   DInputRequest,
   DKeeperUpdatePrepare,
+  DLocalTerminalGrant,
+  DLocalTerminalGrantRevoke,
   DTerminalPipelineSnapshotRequest,
   DTerminalSnapshotRequest,
   DTerminalStreamState,
+  DTerminalViewRelay,
+  DTerminalViewSocketClosed,
   TerminalInputStatus,
   TerminalStreamFailureKind,
   TerminalStreamStatus,
   TerminalWritePhase,
   WTerminalPipelineSnapshot,
 } from "@roost/shared/proto/worker_transport_pb";
+import type { TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
+import type { TerminalViewInput } from "@roost/shared/terminal-view";
 import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
 import type { SessionEventStore } from "./session-event-store.ts";
 
@@ -94,6 +100,14 @@ export interface CoordLinkDeps {
     keeper_epoch?: string;
     binding_digest?: string;
   };
+  // Worker-owned terminal views: the coordinator relays an authenticated
+  // browser's view command instead of interpreting membership itself.
+  onTerminalViewRelay?: (request: DTerminalViewRelay) => void;
+  onTerminalViewSocketClosed?: (request: DTerminalViewSocketClosed) => void;
+  // Acknowledged: the coordinator hands a browser its secret only after this
+  // resolves, so a throw here must reach it as WRpcError.
+  onLocalTerminalGrant?: (request: DLocalTerminalGrant) => void;
+  onLocalTerminalGrantRevoke?: (request: DLocalTerminalGrantRevoke) => void;
   onAttachmentChunk?: (msg: { request_id: string; session_id: string; filename: string; short_path: boolean; data: Uint8Array; last: boolean; seq: number }) => void;
   onUpdateBroker?: (msg: {
     request_id: string;
@@ -131,6 +145,17 @@ export interface TerminalMetadataFrame {
   activityTsMs: number;
 }
 
+/** One session's complete terminal-view membership as the worker aggregated
+ * it. Replaces the coordinator's row wholesale, so an empty `viewers` is the
+ * truthful "nobody is watching" and not a missing update. */
+export interface TerminalViewProjectionFrame {
+  sessionId: string;
+  viewers: readonly TerminalViewInput[];
+  effectiveCols: number;
+  effectiveRows: number;
+  streamId: string;
+}
+
 export interface CoordLinkPipelineState {
   queueFrames: number;
   queueBytes: number;
@@ -146,6 +171,9 @@ export interface CoordLink {
   sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult;
   /** True when written or retained by the ordered in-memory status repair lane. */
   sendAgentStatus(status: AgentStatusUpdate): boolean;
+  /** One view decision addressed back to a coordinator-relayed browser socket. */
+  sendTerminalViewState(socketId: string, frame: TerminalViewStateFrame): TransportSendResult;
+  sendTerminalViewProjection(projection: TerminalViewProjectionFrame): TransportSendResult;
   state(): CoordLinkState;
   protocolPhase(): CoordLinkProtocolPhase;
   ready(): boolean;

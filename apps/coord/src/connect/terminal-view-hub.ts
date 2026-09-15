@@ -1,13 +1,20 @@
 // Coord-side owner of socket-bound terminal view membership: which viewer
 // sockets watch which session, the route reconciliation when a worker
-// reconnects, and the projection snapshot Sync seeds. All registry mutation
-// flows through TerminalViewHub methods — the module-level productionHub is
-// install-once; reading it from outside (activeTerminalViewerFingerprints)
-// must tolerate "no hub installed" because tests construct hubs directly.
-import type { WTerminalStreamResult } from "@roost/shared/proto/worker_transport_pb";
+// reconnects, and the projection snapshot Sync seeds. A session whose worker
+// advertised terminal-view-owner-v1 skips all of that and is relayed instead —
+// exactly one minimizer per session. All registry mutation flows through
+// TerminalViewHub methods — the module-level productionHub is install-once;
+// reading it from outside (activeTerminalViewerFingerprints) must tolerate
+// "no hub installed" because tests construct hubs directly.
+import type {
+  WTerminalStreamResult,
+  WTerminalViewProjection,
+  WTerminalViewState,
+} from "@roost/shared/proto/worker_transport_pb";
 import type {
   TerminalResyncCommand,
   TerminalViewCommand,
+  TerminalViewStateFrame,
 } from "@roost/shared/proto/sync_pb";
 import {
   TERMINAL_VIEW_SWEEP_MS,
@@ -28,15 +35,31 @@ import {
   TerminalScreenHub,
   type TerminalScreenSocketSink,
 } from "./terminal-screen-hub.ts";
-import { TerminalViewRegistry } from "./terminal-view-registry.ts";
-import type { TerminalViewInput } from "./terminal-view-registry-state.ts";
 import {
-  TerminalViewStreamController,
-  type TerminalStreamDesired,
-  type TerminalStreamRoute,
-} from "./terminal-view-stream-controller.ts";
-
-export type { TerminalViewInput } from "./terminal-view-registry-state.ts";
+  TerminalViewRegistry,
+  type TerminalViewInput,
+} from "@roost/shared/terminal-view";
+import { TerminalViewStreamController } from "./terminal-view-stream-controller.ts";
+import type {
+  TerminalStreamDesired,
+  TerminalStreamRoute,
+} from "./terminal-view-stream-controller-types.ts";
+import { TerminalViewOwnerRelay } from "./terminal-view-owner-relay.ts";
+import {
+  applyTerminalViewProjection,
+  dropTerminalViewProjection,
+  mergeOwnerTerminalViewerProjection,
+  ownerTerminalViewerFingerprints,
+  ownerTerminalViewerGeometry,
+  terminalViewOwnerForSession,
+  terminalViewOwnerRow,
+} from "./terminal-view-projection.ts";
+import {
+  sendTerminalViewRelay,
+  sendTerminalViewSocketClosed,
+  type TerminalViewRelayCommand,
+  type TerminalViewRelayIdentity,
+} from "./worker-send-terminal-view.ts";
 
 /** What diagnostics read about one session: live vs parked membership plus the
  * stream the coordinator currently owns for it. */
@@ -60,6 +83,15 @@ export interface TerminalViewHubOptions {
     deadline?: HopDeadline,
   ) => TerminalWorkerRequest<WTerminalStreamResult>;
   sendSnapshot?: (workerFp: string, sessionId: string, streamId: string) => boolean;
+  /** Owner-mode routing and relay, injected so hermetic tests need neither the
+   * process-global worker registry nor the byte-hub route cache. */
+  ownerForSession?: (sessionId: string) => string | null;
+  sendViewRelay?: (
+    workerFp: string,
+    identity: TerminalViewRelayIdentity,
+    command: TerminalViewRelayCommand,
+  ) => boolean;
+  sendViewSocketClosed?: (workerFp: string, socketId: string) => boolean;
 }
 
 export interface TerminalSocketRegistration {
@@ -77,26 +109,63 @@ export function installTerminalViewHub(hub: TerminalViewHub | null): void {
 }
 
 export function activeTerminalViewerFingerprints(sessionId: string): ReadonlySet<string> {
-  return productionHub?.activeViewerFingerprints(sessionId) ?? new Set();
+  return ownerTerminalViewerFingerprints(sessionId)
+    ?? productionHub?.activeViewerFingerprints(sessionId)
+    ?? new Set();
 }
 
 export function terminalViewerProjection(): ReadonlyMap<string, ReadonlyMap<string, TerminalGeometry>> {
-  return productionHub?.viewerProjection() ?? new Map();
+  const merged = new Map(productionHub?.viewerProjection() ?? []);
+  mergeOwnerTerminalViewerProjection(merged);
+  return merged;
 }
-
 
 export function currentTerminalScreenHub(): TerminalScreenHub | null {
   return productionHub?.screen ?? null;
 }
 
 export function terminalViewSnapshot(sessionId: string): TerminalViewSnapshot | null {
-  return productionHub?.snapshot(sessionId) ?? null;
+  const owned = terminalViewOwnerRow(sessionId);
+  if (!owned) return productionHub?.snapshot(sessionId) ?? null;
+  let parkedViews = 0;
+  for (const viewer of owned.viewers) if (viewer.parked) parkedViews += 1;
+  return {
+    activeViews: owned.viewers.length - parkedViews,
+    parkedViews,
+    streamId: owned.streamId,
+    effective: owned.effective && { ...owned.effective },
+    // The owning worker publishes the stream it actually holds; the
+    // coordinator drives no desire for this session and so has no failure of
+    // its own to report.
+    unavailable: false,
+  };
 }
 
 /** Per-viewer geometry inputs behind a session's effective geometry. Empty
  * when no production hub is installed (tests construct hubs directly). */
 export function terminalViewInputs(sessionId: string): readonly TerminalViewInput[] {
-  return productionHub?.viewerInputs(sessionId) ?? [];
+  return terminalViewOwnerRow(sessionId)?.viewers
+    ?? productionHub?.viewerInputs(sessionId)
+    ?? [];
+}
+
+/** One view decision from a worker that owns its own terminal views. */
+export function dispatchWorkerTerminalViewState(
+  workerFp: string,
+  state: WTerminalViewState,
+): void {
+  if (!state.frame) return;
+  productionHub?.applyOwnerViewState(workerFp, state.socketId, state.frame);
+}
+
+/** The owning worker's membership for one session, replacing whatever the
+ * coordinator last projected for it. */
+export function applyWorkerTerminalViewProjection(
+  workerFp: string,
+  projection: WTerminalViewProjection,
+): void {
+  applyTerminalViewProjection(workerFp, projection);
+  productionHub?.publishPresence(projection.sessionId);
 }
 
 export function notifyTerminalRouteReconciled(
@@ -128,6 +197,9 @@ export class TerminalViewHub {
   private readonly unsubscribe: () => void;
   private onLiveViewExpired:
     (socketId: string, viewId: string, sessionId: string) => void = () => undefined;
+  private readonly registrations = new Map<string, TerminalSocketRegistration>();
+  private readonly relay: TerminalViewOwnerRelay;
+  private readonly ownerForSession: (sessionId: string) => string | null;
 
   constructor(options: TerminalViewHubOptions) {
     this.now = options.now ?? Date.now;
@@ -156,6 +228,9 @@ export class TerminalViewHub {
       },
       closeViews: (sessionId) => this.registry.closeSession(sessionId),
       presence: (sessionId) => this.presence(sessionId),
+      repairUnownedSession: (sessionId, streamId) => {
+        this.relay.repairSession(sessionId, streamId);
+      },
     });
     this.screen = this.streams.screen;
     this.registry = new TerminalViewRegistry({
@@ -167,6 +242,15 @@ export class TerminalViewHub {
       onLiveViewExpired: (socketId, viewId, sessionId) => {
         this.onLiveViewExpired(socketId, viewId, sessionId);
       },
+    });
+    this.ownerForSession = options.ownerForSession ?? terminalViewOwnerForSession;
+    this.relay = new TerminalViewOwnerRelay({
+      screen: this.screen,
+      socket: (socketId) => this.registrations.get(socketId),
+      ownerForSession: (sessionId) => this.ownerForSession(sessionId),
+      sendRelay: options.sendViewRelay ?? sendTerminalViewRelay,
+      sendSocketClosed: options.sendViewSocketClosed ?? sendTerminalViewSocketClosed,
+      sendSnapshot,
     });
 
     this.timer = setInterval(() => this.sweep(), TERMINAL_VIEW_SWEEP_MS);
@@ -185,11 +269,14 @@ export class TerminalViewHub {
   }
 
   registerSocket(registration: TerminalSocketRegistration): void {
+    this.registrations.set(registration.socketId, registration);
     this.registry.registerSocket(registration);
   }
 
   closeSocket(socketId: string): void {
     this.registry.closeSocket(socketId);
+    this.registrations.delete(socketId);
+    this.relay.closeSocket(socketId);
   }
   setOnLiveViewExpired(
     handler: ((socketId: string, viewId: string, sessionId: string) => void) | null,
@@ -197,17 +284,42 @@ export class TerminalViewHub {
     this.onLiveViewExpired = handler ?? (() => undefined);
   }
 
-
+  /** A revoked device must stop reaching any owner before its sockets close,
+   * so the relay registration goes first and the registry follows. */
   removeFingerprint(fingerprint: string): void {
+    for (const [socketId, registration] of this.registrations) {
+      if (registration.callerFingerprint === fingerprint) this.closeSocket(socketId);
+    }
     this.registry.removeFingerprint(fingerprint);
   }
 
+  /** The one gate: a session owned by a terminal-view-owner worker never
+   * enters coordinator membership, so no view record, no recompute and no
+   * stream desire can exist for it here. */
   handleViewCommand(socketId: string, command: TerminalViewCommand): void {
-    this.registry.handleViewCommand(socketId, command);
+    const owner = this.ownerForSession(command.sessionId);
+    if (owner === null) {
+      this.registry.handleViewCommand(socketId, command);
+      return;
+    }
+    this.relay.relayView(socketId, owner, command);
   }
 
   handleResync(socketId: string, command: TerminalResyncCommand): void {
-    this.registry.handleResync(socketId, command);
+    const owner = this.ownerForSession(command.sessionId);
+    if (owner === null) {
+      this.registry.handleResync(socketId, command);
+      return;
+    }
+    this.relay.relayResync(socketId, owner, command);
+  }
+
+  applyOwnerViewState(workerFp: string, socketId: string, frame: TerminalViewStateFrame): void {
+    this.relay.applyViewState(workerFp, socketId, frame);
+  }
+
+  publishPresence(sessionId: string): void {
+    void this.presence(sessionId);
   }
 
   workerReplacement(workerFp: string): void {
@@ -215,7 +327,20 @@ export class TerminalViewHub {
   }
 
   routeReconciled(workerFp: string, sessionIds: Iterable<string>): void {
-    this.streams.routeReconciled(workerFp, sessionIds);
+    const owned: string[] = [];
+    const legacy: string[] = [];
+    for (const sessionId of sessionIds) {
+      if (this.ownerForSession(sessionId) === workerFp) owned.push(sessionId);
+      else legacy.push(sessionId);
+    }
+    if (legacy.length > 0) this.streams.routeReconciled(workerFp, legacy);
+    // A legacy worker that upgraded in place leaves the coordinator holding
+    // membership and a stream for its sessions; release exactly those. One it
+    // never minimized keeps its screen replica, so a plain owner reconnect
+    // costs watching browsers nothing.
+    for (const sessionId of owned) {
+      if (this.streams.state(sessionId) !== null) this.streams.closeSession(sessionId);
+    }
   }
 
   workerRetired(workerFp: string, sessionIds: Iterable<string>): void {
@@ -223,6 +348,7 @@ export class TerminalViewHub {
   }
 
   closeSession(sessionId: string): void {
+    dropTerminalViewProjection(sessionId);
     this.streams.closeSession(sessionId);
   }
 
@@ -255,7 +381,9 @@ export class TerminalViewHub {
   }
 
   private async presence(sessionId: string): Promise<void> {
-    const viewers = this.registry.viewerProjection().get(sessionId) ?? new Map();
+    const viewers = ownerTerminalViewerGeometry(sessionId)
+      ?? this.registry.viewerProjection().get(sessionId)
+      ?? new Map();
     const entries = [...viewers].map(([fp, geometry]) => ({
       fp,
       cols: geometry.cols,

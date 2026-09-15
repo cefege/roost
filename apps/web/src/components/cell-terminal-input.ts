@@ -31,7 +31,7 @@ import {
 } from "../lib/terminalFindController.ts";
 import { registerTerminalFind } from "../lib/terminalFindIntent.ts";
 import { sendUserTerminalInput } from "../lib/userTerminalInput.ts";
-import type { InputAdmission } from "../ws/sync-outbound.ts";
+import type { InputAdmission } from "../ws/terminal-input-lanes.ts";
 import type { ResolveFile } from "./terminal-links.ts";
 import type { CellTerminalProps } from "./cell-terminal-types.ts";
 import type { CellTerminalRuntime } from "./cell-terminal-runtime.ts";

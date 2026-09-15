@@ -55,14 +55,20 @@ export default defineConfig({
   // throughput or paint-latency number measured against three other stacks is
   // not a measurement. Keeping the split here rather than in the runner means a
   // bare `bunx playwright test` is still correct: it just runs both projects.
+  // The `tv` project drives a 1920×1080 pointerless viewport with TV mode
+  // forced on. Its name deliberately does NOT start with "chromium": ~20 specs
+  // open with test.skip(!project.name.startsWith("chromium"), …) and would all
+  // run a second time here otherwise.
   projects: process.platform === "darwin"
     ? [
-      { name: "chromium-desktop", grepInvert: /@serial/, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
-      { name: "webkit-iphone", grepInvert: /@serial/, use: { ...devices["iPhone 15"] } },
+      { name: "chromium-desktop", grepInvert: /@serial|@tv/, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
+      { name: "webkit-iphone", grepInvert: /@serial|@tv/, use: { ...devices["iPhone 15"] } },
       { name: "chromium-serial", grep: /@serial/, fullyParallel: false, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
+      { name: "tv", grep: /@tv/, use: { ...devices["Desktop Chrome"], userAgent: undefined, viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1, hasTouch: false, isMobile: false } },
     ]
     : [
-      { name: "chromium-desktop", grepInvert: /@serial/, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
+      { name: "chromium-desktop", grepInvert: /@serial|@tv/, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
       { name: "chromium-serial", grep: /@serial/, fullyParallel: false, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
+      { name: "tv", grep: /@tv/, use: { ...devices["Desktop Chrome"], userAgent: undefined, viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1, hasTouch: false, isMobile: false } },
     ],
 });

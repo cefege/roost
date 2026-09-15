@@ -33,7 +33,9 @@ export function terminalGenerationMatches(
     && token.domainGeneration === state.domainGeneration;
 }
 
-export function terminalGenerationKey(state: SyncV2TerminalState): string {
+export function terminalGenerationKey(
+  state: SyncV2TerminalState | TerminalGenerationToken,
+): string {
   return [
     state.socketGeneration,
     state.socketId,

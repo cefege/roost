@@ -17,6 +17,7 @@
 
 import { describe, test, expect, afterEach } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
+import { COORD_CELL_SINK_ID, registerCellSink } from "../src/session-cell-sinks.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import type { SessionEvent } from "@roost/shared/wire";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
@@ -104,7 +105,11 @@ async function resumeFixture(opts: {
 		workerFp: asWorkerFp("22".repeat(32)),
 		sink,
 		sendBinaryUpstream: () => "sent",
-		sendCellGridUpstream: () => "sent",
+	});
+	registerCellSink(mgr, {
+		id: COORD_CELL_SINK_ID,
+		sendFrame: () => "sent",
+		sendChunk: () => "sent",
 	});
 	// Git/port probes spawn subprocesses and say nothing about adoption.
 	mgr._startGitBranch = () => {};

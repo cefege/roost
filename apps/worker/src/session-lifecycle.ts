@@ -4,7 +4,7 @@
 // with a SessionManager `this`.
 
 import type { SessionManager } from "./session-manager.ts";
-import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
+import { retireStreamDelivery } from "./session-snapshot-cursor.ts";
 import { cancelCellEmission } from "./session-cell-scheduler.ts";
 import type { SessionRecord } from "./session-record.ts";
 import type { SessionEventReservation } from "./event-sink.ts";
@@ -245,7 +245,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 		this.onSessionClosed?.(String(rec.sessionId));
 	}
 	const stream = this.terminalStreams.get(channelId);
-	if (stream) retireSnapshotCursor(this, channelId, stream);
+	if (stream) retireStreamDelivery(this, channelId, stream);
 	this.sessions.delete(channelId);
 	rec?.terminalCoreLease?.release();
 	this.markRecentlyClosed(channelId);

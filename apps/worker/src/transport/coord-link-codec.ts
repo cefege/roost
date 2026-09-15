@@ -8,9 +8,14 @@ import {
   CoordWorkerUpSchema, WHelloSchema, WPongSchema, WBinarySchema,
   WTerminalMetadataSchema, WRpcOkSchema, WRpcErrorSchema,
   WInputResultSchema, WTerminalStreamResultSchema, WUpdateProgressSchema,
+  WTerminalViewProjectionSchema, WTerminalViewStateSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import type { TerminalMetadataFrame, UpstreamFrame } from "./coord-link-types.ts";
+import type { TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
+import { PbTerminalViewInputSchema } from "@roost/shared/proto/wire_pb";
+import type {
+  TerminalMetadataFrame, TerminalViewProjectionFrame, UpstreamFrame,
+} from "./coord-link-types.ts";
 
 export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
   switch (f.kind) {
@@ -104,6 +109,43 @@ export function terminalMetadataFrameToProto(metadata: TerminalMetadataFrame): C
       title: metadata.title,
       activityChanged: metadata.activityChanged,
       activityTsMs: BigInt(metadata.activityTsMs),
+    })},
+  });
+}
+
+/** Address one worker-owned view decision back to the browser socket the
+ * coordinator relayed its command from. */
+export function terminalViewStateToProto(
+  socketId: string,
+  frame: TerminalViewStateFrame,
+): CoordWorkerUp {
+  return create(CoordWorkerUpSchema, {
+    frame: { case: "terminalViewState", value: create(WTerminalViewStateSchema, {
+      socketId,
+      frame,
+    })},
+  });
+}
+
+/** Publish one session's whole viewer membership, so the coordinator can
+ * answer presence and diagnostics without owning it. */
+export function terminalViewProjectionToProto(
+  projection: TerminalViewProjectionFrame,
+): CoordWorkerUp {
+  return create(CoordWorkerUpSchema, {
+    frame: { case: "terminalViewProjection", value: create(WTerminalViewProjectionSchema, {
+      sessionId: projection.sessionId,
+      viewers: projection.viewers.map((viewer) => create(PbTerminalViewInputSchema, {
+        fingerprint: viewer.fingerprint,
+        viewId: viewer.viewId,
+        cols: viewer.cols,
+        rows: viewer.rows,
+        parked: viewer.parked,
+        constrains: viewer.constrains,
+      })),
+      effectiveCols: projection.effectiveCols,
+      effectiveRows: projection.effectiveRows,
+      streamId: projection.streamId,
     })},
   });
 }

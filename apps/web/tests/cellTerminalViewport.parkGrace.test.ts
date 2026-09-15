@@ -26,12 +26,20 @@ class FakeResizeObserver {
   observe(): void {}
 }
 
+// `document.fonts` is a FontFaceSet: an EventTarget whose `ready` answers one
+// loading epoch. These tests never settle an epoch, so a pane keeps the cell
+// metrics this fixture seeds and only withdraw symmetry moves; metric
+// invalidation is pinned in cellTerminalLifecycle.fonts.test.ts.
+class FakeFontFaceSet extends EventTarget {
+  ready = new Promise<void>(() => undefined);
+}
+
 class FakeLifecycleDocument extends EventTarget {
   activeElement: Element | null = null;
   body = {} as HTMLElement;
   deck: FakeBox | null = { clientWidth: 1_200, clientHeight: 800 };
   documentElement = {} as HTMLElement;
-  fonts = { ready: Promise.resolve() };
+  fonts = new FakeFontFaceSet();
   visibilityState = "visible" as DocumentVisibilityState;
 
   hasFocus(): boolean {

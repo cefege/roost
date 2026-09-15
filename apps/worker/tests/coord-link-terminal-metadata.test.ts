@@ -217,10 +217,11 @@ async function createReadyLink(capabilities: string[]) {
 test("advertises and uses terminal_metadata_v1 only after the coordinator acknowledges it", async () => {
   const ready = await createReadyLink([TERMINAL_METADATA_CAPABILITY]);
   try {
-    expect(ready.hello.frame).toMatchObject({
-      case: "hello",
-      value: { capabilities: [TERMINAL_METADATA_CAPABILITY] },
-    });
+    const hello = ready.hello.frame;
+    if (hello.case !== "hello") throw new Error(`expected a hello frame, got ${hello.case}`);
+    // Containment, not array identity: the worker advertises every capability
+    // it supports, and this test owns only the metadata one.
+    expect(hello.value.capabilities).toContain(TERMINAL_METADATA_CAPABILITY);
     expect(ready.link.sendTerminalMetadata({
       channelId: 21,
       titleChanged: true,

@@ -69,8 +69,8 @@ async function runTerminal(): Promise<void> {
       [
         process.execPath, PLAYWRIGHT_CLI, "test", "--config=playwright.config.ts",
         ...(process.platform === "darwin"
-          ? ["--project=chromium-desktop", "--project=webkit-iphone"]
-          : ["--project=chromium-desktop"]),
+          ? ["--project=chromium-desktop", "--project=webkit-iphone", "--project=tv"]
+          : ["--project=chromium-desktop", "--project=tv"]),
       ],
       { ROOST_TEST_BUN: process.execPath },
     );

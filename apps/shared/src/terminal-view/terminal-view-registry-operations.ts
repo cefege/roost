@@ -6,7 +6,7 @@
 import {
   TerminalViewStatus,
   type TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
+} from "../gen/roost/v1/sync_pb.ts";
 import {
   enqueueTerminalViewState,
   type TerminalViewIntent,

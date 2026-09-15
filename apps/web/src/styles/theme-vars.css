@@ -399,6 +399,10 @@
      Runtime-set per navigation in SettingsRoot.slideNavigate(); static
      default keeps the keyframe var() resolvable from first paint. */
   --settings-nav-dir: 1;
+  /* TV overscan: ~2.5% of a 1080p frame. TVs report env(safe-area-inset-*) as
+     0px, so nothing else keeps chrome off the bezel-cropped edge. */
+  --tv-overscan-inline: 48px;
+  --tv-overscan-block: 27px;
 }
 @media (any-pointer: coarse) {
   :root {

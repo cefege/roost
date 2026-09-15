@@ -15,11 +15,11 @@ import {
 } from "@roost/shared/viewport";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import {
-  currentSyncV2TerminalState,
-  requestSyncGenerationRecovery,
-  sendSyncV2Command,
-  type SyncV2TerminalState,
-} from "./sync.ts";
+  currentTerminalGenerationToken,
+  requestTerminalGenerationRecovery,
+  terminalPublicationTarget,
+  type TerminalPublicationTarget,
+} from "./terminal-stream-publication.ts";
 import { clearTerminalChunkTransfer } from "./terminal-stream-chunks.ts";
 import {
   activeTerminalResyncView,
@@ -30,7 +30,6 @@ import {
 } from "./terminal-stream-liveness.ts";
 import type {
   TerminalGenerationToken,
-  TerminalOutboundCommand,
   TerminalSessionReplica,
   TerminalViewRecord,
 } from "./terminal-stream-types.ts";
@@ -40,20 +39,20 @@ export function requestTerminalLivenessChallenge(
   session: TerminalSessionReplica,
   reassert?: () => void,
 ): boolean {
-  const sync = currentSyncV2TerminalState();
+  const target = terminalPublicationTarget(session.sessionId);
   const owner = session.generation;
   const view = activeForegroundTerminalView(session);
   if (
-    !sync?.ready
+    !target
     || !owner
     || !view
-    || !terminalGenerationMatches(owner, sync)
+    || !terminalGenerationMatches(owner, target.token)
     || (!session.expectedStreamId && !reassert)
     || hasPendingTerminalProofChallenge(session, owner)
   ) return false;
 
   const sent = session.expectedStreamId
-    ? sendTerminalResyncCommand(session, view, sync)
+    ? sendTerminalResyncCommand(session, view, target)
     : false;
   if (!sent && !reassert) return false;
   beginTerminalScopedRepair(session, owner, performance.now());
@@ -71,15 +70,15 @@ export function requestTerminalLivenessChallenge(
 export function requestTerminalDomReconcileRecovery(
   session: TerminalSessionReplica,
 ): boolean {
-  const sync = currentSyncV2TerminalState();
+  const target = terminalPublicationTarget(session.sessionId);
   const owner = session.generation;
   if (
-    !sync?.ready
+    !target
     || !owner
     || !activeForegroundTerminalView(session)
-    || !terminalGenerationMatches(owner, sync)
+    || !terminalGenerationMatches(owner, target.token)
   ) return false;
-  return requestSyncGenerationRecovery(owner, "terminal-dom-reconcile-timeout");
+  return requestTerminalGenerationRecovery(owner, "terminal-dom-reconcile-timeout");
 }
 
 export function armTerminalForegroundIdleProbe(
@@ -95,11 +94,11 @@ export function armTerminalForegroundIdleProbe(
   const timer = setTimeout(() => {
     if (session.idleProbeTimer !== timer) return;
     session.idleProbeTimer = null;
-    const sync = currentSyncV2TerminalState();
+    const current = currentTerminalGenerationToken(session.sessionId);
     if (
       !activeForegroundTerminalView(session)
       || !terminalGenerationMatches(session.generation, owner)
-      || !terminalGenerationMatches(owner, sync)
+      || !terminalGenerationMatches(owner, current)
     ) {
       clearTerminalSessionLiveness(session, "inactive");
       return;
@@ -119,17 +118,17 @@ export function armTerminalForegroundIdleProbe(
 
 export function sendLatchedTerminalResync(session: TerminalSessionReplica): void {
   if (!session.resyncLatched || !session.expectedStreamId) return;
-  const sync = currentSyncV2TerminalState();
+  const target = terminalPublicationTarget(session.sessionId);
   const view = activeForegroundTerminalView(session);
   const owner = session.resyncLatchGeneration;
   if (
-    !sync?.ready
+    !target
     || !view
     || !owner
-    || !terminalGenerationMatches(session.generation, sync)
-    || !terminalGenerationMatches(owner, sync)
+    || !terminalGenerationMatches(session.generation, target.token)
+    || !terminalGenerationMatches(owner, target.token)
   ) return;
-  const key = terminalGenerationKey(sync);
+  const key = terminalGenerationKey(target.token);
   const now = Date.now();
   if (
     session.resyncSentGeneration === key
@@ -137,7 +136,7 @@ export function sendLatchedTerminalResync(session: TerminalSessionReplica): void
     && session.resyncRetryAtMs !== null
     && now - session.resyncRetryAtMs < TERMINAL_VIEW_HEARTBEAT_MS
   ) return;
-  if (!sendTerminalResyncCommand(session, view, sync)) return;
+  if (!sendTerminalResyncCommand(session, view, target)) return;
   session.resyncSentGeneration = key;
   session.resyncRetryGeneration = key;
   session.resyncRetryAtMs = now;
@@ -258,22 +257,18 @@ function activeForegroundTerminalView(
 function sendTerminalResyncCommand(
   session: TerminalSessionReplica,
   view: TerminalViewRecord,
-  sync: SyncV2TerminalState,
+  target: TerminalPublicationTarget,
 ): boolean {
   if (!session.expectedStreamId) return false;
   const canonical = session.canonical;
-  const outbound: TerminalOutboundCommand = {
-    case: "terminalResync",
-    value: create(TerminalResyncCommandSchema, {
-      viewId: view.viewId,
-      sessionId: session.sessionId,
-      streamId: session.expectedStreamId,
-      gridEpoch: canonical?.gridEpoch ?? "",
-      seq: BigInt(canonical?.seq ?? 0),
-      domainGeneration: sync.domainGeneration,
-    }),
-  };
-  return sendSyncV2Command(outbound);
+  return target.publishResync(create(TerminalResyncCommandSchema, {
+    viewId: view.viewId,
+    sessionId: session.sessionId,
+    streamId: session.expectedStreamId,
+    gridEpoch: canonical?.gridEpoch ?? "",
+    seq: BigInt(canonical?.seq ?? 0),
+    domainGeneration: target.domainGeneration,
+  }));
 }
 
 function beginTerminalScopedRepair(
@@ -348,12 +343,12 @@ function armTerminalProofDeadline(
   const timer = setTimeout(() => {
     if (session.proofDeadlineTimer !== timer) return;
     session.proofDeadlineTimer = null;
-    const sync = currentSyncV2TerminalState();
+    const current = currentTerminalGenerationToken(session.sessionId);
     if (
       !activeForegroundTerminalView(session)
       || !terminalGenerationMatches(session.generation, owner)
       || !hasPendingTerminalProofChallenge(session, owner)
-      || !terminalGenerationMatches(owner, sync)
+      || !terminalGenerationMatches(owner, current)
     ) {
       clearTerminalSessionLiveness(session, "inactive");
       return;
@@ -369,7 +364,7 @@ function armTerminalProofDeadline(
       cooldownKey: session.sessionId,
       ...terminalProofSignalFields(session, owner),
     });
-    requestSyncGenerationRecovery(owner, "terminal-proof-timeout");
+    requestTerminalGenerationRecovery(owner, "terminal-proof-timeout");
   }, Math.max(0, dueAt - performance.now()));
   session.proofDeadlineTimer = timer;
 }

@@ -7,11 +7,13 @@
 
 import type {
   TerminalResyncCommand, TerminalViewCommand, TerminalViewStatus,
-} from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
-import { isTerminalUuid, type TerminalGeometry } from "@roost/shared/viewport";
-import { TerminalScreenHub, type TerminalScreenSocketSink } from "./terminal-screen-hub.ts";
-import { terminalViewKey } from "./terminal-view-protocol.ts";
+} from "../gen/roost/v1/sync_pb.ts";
+import { log } from "../log.ts";
+import { isTerminalUuid, type TerminalGeometry } from "../viewport.ts";
+import type { TerminalViewScreenPort } from "./screen-port.ts";
+import {
+  terminalViewKey, type TerminalViewStateSink,
+} from "./terminal-view-protocol.ts";
 import {
   activeTerminalFingerprints, projectTerminalViewInputs, projectTerminalViewers,
   terminalViewConstrains, terminalViewGeometrySet, terminalViewStats,
@@ -20,12 +22,27 @@ import {
   type TerminalViewSocketRecord as Socket,
   type TerminalViewTombstone as Tombstone,
 } from "./terminal-view-registry-state.ts";
-import type { TerminalStreamState } from "./terminal-view-stream-controller.ts";
 import { TerminalViewCommands } from "./terminal-view-registry-commands.ts";
 import { TerminalViewRegistryOperations } from "./terminal-view-registry-operations.ts";
 
+/** Why a session is not paintable right now, which decides what a rejoining
+ * view is told: replay UNAVAILABLE, or redrive the host and let the next
+ * heartbeat answer. */
+export type TerminalUnavailablePolicy = "heartbeat" | "route" | "never";
+
+/** The stream the host currently owns for one session. The registry only
+ * reads it — coord's stream controller and the worker's view owner each mint
+ * the stream and hand this shape back through streamState(). */
+export interface TerminalStreamState {
+  effective: TerminalGeometry | null;
+  streamId: string;
+  unavailable: boolean;
+  unavailableReason: string;
+  unavailablePolicy: TerminalUnavailablePolicy;
+}
+
 export interface TerminalViewRegistryOptions {
-  screen: TerminalScreenHub;
+  screen: TerminalViewScreenPort;
   now(): number;
   streamState(sessionId: string): TerminalStreamState | null;
   recompute(sessionId: string): boolean;
@@ -72,7 +89,7 @@ export class TerminalViewRegistry {
     viewerKey: string | null;
     callerFingerprint: string;
     allowsSession(sessionId: string): boolean;
-    sink: TerminalScreenSocketSink;
+    sink: TerminalViewStateSink;
   }): void {
     this.closeSocket(registration.socketId);
     this.sockets.set(registration.socketId, {

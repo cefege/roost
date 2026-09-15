@@ -17,7 +17,7 @@ import {
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import type { TerminalContext } from "../lib/keytermContext.ts";
 import type { Session } from "@roost/shared/wire";
-import type { InputAdmission } from "../ws/sync-outbound.ts";
+import type { InputAdmission } from "../ws/terminal-input-lanes.ts";
 export type { TerminalSelectionGuard } from "./TerminalComposeSelection.ts";
 
 interface Props {

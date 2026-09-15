@@ -22,7 +22,7 @@ import { signal } from "@roost/shared/diag";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 import { isPendingSpawn } from "./optimisticSpawn.ts";
 import { pruneTerminalSession } from "./terminal-stream.ts";
-import { pruneTerminalInput } from "../ws/sync-outbound.ts";
+import { pruneTerminalInput } from "../ws/terminal-input-lanes.ts";
 import { pruneSessionTrace } from "../lib/diag.ts";
 import {
   clearAgentStatusForSession,

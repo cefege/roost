@@ -16,11 +16,15 @@ import {
   makeHarness,
   STREAM_A,
   STREAM_B,
-  STREAM_C,
   TEST_COLS,
   TEST_ROWS,
   trackKeeper,
 } from "./terminal-stream-state-harness.ts";
+import {
+  COORD_CELL_SINK_ID,
+  resumeCellSink,
+  suspendCellSink,
+} from "../src/session-cell-sinks.ts";
 
 afterEach(() => {
   cleanupStreamHarnesses();
@@ -54,7 +58,7 @@ describe("worker cell emission scheduler", () => {
     expect(harness.manager.cellEmitSchedules.get(CHANNEL_ID)).toBe(currentSchedule);
   });
 
-  test("does not let queued old work touch a replacement or reconnect stream", async () => {
+  test("does not let queued old work touch a replacement or a suspended sink", async () => {
     trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
     const core = await createWtermCore(TEST_COLS, TEST_ROWS);
     const harness = await makeHarness(core);
@@ -71,21 +75,24 @@ describe("worker cell emission scheduler", () => {
       STREAM_B,
     ]);
 
-    core.writeString("\x1b[3;1HRECONNECT");
+    core.writeString("\x1b[3;1HCOORD-DOWN");
     harness.manager._scheduleCellEmit(CHANNEL_ID);
     expect(harness.manager.cellEmitSchedules.get(CHANNEL_ID)).toBeDefined();
-    harness.manager.invalidateTerminalStreamsForReconnect();
+    suspendCellSink(harness.manager, COORD_CELL_SINK_ID);
     await flushLeadingCellEmit();
+    // The queued leading emit found no active sink, so it built no frame.
     expect(harness.manager.cellEmitSchedules.has(CHANNEL_ID)).toBe(false);
     expect(harness.frameAttempts).toHaveLength(2);
 
-    await enableStream(harness.manager, STREAM_C);
+    // Resuming owes one full on the SAME stream generation, carrying the work
+    // that landed while the coordinator was gone.
+    resumeCellSink(harness.manager, COORD_CELL_SINK_ID);
     expect(harness.frameAttempts).toHaveLength(3);
     expect(harness.frameAttempts[2]).toMatchObject({
       full: true,
-      streamId: STREAM_C,
+      streamId: STREAM_B,
     });
-    expect(frameRowText(harness.frameAttempts[2]!, 2)).toContain("RECONNECT");
+    expect(frameRowText(harness.frameAttempts[2]!, 2)).toContain("COORD-DOWN");
   });
 
   test("cancels a gated trailing cooldown until the post-boundary full wakes it", async () => {

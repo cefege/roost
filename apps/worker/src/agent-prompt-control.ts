@@ -255,7 +255,9 @@ export async function writeAgentPrompt(
   if (initialFenceFailure) return rejected(initialFenceFailure);
 
   const channelId = expectedRecord.channelId;
-  const ticket = acquireKeeperAdmission(deps.sessions, channelId, "terminal_input");
+  const admission = acquireKeeperAdmission(deps.sessions, channelId, "terminal_input");
+  if (!admission.admitted) return rejected(admission.reason);
+  const ticket = admission.ticket;
   try {
     const firstRefresh = await refreshProcessProof(
       deps.detector,

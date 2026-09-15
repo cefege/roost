@@ -9,8 +9,10 @@ conversation, transcript, tool call, or approval model. It may persist an
 official opaque conversation reference as private recovery metadata. With the
 explicit POSIX-only restore gate enabled, involuntary loss may produce one
 worker-owned OMP resume input only after ordinary shell respawn; this does not
-turn the reference into public state or an agent-control channel. The worker
-owns **no listener** — no inbound HTTP or WS surface exists.
+turn the reference into public state or an agent-control channel. Its ONE
+inbound surface is the loopback UI door (`src/local-ui-server.ts`): a browser on
+this same machine gets the SPA and a direct terminal socket there, so its
+keystrokes and cell frames never traverse the coordinator.
 
 Path references are relative to `apps/worker/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
 
@@ -23,9 +25,12 @@ Path references are relative to `apps/worker/` unless they start at the repo roo
 2. `runInstall()` (`src/install.ts`) is awaited only when a bootstrap token is
    present; otherwise it and agent-integration installation cannot gate the
    coordinator link or heartbeat.
-3. Open `SessionEventStore`, pass it through `src/coord-link-deps.ts` into
-   `startCoordLink()`, bind `coordLinkSink()`, then construct `SessionManager`,
-   agent status, local health/report servers, and heartbeat.
+3. `startLocalTerminalDoor()` (`src/boot-local-terminal.ts`) builds the terminal
+   view owner, the grant store and the loopback door BEFORE the link, so an
+   already-granted browser keeps reaching its own PTYs while the coordinator is
+   down. Then open `SessionEventStore`, pass it through `src/coord-link-deps.ts`
+   into `startCoordLink()`, bind `coordLinkSink()`, then construct
+   `SessionManager`, agent status, local health/report servers, and heartbeat.
 4. Reconciliation serializes reference reports while the CoordLink exactly
    replays and ACKs all durable session events, then reads the coordinator's
    worker-only recovery rows. This replay barrier does not wait for snapshot
@@ -46,7 +51,7 @@ them exists when it is built. Callbacks read `refs.sessionMgr` / `refs.link` thr
 unbound, and `runWorker()` binds each ref the instant it exists; a null read there is a boot-wiring bug, never a
 race. Add a callback here, not in `src/main.ts`.
 
-## Transport — outbound only
+## Transport — one outbound link, one loopback door
 
 `src/transport/coord-link.ts` is the composer: it dials a long-lived raw Bun `WebSocket` at
 `<coordinatorUrl>/ws/coord-worker/<fp>` and authenticates with the exact `roost-worker-auth` marker plus JWT
@@ -91,6 +96,17 @@ The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL
   worker-owned stage evidence. Its typed request/reply route bypasses generic
   RPC payloads.
 
+- `src/local-ui-server.ts` — the loopback door. It serves the SPA through the
+  shared responder, answers `GET /api/local-bootstrap` with the coordinator URL
+  and this fingerprint, and upgrades `/ws/local-terminal`. Fail-closed: a
+  non-loopback bind never listens, and a foreign `Host` or `Origin` is refused
+  before routing. `src/local-terminal-socket.ts` owns the frames on that socket
+  (`@roost/shared/proto/local_terminal_pb`),
+  `src/local-terminal-scrollback.ts` wraps the shared history reader into its
+  reply, and `src/local-terminal-grants.ts` is the in-memory grant store the
+  hello is verified against — digests only, never persisted, so a worker restart
+  requires a fresh coordinator-issued grant.
+
 All filenames are kebab-case; do not add a parallel PascalCase entry.
 
 ## Keeper
@@ -128,18 +144,26 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 ## Module map
 
 - **Boot** — `src/main.ts`, `src/coord-link-deps.ts`, `src/boot-keeper.ts`,
-  `src/boot-reconcile.ts`, `src/install.ts`, `src/service-definition-env.ts`,
-  `src/config.ts`, `src/jwt.ts`.
+  `src/boot-reconcile.ts`, `src/boot-local-terminal.ts`, `src/install.ts`,
+  `src/service-definition-env.ts`, `src/config.ts`, `src/jwt.ts`.
   **`src/transport/`** — the outbound link, durable session-event store,
   semantic metadata relay, and replay barrier (above). **`src/keeper/`** — the PTY
   host (above).
+- **Terminal view ownership** — `src/terminal-view-owner.ts` is the facade over
+  the shared `TerminalViewRegistry` (`@roost/shared/terminal-view`);
+  `src/terminal-view-owner-streams.ts` minimizes live viewer geometry and mints
+  each stream; `src/terminal-view-owner-screen.ts` is the `TerminalViewScreenPort`
+  that owns one `CellSink` per local socket. The loopback door
+  (`src/local-ui-server.ts`, `src/local-terminal-socket.ts`,
+  `src/local-terminal-grants.ts`) is described above.
 - **Session family**, one owner split across `this`-bound modules:
   `src/session-manager.ts` (facade/delegating wrappers),
   `src/session-manager-state.ts` (channel-keyed maps + event sink),
   `src/session-record.ts`, `src/session-constants.ts`, `src/session-spawn.ts`,
   `src/session-resume.ts`, `src/session-respawn.ts`, `src/session-lifecycle.ts`,
   `src/session-emit.ts`, `src/session-cell-scheduler.ts`,
-  `src/session-resume-events.ts`, `src/session-sync-output.ts`,
+  `src/session-cell-sinks.ts` (registered cell transports + delivery
+  aggregation), `src/session-resume-events.ts`, `src/session-sync-output.ts`,
   `src/session-snapshot-cursor.ts`,
   `src/session-terminal-control.ts`, `src/session-terminal-state.ts`,
   `src/session-terminal-txn.ts`, `src/session-resize-capture.ts`,
@@ -213,7 +237,8 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   share that key. Reach a session by sid via `getBySessionId()`; an ad-hoc
   sid-keyed owner will diverge.
 - **The worker holds the one authoritative grid.** History is served as
-  immutable cell rows by `handleGetScrollbackCells`; `src/terminal-search.ts`
+  immutable cell rows by `readScrollbackCells` — the ONE reader, wrapped by both
+  the coordinator RPC and the local terminal socket; `src/terminal-search.ts`
   traverses the same absolute row space newest-first through exclusive,
   row-bounded cursors. Regex queries use the linear-time RE2 syntax rather
   than JavaScript's backtracking engine. Searches are latest-wins per
@@ -222,11 +247,32 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   bounded cancellation tombstones reject cancel-before-start request reordering.
   Both readers settle terminal control and epoch-fence cooperative work; the
   browser never reflows rows. `getScrollbackSince` remains retired.
-- **The coordinator owns viewer membership and SCD.** The worker receives one
-  `DTerminalStreamState` per channel with an already-aggregated geometry and
-  never keeps per-viewer claims, freshness timers, or withdraw grace. A new
-  stream ID gates deltas until its complete full cursor is installed and sent.
-  Disable gates cell emission without changing the keeper/core geometry.
+- **Exactly one minimizer per session, and it is this worker.** A worker
+  advertising `terminal-view-owner-v1` owns view membership, geometry
+  aggregation and stream generations for its own sessions:
+  `src/terminal-view-owner.ts` runs the shared registry, `minimumTerminalGeometry`
+  over the live viewers decides the geometry, and each decision mints a fresh
+  stream through `applyTerminalStreamState`. A coordinator that echoes the
+  capability sends no `DTerminalStreamState` for those sessions and relays
+  browser view commands as `DTerminalViewRelay` instead; one that does not echo
+  it also cannot grant a local terminal or relay a view, so the registry stays
+  empty and its own `DTerminalStreamState` remains the only minimizer. A new
+  stream ID gates deltas until every registered cell sink's complete full cursor
+  is installed and sent. Disable gates cell emission without changing the
+  keeper/core geometry.
+- **A coordinator reconnect never disturbs a local viewer.** `onHelloAck` drops
+  only coordinator-relayed registry sockets (`dropCoordinatorSockets()`); a local
+  socket keeps its views, its lease and the live stream, and only the coord cell
+  sink is re-baselined. Zero LIVE viewers HOLD the last geometry — park absorbs
+  reconnect wobble — so losing membership entirely, not a socket blip, is what
+  disables a stream.
+- **One frame builder, independent per-sink delivery.** `emitCellFrame` builds
+  exactly ONE frame per tick (a second `CellEmitState` over one core steals its
+  dirty rows) and fans it to every ACTIVE sink registered through
+  `src/session-cell-sinks.ts`. Each sink owns its own baseline readiness and
+  snapshot cursor, so a suspended coordinator link neither stalls nor
+  re-baselines a local terminal socket, and a sink whose queue overflows is
+  unregistered alone.
 - **Live resize mutates the existing core at the keeper boundary.**
   `src/session-resize-capture.ts` holds ordered PTY output while the keeper
   answers ResizeAck/Reject, applies the synchronous core boundary, and recovers

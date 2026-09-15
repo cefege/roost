@@ -5,11 +5,11 @@
 // accessors and the byte-hub route cache, and owns no state of its own.
 
 import type { TerminalGeometry } from "@roost/shared/viewport";
+import type { TerminalViewInput } from "@roost/shared/terminal-view";
 import {
   currentTerminalScreenHub,
   terminalViewInputs,
   terminalViewSnapshot,
-  type TerminalViewInput,
 } from "./terminal-view-hub.ts";
 import { getCachedSessionWorker } from "../byte-hub.ts";
 

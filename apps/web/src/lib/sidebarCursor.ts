@@ -40,6 +40,13 @@ export function cursorSessionId(): string | null {
   return c >= 0 && c < ids.length ? ids[c] : null;
 }
 
+/** True when FolderList has published rows the ↑/↓ cursor can move over.
+ *  Off the sidebar the list is empty, and claiming the keys there cancels the
+ *  browser's native scroll and a focused button's Enter activation. */
+export function hasCursorTargets(): boolean {
+  return _ids().length > 0;
+}
+
 /** Move the cursor by delta, clamped to [0, len-1]. From -1 (no
  *  selection), ↓ lands on the first row and ↑ on the last. */
 export function moveCursor(delta: number): void {

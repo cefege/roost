@@ -16,9 +16,13 @@ import type {
   DHelloAck,
   CoordWorkerDown,
   DInputRequest,
+  DLocalTerminalGrant,
+  DLocalTerminalGrantRevoke,
   DTerminalPipelineSnapshotRequest,
   DTerminalSnapshotRequest,
   DTerminalStreamState,
+  DTerminalViewRelay,
+  DTerminalViewSocketClosed,
   DKeeperUpdatePrepare,
 } from "@roost/shared/proto/worker_transport_pb";
 import { ClientControlFrame } from "@roost/shared/wire";
@@ -269,6 +273,47 @@ export function createCoordLinkDownstream(
       }
       case "terminalSnapshotRequest": {
         deps.onTerminalSnapshotRequest?.(v as DTerminalSnapshotRequest);
+        return;
+      }
+      case "terminalViewRelay": {
+        // Synchronous: one browser socket's decisions keep their receive order.
+        deps.onTerminalViewRelay?.(v as DTerminalViewRelay);
+        return;
+      }
+      case "terminalViewSocketClosed": {
+        deps.onTerminalViewSocketClosed?.(v as DTerminalViewSocketClosed);
+        return;
+      }
+      case "localTerminalGrant": {
+        const request = v as DLocalTerminalGrant;
+        if (!deps.onLocalTerminalGrant) {
+          send({
+            kind: "rpc-error",
+            request_id: request.requestId,
+            message: "local terminal grants unsupported by this worker",
+          });
+          return;
+        }
+        // A browser is told the fast path exists only after this ack, so a
+        // refused install must answer with the error rather than silence.
+        try {
+          deps.onLocalTerminalGrant(request);
+          send({
+            kind: "rpc-ok",
+            request_id: request.requestId,
+            data: { grant_id: request.grantId },
+          });
+        } catch (error) {
+          send({
+            kind: "rpc-error",
+            request_id: request.requestId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return;
+      }
+      case "localTerminalGrantRevoke": {
+        deps.onLocalTerminalGrantRevoke?.(v as DLocalTerminalGrantRevoke);
         return;
       }
       case "keeperUpdatePrepare": {

@@ -11,6 +11,7 @@ package roost.v1;
 import "roost/v1/events.proto";
 import "roost/v1/cell.proto";
 import "roost/v1/wire.proto";
+import "roost/v1/sync.proto";
 
 
 // ── Upstream (worker → coord) ────────────────────────────────────
@@ -164,7 +165,24 @@ message WTerminalPipelineSnapshot {
   uint32 dropped_records = 4;
 }
 
+// Worker-owned terminal views. A worker advertising `terminal-view-owner-v1`
+// owns membership, geometry aggregation and stream generations for its own
+// sessions; these two frames are how that authority reaches the coordinator.
+// The state frame is addressed back to the browser socket the coordinator
+// relayed the command from; the projection is session-scoped and exists so the
+// coordinator can answer presence and diagnostics without owning membership.
+message WTerminalViewState {
+  string socket_id = 1;
+  TerminalViewStateFrame frame = 2;
+}
 
+message WTerminalViewProjection {
+  string session_id = 1;
+  repeated PbTerminalViewInput viewers = 2;
+  uint32 effective_cols = 3;
+  uint32 effective_rows = 4;
+  string stream_id = 5;
+}
 
 message CoordWorkerUp {
   reserved 4, 5, 8, 9, 13, 15;
@@ -185,7 +203,8 @@ message CoordWorkerUp {
     WUpdateProgress update_progress = 30;
     WTerminalPipelineSnapshot terminal_pipeline_snapshot = 19;
     WTerminalMetadata terminal_metadata = 20;
-
+    WTerminalViewState terminal_view_state = 21;
+    WTerminalViewProjection terminal_view_projection = 22;
   }
 }
 
@@ -323,6 +342,43 @@ message DKeeperUpdatePrepare {
   bool force_live = 6;
 }
 
+// Relay to a worker that owns its own terminal views. The coordinator has
+// already authenticated and authorized the browser socket; it forwards the
+// command verbatim with the identity tuple the worker's registry needs, and
+// never interprets the membership itself.
+message DTerminalViewRelay {
+  string socket_id = 1;
+  string viewer_key = 2;
+  string device_fingerprint = 3;
+  uint32 budget_ms = 4;
+  oneof command {
+    TerminalViewCommand view = 5;
+    TerminalResyncCommand resync = 6;
+  }
+}
+
+message DTerminalViewSocketClosed {
+  string socket_id = 1;
+}
+
+// Authorization for one browser to talk to this worker's loopback terminal
+// socket. Only the secret's digest crosses the wire; the secret itself goes to
+// the browser over the coordinator's authenticated RPC and never lands in a
+// log, an audit row, or durable worker state.
+message DLocalTerminalGrant {
+  string request_id = 1;
+  string grant_id = 2;
+  string secret_sha256 = 3;
+  repeated string session_ids = 4;
+  string device_fingerprint = 5;
+  string tab_id = 6;
+  uint32 ttl_ms = 7;
+}
+
+message DLocalTerminalGrantRevoke {
+  string device_fingerprint = 1;
+}
+
 message CoordWorkerDown {
   reserved 11;
   reserved "viewport_request";
@@ -344,6 +400,10 @@ message CoordWorkerDown {
     DKeeperUpdatePrepare keeper_update_prepare = 15;
     DAgentPrompt agent_prompt = 16;
     DTerminalPipelineSnapshotRequest terminal_pipeline_snapshot = 17;
+    DTerminalViewRelay terminal_view_relay = 18;
+    DTerminalViewSocketClosed terminal_view_socket_closed = 19;
+    DLocalTerminalGrant local_terminal_grant = 20;
+    DLocalTerminalGrantRevoke local_terminal_grant_revoke = 21;
   }
 }
 

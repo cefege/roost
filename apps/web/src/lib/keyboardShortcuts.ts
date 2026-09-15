@@ -7,7 +7,13 @@
 // Depends on: solid-js createSignal + sidebarCursor.
 
 import { createSignal } from "solid-js";
-import { moveCursor, activateCursor } from "./sidebarCursor.ts";
+import {
+	moveCursor,
+	activateCursor,
+	cursorSessionId,
+	hasCursorTargets,
+} from "./sidebarCursor.ts";
+import { tvModeActive } from "./tvMode.ts";
 import { stepTermFontSize, resetTermFontSize } from "./terminalFontPref.ts";
 import { browserPlatform, matchesPlatformShortcut } from "./browserPlatform.ts";
 
@@ -159,6 +165,9 @@ export function handleKeydown(e: KeyboardEvent): void {
 		if (isEditableTarget(e.target)) return;
 		if (terminalOwnsKeyboard()) return;
 		if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+		// TV mode gives the arrows to the directional-navigation controller; the
+		// sidebar's rows are real <a> elements it can reach.
+		if (tvModeActive()) return;
 		// Belt-and-suspenders: ⏎ activating the sidebar cursor NAVIGATES to another
 		// session — the boot-loop failure mode. Even if terminalOwnsKeyboard() ever
 		// regresses, ⏎ must never teleport while a terminal deck is mounted. (↑/↓
@@ -167,6 +176,12 @@ export function handleKeydown(e: KeyboardEvent): void {
 			e.key === "Enter" &&
 			document.querySelector('[data-testid="terminal-deck"]')
 		)
+			return;
+		// ⏎ is a focused control's own activation until a row is actually
+		// highlighted, and the arrows are the document's native scroll until rows
+		// exist at all — off the sidebar (/pair, /settings, /help) claiming them
+		// cancels both and moves nothing.
+		if (e.key === "Enter" ? cursorSessionId() === null : !hasCursorTargets())
 			return;
 		e.preventDefault();
 		if (e.key === "Enter") {

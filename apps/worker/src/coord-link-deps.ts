@@ -13,6 +13,11 @@ import {
 	TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
 import { writeAgentPrompt } from "./agent-prompt-control.ts";
+import {
+	COORD_CELL_SINK_ID,
+	resumeCellSink,
+	suspendCellSink,
+} from "./session-cell-sinks.ts";
 import { createKeeperUpdatePrepareHandler } from "./coord-link-keeper-update.ts";
 import { handleAttachmentChunk } from "./attachment-upload.ts";
 import { handleBrowserCommand } from "./browser-command-handler.ts";
@@ -23,6 +28,9 @@ import type { TerminalStreamFailure } from "./session-terminal-state.ts";
 import type { WorkerInputResult } from "./session-terminal-control.ts";
 import type { CoordLink, CoordLinkDeps } from "./transport/coord-link.ts";
 import type { SessionEventStore } from "./transport/session-event-store.ts";
+import type { LocalTerminalGrantStore } from "./local-terminal-grants.ts";
+import type { LocalTerminalSockets } from "./local-terminal-socket.ts";
+import type { TerminalViewOwner } from "./terminal-view-owner.ts";
 import { terminalPipelineSnapshot } from "./terminal-pipeline-snapshot.ts";
 import {
 	flushTerminalMetadata,
@@ -93,12 +101,24 @@ export interface CoordLinkRefs {
 	acquireKeeperUpdateBoundary: (() => Promise<() => void>) | null;
 }
 
+/** Terminal-view ownership plus the loopback door that shares it. Built before
+ * the link (both only need lazy access to the session manager), so this is a
+ * plain input rather than a forward ref. */
+export interface LocalTerminalWiring {
+	viewOwner: TerminalViewOwner;
+	grants: LocalTerminalGrantStore;
+	sockets: LocalTerminalSockets;
+}
+
 export interface CoordLinkDepsCtx {
 	coordHttpUrl: string;
 	workerFp: WorkerFp;
 	mintJwt: () => Promise<string>;
 	sessionEventStore: SessionEventStore;
 	refs: CoordLinkRefs;
+	/** Absent in focused link tests: the worker then answers no view relay, no
+	 * grant install and no revocation. */
+	localTerminal?: LocalTerminalWiring;
 }
 
 export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
@@ -141,33 +161,66 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		sessionManager: mgr,
 		acquireKeeperUpdateBoundary: () => refs.acquireKeeperUpdateBoundary,
 	});
+	const local = ctx.localTerminal;
 	return {
 		coordHttpUrl: ctx.coordHttpUrl,
 		workerFp: ctx.workerFp,
 		workerVersion: "v2",
 		sessionEventStore: ctx.sessionEventStore,
 		mintJwt: ctx.mintJwt,
-		onHelloAck: ({ reconnected, terminalMetadataNegotiated }) => {
+		onHelloAck: ({ terminalMetadataNegotiated }) => {
+			// The coordinator's own browser sockets are gone with its previous
+			// generation; a LOCAL viewer keeps its views, its lease and the live
+			// stream, so a coordinator bounce never blanks a local pane.
+			local?.viewOwner.dropCoordinatorSockets();
 			const sessionMgr = refs.sessionMgr;
 			if (!sessionMgr) return;
 			setTerminalMetadataNegotiated(sessionMgr, terminalMetadataNegotiated);
-			if (reconnected) sessionMgr.invalidateTerminalStreamsForReconnect();
+			// A coordinator reconnect re-baselines the coord sink ONLY: stream
+			// identity, geometry and a local viewer's live delivery are never
+			// disturbed by the coordinator's socket churn.
+			resumeCellSink(sessionMgr, COORD_CELL_SINK_ID);
+		},
+		onTerminalViewRelay: (request) => { local?.viewOwner.handleRelay(request); },
+		onTerminalViewSocketClosed: (request) => {
+			local?.viewOwner.closeSocket(request.socketId);
+		},
+		// A throw here answers the coordinator's acknowledged install with
+		// WRpcError, so no browser is ever told a fast path it cannot use.
+		onLocalTerminalGrant: local
+			? (request) => { local.grants.install(request); }
+			: undefined,
+		onLocalTerminalGrantRevoke: (request) => {
+			local?.sockets.revokeDevice(request.deviceFingerprint);
 		},
 		onOpen: () => {
 			const sessionMgr = refs.sessionMgr;
-			if (sessionMgr) setTerminalMetadataNegotiated(sessionMgr, false);
+			if (!sessionMgr) return;
+			setTerminalMetadataNegotiated(sessionMgr, false);
+			// A freshly attached socket cannot carry cells until the replay and
+			// snapshot barrier clears, so the sink stays suspended until hello-ack.
+			suspendCellSink(sessionMgr, COORD_CELL_SINK_ID);
 		},
 		onDetach: () => {
 			const sessionMgr = refs.sessionMgr;
-			if (sessionMgr) setTerminalMetadataNegotiated(sessionMgr, false);
+			if (!sessionMgr) return;
+			setTerminalMetadataNegotiated(sessionMgr, false);
+			suspendCellSink(sessionMgr, COORD_CELL_SINK_ID);
 		},
 		onWritable: () => {
-			refs.sessionMgr?.resumeTerminalSnapshots();
-			if (refs.sessionMgr) flushTerminalMetadata(refs.sessionMgr);
+			const sessionMgr = refs.sessionMgr;
+			if (!sessionMgr) return;
+			resumeCellSink(sessionMgr, COORD_CELL_SINK_ID);
+			flushTerminalMetadata(sessionMgr);
 		},
 		onSnapshotReady: ({ reconnected }) => {
 			const sessionMgr = refs.sessionMgr;
-			if (sessionMgr) replayTerminalMetadata(sessionMgr);
+			if (sessionMgr) {
+				replayTerminalMetadata(sessionMgr);
+				// The barrier has cleared, so a baseline parked at hello-ack ships
+				// now instead of waiting for a backpressure notification.
+				resumeCellSink(sessionMgr, COORD_CELL_SINK_ID);
+			}
 			refs.agentRegistry?.resend();
 			void replayDurableWindowsUpdateProgress(link()).catch((error) => {
 				log.warn("windows-update", "progress_replay_failed", { error: String(error) });

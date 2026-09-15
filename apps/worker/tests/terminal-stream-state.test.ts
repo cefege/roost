@@ -3,6 +3,7 @@ import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { createWtermCore } from "@roost/shared/wterm-core-factory";
 import { installAutoKeeper } from "./keeper-fake-pool.ts";
 import {
+  attachExtraCellSink,
   CHANNEL_ID,
   cleanupStreamHarnesses,
   enableStream,
@@ -16,6 +17,13 @@ import {
   TEST_ROWS,
   trackKeeper,
 } from "./terminal-stream-state-harness.ts";
+import {
+  aggregateStreamDelivery,
+  COORD_CELL_SINK_ID,
+  resumeCellSink,
+  suspendCellSink,
+  unregisterCellSink,
+} from "../src/session-cell-sinks.ts";
 
 afterEach(cleanupStreamHarnesses);
 
@@ -44,10 +52,11 @@ describe("worker terminal stream baseline and sequence contract", () => {
       baseSeq: 0n,
     });
     expect(delivered).toHaveLength(0);
-    expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toMatchObject({
-      streamId: STREAM_A,
+    const stream = harness.manager.terminalStreams.get(CHANNEL_ID)!;
+    expect(stream).toMatchObject({ streamId: STREAM_A, coreValid: true });
+    expect(aggregateStreamDelivery(harness.manager, stream)).toMatchObject({
       baselineReady: false,
-      coreValid: true,
+      snapshotPending: true,
     });
     const result = await resultPromise;
     expect(result).toMatchObject({
@@ -87,9 +96,9 @@ describe("worker terminal stream baseline and sequence contract", () => {
     });
     expect(delta!.viewportRows.map((row) => row.index)).toContain(1);
     expect(frameRowText(delta!, 1)).toContain("EXACT-DELTA");
-    expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toMatchObject({
+    expect(aggregateStreamDelivery(harness.manager, stream)).toMatchObject({
       baselineReady: true,
-      snapshotCursor: null,
+      snapshotPending: false,
     });
   });
 
@@ -154,52 +163,47 @@ describe("worker terminal stream baseline and sequence contract", () => {
     });
   });
 
-  test("invalidates a disconnected generation and requires a new stream identity", async () => {
+  test("re-baselines only the coordinator sink when its link reopens", async () => {
     trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
     const core = await createWtermCore(TEST_COLS, TEST_ROWS);
     core.writeString("STREAM-A");
     const harness = await makeHarness(core);
+    const local = attachExtraCellSink(harness.manager, "local:tab-1");
 
     await enableStream(harness.manager, STREAM_A);
+    const stream = harness.manager.terminalStreams.get(CHANNEL_ID)!;
     const epochA = harness.frameAttempts[0]!.gridEpoch;
-    harness.manager.invalidateTerminalStreamsForReconnect();
-    expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toMatchObject({
-      streamId: STREAM_A,
-      enabled: false,
-      baselineReady: true,
-    });
+    expect(local.frames.map((frame) => frame.full)).toEqual([true]);
 
-    core.writeString("\x1b[2;1HWHILE-DISCONNECTED");
+    // The coordinator link drops. The local viewer keeps painting deltas.
+    suspendCellSink(harness.manager, COORD_CELL_SINK_ID);
+    core.writeString("\x1b[2;1HWHILE-COORD-DOWN");
     harness.manager.emitCellFrame(CHANNEL_ID, false);
     expect(harness.frameAttempts).toHaveLength(1);
+    expect(local.frames.map((frame) => frame.full)).toEqual([true, false]);
+    expect(frameRowText(local.frames[1]!, 1)).toContain("WHILE-COORD");
 
-    const stale = await enableStream(harness.manager, STREAM_A);
-    expect(stale).toMatchObject({
-      status: "rejected",
+    resumeCellSink(harness.manager, COORD_CELL_SINK_ID);
+    // The reopen disturbed neither the stream identity nor its live geometry.
+    expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toBe(stream);
+    expect(stream).toMatchObject({
       streamId: STREAM_A,
-      failure: "invalid_request",
-      phase: "pre_write",
+      enabled: true,
+      cols: TEST_COLS,
+      rows: TEST_ROWS,
     });
-    expect(harness.frameAttempts).toHaveLength(1);
-
-    const replacement = await enableStream(harness.manager, STREAM_B);
-    expect(replacement).toMatchObject({
-      status: "committed",
-      streamId: STREAM_B,
-      resized: false,
-    });
-    expect(harness.frameAttempts).toHaveLength(2);
-    expect(harness.frameAttempts[1]).toMatchObject({
-      full: true,
-      streamId: STREAM_B,
-      seq: 1n,
-      baseSeq: 0n,
-    });
+    expect(harness.frameAttempts.slice(1).map((frame) => frame.full)).toEqual([true]);
     expect(harness.frameAttempts[1]!.gridEpoch).toBe(epochA);
-    expect(frameRowText(harness.frameAttempts[1]!, 1)).toContain("WHILE-DISCON");
+    expect(frameRowText(harness.frameAttempts[1]!, 1)).toContain("WHILE-COORD");
 
-    harness.manager.requestTerminalSnapshot(SESSION_ID, STREAM_A);
-    expect(harness.frameAttempts).toHaveLength(2);
+    // Coordinator-only from here: a second bounce still costs exactly one full.
+    unregisterCellSink(harness.manager, local.id);
+    core.writeString("\x1b[3;1HCOORD-ONLY");
+    harness.manager.emitCellFrame(CHANNEL_ID, false);
+    suspendCellSink(harness.manager, COORD_CELL_SINK_ID);
+    resumeCellSink(harness.manager, COORD_CELL_SINK_ID);
+    expect(harness.frameAttempts.slice(2).map((frame) => frame.full)).toEqual([false, true]);
+    expect(local.frames).toHaveLength(3);
   });
 
   test("keeps a compatible renewal epoch while emitting a viewport-only full", async () => {

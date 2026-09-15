@@ -20,6 +20,12 @@ import { log } from "@roost/shared/log";
 import { signal, diag } from "@roost/shared/diag";
 import { connectWorkers, _publishRoutable, type WorkerHandle } from "./worker-registry.ts";
 import { rejectPendingSpawnsForWorker } from "./pending-spawns.ts";
+import {
+  clearTerminalViewOwner,
+  registerTerminalViewOwner,
+  TERMINAL_VIEW_OWNER_CAPABILITY,
+  type TerminalViewOwnerRegistration,
+} from "./terminal-view-projection.ts";
 import { respawnMissingForWorker } from "./worker-respawn.ts";
 import {
   makeWorkerConnKeepalive,
@@ -43,6 +49,7 @@ export function makeWorkerConn(
 ): WorkerConn {
   let workerFp: string | null = null;
   let terminalMetadataNegotiated = false;
+  let terminalViewOwner: TerminalViewOwnerRegistration | null = null;
   let done = false;
   let respawnTimer: ReturnType<typeof setTimeout> | null = null;
   // Cleanup is identity-stamped so a reconnecting worker's delayed old socket
@@ -166,6 +173,7 @@ export function makeWorkerConn(
   function revoke(): void {
     myHandle.revoked = true;
     stopLocalWork();
+    terminalViewOwner?.release();
     if (workerFp) {
       rejectPendingRpcsForWorker(workerFp, "worker credential revoked");
       rejectPendingSpawnsForWorker(workerFp);
@@ -177,6 +185,7 @@ export function makeWorkerConn(
     done = true;
     myHandle.revoked = true;
     stopLocalWork();
+    terminalViewOwner?.release();
     if (workerFp) {
       _deleteIfStillMine(workerFp);
       // A5: fast-fail this worker's in-flight RPCs (browser spawn/attach
@@ -267,10 +276,23 @@ export function makeWorkerConn(
         // Hello claims only the socket generation. It deliberately does not
         // prime DB breadcrumbs into the live channel index: no route, control
         // dispatch, callback, or respawn is admitted before the exact snapshot.
-        const acknowledgedCapabilities = f.frame.value.capabilities.includes(TERMINAL_METADATA_CAPABILITY)
-          ? [TERMINAL_METADATA_CAPABILITY]
-          : [];
-        terminalMetadataNegotiated = acknowledgedCapabilities.length > 0;
+        const advertised = f.frame.value.capabilities;
+        const acknowledgedCapabilities: string[] = [];
+        terminalMetadataNegotiated = advertised.includes(TERMINAL_METADATA_CAPABILITY);
+        if (terminalMetadataNegotiated) acknowledgedCapabilities.push(TERMINAL_METADATA_CAPABILITY);
+        // This hello is the authoritative generation for the fingerprint in
+        // BOTH directions. `superseded.close()` above only asks the transport
+        // to close, so the prior connection's identity-stamped release runs
+        // strictly later; a worker that dropped the capability has to clear
+        // the claim here or its sessions keep being relayed to a build that
+        // no longer speaks the relay.
+        const terminalViewOwnerNegotiated = advertised.includes(TERMINAL_VIEW_OWNER_CAPABILITY);
+        if (terminalViewOwnerNegotiated) {
+          terminalViewOwner = registerTerminalViewOwner(fp);
+          acknowledgedCapabilities.push(TERMINAL_VIEW_OWNER_CAPABILITY);
+        } else {
+          clearTerminalViewOwner(fp);
+        }
         trySend("hello_ack", create(CoordWorkerDownSchema, {
           frame: { case: "helloAck", value: create(DHelloAckSchema, {
             capabilities: acknowledgedCapabilities,
@@ -279,6 +301,7 @@ export function makeWorkerConn(
         log.info("worker-service", "hello", {
           worker_fp: fp,
           terminal_metadata_v1: terminalMetadataNegotiated,
+          terminal_view_owner_v1: terminalViewOwnerNegotiated,
         });
         return;
       }

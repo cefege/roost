@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { TERMINAL_VIEW_LEASE_MS } from "@roost/shared/viewport";
 import { TerminalScreenHub } from "../src/connect/terminal-screen-hub.ts";
-import { TerminalViewRegistry } from "../src/connect/terminal-view-registry.ts";
+import { TerminalViewRegistry } from "@roost/shared/terminal-view";
 import {
   OTHER_SESSION,
   SESSION,

@@ -229,6 +229,24 @@ message SessionsGetScrollbackCellsResponse {
   ScrollbackHistoryFloor history_floor = 7;
 }
 
+// Authorization for a browser to reach a worker's loopback terminal socket
+// directly. Granted per session, and only for sessions that actually live on
+// the named worker: the fast path must never widen what a device can reach.
+message SessionsGrantLocalTerminalRequest {
+  repeated string session_ids = 1;
+  string worker_fp = 2;
+  string tab_id = 3;
+}
+
+// `secret` is returned only after the worker acknowledges the grant, so a
+// browser is never told a fast path exists before it does. It is memory-only
+// on both ends and never enters a log, an audit row, or a diagnostic.
+message SessionsGrantLocalTerminalResponse {
+  string grant_id = 1;
+  string secret = 2;
+  uint32 ttl_ms = 3;
+}
+
 
 // Why a bounded scan stopped after its last complete row.
 enum SearchStopReason {
@@ -847,6 +865,7 @@ service CoordinatorService {
   rpc SessionsCancelScrollbackSearch(SessionsCancelScrollbackSearchRequest) returns (SessionsCancelScrollbackSearchResponse);
   rpc SessionsSearchGlobal(SessionsSearchGlobalRequest) returns (SessionsSearchGlobalResponse);
   rpc SessionsCancelGlobalSearch(SessionsCancelGlobalSearchRequest) returns (SessionsCancelGlobalSearchResponse);
+  rpc SessionsGrantLocalTerminal(SessionsGrantLocalTerminalRequest) returns (SessionsGrantLocalTerminalResponse);
 
   // dashboard-authorized observed agent state
   rpc AgentStatusGet(AgentStatusGetRequest) returns (AgentStatusGetResponse);

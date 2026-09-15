@@ -25,6 +25,10 @@ export interface TerminalWorkerStartConfig {
   tmpDir: string;
   bootstrapToken: string;
   shell?: string;
+  /** Loopback bind for the worker-served local UI; the harness assigns a
+   *  distinct reserved port per worker, because the 4104 default collides
+   *  between the workers of one stack and between concurrent stacks. */
+  localUiBind?: string;
   /** Build identity the worker reports; deploy admission compares it. */
   gitSha?: string;
   /** Outlive the spawning process, the way an installed service would. */
@@ -56,6 +60,7 @@ export function createTerminalWorkerStarter(
           ROOST_KEEPER_QUIET: "1",
           ...(config.gitSha ? { GIT_SHA: config.gitSha, ROOST_GIT_SHA: config.gitSha } : {}),
           ...(config.forceLiveKeeperRetire ? { [KEEPER_FORCE_LIVE_RETIRE_ENV]: "1" } : {}),
+          ...(config.localUiBind ? { ROOST_WORKER_LOCAL_UI_BIND: config.localUiBind } : {}),
           ...(config.shell ? { SHELL: config.shell, ROOST_SHELL: config.shell } : {}),
         }),
         stdio: ["ignore", workerLog, workerLog],

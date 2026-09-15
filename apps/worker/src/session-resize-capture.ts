@@ -6,7 +6,8 @@
 import { diag, signal } from "@roost/shared/diag";
 import { newTraceId } from "@roost/shared/trace";
 import type { SessionManager } from "./session-manager.ts";
-import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
+import { retireStreamDelivery } from "./session-snapshot-cursor.ts";
+import { markStreamDeliveryDirty } from "./session-cell-sinks.ts";
 import { cancelCellEmission } from "./session-cell-scheduler.ts";
 import type { LiveResizeCapture, TerminalStreamState } from "./session-terminal-state.ts";
 import type { KeeperHistoryRecords, KeeperResizeResult } from "./keeper/multiplexed-client.ts";
@@ -105,9 +106,8 @@ function resetEmissionEpoch(mgr: SessionManager, channelId: number): void {
 	};
 	const stream = mgr.terminalStreams.get(channelId);
 	if (stream) {
-		retireSnapshotCursor(mgr, channelId, stream);
-		stream.baselineReady = false;
-		stream.baselineDirty = true;
+		retireStreamDelivery(mgr, channelId, stream);
+		markStreamDeliveryDirty(mgr, stream);
 	}
 	for (let row = 0; row < rec.wtermCore.getRows(); row += 1) {
 		// The patched core marks every viewport row dirty during resize.
@@ -128,7 +128,7 @@ function failCore(
 	capture.failedReason = reason;
 	const stream = mgr.terminalStreams.get(channelId);
 	if (stream) {
-		retireSnapshotCursor(mgr, channelId, stream);
+		retireStreamDelivery(mgr, channelId, stream);
 		stream.coreValid = false;
 		cancelCellEmission(mgr, channelId);
 	}

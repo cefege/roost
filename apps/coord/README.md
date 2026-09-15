@@ -136,10 +136,18 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   reference projection), `src/session-event-visibility.ts` (the fail-closed
   public/private event boundary), `src/connect/session-list-projection.ts`
   (separate public and owning-worker recovery queries),
-  `src/connect/terminal-view-hub.ts` (browser membership and SCD geometry,
-  with `src/connect/terminal-view-registry-commands.ts` owning the
-  admit/update/reclaim/remove state machine one client declaration drives,
-  split out of `src/connect/terminal-view-registry.ts` at the 400-line cap),
+  `src/connect/terminal-view-hub.ts` (browser membership and SCD geometry over
+  the shared `@roost/shared/terminal-view` registry, whose
+  `terminal-view-registry-commands.ts` owns the admit/update/reclaim/remove
+  state machine one client declaration drives; it is also the ONE gate that
+  decides coordinator membership vs relay per session),
+  `src/connect/terminal-view-projection.ts` (which connected workers advertised
+  `terminal-view-owner-v1`, which sessions they own, and the membership they
+  publish — a read model, never a minimizer),
+  `src/connect/terminal-view-owner-relay.ts` (the owner-mode socket path:
+  authorize-then-forward a browser view/resync command, and turn the worker's
+  `WTerminalViewState` into a screen expectation before the browser frame),
+  `src/connect/worker-send-terminal-view.ts` (the two relay frames),
   `src/connect/diag-snapshot-session-state.ts` (the per-session diag slice
   `handlers-system.ts` assembles: route, terminal-view aggregate, screen
   watermark, and the per-view geometry inputs the SCD minimized over),
@@ -318,6 +326,16 @@ its byte-for-byte semantics.
   before the hub inspects current state, is fenced to one status epoch and
   occupant, and is removed on match, timeout, replacement, close, cancellation,
   or hub stop. The registry admits at most 32 waits per session and 2,048 total.
+- **Exactly one minimizer per terminal session.** A worker that advertised
+  `terminal-view-owner-v1` at hello owns membership, effective geometry and
+  stream generations for its own sessions; `TerminalViewHub.handleViewCommand`
+  and `handleResync` then relay the browser's command instead of admitting a
+  view record, so no `TerminalViewStreamController` state and no stream desire
+  can exist for it. A legacy worker keeps the coordinator-owned path
+  unchanged — a released worker meeting a new coordinator during
+  `bun run test:upgrade` depends on it. A worker that upgrades in place is
+  handed over at `routeReconciled`, which releases only the sessions the
+  coordinator was actually minimizing.
 
 ## Testing
 
@@ -329,6 +347,9 @@ its byte-for-byte semantics.
   `tests/terminal-view-hub.test.ts`,
   `tests/terminal-view-registry-membership.test.ts` (which viewer records
   constrain the PTY: SCD across sockets, park grace, hold, lease expiry),
+  `tests/terminal-view-owner-mode.test.ts` and
+  `tests/terminal-view-owner-projection.test.ts` (relay-vs-registry gating,
+  state-before-cells ordering, and the worker-published read model),
   `tests/terminal-screen-hub.test.ts`,
   `tests/sync-ws-v2-scheduler.test.ts`, `tests/coord-bidi.test.ts`,
   `tests/durable-publication.test.ts`, `tests/announced-channel-barrier.test.ts`,

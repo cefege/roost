@@ -1,6 +1,8 @@
 // Fences SessionManager keeper-channel creation against keeper replacement.
 // Every spawn or respawn owns one synchronous lease; update preparation closes
-// admission before awaiting all leases that were already in flight.
+// admission before awaiting all leases that were already in flight. The same
+// preparation state also freezes terminal writes, because a keeper about to be
+// replaced must not absorb one more byte.
 
 export interface SessionChannelCreationLease {
 	release(): void;
@@ -13,6 +15,13 @@ export class SessionChannelCreationGate {
 
 	get preparationActive(): boolean {
 		return this.#preparationCount > 0;
+	}
+
+	/** Keeper replacement is imminent while preparation is open, so a terminal
+	 * write must fail before it reaches the keeper the update is about to
+	 * replace: a pre-write refusal is retryable, an absorbed write is not. */
+	blocksTerminalWrites(): boolean {
+		return this.preparationActive;
 	}
 
 	tryAcquire(): SessionChannelCreationLease | null {

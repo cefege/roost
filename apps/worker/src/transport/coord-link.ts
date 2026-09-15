@@ -35,8 +35,13 @@ import { createCoordLinkOutbox } from "./coord-link-outbox.ts";
 import { createCoordLinkReconnect } from "./coord-link-reconnect.ts";
 import { createCoordLinkDownstream } from "./coord-link-downstream.ts";
 import {
+  terminalViewProjectionToProto,
+  terminalViewStateToProto,
+} from "./coord-link-codec.ts";
+import {
   STABLE_SESSION_MS,
   STALE_LINK_TIMEOUT_MS, STALE_CHECK_INTERVAL_MS,
+  TERMINAL_VIEW_OWNER_CAPABILITY,
 } from "./coord-link-constants.ts";
 import type {
   CoordLinkDeps, CoordLink, CoordLinkState,
@@ -202,7 +207,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
           frame: { case: "hello", value: create(WHelloSchema, {
             workerFp: deps.workerFp,
             version: deps.workerVersion,
-            capabilities: [TERMINAL_METADATA_CAPABILITY],
+            capabilities: [TERMINAL_METADATA_CAPABILITY, TERMINAL_VIEW_OWNER_CAPABILITY],
           }) },
         }));
         if (!hello) throw new Error("hello encode failed");
@@ -270,6 +275,10 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     sendCellGrid: outbox.sendCellGrid,
     sendCellGridChunk: outbox.sendCellGridChunk,
     sendAgentStatus: outbox.sendAgentStatus,
+    sendTerminalViewState: (socketId, frame) =>
+      outbox.sendControlProto(terminalViewStateToProto(socketId, frame)),
+    sendTerminalViewProjection: (projection) =>
+      outbox.sendControlProto(terminalViewProjectionToProto(projection)),
     state: () => state,
     protocolPhase: outbox.protocolPhase,
     ready: outbox.ready,

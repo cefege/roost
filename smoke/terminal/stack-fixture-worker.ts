@@ -9,6 +9,7 @@ import {
   createTerminalWorkerStarter,
   waitForTerminalWorkerRoutable,
 } from "./stack-worker-runtime.ts";
+import type { WorkerLocalUi } from "./stack-local-ui.ts";
 import type { RunningService } from "./stack-runtime.ts";
 
 export interface FixtureWorkerPaths {
@@ -28,7 +29,7 @@ export interface FixtureWorkerIdentity {
 
 export type PtyFixtureWorkerStartOptions = {
   /** Inject only the requested worker-link delay; browsers retain the direct coordinator origin. */
-  workerLinkOneWayDelayMs?: 0 | 25;
+  workerLinkOneWayDelayMs?: 0 | 25 | 200;
   /** Drop selected complete worker→coordinator protobuf frames after WebSocket framing. */
   workerFrameFilter?: (frame: CoordWorkerUp) => boolean;
 };
@@ -41,7 +42,10 @@ export interface FixtureWorkerLaunchOptions {
   fixtureExecutable: string;
   client: AuthorizedApiClient;
   paths: FixtureWorkerPaths;
-  oneWayDelayMs?: 0 | 25;
+  /** Loopback origin this worker serves; reserved before the coordinator was
+   *  launched, so the coordinator already allowlists it. */
+  localUi: WorkerLocalUi;
+  oneWayDelayMs?: 0 | 25 | 200;
   workerFrameFilter?: (frame: CoordWorkerUp) => boolean;
   onWorkerStarted(service: RunningService): void;
   onLinkStarted(link: DelayedWorkerLink | undefined): void;
@@ -67,10 +71,12 @@ export async function startFixtureWorker(
   const bootstrapToken = (
     await options.client.authMintBootstrap({ kind: "worker", label: options.paths.label })
   ).token;
+  await options.localUi.release();
   const service = startWorker({
     ...options.paths,
     bootstrapToken,
     shell: options.fixtureExecutable,
+    localUiBind: options.localUi.bind,
   });
   options.onWorkerStarted(service);
   const workerFp = await waitForTerminalWorkerRoutable(
@@ -78,6 +84,7 @@ export async function startFixtureWorker(
     options.paths.label,
     options.paths.logPath,
   );
+  options.localUi.record(workerFp);
   return { workerFp, label: options.paths.label, home: options.paths.home, logPath: options.paths.logPath };
 }
 
@@ -85,7 +92,7 @@ export function createFixtureWorkerStarter(
   launch: FixtureWorkerLaunchOptions,
 ): (options?: PtyFixtureWorkerStartOptions) => Promise<FixtureWorkerIdentity> {
   let start: Promise<FixtureWorkerIdentity> | undefined;
-  let oneWayDelayMs: 0 | 25 | undefined;
+  let oneWayDelayMs: 0 | 25 | 200 | undefined;
   let workerFrameFilter: PtyFixtureWorkerStartOptions["workerFrameFilter"];
   return (options: PtyFixtureWorkerStartOptions = {}): Promise<FixtureWorkerIdentity> => {
     if (start) {

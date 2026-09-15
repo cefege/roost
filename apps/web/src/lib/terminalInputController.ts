@@ -7,6 +7,7 @@ import {
 	terminalKeySequence,
 	type TerminalKeyEvent,
 } from "./terminalInput.ts";
+import { tvModeActive } from "./tvMode.ts";
 
 export interface TerminalInputControllerOptions {
 	cursorKeysApplication: () => boolean;
@@ -145,7 +146,9 @@ export class TerminalInputController {
 		textarea.setAttribute("spellcheck", "false");
 		textarea.setAttribute("enterkeyhint", "send");
 		textarea.setAttribute("aria-label", options.ariaLabel ?? "Terminal input");
-		textarea.tabIndex = 0;
+		// The textarea lives off-screen at left:-9999px. Programmatic forceFocus()
+		// still works at -1, but directional navigation must never land on it.
+		textarea.tabIndex = tvModeActive() ? -1 : 0;
 		textarea.addEventListener("keydown", this.onKeyDown);
 		textarea.addEventListener("paste", this.onPaste);
 		textarea.addEventListener("compositionstart", this.onCompositionStart);

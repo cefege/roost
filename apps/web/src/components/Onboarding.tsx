@@ -23,9 +23,11 @@ import {
   TextField,
 } from "./Settings/md/primitives.tsx";
 import { PairRequestCard, isPairRequestExpired } from "./PairRequestCard.tsx";
+import {
+  OnboardingRequestCard,
+  type PairPollStatus,
+} from "./OnboardingRequestCard.tsx";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
-
-type PairPollStatus = "idle" | "pending" | "approved" | "denied" | "expired" | "error";
 
 export function Onboarding(props: { embedded?: boolean } = {}) {
   const [bootstrapToken, setBootstrapToken] = createSignal("");
@@ -58,19 +60,6 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     const currentNow = pairRequestClock();
     return Object.values(rootStore.pair_requests)
       .filter((request) => !isPairRequestExpired(request, currentNow));
-  });
-  const pairPollStatusIndicator = createMemo(() => {
-    switch (pairPollStatus()) {
-      case "approved":
-        return "ok";
-      case "denied":
-      case "expired":
-        return "warn";
-      case "error":
-        return "error";
-      default:
-        return "info";
-    }
   });
   onCleanup(() => {
     if (pairPollTimer) clearInterval(pairPollTimer);
@@ -193,13 +182,8 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     <div
       ref={animateOverlayPanel}
       data-testid="onboarding"
-      style={{
-        display: "flex",
-        "flex-direction": "column",
-        gap: "var(--md-space-5)",
-        padding: props.embedded ? "0" : "var(--md-space-6)",
-        "max-width": "var(--roost-dialog-max-inline-size)",
-      }}
+      class="onboarding-root"
+      data-embedded={props.embedded ? "true" : "false"}
     >
       <Show when={!props.embedded}>
         <h2 class="md-headline-s" style={{ margin: 0 }}>Pair this browser</h2>
@@ -276,75 +260,12 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
       </Show>
 
       <Show when={!isAuthorized()}>
-        <Card
-          data-testid="onboarding-pair-step"
-          title="I don't have a code"
-          supporting="Request approval from a browser that's already paired."
-          variant="outlined"
-        >
-          <Show
-            when={pairEphemeralId() !== null}
-            fallback={
-              <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}>
-                <p
-                  class="md-body-m"
-                  style={{ margin: 0, color: "var(--md-sys-color-on-surface-variant)" }}
-                >
-                  You'll get a short code — open Roost on the paired browser and approve the
-                  request from <strong>Settings → Devices</strong>.
-                </p>
-                <div>
-                  <Button
-                    variant="secondary"
-                    data-testid="onboarding-pair-start-btn"
-                    onClick={startPairFlow}
-                    disabled={status() === "loading"}
-                  >
-                    {status() === "loading" ? "..." : "Request approval"}
-                  </Button>
-                </div>
-              </div>
-            }
-          >
-            <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}>
-              <p
-                class="md-body-m"
-                style={{ margin: 0, color: "var(--md-sys-color-on-surface-variant)" }}
-              >
-                On the already-paired browser, open <strong>Settings → Devices</strong>.
-                You'll see this code listed under "Pending pair requests" — click
-                <strong> Approve</strong>. This page reloads itself when approved.
-              </p>
-              <Surface
-                level={2}
-                radius="sm"
-                pad={3}
-                border
-                data-testid="onboarding-pair-ephemeral-id"
-              >
-                <code class="md-title-m" style={{ display: "block", "overflow-wrap": "anywhere" }}>
-                  {pairEphemeralId()}
-                </code>
-              </Surface>
-              <div
-                data-testid="onboarding-pair-poll-status"
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-                style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}
-              >
-                <StatusDot status={pairPollStatusIndicator()} />
-                <span class="md-body-s">
-                  <Show when={pairPollStatus() === "pending"}>Waiting for approval…</Show>
-                  <Show when={pairPollStatus() === "approved"}>Approved. Reloading…</Show>
-                  <Show when={pairPollStatus() === "denied"}>Request denied.</Show>
-                  <Show when={pairPollStatus() === "expired"}>Request expired — request again.</Show>
-                  <Show when={pairPollStatus() === "error"}>Poll error — try again.</Show>
-                </span>
-              </div>
-            </div>
-          </Show>
-        </Card>
+        <OnboardingRequestCard
+          ephemeralId={pairEphemeralId()}
+          pollStatus={pairPollStatus()}
+          busy={status() === "loading"}
+          onStart={startPairFlow}
+        />
       </Show>
 
       <Show when={isAuthorized() && pendingPairRequests().length > 0}>

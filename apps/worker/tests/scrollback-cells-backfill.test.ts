@@ -10,7 +10,6 @@ import {
   nextCellFrame,
   type CellRow,
 } from "@roost/shared/cell";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { handleGetScrollbackCells } from "../src/browser-command-terminal.ts";
 import type { FsmChannel } from "../src/fsm.ts";
@@ -31,12 +30,11 @@ const SEED = new TextEncoder().encode(
   Array.from({ length: 700 }, (_, index) => `line-${index}`).join("\r\n") + "\r\n",
 );
 
-function freshManager(onCellFrame?: (frame: PbCellGridFrame) => void): SessionManager {
-  return new SessionManager({
-    workerFp: asWorkerFp("00".repeat(32)),
-    sink: new SessionEventTestSink(),
-    ...(onCellFrame ? { sendCellGridUpstream: (_channelId, frame) => onCellFrame(frame) } : {}),
-  });
+function freshManager(): SessionManager {
+	return new SessionManager({
+		workerFp: asWorkerFp("00".repeat(32)),
+		sink: new SessionEventTestSink(),
+	});
 }
 
 async function injectSession(manager: SessionManager): Promise<SessionShellRecord> {

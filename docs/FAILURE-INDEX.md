@@ -646,6 +646,41 @@ outright without a resync.
 `"holds live deltas during chunk assembly and folds them like an uninterrupted run"`,
 `"falls back to the resync latch when the delta hold overflows"`.
 
+### A pane keeps a fallback font's cell advance and clips its own right edge
+
+**Symptom** — "the terminal is wider than the pane on mobile / right-hand output is cut off and
+unreachable / the live screen extends past what I can see"
+
+**Wrong** — invalidating the cached cell box on `document.fonts.ready` only while the pane is
+publishable (`!viewport.shouldPublishActive()` checked BEFORE zeroing `runtime.cellWidth` /
+`runtime.cellHeight`), and observing only the `ready` promise captured at mount. Terminal webfonts
+are `font-display: swap`, so a hidden, inactive, or pending pane measures the FALLBACK face, keeps
+that advance forever — `measureViewport` re-measures only when a cached dimension is zero, and
+reveal, box-resize and admission all republish without invalidating — and a narrower fallback
+advance overclaims columns. `.cell-grid .cell-viewport` paints exactly `cols × 1ch` with horizontal
+overflow hidden, so the surplus columns are painted outside the clip and cannot be scrolled to.
+Also wrong: reaching for horizontal scrolling, automatic font shrinking, a second geometry
+calculator, or a snapshot retry — those hide an overclaim the pane never had the right to make.
+
+**Right** — `mountCellTerminalLifecycle`'s `onTerminalFontsSettled`
+(`apps/web/src/components/cell-terminal-lifecycle.ts`) returns only for `lifecycleDisposed ||
+runtime.unmounted`; it zeroes the cached cell box and calls `renderer.invalidateRowHeight()`
+unconditionally, and gates ONLY `publishViewportNow()` on `shouldPublishActive()`. A background pane
+therefore claims nothing while its font settles and measures the loaded face on its next claim. The
+same callback is registered on the FontFaceSet's `loadingdone` and `loadingerror` (removed in
+`dispose()`), because `ready` answers one loading epoch: a face that starts loading later settles
+through those events alone, and a failed download still means re-measuring whatever face paints.
+The renderer's own `fonts.ready` hook repairs history placeholders and bottom placement — it is a
+different responsibility, not a substitute for invalidating the lifecycle's cell cache.
+
+**Guard** — `apps/web/tests/cellTerminalLifecycle.fonts.test.ts` composes the real viewport
+publisher with the real lifecycle: an inactive or pending pane publishes nothing while a wider face
+settles and then claims the loaded advance, a later `loadingdone` / `loadingerror` reclaims an active
+pane with no resize, and disposal claims nothing.
+`smoke/terminal/terminal-mobile-font-width.spec.ts` proves it end to end — a real shell, a test-only
+`size-adjust: 125%` face released while the SPA is hidden, then a DOM-Range check that the last
+column's glyph is inside the mobile clip across both orientations.
+
 ---
 
 ## Terminal input, focus and keys
@@ -1398,6 +1433,50 @@ section belongs fails `validateTerminalIncidentBundle` at `browser.captured_at_m
 `apps/worker/tests/terminal-capture-evidence.test.ts` and
 `apps/coord/tests/terminal-capture-recorder.test.ts` assert a real capture lands non-null
 `bundle.browser` and `bundle.coordinator` sections with zero `remote:` omissions.
+
+### One viewer re-attaching costs every coordinator viewer a second baseline
+
+**Symptom** — a paused or revealed pane resumes and the browser counts two complete cell
+baselines where it asked for one; reconnect bytes double for every viewer of that session, not
+just the one that re-attached.
+
+**Wrong** — treating the worker's `TerminalViewScreenPort.seedSocket` as per-socket for a
+coordinator-relayed socket. The worker has exactly ONE `"coord"` cell sink shared by every remote
+viewer, so `requestFull` there is a stream-wide re-baseline; the coordinator's screen replica then
+seeds the re-attaching socket as well, and the viewer sees both.
+
+**Right** — a relayed socket is seeded from the coordinator's own replica, so
+`seedSocket` returns false without requesting anything; only a LOCAL socket, which owns a
+dedicated `local:<socketId>` sink, forces a full. The coordinator asks for a source full only when
+its replica genuinely cannot serve the socket AND it was already on that stream — a brand-new
+stream arrives with its own baseline from `applyTerminalStreamState`, so requesting one there
+re-creates the double.
+
+**Guard** — `smoke/terminal/perf.spec.ts:302` "delayed worker-link split recovery" pins
+`after.fullFrames === before.fullFrames + 1` across a transport resume, and
+`apps/coord/tests/terminal-view-owner-mode.test.ts` pins exactly one source-full request for a
+replica that cannot seed and zero for a new stream id.
+
+---
+
+### A worker-owned session never repairs its replica, and the pane stays blank
+
+**Symptom** — with the worker owning terminal views, a dormant pane returning or a dropped
+upstream delta never obtains a source full; the coordinator's replica stays invalid and the viewer
+waits forever.
+
+**Wrong** — assuming the repair path still runs. `TerminalScreenHub`'s snapshot request lands in
+`TerminalViewStreamController.requestFull`, which holds no session for a worker-owned one and
+returns early. Owner mode bypasses that controller by design, so the repair silently disappears.
+
+**Right** — route a session the controller never minimized to the owning worker through the owner
+relay, which sends `DTerminalSnapshotRequest`. Whenever a coordinator-owned path is bypassed for
+owner mode, audit what ELSE that path was the only caller of; membership was the intended
+bypass, repair was collateral.
+
+**Guard** — `smoke/terminal/terminal-stream-reliability.spec.ts:87` "worker upstream delta loss
+obtains a source full on the same browser socket" plus the reveal/deck specs
+(`terminal-render-reveal*.spec.ts`, `terminal-render-deck-overlay.spec.ts`).
 
 ---
 

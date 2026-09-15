@@ -27,8 +27,8 @@ import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
 import { coordDataDir } from "@roost/shared/paths";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { WEB_ASSETS } from "./web-embed.generated.ts";
-import { createSpaResponder } from "./spa.ts";
+import { WEB_ASSETS } from "@roost/shared/web-embed";
+import { createSpaResponder } from "@roost/shared/spa";
 import { MIGRATIONS } from "./migrations-embed.generated.ts";
 import { runStartupJanitor } from "./startup-janitor.ts";
 import { ensureSelfHostedTenant } from "./self-hosted-tenant.ts";
@@ -36,6 +36,7 @@ import { startBunCoordinatorListeners } from "./bun-coordinator-listeners.ts";
 import { PendingEventPublicationStore } from "./pending-event-publications.ts";
 import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "./connect/ui-state-owner.ts";
+import { revokeLocalTerminalGrantsForFingerprint } from "./connect/local-terminal-grants.ts";
 
 
 export async function runCoord() {
@@ -142,6 +143,10 @@ export async function runCoord() {
     makeSyncTerminalControlHooks(syncDepsWithAccess, terminalViews),
   );
   closeRevokedSockets = (fingerprint) => {
+    // Before the transports close: the revoke frame needs this worker
+    // generation still admitted, or the worker keeps serving a revoked
+    // device's loopback terminal socket until the grant TTL lapses.
+    revokeLocalTerminalGrantsForFingerprint(fingerprint);
     terminalViews.removeFingerprint(fingerprint);
     syncWs.closeForFingerprint(fingerprint);
     workerWs.closeForFingerprint(fingerprint);

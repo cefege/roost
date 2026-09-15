@@ -234,9 +234,15 @@ export function makeWorkerWsHandler(
       }
       // Completion frames have no durable effect or channel-order dependency. The
       // existing dispatcher still fences worker identity, readiness, and request ID.
+      // The two owner-mode view frames share this lane for the opposite reason:
+      // a view state carrying a new stream id MUST install the screen
+      // expectation before that stream's first cell frame, which never waits
+      // behind the durable queue.
       if (
         fcase === "inputResult"
         || fcase === "terminalStreamResult"
+        || fcase === "terminalViewState"
+        || fcase === "terminalViewProjection"
       ) {
         void conn.handleUpstream(frame).catch((error) => {
           log.warn("worker-ws", "handle_failed", {

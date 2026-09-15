@@ -11,7 +11,12 @@ import type { Theme, ThemeGroup } from "../../lib/themeTokens.ts";
 import { THEMES, THEMES_BY_ID } from "../../lib/themes.ts";
 import { setTheme, currentThemeChoice, resolveThemeId } from "../../lib/theme.ts";
 import { addToast } from "../../store/toastStore.ts";
-import { Button, Icon } from "./md/primitives.tsx";
+import { Button, Icon, Select } from "./md/primitives.tsx";
+import {
+  tvModeChoice,
+  setTvModeChoice,
+  type TvModeChoice,
+} from "../../lib/tvMode.ts";
 
 interface Entry {
   choice: string;   // "auto" | theme id
@@ -59,6 +64,23 @@ export const ThemePane: Component = () => {
 
   return (
     <div data-testid="theme-pane" style={{ "max-width": "560px" }}>
+      <div style={{ "margin-block-end": "var(--md-space-5)" }}>
+        <Select
+          testId="tv-mode-select"
+          label="TV mode"
+          value={tvModeChoice()}
+          onChange={(value) => {
+            setTvModeChoice(value as TvModeChoice);
+            addToast("TV mode saved");
+          }}
+          options={[
+            { value: "auto", label: "Auto (detect TV browser)" },
+            { value: "on", label: "On" },
+            { value: "off", label: "Off" },
+          ]}
+          description="Larger type, overscan-safe edges, and D-pad focus navigation. Also reachable as ?tv=1 / ?tv=0."
+        />
+      </div>
       <p class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", margin: "0 0 18px 2px" }}>
         Pick an appearance. The swatches preview each theme's colors. Applies to this browser profile.
       </p>

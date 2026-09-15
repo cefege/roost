@@ -10,8 +10,8 @@ import { composeStandaloneIntegration } from "../apps/worker/src/agent-status/st
 import { AGENT_INTEGRATION_ASSET_SPECS } from "../apps/worker/src/agent-status/integration-assets.ts";
 import { buildKeeperImplementationDigest } from "./keeper-bundle-digest.ts";
 
-const WEB_OUT = "apps/coord/src/web-embed.generated.ts";
-const WEB_GZIP_OUT = "apps/coord/src/web-embed.generated-assets";
+const WEB_OUT = "apps/shared/src/web-embed.generated.ts";
+const WEB_GZIP_OUT = "apps/shared/src/web-embed.generated-assets";
 const MIGR_OUT = "apps/coord/src/migrations-embed.generated.ts";
 const WASM_OUT = "apps/shared/src/wterm-wasm-embed.generated.ts";
 const SCRIPTS_OUT = "apps/shared/src/install-scripts.generated.ts";

@@ -5,6 +5,10 @@
 import { asChannelId } from "@roost/shared/wire";
 import type { SessionManager } from "./session-manager.ts";
 import {
+	aggregateStreamDelivery,
+	markStreamDeliveryDirty,
+} from "./session-cell-sinks.ts";
+import {
 	CELL_EMIT_COALESCE_MS,
 	SYNC_OUTPUT_MAX_MS,
 } from "./session-constants.ts";
@@ -86,7 +90,10 @@ function mayRearmCellEmission(
 	stream: TerminalStreamState,
 ): boolean {
 	if (!hasLiveCurrentStream(mgr, channelId, stream)) return false;
-	if (!stream.baselineReady || stream.snapshotCursor) return false;
+	const delivery = aggregateStreamDelivery(mgr, stream);
+	if (delivery.activeSinks === 0 || !delivery.baselineReady || delivery.snapshotPending) {
+		return false;
+	}
 	if (mgr.cellEmissionGates.has(channelId) || mgr.pendingCellRepairs.has(channelId)) return false;
 	const syncOutputHold = mgr.syncOutputHolds.get(channelId);
 	return syncOutputHold === undefined || syncOutputHold.tripped;
@@ -142,8 +149,12 @@ export function scheduleCellEmission(
 ): void {
 	const stream = mgr.terminalStreams.get(channelId);
 	if (!stream?.enabled || !stream.coreValid) return;
-	if (!stream.baselineReady || stream.snapshotCursor) {
-		stream.baselineDirty = true;
+	const delivery = aggregateStreamDelivery(mgr, stream);
+	// A stream nobody is delivering to records nothing: the next resumed or
+	// newly registered sink owes a forced full regardless of this tick.
+	if (delivery.activeSinks === 0) return;
+	if (!delivery.baselineReady || delivery.snapshotPending) {
+		markStreamDeliveryDirty(mgr, stream);
 		mgr.cellDirty.add(channelId);
 		noteCellGateSuppression(mgr, channelId, "baseline");
 		return;

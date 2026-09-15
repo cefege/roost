@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
 import type { PredictiveEcho } from "../src/lib/predictiveEcho.ts";
-import type { InputAdmission, InputOutcome } from "../src/ws/sync-outbound.ts";
+import type { InputAdmission, InputOutcome } from "../src/ws/terminal-input-lanes.ts";
 import {
   _resetTerminalFindIntentsForTest,
   requestTerminalFind,

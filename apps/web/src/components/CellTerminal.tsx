@@ -17,6 +17,7 @@ import type { MouseTracking } from "@roost/shared/cell";
 import { signal } from "@roost/shared/diag";
 import { getSessionTraceId } from "../lib/diag.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
+import { tvModeActive } from "../lib/tvMode.ts";
 import { isPendingSpawn } from "../store/optimisticSpawn.ts";
 import { createTerminalView } from "../store/terminal-stream.ts";
 import { uiStore } from "../store/uiStore.ts";
@@ -200,6 +201,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			<div
 				ref={displayRef}
 				data-testid="terminal-display"
+				tabindex={tvModeActive() ? "0" : undefined}
 				style={{
 					flex: "1",
 					"min-width": "0",
@@ -239,11 +241,14 @@ export function CellTerminal(props: CellTerminalProps) {
 				</Dialog>
 			</Show>
 			{/* Compact has one active, body-portaled composer and keypad. Keep both
-			    unmounted while the mobile drawer or a non-terminal overlay is open. */}
+			    unmounted while the mobile drawer or a non-terminal overlay is open.
+			    TV gets the keypad too — it is the only way a D-pad can send Esc,
+			    Tab, Ctrl-<key> and PageUp/PageDown to the PTY — but not a second
+			    composer, because the pane composer below already renders there. */}
 			<Show when={
 				props.inLayout === true
 				&& props.focused === true
-				&& isCompact()
+				&& (isCompact() || tvModeActive())
 				&& !uiStore.sidebarOpen
 				&& props.surfaceVisible
 			}>
@@ -251,12 +256,21 @@ export function CellTerminal(props: CellTerminalProps) {
 					onKey={(key: string) => { runtime.inputController?.dispatchKeydown(key); }}
 					ctrlArmed={input.ctrlArmed()}
 					onCtrlArmedChange={(armed: boolean) => {
-						if (armed && !isTouchDevice()) runtime.inputController?.forceFocus();
+						if (armed && !isTouchDevice() && !tvModeActive())
+							runtime.inputController?.forceFocus();
 						input.setCtrlArmed(armed);
 					}}
 					linkActivationArmed={input.linkActivationArmed()}
 					onLinkActivationArmedChange={input.setLinkActivationArmed}
 				/>
+			</Show>
+			<Show when={
+				props.inLayout === true
+				&& props.focused === true
+				&& isCompact()
+				&& !uiStore.sidebarOpen
+				&& props.surfaceVisible
+			}>
 				<TerminalComposeButton
 					placement="viewport"
 					session={props.session}

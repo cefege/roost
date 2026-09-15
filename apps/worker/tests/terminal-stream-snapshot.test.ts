@@ -8,9 +8,16 @@ import {
   type PbCellGridFrame,
 } from "@roost/shared/proto/cell_pb";
 import {
-  installSnapshotCursor,
-  prepareCellRenewalEpoch,
+	installStreamBaseline,
+	prepareCellRenewalEpoch,
 } from "../src/session-snapshot-cursor.ts";
+import {
+	aggregateStreamDelivery,
+	COORD_CELL_SINK_ID,
+	resumeCellSink,
+	suspendCellSink,
+	type CellSinkResult,
+} from "../src/session-cell-sinks.ts";
 import {
   CELL_GRID_PART_MAX_BYTES,
   encodedCellGridChunkSize,
@@ -108,9 +115,11 @@ describe("worker terminal snapshot cursor", () => {
     expect(harness.chunkAttempts).toHaveLength(2);
     expect(harness.chunkAttempts.map((chunk) => chunk.chunkIndex)).toEqual([0, 1]);
     expect(delivered.map((chunk) => chunk.chunkIndex)).toEqual([0]);
-    expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toMatchObject({
+    const state = harness.manager.terminalStreams.get(CHANNEL_ID)!;
+    expect(state.coreValid).toBe(true);
+    expect(aggregateStreamDelivery(harness.manager, state)).toMatchObject({
       baselineReady: false,
-      coreValid: true,
+      snapshotPending: true,
     });
 
     core.markAllDirty();
@@ -150,10 +159,13 @@ describe("worker terminal snapshot cursor", () => {
     expect(groups[0]![0]!.part!.seq).toBe(1n);
     expect(groups[1]![0]!.part!.seq).toBe(2n);
     expect(groups[1]![0]!.snapshotId).not.toBe(groups[0]![0]!.snapshotId);
-    expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toMatchObject({
+    expect(aggregateStreamDelivery(
+      harness.manager,
+      harness.manager.terminalStreams.get(CHANNEL_ID),
+    )).toMatchObject({
       baselineReady: true,
       baselineDirty: false,
-      snapshotCursor: null,
+      snapshotPending: false,
     });
   }, 30_000);
 
@@ -173,7 +185,7 @@ describe("worker terminal snapshot cursor", () => {
     const firstOperation = enableStream(harness.manager, STREAM_A, 256, 256);
     await flushLeadingCellEmit();
     const oldState = harness.manager.terminalStreams.get(CHANNEL_ID)!;
-    expect(oldState.snapshotCursor?.nextPart).toBe(1);
+    expect(oldState.deliveries.get(COORD_CELL_SINK_ID)?.cursor?.nextPart).toBe(1);
     await expect(firstOperation).resolves.toMatchObject({
       status: "committed",
       streamId: STREAM_A,
@@ -181,7 +193,7 @@ describe("worker terminal snapshot cursor", () => {
 
     const replacement = enableStream(harness.manager, STREAM_B, 256, 256);
     blockSecondPart = false;
-    expect(oldState.snapshotCursor).toBeNull();
+    expect(oldState.deliveries.get(COORD_CELL_SINK_ID)?.cursor ?? null).toBeNull();
     await expect(replacement).resolves.toMatchObject({
       status: "committed",
       streamId: STREAM_B,
@@ -190,33 +202,39 @@ describe("worker terminal snapshot cursor", () => {
       .map((chunk) => chunk.chunkIndex)).toEqual([0]);
   });
 
-  test("retires a blocked baseline on reconnect without sending its tail", async () => {
+  test("drops a parked baseline when the coordinator sink suspends", async () => {
     trackKeeper(installAutoKeeper({ cols: 256, rows: 256 }));
     const core = new DenseLinkedCore();
-    const delivered: PbCellGridChunk[] = [];
     const harness = await makeHarness(core as unknown as TerminalCore, {
-      sendChunk: (chunk) => {
-        if (chunk.chunkIndex === 1) return "dropped";
-        delivered.push(chunk);
-        return "sent";
-      },
+      sendChunk: (chunk) => (chunk.chunkIndex === 1 ? "dropped" : "sent"),
     });
 
     const operation = enableStream(harness.manager, STREAM_A, 256, 256);
     await flushLeadingCellEmit();
-    const oldState = harness.manager.terminalStreams.get(CHANNEL_ID)!;
+    const state = harness.manager.terminalStreams.get(CHANNEL_ID)!;
     await expect(operation).resolves.toMatchObject({
       status: "committed",
       streamId: STREAM_A,
     });
-    harness.manager.invalidateTerminalStreamsForReconnect();
-    expect(oldState.snapshotCursor).toBeNull();
+    const parkedSnapshotId = harness.chunkAttempts[0]!.snapshotId;
+    expect(state.deliveries.get(COORD_CELL_SINK_ID)?.cursor?.nextPart).toBe(1);
+
+    suspendCellSink(harness.manager, COORD_CELL_SINK_ID);
+    expect(state.deliveries.get(COORD_CELL_SINK_ID)?.cursor ?? null).toBeNull();
     await flushLeadingCellEmit();
-    expect(delivered.filter((chunk) => chunk.part?.streamId === STREAM_A)
-      .map((chunk) => chunk.chunkIndex)).toEqual([0]);
-    expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toMatchObject({
-      baselineReady: true,
-      snapshotCursor: null,
+    // The retired snapshot's tail is never attempted again, and the stream
+    // identity survives the coordinator's absence untouched.
+    expect(harness.chunkAttempts
+      .filter((chunk) => chunk.snapshotId === parkedSnapshotId)
+      .map((chunk) => chunk.chunkIndex)).toEqual([0, 1]);
+    expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toBe(state);
+
+    resumeCellSink(harness.manager, COORD_CELL_SINK_ID);
+    // The resume owes exactly one fresh snapshot, never the parked one.
+    expect(new Set(harness.chunkAttempts.map((chunk) => chunk.snapshotId)).size).toBe(2);
+    expect(harness.chunkAttempts.at(-1)?.part).toMatchObject({
+      full: true,
+      streamId: STREAM_A,
     });
   });
 
@@ -256,7 +274,7 @@ describe("worker terminal snapshot cursor", () => {
       cols: 256,
       rows: 256,
     });
-    expect(state.snapshotCursor).toBeNull();
+    expect(state.deliveries.get(COORD_CELL_SINK_ID)?.cursor ?? null).toBeNull();
     expect(state.coreValid).toBe(false);
     await flushLeadingCellEmit();
     expect(delivered.filter((chunk) => chunk.part?.streamId === STREAM_A)
@@ -283,7 +301,7 @@ describe("worker terminal snapshot cursor", () => {
       streamId: STREAM_A,
     });
     harness.manager._dropChannelState(CHANNEL_ID);
-    expect(oldState.snapshotCursor).toBeNull();
+    expect(oldState.deliveries.get(COORD_CELL_SINK_ID)?.cursor ?? null).toBeNull();
     await flushLeadingCellEmit();
     expect(delivered.filter((chunk) => chunk.part?.streamId === STREAM_A)
       .map((chunk) => chunk.chunkIndex)).toEqual([0]);
@@ -296,17 +314,21 @@ describe("worker terminal snapshot cursor", () => {
       cols: 2,
       rows: 2,
       version: 1,
-      baselineReady: false,
       coreValid: true,
-      baselineDirty: false,
-      snapshotCursor: null,
+      deliveries: new Map(),
       resizeCapture: null,
     };
-    const queuedCellResult = "queued" as unknown as TerminalCellSendResult;
+    const queuedCellResult = "queued" as unknown as CellSinkResult;
     const manager = {
       terminalStreams: new Map([[CHANNEL_ID, state]]),
-      sendCellGridUpstream: () => queuedCellResult,
-      sendCellGridChunkUpstream: () => queuedCellResult,
+      cellSinks: new Map([[COORD_CELL_SINK_ID, {
+        active: true,
+        sink: {
+          id: COORD_CELL_SINK_ID,
+          sendFrame: () => queuedCellResult,
+          sendChunk: () => queuedCellResult,
+        },
+      }]]),
     } as unknown as SessionManager;
     const frame = create(PbCellGridFrameSchema, {
       sessionId: "worker-test",
@@ -324,8 +346,10 @@ describe("worker terminal snapshot cursor", () => {
       sbBase: 0n,
       scrollbackTotal: 0n,
     });
-    expect(installSnapshotCursor(manager, CHANNEL_ID, state, frame)).toBe(true);
-    expect(state.snapshotCursor).toMatchObject({ nextPart: 0 });
-    expect(state.baselineReady).toBe(false);
+    expect(installStreamBaseline(manager, CHANNEL_ID, state, frame)).toBe(true);
+    expect(state.deliveries.get(COORD_CELL_SINK_ID)).toMatchObject({
+      cursor: { nextPart: 0 },
+      baselineReady: false,
+    });
   });
 });

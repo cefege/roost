@@ -13,11 +13,9 @@ import {
   REPOSITORY_ROOT,
   authorizeTerminalTestApiKey,
   logTail,
-  startCoordinatorService,
   stopChild,
   stopDeployedWorker,
   stopKeeper,
-  waitFor,
   type RunningService,
 } from "./stack-runtime.ts";
 import {
@@ -28,12 +26,13 @@ import {
 } from "./stack-worker-runtime.ts";
 import type { DelayedWorkerLink } from "./delayed-worker-link.ts";
 import { createFixtureWorkerStarter, type PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
+import { createLocalUiOrigins } from "./stack-local-ui.ts";
+import { startCoordinatorControl, type CoordinatorControl } from "./stack-coordinator.ts";
 export type { PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
 const WORKER_LABEL = "roost-terminal-test";
 const SECOND_WORKER_LABEL = "roost-terminal-test-second";
 const PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture";
 const SECOND_PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture-second";
-const COORD_START_TIMEOUT_MS = 20_000;
 
 export type TerminalTestWorker = {
   workerFp: string;
@@ -61,6 +60,13 @@ export type TerminalTestStack = {
   startPtyFixtureWorker(options?: PtyFixtureWorkerStartOptions): Promise<TerminalTestWorker>;
   /** Lazily start an independent compiled fixture worker with separate keeper state. */
   startSecondPtyFixtureWorker(options?: PtyFixtureWorkerStartOptions): Promise<TerminalTestWorker>;
+  /** Delayed coordinator link the PTY fixture worker dials, when one was requested. */
+  ptyFixtureWorkerLink: DelayedWorkerLink | null;
+  /** Stop or relaunch only the coordinator child; worker, keeper and PTYs stay live. */
+  stopCoordinator(): Promise<void>;
+  startCoordinator(): Promise<void>;
+  /** Worker-served local UI origin for a fingerprint this stack started. */
+  localUiUrl(workerFp: string): string;
   // Bounce the primary worker process, keeping coord and the persisted worker
   // identity. Resolves once the same fingerprint is routable again.
   restartWorker(): Promise<void>;
@@ -153,7 +159,7 @@ export async function startTerminalTestStack(
     secondPtyFixtureWorker: join(root, "pty-fixture-second-worker-tmp"),
   };
   for (const dir of Object.values(childTmpDirs)) mkdirSync(dir, { recursive: true });
-  let coord: RunningService | undefined;
+  let coordinator: CoordinatorControl | undefined;
   let worker: RunningService | undefined;
   let deployedWorkerPid: number | undefined;
   let secondWorker: RunningService | undefined;
@@ -163,6 +169,7 @@ export async function startTerminalTestStack(
   let secondPtyFixtureWorker: RunningService | undefined;
   let secondPtyFixtureWorkerLink: DelayedWorkerLink | undefined;
   let client: AuthorizedApiClient | undefined;
+  const localUi = createLocalUiOrigins();
 
   const stop = async () => {
     const errors: string[] = [];
@@ -218,28 +225,34 @@ export async function startTerminalTestStack(
       await stopChild(worker).catch((error) => errors.push(`stop worker: ${String(error)}`));
       await stopDeployedWorker(deployedWorkerPid).catch((error) => errors.push(`stop deployed worker: ${String(error)}`));
       await stopKeeper(workerDataDir).catch((error) => errors.push(`stop keeper: ${String(error)}`));
-      await stopChild(coord).catch((error) => errors.push(`stop coordinator: ${String(error)}`));
+      await localUi.closeAll().catch((error) => errors.push(`release local UI ports: ${String(error)}`));
+      await (coordinator?.stop() ?? Promise.resolve()).catch((error) => errors.push(`stop coordinator: ${String(error)}`));
       try { rmSync(root, { recursive: true, force: true }); } catch (error) { errors.push(`remove test root: ${String(error)}`); }
     }
     if (errors.length > 0) throw new Error(`terminal stack cleanup failed:\n${errors.join("\n")}`);
   };
 
   try {
-    coord = startCoordinatorService({
+    // Every local UI port is reserved before the coordinator launches: product
+    // code pre-allowlists only the 4104 default, so the coordinator has to be
+    // told these origins at boot and on every relaunch.
+    const workerLocalUi = await localUi.reserve(WORKER_LABEL);
+    const secondWorkerLocalUi = await localUi.reserve(SECOND_WORKER_LABEL);
+    const ptyFixtureLocalUi = await localUi.reserve(PTY_FIXTURE_WORKER_LABEL);
+    const secondPtyFixtureLocalUi = await localUi.reserve(SECOND_PTY_FIXTURE_WORKER_LABEL);
+    coordinator = await startCoordinatorControl({
       bunExecutable,
       sourceRoot: coordRelease.sourceRoot,
       root,
       home,
       tmpDir: childTmpDirs.coord,
-      bind: "127.0.0.1:0",
       dbPath: coordDbPath,
       logPath: coordLogPath,
       gitSha: coordRelease.gitSha,
+      corsAllowedOrigins: localUi.origins(),
+      probeReady: () => client!.workersList({}),
     });
-    const baseUrl = await waitFor("coordinator startup", COORD_START_TIMEOUT_MS, () => {
-      const match = /"msg":"listening"[^\n]*"bind":"([^"]+)"/.exec(logTail(coordLogPath));
-      return match ? `http://${match[1]}` : undefined;
-    }).catch((error) => { throw new Error(`${error}\ncoord log:\n${logTail(coordLogPath)}`); });
+    const baseUrl = coordinator.baseUrl;
 
     const apiKeyPath = join(root, "api.key");
     const apiKey = await loadWorkerKey(apiKeyPath);
@@ -268,19 +281,23 @@ export async function startTerminalTestStack(
       dataDir: workerDataDir,
       tmpDir: childTmpDirs.worker,
       bootstrapToken,
+      localUiBind: workerLocalUi.bind,
       gitSha: workerRelease.gitSha,
     };
     // A deploy runs out of process and must relaunch this exact identity, so the
     // launch spec is persisted instead of restated at the second call site.
     writeFileSync(workerServiceSpecPath, `${JSON.stringify(workerServiceSpec, null, 2)}\n`, { mode: 0o600 });
+    await workerLocalUi.release();
     worker = startWorker(workerServiceSpec);
     const workerFp = await waitForTerminalWorkerRoutable(client, WORKER_LABEL, workerLogPath);
+    workerLocalUi.record(workerFp);
 
     const startSecondWorker = (): Promise<TerminalTestWorker> => {
       secondWorkerStart ??= (async () => {
         const secondBootstrapToken = (
           await client!.authMintBootstrap({ kind: "worker", label: SECOND_WORKER_LABEL })
         ).token;
+        await secondWorkerLocalUi.release();
         secondWorker = startWorker({
           label: SECOND_WORKER_LABEL,
           home: secondHome,
@@ -288,18 +305,21 @@ export async function startTerminalTestStack(
           dataDir: secondWorkerDataDir,
           tmpDir: childTmpDirs.secondWorker,
           bootstrapToken: secondBootstrapToken,
+          localUiBind: secondWorkerLocalUi.bind,
         });
         const workerFp = await waitForTerminalWorkerRoutable(
           client!,
           SECOND_WORKER_LABEL,
           secondWorkerLogPath,
         );
+        secondWorkerLocalUi.record(workerFp);
         return { workerFp, label: SECOND_WORKER_LABEL, home: secondHome, logPath: secondWorkerLogPath };
       })();
       return secondWorkerStart;
     };
     const startPtyFixtureWorker = createFixtureWorkerStarter({
       ...fixtureLaunch,
+      localUi: ptyFixtureLocalUi,
       paths: {
         label: PTY_FIXTURE_WORKER_LABEL,
         home: ptyFixtureHome,
@@ -312,6 +332,7 @@ export async function startTerminalTestStack(
     });
     const startSecondPtyFixtureWorker = createFixtureWorkerStarter({
       ...fixtureLaunch,
+      localUi: secondPtyFixtureLocalUi,
       paths: {
         label: SECOND_PTY_FIXTURE_WORKER_LABEL,
         home: secondPtyFixtureHome,
@@ -331,6 +352,7 @@ export async function startTerminalTestStack(
       worker = startWorker(workerServiceSpec);
       await waitForTerminalWorkerRoutable(client!, WORKER_LABEL, workerLogPath);
     };
+    const { stop: stopCoordinator, start: startCoordinator } = coordinator;
 
     return {
       baseUrl,
@@ -346,6 +368,10 @@ export async function startTerminalTestStack(
       startPtyFixtureWorker,
       startSecondPtyFixtureWorker,
       restartWorker,
+      get ptyFixtureWorkerLink() { return ptyFixtureWorkerLink ?? null; },
+      stopCoordinator,
+      startCoordinator,
+      localUiUrl: localUi.url,
       coordDbPath,
       apiKeyPath,
       workerServiceSpecPath,

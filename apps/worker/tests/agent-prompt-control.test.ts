@@ -19,7 +19,6 @@ import {
   type AgentPromptControlDeps,
 } from "../src/agent-prompt-control.ts";
 import { PROMPT_SUBMIT_DELAY_MS } from "../src/agent-prompt-submit.ts";
-import { acquireKeeperAdmission } from "../src/session-control-lanes.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
 import { TERMINAL_REQUEST_BUDGET_CAP_MS } from "../src/transport/coord-link-constants.ts";
@@ -32,6 +31,7 @@ import {
 import {
   CHANNEL_ID,
   cleanupStreamHarnesses,
+  holdKeeperAdmission,
   makeHarness,
   SESSION_ID,
   trackKeeper,
@@ -256,7 +256,7 @@ describe("agent prompt terminal input ownership", () => {
     const keeper = settlingKeeper((fake, write) => {
       fake.inputAck(write.channelId, write.seq!, write.bytes!.byteLength);
     });
-    const predecessor = acquireKeeperAdmission(
+    const predecessor = holdKeeperAdmission(
       harness.deps.sessions,
       CHANNEL_ID,
       "terminal_resize",

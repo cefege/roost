@@ -142,6 +142,34 @@ describe("keyboardShortcuts ⏎ boot-loop guard", () => {
 		expect(preventCalls).toBe(0);
 	});
 
+	// Off the sidebar (/pair, /settings, /help) FolderList publishes no rows, so
+	// this branch has nothing to move and must claim nothing: cancelling the keys
+	// there kills the document's native scroll and a focused button's Enter,
+	// which is exactly the "I can't scroll" report from a TV remote.
+	test("↑/↓ stay the document's native scroll when no cursor rows exist", () => {
+		installStubDocument(false);
+		setOrderedSessionIds([]);
+		let preventCalls = 0;
+		handleKeydown({
+			...keyEvent("ArrowDown"),
+			preventDefault: () => preventCalls++,
+		} as KeyboardEvent);
+		expect(preventCalls).toBe(0);
+		expect(cursorSessionId()).toBeNull();
+	});
+
+	test("⏎ stays a focused button's activation when no cursor row is highlighted", () => {
+		installStubDocument(false);
+		setOrderedSessionIds([]);
+		let preventCalls = 0;
+		handleKeydown({
+			...keyEvent("Enter", { tagName: "BUTTON" }),
+			preventDefault: () => preventCalls++,
+		} as KeyboardEvent);
+		expect(preventCalls).toBe(0);
+		expect(activated).toEqual([]);
+	});
+
 	describe("default-prevented terminal keys", () => {
 		test("never reroutes prevented Ctrl shortcuts or navigation", () => {
 			installStubDocument(false);

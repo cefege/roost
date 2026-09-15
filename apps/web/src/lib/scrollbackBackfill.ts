@@ -7,6 +7,7 @@ import { diag } from "@roost/shared/diag";
 import type { CellRow } from "@roost/shared/cell";
 import { cellRowFromProto } from "@roost/shared/cell/cell-proto";
 import type { SessionsGetScrollbackCellsResponse } from "@roost/shared/proto/coordinator_pb";
+import { localTerminalTransport } from "../store/terminal-stream-transport.ts";
 import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 import type { CellGridRenderer } from "./cellRenderer.ts";
 import {
@@ -36,6 +37,12 @@ type ScrollbackRenderer = Pick<
   | "insertHistoryPage"
   | "missingScrollbackRange"
   | "missingScrollbackRangeAtScroll"
+>;
+/** The fields a page is validated against. The coordinator RPC and the local
+ * worker socket answer the same query with the same shape. */
+type ScrollbackPageResponse = Pick<
+  SessionsGetScrollbackCellsResponse,
+  "rows" | "cols" | "scrollbackTotal" | "startRow" | "endRow" | "gridEpoch" | "historyFloor"
 >;
 
 interface Demand {
@@ -111,7 +118,7 @@ export function createScrollbackBackfill(opts: {
 
   function rejectPage(
     guard: ChunkGuard,
-    response: SessionsGetScrollbackCellsResponse,
+    response: ScrollbackPageResponse,
     demand: Demand,
     total: number,
     start: number,
@@ -133,7 +140,7 @@ export function createScrollbackBackfill(opts: {
   }
 
   function validatePage(
-    response: SessionsGetScrollbackCellsResponse,
+    response: ScrollbackPageResponse,
     demand: Demand,
   ): ValidatedPage | null {
     const start = Number(response.startRow);
@@ -181,12 +188,18 @@ export function createScrollbackBackfill(opts: {
 
   async function fetchPage(demand: Demand): Promise<ValidatedPage | null> {
     backfillStateOf(opts.sessionId).requests++;
-    const response = await coordClient.sessionsGetScrollbackCells({
+    const query = {
       sessionId: opts.sessionId,
       endRow: BigInt(demand.end),
       maxRows: demand.end - demand.start,
       gridEpoch: demand.gridEpoch,
-    });
+    };
+    // History pages follow the session's live transport, so a local pane can
+    // still page its own worker's history with the coordinator unreachable.
+    const local = localTerminalTransport();
+    const response = local?.ownsSession(opts.sessionId)
+      ? await local.requestScrollback(query)
+      : await coordClient.sessionsGetScrollbackCells(query);
     if (!isCurrent(demand)) return null;
     return validatePage(response, demand);
   }

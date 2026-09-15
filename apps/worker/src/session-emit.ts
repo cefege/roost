@@ -31,9 +31,17 @@ import {
 import { noteUnhandledSequences } from "./session-unhandled-seq.ts";
 import {
 	drainSnapshotCursor,
-	installSnapshotCursor,
+	installStreamBaseline,
 	prepareCellRenewalEpoch,
 } from "./session-snapshot-cursor.ts";
+import {
+	activeCellSinks,
+	aggregateStreamDelivery,
+	clearStreamDeliveryDirty,
+	invalidateStreamBaselines,
+	markStreamDeliveryDirty,
+	sendCellDeltaToSinks,
+} from "./session-cell-sinks.ts";
 import { disposeRawMetadataState } from "./session-raw-metadata.ts";
 import {
 	disposeTerminalMetadataState,
@@ -60,7 +68,11 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	const rec = this.sessions.get(channelId);
 	if (rec && rec.lastPtyOutMs === 0) rec.lastPtyOutMs = Date.now();
 	diag("cell.recv", { sid: String(rec?.sessionId ?? ""), channel_id: channelId, len: chunk.length });
-	if (!this.sendBinaryUpstream && !this.sendTerminalMetadataUpstream) {
+	if (
+		!this.sendBinaryUpstream
+		&& !this.sendTerminalMetadataUpstream
+		&& this.cellSinks.size === 0
+	) {
 		log.warn("session-manager", "emit_no_upstream", {
 			channelId,
 			len: chunk.length,
@@ -102,14 +114,17 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	this.onTerminalChanged?.(channelId);
 	const promoteInputEcho = this.inputSensitiveChannels.delete(channelId);
 	if (stream?.enabled) {
-		const baselineBoundaryReady = !stream.baselineReady
-			&& !stream.snapshotCursor
+		const delivery = aggregateStreamDelivery(this, stream);
+		const baselineBoundaryReady = !delivery.baselineReady
+			&& !delivery.snapshotPending
 			&& this.pendingSyncCellSnapshots.has(channelId)
 			&& !(rec?.wtermCore.synchronizedOutput?.() ?? false);
 		if (baselineBoundaryReady) {
 			this.installTerminalBaseline(asChannelId(channelId));
-		} else if (!stream.baselineReady || stream.snapshotCursor || capture || !stream.coreValid) {
-			stream.baselineDirty = true;
+		} else if (
+			!delivery.baselineReady || delivery.snapshotPending || capture || !stream.coreValid
+		) {
+			markStreamDeliveryDirty(this, stream);
 			this.cellDirty.add(channelId);
 		} else {
 			this._scheduleCellEmit(channelId, promoteInputEcho);
@@ -120,10 +135,18 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	if (!this.terminalMetadataNegotiated) this._enqueueRawMetadata(channelId, endSeq, chunk);
 }
 export function resumeTerminalSnapshots(this: SessionManager): void {
+	const sinks = activeCellSinks(this);
 	for (const [channelId, state] of this.terminalStreams) {
 		if (!this.sessions.has(channelId) || !state.enabled || !state.coreValid) continue;
-		if (state.snapshotCursor) drainSnapshotCursor(this, channelId, state);
-		else if (this.pendingCellRepairs.delete(channelId)) this.installTerminalBaseline(asChannelId(channelId));
+		let parked = false;
+		for (const sink of sinks) {
+			if (!state.deliveries.get(sink.id)?.cursor) continue;
+			parked = true;
+			drainSnapshotCursor(this, channelId, state, sink.id);
+		}
+		if (!parked && this.pendingCellRepairs.delete(channelId)) {
+			this.installTerminalBaseline(asChannelId(channelId));
+		}
 	}
 }
 
@@ -177,24 +200,31 @@ export function installTerminalBaseline(this: SessionManager, channelId: number)
 	this.emitCellFrame(channelId, true);
 }
 
-/** Emit a delta only after a complete baseline. A full is installed as a
- * cancellable immutable cursor; oversized deltas promote to that same path. */
+/** Emit a delta only after every active sink holds a complete baseline. ONE
+ * frame is built per tick — a second CellEmitState over one core would steal
+ * the dirty rows this frame claimed — and then fanned to each active sink: a
+ * full parks as that sink's cancellable cursor, a delta ships directly.
+ * Oversized deltas promote to the same full path. */
 export function emitCellFrame(this: SessionManager, channelId: number, force: boolean): void {
 	const state = this.terminalStreams.get(channelId);
 	const rec = this.sessions.get(channelId);
 	if (!state?.enabled || !state.coreValid || !rec) return;
+	const delivery = aggregateStreamDelivery(this, state);
+	// No active sink: a suspended transport must not latch repairs or force
+	// baselines. Its resume owes one full, so nothing needs recording here.
+	if (delivery.activeSinks === 0) return;
 	if (this.cellEmissionGates.has(channelId)) {
-		state.baselineDirty = true;
+		markStreamDeliveryDirty(this, state);
 		this.cellDirty.add(channelId);
 		noteCellGateSuppression(this, channelId, "resize_capture");
 		return;
 	}
-	if (state.snapshotCursor) {
-		if (!force) state.baselineDirty = true;
+	if (delivery.snapshotPending) {
+		if (!force) markStreamDeliveryDirty(this, state);
 		return;
 	}
-	if (!force && !state.baselineReady) {
-		state.baselineDirty = true;
+	if (!force && !delivery.baselineReady) {
+		markStreamDeliveryDirty(this, state);
 		this.cellDirty.add(channelId);
 		noteCellGateSuppression(this, channelId, "baseline");
 		return;
@@ -205,7 +235,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	const deferFull = syncAction === "hold" && fullOwed;
 	if (deferFull) this.pendingSyncCellSnapshots.add(channelId);
 	if (syncAction === "hold" || deferFull) {
-		state.baselineDirty = true;
+		markStreamDeliveryDirty(this, state);
 		this.cellDirty.add(channelId);
 		noteCellGateSuppression(this, channelId, "sync_output");
 		return;
@@ -226,27 +256,31 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	}
 	noteHyperlinkSaturation(this, channelId, core, String(rec.sessionId));
 	noteUnhandledSequences(rec, core);
+	let repairOwed = false;
 	if (next.frame.full) {
 		rec.cell_emit = next.state;
 		core.clearDirty();
 		this.cellDirty.delete(channelId);
-		state.baselineDirty = false;
-		if (!installSnapshotCursor(this, channelId, state, pb)) {
+		clearStreamDeliveryDirty(state);
+		if (!installStreamBaseline(this, channelId, state, pb)) {
 			noteRejectedCellEmission(rec, "baseline_invalidated");
 			return;
 		}
 	} else {
-		const result = this.sendCellGridUpstream?.(channelId, pb) ?? "dropped";
-		if (result === "dropped") {
+		const fanout = sendCellDeltaToSinks(this, channelId, pb);
+		if (fanout.accepted === 0) {
+			// Nobody took this seq, so the repair full re-uses it and the
+			// receiver's sequence space stays contiguous.
 			noteRejectedCellEmission(rec, "baseline_invalidated");
 			this.pendingCellRepairs.add(channelId);
-			state.baselineReady = false;
+			invalidateStreamBaselines(this, state);
 			this.installTerminalBaseline(asChannelId(channelId));
 			return;
 		}
 		rec.cell_emit = next.state;
 		core.clearDirty();
 		this.cellDirty.delete(channelId);
+		repairOwed = fanout.dropped > 0;
 	}
 	// Diagnostics observe the ACCEPTED frame only, and never advance cell_emit,
 	// the core's dirty rows or the manager's dirty set.
@@ -260,8 +294,17 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 			base_seq: next.frame.baseSeq,
 			full: next.frame.full,
 			vp_rows: next.frame.viewportRows.length,
-			result: state.snapshotCursor ? "cursor" : "sent",
+			result: aggregateStreamDelivery(this, state).snapshotPending ? "cursor" : "sent",
 		});
+	}
+	// A sink that dropped the delta its siblings took owes a fresh baseline, and
+	// the worker fold can no longer reproduce what every receiver holds. The
+	// repair is stream-wide because one core yields one frame per tick.
+	if (repairOwed) {
+		noteRejectedCellEmission(rec, "baseline_invalidated");
+		this.pendingCellRepairs.add(channelId);
+		invalidateStreamBaselines(this, state);
+		this.installTerminalBaseline(asChannelId(channelId));
 	}
 }
 

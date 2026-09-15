@@ -20,6 +20,7 @@ import { ringBounds, ringLength } from "./session-scrollback-ring.ts";
 import { monoNowMs } from "./util/mono.ts";
 import { CELL_GATE_BUDGET_MS } from "./session-resize-capture.ts";
 import { unhandledSequenceSnapshot } from "./session-unhandled-seq.ts";
+import { COORD_CELL_SINK_ID } from "./session-cell-sinks.ts";
 
 export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 	const capturedAtMs = Date.now();
@@ -35,6 +36,7 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 		const gateActive = this.cellEmissionGates.has(channelId);
 		const stream = this.terminalStreams.get(channelId);
 		const capture = stream?.resizeCapture ?? null;
+		const coordDelivery = stream?.deliveries.get(COORD_CELL_SINK_ID);
 		const suppression = this.cellGateSuppression.get(channelId);
 		const syncHold = this.syncOutputHolds.get(channelId);
 		const controlLane = this.terminalControlChains.get(channelId);
@@ -161,18 +163,30 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 				}
 				: null,
 			pending_repair: this.pendingCellRepairs.has(channelId),
+			// The top-level baseline/snapshot fields stay the coordinator sink's,
+			// so existing readers keep their meaning; `deliveries` is the truth for
+			// every sink, including local terminal sockets.
 			terminal_stream: stream
 				? {
 					stream_id: stream.streamId,
 					enabled: stream.enabled,
 					cols: stream.cols,
 					rows: stream.rows,
-					baseline_ready: stream.baselineReady,
-					baseline_dirty: stream.baselineDirty,
+					baseline_ready: coordDelivery?.baselineReady ?? false,
+					baseline_dirty: coordDelivery?.baselineDirty ?? false,
 					core_valid: stream.coreValid,
-					snapshot_id: stream.snapshotCursor?.snapshotId ?? null,
-					snapshot_next_part: stream.snapshotCursor?.nextPart ?? null,
-					snapshot_part_count: stream.snapshotCursor?.parts.length ?? null,
+					snapshot_id: coordDelivery?.cursor?.snapshotId ?? null,
+					snapshot_next_part: coordDelivery?.cursor?.nextPart ?? null,
+					snapshot_part_count: coordDelivery?.cursor?.parts.length ?? null,
+					deliveries: [...stream.deliveries].map(([sinkId, delivery]) => ({
+						sink_id: sinkId,
+						active: this.cellSinks.get(sinkId)?.active ?? false,
+						baseline_ready: delivery.baselineReady,
+						baseline_dirty: delivery.baselineDirty,
+						snapshot_id: delivery.cursor?.snapshotId ?? null,
+						snapshot_next_part: delivery.cursor?.nextPart ?? null,
+						snapshot_part_count: delivery.cursor?.parts.length ?? null,
+					})),
 				}
 				: null,
 			terminal_control: {

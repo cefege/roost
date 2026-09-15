@@ -70,3 +70,9 @@ export const TERMINAL_STREAM_REQUEST_INFLIGHT_CAP = 64;
 // when a peer supplies none, so one downstream request can never park an
 // admission slot indefinitely.
 export const TERMINAL_REQUEST_BUDGET_CAP_MS = 30_000;
+
+// Advertised in WHello.capabilities. This worker owns terminal view
+// membership, geometry aggregation and stream generations for its own
+// sessions; a coordinator that echoes this capability relays browser view
+// commands here instead of creating its own stream desire.
+export const TERMINAL_VIEW_OWNER_CAPABILITY = "terminal-view-owner-v1";

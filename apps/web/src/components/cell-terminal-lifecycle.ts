@@ -18,6 +18,7 @@ import { isPageVisible } from "../lib/pageVisible.ts";
 import { FOCUS_OWNERS } from "../lib/focusOwners.ts";
 import { isAltGraphKey } from "../lib/terminalInput.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
+import { tvModeActive } from "../lib/tvMode.ts";
 import { registerCellTerminalDocumentLifecycle } from "./cell-terminal-document-lifecycle.ts";
 import type { CellTerminalProps } from "./cell-terminal-types.ts";
 import type { CellTerminalRuntime } from "./cell-terminal-runtime.ts";
@@ -41,19 +42,25 @@ export function mountCellTerminalLifecycle(
   if (!display) throw new Error("terminal lifecycle mounted without display");
 
   let lifecycleDisposed = false;
-  void document.fonts?.ready?.then(
-    () => {
-      if (
-        lifecycleDisposed
-        || runtime.unmounted
-        || !viewport.shouldPublishActive()
-      ) return;
-      runtime.cellWidth = 0;
-      runtime.cellHeight = 0;
-      viewport.publishViewportNow();
-    },
-    () => undefined,
-  );
+  // A face that settles behind a hidden, inactive, or pending pane still
+  // changes what one cell measures. Invalidating only while publishable leaves
+  // the fallback advance cached for that pane's whole life, and the canonical
+  // cols × 1ch sheet then paints past the clipped content box: the last column
+  // is unreachable until something else happens to invalidate the cache.
+  const onTerminalFontsSettled = (): void => {
+    if (lifecycleDisposed || runtime.unmounted) return;
+    runtime.cellWidth = 0;
+    runtime.cellHeight = 0;
+    runtime.renderer?.invalidateRowHeight();
+    if (viewport.shouldPublishActive()) viewport.publishViewportNow();
+  };
+  const fonts = document.fonts;
+  void fonts?.ready?.then(onTerminalFontsSettled, () => undefined);
+  // `ready` answers for the loading epoch in flight at mount. A face that
+  // starts loading afterwards settles only through these events, and a failed
+  // download still means re-measuring whatever face actually paints.
+  fonts?.addEventListener("loadingdone", onTerminalFontsSettled);
+  fonts?.addEventListener("loadingerror", onTerminalFontsSettled);
 
   // viewActive() = inLayout && surfaceVisible && surfaceActive (CellTerminal).
   // Every REAL cause of a withdraw is readable right here: an overlay route or
@@ -207,6 +214,10 @@ export function mountCellTerminalLifecycle(
     }
     const activeElement = document.activeElement as HTMLElement | null;
     if (runtime.inputController?.ownsTarget(activeElement)) return;
+    // TV mode has no physical keyboard: focus recovery would pull the remote's
+    // focus into the off-screen textarea and leave the D-pad with nothing to
+    // drive. Raw keys reach the PTY from the on-screen key pad instead.
+    if (tvModeActive()) return;
     if (
       activeElement === document.body
       || activeElement === document.documentElement
@@ -244,6 +255,8 @@ export function mountCellTerminalLifecycle(
   const dispose = (): void => {
     if (lifecycleDisposed) return;
     lifecycleDisposed = true;
+    fonts?.removeEventListener("loadingdone", onTerminalFontsSettled);
+    fonts?.removeEventListener("loadingerror", onTerminalFontsSettled);
     viewport.parkView();
     unregisterDocumentLifecycle();
     window.removeEventListener("resize", onWindowResize);

@@ -10,8 +10,15 @@
 //     input therefore waits for the ordered boundary, never for the resize ACK
 //     or snapshot transfer.
 
+import { log } from "@roost/shared/log";
 import type { SessionManager } from "./session-manager.ts";
 import { monoNowMs } from "./util/mono.ts";
+
+/** Rejection reason every terminal write shares when a keeper replacement is
+ *  prepared. The coordinator maps a rejection to TerminalWritePhase.PRE_WRITE,
+ *  so a client may retry against the replacement keeper without duplicating. */
+export const KEEPER_UPDATE_WRITE_REFUSAL =
+  "keeper update preparation blocks terminal writes";
 
 /** Transaction kinds that take the control lane. */
 export type TerminalControlKind =
@@ -46,6 +53,13 @@ export interface KeeperAdmissionTicket {
   kind: KeeperAdmissionKind;
   release(): void;
 }
+
+/** Asking for the admission lane either yields a ticket or is refused outright.
+ *  A refusal is final for this attempt: the caller MUST surface it as a
+ *  pre-write rejection instead of writing to the keeper. */
+export type KeeperAdmissionResult =
+  | { admitted: true; ticket: KeeperAdmissionTicket }
+  | { admitted: false; reason: string };
 
 /** Serialize one whole terminal-control transaction for a channel. The returned
  *  promise carries the caller's own result; a thrown transaction never poisons
@@ -93,7 +107,17 @@ export function acquireKeeperAdmission(
   mgr: SessionManager,
   channelId: number,
   kind: KeeperAdmissionKind,
-): KeeperAdmissionTicket {
+): KeeperAdmissionResult {
+  // SessionChannelCreationGate.blocksTerminalWrites: a keeper the update is
+  // about to replace must not absorb one more byte.
+  if ((kind === "terminal_input" || kind === "terminal_resize")
+      && mgr.keeperUpdatePrepared) {
+    log.warn("worker", "keeper_update_terminal_write_refused", {
+      channel_id: channelId,
+      kind,
+    });
+    return { admitted: false, reason: KEEPER_UPDATE_WRITE_REFUSAL };
+  }
   const lane: KeeperAdmissionLane = mgr.keeperAdmissionLane.get(channelId)
     ?? { tail: Promise.resolve(), depth: 0, holder: null, heldSinceMonoMs: 0 };
   lane.depth++;
@@ -111,19 +135,22 @@ export function acquireKeeperAdmission(
     lane.heldSinceMonoMs = monoNowMs();
   });
   return {
-    granted,
-    kind,
-    release: () => {
-      if (releasedOnce) return;
-      releasedOnce = true;
-      if (ownsLane && lane.holder === kind) lane.holder = null;
-      releaseLane();
-      void lane.tail.then(() => {
-        if (mgr.keeperAdmissionLane.get(channelId) === lane
-            && lane.depth === 0 && lane.holder === null) {
-          mgr.keeperAdmissionLane.delete(channelId);
-        }
-      });
+    admitted: true,
+    ticket: {
+      granted,
+      kind,
+      release: () => {
+        if (releasedOnce) return;
+        releasedOnce = true;
+        if (ownsLane && lane.holder === kind) lane.holder = null;
+        releaseLane();
+        void lane.tail.then(() => {
+          if (mgr.keeperAdmissionLane.get(channelId) === lane
+              && lane.depth === 0 && lane.holder === null) {
+            mgr.keeperAdmissionLane.delete(channelId);
+          }
+        });
+      },
     },
   };
 }

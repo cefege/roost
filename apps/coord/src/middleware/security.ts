@@ -1,7 +1,7 @@
 // Security headers + CORS + audit log writes. Plain fetch-handler
 // helpers — no H3 dependency.
 
-import type { CoordConfig } from "@roost/shared/config";
+import { DEFAULT_WORKER_LOCAL_UI_ORIGIN, type CoordConfig } from "@roost/shared/config";
 // Exposed-to-JS header names are part of the SPA↔coord trust contract.
 import { X_ROOST_AUTH_LAYER } from "@roost/shared/wire/headers";
 import { TRACE_HEADER } from "@roost/shared/trace";
@@ -10,8 +10,7 @@ import { recordRequest, recordError } from "../telemetry.ts";
 import { signal } from "@roost/shared/diag";
 import type { KyselyDB } from "../db/connection.ts";
 import type { ListenerTrust } from "./caller-origin.ts";
-
-const CSP_TAIL = "frame-ancestors 'none'";
+import { applySecurityHeaders } from "@roost/shared/http-security";
 
 export interface SecurityOptions {
   relaxedCsp: boolean;
@@ -20,7 +19,10 @@ export interface SecurityOptions {
   connectOrigins: string[];
 }
 
+/** The worker-served loopback SPA is a first-class browser origin: its fetches
+ * carry a bearer JWT and no cookies, so allowing it grants reachability only. */
 export function securityOptionsForConfig(cfg: CoordConfig, hsts: boolean): SecurityOptions {
+  const corsAllowedOrigins = [DEFAULT_WORKER_LOCAL_UI_ORIGIN, ...cfg.corsAllowedOrigins];
   const origins = new Set<string>([
     "https://api.deepgram.com",
     "wss://api.deepgram.com",
@@ -33,48 +35,10 @@ export function securityOptionsForConfig(cfg: CoordConfig, hsts: boolean): Secur
   }
   return {
     relaxedCsp: cfg.relaxedCsp,
-    corsAllowedOrigins: cfg.corsAllowedOrigins,
+    corsAllowedOrigins,
     hsts,
     connectOrigins: [...origins],
   };
-}
-
-export function buildCsp(
-  relaxed: boolean,
-  connectOrigins: string[],
-): string {
-  const connections = new Set(["'self'", ...connectOrigins]);
-  if (relaxed) {
-    connections.add("http:");
-    connections.add("ws:");
-  }
-  const scriptSources = ["'self'", "'wasm-unsafe-eval'", "blob:"];
-  const directives = [
-    "default-src 'self'",
-    `script-src ${scriptSources.join(" ")}`,
-    "worker-src 'self' blob:",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
-    "font-src 'self' data:",
-    "base-uri 'self'",
-    "form-action 'none'",
-    "object-src 'none'",
-  ];
-  return `${directives.join("; ")}; connect-src ${[...connections].join(" ")}; ${CSP_TAIL}`;
-}
-
-export function applySecurityHeaders(
-  headers: Headers,
-  relaxed: boolean,
-  hsts: boolean,
-  connectOrigins: string[],
-): void {
-  headers.set("content-security-policy", buildCsp(relaxed, connectOrigins));
-  headers.set("x-frame-options", "DENY");
-  headers.set("x-content-type-options", "nosniff");
-  headers.set("referrer-policy", "no-referrer");
-  headers.set("permissions-policy", "camera=(), geolocation=(), microphone=(self)");
-  if (hsts) headers.set("strict-transport-security", "max-age=31536000");
 }
 
 export function applyCors(

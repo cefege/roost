@@ -8,17 +8,24 @@ import {
   FirehoseFrameSchema,
   TerminalViewStateFrameSchema,
   TerminalViewStatus,
+  type FirehoseFrame,
   type TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
+} from "../gen/roost/v1/sync_pb.ts";
 import {
   TERMINAL_MAX_COLS,
   TERMINAL_MAX_ROWS,
   isTerminalGeometry,
   isTerminalUuid,
-} from "@roost/shared/viewport";
-import type { TerminalScreenSocketSink } from "./terminal-screen-hub.ts";
+} from "../viewport.ts";
 
 const MAX_U64 = (1n << 64n) - 1n;
+
+/** Where one view decision lands: the socket that declared the view. Coord's
+ * screen-hub sink and the worker's local terminal socket both satisfy this
+ * structurally, so neither host wraps the registry in an adapter. */
+export interface TerminalViewStateSink {
+  enqueueTerminalState(frame: FirehoseFrame, sessionId: string): void;
+}
 
 export interface TerminalViewIntent {
   sessionId: string;
@@ -99,7 +106,7 @@ function terminalReason(value: string): string {
 }
 
 export function enqueueTerminalViewState(
-  sink: TerminalScreenSocketSink,
+  sink: TerminalViewStateSink,
   state: TerminalViewState,
 ): void {
   sink.enqueueTerminalState(create(FirehoseFrameSchema, {

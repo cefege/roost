@@ -17,8 +17,18 @@ import type { FsmChannel } from "../src/fsm.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionManager } from "../src/session-manager.ts";
 import { cancelCellEmission } from "../src/session-cell-scheduler.ts";
+import {
+  COORD_CELL_SINK_ID,
+  registerCellSink,
+  type CellSinkResult,
+} from "../src/session-cell-sinks.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
+import {
+  acquireKeeperAdmission,
+  type KeeperAdmissionKind,
+  type KeeperAdmissionTicket,
+} from "../src/session-control-lanes.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import type { TerminalCellSendResult } from "../src/transport/coord-link-types.ts";
 import type { FakeKeeper } from "./keeper-fake-pool.ts";
@@ -37,6 +47,18 @@ export const TEST_ROWS = 6;
 interface HarnessOptions {
   sendFrame?: (frame: PbCellGridFrame) => TerminalCellSendResult;
   sendChunk?: (chunk: PbCellGridChunk) => TerminalCellSendResult;
+}
+
+export interface ExtraCellSinkOptions {
+  sendFrame?: (frame: PbCellGridFrame) => CellSinkResult;
+  sendChunk?: (chunk: PbCellGridChunk) => CellSinkResult;
+}
+
+export interface ExtraCellSink {
+  readonly id: string;
+  readonly frames: PbCellGridFrame[];
+  readonly chunks: PbCellGridChunk[];
+  overflowNotices(): number;
 }
 
 export interface StreamHarness {
@@ -66,11 +88,14 @@ export async function makeHarness(
     workerFp: asWorkerFp("00".repeat(32)),
     sink: new SessionEventTestSink(),
     sendBinaryUpstream: () => "sent",
-    sendCellGridUpstream: (_channelId, frame) => {
+  });
+  registerCellSink(manager, {
+    id: COORD_CELL_SINK_ID,
+    sendFrame: (_channelId, frame) => {
       frameAttempts.push(frame);
       return options.sendFrame?.(frame) ?? "sent";
     },
-    sendCellGridChunkUpstream: (_channelId, chunk) => {
+    sendChunk: (_channelId, chunk) => {
       chunkAttempts.push(chunk);
       return options.sendChunk?.(chunk) ?? "sent";
     },
@@ -122,6 +147,45 @@ export function enableStream(
     cols,
     rows,
   });
+}
+
+/** Register a second viewer's sink, so a test can express "a local terminal
+ *  socket is watching this session too". Returns the frames it received. */
+export function attachExtraCellSink(
+  manager: SessionManager,
+  sinkId: string,
+  options: ExtraCellSinkOptions = {},
+): ExtraCellSink {
+  const frames: PbCellGridFrame[] = [];
+  const chunks: PbCellGridChunk[] = [];
+  let overflows = 0;
+  registerCellSink(manager, {
+    id: sinkId,
+    sendFrame: (_channelId, frame) => {
+      frames.push(frame);
+      return options.sendFrame?.(frame) ?? "sent";
+    },
+    sendChunk: (_channelId, chunk) => {
+      chunks.push(chunk);
+      return options.sendChunk?.(chunk) ?? "sent";
+    },
+    onOverflow: () => { overflows += 1; },
+  });
+  return { id: sinkId, frames, chunks, overflowNotices: () => overflows };
+}
+
+/** Hold the real admission lane for a channel so later writes queue behind a
+ *  live holder. A refusal here means the test's keeper state is wrong. */
+export function holdKeeperAdmission(
+  manager: SessionManager,
+  channelId: number,
+  kind: KeeperAdmissionKind,
+): KeeperAdmissionTicket {
+  const admission = acquireKeeperAdmission(manager, channelId, kind);
+  if (!admission.admitted) {
+    throw new Error(`keeper admission was refused: ${admission.reason}`);
+  }
+  return admission.ticket;
 }
 
 export function frameRowText(frame: PbCellGridFrame, row: number): string {

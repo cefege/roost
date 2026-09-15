@@ -24,7 +24,7 @@ __pycache__/
 # rebuilt from in-tree sources (roost-cli/src/state.ts + worker/src/keeper/main.ts).
 STATE.md
 apps/worker/src/keeper/main.js
-apps/coord/src/web-embed.generated-assets/
+apps/shared/src/web-embed.generated-assets/
 
 .claude/scheduled_tasks.lock
 

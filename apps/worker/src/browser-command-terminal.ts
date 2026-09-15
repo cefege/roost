@@ -1,8 +1,10 @@
-// Browser-command handler for bounded, demand-driven scrollback cell retrieval.
-// It serves the worker's authoritative grid through the shared cell codec and
-// fences each cooperative page against terminal-control and grid-epoch changes.
+// Bounded, demand-driven scrollback cell retrieval from the worker's
+// authoritative grid. readScrollbackCells is the ONE reader: the coordinator
+// RPC below and the local terminal socket both wrap it, so neither transport
+// owns a second traversal of the cell codec or a second set of grid-epoch and
+// terminal-control fences.
 
-import type { ClientControlFrame } from "@roost/shared/wire";
+import type { ClientControlFrame, ScrollbackHistoryFloor } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import {
 	cellGridEpoch, readScrollbackRangeCells, scrollbackOrigin, type CellRow,
@@ -22,47 +24,57 @@ const SCROLLBACK_CELLS_MAX_ROWS = 2000;
 // the SPA's per-frame splice budget (scrollbackBackfill BACKFILL_SPLICE_ROWS).
 const SCROLLBACK_CELLS_SLICE_ROWS = 250;
 
+export interface ScrollbackCellsRequest {
+	sessionId: string;
+	/** Empty binds the read to the worker's current epoch and returns it. */
+	gridEpoch: string;
+	endRow: number;
+	maxRows: number;
+}
+
+export interface ScrollbackCellsPage {
+	rows: CellRow[];
+	cols: number;
+	total: number;
+	startRow: number;
+	endRow: number;
+	gridEpoch: string;
+	historyFloor: ScrollbackHistoryFloor;
+}
+
+export type ScrollbackCellsResult =
+	| { ok: true; page: ScrollbackCellsPage }
+	| { ok: false; error: string };
+
 /** Demand-driven history from a stable grid epoch. Browser callers name the
  * authoritative viewport frame they hold. An empty epoch is the headless-API
  * form: bind this read to the worker's current epoch and return that identity.
  * The epoch is checked after every yield in either form, so neither can splice
  * rows across a reframe. */
-export async function handleGetScrollbackCells(
-	frame: Extract<ClientControlFrame, { kind: "get-scrollback-cells" }>,
-	request_id: string,
-	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
-): Promise<void> {
-	const { coordLink, sessionMgr } = deps;
-	let rec = sessionMgr.getBySessionId(frame.session_id);
-	if (!rec) {
-		coordLink.send({ kind: "rpc-error", request_id, message: "unknown session" });
-		return;
-	}
+export async function readScrollbackCells(
+	sessionMgr: SessionManager,
+	request: ScrollbackCellsRequest,
+): Promise<ScrollbackCellsResult> {
+	let rec = sessionMgr.getBySessionId(request.sessionId);
+	if (!rec) return { ok: false, error: "unknown session" };
 	// A dims-change claim rebuilds a fresh core inside its terminal-control
 	// transaction; serving mid-rebuild would hand out rows the imminent reframe
 	// invalidates. The lane tail never rejects — a failed transaction reports
 	// itself and leaves the current core serveable.
 	if (sessionMgr.terminalControlChains.has(rec.channelId)) {
 		await terminalControlSettled(sessionMgr, rec.channelId);
-		rec = sessionMgr.getBySessionId(frame.session_id);
-		if (!rec) {
-			coordLink.send({ kind: "rpc-error", request_id, message: "session closed" });
-			return;
-		}
+		rec = sessionMgr.getBySessionId(request.sessionId);
+		if (!rec) return { ok: false, error: "session closed" };
 	}
 	const core = rec.wtermCore;
 	// Registered sessions own a terminal core. Keep the narrow for teardown
 	// races and sparse test fixtures.
-	if (!core) {
-		coordLink.send({ kind: "rpc-error", request_id, message: "session has no terminal" });
-		return;
-	}
-	const requestedEpoch = frame.grid_epoch;
+	if (!core) return { ok: false, error: "session has no terminal" };
+	const requestedEpoch = request.gridEpoch;
 	const currentEpoch = cellGridEpoch(rec.cell_emit);
 	const expectedEpoch = requestedEpoch || currentEpoch;
 	if (requestedEpoch && requestedEpoch !== currentEpoch) {
-		coordLink.send({ kind: "rpc-error", request_id, message: "grid epoch changed" });
-		return;
+		return { ok: false, error: "grid epoch changed" };
 	}
 	try {
 		// Monotonic index space (grid-to-cells.ts): the SPA's row indices are
@@ -80,8 +92,8 @@ export async function handleGetScrollbackCells(
 		// which is worse than the short page.
 		const sbDropped = scrollbackOrigin(core, rec.cell_emit);
 		const total = sbDropped + core.getScrollbackCount();
-		const endRow = Math.min(frame.end_row, total);
-		const wantStart = endRow - Math.min(frame.max_rows, SCROLLBACK_CELLS_MAX_ROWS);
+		const endRow = Math.min(request.endRow, total);
+		const wantStart = endRow - Math.min(request.maxRows, SCROLLBACK_CELLS_MAX_ROWS);
 		const startRow = Math.max(sbDropped, wantStart);
 		const historyFloor = historyFloorReason(rec, wantStart, sbDropped);
 		// Sliced walk: 999 rows × cols is ~120k WASM cell reads on an 80-col
@@ -97,20 +109,15 @@ export async function handleGetScrollbackCells(
 		for (let sliceStart = startRow; sliceStart < endRow; sliceStart += SCROLLBACK_CELLS_SLICE_ROWS) {
 			if (slices > 0) {
 				await new Promise<void>((resolve) => { setImmediate(resolve); });
-				const liveRec = sessionMgr.getBySessionId(frame.session_id);
+				const liveRec = sessionMgr.getBySessionId(request.sessionId);
 				if (!liveRec || expectedEpoch !== cellGridEpoch(liveRec.cell_emit)) {
-					coordLink.send({ kind: "rpc-error", request_id, message: "grid epoch changed" });
-					return;
+					return { ok: false, error: "grid epoch changed" };
 				}
 				rec = liveRec;
-				if (rec.wtermCore !== core) {
-					coordLink.send({ kind: "rpc-error", request_id, message: "grid reframed mid-read" });
-					return;
-				}
+				if (rec.wtermCore !== core) return { ok: false, error: "grid reframed mid-read" };
 				liveDropped = scrollbackOrigin(core, rec.cell_emit);
 				if (liveDropped > startRow) {
-					coordLink.send({ kind: "rpc-error", request_id, message: "scrollback evicted mid-read" });
-					return;
+					return { ok: false, error: "scrollback evicted mid-read" };
 				}
 			}
 			const sliceEnd = Math.min(sliceStart + SCROLLBACK_CELLS_SLICE_ROWS, endRow);
@@ -126,20 +133,41 @@ export async function handleGetScrollbackCells(
 			rows: rows.length,
 			slices,
 		});
-		coordLink.send({
-			kind: "rpc-ok",
-			request_id,
-			data: {
-				rows, cols: core.getCols(), total, start_row: startRow, end_row: endRow,
-				grid_epoch: expectedEpoch, history_floor: historyFloor,
+		return {
+			ok: true,
+			page: {
+				rows, cols: core.getCols(), total, startRow, endRow,
+				gridEpoch: expectedEpoch, historyFloor,
 			},
-		});
+		};
 	} catch (err) {
-		coordLink.send({
-			kind: "rpc-error",
-			request_id,
-			message: err instanceof Error ? err.message : String(err),
-		});
+		return { ok: false, error: err instanceof Error ? err.message : String(err) };
 	}
 }
 
+export async function handleGetScrollbackCells(
+	frame: Extract<ClientControlFrame, { kind: "get-scrollback-cells" }>,
+	request_id: string,
+	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
+): Promise<void> {
+	const result = await readScrollbackCells(deps.sessionMgr, {
+		sessionId: frame.session_id,
+		gridEpoch: frame.grid_epoch,
+		endRow: frame.end_row,
+		maxRows: frame.max_rows,
+	});
+	if (!result.ok) {
+		deps.coordLink.send({ kind: "rpc-error", request_id, message: result.error });
+		return;
+	}
+	const page = result.page;
+	deps.coordLink.send({
+		kind: "rpc-ok",
+		request_id,
+		data: {
+			rows: page.rows, cols: page.cols, total: page.total,
+			start_row: page.startRow, end_row: page.endRow,
+			grid_epoch: page.gridEpoch, history_floor: page.historyFloor,
+		},
+	});
+}

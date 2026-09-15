@@ -32,6 +32,7 @@ import style is now correct instead of two.
 | `@roost/shared/terminal-search` | bounded paging limits, Unicode code-point utilities, stop reasons, worker-result validation |
 | `@roost/shared/terminal-input` | terminal newline/paste encoding plus guarded-prompt byte and wait bounds |
 | `@roost/shared/terminal-metadata` | incremental OSC 0/2 parsing, title normalization, metadata negotiation, and activity throttle |
+| `@roost/shared/terminal-view` | terminal view membership: lease/park lifetime, the one predicate that decides which viewer constrains a PTY, and the screen port each host implements |
 | `@roost/shared/layout-document` | portable v1 pane-tree types, one resource-bounded strict parser, and inclusive split-ratio bounds |
 | `@roost/shared/layout-document-proto` | preflighted, validated `LayoutDocumentV1` ↔ protobuf recursion adapter |
 | `@roost/shared/agent-conversation-reference` | bounded private OMP reference + sequence-aware recovery fold |
@@ -116,6 +117,12 @@ producers and consumers.
 - **Terminal search** — `src/terminal-search.ts` owns query/row/match/preview
   limits, exclusive-cursor result validation, and Unicode code-point
   counting/truncation shared by every search hop.
+- **Terminal view membership** — public barrel `src/terminal-view/index.ts`;
+  `TerminalViewRegistry` owns which socket watches which session, lease
+  renewal, park grace, and the sweep, and it minimizes with
+  `minimumTerminalGeometry`. Coord's `TerminalViewHub` and the worker's view
+  owner each construct it with their own `src/terminal-view/screen-port.ts`
+  implementation for baseline/delta delivery.
 - **Terminal cell model** — public barrel `src/cell/index.ts`;
   `src/cell/types.ts`, `src/cell/grid-to-cells.ts`, `src/cell/diff-grid.ts`,
   `src/cell/emitter.ts`, `src/cell/cell-proto.ts`, and snapshot owners

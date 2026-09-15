@@ -498,6 +498,22 @@ derives its own hostname and reachable address. Exporting either variable while
 deploying to a host that has no prior install refuses the deploy rather than
 registering that host under this machine's name.
 
+Every worker also serves the SPA on its own loopback door, default
+`ROOST_WORKER_LOCAL_UI_BIND=127.0.0.1:4104`. A browser on that machine opens
+`http://127.0.0.1:4104` and talks to that worker's PTYs directly, so its
+terminals keep painting and accepting input while the coordinator is down;
+sessions on other machines pause until the coordinator returns. The door
+refuses any non-loopback bind, serves exactly that one origin (`localhost:4104`
+is rejected on purpose, because the coordinator allowlists only the canonical
+one), and advertises nothing but the coordinator URL and the worker's own
+fingerprint at `/api/local-bootstrap`. `ROOST_WEB_DIST_PATH` overrides the SPA
+it serves for source runs.
+
+Changing that port means the page's origin is no longer the pre-allowlisted
+`http://127.0.0.1:4104`, so add the new origin to the coordinator's
+`ROOST_CORS_ALLOWED_ORIGINS` or its cross-origin RPCs and Sync socket are
+refused.
+
 ## Check current health and recent anomalies
 
 ```sh

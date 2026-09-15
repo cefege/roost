@@ -9,9 +9,11 @@ import {
   TERMINAL_VIEW_PARK_GRACE_MS,
   minimumTerminalGeometry,
   type TerminalGeometry,
-} from "@roost/shared/viewport";
-import type { TerminalScreenSocketSink } from "./terminal-screen-hub.ts";
-import type { TerminalViewIntent } from "./terminal-view-protocol.ts";
+} from "../viewport.ts";
+import type {
+  TerminalViewIntent,
+  TerminalViewStateSink,
+} from "./terminal-view-protocol.ts";
 
 const VIEWER_TOMBSTONE_CAP = 128;
 const PROCESS_TOMBSTONE_CAP = 131_072;
@@ -38,7 +40,7 @@ export interface TerminalViewSocketRecord {
   viewerKey: string | null;
   fingerprint: string;
   allowsSession(sessionId: string): boolean;
-  sink: TerminalScreenSocketSink;
+  sink: TerminalViewStateSink;
   views: Set<string>;
 }
 

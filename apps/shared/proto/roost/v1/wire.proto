@@ -278,3 +278,16 @@ message AuditRow {
   uint32 status = 7;
   optional string trace_id = 8;
 }
+
+// ─── Terminal view membership projection ──────────────────────────────────
+
+// One viewer's contribution to a session's effective terminal geometry, as
+// published by the authority that owns membership for that session.
+message PbTerminalViewInput {
+  string fingerprint = 1;
+  string view_id = 2;
+  uint32 cols = 3;
+  uint32 rows = 4;
+  bool parked = 5;
+  bool constrains = 6;
+}

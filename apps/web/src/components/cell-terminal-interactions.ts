@@ -17,6 +17,7 @@ import { sendUserTerminalInput } from "../lib/userTerminalInput.ts";
 import { copyOnSelect } from "../lib/copyOnSelectPref.ts";
 import { isPageVisible, pageVisible } from "../lib/pageVisible.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
+import { tvModeActive } from "../lib/tvMode.ts";
 import { activeComposeSessionId } from "./TerminalComposeButton.tsx";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import type { CellTerminalProps } from "./cell-terminal-types.ts";
@@ -172,7 +173,10 @@ export function mountCellTerminalInteractions(
       }
       return;
     }
-    if (!isTouchDevice() && activeComposeSessionId() === null) {
+    // TV mode leaves focus where the remote put it: the off-screen PTY textarea
+    // would otherwise own it for the pane's whole life, so the D-pad could never
+    // reach the .wterm scroll box or the on-screen key pad.
+    if (!isTouchDevice() && !tvModeActive() && activeComposeSessionId() === null) {
       runtime.inputController?.forceFocus();
     }
   });

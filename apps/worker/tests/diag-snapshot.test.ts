@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
 import { initCellEmitState } from "@roost/shared/cell";
 import { SessionManager } from "../src/session-manager.ts";
+import { COORD_CELL_SINK_ID, registerCellSink } from "../src/session-cell-sinks.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import {
   appendToRing,
@@ -13,6 +14,7 @@ import { SessionEventTestSink } from "./session-event-test-sink.ts";
 const WORKER_FP = asWorkerFp("d".repeat(64));
 const SESSION_ID = asSessionId("11111111-2222-4333-8444-555555555555");
 const CHANNEL_ID = asChannelId(43_210);
+const LOCAL_SINK_ID = "local:diag-socket";
 
 describe("worker diagnostic snapshot", () => {
   test("reports bounded authoritative session state and leaves unknown values explicit", () => {
@@ -45,16 +47,29 @@ describe("worker diagnostic snapshot", () => {
       cell_emit: cellEmit,
       sb_origin_pin: null,
     } as never);
+    // Registered before the stream exists so registration forces no baseline
+    // through this test's stub core.
+    registerCellSink(manager, {
+      id: COORD_CELL_SINK_ID,
+      sendFrame: () => "sent",
+      sendChunk: () => "sent",
+    });
+    registerCellSink(manager, {
+      id: LOCAL_SINK_ID,
+      sendFrame: () => "sent",
+      sendChunk: () => "sent",
+    });
     manager.terminalStreams.set(CHANNEL_ID, {
       streamId: "00000000-0000-4000-8000-000000000001",
       enabled: true,
       cols: 91,
       rows: 27,
       version: 1,
-      baselineReady: false,
       coreValid: true,
-      baselineDirty: true,
-      snapshotCursor: null,
+      deliveries: new Map([
+        [COORD_CELL_SINK_ID, { cursor: null, baselineReady: false, baselineDirty: true }],
+        [LOCAL_SINK_ID, { cursor: null, baselineReady: true, baselineDirty: false }],
+      ]),
       resizeCapture: {
         streamId: "00000000-0000-4000-8000-000000000001",
         resizeSeq: 12,
@@ -138,6 +153,15 @@ describe("worker diagnostic snapshot", () => {
             baseline_ready: boolean;
             baseline_dirty: boolean;
             core_valid: boolean;
+            deliveries: Array<{
+              sink_id: string;
+              active: boolean;
+              baseline_ready: boolean;
+              baseline_dirty: boolean;
+              snapshot_id: string | null;
+              snapshot_next_part: number | null;
+              snapshot_part_count: number | null;
+            }>;
           } | null;
           terminal_control: {
             control_running_age_ms: number | null;
@@ -224,6 +248,13 @@ describe("worker diagnostic snapshot", () => {
         baseline_dirty: true,
         core_valid: true,
       });
+      // Each sink's own readiness, not the coordinator's collapsed over both.
+      expect(session.terminal_stream?.deliveries).toEqual([
+        { sink_id: "coord", active: true, baseline_ready: false, baseline_dirty: true,
+          snapshot_id: null, snapshot_next_part: null, snapshot_part_count: null },
+        { sink_id: LOCAL_SINK_ID, active: true, baseline_ready: true, baseline_dirty: false,
+          snapshot_id: null, snapshot_next_part: null, snapshot_part_count: null },
+      ]);
       expect(session.terminal_control).toMatchObject({
         control_state: "terminal_stream",
         control_depth: 2,

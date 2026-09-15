@@ -3,10 +3,9 @@
 // supplies geometry, route, and browser callbacks. The dispatcher consumes the
 // route shape to verify the same worker route immediately before a send.
 import type { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
-import type { TerminalGeometry } from "@roost/shared/viewport";
+import type { TerminalViewGeometrySet } from "@roost/shared/terminal-view";
 import type { HopDeadline } from "./worker-send.ts";
 import type { TerminalStreamDispatcher } from "./terminal-stream-dispatcher.ts";
-import type { TerminalViewGeometrySet } from "./terminal-view-registry-state.ts";
 
 export interface TerminalStreamDesired {
   streamId: string;
@@ -21,16 +20,6 @@ export interface TerminalStreamRoute {
   channel: number;
 }
 
-export type TerminalUnavailablePolicy = "heartbeat" | "route" | "never";
-
-export interface TerminalStreamState {
-  effective: TerminalGeometry | null;
-  streamId: string;
-  unavailable: boolean;
-  unavailableReason: string;
-  unavailablePolicy: TerminalUnavailablePolicy;
-}
-
 export interface TerminalViewStreamControllerOptions {
   resolveRoute(sessionId: string): Promise<TerminalStreamRoute | null>;
   streamDispatcher: TerminalStreamDispatcher;
@@ -40,4 +29,7 @@ export interface TerminalViewStreamControllerOptions {
   broadcast(sessionId: string, status: TerminalViewStatus, message: string): void;
   closeViews(sessionId: string): void;
   presence(sessionId: string): void | Promise<void>;
+  /** Baseline repair for a session this controller never minimized, i.e. one
+   * whose worker owns its own terminal views. */
+  repairUnownedSession?(sessionId: string, streamId: string): void;
 }

@@ -1,8 +1,9 @@
 // Worker entry point.
 //
-// Boot sequence: config, credentials, OMP bridge installation, outbound
-// coordinator link, heartbeat, and live-session snapshot.
-// Worker has no inbound port: all browser commands arrive through CoordLink.
+// Boot sequence: config, credentials, OMP bridge installation, the loopback
+// local-UI door, the outbound coordinator link, heartbeat, and live-session
+// snapshot. Remote browser commands arrive through CoordLink; a browser on
+// this machine reaches its own PTYs through the local door instead.
 
 import { loadWorkerConfig } from "./config.ts";
 import { loadWorkerKey, mintJwt } from "./jwt.ts";
@@ -10,12 +11,14 @@ import { createCoordClient } from "./coord-client.ts";
 import { runInstall } from "./install.ts";
 import { startHeartbeat, type HeartbeatDisposer } from "./heartbeat.ts";
 import { SessionManager } from "./session-manager.ts";
+import { COORD_CELL_SINK_ID, registerCellSink } from "./session-cell-sinks.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { startCoordLink } from "./transport/coord-link.ts";
 import { buildCoordLinkDeps, type CoordLinkRefs } from "./coord-link-deps.ts";
 import { handleKeeperSurvivor } from "./boot-keeper.ts";
 import { createWorkerTerminalCoreCapacity } from "./terminal-core-capacity.ts";
 import { spendKeeperForceLiveRetireAuthorization } from "./service-definition-env.ts";
+import { startLocalTerminalDoor } from "./boot-local-terminal.ts";
 import {
 	setupReconcile,
 	type ReconcileAdmissionOutcome,
@@ -150,6 +153,15 @@ export async function runWorker() {
 		agentDetector: null,
 		acquireKeeperUpdateBoundary: null,
 	};
+	// The local door listens before the link: a browser on this machine must keep
+	// reaching its own PTYs while the coordinator is unreachable.
+	const localDoor = startLocalTerminalDoor({
+		bind: cfg.localUiBind,
+		coordinatorUrl: cfg.coordinatorUrl,
+		workerFp,
+		webDistPath: cfg.webDistPath,
+		refs,
+	});
 	const sessionEventStore = openSessionEventStore();
 	const coordLink = startCoordLink(buildCoordLinkDeps({
 		coordHttpUrl: cfg.coordinatorUrl,
@@ -157,6 +169,7 @@ export async function runWorker() {
 		mintJwt: () => mintJwt(key, "roost-coordinator"),
 		refs,
 		sessionEventStore,
+		localTerminal: localDoor.wiring,
 	}));
 	// Bind the forward ref before yielding: startCoordLink's first dial awaits
 	// mintJwt(), so no callback can observe a null link on this tick.
@@ -182,11 +195,14 @@ export async function runWorker() {
 			coordLink.sendBinary(channelId, direction, endSeq, bytes),
 		sendTerminalMetadataUpstream: (metadata) =>
 			coordLink.sendTerminalMetadata(metadata),
-		sendCellGridUpstream: (channelId, frame) =>
-			coordLink.sendCellGrid(channelId, frame),
-		sendCellGridChunkUpstream: (channelId, chunk) =>
-			coordLink.sendCellGridChunk(channelId, chunk),
 		terminalCoreCapacity,
+	});
+	// The coordinator is one cell sink among several: local terminal sockets
+	// register their own and are delivered to independently.
+	registerCellSink(sessionMgr, {
+		id: COORD_CELL_SINK_ID,
+		sendFrame: (channelId, frame) => coordLink.sendCellGrid(channelId, frame),
+		sendChunk: (channelId, chunk) => coordLink.sendCellGridChunk(channelId, chunk),
 	});
 	refs.sessionMgr = sessionMgr;
 	const agentRegistry = new AgentStatusRegistry({
@@ -199,7 +215,12 @@ export async function runWorker() {
 	refs.agentDetector = agentDetector;
 	sessionMgr.setAgentStatusHooks({
 		terminalChanged: (channelId) => agentDetector.schedule(channelId),
-		sessionClosed: (sessionId) => agentDetector.closeSession(sessionId),
+		sessionClosed: (sessionId) => {
+			agentDetector.closeSession(sessionId);
+			// The view owner holds this session's membership and stream identity,
+			// so a closed PTY must drop both instead of holding a dead geometry.
+			localDoor.wiring.viewOwner.closeSession(sessionId);
+		},
 	});
 	const serviceHealth = await serveServiceHealth("worker", () => {
 		const targetLinkReady = coordLink.ready();
@@ -213,11 +234,6 @@ export async function runWorker() {
 			coordinatorUrl: cfg.coordinatorUrl,
 		};
 	}, { dataDir: SUPPORT });
-
-
-	// Worker has NO inbound port. Browser commands arrive as
-	// `browser-command` frames on CoordLink downstream. PTY bytes flow
-	// upstream via persistent KeeperClient per session.
 
 	let agentReportServer: AgentReportServer | null = null;
 	try {
@@ -322,6 +338,12 @@ export async function runWorker() {
 			} catch {
 				/* best-effort */
 			}
+		}
+		diag("worker.shutdown", { step: "local-ui" });
+		try {
+			localDoor.close();
+		} catch {
+			/* best-effort */
 		}
 		log.info("worker", "shutdown", { signal: sig });
 		try {

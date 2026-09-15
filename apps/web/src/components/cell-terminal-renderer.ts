@@ -19,9 +19,10 @@ import { registerRenderer } from "../lib/terminalPreview.ts";
 import { registerUserTerminalInput } from "../lib/userTerminalInput.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
+import { tvModeActive } from "../lib/tvMode.ts";
 import { publishMountedSpawnMeasurement } from "../store/optimisticSpawn.ts";
 import { registerPresenceHandler } from "../store/sync.ts";
-import { consumeLastInputSendTs } from "../ws/sync-outbound.ts";
+import { consumeLastInputSendTs } from "../ws/terminal-input-lanes.ts";
 import { activeComposeSessionId } from "./TerminalComposeButton.tsx";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import type { CellTerminalInput } from "./cell-terminal-input.ts";
@@ -262,6 +263,7 @@ export function mountCellTerminalRenderer(
 		&& !signals.pending()
 		&& props.focused === true
 		&& !isTouchDevice()
+		&& !tvModeActive()
 		&& activeComposeSessionId() === null
 	) {
 		runtime.inputController.forceFocus();
@@ -271,6 +273,7 @@ export function mountCellTerminalRenderer(
 				&& _terminalForegroundWorkAllowed(viewport)
 				&& !signals.pending()
 				&& props.focused === true
+				&& !tvModeActive()
 				&& activeComposeSessionId() === null
 			) runtime.inputController?.forceFocus();
 		});

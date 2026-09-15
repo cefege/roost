@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import type { InputAdmission } from "../src/ws/sync-outbound.ts";
+import type { InputAdmission } from "../src/ws/terminal-input-lanes.ts";
 
 let events: string[] = [];
 let nextAdmission: InputAdmission = { accepted: false, reason: "not ready" };

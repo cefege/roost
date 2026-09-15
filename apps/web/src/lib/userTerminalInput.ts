@@ -1,5 +1,6 @@
 import { diag, signal } from "@roost/shared/diag";
-import { sendTerminalInput, type InputAdmission } from "../ws/sync-outbound.ts";
+import { sendTerminalInput } from "../ws/sync-outbound.ts";
+import type { InputAdmission } from "../ws/terminal-input-lanes.ts";
 
 type UserTerminalInputCallback = () => void;
 

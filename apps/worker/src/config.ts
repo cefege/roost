@@ -12,7 +12,10 @@ import { hostname } from "node:os";
  * resolution: the config read below and the boot-time erasure there must
  * address the same installed entry. */
 import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "./service-definition-env.ts";
-import { DEFAULT_COORDINATOR_BIND } from "@roost/shared/config";
+import {
+  DEFAULT_COORDINATOR_BIND,
+  DEFAULT_WORKER_LOCAL_UI_BIND,
+} from "@roost/shared/config";
 
 export const WorkerConfig = z.object({
   coordinatorUrl: z.string().url(),
@@ -27,6 +30,13 @@ export const WorkerConfig = z.object({
   // validation error the caller was about to report. withDefaults supplies the
   // real value from the caller's env.
   logDir: z.string().default(() => workerLogDir()),
+  // Loopback door for browsers running on this machine: it serves the SPA and
+  // upgrades local terminal sockets. local-ui-server.ts refuses any non-loopback
+  // host before it listens.
+  localUiBind: z.string().default(DEFAULT_WORKER_LOCAL_UI_BIND),
+  // Same env key the coordinator reads: whichever door serves the SPA serves the
+  // same build output, and an absent path falls back to the embedded assets.
+  webDistPath: z.string().optional(),
   // path to coordinator_ed25519.key (the worker's own JWT-signing key)
   workerKeyPath: z.string(),
 });
@@ -41,9 +51,6 @@ function withDefaults(
   platform: NodeJS.Platform,
 ): Record<string, unknown> {
   const SUPPORT = workerDataDir(env);
-  // Worker has no inbound surface post phase-24d-1; reachableAddr /
-  // wsListenPort / wsScheme / tls* / coordVerifyingKeyPath dropped
-  // entirely in phase-25e.
   return {
     // Fallback for a bare `bun apps/worker/src/main.ts` and for CLI commands
     // that build a worker config with no installed service definition. It
@@ -65,6 +72,8 @@ function withDefaults(
     // in the sidebar.
     label: env.ROOST_WORKER_LABEL ?? hostname() ?? env.HOSTNAME ?? "worker",
     logDir: workerLogDir(env),
+    localUiBind: env.ROOST_WORKER_LOCAL_UI_BIND,
+    webDistPath: env.ROOST_WEB_DIST_PATH,
     workerKeyPath: env.ROOST_WORKER_KEY_PATH ??
       join(SUPPORT, "coordinator_ed25519.key"),
   };

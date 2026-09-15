@@ -9,11 +9,7 @@ import * as resumeFns from "./session-resume.ts";
 import * as respawnAdmission from "./session-respawn-admission.ts";
 import * as lifecycle from "./session-lifecycle.ts";
 import * as terminalControl from "./session-terminal-control.ts";
-import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
-import {
-	cancelCellEmission,
-	scheduleCellEmission,
-} from "./session-cell-scheduler.ts";
+import { scheduleCellEmission } from "./session-cell-scheduler.ts";
 import { SessionManagerState } from "./session-manager-state.ts";
 import { SessionChannelCreationGate } from "./session-channel-creation-gate.ts";
 import { releaseSyncOutputHold } from "./session-sync-output.ts";
@@ -46,8 +42,9 @@ export function isSessionEventDurabilityError(error: unknown): boolean {
 export class SessionManager extends SessionManagerState {
 	readonly #channelCreationGate = new SessionChannelCreationGate();
 
+	/** Keeper replacement preparation: creation and terminal writes fail closed. */
 	get keeperUpdatePrepared(): boolean {
-		return this.#channelCreationGate.preparationActive;
+		return this.#channelCreationGate.blocksTerminalWrites();
 	}
 
 	/** Close channel creation synchronously, then wait for every creation that
@@ -146,27 +143,6 @@ export class SessionManager extends SessionManagerState {
 	requestTerminalSnapshot(sessionId: string, streamId: string): void {
 		terminalControl.requestTerminalSnapshot.call(this, sessionId, streamId);
 	}
-	invalidateTerminalStreamsForReconnect(): void {
-		for (const [channelId, current] of this.terminalStreams) {
-			cancelCellEmission(this, channelId);
-			this.cellDirty.delete(channelId);
-			current.baselineDirty = false;
-			retireSnapshotCursor(this, channelId, current);
-			this.terminalStreams.set(channelId, {
-				streamId: current.streamId,
-				enabled: false,
-				cols: 0,
-				rows: 0,
-				version: this.nextTerminalStreamVersion(),
-				baselineReady: true,
-				coreValid: current.coreValid,
-				baselineDirty: false,
-				snapshotCursor: null,
-				resizeCapture: current.resizeCapture,
-			});
-		}
-	}
-
 
 	/** Return all live sessions for snapshot emission. */
 	allSessions() {

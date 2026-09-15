@@ -12,6 +12,7 @@ import { MainPane } from "./components/MainPane.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { TransferStack } from "./components/TransferCard.tsx";
 import { installKeyboardShortcuts, setSettingsOpener } from "./lib/keyboardShortcuts.ts";
+import { installSpatialNavigation } from "./lib/spatialNavigation.ts";
 import { rootStore } from "./store/root.ts";
 import { bootstrapSync } from "./store/sync-bootstrap.ts";
 import { AppErrorBoundary } from "./components/AppErrorBoundary.tsx";
@@ -72,6 +73,8 @@ export function App() {
   onMount(() => {
     const cleanup = installKeyboardShortcuts();
     onCleanup(cleanup);
+    const cleanupSpatial = installSpatialNavigation();
+    onCleanup(cleanupSpatial);
     // Author 2026-06-13: right-click should be roost-custom everywhere.
     // Suppress the browser's native context menu app-wide; per-component
     // onContextMenu handlers (e.g. WorkspaceRow → workspace actions)
