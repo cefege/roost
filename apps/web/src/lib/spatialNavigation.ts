@@ -2,9 +2,10 @@
 // navigation is not guaranteed on TV browsers and the app ships none, so a
 // remote's four arrows would otherwise never move DOM focus at all.
 //
-// Installed once from App.tsx onMount, after installKeyboardShortcuts() — that
-// router runs first in the same capture phase and this handler defers to
-// anything it already claimed.
+// Installed once from App.tsx onMount. Listens in the BUBBLE phase so it is
+// strictly the last claimant on an arrow key: anything with its own arrow
+// handling (the shortcut router, a Kobalte listbox, a scrolling .wterm) has
+// already run and either consumed the key or left it alone.
 // Depends on: lib/tvMode.ts, @roost/shared/diag.
 
 import { diag } from "@roost/shared/diag";
@@ -88,12 +89,16 @@ export function installSpatialNavigation(): () => void {
 			/* already installed */
 		};
 	installed = true;
-	window.addEventListener("keydown", handleDirectionalKeydown, { capture: true });
+	// BUBBLE phase, deliberately. Directional navigation is the "nobody claimed
+	// this arrow" fallback, so it must run after every target and bubble handler
+	// has had its turn — a Kobalte select/listbox, a slider, a roving tab strip.
+	// In capture phase `defaultPrevented` can only reflect the one earlier
+	// window-capture listener, so those components would be hijacked before they
+	// ever saw the key.
+	window.addEventListener("keydown", handleDirectionalKeydown);
 	return () => {
 		installed = false;
-		window.removeEventListener("keydown", handleDirectionalKeydown, {
-			capture: true,
-		});
+		window.removeEventListener("keydown", handleDirectionalKeydown);
 	};
 }
 

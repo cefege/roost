@@ -60,10 +60,16 @@ const [choiceSignal, setChoiceSignal] = createSignal<TvModeChoice>(
 /** Reactive accessor — the Settings picker highlights the selected choice. */
 export const tvModeChoice = choiceSignal;
 
-/** UA match or a pointerless wide viewport. Not reactive: a TV never becomes a
- *  laptop, and re-evaluating per render would make every consumer re-measure. */
+/** UA match only. Not reactive: a TV never becomes a laptop, and re-evaluating
+ *  per render would make every consumer re-measure.
+ *
+ *  A pointerless wide viewport is deliberately NOT sufficient: automation
+ *  browsers and pointer-less desktops report `(pointer: none)` at any width, so
+ *  that branch silently switched real desktops into a D-pad UI that suppresses
+ *  PTY focus and makes the terminal unusable. `?tv=1` remains the escape hatch
+ *  for a television this UA list misses. */
 export function detectTvBrowser(): boolean {
-	return matchesTvUserAgent() || matchesPointerlessViewport();
+	return matchesTvUserAgent();
 }
 
 export function tvModeActive(): boolean {
@@ -98,23 +104,34 @@ export function applyTvMode(): void {
 	});
 }
 
+// Both probes are cached: tvModeActive() runs on every keydown through
+// spatialNavigation, and a TV never becomes a laptop mid-session, so re-running
+// matchMedia() and the UA regex per keystroke buys nothing.
+let uaMatch: boolean | null = null;
+let pointerlessMatch: boolean | null = null;
+
 function matchesTvUserAgent(): boolean {
-	try {
-		return TV_UA.test(navigator.userAgent);
-	} catch {
-		return false;
+	if (uaMatch === null) {
+		try {
+			uaMatch = TV_UA.test(navigator.userAgent);
+		} catch {
+			uaMatch = false;
+		}
 	}
+	return uaMatch;
 }
 
 function matchesPointerlessViewport(): boolean {
-	try {
-		return (
-			window.matchMedia("(pointer: none)").matches &&
-			window.innerWidth >= TV_MIN_POINTERLESS_WIDTH_PX
-		);
-	} catch {
-		return false;
+	if (pointerlessMatch === null) {
+		try {
+			pointerlessMatch =
+				window.matchMedia("(pointer: none)").matches &&
+				window.innerWidth >= TV_MIN_POINTERLESS_WIDTH_PX;
+		} catch {
+			pointerlessMatch = false;
+		}
 	}
+	return pointerlessMatch;
 }
 
 function isChoice(value: string | null): value is TvModeChoice {

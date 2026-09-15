@@ -21,6 +21,7 @@ import { isCompact } from "../lib/windowSizeClass.ts";
 import { isSpotlit, setSpotlightSessionId, clearSpotlight, visiblePaneCount } from "../store/spotlight.ts";
 import { TerminalCaptureConsentDialog } from "./TerminalCaptureConsentDialog.tsx";
 import { CaptureStateRow } from "./TerminalCaptureStateRow.tsx";
+import { TerminalSheetItem } from "./TerminalSheetItem.tsx";
 import { createTerminalCaptureMenuController } from "./terminalCaptureMenuController.ts";
 
 interface Props {
@@ -218,43 +219,43 @@ export function TerminalContextMenu(props: Props) {
                 }} />
                 <Show when={s().link}>
                   {(link) => (
-                    <SheetItem testid="ctx-open-link" onClick={() => doOpenLink(link())}>
+                    <TerminalSheetItem testid="ctx-open-link" onClick={() => doOpenLink(link())}>
                       <span style={{ overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
                         Open link · {s().linkTarget}
                       </span>
-                    </SheetItem>
+                    </TerminalSheetItem>
                   )}
                 </Show>
                 <Show when={s().selection.length > 0}>
-                  <SheetItem testid="ctx-copy-selection" onClick={() => doCopySelection(s().selection)}>
+                  <TerminalSheetItem testid="ctx-copy-selection" onClick={() => doCopySelection(s().selection)}>
                     Copy
-                  </SheetItem>
+                  </TerminalSheetItem>
                 </Show>
-                <SheetItem testid="ctx-paste" onClick={doPaste}>
+                <TerminalSheetItem testid="ctx-paste" onClick={doPaste}>
                   Paste
-                </SheetItem>
-                <SheetItem testid="ctx-new-terminal" onClick={doNewTerminal}>
+                </TerminalSheetItem>
+                <TerminalSheetItem testid="ctx-new-terminal" onClick={doNewTerminal}>
                   New terminal
-                </SheetItem>
-                <SheetItem testid="ctx-attach" onClick={doAttach}>
+                </TerminalSheetItem>
+                <TerminalSheetItem testid="ctx-attach" onClick={doAttach}>
                   Attach file
-                </SheetItem>
+                </TerminalSheetItem>
                 <CaptureStateRow state={capture.captureState()} />
-                <SheetItem testid="ctx-debug-start" disabled={capture.startDisabled()} onClick={doStartDebugging}>
+                <TerminalSheetItem testid="ctx-debug-start" disabled={capture.startDisabled()} onClick={doStartDebugging}>
                   Start terminal debugging
-                </SheetItem>
-                <SheetItem testid="ctx-capture-diagnostics" disabled={capture.captureDisabled()} onClick={doCaptureDiagnostic}>
+                </TerminalSheetItem>
+                <TerminalSheetItem testid="ctx-capture-diagnostics" disabled={capture.captureDisabled()} onClick={doCaptureDiagnostic}>
                   Capture terminal diagnostic
-                </SheetItem>
-                <SheetItem testid="ctx-debug-stop" disabled={capture.stopDisabled()} onClick={doStopDebugging}>
+                </TerminalSheetItem>
+                <TerminalSheetItem testid="ctx-debug-stop" disabled={capture.stopDisabled()} onClick={doStopDebugging}>
                   Stop terminal debugging
-                </SheetItem>
-                <SheetItem testid="ctx-close" onClick={doClose} danger>
+                </TerminalSheetItem>
+                <TerminalSheetItem testid="ctx-close" onClick={doClose} danger>
                   Close terminal
-                </SheetItem>
-                <SheetItem testid="ctx-cancel" onClick={dismiss}>
+                </TerminalSheetItem>
+                <TerminalSheetItem testid="ctx-cancel" onClick={dismiss}>
                   Cancel
-                </SheetItem>
+                </TerminalSheetItem>
               </div>
             </>
           }
@@ -358,36 +359,3 @@ export function _terminalActionSheetStyle(): JSX.CSSProperties {
   };
 }
 
-function SheetItem(props: {
-  testid: string;
-  onClick: () => void;
-  danger?: boolean;
-  disabled?: boolean;
-  children: JSX.Element;
-}) {
-  return (
-    <div
-      data-testid={props.testid}
-      role="menuitem"
-      aria-disabled={props.disabled ? "true" : undefined}
-      tabIndex={props.disabled ? -1 : 0}
-      onClick={() => { if (!props.disabled) props.onClick(); }}
-      style={{
-        padding: "14px 20px",
-        cursor: props.disabled ? "default" : "pointer",
-        // Disabled is opacity, not a colour swap: the role colour must survive so
-        // a destructive row stays destructive and --text-lo keeps meaning idle.
-        opacity: props.disabled ? "0.4" : undefined,
-        color: props.danger ? "var(--md-error)" : "var(--text-hi)",
-        "min-height": "44px",
-        display: "flex",
-        "align-items": "center",
-        gap: "var(--md-space-2)",
-      }}
-      onTouchStart={(e) => { if (!props.disabled) (e.currentTarget as HTMLElement).style.background = "var(--border-strong)"; }}
-      onTouchEnd={(e) => { if (!props.disabled) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-    >
-      {props.children}
-    </div>
-  );
-}

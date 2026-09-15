@@ -1,10 +1,12 @@
 /* Ten-foot presentation. One root attribute (data-tv, written by lib/tvMode.ts)
    re-declares the dimension and type tokens every component already
    references, so no component needs a TV branch.
-   Imported last from main.tsx so these overrides win by source order.
+   The token block is `html[data-tv="true"]` rather than `[data-tv="true"]` so
+   it outranks theme-vars.css's `@media (any-pointer: coarse) :root` block by
+   specificity: source order alone would make the win depend on import order.
    Depends on: styles/theme-vars.css token names. */
 
-[data-tv="true"] {
+html[data-tv="true"] {
   --md-body-s-size: 18px;  --md-body-s-line: 26px;
   --md-body-m-size: 22px;  --md-body-m-line: 30px;
   --md-body-l-size: 24px;  --md-body-l-line: 34px;
@@ -41,7 +43,9 @@
   padding: var(--tv-overscan-block) var(--tv-overscan-inline);
 }
 
-[data-tv="true"] .onboarding-root {
+/* Only the standalone /pair column: the embedded copy in Settings → Devices
+   already sits inside the shell's overscan padding and declares padding: 0. */
+[data-tv="true"] .onboarding-root[data-embedded="false"] {
   padding: var(--tv-overscan-block) var(--tv-overscan-inline);
   max-width: var(--roost-dialog-wide-max-inline-size);
   margin-inline: auto;
@@ -63,4 +67,18 @@
 [data-tv="true"] .wterm:focus-visible {
   outline: var(--md-space-1) solid var(--workbench-pane-focus);
   outline-offset: calc(var(--md-space-1) * -1);
+}
+
+/* TerminalNavButtons and its toggle are portaled to <body> as position:fixed
+   surfaces, so they escape .workbench-shell's overscan padding entirely, and
+   the env(safe-area-inset-*) they lean on is 0px on a television. Without
+   these offsets the TV's only raw-key surface lands in the cropped bezel. */
+[data-tv="true"] .term-nav-toggle {
+  right: calc(var(--tv-overscan-inline) + var(--md-space-4));
+  bottom: calc(var(--tv-overscan-block) + 152px);
+}
+
+[data-tv="true"] .term-nav {
+  right: calc(var(--tv-overscan-inline) + var(--md-space-4));
+  bottom: calc(var(--tv-overscan-block) + 220px);
 }
