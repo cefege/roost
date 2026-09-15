@@ -215,9 +215,12 @@ fi
 if [[ -n "${ROOST_WORKER_LOCAL_UI_BIND:-}" ]]; then
   LOCAL_UI_BIND_PLIST=$'\n    <key>ROOST_WORKER_LOCAL_UI_BIND</key>\n    <string>'"$(xml_escape "${ROOST_WORKER_LOCAL_UI_BIND}")"$'</string>'
 fi
-if [[ -n "${ROOST_WEB_DIST_PATH:-}" ]]; then
-  WEB_DIST_PATH_PLIST=$'\n    <key>ROOST_WEB_DIST_PATH</key>\n    <string>'"$(xml_escape "${ROOST_WEB_DIST_PATH}")"$'</string>'
-fi
+# Always stamped, and defaulted exactly as the coordinator installer does: the
+# local UI door has no SPA to serve otherwise, because a source-run worker
+# carries the empty embed stub and would answer `/` with a 404 the browser
+# downloads instead of rendering.
+WEB_DIST_RESOLVED="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"
+WEB_DIST_PATH_PLIST=$'\n    <key>ROOST_WEB_DIST_PATH</key>\n    <string>'"$(xml_escape "${WEB_DIST_RESOLVED}")"$'</string>'
 
 # Stamp the current repo HEAD into the LaunchAgent so the running worker
 # reports it via heartbeat. SPA compares to coord's GIT_SHA and flags
@@ -374,7 +377,7 @@ EOF
     [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]  && systemd_env "ROOST_REACHABLE_ADDR" "$ROOST_REACHABLE_ADDR"
     [[ "${ROOST_AGENT_CONVERSATION_RESTORE+x}" == "x" ]] && systemd_env "ROOST_AGENT_CONVERSATION_RESTORE" "$ROOST_AGENT_CONVERSATION_RESTORE"
     [[ -n "${ROOST_WORKER_LOCAL_UI_BIND:-}" ]] && systemd_env "ROOST_WORKER_LOCAL_UI_BIND" "$ROOST_WORKER_LOCAL_UI_BIND"
-    [[ -n "${ROOST_WEB_DIST_PATH:-}" ]]   && systemd_env "ROOST_WEB_DIST_PATH" "$ROOST_WEB_DIST_PATH"
+    systemd_env "ROOST_WEB_DIST_PATH" "$WEB_DIST_RESOLVED"
     [[ -n "$GIT_SHA_RESOLVED" ]]          && systemd_env "GIT_SHA" "$GIT_SHA_RESOLVED"
     [[ -n "${ROOST_EXEC_BIN:-}" ]]        && systemd_env "ROOST_EXEC_BIN" "$ROOST_EXEC_BIN"
     [[ -n "${ROOST_WORKDIR:-}" ]]         && systemd_env "ROOST_WORKDIR" "$ROOST_WORKDIR"

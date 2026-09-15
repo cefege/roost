@@ -27,6 +27,10 @@ export function workerInstallEnvironmentValues(
     "GIT_SHA",
     "ROOST_GIT_SHA",
     "ROOST_WORKDIR",
+    // Points into a release directory, and settlement deletes the release it
+    // replaced: a retained value leaves the local UI door serving 404s. Each
+    // deploy stamps the dist it just built instead.
+    "ROOST_WEB_DIST_PATH",
     "ROOST_EXEC_BIN",
     "ROOST_BOOTSTRAP_TOKEN",
     KEEPER_FORCE_LIVE_RETIRE_ENV,

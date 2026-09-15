@@ -105,14 +105,16 @@ const DEPLOY_IDENTITY_ENV_FLAGS: Record<string, string> = {
 };
 
 /** Worker settings that belong to whichever machine runs the worker: the
- *  loopback bind of its local UI door and the SPA build that door serves.
- *  Neither names the machine in the fleet nor carries a secret, so they follow
- *  the non-identity rule above — the target's installed value wins and the
- *  deploying shell only seeds a first install. A deploy that dropped them
- *  would silently move an operator's local UI door back to its default port. */
+ *  loopback bind of its local UI door. It names neither the machine in the
+ *  fleet nor a secret, so it follows the non-identity rule above — the
+ *  target's installed value wins and the deploying shell only seeds a first
+ *  install. A deploy that dropped it would silently move an operator's local
+ *  UI door back to its default port. ROOST_WEB_DIST_PATH is deliberately NOT
+ *  here: it points INTO a release directory, so carrying the installed value
+ *  forward names the release the next settlement deletes. Each deploy stamps
+ *  the dist it just built (deploy-linux.ts, deploy-macos.ts, deploy-local.ts). */
 export const DEPLOY_HOST_LOCAL_ENV_KEYS = [
   "ROOST_WORKER_LOCAL_UI_BIND",
-  "ROOST_WEB_DIST_PATH",
 ] as const;
 
 export interface DeployIdentityInvocation {

@@ -27,6 +27,7 @@ import {
   resolveRemoteDeployIdentityEnv,
 } from "./deploy-plist-env.ts";
 import { manifestOnlyWorkspaces } from "./deploy-workspaces.ts";
+import { buildStagedWorkerSpaOverSsh, cleanupStageOnSpaFailure } from "./deploy-web-dist.ts";
 import {
   KEEPER_FORCE_LIVE_RETIRE_ENV,
   workerInstallEnvironment,
@@ -227,10 +228,22 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
         failDeploy(4, `bun install failed\n${installRes.stdout}\n${installRes.stderr}`);
       }
       console.log("   bun install ok");
+      const webDistPath = await buildStagedWorkerSpaOverSsh({
+        label: `on ${host}`,
+        // The staged release is spelled `~/…`, so it must stay unquoted for the
+        // remote shell to expand it.
+        releaseDirectory: remoteDir,
+        execute: deploySsh,
+        settle: cleanupStageOnSpaFailure(cleanupStage),
+      });
       const passthroughEnv = workerInstallEnvironment(hostEnv, {
         ROOST_COORDINATOR_URL: resolvedCoordinatorUrl,
         ...identityEnv,
         ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN,
+        // Stamped from the directory just built, never carried over from the
+        // installed plist: every release stages its own dist, so a prior value
+        // names a release this host has already retired.
+        ROOST_WEB_DIST_PATH: webDistPath,
         [KEEPER_FORCE_LIVE_RETIRE_ENV]: options.forceLiveKeeperRetire
           ? "1"
           : undefined,

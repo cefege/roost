@@ -43,9 +43,10 @@ import {
   removeManagedLinuxWorkerRelease,
 } from "./deploy-linux-recovery.ts";
 import { recoverLinuxDeployJournal } from "./deploy-linux-recovery-runtime.ts";
+import { createLinuxActivationSettlement } from "./deploy-linux-activation-settlement.ts";
+import { buildStagedWorkerSpaOverSsh } from "./deploy-web-dist.ts";
 import type {
-  ApplyLinuxKeeperUpdate, LinuxDeploySsh as DeploySsh, LinuxRecoveryOutcome,
-  ProveLinuxKeeperUpdate,
+  ApplyLinuxKeeperUpdate, LinuxDeploySsh as DeploySsh, ProveLinuxKeeperUpdate,
 } from "./deploy-linux-recovery.ts";
 import { POSIX_FULL_GIT_SHA_RE } from "./posix-deploy-journal.ts";
 import {
@@ -261,70 +262,29 @@ export async function deployLinux(
         failDeploy(5, `Linux worker does not match rollout prior SHA ${rollout.priorSha}`);
       }
     }
-    const activationEnvironment = linuxWorkerActivationEnvironment(
-      journal.priorUnit ?? "",
-      passthroughEnv,
-    );
-    const settleActivationFailure = async (
-      summary: string,
-      failed: { exit: number; stdout: string; stderr: string },
-    ): Promise<{ exit: number; stdout: string; stderr: string }> => {
-      let recovered: LinuxRecoveryOutcome;
-      try {
-        recovered = await recoverLinuxDeployJournal(
-          deploySsh,
-          journalPath,
-          unitPath,
-          home,
-          deployLease.signal,
-          applyKeeperUpdate,
-          proveKeeperUpdate,
-          rollout?.action === "hold" ? rollout : undefined,
-        );
-      } catch (recoveryError) {
-        const detail = recoveryError instanceof Error
-          ? recoveryError.message
-          : String(recoveryError);
-        const interrupted = deployLease.signal.reason;
-        failDeploy(
-          interrupted instanceof DeployFailure
-            ? interrupted.exitCode
-            : recoveryError instanceof DeployFailure
-              ? recoveryError.exitCode
-              : failed.exit || 5,
-          `${summary}\n${failed.stdout}\n${failed.stderr}\n` +
-            `automatic recovery is incomplete; fixed journal retained\n${detail}`,
-        );
-      }
-      if ((recovered.kind === "target-committed" || recovered.kind === "target-held")
-        && recovered.verification) {
-        if (recovered.kind === "target-held" && recovered.journal.phase === "activating") {
-          const checkpoint = await deploySsh(
-            _linuxCheckpointDeployJournalCommand(journalPath, "activating", "activated"),
-          );
-          if (checkpoint.exit !== 0) failDeploy(checkpoint.exit || 5, "cannot checkpoint held Linux target");
-        }
-        console.warn(`   ${summary}; retained the independently verified target`);
-        return recovered.verification;
-      }
-      const recoveryDetail = recovered.kind === "prior-restored"
-        ? "prior worker unit and lifecycle restored"
-        : recovered.kind === "prepared-cleaned"
-          ? "prepared worker stage removed"
-          : recovered.kind === "roll-forward-required"
-            ? recovered.reason
-            : "no recoverable journal was found";
-      failDeploy(
-        failed.exit || 5,
-        `${summary}\n${failed.stdout}\n${failed.stderr}\n${recoveryDetail}`,
-      );
-    };
+    const settleActivationFailure = createLinuxActivationSettlement({
+      deploySsh, journalPath, unitPath, home, signal: deployLease.signal,
+      applyKeeperUpdate, proveKeeperUpdate, rollout,
+    });
     console.log(`>> frozen bun install on ${host}`);
     const install = await deploySsh(_linuxInstallWorkerDependenciesCommand(releaseDir));
     if (install.exit !== 0) {
       await settleActivationFailure("bun install failed", install);
     }
     console.log("   bun install ok");
+    const webDistPath = await buildStagedWorkerSpaOverSsh({
+      label: `on ${host}`,
+      releaseDirectory: posixShellQuote(releaseDir),
+      execute: deploySsh,
+      settle: settleActivationFailure,
+    });
+    // Stamped from the directory just built, never carried over from the
+    // installed unit: every release stages its own dist, so a retained value
+    // names the release this deploy's settlement deletes.
+    const activationEnvironment = linuxWorkerActivationEnvironment(
+      journal.priorUnit ?? "",
+      [passthroughEnv, `ROOST_WEB_DIST_PATH=${posixShellQuote(webDistPath)}`].filter(Boolean).join(" "),
+    );
     const activating = await deploySsh(
       _linuxCheckpointDeployJournalCommand(journalPath, "prepared", "activating"),
     );

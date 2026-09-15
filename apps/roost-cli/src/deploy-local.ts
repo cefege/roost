@@ -27,6 +27,7 @@ import {
   finishWorkerDeploy,
   run,
 } from "./deploy-exec.ts";
+import { buildStagedWorkerSpaLocally, cleanupStageOnSpaFailure } from "./deploy-web-dist.ts";
 import { linuxWorkerResourceEnvironment } from "./linux-deploy-journal-commands.ts";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
 import {
@@ -295,6 +296,13 @@ export async function _deployLocal(
       await cleanupStage();
       failDeploy(4, `bun install failed\n${dependencies.stdout}\n${dependencies.stderr}`);
     }
+    // Stamped from the directory just built: settlement deletes the release it
+    // replaced, so a value read off the installed service names a lost dist.
+    installEnv.ROOST_WEB_DIST_PATH = await buildStagedWorkerSpaLocally({
+      releaseDirectory: expectedRelease,
+      bunBin,
+      settle: cleanupStageOnSpaFailure(cleanupStage),
+    });
 
     journal = { ...journal, phase: "activating" };
     await checkpointLocalWorkerDeployJournal(journalPath, journal, confinement);
