@@ -137,3 +137,42 @@ export function hasContiguousCellHistoryRows(
   }
   return true;
 }
+
+/** Absolute history rows the scroll box shows right now, or null when the
+ *  box sits past the painted history. */
+export function visibleHistoryRowRange(input: {
+  scrollTop: number;
+  spacerTop: number;
+  clientHeight: number;
+  rowHeight: number;
+  total: number;
+}): { start: number; end: number } | null {
+  if (input.rowHeight <= 0 || input.clientHeight <= 0) return null;
+  const start = Math.max(
+    0,
+    Math.floor((input.scrollTop - input.spacerTop) / input.rowHeight),
+  );
+  const end = Math.min(
+    input.total,
+    Math.ceil(
+      (input.scrollTop + input.clientHeight - input.spacerTop) / input.rowHeight,
+    ),
+  );
+  return start >= end ? null : { start, end };
+}
+
+/** The missing history interval the reader's own scroll position exposes, with
+ *  the row a demand must focus, or null when the visible window is painted. */
+export function missingCellHistoryRangeAtScroll(
+  rows: readonly CellHistoryIndex[],
+  total: number,
+  view: { scrollTop: number; spacerTop: number; clientHeight: number; rowHeight: number },
+): (CellHistoryRange & { focusRow: number }) | null {
+  const visible = visibleHistoryRowRange({ ...view, total });
+  if (!visible) return null;
+  const visibleGap = missingCellHistoryRanges(rows, total, visible.start, visible.end).at(-1);
+  if (!visibleGap) return null;
+  const focusRow = visibleGap.start;
+  const gap = missingCellHistoryRange(rows, total, focusRow);
+  return gap ? { ...gap, focusRow } : null;
+}

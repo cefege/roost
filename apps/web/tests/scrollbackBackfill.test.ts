@@ -110,7 +110,7 @@ function harness(options: {
 
   const renderer = {
     backfillAnchor: () => ({ ...anchor }),
-    atBottom: () => bottom,
+    followsBottom: () => bottom,
     missingScrollbackRange: missing,
     missingScrollbackRangeAtScroll: () => {
       const focus = visibleFocus;

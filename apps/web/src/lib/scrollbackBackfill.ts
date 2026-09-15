@@ -31,7 +31,7 @@ type ChunkGuard =
   | "row_count" | "row_index";
 type ScrollbackRenderer = Pick<
   CellGridRenderer,
-  | "atBottom"
+  | "followsBottom"
   | "backfillAnchor"
   | "hasPaintedScrollbackRange"
   | "insertHistoryPage"
@@ -330,7 +330,7 @@ export function createScrollbackBackfill(opts: {
     },
     onUserScroll(): void {
       const renderer = opts.renderer();
-      if (!renderer || renderer.atBottom()) return;
+      if (!renderer || renderer.followsBottom()) return;
       const gap = renderer.missingScrollbackRangeAtScroll();
       if (gap) void startDemand("scroll", gap.focusRow);
     },

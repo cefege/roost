@@ -115,8 +115,12 @@ Break one of these and you get back the history-corruption class this repo keeps
   `// ─── frame application ───`, `// ─── reader-intent holds ───` and `// ─── scroll ownership ───`
   banners at the method-group boundaries — navigate by those, do not extract past them. It is
   baselined in `scripts/file-size-baseline.json`.
-- **Only `_pinToBottom(wasAtBottom)` may assign `scrollTop`,** through the single conditional writer
-  `_writeScrollTop`, and only when an exact pre-mutation bottom check was true. Nothing else in the
+- **Only `_pinToBottom(shouldPin)` may assign `scrollTop`,** through the single conditional writer
+  `_writeScrollTop`, and only when a pre-mutation FOLLOW-BAND check was true
+  (`_atBottomOrOwnedPlacement` → `followsBottom()` → `followsScrollBottom`, two rows of slack around
+  the exact clamp, `BOTTOM_FOLLOW_SLACK_ROWS` in `cellRendererPresentation.ts`). A reader inside the
+  band is riding the tail, so the pin keeps it there; one appended row would otherwise drift it out.
+  `atBottom()` itself stays EXACT and keeps its meaning. Nothing else in the
   app writes terminal scroll position. Scrollback rows are append-only and immutable; every
   `content-visibility` block gets an exact pixel placeholder (`blockPlaceholder`) so a revealed block
   cannot move the scroll maximum out from under a pinned pane.
@@ -138,6 +142,16 @@ Break one of these and you get back the history-corruption class this repo keeps
   `live`/`null`. Dismissing the find bar ends the find reading INTERVAL through
   `endFindReading()` (reason `find` → `native_scroll`, no scroll write, no pin, no frame applied),
   so a dismissed park is an ordinary scroll park instead of an anchor every recovery refuses.
+- **The band decides who parks; the settle decides when a park ends by itself.** `handleScroll()`
+  parks a live reader only when it is OUTSIDE the follow band, so sub-row jitter, a fractional
+  clamp and a flick that lands a row short cannot freeze the pane, while one wheel notch (~100px)
+  still parks it. A park that came to REST inside the band resumes through `settleFollowBand()`,
+  which `cell-terminal-renderer.ts`'s scroll listener arms `BOTTOM_FOLLOW_SETTLE_MS` after the last
+  scroll event: never from `handleScroll()` synchronously, because a `scrollTop` write mid-gesture
+  cancels the scroll animation Chromium is still running for the reader. Releasing the last paint
+  hold also resumes a band-following position-only park, because the hold swallowed the one scroll
+  event that proved the reader came back. `_settleBottomPark()`'s rAF settle still demands
+  `atBottom()` exactly — the band never widens the clamp paths.
 - **`CellTerminal` renders inside the `<For>` deck, never a `<Show>`.** `src/components/TerminalDeck.tsx` feeds
   `<For each={mountedSessionIds()}>` primitive session ids (not `Session` objects) so a root snapshot
   that replaces a same-id object cannot tear down a warm renderer; a remount loses scrollback. Guard:

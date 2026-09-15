@@ -47,7 +47,7 @@ test("native scroll settle resumes a frame after silent bottom clamping", async 
     const container = makeContainer();
     const renderer = new CellGridRenderer(container as unknown as HTMLElement);
     seedHeldHistory(renderer, 80, [row(0, "v")], scrollbackRows(400));
-    container.scrollTop = container.scrollHeight - container.clientHeight - 1;
+    container.scrollTop = container.scrollHeight - container.clientHeight - 3 * ROW_PX;
     renderer.handleScroll();
     renderer.apply(appendedFrame(3));
     drainAnimationFrames();
@@ -105,7 +105,7 @@ test("native scroll settle keeps a true off-bottom reader held", async () => {
     const container = makeContainer();
     const renderer = new CellGridRenderer(container as unknown as HTMLElement);
     seedHeldHistory(renderer, 80, [row(0, "v")], scrollbackRows(400));
-    container.scrollTop = container.scrollHeight - container.clientHeight - 1;
+    container.scrollTop = container.scrollHeight - container.clientHeight - 3 * ROW_PX;
     renderer.handleScroll();
     renderer.apply(appendedFrame(3));
     drainAnimationFrames();
@@ -114,4 +114,48 @@ test("native scroll settle keeps a true off-bottom reader held", async () => {
     expect(renderer.readerReason).toBe("native_scroll");
     expect(renderer.reconcileBlockReason()).toBe("reader_pending_frame");
   });
+});
+
+// The pane's scroll listener arms these once the scroll stream goes quiet; a
+// resume mid-gesture would write scrollTop and cancel the reader's own scroll.
+test("a wheel park resting inside the follow band resumes on the settle", () => {
+  const container = makeContainer();
+  const renderer = new CellGridRenderer(container as unknown as HTMLElement);
+  seedHeldHistory(renderer, 80, [row(0, "v")], scrollbackRows(400));
+  renderer.enterReading("wheel"); // a real gesture parks before the box moves
+  container.scrollTop = container.scrollHeight - container.clientHeight - ROW_PX;
+  renderer.handleScroll();
+  renderer.apply(appendedFrame(3));
+  expect(renderer.reconcileBlockReason()).toBe("reader_pending_frame");
+
+  expect(renderer.settleFollowBand().reconciled).toBe(true);
+
+  expect(renderer.readerIntent).toBe("live");
+  expect(container.scrollTop).toBe(container.scrollHeight - container.clientHeight);
+  expect(renderer.reconcileBlockReason()).toBeNull();
+});
+test("a park beyond the follow band survives the settle", () => {
+  const container = makeContainer();
+  const renderer = new CellGridRenderer(container as unknown as HTMLElement);
+  seedHeldHistory(renderer, 80, [row(0, "v")], scrollbackRows(400));
+  container.scrollTop = container.scrollHeight - container.clientHeight - 3 * ROW_PX;
+  renderer.handleScroll();
+  renderer.apply(appendedFrame(3));
+
+  expect(renderer.settleFollowBand()).toEqual({ reconciled: false, anchorChanged: false });
+
+  expect(renderer.readerIntent).toBe("reading");
+  expect(renderer.readerReason).toBe("native_scroll");
+});
+test("a find park inside the follow band keeps its anchor through the settle", () => {
+  const container = makeContainer();
+  const renderer = new CellGridRenderer(container as unknown as HTMLElement);
+  seedHeldHistory(renderer, 80, [row(0, "v")], scrollbackRows(400));
+  container.scrollTop = container.scrollHeight - container.clientHeight - ROW_PX;
+  renderer.enterReading("find");
+
+  expect(renderer.settleFollowBand()).toEqual({ reconciled: false, anchorChanged: false });
+
+  expect(renderer.readerIntent).toBe("reading");
+  expect(renderer.readerReason).toBe("find");
 });

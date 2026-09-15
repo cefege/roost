@@ -10,11 +10,12 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
-import type { TerminalTestWorker } from "./stack.ts";
 import {
-  navigateToSmokeSession,
-  spawnPtyFixtureSession,
-  waitForStableCellFrames,
+  hoverTerminalGrid,
+  paintFloodAtBottom,
+  readReaderState,
+  readRenderProbe,
+  uniqueMarker,
 } from "./terminal-helpers.ts";
 import { attemptPaintedMarker } from "./terminal-paint-helpers.ts";
 import {
@@ -42,58 +43,6 @@ const SHALLOW_OVERFLOW_ROWS = 6;
 const DEEP_OVERFLOW_ROWS = 600;
 const RESUME_PAINT_BUDGET_MS = 15_000;
 
-function uniqueMarker(label: string): string {
-  return `${label}-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
-}
-
-function readRenderProbe(page: Page, sessionId: string) {
-  return page.evaluate((id) => window.__smoke.renderProbe(id), sessionId);
-}
-
-async function readReaderState(page: Page, sessionId: string) {
-  const presentation = (await readTerminalStreamProbe(page, sessionId)).browser.presentation;
-  return {
-    intent: presentation?.reader_intent ?? null,
-    reason: presentation?.reader_reason ?? null,
-    atBottom: presentation?.at_bottom ?? false,
-  };
-}
-
-/** A pane painting the PTY fixture's flood at the bottom. The fixture is a pure
- *  emitter — no prompt, no SIGWINCH repaint — so the only geometry in play is
- *  the one the test moves. */
-async function paintFloodAtBottom(
-  page: Page,
-  worker: TerminalTestWorker,
-  floodPrefix: string,
-  overflowRows: number,
-): Promise<string> {
-  const sessionId = await spawnPtyFixtureSession(page, worker);
-  await navigateToSmokeSession(page, sessionId);
-  await waitForStableCellFrames(page, sessionId);
-  const gridRows = await page.evaluate((id) => window.__smoke.terminalDimensions(id).rows, sessionId);
-  expect(gridRows, "fixture pane painted no grid rows").toBeGreaterThan(0);
-  const floodCount = gridRows + overflowRows;
-  await sendFixtureCommand(
-    page,
-    sessionId,
-    encodePtyFixtureCommand({ op: "FLOOD", prefix: floodPrefix, count: floodCount }),
-  );
-  await expect.poll(() => page.evaluate(({ id, prefix }) => ({
-    max: window.__smoke.markerScan(id, prefix).max,
-    atBottom: window.__smoke.renderProbe(id).atBottom,
-  }), { id: sessionId, prefix: floodPrefix }), { timeout: 30_000 })
-    .toEqual({ max: floodCount, atBottom: true });
-  return sessionId;
-}
-
-async function hoverTerminalGrid(page: Page, sessionId: string): Promise<void> {
-  const grid = page.getByTestId(`terminal-slot-${sessionId}`).locator(".wterm.cell-grid");
-  const box = await grid.boundingBox();
-  if (!box) throw new Error(`terminal grid has no box for ${sessionId}`);
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-}
-
 /** Park with REAL wheel bursts. A scrollTop write parks with reason
  *  "native_scroll"; every real wheel or touch gesture parks with "wheel" or
  *  "touch", and the resume path must treat all three the same, so the assertion
@@ -109,7 +58,7 @@ async function parkByWheel(
   await expect.poll(() => readReaderState(page, sessionId), {
     timeout: 15_000,
     intervals: [100, 250],
-  }).toEqual({ intent: "reading", reason: "wheel", atBottom: false });
+  }).toEqual({ intent: "reading", reason: "wheel", atBottom: false, followsBottom: false });
 }
 
 /** The reader is parked, so the pane must swallow live output: the browser
@@ -143,7 +92,7 @@ async function expectLiveAtBottom(page: Page, sessionId: string, marker: string)
   await expect.poll(() => readReaderState(page, sessionId), {
     timeout: 15_000,
     intervals: [100, 250],
-  }).toEqual({ intent: "live", reason: null, atBottom: true });
+  }).toEqual({ intent: "live", reason: null, atBottom: true, followsBottom: true });
 }
 
 test("a wheel-parked pane resumes when the box grows past its frozen content", async ({ smokePage, stack }, testInfo) => {
@@ -199,7 +148,7 @@ test("a wheel-parked pane with scroll range left stays parked across a box grow"
   // box mutation must not move it, and live output must stay swallowed.
   await expectFrozenWhileParked(smokePage, sessionId);
   expect(await readReaderState(smokePage, sessionId))
-    .toEqual({ intent: "reading", reason: "wheel", atBottom: false });
+    .toEqual({ intent: "reading", reason: "wheel", atBottom: false, followsBottom: false });
 
   const recoveredMarker = uniqueMarker("KEEPLIVE");
   await sendFixtureCommand(smokePage, sessionId, encodePtyFixtureCommand({ op: "EMIT", text: recoveredMarker }));

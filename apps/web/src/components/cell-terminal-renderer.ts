@@ -8,6 +8,7 @@ import type { MouseTracking } from "@roost/shared/cell";
 import { diag, isDiagEnabled } from "@roost/shared/diag";
 import { coordClient } from "../connect.ts";
 import { CellGridRenderer } from "../lib/cellRenderer.ts";
+import { BOTTOM_FOLLOW_SETTLE_MS } from "../lib/cellRendererPresentation.ts";
 import { registerCursorPoll } from "../lib/cursorPollTicker.ts";
 import { markPhase } from "../lib/diag.ts";
 import { recordInputRtt } from "../lib/leakWatch.ts";
@@ -78,6 +79,18 @@ export function mountCellTerminalRenderer(
 		runtime.sessionId,
 		presentation.prepareLiveInteraction,
 	);
+	let followSettleTimer: Timer | null = null;
+	// A gesture stops without an event of its own, so the band resume waits for
+	// the scroll stream to go quiet: a scrollTop write mid-gesture cancels the
+	// scroll animation Chromium is still running for the reader.
+	const armFollowSettle = (): void => {
+		clearTimeout(followSettleTimer ?? undefined);
+		followSettleTimer = setTimeout(() => {
+			followSettleTimer = null;
+			const current = runtime.renderer;
+			if (current) presentation.notifyBackfill(current.settleFollowBand());
+		}, BOTTOM_FOLLOW_SETTLE_MS);
+	};
 	const onScroll = (): void => {
 		const currentRenderer = runtime.renderer;
 		if (!currentRenderer) return;
@@ -87,7 +100,8 @@ export function mountCellTerminalRenderer(
 		}
 		const interaction = currentRenderer.handleScroll();
 		presentation.notifyBackfill(interaction);
-		if (currentRenderer.atBottom()) {
+		if (currentRenderer.readerIntent === "reading") armFollowSettle();
+		if (currentRenderer.followsBottom()) {
 			if (currentRenderer.readerIntent === "live") backfill.suspend();
 			return;
 		}
@@ -332,6 +346,7 @@ export function mountCellTerminalRenderer(
 		display.removeEventListener("scroll", onScroll);
 		detachPointerGestureGuard();
 		if (measurementFrame !== 0) cancelAnimationFrame(measurementFrame);
+		clearTimeout(followSettleTimer ?? undefined);
 		backfill.dispose();
 		if (runtime.backfill === backfill) runtime.backfill = null;
 		runtime.predictor?.dispose();

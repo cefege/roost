@@ -74,7 +74,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`)));
-    c.scrollTop = c.scrollHeight - c.clientHeight - ROW_PX;
+    c.scrollTop = c.scrollHeight - c.clientHeight - 3 * ROW_PX;
     expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
     c.resetScrollTopWrites();
     grow(r, 100, 8);

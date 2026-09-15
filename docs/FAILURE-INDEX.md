@@ -268,13 +268,16 @@ frames are now viewport-only, see the epoch-addressed entry below.
 **Wrong** — row-space or pixel scroll ownership: intent/anchor state, distance compensation, scroll-event
 classification, resize/reveal correction, or a jump-to-bottom control.
 
-**Right** — **exact pre-mutation bottom check plus ONE conditional writer.** `CellGridRenderer`
-(`apps/web/src/lib/cellRenderer.ts`) captures `scrollTop >= max(0, scrollHeight - clientHeight)` before a
-painted-height mutation; only `_pinToBottom(wasAtBottom)` may assign `scrollTop`, and only when that captured
-value was true. Non-bottom mutations never write position. The mutable append tail is `overflow-anchor:none` so
-Chromium does not follow it when the reader is one pixel above bottom; completed blocks are anchors, and the
-tail is restored before a backfill prepend so native anchoring preserves the reader's row. Never restore intent
-state, add reveal correction, or a jump-to-bottom control. This single-writer invariant is about POSITION and
+**Right** — **one pre-mutation capture plus ONE conditional writer.** `CellGridRenderer`
+(`apps/web/src/lib/cellRenderer.ts`) captures `_atBottomOrOwnedPlacement()` before a painted-height
+mutation; only `_pinToBottom(shouldPin)` may assign `scrollTop`, and only when that captured value was
+true. The capture is the FOLLOW BAND (`followsScrollBottom`, two rows of slack — see the follow-band
+entry below), never a widened `atBottom()`: `atBottom()` itself stays exact and is what the clamp and
+settle paths keep asking. Non-bottom mutations never write position. The mutable append tail is
+`overflow-anchor:none` so Chromium does not follow it when the reader is one pixel above bottom;
+completed blocks are anchors, and the tail is restored before a backfill prepend so native anchoring
+preserves the reader's row. Never restore intent state, add reveal correction, or a jump-to-bottom
+control. This single-writer invariant is about POSITION and
 presumes the scroll SPACE is truthful — the spacer entry below is what makes it so.
 
 **Guard** — `apps/web/tests/` renderer DOM suite —
@@ -287,7 +290,9 @@ presumes the scroll SPACE is truthful — the spacer entry below is what makes i
 
 **Symptom** — "tab switch shows stale terminal content / a returned-to pane sits above the live bottom and never follows output again / bottom-follow works foreground but dies after a park"
 
-**Wrong** — latch the bottom in intent state, correct scroll at reveal, add an `atBottom()` tolerance, or defer
+**Wrong** — latch the bottom in intent state, correct scroll at reveal, add an `atBottom()` tolerance (the
+CLAMP predicate stays exact; slack lives in the separate follow-band predicate, see the follow-band entry
+below), or defer
 `_pinToBottom` to a rAF — all forbidden by the entry above; equally wrong: leave a parked pane painting at a
 DIFFERENT box size (the old fixed 800×600 park) so its scroll maximum moves under it.
 
@@ -318,7 +323,8 @@ back to the bottom does not restart it / only a reload fixes it", with `at_botto
 wheel and touch gestures park as `"wheel"` / `"touch"` (`apps/web/src/lib/terminalMouseForwarding.ts`), so that
 gate was dead for every real gesture. Equally wrong here: an `atBottom()` tolerance or any reveal/resize scroll
 correction — the geometry was measured INTEGRAL in 184 real layouts at four device-pixel ratios (the true clamp
-equals `scrollHeight - clientHeight` exactly), so the predicate was never the defect. Equally wrong: gating the
+equals `scrollHeight - clientHeight` exactly), so the clamp predicate was never the defect (what a reader near
+the tail is ALLOWED to do is a separate policy — see the follow-band entry below). Equally wrong: gating the
 bottom-clamp settle on the `native_scroll` reason alone. The scroll handler records `native_scroll` for a real
 movement and `terminalMouseForwarding.ts` then UPGRADES that park to the gesture's own `wheel`/`touch` reason,
 so the settle armed for the next frame no longer matches its own park; if layout clamps that park onto the
@@ -338,11 +344,14 @@ remaining keeps its park (a real wheel still recovers it). Measured wedge: `scro
 clientHeight 748`, DOM pinned at the old epoch seq 28 while canonical reached 52 on a new epoch; zero scroll
 events across ten wheel bursts, a `scrollTop = scrollHeight` assignment and a click.
 The settle is keyed to the same position-only class as the resize resume, and still demands
-`readerIntent === "reading"`, `!holding` and `atBottom()` exactly, so no off-bottom or held reader is
+`readerIntent === "reading"`, `!holding` and `atBottom()` exactly — the follow band never widens this
+rAF settle — so no off-bottom or held reader is
 un-parked.
-A hold release resumes the selection park the hold itself created AND any park once the box has no scroll range,
-explicitly, so a `find` park is released too; a park that still has range keeps its interval, because the
-exact-bottom scroll and the next frame's bottom-clamp settle own that case.
+A hold release resumes the selection park the hold itself created, any park once the box has no scroll range,
+and a position-only park that is inside the follow band (the hold swallowed the scroll event that proved the
+return, and no further event follows), explicitly, so a `find` park is released by the no-range case too; an
+off-band park that still has range keeps its interval, because the exact-bottom scroll, the next frame's
+bottom-clamp settle and the scroll-idle band settle own that case.
 
 **Guard** — `apps/web/tests/cellRenderer.geometry.dom.test.ts` —
 `"a wheel-parked reader resumes when a box grow leaves no scroll range"` and its three siblings;
@@ -352,6 +361,42 @@ exact-bottom scroll and the next frame's bottom-clamp settle own that case.
 `apps/web/tests/cellRenderer.append.dom.test.ts` —
 `"a hold release resumes a wheel park whose box lost its scroll range"`, with
 `"a hold release leaves a find park that can still reach its anchor"` as the refusal control.
+
+### The terminal stops streaming after the smallest scroll
+
+**Symptom** — "terminal stops streaming after the smallest scroll / the blue live dot turns amber when I barely
+move / a trackpad micro-tick freezes the pane / scrolling all the way back down does not restart it"
+
+**Wrong** — widen `atBottom()` itself: the clamp check and the rAF bottom-park settle must stay exact (the two
+entries above). Equally wrong: resume synchronously from `handleScroll()` when merely NEAR the bottom — a
+`scrollTop` write mid-gesture cancels the scroll animation Chromium is still running and eats the reader's own
+gesture. Also wrong: a jump-to-bottom control, or latching intent state so a park "remembers" it wanted to be
+live.
+
+**Right** — **a named follow band gates the POLICY decisions; the exact predicates stay exact.**
+`BOTTOM_FOLLOW_SLACK_ROWS` (2) and `followsScrollBottom` in
+`apps/web/src/lib/cellRendererPresentation.ts` define one band around the clamp, and only four call sites
+use it: `handleScroll()`'s park decision, the pin capture `_atBottomOrOwnedPlacement()`, the backfill
+demand gate (`scrollbackBackfill.onUserScroll`, a band follower must not start paging history), and the
+band settle. A reader inside the band is riding the tail, so the pane keeps painting and keeps pinning;
+one wheel notch (~100px) is outside it and still parks. A park that comes to REST inside the band resumes
+through `CellGridRenderer.settleFollowBand()`, armed by the pane's own scroll listener
+(`apps/web/src/components/cell-terminal-renderer.ts`) `BOTTOM_FOLLOW_SETTLE_MS` (180ms) after the LAST
+scroll event, so the resume never runs mid-gesture. A hold release also resumes a band-following
+position-only park, because the hold swallowed the only scroll event that could. `at_bottom` in the
+presentation snapshot keeps its exact meaning; `follows_bottom` is the band value beside it.
+
+**Guard** — `apps/web/tests/cellRenderer.readerIntent.dom.test.ts` —
+`"a live reader inside the follow band keeps following the tail"`;
+`apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
+`"a wheel park resting inside the follow band resumes on the settle"`, with
+`"a park beyond the follow band survives the settle"` and
+`"a find park inside the follow band keeps its anchor through the settle"` as the refusal controls;
+`apps/web/tests/cellRenderer.append.dom.test.ts` —
+`"a hold release resumes a bottom-following wheel park that kept its range"`;
+`smoke/terminal/terminal-follow-band.spec.ts` —
+`"a follow-band reader keeps streaming, self-resumes, and still parks past the band"` (real trusted wheel:
+an in-band flick self-resumes, a 1200px gesture still parks and still swallows output).
 
 ### A find park swallows the scroll that returns the pane to the bottom
 

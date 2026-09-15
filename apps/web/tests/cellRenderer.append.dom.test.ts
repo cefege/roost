@@ -211,6 +211,31 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(r.reconcileBlockReason()).toBeNull();
   });
 
+  // A paint hold swallows the scroll that returned the reader to the tail, and
+  // a box that still has range fires no further event: the release is the only
+  // resume left.
+  test("a hold release resumes a bottom-following wheel park that kept its range", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0")], Array.from({ length: 400 }, (_, i) => row(i, `s${i}`)));
+    const heldRow = viewportEl.children[0];
+    r.enterReading("wheel");
+    r.setArmedHold(true); // a link hover lands on the parked pane
+    c.scrollTop = c.scrollHeight - c.clientHeight; // the swallowed return to the tail
+    expect(r.apply({
+      ...deltaFrame(80, 1, [row(0, "v0-latest")], [], 3),
+      scrollbackTotal: 400,
+    })).toBe(true);
+    expect(r.readerIntent).toBe("reading");
+
+    expect(r.setArmedHold(false).reconciled).toBe(true);
+    expect(r.readerIntent).toBe("live");
+    expect(viewportEl.children[0]).not.toBe(heldRow);
+    expect(vpEl(c).textContent).toBe("v0-latest");
+    expect(r.reconcileBlockReason()).toBeNull();
+  });
+
   test("a hold release leaves a find park that can still reach its anchor", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);

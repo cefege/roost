@@ -14,6 +14,7 @@ import {
   hasCellHistoryRange,
   hasContiguousCellHistoryRows,
   missingCellHistoryRange,
+  missingCellHistoryRangeAtScroll,
   missingCellHistoryRanges,
   type CellHistoryRange,
 } from "./cellHistoryRanges.ts";
@@ -39,11 +40,12 @@ import {
   RENDERER_HOLD_SELECTION,
   createRendererPaintPresentation,
   createRendererPresentationSnapshot,
+  followsScrollBottom,
   isPositionOnlyReaderReason,
   rendererReconcileBlockReason,
+  scheduleReaderSettle,
   sameScrollbackRow,
   transitionedViewportRows,
-  visibleHistoryRowRange,
   type BackfillAnchor,
   type LiveInteractionResult,
   type ReaderAnchor,
@@ -290,21 +292,11 @@ export class CellGridRenderer {
   }
   private _settleBottomPark(): void {
     const epoch = ++this._bottomParkSettleEpoch;
-    const settle = (): void => {
-      if (
-        epoch !== this._bottomParkSettleEpoch
-        || this._readerIntent !== "reading"
-        || !isPositionOnlyReaderReason(this._readerReason)
-        || this.holding
-        || !this.atBottom()
-      ) return;
+    scheduleReaderSettle(() => {
+      if (epoch !== this._bottomParkSettleEpoch || this.holding || !this.atBottom()) return;
+      if (this._readerIntent !== "reading" || !isPositionOnlyReaderReason(this._readerReason)) return;
       this._resumeLive(false);
-    };
-    if (typeof requestAnimationFrame === "function") {
-      requestAnimationFrame(settle);
-      return;
-    }
-    queueMicrotask(settle);
+    });
   }
   private _captureReaderAnchor(): void {
     if (this._readerIntent !== "reading" || this._scrollbackLayoutEnd <= 0) {
@@ -348,10 +340,15 @@ export class CellGridRenderer {
     // and no anchor is reachable. A park with range keeps its interval —
     // reaching the bottom, or the next frame's settle, resumes that one.
     const noRange = this.container.scrollHeight <= this.container.clientHeight;
+    // A hold swallows the scroll that returned the reader to the tail and no
+    // further event follows, so a band-following position-only park has
+    // nothing left to protect once the last hold drops.
+    const bandFollower = isPositionOnlyReaderReason(this._readerReason) && this.followsBottom();
     if (
       this._readerIntent === "reading"
       && this._readerReason !== "selection"
       && !noRange
+      && !bandFollower
     ) return NO_LIVE_INTERACTION_RESULT;
     return this._resumeLive(false, noRange);
   }
@@ -780,25 +777,12 @@ export class CellGridRenderer {
   missingScrollbackRangeAtScroll(): (CellHistoryRange & { focusRow: number }) | null {
     const anchor = this.backfillAnchor();
     if (!anchor || this._scrollbackLayoutEnd !== anchor.total) return null;
-    const visible = visibleHistoryRowRange({
+    return missingCellHistoryRangeAtScroll(this._paintedRows, anchor.total, {
       scrollTop: this.container.scrollTop,
       spacerTop: this.spacerEl.offsetTop,
       clientHeight: this.container.clientHeight,
       rowHeight: this.rowHeight(),
-      total: anchor.total,
     });
-    if (!visible) return null;
-    const gaps = missingCellHistoryRanges(
-      this._paintedRows,
-      anchor.total,
-      visible.start,
-      visible.end,
-    );
-    const visibleGap = gaps.at(-1);
-    if (!visibleGap) return null;
-    const focusRow = visibleGap.start;
-    const gap = missingCellHistoryRange(this._paintedRows, anchor.total, focusRow);
-    return gap ? { ...gap, focusRow } : null;
   }
 
   hasPaintedScrollbackRange(start: number, end: number): boolean {
@@ -889,6 +873,7 @@ export class CellGridRenderer {
         && this.container.isConnected !== false,
       paintedCols: this._paintedCols,
       atBottom: this.atBottom(),
+      followsBottom: this.followsBottom(),
       paintedHistory: this._paintedRows,
       paintedSbBase: this._paintedSbBase,
       scrollbackLayoutEnd: this._scrollbackLayoutEnd,
@@ -1149,9 +1134,9 @@ export class CellGridRenderer {
     if (this._ownedScrollEpoch !== 0) this._ownedScrollTop = after;
   }
 
-  // Preserve an exact renderer-owned placement when late geometry moves its bottom.
+  // Pin capture: a band follower, or an exact renderer-owned placement.
   private _atBottomOrOwnedPlacement(): boolean {
-    return this.atBottom()
+    return this.followsBottom()
       || (this._ownedScrollEpoch !== 0 && this.container.scrollTop === this._ownedScrollTop);
   }
 
@@ -1165,6 +1150,12 @@ export class CellGridRenderer {
   atBottom(): boolean {
     const el = this.container;
     return el.scrollTop >= Math.max(0, el.scrollHeight - el.clientHeight);
+  }
+
+  /** A reader inside the follow band is riding the live tail: the band absorbs
+   *  the sub-row jitter that would otherwise freeze the pane. */
+  followsBottom(): boolean {
+    return followsScrollBottom(this.container, this.rowHeight());
   }
 
   handleScroll(): LiveInteractionResult {
@@ -1194,11 +1185,21 @@ export class CellGridRenderer {
       return this._resumeLive(false);
     }
     if (this.atBottom()) return this._resumeLive(false);
-    if (this._readerIntent === "live") {
+    if (this._readerIntent === "live" && !this.followsBottom()) {
       this.enterReading("native_scroll");
       this._settleBottomPark();
     }
     return NO_LIVE_INTERACTION_RESULT;
+  }
+
+  /** Resume a position-only park that came to rest inside the follow band.
+   *  Only valid once scrolling has stopped: a resume mid-gesture writes
+   *  scrollTop and cancels the scroll the reader is still performing. */
+  settleFollowBand(): LiveInteractionResult {
+    if (this._readerIntent !== "reading" || this.holding) return NO_LIVE_INTERACTION_RESULT;
+    if (!isPositionOnlyReaderReason(this._readerReason)) return NO_LIVE_INTERACTION_RESULT;
+    if (!this.followsBottom()) return NO_LIVE_INTERACTION_RESULT;
+    return this._resumeLive(false);
   }
 
   noteBoxResize(): LiveInteractionResult {
@@ -1231,8 +1232,7 @@ export class CellGridRenderer {
     this.readerPendingFrameRetainsHistory = true;
     this._reconciledGridEpoch = null;
     this._reconciledSeq = null;
-    this._reconciledAltScreen = null;
-    this._reconciledCursorKeysApp = null;
+    this._reconciledAltScreen = this._reconciledCursorKeysApp = null;
     this._reconciledBracketedPaste = null;
     this._readerIntent = "live";
     this._readerReason = null;

@@ -3,6 +3,7 @@ import {
   type CellGridFrame,
   type CellRow,
 } from "@roost/shared/cell";
+import { DEFAULT_CELL_ROW_PX } from "./cellRendererDom.ts";
 
 const PAINT_PRESENTATION_ROW_LIMIT = 512;
 export const MAX_HELD_SCROLLBACK_ROWS = 2000;
@@ -34,6 +35,42 @@ export function isPositionOnlyReaderReason(
   reason: ReaderIntentReason | null,
 ): boolean {
   return reason === "native_scroll" || reason === "wheel" || reason === "touch";
+}
+
+/** rAF when the host can schedule one, else a microtask: a settle must run
+ *  after layout has been applied, and unit hosts have no rAF. */
+export function scheduleReaderSettle(settle: () => void): void {
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(settle);
+    return;
+  }
+  queueMicrotask(settle);
+}
+
+/** Rows of slack around the live tail. A reader inside the band is riding the
+ *  tail: sub-row jitter, a fractional clamp and a flick that lands a row short
+ *  must not freeze the pane, while one wheel notch (~100px) leaves it. The pin
+ *  predicate shares the band — a follower that is not re-pinned drifts out of
+ *  it one appended row later. */
+export const BOTTOM_FOLLOW_SLACK_ROWS = 2;
+/** Quiet time after the last scroll event before a rest inside the band
+ *  resumes. Chromium animates a wheel gesture across frames and cancels that
+ *  animation when anything writes scrollTop, so the resume may only run once
+ *  the gesture has stopped emitting events. */
+export const BOTTOM_FOLLOW_SETTLE_MS = 180;
+
+export interface ScrollBoxGeometry {
+  readonly scrollTop: number;
+  readonly scrollHeight: number;
+  readonly clientHeight: number;
+}
+
+/** True when the box rests within the follow band of its bottom clamp; the
+ *  distance is 0 exactly at the clamp and never negative past it. */
+export function followsScrollBottom(box: ScrollBoxGeometry, rowHeight: number): boolean {
+  const row = rowHeight > 0 ? rowHeight : DEFAULT_CELL_ROW_PX;
+  const distance = Math.max(0, box.scrollHeight - box.clientHeight - box.scrollTop);
+  return distance <= BOTTOM_FOLLOW_SLACK_ROWS * row;
 }
 
 export const RENDERER_HOLD_SELECTION = 1;
@@ -98,6 +135,7 @@ export interface RendererPresentationSnapshot {
   };
   cols: { canonical: number | null; dom: number | null };
   at_bottom: boolean;
+  follows_bottom: boolean;
 }
 
 export function createRendererPaintPresentation(
@@ -152,6 +190,7 @@ export interface RendererProjection {
   cursorConnected: boolean;
   paintedCols: number | null;
   atBottom: boolean;
+  followsBottom: boolean;
   paintedHistory: readonly CellRow[];
   paintedSbBase: number;
   scrollbackLayoutEnd: number;
@@ -226,29 +265,6 @@ export function rendererReconcileBlockReason(
     || state.canonical.seq !== state.reconciled.seq
   ) return "not_reconciled";
   return null;
-}
-
-/** Absolute history rows the scroll box shows right now, or null when the
- *  box sits past the painted history. */
-export function visibleHistoryRowRange(input: {
-  scrollTop: number;
-  spacerTop: number;
-  clientHeight: number;
-  rowHeight: number;
-  total: number;
-}): { start: number; end: number } | null {
-  if (input.rowHeight <= 0 || input.clientHeight <= 0) return null;
-  const start = Math.max(
-    0,
-    Math.floor((input.scrollTop - input.spacerTop) / input.rowHeight),
-  );
-  const end = Math.min(
-    input.total,
-    Math.ceil(
-      (input.scrollTop + input.clientHeight - input.spacerTop) / input.rowHeight,
-    ),
-  );
-  return start >= end ? null : { start, end };
 }
 
 /** Rows that left `previous`'s viewport and became history in `frame`, in
@@ -329,6 +345,7 @@ export function createRendererPresentationSnapshot(
     },
     cols: { canonical: canonical?.cols ?? null, dom: state.paintedCols },
     at_bottom: state.atBottom,
+    follows_bottom: state.followsBottom,
   };
 }
 

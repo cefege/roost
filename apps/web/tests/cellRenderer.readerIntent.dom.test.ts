@@ -71,7 +71,7 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     expect(r.canonicalEpochSeq()).toEqual(r.reconciledEpochSeq());
     expect(r.readerIntent).toBe("live");
 
-    c.clientHeight -= 1; // the one delivered event now observes off-bottom geometry
+    c.clientHeight -= 3 * ROW_PX; // the one delivered event now observes off-bottom geometry
     expect(r.atBottom()).toBe(false);
     expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
     expect(r.readerIntent).toBe("live");
@@ -130,7 +130,7 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     const bottom = Math.max(0, c.scrollHeight - c.clientHeight);
     c.scrollTop = bottom;
     r.handleScroll();
-    c.scrollTop = bottom - ROW_PX;
+    c.scrollTop = bottom - 3 * ROW_PX;
     r.handleScroll(); // mismatching native position ends the seed write's epoch
 
     const clampedTop = c.scrollTop;
@@ -145,7 +145,7 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     c.scrollTop = bottom;
     r.handleScroll();
     expect(r.readerIntent).toBe("live");
-    c.clientHeight -= 1;
+    c.clientHeight -= 3 * ROW_PX;
     expect(r.atBottom()).toBe(false);
     r.handleScroll();
     expect(r.readerIntent).toBe("reading");
@@ -157,7 +157,7 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
-    const before = c.scrollHeight - c.clientHeight - 1;
+    const before = c.scrollHeight - c.clientHeight - 3 * ROW_PX;
     c.scrollTop = before;
     c.resetScrollTopWrites();
 
@@ -277,6 +277,7 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     const viewportEl = vpEl(c);
     seedHeldHistory(r, 80, [row(0, "wheel-old")], nRows(400));
     const heldRow = viewportEl.children[0];
+    c.scrollTop = c.scrollHeight - c.clientHeight - 3 * ROW_PX;
     r.enterReading("wheel");
     r.setSelectionHold(true);
     expect(r.readerReason).toBe("wheel");
@@ -321,12 +322,27 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     expect(c.scrollTopWrites).toBe(1);
   });
 
+  test("a live reader inside the follow band keeps following the tail", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
+    c.scrollTop = c.scrollHeight - c.clientHeight - ROW_PX; // one row of jitter
+    r.handleScroll();
+    expect(r.readerIntent).toBe("live");
+    c.resetScrollTopWrites();
+
+    r.apply(appDelta([row(400, "new")], 401, 3));
+
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
+  });
+
   test("an off-bottom native reader returns to the tail on explicit live preparation", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
 
-    c.scrollTop = c.scrollHeight - c.clientHeight - ROW_PX;
+    c.scrollTop = c.scrollHeight - c.clientHeight - 3 * ROW_PX;
     r.handleScroll();
     expect(r.readerIntent).toBe("reading");
     expect(r.readerReason).toBe("native_scroll");

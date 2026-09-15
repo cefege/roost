@@ -9,6 +9,9 @@ import {
   type BrowserPlatform,
   type PlatformShortcutId,
 } from "../../apps/web/src/lib/browserPlatform.ts";
+import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
+import { sendFixtureCommand } from "./terminal-scale-browser.ts";
+import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
 import type {
   TerminalInputCapture,
   RecoverySmokeApi,
@@ -209,6 +212,63 @@ export async function waitForStableCellFrames(page: Page, sessionId: string): Pr
     }
     return fullFrames > 0 ? unchangedPolls : 0;
   }, { timeout: 3_000, intervals: [50] }).toBeGreaterThanOrEqual(3);
+}
+
+/** A pane painting the PTY fixture's flood at the bottom. The fixture is a pure
+ *  emitter — no prompt, no SIGWINCH repaint — so the only geometry in play is
+ *  the one the test moves. */
+export async function paintFloodAtBottom(
+  page: Page,
+  worker: TerminalTestWorker,
+  floodPrefix: string,
+  overflowRows: number,
+): Promise<string> {
+  const sessionId = await spawnPtyFixtureSession(page, worker);
+  await navigateToSmokeSession(page, sessionId);
+  await waitForStableCellFrames(page, sessionId);
+  const gridRows = await page.evaluate((id) => window.__smoke.terminalDimensions(id).rows, sessionId);
+  expect(gridRows, "fixture pane painted no grid rows").toBeGreaterThan(0);
+  const floodCount = gridRows + overflowRows;
+  await sendFixtureCommand(
+    page,
+    sessionId,
+    encodePtyFixtureCommand({ op: "FLOOD", prefix: floodPrefix, count: floodCount }),
+  );
+  await expect.poll(() => page.evaluate(({ id, prefix }) => ({
+    max: window.__smoke.markerScan(id, prefix).max,
+    atBottom: window.__smoke.renderProbe(id).atBottom,
+  }), { id: sessionId, prefix: floodPrefix }), { timeout: 30_000 })
+    .toEqual({ max: floodCount, atBottom: true });
+  return sessionId;
+}
+
+export async function hoverTerminalGrid(page: Page, sessionId: string): Promise<void> {
+  const grid = page.getByTestId(`terminal-slot-${sessionId}`).locator(".wterm.cell-grid");
+  const box = await grid.boundingBox();
+  if (!box) throw new Error(`terminal grid has no box for ${sessionId}`);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+/** A marker no other pane, replay or earlier case in the run can collide with. */
+export function uniqueMarker(label: string): string {
+  return `${label}-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
+}
+
+export function readRenderProbe(page: Page, sessionId: string) {
+  return page.evaluate((id) => window.__smoke.renderProbe(id), sessionId);
+}
+
+/** The reader-policy state every park/resume case polls: what the pane thinks
+ *  the reader is doing, whether it sits on the literal bottom clamp, and
+ *  whether it is inside the follow band that keeps a pane streaming. */
+export async function readReaderState(page: Page, sessionId: string) {
+  const presentation = (await readTerminalStreamProbe(page, sessionId)).browser.presentation;
+  return {
+    intent: presentation?.reader_intent ?? null,
+    reason: presentation?.reader_reason ?? null,
+    atBottom: presentation?.at_bottom ?? false,
+    followsBottom: presentation?.follows_bottom ?? false,
+  };
 }
 
 export async function setRecoveryCanary(page: Page, canary: string): Promise<void> {

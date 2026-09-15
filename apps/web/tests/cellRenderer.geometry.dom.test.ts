@@ -107,7 +107,7 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
 
     c.clientHeight -= ROW_PX;
     r.handleScroll();
-    const readerTop = c.scrollTop - ROW_PX;
+    const readerTop = c.scrollTop - 3 * ROW_PX;
     c.scrollTop = readerTop;
     expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
     expect(r.readerIntent).toBe("reading");
