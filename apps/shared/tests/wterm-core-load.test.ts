@@ -1,7 +1,7 @@
 // Plan section 7 — the patched-core load contract.
 //
-// The worker runs a LOCALLY PATCHED @wterm/core wasm (upstream 0.3.4 plus
-// scripts/wterm-0.3.4-roost.patch). Two things used to be able to rot
+// The worker runs a LOCALLY PATCHED @wterm/core wasm (upstream 0.5.0 plus
+// scripts/wterm-0.5.0-roost.patch). Two things used to be able to rot
 // silently: the artifact could drift from the sources that built it, and a
 // stale/foreign module could be loaded anyway because the factory degraded to
 // the stock 1k-line core on any failure. Both are now hard failures, and this
@@ -20,8 +20,8 @@ import {
 import { WTERM_ROOST_WASM_PATH, expectedRoostWasmSha256 } from "../src/wterm-wasm.ts";
 import {
   TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, TERMINAL_VIEW_HEARTBEAT_MS,
-  TERMINAL_VIEW_LEASE_MS, TERMINAL_VIEW_SWEEP_MS, clampTerminalGeometry,
-  minimumTerminalGeometry,
+  TERMINAL_VIEW_LEASE_MS, TERMINAL_VIEW_PARK_GRACE_MS, TERMINAL_VIEW_SWEEP_MS,
+  clampTerminalGeometry, minimumTerminalGeometry,
 } from "../src/viewport.ts";
 
 const artifact = await Bun.file(WTERM_ROOST_WASM_PATH).arrayBuffer();
@@ -55,7 +55,7 @@ function instanceMemory(instance: WebAssembly.Instance): WebAssembly.Memory {
 describe("patched wterm wasm load contract", () => {
   test("the committed artifact matches its committed digest", async () => {
     expect(sha256(artifact)).toBe(committedSha256);
-    // Resolving proves the same bytes also carry the full 0.3.4 export set.
+    // Resolving proves the same bytes also carry the full bridge export set.
     await expect(verifyRoostWasm(artifact, committedSha256))
       .resolves.toBeInstanceOf(WebAssembly.Module);
   });
@@ -70,7 +70,7 @@ describe("patched wterm wasm load contract", () => {
     );
   });
 
-  test("a module without the 0.3.4 bridge ABI is refused by export name", async () => {
+  test("a module without the bridge ABI is refused by export name", async () => {
     // A well-formed but empty module: correct magic + version, no exports. Its
     // digest is honest, so only the ABI check can reject it.
     const empty = new ArrayBuffer(8);
@@ -79,18 +79,21 @@ describe("patched wterm wasm load contract", () => {
       () => null,
       (error: unknown) => (error instanceof Error ? error.message : String(error)),
     );
-    expect(failure).toContain("does not implement the @wterm/core 0.3.4 bridge ABI");
+    expect(failure).toContain("does not implement the @wterm/core");
+    expect(failure).toContain("bridge ABI");
     // Named, not counted: the operator needs to know which contract broke.
-    for (const name of ["memory", "getScrollbackDiscardedCount", "getMouseTracking", "writeBytes"]) {
+    for (const name of ["memory", "getScrollbackDiscardedCount", "getKittyKeyboardFlags", "getMouseTracking", "writeBytes"]) {
       expect(failure).toContain(name);
     }
   });
 
-  test("the loaded core answers the whole 0.3.4 surface, not just the 0.3.0 subset", async () => {
+  test("the loaded core answers the whole pinned surface, not just the 0.3.0 subset", async () => {
     await prepareWtermCoreModule();
     const core = await createWtermCore(80, 24);
     // Present-and-callable, which is what a compiled-but-wrong module fails.
     expect(core.getScrollbackDiscardedCount?.()).toBe(0);
+    // The ABI list is a floor, so nothing else proves the newest export is real.
+    expect(core.kittyKeyboardFlags?.()).toBe(0);
     expect(core.mouseTracking?.()).toBe(0);
     core.writeString("\x1b[?1002h\x1b[?1006h\x1b[?1004h");
     expect(core.mouseTracking?.()).toBe(1002);
@@ -141,7 +144,11 @@ describe("patched wterm wasm load contract", () => {
       TERMINAL_VIEW_LEASE_MS,
       TERMINAL_VIEW_HEARTBEAT_MS,
       TERMINAL_VIEW_SWEEP_MS,
-    ]).toEqual([15_000, 5_000, 1_000]);
+      TERMINAL_VIEW_PARK_GRACE_MS,
+    ]).toEqual([15_000, 5_000, 1_000, 2_000]);
+    // A parked viewer must stop constraining geometry long before its claim
+    // expires: membership and geometry are different questions.
+    expect(TERMINAL_VIEW_PARK_GRACE_MS).toBeLessThan(TERMINAL_VIEW_LEASE_MS);
   });
 
   test("cores from the shared module share no mutable state", async () => {

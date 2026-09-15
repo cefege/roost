@@ -16,7 +16,7 @@ import {
 function cell(ch: string, fg = DEFAULT_COLOR, bg = DEFAULT_COLOR, flags = 0, fgRgb?: number): CellData {
   return { char: ch ? ch.codePointAt(0)! : 0, fg, bg, flags, fgRgb, bgRgb: undefined };
 }
-/** A double-width glyph as 0.3.4 stores it: width-2 LEAD + width-0 CONTINUATION. */
+/** A double-width glyph as the core stores it: width-2 LEAD + width-0 CONTINUATION. */
 function wide(ch: string, fg = DEFAULT_COLOR, bg = DEFAULT_COLOR): CellData[] {
   return [
     { char: ch.codePointAt(0)!, fg, bg, flags: 0, width: 2, fgRgb: undefined, bgRgb: undefined },
@@ -134,7 +134,7 @@ describe("rowToSpans", () => {
   });
 
   test("a wide glyph overwritten by a narrow char is one narrow column", () => {
-    // What 0.3.4 leaves behind: both cells become plain width-1 (verified
+    // What the core leaves behind: both cells become plain width-1 (verified
     // against the real core in cell-wide-occupancy.test.ts).
     const spans = rowToSpans([cell("A"), cell(" "), ...wide("文")]);
     expect(spans.map((s) => [s.text, s.columns])).toEqual([["A ", 2], ["文", 2]]);

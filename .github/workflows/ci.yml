@@ -73,11 +73,15 @@ jobs:
     # the pinned build was verified on. The checksum half of the gate (committed
     # artifact vs committed .sha256) also runs in `unit`, on every OS, through
     # apps/shared/tests/wterm-core-load.test.ts — this job adds the half that
-    # needs a Zig toolchain: that the bytes really are upstream + our one patch.
+    # needs a Zig toolchain: that the bytes really are upstream + our patch, and
+    # that stock still exhibits the defect the mouse-report hunk guards.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - name: install zig 0.16.0
         run: |
           set -euo pipefail

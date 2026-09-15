@@ -199,6 +199,7 @@ function scanStreamState(
 function answerTerminalQueries(rec: SessionRecord, channelId: number, chunk: Uint8Array): void {
 	const reply = answerQueries(rec, rec.wtermCore, chunk);
 	noteDroppedCarry(rec, channelId, reply.droppedCarry);
+	noteMutedKeyboardReports(rec, channelId, reply.mutedKeyboardReports);
 	if (reply.bytes.length === 0) return;
 	getMultiplexedPool().input(channelId, REPLY_ENCODER.encode(reply.bytes));
 	diag("terminal.query_reply", {
@@ -217,5 +218,18 @@ function noteDroppedCarry(rec: SessionRecord, channelId: number, dropped: number
 		channel_id: channelId,
 		bytes: dropped,
 		cap: QUERY_CARRY_MAX,
+	});
+}
+
+/** The core answered a keyboard-protocol query Roost withholds, because the
+ *  browser encoder speaks legacy keys only. The application believes it
+ *  negotiated an enhanced protocol, so name the mute rather than leaving a
+ *  keys-behave-oddly report with nothing to find. */
+function noteMutedKeyboardReports(rec: SessionRecord, channelId: number, muted: number): void {
+	if (muted === 0) return;
+	diag("terminal.keyboard_report_muted", {
+		sid: rec.sessionId,
+		channel_id: channelId,
+		count: muted,
 	});
 }

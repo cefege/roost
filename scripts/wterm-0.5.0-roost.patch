@@ -12,10 +12,10 @@ index f74e989..2959e9a 100644
  pub const ScrollbackLine = struct {
      cells: [grid_mod.MAX_COLS]Cell = undefined,
 diff --git a/src/terminal.zig b/src/terminal.zig
-index 7fe1be1..b5ed3d7 100644
+index ea3a149..f5cae30 100644
 --- a/src/terminal.zig
 +++ b/src/terminal.zig
-@@ -167,9 +167,9 @@ pub const Terminal = struct {
+@@ -204,9 +204,9 @@ pub const Terminal = struct {
          return .{ .start = start, .end = end };
      }
  
@@ -28,7 +28,7 @@ index 7fe1be1..b5ed3d7 100644
      }
  
      /// Repair a row so no wide cell lacks its continuation and no continuation
-@@ -183,33 +183,33 @@ pub const Terminal = struct {
+@@ -220,33 +220,33 @@ pub const Terminal = struct {
      /// current width. The line was stored at whatever width was current when it
      /// left, which need not be this one.
      fn setRowFromScrollback(
@@ -72,7 +72,7 @@ index 7fe1be1..b5ed3d7 100644
                      changed = true;
                      c += 1;
                  } else {
-@@ -217,13 +217,13 @@ pub const Terminal = struct {
+@@ -254,13 +254,13 @@ pub const Terminal = struct {
                  }
              } else {
                  if (cell.width != cell_mod.WIDTH_NARROW) {
@@ -88,7 +88,7 @@ index 7fe1be1..b5ed3d7 100644
      }
  
      fn logUnhandled(self: *Terminal, final: u8, private_marker: u8) void {
-@@ -321,12 +321,17 @@ pub const Terminal = struct {
+@@ -360,12 +360,17 @@ pub const Terminal = struct {
          self.response_count += 1;
      }
  
@@ -112,7 +112,7 @@ index 7fe1be1..b5ed3d7 100644
  
          if (cols == old_cols and rows == old_rows) return;
  
-@@ -337,27 +342,26 @@ pub const Terminal = struct {
+@@ -376,27 +381,26 @@ pub const Terminal = struct {
              while (r < preserve_rows) : (r += 1) {
                  var c: u16 = cols;
                  while (c < old_cols) : (c += 1) {
@@ -150,7 +150,7 @@ index 7fe1be1..b5ed3d7 100644
                      const push_cols = if (cols < old_cols) cols else old_cols;
                      var r: u16 = 0;
                      while (r < from_top) : (r += 1) {
-@@ -366,46 +370,44 @@ pub const Terminal = struct {
+@@ -405,46 +409,44 @@ pub const Terminal = struct {
                          // the width they are stored with, or a pair split by that
                          // width survives in history as a wide cell with no
                          // continuation.
@@ -211,7 +211,7 @@ index 7fe1be1..b5ed3d7 100644
              }
          }
  
-@@ -416,29 +418,66 @@ pub const Terminal = struct {
+@@ -455,29 +457,66 @@ pub const Terminal = struct {
              while (r2 < preserve_rows) : (r2 += 1) {
                  var c: u16 = old_cols;
                  while (c < cols) : (c += 1) {
@@ -286,7 +286,21 @@ index 7fe1be1..b5ed3d7 100644
      // -- Byte processing --
  
      fn processByte(self: *Terminal, byte: u8) void {
-@@ -746,7 +785,14 @@ pub const Terminal = struct {
+@@ -696,6 +735,13 @@ pub const Terminal = struct {
+             self.logUnhandled(final, '>');
+             return;
+         }
++        // SGR-1006 mouse reports (`CSI < b ; x ; y M/m`) share the private
++        // markers Kitty keyboard claims. Falling through would run them as
++        // deleteLines/SGR, so anything but the Kitty final is inert here.
++        if (self.parser.csi_private == '<' or self.parser.csi_private == '=') {
++            self.logUnhandled(final, self.parser.csi_private);
++            return;
++        }
+ 
+         switch (final) {
+             'A' => self.cursorUp(self.parser.getParam(0, 1)),
+@@ -841,7 +887,14 @@ pub const Terminal = struct {
          if (alt) {
              self.alt_saved_link = self.current_link;
              self.current_link = 0;
@@ -302,7 +316,7 @@ index 7fe1be1..b5ed3d7 100644
              ag.* = self.grid;
              self.grid.reset(self.cols, self.rows);
              self.using_alt_screen = true;
-@@ -939,7 +985,7 @@ pub const Terminal = struct {
+@@ -1034,7 +1087,7 @@ pub const Terminal = struct {
              self.grid.cells[self.cursor_row][col] = blank;
          }
          self.grid.dirty[self.cursor_row] = 1;
@@ -311,7 +325,7 @@ index 7fe1be1..b5ed3d7 100644
      }
  
      fn insertBlanks(self: *Terminal, n: u16) void {
-@@ -964,7 +1010,7 @@ pub const Terminal = struct {
+@@ -1059,7 +1112,7 @@ pub const Terminal = struct {
              self.grid.cells[self.cursor_row][c] = blank;
          }
          self.grid.dirty[self.cursor_row] = 1;

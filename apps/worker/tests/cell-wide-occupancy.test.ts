@@ -1,6 +1,6 @@
-// Wide-glyph COLUMN OCCUPANCY against the REAL pinned core (@wterm/core 0.3.4).
+// Wide-glyph COLUMN OCCUPANCY against the REAL pinned core (@wterm/core 0.5.0).
 //
-// 0.3.4 stores a double-width glyph as a width-2 LEAD cell plus a width-0
+// The core stores a double-width glyph as a width-2 LEAD cell plus a width-0
 // CONTINUATION cell ("lead-plus-continuation"; core-trace-oracle.test.ts pins
 // that observation). The cell wire folds the continuation into the lead span's
 // `columns` instead of emitting it as its own space-bearing cell. Every case

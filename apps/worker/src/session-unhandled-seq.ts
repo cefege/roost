@@ -5,8 +5,8 @@
 // read it, so "the core silently ignored this sequence" — the failure class
 // behind "my TUI renders wrong in Roost but fine in iTerm" — had no telemetry
 // anywhere. The corrected reader lives in @roost/shared's core factory
-// (0.3.4's own bridge decodes the ring at the wrong offsets); this module is the
-// per-session accounting on top of it.
+// (the core's own bridge decodes the ring at the wrong offsets); this module
+// is the per-session accounting on top of it.
 //
 // THE RING IS NEVER CLEARED and the ABI exports no way to clear it, so once a
 // sequence has been logged it stays in the window for the rest of that core's

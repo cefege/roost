@@ -50,9 +50,9 @@ silently showing a short buffer.
 
 ## The VT core is pinned and verified
 
-The core is `@wterm/core` 0.3.4, instantiated from a locally patched WASM build
+The core is `@wterm/core` 0.5.0, instantiated from a locally patched WASM build
 committed in the repository alongside its SHA-256 digest. Loading is fail-fast:
-the bytes are rehashed against that digest and every 0.3.4 bridge export is
+the bytes are rehashed against that digest and every 0.5.0 bridge export is
 checked by name. Either check failing throws, and worker readiness fails with it.
 
 There is deliberately no stock-WASM fallback. Stock `@wterm/core` caps scrollback

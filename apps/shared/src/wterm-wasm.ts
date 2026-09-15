@@ -1,10 +1,12 @@
 // Locations of the roost-patched wterm wasm and its committed digest.
 //
-// apps/shared/wasm/wterm-roost.wasm is a build of @wterm/core 0.3.4's Zig core
-// (upstream commit 4a73024d9f9003972f9efa6fe1a9086d1c90417b) with the two audited
-// source deltas in scripts/wterm-0.3.4-roost.patch: src/scrollback.zig raises
+// apps/shared/wasm/wterm-roost.wasm is a build of @wterm/core 0.5.0's Zig core
+// (upstream commit db938959543fe5f02b7c80d1b8837a1fdd6fa658) with the three audited
+// source deltas in scripts/wterm-0.5.0-roost.patch: src/scrollback.zig raises
 // MAX_SCROLLBACK_LINES from 1k to 10k, and src/terminal.zig preserves and
-// resizes both terminal grids while alternate screen is active.
+// resizes both terminal grids while alternate screen is active and keeps
+// SGR-1006 mouse reports out of the CSI dispatch that would run them as
+// deleteLines/SGR.
 // scripts/rebuild-wterm-wasm.sh reproduces it and rewrites the
 // .sha256 sidecar; wterm-core-factory.ts refuses to load bytes that do not
 // hash to that sidecar.

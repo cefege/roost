@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Reproducibly rebuild apps/shared/wasm/wterm-roost.wasm from upstream wterm
-# sources plus Roost's checked-in scrollback and resize changes.
+# sources plus Roost's checked-in scrollback, resize and CSI-dispatch changes.
 #
 # Roost runs a PATCHED @wterm/core WASM: upstream caps alt-screen scrollback at
-# 1,000 lines while the SPA renders 10,000, and upstream resize updates only
+# 1,000 lines while the SPA renders 10,000, upstream resize updates only
 # the active grid, leaving the saved primary grid at stale dimensions while
-# alternate screen is active. The audited patch changes only src/scrollback.zig
-# and src/terminal.zig. This script proves an unmodified build of the pinned
-# upstream commit reproduces upstream's own committed wterm.wasm byte-for-byte,
-# then applies the patch and rebuilds.
+# alternate screen is active, and upstream routes the `<`/`=` private markers
+# into the main CSI switch for every final but `u`, so an SGR-1006 mouse report
+# replayed into a session runs as deleteLines or SGR. The audited patch changes
+# only src/scrollback.zig and src/terminal.zig. This script proves an unmodified
+# build of the pinned upstream commit reproduces upstream's own committed
+# wterm.wasm byte-for-byte, then applies the patch and rebuilds.
 #
 # TOOLCHAIN PREREQUISITES (all mandatory — the script fails loudly, it NEVER
 # falls back to the prebuilt binary):
@@ -19,6 +21,7 @@
 #       export PATH="$PWD/zig-x86_64-linux-0.16.0:$PATH"
 #   * git with network access to https://github.com/vercel-labs/wterm
 #   * sha256sum, cmp (coreutils/diffutils)
+#   * bun, to run proof 2's stock-behavior check
 #
 # Usage:
 #   scripts/rebuild-wterm-wasm.sh            # rebuild + install artifact and digest
@@ -30,14 +33,14 @@ set -euo pipefail
 
 # ── pinned inputs ───────────────────────────────────────────────────────────
 readonly UPSTREAM_REPO="https://github.com/vercel-labs/wterm.git"
-readonly UPSTREAM_COMMIT="4a73024d9f9003972f9efa6fe1a9086d1c90417b" # tag v0.3.4
+readonly UPSTREAM_COMMIT="db938959543fe5f02b7c80d1b8837a1fdd6fa658" # tag v0.5.0
 readonly ZIG_VERSION="0.16.0"
 # Upstream's own committed ReleaseSmall artifact at $UPSTREAM_COMMIT. An
 # unmodified build must reproduce this exactly, or the toolchain/source is not
 # what we think it is and the patched output means nothing.
 readonly UPSTREAM_WASM_PATH="packages/@wterm/core/wasm/wterm.wasm"
-readonly UPSTREAM_WASM_SHA256="dab230ac368e4bdaa16fdbb2e3844bae530d98bc78a15ccdc2f86269dc1845f4"
-readonly PATCH_REL="scripts/wterm-0.3.4-roost.patch"
+readonly UPSTREAM_WASM_SHA256="47f881cfb81fdc77e1d1d5f49caa19e90877ff8822f4406a602189867698d6b5"
+readonly PATCH_REL="scripts/wterm-0.5.0-roost.patch"
 readonly ARTIFACT_REL="apps/shared/wasm/wterm-roost.wasm"
 readonly DIGEST_REL="apps/shared/wasm/wterm-roost.wasm.sha256"
 
@@ -54,7 +57,7 @@ die() { echo "rebuild-wterm-wasm: $*" >&2; exit 1; }
 step() { echo "==> $*"; }
 
 # ── prerequisite gate: explicit, before any work ────────────────────────────
-for tool in git sha256sum cmp; do
+for tool in git sha256sum cmp bun; do
   command -v "$tool" >/dev/null 2>&1 || die "missing required tool '$tool'. See the TOOLCHAIN PREREQUISITES header."
 done
 
@@ -110,7 +113,21 @@ cmp -s "$src/zig-out/bin/wterm.wasm" "$src/$UPSTREAM_WASM_PATH" || die \
    The toolchain or sources differ from the pinned pair; refusing to derive a patched artifact."
 step "stock build reproduces upstream $UPSTREAM_WASM_PATH exactly ($UPSTREAM_WASM_SHA256)"
 
-# ── proof 2: apply the audited changes, rebuild ──────────────────────────────
+# ── proof 2: the mouse-report guard has not been fixed upstream ─────────────
+# Scoped to that ONE hunk: it is the only delta with a crisp bug-presence
+# observable. The 10k scrollback and alt-screen resize deltas are product
+# choices upstream has not made, and this proof says nothing about them. A
+# behavioral test on the PATCHED artifact stays green either way, so redundancy
+# is detectable only against stock.
+guard_status=0
+( cd "$REPO_ROOT" && bun scripts/wterm-stock-guard-check.ts "$src/zig-out/bin/wterm.wasm" ) || guard_status=$?
+case "$guard_status" in
+  0) ;;
+  1) die "the mouse-report hunk is now redundant — see the instruction above. This is not a build failure." ;;
+  *) die "proof 2 could not run (exit $guard_status); the patched artifact was not derived." ;;
+esac
+
+# ── proof 3: apply the audited changes, rebuild ──────────────────────────────
 step "applying $PATCH_REL"
 git -C "$src" apply --whitespace=nowarn "$REPO_ROOT/$PATCH_REL" \
   || die "$PATCH_REL does not apply to $UPSTREAM_COMMIT — rebase the patch before rebuilding."

@@ -49,7 +49,7 @@
       "version": "2.0.0",
       "dependencies": {
         "@bufbuild/protobuf": "2.12.0",
-        "@wterm/core": "0.3.4",
+        "@wterm/core": "0.5.0",
         "zod": "^3.23.8",
       },
       "devDependencies": {
@@ -99,7 +99,7 @@
         "@connectrpc/connect": "^2.1.2",
         "@connectrpc/connect-node": "^2.1.2",
         "@roost/shared": "workspace:*",
-        "@wterm/core": "0.3.4",
+        "@wterm/core": "0.5.0",
         "re2js": "2.8.5",
         "zod": "^3.23.8",
       },
@@ -113,6 +113,7 @@
       "dependencies": {
         "@bufbuild/protobuf": "2.12.0",
         "@roost/shared": "workspace:*",
+        "@wterm/dom": "0.5.0",
         "fast-check": "^3.23.0",
         "kysely": "^0.29.2",
         "kysely-bun-sqlite": "^0.4.0",
@@ -667,7 +668,9 @@
 
     "@vscode/l10n": ["@vscode/l10n@0.0.18", "", {}, "sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ=="],
 
-    "@wterm/core": ["@wterm/core@0.3.4", "", {}, "sha512-GZoAxybV6FY+o2L4VcZupipkcNKM4Dv4UGekRvuohDJ9oSAzwGgw4J8UGZlXllDLV0pKg3pmIGoukMat6EQ/pQ=="],
+    "@wterm/core": ["@wterm/core@0.5.0", "", {}, "sha512-2bodU1AK0GmDghJ/GpkQ1v2YHC6j8CI4utXFI6NBPDJ3sU5lvzRYBAEm9fUVOCN2Gjs6fug/+6XRDtWre9lYMA=="],
+
+    "@wterm/dom": ["@wterm/dom@0.5.0", "", { "dependencies": { "@wterm/core": "0.5.0" } }, "sha512-vMIaca+p6uytiIL86Dxu7lFsx2eiOmg4JnL/rCnwdapAoPuVEVV24SyecdaoQXSaQg8HoAx4misKT73goYRWHQ=="],
 
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
 

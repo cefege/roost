@@ -1,5 +1,5 @@
 // Deterministic differential trace oracle for the PINNED terminal core
-// (@wterm/core 0.3.4 + apps/shared/wasm/wterm-roost.wasm). Plan section 7:
+// (@wterm/core 0.5.0 + apps/shared/wasm/wterm-roost.wasm). Plan section 7:
 // replay a recorded chat/TUI byte trace through the real
 // Roost cell pipeline at the RECORDED PTY chunk boundaries and prove, at every
 // step, that folding the emitted frames reproduces an all-row snapshot of the
@@ -13,7 +13,7 @@
 //              off the same core. Only frame COMPOSITION is under test, so both
 //              sides deliberately share rowToSpans() as the cell encoder.
 //   scrollback Roost-owned. The emitter reads the ring's eviction origin from
-//              0.3.4's getScrollbackDiscardedCount() (emitter.ts::
+//              the core's getScrollbackDiscardedCount() (emitter.ts::
 //              scrollbackOrigin). Ground truth comes from the trace itself:
 //              every append-only line carries a globally unique `#<ordinal>`, so
 //              the oldest/newest retained line names the true origin and total,
@@ -58,9 +58,8 @@ import {
 // decides what a chunk OWES stays independent below (test-only cross-app
 // import, as in apps/worker/tests/coord-target.test.ts).
 import {
-  answerQueries,
-  PRIMARY_DA_REPLY,
-  XTVERSION_REPLY,
+  answerQueries, drainCoreReplies,
+  PRIMARY_DA_REPLY, XTVERSION_REPLY,
   type QueryCarry,
 } from "../../worker/src/terminal-query-reply.ts";
 
@@ -671,8 +670,9 @@ export async function replayTrace(program: TraceProgram, opts: ReplayOptions): P
   const writeReference = (slice: Uint8Array): void => {
     for (let at = 0; at < slice.length; at += REF_PIECE) {
       ref.writeRaw(slice.subarray(at, Math.min(at + REF_PIECE, slice.length)));
-      const reply = ref.getResponse();
-      if (reply === null) continue;
+      // Lane policy, not a raw pop: read-once defers a reply to a later piece.
+      const reply = drainCoreReplies(ref);
+      if (reply.length === 0) continue;
       expectedSegments.push(reply);
       expectedNatives.push(reply);
     }

@@ -363,12 +363,12 @@ multiplexers use:
   demand fetch, which is why a render-stress run on the main screen has to let
   the pane settle before it starts — `runRenderStress` captures one marker
   baseline up front and flags any later change of range.
-- The **core** is `@wterm/core` 0.3.4, loaded through
+- The **core** is `@wterm/core` 0.5.0, loaded through
   `apps/shared/src/wterm-core-factory.ts` from a locally patched WASM build
   committed at `apps/shared/wasm/wterm-roost.wasm`. Its sha256 sits beside it
   in `apps/shared/wasm/wterm-roost.wasm.sha256`, and `scripts/rebuild-wterm-wasm.sh` reproduces
   the build. Loading is fail-fast: `verifyRoostWasm` rehashes the bytes against
-  that digest and checks every 0.3.4 bridge export by name, throwing instead of
+  that digest and checks every 0.5.0 bridge export by name, throwing instead of
   returning a degraded core.
 - Column occupancy is **explicit on the wire**: `PbCellSpan.columns` states how
   many terminal columns a span owns, so a double-width glyph is one atomic

@@ -5,7 +5,7 @@
 // There is no stock-WASM fallback. Stock @wterm/core caps scrollback at 1,000
 // lines where Roost renders 10,000, so falling back silently truncates history
 // on exactly the long-output sessions that need it. A patched module that fails
-// to read, verify, compile, or match the 0.3.4 bridge ABI fails worker
+// to read, verify, compile, or match the 0.5.0 bridge ABI fails worker
 // readiness instead (main.ts awaits prepareWtermCoreModule() at boot).
 
 import { WasmBridge, type TerminalCore, type UnhandledSequence } from "@wterm/core";
@@ -18,24 +18,25 @@ import {
   type TerminalGeometry,
 } from "./viewport.ts";
 
-// Every WASM export @wterm/core 0.3.4's WasmBridge invokes. 0.3.4 widened the
-// ABI over 0.3.0 (per-cell display width and OSC 8 link index, mouse/focus and
-// synchronized-output modes, discarded-row origin, hyperlink resource state);
-// a 0.3.0-era module compiles fine and then throws "is not a function" deep
-// inside a session write. Checking the module's exports once, at compile time,
-// turns that into one legible startup failure.
+// Every WASM export @wterm/core 0.5.0's WasmBridge invokes. The list is a
+// missing-export FLOOR, so it only stays honest if every new export the bridge
+// reaches for is added when the pin moves. A module built from older sources
+// compiles fine and then either throws "is not a function" deep inside a
+// session write or, for an optional-chained accessor, silently reports a zero.
+// Checking the module's exports once, at compile time, turns that into one
+// legible startup failure.
 const REQUIRED_WASM_FUNCTIONS = [
   "clearDirty", "clearResponse", "getBracketedPaste", "getCellSize", "getCols",
   "getCursorCol", "getCursorKeysApp", "getCursorRow", "getCursorVisible",
   "getDebugLogCount", "getDebugLogEntrySize", "getDebugLogMax", "getDebugLogPtr",
   "getDirtyPtr", "getFocusEvents", "getGridPtr", "getHyperlinkCapacity",
-  "getHyperlinkCount", "getHyperlinkRejectedCount", "getLinkIdLen", "getLinkIdPtr",
-  "getLinkUriLen", "getLinkUriPtr", "getMaxCols", "getMouseSgr", "getMouseTracking",
-  "getResponseLen", "getResponsePtr", "getRows", "getScrollbackCount",
-  "getScrollbackDiscardedCount", "getScrollbackLine", "getScrollbackLineLen",
-  "getSynchronizedOutput", "getSynchronizedOutputGeneration", "getTitleChanged",
-  "getTitleLen", "getTitlePtr", "getUsingAltScreen", "getWriteBuffer", "init",
-  "resizeTerminal", "writeBytes",
+  "getHyperlinkCount", "getHyperlinkRejectedCount", "getKittyKeyboardFlags",
+  "getLinkIdLen", "getLinkIdPtr", "getLinkUriLen", "getLinkUriPtr", "getMaxCols",
+  "getMouseSgr", "getMouseTracking", "getResponseLen", "getResponsePtr", "getRows",
+  "getScrollbackCount", "getScrollbackDiscardedCount", "getScrollbackLine",
+  "getScrollbackLineLen", "getSynchronizedOutput", "getSynchronizedOutputGeneration",
+  "getTitleChanged", "getTitleLen", "getTitlePtr", "getUsingAltScreen",
+  "getWriteBuffer", "init", "resizeTerminal", "writeBytes",
 ] as const;
 
 // The patched module is compiled once per process. Keep the promise, rather
@@ -56,7 +57,7 @@ function assertRoostWasmAbi(module: WebAssembly.Module): void {
   if (!hasMemory) missing.unshift("memory");
   if (missing.length > 0) {
     throw new Error(
-      `${WTERM_ROOST_WASM_PATH} does not implement the @wterm/core 0.3.4 bridge ABI; `
+      `${WTERM_ROOST_WASM_PATH} does not implement the @wterm/core 0.5.0 bridge ABI; `
       + `missing exports: ${missing.join(", ")}. `
       + "Rebuild it with scripts/rebuild-wterm-wasm.sh.",
     );
@@ -64,7 +65,7 @@ function assertRoostWasmAbi(module: WebAssembly.Module): void {
 }
 
 /** The whole load contract: bytes must hash to the digest committed beside them
- * and the compiled module must implement every export the 0.3.4 bridge calls.
+ * and the compiled module must implement every export the 0.5.0 bridge calls.
  * Either check failing throws; there is no degraded return value. */
 export async function verifyRoostWasm(
   bytes: ArrayBuffer,
@@ -117,7 +118,7 @@ export async function prepareWtermCoreModule(): Promise<void> {
 // core silently dropped this sequence", the class behind "my TUI renders wrong in
 // Roost but fine in iTerm".
 //
-// 0.3.4's own bridge decodes that ring at the WRONG OFFSETS. `DebugLogEntry` is a
+// The bridge's own decode of that ring reads the WRONG OFFSETS. `DebugLogEntry` is a
 // PLAIN Zig struct, so the compiler orders its `[4]u16 params` first and the three
 // u8s after them, while wasm-bridge.js reads `final` at +0, `private` at +1,
 // `paramCount` at +2 and the params from +4. Every entry it returns is a
@@ -126,7 +127,11 @@ export async function prepareWtermCoreModule(): Promise<void> {
 // then 0 the real final ('q') is not reachable from the returned object at all.
 // The layout below is the one the digest-pinned module actually has, verified
 // end-to-end in apps/shared/tests/wterm-unhandled-sequences.test.ts; a rebuild
-// that reordered the struct would fail that test rather than quietly lie.
+// that reordered the struct would fail that test rather than quietly lie. The
+// reordering to expect is upstream declaring `DebugLogEntry` an `extern struct`
+// like `Cell` already is, which flips these to the bridge's own 0/1/2/4 and
+// still satisfies its `@sizeOf == 12` assert — so re-derive from upstream's
+// declaration rather than bisecting the build.
 const ENTRY_PARAMS_OFF = 0; // [4]u16, little-endian
 const ENTRY_PARAM_SLOTS = 4;
 const ENTRY_FINAL_OFF = 8; // u8

@@ -5,8 +5,8 @@
 // re-alias" class.
 //
 // Roost used to INFER the origin by re-identifying the previously-newest lines
-// by content hash inside a band below a hardcoded capacity table. 0.3.4 counts
-// discards in the core, so the origin is now read, and the contract this file
+// by content hash inside a band below a hardcoded capacity table. The core counts
+// discards itself, so the origin is now read, and the contract this file
 // pins is arithmetic rather than heuristic: retained + discarded must equal
 // everything the stream ever pushed into the ring, and discarded must never
 // rewind. A wasm swap that changes MAX_SCROLLBACK_LINES, or a bridge that stops
@@ -26,7 +26,7 @@ const ROWS = 24;
 // still on the live grid. Derived from the writer, never from the counter under
 // test.
 const pushedBy = (lines: number): number => lines - (ROWS - 1);
-// Roost's patched MAX_SCROLLBACK_LINES (scripts/wterm-0.3.4-roost.patch raises
+// Roost's patched MAX_SCROLLBACK_LINES (scripts/wterm-0.5.0-roost.patch raises
 // upstream's 1k). Stock @wterm/core is still a real 1k core.
 const ROOST_CAPACITY = 10_000;
 const STOCK_CAPACITY = 1_000;

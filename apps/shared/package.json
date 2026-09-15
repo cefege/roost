@@ -12,6 +12,8 @@
     "./wire/sync-ws": "./src/wire/sync-ws.ts",
     "./wire/headers": "./src/wire/headers.ts",
     "./terminal-search": "./src/terminal-search.ts",
+    "./terminal-capture": "./src/terminal-capture.ts",
+    "./terminal-capture-validate": "./src/terminal-capture-validate.ts",
     "./terminal-input": "./src/terminal-input.ts",
     "./terminal-metadata": "./src/terminal-metadata.ts",
     "./layout-document": "./src/layout-document.ts",
@@ -60,7 +62,7 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.12.0",
-    "@wterm/core": "0.3.4",
+    "@wterm/core": "0.5.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

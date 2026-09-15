@@ -30,7 +30,7 @@ class MockCore {
   grid: CellData[][] = [row("", 5), row("", 5)];
   /** Oldest-first, exactly as the frame exposes it. */
   sb: CellData[][] = [];
-  /** Lines this ring has evicted — what 0.3.4 reports and the emitter reads. */
+  /** Lines this ring has evicted — what the core reports and the emitter reads. */
   discarded = 0;
   cursor: CursorState = { row: 0, col: 0, visible: true };
   alt = false;
@@ -81,7 +81,7 @@ describe("nextCellFrame", () => {
     expect(r.frame.viewportRows.length).toBe(2);
     expect(r.state.sentFull).toBe(true);
     expect(r.state.cols).toBe(5);
-    // MockCore implements none of the OPTIONAL 0.3.4 mode accessors, exactly like
+    // MockCore implements none of the OPTIONAL mode accessors, exactly like
     // a core built against the older interface. The frame must still report "no
     // tracking" concretely: an undefined mouseTracking is nonzero to the
     // browser's `!== 0` gate, which would forward the mouse to an app that never

@@ -1,14 +1,14 @@
 // Plan section 7 — the parser/model gate for the terminal core.
 //
 // Replays apps/shared/tests/fixtures/chat-tui.trace through the core the worker
-// actually loads (createWtermCore -> @wterm/core 0.3.4 + the roost-patched 10k
+// actually loads (createWtermCore -> @wterm/core 0.5.0 + the roost-patched 10k
 // wasm, sha256-verified at load) at the recorded pty chunk boundaries, driving
 // the real Roost emission path: nextCellFrame -> applyDelta fold -> compare
 // against an all-row snapshot of the live grid, every step. A divergence FAILS
 // here with the exact record (step, byte offset, chunk boundary, row/col,
 // expected vs actual hash); that record is evidence, not a warning.
 //
-// The lanes are separate tests on purpose, and the 0.3.0 -> 0.3.4 migration is
+// The lanes are separate tests on purpose, and the migration off 0.3.0 is
 // scored here. `fold`, `scrollback` and `boundary` are Roost's own emitter
 // contract and were GREEN on both cores, which is what said the terminal-stream
 // faults were never in the cell pipeline. `document`, `reply-dropped` and
@@ -138,8 +138,8 @@ describe("pinned-core trace oracle", () => {
   });
 
   test("a wide codepoint owns a lead cell plus a continuation cell", () => {
-    // 0.3.4 models display width: a width-2 lead is followed by a width-0
-    // continuation whose char is 0, so the core's column arithmetic (wrap,
+    // The pinned core models display width: a width-2 lead is followed by a
+    // width-0 continuation whose char is 0, so the core's column arithmetic (wrap,
     // cursor, clipping) finally agrees with what a terminal paints. 0.3.0 was
     // "lead-only" and disagreed. This pins the model the cell contract's
     // explicit span columns are built on; a core that regressed to lead-only
@@ -151,8 +151,8 @@ describe("pinned-core trace oracle", () => {
     // Was RED on 0.3.0: `resize 80 12` appended the rows the user was looking
     // at — live tail, cursor line — to the MIDDLE of scrollback and kept the
     // oldest rows on screen, so history++viewport stopped being the document
-    // the stream wrote. 0.3.4's Scrollback.push/pop ordering closes it; this
-    // assertion is the regression guard for the fix, not a pending item.
+    // the stream wrote. The pinned core's Scrollback.push/pop ordering closes it;
+    // this assertion is the regression guard for the fix, not a pending item.
     expect(reportOn(report, "document")).toBe("document: clean");
   });
 
@@ -160,9 +160,9 @@ describe("pinned-core trace oracle", () => {
     // Was RED on 0.3.0 for two independent reasons: a probe split across pty
     // chunks was never answered (the synthetic scan was per-chunk with no
     // carry), and two probes in one chunk yielded one reply because the core
-    // kept a single response slot the last write clobbered. 0.3.4 replaced the
-    // slot with a bounded FIFO and the worker now drains it until empty, so
-    // every queued reply reaches the pty.
+    // kept a single response slot the last write clobbered. The pinned core
+    // replaced the slot with a bounded FIFO and the worker now drains it until
+    // empty, so every queued reply reaches the pty.
     expect(reportOn(report, "reply-dropped")).toBe("reply-dropped: clean");
     expect(report.observations.queryReplyModel).toBe("ordered-drain");
   });

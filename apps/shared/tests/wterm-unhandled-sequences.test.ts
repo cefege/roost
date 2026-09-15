@@ -2,7 +2,7 @@
 //
 // This ring is the only evidence Roost can get that the terminal core silently
 // dropped an escape sequence ("renders wrong in Roost, fine in iTerm"), and
-// @wterm/core 0.3.4's own bridge decodes it at the WRONG OFFSETS: `DebugLogEntry`
+// @wterm/core's own bridge decodes it at the WRONG OFFSETS: `DebugLogEntry`
 // is a plain Zig struct, so the compiler puts its `[4]u16 params` first and the
 // three u8s (`final_byte`, `private_marker`, `param_count`) after them, while
 // wasm-bridge.js reads the final byte at +0 and the params from +4. Its output is
@@ -34,7 +34,7 @@ describe("unhandled-sequence ring", () => {
   test("decodes final byte, private marker, count and parameters at the real offsets", async () => {
     // DECSCUSR (cursor style), a private-prefixed final, and a `?`-prefixed one:
     // all parse cleanly, all are dropped by the dispatcher, all carry parameters —
-    // exactly the shape 0.3.4's own decode mangles.
+    // exactly the shape the core's own decode mangles.
     const core = await coreFed("\x1b[2 q\x1b[>10;20;30W\x1b[?5Z");
     expect(core.getUnhandledSequences()).toEqual([
       { final: "q", private: "", paramCount: 1, params: [2] },
@@ -45,7 +45,7 @@ describe("unhandled-sequence ring", () => {
 
   test("a parameterless sequence is reported, not swallowed", async () => {
     // DA1: the core's CSI dispatcher does not implement it (Roost answers the
-    // probe itself, host-side), and it is the case 0.3.4's decode loses
+    // probe itself, host-side), and it is the case the core's decode loses
     // COMPLETELY — reading the final byte at the params' offset yields 0, which
     // its loop then skips as an empty slot. The most common unhandled shape there
     // is, reported as nothing at all.

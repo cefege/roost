@@ -59,7 +59,7 @@ export function cellGridEpoch(state: CellEmitState): string {
 /** Lines the ring has evicted, in Roost's monotonic index space — the origin
  *  every absolute row index is measured from (see grid-to-cells.ts).
  *
- *  @wterm/core 0.3.4 counts discards itself, so this is a READ. Roost used to
+ *  The core counts discards itself, so this is a READ. Roost used to
  *  infer it: at saturation getScrollbackCount() pins, so the emitter
  *  re-identified the previously-newest lines by content hash to recover how far
  *  the ring had slid. That probe cost ~1200 WASM reads per emit near the cap,

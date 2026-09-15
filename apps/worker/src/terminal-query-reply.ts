@@ -5,11 +5,11 @@
 // appeared in the stream. Two sources feed that one lane:
 //
 //   native     probes @wterm/core answers itself (DSR cursor report, ESC[6n).
-//              0.3.4 queues them and getResponse() pops ONE, so the lane drains
-//              until null — after every internal <=8192-byte write chunk via the
-//              `afterChunk` hook, and again after the write returns. Reading
-//              once leaves a reply queued to surface against a LATER chunk's
-//              probes, which is how a CPR ends up answering a DA.
+//              The core queues them and getResponse() pops ONE, so the lane
+//              drains until null — after every internal <=8192-byte write chunk
+//              via the `afterChunk` hook, and again after the write returns.
+//              Reading once leaves a reply queued to surface against a LATER
+//              chunk's probes, which is how a CPR ends up answering a DA.
 //   synthetic  probes the core stays silent on. Verified empirically against
 //              @wterm/core + the roost-patched wasm: Primary DA (ESC[c, ESC[0c)
 //              and XTVERSION (ESC[>0q) get no reply at all, and a full-screen
@@ -83,22 +83,46 @@ export interface QueryReply {
 	synth: string;
 	/** Bytes of an unterminated CSI abandoned at the carry cap. */
 	droppedCarry: number;
+	/** Keyboard-protocol reports the core answered and Roost withheld. */
+	mutedKeyboardReports: number;
 }
 
 /** Shared, so the vast majority of chunks — the ones carrying no probe and
  *  leaving no queued reply — allocate nothing at all. */
-const NO_REPLY: QueryReply = Object.freeze({ bytes: "", native: "", synth: "", droppedCarry: 0 });
+const NO_REPLY: QueryReply = Object.freeze({
+	bytes: "", native: "", synth: "", droppedCarry: 0, mutedKeyboardReports: 0,
+});
 const EMPTY_CARRY = new Uint8Array(0);
 
-/** Pop every queued core reply, oldest first. */
-export function drainCoreReplies(core: QueryCore): string {
-	const first = core.getResponse();
-	if (first === null || first.length === 0) return "";
-	let out = first;
+/** The Kitty keyboard flags report, `ESC [ ? <flags> u`.
+ *
+ *  The core answers `CSI ? u` itself, which tells an application the Kitty
+ *  keyboard protocol is available. Roost's browser input path encodes legacy
+ *  keys only, so an application that believed that reply would push flags and
+ *  then wait for `CSI ... u` key reports that never arrive. Dropping the report
+ *  keeps the negotiation honest about the encoder Roost actually has: pushed
+ *  flags remain core-local state nobody acts on, exactly as before. Delete this
+ *  filter in the same change that teaches the web input encoder CSI-u. */
+function isKittyKeyboardReport(reply: string): boolean {
+	if (reply.length < 4 || !reply.startsWith("\x1b[?") || !reply.endsWith("u")) return false;
+	for (let i = 3; i < reply.length - 1; i++) {
+		const code = reply.charCodeAt(i);
+		if (code < ZERO || code > ZERO + 9) return false;
+	}
+	return true;
+}
+
+/** Pop every queued core reply, oldest first, minus the ones Roost cannot
+ *  honour. `onMuted` fires per withheld report so the session can say so:
+ *  muting a negotiation the application believes succeeded is a state change,
+ *  and an unexplained one is the kind a keyboard bug report never finds. */
+export function drainCoreReplies(core: QueryCore, onMuted?: () => void): string {
+	let out = "";
 	for (;;) {
 		const next = core.getResponse();
 		if (next === null || next.length === 0) return out;
-		out += next;
+		if (isKittyKeyboardReport(next)) { onMuted?.(); continue; }
+		out = out.length === 0 ? next : out + next;
 	}
 }
 
@@ -127,9 +151,10 @@ export function answerQueries(
 	let bytes = "";
 	let native = "";
 	let synth = "";
+	let muted = 0;
 	const drain = (): void => {
 		if (core === null) return;
-		const got = drainCoreReplies(core);
+		const got = drainCoreReplies(core, () => { muted += 1; });
 		if (got.length === 0) return;
 		native += got;
 		bytes += got;
@@ -174,8 +199,8 @@ export function answerQueries(
 	}
 	// Always a copy: `buf` may be a view onto the pty's reusable read buffer.
 	state.query_carry = carryFrom < buf.length ? buf.slice(carryFrom) : EMPTY_CARRY;
-	if (bytes.length === 0 && dropped === 0) return NO_REPLY;
-	return { bytes, native, synth, droppedCarry: dropped };
+	if (bytes.length === 0 && dropped === 0 && muted === 0) return NO_REPLY;
+	return { bytes, native, synth, droppedCarry: dropped, mutedKeyboardReports: muted };
 }
 
 /** The reply Roost owes for one complete CSI whose body spans [from, end) and
