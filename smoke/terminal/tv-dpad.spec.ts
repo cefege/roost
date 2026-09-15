@@ -70,6 +70,38 @@ test("TV mode navigates, scrolls scrollback, and activates with a D-pad @tv", as
   }
   expect((await readProbe()).atBottom).toBe(true);
 
+  // ── Overscan: the portaled key pad must clear the cropped bezel ──────────
+  // .term-nav and its toggle are position:fixed on <body>, so they escape
+  // .workbench-shell's overscan padding and their env(safe-area-inset-*) is
+  // 0px on a television. The pad is the TV's only raw-key surface, so a crop
+  // here costs Esc/Tab/Ctrl entirely.
+  const overscan = await tvSmokePage.evaluate(() => {
+    const styles = getComputedStyle(document.documentElement);
+    return {
+      inline: Number.parseFloat(styles.getPropertyValue("--tv-overscan-inline")),
+      block: Number.parseFloat(styles.getPropertyValue("--tv-overscan-block")),
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  });
+  expect(overscan.inline).toBeGreaterThan(0);
+
+  const expectInsideOverscan = async (selector: string) => {
+    const box = await tvSmokePage.locator(selector).boundingBox();
+    expect(box, `${selector} must be laid out`).not.toBeNull();
+    if (!box) return;
+    expect(overscan.width - (box.x + box.width)).toBeGreaterThanOrEqual(overscan.inline);
+    expect(overscan.height - (box.y + box.height)).toBeGreaterThanOrEqual(overscan.block);
+    expect(box.y).toBeGreaterThanOrEqual(overscan.block);
+  };
+
+  await expect(tvSmokePage.locator(".term-nav-toggle")).toBeVisible();
+  await expectInsideOverscan(".term-nav-toggle");
+  await tvSmokePage.locator(".term-nav-toggle").click();
+  await expect(tvSmokePage.getByTestId("terminal-nav-buttons")).toBeVisible();
+  await expectInsideOverscan(".term-nav");
+  await tvSmokePage.locator(".term-nav-toggle").click();
+
   // ── Directional focus travel ────────────────────────────────────────────
   const activitySessions = tvSmokePage.locator("#workbench-activity-sessions");
   await expect(activitySessions).toBeVisible();

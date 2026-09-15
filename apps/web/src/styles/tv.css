@@ -81,4 +81,17 @@ html[data-tv="true"] {
 [data-tv="true"] .term-nav {
   right: calc(var(--tv-overscan-inline) + var(--md-space-4));
   bottom: calc(var(--tv-overscan-block) + 220px);
+  /* The base max-height subtracts a 220px literal matching the base `bottom`.
+     Raising `bottom` without raising this lets a tall sheet run off the top of
+     the frame; the overscan is subtracted twice — once for the raised bottom,
+     once to keep the sheet's top edge clear of the cropped edge too. */
+  max-height: max(
+    0px,
+    calc(
+      100dvh
+      - calc(var(--tv-overscan-block) * 2)
+      - 220px
+      - var(--md-space-4)
+    )
+  );
 }
