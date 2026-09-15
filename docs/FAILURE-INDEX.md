@@ -393,11 +393,11 @@ to one event of latency for an anchor park whose last gesture event coincided wi
 `"a renderer-owned write that lands at the bottom keeps the find park"`,
 `"a find park survives a scroll that does not reach the bottom"`,
 `"a box-grow clamp onto the bottom keeps a find park"`,
-`"a clamp that leaves no scroll range resumes a find park"`;
-`apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
-`"a wheel park clamped onto the bottom by a box grow resumes"` for the position-only side; and
+`"a clamp that leaves no scroll range resumes a find park"`, and
 `"a gesture after a clamp still resumes a find park"`, which pins the one-shot property — making the record
-conditional on `clamped` turns it red.
+conditional on `clamped` turns it red;
+`apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
+`"a wheel park clamped onto the bottom by a box grow resumes"` for the position-only side.
 
 ### A dismissed find bar leaves the pane parked on a dead find anchor
 
