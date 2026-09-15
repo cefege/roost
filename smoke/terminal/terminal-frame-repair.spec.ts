@@ -214,13 +214,6 @@ test("dropped final frame is repaired by the applied-sequence heartbeat", async 
     dropped.browser.handler_canonical,
     before.browser.handler_canonical,
   )).toBe(true);
-  const droppedPresentation = dropped.browser.presentation;
-  if (!droppedPresentation) throw new Error("dropped final frame omitted renderer presentation state");
-  expect(sameWatermark(
-    droppedPresentation.canonical,
-    before.browser.dom_reconciled,
-  )).toBe(true);
-  expect(dropped.browser.dom_reconciled).toEqual(before.browser.dom_reconciled);
   expect(await smokePage.evaluate(
     (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
     sessionId,

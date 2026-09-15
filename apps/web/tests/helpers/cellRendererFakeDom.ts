@@ -1,5 +1,6 @@
-// Fake DOM + frame builders shared by the CellGridRenderer DOM tripwire suite
-// (cellRenderer.*.dom.test.ts) and the terminalBrowserStreamSnapshot test.
+// Fake DOM, frame builders and the painted-history fault injector shared by the
+// CellGridRenderer DOM tripwire suite (cellRenderer.*.dom.test.ts), the
+// incident-capture producer tests and the terminalBrowserStreamSnapshot test.
 //
 // No jsdom (by design, per cellRenderer.test.ts). A ~40-line fake DOM covers
 // exactly what CellGridRenderer touches — node identity is all we assert.
@@ -30,7 +31,15 @@ export class FakeEl {
   style = new FakeStyle();
   dataset: Record<string, string> = {};
   attrs: Record<string, string> = {};
-  textContent = "";
+  // Like the real DOM: an element's text is its subtree's text, so a reader
+  // that measures painted rows sees what the renderer actually painted.
+  private _text = "";
+  get textContent(): string {
+    if (this.children.length === 0) return this._text;
+    const kids = this.children as Array<{ textContent?: unknown }>;
+    return kids.map((child) => String(child.textContent ?? "")).join("");
+  }
+  set textContent(value: string) { this._text = value; }
   parentElement: FakeEl | null = null;
   // Track class membership so tests can assert toggle() (alt-screen gating).
   private _classes = new Set<string>();
@@ -135,6 +144,7 @@ export class FakeEl {
     if (i >= 0) { p.children[i] = next; next.parentElement = p; this.parentElement = null; }
   }
   setAttribute(k: string, v: string) { this.attrs[k] = v; }
+  getAttribute(k: string): string | null { return this.attrs[k] ?? null; }
   remove() {
     const p = this.parentElement;
     if (p) { const i = p.children.indexOf(this); if (i >= 0) p.children.splice(i, 1); }
@@ -216,3 +226,25 @@ export const sbEl = (c: FakeEl): FakeEl => c.children.find((x: FakeEl) => x.clas
 export const vpEl = (c: FakeEl): FakeEl => c.children.find((x: FakeEl) => x.className === "cell-viewport") as FakeEl;
 export const sbRows = (scrollbackEl: FakeEl): FakeEl[] =>
   scrollbackEl.children.flatMap((b: FakeEl) => b.children) as FakeEl[];
+
+export function historyNode(container: FakeEl, absIndex: number): FakeEl {
+  const node = sbRows(sbEl(container)).find((el) => el.dataset.rowIndex === String(absIndex));
+  if (!node) throw new Error(`no painted history row ${absIndex}`);
+  return node;
+}
+
+/** Paint a second node claiming an absolute index the DOM already holds —
+ *  exactly the duplicated-tail corruption, injected below the renderer. */
+export function injectDuplicateHistoryNode(container: FakeEl, absIndex: number): void {
+  const original = historyNode(container, absIndex);
+  const block = original.parentElement!;
+  const clone = new FakeEl("div", original.ownerDocument);
+  clone.className = original.className;
+  clone.dataset = { ...original.dataset };
+  clone.attrs = { ...original.attrs };
+  const span = new FakeEl("span", original.ownerDocument);
+  span.textContent = original.textContent;
+  clone.appendChild(span);
+  block.children.splice(block.children.indexOf(original) + 1, 0, clone);
+  clone.parentElement = block;
+}

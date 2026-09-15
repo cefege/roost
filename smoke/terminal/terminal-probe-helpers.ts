@@ -303,7 +303,7 @@ function recoveredWatermarksConverged(
   return true;
 }
 
-function unknownRecord(value: unknown): Record<string, unknown> | null {
+export function unknownRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
@@ -356,7 +356,7 @@ export interface CoordinatorTerminalViewState {
   unavailable: boolean;
 }
 
-function nonNegativeInteger(value: unknown, label: string): number {
+export function nonNegativeInteger(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${label} was not a non-negative integer`);
   }

@@ -10,6 +10,10 @@ import * as respawnAdmission from "./session-respawn-admission.ts";
 import * as lifecycle from "./session-lifecycle.ts";
 import * as terminalControl from "./session-terminal-control.ts";
 import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
+import {
+	cancelCellEmission,
+	scheduleCellEmission,
+} from "./session-cell-scheduler.ts";
 import { SessionManagerState } from "./session-manager-state.ts";
 import { SessionChannelCreationGate } from "./session-channel-creation-gate.ts";
 import { releaseSyncOutputHold } from "./session-sync-output.ts";
@@ -39,9 +43,6 @@ export function isSessionEventOutboxFullError(
 export function isSessionEventDurabilityError(error: unknown): boolean {
 	return isFatalSessionEventError(error);
 }
-
-
-
 export class SessionManager extends SessionManagerState {
 	readonly #channelCreationGate = new SessionChannelCreationGate();
 
@@ -147,9 +148,10 @@ export class SessionManager extends SessionManagerState {
 	}
 	invalidateTerminalStreamsForReconnect(): void {
 		for (const [channelId, current] of this.terminalStreams) {
+			cancelCellEmission(this, channelId);
+			this.cellDirty.delete(channelId);
+			current.baselineDirty = false;
 			retireSnapshotCursor(this, channelId, current);
-			const baseline = Promise.withResolvers<boolean>();
-			baseline.resolve(true);
 			this.terminalStreams.set(channelId, {
 				streamId: current.streamId,
 				enabled: false,
@@ -161,9 +163,6 @@ export class SessionManager extends SessionManagerState {
 				baselineDirty: false,
 				snapshotCursor: null,
 				resizeCapture: current.resizeCapture,
-				baselineInstalled: baseline.promise,
-				baselinePromisePending: false,
-				resolveBaselineInstalled: baseline.resolve,
 			});
 		}
 	}
@@ -198,7 +197,7 @@ export class SessionManager extends SessionManagerState {
 
 
 	_scheduleCellEmit(channelId: number, promoteInputEcho = false): void {
-		return emit._scheduleCellEmit.call(this, channelId, promoteInputEcho);
+		scheduleCellEmission(this, channelId, promoteInputEcho);
 	}
 	_enqueueRawMetadata(channelId: number, endSeq: number, chunk: Buffer): void {
 		return _enqueueRawMetadata.call(this, channelId, endSeq, chunk);

@@ -1,4 +1,8 @@
 // Respawn-if-missing dispatch for open sessions after a worker reconnects.
+// Called by worker-conn.ts once the hello grace period ends; it reads the
+// durable session rows, the write gate, and the terminal-view hub's effective
+// geometry so a revived PTY comes back at the size its viewers are already
+// showing rather than at a fixed default.
 
 import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
@@ -11,6 +15,13 @@ import { log } from "@roost/shared/log";
 import type { KyselyDB } from "../db/connection.ts";
 import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import { connectWorkers, type WorkerHandle } from "./worker-registry.ts";
+import { terminalViewSnapshot } from "./terminal-view-hub.ts";
+
+/** Nothing is watching, so the PTY is framed at the conventional default and
+ *  the first view to attach reframes it. Respawning at this size while views
+ *  DO exist makes every attached TUI redraw twice. */
+const RESPAWN_UNWATCHED_COLS = 80;
+const RESPAWN_UNWATCHED_ROWS = 24;
 
 /**
  * Called after the worker hello grace period. Open terminal sessions are
@@ -41,10 +52,6 @@ export async function respawnMissingForWorker(
       .where("worker.deleted_at_ms", "is", null)
       .execute();
     if (rows.length === 0) return;
-    log.info("worker-service", "respawn_missing_dispatch", {
-      worker_fp: workerFp,
-      count: rows.length,
-    });
     for (const row of rows) {
       if (!handle.ready || handle.revoked || connectWorkers.get(workerFp) !== handle) return;
       const requestId = randomUUID();
@@ -57,13 +64,24 @@ export async function respawnMissingForWorker(
         });
         continue;
       }
+      const effective = terminalViewSnapshot(row.id)?.effective ?? null;
+      const dispatchCols = effective?.cols ?? RESPAWN_UNWATCHED_COLS;
+      const dispatchRows = effective?.rows ?? RESPAWN_UNWATCHED_ROWS;
+      log.info("worker-service", "respawn_missing_dispatch", {
+        worker_fp: workerFp,
+        count: rows.length,
+        session_id: row.id,
+        cols: dispatchCols,
+        rows: dispatchRows,
+        geometry_source: effective ? "terminal_view" : "unwatched_default",
+      });
       const frame: ClientControlFrame = {
         kind: "respawn-if-missing",
         request_id: requestId,
         session_id: asSessionId(row.id),
         cwd: row.cwd,
-        cols: 80,
-        rows: 24,
+        cols: dispatchCols,
+        rows: dispatchRows,
       };
       try {
         const browserCommand = create(DBrowserCommandSchema, {

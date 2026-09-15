@@ -64,7 +64,7 @@ export function mountCellTerminalRenderer(
 	const renderer = new CellGridRenderer(
 		display,
 		() => presentation.setHasReconciledFrame(true),
-		presentation.refreshTerminalPresentation,
+		presentation.noteRendererReconciled,
 	);
 	runtime.renderer = renderer;
 	const backfill = createScrollbackBackfill({

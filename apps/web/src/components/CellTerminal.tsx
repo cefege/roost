@@ -104,7 +104,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					viewport,
 					pending,
 					navigate,
-					{ mouseTracking },
+					{ mouseTracking, linkActivationArmed: input.linkActivationArmed },
 				);
 				lifecycleMount = mountCellTerminalLifecycle(
 					props,
@@ -254,6 +254,8 @@ export function CellTerminal(props: CellTerminalProps) {
 						if (armed && !isTouchDevice()) runtime.inputController?.forceFocus();
 						input.setCtrlArmed(armed);
 					}}
+					linkActivationArmed={input.linkActivationArmed()}
+					onLinkActivationArmedChange={input.setLinkActivationArmed}
 				/>
 				<TerminalComposeButton
 					placement="viewport"

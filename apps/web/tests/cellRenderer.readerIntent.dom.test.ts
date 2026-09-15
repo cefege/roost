@@ -152,6 +152,7 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     expect(r.readerReason).toBe("native_scroll");
   });
 
+
   test("an unobserved off-bottom position stays unmoved despite live reader intent", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);

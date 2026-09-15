@@ -10,10 +10,13 @@ import {
   type TerminalBrowserStreamSnapshot,
 } from "./terminalDiagSnapshot.ts";
 
-type SmokeTerminalStreamProbeMethods = Pick<SmokeApi, "terminalStreamProbe">;
+type SmokeTerminalStreamProbeMethods = Pick<SmokeApi, "terminalBrowserSnapshot" | "terminalStreamProbe">;
 
 export function createSmokeTerminalStreamProbeMethods(): SmokeTerminalStreamProbeMethods {
   return {
+    terminalBrowserSnapshot(sessionId) {
+      return terminalBrowserStreamSnapshot(sessionId);
+    },
     async terminalStreamProbe(sessionId) {
       const browser = terminalBrowserStreamSnapshot(sessionId);
       const response = await coordClient.diagSnapshot({
@@ -60,6 +63,7 @@ function normalizeTerminalStreamProbe(
   const coordSession = diagnosticRecord(coordSessions?.[sessionId]);
   const terminalView = diagnosticRecord(coordSession?.terminal_view);
   const terminalEffective = diagnosticRecord(terminalView?.effective);
+  const viewerInputs = Array.isArray(coordSession?.viewers) ? coordSession.viewers : null;
   const terminalControl = terminalView
     ? {
         active_view_count: terminalView.activeViews,
@@ -68,6 +72,10 @@ function normalizeTerminalStreamProbe(
         unavailable: terminalView.unavailable,
         effective_cols: terminalEffective?.cols ?? null,
         effective_rows: terminalEffective?.rows ?? null,
+        // The per-view geometry inputs the effective size was minimized over,
+        // so a spec proves the minimum against its actual inputs instead of
+        // recomputing the policy.
+        viewer_inputs: viewerInputs,
       }
     : null;
   const route = diagnosticRecord(coordSession?.route);

@@ -179,13 +179,13 @@ test("foreground terminal blackhole recovers without visibility or identity chan
     return foregroundVisible(probe)
       && probe.browser.replica.challenge_age_ms !== null
       && probe.browser.faults.blackhole_drop_count > 0;
-  }, { timeout: 22_000, intervals: [100, 250] }).toBe(true);
+  }, { timeout: 6_000, intervals: [100, 250] }).toBe(true);
   const challengeProbe = await readTerminalStreamProbe(smokePage, sessionId);
   const challengeIssuedAt = Date.now() - startedAt
     - (challengeProbe.browser.replica.challenge_age_ms ?? 0);
-  expect(challengeIssuedAt).toBeLessThanOrEqual(20_000);
+  expect(challengeIssuedAt).toBeLessThanOrEqual(5_000);
 
-  const generationTimeout = Math.max(1_000, 35_000 - (Date.now() - startedAt));
+  const generationTimeout = Math.max(1_000, 9_000 - (Date.now() - startedAt));
   await expect.poll(async () => {
     const sync = (await readTerminalStreamProbe(smokePage, sessionId)).browser.sync;
     return sync.ready
@@ -194,14 +194,14 @@ test("foreground terminal blackhole recovers without visibility or identity chan
       && sync.socket_generation > before.browser.sync.socket_generation
       && sync.socket_id !== before.browser.sync.socket_id;
   }, { timeout: generationTimeout, intervals: [100, 250] }).toBe(true);
-  expect(Date.now() - startedAt).toBeLessThanOrEqual(35_000);
+  expect(Date.now() - startedAt).toBeLessThanOrEqual(9_000);
 
-  const paintTimeout = Math.max(1_000, 50_000 - (Date.now() - startedAt));
+  const paintTimeout = Math.max(1_000, 12_000 - (Date.now() - startedAt));
   await smokePage.evaluate(
     ({ id, marker, timeout }) => window.__smoke.waitForPaintedMarker(id, marker, timeout),
     { id: sessionId, marker: interruptedMarker, timeout: paintTimeout },
   );
-  expect(Date.now() - startedAt).toBeLessThanOrEqual(50_000);
+  expect(Date.now() - startedAt).toBeLessThanOrEqual(12_000);
   await waitForStableCellFrames(smokePage, sessionId);
   await expect.poll(async () => everyLayerConverged(
     await readTerminalStreamProbe(smokePage, sessionId),

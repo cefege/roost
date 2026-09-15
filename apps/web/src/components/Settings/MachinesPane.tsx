@@ -6,7 +6,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { rootStore } from "../../store/root.ts";
 import { MachineDeployDialog } from "../MachineDeployDialog.tsx";
-import { Card, Button, EmptyState } from "./md/primitives.tsx";
+import { Card, Button, EmptyState, List } from "./md/primitives.tsx";
 import { MachineCard } from "./MachineCard.tsx";
 export function MachinesPane() {
   const workers = createMemo(() =>
@@ -15,37 +15,43 @@ export function MachinesPane() {
   const [showDeploy, setShowDeploy] = createSignal(false);
 
   return (
-    <div data-testid="settings-machines-pane" style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-5)" }}>
+    <div data-testid="settings-machines-pane">
       <Card
-        supporting="Each machine running the Roost worker registers here automatically. A single machine can host the coordinator, the worker, and the browser — N=1 is first-class."
+        supporting={workers().length === 1 ? "1 machine" : `${workers().length} machines`}
         title="Machines"
         trailing={
-          <Show when={workers().length > 0}>
-            <Button variant="default" icon="add"
+          <Button
+            variant="default"
+            icon="add"
             data-testid="machines-add-btn"
-            onClick={() => setShowDeploy(true)}>
-              Add machine
-            </Button>
-          </Show>
+            onClick={() => setShowDeploy(true)}
+          >
+            Add machine
+          </Button>
         }
       >
-        <Show when={workers().length === 0}>
-          <EmptyState
-            icon="desktop_mac"
-            title="No machines yet"
-            supporting="Pair your first machine to start spawning sessions. The worker registers itself the first time it boots."
-            action={
-              <Button variant="default" icon="add" onClick={() => setShowDeploy(true)}>
-                Add machine
-              </Button>
-            }
-          />
+        <Show
+          when={workers().length > 0}
+          fallback={
+            <EmptyState
+              icon="desktop_mac"
+              title="No machines yet"
+              supporting="Add a machine to start spawning sessions."
+              action={
+                <Button variant="default" icon="add" onClick={() => setShowDeploy(true)}>
+                  Add machine
+                </Button>
+              }
+            />
+          }
+        >
+          <List contained>
+            <For each={workers()}>
+              {(worker) => <MachineCard worker={worker} />}
+            </For>
+          </List>
         </Show>
       </Card>
-
-      <For each={workers()}>
-        {(worker) => <MachineCard worker={worker} />}
-      </For>
 
       <Show when={showDeploy()}>
         <MachineDeployDialog onClose={() => setShowDeploy(false)} />

@@ -1,55 +1,43 @@
-// Best-effort estimate of the SPA's current wterm cols/rows for a new
-// session spawn. The keeper reads ROOST_PTY_COLS/ROWS at PTY start so
-// TUIs (for example vim) paint to the correct width from byte 0 instead
-// of the 220×50 keeper default. A full redraw then follows the resize
-// message, preventing pre-resize wrap/duplicate artifacts in the buffer.
+// Initial PTY cols/rows hint for a session that does not exist yet. The keeper
+// reads ROOST_PTY_COLS/ROWS at PTY start, so a TUI (vim) paints at the real
+// width from byte 0 instead of the 220×50 keeper default; the resize message
+// that follows then redraws without pre-resize wrap artifacts.
 //
-// Re-measures on demand: spawn is rare enough that a fresh probe is
-// fine, and we never want a stale cache after a window/zoom change.
+// Source box and math are the live claim's (terminalCellGeometry.ts), so the
+// hint equals the geometry this browser claims a moment later. No mounted
+// display box means NO hint: these cols/rows reach the PTY directly, and a
+// wrong size is worse than the keeper default. Re-measures per call — a cached
+// value survives a window resize or zoom change and lies.
 
-function _liveDeckSlotSize(): { width: number; height: number } | null {
-  // Prefer the visible deck slot if one is mounted — its rect is the
-  // truthiest source. Falls back to the deck itself, then the cached
-  // ResizeObserver value. Without this, the first + New click after a
-  // page load (when no Terminal has mounted yet because the URL points
-  // at a stale session) finds _lastSlot=null and ships no cols/rows.
-  const deck = document.querySelector('[data-testid="terminal-deck"]') as HTMLElement | null;
-  if (!deck) return null;
-  for (const child of Array.from(deck.children) as HTMLElement[]) {
-    if (getComputedStyle(child).visibility === "visible") {
-      const r = child.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) return { width: r.width, height: r.height };
-    }
+import type { TerminalGeometry } from "@roost/shared/viewport";
+import {
+  measureTerminalCellBox,
+  terminalGeometryForBox,
+} from "./terminalCellGeometry.ts";
+
+const DISPLAY_SELECTOR = '[data-testid="terminal-display"]';
+
+/** The box a mounted terminal paints into — the same element the live claim
+ *  measures. A parked pane stays laid out off-screen at a retained size
+ *  (terminal-deck-geometry.ts), so only a computed-visible box describes what
+ *  a new session will get. The focused pane wins a split, because that is the
+ *  pane a new tab opens into. */
+function mountedTerminalDisplay(): HTMLElement | null {
+  let fallback: HTMLElement | null = null;
+  for (const box of document.querySelectorAll(DISPLAY_SELECTOR)) {
+    const display = box as HTMLElement;
+    if (getComputedStyle(display).visibility !== "visible") continue;
+    if (display.clientWidth <= 0 || display.clientHeight <= 0) continue;
+    if (display.closest('[data-pane-slot][data-focused="true"]')) return display;
+    fallback ??= display;
   }
-  const r = deck.getBoundingClientRect();
-  if (r.width > 0 && r.height > 0) return { width: r.width, height: r.height };
-  return null;
+  return fallback;
 }
 
-export function estimateWtermSize(): { cols: number; rows: number } | null {
-  const slot = _liveDeckSlotSize();
-  if (!slot) return null;
-  const { width, height } = slot;
-  const probe = document.createElement("div");
-  probe.className = "wterm";
-  probe.style.cssText = "position:absolute;visibility:hidden;left:-9999px;top:-9999px";
-  const grid = document.createElement("div");
-  grid.className = "term-grid";
-  const row = document.createElement("div");
-  row.className = "term-row";
-  const span = document.createElement("span");
-  span.textContent = "XXXXXXXXXX";
-  row.appendChild(span);
-  grid.appendChild(row);
-  probe.appendChild(grid);
-  document.body.appendChild(probe);
-  const rowRect = row.getBoundingClientRect();
-  const spanRect = span.getBoundingClientRect();
-  probe.remove();
-  if (rowRect.height === 0 || spanRect.width === 0) return null;
-  const cellW = spanRect.width / 10;
-  const cellH = rowRect.height;
-  const cols = Math.max(1, Math.floor(width / cellW));
-  const rows = Math.max(1, Math.floor(height / cellH));
-  return { cols, rows };
+export function estimateWtermSize(): TerminalGeometry | null {
+  const display = mountedTerminalDisplay();
+  if (!display) return null;
+  const cell = measureTerminalCellBox(display);
+  if (!cell) return null;
+  return terminalGeometryForBox(display, cell);
 }

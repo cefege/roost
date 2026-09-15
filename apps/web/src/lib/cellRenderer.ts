@@ -4,6 +4,7 @@
 import {
   cloneCellGridFrame,
   foldCellDeltaBatch,
+  spansText,
   type CellGridFrame,
   type CellRow,
 } from "@roost/shared/cell";
@@ -38,6 +39,10 @@ import {
   RENDERER_HOLD_SELECTION,
   createRendererPaintPresentation,
   createRendererPresentationSnapshot,
+  rendererReconcileBlockReason,
+  sameScrollbackRow,
+  transitionedViewportRows,
+  visibleHistoryRowRange,
   type BackfillAnchor,
   type LiveInteractionResult,
   type ReaderAnchor,
@@ -46,8 +51,10 @@ import {
   type ReaderIntentReason,
   type ReconcileBlockReason,
   type RendererEpochSeq,
+  type RendererIncidentObserver,
   type RendererPaintPresentation,
   type RendererPresentationSnapshot,
+  type RendererProjection,
 } from "./cellRendererPresentation.ts";
 import type { TerminalCellGeometry } from "./terminalMouse.ts";
 export { blockPlaceholder } from "./cellRendererDom.ts";
@@ -69,21 +76,6 @@ export type {
   RendererTerminalModeSnapshot,
 } from "./cellRendererPresentation.ts";
 
-function sameScrollbackRow(left: CellRow, right: CellRow): boolean {
-  if (left === right || (left.index === right.index && left.spans === right.spans)) return true;
-  if (left.index !== right.index || left.spans.length !== right.spans.length) return false;
-  for (let index = 0; index < left.spans.length; index++) {
-    const a = left.spans[index]!;
-    const b = right.spans[index]!;
-    if (
-      a.text !== b.text || a.columns !== b.columns || a.fg !== b.fg || a.bg !== b.bg
-      || a.flags !== b.flags || a.fgRgb !== b.fgRgb || a.bgRgb !== b.bgRgb
-      || a.linkUri !== b.linkUri || a.linkKey !== b.linkKey
-    ) return false;
-  }
-  return true;
-}
-
 export class CellGridRenderer {
   private frame: CellGridFrame | null = null;
   // Canonical frames advance while explicit reading keeps the DOM immutable.
@@ -100,6 +92,8 @@ export class CellGridRenderer {
   private _ownedScrollTop = 0;
   // A pending selection-release scroll is consumed before native reader intent.
   private _liveSelectionReleasePending = false;
+  // A native scroll can be clamped to bottom by late layout without a second event.
+  private _nativeScrollSettleEpoch = 0;
   private _curBlock: HTMLElement | null = null;
   private _curBlockRows = 0;
   private readonly spacerEl: HTMLElement;
@@ -139,6 +133,8 @@ export class CellGridRenderer {
   private readonly container: HTMLElement;
   private onFirstReconcile: (() => void) | undefined;
   private onReconcile: (() => void) | undefined;
+  /** Set only by an armed terminal incident recorder; null in production. */
+  incidentObserver: RendererIncidentObserver | null = null;
   constructor(
     container: HTMLElement,
     onFirstReconcile?: () => void,
@@ -187,6 +183,7 @@ export class CellGridRenderer {
   }
   /** Apply an authoritative full while preserving a compatible painted history. */
   applyFullFrame(incoming: CellGridFrame): boolean {
+    if (this.incidentObserver?.armed === true) this.incidentObserver.observe("pre_apply", "full");
     if (!incoming.full || incoming.viewportRows.length !== incoming.rows) return false;
     for (let i = 0; i < incoming.viewportRows.length; i++) {
       if (incoming.viewportRows[i]!.index !== i) return false;
@@ -197,6 +194,7 @@ export class CellGridRenderer {
       this.readerPendingFrame = owned;
       this.readerPendingFrameRetainsHistory = retainsHistory;
       if (this._readerIntent === "live") this.pendingRender = true;
+      if (this._readerReason === "native_scroll") this._settleNativeScroll();
       return true;
     }
     const previousFrame = this.frame;
@@ -209,6 +207,7 @@ export class CellGridRenderer {
     return true;
   }
   applyDeltaFrames(deltas: readonly CellGridFrame[]): boolean {
+    if (this.incidentObserver?.armed === true) this.incidentObserver.observe("pre_apply", "delta");
     const base = this.readerPendingFrame ?? this.frame;
     if (
       !base
@@ -225,6 +224,7 @@ export class CellGridRenderer {
     if (this._readerIntent === "reading" || this.readerPendingFrame) {
       this.readerPendingFrame = frame;
       if (this._readerIntent === "live") this.pendingRender = true;
+      if (this._readerReason === "native_scroll") this._settleNativeScroll();
       return true;
     }
     const wasAtBottom = this._atBottomOrOwnedPlacement();
@@ -281,6 +281,24 @@ export class CellGridRenderer {
     this._readerIntent = "reading";
     this._readerReason = reason;
     this._captureReaderAnchor();
+  }
+  private _settleNativeScroll(): void {
+    const epoch = ++this._nativeScrollSettleEpoch;
+    const settle = (): void => {
+      if (
+        epoch !== this._nativeScrollSettleEpoch
+        || this._readerIntent !== "reading"
+        || this._readerReason !== "native_scroll"
+        || this.holding
+        || !this.atBottom()
+      ) return;
+      this._resumeLive(false);
+    };
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(settle);
+      return;
+    }
+    queueMicrotask(settle);
   }
   private _captureReaderAnchor(): void {
     if (this._readerIntent !== "reading" || this._scrollbackLayoutEnd <= 0) {
@@ -380,26 +398,8 @@ export class CellGridRenderer {
   private _promoteTransitionedViewportRows(
     previousFrame: CellGridFrame | null,
   ): boolean {
-    const frame = this.frame;
-    if (
-      !frame
-      || !previousFrame
-      || !frame.full
-      || previousFrame.gridEpoch !== frame.gridEpoch
-      || previousFrame.cols !== frame.cols
-      || previousFrame.rows !== frame.rows
-      || previousFrame.altScreen !== frame.altScreen
-      || previousFrame.scrollbackTotal >= frame.scrollbackTotal
-    ) return true;
-    const transitioned = Math.min(
-      previousFrame.rows,
-      frame.scrollbackTotal - previousFrame.scrollbackTotal,
-    );
-    if (transitioned === 0) return true;
-    const rows = previousFrame.viewportRows.slice(0, transitioned).map((row) => ({
-      index: previousFrame.scrollbackTotal + row.index,
-      spans: row.spans,
-    }));
+    const rows = transitionedViewportRows(previousFrame, this.frame);
+    if (rows === null) return true;
     // A compatible checkpoint retains rows visible in the old viewport.
     // Authoritative history must agree; insertion fills only missing subranges.
     return this._insertAuthoritativeHistory(rows, false);
@@ -450,6 +450,9 @@ export class CellGridRenderer {
   private renderFull(followTail: boolean, shouldPin = followTail): void {
     const frame = this.frame;
     if (!frame) return;
+    // Evidence of a painted-history defect must be read BEFORE this repair
+    // replaces the nodes that carry it.
+    if (this.incidentObserver?.armed === true) this.incidentObserver.observe("pre_destructive", null);
     this._paintedSbBase = frame.scrollbackTotal;
     this._scrollbackLayoutEnd = frame.scrollbackTotal;
     this._gapRows = 0;
@@ -619,6 +622,7 @@ export class CellGridRenderer {
   }
 
   insertHistoryPage(rows: readonly CellRow[], followTail: boolean): boolean {
+    if (this.incidentObserver?.armed === true) this.incidentObserver.observe("pre_history_insert", null);
     const frame = this.frame;
     const start = rows[0]?.index;
     const end = start === undefined ? undefined : start + rows.length;
@@ -640,6 +644,7 @@ export class CellGridRenderer {
   }
 
   private _insertAuthoritativeHistory(rows: readonly CellRow[], followTail: boolean): boolean {
+    if (this.incidentObserver?.armed === true) this.incidentObserver.observe("pre_history_insert", null);
     const frame = this.frame;
     const start = rows[0]?.index;
     const end = start === undefined ? undefined : start + rows.length;
@@ -760,27 +765,20 @@ export class CellGridRenderer {
 
   missingScrollbackRangeAtScroll(): (CellHistoryRange & { focusRow: number }) | null {
     const anchor = this.backfillAnchor();
-    const rowH = this.rowHeight();
-    if (
-      !anchor
-      || this._scrollbackLayoutEnd !== anchor.total
-      || rowH <= 0
-      || this.container.clientHeight <= 0
-    ) return null;
-    const visibleStart = Math.max(
-      0,
-      Math.floor((this.container.scrollTop - this.spacerEl.offsetTop) / rowH),
-    );
-    const visibleEnd = Math.min(
-      anchor.total,
-      Math.ceil((this.container.scrollTop + this.container.clientHeight - this.spacerEl.offsetTop) / rowH),
-    );
-    if (visibleStart >= visibleEnd) return null;
+    if (!anchor || this._scrollbackLayoutEnd !== anchor.total) return null;
+    const visible = visibleHistoryRowRange({
+      scrollTop: this.container.scrollTop,
+      spacerTop: this.spacerEl.offsetTop,
+      clientHeight: this.container.clientHeight,
+      rowHeight: this.rowHeight(),
+      total: anchor.total,
+    });
+    if (!visible) return null;
     const gaps = missingCellHistoryRanges(
       this._paintedRows,
       anchor.total,
-      visibleStart,
-      visibleEnd,
+      visible.start,
+      visible.end,
     );
     const visibleGap = gaps.at(-1);
     if (!visibleGap) return null;
@@ -794,6 +792,12 @@ export class CellGridRenderer {
     return anchor !== null
       && this._scrollbackLayoutEnd === anchor.total
       && hasCellHistoryRange(this._paintedRows, anchor.total, start, end);
+  }
+  paintedScrollbackRange(start: number, end: number): Array<{ index: number; text: string }> | null {
+    if (!this.hasPaintedScrollbackRange(start, end)) return null;
+    return this._paintedRows
+      .filter((row) => row.index >= start && row.index < end)
+      .map((row) => ({ index: row.index, text: spansText(row.spans) }));
   }
 
   paintedScrollbackRowCount(): number {
@@ -829,15 +833,7 @@ export class CellGridRenderer {
     if (this._readerIntent === "reading" && !this._readerAnchorNeedsRestore) {
       this._captureReaderAnchor();
     }
-    return createRendererPaintPresentation({
-      paintedRows: this._paintedRows,
-      readerAnchor: this._readerAnchor,
-      paintedSpacerHeight: this._paintedSpacerHeight,
-      gapRows: this._gapRows,
-      rowHeight: this.rowHeight(),
-      defaultRowHeight: DEFAULT_ROW_PX,
-      rowLimit,
-    });
+    return createRendererPaintPresentation(this.rendererProjection(), rowLimit);
   }
 
   canonicalFrameSeq(): number {
@@ -860,32 +856,36 @@ export class CellGridRenderer {
   }
 
   reconcileBlockReason(): ReconcileBlockReason {
-    if (this.readerPendingFrame) return "reader_pending_frame";
-    const selection = (this._holdMask & RENDERER_HOLD_SELECTION) !== 0;
-    const link = (this._holdMask & RENDERER_HOLD_LINK) !== 0;
-    if (selection && link) return "selection_and_link_hold";
-    if (selection) return "selection_hold";
-    if (link) return "link_hold";
-    const frame = this.frame;
-    if (frame && this.predictedCol !== null && this.predictedCol !== frame.cursorCol) {
-      return "predicted_cursor";
-    }
-    if (this.pendingRender) return "pending_render";
-    const canonical = this.canonicalEpochSeq();
-    if (
-      canonical.grid_epoch !== this._reconciledGridEpoch
-      || canonical.seq !== this._reconciledSeq
-    ) return "not_reconciled";
-    return null;
+    return rendererReconcileBlockReason({
+      readerPending: this.readerPendingFrame !== null,
+      holdMask: this._holdMask,
+      predictedCol: this.predictedCol,
+      cursorCol: this.frame?.cursorCol ?? null,
+      pendingRender: this.pendingRender,
+      canonical: this.canonicalEpochSeq(),
+      reconciled: this.reconciledEpochSeq(),
+    });
   }
 
   presentationSnapshot(): RendererPresentationSnapshot {
-    return createRendererPresentationSnapshot({
+    return createRendererPresentationSnapshot(this.rendererProjection());
+  }
+
+  /** Single read-only view of renderer internals, for the presentation
+   *  snapshot and the incident DOM reader. Callers never mutate what it
+   *  returns; `paintedHistory` is the live painted model, not a copy. */
+  rendererProjection(): RendererProjection {
+    return {
+      container: this.container,
+      scrollbackEl: this.scrollbackEl,
+      viewportEl: this.viewportEl,
       canonical: this._canonicalFrame(),
+      applied: this.frame,
       canonicalWatermark: this.canonicalEpochSeq(),
       reconciledWatermark: this.reconciledEpochSeq(),
       readerIntent: this._readerIntent,
       readerReason: this._readerReason,
+      readerAnchor: this._readerAnchor,
       holdMask: this._holdMask,
       domRows: this._rowEls.length,
       reconciledAltScreen: this._reconciledAltScreen,
@@ -898,7 +898,17 @@ export class CellGridRenderer {
         && this.container.isConnected !== false,
       paintedCols: this._paintedCols,
       atBottom: this.atBottom(),
-    });
+      paintedHistory: this._paintedRows,
+      paintedSbBase: this._paintedSbBase,
+      scrollbackLayoutEnd: this._scrollbackLayoutEnd,
+      paintedSpacerHeight: this._paintedSpacerHeight,
+      gapRows: this._gapRows,
+      defaultRowHeight: DEFAULT_ROW_PX,
+      rowHeight: this.rowHeight(),
+      scrollTop: this.container.scrollTop,
+      scrollHeight: this.container.scrollHeight,
+      clientHeight: this.container.clientHeight,
+    };
   }
 
   private _canonicalFrame(): CellGridFrame | null {
@@ -932,6 +942,7 @@ export class CellGridRenderer {
     this._reconciledAltScreen = frame.altScreen;
     this._reconciledCursorKeysApp = frame.cursorKeysApp;
     this._reconciledBracketedPaste = frame.bracketedPaste;
+    if (this.incidentObserver?.armed === true) this.incidentObserver.observe("post_reconcile", null);
     if (firstReconcile) {
       const callback = this.onFirstReconcile;
       this.onFirstReconcile = undefined;
@@ -1186,8 +1197,10 @@ export class CellGridRenderer {
       return this._resumeLive(false);
     }
     if (this.atBottom() && this._readerReason !== "find") return this._resumeLive(false);
-    if (this._readerIntent === "live") this.enterReading("native_scroll");
-    this._captureReaderAnchor();
+    if (this._readerIntent === "live") {
+      this.enterReading("native_scroll");
+      this._settleNativeScroll();
+    }
     return NO_LIVE_INTERACTION_RESULT;
   }
 
@@ -1210,6 +1223,7 @@ export class CellGridRenderer {
   }
 
   dispose(): void {
+    this.incidentObserver = null;
     this.spacerEl.remove();
     this.scrollbackEl.remove();
     this.viewportEl.remove();
@@ -1225,6 +1239,7 @@ export class CellGridRenderer {
     this._readerReason = null;
     this._holdMask = 0;
     this._ownedScrollEpoch = 0;
+    this._nativeScrollSettleEpoch += 1;
     this._ownedScrollTop = 0;
     this._liveSelectionReleasePending = false;
     this.pendingRender = false;

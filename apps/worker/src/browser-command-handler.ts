@@ -17,7 +17,8 @@ import {
 	handleSearchScrollbackBatch,
 } from "./terminal-search-batch.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
-import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
+import { handleDiagSnapshot } from "./browser-command-diag.ts";
+import { handleDiagTerminalCapture } from "./browser-command-terminal-capture.ts";
 
 export interface BrowserCommandMsg {
 	browser_id: string;
@@ -108,8 +109,8 @@ export function handleBrowserCommand(
 			handleAttachmentProbe(frame, request_id, { coordLink });
 			return;
 		}
-		case "diag-dump-bytecap": {
-			handleDiagDumpBytecap(frame, request_id, { coordLink });
+		case "diag-terminal-capture": {
+			handleDiagTerminalCapture(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "diag-snapshot": {

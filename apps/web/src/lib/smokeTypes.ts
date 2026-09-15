@@ -127,6 +127,14 @@ export interface SmokeApi {
   renderProbe(sessionId: string): SmokeRenderProbe;
   /** Bounded presentation-owned scrollback rows, spacer/gap, and reader anchor. */
   paintedScrollback(sessionId: string): SmokePaintedScrollbackProbe;
+  /** Whether the renderer still owns every row in an exact scrollback range. */
+  hasPaintedScrollbackRange(sessionId: string, start: number, end: number): boolean;
+  /** Exact text rows held by the renderer, or null when the range is not fully retained. */
+  paintedScrollbackRange(
+    sessionId: string,
+    start: number,
+    end: number,
+  ): Array<{ index: number; text: string }> | null;
   /** Scan EVERY rendered row for `${prefix}<N>` markers. Detects history depth
    *  (min/max N), loss (missing Ns in [min,max]), and CORRUPTION (any N seen
    *  more than once = duplicated rows, the cell-mode tab-switch bug). */
@@ -141,6 +149,8 @@ export interface SmokeApi {
     expected?: PaintedCursorExpected,
     timeoutMs?: number,
   ): Promise<PaintedCursorProof>;
+  /** Browser-local terminal state only; synchronous and safe for event diagnostics. */
+  terminalBrowserSnapshot(sessionId: string): TerminalBrowserStreamSnapshot;
   /** One on-demand, bounded per-session snapshot spanning browser, coordinator,
    * and the routed worker. Missing layer fields remain explicit null/missing. */
   terminalStreamProbe(sessionId: string): Promise<TerminalStreamProbe>;
@@ -202,6 +212,10 @@ export interface SmokeApi {
   /** Suppress exactly the next accepted cell frame's renderer delivery after the session replica folds it. */
   dropNextCellFrame(sessionId: string): void;
   droppedCellFrameCount(sessionId: string): number;
+  /** Freeze one renderer owner's DOM reconciliation while canonical terminal frames continue. */
+  holdTerminalDomForCurrentGeneration(sessionId: string): void;
+  /** Restore a smoke-held renderer owner; a missing or already retired hold is inert. */
+  releaseTerminalDomHold(sessionId: string): void;
   /** Sync WebSocket dial count. Unchanged across a refocus = the socket was
    *  kept (no JWT sign + TLS handshake + since= backfill ahead of the reveal). */
   syncWsGeneration(): number;

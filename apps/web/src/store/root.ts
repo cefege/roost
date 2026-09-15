@@ -60,11 +60,12 @@ export interface RootState {
   last_activity: Record<string, number>;
   /** Per-session list of viewers currently looking at the session.
    *  Each entry carries the browser's full fingerprint + its
-   *  container-measured (cols, rows) + lastMs (focus/input timestamp).
-   *  Terminal sizes its wterm to the entry with max(lastMs) — the
-   *  latest-window-size policy. SessionRow renders one dot per fp.
-   *  lastMs may be missing on legacy/older coord builds; consumers
-   *  treat undefined as 0 (deterministic loser). */
+   *  container-measured (cols, rows) + lastMs (presence publication time).
+   *  The PTY runs at the per-axis MINIMUM over these entries — cols and rows
+   *  are clamped independently, so the smallest live viewer on each axis binds
+   *  and no viewer is ever sent a grid it cannot paint. Aggregate only through
+   *  minimumTerminalGeometry (@roost/shared/viewport); lastMs and entry order
+   *  never select a size. SessionRow renders one dot per fp. */
   session_viewers: Record<string, Array<{ fp: string; cols: number; rows: number; lastMs?: number; label?: string; viewerKey?: string }>>;
   /** True when bootstrap saw a Connect `unauthenticated` code on the
    *  authed list calls (workersList / sessionsList / workspacesList).

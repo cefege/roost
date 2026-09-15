@@ -1,6 +1,7 @@
 // TerminalNavButtons — the touch terminal-key sheet. It routes navigation
 // through the hidden wterm encoder so cursor/application modes stay correct.
 // Sheet visibility is shared and persisted independently of the composer.
+// Its Alt control is a local link-activation latch, never terminal input.
 
 import { createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -11,6 +12,8 @@ interface Props {
 	onKey: (key: string) => void;
 	ctrlArmed: boolean;
 	onCtrlArmedChange: (armed: boolean) => void;
+	linkActivationArmed: boolean;
+	onLinkActivationArmedChange: (armed: boolean) => void;
 }
 
 const PAD_OPEN_KEY = "roostNavPadOpen";
@@ -37,7 +40,10 @@ const persistNavPadOpen = (open: boolean): void => {
 export function TerminalNavButtons(props: Props) {
 	const togglePad = () => {
 		const next = !navPadOpen();
-		if (!next) props.onCtrlArmedChange(false);
+		if (!next) {
+			props.onCtrlArmedChange(false);
+			props.onLinkActivationArmedChange(false);
+		}
 		persistNavPadOpen(next);
 	};
 
@@ -61,6 +67,20 @@ export function TerminalNavButtons(props: Props) {
 							onClick={() => props.onCtrlArmedChange(!props.ctrlArmed)}
 						>
 							<span class="term-nav__label">ctrl</span>
+						</Button>
+						<Button
+							type="button"
+							variant="secondary"
+							size="icon"
+							class="term-nav__key term-nav__key--alt"
+							data-testid="nav-alt"
+							data-active={props.linkActivationArmed ? "true" : "false"}
+							aria-label="Toggle Alt link activation"
+							aria-pressed={props.linkActivationArmed}
+							onMouseDown={(e) => e.preventDefault()}
+							onClick={() => props.onLinkActivationArmedChange(!props.linkActivationArmed)}
+						>
+							<span class="term-nav__label">alt</span>
 						</Button>
 						<NavKey area="back" testid="nav-backspace" icon="backspace" ariaLabel="Backspace" onClick={() => props.onKey("Backspace")} />
 						<NavKey area="home" testid="nav-home" label="home" ariaLabel="Home" onClick={() => props.onKey("Home")} />

@@ -3,7 +3,8 @@
 // Compact viewports use a bottom action sheet; medium and desktop viewports
 // always use a cursor-anchored floating menu, including touch-capable desktops.
 //
-// Items: Copy | Paste | New terminal | Attach file | Close terminal.
+// Items: Copy | Paste | New terminal | Attach file | terminal debugging
+// (start/capture/stop) | Close terminal.
 // Mounted alongside the Terminal component in MainPane.
 
 import { copyToClipboard } from "../lib/clipboard.ts";
@@ -18,6 +19,9 @@ import { closeLabelsFor, killAfterUndo, siblingOrHomeHref } from "../lib/closeSe
 import { activeSessionForPath } from "../store/selectors.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { isSpotlit, setSpotlightSessionId, clearSpotlight, visiblePaneCount } from "../store/spotlight.ts";
+import { TerminalCaptureConsentDialog } from "./TerminalCaptureConsentDialog.tsx";
+import { CaptureStateRow } from "./TerminalCaptureStateRow.tsx";
+import { createTerminalCaptureMenuController } from "./terminalCaptureMenuController.ts";
 
 interface Props {
   session: Session;
@@ -54,6 +58,7 @@ export function TerminalContextMenu(props: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = createSignal<OpenState | null>(null);
+  const capture = createTerminalCaptureMenuController(() => props.session.id);
 
   const onCtx = (e: MouseEvent) => {
     const container = props.getContainer();
@@ -120,6 +125,24 @@ export function TerminalContextMenu(props: Props) {
     dismiss();
   };
 
+  // The recorder freezes the on-screen evidence inside these calls, BEFORE
+  // dismiss() moves focus: dismissal can change reader holds and repaint, and a
+  // capture must own what the operator is looking at, not what follows it.
+  const doStartDebugging = () => {
+    capture.requestStartDebugging();
+    dismiss();
+  };
+
+  const doCaptureDiagnostic = () => {
+    capture.requestCapture();
+    dismiss();
+  };
+
+  const doStopDebugging = () => {
+    capture.requestStopDebugging();
+    dismiss();
+  };
+
   // Unified with the tab-✕ / sidebar close: no confirm dialog, just the 5s
   // soft-close. Disappears this frame; when this menu targets the viewed
   // session, land on a sibling/Home now and let Undo navigate back.
@@ -134,7 +157,26 @@ export function TerminalContextMenu(props: Props) {
     });
   };
 
+  // The menu dismisses before the dialog opens, so Dialog's own opener capture
+  // resolves to <body>. Hand the keyboard back to the pane's terminal input
+  // instead of leaving the terminal unfocused after Cancel/Confirm.
+  const returnFocusToTerminal = (event: Event) => {
+    event.preventDefault();
+    const container = props.getContainer();
+    const keyboard = container?.querySelector<HTMLTextAreaElement>("textarea.terminal-input");
+    (keyboard ?? container)?.focus({ preventScroll: true });
+  };
+
   return (
+    <>
+    {/* Outside the open() Show: the confirmation outlives the menu that raised
+        it, because the menu dismisses before consent is given. */}
+    <TerminalCaptureConsentDialog
+      kind={capture.consentKind()}
+      onConfirm={capture.confirmConsent}
+      onCancel={capture.cancelConsent}
+      onCloseAutoFocus={returnFocusToTerminal}
+    />
     <Show when={open()}>
       {(s) => (
         // Portal to <body>: an ancestor <main> carries a `transform`, which
@@ -196,6 +238,16 @@ export function TerminalContextMenu(props: Props) {
                 </SheetItem>
                 <SheetItem testid="ctx-attach" onClick={doAttach}>
                   Attach file
+                </SheetItem>
+                <CaptureStateRow state={capture.captureState()} />
+                <SheetItem testid="ctx-debug-start" disabled={capture.startDisabled()} onClick={doStartDebugging}>
+                  Start terminal debugging
+                </SheetItem>
+                <SheetItem testid="ctx-capture-diagnostics" disabled={capture.captureDisabled()} onClick={doCaptureDiagnostic}>
+                  Capture terminal diagnostic
+                </SheetItem>
+                <SheetItem testid="ctx-debug-stop" disabled={capture.stopDisabled()} onClick={doStopDebugging}>
+                  Stop terminal debugging
                 </SheetItem>
                 <SheetItem testid="ctx-close" onClick={doClose} danger>
                   Close terminal
@@ -260,6 +312,17 @@ export function TerminalContextMenu(props: Props) {
               </CtxMenuItem>
             </Show>
             <CtxMenuSeparator />
+            <CaptureStateRow state={capture.captureState()} />
+            <CtxMenuItem testid="ctx-debug-start" disabled={capture.startDisabled()} onClick={doStartDebugging}>
+              Start terminal debugging
+            </CtxMenuItem>
+            <CtxMenuItem testid="ctx-capture-diagnostics" disabled={capture.captureDisabled()} onClick={doCaptureDiagnostic}>
+              Capture terminal diagnostic
+            </CtxMenuItem>
+            <CtxMenuItem testid="ctx-debug-stop" disabled={capture.stopDisabled()} onClick={doStopDebugging}>
+              Stop terminal debugging
+            </CtxMenuItem>
+            <CtxMenuSeparator />
             <CtxMenuItem testid="ctx-close" onClick={doClose} danger>
               Close terminal
             </CtxMenuItem>
@@ -268,6 +331,7 @@ export function TerminalContextMenu(props: Props) {
         </Portal>
       )}
     </Show>
+    </>
   );
 }
 
@@ -294,22 +358,33 @@ export function _terminalActionSheetStyle(): JSX.CSSProperties {
   };
 }
 
-function SheetItem(props: { testid: string; onClick: () => void; danger?: boolean; children: JSX.Element }) {
+function SheetItem(props: {
+  testid: string;
+  onClick: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+  children: JSX.Element;
+}) {
   return (
     <div
       data-testid={props.testid}
       role="menuitem"
-      onClick={props.onClick}
+      aria-disabled={props.disabled ? "true" : undefined}
+      onClick={() => { if (!props.disabled) props.onClick(); }}
       style={{
         padding: "14px 20px",
-        cursor: "pointer",
-        color: props.danger ? "var(--color-err)" : "var(--text-hi)",
+        cursor: props.disabled ? "default" : "pointer",
+        // Disabled is opacity, not a colour swap: the role colour must survive so
+        // a destructive row stays destructive and --text-lo keeps meaning idle.
+        opacity: props.disabled ? "0.4" : undefined,
+        color: props.danger ? "var(--md-error)" : "var(--text-hi)",
         "min-height": "44px",
         display: "flex",
         "align-items": "center",
+        gap: "var(--md-space-2)",
       }}
-      onTouchStart={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--border-strong)"; }}
-      onTouchEnd={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+      onTouchStart={(e) => { if (!props.disabled) (e.currentTarget as HTMLElement).style.background = "var(--border-strong)"; }}
+      onTouchEnd={(e) => { if (!props.disabled) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
     >
       {props.children}
     </div>

@@ -428,9 +428,7 @@ export async function waitForPaintedMarker(
     }
     await nextFrame();
   }
-  // A bare timeout names no layer. Report which watermark stalled (wire →
-  // canonical → DOM), why the renderer refused to reconcile, and whether the
-  // marker text reached the DOM at all but failed the visibility proof.
+  // Report stalled watermarks, reconciliation admission, and marker visibility.
   const stream = terminalBrowserStreamSnapshot(sessionId);
   const slot = document.querySelector(`[data-testid="terminal-slot-${CSS.escape(sessionId)}"]`);
   throw new Error(`marker was not visibly painted within ${timeoutMs}ms: ${sessionId} ${JSON.stringify(marker)} ${JSON.stringify({
@@ -440,6 +438,7 @@ export async function waitForPaintedMarker(
     canonical: stream.handler_canonical,
     dom: stream.dom_reconciled,
     blocked: stream.reconcile_block_reason,
+    presentation: stream.presentation,
     slot: stream.slot,
     visibility: stream.visibility,
   })}`);

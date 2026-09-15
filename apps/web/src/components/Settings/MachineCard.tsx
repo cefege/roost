@@ -10,7 +10,7 @@ import { workerOnline } from "../../store/sync.ts";
 import { applyWorkerDeleteResponse } from "../../store/worker-removal.ts";
 import { coordClient } from "../../connect.ts";
 import { addToast } from "../../store/toastStore.ts";
-import { Card, Button, MetricTile, Icon, StatusDot, TextField } from "./md/primitives.tsx";
+import { Button, Icon, ListRow, MetricTile, StatusDot, TextField } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { machinePlatformIcon } from "../../lib/machineActions.ts";
@@ -32,56 +32,63 @@ function relativeTime(ms: number): string {
 
 export function MachineCard(props: { worker: Worker }) {
   const w = () => props.worker;
-  // A2: stale = not routable (coord WS membership), not just heartbeat age.
   const isStale = () => !workerOnline(w());
 
+  const [detailsOpen, setDetailsOpen] = createSignal(false);
   const [renaming, setRenaming] = createSignal(false);
   const [renameLabel, setRenameLabel] = createSignal("");
   const [renameBusy, setRenameBusy] = createSignal(false);
   const [renameErr, setRenameErr] = createSignal("");
-
   const [confirmDelete, setConfirmDelete] = createSignal(false);
   const [deleteBusy, setDeleteBusy] = createSignal(false);
-  let confirmTimer: ReturnType<typeof setTimeout> | null = null;
-
+  let confirmTimer: ReturnType<typeof setTimeout> | undefined;
   function beginRename() {
     setRenameLabel(w().label);
     setRenameErr("");
     setRenaming(true);
   }
+
   function cancelRename() {
     setRenaming(false);
     setRenameErr("");
   }
-  async function submitRename(e: Event) {
-    e.preventDefault();
+
+  async function submitRename(event: Event) {
+    event.preventDefault();
     const label = renameLabel().trim();
-    if (!label) { setRenameErr("Label required"); return; }
+    if (!label) {
+      setRenameErr("Label required");
+      return;
+    }
     setRenameBusy(true);
     setRenameErr("");
     try {
       await coordClient.workersRename({ fp: w().fp, label });
       setRenaming(false);
       addToast("Machine renamed");
-    } catch (err) {
-      setRenameErr(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setRenameErr(error instanceof Error ? error.message : String(error));
     } finally {
       setRenameBusy(false);
     }
   }
 
   function beginConfirmDelete() {
+    setDetailsOpen(true);
     setConfirmDelete(true);
-    if (confirmTimer !== null) clearTimeout(confirmTimer);
+    clearTimeout(confirmTimer);
     confirmTimer = setTimeout(() => {
-      confirmTimer = null;
+      confirmTimer = undefined;
       setConfirmDelete(false);
     }, 4000);
   }
+
   function cancelConfirmDelete() {
-    if (confirmTimer !== null) { clearTimeout(confirmTimer); confirmTimer = null; }
+    clearTimeout(confirmTimer);
+    confirmTimer = undefined;
     setConfirmDelete(false);
   }
+
   async function doDelete() {
     cancelConfirmDelete();
     setDeleteBusy(true);
@@ -92,186 +99,157 @@ export function MachineCard(props: { worker: Worker }) {
         setDeleteBusy(false);
         return;
       }
-      addToast(
-        "Machine credential permanently removed. Saved terminals and workspaces remain available offline.",
-      );
-    } catch (err) {
-      addToast(err instanceof Error ? err.message : "Delete failed", "err");
+      addToast("Machine credential permanently removed. Saved terminals and workspaces remain available offline.");
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "Delete failed", "err");
       setDeleteBusy(false);
     }
   }
 
   const memRatio = () => {
-    const m = w().host_metrics;
-    return m && m.mem_total_bytes > 0 ? m.mem_used_bytes / m.mem_total_bytes : undefined;
+    const metrics = w().host_metrics;
+    return metrics && metrics.mem_total_bytes > 0
+      ? metrics.mem_used_bytes / metrics.mem_total_bytes
+      : undefined;
   };
   const diskRatio = () => {
-    const m = w().host_metrics;
-    return m && m.disk_total_bytes > 0 ? m.disk_used_bytes / m.disk_total_bytes : undefined;
+    const metrics = w().host_metrics;
+    return metrics && metrics.disk_total_bytes > 0
+      ? metrics.disk_used_bytes / metrics.disk_total_bytes
+      : undefined;
   };
+  const support = () => [
+    isStale() ? "Offline" : "Online",
+    w().os,
+  ].join(" · ");
 
-  // Header trailing: status pill + relative last-seen + actions.
-  const headerTrailing = (
-    <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
-      <span
-        class="md-label-m"
-        style={{
-          display: "inline-flex",
-          "align-items": "center",
-          gap: "var(--md-space-2)",
-          padding: "4px 10px",
-          "border-radius": "var(--md-shape-full)",
-          background: isStale() ? "var(--md-sys-color-surface-container-high)" : "var(--md-sys-color-secondary-container)",
-          color: isStale() ? "var(--md-sys-color-on-surface-variant)" : "var(--md-sys-color-on-secondary-container)",
-        }}
-      >
-        <StatusDot status={isStale() ? "offline" : "ok"} />
-        {isStale() ? "Stale" : "Online"}
-      </span>
-      <span class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
-        {relativeTime(w().last_seen_ms)}
-      </span>
-    </div>
-  );
+  onCleanup(() => {
+    clearTimeout(confirmTimer);
+    confirmTimer = undefined;
+  });
 
   return (
-    <div data-testid={`machines-worker-row-${w().fp}`} style={{ opacity: deleteBusy() ? 0.4 : 1, transition: "opacity 0.15s" }}>
-      <Card variant="elevated" trailing={headerTrailing}>
-        <Show
-          when={!renaming()}
-          fallback={
-            <form
-              data-testid={`machines-rename-form-${w().fp}`}
-              onSubmit={(e) => void submitRename(e)}
-              style={{ display: "flex", gap: "var(--md-space-2)", "align-items": "center" }}
+    <div
+      class="machines-worker"
+      data-testid={`machines-worker-row-${w().fp}`}
+      style={{ opacity: deleteBusy() ? 0.4 : 1, transition: "opacity 0.15s" }}
+    >
+      <ListRow
+        leading={<Icon name={machinePlatformIcon(supportedWorkerPlatform(w().os))} />}
+        headline={w().label}
+        support={support()}
+        trailing={
+          <>
+            <StatusDot status={isStale() ? "offline" : "ok"} title={isStale() ? "Offline" : "Online"} />
+            <Button
+              variant="destructive"
+              size="icon-sm"
+              icon="delete_outline"
+              aria-label={`Remove ${w().label}`}
+              data-testid={`machines-delete-quick-btn-${w().fp}`}
+              onClick={beginConfirmDelete}
+              disabled={deleteBusy()}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={detailsOpen() ? "expand_less" : "expand_more"}
+              aria-expanded={detailsOpen()}
+              aria-controls={`machines-worker-details-${w().fp}`}
+              onClick={() => setDetailsOpen((open) => !open)}
             >
-              <TextField
-                testId="machines-rename-input"
-                label="Label"
-                value={renameLabel()}
-                onInput={(v) => setRenameLabel(v)}
-                style={{ flex: 1, "min-width": 0 }}
-              />
-              <Button variant="default" data-testid="machines-rename-save" disabled={renameBusy()}>{renameBusy() ? "Saving…" : "Save"}</Button>
-              <Button variant="ghost" data-testid="machines-rename-cancel" onClick={cancelRename}>
-                Cancel
-              </Button>
-            </form>
-          }
+              Details
+            </Button>
+          </>
+        }
+      />
+
+      <Show when={detailsOpen()}>
+        <div
+          id={`machines-worker-details-${w().fp}`}
+          class="machines-worker-details"
         >
-          <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-3)" }}>
-            <Icon name={machinePlatformIcon(supportedWorkerPlatform(w().os))} size="lg" style={{ color: "var(--md-sys-color-primary)" }} />
-            <div style={{ flex: 1, "min-width": 0 }}>
-              <div class="md-title-m" style={{ color: "var(--md-sys-color-on-surface)" }}>{w().label}</div>
-              <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
-                {w().os}
-                {" · "}
-                {w().reachable_addr ?? "address unknown"}
-                {" · fp "}
-                <span style={{ "font-family": "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{w().fp.slice(0, 12)}…</span>
-                <Show when={w().git_sha}>
-                  {" · sha "}
-                  <span style={{ "font-family": "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{w().git_sha!.slice(0, 8)}</span>
-                </Show>
-              </div>
-              <Show when={w().git_sha && rootStore.coord_identity?.git_sha && w().git_sha !== rootStore.coord_identity!.git_sha}>
-                <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", "margin-top": "var(--md-space-1)" }}>
-                  ⚠ worker sha drifts from coord ({rootStore.coord_identity!.git_sha.slice(0, 8)})
-                </div>
+          <Show
+            when={!renaming()}
+            fallback={
+              <form
+                data-testid={`machines-rename-form-${w().fp}`}
+                onSubmit={(event) => void submitRename(event)}
+                style={{ display: "flex", gap: "var(--md-space-2)", "align-items": "center" }}
+              >
+                <TextField
+                  testId="machines-rename-input"
+                  label="Label"
+                  value={renameLabel()}
+                  onInput={setRenameLabel}
+                  style={{ flex: 1, "min-width": 0 }}
+                />
+                <Button variant="default" data-testid="machines-rename-save" disabled={renameBusy()}>
+                  {renameBusy() ? "Saving…" : "Save"}
+                </Button>
+                <Button variant="ghost" data-testid="machines-rename-cancel" onClick={cancelRename}>
+                  Cancel
+                </Button>
+              </form>
+            }
+          >
+            <div class="machines-worker-details__identity">
+              <span>{isStale() ? `Last seen ${relativeTime(w().last_seen_ms)}` : "Live connection"}</span>
+              <span>{w().reachable_addr ?? "Address unknown"}</span>
+              <span>Fingerprint {w().fp.slice(0, 12)}…</span>
+              <Show when={w().git_sha}>
+                <span>Worker version {w().git_sha!.slice(0, 8)}</span>
               </Show>
             </div>
-          </div>
-        </Show>
+          </Show>
 
-        <Show when={renameErr()}>
-          <div class="md-body-s" style={{ color: "var(--md-sys-color-error)" }}>{renameErr()}</div>
-        </Show>
-
-        {/* Metrics are only meaningful while the machine is live (routable).
-            A dead/offline worker keeps its LAST host_metrics in the store
-            forever — showing CPU/mem/disk for a Mac that's been off for hours
-            is worse than nothing. Gate on liveness; show an offline note. */}
-        <Show
-          when={!isStale() && w().host_metrics}
-          fallback={
-            <Show when={isStale()}>
-              <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
-                Offline — no live metrics (last seen {relativeTime(w().last_seen_ms)})
-              </div>
-            </Show>
-          }
-        >
-          {(metrics) => (
-            <div class="md-metric-grid">
-              <MetricTile
-                icon="memory"
-                label="CPU"
-                value={`${metrics().cpu_pct.toFixed(0)}%`}
-                ratio={metrics().cpu_pct / 100}
-              />
-              <MetricTile
-                icon="memory_alt"
-                label="Memory"
-                value={memRatio() !== undefined ? `${Math.round(memRatio()! * 100)}%` : "—"}
-                support={`${formatBytes(metrics().mem_used_bytes)} of ${formatBytes(metrics().mem_total_bytes)}`}
-                ratio={memRatio()}
-              />
-              <MetricTile
-                icon="hard_drive"
-                label="Disk"
-                value={diskRatio() !== undefined ? `${Math.round(diskRatio()! * 100)}%` : "—"}
-                support={`${formatBytes(metrics().disk_used_bytes)} of ${formatBytes(metrics().disk_total_bytes)}`}
-                ratio={diskRatio()}
-              />
-              <MetricTile
-                icon="network_check"
-                label="Network"
-                value={formatBps(metrics().net_rx_bps + metrics().net_tx_bps)}
-                support={`↓ ${formatBps(metrics().net_rx_bps)} · ↑ ${formatBps(metrics().net_tx_bps)}`}
-              />
+          <Show when={w().git_sha && rootStore.coord_identity?.git_sha && w().git_sha !== rootStore.coord_identity!.git_sha}>
+            <div class="md-body-s" style={{ color: "var(--md-sys-color-error)" }}>
+              Worker version differs from coordinator ({rootStore.coord_identity!.git_sha.slice(0, 8)})
             </div>
-          )}
-        </Show>
+          </Show>
+          <Show when={renameErr()}>
+            <div class="md-body-s" style={{ color: "var(--md-sys-color-error)" }}>{renameErr()}</div>
+          </Show>
 
-        <Show when={!renaming()}>
-          <div style={{ display: "flex", "justify-content": "flex-end", gap: "var(--md-space-2)" }}>
-            <Button variant="ghost" icon="edit"
-            data-testid={`machines-rename-btn-${w().fp}`}
-            onClick={beginRename}>
+          <Show when={!isStale() && w().host_metrics}>
+            {(metrics) => (
+              <div class="md-metric-grid">
+                <MetricTile icon="memory" label="CPU" value={`${metrics().cpu_pct.toFixed(0)}%`} ratio={metrics().cpu_pct / 100} />
+                <MetricTile icon="memory_alt" label="Memory" value={memRatio() !== undefined ? `${Math.round(memRatio()! * 100)}%` : "—"} support={`${formatBytes(metrics().mem_used_bytes)} of ${formatBytes(metrics().mem_total_bytes)}`} ratio={memRatio()} />
+                <MetricTile icon="hard_drive" label="Disk" value={diskRatio() !== undefined ? `${Math.round(diskRatio()! * 100)}%` : "—"} support={`${formatBytes(metrics().disk_used_bytes)} of ${formatBytes(metrics().disk_total_bytes)}`} ratio={diskRatio()} />
+                <MetricTile icon="network_check" label="Network" value={formatBps(metrics().net_rx_bps + metrics().net_tx_bps)} support={`↓ ${formatBps(metrics().net_rx_bps)} · ↑ ${formatBps(metrics().net_tx_bps)}`} />
+              </div>
+            )}
+          </Show>
+
+          <div class="machines-worker-details__actions">
+            <Button variant="ghost" icon="edit" data-testid={`machines-rename-btn-${w().fp}`} onClick={beginRename}>
               Rename
             </Button>
             <Show when={confirmDelete()}>
-              <span
-                class="md-body-s"
-                data-testid={`machines-delete-explanation-${w().fp}`}
-                style={{ color: "var(--md-sys-color-on-surface-variant)" }}
-              >
-                Permanently removes this credential. Saved terminals and workspaces remain offline.
+              <span class="md-body-s" data-testid={`machines-delete-explanation-${w().fp}`}>
+                Removes this credential; saved terminals and workspaces stay offline.
               </span>
             </Show>
             <Show
               when={confirmDelete()}
               fallback={
-                <Button variant="destructive" icon="delete_outline"
-                data-testid={`machines-delete-btn-${w().fp}`}
-                onClick={beginConfirmDelete}
-                disabled={deleteBusy()}>
+                <Button variant="destructive" icon="delete_outline" data-testid={`machines-delete-btn-${w().fp}`} onClick={beginConfirmDelete} disabled={deleteBusy()}>
                   Remove
                 </Button>
               }
             >
-              <Button variant="destructive" data-testid={`machines-confirm-delete-btn-${w().fp}`}
-              onClick={() => void doDelete()}>
+              <Button variant="destructive" data-testid={`machines-confirm-delete-btn-${w().fp}`} onClick={() => void doDelete()}>
                 Confirm remove
               </Button>
-              <Button variant="ghost" data-testid={`machines-cancel-delete-btn-${w().fp}`}
-              onClick={cancelConfirmDelete}>
+              <Button variant="ghost" data-testid={`machines-cancel-delete-btn-${w().fp}`} onClick={cancelConfirmDelete}>
                 Cancel
               </Button>
             </Show>
           </div>
-        </Show>
-      </Card>
+        </div>
+      </Show>
     </div>
   );
 }

@@ -36,6 +36,7 @@ export interface TerminalScreenHubOptions {
   requestSnapshot(sessionId: string, streamId: string): void;
   unavailable?(sessionId: string, reason: string): void;
   requestFreshStream(sessionId: string, expectedStreamId: string, reason: string): void;
+  fullAccepted?(sessionId: string, streamId: string): void;
   setTimer?: SetTerminalScreenHubTimer;
   clearTimer?: ClearTerminalScreenHubTimer;
   now?: () => number;

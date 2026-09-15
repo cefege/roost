@@ -72,6 +72,36 @@ describe("doctor — classification + digest", () => {
     expect(errorLevel.exit).toBe(1); // error-level always trips
   });
 
+  test("operator-caused capture lifecycle is listed but does not trip the exit", () => {
+    // Enabling terminal debugging must not make this gate fail; the capture
+    // FAULT kinds still must.
+    const lifecycle = renderDigest(
+      fold([
+        { ts: NOW, level: "warn", target: "signal", msg: "terminal.capture_started", src: "coord" },
+        { ts: NOW, level: "warn", target: "signal", msg: "terminal.capture_saved", src: "worker" },
+        { ts: NOW, level: "warn", target: "signal", msg: "terminal.capture_stopped", src: "coord" },
+      ]),
+      "24h", cutoff, [],
+    );
+    expect(lifecycle.exit).toBe(0);
+    expect(lifecycle.text).toContain("terminal.capture_saved");
+
+    for (const fault of [
+      "terminal.capture_failed",
+      "terminal.history_conflict",
+      "terminal.emission_conflict",
+    ]) {
+      const digest = renderDigest(
+        fold([
+          { ts: NOW, level: "warn", target: "signal", msg: "terminal.capture_started", src: "coord" },
+          { ts: NOW, level: "warn", target: "signal", msg: fault, src: "spa" },
+        ]),
+        "24h", cutoff, [],
+      );
+      expect(digest.exit).toBe(1);
+    }
+  });
+
   test("groups by evt even when a kv msg collides (spa.uncaught error text)", () => {
     const d = fold([
       { ts: NOW, level: "warn", target: "signal", evt: "spa.uncaught", msg: "Cannot read x of null", kind: "error", sid: "s1", src: "spa" },

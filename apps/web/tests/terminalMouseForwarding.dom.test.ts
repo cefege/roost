@@ -92,6 +92,7 @@ interface Harness {
 	readerReasons: string[];
 	selectionReleases(): number;
 	sent: Uint8Array[];
+	setLinkActivationArmed(armed: boolean): void;
 	setNativeScrollFallback(): void;
 	fireWheel(deltaY: number, shiftKey?: boolean): WheelStub;
 	fireTouch(startY: number, endY: number): TouchStub;
@@ -107,6 +108,7 @@ function makeHarness(tracking = 0): Harness {
 	const readerReasons: string[] = [];
 	const sent: Uint8Array[] = [];
 	let selectionReleases = 0;
+	let linkActivationArmed = false;
 	let readerIntent: "live" | "reading" = "live";
 	let readerReason: string | null = null;
 	const renderer = {
@@ -135,6 +137,7 @@ function makeHarness(tracking = 0): Harness {
 		const attached = attachTerminalMouseForwarding({
 			display: display as unknown as HTMLDivElement,
 			mouseTracking: () => tracking as MouseTracking,
+			linkActivationArmed: () => linkActivationArmed,
 			sendBytes: (bytes) => { sent.push(bytes); },
 			getRenderer: () => renderer,
 			getMouseSgr: () => true,
@@ -155,6 +158,9 @@ function makeHarness(tracking = 0): Harness {
 		readerReasons,
 		sent,
 		selectionReleases: () => selectionReleases,
+		setLinkActivationArmed(armed: boolean): void {
+			linkActivationArmed = armed;
+		},
 		setNativeScrollFallback(): void {
 			readerIntent = "reading";
 			readerReason = "native_scroll";
@@ -271,7 +277,7 @@ describe("terminal mouse native reader intent", () => {
 		expect(h.readerReasons).toEqual(["wheel"]);
 	});
 
-	test("modified terminal links bypass PTY bytes while bare clicks still forward", () => {
+	test("armed and physical-modifier terminal links bypass PTY bytes while bare clicks forward", () => {
 		const h = makeHarness(1002);
 		const anchor = {};
 		const target = {
@@ -294,12 +300,22 @@ describe("terminal mouse native reader intent", () => {
 			return event;
 		};
 
-		const modified = mouseDown(true);
-		expect(modified.defaultPrevented).toBe(false);
+		const physicalModifier = mouseDown(true);
+		expect(physicalModifier.defaultPrevented).toBe(false);
 		expect(h.sent).toHaveLength(0);
 
-		const bare = mouseDown(false);
-		expect(bare.defaultPrevented).toBe(true);
+		const unarmed = mouseDown(false);
+		expect(unarmed.defaultPrevented).toBe(true);
 		expect(h.sent).toHaveLength(1);
+
+		h.setLinkActivationArmed(true);
+		const armed = mouseDown(false);
+		expect(armed.defaultPrevented).toBe(false);
+		expect(h.sent).toHaveLength(1);
+
+		h.setLinkActivationArmed(false);
+		const disarmed = mouseDown(false);
+		expect(disarmed.defaultPrevented).toBe(true);
+		expect(h.sent).toHaveLength(2);
 	});
 });

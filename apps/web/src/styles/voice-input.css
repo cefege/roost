@@ -641,10 +641,10 @@
   display: grid;
   grid-template-columns: repeat(4, var(--term-chat-control));
   grid-template-areas:
-    "esc   tab  ctrl  back"
+    "esc   tab  ctrl  alt"
     "home  up   end   pgup"
     "left  down right pgdn"
-    "ent   ent  ent   ent"
+    "back  ent  ent   ent"
     "mouse mouse mouse mouse";
   gap: var(--md-space-1);
 }
@@ -685,6 +685,7 @@
 .term-nav__key--esc { grid-area: esc; }
 .term-nav__key--tab { grid-area: tab; }
 .term-nav__key--ctrl { grid-area: ctrl; }
+.term-nav__key--alt { grid-area: alt; }
 .term-nav__key--back { grid-area: back; }
 .term-nav__key--home { grid-area: home; }
 .term-nav__key--up { grid-area: up; }
@@ -695,9 +696,10 @@
 .term-nav__key--right { grid-area: right; }
 .term-nav__key--pgdn { grid-area: pgdn; }
 
-.term-nav__key--ctrl[data-active="true"] {
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
+.term-nav__key--ctrl[data-active="true"],
+.term-nav__key--alt[data-active="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
 
 .term-nav__key--enter {

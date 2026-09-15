@@ -83,7 +83,7 @@ describe("worker terminal snapshot cursor", () => {
     }
   });
 
-  test("resumes the exact chunk and promotes an oversized dirty delta to a second full", async () => {
+  test("commits while a blocked full later resumes and extends the stream", async () => {
     trackKeeper(installAutoKeeper({ cols: 256, rows: 256 }));
     const core = new DenseLinkedCore();
     let blockSecondPart = true;
@@ -98,12 +98,19 @@ describe("worker terminal snapshot cursor", () => {
 
     const resultPromise = enableStream(harness.manager, STREAM_A, 256, 256);
     await flushLeadingCellEmit();
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      status: "committed",
+      streamId: STREAM_A,
+      resized: false,
+    });
     expect(harness.frameAttempts).toHaveLength(0);
     expect(harness.chunkAttempts).toHaveLength(2);
     expect(harness.chunkAttempts.map((chunk) => chunk.chunkIndex)).toEqual([0, 1]);
     expect(delivered.map((chunk) => chunk.chunkIndex)).toEqual([0]);
     expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toMatchObject({
       baselineReady: false,
+      coreValid: true,
     });
 
     core.markAllDirty();
@@ -114,13 +121,6 @@ describe("worker terminal snapshot cursor", () => {
     blockSecondPart = false;
     harness.manager.resumeTerminalSnapshots();
     await flushLeadingCellEmit();
-    const result = await resultPromise;
-
-    expect(result).toMatchObject({
-      status: "committed",
-      streamId: STREAM_A,
-      resized: false,
-    });
     expect(
       harness.chunkAttempts.filter(
         (chunk) => chunk.snapshotId === firstSnapshotId && chunk.chunkIndex === 1,
@@ -173,16 +173,14 @@ describe("worker terminal snapshot cursor", () => {
     const firstOperation = enableStream(harness.manager, STREAM_A, 256, 256);
     await flushLeadingCellEmit();
     const oldState = harness.manager.terminalStreams.get(CHANNEL_ID)!;
-    const oldBaseline = oldState.baselineInstalled;
     expect(oldState.snapshotCursor?.nextPart).toBe(1);
+    await expect(firstOperation).resolves.toMatchObject({
+      status: "committed",
+      streamId: STREAM_A,
+    });
 
     const replacement = enableStream(harness.manager, STREAM_B, 256, 256);
     blockSecondPart = false;
-    await expect(oldBaseline).resolves.toBe(false);
-    await expect(firstOperation).resolves.toMatchObject({
-      status: "ambiguous",
-      failure: "core_failed",
-    });
     expect(oldState.snapshotCursor).toBeNull();
     await expect(replacement).resolves.toMatchObject({
       status: "committed",
@@ -192,7 +190,7 @@ describe("worker terminal snapshot cursor", () => {
       .map((chunk) => chunk.chunkIndex)).toEqual([0]);
   });
 
-  test("settles the blocked baseline false when reconnect retires its cursor", async () => {
+  test("retires a blocked baseline on reconnect without sending its tail", async () => {
     trackKeeper(installAutoKeeper({ cols: 256, rows: 256 }));
     const core = new DenseLinkedCore();
     const delivered: PbCellGridChunk[] = [];
@@ -207,13 +205,11 @@ describe("worker terminal snapshot cursor", () => {
     const operation = enableStream(harness.manager, STREAM_A, 256, 256);
     await flushLeadingCellEmit();
     const oldState = harness.manager.terminalStreams.get(CHANNEL_ID)!;
-    const oldBaseline = oldState.baselineInstalled;
-    harness.manager.invalidateTerminalStreamsForReconnect();
-    await expect(oldBaseline).resolves.toBe(false);
     await expect(operation).resolves.toMatchObject({
-      status: "ambiguous",
-      failure: "core_failed",
+      status: "committed",
+      streamId: STREAM_A,
     });
+    harness.manager.invalidateTerminalStreamsForReconnect();
     expect(oldState.snapshotCursor).toBeNull();
     await flushLeadingCellEmit();
     expect(delivered.filter((chunk) => chunk.part?.streamId === STREAM_A)
@@ -224,7 +220,7 @@ describe("worker terminal snapshot cursor", () => {
     });
   });
 
-  test("settles the blocked baseline false on core failure without sending its tail", async () => {
+  test("retires a blocked baseline on core failure without sending its tail", async () => {
     trackKeeper(installAutoKeeper({ cols: 256, rows: 256 }));
     const core = new DenseLinkedCore();
     const delivered: PbCellGridChunk[] = [];
@@ -239,7 +235,10 @@ describe("worker terminal snapshot cursor", () => {
     const operation = enableStream(harness.manager, STREAM_A, 256, 256);
     await flushLeadingCellEmit();
     const state = harness.manager.terminalStreams.get(CHANNEL_ID)!;
-    const baseline = state.baselineInstalled;
+    await expect(operation).resolves.toMatchObject({
+      status: "committed",
+      streamId: STREAM_A,
+    });
     const capture = installLiveResizeCapture(
       harness.manager,
       CHANNEL_ID,
@@ -257,11 +256,6 @@ describe("worker terminal snapshot cursor", () => {
       cols: 256,
       rows: 256,
     });
-    await expect(baseline).resolves.toBe(false);
-    await expect(operation).resolves.toMatchObject({
-      status: "ambiguous",
-      failure: "core_failed",
-    });
     expect(state.snapshotCursor).toBeNull();
     expect(state.coreValid).toBe(false);
     await flushLeadingCellEmit();
@@ -269,7 +263,7 @@ describe("worker terminal snapshot cursor", () => {
       .map((chunk) => chunk.chunkIndex)).toEqual([0]);
   });
 
-  test("settles the blocked baseline false during channel teardown", async () => {
+  test("retires a blocked baseline during channel teardown", async () => {
     trackKeeper(installAutoKeeper({ cols: 256, rows: 256 }));
     const core = new DenseLinkedCore();
     const delivered: PbCellGridChunk[] = [];
@@ -284,13 +278,11 @@ describe("worker terminal snapshot cursor", () => {
     const operation = enableStream(harness.manager, STREAM_A, 256, 256);
     await flushLeadingCellEmit();
     const oldState = harness.manager.terminalStreams.get(CHANNEL_ID)!;
-    const oldBaseline = oldState.baselineInstalled;
-    harness.manager._dropChannelState(CHANNEL_ID);
-    await expect(oldBaseline).resolves.toBe(false);
     await expect(operation).resolves.toMatchObject({
-      status: "ambiguous",
-      failure: "core_failed",
+      status: "committed",
+      streamId: STREAM_A,
     });
+    harness.manager._dropChannelState(CHANNEL_ID);
     expect(oldState.snapshotCursor).toBeNull();
     await flushLeadingCellEmit();
     expect(delivered.filter((chunk) => chunk.part?.streamId === STREAM_A)
@@ -298,7 +290,6 @@ describe("worker terminal snapshot cursor", () => {
     expect(harness.manager.terminalStreams.has(CHANNEL_ID)).toBe(false);
   });
   test("does not advance a snapshot cursor on queued cell admission", () => {
-    const baseline = Promise.withResolvers<boolean>();
     const state: TerminalStreamState = {
       streamId: STREAM_A,
       enabled: true,
@@ -306,13 +297,10 @@ describe("worker terminal snapshot cursor", () => {
       rows: 2,
       version: 1,
       baselineReady: false,
-      baselinePromisePending: true,
       coreValid: true,
       baselineDirty: false,
       snapshotCursor: null,
       resizeCapture: null,
-      baselineInstalled: baseline.promise,
-      resolveBaselineInstalled: baseline.resolve,
     };
     const queuedCellResult = "queued" as unknown as TerminalCellSendResult;
     const manager = {
@@ -339,6 +327,5 @@ describe("worker terminal snapshot cursor", () => {
     expect(installSnapshotCursor(manager, CHANNEL_ID, state, frame)).toBe(true);
     expect(state.snapshotCursor).toMatchObject({ nextPart: 0 });
     expect(state.baselineReady).toBe(false);
-    expect(state.baselinePromisePending).toBe(true);
   });
 });

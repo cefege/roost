@@ -8,6 +8,7 @@ import { App } from "./App.tsx";
 import { loadTheme, applyTheme } from "./lib/theme.ts";
 import { loadAgentConfig } from "./lib/agents.ts";
 import { installSpaDiag, installSignalShip, markPhase } from "./lib/diag.ts";
+import { installTerminalSnapshotFacade } from "./lib/terminalSnapshotFacade.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import { applyTermFontSize } from "./lib/terminalFontPref.ts";
 import { claimTabIdentity } from "./auth/tab-id.ts";
@@ -34,6 +35,7 @@ applyTheme(loadTheme());
 // gated by localStorage.roostDiag. Install BEFORE first render so
 // spa.uncaught catches setup throws.
 installSignalShip();
+installTerminalSnapshotFacade();
 installSpaDiag();
 // Global error catch — Solid reactive throws + chunk-load failures go
 // to window.onerror; rejected promises to onunhandledrejection. Both

@@ -161,6 +161,8 @@ export function terminalStreamDiagnosticSnapshot(
       ),
       challenge_age_ms: monotonicAge(now, session?.proofChallengeAtMs),
       challenge_generation: generationSnapshot(session?.proofChallengeGeneration),
+      challenge_stream_id: session?.proofChallengeStreamId ?? null,
+      challenge_seq: session?.proofChallengeSeq ?? null,
       resync_latch_age_ms: monotonicAge(now, session?.resyncLatchedAtMs),
       resync_latch_generation: generationSnapshot(session?.resyncLatchGeneration),
       repair_attempts: session?.repairAttempts ?? 0,

@@ -100,6 +100,7 @@ const attachFileChunk = mock(async (request: {
   seq: number;
 }) => ({ absPath: request.last ? `/tmp/${request.filename}` : "" }));
 
+
 mock.module("../src/connect.ts", () => ({ coordClient: { attachmentProbe, attachFileChunk } }));
 mock.module("../src/lib/userTerminalInput.ts", () => ({ sendUserTerminalInput: sendInput }));
 mock.module("../src/store/transfers.ts", () => ({
@@ -222,6 +223,7 @@ describe("pickFilesTo", () => {
     expect(new TextDecoder().decode(sendInput.mock.calls[0]![1]))
       .toBe("'/tmp/picker'\"'\"'s file.txt' ");
   });
+
 
 });
 

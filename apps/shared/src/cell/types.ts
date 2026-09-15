@@ -3,8 +3,8 @@
 // styled CELLS; the SPA paints them and NEVER re-parses VT or reflows.
 // This file is the cell source of truth; proto frames (worker_transport /
 // sync) mirror it, the worker fills it via grid-to-cells.ts, the SPA
-// renders it. Style fields mirror @wterm/core CellData exactly (see
-// wterm-serialize.ts cell-shape note) so a span round-trips byte-for-style.
+// renders it. Style fields mirror @wterm/core CellData exactly so a span
+// round-trips byte-for-style.
 //
 // A "span" is a run of consecutive cells sharing one style. A "row" is an
 // ordered list of spans (right-trimmed: trailing default-style spaces emit no
@@ -26,8 +26,8 @@
 
 export const DEFAULT_COLOR = 256;
 
-// Style flag bits — identical layout to @wterm/core CellData.flags and to
-// wterm-serialize.ts (F_*). The renderer maps these to CSS.
+// Style flag bits — identical layout to @wterm/core CellData.flags. The
+// renderer maps these to CSS.
 export const CELL_BOLD = 0x01;
 export const CELL_DIM = 0x02;
 export const CELL_ITALIC = 0x04;

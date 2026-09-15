@@ -129,27 +129,29 @@ describe("terminal document renewal scheduler", () => {
       rows: 24,
     });
 
-    vi.advanceTimersByTime(9_999);
+    vi.advanceTimersByTime(2_999);
     expect(generationRecoveries).toHaveLength(0);
     vi.advanceTimersByTime(1);
     expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");
     view.dispose();
   });
 
-  test("does not accept a late initial view ACK as terminal proof", () => {
+  test("retires a no-stream proof challenge when a late ACK adopts its stream", () => {
     const view = terminalStream.createTerminalView(SESSION_ID);
     view.setViewport({ cols: 80, rows: 24 });
 
     vi.advanceTimersByTime(15_000);
     acceptView(view.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 80, 24);
-    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
-      expected_stream_id: STREAM_A,
-    });
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(
+      STREAM_A,
+      Array.from({ length: 24 }, (_, index) => ({
+        index,
+        spans: [{ text: " ".repeat(80), columns: 80, fg: 256, bg: 256, flags: 0 }],
+      })),
+    ), SESSION_ID));
 
-    vi.advanceTimersByTime(9_999);
+    vi.advanceTimersByTime(3_000);
     expect(generationRecoveries).toHaveLength(0);
-    vi.advanceTimersByTime(1);
-    expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");
     view.dispose();
   });
 
@@ -159,9 +161,9 @@ describe("terminal document renewal scheduler", () => {
     acceptView(view.viewId, latestViewCommand().value.revision as bigint);
     terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
 
-    vi.advanceTimersByTime(20_000);
+    vi.advanceTimersByTime(5_000);
     acceptView(view.viewId, latestViewCommand().value.revision as bigint);
-    vi.advanceTimersByTime(9_999);
+    vi.advanceTimersByTime(2_999);
     expect(generationRecoveries).toHaveLength(0);
     vi.advanceTimersByTime(1);
     expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");

@@ -1,13 +1,7 @@
-// OSC 8 hyperlinks, worker side. Two independent contracts:
-//
-// 1. wterm-serialize.ts round-trips link identity the same way it round-trips
-//    style. It already emitted SGR deltas; a grid replayed through it used to
-//    come back with every hyperlink stripped, so a serialize-based fidelity
-//    check was blind to link loss.
-// 2. The core's OSC 8 table has a FIXED capacity. Once saturated the terminal
-//    still paints perfectly and every NEW distinct link silently degrades to
-//    plain text — no error, no missing output. The worker emits ONE Tier-1
-//    signal per false→true flip so that state is not invisible.
+// OSC 8 hyperlinks, worker side: the core's link table has a FIXED capacity, and
+// once it saturates every NEW distinct link degrades to plain text — no error, no
+// missing output. Pins the ONE Tier-1 signal per false→true flip, its re-arming,
+// and the per-session diagnostic counts, against a real loaded core.
 
 import { describe, test, expect, afterEach, setSystemTime } from "bun:test";
 import { WasmBridge } from "@wterm/core";
@@ -15,89 +9,9 @@ import { setSignalSink } from "@roost/shared/diag";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { initCellEmitState } from "@roost/shared/cell";
 import { SessionManager } from "../src/session-manager.ts";
-import { serializeWTerm } from "../src/wterm-serialize.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import { SessionEventTestSink } from "./session-event-test-sink.ts";
-
-const enc = new TextEncoder();
-
-/** Replay a grid through the serializer into a fresh core, as a resize rebuild
- *  or a scrollback capture would. */
-async function replay(payload: string, cols = 40, rows = 6) {
-  const server = await WasmBridge.load();
-  server.init(cols, rows);
-  server.writeRaw(enc.encode(payload));
-  const client = await WasmBridge.load();
-  client.init(cols, rows);
-  client.writeRaw(enc.encode(serializeWTerm(server)));
-  return { server, client };
-}
-
-/** Every cell of row 0 as [char, uri]. */
-function rowLinks(core: { getCell(r: number, c: number): { char: number; linkUri?: string } }, cols: number) {
-  const out: Array<[string, string | undefined]> = [];
-  for (let col = 0; col < cols; col++) {
-    const cell = core.getCell(0, col);
-    if (cell.char === 0 || cell.char === 0x20) continue;
-    out.push([String.fromCodePoint(cell.char), cell.linkUri]);
-  }
-  return out;
-}
-
-describe("wterm-serialize OSC 8 round-trip", () => {
-  test("a replayed grid keeps each cell's exact URI", async () => {
-    const { server, client } = await replay(
-      "\x1b]8;;https://example.test/a\x1b\\link\x1b]8;;\x1b\\ plain\r\n",
-    );
-    const expected: Array<[string, string | undefined]> = [
-      ["l", "https://example.test/a"], ["i", "https://example.test/a"],
-      ["n", "https://example.test/a"], ["k", "https://example.test/a"],
-      ["p", undefined], ["l", undefined], ["a", undefined], ["i", undefined], ["n", undefined],
-    ];
-    expect(rowLinks(server, 40)).toEqual(expected);
-    expect(rowLinks(client, 40)).toEqual(expected);
-  });
-
-  test("two adjacent links sharing one URI stay two distinct links after replay", async () => {
-    // The serializer must emit a re-open between them. Collapsing them would
-    // fuse two separately clickable regions into one on every rebuild.
-    const { client } = await replay(
-      "\x1b]8;;https://example.test/same\x1b\\ab\x1b]8;;\x1b\\"
-      + "\x1b]8;;https://example.test/same\x1b\\cd\x1b]8;;\x1b\\\r\n",
-    );
-    const keys = [0, 1, 2, 3].map((c) => client.getCell(0, c).linkKey);
-    expect(keys[0]).toBe(keys[1]!);
-    expect(keys[2]).toBe(keys[3]!);
-    expect(keys[0]).not.toBe(keys[2]!);
-    expect(client.getCell(0, 3).linkUri).toBe("https://example.test/same");
-  });
-
-  test("an explicit id= survives replay verbatim", async () => {
-    const { client } = await replay("\x1b]8;id=tag1;https://example.test/y\x1b\\Y\x1b]8;;\x1b\\\r\n");
-    expect(client.getCell(0, 0).linkUri).toBe("https://example.test/y");
-    expect(client.getCell(0, 0).linkId).toBe("tag1");
-  });
-
-  test("a link in retained scrollback survives replay", async () => {
-    // Eight lines through a 6-row grid pushes the linked line into history.
-    const { client } = await replay(
-      "\x1b]8;;https://example.test/old\x1b\\older\x1b]8;;\x1b\\\r\n"
-      + "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n",
-    );
-    const off = client.getScrollbackCount() - 1;
-    expect(client.getScrollbackCell(off, 0).linkUri).toBe("https://example.test/old");
-  });
-
-  test("no open link leaks past the end of a replayed grid", async () => {
-    // The last painted cell is inside a link that the producer never closed.
-    const { client } = await replay("\x1b]8;;https://example.test/open\x1b\\tail");
-    client.writeRaw(enc.encode("\r\nafter"));
-    expect(client.getCell(1, 0).linkUri).toBeUndefined();
-  });
-});
-
-// ── saturation signal ──────────────────────────────────────────────────────
 
 const SID = "00000000-0000-4000-8000-00000000f00d";
 
@@ -135,7 +49,6 @@ async function saturationHarness() {
     cell_emit: initCellEmitState("sat-grid", "00000000-0000-4000-8000-000000000001"),
     lastPtyOutMs: 0,
   });
-  const baseline = Promise.withResolvers<boolean>();
   mgr.terminalStreams.set(asChannelId(1), {
     streamId: "00000000-0000-4000-8000-000000000001",
     enabled: true,
@@ -147,9 +60,6 @@ async function saturationHarness() {
     baselineDirty: false,
     snapshotCursor: null,
     resizeCapture: null,
-    baselineInstalled: baseline.promise,
-    baselinePromisePending: false,
-    resolveBaselineInstalled: baseline.resolve,
   });
   return { mgr, links, signals };
 }

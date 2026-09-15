@@ -5,21 +5,23 @@
 
 import { Buffer } from "node:buffer";
 import { createConnection, createServer, type Socket } from "node:net";
+import type { CoordWorkerUp } from "../../apps/shared/src/gen/roost/v1/worker_transport_pb.ts";
+import {
+  DelayedFrameStream,
+  type WorkerFrameFilter,
+} from "./delayed-worker-frames.ts";
 
 const HTTP_HEADER_END = Buffer.from("\r\n\r\n");
 const EMPTY_BUFFER: Buffer<ArrayBufferLike> = Buffer.alloc(0);
-const MAX_FRAME_BYTES = 4 * 1024 * 1024;
-const MAX_DIRECTION_QUEUE_BYTES = 8 * 1024 * 1024;
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
 
 type SocketSide = "client" | "target";
 type TargetEndpoint = { host: string; port: number };
-type FrameInspection = { frameBytes: number } | "incomplete" | "oversized";
-type QueuedFrame = { bytes: Buffer; dueAtMs: number };
 
 export type DelayedWorkerLinkOptions = {
   targetUrl: string;
   oneWayDelayMs: 0 | 25;
+  workerFrameFilter?: (frame: CoordWorkerUp) => boolean;
 };
 
 export interface DelayedWorkerLink {
@@ -49,6 +51,7 @@ export async function startDelayedWorkerLink(
   const connections = new Set<SocketPair>();
   let stopping = false;
   let stopPromise: Promise<void> | undefined;
+  let filterFailure: Error | undefined;
   const server = createServer({ allowHalfOpen: true });
   server.on("connection", (clientSocket) => {
     if (stopping) {
@@ -61,7 +64,9 @@ export async function startDelayedWorkerLink(
       clientSocket,
       targetSocket,
       options.oneWayDelayMs,
+      options.workerFrameFilter,
       () => connections.delete(connection),
+      (error) => { filterFailure ??= error; },
     );
     connections.add(connection);
     connection.start();
@@ -79,7 +84,7 @@ export async function startDelayedWorkerLink(
     server.once("listening", ready);
     server.listen({ host: "127.0.0.1", port: 0 });
   });
-  const stop = (): Promise<void> => {
+  const stop = async (): Promise<void> => {
     stopPromise ??= new Promise<void>((resolve) => {
       stopping = true;
       for (const connection of connections) connection.close();
@@ -89,14 +94,15 @@ export async function startDelayedWorkerLink(
         resolve();
       }
     });
-    return stopPromise;
+    await stopPromise;
+    if (filterFailure) throw filterFailure;
   };
   const address = server.address();
   if (!address || typeof address === "string") {
     await stop();
     throw new Error("delayed worker link did not bind a TCP port");
   }
-  server.on("error", () => { void stop(); });
+  server.on("error", () => { void stop().catch(() => undefined); });
   return { url: `http://127.0.0.1:${address.port}`, stop };
 }
 
@@ -106,6 +112,7 @@ class SocketPair {
   readonly #client: Socket;
   readonly #target: Socket;
   readonly #onClosed: () => void;
+  readonly #onFilterFailure: (error: Error) => void;
   #clientRequestHeaders = EMPTY_BUFFER;
   #clientRequestInspected = false;
   #targetResponseHeaders = EMPTY_BUFFER;
@@ -115,10 +122,30 @@ class SocketPair {
   #webSocketOpen = false;
   #closed = false;
 
-  constructor(client: Socket, target: Socket, oneWayDelayMs: 0 | 25, onClosed: () => void) {
-    this.#client = client; this.#target = target; this.#onClosed = onClosed;
-    this.#clientToTarget = new DelayedFrameStream(this.#target, oneWayDelayMs, () => this.close());
-    this.#targetToClient = new DelayedFrameStream(this.#client, oneWayDelayMs, () => this.close());
+  constructor(
+    client: Socket,
+    target: Socket,
+    oneWayDelayMs: 0 | 25,
+    workerFrameFilter: WorkerFrameFilter | undefined,
+    onClosed: () => void,
+    onFilterFailure: (error: Error) => void,
+  ) {
+    this.#client = client;
+    this.#target = target;
+    this.#onClosed = onClosed;
+    this.#onFilterFailure = onFilterFailure;
+    this.#clientToTarget = new DelayedFrameStream(
+      this.#target,
+      oneWayDelayMs,
+      () => this.close(),
+      workerFrameFilter,
+      (message) => this.#failWorkerFrameFilter(message),
+    );
+    this.#targetToClient = new DelayedFrameStream(
+      this.#client,
+      oneWayDelayMs,
+      () => this.close(),
+    );
   }
 
   start(): void {
@@ -142,6 +169,11 @@ class SocketPair {
     this.#onClosed();
     this.#client.destroy();
     this.#target.destroy();
+  }
+
+  #failWorkerFrameFilter(message: string): void {
+    this.#onFilterFailure(new Error(`delayed worker frame filter failed: ${message}`));
+    this.close();
   }
 
   #onClientData(chunk: Buffer): void {
@@ -247,149 +279,3 @@ class SocketPair {
   }
 }
 
-class DelayedFrameStream {
-  #pending = EMPTY_BUFFER;
-  #frames: QueuedFrame[] = [];
-  #queuedBytes = 0;
-  #timer: NodeJS.Timeout | undefined;
-  #writing = false;
-  #finishing = false;
-  #stopped = false;
-  #onDrained: (() => void) | undefined;
-  readonly #destination: Socket;
-  readonly #oneWayDelayMs: 0 | 25;
-  readonly #closePair: () => void;
-
-  constructor(destination: Socket, oneWayDelayMs: 0 | 25, closePair: () => void) {
-    this.#destination = destination; this.#oneWayDelayMs = oneWayDelayMs; this.#closePair = closePair;
-  }
-
-  receive(chunk: Buffer): void {
-    if (this.#stopped || this.#finishing) return this.#closePair();
-    let bytes = chunk;
-    let bytesAreOwned = false;
-    if (this.#pending.byteLength > 0) {
-      bytes = Buffer.concat([this.#pending, chunk]);
-      bytesAreOwned = true;
-      this.#pending = EMPTY_BUFFER;
-    }
-    let offset = 0;
-    while (offset < bytes.byteLength) {
-      const inspection = inspectWebSocketFrame(bytes, offset);
-      if (inspection === "oversized") return this.#closePair();
-      if (inspection === "incomplete") {
-        this.#holdPending(bytes.subarray(offset), bytesAreOwned);
-        return;
-      }
-      const frame = bytes.subarray(offset, offset + inspection.frameBytes);
-      if (!this.#enqueue(bytesAreOwned ? frame : Buffer.from(frame))) return;
-      offset += inspection.frameBytes;
-    }
-    this.#pending = EMPTY_BUFFER;
-  }
-
-  finish(onDrained: () => void): boolean {
-    if (this.#pending.byteLength > 0) return false;
-    this.#finishing = true;
-    this.#onDrained = onDrained;
-    this.#finishIfDrained();
-    return true;
-  }
-
-  stop(): void {
-    this.#stopped = true;
-    clearTimeout(this.#timer);
-    this.#timer = undefined;
-    this.#pending = EMPTY_BUFFER;
-    this.#frames = [];
-    this.#queuedBytes = 0;
-    this.#onDrained = undefined;
-  }
-  #holdPending(bytes: Buffer, alreadyOwned: boolean): void {
-    const pending = alreadyOwned ? bytes : Buffer.from(bytes);
-    if (pending.byteLength > MAX_DIRECTION_QUEUE_BYTES - this.#queuedBytes) {
-      this.#closePair();
-      return;
-    }
-    this.#pending = pending;
-  }
-
-
-  #enqueue(ownedFrame: Buffer): boolean {
-    if (ownedFrame.byteLength > MAX_DIRECTION_QUEUE_BYTES - this.#queuedBytes) {
-      this.#closePair();
-      return false;
-    }
-    this.#queuedBytes += ownedFrame.byteLength;
-    this.#frames.push({ bytes: ownedFrame, dueAtMs: Date.now() + this.#oneWayDelayMs });
-    this.#schedule();
-    return true;
-  }
-
-  #schedule(): void {
-    if (this.#stopped || this.#writing || this.#timer || this.#frames.length === 0) return;
-    const delayMs = Math.max(0, this.#frames[0]!.dueAtMs - Date.now());
-    if (delayMs === 0) return this.#writeHead();
-    this.#timer = setTimeout(() => {
-      this.#timer = undefined;
-      this.#writeHead();
-    }, delayMs);
-  }
-
-  #writeHead(): void {
-    if (this.#stopped || this.#writing) return;
-    const frame = this.#frames[0];
-    if (!frame) return this.#finishIfDrained();
-    if (this.#destination.destroyed || !this.#destination.writable) return this.#closePair();
-    this.#writing = true;
-    try {
-      this.#destination.write(frame.bytes, (error) => {
-        if (this.#stopped) return;
-        this.#writing = false;
-        if (error) return this.#closePair();
-        const sent = this.#frames.shift();
-        if (!sent) return this.#closePair();
-        this.#queuedBytes -= sent.bytes.byteLength;
-        this.#finishIfDrained();
-        this.#schedule();
-      });
-    } catch {
-      this.#writing = false;
-      this.#closePair();
-    }
-  }
-
-  #finishIfDrained(): void {
-    if (!this.#finishing || this.#writing || this.#timer || this.#frames.length > 0) return;
-    const onDrained = this.#onDrained;
-    this.#onDrained = undefined;
-    if (onDrained) onDrained();
-  }
-}
-
-function inspectWebSocketFrame(bytes: Buffer, offset: number): FrameInspection {
-  const available = bytes.byteLength - offset;
-  if (available < 2) return "incomplete";
-  const secondByte = bytes[offset + 1]!;
-  const lengthMarker = secondByte & 0x7f;
-  let headerBytes = 2;
-  let payloadBytes: number;
-  if (lengthMarker === 126) {
-    if (available < 4) return "incomplete";
-    payloadBytes = bytes.readUInt16BE(offset + 2);
-    headerBytes += 2;
-  } else if (lengthMarker === 127) {
-    if (available < 10) return "incomplete";
-    const highBits = bytes.readUInt32BE(offset + 2);
-    const lowBits = bytes.readUInt32BE(offset + 6);
-    if (highBits !== 0 || lowBits > MAX_FRAME_BYTES) return "oversized";
-    payloadBytes = lowBits;
-    headerBytes += 8;
-  } else {
-    payloadBytes = lengthMarker;
-  }
-  if ((secondByte & 0x80) !== 0) headerBytes += 4;
-  if (headerBytes + payloadBytes > MAX_FRAME_BYTES) return "oversized";
-  if (available < headerBytes + payloadBytes) return "incomplete";
-  return { frameBytes: headerBytes + payloadBytes };
-}

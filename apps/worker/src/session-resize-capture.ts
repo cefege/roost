@@ -7,11 +7,14 @@ import { diag, signal } from "@roost/shared/diag";
 import { newTraceId } from "@roost/shared/trace";
 import type { SessionManager } from "./session-manager.ts";
 import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
+import { cancelCellEmission } from "./session-cell-scheduler.ts";
 import type { LiveResizeCapture, TerminalStreamState } from "./session-terminal-state.ts";
 import type { KeeperHistoryRecords, KeeperResizeResult } from "./keeper/multiplexed-client.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { answerQueries } from "./terminal-query-reply.ts";
 import { readRing } from "./session-scrollback-ring.ts";
+import { noteResizeInstall, noteResizeResult } from "./diag/terminal-capture.ts";
+import type { TerminalWorkerResizeOutcome } from "@roost/shared/terminal-capture";
 
 export const CELL_GATE_BUDGET_MS = 2_500;
 
@@ -43,7 +46,9 @@ export function installLiveResizeCapture(
 		failedReason: null,
 	};
 	state.resizeCapture = capture;
+	noteResizeInstall(mgr, channelId, capture);
 	mgr.cellEmissionGates.add(channelId);
+	cancelCellEmission(mgr, channelId);
 	mgr._releaseSyncOutputHold(channelId);
 	return capture;
 }
@@ -101,10 +106,6 @@ function resetEmissionEpoch(mgr: SessionManager, channelId: number): void {
 	const stream = mgr.terminalStreams.get(channelId);
 	if (stream) {
 		retireSnapshotCursor(mgr, channelId, stream);
-		const baseline = Promise.withResolvers<boolean>();
-		stream.baselineInstalled = baseline.promise;
-		stream.baselinePromisePending = true;
-		stream.resolveBaselineInstalled = baseline.resolve;
 		stream.baselineReady = false;
 		stream.baselineDirty = true;
 	}
@@ -121,12 +122,15 @@ function failCore(
 	channelId: number,
 	capture: LiveResizeCapture,
 	reason: string,
+	outcome: TerminalWorkerResizeOutcome = "core_failed",
 ): void {
+	noteResizeResult(mgr, channelId, capture, outcome);
 	capture.failedReason = reason;
 	const stream = mgr.terminalStreams.get(channelId);
 	if (stream) {
 		retireSnapshotCursor(mgr, channelId, stream);
 		stream.coreValid = false;
+		cancelCellEmission(mgr, channelId);
 	}
 	signal("terminal.core_failed", {
 		sid: String(mgr.sessions.get(channelId)?.sessionId ?? ""),
@@ -180,6 +184,12 @@ export function applyResizeResultAtBoundary(
 			resetEmissionEpoch(mgr, channelId);
 		}
 		capture.boundaryApplied = true;
+		noteResizeResult(
+			mgr,
+			channelId,
+			capture,
+			result.kind === "ack" ? "accepted" : "rejected",
+		);
 		finishCapture(mgr, channelId, capture);
 		forwardReplies(channelId, replies);
 	} catch (error) {
@@ -205,11 +215,14 @@ export async function recoverAmbiguousResize(
 		history = await getMultiplexedPool().getHistoryRecords(channelId);
 	} catch (error) {
 		const reason = `ordered resize history unavailable: ${error instanceof Error ? error.message : String(error)}`;
-		failCore(mgr, channelId, capture, reason);
+		failCore(mgr, channelId, capture, reason, "lost_ack");
 		return { ok: false, reason };
 	}
 	const rec = mgr.sessions.get(channelId);
-	if (!rec) return { ok: false, reason: "session closed during resize recovery" };
+	if (!rec) {
+		noteResizeResult(mgr, channelId, capture, "unknown");
+		return { ok: false, reason: "session closed during resize recovery" };
+	}
 	const retainedBytes = history.records.reduce(
 		(total, record) => total + (record.kind === "output" ? record.bytes.byteLength : 0),
 		0,
@@ -217,7 +230,7 @@ export async function recoverAmbiguousResize(
 	const retainedStart = history.headSeq - retainedBytes;
 	if (capture.installSeq < retainedStart) {
 		const reason = "ordered resize boundary was evicted";
-		failCore(mgr, channelId, capture, reason);
+		failCore(mgr, channelId, capture, reason, "lost_ack");
 		return { ok: false, reason };
 	}
 	let outputSeq = retainedStart;
@@ -255,6 +268,7 @@ export async function recoverAmbiguousResize(
 		if (!applied) throw new Error("ordered resize boundary was not retained");
 		capture.boundarySeq = history.headSeq;
 		capture.boundaryApplied = true;
+		noteResizeResult(mgr, channelId, capture, "recovered");
 		finishCapture(mgr, channelId, capture);
 		forwardReplies(channelId, replies);
 		diag("resize.wterm_core", {
@@ -269,7 +283,7 @@ export async function recoverAmbiguousResize(
 		return { ok: true };
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error);
-		failCore(mgr, channelId, capture, reason);
+		failCore(mgr, channelId, capture, reason, "lost_ack");
 		return { ok: false, reason };
 	}
 }

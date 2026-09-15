@@ -1,8 +1,9 @@
 // Desired-state reconciler for per-session terminal streams toward workers:
-// computes the effective geometry (min across viewers) and drives it to the
-// routed worker, coalescing concurrent requests via inFlight/latest. Each
-// desire mints a fresh streamId and must call screen.expectStream BEFORE
-// broadcasting ACCEPTED, or snapshot requests race the worker's first frame.
+// computes the effective geometry (minimumTerminalGeometry over the viewers
+// that currently constrain the session) and drives it to the routed worker,
+// coalescing concurrent requests via inFlight/latest. Each desire mints a
+// fresh streamId and must call screen.expectStream BEFORE broadcasting
+// ACCEPTED, or snapshot requests race the worker's first frame.
 import { randomUUID } from "node:crypto";
 import {
   TerminalStreamFailureKind,
@@ -11,7 +12,7 @@ import {
 } from "@roost/shared/proto/worker_transport_pb";
 import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
 import { signal } from "@roost/shared/diag";
-import type { TerminalGeometry } from "@roost/shared/viewport";
+import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/shared/viewport";
 import { TerminalScreenHub } from "./terminal-screen-hub.ts";
 import {
   TERMINAL_STREAM_CONTROL_TIMEOUT_MS,
@@ -21,6 +22,7 @@ import {
 import { truncateTerminalReason } from "./terminal-view-protocol.ts";
 import type {
   TerminalStreamDesired,
+  TerminalStreamRoute,
   TerminalStreamState,
   TerminalUnavailablePolicy,
   TerminalViewStreamControllerOptions,
@@ -33,7 +35,6 @@ export type {
   TerminalUnavailablePolicy,
   TerminalViewStreamControllerOptions,
 } from "./terminal-view-stream-controller-types.ts";
-
 type TerminalStreamWork = TerminalStreamDesired & { deadline: HopDeadline };
 interface TerminalStreamSession extends TerminalStreamState {
   inFlight: TerminalStreamWork | null;
@@ -52,6 +53,15 @@ export class TerminalViewStreamController {
       requestFreshStream: (sessionId, expectedStreamId, reason) => {
         this.redriveFreshStream(sessionId, expectedStreamId, reason);
       },
+      fullAccepted: (sessionId, streamId) => {
+        const session = this.sessions.get(sessionId);
+        if (!session?.effective || session.streamId !== streamId || !session.unavailable
+          || session.unavailablePolicy !== "heartbeat") return;
+        session.unavailable = false;
+        session.unavailableReason = "";
+        session.unavailablePolicy = "heartbeat";
+        this.options.broadcast(sessionId, TerminalViewStatus.ACCEPTED, "");
+      },
     });
   }
   dispose(): void {
@@ -64,17 +74,15 @@ export class TerminalViewStreamController {
   }
   recompute(sessionId: string): boolean {
     const session = this.session(sessionId);
-    const geometries = this.options.geometries(sessionId);
-    let effective: TerminalGeometry | null = null;
-    if (geometries.length > 0) {
-      let cols = geometries[0]!.cols;
-      let rows = geometries[0]!.rows;
-      for (let index = 1; index < geometries.length; index += 1) {
-        cols = Math.min(cols, geometries[index]!.cols);
-        rows = Math.min(rows, geometries[index]!.rows);
-      }
-      effective = { cols, rows };
+    const { live, retained } = this.options.geometries(sessionId);
+    // A session whose every viewer is parked HOLDS its last geometry: park
+    // exists to absorb reconnect wobble, so a solo viewer's socket blip must
+    // not re-mint the stream. Only losing membership entirely disables it.
+    if (live.length === 0 && retained > 0) {
+      void this.options.presence(sessionId);
+      return false;
     }
+    const effective = minimumTerminalGeometry(live);
     if (
       effective?.cols === session.effective?.cols
       && effective?.rows === session.effective?.rows
@@ -348,22 +356,43 @@ export class TerminalViewStreamController {
     session.unavailablePolicy = policy;
     this.options.broadcast(sessionId, TerminalViewStatus.UNAVAILABLE, session.unavailableReason);
   }
-
   private redriveFreshStream(sessionId: string, expectedStreamId: string, _reason: string): void {
     const session = this.sessions.get(sessionId);
-    if (
-      !session?.effective || session.streamId !== expectedStreamId
-      || session.unavailablePolicy === "route"
-    ) return;
+    if (!session?.effective || session.streamId !== expectedStreamId
+      || session.unavailablePolicy === "route") return;
     this.desire(sessionId, session.effective, 0);
+  }
+  private isCurrentSnapshotRequest(
+    sessionId: string,
+    streamId: string,
+    session: TerminalStreamSession,
+  ): boolean {
+    return this.sessions.get(sessionId) === session
+      && session.effective !== null && session.streamId === streamId;
   }
   private async requestFull(sessionId: string, streamId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
-    if (!session?.effective || session.streamId !== streamId) return;
-    const route = await this.options.resolveRoute(sessionId);
-    if (!route || this.sessions.get(sessionId)?.streamId !== streamId) return;
-    if (!this.options.sendSnapshot(route.workerFp, sessionId, streamId)) {
-      this.unavailable(sessionId, "snapshot request could not reach worker");
+    if (!session || !this.isCurrentSnapshotRequest(sessionId, streamId, session)) return;
+    let route: TerminalStreamRoute | null;
+    try {
+      route = await this.options.resolveRoute(sessionId);
+    } catch {
+      if (this.isCurrentSnapshotRequest(sessionId, streamId, session)) this.unavailable(sessionId, "snapshot request could not reach worker");
+      return;
+    }
+    if (!this.isCurrentSnapshotRequest(sessionId, streamId, session)) return;
+    if (!route) {
+      this.unavailable(sessionId, "snapshot request has no worker route", "route");
+      return;
+    }
+    try {
+      if (!this.options.sendSnapshot(route.workerFp, sessionId, streamId)) {
+        if (this.isCurrentSnapshotRequest(sessionId, streamId, session)) this.unavailable(sessionId, "snapshot request could not reach worker");
+        return;
+      }
+    } catch {
+      if (this.isCurrentSnapshotRequest(sessionId, streamId, session)) this.unavailable(sessionId, "snapshot request could not reach worker");
+      return;
     }
   }
 }

@@ -1,6 +1,6 @@
 // Owns every terminal input path except the textarea controller resource.
 // CellTerminal constructs this controller before presentation and renderer.
-// Paste, attachments, clipboard, find, history, and Ctrl state converge here.
+// Paste, attachments, clipboard, find, history, and pane-local modifier state converge here.
 // Renderer constructs TerminalInputController and calls sendControllerData.
 
 import { createSignal, type Accessor, type Setter } from "solid-js";
@@ -39,6 +39,8 @@ import type { CellTerminalRuntime } from "./cell-terminal-runtime.ts";
 export interface CellTerminalInput {
 	ctrlArmed: Accessor<boolean>;
 	setCtrlArmed: Setter<boolean>;
+	linkActivationArmed: Accessor<boolean>;
+	setLinkActivationArmed: Setter<boolean>;
 	pendingPaste: Accessor<string | null>;
 	setPendingPaste: Setter<string | null>;
 	pendingPasteLines(): number;
@@ -60,6 +62,7 @@ export function createCellTerminalInput(
 	runtime: CellTerminalRuntime,
 ): CellTerminalInput {
 	const [ctrlArmed, setCtrlArmed] = createSignal(false);
+	const [linkActivationArmed, setLinkActivationArmed] = createSignal(false);
 	const [pendingPaste, setPendingPaste] = createSignal<string | null>(null);
 	const sessionId = runtime.sessionId;
 	let disposed = false;
@@ -195,6 +198,8 @@ export function createCellTerminalInput(
 	return {
 		ctrlArmed,
 		setCtrlArmed,
+		linkActivationArmed,
+		setLinkActivationArmed,
 		pendingPaste,
 		setPendingPaste,
 		pendingPasteLines,

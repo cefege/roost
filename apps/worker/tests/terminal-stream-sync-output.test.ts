@@ -40,6 +40,7 @@ describe("worker DEC 2026 synchronized-output ceilings", () => {
     expect(hold).toMatchObject({ tripped: false });
     const timer = hold?.timer;
     expect(timer).toBeDefined();
+    await expect(resultPromise).resolves.toMatchObject({ status: "committed" });
 
     vi.advanceTimersByTime(SYNC_OUTPUT_MAX_MS - 1);
     await Promise.resolve();
@@ -59,7 +60,6 @@ describe("worker DEC 2026 synchronized-output ceilings", () => {
     expect(frameRowText(harness.frameAttempts[0]!, 0)).toContain("HELD");
     expect(hold).toMatchObject({ tripped: true, timer: undefined });
     expect(harness.manager.pendingSyncCellSnapshots.has(CHANNEL_ID)).toBe(false);
-    await expect(resultPromise).resolves.toMatchObject({ status: "committed" });
 
     core.writeString("\x1b[2;1HAFTER-CAP");
     harness.manager.emitCellFrame(CHANNEL_ID, false);

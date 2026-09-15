@@ -6,6 +6,7 @@ import type { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
 import type { TerminalGeometry } from "@roost/shared/viewport";
 import type { HopDeadline } from "./worker-send.ts";
 import type { TerminalStreamDispatcher } from "./terminal-stream-dispatcher.ts";
+import type { TerminalViewGeometrySet } from "./terminal-view-registry-state.ts";
 
 export interface TerminalStreamDesired {
   streamId: string;
@@ -35,7 +36,7 @@ export interface TerminalViewStreamControllerOptions {
   streamDispatcher: TerminalStreamDispatcher;
   createStreamDeadline?(): HopDeadline;
   sendSnapshot(workerFp: string, sessionId: string, streamId: string): boolean;
-  geometries(sessionId: string): readonly TerminalGeometry[];
+  geometries(sessionId: string): TerminalViewGeometrySet;
   broadcast(sessionId: string, status: TerminalViewStatus, message: string): void;
   closeViews(sessionId: string): void;
   presence(sessionId: string): void | Promise<void>;

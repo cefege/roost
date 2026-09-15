@@ -2,6 +2,8 @@
 // The composer smoke spec calls this phase before mouse forwarding and rotation checks.
 // Returned locators and geometry closures keep both phases inside one Playwright test lifecycle.
 
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import type { TerminalTestStack } from "./stack.ts";
 import { expect } from "./fixtures.ts";
@@ -78,6 +80,17 @@ export async function prepareMobileKeyboardControls(
   stack: TerminalTestStack,
 ): Promise<MobileKeyboardProbeContext> {
   const fixtureWorker = await stack.startPtyFixtureWorker();
+  const fixtureFileLink = "s/mobile-link.ts:9";
+  const fixtureFileMarker = "mobile keyboard fixture link";
+  await mkdir(join(fixtureWorker.home, "s"), { recursive: true });
+  await writeFile(
+    join(fixtureWorker.home, "s", "mobile-link.ts"),
+    Array.from(
+      { length: 9 },
+      (_, index) => index === 8 ? fixtureFileMarker : `fixture line ${index + 1}`,
+    ).join("\n"),
+    "utf8",
+  );
   const sessionId = await spawnPtyFixtureSession(mobileSmokePage, fixtureWorker);
   await navigateToSmokeSession(mobileSmokePage, sessionId);
   await mobileSmokePage.evaluate(({ id, marker }) => {
@@ -194,6 +207,32 @@ export async function prepareMobileKeyboardControls(
   for (const [testId] of directKeys) await expect(mobileSmokePage.getByTestId(testId)).toBeVisible();
   await expect(mobileSmokePage.getByTestId("nav-ctrl")).toBeVisible();
   await expect(mobileSmokePage.getByTestId("nav-mouse")).toBeVisible();
+  const alt = mobileSmokePage.getByTestId("nav-alt");
+  await expect(alt).toBeVisible();
+  await expect(alt).toHaveAccessibleName(/Alt.*link|link.*Alt/i);
+  await expect(alt).toHaveAttribute("aria-pressed", "false");
+  await inputSmokeTerminal(
+    mobileSmokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "EMIT", text: fixtureFileLink }),
+  );
+  const fileLink = terminalSlot
+    .locator('a.wterm-link[data-kind="file"]')
+    .filter({ hasText: fixtureFileLink });
+  await expect(fileLink).toBeVisible();
+  await fileLink.scrollIntoViewIfNeeded();
+  await alt.tap();
+  await expect(alt).toHaveAttribute("aria-pressed", "true");
+  await fileLink.tap();
+  await expect(mobileSmokePage).toHaveURL(/\/file\/.+#L9$/);
+  await expect(mobileSmokePage.getByTestId("file-viewer-sheet")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("file-viewer-sheet-line-9")).toContainText(fixtureFileMarker);
+  await mobileSmokePage.goBack({ waitUntil: "domcontentloaded" });
+  // File preview hides the retained terminal, so eligibility loss resets this
+  // local arm; the DOM suite separately proves link taps do not consume it.
+  await expect(terminalSlot).toBeVisible();
+  await expect(panel).toBeVisible();
+  await expect(alt).toHaveAttribute("aria-pressed", "false");
 
   // The key sheet is portaled outside the pane, but its accepted navigation
   // bytes still belong to this renderer. Passive fixture output stays pending
@@ -284,6 +323,13 @@ export async function prepareMobileKeyboardControls(
   expect(ctrlInputCapture.batches.every((inputBatch) => inputBatch.sessionId === sessionId)).toBe(true);
   expect(ctrlInputCapture.batches.flatMap((inputBatch) => inputBatch.data).at(-1)).toBe(0x03);
   await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "false");
+  await alt.tap();
+  await expect(alt).toHaveAttribute("aria-pressed", "true");
+  await toggle.tap();
+  await expect(panel).toHaveCount(0);
+  await toggle.tap();
+  await expect(panel).toBeVisible();
+  await expect(alt).toHaveAttribute("aria-pressed", "false");
 
   return {
     mobileSmokePage,

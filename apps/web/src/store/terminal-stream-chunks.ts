@@ -21,16 +21,19 @@ export function pushTerminalCellChunk(
   chunk: PbCellGridChunk,
   onComplete: (frame: PbCellGridFrame) => void,
   onInvalid: (reason: string) => void,
+  onProgress: (chunk: PbCellGridChunk) => void,
 ): void {
   try {
     const result = session.assembler.push(chunk);
     clearTimeout(session.chunkTimer ?? undefined);
     session.chunkTimer = null;
-    notifyTerminalBaselineProgress(session);
     if (result.kind === "complete") {
+      notifyTerminalBaselineProgress(session);
       onComplete(result.frame);
       return;
     }
+    onProgress(chunk);
+    notifyTerminalBaselineProgress(session);
     session.chunkTimer = setTimeout(() => {
       session.chunkTimer = null;
       if (session.assembler.expire()) {

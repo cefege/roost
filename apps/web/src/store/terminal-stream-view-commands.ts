@@ -317,6 +317,7 @@ function armViewAckDeadline(
       clearViewAck(view);
       return;
     }
+    const canonical = view.session.canonical;
     signal("cell.foreground_stall", {
       sid: view.session.sessionId,
       stream_id: view.session.expectedStreamId,
@@ -324,6 +325,16 @@ function armViewAckDeadline(
       action: "resync",
       age_ms: Math.max(0, performance.now() - startedAt),
       cooldownKey: view.session.sessionId,
+      expected_stream_id: view.session.expectedStreamId,
+      checkpoint_stream_id: canonical?.streamId ?? null,
+      checkpoint_seq: canonical?.seq ?? null,
+      baseline_ready: view.session.baselineReady,
+      resync_latched: view.session.resyncLatched,
+      repair_attempts: view.session.repairAttempts,
+      socket_generation: owner.socketGeneration,
+      socket_id: owner.socketId,
+      process_epoch: owner.processEpoch,
+      domain_generation: owner.domainGeneration.toString(),
     });
     const reassert = (): void => {
       const desired = view.desired;

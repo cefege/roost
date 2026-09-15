@@ -27,7 +27,7 @@ import {
   type TerminalWorkerStartConfig,
 } from "./stack-worker-runtime.ts";
 import type { DelayedWorkerLink } from "./delayed-worker-link.ts";
-import { startFixtureWorker, type PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
+import { createFixtureWorkerStarter, type PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
 export type { PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
 const WORKER_LABEL = "roost-terminal-test";
 const SECOND_WORKER_LABEL = "roost-terminal-test-second";
@@ -160,12 +160,8 @@ export async function startTerminalTestStack(
   let secondWorkerStart: Promise<TerminalTestWorker> | undefined;
   let ptyFixtureWorker: RunningService | undefined;
   let ptyFixtureWorkerLink: DelayedWorkerLink | undefined;
-  let ptyFixtureWorkerStart: Promise<TerminalTestWorker> | undefined;
-  let ptyFixtureWorkerDelay: 0 | 25 | undefined;
   let secondPtyFixtureWorker: RunningService | undefined;
   let secondPtyFixtureWorkerLink: DelayedWorkerLink | undefined;
-  let secondPtyFixtureWorkerStart: Promise<TerminalTestWorker> | undefined;
-  let secondPtyFixtureWorkerDelay: 0 | 25 | undefined;
   let client: AuthorizedApiClient | undefined;
 
   const stop = async () => {
@@ -261,7 +257,7 @@ export async function startTerminalTestStack(
       compileFixture: compilePtyFixture,
       sourceRoot: workerRelease.sourceRoot,
       fixtureExecutable: ptyFixtureExecutable,
-      client,
+      client: client!,
     };
 
     const bootstrapToken = (await client.authMintBootstrap({ kind: "worker", label: WORKER_LABEL })).token;
@@ -302,62 +298,30 @@ export async function startTerminalTestStack(
       })();
       return secondWorkerStart;
     };
-    const startPtyFixtureWorker = (
-      options: PtyFixtureWorkerStartOptions = {},
-    ): Promise<TerminalTestWorker> => {
-      const oneWayDelayMs = options.workerLinkOneWayDelayMs;
-      if (ptyFixtureWorkerStart) {
-        if (ptyFixtureWorkerDelay !== oneWayDelayMs) {
-          return Promise.reject(new Error("PTY fixture worker link delay cannot change after startup"));
-        }
-        return ptyFixtureWorkerStart;
-      }
-      ptyFixtureWorkerDelay = oneWayDelayMs;
-      ptyFixtureWorkerStart = (async () => {
-        return startFixtureWorker({
-          ...fixtureLaunch,
-          paths: {
-            label: PTY_FIXTURE_WORKER_LABEL,
-            home: ptyFixtureHome,
-            logPath: ptyFixtureLogPath,
-            dataDir: ptyFixtureDataDir,
-            tmpDir: childTmpDirs.ptyFixtureWorker,
-          },
-          oneWayDelayMs,
-          onWorkerStarted: (service) => { ptyFixtureWorker = service; },
-          onLinkStarted: (link) => { ptyFixtureWorkerLink = link; },
-        });
-      })();
-      return ptyFixtureWorkerStart;
-    };
-    const startSecondPtyFixtureWorker = (
-      options: PtyFixtureWorkerStartOptions = {},
-    ): Promise<TerminalTestWorker> => {
-      const oneWayDelayMs = options.workerLinkOneWayDelayMs;
-      if (secondPtyFixtureWorkerStart) {
-        if (secondPtyFixtureWorkerDelay !== oneWayDelayMs) {
-          return Promise.reject(new Error("second PTY fixture worker link delay cannot change after startup"));
-        }
-        return secondPtyFixtureWorkerStart;
-      }
-      secondPtyFixtureWorkerDelay = oneWayDelayMs;
-      secondPtyFixtureWorkerStart = (async () => {
-        return startFixtureWorker({
-          ...fixtureLaunch,
-          paths: {
-            label: SECOND_PTY_FIXTURE_WORKER_LABEL,
-            home: secondPtyFixtureHome,
-            logPath: secondPtyFixtureLogPath,
-            dataDir: secondPtyFixtureDataDir,
-            tmpDir: childTmpDirs.secondPtyFixtureWorker,
-          },
-          oneWayDelayMs,
-          onWorkerStarted: (service) => { secondPtyFixtureWorker = service; },
-          onLinkStarted: (link) => { secondPtyFixtureWorkerLink = link; },
-        });
-      })();
-      return secondPtyFixtureWorkerStart;
-    };
+    const startPtyFixtureWorker = createFixtureWorkerStarter({
+      ...fixtureLaunch,
+      paths: {
+        label: PTY_FIXTURE_WORKER_LABEL,
+        home: ptyFixtureHome,
+        logPath: ptyFixtureLogPath,
+        dataDir: ptyFixtureDataDir,
+        tmpDir: childTmpDirs.ptyFixtureWorker,
+      },
+      onWorkerStarted: (service) => { ptyFixtureWorker = service; },
+      onLinkStarted: (link) => { ptyFixtureWorkerLink = link; },
+    });
+    const startSecondPtyFixtureWorker = createFixtureWorkerStarter({
+      ...fixtureLaunch,
+      paths: {
+        label: SECOND_PTY_FIXTURE_WORKER_LABEL,
+        home: secondPtyFixtureHome,
+        logPath: secondPtyFixtureLogPath,
+        dataDir: secondPtyFixtureDataDir,
+        tmpDir: childTmpDirs.secondPtyFixtureWorker,
+      },
+      onWorkerStarted: (service) => { secondPtyFixtureWorker = service; },
+      onLinkStarted: (link) => { secondPtyFixtureWorkerLink = link; },
+    });
 
     // Full primary-worker bounce, keeping coord and the persisted identity.
     // The keeper is deliberately left alone: it is designed to outlive the
@@ -396,3 +360,4 @@ export async function startTerminalTestStack(
     throw new Error(`${String(error)}\n${logs}`);
   }
 }
+

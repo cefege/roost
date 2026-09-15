@@ -16,6 +16,7 @@ import {
 import type { FsmChannel } from "../src/fsm.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionManager } from "../src/session-manager.ts";
+import { cancelCellEmission } from "../src/session-cell-scheduler.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
@@ -150,9 +151,8 @@ export async function flushLeadingCellEmit(): Promise<void> {
 
 export function cleanupStreamHarnesses(): void {
   for (const manager of managers.splice(0).reverse()) {
+    cancelCellEmission(manager, CHANNEL_ID);
     manager._disposeOutputState(CHANNEL_ID);
-    for (const timer of manager.cellEmitTimers.values()) if (timer !== null) clearTimeout(timer);
-    manager.cellEmitTimers.clear();
     manager.sessions.clear();
     manager.dispose();
   }

@@ -20,7 +20,7 @@ import {
 afterEach(cleanupStreamHarnesses);
 
 describe("worker terminal stream baseline and sequence contract", () => {
-  test("withholds every delta until the complete baseline sends, then emits the exact successor", async () => {
+  test("commits while a blocked full later admits its exact successor delta", async () => {
     trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
     const core = await createWtermCore(TEST_COLS, TEST_ROWS);
     core.writeString("BASELINE");
@@ -47,6 +47,15 @@ describe("worker terminal stream baseline and sequence contract", () => {
     expect(harness.manager.terminalStreams.get(CHANNEL_ID)).toMatchObject({
       streamId: STREAM_A,
       baselineReady: false,
+      coreValid: true,
+    });
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      status: "committed",
+      streamId: STREAM_A,
+      resized: false,
+      cols: TEST_COLS,
+      rows: TEST_ROWS,
     });
 
     core.writeString("\x1b[2;1HEXACT-DELTA");
@@ -56,15 +65,6 @@ describe("worker terminal stream baseline and sequence contract", () => {
     writable = true;
     harness.manager.resumeTerminalSnapshots();
     await flushLeadingCellEmit();
-    const result = await resultPromise;
-
-    expect(result).toMatchObject({
-      status: "committed",
-      streamId: STREAM_A,
-      resized: false,
-      cols: TEST_COLS,
-      rows: TEST_ROWS,
-    });
     expect(harness.frameAttempts.map((frame) => frame.full)).toEqual([
       true,
       true,

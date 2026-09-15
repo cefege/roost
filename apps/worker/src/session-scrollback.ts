@@ -9,6 +9,7 @@ import { answerQueries, QUERY_CARRY_MAX } from "./terminal-query-reply.ts";
 import { diag, isDiagEnabled } from "@roost/shared/diag";
 import { supportedHostPlatform } from "@roost/shared/platform";
 import * as byteCapture from "./diag/byte-capture.ts";
+import { noteRetainedRawChunk } from "./diag/terminal-capture.ts";
 import { _scanAgentOsc, _scanAltModeTransitions, _scanOsc7 } from "./terminal-stream-scan.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { _sha8, MODE_CARRY_MAX } from "./session-constants.ts";
@@ -74,8 +75,13 @@ function retainRaw(rec: SessionRecord, channelId: number, chunk: Buffer): Uint8A
 	// Diag: per-chunk byte capture into a fixed-capacity 256 KB SbRing, so the
 	// push is O(chunk). Deliberately always-on rather than ROOST_DIAG-gated —
 	// an anomaly fires when diag was off, and the tail is only ever read by
-	// byteCapture.dump, which must not find an empty ring.
-	byteCapture.push(String(rec.sessionId), bytes, rec.head_seq);
+	// snapshotByteCapture, which must not find an empty ring.
+	const sid = String(rec.sessionId);
+	byteCapture.push(sid, bytes, rec.head_seq);
+	// Opt-in incident recording keeps the same bytes WITH their exact absolute
+	// offsets, which the ring alone cannot express once it has wrapped. The
+	// guard is one integer compare while nothing is armed.
+	noteRetainedRawChunk(sid, rec.head_seq, bytes);
 	// `diag` is a no-op function when the firehose is off, but its ARGUMENTS
 	// always evaluate — so _sha8 ran a real sha256 over every PTY chunk on the
 	// default production path. The guard is what makes it free.
@@ -184,11 +190,6 @@ function scanStreamState(
 		this._startPorts(rec);
 	}
 }
-
-// cell-phase-4: getScrollbackForViewer / getScrollbackSince retired — cell frames
-// are the sole output path. Scrollback backfill now goes through
-// getScrollbackCells (cell rows) via handleGetScrollbackCells.
-// serializeWTerm stays as a test utility in wterm-serialize.ts.
 
 /** Answer the capability probes a LIVE chunk carried, writing the replies BACK
  *  into the pty (stdin) as one batch. `answerQueries` owns the core write: it

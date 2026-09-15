@@ -23,7 +23,6 @@ import {
 	recoverAmbiguousResize,
 } from "./session-resize-capture.ts";
 
-const STREAM_APPLICATION_BUDGET_MS = 7_500;
 
 function failed(
 	state: TerminalStreamState,
@@ -63,17 +62,6 @@ function committed(
 	};
 }
 
-async function awaitBaselineInstallation(state: TerminalStreamState): Promise<boolean> {
-	if (state.baselineReady) return true;
-	const timeout = Promise.withResolvers<boolean>();
-	const timer = setTimeout(() => timeout.resolve(false), STREAM_APPLICATION_BUDGET_MS);
-	const installed = await Promise.race([
-		state.baselineInstalled,
-		timeout.promise,
-	]);
-	clearTimeout(timer);
-	return installed;
-}
 
 /** Apply one already-aggregated coordinator stream state. The terminal control
  * lane serializes calls; a newer state object supersedes this one's cell work
@@ -117,12 +105,11 @@ export async function applyTerminalStreamNow(
 	const currentRows = rec.wtermCore.getRows();
 	if (currentCols === state.cols && currentRows === state.rows) {
 		ticket.release();
-		if (mgr.terminalStreams.get(channelId) === state) mgr.installTerminalBaseline(rec.channelId);
-		if (!await awaitBaselineInstallation(state)) {
-			return failed(state, resizeSeqAtEntry, "core_failed", "full baseline was not installed before the stream deadline", "ambiguous");
-		}
-		if (!state.coreValid) {
-			return failed(state, resizeSeqAtEntry, "core_failed", "full baseline could not be encoded", "ambiguous");
+		if (mgr.terminalStreams.get(channelId) === state) {
+			mgr.installTerminalBaseline(rec.channelId);
+			if (!state.coreValid) {
+				return failed(state, resizeSeqAtEntry, "core_failed", "full baseline could not be encoded", "ambiguous");
+			}
 		}
 		return committed(state, resizeSeqAtEntry, false);
 	}
@@ -224,9 +211,6 @@ export async function applyTerminalStreamNow(
 	mgr.lastAppliedSize.set(channelId, { cols: state.cols, rows: state.rows });
 	if (mgr.terminalStreams.get(channelId) === state) {
 		mgr.installTerminalBaseline(rec.channelId);
-		if (!await awaitBaselineInstallation(state)) {
-			return failed(state, resizeSeq, "core_failed", "full baseline was not installed before the stream deadline", "ambiguous");
-		}
 		if (!state.coreValid) {
 			return failed(state, resizeSeq, "core_failed", "full baseline could not be encoded", "ambiguous");
 		}

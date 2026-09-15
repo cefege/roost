@@ -103,6 +103,8 @@ export function terminalSessionReplica(sessionId: string): TerminalSessionReplic
     lastAcceptedFrameGeneration: null,
     proofChallengeAtMs: null,
     proofChallengeGeneration: null,
+    proofChallengeStreamId: null,
+    proofChallengeSeq: null,
     resyncLatchedAtMs: null,
     resyncLatchGeneration: null,
     repairAttempts: 0,
@@ -140,6 +142,8 @@ function discardTerminalSessionState(session: TerminalSessionReplica): void {
   session.proofDeadlineTimer = null;
   session.proofChallengeAtMs = null;
   session.proofChallengeGeneration = null;
+  session.proofChallengeStreamId = null;
+  session.proofChallengeSeq = null;
   session.resyncLatchedAtMs = null;
   session.resyncLatchGeneration = null;
   session.repairOutcome = "pruned";

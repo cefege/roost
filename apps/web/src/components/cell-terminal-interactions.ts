@@ -26,6 +26,7 @@ import type { CellTerminalViewport } from "./cell-terminal-viewport.ts";
 
 interface CellTerminalInteractionSignals {
   mouseTracking: Accessor<MouseTracking>;
+  linkActivationArmed: Accessor<boolean>;
 }
 
 export interface CellTerminalInteractions {
@@ -63,6 +64,7 @@ export function mountCellTerminalInteractions(
     onOpenFile: navigate,
     githubOwnerRepo: () => props.session.git_remote ?? undefined,
     initialActive: foregroundWorkActive(),
+    linkActivationArmed: signals.linkActivationArmed,
     onArmedHoverChange: (active) => {
       presentation.notifyBackfill(runtime.renderer?.setArmedHold(active));
     },
@@ -131,6 +133,7 @@ export function mountCellTerminalInteractions(
   const mouseForwarding = attachTerminalMouseForwarding({
     display,
     mouseTracking: signals.mouseTracking,
+    linkActivationArmed: signals.linkActivationArmed,
     sendBytes: (bytes) =>
       sendUserTerminalInput(runtime.sessionId, bytes, runtime.view?.viewId),
     getRenderer: () => runtime.renderer,
@@ -160,6 +163,8 @@ export function mountCellTerminalInteractions(
       && pageVisible();
     if (!mayOwnFocus) {
       input.setCtrlArmed(false);
+      input.setLinkActivationArmed(false);
+      runtime.linkAttachment?.releaseInteraction();
       const controller = runtime.inputController;
       if (controller?.ownsTarget(display.ownerDocument.activeElement)) {
         controller.textarea.blur();

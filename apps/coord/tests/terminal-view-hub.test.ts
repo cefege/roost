@@ -74,7 +74,7 @@ describe("TerminalViewHub membership ownership", () => {
     expect(new Set(sent.map((state) => state.streamId)).size).toBe(4);
   });
 
-  test("parks membership across disconnect and transfers ownership only on exact replay", async () => {
+  test("parks membership across disconnect and reclaims for the same tab at a new geometry", async () => {
     const { hub, sent } = makeHarness();
     const first = register(hub);
     const original = viewCommand(VIEW_A, 7n, { cols: 91, rows: 37 });
@@ -85,11 +85,12 @@ describe("TerminalViewHub membership ownership", () => {
 
     hub.closeSocket("socket-a");
     expect(first.drops).toEqual([SESSION]);
-    expect(hub.snapshot(SESSION)).toMatchObject({ activeViews: 1, parkedViews: 1 });
+    // Membership outlives the socket; only the LIVE count drops.
+    expect(hub.snapshot(SESSION)).toMatchObject({ activeViews: 0, parkedViews: 1 });
 
     const resumed = register(hub, "socket-b", "viewer-a", "fingerprint-a");
-    hub.handleViewCommand("socket-b", viewCommand(VIEW_A, 7n, { cols: 92, rows: 37 }));
-    hub.handleViewCommand("socket-b", viewCommand(VIEW_A, 8n, { cols: 91, rows: 37 }));
+    hub.handleViewCommand("socket-b", viewCommand(VIEW_A, 6n, { cols: 91, rows: 37 }));
+    hub.handleViewCommand("socket-b", viewCommand(VIEW_A, 8n, { sessionId: OTHER_SESSION }));
     hub.handleViewCommand("socket-b", original);
     await settle();
 
@@ -98,10 +99,35 @@ describe("TerminalViewHub membership ownership", () => {
       TerminalViewStatus.REJECTED,
       TerminalViewStatus.ACCEPTED,
     ]);
+    expect(statesFor(resumed, VIEW_A).slice(0, 2).map((state) => state.reason)).toEqual([
+      "stale terminal view revision",
+      "a terminal view cannot change sessions",
+    ]);
     expect(statesFor(resumed, VIEW_A).at(-1)?.streamId).toBe(streamId);
     expect(resumed.begins).toEqual([[SESSION, streamId]]);
     expect(hub.snapshot(SESSION)).toMatchObject({ activeViews: 1, parkedViews: 0 });
+    // An identical replay is not a resize: no new stream toward the worker.
     expect(sent).toHaveLength(transitions);
+
+    // The tab rotated while its socket was down. Its own next revision carries
+    // the new geometry and must rejoin the aggregate now, not after the lease.
+    hub.closeSocket("socket-b");
+    const rotated = register(hub, "socket-c", "viewer-a", "fingerprint-a");
+    hub.handleViewCommand("socket-c", viewCommand(VIEW_A, 8n, { cols: 120, rows: 30 }));
+    await settle();
+    expect(statesFor(rotated, VIEW_A).at(-1)?.status).toBe(TerminalViewStatus.ACCEPTED);
+    expect(hub.snapshot(SESSION)?.effective).toEqual({ cols: 120, rows: 30 });
+    expect(sent.at(-1)).toMatchObject({ enabled: true, cols: 120, rows: 30 });
+
+    // A live owner still cannot be displaced, even by its own viewerKey.
+    const contender = register(hub, "socket-d", "viewer-a", "fingerprint-a");
+    hub.handleViewCommand("socket-d", viewCommand(VIEW_A, 9n, { cols: 100, rows: 30 }));
+    await settle();
+    expect(statesFor(contender, VIEW_A).at(-1)).toMatchObject({
+      status: TerminalViewStatus.REJECTED,
+      reason: "view is owned by another live socket",
+    });
+    expect(hub.snapshot(SESSION)?.effective).toEqual({ cols: 120, rows: 30 });
   });
 
   test("orders live and tombstoned revisions and rejects conflicts or session moves", async () => {

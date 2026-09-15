@@ -23,6 +23,10 @@ afterEach(() => {
 });
 
 describe("foreground terminal presentation stalls", () => {
+  test("uses a one-second foreground DOM stall deadline", () => {
+    expect(FOREGROUND_DOM_STALL_MS).toBe(1_000);
+  });
+
   test("fires at the oldest unreconciled watermark without resetting on newer frames", () => {
     vi.useFakeTimers();
     const [active] = createSignal(true);

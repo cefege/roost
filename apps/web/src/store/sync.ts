@@ -102,7 +102,8 @@ let syncAuthRejected: (() => void) | null = null;
 
 export type TerminalGenerationRecoveryReason =
   | "terminal-view-ack-timeout"
-  | "terminal-proof-timeout";
+  | "terminal-proof-timeout"
+  | "terminal-dom-reconcile-timeout";
 
 export function buildSyncWebSocketUrl(
   httpBase: string,

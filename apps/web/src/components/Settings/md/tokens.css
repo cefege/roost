@@ -280,6 +280,32 @@
   flex-shrink: 0;
 }
 
+.md-list > .machines-worker + .machines-worker {
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+.machines-worker-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-4);
+  padding: var(--md-space-4);
+  background: var(--md-sys-color-surface-container-low);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+.machines-worker-details__identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--md-space-2) var(--md-space-4);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+}
+.machines-worker-details__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--md-space-2);
+}
+
 /* ─── Metric tile (used by Machines + Metrics panes) ──────────── */
 .md-metric-grid {
   display: grid;

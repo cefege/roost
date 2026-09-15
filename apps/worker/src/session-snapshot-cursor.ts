@@ -20,16 +20,9 @@ import type { SessionManager } from "./session-manager.ts";
 import type { TerminalStreamState } from "./session-terminal-state.ts";
 import type { TerminalCellSendResult } from "./transport/coord-link-types.ts";
 
-function beginBaselineInstallation(state: TerminalStreamState): void {
-	const baseline = Promise.withResolvers<boolean>();
-	state.baselineInstalled = baseline.promise;
-	state.resolveBaselineInstalled = baseline.resolve;
-	state.baselinePromisePending = true;
-}
 
-/** Stop a pending immutable snapshot and settle the generation's baseline
- * waiters as a failed installation. Repeated retirement is harmless: the
- * resolver and the cursor ownership are both one-shot. */
+/** Stop a pending immutable snapshot. Repeated retirement is harmless because
+ * cursor ownership is one-shot. */
 export function retireSnapshotCursor(
 	mgr: SessionManager,
 	channelId: number,
@@ -41,10 +34,6 @@ export function retireSnapshotCursor(
 	if (current === state || state.snapshotCursor !== null || !state.baselineReady) {
 		state.snapshotCursor = null;
 		state.baselineReady = false;
-		if (state.baselinePromisePending) {
-			state.baselinePromisePending = false;
-			state.resolveBaselineInstalled(false);
-		}
 	}
 }
 
@@ -102,8 +91,6 @@ export function drainSnapshotCursor(
 		if (cursor.nextPart < cursor.parts.length) continue;
 		state.snapshotCursor = null;
 		state.baselineReady = true;
-		state.baselinePromisePending = false;
-		state.resolveBaselineInstalled(true);
 		mgr.pendingCellRepairs.delete(channelId);
 		mgr.pendingSyncCellSnapshots.delete(channelId);
 		if (!mgr.syncOutputHolds.has(channelId)) mgr.cellGateSuppression.delete(channelId);
@@ -120,7 +107,6 @@ export function installSnapshotCursor(
 	pb: PbCellGridFrame,
 ): boolean {
 	if (state.snapshotCursor) retireSnapshotCursor(mgr, channelId, state);
-	if (!state.baselinePromisePending) beginBaselineInstallation(state);
 	state.baselineReady = false;
 	try {
 		assertCellGridSnapshot(pb);
@@ -145,7 +131,6 @@ export function installSnapshotCursor(
 		retireSnapshotCursor(mgr, channelId, state);
 		state.coreValid = false;
 		state.baselineReady = false;
-		state.resolveBaselineInstalled(false);
 		signal("terminal.invalid_frame", {
 			sid: String(mgr.sessions.get(channelId)?.sessionId ?? ""),
 			channel_id: channelId,

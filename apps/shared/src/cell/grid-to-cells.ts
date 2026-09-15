@@ -4,10 +4,9 @@
 // getters; rowToSpans remains the sole run-length encoder and copies all output.
 // It is the inverse of the renderer's paint.
 //
-// Indexing note (verified in wterm-serialize.ts): wterm-core stores
-// scrollback NEWEST-FIRST — offset 0 = line just above the viewport,
-// offset count-1 = oldest. We expose scrollback OLDEST-FIRST so the client
-// paints top→bottom and splices appends.
+// Indexing note: wterm-core stores scrollback NEWEST-FIRST — offset 0 = line
+// just above the viewport, offset count-1 = oldest. We expose scrollback
+// OLDEST-FIRST so the client paints top→bottom and splices appends.
 //
 // The exposed index is MONOTONIC, not "N-th oldest retained". The ring is
 // bounded (10k lines), so once it saturates getScrollbackCount() pins and the

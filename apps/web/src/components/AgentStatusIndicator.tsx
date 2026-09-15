@@ -32,6 +32,7 @@ export function AgentStatusIndicator(props: {
             data-testid={`agent-status-${props.sessionId}`}
             data-level={level()}
             title={agentStatusTooltip(current(), seenAgentRevision(current()))}
+            role="img"
             aria-label={presentation().label}
           >
             <StatusDot status={presentation().dotStatus} />

@@ -196,24 +196,6 @@ message SessionsAssignWorkspaceRequest {
 }
 message SessionsAssignWorkspaceResponse { bool ok = 1; }
 
-message SessionsGetScrollbackSinceRequest {
-  string session_id = 1;
-  uint64 last_seq = 2;
-  // SPA's current wterm dims at mount. When set, worker resizes its
-  // headless wterm-core to (cols, rows) BEFORE serializing so the
-  // snapshot reflows to match the SPA — fixes "lines wrap short and
-  // stack downward" after a refresh at a different window size.
-  // last_seq=0 callers MUST send these; later seq callers may omit.
-  uint32 cols = 3;
-  uint32 rows = 4;
-}
-message SessionsGetScrollbackSinceResponse {
-  bytes data = 1;  // raw bytes (no base64)
-  uint64 start_seq = 2;
-  uint64 end_seq = 3;
-  bool gap = 4;
-}
-
 // Demand-driven cell history. Browser callers name the immutable grid epoch
 // from their authoritative viewport frame. An empty headless/API epoch binds
 // the request to the worker's current epoch, returned in the response.
@@ -860,7 +842,6 @@ service CoordinatorService {
   rpc SessionsPrompt(SessionsPromptRequest) returns (SessionsPromptResponse);
   rpc SessionsCursorPos(SessionsCursorPosRequest) returns (SessionsCursorPosResponse);
   rpc SessionsAssignWorkspace(SessionsAssignWorkspaceRequest) returns (SessionsAssignWorkspaceResponse);
-  rpc SessionsGetScrollbackSince(SessionsGetScrollbackSinceRequest) returns (SessionsGetScrollbackSinceResponse);
   rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
   rpc SessionsSearchScrollback(SessionsSearchScrollbackRequest) returns (SessionsSearchScrollbackResponse);
   rpc SessionsCancelScrollbackSearch(SessionsCancelScrollbackSearchRequest) returns (SessionsCancelScrollbackSearchResponse);
@@ -1106,9 +1087,37 @@ message DiagSnapshotRequest {
   // Optional batch filter; at most 64 nonempty unique IDs. Mutually exclusive
   // with session_filter_id.
   repeated string session_filter_ids = 3;
+  // Opt-in terminal incident capture. Present = this call is a capture
+  // control/collection request rather than an ordinary content-free dump;
+  // it then requires exactly one session_filter_ids entry equal to
+  // terminal_capture.session_id.
+  optional TerminalCaptureRequest terminal_capture = 4;
 }
 message DiagSnapshotResponse {
   string snapshot_json = 1;      // dump of coord + worker state
+}
+
+// Lifecycle verb for one opt-in terminal incident recording.
+enum TerminalCaptureAction {
+  TERMINAL_CAPTURE_ACTION_UNSPECIFIED = 0;
+  TERMINAL_CAPTURE_ACTION_START = 1;
+  TERMINAL_CAPTURE_ACTION_CAPTURE = 2;
+  TERMINAL_CAPTURE_ACTION_STOP = 3;
+}
+
+// One control/collection step of an opt-in terminal incident recording.
+// UNSPECIFIED is invalid whenever this message is present. START/STOP carry
+// no evidence; CAPTURE carries the browser's already-frozen bounded evidence.
+// `recording_id` is stable across lease renewals; `capture_id` makes one
+// CAPTURE idempotent so an RPC retry cannot write a second file.
+message TerminalCaptureRequest {
+  TerminalCaptureAction action = 1;
+  string session_id = 2;
+  string capture_id = 3;
+  string browser_evidence_json = 4;
+  // Closed literal set; see @roost/shared/terminal-capture.
+  string reason = 5;
+  string recording_id = 6;
 }
 
 enum AgentPromptInputOutcome {

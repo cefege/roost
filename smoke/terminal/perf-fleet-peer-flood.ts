@@ -3,6 +3,11 @@
 // perf-fleet-probes supplies topology while scale-browser owns browser dispatch.
 import type { PaintedMarkerProof } from "../../apps/web/src/lib/smokeHarness.ts";
 import type { RetainedMarkerScan } from "../../apps/web/src/lib/smokeTypes.ts";
+import {
+  attachFleetFailure,
+  captureFleetPresentation,
+  type FleetPresentationCapture,
+} from "./perf-fleet-diagnostics.ts";
 import { expect } from "./fixtures.ts";
 import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
@@ -25,6 +30,7 @@ type PreparedPeerFlood = {
   peer: FleetPeer;
   prefix: string;
   completionMarker: string;
+  beforeDispatch: FleetPresentationCapture;
 };
 
 type ActivePeerFlood = { completion: Promise<PeerFloodProof> };
@@ -217,24 +223,34 @@ async function dispatchPeerFlood(flood: PreparedPeerFlood): Promise<ActivePeerFl
     floodFrame + completionFrame,
   );
   const completion = (async (): Promise<PeerFloodProof> => {
-    const completed = await waitForPaintedScaleMarker(
-      flood.peer.document.page,
-      flood.peer.session.id,
-      flood.completionMarker,
-    );
-    const integrity = await verifyCompleteFleetFlood(
-      flood.peer,
-      flood.prefix,
-      PEER_FLOOD_LINES,
-      true,
-    );
-    return {
-      sessionId: flood.peer.session.id,
-      workerFp: flood.peer.session.worker.workerFp,
-      floodDispatchMonotonicMs,
-      completion: completed,
-      integrity,
-    };
+    try {
+      const completed = await waitForPaintedScaleMarker(
+        flood.peer.document.page,
+        flood.peer.session.id,
+        flood.completionMarker,
+      );
+      const integrity = await verifyCompleteFleetFlood(
+        flood.peer,
+        flood.prefix,
+        PEER_FLOOD_LINES,
+        true,
+      );
+      return {
+        sessionId: flood.peer.session.id,
+        workerFp: flood.peer.session.worker.workerFp,
+        floodDispatchMonotonicMs,
+        completion: completed,
+        integrity,
+      };
+    } catch (error) {
+      await attachFleetFailure(
+        flood.peer,
+        flood.completionMarker,
+        flood.beforeDispatch,
+        "fleet-peer-failure.json",
+      );
+      throw error;
+    }
   })();
   return { completion };
 }
@@ -247,11 +263,12 @@ export async function prepareFleetPeerFloods(options: {
   runId: string;
   sample: number;
 }): Promise<PreparedFleetPeerFloods> {
-  const peerFloods = peersFor(options.visible, options.target, options.workload).map((peer, index) => ({
+  const peerFloods = await Promise.all(peersFor(options.visible, options.target, options.workload).map(async (peer, index) => ({
     peer,
     prefix: `FLEET-KEY-${options.runId}-${options.sample}-${index}-`,
     completionMarker: `FLEET-KEY-COMPLETE-${options.runId}-${options.sample}-${index}`,
-  }));
+    beforeDispatch: await captureFleetPresentation(peer),
+  })));
   const producers = options.workload === "isolated"
     ? []
     : options.unmounted.filter((session) => options.workload === "together" || (options.workload === "same_worker"

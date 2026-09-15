@@ -22,7 +22,7 @@ import type {
   ReaderIntentReason,
   RendererEpochSeq,
 } from "./cellRendererPresentation.ts";
-export const FOREGROUND_DOM_STALL_MS = 10_000;
+export const FOREGROUND_DOM_STALL_MS = 1_000;
 export function preservesForegroundReaderHold(
   reason: ReaderIntentReason | null,
 ): boolean {

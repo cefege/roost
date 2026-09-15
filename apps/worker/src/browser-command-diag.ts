@@ -1,23 +1,10 @@
-// Browser-command handlers: diagnostics (diag-dump-bytecap /
-// diag-snapshot). Extracted from browser-command-handler.ts (CLAUDE.md 400-line cap).
+// Browser-command handler: the ordinary content-free diag snapshot.
+// Called by browser-command-handler.ts; answers upstream as rpc-ok / rpc-error.
+// Opt-in terminal incident capture is a separate command with its own handler
+// in browser-command-terminal-capture.ts.
 
-import type { ClientControlFrame } from "@roost/shared/wire";
 import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
-
-export function handleDiagDumpBytecap(
-	frame: Extract<ClientControlFrame, { kind: "diag-dump-bytecap" }>,
-	request_id: string,
-	deps: { coordLink: CoordLink },
-): void {
-	const { coordLink } = deps;
-	// diag — coord asks for an on-disk dump of this session's byte ring
-	void import("./diag/byte-capture.ts").then((bc) => {
-		const path = bc.dump(frame.session_id, frame.reason);
-		coordLink.send({ kind: "rpc-ok", request_id, data: { path } });
-	});
-	return;
-}
 
 export function handleDiagSnapshot(
 	request_id: string,

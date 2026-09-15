@@ -3,6 +3,8 @@
 // terminal-stream-liveness.ts supplies generation identity and timer retirement.
 // Replica and view-command owners call this module through their existing APIs.
 
+import type { CellGridFrame } from "@roost/shared/cell";
+import type { PbCellGridChunk } from "@roost/shared/proto/cell_pb";
 import { create } from "@bufbuild/protobuf";
 import { signal } from "@roost/shared/diag";
 import { TerminalResyncCommandSchema } from "@roost/shared/proto/sync_pb";
@@ -47,26 +49,37 @@ export function requestTerminalLivenessChallenge(
     || !view
     || !terminalGenerationMatches(owner, sync)
     || (!session.expectedStreamId && !reassert)
-  ) return false;
-  if (
-    session.proofDeadlineTimer !== null
-    && terminalGenerationMatches(session.proofChallengeGeneration, owner)
+    || hasPendingTerminalProofChallenge(session, owner)
   ) return false;
 
   const sent = session.expectedStreamId
     ? sendTerminalResyncCommand(session, view, sync)
     : false;
   if (!sent && !reassert) return false;
-  const challengedAt = performance.now();
-  beginTerminalScopedRepair(session, owner, challengedAt);
+  beginTerminalScopedRepair(session, owner, performance.now());
   signal("cell.foreground_stall", {
     sid: session.sessionId,
     stream_id: session.expectedStreamId,
     layer: "terminal_proof",
     action: "resync",
     cooldownKey: session.sessionId,
+    ...terminalProofSignalFields(session, owner),
   });
   return true;
+}
+
+export function requestTerminalDomReconcileRecovery(
+  session: TerminalSessionReplica,
+): boolean {
+  const sync = currentSyncV2TerminalState();
+  const owner = session.generation;
+  if (
+    !sync?.ready
+    || !owner
+    || !activeForegroundTerminalView(session)
+    || !terminalGenerationMatches(owner, sync)
+  ) return false;
+  return requestSyncGenerationRecovery(owner, "terminal-dom-reconcile-timeout");
 }
 
 export function armTerminalForegroundIdleProbe(
@@ -130,10 +143,7 @@ export function sendLatchedTerminalResync(session: TerminalSessionReplica): void
   session.resyncRetryAtMs = now;
   if (
     session.resyncLatchedAtMs !== null
-    && (
-      session.proofDeadlineTimer === null
-      || !terminalGenerationMatches(session.proofChallengeGeneration, owner)
-    )
+    && !hasPendingTerminalProofChallenge(session, owner)
   ) {
     beginTerminalScopedRepair(session, owner, performance.now());
   }
@@ -144,8 +154,12 @@ export function requestTerminalResync(
   reason: string,
   owner = session.generation,
   reportGap = true,
+  rearmChunkProofDeadline = false,
 ): void {
   if (!owner || !terminalGenerationMatches(session.generation, owner)) return;
+  const interruptedChunkTransfer = rearmChunkProofDeadline
+    || session.assembler.activeSnapshotId !== null;
+  const pendingChunkProof = hasPendingTerminalProofChallenge(session, owner);
   clearTerminalChunkTransfer(session);
   if (!session.resyncLatched) {
     session.resyncLatchedAtMs = performance.now();
@@ -161,6 +175,9 @@ export function requestTerminalResync(
     }
   }
   sendLatchedTerminalResync(session);
+  if (interruptedChunkTransfer && pendingChunkProof) {
+    rearmTerminalProofDeadline(session, owner);
+  }
 }
 
 export function repairStaleTerminalSubscriberOnHeartbeat(
@@ -193,16 +210,25 @@ export function repairStaleTerminalSubscriberOnHeartbeat(
   }
 }
 
-
 export function noteTerminalCellFrame(
   session: TerminalSessionReplica,
+  canonical: CellGridFrame,
   full: boolean,
   owner: TerminalGenerationToken,
 ): void {
   if (!terminalGenerationMatches(session.generation, owner)) return;
   session.lastAcceptedFrameAtMs = performance.now();
   session.lastAcceptedFrameGeneration = session.generation;
-  noteTerminalProgress(session, owner);
+  const sourceProof = terminalProofSourceMatches(
+    session,
+    owner,
+    canonical.streamId,
+    canonical.seq,
+  );
+  if (sourceProof) {
+    clearTerminalProofChallenge(session);
+    session.repairOutcome = "proved";
+  }
   if (full) {
     clearTerminalRepairLatch(session);
   } else if (session.resyncLatched) {
@@ -212,16 +238,15 @@ export function noteTerminalCellFrame(
   armTerminalForegroundIdleProbe(session);
 }
 
-function noteTerminalProgress(
+export function noteTerminalProofChunkProgress(
   session: TerminalSessionReplica,
+  chunk: PbCellGridChunk,
   owner: TerminalGenerationToken,
 ): void {
-  if (!terminalGenerationMatches(session.generation, owner)) return;
+  const part = chunk.part;
+  if (!part || !terminalProofSourceMatches(session, owner, part.streamId, part.seq)) return;
   clearTimeout(session.proofDeadlineTimer ?? undefined);
   session.proofDeadlineTimer = null;
-  session.proofChallengeAtMs = null;
-  session.proofChallengeGeneration = null;
-  session.repairOutcome = "proved";
 }
 
 function activeForegroundTerminalView(
@@ -256,9 +281,61 @@ function beginTerminalScopedRepair(
   owner: TerminalGenerationToken,
   challengedAt: number,
 ): void {
+  const canonical = session.canonical;
+  session.proofChallengeAtMs = challengedAt;
+  session.proofChallengeGeneration = owner;
+  session.proofChallengeStreamId = session.expectedStreamId;
+  session.proofChallengeSeq = canonical?.streamId === session.expectedStreamId
+    ? canonical.seq
+    : 0;
   session.repairAttempts++;
   session.repairOutcome = "requested";
   armTerminalProofDeadline(session, owner, challengedAt);
+}
+
+function rearmTerminalProofDeadline(
+  session: TerminalSessionReplica,
+  owner: TerminalGenerationToken,
+): void {
+  if (!hasPendingTerminalProofChallenge(session, owner)) return;
+  const challengedAt = performance.now();
+  session.proofChallengeAtMs = challengedAt;
+  session.repairAttempts++;
+  session.repairOutcome = "requested";
+  armTerminalProofDeadline(session, owner, challengedAt);
+}
+
+function hasPendingTerminalProofChallenge(
+  session: TerminalSessionReplica,
+  owner: TerminalGenerationToken,
+): boolean {
+  return session.proofChallengeAtMs !== null
+    && terminalGenerationMatches(session.proofChallengeGeneration, owner);
+}
+
+function terminalProofSourceMatches(
+  session: TerminalSessionReplica,
+  owner: TerminalGenerationToken,
+  streamId: string,
+  seq: number | bigint,
+): boolean {
+  const challengeSeq = session.proofChallengeSeq;
+  if (
+    challengeSeq === null
+    || !terminalGenerationMatches(session.generation, owner)
+    || session.proofChallengeStreamId !== streamId
+    || !hasPendingTerminalProofChallenge(session, owner)
+  ) return false;
+  return (typeof seq === "bigint" ? seq : BigInt(seq)) > BigInt(challengeSeq);
+}
+
+function clearTerminalProofChallenge(session: TerminalSessionReplica): void {
+  clearTimeout(session.proofDeadlineTimer ?? undefined);
+  session.proofDeadlineTimer = null;
+  session.proofChallengeAtMs = null;
+  session.proofChallengeGeneration = null;
+  session.proofChallengeStreamId = null;
+  session.proofChallengeSeq = null;
 }
 
 function armTerminalProofDeadline(
@@ -267,8 +344,6 @@ function armTerminalProofDeadline(
   challengedAt: number,
 ): void {
   clearTimeout(session.proofDeadlineTimer ?? undefined);
-  session.proofChallengeAtMs = challengedAt;
-  session.proofChallengeGeneration = owner;
   const dueAt = challengedAt + TERMINAL_FOREGROUND_PROBE_DEADLINE_MS;
   const timer = setTimeout(() => {
     if (session.proofDeadlineTimer !== timer) return;
@@ -277,7 +352,7 @@ function armTerminalProofDeadline(
     if (
       !activeForegroundTerminalView(session)
       || !terminalGenerationMatches(session.generation, owner)
-      || !terminalGenerationMatches(session.proofChallengeGeneration, owner)
+      || !hasPendingTerminalProofChallenge(session, owner)
       || !terminalGenerationMatches(owner, sync)
     ) {
       clearTerminalSessionLiveness(session, "inactive");
@@ -292,8 +367,30 @@ function armTerminalProofDeadline(
       action: "redial",
       age_ms: proofAgeMs,
       cooldownKey: session.sessionId,
+      ...terminalProofSignalFields(session, owner),
     });
     requestSyncGenerationRecovery(owner, "terminal-proof-timeout");
   }, Math.max(0, dueAt - performance.now()));
   session.proofDeadlineTimer = timer;
+}
+
+function terminalProofSignalFields(
+  session: TerminalSessionReplica,
+  owner: TerminalGenerationToken,
+) {
+  const canonical = session.canonical;
+  return {
+    expected_stream_id: session.expectedStreamId,
+    checkpoint_stream_id: canonical?.streamId ?? null,
+    checkpoint_seq: canonical?.seq ?? null,
+    challenge_stream_id: session.proofChallengeStreamId,
+    challenge_seq: session.proofChallengeSeq,
+    baseline_ready: session.baselineReady,
+    resync_latched: session.resyncLatched,
+    repair_attempts: session.repairAttempts,
+    socket_generation: owner.socketGeneration,
+    socket_id: owner.socketId,
+    process_epoch: owner.processEpoch,
+    domain_generation: owner.domainGeneration.toString(),
+  };
 }

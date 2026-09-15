@@ -122,15 +122,20 @@ authority. Renderer detach, tab switches and Sync reconnects therefore cannot
 discard the browser's current baseline.
 
 **Coordinator-owned membership and geometry.** `TerminalViewHub` is the only
-view registry and the only SCD calculator. For every session it independently
-takes the minimum active columns and rows. Explicit hide, authorization loss
-and durable session close remove a view immediately. A broken transport parks
-its views until their existing 15-second lease expires; five-second heartbeats
-and a one-second sweep let the normal one-second reconnect replace the parked
-socket without resizing the PTY. The first view, an effective-size change, the
-last-view disable, re-enable, worker replacement or unavailable-state retry
-mints a UUID stream ID. With no active views, the worker keeps the last PTY
-geometry and core but gates cell emission.
+view registry and the only SCD calculator, and membership is not geometry. For
+every session it independently takes the minimum columns and rows across the
+views that are actually looking. Explicit hide, authorization loss and durable
+session close remove a view immediately. A broken transport parks its views:
+the park keeps lease, membership and reclaim rights for fifteen seconds, but
+the parked dimensions stop binding the PTY after a two-second grace, so a dead
+viewer cannot hold the session at its size. Five-second heartbeats and a
+one-second sweep let the normal one-second reconnect replace the parked socket
+inside that grace without resizing. With every viewer parked the last
+effective geometry is held, not re-minted, so a flapping link cannot become a
+stream re-mint storm. The first view, an effective-size change, the last-view
+disable, re-enable, worker replacement or unavailable-state retry mints a UUID
+stream ID. With no active views, the worker keeps the last PTY geometry and
+core but gates cell emission.
 
 **Full before delta.** Every stream generation begins with one complete
 authoritative full. A delta is accepted only when its stream ID, grid epoch,
@@ -325,11 +330,13 @@ multiplexers use:
   the container centres them instead of stretching
   (`apps/web/src/lib/cellRenderer.ts`). The accepted tradeoff: plain shell
   history no longer rewraps to a narrower device, it scrolls sideways.
-- The agreed width is the **SCD** (smallest common denominator) across active
-  views, so no viewer is clipped. `TerminalViewHub` owns membership and computes
-  the column and row minima independently; the worker receives only that
-  aggregate stream geometry. Leases absorb reconnect wobble, and letterboxing
-  absorbs pixel differences without competing resize owners.
+- The agreed width is the **SCD** (smallest common denominator) across the
+  views that are actually looking, so no present viewer is clipped.
+  `TerminalViewHub` owns membership and `minimumTerminalGeometry`
+  (`@roost/shared/viewport`) is the one per-axis minimum; the worker receives
+  only that aggregate stream geometry. Leases absorb reconnect wobble while the
+  park grace bounds how long a dead viewer's dimensions keep binding, and
+  letterboxing absorbs pixel differences without competing resize owners.
 - **Alt-screen owns the viewport and carries no scrollback**, so in that mode
   there is nothing to corrupt. The frame states it (`CellGridFrame.altScreen`);
   the renderer hides the history sheet and locks scrolling while it is set, and

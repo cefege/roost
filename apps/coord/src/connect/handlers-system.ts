@@ -24,13 +24,13 @@ import { COORD_GIT_SHA } from "../git-sha.ts";
 import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
 import { getMetricsSnapshot } from "../telemetry.ts";
 import {
-  currentTerminalScreenHub,
-  terminalViewSnapshot,
-} from "./terminal-view-hub.ts";
-import { getCachedSessionWorker } from "../byte-hub.ts";
+  coordSessionDiagnostic,
+  type CoordSessionDiagnostic,
+} from "./diag-snapshot-session-state.ts";
 import { connectWorkers } from "./worker-registry.ts";
 import type { ConnectDeps } from "./router.ts";
 import { createScopedWorkerDiagnosticCollector } from "./diag-snapshot-worker-results.ts";
+import { createTerminalCaptureBridge } from "./terminal-capture.ts";
 
 // Coord process boot time — captured at module load (coord startup). Used
 // by miscHealth for uptime.
@@ -68,6 +68,28 @@ function normalizeDiagSnapshotSessionFilterIds(
   return normalizedSessionFilterIds;
 }
 
+/** A capture request addresses exactly ONE session, named twice: the RPC's own
+ *  resource scope and the capture command must agree, and the legacy scalar
+ *  filter cannot express that agreement. */
+function assertTerminalCaptureSessionFilter(
+  sessionFilterId: string,
+  sessionFilterIds: readonly string[],
+  captureSessionId: string,
+): void {
+  if (sessionFilterId !== "") {
+    throw new ConnectError(
+      "terminal capture requires session_filter_ids, not session_filter_id",
+      Code.InvalidArgument,
+    );
+  }
+  if (sessionFilterIds.length !== 1 || sessionFilterIds[0] !== captureSessionId) {
+    throw new ConnectError(
+      "terminal capture requires exactly one session_filter_ids entry matching terminal_capture.session_id",
+      Code.InvalidArgument,
+    );
+  }
+}
+
 
 type SystemMethods =
   | "miscHealth" | "miscDbExportUrl" | "miscMetrics"
@@ -77,6 +99,7 @@ export function makeSystemHandlers(
   deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, SystemMethods> {
   const collectScopedWorkerDiagnostics = createScopedWorkerDiagnosticCollector();
+  const captureBridge = createTerminalCaptureBridge(deps);
   return {
     // ─── misc ──────────────────────────────────────────────────────────
     async miscHealth(_req, _ctx) {
@@ -158,9 +181,26 @@ export function makeSystemHandlers(
     },
 
     // On-demand state dump. A session-filtered diagnosis narrows to selected
-    // sessions; an unfiltered dump covers the whole fleet.
+    // sessions; an unfiltered dump covers the whole fleet. A terminal_capture
+    // request is neither: it is one authenticated capture step on exactly one
+    // session, answered with the capture result and nothing else.
     async diagSnapshot(req, ctx) {
-      requireAccountDevice(ctx.values);
+      const caller = requireAccountDevice(ctx.values);
+      const captureRequest = req.terminalCapture;
+      if (captureRequest !== undefined) {
+        assertTerminalCaptureSessionFilter(
+          req.sessionFilterId,
+          req.sessionFilterIds ?? [],
+          captureRequest.sessionId,
+        );
+        const terminalCapture = await captureBridge.handle(captureRequest, caller);
+        return create(DiagSnapshotResponseSchema, {
+          snapshotJson: JSON.stringify({
+            captured_at_ms: Date.now(),
+            terminal_capture: terminalCapture,
+          }),
+        });
+      }
       const requestedSessionFilterIds = req.sessionFilterIds ?? [];
       const sessionFilterIds = normalizeDiagSnapshotSessionFilterIds(
         req.sessionFilterId,
@@ -215,69 +255,12 @@ export function makeSystemHandlers(
         }
       }
 
-      type CoordSessionDiagnostic = {
-        route: {
-          worker_fp: string;
-          channel_id: number;
-          connected: boolean;
-          source: "live_cache" | "database";
-        } | null;
-        terminal_view: {
-          activeViews: number;
-          parkedViews: number;
-          streamId: string;
-          effective: { cols: number; rows: number } | null;
-          unavailable: boolean;
-        } | null;
-        terminal_screen: {
-          stream_id: string;
-          grid_epoch: string;
-          seq: string;
-          cols: number;
-          rows: number;
-          valid: boolean;
-        } | null;
-        viewers: Record<string, { cols: number; rows: number }>;
-      };
-      const terminalScreen = currentTerminalScreenHub();
       const sessions: Record<string, CoordSessionDiagnostic> = {};
       for (const row of scopedSessionRows) {
-        const cachedRoute = getCachedSessionWorker(row.id);
-        const state: CoordSessionDiagnostic = {
-          route: cachedRoute && allowedWorkerFps.has(cachedRoute.worker_fp)
-            ? {
-              worker_fp: cachedRoute.worker_fp,
-              channel_id: cachedRoute.channel,
-              connected: dispatchableWorkerFps.has(cachedRoute.worker_fp),
-              source: "live_cache",
-            }
-            : allowedWorkerFps.has(row.worker_fp)
-              ? {
-                worker_fp: row.worker_fp,
-                channel_id: row.channel,
-                connected: dispatchableWorkerFps.has(row.worker_fp),
-                source: "database",
-              }
-              : null,
-          terminal_view: terminalViewSnapshot(row.id),
-          terminal_screen: null,
-          // Viewer projection only has a process-wide snapshot API. Do not
-          // enumerate it for a per-session diagnostic; terminal_view carries
-          // the aggregate view state above.
-          viewers: {},
-        };
-        const screen = terminalScreen?.snapshot(row.id);
-        if (screen) {
-          state.terminal_screen = {
-            stream_id: screen.streamId,
-            grid_epoch: screen.gridEpoch,
-            seq: screen.seq.toString(),
-            cols: screen.cols,
-            rows: screen.rows,
-            valid: screen.valid,
-          };
-        }
-        sessions[row.id] = state;
+        sessions[row.id] = coordSessionDiagnostic(row, {
+          allowedWorkerFps,
+          dispatchableWorkerFps,
+        });
       }
 
       const workers = await collectScopedWorkerDiagnostics({

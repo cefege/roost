@@ -14,6 +14,8 @@ type SmokeTerminalRenderMethods = Pick<
   | "renderProbe"
   | "paintedScrollback"
   | "markerScan"
+  | "paintedScrollbackRange"
+  | "hasPaintedScrollbackRange"
   | "terminalDimensions"
 >;
 
@@ -76,6 +78,12 @@ export function createSmokeTerminalRenderMethods(): SmokeTerminalRenderMethods {
         tailGapPx: 0,
         readerAnchor: null,
       };
+    },
+    hasPaintedScrollbackRange(sessionId, start, end) {
+      return rendererRegistryEntry(sessionId)?.renderer.hasPaintedScrollbackRange(start, end) ?? false;
+    },
+    paintedScrollbackRange(sessionId, start, end) {
+      return rendererRegistryEntry(sessionId)?.renderer.paintedScrollbackRange(start, end) ?? null;
     },
     markerScan(sessionId, prefix) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);

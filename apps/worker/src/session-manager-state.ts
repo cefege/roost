@@ -4,7 +4,10 @@
 
 import type { TerminalControlLane, KeeperAdmissionLane } from "./session-control-lanes.ts";
 import type { TerminalStreamState } from "./session-terminal-state.ts";
-import type { CellGateSuppression } from "./session-emit.ts";
+import type {
+	CellEmissionSchedule,
+	CellGateSuppression,
+} from "./session-cell-scheduler.ts";
 import type { SyncOutputHold } from "./session-sync-output.ts";
 import type { TerminalMetadataState } from "./session-terminal-metadata.ts";
 import type {
@@ -74,7 +77,7 @@ export abstract class SessionManagerState {
 	terminalStreams = new Map<number, TerminalStreamState>();
 	protected terminalStreamVersion = 0;
 	lastAppliedSize = new Map<number, { cols: number; rows: number }>();
-	cellEmitTimers = new Map<number, NodeJS.Timeout | null>();
+	cellEmitSchedules = new Map<number, CellEmissionSchedule>();
 	cellDirty = new Set<number>();
 	rawMetadataQueues = new Map<number, PendingRawMetadataQueue>();
 	// Insertion order is the round-robin order; Set membership deduplicates it.

@@ -10,6 +10,10 @@
 // hash on the fp prefix only).
 
 import { For, Show, createMemo } from "solid-js";
+import {
+  isTerminalGeometry,
+  minimumTerminalGeometry,
+} from "@roost/shared/viewport";
 import { rootStore } from "../../store/root.ts";
 import { colorForFp } from "../../lib/fpColor.ts";
 
@@ -21,14 +25,6 @@ interface ViewersChipProps { sessionId: string }
 // glows so it's obvious at a glance which small window is constraining
 // everyone. See [[feedback_viewport_scd_min_policy]].
 interface ViewerEntry { fp: string; cols: number; rows: number }
-function bindingMins(entries: ViewerEntry[]): { cols: number; rows: number } {
-  let cols = Infinity, rows = Infinity;
-  for (const e of entries) {
-    if (e.cols > 0 && e.cols < cols) cols = e.cols;
-    if (e.rows > 0 && e.rows < rows) rows = e.rows;
-  }
-  return { cols, rows };
-}
 
 function displayName(entry: { fp: string; label?: string }): string {
   if (entry.label && entry.label.trim().length > 0) return entry.label;
@@ -39,12 +35,21 @@ function displayName(entry: { fp: string; label?: string }): string {
 
 export function ViewersChip(props: ViewersChipProps) {
   const entries = () => rootStore.session_viewers[props.sessionId] ?? [];
-  const mins = createMemo(() => bindingMins(entries() as ViewerEntry[]));
+  // minimumTerminalGeometry is THE minimum — the same function coord's
+  // TerminalViewHub sizes the PTY with. A second local min is how the halo and
+  // the PTY drift apart. It asserts its input, so entries that carry no live
+  // claim (a legacy fps-only presence frame projects 0×0) are dropped first.
+  const claims = createMemo(
+    () => (entries() as ViewerEntry[]).filter((e) => isTerminalGeometry(e)),
+  );
+  const mins = createMemo(() => minimumTerminalGeometry(claims()));
   // Only flag a controller when there's contention (≥2 viewers) — a sole
   // viewer trivially "controls" but there's nothing to disambiguate.
-  const isController = (e: ViewerEntry): boolean =>
-    entries().length > 1 && e.cols > 0 && e.rows > 0 &&
-    (e.cols === mins().cols || e.rows === mins().rows);
+  const isController = (e: ViewerEntry): boolean => {
+    const binding = mins();
+    return binding !== null && entries().length > 1 && isTerminalGeometry(e)
+      && (e.cols === binding.cols || e.rows === binding.rows);
+  };
   return (
     <Show when={entries().length > 0}>
       <span

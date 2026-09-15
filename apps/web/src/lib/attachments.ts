@@ -99,15 +99,16 @@ export async function uploadAttachment(
   return uploadAttachmentWithPref(session, file, getShortPathPref(), onProgress);
 }
 
-/** Upload one file with a live transfer card (hashing → dedup-probe → upload),
+/** Upload one file with a live transfer card (queued → hashing → dedup-probe → upload),
  *  then hand the resulting absolute path to `sink`. The sink is a parameter
  *  because the chat composer builds an attachment chip from it while the
  *  terminal writes it to the PTY — same upload, two destinations. The `File`
  *  rides along so a sink can read name/mime/size without re-probing disk. */
 export async function enqueueAttachmentTo(session: Session, file: File, sink: (absPath: string, file: File) => void): Promise<void> {
   const id = crypto.randomUUID();
-  addTransfer({ id, name: file.name, dir: "up", bytes_total: file.size, state: "hashing" });
+  addTransfer({ id, name: file.name, dir: "up", bytes_total: file.size, state: "queued" });
   const myTurn = attachmentQueue.then(async () => {
+    markTransferState(id, "hashing");
     const shortPath = getShortPathPref();
     try {
       // Content dedup: hash first, ask the worker if it already holds these exact

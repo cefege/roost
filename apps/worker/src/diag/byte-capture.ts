@@ -1,140 +1,80 @@
 // Per-session ring buffer of the last 256KB of PTY-output bytes.
-// `push(sid, chunk, end_seq)` runs on every chunk appended to a
-// session's scrollback (session-manager.ts::appendScrollback). On
-// anomaly (worker- or SPA-side detector), `dump(sid, reason)` writes
-// the current ring contents + a JSON header to
-// <workerLogDir()>/bytecap-<sid>-<ts>.bin and returns the
-// path. LRU caps dumps at 50 files / 500MB.
-//
-// The dump directory is 0700 and every dump 0600: the payload is raw PTY
-// output, so a default umask would otherwise publish secrets, tokens, and
-// agent prompts to every other local user on a shared worker host.
-//
-// Header format (single JSON line, terminated by \n):
-//   {"sid":"...","ts_ms":1700000000000,"end_seq":12345,"ring_len":262144,"reason":"..."}
-// Bytes follow immediately after the newline.
+// `push(sid, chunk, end_seq)` runs on every chunk retained in a session's
+// scrollback (session-scrollback.ts::retainRaw). `snapshotByteCapture(sid)`
+// hands the incident bundle writer an OWNED copy of that tail plus its
+// absolute start/end offsets; `drop(sid)` frees the ring on session close.
 //
 // `push` is deliberately always-on and unconditional on ROOST_DIAG: an anomaly
-// fires precisely when diag was off, and a dump of an empty ring explains
+// fires precisely when diag was off, and a capture of an empty ring explains
 // nothing. It costs O(chunk) because the ring is a fixed-capacity SbRing.
 //
-// Owners: worker session-manager.ts (push), worker-anomaly.ts +
-// coord diag.snapshot RPC (dump).
+// This module owns NO file: directory security, naming and retention belong to
+// diag/capture-storage.ts, and the only thing that reads the tail is
+// diag/terminal-capture-worker-section.ts.
 
-import { chmodSync, mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
-import { diag } from "@roost/shared/diag";
-import { workerLogDir } from "@roost/shared/paths";
-import { createSbRing, appendToRing, readRing, ringLength, type SbRing } from "../session-scrollback-ring.ts";
+import type { TerminalWorkerByteCaptureTail } from "@roost/shared/terminal-capture";
+import {
+	createSbRing,
+	appendToRing,
+	readRing,
+	type SbRing,
+} from "../session-scrollback-ring.ts";
 
 const RING_CAP_BYTES = 256 * 1024;
-const DUMP_DIR_MODE = 0o700;
-const DUMP_FILE_MODE = 0o600;
-const DUMP_LRU_MAX_FILES = 50;
-const DUMP_LRU_MAX_BYTES = 500 * 1024 * 1024;
 
 interface RingEntry {
-  ring: SbRing;
-  end_seq: number;
+	ring: SbRing;
+	end_seq: number;
 }
 
 const _rings = new Map<string, RingEntry>();
-let _ownerOnlyDumpDir: string | null = null;
-
-/** Create the dump directory owner-only, and tighten a directory that a
- *  looser umask (or an older worker) already created — `mkdirSync`'s mode is
- *  ignored on an existing path, so raw PTY bytes would land in a 0755 dir. */
-function ensureOwnerOnlyDumpDir(dir: string): void {
-  try {
-    mkdirSync(dir, { recursive: true, mode: DUMP_DIR_MODE });
-  } catch { /* directory exists or unwritable; readdir below will tell us */ }
-  if (_ownerOnlyDumpDir === dir || process.platform === "win32") return;
-  try {
-    const mode = statSync(dir).mode & 0o777;
-    if (mode !== DUMP_DIR_MODE) {
-      chmodSync(dir, DUMP_DIR_MODE);
-      diag("diag.byte_dump_dir_tightened", { dir, from_mode: mode.toString(8) });
-    }
-    _ownerOnlyDumpDir = dir;
-  } catch { /* not ours or gone; the write below reports the real failure */ }
-}
 
 /** Append `chunk` to the per-sid ring. Oldest bytes are overwritten in place
  *  once RING_CAP_BYTES is retained. O(chunk), one fixed allocation per sid. */
 export function push(sid: string, chunk: Uint8Array, endSeq: number): void {
-  let entry = _rings.get(sid);
-  if (!entry) {
-    entry = { ring: createSbRing(undefined, RING_CAP_BYTES), end_seq: 0 };
-    _rings.set(sid, entry);
-  }
-  appendToRing(entry.ring, chunk);
-  entry.end_seq = endSeq;
+	let entry = _rings.get(sid);
+	if (!entry) {
+		entry = { ring: createSbRing(undefined, RING_CAP_BYTES), end_seq: 0 };
+		_rings.set(sid, entry);
+	}
+	appendToRing(entry.ring, chunk);
+	entry.end_seq = endSeq;
 }
 
 /** Drop the ring for `sid`. Called on session close. */
 export function drop(sid: string): void {
-  _rings.delete(sid);
+	_rings.delete(sid);
 }
 
-/** Write the ring to a file. Returns absolute path on success, null on
- *  miss / IO error. Emits diag.byte_dump_written on success. */
-export function dump(sid: string, reason: string): string | null {
-  const entry = _rings.get(sid);
-  if (!entry || ringLength(entry.ring) === 0) {
-    diag("diag.byte_dump_written", { sid, reason, written: false, why: "no_ring" });
-    return null;
-  }
-  const dir = workerLogDir();
-  ensureOwnerOnlyDumpDir(dir);
-  // LRU sweep before write so we don't blow past the cap.
-  _enforceLruLimits(dir);
-  const tsMs = Date.now();
-  const sanitizedSid = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const path = join(dir, `bytecap-${sanitizedSid}-${tsMs}.bin`);
-  const bytes = readRing(entry.ring);
-  const header = JSON.stringify({
-    sid, ts_ms: tsMs, end_seq: entry.end_seq, ring_len: bytes.length, reason,
-  }) + "\n";
-  try {
-    const out = new Uint8Array(header.length + bytes.length);
-    out.set(new TextEncoder().encode(header), 0);
-    out.set(bytes, header.length);
-    writeFileSync(path, out, { mode: DUMP_FILE_MODE });
-    diag("diag.byte_dump_written", { sid, reason, written: true, path, byte_len: bytes.length, end_seq: entry.end_seq });
-    return path;
-  } catch (e) {
-    diag("diag.byte_dump_written", { sid, reason, written: false, why: "write_error", err: String(e) });
-    return null;
-  }
+/** The retained raw tail with its absolute bounds, or null when this session
+ *  has produced no output. The start offset is derived from the end offset the
+ *  ring last stamped minus what it still holds, so an evicted prefix reports an
+ *  honest window rather than claiming to start at zero.
+ *
+ *  The returned bytes are OWNED: `readRing` hands back a view onto the ring for
+ *  an unwrapped ring, and a bundle written after a later append would otherwise
+ *  carry whatever overwrote it. */
+export function snapshotByteCapture(sid: string): TerminalWorkerByteCaptureTail | null {
+	const entry = _rings.get(sid);
+	if (!entry) return null;
+	const retained = readRing(entry.ring);
+	if (retained.byteLength === 0) return null;
+	const owned = new Uint8Array(retained);
+	const endOffset = BigInt(Math.max(entry.end_seq, owned.byteLength));
+	return {
+		end_offset: endOffset.toString(),
+		start_offset: (endOffset - BigInt(owned.byteLength)).toString(),
+		byte_length: owned.byteLength,
+		base64: Buffer.from(owned).toString("base64"),
+	};
 }
 
-function _enforceLruLimits(dir: string): void {
-  let files: { path: string; mtimeMs: number; size: number }[];
-  try {
-    files = readdirSync(dir)
-      .filter((n) => n.startsWith("bytecap-") && n.endsWith(".bin"))
-      .map((n) => {
-        const p = join(dir, n);
-        const s = statSync(p);
-        return { path: p, mtimeMs: s.mtimeMs, size: s.size };
-      });
-  } catch { return; }
-  // Oldest first.
-  files.sort((a, b) => a.mtimeMs - b.mtimeMs);
-  let total = files.reduce((acc, f) => acc + f.size, 0);
-  while (files.length > 0 && (files.length >= DUMP_LRU_MAX_FILES || total >= DUMP_LRU_MAX_BYTES)) {
-    const victim = files.shift()!;
-    try { unlinkSync(victim.path); total -= victim.size; } catch { /* ignore */ }
-  }
-}
-
-/** Test-only: clear rings + reset state. */
+/** Test-only: clear every ring. */
 export function _resetForTest(): void {
-  _rings.clear();
-  _ownerOnlyDumpDir = null;
+	_rings.clear();
 }
 
 /** Test-only: inspect ring state. */
 export function _getRingForTest(sid: string): RingEntry | undefined {
-  return _rings.get(sid);
+	return _rings.get(sid);
 }

@@ -39,7 +39,11 @@ export interface SpawnShellRequest {
 }
 
 /** Pure request builder shared with tests. Geometry is an initial PTY hint;
- * mounted membership always arrives through TerminalViewCommand. */
+ * mounted membership always arrives through TerminalViewCommand. An explicit
+ * viewport wins; otherwise the mounted estimate is used, and when nothing is
+ * measurable cols/rows are OMITTED so the keeper applies its own default
+ * instead of a fabricated size. Whatever is sent is clamped to the shared
+ * core limits before it crosses the wire. */
 export function buildSpawnShellRequest(
   workerFp: WorkerFp,
   folder: string,

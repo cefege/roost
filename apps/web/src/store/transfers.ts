@@ -10,7 +10,7 @@
 import { createStore } from "solid-js/store";
 
 export type TransferDir = "up" | "down";
-export type TransferState = "hashing" | "active" | "ok" | "err" | "dedup";
+export type TransferState = "queued" | "hashing" | "active" | "ok" | "err" | "dedup";
 
 export interface Transfer {
   id: string;

@@ -4,25 +4,48 @@
 
 import { describe, expect, test, vi } from "bun:test";
 import {
+  TERMINAL_FOREGROUND_IDLE_PROBE_MS,
+  TERMINAL_FOREGROUND_PROBE_DEADLINE_MS,
+} from "@roost/shared/viewport";
+import {
+  CELL_GRID_CHUNK_STALL_MS,
   EPOCH_A,
   RecordingRenderer,
   SESSION_ID,
+  SNAPSHOT_A,
   STREAM_A,
   STREAM_B,
   acceptView,
   cellFrameToProto,
+  chunkCellGridFrame,
   delta,
-  full,
-  latestViewCommand,
   dispatchTerminalCellFrameFrom,
-  renderer,
+  full,
   generationRecoveries,
+  latestViewCommand,
+  renderer,
   resyncCommands,
   row,
   setPageVisible,
   terminalStream,
   updateSyncState,
 } from "./helpers/terminalStreamFixture.ts";
+
+function chunkedProofBaseline() {
+  const linkUri = `https://example.invalid/${"u".repeat(2_000)}`;
+  const rows = Array.from({ length: 256 }, (_, rowIndex) => ({
+    index: rowIndex,
+    spans: [85, 85, 86].map((columns) => ({
+      text: "x".repeat(columns), columns, fg: 256, bg: 256, flags: 0, linkKey: "proof-link", linkUri,
+    })),
+  }));
+  const chunks = chunkCellGridFrame(
+    cellFrameToProto(full(STREAM_A, rows, 2), SESSION_ID),
+    SNAPSHOT_A,
+  );
+  if (chunks.length < 2) throw new Error("proof fixture must split into chunks");
+  return chunks;
+}
 
 describe("per-session browser terminal replica", () => {
   test("requires a full baseline, admits only an exact delta, and latches one resync", () => {
@@ -216,133 +239,145 @@ describe("per-session browser terminal replica", () => {
     });
   });
 
-  test("ignores hidden and replaced-generation view ACK deadlines", () => {
-    const hidden = terminalStream.createTerminalView(SESSION_ID);
-    hidden.setViewport({ cols: 1, rows: 1 });
+  test("redials DOM reconciliation only for a ready current foreground view", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 1, rows: 1 });
     setPageVisible(false);
-    vi.advanceTimersByTime(15_000);
+    view.recoverUnreconciledDom();
     expect(generationRecoveries).toHaveLength(0);
-    hidden.dispose();
 
     setPageVisible(true);
-    const replaced = terminalStream.createTerminalView(SESSION_ID);
-    replaced.setViewport({ cols: 1, rows: 1 });
     updateSyncState({
-      socketGeneration: 1,
-      socketId: "socket-1",
-      processEpoch: "process-1",
-      domainGeneration: 12n,
-      ready: false,
-    });
-    vi.advanceTimersByTime(15_000);
-    expect(generationRecoveries).toHaveLength(0);
-    replaced.dispose();
-  });
-
-  test("challenges an idle baseline at its absolute deadline and accepts a full proof", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
-    view.setViewport({ cols: 1, rows: 1 });
-    const revision = latestViewCommand().value.revision as bigint;
-    acceptView(view.viewId, revision);
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
-
-    for (let elapsed = 5_000; elapsed < 20_000; elapsed += 5_000) {
-      vi.advanceTimersByTime(5_000);
-      acceptView(view.viewId, revision);
-    }
-    vi.advanceTimersByTime(4_999);
-    expect(resyncCommands()).toHaveLength(0);
-    vi.advanceTimersByTime(1);
-    expect(resyncCommands()).toHaveLength(1);
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(
-      full(STREAM_A, [row(0, "P")], 2),
-      SESSION_ID,
-    ));
-    vi.advanceTimersByTime(10_000);
-    expect(generationRecoveries).toHaveLength(0);
-    view.dispose();
-  });
-
-  test("keeps a scoped gap repair local when a later delta proves the lane", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
-    view.setViewport({ cols: 1, rows: 1 });
-    const revision = latestViewCommand().value.revision as bigint;
-    acceptView(view.viewId, revision);
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(
-      delta(3, "gap", STREAM_A, 2),
-      SESSION_ID,
-    ));
-    expect(resyncCommands()).toHaveLength(1);
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(
-      delta(2, "L", STREAM_A, 1),
-      SESSION_ID,
-    ));
-    vi.advanceTimersByTime(10_000);
-    expect(generationRecoveries).toHaveLength(0);
-    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
-      resync_latched: true,
-      challenge_age_ms: null,
-      seq: 2,
-    });
-    view.dispose();
-  });
-
-  test("rejects a stale same-socket domain frame as terminal proof", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
-    view.setViewport({ cols: 1, rows: 1 });
-    const revision = latestViewCommand().value.revision as bigint;
-    acceptView(view.viewId, revision);
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
-
-    updateSyncState({
-      socketGeneration: 1,
-      socketId: "socket-1",
-      processEpoch: "process-1",
-      domainGeneration: 12n,
-      ready: true,
-    });
-    acceptView(view.viewId, revision);
-    dispatchTerminalCellFrameFrom({
       socketGeneration: 1,
       socketId: "socket-1",
       processEpoch: "process-1",
       domainGeneration: 11n,
-    }, cellFrameToProto(full(STREAM_A, [row(0, "S")], 2), SESSION_ID));
+      ready: false,
+    });
+    view.recoverUnreconciledDom();
+    expect(generationRecoveries).toHaveLength(0);
+
+    updateSyncState({
+      socketGeneration: 1,
+      socketId: "socket-1",
+      processEpoch: "process-1",
+      domainGeneration: 11n,
+      ready: true,
+    });
+    view.recoverUnreconciledDom();
+    expect(generationRecoveries).toHaveLength(1);
+    expect(generationRecoveries.at(-1)?.reason).toBe("terminal-dom-reconcile-timeout");
+    view.dispose();
+  });
+
+  test("accepts only a newer same-stream canonical checkpoint as source proof", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 1, rows: 1 });
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
+
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_IDLE_PROBE_MS);
+    expect(resyncCommands()).toHaveLength(1);
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(delta(2, "P"), SESSION_ID));
 
     expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
-      baseline_ready: false,
-      last_terminal_proof_age_ms: null,
+      challenge_stream_id: null,
+      challenge_seq: null,
+      repair_outcome: "proved",
     });
-    view.dispose();
-  });
-
-  test("requests a missing initial full baseline at the first document renewal", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
-    view.setViewport({ cols: 1, rows: 1 });
-    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
-    expect(resyncCommands()).toHaveLength(0);
-    vi.advanceTimersByTime(5_000);
-    expect(resyncCommands()).toHaveLength(1);
-    view.dispose();
-  });
-
-  test("redials an unanswered scoped repair at its proof deadline", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
-    view.setViewport({ cols: 1, rows: 1 });
-    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
-
-    vi.advanceTimersByTime(5_000);
-    expect(resyncCommands()).toHaveLength(1);
-    vi.advanceTimersByTime(9_999);
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_PROBE_DEADLINE_MS);
     expect(generationRecoveries).toHaveLength(0);
-    vi.advanceTimersByTime(1);
-    expect(resyncCommands()).toHaveLength(1);
+    view.dispose();
+  });
+
+  test("rejects equal and stale same-stream checkpoints as source proof", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 1, rows: 1 });
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(STREAM_A, [row(0, "A")], 2), SESSION_ID));
+
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_IDLE_PROBE_MS);
+    vi.advanceTimersByTime(2_000);
+    const equalChunk = chunkCellGridFrame(
+      cellFrameToProto(full(STREAM_A, [row(0, "A")], 2), SESSION_ID),
+      SNAPSHOT_A,
+    )[0]!;
+    terminalStream.dispatchTerminalCellChunk(equalChunk);
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(
+      full(STREAM_A, [row(0, "S")], 1),
+      SESSION_ID,
+    ));
+    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
+      challenge_stream_id: STREAM_A,
+      challenge_seq: 2,
+    });
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_PROBE_DEADLINE_MS - 2_000);
     expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");
     view.dispose();
   });
 
-  test("deduplicates renewal redial across handles for one session", () => {
+  test("suspends source proof deadline while a newer chunked baseline progresses", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    const progress: number[] = [];
+    view.subscribeProgress((value) => {
+      if (value) progress.push(value.receivedChunks);
+    });
+    view.setViewport({ cols: 256, rows: 256 });
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 256, 256);
+    const baselineRows = Array.from(
+      { length: 256 },
+      (_, rowIndex) => row(rowIndex, "x".repeat(256)),
+    );
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(
+      full(STREAM_A, baselineRows, 1),
+      SESSION_ID,
+    ));
+
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_IDLE_PROBE_MS);
+    const chunks = chunkedProofBaseline();
+    terminalStream.dispatchTerminalCellChunk(chunks[0]!);
+    expect(progress).toEqual([1]);
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_PROBE_DEADLINE_MS);
+    expect(generationRecoveries).toHaveLength(0);
+    for (const chunk of chunks.slice(1)) terminalStream.dispatchTerminalCellChunk(chunk);
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_PROBE_DEADLINE_MS);
+    expect(generationRecoveries).toHaveLength(0);
+    view.dispose();
+  });
+
+  test("rearms a fresh proof deadline after a stalled chunk transfer", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 256, rows: 256 });
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 256, 256);
+    const baselineRows = Array.from(
+      { length: 256 },
+      (_, rowIndex) => row(rowIndex, "x".repeat(256)),
+    );
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(
+      full(STREAM_A, baselineRows, 1),
+      SESSION_ID,
+    ));
+
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_IDLE_PROBE_MS);
+    const chunks = chunkedProofBaseline();
+    let nowMs = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    try {
+      terminalStream.dispatchTerminalCellChunk(chunks[0]!);
+      nowMs += CELL_GRID_CHUNK_STALL_MS;
+      vi.advanceTimersByTime(CELL_GRID_CHUNK_STALL_MS);
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(resyncCommands()).toHaveLength(2);
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_PROBE_DEADLINE_MS - 1);
+    expect(generationRecoveries).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");
+    view.dispose();
+  });
+
+  test("coalesces same-generation repairs across concurrent view renewals", () => {
     const first = terminalStream.createTerminalView(SESSION_ID);
     first.setViewport({ cols: 1, rows: 1 });
     acceptView(first.viewId, latestViewCommand().value.revision as bigint);
@@ -350,28 +385,13 @@ describe("per-session browser terminal replica", () => {
     second.setViewport({ cols: 1, rows: 1 });
     acceptView(second.viewId, latestViewCommand().value.revision as bigint);
 
-    vi.advanceTimersByTime(5_000);
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_IDLE_PROBE_MS);
     expect(resyncCommands()).toHaveLength(1);
-    vi.advanceTimersByTime(10_000);
-    expect(resyncCommands()).toHaveLength(1);
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_PROBE_DEADLINE_MS - 1);
+    expect(generationRecoveries).toHaveLength(0);
+    vi.advanceTimersByTime(1);
     expect(generationRecoveries).toHaveLength(1);
     first.dispose();
     second.dispose();
-  });
-
-  test("stops scoped repair retries after accepting a full baseline", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
-    const sink = new RecordingRenderer();
-    view.subscribeRenderer(renderer(sink));
-    view.setViewport({ cols: 1, rows: 1 });
-    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
-
-    vi.advanceTimersByTime(5_000);
-    expect(resyncCommands()).toHaveLength(1);
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
-    expect(sink.fullFrames).toHaveLength(1);
-    vi.advanceTimersByTime(10_000);
-    expect(resyncCommands()).toHaveLength(1);
-    view.dispose();
   });
 });

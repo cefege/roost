@@ -5,6 +5,7 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
+import { cancelCellEmission } from "./session-cell-scheduler.ts";
 import type { SessionRecord } from "./session-record.ts";
 import type { SessionEventReservation } from "./event-sink.ts";
 import type { SessionId, ChannelId } from "@roost/shared/wire";
@@ -13,6 +14,10 @@ import { log } from "@roost/shared/log";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import * as byteCapture from "./diag/byte-capture.ts";
+import {
+	dropTerminalRecorder,
+	stopTerminalCaptureMaintenance,
+} from "./diag/terminal-capture.ts";
 import {
 	RECENTLY_CLOSED_TTL_MS,
 	STRAY_REAP_STRIKES,
@@ -236,6 +241,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 			rec.portsPollTimer = null;
 		}
 		byteCapture.drop(String(rec.sessionId));
+		dropTerminalRecorder(String(rec.sessionId));
 		this.onSessionClosed?.(String(rec.sessionId));
 	}
 	const stream = this.terminalStreams.get(channelId);
@@ -257,11 +263,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 	this.cellEmissionGates.delete(channelId);
 	getMultiplexedPool().forgetInputSequence(channelId);
 	this.hyperlinkSaturated.delete(channelId);
-	const cellTimer = this.cellEmitTimers.get(channelId);
-	if (cellTimer !== undefined && cellTimer !== null) {
-		clearTimeout(cellTimer);
-		this.cellEmitTimers.delete(channelId);
-	}
+	cancelCellEmission(this, channelId);
 	this._disposeOutputState(channelId);
 }
 
@@ -309,6 +311,7 @@ export function dispose(this: SessionManager): void {
 		clearInterval(this.strayReaperTimer);
 		this.strayReaperTimer = null;
 	}
+	stopTerminalCaptureMaintenance();
 	for (const record of [...this.sessions.values()]) {
 		this.releaseSessionEvent(record.closeReservation);
 		this._dropChannelState(record.channelId);

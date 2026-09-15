@@ -138,8 +138,9 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/session-manager-state.ts` (channel-keyed maps + event sink),
   `src/session-record.ts`, `src/session-constants.ts`, `src/session-spawn.ts`,
   `src/session-resume.ts`, `src/session-respawn.ts`, `src/session-lifecycle.ts`,
-  `src/session-emit.ts`, `src/session-resume-events.ts`,
-  `src/session-sync-output.ts`, `src/session-snapshot-cursor.ts`,
+  `src/session-emit.ts`, `src/session-cell-scheduler.ts`,
+  `src/session-resume-events.ts`, `src/session-sync-output.ts`,
+  `src/session-snapshot-cursor.ts`,
   `src/session-terminal-control.ts`, `src/session-terminal-state.ts`,
   `src/session-terminal-txn.ts`, `src/session-resize-capture.ts`,
   `src/session-diag-snapshot.ts`, `src/session-raw-metadata.ts`,
@@ -177,8 +178,24 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 - **Session metadata pushed to the SPA** — `src/git-branch.ts`, `src/pr-status.ts`, `src/listening-ports.ts`.
   **Files + attachments** — `src/file-rpcs.ts`, `src/attachment-upload.ts`, `src/attachment-reaper.ts` (1 h sweep,
   24 h TTL, 1 GB LRU). **Terminal byte analysis** — `src/terminal-stream-scan.ts` (alt-screen transitions),
-  `src/terminal-query-reply.ts`, `src/shell-spec.ts`, `src/wterm-serialize.ts` (test utility), and
-  `src/diag/byte-capture.ts` (last 256 KB of PTY output per session, for `diag-dump-bytecap`).
+  `src/terminal-query-reply.ts`, `src/shell-spec.ts`, and
+  `src/diag/byte-capture.ts` (last 256 KB of PTY output per session, exposed to
+  the incident bundle writer as `snapshotByteCapture`).
+- **Opt-in terminal incident capture** (`diag-terminal-capture`, dispatched by
+  `src/browser-command-terminal-capture.ts`) — `src/diag/terminal-capture.ts` is
+  the façade: START/STOP lease semantics plus the four guarded taps
+  `session-scrollback.ts` (raw bytes with exact absolute offsets),
+  `session-resize-capture.ts` (install + keeper-acknowledged boundary),
+  `session-emit.ts` (accepted emissions, the viewport-only fold and the bounded
+  fresh-core comparison) and `session-lifecycle.ts` (teardown) call. Bounded
+  state lives in `src/diag/terminal-capture-registry.ts`,
+  `-recorder.ts` and `-pools.ts`; freezing in `-worker-section.ts`; assembly in
+  `-write.ts` and `src/diag/terminal-capture-bundle-writer.ts`.
+  `src/diag/capture-storage.ts` is the ONE owner of capture-file directory
+  security (0700 dir, 0600 exclusive-create files named by capture UUID) and of
+  the COMBINED retention sweep over legacy `bytecap-*.bin` and
+  `terminal-incident-*.json.gz`. Unarmed sessions allocate nothing: every tap
+  settles on one integer compare.
 
 ## Invariants
 

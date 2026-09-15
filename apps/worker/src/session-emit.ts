@@ -22,15 +22,12 @@ import {
 	RECENTLY_CLOSED_TTL_MS,
 	KEEPER_DEGRADED_WINDOW_MS,
 	KEEPER_DEGRADED_THRESHOLD,
-	CELL_EMIT_COALESCE_MS,
-	SYNC_OUTPUT_MAX_MS,
 } from "./session-constants.ts";
-import { monoNowMs } from "./util/mono.ts";
+import { captureResizeOutput } from "./session-resize-capture.ts";
 import {
-	CELL_GATE_BUDGET_MS,
-	captureResizeOutput,
-	noteGateOverBudget,
-} from "./session-resize-capture.ts";
+	cancelCellEmission,
+	noteCellGateSuppression,
+} from "./session-cell-scheduler.ts";
 import { noteUnhandledSequences } from "./session-unhandled-seq.ts";
 import {
 	drainSnapshotCursor,
@@ -43,11 +40,11 @@ import {
 	observeTerminalMetadata,
 } from "./session-terminal-metadata.ts";
 import { releaseSyncOutputHold, syncOutputAction } from "./session-sync-output.ts";
+import {
+	noteAcceptedCellEmission,
+	noteRejectedCellEmission,
+} from "./diag/terminal-capture.ts";
 
-// Cell timer-map values use null for the armed-leading-edge microtask; a real
-// Timeout is the trailing coalesce, and absence means nothing is scheduled.
-// The explicit state avoids a fake Timeout sentinel and keeps timer ownership
-// distinct from the raw-metadata dispatcher's global wake.
 
 // phase-ssb7: emitScrollbackMark + DIR_SCROLLBACK_MARK deleted.
 // Splice ordering is now per-byte end_seq on each FROM_PTY frame
@@ -130,44 +127,6 @@ export function resumeTerminalSnapshots(this: SessionManager): void {
 	}
 }
 
-/** Which gate is withholding cell frames for a channel, since when (monotonic),
- *  and how many frames it has suppressed. A stalled emitter is then attributable
- *  from the diagnostic snapshot alone instead of by correlating logs. */
-export interface CellGateSuppression {
-	gate: "resize_capture" | "baseline" | "sync_output";
-	sinceMonoMs: number;
-	frames: number;
-	/** The gate outlived its own ceiling: a resize/repair gate past the keeper
-	 *  command budget (corruption), or a synchronized-output hold past its cap
-	 *  (the withheld frame shipped and the stuck generation is bypassed). */
-	overBudget: boolean;
-	/** The ceiling `overBudget` is measured against. Per gate, because the
-	 *  synchronized-output hold answers to its own cap, not the keeper's. */
-	budgetMs: number;
-}
-
-function noteCellGateSuppression(
-	mgr: SessionManager,
-	channelId: number,
-	gate: CellGateSuppression["gate"],
-): void {
-	const now = monoNowMs();
-	const budgetMs = gate === "sync_output" ? SYNC_OUTPUT_MAX_MS : CELL_GATE_BUDGET_MS;
-	let state = mgr.cellGateSuppression.get(channelId);
-	if (!state || state.gate !== gate) {
-		state = { gate, sinceMonoMs: now, frames: 0, overBudget: false, budgetMs };
-		mgr.cellGateSuppression.set(channelId, state);
-	}
-	state.frames++;
-	const ageMs = now - state.sinceMonoMs;
-	// Past the keeper's own per-command budget the gate is no longer explainable
-	// by one in-flight command; that is corruption, not latency. A
-	// synchronized-output hold trips on its armed timer instead — firing IS the
-	// expiry, so it never depends on a chunk arriving to re-read the clock.
-	if (gate === "sync_output" || state.overBudget || ageMs <= state.budgetMs) return;
-	state.overBudget = true;
-	noteGateOverBudget(mgr, channelId, ageMs);
-}
 /** Watch the core's fixed OSC 8 link table for the one transition that is
  *  otherwise invisible. At saturation the terminal keeps painting perfectly and
  *  every NEW distinct hyperlink silently degrades to plain text — no error, no
@@ -213,91 +172,6 @@ export function _hasEnabledStream(this: SessionManager, channelId: number): bool
 	return stream?.enabled === true && stream.coreValid;
 }
 
-/** Rate governor: leading-edge cell emit plus trailing coalesce. A single
- * input-sensitive return chunk may replace an armed trailing timer with the
- * existing leading microtask; the governor re-arms from that promoted echo. */
-export function _scheduleCellEmit(
-	this: SessionManager,
-	channelId: number,
-	promoteInputEcho = false,
-): void {
-	const stream = this.terminalStreams.get(channelId);
-	if (!stream?.enabled || !stream.coreValid) return;
-	if (!stream.baselineReady || stream.snapshotCursor) {
-		stream.baselineDirty = true;
-		this.cellDirty.add(channelId);
-		noteCellGateSuppression(this, channelId, "baseline");
-		return;
-	}
-	if (this.cellEmissionGates.has(channelId)) {
-		this.cellDirty.add(channelId);
-		noteCellGateSuppression(this, channelId, "resize_capture");
-		return;
-	}
-	if (this.pendingCellRepairs.delete(channelId)) {
-		this.installTerminalBaseline(asChannelId(channelId));
-		return;
-	}
-	switch (syncOutputAction(this, channelId)) {
-		case "hold": {
-			this.cellDirty.add(channelId);
-			noteCellGateSuppression(this, channelId, "sync_output");
-			// A trailing coalesce timer armed BEFORE the frame opened would
-			// otherwise keep firing straight through it, re-arming each time —
-			// suppression that leaks one frame per 16 ms is not suppression. The
-			// hold's own ceiling is the only timer allowed to produce a frame now.
-			const armed = this.cellEmitTimers.get(channelId);
-			if (armed !== undefined && armed !== null) {
-				clearTimeout(armed);
-				this.cellEmitTimers.delete(channelId);
-			}
-			return;
-		}
-		case "flush":
-			// The application closed the frame it opened, or a ceiling refused to
-			// stay dark any longer. Either way the browser gets the withheld state
-			// at that boundary, now, outside the coalesce governor — the next chunk
-			// starts a fresh leading edge. UNFORCED: suppression never touched
-			// rec.cell_emit, so the emitter's own reframe test still describes
-			// exactly the frame the browser is holding, and a delta both costs a
-			// fraction of a full-viewport read and carries the history that
-			// scrolled off mid-burst INLINE — a full frame carries no history at
-			// all, so those lines would come back as a separate backfill trip.
-			this.emitCellFrame(channelId, false);
-			return;
-		case "pass":
-			break;
-	}
-	const pending = this.cellEmitTimers.get(channelId);
-	if (pending !== undefined) {
-		this.cellDirty.add(channelId);
-		if (!promoteInputEcho || pending === null) return;
-		clearTimeout(pending);
-		this.cellEmitTimers.delete(channelId);
-	}
-
-	this.cellEmitTimers.set(channelId, null);
-	queueMicrotask(() => {
-		this.cellEmitTimers.delete(channelId);
-		if (!this.sessions.has(channelId)) return;
-		this.emitCellFrame(channelId, false);
-		if (this.pendingCellRepairs.has(channelId)) return;
-		const arm = (): void => {
-			const timer = setTimeout(() => {
-				this.cellEmitTimers.delete(channelId);
-				if (
-					!this.sessions.has(channelId) ||
-					this.pendingCellRepairs.has(channelId) ||
-					!this.cellDirty.has(channelId)
-				) return;
-				this.emitCellFrame(channelId, false);
-				if (!this.pendingCellRepairs.has(channelId)) arm();
-			}, CELL_EMIT_COALESCE_MS);
-			this.cellEmitTimers.set(channelId, timer);
-		};
-		arm();
-	});
-}
 
 export function installTerminalBaseline(this: SessionManager, channelId: number): void {
 	this.emitCellFrame(channelId, true);
@@ -336,11 +210,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		noteCellGateSuppression(this, channelId, "sync_output");
 		return;
 	}
-	const pending = this.cellEmitTimers.get(channelId);
-	if (pending !== undefined) {
-		if (pending !== null) clearTimeout(pending);
-		this.cellEmitTimers.delete(channelId);
-	}
+	cancelCellEmission(this, channelId);
 	if (fullOwed && rec.cell_emit.sentFull && rec.cell_emit.seq === 0) {
 		prepareCellRenewalEpoch(core, rec.cell_emit);
 	}
@@ -361,10 +231,14 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		core.clearDirty();
 		this.cellDirty.delete(channelId);
 		state.baselineDirty = false;
-		if (!installSnapshotCursor(this, channelId, state, pb)) return;
+		if (!installSnapshotCursor(this, channelId, state, pb)) {
+			noteRejectedCellEmission(rec, "baseline_invalidated");
+			return;
+		}
 	} else {
 		const result = this.sendCellGridUpstream?.(channelId, pb) ?? "dropped";
 		if (result === "dropped") {
+			noteRejectedCellEmission(rec, "baseline_invalidated");
 			this.pendingCellRepairs.add(channelId);
 			state.baselineReady = false;
 			this.installTerminalBaseline(asChannelId(channelId));
@@ -374,6 +248,9 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		core.clearDirty();
 		this.cellDirty.delete(channelId);
 	}
+	// Diagnostics observe the ACCEPTED frame only, and never advance cell_emit,
+	// the core's dirty rows or the manager's dirty set.
+	noteAcceptedCellEmission(rec, state, next.frame);
 	rec.lastPtyOutMs = 0;
 	if (isDiagEnabled()) {
 		diag("cell.emit", {

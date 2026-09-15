@@ -42,6 +42,28 @@ const ERROR_SIGNALS: Record<string, true> = {
   "scrollback.history_lost": true,
 };
 
+// Tier-1 kinds an operator deliberately caused by enabling terminal debugging.
+// They are recorded because consent and saved-file retention must be
+// auditable, not because anything is wrong; they are listed in the digest but
+// excluded from the exit code. `terminal.capture_failed`,
+// `terminal.history_conflict` and `terminal.emission_conflict` are NOT here —
+// those are the anomalies the feature exists to surface.
+const OPERATOR_SIGNALS: Record<string, true> = {
+  "terminal.capture_started": true,
+  "terminal.capture_saved": true,
+  "terminal.capture_stopped": true,
+  "terminal.capture_expired": true,
+};
+
+/** Signals in the digest that an operator caused on purpose. */
+function operatorSignalCount(d: Digest): number {
+  let count = 0;
+  for (const [kind, group] of d.signals) {
+    if (OPERATOR_SIGNALS[kind]) count += group.count;
+  }
+  return count;
+}
+
 interface LogLine {
   ts?: number;
   level?: string;
@@ -179,7 +201,14 @@ export function renderDigest(d: Digest, sinceLabel: string, cutoff: number, miss
   out.push(`  signals: ${totalSignals} (${d.signals.size} kinds)   infra: ${[...d.infra.values()].reduce((a, b) => a + b, 0)}   errors: ${d.errorLines}`);
   out.push(`  health:  run \`roost status\` (services / coord / public url / workers)`);
 
-  const exit = totalSignals > 0 || d.errorLines > 0 ? 1 : 0;
+  // A signal an OPERATOR deliberately caused is not an anomaly to review.
+  // Opt-in terminal debugging emits its lifecycle through the Tier-1 channel
+  // so the consent and the saved-file trail are auditable, but counting them
+  // here would make this gate exit non-zero every time the feature is used,
+  // and a health check that always fails tells nobody anything. The capture
+  // FAULT kinds are anomalies and still count.
+  const reviewableSignals = totalSignals - operatorSignalCount(d);
+  const exit = reviewableSignals > 0 || d.errorLines > 0 ? 1 : 0;
   out.push(`  exit:    ${exit} (${exit ? "review above" : "nothing to review"})`);
   return { text: out.join("\n"), exit };
 }

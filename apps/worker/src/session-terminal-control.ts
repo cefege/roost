@@ -11,6 +11,7 @@ import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { acquireKeeperAdmission, enqueueTerminalControl } from "./session-control-lanes.ts";
 import { applyTerminalStreamNow } from "./session-terminal-txn.ts";
 import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
+import { cancelCellEmission } from "./session-cell-scheduler.ts";
 import type {
 	TerminalStreamState,
 	WorkerTerminalStreamResult,
@@ -201,9 +202,13 @@ export function applyTerminalStreamState(
 		return current.operation
 			?? Promise.resolve(settledStateResult(current, this.channelResizeSeq.get(channelId) ?? 0));
 	}
-	if (current) retireSnapshotCursor(this, channelId, current);
+	if (current) {
+		cancelCellEmission(this, channelId);
+		this.cellDirty.delete(channelId);
+		current.baselineDirty = false;
+		retireSnapshotCursor(this, channelId, current);
+	}
 
-	const baseline = Promise.withResolvers<boolean>();
 	const next: TerminalStreamState = {
 		streamId: intent.streamId,
 		enabled: intent.enabled,
@@ -215,11 +220,7 @@ export function applyTerminalStreamState(
 		baselineDirty: false,
 		snapshotCursor: null,
 		resizeCapture: current?.resizeCapture ?? null,
-		baselineInstalled: baseline.promise,
-		baselinePromisePending: intent.enabled,
-		resolveBaselineInstalled: baseline.resolve,
 	};
-	if (!intent.enabled) baseline.resolve(true);
 	this.terminalStreams.set(channelId, next);
 	// Stream generations own sequence space, not grid identity. A reconnect or
 	// renewed viewer membership over the same core/geometry must keep the epoch
@@ -261,11 +262,7 @@ export function requestTerminalSnapshot(
 	const state = this.terminalStreams.get(rec.channelId);
 	if (!state || !state.enabled || !state.coreValid || state.streamId !== streamId) return;
 	retireSnapshotCursor(this, rec.channelId, state);
-	const baseline = Promise.withResolvers<boolean>();
 	state.baselineReady = false;
 	state.baselineDirty = false;
-	state.baselineInstalled = baseline.promise;
-	state.resolveBaselineInstalled = baseline.resolve;
-	state.baselinePromisePending = true;
 	this.installTerminalBaseline(rec.channelId);
 }

@@ -37,6 +37,8 @@ export interface TerminalMouseForwardingDeps {
 	/** Tracking mode off the newest accepted cell frame. A SIGNAL, not a plain
 	 *  read: the wheel/touchmove listener passivity is keyed on it. */
 	mouseTracking: Accessor<MouseTracking>;
+	/** Pane-local compact-sheet link modifier. */
+	linkActivationArmed: Accessor<boolean>;
 	/** Hand the encoded report to this session's input lane. */
 	sendBytes: (bytes: Uint8Array) => void;
 	getRenderer: () => CellGridRenderer | null;
@@ -68,6 +70,7 @@ export function attachTerminalMouseForwarding(
 	const {
 		display,
 		mouseTracking,
+		linkActivationArmed,
 		sendBytes,
 		getRenderer,
 		getMouseSgr,
@@ -166,7 +169,7 @@ export function attachTerminalMouseForwarding(
 		// anchor clicks continue below so mouse-aware TUIs retain their press.
 		const link = (ev.target as HTMLElement | null)
 			?.closest(`a.${TERMINAL_LINK_CLASS}`);
-		if (link && isTerminalLinkActivationGesture(ev)) return;
+		if (link && isTerminalLinkActivationGesture(ev, linkActivationArmed)) return;
 		// Middle button is reserved for the deck's bring-to-front toggle
 		// (TerminalDeck onDeckPointerDown) — never forwarded as a press.
 		if (ev.button === 1) return;

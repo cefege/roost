@@ -10,7 +10,12 @@ import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import { activateSlots } from "./terminal-scale-activation.ts";
 import type { TerminalTestStack } from "./stack.ts";
 import { waitForStableCellFrames } from "./terminal-helpers.ts";
+import type { TerminalGeometry } from "@roost/shared/viewport";
+import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
 import { coordinatorTerminalViewState, readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
+import {
+  coordinatorConstrainedGeometry, coordinatorTerminalViewerInputs,
+} from "./terminal-probe-viewer-inputs.ts";
 import {
   assertScale,
   closeScaleDocuments,
@@ -200,6 +205,30 @@ async function proveBlockedAndHiddenPages(slots: readonly ScaleSlot[], runId: st
   await waitForPaintedScaleMarker(hidden.document.page, hidden.session.id, hiddenMarker);
 }
 
+/** The crossed pair's own claims must PRODUCE the published size: one viewer
+ *  is strictly narrower, the other strictly shorter, and the effective size is
+ *  the minimum over exactly the inputs the coordinator says constrain the
+ *  session. "Both viewers agree and are positive" is satisfied by one viewer's
+ *  box clipping the other, which is the defect this condition is named after.
+ *  The minimum itself comes from the shared SCD primitive, never a copy. */
+function crossedMinimumHolds(
+  probe: TerminalStreamProbe,
+  effective: TerminalGeometry,
+): boolean {
+  const constraining = (coordinatorTerminalViewerInputs(probe) ?? [])
+    .filter((input) => input.constrains);
+  if (constraining.length !== 2) return false;
+  const first = constraining[0]!;
+  const second = constraining[1]!;
+  const crossedAxes = (first.cols < second.cols && first.rows > second.rows)
+    || (second.cols < first.cols && second.rows > first.rows);
+  const minimum = coordinatorConstrainedGeometry(probe);
+  return crossedAxes
+    && minimum !== null
+    && minimum.cols === effective.cols
+    && minimum.rows === effective.rows;
+}
+
 async function proveCrossedGeometryAndInput(slots: ScaleSlot[], sessions: readonly ScaleSession[], runId: string): Promise<void> {
   const wide = slots[0]!;
   const narrow = slots[1]!;
@@ -213,14 +242,15 @@ async function proveCrossedGeometryAndInput(slots: ScaleSlot[], sessions: readon
     ]);
     const leftControl = coordinatorTerminalViewState(left);
     const rightControl = coordinatorTerminalViewState(right);
+    if (!leftControl?.effective || rightControl?.activeViews !== 2) return false;
     return left.browser.view.active && right.browser.view.active
-      && leftControl?.activeViews === 2
-      && rightControl?.activeViews === 2
+      && leftControl.activeViews === 2
       && left.browser.view.stream_id === right.browser.view.stream_id
       && left.browser.view.effective_cols === right.browser.view.effective_cols
       && left.browser.view.effective_rows === right.browser.view.effective_rows
-      && (left.browser.view.effective_cols ?? 0) > 0
-      && (left.browser.view.effective_rows ?? 0) > 0;
+      && left.browser.view.effective_cols === leftControl.effective.cols
+      && left.browser.view.effective_rows === leftControl.effective.rows
+      && crossedMinimumHolds(left, leftControl.effective);
   });
   await activateSlots(slots.slice(0, 4), sessions, 0);
   for (const [index, slot] of slots.slice(0, 4).entries()) {

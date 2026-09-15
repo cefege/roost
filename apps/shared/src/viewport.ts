@@ -9,8 +9,13 @@ export const TERMINAL_MAX_ROWS = 256;
 export const TERMINAL_VIEW_LEASE_MS = 15_000;
 export const TERMINAL_VIEW_HEARTBEAT_MS = 5_000;
 export const TERMINAL_VIEW_SWEEP_MS = 1_000;
-export const TERMINAL_FOREGROUND_IDLE_PROBE_MS = 20_000;
-export const TERMINAL_FOREGROUND_PROBE_DEADLINE_MS = 10_000;
+/** How long a parked view keeps constraining effective geometry after its
+ * socket dropped. Much shorter than the lease because reclaim and geometry are
+ * different questions: the record stays claimable for TERMINAL_VIEW_LEASE_MS,
+ * but a viewer nobody is looking at stops shrinking everyone else's PTY. */
+export const TERMINAL_VIEW_PARK_GRACE_MS = 2_000;
+export const TERMINAL_FOREGROUND_IDLE_PROBE_MS = 5_000;
+export const TERMINAL_FOREGROUND_PROBE_DEADLINE_MS = 3_000;
 /** Hard product cap for distinct terminal sessions viewed from one socket. */
 export const TERMINAL_SOCKET_VIEW_CAP = 64;
 

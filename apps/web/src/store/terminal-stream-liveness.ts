@@ -72,6 +72,8 @@ export function clearTerminalSessionLiveness(
   session.lastAcceptedFrameGeneration = null;
   session.proofChallengeAtMs = null;
   session.proofChallengeGeneration = null;
+  session.proofChallengeStreamId = null;
+  session.proofChallengeSeq = null;
   session.repairAttempts = 0;
   session.repairOutcome = outcome;
   clearTerminalRepairLatch(session);

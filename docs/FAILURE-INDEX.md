@@ -135,9 +135,9 @@ mount state is not part of the continuity proof.
 
 **Symptom** — "after worker restart an alternate-screen session shows wallpaper of stale text + overlapping/parallel lines"
 
-**Wrong** — `resume()` rebuilds an empty wtermCore + records alternate-screen state, but the serializer reads
-`core.usingAltScreen()` (false on an empty core) → fresh snapshot omits `ESC[?1049h` → live alt redraws land in
-main-screen.
+**Wrong** — `resume()` rebuilds an empty wtermCore + records alternate-screen state, but the snapshot taken from
+that rebuilt core reads `core.usingAltScreen()` (false on an empty core) → the fresh snapshot reports
+main-screen → live alt redraws land in main-screen.
 
 **Right** — **prime the rebuilt core's alt state** in `resume()` (`apps/worker/src/session-resume.ts`) whenever
 the retained session state says it was using the alternate screen: `wtermCore.writeRaw(ALT_ENTER_SEQS[0])` after
@@ -199,9 +199,46 @@ new-stream baseline but never reconstructs ordinary live state. Worker-history
 replay is reserved for genuine process adoption when no in-memory core exists.
 
 **Guard** — `apps/coord/tests/terminal-view-hub.test.ts`;
+`apps/coord/tests/terminal-view-registry-membership.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
 `apps/shared/tests/wterm-resize-in-place.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
+
+### A session stays clipped to a viewer that is no longer looking
+
+**Symptom** — "terminal is stuck narrow / clipped / wrong size after another
+device disconnected, went to sleep or was backgrounded; the grid only grows
+back once the other tab reloads or ~15 seconds pass"
+
+**Wrong** — let one record set answer two different questions: who is still a
+member, and whose dimensions bind the PTY. `terminalViewGeometries` filtered
+nothing — parked and lease-expired-unswept records still shrank the session —
+while its sibling `broadcast()` filtered `parked`. Same records, two different
+membership predicates, and the permissive one decided the PTY size. The second
+mistake hid the first: a hand-rolled per-axis minimum sat next to the shared
+primitive, so grepping `minimumTerminalGeometry` made the policy look pinned
+while the decider used its own copy.
+
+**Right** — **ONE predicate decides geometry membership and ONE primitive
+computes the minimum.** `minimumTerminalGeometry` (`@roost/shared/viewport`) is
+the only per-axis aggregation anywhere. A parked view keeps its lease,
+membership and tombstone for reclaim, but stops constraining geometry once
+`TERMINAL_VIEW_PARK_GRACE_MS` lapses — reclaim and geometry are different
+questions. With zero live viewers the last effective geometry is HELD, never
+re-minted, so a flapping link cannot become a stream re-mint storm. The
+per-viewer inputs that produced the minimum are observable from outside the
+process: `DiagSnapshot`'s `coord.sessions[<id>].viewers[]` carries
+`{ fingerprint, viewId, cols, rows, parked, constrains }` — the smoke probe
+surfaces the same array as `terminal_control.viewer_inputs` — and `constrains`
+is true exactly for the records the live predicate admitted, so "who is
+pinning this session?" is answerable without attaching a debugger.
+
+**Guard** — `apps/coord/tests/terminal-view-registry-membership.test.ts`;
+`apps/coord/tests/diag-snapshot-session-viewers.test.ts`;
+`apps/coord/tests/worker-respawn-geometry.test.ts`;
+`apps/web/tests/cellTerminalViewport.parkGrace.test.ts`;
+`apps/web/tests/wtermSizeEstimate.dom.test.ts`;
+`smoke/terminal/terminal-multiview-geometry.spec.ts`.
 
 ### Attach/reveal cost proportional to scrollback depth
 
@@ -399,12 +436,16 @@ cells — each one leaves the canonical model ahead of the DOM with nothing that
   forwards attributed input and attaches a renderer. Detach never destroys the
   baseline; a reconnect replays desired views and resumes from a full snapshot.
 
-- (c) `TerminalViewHub` is the only membership/SCD owner. It independently
-  minimizes active columns and rows, parks disconnected sockets only until
-  their existing lease expires, and mints a UUID stream for every effective
-  geometry or worker-generation transition. Invalid or fail-closed worker
-  outcomes retain membership but publish unavailable until route
-  reconciliation can issue a fresh stream.
+- (c) `TerminalViewHub` is the only membership/SCD owner, and membership is not
+  geometry. It independently minimizes columns and rows across the views that
+  are actually looking (`minimumTerminalGeometry`, `@roost/shared/viewport`).
+  Park retains MEMBERSHIP for reclaim until the lease expires, but a parked
+  view stops constraining GEOMETRY once `TERMINAL_VIEW_PARK_GRACE_MS` lapses;
+  with no live viewer left the last effective geometry is HELD rather than
+  re-minted, so a solo viewer's blip never tears the stream down. It mints a
+  UUID stream for every effective geometry or worker-generation transition.
+  Invalid or fail-closed worker outcomes retain membership but publish
+  unavailable until route reconciliation can issue a fresh stream.
 
 - (d) The worker owns one generation-addressed stream state per session. The
   keeper's resize ACK is the ordered parse boundary; the existing wterm core is
@@ -431,6 +472,7 @@ Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 **Guard** — `apps/shared/tests/cell-frame-chunks.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
 `apps/coord/tests/terminal-view-hub.test.ts`;
+`apps/coord/tests/terminal-view-registry-membership.test.ts`;
 `apps/coord/tests/terminal-screen-hub.test.ts`;
 `apps/web/tests/terminalStream.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
@@ -614,6 +656,7 @@ exists; an unprovable resize boundary fails closed.
 
 **Guard** — `apps/shared/tests/wterm-resize-in-place.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
+`apps/coord/tests/terminal-view-registry-membership.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
 ### Quoting a systemd path directive because quoting is "safer"
@@ -1153,6 +1196,39 @@ anomaly the rows would have shown.
 through a trusted proxy"` pins all four boundaries: anonymous 401 + `trusted-proxy` skipped;
 the same 401 with a device fingerprint persisted; an anonymous 403 persisted; an anonymous 401 on a
 `direct` listener persisted.
+
+---
+
+### An incident bundle reports a layer "unavailable" that actually sent its evidence
+
+**Symptom** — `bun scripts/replay-terminal-incident.ts <bundle>` prints `section browser:
+unavailable` (or `section coordinator: unavailable`) with an `omitted worker.remote:<layer>.<field>`
+line, even though `terminal.capture_started` recorded that layer as armed. Attribution then reads
+`first_divergent_layer none` because three of the four layers are absent.
+
+**Wrong** — treat the omission as a size or timing problem and widen a budget, or relax the
+write-side validator so the section stops being rejected. Both bury the real fault: the layer's
+evidence ARRIVED and was thrown away because its shape was wrong. `remoteSectionOmission` names a
+validator field PATH, and that path is the diagnosis — `browser.captured_at_ms` means something
+lacking `captured_at_ms` was placed where a section belongs.
+
+**Right** — an evidence payload is an envelope PLUS the layer's section NESTED under a member named
+for that layer (`{schema, layer, capture_id, recording_id, session_id, trigger?, <layer>: {…}}`).
+Never flatten a section onto its envelope and never forward the envelope as the section: a flattened
+payload passes an envelope check and then fails as a section, so a whole layer disappears with
+nothing but one omission line to show for it. `checkTerminalCaptureEnvelope` proves the nested
+member exists and returns it, and every producer builds its payload from
+`TerminalCaptureBrowserPayload` / `TerminalCaptureCoordinatorPayload` so a flat literal does not
+compile. The same rule is why `historyRangesFromBrowserEvidence` reads through
+`envelope.browser`: against the envelope it silently found no rows and fell back to the worker's
+own tail.
+
+**Guard** — `apps/shared/tests/terminal-capture-envelope.test.ts` pins both halves: a flattened
+payload is refused at the envelope naming the missing layer member, and an envelope placed where a
+section belongs fails `validateTerminalIncidentBundle` at `browser.captured_at_ms`. Producer-side,
+`apps/worker/tests/terminal-capture-evidence.test.ts` and
+`apps/coord/tests/terminal-capture-recorder.test.ts` assert a real capture lands non-null
+`bundle.browser` and `bundle.coordinator` sections with zero `remote:` omissions.
 
 ---
 

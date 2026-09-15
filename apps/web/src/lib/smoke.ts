@@ -16,9 +16,11 @@ import {
 import { createSmokeRetainedMarkerMethods } from "./smokeRetainedMarkerScan.ts";
 import { createSmokeRuntimeControlMethods } from "./smokeRuntimeControls.ts";
 import { createSmokeTerminalInputMethods } from "./smokeTerminalInputController.ts";
+import { createSmokeTerminalDomFaultMethods } from "./smokeTerminalDomFault.ts";
 import { createSmokeTerminalRenderMethods } from "./smokeTerminalRenderProbes.ts";
 import { createSmokeTerminalStreamProbeMethods } from "./smokeTerminalStreamProbe.ts";
 import type { SmokeApi } from "./smokeTypes.ts";
+
 
 export type {
   PaintedCursorProof,
@@ -40,6 +42,7 @@ export function maybeInstallSmokeBackdoor(): void {
   const retainedMarkers = createSmokeRetainedMarkerMethods();
   const runtimeControls = createSmokeRuntimeControlMethods();
   const fileTransfer = createSmokeFileTransferMethods();
+  const terminalDomFault = createSmokeTerminalDomFaultMethods();
 
   const api: SmokeApi = {
     cleanupCreated: createdResources.cleanupCreated,
@@ -56,6 +59,7 @@ export function maybeInstallSmokeBackdoor(): void {
       return waitForPaintedCursorImpl(sessionId, expected, timeoutMs);
     },
     terminalStreamProbe: terminalStreamProbe.terminalStreamProbe,
+    terminalBrowserSnapshot: terminalStreamProbe.terminalBrowserSnapshot,
     async beginTerminalTiming(kind, sessionId) {
       return beginTerminalTimingImpl(kind, sessionId);
     },
@@ -71,6 +75,8 @@ export function maybeInstallSmokeBackdoor(): void {
     viewportText: terminalRender.viewportText,
     renderProbe: terminalRender.renderProbe,
     paintedScrollback: terminalRender.paintedScrollback,
+    hasPaintedScrollbackRange: terminalRender.hasPaintedScrollbackRange,
+    paintedScrollbackRange: terminalRender.paintedScrollbackRange,
     markerScan: terminalRender.markerScan,
     terminalDimensions: terminalRender.terminalDimensions,
     state: runtimeControls.state,
@@ -88,6 +94,8 @@ export function maybeInstallSmokeBackdoor(): void {
     dropNextTerminalWireDelta: runtimeControls.dropNextTerminalWireDelta,
     dropNextCellFrame: runtimeControls.dropNextCellFrame,
     droppedCellFrameCount: runtimeControls.droppedCellFrameCount,
+    holdTerminalDomForCurrentGeneration: terminalDomFault.holdTerminalDomForCurrentGeneration,
+    releaseTerminalDomHold: terminalDomFault.releaseTerminalDomHold,
     perfProbe: runtimeControls.perfProbe,
     resetPerfCounters: runtimeControls.resetPerfCounters,
     syncWsGeneration: runtimeControls.syncWsGeneration,

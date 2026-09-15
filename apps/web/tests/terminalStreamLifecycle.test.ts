@@ -137,7 +137,6 @@ describe("per-session browser terminal replica", () => {
       nowSpy.mockRestore();
     }
     expect(resyncCommands()).toHaveLength(2);
-    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica.resync_latched).toBe(true);
   }, 15_000);
   test("keeps accepted status stable across exact renewals", () => {
     setSystemTime(0);

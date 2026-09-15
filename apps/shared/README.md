@@ -61,7 +61,7 @@ import style is now correct instead of two.
 | `@roost/shared/diag` | `diag()` / `signal()` — opt-in firehose, always-on Tier-1 |
 | `@roost/shared/trace` | `newTraceId()` + `TRACE_HEADER` |
 | `@roost/shared/json` | `safeJsonParse` for rows that may be half-written |
-| `@roost/shared/viewport` | viewer-claim TTL / grace / reap timings both ends must agree on |
+| `@roost/shared/viewport` | viewer-claim TTL / grace / reap timings both ends must agree on, plus `minimumTerminalGeometry`, the one per-axis SCD. `TERMINAL_VIEW_LEASE_MS` keeps a parked view claimable; `TERMINAL_VIEW_PARK_GRACE_MS` bounds how long that parked view still constrains geometry |
 | `@roost/shared/wterm-wasm` | patched wasm path + its committed sha256 |
 | `@roost/shared/wterm-core-factory` | headless `TerminalCore` factory |
 | `@roost/shared/install-scripts` | embedded `install.sh` text (generated) |
@@ -230,7 +230,10 @@ producers and consumers.
   them together: `apps/coord/src/jwt.ts`, `apps/worker/src/jwt.ts`, and
   `apps/web/src/auth/web-key.ts`. It uses `crypto.subtle`, not `node:crypto`,
   because that is the only implementation available in every runtime that
-  computes the value — the browser included.
+  computes the value — the browser included. The same class recurred in
+  `src/viewport.ts`: `minimumTerminalGeometry` was declared here while three
+  hand-rolled per-axis minimums decided the real terminal size elsewhere, so
+  grepping the primitive made a policy look pinned that nothing enforced.
 - **`src/native-path.ts` imports zero Node builtins, deliberately.** It is in the
   browser bundle graph (`apps/web/src/lib/nativePath.ts` imports it). Worker-side
   path handling lives separately in `apps/worker/src/util/path.ts` because it

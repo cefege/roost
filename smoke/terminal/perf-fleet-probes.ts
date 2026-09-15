@@ -7,6 +7,7 @@ import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import { QUALIFY, percentile } from "./perf-probe-fixture.ts";
 import { pressPlatformShortcut } from "./terminal-helpers.ts";
 import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
+import { attachFleetFailure, captureFleetPresentation, disposeFleetReaderTrace, installFleetReaderTrace } from "./perf-fleet-diagnostics.ts";
 import { activateFleetTerminal, confirmFleetVisibleMarkers, expectFleetLiveTarget, prepareFleetPeerFloods, verifyCompleteFleetFlood, type FleetFloodWorkload, type FleetPeer } from "./perf-fleet-peer-flood.ts";
 import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 import {
@@ -195,30 +196,37 @@ function drainPlan(
 async function drainSample(peer: FleetPeer, workload: typeof DRAIN_WORKLOADS[number], runId: string, index: number): Promise<DrainSample> {
   const plan = drainPlan(runId, workload, index);
   const nonce = `${runId}-${workload.name}-${index}-${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
-  const drainFrame = encodePtyFixtureCommand({ op: "EMIT", text: `FLEET-DRAIN:${nonce}` });
+  const completionMarker = `FLEET-DRAIN:${nonce}`;
+  const drainFrame = encodePtyFixtureCommand({ op: "EMIT", text: completionMarker });
   const command = plan.frame + drainFrame;
+  const beforeDispatch = await captureFleetPresentation(peer);
   const floodDispatchMonotonicMs = await sendFixtureCommand(peer.document.page, peer.session.id, command);
-  const proof = await waitForPaintedScaleMarker(peer.document.page, peer.session.id, `FLEET-DRAIN:${nonce}`);
-  const drainMs = proof.monotonicMs - floodDispatchMonotonicMs;
-  const integrity = await verifyCompleteFleetFlood(
-    peer,
-    plan.scanPrefix,
-    plan.count,
-    workload.bytes < 1024 * 1024,
-  );
-  return {
-    retained: index >= DRAIN_WARMUPS,
-    workload: workload.name,
-    sessionId: peer.session.id,
-    workerFp: peer.session.worker.workerFp,
-    frame: { kind: workload.styled ? "styled_sgr_flood" : "plain_flood", bytes: Buffer.byteLength(command), outputBytes: plan.estimatedBytes, lines: plan.count, drainBytes: Buffer.byteLength(drainFrame) },
-    floodDispatchMonotonicMs,
-    paintMonotonicMs: proof.monotonicMs,
-    flood_dispatch_to_final_paint_ms: drainMs,
-    drainMs,
-    proof,
-    integrity,
-  };
+  try {
+    const proof = await waitForPaintedScaleMarker(peer.document.page, peer.session.id, completionMarker);
+    const drainMs = proof.monotonicMs - floodDispatchMonotonicMs;
+    const integrity = await verifyCompleteFleetFlood(
+      peer,
+      plan.scanPrefix,
+      plan.count,
+      workload.bytes < 1024 * 1024,
+    );
+    return {
+      retained: index >= DRAIN_WARMUPS,
+      workload: workload.name,
+      sessionId: peer.session.id,
+      workerFp: peer.session.worker.workerFp,
+      frame: { kind: workload.styled ? "styled_sgr_flood" : "plain_flood", bytes: Buffer.byteLength(command), outputBytes: plan.estimatedBytes, lines: plan.count, drainBytes: Buffer.byteLength(drainFrame) },
+      floodDispatchMonotonicMs,
+      paintMonotonicMs: proof.monotonicMs,
+      flood_dispatch_to_final_paint_ms: drainMs,
+      drainMs,
+      proof,
+      integrity,
+    };
+  } catch (error) {
+    await attachFleetFailure(peer, completionMarker, beforeDispatch, "fleet-drain-failure.json");
+    throw error;
+  }
 }
 async function collectDrains(topology: FleetTopology): Promise<DrainReport> {
   const runId = scaleRunId();
@@ -339,8 +347,11 @@ async function runFleetPhase(
 ): Promise<void> {
   const sessions: ScaleSession[] = [];
   const documents: ScaleDocument[] = [];
+  let diagnosticPeers: readonly FleetPeer[] = [];
   try {
     const topology = await createFleet(browser, smokePage, stack, sessions, documents);
+    diagnosticPeers = topology.visible;
+    await installFleetReaderTrace(diagnosticPeers);
     if (phase === "composition") {
       const typing = await collectTyping(topology, topology.direct, "direct_loaded", ["same_worker", "other_worker", "together"], LOADED_WINDOW_MS);
       const drains = await collectDrains(topology);
@@ -364,6 +375,7 @@ async function runFleetPhase(
     }
   } finally {
     const cleanupErrors: string[] = [];
+    await disposeFleetReaderTrace(diagnosticPeers);
     await closeScaleDocuments(documents).catch((error) => cleanupErrors.push(`documents: ${String(error)}`));
     await cleanupScaleSessions(stack, sessions).catch((error) => cleanupErrors.push(`sessions: ${String(error)}`));
     if (cleanupErrors.length > 0) throw new Error(`fleet cleanup failed: ${cleanupErrors.join("; ")}`);

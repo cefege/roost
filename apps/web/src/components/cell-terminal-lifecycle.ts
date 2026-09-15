@@ -1,6 +1,7 @@
 // Binds viewport, resize, and document-focus lifecycle for one terminal.
 // The document coordinator fans shared page transitions to this mounted pane.
-// It converts visibility transitions into explicit active or inactive view intent
+// It converts visibility transitions into explicit active or inactive view intent,
+// classifies every withdraw as a real hide or a transient layout gap,
 // and keeps reserved copy, paste, and find chords ahead of PTY key encoding.
 // Renderer resources remain owned by the mounting controller.
 
@@ -39,10 +40,53 @@ export function mountCellTerminalLifecycle(
   const display = runtime.display();
   if (!display) throw new Error("terminal lifecycle mounted without display");
 
+  let lifecycleDisposed = false;
+  void document.fonts?.ready?.then(
+    () => {
+      if (
+        lifecycleDisposed
+        || runtime.unmounted
+        || !viewport.shouldPublishActive()
+      ) return;
+      runtime.cellWidth = 0;
+      runtime.cellHeight = 0;
+      viewport.publishViewportNow();
+    },
+    () => undefined,
+  );
+
+  // viewActive() = inLayout && surfaceVisible && surfaceActive (CellTerminal).
+  // Every REAL cause of a withdraw is readable right here: an overlay route or
+  // another pane's spotlight scrim drops surfaceVisible/surfaceActive, a hidden
+  // page drops isPageVisible, teardown sets its own flags. What is left is
+  // `inLayout` alone, and its transient form is a deck box that measures zero:
+  // terminal-deck-model's view() returns zero panes for a 0-sized deck, which
+  // removes every pane from layout for one ResizeObserver tick with nothing
+  // hidden. The deck element is the same stable anchor that model measures, so
+  // reading it at the transition tells the jitter from a genuine leave.
+  const deckBoxCollapsed = (): boolean => {
+    const deck = document.querySelector(
+      '[data-testid="terminal-deck"]',
+    ) as HTMLElement | null;
+    if (!deck) return false;
+    return deck.clientWidth === 0 || deck.clientHeight === 0;
+  };
+  const withdrawIsTransientLayoutGap = (): boolean =>
+    !lifecycleDisposed
+    && !runtime.unmounted
+    && props.surfaceVisible
+    && props.surfaceActive
+    && isPageVisible()
+    && deckBoxCollapsed();
+  const withdrawView = (): void => {
+    if (withdrawIsTransientLayoutGap()) viewport.parkViewAfterLayoutGap();
+    else viewport.parkView();
+  };
+
   createEffect(on(viewport.viewActive, (active) => {
     presentation.refreshCursorBlink();
     if (!active) {
-      viewport.parkView();
+      withdrawView();
       return;
     }
     runtime.revealStartedAt = performance.now();
@@ -108,7 +152,7 @@ export function mountCellTerminalLifecycle(
       return;
     }
     if (!isPageVisible() || !viewport.viewActive()) {
-      if (event === "visible") viewport.parkView();
+      if (event === "visible") withdrawView();
       return;
     }
     presentation.refreshCursorBlink();
@@ -198,6 +242,9 @@ export function mountCellTerminalLifecycle(
   document.addEventListener("keydown", onDocumentKeyDown, true);
 
   const dispose = (): void => {
+    if (lifecycleDisposed) return;
+    lifecycleDisposed = true;
+    viewport.parkView();
     unregisterDocumentLifecycle();
     window.removeEventListener("resize", onWindowResize);
     document.removeEventListener("keydown", onDocumentKeyDown, true);

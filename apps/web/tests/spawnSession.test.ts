@@ -1,4 +1,4 @@
-// spawnSession.test.ts — two concerns in the spawn helper module.
+// spawnSession.test.ts — three concerns in the spawn helper module.
 //
 // 1. Spawn-retry resilience: after a coord restart the worker↔coord WS is down
 //    for ~10-15s while the worker re-dials, and coord rejects a spawn with
@@ -9,6 +9,9 @@
 //    several racy new-tab paths; without a guard a second call re-queues the
 //    agent command and it gets typed twice into the same PTY. Sync input
 //    admission must be attempted exactly once for two calls with one session id.
+// 3. The initial PTY-size hint: buildSpawnShellRequest's cols/rows are applied
+//    by the keeper at PTY start, so they must be bounded to the core limits and
+//    ABSENT whenever the browser has nothing real to measure.
 //
 // mock.module must run before the unit's static imports resolve, so the deps
 // are mocked here and the unit is pulled in via a dynamic import below.
@@ -16,6 +19,12 @@
 import { test, expect, describe, mock } from "bun:test";
 import { ConnectError, Code } from "@connectrpc/connect";
 import { asWorkerFp } from "@roost/shared/wire";
+import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS } from "@roost/shared/viewport";
+import {
+  installFakeTerminalDom,
+  mountFakeDeck,
+  mountFakeSlot,
+} from "./helpers/fakeTerminalDom.ts";
 
 let enabled = true;
 const sendTerminalInput = mock((_sid: string, bytes: Uint8Array) => ({
@@ -35,6 +44,9 @@ mock.module("../src/lib/agents.ts", () => ({
 mock.module("../src/ws/sync-outbound.ts", () => ({
   sendTerminalInput,
 }));
+// NOT mocked: ../src/lib/wtermSizeEstimate.ts is another suite's unit under
+// test and bun module mocks are process-global. The hint cases below install a
+// fake DOM and let the real estimate run.
 
 // Dynamic import: static imports hoist above the mock.module calls above, so the
 // unit must be pulled in after the deps are mocked (module-loading boundary).
@@ -76,20 +88,54 @@ test("withSpawnRetry: rethrows a non-transient error immediately (no retry)", as
   expect(calls).toBe(1);
 });
 
-test("mounted viewport is only a bounded initial PTY-size hint", () => {
-  const req = buildSpawnShellRequest(
-    asWorkerFp("aa".repeat(32)),
-    "/work",
-    "00000000-0000-4000-8000-000000000123",
-    { cols: 119, rows: 41 },
-  );
-  expect(req).toEqual({
-    workerFp: asWorkerFp("aa".repeat(32)),
-    kind: "shell",
-    folder: "/work",
-    cols: 119,
-    rows: 41,
-    sessionId: "00000000-0000-4000-8000-000000000123",
+describe("initial PTY-size hint", () => {
+  const workerFp = asWorkerFp("aa".repeat(32));
+  const sessionId = "00000000-0000-4000-8000-000000000123";
+
+  test("a mounted pane's measured geometry is the hint", () => {
+    const dom = installFakeTerminalDom();
+    mountFakeSlot(mountFakeDeck(dom.document), {
+      focused: true,
+      visible: true,
+      slotRect: { width: 900, height: 500 },
+      displayWidth: 832,
+      displayHeight: 424,
+    });
+    try {
+      expect(buildSpawnShellRequest(workerFp, "/work", sessionId))
+        .toMatchObject({ cols: 80, rows: 20 });
+    } finally {
+      dom.restore();
+    }
+  });
+
+  test("nothing measurable omits cols/rows entirely", () => {
+    // A fabricated hint (the 1×1 a clamped mid-layout box used to produce) is
+    // applied by the keeper at PTY start, so absence is the only safe answer.
+    const dom = installFakeTerminalDom();
+    mountFakeDeck(dom.document);
+    try {
+      const request = buildSpawnShellRequest(workerFp, "/work", sessionId);
+      expect(request.cols).toBeUndefined();
+      expect(request.rows).toBeUndefined();
+      expect(request).toEqual({
+        workerFp,
+        kind: "shell",
+        folder: "/work",
+        cols: undefined,
+        rows: undefined,
+        sessionId,
+      });
+    } finally {
+      dom.restore();
+    }
+  });
+
+  test("an out-of-range viewport is bounded to the core limits", () => {
+    expect(buildSpawnShellRequest(workerFp, "/work", sessionId, {
+      cols: 9_000,
+      rows: 9_000,
+    })).toMatchObject({ cols: TERMINAL_MAX_COLS, rows: TERMINAL_MAX_ROWS });
   });
 });
 

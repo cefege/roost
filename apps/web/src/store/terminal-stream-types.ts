@@ -105,7 +105,7 @@ export function deriveTerminalPresentationState(input: {
 export interface TerminalViewHandle {
   readonly sessionId: string;
   readonly viewId: string;
-  challengeLiveness(): void;
+  recoverUnreconciledDom(): void;
   setViewport(geometry: TerminalGeometry): void;
   setInactive(): void;
   refresh(): void;
@@ -193,6 +193,8 @@ export interface TerminalSessionReplica {
   lastAcceptedFrameGeneration: TerminalGenerationToken | null;
   proofChallengeAtMs: number | null;
   proofChallengeGeneration: TerminalGenerationToken | null;
+  proofChallengeStreamId: string | null;
+  proofChallengeSeq: number | null;
   resyncLatchGeneration: TerminalGenerationToken | null;
   resyncLatchedAtMs: number | null;
   repairAttempts: number;
@@ -227,6 +229,8 @@ export interface TerminalStreamDiagnosticSnapshot {
     last_terminal_proof_generation: TerminalGenerationDiagnosticToken | null;
     challenge_age_ms: number | null;
     challenge_generation: TerminalGenerationDiagnosticToken | null;
+    challenge_stream_id: string | null;
+    challenge_seq: number | null;
     resync_latch_age_ms: number | null;
     resync_latch_generation: TerminalGenerationDiagnosticToken | null;
     repair_attempts: number;

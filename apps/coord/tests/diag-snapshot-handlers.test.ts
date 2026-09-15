@@ -1,282 +1,170 @@
-// DiagSnapshot handler coverage for normalized session filters and worker
-// fan-out. A migrated single-tenant database provides durable session/worker
-// scope while fake connections resolve real pending RPCs.
+// DiagSnapshot handler coverage: normalized session filters, worker fan-out,
+// and the terminal-capture dispatch that must own its own response projection
+// and never echo terminal content.
+// Fixtures live in diag-snapshot-harness.ts and terminal-capture-harness.ts.
 
-import { create } from "@bufbuild/protobuf";
-import {
-  Code,
-  createContextValues,
-  type HandlerContext,
-} from "@connectrpc/connect";
+import { Code } from "@connectrpc/connect";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { DiagSnapshotRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import { setSignalSink } from "@roost/shared/diag";
+import { TerminalCaptureAction } from "@roost/shared/proto/coordinator_pb";
 import {
-  WTerminalPipelineSnapshotSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import {
-  TerminalPipelineSessionSnapshotSchema,
-} from "@roost/shared/proto/wire_pb";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { callerKey } from "../src/connect/auth-interceptor.ts";
+  TERMINAL_CAPTURE_LIMITS,
+  TERMINAL_INCIDENT_SCHEMA,
+} from "@roost/shared/terminal-capture";
 import { makeSystemHandlers } from "../src/connect/handlers-system.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
-import { rejectPendingRpcsForWorker, resolvePendingRpc } from "../src/router/pending-rpcs.ts";
-import { openDb, type KyselyDB } from "../src/db/connection.ts";
-import { runMigrations } from "../src/db/migrate.ts";
+import { rejectPendingRpcsForWorker } from "../src/router/pending-rpcs.ts";
+import { _resetTerminalCaptureLeases } from "../src/connect/terminal-capture-lease.ts";
+import { _resetCoordinatorRecorder } from "../src/connect/terminal-capture-recorder.ts";
 import {
-  ensureSelfHostedTenant,
-  type SelfHostedTenant,
-} from "../src/self-hosted-tenant.ts";
+  BATCH_SESSION_IDS,
+  DIAG_WORKER_FPS,
+  LOCAL_UNSELECTED_SESSION,
+  MISSING_SESSION,
+  WORKER_A,
+  WORKER_C,
+  WORKER_LOCAL,
+  anonymousContext,
+  createDiagWorkerLog,
+  diagDeviceContext,
+  diagRequest,
+  installDiagWorker,
+  openDiagSnapshotFixture,
+  returnedPipelineSessionIds,
+  returnedSessionIds,
+  snapshotPayload,
+  type DiagSnapshotFixture,
+  type DiagWorkerLog,
+} from "./diag-snapshot-harness.ts";
+import {
+  browserEvidencePayload,
+  withoutLayerSection,
+} from "./terminal-capture-evidence.ts";
+import {
+  EVIDENCE_MARKER,
+  captureRequestMessage,
+  captureResultOf,
+} from "./terminal-capture-harness.ts";
 
-const WORKER_A = "a1b2c3d4".repeat(8);
-const WORKER_C = "c3d4e5f6".repeat(8);
-const WORKER_LOCAL = "d4e5f6a7".repeat(8);
-const LOCAL_UNSELECTED_SESSION = "91000000-0000-4000-8000-000000000065";
-const MISSING_SESSION = "91000000-0000-4000-8000-000000000066";
-const BATCH_SESSION_IDS = Array.from(
-  { length: 64 },
-  (_, index) => `91000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
-);
+const CAPTURE_SESSION = BATCH_SESSION_IDS[0]!;
+const CAPTURE_RECORDING = "92000000-0000-4000-8000-000000000001";
+const CAPTURE_ID = "93000000-0000-4000-8000-000000000001";
 
+let fixture: DiagSnapshotFixture;
+let worker: DiagWorkerLog;
+let emittedSignals: Record<string, unknown>[] = [];
 
-type SnapshotPayload = {
-  coord: { sessions: Record<string, unknown> };
-  workers: Record<string, {
-    status: string;
-    snapshot?: { sessions: Record<string, unknown> };
-    terminal_pipeline?: {
-      status: string;
-      snapshot?: { sessions: Array<{ session_id: string }> };
-    };
-  }>;
-};
+function systemHandlers() {
+  return makeSystemHandlers({ db: fixture.db } as unknown as ConnectDeps);
+}
 
-let workdir = "";
-let db: KyselyDB;
-let closeDb: () => Promise<void>;
-let tenant: SelfHostedTenant;
-let sentWorkerFps: string[] = [];
-let sentPipelineTargetsByWorker: Record<string, Array<{
+function deviceContext() {
+  return diagDeviceContext(fixture.tenant);
+}
+
+function captureMessage(overrides: Partial<{
+  action: TerminalCaptureAction;
   sessionId: string;
-  viewId: string;
-}>> = {};
-
-const diagnosticSessionsByWorker: Record<string, Record<string, unknown>> = {
-  [WORKER_A]: Object.fromEntries(BATCH_SESSION_IDS.slice(0, 32).map((sessionId) => [sessionId, {}])),
-  [WORKER_C]: Object.fromEntries(BATCH_SESSION_IDS.slice(32).map((sessionId) => [sessionId, {}])),
-  [WORKER_LOCAL]: { [LOCAL_UNSELECTED_SESSION]: {} },
-};
-
-function deviceContext(): HandlerContext {
-  const values = createContextValues();
-  values.set(callerKey, {
-    kind: "account-device",
-    fingerprint: "diag-snapshot-device",
-    label: "diagnostic test device",
-    accountId: tenant.accountId,
-  });
-  return { values, signal: new AbortController().signal } as unknown as HandlerContext;
-}
-
-function diagRequest(overrides: Partial<{
-  sessionFilterId: string;
-  sessionFilterIds: string[];
+  browserEvidenceJson: string;
 }> = {}) {
-  return create(DiagSnapshotRequestSchema, overrides);
-}
-
-function openSession(id: string, workerFp: string, channel: number) {
-  return {
-    id,
-    dashboard_id: tenant.dashboardId,
-    worker_fp: workerFp,
-    channel,
-    kind: "shell" as const,
-    cwd: "/tmp",
-    status: "open" as const,
-    created_at: 1,
-  };
-}
-
-function snapshotPayload(response: { snapshotJson?: string }): SnapshotPayload {
-  if (response.snapshotJson === undefined) throw new Error("DiagSnapshot response omitted snapshot JSON");
-  return JSON.parse(response.snapshotJson) as SnapshotPayload;
-}
-
-function installedWorkerSnapshot(workerFp: string): Record<string, unknown> {
-  return {
-    captured_at_ms: 1,
-    build: { git_sha: "test" },
-    worker_fp: workerFp,
-    sessions: diagnosticSessionsByWorker[workerFp] ?? {},
-  };
-}
-
-function installedPipelineSnapshot(
-  requestId: string,
-  targets: readonly { sessionId: string; viewId: string }[],
-) {
-  return create(WTerminalPipelineSnapshotSchema, {
-    requestId,
-    sessions: targets.map((target) => create(TerminalPipelineSessionSnapshotSchema, target)),
+  return captureRequestMessage({
+    sessionId: CAPTURE_SESSION,
+    recordingId: CAPTURE_RECORDING,
+    captureId: CAPTURE_ID,
+    ...overrides,
   });
 }
 
-function installWorker(workerFp: string): void {
-  __setConnectWorkerForTest(workerFp, {
-    workerFp,
-    send(frame) {
-      if (frame.frame.case === "browserCommand") {
-        const command = JSON.parse(frame.frame.value.frameJson) as Record<string, unknown>;
-        expect(command).toEqual({
-          kind: "diag-snapshot",
-          request_id: frame.frame.value.requestId,
-        });
-        sentWorkerFps.push(workerFp);
-        expect(resolvePendingRpc(
-          frame.frame.value.requestId,
-          installedWorkerSnapshot(workerFp),
-          workerFp,
-        )).toBe(true);
-        return 1;
-      }
-      if (frame.frame.case === "terminalPipelineSnapshot") {
-        const request = frame.frame.value;
-        sentPipelineTargetsByWorker[workerFp] = request.targets.map((target) => ({
-          sessionId: target.sessionId,
-          viewId: target.viewId,
-        }));
-        expect(resolvePendingRpc(
-          request.requestId,
-          installedPipelineSnapshot(request.requestId, request.targets),
-          workerFp,
-        )).toBe(true);
-        return 1;
-      }
-      throw new Error("unexpected diagnostic worker frame");
-    },
+function capturePayload(sessionId = CAPTURE_SESSION) {
+  return browserEvidencePayload({
+    captureId: CAPTURE_ID,
+    recordingId: CAPTURE_RECORDING,
+    sessionId,
   });
 }
 
-function returnedSessionIds(snapshot: SnapshotPayload): string[] {
-  return Object.values(snapshot.workers).flatMap((worker) =>
-    worker.status === "ok" && worker.snapshot
-      ? Object.keys(worker.snapshot.sessions)
-      : []
-  ).sort();
-}
-
-function returnedPipelineSessionIds(snapshot: SnapshotPayload): string[] {
-  return Object.values(snapshot.workers).flatMap((worker) =>
-    worker.terminal_pipeline?.status === "ok" && worker.terminal_pipeline.snapshot
-      ? worker.terminal_pipeline.snapshot.sessions.map((session) => session.session_id)
-      : []
-  ).sort();
+function captureEvidence(sessionId = CAPTURE_SESSION): string {
+  return JSON.stringify(capturePayload(sessionId));
 }
 
 beforeAll(async () => {
-  workdir = mkdtempSync(join(tmpdir(), "roost-diag-snapshot-handlers-"));
-  const opened = openDb(join(workdir, "coord.db"));
-  db = opened.db;
-  closeDb = opened.close;
-  await runMigrations(opened.sqlite);
-  tenant = ensureSelfHostedTenant(opened.sqlite, { backfillLegacyScopes: false });
-  await db.insertInto("workers").values([
-    { fp: WORKER_A, dashboard_id: tenant.dashboardId, label: "A", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
-    { fp: WORKER_C, dashboard_id: tenant.dashboardId, label: "C", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
-    { fp: WORKER_LOCAL, dashboard_id: tenant.dashboardId, label: "local", os: "linux", registered_at_ms: 1, last_seen_ms: 1 },
-  ]).execute();
-  await db.insertInto("sessions").values([
-    ...BATCH_SESSION_IDS.map((sessionId, index) => openSession(
-      sessionId,
-      index < 32 ? WORKER_A : WORKER_C,
-      index + 1,
-    )),
-    openSession(LOCAL_UNSELECTED_SESSION, WORKER_LOCAL, 65),
-  ]).execute();
+  fixture = await openDiagSnapshotFixture();
 });
 
 beforeEach(() => {
-  sentWorkerFps = [];
-  sentPipelineTargetsByWorker = {};
-  installWorker(WORKER_A);
-  installWorker(WORKER_C);
-  installWorker(WORKER_LOCAL);
+  worker = createDiagWorkerLog();
+  emittedSignals = [];
+  setSignalSink((record) => emittedSignals.push(record));
+  for (const workerFp of DIAG_WORKER_FPS) installDiagWorker(worker, workerFp);
 });
 
 afterEach(() => {
-  for (const workerFp of [WORKER_A, WORKER_C, WORKER_LOCAL]) {
+  for (const workerFp of DIAG_WORKER_FPS) {
     rejectPendingRpcsForWorker(workerFp, "test cleanup");
     __setConnectWorkerForTest(workerFp, null);
   }
+  setSignalSink(null);
+  _resetTerminalCaptureLeases();
+  _resetCoordinatorRecorder();
 });
 
 afterAll(async () => {
-  await closeDb?.();
-  rmSync(workdir, { recursive: true, force: true });
+  await fixture?.close();
 });
 
 describe("DiagSnapshot session filters", () => {
   test("keeps singular session_filter_id compatibility", async () => {
-    const handlers = makeSystemHandlers({ db } as unknown as ConnectDeps);
     const sessionId = BATCH_SESSION_IDS[0]!;
-    const response = await handlers.diagSnapshot(
+    const snapshot = snapshotPayload(await systemHandlers().diagSnapshot(
       diagRequest({ sessionFilterId: sessionId }),
       deviceContext(),
-    );
-    const snapshot = snapshotPayload(response);
+    ));
 
     expect(Object.keys(snapshot.coord.sessions)).toEqual([sessionId]);
     expect(Object.keys(snapshot.workers)).toEqual([WORKER_A]);
     expect(returnedSessionIds(snapshot)).toEqual([sessionId]);
-    expect(sentWorkerFps).toEqual([WORKER_A]);
+    expect(worker.sentWorkerFps).toEqual([WORKER_A]);
     expect(returnedPipelineSessionIds(snapshot)).toEqual([sessionId]);
-    expect(sentPipelineTargetsByWorker).toEqual({
+    expect(worker.pipelineTargetsByWorker).toEqual({
       [WORKER_A]: [{ sessionId, viewId: "" }],
     });
   });
 
   test("admits 64 local IDs and targets only their workers", async () => {
-    const handlers = makeSystemHandlers({ db } as unknown as ConnectDeps);
-    const response = await handlers.diagSnapshot(
+    const snapshot = snapshotPayload(await systemHandlers().diagSnapshot(
       diagRequest({ sessionFilterIds: BATCH_SESSION_IDS }),
       deviceContext(),
-    );
-    const snapshot = snapshotPayload(response);
+    ));
 
     expect(Object.keys(snapshot.coord.sessions).sort()).toEqual([...BATCH_SESSION_IDS].sort());
     expect(Object.keys(snapshot.workers).sort()).toEqual([WORKER_A, WORKER_C]);
     expect(returnedSessionIds(snapshot)).toEqual([...BATCH_SESSION_IDS].sort());
-    expect(sentWorkerFps.sort()).toEqual([WORKER_A, WORKER_C]);
+    expect(worker.sentWorkerFps.sort()).toEqual([WORKER_A, WORKER_C]);
     expect(returnedPipelineSessionIds(snapshot)).toEqual([...BATCH_SESSION_IDS].sort());
-    expect(Object.keys(sentPipelineTargetsByWorker).sort()).toEqual([WORKER_A, WORKER_C]);
+    expect(Object.keys(worker.pipelineTargetsByWorker).sort()).toEqual([WORKER_A, WORKER_C]);
   });
 
   test("excludes unknown batch IDs and unrelated workers", async () => {
-    const handlers = makeSystemHandlers({ db } as unknown as ConnectDeps);
     const localSessionId = BATCH_SESSION_IDS[0]!;
-    const response = await handlers.diagSnapshot(
+    const snapshot = snapshotPayload(await systemHandlers().diagSnapshot(
       diagRequest({ sessionFilterIds: [localSessionId, MISSING_SESSION] }),
       deviceContext(),
-    );
-    const snapshot = snapshotPayload(response);
+    ));
 
     expect(Object.keys(snapshot.coord.sessions)).toEqual([localSessionId]);
     expect(Object.keys(snapshot.workers)).toEqual([WORKER_A]);
     expect(returnedSessionIds(snapshot)).toEqual([localSessionId]);
-    expect(sentWorkerFps).toEqual([WORKER_A]);
+    expect(worker.sentWorkerFps).toEqual([WORKER_A]);
     expect(returnedPipelineSessionIds(snapshot)).toEqual([localSessionId]);
-    expect(sentPipelineTargetsByWorker).toEqual({
+    expect(worker.pipelineTargetsByWorker).toEqual({
       [WORKER_A]: [{ sessionId: localSessionId, viewId: "" }],
     });
     expect(snapshot.workers[WORKER_LOCAL]).toBeUndefined();
   });
 
   test("rejects oversized and ambiguous filter input before dispatch", async () => {
-    const handlers = makeSystemHandlers({ db } as unknown as ConnectDeps);
+    const handlers = systemHandlers();
     const sessionId = BATCH_SESSION_IDS[0]!;
     for (const request of [
       diagRequest({ sessionFilterIds: [...BATCH_SESSION_IDS, LOCAL_UNSELECTED_SESSION] }),
@@ -287,24 +175,192 @@ describe("DiagSnapshot session filters", () => {
       await expect(handlers.diagSnapshot(request, deviceContext()))
         .rejects.toMatchObject({ code: Code.InvalidArgument });
     }
-    expect(sentWorkerFps).toEqual([]);
-    expect(sentPipelineTargetsByWorker).toEqual({});
+    expect(worker.sentWorkerFps).toEqual([]);
+    expect(worker.pipelineTargetsByWorker).toEqual({});
   });
 
   test("includes every open session and routable worker unfiltered", async () => {
-    const handlers = makeSystemHandlers({ db } as unknown as ConnectDeps);
-    const response = await handlers.diagSnapshot(diagRequest(), deviceContext());
-    const snapshot = snapshotPayload(response);
+    const snapshot = snapshotPayload(
+      await systemHandlers().diagSnapshot(diagRequest(), deviceContext()),
+    );
 
     expect(Object.keys(snapshot.coord.sessions).sort()).toEqual([
       ...BATCH_SESSION_IDS,
       LOCAL_UNSELECTED_SESSION,
     ].sort());
     expect(Object.keys(snapshot.workers).sort()).toEqual([WORKER_A, WORKER_C, WORKER_LOCAL]);
-    expect(sentWorkerFps.sort()).toEqual([WORKER_A, WORKER_C, WORKER_LOCAL]);
+    expect(worker.sentWorkerFps.sort()).toEqual([WORKER_A, WORKER_C, WORKER_LOCAL]);
     expect(returnedPipelineSessionIds(snapshot)).toEqual([
       ...BATCH_SESSION_IDS,
       LOCAL_UNSELECTED_SESSION,
     ].sort());
+  });
+});
+
+describe("DiagSnapshot terminal capture dispatch", () => {
+  test("requires exactly one session_filter_ids entry naming the capture session", async () => {
+    const handlers = systemHandlers();
+    for (const request of [
+      diagRequest({ terminalCapture: captureMessage() }),
+      diagRequest({ sessionFilterIds: [MISSING_SESSION], terminalCapture: captureMessage() }),
+      diagRequest({
+        sessionFilterIds: [CAPTURE_SESSION, BATCH_SESSION_IDS[1]!],
+        terminalCapture: captureMessage(),
+      }),
+      // The legacy scalar filter cannot express the one-session scope a capture
+      // request needs, so it is refused rather than reinterpreted.
+      diagRequest({ sessionFilterId: CAPTURE_SESSION, terminalCapture: captureMessage() }),
+    ]) {
+      await expect(handlers.diagSnapshot(request, deviceContext()))
+        .rejects.toMatchObject({ code: Code.InvalidArgument });
+    }
+    expect(worker.capture.commands).toEqual([]);
+    expect(worker.sentWorkerFps).toEqual([]);
+  });
+
+  test("rejects an unauthenticated caller before any capture work", async () => {
+    await expect(systemHandlers().diagSnapshot(
+      diagRequest({ sessionFilterIds: [CAPTURE_SESSION], terminalCapture: captureMessage() }),
+      anonymousContext(),
+    )).rejects.toMatchObject({ code: Code.Unauthenticated });
+    expect(worker.capture.commands).toEqual([]);
+  });
+
+  test("a session the caller cannot reach never reaches the worker", async () => {
+    await expect(systemHandlers().diagSnapshot(
+      diagRequest({
+        sessionFilterIds: [MISSING_SESSION],
+        terminalCapture: captureMessage({ sessionId: MISSING_SESSION }),
+      }),
+      deviceContext(),
+    )).rejects.toMatchObject({
+      code: Code.NotFound,
+      rawMessage: "session_unknown: session_id",
+    });
+    expect(worker.capture.commands).toEqual([]);
+  });
+
+  test("oversized, malformed, sectionless and cross-session evidence is refused before dispatch", async () => {
+    const handlers = systemHandlers();
+    const captureWith = (evidence: string) => diagRequest({
+      sessionFilterIds: [CAPTURE_SESSION],
+      terminalCapture: captureMessage({
+        action: TerminalCaptureAction.CAPTURE,
+        browserEvidenceJson: evidence,
+      }),
+    });
+    await expect(handlers.diagSnapshot(
+      captureWith("x".repeat(TERMINAL_CAPTURE_LIMITS.browserEvidenceBytes + 1)),
+      deviceContext(),
+    )).rejects.toMatchObject({
+      code: Code.InvalidArgument,
+      rawMessage: "evidence_too_large: browser_evidence_json",
+    });
+    await expect(handlers.diagSnapshot(captureWith("{not-json"), deviceContext()))
+      .rejects.toMatchObject({
+        code: Code.InvalidArgument,
+        rawMessage: "evidence_malformed: browser_evidence_json",
+      });
+    await expect(handlers.diagSnapshot(
+      captureWith(JSON.stringify({ ...capturePayload(), layer: "worker" })),
+      deviceContext(),
+    )).rejects.toMatchObject({
+      code: Code.InvalidArgument,
+      rawMessage: "evidence_malformed: layer",
+    });
+    // A payload that names this capture but carries no nested `browser`
+    // section is the production silent-drop: it must fail here, loudly.
+    await expect(handlers.diagSnapshot(
+      captureWith(JSON.stringify(withoutLayerSection(capturePayload()))),
+      deviceContext(),
+    )).rejects.toMatchObject({
+      code: Code.InvalidArgument,
+      rawMessage: "evidence_malformed: browser",
+    });
+    await expect(handlers.diagSnapshot(
+      captureWith(captureEvidence(LOCAL_UNSELECTED_SESSION)),
+      deviceContext(),
+    )).rejects.toMatchObject({
+      code: Code.PermissionDenied,
+      rawMessage: "permission_denied: session_id",
+    });
+    expect(worker.capture.commands).toEqual([]);
+  });
+
+  test("answers with the capture result alone and logs no terminal content", async () => {
+    const handlers = systemHandlers();
+    const armed = await handlers.diagSnapshot(
+      diagRequest({ sessionFilterIds: [CAPTURE_SESSION], terminalCapture: captureMessage() }),
+      deviceContext(),
+    );
+    expect(captureResultOf(armed).capture).toMatchObject({
+      session_id: CAPTURE_SESSION,
+      recording_id: CAPTURE_RECORDING,
+      action: "start",
+      status: "recording",
+      worker_fp: WORKER_A,
+    });
+
+    const captured = await handlers.diagSnapshot(
+      diagRequest({
+        sessionFilterIds: [CAPTURE_SESSION],
+        terminalCapture: captureMessage({
+          action: TerminalCaptureAction.CAPTURE,
+          browserEvidenceJson: captureEvidence(),
+        }),
+      }),
+      deviceContext(),
+    );
+    const { payload, capture } = captureResultOf(captured);
+    // A capture answer carries the result and nothing that could hold terminal
+    // state: no coord dump, no worker fan-out, no SPA echo.
+    expect(Object.keys(payload).sort()).toEqual(["captured_at_ms", "terminal_capture"]);
+    expect(capture).toMatchObject({ action: "capture", status: "captured", byte_length: 4_096 });
+    expect(worker.sentWorkerFps).toEqual([]);
+    // The browser's evidence reaches the worker's owner-only bundle, and
+    // nothing else.
+    expect(String(worker.capture.commands[1]!.browser_evidence_json)).toContain(EVIDENCE_MARKER);
+    expect(captured.snapshotJson).not.toContain(EVIDENCE_MARKER);
+    expect(JSON.stringify(emittedSignals)).not.toContain(EVIDENCE_MARKER);
+    expect(emittedSignals.map((record) => record.evt)).toEqual(["terminal.capture_started"]);
+    // Both layers cross the wire nested under their own layer member; the
+    // worker unwraps `coordinator`/`browser`, never the envelope itself.
+    const forwarded = JSON.parse(
+      String(worker.capture.commands[1]!.coordinator_evidence_json),
+    ) as Record<string, unknown>;
+    expect(forwarded).toMatchObject({
+      schema: TERMINAL_INCIDENT_SCHEMA,
+      layer: "coordinator",
+      capture_id: CAPTURE_ID,
+      session_id: CAPTURE_SESSION,
+    });
+    expect(forwarded.coordinator).toMatchObject({ layer: "coordinator" });
+    expect(forwarded.records).toBeUndefined();
+  });
+
+  test("a worker that drops the capture returns a fixed error code, not a throw", async () => {
+    worker.capture.replies = [{ kind: "drop" }];
+    const response = await systemHandlers().diagSnapshot(
+      diagRequest({ sessionFilterIds: [CAPTURE_SESSION], terminalCapture: captureMessage() }),
+      deviceContext(),
+    );
+    expect(captureResultOf(response).capture).toMatchObject({
+      status: "error",
+      error: "worker_offline",
+      path: null,
+      expires_at_ms: null,
+    });
+  });
+
+  test("an ordinary snapshot keeps its own projection", async () => {
+    const response = await systemHandlers().diagSnapshot(
+      diagRequest({ sessionFilterIds: [CAPTURE_SESSION] }),
+      deviceContext(),
+    );
+    const payload = JSON.parse(response.snapshotJson!) as Record<string, unknown>;
+    expect(Object.keys(payload).sort()).toEqual(["captured_at_ms", "coord", "spa", "workers"]);
+    expect(payload.terminal_capture).toBeUndefined();
+    expect(worker.sentWorkerFps).toEqual([WORKER_A]);
+    expect(worker.capture.commands).toEqual([]);
   });
 });

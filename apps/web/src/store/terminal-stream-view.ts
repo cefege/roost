@@ -33,7 +33,7 @@ import {
   clearTerminalSessionLiveness,
   deliverCanonicalToSubscriber,
   repairStaleTerminalSubscriberOnHeartbeat,
-  requestTerminalLivenessChallenge,
+  requestTerminalDomReconcileRecovery,
   sendLatchedTerminalResync,
   terminalGenerationKey,
   terminalGenerationMatches,
@@ -87,10 +87,8 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
   return {
     sessionId,
     viewId,
-    challengeLiveness(): void {
-      if (!view.disposed && view.desired?.active) {
-        requestTerminalLivenessChallenge(session);
-      }
+    recoverUnreconciledDom(): void {
+      requestTerminalDomReconcileRecovery(session);
     },
     setViewport(geometry): void {
       const trusted = clampTerminalGeometry(geometry);

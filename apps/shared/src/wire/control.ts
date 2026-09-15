@@ -16,6 +16,13 @@ import {
   TerminalSearchQuerySchema,
   TerminalSearchRowSchema,
 } from "../terminal-search.ts";
+import { TERMINAL_CAPTURE_LIMITS } from "../terminal-capture.ts";
+
+/** Zod counts UTF-16 code units; the authoritative bound is UTF-8 BYTES and is
+ *  re-checked by validateTerminalCaptureRequest. One byte is the minimum per
+ *  code unit, so this is an exact non-restrictive upper bound on the wire and
+ *  cannot drift from the shared limit. */
+const TERMINAL_CAPTURE_EVIDENCE_MAX_CHARS = TERMINAL_CAPTURE_LIMITS.browserEvidenceBytes;
 
 /** Why a get-scrollback-cells page came back short of the requested range —
  *  which history floor the caller hit. Mirrors roost.v1.ScrollbackHistoryFloor
@@ -174,17 +181,34 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     session_id: SessionId,
     filename: z.string(),
   }),
-  // diag — coord asks the worker to dump its in-memory byte ring for
-  // the given session, capturing the last 256KB of PTY output bytes.
-  // Worker writes ~/Library/Logs/RoostWorker/bytecap-<sid>-<ts>.bin
-  // and returns the absolute path via rpc-ok { path: string }.
-  // Triggered by SPA-side anomaly detectors via DiagSnapshot.
+  // diag — coord asks the worker to perform one step of an opt-in terminal
+  // incident recording. START/STOP arm and release the worker recorder;
+  // CAPTURE freezes the worker's retained evidence, merges the already-frozen
+  // browser and coordinator evidence and writes ONE owner-only
+  // terminal-incident-<capture-id>.json.gz under the worker log dir, returning
+  // its absolute path and byte length via rpc-ok. The coordinator supplies its
+  // own evidence; a browser can never choose the destination path.
   Base.extend({
-    kind: z.literal("diag-dump-bytecap"),
+    kind: z.literal("diag-terminal-capture"),
     request_id: z.string(),
     session_id: SessionId,
-    reason: z.string(),
-  }),
+    recording_id: z.string().uuid(),
+    capture_id: z.string().uuid(),
+    action: z.enum(["start", "capture", "stop"]),
+    reason: z.enum([
+      "manual",
+      "history_identity",
+      "viewport_model",
+      "worker_emission",
+      "pre_repair",
+    ]),
+    browser_evidence_json: z.string()
+      .max(TERMINAL_CAPTURE_EVIDENCE_MAX_CHARS)
+      .default(""),
+    coordinator_evidence_json: z.string()
+      .max(TERMINAL_CAPTURE_EVIDENCE_MAX_CHARS)
+      .default(""),
+  }).strict(),
   // diag — coord asks worker for a snapshot of all in-memory state
   // for the diag.snapshot event. Worker returns rpc-ok with a
   // JSON-stringified payload.

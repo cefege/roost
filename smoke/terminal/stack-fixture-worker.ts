@@ -3,6 +3,7 @@
 // It reuses the ordinary worker starter so fixture workers retain the real auth and keeper lifecycle.
 
 import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
+import type { CoordWorkerUp } from "../../apps/shared/src/gen/roost/v1/worker_transport_pb.ts";
 import { startDelayedWorkerLink, type DelayedWorkerLink } from "./delayed-worker-link.ts";
 import {
   createTerminalWorkerStarter,
@@ -28,6 +29,8 @@ export interface FixtureWorkerIdentity {
 export type PtyFixtureWorkerStartOptions = {
   /** Inject only the requested worker-link delay; browsers retain the direct coordinator origin. */
   workerLinkOneWayDelayMs?: 0 | 25;
+  /** Drop selected complete worker→coordinator protobuf frames after WebSocket framing. */
+  workerFrameFilter?: (frame: CoordWorkerUp) => boolean;
 };
 
 export interface FixtureWorkerLaunchOptions {
@@ -39,6 +42,7 @@ export interface FixtureWorkerLaunchOptions {
   client: AuthorizedApiClient;
   paths: FixtureWorkerPaths;
   oneWayDelayMs?: 0 | 25;
+  workerFrameFilter?: (frame: CoordWorkerUp) => boolean;
   onWorkerStarted(service: RunningService): void;
   onLinkStarted(link: DelayedWorkerLink | undefined): void;
 }
@@ -47,11 +51,12 @@ export async function startFixtureWorker(
   options: FixtureWorkerLaunchOptions,
 ): Promise<FixtureWorkerIdentity> {
   options.compileFixture();
-  const link = options.oneWayDelayMs === undefined
+  const link = options.oneWayDelayMs === undefined && options.workerFrameFilter === undefined
     ? undefined
     : await startDelayedWorkerLink({
       targetUrl: options.coordinatorUrl,
-      oneWayDelayMs: options.oneWayDelayMs,
+      oneWayDelayMs: options.oneWayDelayMs ?? 0,
+      workerFrameFilter: options.workerFrameFilter,
     });
   options.onLinkStarted(link);
   const startWorker = createTerminalWorkerStarter(
@@ -74,4 +79,27 @@ export async function startFixtureWorker(
     options.paths.logPath,
   );
   return { workerFp, label: options.paths.label, home: options.paths.home, logPath: options.paths.logPath };
+}
+
+export function createFixtureWorkerStarter(
+  launch: FixtureWorkerLaunchOptions,
+): (options?: PtyFixtureWorkerStartOptions) => Promise<FixtureWorkerIdentity> {
+  let start: Promise<FixtureWorkerIdentity> | undefined;
+  let oneWayDelayMs: 0 | 25 | undefined;
+  let workerFrameFilter: PtyFixtureWorkerStartOptions["workerFrameFilter"];
+  return (options: PtyFixtureWorkerStartOptions = {}): Promise<FixtureWorkerIdentity> => {
+    if (start) {
+      if (
+        oneWayDelayMs !== options.workerLinkOneWayDelayMs
+        || workerFrameFilter !== options.workerFrameFilter
+      ) {
+        return Promise.reject(new Error("fixture worker link options cannot change after startup"));
+      }
+      return start;
+    }
+    oneWayDelayMs = options.workerLinkOneWayDelayMs;
+    workerFrameFilter = options.workerFrameFilter;
+    start = startFixtureWorker({ ...launch, oneWayDelayMs, workerFrameFilter });
+    return start;
+  };
 }

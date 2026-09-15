@@ -107,7 +107,7 @@ export function makeSyncWsHandler(
     requestTerminalRebaseline: (ws, sessionId) => {
       const socketId = ws.data.v2?.socketId;
       return socketId !== undefined
-        && options.terminalViews?.screen.resyncSocket(socketId, sessionId) === true;
+        && options.terminalViews?.screen.resyncSocket(socketId, sessionId, null) === true;
     },
   });
   const v2Commands = makeSyncV2CommandHandler({

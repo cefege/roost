@@ -7,6 +7,11 @@
 import { type CellGridFrame } from "@roost/shared/cell";
 import { diag, isDiagEnabled } from "@roost/shared/diag";
 import type { CellGridRenderer } from "./cellRenderer.ts";
+import {
+  noteTerminalRenderApplied,
+  noteTerminalRenderApply,
+  noteTerminalRendererDisposed,
+} from "./terminalIncidentCapture.ts";
 
 const MAX_PENDING_DELTA_FRAMES = 64;
 const MAX_PENDING_SCROLLBACK_ROWS = 250;
@@ -136,6 +141,7 @@ export class TerminalRenderScheduler {
     this.disposed = true;
     this.pending = null;
     this.cancelScheduledFrame();
+    noteTerminalRendererDisposed(this.sessionId, this.renderer);
   }
 
   private fullPending(
@@ -276,11 +282,16 @@ export class TerminalRenderScheduler {
     this.pending = null;
 
     const canonical = pending.canonical;
+    const applyMode = pending.mode === "delta"
+      ? "delta"
+      : pending.source === "wire_full" ? "full" : "fallback_full";
     const diagnostics = isDiagEnabled();
     const startedAt = diagnostics ? performance.now() : 0;
+    noteTerminalRenderApply(this.sessionId, this.renderer, applyMode);
     const applied = pending.mode === "full"
       ? this.renderer.applyFullFrame(canonical)
       : this.renderer.applyDeltaFrames(pending.deltas);
+    noteTerminalRenderApplied(this.sessionId, applyMode, applied);
     if (!applied) {
       this.pending = pending.mode === "delta"
         ? this.fullPending(

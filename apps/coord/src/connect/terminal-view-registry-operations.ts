@@ -5,13 +5,10 @@
 
 import {
   TerminalViewStatus,
-  type TerminalResyncCommand,
   type TerminalViewCommand,
 } from "@roost/shared/proto/sync_pb";
-import { isTerminalUuid } from "@roost/shared/viewport";
 import {
   enqueueTerminalViewState,
-  terminalViewKey,
   type TerminalViewIntent,
 } from "./terminal-view-protocol.ts";
 import {
@@ -30,25 +27,6 @@ export class TerminalViewRegistryOperations {
     private readonly sessionViews: Map<string, Set<string>>,
     private readonly tombstones: Map<string, Tombstone>,
   ) {}
-
-  handleResync(socketId: string, command: TerminalResyncCommand): void {
-    const socket = this.sockets.get(socketId);
-    if (
-      !socket?.viewerKey
-      || !socket.allowsSession(command.sessionId)
-      || !isTerminalUuid(command.viewId)
-    ) return;
-    const view = this.views.get(terminalViewKey(socket.viewerKey, command.viewId));
-    if (
-      !view
-      || view.socketId !== socketId
-      || view.parked
-      || view.sessionId !== command.sessionId
-    ) return;
-    if (this.options.streamState(command.sessionId)?.streamId === command.streamId) {
-      this.options.screen.resyncSocket(socketId, command.sessionId);
-    }
-  }
 
   replayUnavailable(view: View): void {
     const session = this.options.streamState(view.sessionId);
@@ -106,6 +84,11 @@ export class TerminalViewRegistryOperations {
     revision = view.revision,
     intent: TerminalViewIntent = view,
   ): void {
+    // sweep() iterates a snapshot and onLiveViewExpired closes the owning
+    // socket re-entrantly, so a record can already be gone by the time the
+    // loop reaches it; a second removal must not resurrect its tombstone
+    // (removeFingerprint and closeSession delete records without one).
+    if (this.views.get(view.key) !== view) return;
     this.views.delete(view.key);
     this.sessionViews.get(view.sessionId)?.delete(view.key);
     this.sockets.get(view.socketId)?.views.delete(view.key);

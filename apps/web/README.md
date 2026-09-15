@@ -52,7 +52,7 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
 | `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves (`terminal-stream-renewal-scheduler.ts` owns one document renewal timer and `terminal-stream-progress.ts` pushes chunk progress), pane/UI stores; `paneLayoutDocument.ts` is the portable-document adapter over the browser-local pane store; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `auth-boundary.ts` owns the credential-boundary generation guard and authenticated-state teardown | JSX or module-global socket/reconnect state |
 | `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
-| `apps/web/src/lib/` | pure helpers and browser adapters; `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream owner |
+| `apps/web/src/lib/` | pure helpers and browser adapters; `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; `terminalCellGeometry.ts` is the ONE pixels→cols/rows measurement, shared by the live view claim and the pre-spawn size hint; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream owner |
 | `apps/web/src/auth/` | web-key/IndexedDB, `fragment-credential.ts` (`#pair=<token>`, the only URL credential kind), pairing and tab identity | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | global stylesheets imported once by `main.tsx`; `theme-vars.css` owns canonical theme tokens and aliases; `components/Settings/md/tokens.css` owns shared settings primitives; `sidebar.css` owns terminal `.wterm` and legacy drawer rules; `workbench-shell.css` owns desktop shell and workbench-mounted Settings presentation; `workbench-sidebar.css` and `workbench-tabs.css` own sidebar and tab/deck presentation respectively | component-local one-offs |
 | `apps/web/tests/` | recursive `*.test.ts` Bun suites, including the root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
@@ -194,6 +194,36 @@ Break one of these and you get back the history-corruption class this repo keeps
   renderer/stream. Hidden panes receive no cells, but detach or tab switching
   cannot delete the session replica; reactivation receives a complete baseline
   before deltas.
+- **Terminal incident capture is opt-in and consent-gated.** Ordinary terminals
+  keep only their existing content-free diagnostics.
+  `apps/web/src/components/TerminalContextMenu.tsx` carries `Start
+  terminal debugging` (`ctx-debug-start`), `Capture terminal diagnostic`
+  (`ctx-capture-diagnostics`) and `Stop terminal debugging` (`ctx-debug-stop`) in
+  BOTH the floating and the compact-sheet branch, with the lease phase on its own
+  non-interactive `ctx-capture-state-row` (`StatusDot` + label ramp) rather than
+  inside the item that is disabled while recording.
+  `TerminalCaptureStateRow.tsx` renders that row,
+  `TerminalCaptureConsentDialog.tsx` owns the confirmation and
+  `terminalCaptureMenuController.ts` owns the lease calls: starting, and any manual capture
+  without an acknowledged lease, requires a confirmation stating that terminal
+  text and raw output may contain secrets and are retained at most
+  `TERMINAL_CAPTURE_LIMITS.retentionMs`; the consent grants a lease for that
+  session only, and an expired lease must be started again rather than renewed
+  after a reload. The controller calls `freezeTerminalCaptureEvidence` BEFORE the
+  dialog opens (dismissal and focus change reader holds) and discards the token on
+  cancel, so nothing leaves the browser before consent. Confirming START arms the
+  lease and then discards that pre-arm freeze — arming writes no bundle; only a
+  CAPTURE sends `captureTerminalIncidentFrozen`. Saved bundles come back through the existing
+  authenticated file path only: `apps/web/src/lib/terminalCaptureDownload.ts`
+  composes `workerFileHref(workerFp, path)` and hands it to
+  `downloadWorkerFileByHref`, so a capture is never an unauthenticated URL and
+  never an ordinary attachment. An automatic capture reports "Terminal diagnostic
+  captured" with a Download action, a worker-detected incident reports "Worker
+  detected a terminal incident", and a manual capture names and starts that
+  download immediately. `apps/web/src/lib/terminalSnapshotFacade.ts` keeps
+  `window.__roostTerminalSnapshot` content-free and re-exports
+  `startTerminalCapture` / `captureTerminalIncident` / `stopTerminalCapture`; no
+  generic command evaluator is installed on `window`.
 - **Text composition and raw input are distinct contracts.** The browser
   composer imports `buildPtyPayload`, newline normalization, bracketed-paste
   framing, and CR from `@roost/shared/terminal-input`; when bracketed paste is
@@ -232,7 +262,7 @@ Break one of these and you get back the history-corruption class this repo keeps
   four. Pass 2 uses `--project=chromium-serial --workers=1` for `@serial` perf
   cases, then the runner restores embed stubs
   (`scripts/gen-embed.ts --stub`) in a `finally`.
-- **Fake DOM, not jsdom.** The 19 `apps/web/tests/*.dom.test.ts` suites use a
+- **Fake DOM, not jsdom.** The 23 `apps/web/tests/*.dom.test.ts` suites use a
   hand-rolled fake DOM; this repo runs no jsdom or happy-dom. Solid resolves to
   its SSR build under `bun test`, so a DOM emulator buys nothing and the fake
   asserts exactly what the code touches. Shared renderer fixtures are in

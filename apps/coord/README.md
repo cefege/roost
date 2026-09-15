@@ -65,7 +65,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | mcp | `src/connect/handlers-mcp.ts` | MCP relay CRUD and publication, with a bus delta per mutation |
 | auth | `src/connect/handlers-auth.ts` | facade over `src/connect/handlers-auth-bootstrap.ts`, `src/connect/handlers-pairing.ts`, and `src/connect/handlers-devices.ts`: identity/access, bootstrap redemption, pairing, device rotation/revocation, logout |
 | worker-update | `src/connect/handlers-workers-update.ts` | the coordinator-held keeper update boundary: drain, reauthorize, canonical open-session snapshot, then the authenticated worker action |
-| system | `src/connect/handlers-system.ts` | health, db-export URL, metrics, the SPA diag-log batch sink, state snapshot, audit-log query |
+| system | `src/connect/handlers-system.ts` | health, db-export URL, metrics, the SPA diag-log batch sink, state snapshot, audit-log query, and — when `DiagSnapshot.terminal_capture` is present — the opt-in terminal incident capture step (below) |
 | workspaces | `src/connect/handlers-workspaces.ts` | version-CAS workspace rows, set-sessions, orphan GC |
 | tasks | `src/connect/handlers-tasks.ts` | claimable task queue: list/enqueue/next-pending/set-state/cancel |
 | workers | `src/connect/handlers-workers.ts` | registry lifecycle; composes deploy start/output from `src/connect/handlers-workers-deploy.ts` |
@@ -104,6 +104,28 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   exact target-tab/live Sync-v2 socket selection, correlation registration
   before publication, result fencing, and
   cancellation/close/replacement/timeout settlement.
+- Opt-in terminal incident capture (`src/connect/terminal-capture*.ts`) is a
+  second mode of `DiagSnapshot`, not a second RPC.
+  `src/connect/terminal-capture.ts` is the authenticated bridge and owns the
+  load-bearing order: validate the wire request, resolve the durable
+  session/worker and authorization boundary, check lease ownership, admit the
+  capture, freeze coordinator evidence, then dispatch.
+  `src/connect/terminal-capture-lease.ts` owns the process-wide recording
+  registry: `(account-device principal, session, recording ID)` ownership,
+  server-time expiry, the per-session one-outstanding/cooldown gate, the
+  bounded completed-capture cache, and the result/fixed-error vocabulary.
+  `src/connect/terminal-capture-recorder.ts` owns bounded coordinator cell
+  records, fed by two hooks at `TerminalScreenHub`'s accepted full/delta fold
+  boundary and frozen as a `TerminalCaptureCoordinatorPayload`: the capture
+  envelope with the section NESTED under `coordinator`, never flattened onto
+  the envelope — a flattened payload passes an identity check and then fails as
+  a section, dropping the whole layer from the bundle. An unarmed session
+  allocates nothing.
+  `src/connect/terminal-capture-worker-call.ts` owns the dedicated 10-second
+  worker call and rebuilds the worker's acknowledgement from recognized fields
+  only. Every bound comes from `TERMINAL_CAPTURE_LIMITS`
+  (`@roost/shared/terminal-capture`); no capture response or log line carries
+  terminal content.
 - Top level: `src/event-log.ts` (stable event facade),
   `src/event-transaction.ts` (durable append/projection transaction),
   `src/pending-event-publications.ts` (bounded post-commit recovery and ordered
@@ -114,7 +136,13 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   reference projection), `src/session-event-visibility.ts` (the fail-closed
   public/private event boundary), `src/connect/session-list-projection.ts`
   (separate public and owning-worker recovery queries),
-  `src/connect/terminal-view-hub.ts` (browser membership and SCD geometry),
+  `src/connect/terminal-view-hub.ts` (browser membership and SCD geometry,
+  with `src/connect/terminal-view-registry-commands.ts` owning the
+  admit/update/reclaim/remove state machine one client declaration drives,
+  split out of `src/connect/terminal-view-registry.ts` at the 400-line cap),
+  `src/connect/diag-snapshot-session-state.ts` (the per-session diag slice
+  `handlers-system.ts` assembles: route, terminal-view aggregate, screen
+  watermark, and the per-view geometry inputs the SCD minimized over),
   `src/connect/terminal-screen-hub.ts` (canonical cell replica and resumable
   per-socket cursors), `src/buses.ts` (`BoundedBus<T>`, one per non-terminal
   domain), `src/jwt.ts`, `src/authorized-keys.ts`,
@@ -298,7 +326,10 @@ its byte-for-byte semantics.
   against in-memory SQLite and drives `coord.fetch(...)` directly: no
   `Bun.serve`, port allocation, or network.
 - The coordinator half of the terminal flow is pinned by
-  `tests/terminal-view-hub.test.ts`, `tests/terminal-screen-hub.test.ts`,
+  `tests/terminal-view-hub.test.ts`,
+  `tests/terminal-view-registry-membership.test.ts` (which viewer records
+  constrain the PTY: SCD across sockets, park grace, hold, lease expiry),
+  `tests/terminal-screen-hub.test.ts`,
   `tests/sync-ws-v2-scheduler.test.ts`, `tests/coord-bidi.test.ts`,
   `tests/durable-publication.test.ts`, `tests/announced-channel-barrier.test.ts`,
   `tests/sync-ws-keepalive.test.ts`,

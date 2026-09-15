@@ -19,7 +19,6 @@ import type {
 import { createTerminalSelectionGuard } from "../lib/terminalSelectionGuard.ts";
 import {
   createTerminalPresentationController,
-  FOREGROUND_DOM_STALL_MS,
   preservesForegroundReaderHold,
   type TerminalPresentationController,
 } from "../lib/terminalPresentation.ts";
@@ -36,7 +35,7 @@ import type {
   BaselineProgress,
   TerminalPresentationState,
 } from "../store/terminal-stream-types.ts";
-import type { TerminalViewHandleStatus } from "../store/terminal-stream.ts";
+import { terminalStreamDiagnosticSnapshot, type TerminalViewHandleStatus } from "../store/terminal-stream.ts";
 import {
   terminalViewportLoadingNotice,
   type TerminalLoadingNoticeProps,
@@ -46,7 +45,8 @@ import type { CellTerminalProps } from "./cell-terminal-types.ts";
 import type { CellTerminalRuntime } from "./cell-terminal-runtime.ts";
 
 const OFFLINE_GRACE_MS = 3000;
-const ATTACH_DIAGNOSIS_GRACE_MS = 2000;
+const ATTACH_DIAGNOSIS_GRACE_MS = 3_000;
+const DOM_RECONCILIATION_PROOF_MS = 3_000;
 
 export interface CellTerminalPresentation {
   attachPointerGestureGuard(): () => void;
@@ -59,6 +59,7 @@ export interface CellTerminalPresentation {
   loadingNotice: Accessor<TerminalLoadingNoticeProps | null>;
   loadingProgress: Accessor<{ received: number; total: number } | null>;
   noteFrameActivity: TerminalPresentationController["noteFrameActivity"];
+  noteRendererReconciled(): void;
   notifyBackfill(result: LiveInteractionResult | undefined): void;
   offline: Accessor<boolean>;
   offlineSibling: () => { id: string } | null;
@@ -96,7 +97,8 @@ export function createCellTerminalPresentation(
   const pointerGestures = new Set<number>();
   let deferredDomStall: RendererEpochSeq | null = null;
   let deferredDomEscalation: RendererEpochSeq | null = null;
-  let domEscalationTimer: ReturnType<typeof setTimeout> | null = null;
+  let domReconciliationWatermark: RendererEpochSeq | null = null;
+  let domEscalationTimer: Timer | null = null;
   let releasePointerGestureListeners = (): void => undefined;
 
   const protectedReaderReason = (): boolean =>
@@ -127,17 +129,27 @@ export function createCellTerminalPresentation(
         || reconciled.seq < watermark.seq
       );
   };
-  const clearDomStallRecovery = (): void => {
+  const reconciledWatermarkReached = (watermark: RendererEpochSeq): boolean => {
+    const reconciled = runtime.renderer?.reconciledEpochSeq();
+    return reconciled?.grid_epoch === watermark.grid_epoch
+      && reconciled.seq !== null
+      && watermark.seq !== null
+      && reconciled.seq >= watermark.seq;
+  };
+  const clearDomReconciliationTarget = (): void => {
     clearTimeout(domEscalationTimer ?? undefined);
     domEscalationTimer = null;
-    pointerGestures.clear();
-    releasePointerGestureListeners();
-    deferredDomStall = null;
+    domReconciliationWatermark = null;
     deferredDomEscalation = null;
   };
-  const escalateDomStall = (watermark: RendererEpochSeq): void => {
+  const clearDomStallRecovery = (): void => {
+    clearDomReconciliationTarget();
+    deferredDomStall = null;
+  };
+  const recoverUnreconciledDom = (watermark: RendererEpochSeq): void => {
     if (
-      !viewActive()
+      domReconciliationWatermark !== watermark
+      || !viewActive()
       || !foregroundViewReady()
       || !isPageVisible()
       || protectedReaderReason()
@@ -147,25 +159,57 @@ export function createCellTerminalPresentation(
       deferredDomEscalation = watermark;
       return;
     }
+    const renderer = runtime.renderer;
+    const reconciled = renderer?.reconciledEpochSeq()
+      ?? { grid_epoch: null, seq: null };
+    const stream = terminalStreamDiagnosticSnapshot(
+      runtime.sessionId,
+      runtime.view?.viewId,
+    );
     signal("cell.foreground_stall", {
       sid: runtime.sessionId,
+      stream_id: stream.view.stream_id,
+      view_revision: stream.view.revision,
+      generation_socket: stream.sync.socket_generation,
+      generation_domain: stream.sync.domain_generation,
+      checkpoint_epoch: watermark.grid_epoch,
+      checkpoint_seq: watermark.seq,
+      replica_epoch: stream.replica.grid_epoch,
+      replica_seq: stream.replica.seq,
+      dom_reconciled_epoch: reconciled.grid_epoch,
+      dom_reconciled_seq: reconciled.seq,
+      reader_reason: renderer?.readerReason ?? null,
+      block_reason: renderer?.reconcileBlockReason() ?? null,
       layer: "dom_reconcile",
-      action: "resync",
-      block_reason: runtime.renderer?.reconcileBlockReason() ?? null,
+      action: "redial",
       cooldownKey: runtime.sessionId,
     });
-    runtime.view?.challengeLiveness();
+    runtime.view?.recoverUnreconciledDom();
   };
-  const armDomEscalation = (watermark: RendererEpochSeq): void => {
-    clearTimeout(domEscalationTimer ?? undefined);
-    domEscalationTimer = setTimeout(() => {
+  const armDomReconciliationTarget = (watermark: RendererEpochSeq): void => {
+    if (!watermarkStillUnreconciled(watermark)) return;
+    if (
+      domReconciliationWatermark?.grid_epoch === watermark.grid_epoch
+      && domReconciliationWatermark.seq !== null
+      && watermark.seq !== null
+      && domReconciliationWatermark.seq <= watermark.seq
+    ) return;
+    clearDomReconciliationTarget();
+    const captured = { ...watermark };
+    domReconciliationWatermark = captured;
+    const timer = setTimeout(() => {
+      if (
+        domEscalationTimer !== timer
+        || domReconciliationWatermark !== captured
+      ) return;
       domEscalationTimer = null;
-      escalateDomStall(watermark);
-    }, FOREGROUND_DOM_STALL_MS);
+      recoverUnreconciledDom(captured);
+    }, DOM_RECONCILIATION_PROOF_MS);
+    domEscalationTimer = timer;
   };
   const handleCatchUpStalled = (watermark: RendererEpochSeq): void => {
     if (
-      domEscalationTimer !== null
+      domReconciliationWatermark !== null
       || !viewActive()
       || !isPageVisible()
       || protectedReaderReason()
@@ -176,20 +220,13 @@ export function createCellTerminalPresentation(
       deferredDomStall = watermark;
       return;
     }
-    signal("cell.foreground_stall", {
-      sid: runtime.sessionId,
-      layer: "dom_reconcile",
-      action: "reconcile",
-      block_reason: runtime.renderer?.reconcileBlockReason() ?? null,
-      cooldownKey: runtime.sessionId,
-    });
+    armDomReconciliationTarget(watermark);
+    if (domReconciliationWatermark === null) return;
     runtime.predictor?.clear();
     runtime.renderer?.setPredictedCursor(null);
     selection.prepareLiveInteraction();
     terminalPresentation.refreshTerminalPresentation();
     runtime.view?.refresh();
-    const latest = runtime.renderer?.canonicalEpochSeq();
-    if (latest && watermarkStillUnreconciled(latest)) armDomEscalation(latest);
   };
   const terminalPresentation = createTerminalPresentationController({
     active: viewActive,
@@ -198,11 +235,17 @@ export function createCellTerminalPresentation(
     renderer: () => runtime.renderer,
     onCatchUpStalled: handleCatchUpStalled,
   });
+  const noteRendererReconciled = (): void => {
+    const watermark = domReconciliationWatermark;
+    if (watermark && reconciledWatermarkReached(watermark)) clearDomReconciliationTarget();
+    terminalPresentation.refreshTerminalPresentation();
+  };
   const syncNativeSelectionHold = (): void => {
     selection.syncNativeSelectionHold();
     terminalPresentation.refreshTerminalPresentation();
   };
   createEffect(() => {
+    if (!pageVisible()) releasePointerGestureListeners();
     if (!viewActive() || !pageVisible() || !foregroundViewReady()) {
       clearDomStallRecovery();
     }
@@ -229,7 +272,7 @@ export function createCellTerminalPresentation(
         if (current) handleCatchUpStalled(current);
       }
       deferredDomEscalation = null;
-      if (escalation) escalateDomStall(escalation);
+      if (escalation) recoverUnreconciledDom(escalation);
     };
     const onPointerDown = (event: PointerEvent): void => {
       if (pointerGestures.size === 0) {
@@ -257,7 +300,7 @@ export function createCellTerminalPresentation(
     retryOffline();
   });
   createEffect(() => offlineWatch.update(
-    viewActive() && isPageVisible(),
+    viewStatus() !== null && viewActive() && isPageVisible(),
     hasReconciledFrame(),
   ));
   const offlineSibling = () =>
@@ -317,6 +360,7 @@ export function createCellTerminalPresentation(
     clearAttachDiagnosis();
     offlineWatch.dispose();
     clearDomStallRecovery();
+    releasePointerGestureListeners();
     terminalPresentation.clearFrameActivity();
     terminalPresentation.clearCursorBlink();
     selection.releasePaintHolds();
@@ -333,6 +377,7 @@ export function createCellTerminalPresentation(
     loadingNotice,
     loadingProgress,
     noteFrameActivity: terminalPresentation.noteFrameActivity,
+    noteRendererReconciled,
     notifyBackfill: selection.notifyBackfill,
     offline,
     offlineSibling,

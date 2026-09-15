@@ -29,11 +29,24 @@ import {
   type TerminalScreenSocketSink,
 } from "./terminal-screen-hub.ts";
 import { TerminalViewRegistry } from "./terminal-view-registry.ts";
+import type { TerminalViewInput } from "./terminal-view-registry-state.ts";
 import {
   TerminalViewStreamController,
   type TerminalStreamDesired,
   type TerminalStreamRoute,
 } from "./terminal-view-stream-controller.ts";
+
+export type { TerminalViewInput } from "./terminal-view-registry-state.ts";
+
+/** What diagnostics read about one session: live vs parked membership plus the
+ * stream the coordinator currently owns for it. */
+export interface TerminalViewSnapshot {
+  activeViews: number;
+  parkedViews: number;
+  streamId: string;
+  effective: TerminalGeometry | null;
+  unavailable: boolean;
+}
 
 export interface TerminalViewHubOptions {
   db: KyselyDB;
@@ -76,10 +89,14 @@ export function currentTerminalScreenHub(): TerminalScreenHub | null {
   return productionHub?.screen ?? null;
 }
 
-export function terminalViewSnapshot(
-  sessionId: string,
-): ReturnType<TerminalViewHub["snapshot"]> {
+export function terminalViewSnapshot(sessionId: string): TerminalViewSnapshot | null {
   return productionHub?.snapshot(sessionId) ?? null;
+}
+
+/** Per-viewer geometry inputs behind a session's effective geometry. Empty
+ * when no production hub is installed (tests construct hubs directly). */
+export function terminalViewInputs(sessionId: string): readonly TerminalViewInput[] {
+  return productionHub?.viewerInputs(sessionId) ?? [];
 }
 
 export function notifyTerminalRouteReconciled(
@@ -217,13 +234,11 @@ export class TerminalViewHub {
     return this.registry.viewerProjection();
   }
 
-  snapshot(sessionId: string): {
-    activeViews: number;
-    parkedViews: number;
-    streamId: string;
-    effective: TerminalGeometry | null;
-    unavailable: boolean;
-  } | null {
+  viewerInputs(sessionId: string): readonly TerminalViewInput[] {
+    return this.registry.viewerInputs(sessionId);
+  }
+
+  snapshot(sessionId: string): TerminalViewSnapshot | null {
     const stream = this.streams.state(sessionId);
     if (!stream) return null;
     const views = this.registry.viewStats(sessionId);

@@ -9,26 +9,13 @@ import {
   __setConnectWorkerForTest,
   type WorkerHandle,
 } from "../src/connect/worker-registry.ts";
+import { databaseWithOpenSession } from "./worker-respawn-harness.ts";
 
 const WORKER_FP = "a".repeat(64);
 
 afterEach(() => {
   __setConnectWorkerForTest(WORKER_FP, null);
 });
-
-function databaseWithOpenSession() {
-  const query = {
-    innerJoin: () => query,
-    select: () => query,
-    where: () => query,
-    execute: async () => [{
-      id: "00000000-0000-4000-8000-000000000001",
-      kind: "shell",
-      cwd: "/tmp",
-    }],
-  };
-  return { selectFrom: () => query };
-}
 
 test("defers reconnect respawn until keeper-update exclusivity releases", async () => {
   const gate = new CoordinatorWriteGate();

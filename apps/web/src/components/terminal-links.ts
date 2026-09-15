@@ -1,8 +1,9 @@
-// Owns modifier-gated hover and activation for terminal-rendered anchors.
+// Owns physical-modifier hover and physical or compact-sheet activation for terminal-rendered anchors.
 // A separate scanner detects inferred links, while the shared DOM applier
 // validates and authors both inferred and producer-painted targets.
 // CellTerminal attaches one instance and coordinates its repaint hold.
 
+import type { Accessor } from "solid-js";
 import {
   classifyTerminalLinkTarget,
   computeRowLinks,
@@ -42,6 +43,7 @@ export type {
 // Kept here so this legacy raw font value remains attributed to its existing
 // design-ratchet baseline while the interaction attachment loads it lazily.
 const CSS_INJECTED = Symbol.for("roost.wterm-link.css");
+const NO_LINK_ACTIVATION_ARMED: Accessor<boolean> = () => false;
 function injectTerminalLinkCssOnce(): void {
   if ((globalThis as Record<symbol, unknown>)[CSS_INJECTED]) return;
   (globalThis as Record<symbol, unknown>)[CSS_INJECTED] = true;
@@ -94,11 +96,13 @@ export interface TerminalLinkActivationGesture {
   altKey: boolean;
 }
 
-/** The event is authoritative; window modifier state is presentation only. */
+/** Physical modifiers come from the event; compact arming is pane-local state. */
 export function isTerminalLinkActivationGesture(
   event: TerminalLinkActivationGesture,
+  linkActivationArmed: Accessor<boolean>,
 ): boolean {
   if (event.button !== 0 || event.shiftKey || event.altKey) return false;
+  if (linkActivationArmed()) return true;
   return terminalLinkModifierKey() === "Meta"
     ? event.metaKey && !event.ctrlKey
     : event.ctrlKey && !event.metaKey;
@@ -118,6 +122,8 @@ export interface TerminalLinkOpts {
   onOpenFile?: (href: string) => void;
   /** Getter so scans see a Git remote that resolves after pane mount. */
   githubOwnerRepo?: () => string | undefined;
+  /** Compact keyboard-sheet state, separate from physical modifier hover. */
+  linkActivationArmed?: Accessor<boolean>;
   /** Foreground state at construction; hidden panes install no link work. */
   initialActive?: boolean;
   /** Holds renderer paint only while the modifier and pointer are both active. */
@@ -130,6 +136,8 @@ export function attachTerminalLinks(
 ): TerminalLinkAttachment {
   injectTerminalLinkCssOnce();
   const initialActive = opts.initialActive ?? true;
+  const linkActivationArmed =
+    opts.linkActivationArmed ?? NO_LINK_ACTIVATION_ARMED;
   const scanner = attachTerminalLinkScanner(container, opts, initialActive);
   const modKey = terminalLinkModifierKey();
   let active = initialActive;
@@ -238,7 +246,7 @@ export function attachTerminalLinks(
     const anchor = anchorFrom(event.target);
     if (!anchor) return;
     const target = resolveTerminalAnchorTarget(anchor, opts.resolveFile);
-    if (!target || !isTerminalLinkActivationGesture(event)) {
+    if (!target || !isTerminalLinkActivationGesture(event, linkActivationArmed)) {
       event.preventDefault();
       return;
     }

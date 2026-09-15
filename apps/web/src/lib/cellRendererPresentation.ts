@@ -92,44 +92,47 @@ export interface RendererPresentationSnapshot {
   at_bottom: boolean;
 }
 
-export function createRendererPaintPresentation(opts: {
-  paintedRows: readonly CellRow[];
-  readerAnchor: ReaderAnchor | null;
-  paintedSpacerHeight: string;
-  gapRows: number;
-  rowHeight: number;
-  defaultRowHeight: number;
-  rowLimit?: number;
-}): RendererPaintPresentation {
-  const rowLimit = opts.rowLimit ?? PAINT_PRESENTATION_ROW_LIMIT;
-  let start = Math.max(0, opts.paintedRows.length - rowLimit);
-  const anchor = opts.readerAnchor;
-  if (anchor && opts.paintedRows.length > rowLimit) {
+export function createRendererPaintPresentation(
+  projection: RendererProjection,
+  rowLimitOverride?: number,
+): RendererPaintPresentation {
+  const painted = projection.paintedHistory;
+  const rowLimit = rowLimitOverride ?? PAINT_PRESENTATION_ROW_LIMIT;
+  let start = Math.max(0, painted.length - rowLimit);
+  const anchor = projection.readerAnchor;
+  if (anchor && painted.length > rowLimit) {
     let at = 0;
-    while (at < opts.paintedRows.length && opts.paintedRows[at]!.index < anchor.row) at++;
-    start = Math.max(0, Math.min(
-      at - (rowLimit >>> 1),
-      opts.paintedRows.length - rowLimit,
-    ));
+    while (at < painted.length && painted[at]!.index < anchor.row) at++;
+    start = Math.max(0, Math.min(at - (rowLimit >>> 1), painted.length - rowLimit));
   }
   return {
-    rows: opts.paintedRows
+    rows: painted
       .slice(start, start + rowLimit)
       .map((row) => ({ index: row.index, text: spansText(row.spans) })),
-    headSpacerPx: parseFloat(opts.paintedSpacerHeight) || 0,
-    tailGapPx: opts.gapRows * (
-      opts.rowHeight > 0 ? opts.rowHeight : opts.defaultRowHeight
+    headSpacerPx: parseFloat(projection.paintedSpacerHeight) || 0,
+    tailGapPx: projection.gapRows * (
+      projection.rowHeight > 0 ? projection.rowHeight : projection.defaultRowHeight
     ),
     readerAnchor: anchor ? { ...anchor } : null,
   };
 }
 
-export interface RendererPresentationState {
+/** Read-only view of renderer-internal state. Both the presentation snapshot
+ *  and the incident DOM reader consume it, so the renderer exposes exactly one
+ *  accessor and neither consumer can reach a mutable member. */
+export interface RendererProjection {
+  container: HTMLElement;
+  scrollbackEl: HTMLElement;
+  viewportEl: HTMLElement;
   canonical: CellGridFrame | null;
+  /** Frame the renderer has accepted. At a pre-destructive boundary this is
+   *  already the INCOMING canonical, never the committed painted model. */
+  applied: CellGridFrame | null;
   canonicalWatermark: RendererEpochSeq;
   reconciledWatermark: RendererEpochSeq;
   readerIntent: ReaderIntent;
   readerReason: ReaderIntentReason | null;
+  readerAnchor: ReaderAnchor | null;
   holdMask: number;
   domRows: number;
   reconciledAltScreen: boolean | null;
@@ -141,10 +144,134 @@ export interface RendererPresentationState {
   cursorConnected: boolean;
   paintedCols: number | null;
   atBottom: boolean;
+  paintedHistory: readonly CellRow[];
+  paintedSbBase: number;
+  scrollbackLayoutEnd: number;
+  /** Reserved height of the unpainted history head, exactly as painted. */
+  paintedSpacerHeight: string;
+  gapRows: number;
+  defaultRowHeight: number;
+  rowHeight: number;
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+}
+
+export type RendererIncidentPhase =
+  | "pre_apply"
+  | "pre_destructive"
+  | "pre_history_insert"
+  | "post_reconcile";
+
+/** Installed only by an armed terminal incident recorder. `armed` is read at
+ *  every renderer call site BEFORE an argument is constructed, so an unarmed
+ *  terminal reads no DOM and allocates nothing. */
+export interface RendererIncidentObserver {
+  readonly armed: boolean;
+  observe(phase: RendererIncidentPhase, mode: "full" | "delta" | null): void;
+}
+
+/** Two painted history rows are the same row when they paint the same cells;
+ *  authoritative history that disagrees with a painted row forces a repair. */
+export function sameScrollbackRow(left: CellRow, right: CellRow): boolean {
+  if (left === right || (left.index === right.index && left.spans === right.spans)) return true;
+  if (left.index !== right.index || left.spans.length !== right.spans.length) return false;
+  for (let index = 0; index < left.spans.length; index++) {
+    const a = left.spans[index]!;
+    const b = right.spans[index]!;
+    if (
+      a.text !== b.text || a.columns !== b.columns || a.fg !== b.fg || a.bg !== b.bg
+      || a.flags !== b.flags || a.fgRgb !== b.fgRgb || a.bgRgb !== b.bgRgb
+      || a.linkUri !== b.linkUri || a.linkKey !== b.linkKey
+    ) return false;
+  }
+  return true;
+}
+
+export interface RendererReconcileState {
+  readerPending: boolean;
+  holdMask: number;
+  predictedCol: number | null;
+  cursorCol: number | null;
+  pendingRender: boolean;
+  canonical: RendererEpochSeq;
+  reconciled: RendererEpochSeq;
+}
+
+export function rendererReconcileBlockReason(
+  state: RendererReconcileState,
+): ReconcileBlockReason {
+  if (state.readerPending) return "reader_pending_frame";
+  const selection = (state.holdMask & RENDERER_HOLD_SELECTION) !== 0;
+  const link = (state.holdMask & RENDERER_HOLD_LINK) !== 0;
+  if (selection && link) return "selection_and_link_hold";
+  if (selection) return "selection_hold";
+  if (link) return "link_hold";
+  if (
+    state.cursorCol !== null
+    && state.predictedCol !== null
+    && state.predictedCol !== state.cursorCol
+  ) return "predicted_cursor";
+  if (state.pendingRender) return "pending_render";
+  if (
+    state.canonical.grid_epoch !== state.reconciled.grid_epoch
+    || state.canonical.seq !== state.reconciled.seq
+  ) return "not_reconciled";
+  return null;
+}
+
+/** Absolute history rows the scroll box shows right now, or null when the
+ *  box sits past the painted history. */
+export function visibleHistoryRowRange(input: {
+  scrollTop: number;
+  spacerTop: number;
+  clientHeight: number;
+  rowHeight: number;
+  total: number;
+}): { start: number; end: number } | null {
+  if (input.rowHeight <= 0 || input.clientHeight <= 0) return null;
+  const start = Math.max(
+    0,
+    Math.floor((input.scrollTop - input.spacerTop) / input.rowHeight),
+  );
+  const end = Math.min(
+    input.total,
+    Math.ceil(
+      (input.scrollTop + input.clientHeight - input.spacerTop) / input.rowHeight,
+    ),
+  );
+  return start >= end ? null : { start, end };
+}
+
+/** Rows that left `previous`'s viewport and became history in `frame`, in
+ *  absolute coordinates, or null when the checkpoint promotes nothing. */
+export function transitionedViewportRows(
+  previous: CellGridFrame | null,
+  frame: CellGridFrame | null,
+): CellRow[] | null {
+  if (
+    !frame
+    || !previous
+    || !frame.full
+    || previous.gridEpoch !== frame.gridEpoch
+    || previous.cols !== frame.cols
+    || previous.rows !== frame.rows
+    || previous.altScreen !== frame.altScreen
+    || previous.scrollbackTotal >= frame.scrollbackTotal
+  ) return null;
+  const transitioned = Math.min(
+    previous.rows,
+    frame.scrollbackTotal - previous.scrollbackTotal,
+  );
+  if (transitioned === 0) return null;
+  return previous.viewportRows.slice(0, transitioned).map((row) => ({
+    index: previous.scrollbackTotal + row.index,
+    spans: row.spans,
+  }));
 }
 
 export function createRendererPresentationSnapshot(
-  state: RendererPresentationState,
+  state: RendererProjection,
 ): RendererPresentationSnapshot {
   const canonical = state.canonical;
   const reconciledMode = state.reconciledAltScreen === null

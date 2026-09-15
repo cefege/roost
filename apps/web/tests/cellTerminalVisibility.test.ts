@@ -47,6 +47,7 @@ mock.module("../src/components/terminal-links.ts", () => ({
     initialLinkActivity.push(options.initialActive ?? true);
     return {
       setActive: (active: boolean) => linkActivity.push(active),
+      releaseInteraction: () => undefined,
       dispose: () => undefined,
     };
   },
@@ -123,6 +124,7 @@ describe("terminal foreground visibility", () => {
     };
     const input = {
       setCtrlArmed: () => undefined,
+      setLinkActivationArmed: () => undefined,
       resolveFile: async () => null,
       enqueueFileItems: () => undefined,
       copySelectionToClipboard: async () => undefined,
