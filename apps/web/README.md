@@ -120,6 +120,24 @@ Break one of these and you get back the history-corruption class this repo keeps
   app writes terminal scroll position. Scrollback rows are append-only and immutable; every
   `content-visibility` block gets an exact pixel placeholder (`blockPlaceholder`) so a revealed block
   cannot move the scroll maximum out from under a pinned pane.
+- **A reader park must be exitable by an event the pane can still deliver.** A park whose whole
+  state is a scroll position (`native_scroll`, `wheel`, `touch` — `isPositionOnlyReaderReason` in
+  `apps/web/src/lib/cellRendererPresentation.ts`) resumes from `noteBoxResize()` when the reader sat
+  at the OLD box's bottom; `selection` and `find` own an anchor and keep their park. Any park
+  resumes when the post-resize box leaves no scroll range (`scrollHeight <= clientHeight`), because
+  a box that cannot scroll can never fire another scroll event and `handleScroll()`'s bottom resume
+  becomes unreachable — the pane would be frozen forever with `atBottom()` already true. Paint holds
+  (`RENDERER_HOLD_SELECTION`, `RENDERER_HOLD_LINK`) are level-derived from the live document, not
+  latched on an edge: `cell-terminal-interactions.ts` re-runs `syncNativeSelectionHold()` when it
+  re-attaches its global listeners, and every container pointer event re-derives the link hold's
+  modifier level in BOTH directions (`components/terminal-links.ts`, with a TOTAL predicate — an
+  event carrying no modifier fields reads as "not held"), because a hold must never outlive the
+  level that justifies it. Releasing the last hold resumes a `selection` park, and any park whose
+  box has lost its scroll range. `_resumeLive` refuses a held pane BEFORE mutating reader state, so
+  a frozen pane reports its real intent, reason and `reconcile_block_reason` instead of a lying
+  `live`/`null`. Dismissing the find bar ends the find reading INTERVAL through
+  `endFindReading()` (reason `find` → `native_scroll`, no scroll write, no pin, no frame applied),
+  so a dismissed park is an ordinary scroll park instead of an anchor every recovery refuses.
 - **`CellTerminal` renders inside the `<For>` deck, never a `<Show>`.** `src/components/TerminalDeck.tsx` feeds
   `<For each={mountedSessionIds()}>` primitive session ids (not `Session` objects) so a root snapshot
   that replaces a same-id object cannot tear down a warm renderer; a remount loses scrollback. Guard:

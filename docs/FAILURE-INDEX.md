@@ -308,6 +308,133 @@ reported 487.11px instead of 4199.22px; revealing it grew `scrollHeight` by exac
 `"at-bottom reader follows a box grow onto the new bottom"`,
 `"a live old-bottom anchor follows a box shrink with exactly one pin"`.
 
+### A box grow under a parked reader removes the last scroll event
+
+**Symptom** — "terminal died after the window/pane/composer changed size and never streamed again / scrolling
+back to the bottom does not restart it / only a reload fixes it", with `at_bottom` already TRUE and
+`reconcile_block_reason=reader_pending_frame` while the canonical seq keeps climbing.
+
+**Wrong** — resume a parked reader from `ResizeObserver` only when `_readerReason === "native_scroll"`. Real
+wheel and touch gestures park as `"wheel"` / `"touch"` (`apps/web/src/lib/terminalMouseForwarding.ts`), so that
+gate was dead for every real gesture. Equally wrong here: an `atBottom()` tolerance or any reveal/resize scroll
+correction — the geometry was measured INTEGRAL in 184 real layouts at four device-pixel ratios (the true clamp
+equals `scrollHeight - clientHeight` exactly), so the predicate was never the defect. Equally wrong: gating the
+bottom-clamp settle on the `native_scroll` reason alone. The scroll handler records `native_scroll` for a real
+movement and `terminalMouseForwarding.ts` then UPGRADES that park to the gesture's own `wheel`/`touch` reason,
+so the settle armed for the next frame no longer matches its own park; if layout clamps that park onto the
+exact bottom, no further scroll event exists and nothing resumes it. Also wrong: letting a paint hold swallow
+the repair — `noteBoxResize` advances `_lastBoxH` before it returns, so the ResizeObserver cannot retry, and
+`_resumeLive` refuses under a hold, so a wheel park plus a link hover plus a zero-range grow consumed the
+pane's only resume while the later hold release refused too, because release resumed a `selection` park only.
+
+**Right** — **a park must be exitable by an event the pane can still deliver.** A parked reader freezes the
+DOM, so a grow past the frozen content leaves `scrollHeight === clientHeight`: the box can never fire another
+scroll event, `handleScroll()`'s bottom resume (`apps/web/src/lib/cellRenderer.ts`) is unreachable, and
+`noteBoxResize()` is the only observer left — it also consumes `_lastBoxH` before every early return, so a
+refusal is permanent. `noteBoxResize()` therefore resumes when the reader sat at the old box's bottom AND the
+park is position-only (`isPositionOnlyReaderReason` — `native_scroll`/`wheel`/`touch`), and resumes ANY park,
+`find` included, when the post-resize box has no scroll range left. An off-bottom wheel/touch park with range
+remaining keeps its park (a real wheel still recovers it). Measured wedge: `scrollTop 0 / scrollHeight 748 /
+clientHeight 748`, DOM pinned at the old epoch seq 28 while canonical reached 52 on a new epoch; zero scroll
+events across ten wheel bursts, a `scrollTop = scrollHeight` assignment and a click.
+The settle is keyed to the same position-only class as the resize resume, and still demands
+`readerIntent === "reading"`, `!holding` and `atBottom()` exactly, so no off-bottom or held reader is
+un-parked.
+A hold release resumes the selection park the hold itself created AND any park once the box has no scroll range,
+explicitly, so a `find` park is released too; a park that still has range keeps its interval, because the
+exact-bottom scroll and the next frame's bottom-clamp settle own that case.
+
+**Guard** — `apps/web/tests/cellRenderer.geometry.dom.test.ts` —
+`"a wheel-parked reader resumes when a box grow leaves no scroll range"` and its three siblings;
+`smoke/terminal/terminal-render-box-grow-resume.spec.ts` (real wheel park + viewport grow must repaint);
+`apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
+`"a wheel park clamped to the bottom settles without a second scroll event"`;
+`apps/web/tests/cellRenderer.append.dom.test.ts` —
+`"a hold release resumes a wheel park whose box lost its scroll range"`, with
+`"a hold release leaves a find park that can still reach its anchor"` as the refusal control.
+
+### A find park swallows the scroll that returns the pane to the bottom
+
+**Symptom** — "used find, closed the find bar, scrolled back to the bottom, and the terminal is frozen until I
+type"
+
+**Wrong** — treating EVERY scroll event as sacred to the find anchor: `handleScroll()` capturing the anchor and
+returning before the at-bottom resume whenever the reason is `find`. `closeFind()`
+(`apps/web/src/lib/terminalFindController.ts`) only clears highlights and query state — it never resumes the
+reader — so before this change no gesture at any position could un-park the pane after a dismissal, and a box
+change with scroll range remaining refused it too. Equally wrong: resuming on any at-bottom event regardless of
+origin,
+which lets `scrollToScrollbackRow()`'s own write to a TAIL hit clamp onto the bottom and instantly un-park the
+navigation the user just asked for.
+
+**Right** — a user scroll onto the exact bottom is the universal return to live and means the same thing for
+every reason, `find` included: resume explicitly, so the find bail is bypassed and the pin lands. Distinguish
+origin with the renderer-owned epoch already computed at the top of `handleScroll()` — an `owned` event keeps
+the anchor it just aimed at, a non-owned one resumes. Geometry events the user did not aim at the bottom
+(`noteBoxResize`) still preserve a find park unless the box has no scroll range left. Dismissing the find bar
+must NOT resume: it would yank a reader off the match they are still looking at.
+
+**Guard** — `apps/web/tests/cellRenderer.findPark.dom.test.ts` —
+`"a user scroll to the exact bottom resumes a find park"`,
+`"a renderer-owned write that lands at the bottom keeps the find park"`,
+`"a find park survives a scroll that does not reach the bottom"`.
+
+### A dismissed find bar leaves the pane parked on a dead find anchor
+
+**Symptom** — "closed the find bar and the terminal never came back to life"
+
+**Wrong** — ending the find SESSION without ending the find reading INTERVAL: `closeFind()` clearing
+highlights, query and matches while the renderer stays `readerIntent=reading readerReason=find`. The
+anchor-owning park then outlives the feature that created it, and every generic recovery refuses it — a box
+change with range remaining, and a hold release. Equally wrong: resuming from `closeFind()`, which pins and
+yanks a user who dismissed the bar while reading a mid-history match.
+
+**Right** — the renderer exposes `endFindReading()`, which downgrades the reason `find` → `native_scroll` and
+touches nothing else: no scroll write, no pin, no frame applied, position preserved. `closeFind()` calls it
+last. After dismissal the park is an ordinary scroll park, so an exact-bottom scroll, a zero-range grow, a hold
+release or the bottom-clamp settle all resume it, while an OPEN bar keeps anchor semantics.
+
+**Guard** — `apps/web/tests/cellRenderer.findPark.dom.test.ts` —
+`"closing the find bar ends the park without moving or painting"` and
+`"a dismissed find park follows a box grow its anchor would have refused"`, both driving the real
+`createTerminalFind` against a real renderer.
+
+### A paint hold armed on an edge outlives the listener that would clear it
+
+**Symptom** — "terminal never paints again after a UI layout change / typing reaches the PTY but the grid is
+frozen", with `hold_mask {selection: true}` while nothing is selected anywhere on the page, or
+`hold_mask {link: true}` after a modifier keyup that was delivered somewhere else, and a scroll to the exact
+bottom returning `{reconciled:false, anchorChanged:false}`.
+
+**Wrong** — arm `RENDERER_HOLD_SELECTION` edge-only from the document `selectionchange` listener and re-attach
+that listener without re-deriving the hold. The pane detaches its global listeners for the whole of a withdraw
+(`apps/web/src/components/cell-terminal-interactions.ts`), and a transient layout gap routes through
+`parkViewAfterLayoutGap()`, which deliberately does NOT `releasePaintHolds()` — so a selection dropped inside
+that window pins a hold no selection justifies. Equally wrong: dropping holds in the layout-gap park (it exists
+so jitter does not re-mint every other viewer's geometry, and it would discard a real reader's selection), or
+adding a renderer watchdog to guess the hold away, or deriving a modifier level UP on a pointer event while
+only ever lowering it on the keyup edge.
+
+**Right** — **holds are LEVEL-derived from the live document, not latched on an edge.** The attach transition
+re-runs `syncNativeSelectionHold()` (untracked, so the gate does not subscribe to the presentation refresh it
+performs), which is the single evaluator of the hold; a still-live selection therefore keeps holding and a
+vanished one stops. `_resumeLive` refuses a held pane BEFORE mutating reader state, so the pane keeps reporting
+its real intent/reason and `reconcile_block_reason="selection_hold"` instead of a lying `live`/`null` — which
+also keeps the foreground-stall watchdog muted instead of redialing a view the mask refreezes, and makes the
+eventual hold release pin the bottom (`pinOnResume`) as its `selection` reason intends. Any non-zero hold mask
+is a total paint kill: frames are accepted and swallowed, so no scroll can heal it.
+The link hold is level-derived the same way: every container pointer event carries the LIVE modifier state, so
+`mouseover`, `mouseenter`, `mousemove` and `mousedown` each re-derive `armed` in BOTH directions
+(`apps/web/src/components/terminal-links.ts`), and that predicate must be TOTAL — an event with no modifier
+fields must read as "not held", never `undefined`, or the hold ends up neither armed nor disarmed. Re-entering
+a pane with nothing held can no longer revive a hold from a dead edge.
+
+**Guard** — `apps/web/tests/cellTerminalVisibility.test.ts` —
+`"a selection dropped while the pane's listeners are detached stops holding paint"`,
+`"a selection still live when the listeners re-attach keeps paint held"`;
+`apps/web/tests/terminal-links.dom.test.ts` — the modifier-level cases, including
+re-entry with no modifier held.
+
 ### The painted scroll space describes only the shipped tail
 
 **Symptom** — "scrollbar thumb size/position jumps with no user action / reader lands on a different row after a tab switch or re-attach / scroll bar 'all over the place'"
@@ -1126,6 +1253,28 @@ has a watchdog and stays tappable.
 
 **Guard** — `apps/web/tests/deepgramDictation.test.ts`; `apps/web/tests/audioPcmCapture.test.ts`;
 `smoke/terminal/` — `"a second recording works exactly like the first"`.
+
+### A diagnostic sink throws into the path it was observing
+
+**Symptom** — "terminal input silently dies once SPA diagnostics are on" /
+`TypeError: Do not know how to serialize a BigInt` / `JSON.stringify cannot serialize cyclic structures`,
+thrown from a `diag()` call inside the send path.
+
+**Wrong** — `JSON.stringify(kv)` raw in a diagnostic sink, then repairing the one call site that blew up
+(`input_seq: String(pending.inputSeq)`). A proto `uint64` is a `bigint`, so the sink threw out of
+`diag("bytes.up_send", …)` back into `sendTerminalInput` and killed every keystroke; per-call-site
+stringification leaves every future call site armed with the same trap.
+
+**Right** — **observability can never propagate a failure into a product path.** `safeJsonStringify` in
+`apps/shared/src/json.ts` (the repo's canonical JSON boundary, which already owned the parse direction) maps
+`bigint` to its exact decimal string at every depth — `Number()` is forbidden, it rounds past 2^53 — and
+returns the caller's fallback instead of throwing; `apps/web/src/lib/diag.ts` ships
+`{"kv_unserializable":true}` so the event still reaches the operator with the loss flagged. `emitEnabled()`
+and `signal()` in `apps/shared/src/diag.ts` wrap record construction (the `...kv` spread runs getters) AND
+sink dispatch in one guard per function that reports through `log.warn` with strings only, so a hostile value
+cannot re-throw on the reporting line. One guard at the facade covers every sink.
+
+**Guard** — `apps/web/tests/diag.test.ts`; `apps/shared/tests/json.test.ts`.
 
 ---
 

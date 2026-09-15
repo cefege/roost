@@ -66,17 +66,23 @@ export function setDiagSink(sink: DiagSink | null): void { _sink = sink; }
 
 // The hot path. Branch on DIAG_ENABLED at the top so a disabled
 // callsite is one boolean test + return.
+//
+// An observer must never break what it observes — terminal input emits one
+// diagnostic per keystroke — so a kv no sink can take (a cycle, a throwing
+// getter, a bigint reaching a JSON.stringify sink) costs this ONE event. The
+// failure line carries strings only, so it cannot trip on the same value.
 function emitEnabled(evt: string, kv: DiagKv): void {
-  const record: Record<string, unknown> = {
-    evt,
-    mono_ns: monoNs(),
-    ...kv,
-  };
-  if (_sink) {
-    _sink(record);
-    return;
+  try {
+    const record: Record<string, unknown> = {
+      evt,
+      mono_ns: monoNs(),
+      ...kv,
+    };
+    if (_sink) _sink(record);
+    else log.info("diag", evt, record);
+  } catch (error) {
+    log.warn("diag", "sink_threw", { evt, error: String(error) });
   }
-  log.info("diag", evt, record);
 }
 function emitDisabled(_evt: string, _kv: DiagKv): void { /* no-op */ }
 
@@ -202,20 +208,28 @@ const SIGNAL_COOLDOWN_MAX_KEYS = 512;
  * Emit ONE always-on Tier-1 signal. Cooldown-gated (default 10s) per
  * `kind` + an optional scope key (kv.cooldownKey ?? kv.sid) so repeats of
  * the same anomaly coalesce while distinct sessions stay independent.
+ *
+ * Anomaly reporting is never load-bearing: a kv the sink or the logger
+ * cannot encode is reported as `sink_threw` and dropped, never raised into
+ * the failing path that noticed the anomaly.
  */
 export function signal(kind: SignalKind, kv: DiagKv = {}): void {
-  const scope = String(kv.cooldownKey ?? kv.sid ?? "");
-  const cooldownKey = `${kind}|${scope}`;
-  const now = Date.now();
-  if (now - (_signalLastFire.get(cooldownKey) ?? 0) < SIGNAL_COOLDOWN_MS) return;
-  if (_signalLastFire.size > SIGNAL_COOLDOWN_MAX_KEYS) {
-    for (const [key, firedAt] of _signalLastFire) {
-      if (now - firedAt >= SIGNAL_COOLDOWN_MS) _signalLastFire.delete(key);
+  try {
+    const scope = String(kv.cooldownKey ?? kv.sid ?? "");
+    const cooldownKey = `${kind}|${scope}`;
+    const now = Date.now();
+    if (now - (_signalLastFire.get(cooldownKey) ?? 0) < SIGNAL_COOLDOWN_MS) return;
+    if (_signalLastFire.size > SIGNAL_COOLDOWN_MAX_KEYS) {
+      for (const [key, firedAt] of _signalLastFire) {
+        if (now - firedAt >= SIGNAL_COOLDOWN_MS) _signalLastFire.delete(key);
+      }
     }
+    _signalLastFire.set(cooldownKey, now);
+    const record: Record<string, unknown> = { evt: kind, mono_ns: monoNs(), ...kv };
+    delete record.cooldownKey;
+    if (_signalSink) { _signalSink(record); return; }
+    log.warn("signal", kind, record);
+  } catch (error) {
+    log.warn("signal", "sink_threw", { evt: kind, error: String(error) });
   }
-  _signalLastFire.set(cooldownKey, now);
-  const record: Record<string, unknown> = { evt: kind, mono_ns: monoNs(), ...kv };
-  delete record.cooldownKey;
-  if (_signalSink) { _signalSink(record); return; }
-  log.warn("signal", kind, record);
 }

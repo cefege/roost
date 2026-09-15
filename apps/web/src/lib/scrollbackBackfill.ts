@@ -8,7 +8,7 @@ import type { CellRow } from "@roost/shared/cell";
 import { cellRowFromProto } from "@roost/shared/cell/cell-proto";
 import type { SessionsGetScrollbackCellsResponse } from "@roost/shared/proto/coordinator_pb";
 import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
-import { type CellGridRenderer, type ReaderAnchor } from "./cellRenderer.ts";
+import type { CellGridRenderer } from "./cellRenderer.ts";
 import {
   backfillStateOf,
   SCROLLBACK_FLOOR_REASON,
@@ -24,7 +24,7 @@ const BACKFILL_FETCH_ROWS = 1000;
 const BACKFILL_SPLICE_ROWS = 250;
 const BACKFILL_RETRY_MS = 2000;
 
-type DemandKind = "scroll" | "find" | "restore";
+type DemandKind = "scroll" | "find";
 type ChunkGuard =
   | "epoch" | "cols" | "total" | "start_row" | "end_row"
   | "row_count" | "row_index";
@@ -36,8 +36,6 @@ type ScrollbackRenderer = Pick<
   | "insertHistoryPage"
   | "missingScrollbackRange"
   | "missingScrollbackRangeAtScroll"
-  | "readerAnchorForBackfill"
-  | "restoreReaderAnchor"
 >;
 
 interface Demand {
@@ -78,7 +76,6 @@ export function createScrollbackBackfill(opts: {
 }): ScrollbackBackfill {
   let generation = 0;
   let activeWave: ActiveWave | null = null;
-  let activeAnchorRestore: object | null = null;
   let disposed = false;
   let frameEpoch: string | null = null;
   let frameCols = 0;
@@ -110,7 +107,6 @@ export function createScrollbackBackfill(opts: {
   function suspend(): void {
     generation++;
     activeWave = null;
-    activeAnchorRestore = null;
   }
 
   function rejectPage(
@@ -297,17 +293,6 @@ export function createScrollbackBackfill(opts: {
     return wave.promise;
   }
 
-  function restoreReaderAnchor(target: ReaderAnchor): void {
-    if (disposed || !opts.active() || activeAnchorRestore !== null) return;
-    const marker = {};
-    activeAnchorRestore = marker;
-    void startDemand("restore", target.row).then((painted) => {
-      if (painted && !disposed && opts.active()) opts.renderer()?.restoreReaderAnchor(target);
-    }).finally(() => {
-      if (activeAnchorRestore === marker) activeAnchorRestore = null;
-    });
-  }
-
   return {
     onFullFrame(): void {
       const renderer = opts.renderer();
@@ -329,8 +314,6 @@ export function createScrollbackBackfill(opts: {
       } else if (anchor) {
         frameTotal = Math.max(frameTotal, anchor.total);
       }
-      const readerAnchor = renderer?.readerAnchorForBackfill();
-      if (readerAnchor) restoreReaderAnchor(readerAnchor);
     },
     onUserScroll(): void {
       const renderer = opts.renderer();

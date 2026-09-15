@@ -308,7 +308,9 @@ export async function proveFindPasteRecovery({
   const preFindRows = (await readTerminalStreamProbe(page, sessionId))
     .browser.presentation?.rows.dom;
   if (preFindRows === undefined) throw new Error("pre-find presentation omitted DOM rows");
-  // A real one-line paste, not closing Find, adopts its pending frame.
+  // A real one-line paste, not closing Find, adopts its pending frame. Closing
+  // it ends the find INTERVAL — the reason downgrades to an ordinary scroll
+  // park — without moving the view or painting.
   await pressPlatformShortcut(page, "terminalFind", "F");
   const findInput = page.getByTestId("terminal-find-input");
   await expect(findInput).toBeVisible();
@@ -349,7 +351,7 @@ export async function proveFindPasteRecovery({
     resizedBehindReader: true,
     domRows: findOpenRows,
     intent: "reading",
-    reason: "find",
+    reason: "native_scroll",
     blocked: "reader_pending_frame",
   });
 
@@ -362,7 +364,7 @@ export async function proveFindPasteRecovery({
   );
   const findPending = await waitForCanonicalAdvance(page, sessionId, beforeFindPending);
   expectCanonicalAdvanceHeld(beforeFindPending, findPending, {
-    readerReason: "find",
+    readerReason: "native_scroll",
     selectionHold: false,
   });
   const hiddenFindMarker = await attemptPaintedMarker(page, sessionId, findPendingMarker);

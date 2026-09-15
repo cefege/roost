@@ -85,7 +85,6 @@ function harness(options: {
   focus?: number | null;
   sessionId?: string;
   bottom?: boolean;
-  readerAnchor?: { row: number; offsetPx: number };
 } = {}) {
   const anchor = {
     sbBase: options.painted?.[0] ?? options.total ?? 0,
@@ -98,7 +97,6 @@ function harness(options: {
   let visibleFocus = options.focus ?? null;
   let bottom = options.bottom ?? false;
   let active = true;
-  const restoredAnchors: Array<{ row: number; offsetPx: number }> = [];
   function missing(absIndex: number): { start: number; end: number } | null {
     if (!Number.isInteger(absIndex) || absIndex < 0 || absIndex >= anchor.total || painted.has(absIndex)) {
       return null;
@@ -139,11 +137,6 @@ function harness(options: {
       if (start < anchor.sbBase) anchor.sbBase = start;
       return true;
     },
-    readerAnchorForBackfill: () => options.readerAnchor ? { ...options.readerAnchor } : null,
-    restoreReaderAnchor(anchor: { row: number; offsetPx: number }) {
-      restoredAnchors.push(anchor);
-      return true;
-    },
   };
   const controller = createScrollbackBackfill({
     sessionId: options.sessionId ?? "session-1",
@@ -154,7 +147,6 @@ function harness(options: {
     anchor,
     painted,
     insertions,
-    restoredAnchors,
     controller,
     setFocus(next: number | null) { visibleFocus = next; },
     setBottom(next: boolean) { bottom = next; },
@@ -306,27 +298,6 @@ describe("ScrollbackBackfill arbitrary gap paging", () => {
     h.controller.dispose();
   });
 
-
-  test("a user scroll supersedes a delayed reader-anchor restore", async () => {
-    const h = harness({ total: 760, focus: 100, readerAnchor: { row: 700, offsetPx: 0 } });
-    const delayedRestore = Promise.withResolvers<ScrollResponse>();
-    let calls = 0;
-    rpcImpl = (request) => ++calls === 1
-      ? delayedRestore.promise
-      : Promise.resolve(response(0, Number(request.endRow), 760));
-
-    h.controller.onFullFrame();
-    await flushWork();
-    h.controller.onUserScroll();
-    await flushWork();
-    expect(rpcCalls).toHaveLength(2);
-
-    delayedRestore.resolve(response(0, 760, 760));
-    await flushWork();
-    expect(h.restoredAnchors).toEqual([]);
-    expect(h.painted.has(100)).toBe(true);
-    h.controller.dispose();
-  });
   test("rejects stale responses, cancels suspended or rewound work, and accepts monotonic growth", async () => {
     const staleEpoch = harness({ total: 300, focus: 100 });
     rpcImpl = async (request) => response(0, Number(request.endRow), 300, { gridEpoch: "other:0" });

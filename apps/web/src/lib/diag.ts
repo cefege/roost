@@ -12,6 +12,7 @@
 // ws/sync-outbound.ts (callers via the global `diag` export).
 
 import { setDiagSink, setSignalSink, isDiagEnabled, signal } from "@roost/shared/diag";
+import { safeJsonStringify } from "@roost/shared/json";
 import { coordinatorRpcUrl, coordClient } from "../connect.ts";
 
 // Fixed-size, always-on SPA phase recorder. Unlike the diagnostic firehose,
@@ -216,8 +217,7 @@ function _printEchoRtt(): void {
 // duration) + `renderer_apply` (fold plus any synchronous DOM reconciliation)
 // arrive via pushRecord. `dom_reconcile_opportunity` is frame arrival through
 // two rAFs after the apply; it is a presentation opportunity, never raster
-// paint proof. window.__roostLag() prints p50/p95/max per segment + the
-// dominant hop. All wall-clock ms; valid
+// paint proof. window.__roostLag() prints wall-clock-ms p50/p95/max per segment plus the dominant hop.
 const LAG_CAP = 500;
 // Felt-lag alarm floor for the always-on cell.paint_lag signal. The worker's own
 // coalesce budget is 16 ms and the documented first-paint budget is 40 ms
@@ -386,7 +386,7 @@ function pushRecord(record: Record<string, unknown>, isSignal: boolean): void {
 
   _buf.push({
     evt, tsMs, monoNs, traceId, sessionTraceId, sid, viewerKey,
-    kvJson: Object.keys(kv).length ? JSON.stringify(kv) : "",
+    kvJson: Object.keys(kv).length ? safeJsonStringify(kv, '{"kv_unserializable":true}') : "",
     signal: isSignal,
   });
   if (evt === "echo.rtt_sample" || evt === "echo.frame_rtt") {

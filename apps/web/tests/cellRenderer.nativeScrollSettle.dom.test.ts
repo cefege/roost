@@ -60,6 +60,24 @@ test("native scroll settle resumes a frame after silent bottom clamping", async 
     expect(renderer.currentFrame!.seq).toBe(4);
   });
 });
+// A wheel gesture at the bottom parks WITHOUT moving the scroll position, so no
+// scroll event will ever follow: the settle is the pane's only resume.
+test("a wheel park clamped to the bottom settles without a second scroll event", async () => {
+  await withAnimationFrames(async (drainAnimationFrames) => {
+    const container = makeContainer();
+    const renderer = new CellGridRenderer(container as unknown as HTMLElement);
+    seedHeldHistory(renderer, 80, [row(0, "v")], scrollbackRows(400));
+    container.scrollTop = container.scrollHeight - container.clientHeight;
+    renderer.enterReading("wheel");
+    renderer.apply(appendedFrame(3));
+    expect(renderer.currentFrame!.seq).toBe(2);
+    drainAnimationFrames();
+
+    expect(renderer.readerIntent).toBe("live");
+    expect(renderer.currentFrame!.seq).toBe(3);
+    expect(renderer.canonicalEpochSeq()).toEqual(renderer.reconciledEpochSeq());
+  });
+});
 test("native scroll settle keeps a true off-bottom reader held", async () => {
   await withAnimationFrames(async (drainAnimationFrames) => {
     const container = makeContainer();

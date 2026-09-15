@@ -20,6 +20,7 @@ import {
   RENDERER_HOLD_SELECTION,
 } from "../src/lib/cellRenderer.ts";
 import {
+  ROW_PX,
   makeContainer,
   row,
   fullFrame,
@@ -179,6 +180,55 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(viewportEl.children[0]).not.toBe(heldRow);
     expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
     expect(r.reconcileBlockReason()).toBeNull();
+  });
+
+  // A hold that outlives the repair noteBoxResize tried to make is the only
+  // resume the pane had: `_lastBoxH` advanced, so the observer cannot retry and
+  // a box with no scroll range dispatches no scroll event either.
+  test("a hold release resumes a wheel park whose box lost its scroll range", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0")], Array.from({ length: 400 }, (_, i) => row(i, `h${i}`)));
+    const heldRow = viewportEl.children[0];
+    c.scrollTop = 0;
+    r.enterReading("wheel");
+    r.setArmedHold(true); // a link hover lands on the parked pane
+    expect(r.apply({
+      ...deltaFrame(80, 1, [row(0, "v0-latest")], [], 3),
+      scrollbackTotal: 400,
+    })).toBe(true);
+
+    c.clientHeight = c.scrollHeight + ROW_PX; // a layout change swallows the range
+    expect(r.noteBoxResize()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("reading");
+    expect(r.noteBoxResize()).toEqual({ reconciled: false, anchorChanged: false });
+
+    expect(r.setArmedHold(false).reconciled).toBe(true);
+    expect(r.readerIntent).toBe("live");
+    expect(viewportEl.children[0]).not.toBe(heldRow);
+    expect(vpEl(c).textContent).toBe("v0-latest");
+    expect(r.reconcileBlockReason()).toBeNull();
+  });
+
+  test("a hold release leaves a find park that can still reach its anchor", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0")], Array.from({ length: 400 }, (_, i) => row(i, `h${i}`)));
+    const heldRow = viewportEl.children[0];
+    r.scrollToScrollbackRow(50);
+    r.handleScroll(); // the find-owned write's own event
+    r.setArmedHold(true);
+    expect(r.apply({
+      ...deltaFrame(80, 1, [row(0, "v0-latest")], [], 3),
+      scrollbackTotal: 400,
+    })).toBe(true);
+
+    expect(r.setArmedHold(false)).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("find");
+    expect(viewportEl.children[0]).toBe(heldRow);
   });
 
   test("selection and link holds clear atomically with at most one epoch repair", () => {

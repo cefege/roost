@@ -39,6 +39,7 @@ import {
   RENDERER_HOLD_SELECTION,
   createRendererPaintPresentation,
   createRendererPresentationSnapshot,
+  isPositionOnlyReaderReason,
   rendererReconcileBlockReason,
   sameScrollbackRow,
   transitionedViewportRows,
@@ -66,7 +67,6 @@ export {
 export type {
   BackfillAnchor,
   LiveInteractionResult,
-  ReaderAnchor,
   ReaderIntent,
   ReaderIntentReason,
   ReconcileBlockReason,
@@ -84,7 +84,6 @@ export class CellGridRenderer {
   private _readerIntent: ReaderIntent = "live";
   private _readerReason: ReaderIntentReason | null = null;
   private _readerAnchor: ReaderAnchor | null = null;
-  private _readerAnchorNeedsRestore = false;
   private _holdMask = 0;
   private pendingRender = false;
   private _nextOwnedScrollEpoch = 0;
@@ -92,8 +91,8 @@ export class CellGridRenderer {
   private _ownedScrollTop = 0;
   // A pending selection-release scroll is consumed before native reader intent.
   private _liveSelectionReleasePending = false;
-  // A native scroll can be clamped to bottom by late layout without a second event.
-  private _nativeScrollSettleEpoch = 0;
+  // A position-only park can be clamped to bottom with no second scroll event.
+  private _bottomParkSettleEpoch = 0;
   private _curBlock: HTMLElement | null = null;
   private _curBlockRows = 0;
   private readonly spacerEl: HTMLElement;
@@ -194,7 +193,7 @@ export class CellGridRenderer {
       this.readerPendingFrame = owned;
       this.readerPendingFrameRetainsHistory = retainsHistory;
       if (this._readerIntent === "live") this.pendingRender = true;
-      if (this._readerReason === "native_scroll") this._settleNativeScroll();
+      if (isPositionOnlyReaderReason(this._readerReason)) this._settleBottomPark();
       return true;
     }
     const previousFrame = this.frame;
@@ -224,7 +223,7 @@ export class CellGridRenderer {
     if (this._readerIntent === "reading" || this.readerPendingFrame) {
       this.readerPendingFrame = frame;
       if (this._readerIntent === "live") this.pendingRender = true;
-      if (this._readerReason === "native_scroll") this._settleNativeScroll();
+      if (isPositionOnlyReaderReason(this._readerReason)) this._settleBottomPark();
       return true;
     }
     const wasAtBottom = this._atBottomOrOwnedPlacement();
@@ -282,13 +281,18 @@ export class CellGridRenderer {
     this._readerReason = reason;
     this._captureReaderAnchor();
   }
-  private _settleNativeScroll(): void {
-    const epoch = ++this._nativeScrollSettleEpoch;
+  /** End a find interval without moving the view: the park keeps its position
+   *  and becomes an ordinary scroll park any resume can release. */
+  endFindReading(): void {
+    if (this._readerReason === "find") this._readerReason = "native_scroll";
+  }
+  private _settleBottomPark(): void {
+    const epoch = ++this._bottomParkSettleEpoch;
     const settle = (): void => {
       if (
-        epoch !== this._nativeScrollSettleEpoch
+        epoch !== this._bottomParkSettleEpoch
         || this._readerIntent !== "reading"
-        || this._readerReason !== "native_scroll"
+        || !isPositionOnlyReaderReason(this._readerReason)
         || this.holding
         || !this.atBottom()
       ) return;
@@ -337,22 +341,30 @@ export class CellGridRenderer {
   }
   private _flushIfReleased(): LiveInteractionResult {
     if (this.holding) return NO_LIVE_INTERACTION_RESULT;
+    // A release resumes the selection park the hold itself created, and any
+    // park once the box has no scroll range: there, no scroll event can exist
+    // and no anchor is reachable. A park with range keeps its interval —
+    // reaching the bottom, or the next frame's settle, resumes that one.
+    const noRange = this.container.scrollHeight <= this.container.clientHeight;
     if (
       this._readerIntent === "reading"
       && this._readerReason !== "selection"
+      && !noRange
     ) return NO_LIVE_INTERACTION_RESULT;
-    return this._resumeLive(false);
+    return this._resumeLive(false, noRange);
   }
   private _resumeLive(clearHolds: boolean, explicit = false): LiveInteractionResult {
     if (!explicit && this._readerReason === "find") return NO_LIVE_INTERACTION_RESULT;
+    if (clearHolds) this._holdMask = 0;
+    // A surviving hold outranks the resume, and reader state must stay truthful
+    // under it: `live`/null with a set mask hides the real block reason and
+    // un-mutes the foreground-stall watchdog into a redial the mask refreezes.
+    if (this.holding) return NO_LIVE_INTERACTION_RESULT;
     const pinOnResume = explicit || this._readerReason === "selection";
     const before = this.backfillAnchor();
     this._readerIntent = "live";
     this._readerReason = null;
-    if (clearHolds) this._holdMask = 0;
     this._readerAnchor = null;
-    this._readerAnchorNeedsRestore = false;
-    if (this.holding) return NO_LIVE_INTERACTION_RESULT;
     let previousFrame: CellGridFrame | null = null;
     if (this.readerPendingFrame) {
       previousFrame = this.frame;
@@ -803,36 +815,13 @@ export class CellGridRenderer {
   paintedScrollbackRowCount(): number {
     return this._paintedRows.length;
   }
-  readerAnchorForBackfill(): ReaderAnchor | null {
-    if (!this._readerAnchorNeedsRestore || this._readerIntent !== "reading") return null;
-    return this._readerAnchor ? { ...this._readerAnchor } : null;
-  }
-
-  restoreReaderAnchor(anchor: ReaderAnchor): boolean {
-    const current = this.readerAnchorForBackfill();
-    if (
-      !current
-      || current.row !== anchor.row
-      || current.offsetPx !== anchor.offsetPx
-      || !this._paintedRow(anchor.row)
-    ) return false;
-    const rowH = this.rowHeight();
-    if (rowH <= 0) return false;
-    const max = Math.max(0, this.container.scrollHeight - this.container.clientHeight);
-    const target = this.spacerEl.offsetTop + anchor.row * rowH + anchor.offsetPx;
-    this._writeScrollTop(Math.max(0, Math.min(target, max)));
-    this._readerAnchorNeedsRestore = false;
-    return true;
-  }
 
   private _paintedRow(index: number): CellRow | null {
     return paintedRowAt(this._paintedRows, index);
   }
 
   paintPresentation(rowLimit?: number): RendererPaintPresentation {
-    if (this._readerIntent === "reading" && !this._readerAnchorNeedsRestore) {
-      this._captureReaderAnchor();
-    }
+    if (this._readerIntent === "reading") this._captureReaderAnchor();
     return createRendererPaintPresentation(this.rendererProjection(), rowLimit);
   }
 
@@ -1182,24 +1171,32 @@ export class CellGridRenderer {
   }
 
   handleScroll(): LiveInteractionResult {
+    let owned = false;
     if (this._ownedScrollEpoch !== 0) {
-      const owned = this.container.scrollTop === this._ownedScrollTop;
-      if (!owned || this.atBottom()) this._ownedScrollEpoch = 0;
-      if (owned) return NO_LIVE_INTERACTION_RESULT;
+      owned = this.container.scrollTop === this._ownedScrollTop;
+      const bottom = this.atBottom();
+      if (!owned || bottom) this._ownedScrollEpoch = 0;
+      // An owned event that landed on the bottom is the only proof a parked
+      // reader returned; swallowing it leaves the pane parked with no retry.
+      if (owned && !bottom) return NO_LIVE_INTERACTION_RESULT;
     }
-    if (this._readerAnchorNeedsRestore) return NO_LIVE_INTERACTION_RESULT;
     if (this._readerIntent === "reading" && this._readerReason === "find") {
-      this._captureReaderAnchor();
-      return NO_LIVE_INTERACTION_RESULT;
+      // A user scroll onto the exact bottom is the universal return to live;
+      // only the renderer's own find write keeps the anchor it just aimed at.
+      if (owned || !this.atBottom()) {
+        this._captureReaderAnchor();
+        return NO_LIVE_INTERACTION_RESULT;
+      }
+      return this._resumeLive(false, true);
     }
     if (this._liveSelectionReleasePending && !this.atBottom()) {
       this._liveSelectionReleasePending = false;
       return this._resumeLive(false);
     }
-    if (this.atBottom() && this._readerReason !== "find") return this._resumeLive(false);
+    if (this.atBottom()) return this._resumeLive(false);
     if (this._readerIntent === "live") {
       this.enterReading("native_scroll");
-      this._settleNativeScroll();
+      this._settleBottomPark();
     }
     return NO_LIVE_INTERACTION_RESULT;
   }
@@ -1209,15 +1206,17 @@ export class CellGridRenderer {
     const h = el.clientHeight;
     const prev = this._lastBoxH;
     if (h > 0) this._lastBoxH = h;
-    if (prev <= 0 || h <= 0 || h === prev) {
-      return NO_LIVE_INTERACTION_RESULT;
-    }
+    if (prev <= 0 || h <= 0 || h === prev) return NO_LIVE_INTERACTION_RESULT;
     const wasAtOldBottom =
       el.scrollTop >= Math.max(0, el.scrollHeight - Math.max(prev, h));
     if (!wasAtOldBottom) return NO_LIVE_INTERACTION_RESULT;
+    // A grow that leaves no scroll range can never fire another scroll event,
+    // so this observer tick is the last chance to resume; and with no range
+    // there is no reader position left to protect, whatever parked it.
     if (
       this._readerIntent === "reading"
-      && this._readerReason !== "native_scroll"
+      && !isPositionOnlyReaderReason(this._readerReason)
+      && el.scrollHeight > h
     ) return NO_LIVE_INTERACTION_RESULT;
     return this._resumeLive(false, true);
   }
@@ -1239,7 +1238,7 @@ export class CellGridRenderer {
     this._readerReason = null;
     this._holdMask = 0;
     this._ownedScrollEpoch = 0;
-    this._nativeScrollSettleEpoch += 1;
+    this._bottomParkSettleEpoch += 1;
     this._ownedScrollTop = 0;
     this._liveSelectionReleasePending = false;
     this.pendingRender = false;
@@ -1249,7 +1248,6 @@ export class CellGridRenderer {
     this._gapRows = 0;
     this._tailGapEl = null;
     this._readerAnchor = null;
-    this._readerAnchorNeedsRestore = false;
     this._rowEls = [];
     this._rowHashes = [];
   }

@@ -1,10 +1,19 @@
 // Dormant terminal link attachments must not retain hidden-pane listeners.
 // Activation runs one post-paint current-tail scan so a plain terminal URL is
-// linkified without revisiting materialized retained history.
+// linkified without revisiting materialized retained history, and the armed
+// hold it hands the renderer tracks the live modifier level, never a stale edge.
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { ROW_COLUMNS_ATTR } from "../src/lib/cellRow.ts";
 import { attachTerminalLinks } from "../src/components/terminal-links.ts";
+import { CellGridRenderer } from "../src/lib/cellRenderer.ts";
+import {
+  deltaFrame,
+  makeContainer,
+  row,
+  seedHeldHistory,
+  vpEl,
+} from "./helpers/cellRendererFakeDom.ts";
 
 class FakeEvents {
   private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
@@ -20,6 +29,10 @@ class FakeEvents {
 
   removeEventListener(type: string, listener: (event: unknown) => void): void {
     this.listeners.get(type)?.delete(listener);
+  }
+
+  dispatch(type: string, event: unknown): void {
+    for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event);
   }
 
   listenerCount(type: string): number {
@@ -276,5 +289,78 @@ describe("attachTerminalLinks initial activity", () => {
     expect(anchor.className).toBe("wterm-link");
     expect(anchor.getAttribute("href")).toBe("https://example.test/terminal");
     attachment.dispose();
+  });
+});
+
+// The harness platform reports macOS, so the link modifier is Meta.
+const pointerEvent = (metaKey: boolean): unknown => ({
+  metaKey,
+  ctrlKey: false,
+  target: null,
+});
+
+describe("attachTerminalLinks armed hold level", () => {
+  let harness: Harness | undefined;
+
+  afterEach(() => {
+    harness?.restore();
+    harness = undefined;
+  });
+
+  // The pane's own wiring: onArmedHoverChange drives RENDERER_HOLD_LINK
+  // (cell-terminal-interactions.ts), so the hold is observed as paint.
+  function armedPane() {
+    const created = createHarness();
+    harness = created;
+    const paint = makeContainer();
+    const renderer = new CellGridRenderer(paint as unknown as HTMLElement);
+    seedHeldHistory(renderer, 80, [row(0, "v0")], []);
+    const attachment = attachTerminalLinks(created.container as unknown as HTMLElement, {
+      initialActive: true,
+      onArmedHoverChange: (active) => { renderer.setArmedHold(active); },
+    });
+    created.window.dispatch("keydown", { key: "Meta" });
+    created.container.dispatch("mouseenter", pointerEvent(true));
+    expect(renderer.apply(deltaFrame(80, 1, [row(0, "v1")], [], 2))).toBe(true);
+    return {
+      created,
+      attachment,
+      renderer,
+      paintedTail: (): string => String(vpEl(paint).children[0].textContent),
+    };
+  }
+
+  test("a lost modifier keyup is healed by the next pointer event, which repaints", () => {
+    const pane = armedPane();
+    expect(pane.paintedTail()).toBe("v0");
+
+    // No keyup ever arrives; the pointer simply moves over the pane again.
+    pane.created.container.dispatch("mouseover", pointerEvent(false));
+
+    expect(pane.renderer.holdMask).toBe(0);
+    expect(pane.paintedTail()).toBe("v1");
+    pane.attachment.dispose();
+  });
+
+  test("a pointer event with the modifier still held keeps the pane held", () => {
+    const pane = armedPane();
+
+    pane.created.container.dispatch("mouseover", pointerEvent(true));
+
+    expect(pane.renderer.holdMask).not.toBe(0);
+    expect(pane.paintedTail()).toBe("v0");
+    pane.attachment.dispose();
+  });
+
+  test("re-entering the pane without the modifier cannot revive the hold", () => {
+    const pane = armedPane();
+    pane.created.container.dispatch("mouseleave", pointerEvent(true));
+    expect(pane.renderer.holdMask).toBe(0);
+
+    pane.created.container.dispatch("mouseenter", pointerEvent(false));
+
+    expect(pane.renderer.holdMask).toBe(0);
+    expect(pane.paintedTail()).toBe("v1");
+    pane.attachment.dispose();
   });
 });

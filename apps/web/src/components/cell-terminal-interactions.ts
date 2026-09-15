@@ -7,6 +7,7 @@ import {
   createEffect,
   createMemo,
   onCleanup,
+  untrack,
   type Accessor,
 } from "solid-js";
 import type { MouseTracking } from "@roost/shared/cell";
@@ -189,6 +190,11 @@ export function mountCellTerminalInteractions(
     document.removeEventListener("dragenter", onDragOver);
     document.removeEventListener("dragover", onDragOver);
     document.removeEventListener("drop", onDrop);
+    // The window mouseup removed above is the ONLY clearer of an in-flight
+    // forwarded press, so the debt is settled on this transition: otherwise the
+    // application keeps a button it never sees released and the next mousemove
+    // after re-attach reports a drag the PTY never saw begin.
+    mouseForwarding.completeHeldDrag();
   };
   createEffect(() => {
     const foregroundWorkEnabled = !disposed && foregroundWorkActive();
@@ -207,6 +213,13 @@ export function mountCellTerminalInteractions(
     document.addEventListener("dragover", onDragOver);
     document.addEventListener("drop", onDrop);
     onCleanup(detachGlobalListeners);
+    // RENDERER_HOLD_SELECTION is armed EDGE-ONLY, by `selectionchange`, and
+    // these listeners are absent for the whole of a withdraw. The hold must
+    // therefore be re-derived from the LEVEL — the live document selection —
+    // when they come back, or a selection dropped inside that gap pins a hold
+    // no selection justifies and the pane never paints again. Untracked: the
+    // presentation refresh it runs reads signals this gate must not follow.
+    untrack(() => presentation.syncNativeSelectionHold());
   });
   mouseForwarding.bindWheelAndTouchMove();
   createEffect(() => {

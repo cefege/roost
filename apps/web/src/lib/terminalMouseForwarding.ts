@@ -19,6 +19,7 @@
 //     the browser changes the scrolling root
 
 import { onCleanup, type Accessor } from "solid-js";
+import { diag } from "@roost/shared/diag";
 import type { MouseTracking } from "@roost/shared/cell";
 import { mouseForwardEnabled } from "./mouseForwardPref.ts";
 import {
@@ -57,6 +58,9 @@ export interface TerminalMouseForwarding {
 	 *  visible, and removes them on the same transition. */
 	onWindowMouseMove(ev: MouseEvent): void;
 	onWindowMouseUp(ev: MouseEvent): void;
+	/** Settle the release an in-flight forwarded drag owes the application, for
+	 *  the transition that removes the window listener which would have sent it. */
+	completeHeldDrag(): void;
 	/** Wheel/touchmove passivity swap. MUST be called inside the pane's reactive
 	 *  owner so its listeners are removed with the pane. */
 	bindWheelAndTouchMove(): void;
@@ -220,6 +224,25 @@ export function attachTerminalMouseForwarding(
 			ctrl: ev.ctrlKey, meta: ev.metaKey,
 		});
 	};
+	// The application already received the press, so the drag must be COMPLETED
+	// rather than abandoned when the pane drops its window listeners — the same
+	// rule terminalMouse.ts states for Shift/Alt: a half-abandoned drag leaves
+	// the application holding a button it never sees released. The last cell it
+	// saw is where its drag ended; no later pointer position was ever reported.
+	const completeHeldDrag = (): void => {
+		const button = pressedButton;
+		const cell = lastMotionCell;
+		if (button === null || cell === null) return;
+		pressedButton = null;
+		lastMotionCell = null;
+		const reported = report({ kind: "release", button, col: cell.col, row: cell.row });
+		diag("mouse.held_drag_completed", {
+			button,
+			col: cell.col,
+			row: cell.row,
+			reported,
+		});
+	};
 
 	// A touch becomes intent only after one cell-height of vertical travel.
 	// Below that shared native/forwarding threshold a tap changes no state.
@@ -271,6 +294,7 @@ export function attachTerminalMouseForwarding(
 	return {
 		onWindowMouseMove: onMouseMoveFwd,
 		onWindowMouseUp: onMouseUpFwd,
+		completeHeldDrag,
 		// A passive listener can be bypassed until after compositor scrolling has
 		// already reached an edge, leaving only the weaker native_scroll fallback.
 		// These listeners are pane-local (not document-global), do constant work,

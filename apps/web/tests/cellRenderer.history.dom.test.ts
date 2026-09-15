@@ -264,7 +264,7 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     })).toBe(true);
 
     expect(r.backfillAnchor()).toBeNull();
-    expect(r.readerAnchorForBackfill()).toBeNull();
+    expect(r.paintPresentation().readerAnchor).toEqual({ row: 600, offsetPx: 0 });
     expect(r.currentFrame!.gridEpoch).toBe("test-grid:0");
     expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:1", seq: 1 });
     expect(c.scrollTopWrites).toBe(0);

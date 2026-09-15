@@ -5,7 +5,7 @@
 // rather than the scroll container.
 
 import { describe, test, expect } from "bun:test";
-import { CellGridRenderer } from "../src/lib/cellRenderer.ts";
+import { CellGridRenderer, RENDERER_HOLD_SELECTION } from "../src/lib/cellRenderer.ts";
 import { spansText } from "@roost/shared/cell";
 import { cellFromPoint } from "../src/lib/terminalMouse.ts";
 import {
@@ -152,6 +152,110 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
     expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
     expect(c.scrollTopWrites).toBe(1);
     expect(r.atBottom()).toBe(true);
+  });
+
+  // Park a pane with `reason`, leave a newer frame retained off-DOM, and hand
+  // back the box so each case only states the grow it models.
+  const parkedPane = (
+    reason: "wheel" | "find",
+    historyRows: number,
+    boxPx: number,
+    parkRow: number | "bottom",
+  ) => {
+    const c = makeContainer();
+    c.clientHeight = boxPx;
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(historyRows));
+    c.scrollTop = parkRow === "bottom"
+      ? c.scrollHeight - c.clientHeight
+      : PAD_TOP + parkRow * ROW_PX;
+    r.enterReading(reason);
+    r.apply({ ...fullFrame(80, [row(0, "latest")], historyRows + 10), seq: 3 });
+    c.resetScrollTopWrites();
+    return { c, r };
+  };
+
+  // A grow past the frozen content leaves scrollHeight === clientHeight: the box
+  // can never fire another scroll event, so this observer tick is the only
+  // resume the pane will ever get, whatever gesture parked it.
+  test("a wheel-parked reader resumes when a box grow leaves no scroll range", () => {
+    const { c, r } = parkedPane("wheel", 20, 100, 4);
+    expect(r.currentFrame!.seq).toBe(2);
+    expect(vpEl(c).textContent).toBe("v");
+    expect(r.reconcileBlockReason()).toBe("reader_pending_frame");
+
+    c.clientHeight = 400;
+    expect(c.scrollHeight).toBeLessThanOrEqual(c.clientHeight);
+    r.noteBoxResize();
+
+    expect(r.readerIntent).toBe("live");
+    expect(r.currentFrame!.seq).toBe(3);
+    expect(vpEl(c).textContent).toBe("latest");
+    expect(r.reconcileBlockReason()).toBeNull();
+  });
+
+  test("a wheel reader off the old bottom keeps its park across a box grow", () => {
+    const { c, r } = parkedPane("wheel", 400, 500, 100);
+    const parked = c.scrollTop;
+
+    c.clientHeight = 700; // grown, but the content still dwarfs the box
+    r.noteBoxResize();
+
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("wheel");
+    expect(vpEl(c).textContent).toBe("v");
+    expect(c.scrollTop).toBe(parked);
+    expect(c.scrollTopWrites).toBe(0);
+  });
+
+  test("a find park resumes only when the grow leaves no scroll range", () => {
+    const unreachable = parkedPane("find", 20, 100, 4);
+    unreachable.c.clientHeight = 400;
+    unreachable.r.noteBoxResize();
+    expect(unreachable.r.readerIntent).toBe("live");
+    expect(vpEl(unreachable.c).textContent).toBe("latest");
+
+    // Range left: the hit is still reachable, so its anchor outranks the grow.
+    const ranged = parkedPane("find", 400, 500, "bottom");
+    ranged.c.clientHeight = 700;
+    ranged.r.noteBoxResize();
+    expect(ranged.r.readerIntent).toBe("reading");
+    expect(ranged.r.readerReason).toBe("find");
+    expect(vpEl(ranged.c).textContent).toBe("v");
+    expect(ranged.c.scrollTopWrites).toBe(0);
+  });
+
+  // A paint hold cannot be resumed through, so the pane must keep REPORTING the
+  // park that owns it: a live/null pane with a set mask hides the block reason
+  // from every diagnostic and from the stall watchdog.
+  test("a held pane keeps its reader identity when a scroll returns to the bottom", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
+    const bottom = c.scrollHeight - c.clientHeight;
+    c.scrollTop = bottom;
+    r.handleScroll(); // consume the seed pin's owned event
+    r.setSelectionHold(true);
+
+    c.scrollTop = bottom - 5 * ROW_PX; // the drag scrolls the pane up
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    c.scrollTop = bottom; // ... and back onto the exact bottom
+    c.resetScrollTopWrites();
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("selection");
+    expect(r.holdMask).toBe(RENDERER_HOLD_SELECTION);
+    expect(r.reconcileBlockReason()).toBe("selection_hold");
+    expect(c.scrollTopWrites).toBe(0);
+
+    expect(r.apply({ ...fullFrame(80, [row(0, "held-latest")], 410), seq: 3 })).toBe(true);
+    expect(vpEl(c).textContent).toBe("v");
+
+    expect(r.setSelectionHold(false)).toEqual({ reconciled: true, anchorChanged: true });
+    expect(r.readerIntent).toBe("live");
+    expect(vpEl(c).textContent).toBe("held-latest");
+    expect(r.reconcileBlockReason()).toBeNull();
   });
 
   test("an epoch-changing full frame waits off-DOM during explicit reading", () => {

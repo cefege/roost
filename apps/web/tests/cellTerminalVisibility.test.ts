@@ -1,18 +1,30 @@
 // Terminal foreground-work gates share the canonical pane accessor and page visibility.
 // The interaction mount test exercises focus acquisition and release through real Solid effects;
-// the renderer gate test covers initial focus and cursor-poll admission without mounting a grid.
+// the renderer gate test covers initial focus and cursor-poll admission without mounting a grid;
+// the withdraw tests drive a real renderer, selection guard and mouse forwarder across a park.
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
 import type { CellTerminalInteractions } from "../src/components/cell-terminal-interactions.ts";
+import { FakeEl, deltaFrame, row } from "./helpers/cellRendererFakeDom.ts";
+import { mountCellTerminalPane } from "./helpers/cellTerminalPaneHarness.ts";
 
 const linkActivity: boolean[] = [];
 const initialLinkActivity: boolean[] = [];
+const sentBytes: Uint8Array[] = [];
+let liveSelection: Selection | null = null;
 
 const fakeDocument = Object.assign(new EventTarget(), {
   visibilityState: "visible",
   activeElement: null as EventTarget | null,
-  getSelection: () => null,
+  getSelection: () => liveSelection,
+  // The selection guard resolves pane ownership through the DISPLAY's
+  // ownerDocument, so the document that mints the renderer's grid and the one
+  // that answers getSelection() have to be the same object.
+  createElement: (tag: string) => new FakeEl(tag, fakeDocument),
+  createTextNode: (text: string) => ({ textContent: text, parentElement: null }),
+  createDocumentFragment: () => new FakeEl("#fragment", fakeDocument),
+  fonts: { ready: Promise.resolve() },
 });
 const fakeWindow = new EventTarget();
 
@@ -51,14 +63,7 @@ mock.module("../src/components/terminal-links.ts", () => ({
       dispose: () => undefined,
     };
   },
-}));
-mock.module("../src/lib/terminalMouseForwarding.ts", () => ({
-  attachTerminalMouseForwarding: () => ({
-    onWindowMouseMove: () => undefined,
-    onWindowMouseUp: () => undefined,
-    bindWheelAndTouchMove: () => undefined,
-    dispose: () => undefined,
-  }),
+  isTerminalLinkActivationGesture: () => false,
 }));
 mock.module("../src/lib/windowSizeClass.ts", () => ({
   isCompact: () => false,
@@ -68,7 +73,9 @@ mock.module("../src/lib/copyOnSelectPref.ts", () => ({
   copyOnSelect: () => false,
 }));
 mock.module("../src/lib/userTerminalInput.ts", () => ({
-  sendUserTerminalInput: () => undefined,
+  sendUserTerminalInput: (_sessionId: string, bytes: Uint8Array) => {
+    sentBytes.push(bytes);
+  },
   registerUserTerminalInput: () => () => undefined,
 }));
 mock.module("../src/lib/sessionTitle.ts", () => ({
@@ -91,7 +98,9 @@ afterEach(() => {
   setForceHidden(false);
   setForceVisible(false);
   fakeDocument.activeElement = null;
+  liveSelection = null;
   linkActivity.length = 0;
+  sentBytes.length = 0;
   initialLinkActivity.length = 0;
 });
 
@@ -208,5 +217,124 @@ describe("terminal foreground visibility", () => {
 
     setForceHidden(false);
     expect(_terminalForegroundWorkAllowed(viewport as never)).toBe(true);
+  });
+});
+
+const armSelectionOn = (node: unknown): void => {
+  liveSelection = {
+    isCollapsed: false,
+    rangeCount: 1,
+    anchorNode: node,
+    focusNode: node,
+  } as unknown as Selection;
+  fakeDocument.dispatchEvent(new Event("selectionchange"));
+};
+
+describe("terminal selection hold across a foreground withdraw", () => {
+  test("a selection dropped while the pane's listeners are detached stops holding paint", async () => {
+    const pane = await mountCellTerminalPane({ ownerDocument: fakeDocument });
+
+    armSelectionOn(pane.paintedTailNode());
+    expect(pane.renderer.apply(deltaFrame(80, 1, [row(0, "v1")], [], 2))).toBe(true);
+    expect(pane.paintedTail()).toBe("v0");
+
+    pane.setViewActive(false);
+    liveSelection = null;
+    fakeDocument.dispatchEvent(new Event("selectionchange"));
+    expect(pane.renderer.holdMask).not.toBe(0);
+
+    pane.setViewActive(true);
+    expect(pane.renderer.holdMask).toBe(0);
+    expect(pane.paintedTail()).toBe("v1");
+    expect(pane.renderer.apply(deltaFrame(80, 1, [row(0, "v2")], [], 3))).toBe(true);
+    expect(pane.paintedTail()).toBe("v2");
+
+    pane.dispose();
+  });
+
+  test("a selection still live when the listeners re-attach keeps paint held", async () => {
+    const pane = await mountCellTerminalPane({ ownerDocument: fakeDocument });
+
+    armSelectionOn(pane.paintedTailNode());
+    expect(pane.renderer.apply(deltaFrame(80, 1, [row(0, "v1")], [], 2))).toBe(true);
+    expect(pane.paintedTail()).toBe("v0");
+
+    pane.setViewActive(false);
+    pane.setViewActive(true);
+
+    expect(pane.renderer.holdMask).not.toBe(0);
+    expect(pane.paintedTail()).toBe("v0");
+    expect(pane.renderer.apply(deltaFrame(80, 1, [row(0, "v2")], [], 3))).toBe(true);
+    expect(pane.paintedTail()).toBe("v0");
+
+    pane.dispose();
+  });
+});
+
+interface MouseReport {
+  cb: number;
+  col: number;
+  row: number;
+  release: boolean;
+}
+const decoder = new TextDecoder();
+// What the PTY actually receives: SGR-1006 reports, ESC [ < cb ; col ; row M|m.
+const mouseReports = (): MouseReport[] =>
+  sentBytes.map((bytes) => {
+    const text = decoder.decode(bytes);
+    const parsed = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(text);
+    if (!parsed) throw new Error(`not an SGR mouse report: ${JSON.stringify(text)}`);
+    return {
+      cb: Number(parsed[1]),
+      col: Number(parsed[2]),
+      row: Number(parsed[3]),
+      release: parsed[4] === "m",
+    };
+  });
+const mouseEvent = (type: string, clientX: number, clientY: number): Event =>
+  Object.assign(new Event(type), {
+    button: 0,
+    clientX,
+    clientY,
+    shiftKey: false,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+  });
+
+describe("terminal mouse drag across a foreground withdraw", () => {
+  test("an interrupted drag is released exactly once and never resumes as a phantom", async () => {
+    const pane = await mountCellTerminalPane({
+      ownerDocument: fakeDocument,
+      mouseTracking: 1002,
+    });
+
+    pane.dispatchDisplay("mousedown", mouseEvent("mousedown", 20, 20));
+    fakeWindow.dispatchEvent(mouseEvent("mousemove", 44, 20));
+    const dragged = mouseReports();
+    expect(dragged.length).toBe(2);
+    expect(dragged[0]).toMatchObject({ cb: 0, release: false });
+    expect(dragged[1]).toMatchObject({ cb: 32, release: false });
+    expect(dragged[1]!.col).not.toBe(dragged[0]!.col);
+
+    pane.setViewActive(false);
+    const settled = mouseReports();
+    expect(settled.length).toBe(3);
+    expect(settled[2]).toEqual({
+      cb: 0,
+      col: dragged[1]!.col,
+      row: dragged[1]!.row,
+      release: true,
+    });
+
+    fakeWindow.dispatchEvent(mouseEvent("mousemove", 76, 20));
+    expect(mouseReports().length).toBe(3);
+
+    pane.setViewActive(true);
+    fakeWindow.dispatchEvent(mouseEvent("mousemove", 100, 20));
+    fakeWindow.dispatchEvent(mouseEvent("mouseup", 100, 20));
+    expect(mouseReports()).toEqual(settled);
+
+    pane.dispose();
   });
 });

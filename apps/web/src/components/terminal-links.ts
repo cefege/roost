@@ -161,8 +161,11 @@ export function attachTerminalLinks(
     else container.removeAttribute("data-link-armed");
     recomputeHold();
   };
+  // A LEVEL, so it must be total: an event that carries no modifier field at
+  // all states "not held", never an absent third value that would propagate
+  // into the hold as neither armed nor disarmed.
   const modifierHeld = (event: Pick<MouseEvent, "ctrlKey" | "metaKey">): boolean =>
-    modKey === "Meta" ? event.metaKey : event.ctrlKey;
+    modKey === "Meta" ? event.metaKey === true : event.ctrlKey === true;
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key === modKey) setArmed(true);
   };
@@ -181,17 +184,22 @@ export function attachTerminalLinks(
     recomputeHold();
     hideHint();
   };
+  // Every pointer event carries the LIVE modifier state, so each one re-derives
+  // `armed` in BOTH directions. Raising it on a pointer event but lowering it
+  // only on the keyup edge strands the hold whenever that keyup is delivered
+  // somewhere else — an OS app switch, a swallowed key — and a hold must never
+  // outlive the level that justifies it.
+  const onPointerModifiers = (event: MouseEvent): void => {
+    setArmed(modifierHeld(event));
+  };
   const onPointerEnter = (event: MouseEvent): void => {
     pointerInside = true;
-    if (modifierHeld(event)) setArmed(true);
+    onPointerModifiers(event);
     recomputeHold();
   };
   const onPointerLeave = (): void => {
     pointerInside = false;
     recomputeHold();
-  };
-  const onPointerModifiers = (event: MouseEvent): void => {
-    setArmed(modifierHeld(event));
   };
 
   const showHint = (anchor: HTMLElement): void => {
@@ -212,7 +220,7 @@ export function attachTerminalLinks(
   const anchorFrom = (target: EventTarget | null): HTMLAnchorElement | null =>
     (target as Element | null)?.closest?.(`a.${LINK_CLASS}`) as HTMLAnchorElement | null;
   const onOver = (event: MouseEvent): void => {
-    if (modifierHeld(event)) setArmed(true);
+    onPointerModifiers(event);
     if (!armed) return;
     const anchor = anchorFrom(event.target);
     if (anchor) showHint(anchor);

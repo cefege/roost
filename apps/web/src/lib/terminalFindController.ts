@@ -303,6 +303,10 @@ export function createTerminalFind(opts: {
       setQueryRaw("");
       preferredMatch = null;
       clear();
+      // Dismissing the bar ends the find interval but must not move the view:
+      // the park survives as a scroll park, so live output resumes the way any
+      // other park does instead of outliving the session as a frozen anchor.
+      opts.renderer()?.endFindReading();
     },
     setQuery(next: string, options: TerminalFindQueryOptions = {}): void {
       preferredMatch = options.preferredMatch ?? null;

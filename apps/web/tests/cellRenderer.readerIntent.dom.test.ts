@@ -321,25 +321,20 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     expect(c.scrollTopWrites).toBe(1);
   });
 
-  test("find and native reader actions stay frozen until explicit live preparation", () => {
+  test("an off-bottom native reader returns to the tail on explicit live preparation", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
 
-    r.scrollToScrollbackRow(50);
-    expect(r.readerIntent).toBe("reading");
-    expect(r.readerReason).toBe("find");
-    r.handleScroll(); // consumes the find-owned write
-    expect(r.readerReason).toBe("find");
-    r.apply(appDelta([row(400, "new")], 401, 3));
-    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
-    expect(r.readerIntent).toBe("live");
-
     c.scrollTop = c.scrollHeight - c.clientHeight - ROW_PX;
     r.handleScroll();
+    expect(r.readerIntent).toBe("reading");
     expect(r.readerReason).toBe("native_scroll");
-    expect(r.prepareLiveInteraction()).toEqual({ reconciled: false, anchorChanged: false });
+    r.apply(appDelta([row(400, "new")], 401, 3));
+
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
     expect(r.readerIntent).toBe("live");
+    expect(r.currentFrame!.seq).toBe(3);
     expect(r.atBottom()).toBe(true);
   });
 

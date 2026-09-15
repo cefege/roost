@@ -28,6 +28,14 @@ export type ReaderIntentReason =
   | "selection"
   | "find";
 
+/** A park whose whole state is a scroll POSITION: re-pinning it to a new
+ *  bottom loses nothing. `selection` and `find` own an anchor instead. */
+export function isPositionOnlyReaderReason(
+  reason: ReaderIntentReason | null,
+): boolean {
+  return reason === "native_scroll" || reason === "wheel" || reason === "touch";
+}
+
 export const RENDERER_HOLD_SELECTION = 1;
 export const RENDERER_HOLD_LINK = 2;
 
