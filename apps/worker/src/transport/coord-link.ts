@@ -35,6 +35,7 @@ import { createCoordLinkOutbox } from "./coord-link-outbox.ts";
 import { createCoordLinkReconnect } from "./coord-link-reconnect.ts";
 import { createCoordLinkDownstream } from "./coord-link-downstream.ts";
 import {
+  mecatlRelayChunkToProto,
   terminalViewProjectionToProto,
   terminalViewStateToProto,
 } from "./coord-link-codec.ts";
@@ -279,6 +280,8 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       outbox.sendControlProto(terminalViewStateToProto(socketId, frame)),
     sendTerminalViewProjection: (projection) =>
       outbox.sendControlProto(terminalViewProjectionToProto(projection)),
+    sendMecatlRelayChunk: (chunk) =>
+      outbox.sendControlProto(mecatlRelayChunkToProto(chunk)),
     state: () => state,
     protocolPhase: outbox.protocolPhase,
     ready: outbox.ready,

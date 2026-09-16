@@ -33,6 +33,7 @@ test("a clean boot delivers cells and a link bounce costs one forced full", asyn
     agentRegistry: null,
     agentDetector: null,
     acquireKeeperUpdateBoundary: null,
+    mecatlRelay: null,
   };
   const deps = buildCoordLinkDeps({
     coordHttpUrl: "http://127.0.0.1:4103",

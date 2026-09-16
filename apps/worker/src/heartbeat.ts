@@ -17,6 +17,8 @@ import { keeperRuntimeObservationToProto } from "@roost/shared/keeper-update-pro
 import {
 	terminalCoreCapacityReportToProto,
 } from "@roost/shared/terminal-core-capacity-proto";
+import { mecatlRuntimeReportToProto } from "@roost/shared/mecatl-runtime-proto";
+import type { MecatlRuntimeReport } from "@roost/shared/mecatl-runtime";
 import type { HostMetrics, TerminalCoreCapacityReport } from "@roost/shared/wire";
 import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
 import { staticHostIdentity } from "./host-identity.ts";
@@ -241,12 +243,14 @@ export async function startHeartbeat(opts: {
 	client: () => CoordClient;
 	reconciledAtMs: () => number | null;
 	readTerminalCoreCapacity?: () => TerminalCoreCapacityReport;
+	readMecatlRuntime?: () => MecatlRuntimeReport;
 	sources?: HeartbeatSources;
 }): Promise<HeartbeatDisposer> {
 	const {
 		client,
 		reconciledAtMs,
 		readTerminalCoreCapacity,
+		readMecatlRuntime,
 		sources = DEFAULT_HEARTBEAT_SOURCES,
 	} = opts;
 	const hostIdentity = staticHostIdentity();
@@ -274,6 +278,19 @@ export async function startHeartbeat(opts: {
 				terminalCoreCapacity = readTerminalCoreCapacity();
 			} catch (error) {
 				log.warn("heartbeat", "terminal_core_capacity_snapshot_failed", {
+					error: String(error),
+				});
+			}
+		}
+
+		// Operator diagnosis only: a reporting failure must never cost the beat,
+		// so the field is simply omitted and the coordinator keeps no stale claim.
+		let mecatlRuntime: MecatlRuntimeReport | null = null;
+		if (readMecatlRuntime) {
+			try {
+				mecatlRuntime = readMecatlRuntime();
+			} catch (error) {
+				log.warn("heartbeat", "mecatl_runtime_snapshot_failed", {
 					error: String(error),
 				});
 			}
@@ -324,6 +341,9 @@ export async function startHeartbeat(opts: {
 								terminalCoreCapacity,
 							),
 						}
+					: {}),
+				...(mecatlRuntime
+					? { mecatlRuntime: mecatlRuntimeReportToProto(mecatlRuntime) }
 					: {}),
 			}, { timeoutMs: HEARTBEAT_RPC_TIMEOUT_MS });
 			log.debug("heartbeat", "beat sent", { reachable_addr });

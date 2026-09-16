@@ -17,6 +17,7 @@
     "@kobalte/core": "0.13.14",
     "@roost/shared": "workspace:*",
     "@solidjs/router": "^0.16.0",
+    "@stacklok-oss/mecatl-sdk": "0.2.0",
     "@types/qrcode": "^1.5.6",
     "dompurify": "3.4.14",
     "marked": "^18.0.7",

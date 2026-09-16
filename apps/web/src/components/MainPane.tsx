@@ -38,6 +38,9 @@ const FileViewerSheet = lazy(() =>
 const GlobalSearchPage = lazy(() =>
   import("./GlobalSearchPage.tsx").then((module) => ({ default: module.GlobalSearchPage })),
 );
+const AgentPane = lazy(() =>
+  import("./Agent/AgentPane.tsx").then((module) => ({ default: module.AgentPane })),
+);
 
 interface BootstrapLoadingCopy {
   stage: Exclude<TerminalBootstrapStage, "ready"> & TerminalLoadingStage;
@@ -188,9 +191,11 @@ export function MainPane() {
 
   const isFileView = createMemo(() => location.pathname.startsWith("/file/"));
   const isSearch = createMemo(() => location.pathname.startsWith("/search"));
-  // File viewer / search render as overlays ABOVE the always-mounted deck host
-  // below; while active the host is visibility-flipped, never unmounted.
-  const overlayActive = () => isFileView() || isSearch();
+  const isAgent = createMemo(() => location.pathname.startsWith("/agent"));
+  // File viewer / search / agent render as overlays ABOVE the always-mounted
+  // deck host below; while active the host is visibility-flipped, never
+  // unmounted.
+  const overlayActive = () => isFileView() || isSearch() || isAgent();
 
   const isMobile = isCompact;
 
@@ -222,6 +227,10 @@ export function MainPane() {
 
       <Show when={isSearch()}>
         <GlobalSearchPage />
+      </Show>
+
+      <Show when={isAgent()}>
+        <AgentPane />
       </Show>
 
       {/* Persistent terminal deck — mounts every open terminal once and keeps

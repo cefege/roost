@@ -25,6 +25,7 @@ const SOURCES: Array<{ app: string; dir: string; base: string }> = [
   { app: "coord", dir: COORD_LOGS, base: "main.err.log" },
   { app: "worker", dir: WORKER_LOGS, base: "main.err.log" },
   { app: "keeper", dir: WORKER_LOGS, base: "keeper.err.log" },
+  { app: "mecatl", dir: WORKER_LOGS, base: "mecatl.err.log" },
 ];
 
 // Signal kinds that are genuine errors (vs warnings worth surfacing). Used

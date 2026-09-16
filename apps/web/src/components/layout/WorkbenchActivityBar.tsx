@@ -4,7 +4,7 @@
 
 import { A, useLocation } from "@solidjs/router";
 import { Icon } from "../Settings/md/primitives.tsx";
-import { ROUTES, settingsPaneHref } from "../../routes.ts";
+import { agentHref, ROUTES, settingsPaneHref } from "../../routes.ts";
 
 function isSessionsRoute(pathname: string): boolean {
   return pathname === ROUTES.ROOT
@@ -24,6 +24,7 @@ export function WorkbenchActivityBar(props: WorkbenchActivityBarProps) {
   const filesActive = () => location.pathname.startsWith("/file/") || location.pathname.startsWith("/browse");
   const settingsActive = () => location.pathname.startsWith("/settings");
   const helpActive = () => location.pathname.startsWith(ROUTES.HELP);
+  const agentActive = () => location.pathname.startsWith("/agent");
 
   function toggleActiveSessions(event: MouseEvent) {
     if (!sessionsActive() || event.defaultPrevented || event.button !== 0
@@ -72,6 +73,18 @@ export function WorkbenchActivityBar(props: WorkbenchActivityBarProps) {
         >
           <Icon name="folder_open" filled={filesActive()} />
           <span class="workbench-activity-bar__label">Files</span>
+        </A>
+        <A
+          class="workbench-activity-bar__item"
+          data-active={agentActive() ? "true" : "false"}
+          data-testid="workbench-activity-agent"
+          href={agentHref()}
+          aria-label="Agent"
+          aria-current={agentActive() ? "page" : undefined}
+          title="Agent"
+        >
+          <Icon name="smart_toy" filled={agentActive()} />
+          <span class="workbench-activity-bar__label">Agent</span>
         </A>
       </div>
       <div class="workbench-activity-bar__group workbench-activity-bar__group--bottom">

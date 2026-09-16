@@ -184,6 +184,21 @@ message WTerminalViewProjection {
   string stream_id = 5;
 }
 
+// Mecatl HTTP relay. The coordinator cannot dial a worker, so a browser's
+// request to that machine's local Mecatl daemon travels as an opaque HTTP
+// exchange: Roost forwards method, path, headers and bytes without modeling
+// the agent API. One response is a `head` chunk, zero or more body chunks,
+// and exactly one `end`, which may instead carry a refusal `error`.
+message WMecatlRelayChunk {
+  string request_id = 1;
+  bool head = 2;
+  uint32 status = 3;
+  string headers_json = 4;
+  bytes body = 5;
+  bool end = 6;
+  string error = 7;
+}
+
 message CoordWorkerUp {
   reserved 4, 5, 8, 9, 13, 15;
   reserved "viewport_result", "transfer_line", "transfer_done";
@@ -205,6 +220,7 @@ message CoordWorkerUp {
     WTerminalMetadata terminal_metadata = 20;
     WTerminalViewState terminal_view_state = 21;
     WTerminalViewProjection terminal_view_projection = 22;
+    WMecatlRelayChunk mecatl_relay_chunk = 23;
   }
 }
 
@@ -379,6 +395,18 @@ message DLocalTerminalGrantRevoke {
   string device_fingerprint = 1;
 }
 
+message DMecatlRelayRequest {
+  string request_id = 1;
+  string method = 2;
+  string path = 3;
+  string headers_json = 4;
+  bytes body = 5;
+}
+
+message DMecatlRelayCancel {
+  string request_id = 1;
+}
+
 message CoordWorkerDown {
   reserved 11;
   reserved "viewport_request";
@@ -404,6 +432,8 @@ message CoordWorkerDown {
     DTerminalViewSocketClosed terminal_view_socket_closed = 19;
     DLocalTerminalGrant local_terminal_grant = 20;
     DLocalTerminalGrantRevoke local_terminal_grant_revoke = 21;
+    DMecatlRelayRequest mecatl_relay_request = 22;
+    DMecatlRelayCancel mecatl_relay_cancel = 23;
   }
 }
 

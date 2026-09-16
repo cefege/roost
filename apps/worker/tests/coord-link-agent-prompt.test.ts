@@ -95,6 +95,7 @@ test("agentPrompt dispatch submits text then CR and returns an accepted WInputRe
     agentRegistry: registry,
     agentDetector: detector,
     acquireKeeperUpdateBoundary: null,
+    mecatlRelay: null,
   };
   const deps = buildCoordLinkDeps({
     coordHttpUrl: "https://coord.test",

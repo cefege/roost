@@ -48,6 +48,14 @@ export interface WorkersTable {
     string | null | undefined,
     string | null
   >;
+  // Worker-reported Mecatl runtime state for that machine. NULL is "never
+  // reported": an operator cannot tell an opted-out machine from a crashed
+  // daemon without the worker's own word for it.
+  mecatl_runtime_json: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
 }
 
 export interface EventsTable {

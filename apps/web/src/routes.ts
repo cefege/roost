@@ -41,6 +41,11 @@ export const ROUTES = {
   BROWSE: "/browse/:workerFp",
   BROWSE_ROOT: "/browse",
   SEARCH: "/search",
+  // /agent/:workerFp? — Mecatl-backed agent pane. ONE definition with an
+  // OPTIONAL param (not a /agent + /agent/:fp pair) because this route shares
+  // App.tsx's single MainPane <Route>: a second definition would remount
+  // MainPane and tear down every live terminal on an /s ↔ /agent crossing.
+  AGENT: "/agent/:workerFp?",
 } as const;
 
 // Concrete-href builders — the only sanctioned way to navigate to a
@@ -52,6 +57,11 @@ export function sessionHref(sessionId: string): string {
 }
 export function browseHref(workerFp: string): string {
   return `/browse/${workerFp}`;
+}
+// workerFp omitted → the bare route, which resolves the machine from the
+// last-used memory (AgentPane) rather than pinning one in the URL.
+export function agentHref(workerFp?: string): string {
+  return workerFp ? `/agent/${workerFp}` : "/agent";
 }
 export function settingsPaneHref(pane: string): string {
   return `/settings/${pane}`;

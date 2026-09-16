@@ -25,6 +25,7 @@ import { truncatePersistedUtf8 } from "../persistence-input.ts";
 import { requireWorker } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import { hostIdentityFromProto } from "@roost/shared/host-identity-proto";
+import { mecatlRuntimeReportFromProto } from "@roost/shared/mecatl-runtime-proto";
 
 export function makeWorkerHeartbeatHandler(
 	deps: ConnectDeps,
@@ -60,6 +61,19 @@ export function makeWorkerHeartbeatHandler(
 					);
 				} catch {
 					keeperRuntimeMalformed = true;
+				}
+			}
+			// Operator-facing only: a malformed report is dropped rather than
+			// failing the beat, because the agent surface must never be able to
+			// cost a machine its presence.
+			let newMecatlRuntimeJson: string | null = null;
+			if (req.mecatlRuntime) {
+				try {
+					newMecatlRuntimeJson = JSON.stringify(
+						mecatlRuntimeReportFromProto(req.mecatlRuntime),
+					);
+				} catch {
+					log.warn("workers", "mecatl_runtime_malformed", { fp: caller.fingerprint });
 				}
 			}
 			const newGitSha = req.gitSha === undefined
@@ -168,6 +182,7 @@ export function makeWorkerHeartbeatHandler(
 					...(newGitSha !== undefined && { git_sha: newGitSha }),
 					keeper_runtime_json: newKeeperRuntimeJson,
 					terminal_core_capacity_json: newTerminalCoreCapacityJson,
+					mecatl_runtime_json: newMecatlRuntimeJson,
 					...(hm !== undefined && { host_metrics_json: JSON.stringify(hm) }),
 					...(newReachableAddr !== undefined && {
 						reachable_addr: newReachableAddr,

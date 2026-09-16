@@ -1,5 +1,5 @@
-// Routes browser, terminal-control, attachment, and maintenance frames to the
-// worker generation currently authoritative in the shared registry.
+// Routes browser, terminal-control, attachment, Mecatl-relay, and maintenance
+// frames to the worker generation currently authoritative in the registry.
 // Request/response sends retain their pending-RPC deadline so socket admission
 // is never confused with completion by the keeper or update broker.
 
@@ -18,6 +18,10 @@ export {
   sendKeeperUpdatePreparation,
   sendWindowsUpdateBroker,
 } from "./worker-send-maintenance.ts";
+export {
+  sendMecatlRelayCancel,
+  sendMecatlRelayRequest,
+} from "./worker-send-mecatl.ts";
 
 /** Socket-shape shim: presents the worker-conn registry to call sites
  * as a `.send(string|Uint8Array)` handle so router.ts/files.ts/scrollback

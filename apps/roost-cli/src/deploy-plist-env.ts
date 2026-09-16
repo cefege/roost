@@ -5,6 +5,11 @@
 
 import { failDeploy, sshExec } from "./deploy-exec.ts";
 import { WORKER_UNIT } from "./service-ctl.ts";
+import {
+  MECATL_BIN_ENV,
+  MECATL_ENABLED_ENV,
+  MECATL_ROOT_ENV,
+} from "@roost/shared/worker-service-env";
 
 function _unescapeXml(value: string): string {
   return value
@@ -105,16 +110,21 @@ const DEPLOY_IDENTITY_ENV_FLAGS: Record<string, string> = {
 };
 
 /** Worker settings that belong to whichever machine runs the worker: the
- *  loopback bind of its local UI door. It names neither the machine in the
- *  fleet nor a secret, so it follows the non-identity rule above — the
- *  target's installed value wins and the deploying shell only seeds a first
- *  install. A deploy that dropped it would silently move an operator's local
- *  UI door back to its default port. ROOST_WEB_DIST_PATH is deliberately NOT
- *  here: it points INTO a release directory, so carrying the installed value
- *  forward names the release the next settlement deletes. Each deploy stamps
- *  the dist it just built (deploy-linux.ts, deploy-macos.ts, deploy-local.ts). */
+ *  loopback bind of its local UI door, and whether that machine supervises a
+ *  Mecatl runtime and where its binary and workspace root live. None names the
+ *  machine in the fleet or a secret, so they follow the non-identity rule
+ *  above — the target's installed value wins and the deploying shell only
+ *  seeds a first install. A deploy that dropped them would silently move an
+ *  operator's local UI door back to its default port, or turn an agent-capable
+ *  machine back off. ROOST_WEB_DIST_PATH is deliberately NOT here: it points
+ *  INTO a release directory, so carrying the installed value forward names the
+ *  release the next settlement deletes. Each deploy stamps the dist it just
+ *  built (deploy-linux.ts, deploy-macos.ts, deploy-local.ts). */
 export const DEPLOY_HOST_LOCAL_ENV_KEYS = [
   "ROOST_WORKER_LOCAL_UI_BIND",
+  MECATL_ENABLED_ENV,
+  MECATL_BIN_ENV,
+  MECATL_ROOT_ENV,
 ] as const;
 
 export interface DeployIdentityInvocation {

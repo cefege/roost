@@ -11,3 +11,12 @@ export const KEEPER_FORCE_LIVE_RETIRE_ENV = "ROOST_KEEPER_FORCE_LIVE_RETIRE";
 
 /** Opt-in for restoring an agent conversation on respawn. */
 export const AGENT_CONVERSATION_RESTORE_ENV = "ROOST_AGENT_CONVERSATION_RESTORE";
+
+/** Opt-in for supervising a local Mecatl daemon on this machine. */
+export const MECATL_ENABLED_ENV = "ROOST_MECATL";
+
+/** Absolute path to the `mecated` executable when it is not on PATH. */
+export const MECATL_BIN_ENV = "ROOST_MECATL_BIN";
+
+/** Absolute workspace root the supervised Mecatl daemon serves. */
+export const MECATL_ROOT_ENV = "ROOST_MECATL_ROOT";
