@@ -98,6 +98,7 @@ export function terminalSessionReplica(sessionId: string): TerminalSessionReplic
     resyncRetryAtMs: null,
     generation: null,
     idleProbeTimer: null,
+    probeRearmReported: false,
     proofDeadlineTimer: null,
     lastAcceptedFrameAtMs: null,
     lastAcceptedFrameGeneration: null,

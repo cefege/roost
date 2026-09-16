@@ -205,6 +205,9 @@ export interface TerminalSessionReplica {
   generation: TerminalGenerationToken | null;
   lastAcceptedFrameAtMs: number | null;
   idleProbeTimer: Timer | null;
+  /** True once this unpublishable-challenge episode has been reported, so the
+   *  probe's retries stay silent until a challenge publishes again. */
+  probeRearmReported: boolean;
   proofDeadlineTimer: Timer | null;
   lastAcceptedFrameGeneration: TerminalGenerationToken | null;
   proofChallengeAtMs: number | null;

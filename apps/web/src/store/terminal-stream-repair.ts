@@ -328,8 +328,9 @@ function armTerminalIdleProbeSince(
       armTerminalForegroundIdleProbe(session);
       return;
     }
-    if (requestTerminalLivenessChallenge(session)) return;
+    if (requestTerminalLivenessChallenge(session)) { session.probeRearmReported = false; return; }
     signalTerminalProofStall(session, owner, "rearm", Math.max(0, performance.now() - since));
+    session.probeRearmReported = true;
     armTerminalIdleProbeSince(session, performance.now());
   }, Math.max(0, dueAt - performance.now()));
   session.idleProbeTimer = timer;
@@ -364,15 +365,16 @@ function armTerminalProofDeadline(
 }
 
 /** One payload shape for this layer's transitions, so a field added here
- * reaches all of them. A rearm keeps its own cooldown scope: it repeats for as
- * long as the challenge cannot be published, and sharing the session's scope
- * would coalesce away the resync or redial that follows it. */
+ * reaches all of them. A rearm reports the EPISODE, not each retry — a Tier-1
+ * line per retry would leave the always-on channel permanently red — and keeps
+ * its own cooldown scope so it cannot coalesce away the resync or redial. */
 function signalTerminalProofStall(
   session: TerminalSessionReplica,
   owner: TerminalGenerationToken,
   action: "resync" | "redial" | "rearm",
   ageMs: number | null = null,
 ): void {
+  if (action === "rearm" && session.probeRearmReported) return;
   const canonical = session.canonical;
   signal("cell.foreground_stall", {
     sid: session.sessionId,
