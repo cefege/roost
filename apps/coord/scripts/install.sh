@@ -13,6 +13,44 @@ REPO_ROOT="${ROOST_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && 
 if [[ -z "${ROOST_SKIP_ENV_LOCAL:-}" ]]; then
   set -a; [ -f "$REPO_ROOT/.env.local" ] && source "$REPO_ROOT/.env.local"; set +a
 fi
+
+# The cgroup ceilings are a share of the host, not a constant: a fixed 1G/2G on
+# a 1 GB box is no ceiling at all, so the coordinator would OOM the host instead
+# of being bounced by its own unit. Detection is best-effort — an unknown total
+# keeps the pre-derivation literals, which are the caps below.
+detect_total_memory_bytes() {
+  local meminfo_kib sysctl_bytes
+  # MEMINFO is an override seam so the clamp branches are testable without a
+  # 1GB box, same as apps/worker/scripts/install.sh.
+  meminfo_kib="$(awk '/^MemTotal:/ { print $2; exit }' "${MEMINFO:-/proc/meminfo}" 2>/dev/null || true)"
+  if [[ "$meminfo_kib" =~ ^[0-9]+$ ]]; then echo $(( meminfo_kib * 1024 )); return 0; fi
+  sysctl_bytes="$(sysctl -n hw.memsize 2>/dev/null || true)"
+  if [[ "$sysctl_bytes" =~ ^[0-9]+$ ]]; then echo "$sysctl_bytes"; return 0; fi
+  echo 0
+}
+
+# Whole GiB render as `<n>G` so a big host's unit still reads `1G`/`2G`; systemd
+# accepts both spellings and MiB is the finest granularity worth emitting.
+format_memory_limit() {
+  local bytes="$1"
+  if (( bytes % (1024 * 1024 * 1024) == 0 )); then
+    echo "$(( bytes / (1024 * 1024 * 1024) ))G"
+  else
+    echo "$(( bytes / (1024 * 1024) ))M"
+  fi
+}
+
+# <percent>% of total, clamped into [floor, cap]. The floor keeps a tiny host
+# from starving the coordinator below the point where it can serve at all.
+derive_memory_limit() {
+  local total="$1" percent="$2" floor="$3" cap="$4" value
+  if (( total <= 0 )); then format_memory_limit "$cap"; return 0; fi
+  value=$(( total * percent / 100 ))
+  if (( value < floor )); then value="$floor"; fi
+  if (( value > cap )); then value="$cap"; fi
+  format_memory_limit "$value"
+}
+
 # Labels/paths overridable (binary-mode quickstart + isolated test installs);
 # defaults are the daily-driver source install — unchanged when unset.
 OS="$(uname -s)"
@@ -21,11 +59,16 @@ if [[ "$OS" == "Linux" ]]; then
   IS_LINUX=true
   LABEL="${ROOST_COORD_LABEL:-roost-coord}"
   UNIT="${ROOST_COORD_UNIT:-$HOME/.config/systemd/user/${LABEL}.service}"
+  UNIT_DROPIN_DIR="${UNIT}.d"
   DATA_DIR="${ROOST_COORD_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/RoostCoordinatorV2}"
   LOG_DIR="${ROOST_COORD_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/RoostCoord}"
-  # Resource limits baked into the unit; dial down on a small box via env.
-  COORD_MEM_HIGH="${ROOST_COORD_MEMORY_HIGH:-1G}"
-  COORD_MEM_MAX="${ROOST_COORD_MEMORY_MAX:-2G}"
+  # Resource limits baked into the unit: a share of the host, so a small box
+  # gets a ceiling it can actually hit. Env still wins outright.
+  COORD_MEM_TOTAL_BYTES="$(detect_total_memory_bytes)"
+  COORD_MEM_HIGH_DEFAULT="$(derive_memory_limit "$COORD_MEM_TOTAL_BYTES" 45 $((384 * 1024 * 1024)) $((1024 * 1024 * 1024)))"
+  COORD_MEM_MAX_DEFAULT="$(derive_memory_limit "$COORD_MEM_TOTAL_BYTES" 70 $((512 * 1024 * 1024)) $((2 * 1024 * 1024 * 1024)))"
+  COORD_MEM_HIGH="${ROOST_COORD_MEMORY_HIGH:-$COORD_MEM_HIGH_DEFAULT}"
+  COORD_MEM_MAX="${ROOST_COORD_MEMORY_MAX:-$COORD_MEM_MAX_DEFAULT}"
   COORD_TASKS_MAX="${ROOST_COORD_TASKS_MAX:-256}"
   [[ "$COORD_MEM_HIGH" =~ ^[0-9]+([.][0-9]+)?[KMGTP]?$ ]] || { echo "invalid ROOST_COORD_MEMORY_HIGH" >&2; exit 1; }
   [[ "$COORD_MEM_MAX" =~ ^[0-9]+([.][0-9]+)?[KMGTP]?$ ]] || { echo "invalid ROOST_COORD_MEMORY_MAX" >&2; exit 1; }
@@ -328,6 +371,46 @@ EOF
   } > "$UNIT"
   chmod 0600 "$UNIT"
   echo "wrote $UNIT"
+  echo "  cgroup limits: MemoryHigh=${COORD_MEM_HIGH} MemoryMax=${COORD_MEM_MAX} TasksMax=${COORD_TASKS_MAX} (host total ${COORD_MEM_TOTAL_BYTES} bytes)"
+  retire_superseded_limits_dropin
+}
+
+# A drop-in in ${UNIT}.d beats the unit body, so a hand-written copy of the
+# limits — the shape the early Linux boxes carry — pins MemoryHigh=1G and
+# MemoryMax=2G whatever write_unit just derived, i.e. a dead ceiling on exactly
+# the small hosts the derivation exists for. Retire copies that set nothing the
+# unit body does not now own; warn about anything else, never delete it.
+retire_superseded_limits_dropin() {
+  [[ -d "$UNIT_DROPIN_DIR" ]] || return 0
+  local conf body line key pinned removed=0 superseded
+  for conf in "$UNIT_DROPIN_DIR"/*.conf; do
+    [[ -f "$conf" ]] || continue
+    body="$(cat "$conf" 2>/dev/null)" || continue
+    superseded=true
+    pinned=""
+    while IFS= read -r line; do
+      line="${line#"${line%%[![:space:]]*}"}"
+      line="${line%"${line##*[![:space:]]}"}"
+      [[ -z "$line" || "$line" == "#"* || "$line" == ";"* ]] && continue
+      [[ "$line" == "[Service]" ]] && continue
+      if [[ "$line" != *=* ]]; then superseded=false; continue; fi
+      key="${line%%=*}"
+      key="${key%"${key##*[![:space:]]}"}"
+      case "$key" in
+        MemoryHigh|MemoryMax|TasksMax) pinned+=" $key" ;;
+        *) superseded=false ;;
+      esac
+    done <<< "$body"
+    if $superseded && [[ -n "$pinned" ]]; then
+      rm -f "$conf" 2>/dev/null || true
+      removed=$(( removed + 1 ))
+      echo "retired superseded drop-in ${conf} (MemoryHigh/MemoryMax/TasksMax now live in the unit)"
+    elif [[ -n "$pinned" ]]; then
+      echo "WARN: ${conf} pins${pinned} and overrides the unit body; systemd drop-ins win over MemoryHigh=${COORD_MEM_HIGH} MemoryMax=${COORD_MEM_MAX} TasksMax=${COORD_TASKS_MAX} in the unit" >&2
+    fi
+  done
+  if (( removed > 0 )); then rmdir "$UNIT_DROPIN_DIR" 2>/dev/null || true; fi
+  return 0
 }
 
 # systemd's StandardOutput=append: holds the fd open, so rotation MUST be
