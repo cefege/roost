@@ -538,8 +538,9 @@ Branch `mecatl-agent-panes`. Verified on that branch unless marked otherwise.
   (`ROOST_MECATL=1 ROOST_MECATL_BIN=… bun smoke/terminal/live-stack.ts --pair`)
   spawned a real `mecated` from its worker, and a paired Chromium at
   `/agent/<fp>` drove it end to end: the machine chip resolved, the empty
-  session list came from the daemon, "New session" created one, a prompt
-  streamed back, and the reply rendered in the transcript. Ten requests were
+  session list came from the daemon, "New session" created one, and the
+  prompt's response streamed back and rendered in the transcript (an error
+  turn — see below). Ten requests were
   observed, all on `/api/mecatl/<fp>/v1/...` — `compatibility`, `sessions`,
   `sessions?page_size=50`, `sessions/<id>`, `transcript`, `prompt` — and
   neither `MECATL_AUTH_TOKEN` nor any 64-hex bearer appeared anywhere in
