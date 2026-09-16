@@ -1,9 +1,9 @@
 // Owns coordinator admission order for one session's observed agent status.
 // Revisions order updates only inside an exact epoch/occupant tuple; retired
-// UUID tokens are compared solely by equality and remain fenced through a
-// close/open boundary until the hub itself is stopped. It also marks the
-// revision at which the latest occupant's state last changed, which is the
-// only advance a status wait may honour.
+// UUID tokens are compared solely by equality and stay fenced through a
+// close/open boundary until FIFO eviction past MAX_RETIRED_EPOCHS drops them.
+// It also marks the revision at which the latest occupant's state last
+// changed, which is the only advance a status wait may honour.
 
 import {
   isIdentifiedAgentStatus,
@@ -25,6 +25,11 @@ export function sameAgentStatusOccupant(
   return left.status_epoch === right.status_epoch
     && left.occupant_id === right.occupant_id;
 }
+
+/** Fencing an epoch this many generations old cannot matter — its occupants
+ *  are long replaced — while an unbounded retired set grows one session's
+ *  order object with every agent restart for the life of the process. */
+const MAX_RETIRED_EPOCHS = 64;
 
 export class AgentStatusOrder {
   private identifiedAccepted = false;
@@ -123,5 +128,11 @@ export class AgentStatusOrder {
   private retireEpoch(statusEpoch: StatusEpoch): void {
     this.retiredEpochs.add(statusEpoch);
     this.retiredOccupantsByEpoch.delete(statusEpoch);
+    if (this.retiredEpochs.size <= MAX_RETIRED_EPOCHS) return;
+    // Set iteration order is insertion order, so this is the oldest fence.
+    const oldest = this.retiredEpochs.values().next().value;
+    if (oldest === undefined) return;
+    this.retiredEpochs.delete(oldest);
+    this.retiredOccupantsByEpoch.delete(oldest);
   }
 }

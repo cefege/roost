@@ -1,8 +1,14 @@
 // Module-level telemetry counters. Tracks per-route request counts and error
-// counts (4xx/5xx). Updated by recordRequest / recordError. Snapshot exposed
-// via misc.metrics tRPC query.
-// Callers: security middleware (recordRequest), trpc error handler (recordError),
-//          misc.ts (getMetricsSnapshot).
+// counts (4xx/5xx), with label cardinality capped so a caller cannot grow the
+// maps by inventing request paths.
+// Callers: middleware/security.ts (recordRequest / recordError through
+//          recordAuditTelemetry), connect/handlers-system.ts
+//          (getMetricsSnapshot for the metrics RPC).
+
+const MAX_TELEMETRY_KEYS = 256;
+// Counters past the cap collapse here: an unmatched request path is chosen by
+// the caller, so key cardinality is the one dimension it could grow.
+const TELEMETRY_OVERFLOW_KEY = "<other>";
 
 const requestCounts = new Map<string, number>();
 const errorCounts = new Map<string, number>();
@@ -10,10 +16,16 @@ const errorCounts = new Map<string, number>();
 let startMs = Date.now();
 
 function inc(map: Map<string, number>, key: string): void {
-  map.set(key, (map.get(key) ?? 0) + 1);
+  const current = map.get(key);
+  if (current === undefined && map.size >= MAX_TELEMETRY_KEYS) {
+    map.set(TELEMETRY_OVERFLOW_KEY, (map.get(TELEMETRY_OVERFLOW_KEY) ?? 0) + 1);
+    return;
+  }
+  map.set(key, (current ?? 0) + 1);
 }
 
-// Record a completed request. path = URL pathname (e.g. /api/trpc/workers.list).
+// Record a completed request. path = URL pathname or Connect
+// /<service>/<method>, already collapsed by the caller when it is unbounded.
 export function recordRequest(path: string): void {
   inc(requestCounts, path);
 }

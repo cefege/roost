@@ -24,6 +24,7 @@ import {
 } from "./agent-status-push-scheduler.ts";
 import { AgentStatusOrder } from "./agent-status-order.ts";
 import {
+  AGENT_STATUS_WAIT_MAX_TIMEOUT_MS,
   cancelAllAgentStatusWaits,
   closeAgentStatusWaits,
   evaluateAgentStatusWaits,
@@ -44,7 +45,7 @@ export type AgentStatusHubDeps = AgentStatusPushDeps;
 
 const activeBySession = new Map<string, AgentStatusValue>();
 const statusOrderBySession = new Map<string, AgentStatusOrder>();
-const closedSessionIds = new Set<string>();
+const closedSessionTombstones = new Map<string, number>();
 let unsubscribeSessionBus: (() => void) | undefined;
 
 /** Register a bounded wait against this hub's retained status. */
@@ -58,7 +59,7 @@ export function waitForAgentStatus(
 /** Retained state a waiter may read; the hub alone mutates these maps. */
 const retainedStatusView: AgentStatusWaitView = {
   retained: (sessionId) => activeBySession.get(sessionId),
-  closed: (sessionId) => closedSessionIds.has(sessionId),
+  closed: (sessionId) => closedSessionTombstones.has(sessionId),
   stateChangeRevision: (sessionId) =>
     statusOrderBySession.get(sessionId)?.stateChangeRevision ?? 0,
 };
@@ -90,6 +91,7 @@ export function handleWorkerAgentStatus(
   workerFp: string,
   input: unknown,
 ): AgentStatusAcceptance {
+  sweepClosedSessionTombstones();
   const result = AgentStatusUpdate.safeParse(input);
   if (!result.success) {
     diag("agent_status.frame_dropped", { reason: "invalid", worker_fp: workerFp });
@@ -124,7 +126,7 @@ export function handleWorkerAgentStatus(
     return "wrong-worker";
   }
 
-  if (closedSessionIds.has(update.session_id)) return "stale";
+  if (closedSessionTombstones.has(update.session_id)) return "stale";
   const previous = activeBySession.get(update.session_id);
   const order = statusOrderBySession.get(update.session_id) ?? new AgentStatusOrder();
   if (!order.accepts(previous, update)) return "stale";
@@ -146,8 +148,25 @@ export function handleWorkerAgentStatus(
   return "accepted";
 }
 
+/** Nothing may consult a tombstone older than the longest admissible status
+ *  wait, so a closed session's stale fence and its admission order expire
+ *  together; otherwise both maps gain one entry per closed session and never
+ *  lose one, making the hub's footprint a function of uptime. */
+function sweepClosedSessionTombstones(): void {
+  const expiredAtOrBeforeMs = Date.now() - AGENT_STATUS_WAIT_MAX_TIMEOUT_MS;
+  let swept = 0;
+  for (const [sessionId, closedAtMs] of closedSessionTombstones) {
+    if (closedAtMs > expiredAtOrBeforeMs) continue;
+    closedSessionTombstones.delete(sessionId);
+    statusOrderBySession.delete(sessionId);
+    swept += 1;
+  }
+  if (swept > 0) log.info("agent-status", "tombstones_swept", { count: swept });
+}
+
 function clearClosedSession(sessionId: string): void {
-  closedSessionIds.add(sessionId);
+  sweepClosedSessionTombstones();
+  closedSessionTombstones.set(sessionId, Date.now());
   closeAgentStatusWaits(sessionId);
   cancelAgentStatusPush(sessionId);
   const current = activeBySession.get(sessionId);
@@ -173,7 +192,7 @@ export function startAgentStatusHub(deps?: AgentStatusHubDeps): void {
     if (event.kind === "closed") {
       clearClosedSession(event.session_id);
     } else if (event.kind === "opened") {
-      closedSessionIds.delete(event.session_id);
+      closedSessionTombstones.delete(event.session_id);
     }
   });
 }
@@ -185,9 +204,21 @@ export function stopAgentStatusHub(): void {
   unsubscribeSessionBus = undefined;
   activeBySession.clear();
   statusOrderBySession.clear();
-  closedSessionIds.clear();
+  closedSessionTombstones.clear();
 }
 
 export function getAgentStatusSnapshot(): AgentStatusValue[] {
   return [...activeBySession.values()];
+}
+
+/** Test seam: back-dates one live tombstone so the lazy sweep is reachable
+ *  without waiting out AGENT_STATUS_WAIT_MAX_TIMEOUT_MS. Returns false when the
+ *  session holds no tombstone. */
+export function _backdateAgentStatusTombstone(
+  sessionId: string,
+  closedAtMs: number,
+): boolean {
+  if (!closedSessionTombstones.has(sessionId)) return false;
+  closedSessionTombstones.set(sessionId, closedAtMs);
+  return true;
 }
