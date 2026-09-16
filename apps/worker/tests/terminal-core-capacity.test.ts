@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { TerminalCore } from "@wterm/core";
 import { asWorkerFp } from "@roost/shared/wire";
+import { effectiveLinuxMemoryCeilingBytes } from "@roost/shared/host-memory";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionManager } from "../src/session-manager.ts";
 import {
@@ -15,7 +16,6 @@ import {
 	TerminalCoreCapacity,
 	TerminalCoreCapacityError,
 } from "../src/terminal-core-capacity.ts";
-import { effectiveLinuxMemoryCeilingBytes } from "../src/host-sample-linux.ts";
 import { SessionEventTestSink } from "./session-event-test-sink.ts";
 
 const WORKER_FP = asWorkerFp("42".repeat(32));

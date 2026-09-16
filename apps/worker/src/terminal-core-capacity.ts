@@ -4,9 +4,9 @@
 // Heartbeat callers snapshot this content-free operational state.
 
 import { signal } from "@roost/shared/diag";
+import { effectiveMemoryCeilingBytes } from "@roost/shared/host-memory";
 import { log } from "@roost/shared/log";
 import { totalmem } from "node:os";
-import { effectiveLinuxMemoryCeilingBytes } from "./host-sample-linux.ts";
 
 export const TERMINAL_CORE_CAPACITY_HARD_MAX = 500;
 
@@ -101,14 +101,12 @@ export function createWorkerTerminalCoreCapacity(
 ): TerminalCoreCapacity {
 	const platform = options.platform ?? process.platform;
 	const hostMemoryBytes = nonnegativeBytes(options.hostMemoryBytes ?? totalmem());
-	const effectiveMemoryCeilingBytes = platform === "linux"
-		? effectiveLinuxMemoryCeilingBytes(hostMemoryBytes)
-		: hostMemoryBytes;
+	const ceilingBytes = effectiveMemoryCeilingBytes(platform, hostMemoryBytes);
 	const bootRssBytes = nonnegativeBytes(
 		options.bootRssBytes ?? process.memoryUsage().rss,
 	);
 	return new TerminalCoreCapacity({
-		effectiveMemoryCeilingBytes,
+		effectiveMemoryCeilingBytes: ceilingBytes,
 		bootRssBytes,
 		terminalCoreCap: options.terminalCoreCap,
 	});

@@ -29,6 +29,7 @@
     "./mecatl-runtime": "./src/mecatl-runtime.ts",
     "./mecatl-runtime-proto": "./src/mecatl-runtime-proto.ts",
     "./host-identity-proto": "./src/host-identity-proto.ts",
+    "./host-memory": "./src/host-memory.ts",
     "./config": "./src/config.ts",
     "./coordinator-dial-url": "./src/coordinator-dial-url.ts",
     "./paths": "./src/paths.ts",
