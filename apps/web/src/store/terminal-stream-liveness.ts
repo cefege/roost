@@ -68,6 +68,10 @@ export function clearTerminalSessionLiveness(
 ): void {
   clearTimeout(session.idleProbeTimer ?? undefined);
   session.idleProbeTimer = null;
+  // Retirement ends the episode as surely as a published challenge does: a
+  // flag surviving here would silence the FIRST rearm of the next episode,
+  // which is the only one that gets reported.
+  session.probeRearmReported = false;
   clearTimeout(session.proofDeadlineTimer ?? undefined);
   session.proofDeadlineTimer = null;
   session.lastAcceptedFrameAtMs = null;
