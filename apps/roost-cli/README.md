@@ -124,7 +124,9 @@ and only then runs the update broker.
   repository file in source mode.
 - **Diagnostics** — `src/status.ts` is the facade over
   `src/status-native-probes.ts`, `src/status-report.ts`,
-  `src/status-output.ts`, and `src/status-types.ts`; `src/doctor.ts`,
+  `src/status-output.ts`, `src/status-spa.ts` (the served-build probe),
+  `src/status-service-env.ts` (the one installed-unit environment reader), and
+  `src/status-types.ts`; `src/doctor.ts`,
   `src/logs.ts`, `src/sync-ws.ts` (headless firehose), and `src/state.ts`.
 - **Headless API** — `src/api.ts` owns authenticated API dispatch;
   `src/api-ui.ts` owns typed `ui-state`, strict layout-file parsing, and

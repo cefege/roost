@@ -7,13 +7,12 @@ import { statusReport } from "./status-report.ts";
 
 export {
   _probeCoordinatorIdentity,
-  _probeSpaRoot,
   resolveCoordinatorDbPath,
-  resolveSpaStatus,
   resolveStatusEndpoint,
   workerInventory,
   workerInventoryForUpdateAdmission,
 } from "./status-report.ts";
+export { _probeSpaRoot, resolveSpaStatus } from "./status-spa.ts";
 export {
   printStatusReport,
   statusReport,

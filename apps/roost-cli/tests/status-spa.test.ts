@@ -69,7 +69,7 @@ describe("status spa reporting", () => {
     )).toBeNull();
   });
 
-  test("the report probes the loopback bind, never the front door", async () => {
+  test("the loopback bind is what gets probed, and off-host nothing is", async () => {
     // A front door behind Cloudflare Access 404s any request coord cannot see
     // as on-host, so probing it would call a healthy install missing. Off a
     // coordinator host there is no bind, and the answer is unknown.
