@@ -10,6 +10,7 @@ import {
 } from "@roost/shared/viewport";
 import {
   CELL_GRID_CHUNK_STALL_MS,
+  CURRENT_SYNC_OWNER,
   EPOCH_A,
   RecordingRenderer,
   SESSION_ID,
@@ -45,15 +46,6 @@ function chunkedProofBaseline() {
   if (chunks.length < 2) throw new Error("proof fixture must split into chunks");
   return chunks;
 }
-
-// The generation the fixture's Sync socket owns; a test flips only `ready` to
-// take the publication target away without rotating the generation.
-const CURRENT_SYNC_OWNER = {
-  socketGeneration: 1,
-  socketId: "socket-1",
-  processEpoch: "process-1",
-  domainGeneration: 11n,
-};
 
 describe("per-session browser terminal replica", () => {
   test("requires a full baseline, admits only an exact delta, and latches one resync", () => {

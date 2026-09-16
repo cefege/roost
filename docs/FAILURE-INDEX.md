@@ -830,16 +830,24 @@ nulls that field, so a latched replica could end up with no proof deadline eithe
 
 **Right** — every exit from the probe callback arms a proof deadline, re-arms the probe, or retires
 liveness because nothing is viewed. A challenge that cannot be published re-arms at the same interval,
-re-anchored at `now` so a stale frame timestamp cannot produce a 0ms spin, and emits
-`cell.foreground_stall` with `action:"rearm"` under its own cooldown key so the repeat cannot coalesce away
-the later resync or redial. A latch with no pending challenge for its owner arms a repair regardless of the
-latch timestamp; the pending-challenge gate remains the sole coalescer, so concurrent view renewals still
-cannot multiply repairs.
+re-anchored at `now` so a stale frame timestamp cannot produce a 0ms spin. A latch with no pending
+challenge for its owner arms a repair regardless of the latch timestamp; the pending-challenge gate remains
+the sole coalescer, so concurrent view renewals still cannot multiply repairs.
+The retry is reported as an EPISODE, never per retry: `signal()` is Tier-1 and a line every other probe
+(~360/hour per stuck session) would leave `roost doctor` permanently red and drown the channel it exists to
+serve. `probeRearmReported` carries that edge, and EVERYTHING that ends an episode must clear it — a
+published challenge AND `clearTerminalSessionLiveness`, because a flag surviving retirement silences the
+first rearm of the next episode, which is the only one that reports. The rearm keeps its own cooldown scope
+so it cannot coalesce away the resync or redial that follows it.
 
 **Guard** — `apps/web/tests/terminalStream.test.ts` —
 `"re-arms the idle probe when a liveness challenge cannot be published"`,
 `"arms a proof deadline for a latch whose delta cleared its latch timestamp"`, alongside
-`"coalesces same-generation repairs across concurrent view renewals"`.
+`"coalesces same-generation repairs across concurrent view renewals"`;
+`apps/web/tests/terminalStreamProbeEpisode.test.ts` —
+`"reports a rearm episode again after liveness retirement"`, which drives `Date.now()` explicitly so the
+two episodes straddle `SIGNAL_COOLDOWN_MS`: a report the cooldown suppressed would green the case with the
+retirement reset removed.
 
 ### The pane's re-claim net only protects a pane that never painted
 

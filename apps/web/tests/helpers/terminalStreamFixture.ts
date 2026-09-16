@@ -42,13 +42,16 @@ interface TestCommand {
   value: Record<string, unknown>;
 }
 
-let syncState: TestSyncState | null = {
+/** The generation the fixture's Sync socket owns. Suites flip only `ready` to
+ *  take the publication target away without rotating the generation, so this
+ *  identity has exactly one definition on both sides of that boundary. */
+const CURRENT_SYNC_OWNER: Omit<TestSyncState, "ready"> = {
   socketGeneration: 1,
   socketId: "socket-1",
   processEpoch: "process-1",
   domainGeneration: 11n,
-  ready: true,
 };
+let syncState: TestSyncState | null = { ...CURRENT_SYNC_OWNER, ready: true };
 let generationHandler: ((state: TestSyncState | null) => void) | null = null;
 const sent: TestCommand[] = [];
 const generationRecoveries: Array<{
@@ -309,13 +312,7 @@ beforeEach(() => {
   generationRecoveries.length = 0;
   visible = true;
   focused = true;
-  syncState = {
-    socketGeneration: 1,
-    socketId: "socket-1",
-    processEpoch: "process-1",
-    domainGeneration: 11n,
-    ready: true,
-  };
+  syncState = { ...CURRENT_SYNC_OWNER, ready: true };
   generationHandler?.(syncState);
 });
 
@@ -325,6 +322,7 @@ afterEach(() => {
 });
 export {
   CELL_GRID_CHUNK_STALL_MS,
+  CURRENT_SYNC_OWNER,
   EPOCH_A,
   RecordingRenderer,
   SESSION_ID,

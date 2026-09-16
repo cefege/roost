@@ -7,6 +7,7 @@ import { describe, expect, test, vi } from "bun:test";
 import { setSignalSink } from "@roost/shared/diag";
 import { TERMINAL_FOREGROUND_IDLE_PROBE_MS } from "@roost/shared/viewport";
 import {
+  CURRENT_SYNC_OWNER,
   SESSION_ID,
   acceptView,
   cellFrameToProto,
@@ -17,15 +18,6 @@ import {
   terminalStream,
   updateSyncState,
 } from "./helpers/terminalStreamFixture.ts";
-
-// The generation the fixture's Sync socket owns; only `ready` is flipped, so
-// the publication target goes away without rotating the generation.
-const CURRENT_SYNC_OWNER = {
-  socketGeneration: 1,
-  socketId: "socket-1",
-  processEpoch: "process-1",
-  domainGeneration: 11n,
-};
 
 describe("terminal idle-probe rearm episodes", () => {
   test("reports a rearm episode again after liveness retirement", () => {
