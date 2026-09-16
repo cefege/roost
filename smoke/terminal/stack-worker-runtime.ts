@@ -6,7 +6,12 @@ import { execFileSync, spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { join } from "node:path";
 import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "../../apps/shared/src/worker-service-env.ts";
+import {
+  KEEPER_FORCE_LIVE_RETIRE_ENV,
+  MECATL_BIN_ENV,
+  MECATL_ENABLED_ENV,
+  MECATL_ROOT_ENV,
+} from "../../apps/shared/src/worker-service-env.ts";
 import {
   REPOSITORY_ROOT,
   childEnvironment,
@@ -16,6 +21,18 @@ import {
 } from "./stack-runtime.ts";
 
 const WORKER_READY_TIMEOUT_MS = 30_000;
+
+/** The three worker settings that decide whether this machine supervises a
+ *  Mecatl runtime. Read from the launching shell so a live stack can exercise
+ *  the agent surface without the harness owning a provider or a binary path. */
+function mecatlPassthrough(): Record<string, string> {
+  const forwarded: Record<string, string> = {};
+  for (const key of [MECATL_ENABLED_ENV, MECATL_BIN_ENV, MECATL_ROOT_ENV]) {
+    const value = process.env[key];
+    if (value !== undefined) forwarded[key] = value;
+  }
+  return forwarded;
+}
 
 export interface TerminalWorkerStartConfig {
   label: string;
@@ -58,6 +75,11 @@ export function createTerminalWorkerStarter(
           ROOST_WORKER_DATA_DIR: config.dataDir,
           ROOST_WORKER_KEY_PATH: join(config.dataDir, "worker.key"),
           ROOST_KEEPER_QUIET: "1",
+          // childEnvironment strips ambient ROOST_* so one stack cannot
+          // inherit another's identity, which also hides the agent-surface
+          // opt-in. Forward it explicitly: without this the tier can only
+          // ever exercise a machine with no Mecatl runtime.
+          ...mecatlPassthrough(),
           ...(config.gitSha ? { GIT_SHA: config.gitSha, ROOST_GIT_SHA: config.gitSha } : {}),
           ...(config.forceLiveKeeperRetire ? { [KEEPER_FORCE_LIVE_RETIRE_ENV]: "1" } : {}),
           ...(config.localUiBind ? { ROOST_WORKER_LOCAL_UI_BIND: config.localUiBind } : {}),

@@ -534,23 +534,36 @@ Branch `mecatl-agent-panes`. Verified on that branch unless marked otherwise.
   A daemon started with no provider configured exits at startup with an
   actionable error — the `daemon_exit` state the pane reports.
 
+- **Steps 4 and 5 — the whole path, in a browser.** A live stack
+  (`ROOST_MECATL=1 ROOST_MECATL_BIN=… bun smoke/terminal/live-stack.ts --pair`)
+  spawned a real `mecated` from its worker, and a paired Chromium at
+  `/agent/<fp>` drove it end to end: the machine chip resolved, the empty
+  session list came from the daemon, "New session" created one, a prompt
+  streamed back, and the reply rendered in the transcript. Ten requests were
+  observed, all on `/api/mecatl/<fp>/v1/...` — `compatibility`, `sessions`,
+  `sessions?page_size=50`, `sessions/<id>`, `transcript`, `prompt` — and
+  neither `MECATL_AUTH_TOKEN` nor any 64-hex bearer appeared anywhere in
+  browser storage or DOM. Reloading the page restored the session list and
+  its title from the daemon's own store. Stopping the stack left no surviving
+  `mecated` process.
+  The provider was a deliberately invalid key, so the model call failed and
+  the pane rendered Mecatl's `invalid_api_key` error in the transcript with
+  the session marked `failed · 1 turn`. That is the error path proven; a
+  successful assistant reply was proven separately at the worker layer with
+  `--mock`. A run with a real key has still never happened.
+
 ### Done but NOT proven
 
-- **Step 5 — `/agent` pane** (`apps/web/src/components/Agent/**`, route,
-  activity-bar entry, MainPane overlay). Builds and typechecks against
-  `@stacklok-oss/mecatl-sdk@0.2.0`; never rendered in a browser.
-- **The coordinator half of the relay in a live stack.** Its unit tests pass
-  with a fake worker sink, but no request has yet travelled
-  browser → coord → worker link → daemon. That is the next proof, and it needs
-  a stack with `ROOST_MECATL=1` plus a provider (or `--mock`) on the worker.
+- **A successful model turn through the browser.** Needs a real provider key
+  on the worker, or `--mock`, which the supervisor cannot pass — `--mock` is
+  flag-only, with no env or `settings.yaml` equivalent in v0.0.38.
+- **Approvals in the pane.** No `permission.ask` has been rendered or
+  answered, because a mock/failed turn calls no tool.
 
 ### Next actions, in order
 
-1. Live-stack proof of the coordinator route: `bun run --cwd apps/web build`,
-   then `ROOST_MECATL=1 bun smoke/terminal/live-stack.ts`, then open
-   `<url>/agent/<fp>` in a paired browser. Expected: machine reads ready,
-   "New session" creates one, a prompt streams assistant text, and devtools
-   shows every call on `/api/mecatl/<fp>/v1/...` with no Mecatl bearer.
+1. Re-run the live-stack proof with a real provider key and a
+   tool-using prompt, to exercise `permission.ask` and the approval card.
 2. Gates not yet run on this branch: `bun run test:unit`,
    `bun run test:terminal`, `bun run test:upgrade`. Green already:
    `bun run lint`, `bun run test:worker`, the web build, and
