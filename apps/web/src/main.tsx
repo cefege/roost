@@ -9,6 +9,7 @@ import { loadTheme, applyTheme } from "./lib/theme.ts";
 import { applyTvMode } from "./lib/tvMode.ts";
 import { loadAgentConfig } from "./lib/agents.ts";
 import { installSpaDiag, installSignalShip, markPhase } from "./lib/diag.ts";
+import { installLocalTransportIndicator } from "./store/local-transport-indicator.ts";
 import { installTerminalSnapshotFacade } from "./lib/terminalSnapshotFacade.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import { applyTermFontSize } from "./lib/terminalFontPref.ts";
@@ -41,6 +42,9 @@ applyTvMode();
 installSignalShip();
 installTerminalSnapshotFacade();
 installSpaDiag();
+// Before first render: the pane tabs read transport ownership during their
+// initial paint, so a later registration would show an unmarked local pane.
+installLocalTransportIndicator();
 // Global error catch — Solid reactive throws + chunk-load failures go
 // to window.onerror; rejected promises to onunhandledrejection. Both
 // are otherwise invisible (console.error gets eaten in app-corner windows).

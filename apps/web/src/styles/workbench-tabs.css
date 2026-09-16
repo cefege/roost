@@ -161,6 +161,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The loopback marker is informational, not a status: it rides the same
+   on-surface-variant role as the hover card's caption lines so it reads as a
+   property of the tab instead of outranking the label it sits beside. */
+.workbench-pane-tab__local { color: var(--md-sys-color-on-surface-variant); flex-shrink: 0; }
 
 .df-tab-bar[data-dragging="true"] { user-select: none; cursor: grabbing; }
 .df-tab[data-dragging="true"] {

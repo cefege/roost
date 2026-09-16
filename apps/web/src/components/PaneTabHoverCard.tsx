@@ -11,6 +11,7 @@ import { programSubtitle, sessionTitle } from "../lib/sessionTitle.ts";
 import { shortCwd } from "../lib/sidebarFormat.ts";
 import { renderPreview } from "../lib/terminalPreview.ts";
 import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
+import { sessionUsesLocalTransport } from "../store/local-transport-indicator.ts";
 import { Icon, Surface } from "./Settings/md/primitives.tsx";
 
 export interface PaneTabHoverCardProps {
@@ -50,6 +51,12 @@ export function PaneTabHoverCard(props: PaneTabHoverCardProps) {
         </div>
         <Show when={subtitle()}>
           <div class="df-tab-hovercard-line">{subtitle()}</div>
+        </Show>
+        <Show when={sessionUsesLocalTransport(props.session.id)}>
+          <div class="df-tab-hovercard-chip">
+            <Icon name="bolt" size="sm" />
+            Direct to this machine
+          </div>
         </Show>
         <div class="df-tab-hovercard-cwd">
           {shortCwd(props.session.cwd, props.session.worker_fp)}

@@ -155,6 +155,14 @@ test("worker-served page owns its local PTYs while the coordinator only mirrors 
     await Promise.all(pages.map((page) => setRecoveryCanary(page, canary)));
     await waitForTransition(pages, sessionId, { activeIndices: [0, 1], activeViewCount: 2 });
 
+    // The tag a user actually reads: the same session is marked local on the
+    // worker-served page and NOT on the coordinator-served one, so the marker
+    // tracks the transport rather than the session.
+    await expect(localPage.getByTestId(`tab-${sessionId}`))
+      .toHaveAttribute("data-local-transport", "true");
+    await expect(remotePage.getByTestId(`tab-${sessionId}`))
+      .toHaveAttribute("data-local-transport", "false");
+
     const localMarker = `${prefix}1`;
     await Promise.all(pages.map((page) => armPaintedMarkerEpoch(page, sessionId, localMarker)));
     const localSentAt = await emitMarkerFromPage(localPage, sessionId, localMarker);
