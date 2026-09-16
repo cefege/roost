@@ -60,10 +60,12 @@ export function wrapResponse(
   req: Request,
   opts: SecurityOptions,
 ): Response {
-  const headers = new Headers(resp.headers);
-  applyCors(headers, req.headers.get("origin"), opts.corsAllowedOrigins);
-  applySecurityHeaders(headers, opts.relaxedCsp, opts.hsts, opts.connectOrigins);
-  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
+  // Mutate in place: re-wrapping converts a Bun.file() body into a
+  // ReadableStream, which drops content-length and installs Bun's
+  // RequestContext.onAbort path (see connect/bun-handler.ts).
+  applyCors(resp.headers, req.headers.get("origin"), opts.corsAllowedOrigins);
+  applySecurityHeaders(resp.headers, opts.relaxedCsp, opts.hsts, opts.connectOrigins);
+  return resp;
 }
 
 export function preflightResponse(req: Request, opts: SecurityOptions): Response {
@@ -89,16 +91,20 @@ export function extractAuditMeta(req: Request): AuditMeta {
   };
 }
 export const SPA_AUDIT_TELEMETRY_PATH = "<spa-static>";
+export const API_NOT_FOUND_AUDIT_PATH = "<api-404>";
 
 export type NonConnectAuditSurface = "spa" | "db-export" | "api";
 
-/** Successful static/deep-link reads have no durable forensic value. Errors
- * and explicit API/export surfaces remain auditable. */
+/** Successful static/deep-link reads have no durable forensic value, and an
+ * unmatched /api/* path is an unauthenticated GET the rate limiter lets
+ * through, so one durable row per probed path is pure amplification. Every
+ * other error and the explicit API/export surfaces remain auditable. */
 export function shouldPersistNonConnectAudit(opts: {
   surface: NonConnectAuditSurface;
   method: string;
   status: number;
 }): boolean {
+  if (opts.surface === "api" && opts.status === 404) return false;
   return !(
     opts.surface === "spa"
     && (opts.method === "GET" || opts.method === "HEAD")

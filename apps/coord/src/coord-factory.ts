@@ -5,6 +5,7 @@
 // handlers, file-system DB); this factory owns the protocol layer.
 
 import {
+  API_NOT_FOUND_AUDIT_PATH,
   extractAuditMeta,
   preflightResponse,
   recordAuditTelemetry,
@@ -152,12 +153,15 @@ export function createCoord(deps: CoordDeps): CoordHandle {
     }
 
     // Connect RPCs audit inside the interceptor with the verified caller fp.
-    // Static/deep-link successes retain one bounded metric label but do not
-    // let arbitrary Internet paths amplify durable SQLite rows.
+    // Static/deep-link successes and unmatched /api/* probes each retain one
+    // bounded metric label but do not let arbitrary Internet paths amplify
+    // durable SQLite rows or telemetry keys.
     if (!isConnect) {
       const telemetryPath = nonConnectSurface === "spa"
         ? SPA_AUDIT_TELEMETRY_PATH
-        : auditMeta.path;
+        : nonConnectSurface === "api" && resp.status === 404
+          ? API_NOT_FOUND_AUDIT_PATH
+          : auditMeta.path;
       recordAuditTelemetry(telemetryPath, resp.status);
       if (shouldPersistNonConnectAudit({
         surface: nonConnectSurface,
