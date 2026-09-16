@@ -4,7 +4,7 @@
 // that died all have to read as unavailable with the reason an operator needs.
 
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -43,7 +43,12 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, fetch(req) {
 if (Bun.env.FAKE_STALE_READY === "1") {
   Bun.write(opt("--ready-file"), JSON.stringify({ pid: process.pid + 99_000 }));
 } else {
-  Bun.write(opt("--ready-file"), JSON.stringify({ pid: process.pid, api_major: apiMajor }));
+  Bun.write(opt("--ready-file"), JSON.stringify({
+    pid: process.pid,
+    api_major: apiMajor,
+    do_not_track: Bun.env.DO_NOT_TRACK ?? "unset",
+    product_metrics: Bun.env.MECATL_PRODUCT_METRICS ?? "unset",
+  }));
 }
 const reader = Bun.stdin.stream().getReader();
 (async () => { while (true) { const { done } = await reader.read(); if (done) break; } server.stop(true); process.exit(0); })();
@@ -167,4 +172,34 @@ test("stopping the daemon ends the process and stops reporting ready", async () 
   await daemon.stop();
   expect(daemon.state().kind).not.toBe("ready");
   expect(() => process.kill(pid, 0)).toThrow();
+});
+
+test("a supervised daemon is opted out of vendor telemetry by default", async () => {
+  const daemon = daemonFor({
+    ROOST_MECATL: "1",
+    ROOST_MECATL_BIN: fakeMecated("mecated-telemetry", SERVING),
+    ROOST_MECATL_ROOT: TEST_ROOT,
+  });
+  await settle(daemon, (s) => s.kind === "ready");
+
+  const published = JSON.parse(
+    readFileSync(join(TEST_ROOT, "data", "mecatl", "ready.json"), "utf8"),
+  ) as { do_not_track?: string };
+  expect(published.do_not_track).toBe("1");
+});
+
+test("an operator who asked for telemetry keeps it", async () => {
+  const daemon = daemonFor({
+    ROOST_MECATL: "1",
+    ROOST_MECATL_BIN: fakeMecated("mecated-telemetry-optin", SERVING),
+    ROOST_MECATL_ROOT: TEST_ROOT,
+    MECATL_PRODUCT_METRICS: "true",
+  });
+  await settle(daemon, (s) => s.kind === "ready");
+
+  const published = JSON.parse(
+    readFileSync(join(TEST_ROOT, "data", "mecatl", "ready.json"), "utf8"),
+  ) as { do_not_track?: string; product_metrics?: string };
+  expect(published.do_not_track).toBe("unset");
+  expect(published.product_metrics).toBe("true");
 });

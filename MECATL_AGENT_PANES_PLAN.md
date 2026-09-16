@@ -574,6 +574,15 @@ parsing SSE JSON, or the switch silently matches nothing.
   instead of `create()`: the SDK bundles `@bufbuild/protobuf` 2.14.1 while this
   workspace pins 2.12.0, so the two `Message` brands cannot unify. Aligning the
   workspace pin to 2.14.1 would remove the cast.
+- Supervised daemons are opted OUT of Mecatl's vendor product metrics, which
+  are on by default. Roost starts these processes on the operator's machines
+  without them ever typing a `mecated` command, so leaving the default would
+  be Roost enrolling someone else's fleet in vendor telemetry. The spawn env
+  carries `DO_NOT_TRACK=1` unless the worker environment already sets
+  `DO_NOT_TRACK` or `MECATL_PRODUCT_METRICS`, in which case the operator's own
+  value is forwarded verbatim. Verified against `mecated v0.0.38`: the
+  product-metrics banner it prints on an ordinary start is absent under the
+  supervisor.
 
 ### Incident to be aware of
 

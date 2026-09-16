@@ -189,7 +189,11 @@ class MecatlSupervisor implements MecatlDaemon {
         stdio: ["pipe", "ignore", stderr],
         // The token travels in the child environment, never in argv: argv is
         // world-readable in `ps`, which this worker itself scans every 250 ms.
-        env: { ...(process.env as Record<string, string>), MECATL_AUTH_TOKEN: this.#token },
+        env: {
+          ...(process.env as Record<string, string>),
+          ...mecatlTelemetryEnv(this.#env),
+          MECATL_AUTH_TOKEN: this.#token,
+        },
       });
     } catch (error) {
       closeSync(stderr);
@@ -329,6 +333,26 @@ export function unavailableReasonFor(
     case "starting": return "not_ready";
     case "ready": return "daemon_exit";
   }
+}
+
+/** Mecatl reports anonymous product metrics to its vendor by default. A Roost
+ *  operator never types a `mecated` command, so leaving that on would make
+ *  Roost opt every machine in the fleet into vendor telemetry on their behalf.
+ *  The default is therefore off, and an operator who wants it back says so on
+ *  the worker: an explicit `DO_NOT_TRACK` or `MECATL_PRODUCT_METRICS` in the
+ *  worker environment is passed through untouched. */
+function mecatlTelemetryEnv(
+  env: Record<string, string | undefined>,
+): Record<string, string> {
+  // Forwarded explicitly rather than relied on through inheritance: the
+  // decision must follow the same environment the rest of the daemon's
+  // configuration came from, not whichever map happened to be ambient.
+  const chosen: Record<string, string> = {};
+  if (env.DO_NOT_TRACK !== undefined) chosen.DO_NOT_TRACK = env.DO_NOT_TRACK;
+  if (env.MECATL_PRODUCT_METRICS !== undefined) {
+    chosen.MECATL_PRODUCT_METRICS = env.MECATL_PRODUCT_METRICS;
+  }
+  return Object.keys(chosen).length > 0 ? chosen : { DO_NOT_TRACK: "1" };
 }
 
 /** Bind and immediately release a loopback port so the daemon can be told
