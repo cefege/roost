@@ -34,6 +34,16 @@ export function openDb(dbPath: string): DbHandle {
   sqlite.exec("PRAGMA synchronous=NORMAL");
   // FK enforcement: cascade deletes work on workspace_sessions.
   sqlite.exec("PRAGMA foreign_keys=ON");
+  // 8 MiB page cache, explicit rather than the implicit 2 MiB default.
+  sqlite.exec("PRAGMA cache_size=-8000");
+  // Mapped pages count against the cgroup; keep them out of RSS.
+  sqlite.exec("PRAGMA mmap_size=0");
+  // 64 MiB backstop on one query's allocations.
+  sqlite.exec("PRAGMA soft_heap_limit=67108864");
+  // ~4 MiB WAL target, pinned so a config change is visible.
+  sqlite.exec("PRAGMA wal_autocheckpoint=1000");
+  // Truncate the -wal back to 32 MiB after a burst instead of never.
+  sqlite.exec("PRAGMA journal_size_limit=33554432");
 
   const db = new Kysely<DB>({
     dialect: new BunSqliteDialect({ database: sqlite }),
