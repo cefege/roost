@@ -92,6 +92,9 @@ export function createSpaResponder(
 ): SpaResponder {
   const spaRoot = resolveDiskSpaRoot(webDistPath);
   const webAssets = spaRoot || embeddedAssets.size === 0 ? null : embeddedAssets;
+  // Derived from the one choice above, never re-read: a second filesystem probe
+  // could disagree with what this responder actually serves.
+  const source: SpaSource = spaRoot ? "disk" : webAssets ? "embedded" : "none";
 
   // rel (no leading slash) → an embedded raw/gzip descriptor or disk path.
   function resolveAsset(rel: string): EmbeddedSpaAsset | null {
@@ -171,19 +174,7 @@ export function createSpaResponder(
     if (index) return fileResponse(index, "index.html", ".html", method, acceptEncoding, true, false, webAssets !== null);
     return new Response("not found", { status: 404 });
   };
-  return Object.assign(spaResponse, {
-    source: spaSourceKind(webDistPath, embeddedAssets),
-  });
-}
-
-/** The build `createSpaResponder` would pick for these inputs, so a CLI or a
- *  startup report can name the SPA source without constructing a responder. */
-export function spaSourceKind(
-  webDistPath: string | undefined,
-  embeddedAssets: ReadonlyMap<string, EmbeddedSpaAsset>,
-): SpaSource {
-  if (resolveDiskSpaRoot(webDistPath)) return "disk";
-  return embeddedAssets.size === 0 ? "none" : "embedded";
+  return Object.assign(spaResponse, { source });
 }
 
 /** The directory whose `index.html` is servable, or null when this path holds

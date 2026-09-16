@@ -7,6 +7,7 @@ import { statusReport } from "./status-report.ts";
 
 export {
   _probeCoordinatorIdentity,
+  _probeSpaRoot,
   resolveCoordinatorDbPath,
   resolveSpaStatus,
   resolveStatusEndpoint,

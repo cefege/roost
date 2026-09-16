@@ -165,7 +165,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   generic job registry + POSIX `roost deploy` subprocess; remaining owners are
   `src/backup.ts`, `src/audit-retention.ts`, `src/sse.ts`
   (`busToAsyncIterable`, consumed by the deploy-output stream),
-  `src/presence-hub.ts`, `src/spa.ts`, and `src/telemetry.ts`.
+  `src/presence-hub.ts` and `src/telemetry.ts`.
   The paused Windows path keeps signed-update bookkeeping entirely in
   `src/windows-update-deploy-jobs.ts`, `src/windows-update-deploy-runtime.ts`,
   `src/windows-update-deploy-record.ts`, and

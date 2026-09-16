@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { normalizeManifestUrlKey } from "../../../scripts/gen-embed.ts";
-import { createSpaResponder, spaSourceKind } from "../src/spa.ts";
+import { createSpaResponder } from "../src/spa.ts";
 
 
 describe("createSpaResponder", () => {
@@ -154,10 +154,12 @@ describe("createSpaResponder", () => {
       expect(retired.source).toBe("none");
       expect((await retired(new URL("http://t/"), "GET", "")).status).toBe(404);
 
-      // A directory that exists but holds no index.html is equally unservable.
-      mkdirSync(join(workdir, "empty"), { recursive: true });
-      expect(spaSourceKind(join(workdir, "empty"), new Map())).toBe("none");
-      expect(spaSourceKind(join(workdir, "empty"), embed)).toBe("embedded");
+      // A directory that exists but holds no index.html is equally unservable,
+      // and the embed then decides.
+      const emptyDir = join(workdir, "empty");
+      mkdirSync(emptyDir, { recursive: true });
+      expect(createSpaResponder(emptyDir, new Map()).source).toBe("none");
+      expect(createSpaResponder(emptyDir, embed).source).toBe("embedded");
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }

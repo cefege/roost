@@ -1516,17 +1516,19 @@ release directory that a later settlement deletes
 bare `not found` 404 for `/` and every deep link, which reads like an edge, DNS or certificate fault
 because the RPC surface on the same listener is untouched. Chasing the front door here costs the outage.
 
-**Right** — the SPA source is startup-visible state, not something to infer from a 404. `createSpaResponder`
-reports the build it chose (`source: "disk" | "embedded" | "none"`), `apps/coord/src/main.ts` logs
-`spa_source_missing` once when that is `"none"` and keeps serving — worker links and keeper state outlive a
-browser build that went away — and `roost status` prints the `spa:` line with the configured path. A source
-install points `ROOST_WEB_DIST_PATH` at `$REPO_ROOT/apps/web/dist`, which no settlement deletes; a released
-install re-stamps it per deploy.
+**Right** — the SPA source is startup-visible state, not something to infer from a 404.
+`createSpaResponder` reports the build it chose (`source: "disk" | "embedded" | "none"`, derived from that one
+choice and never re-probed), `apps/coord/src/main.ts` logs `spa_source_missing` once when that is `"none"` and
+keeps serving — worker links and keeper state outlive a browser build that went away. `roost status` must not
+repeat the inference: the CLI cannot read a released install's embedded manifest, so it HEADs the
+coordinator's own root and reports that answer next to the stamped path. A source install points
+`ROOST_WEB_DIST_PATH` at `$REPO_ROOT/apps/web/dist`, which no settlement deletes; a released install
+re-stamps it per deploy.
 
 **Guard** — `apps/coord/tests/spa-source-startup.test.ts` "a retired web dist is reported once at startup,
 not only as a page 404", `apps/shared/tests/spa.test.ts` "names the build it serves, so an empty pick is
-reportable instead of a bare 404", and `apps/roost-cli/tests/status.test.ts`'s "status spa source reporting"
-cases.
+reportable instead of a bare 404", and `apps/roost-cli/tests/status-spa.test.ts`, including "a compiled
+install serving its embedded build is not called missing".
 
 ---
 

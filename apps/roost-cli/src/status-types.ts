@@ -5,7 +5,6 @@
 import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
 import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
 import type { MecatlRuntimeReport } from "@roost/shared/mecatl-runtime";
-import type { SpaSource } from "@roost/shared/spa";
 
 export interface WorkerStatus {
   fingerprint: string;
@@ -33,11 +32,18 @@ export interface EndpointStatus {
   answers: boolean;
 }
 
-/** Which SPA build the installed coordinator can serve. `"none"` is the
- *  silent-404 state: the API answers while every page request misses. */
+/** What the installed coordinator does with a page request. The SPA source it
+ *  picked is its own startup line (`spa_source`); the CLI reports only what it
+ *  can observe, because a released install serves an embedded build this
+ *  process cannot see. */
 export interface SpaStatus {
-  source: SpaSource;
+  /** HEAD `/` on the coordinator's own listener answered 200. Null when there
+   *  was no listener to ask. */
+  serves: boolean | null;
+  /** The dist the installed service stamped, for the remedy. */
   webDistPath: string | null;
+  /** Whether that stamped path holds a servable `index.html` right now. */
+  webDistPresent: boolean;
 }
 
 export interface StatusEndpointOverride {

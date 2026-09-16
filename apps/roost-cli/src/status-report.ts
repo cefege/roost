@@ -19,8 +19,7 @@ import {
   type MecatlRuntimeReport,
 } from "@roost/shared/mecatl-runtime";
 import { coordDataDir, coordServicePath } from "@roost/shared/paths";
-import { spaSourceKind, type EmbeddedSpaAsset } from "@roost/shared/spa";
-import { WEB_ASSETS } from "@roost/shared/web-embed";
+import { resolveDiskSpaRoot } from "@roost/shared/spa";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import {
@@ -304,23 +303,45 @@ export function resolveCoordinatorDbPath(
   return installed ? installed : fallback;
 }
 
-/** Which SPA build the installed coordinator can serve: the unit names its
- *  dist, and an embedded manifest exists only in a compiled install — the same
- *  two inputs `createSpaResponder` chooses between. A stamped dist that a
- *  later release settlement deleted reads as `"none"` here. */
-export function resolveSpaStatus(
+/** What the installed coordinator does with a page request, plus the dist its
+ *  service definition stamped. A deploy points that path INTO a release
+ *  directory a later settlement deletes, so the path and the served state are
+ *  reported separately rather than one inferred from the other. */
+export async function resolveSpaStatus(
   serviceDefinition: string | null,
+  coordUrl: string | null,
   platform: NodeJS.Platform = process.platform,
-  embeddedAssets: ReadonlyMap<string, EmbeddedSpaAsset> = WEB_ASSETS,
-): SpaStatus {
+  fetchImpl: typeof fetch = fetch,
+): Promise<SpaStatus> {
   const declared = serviceDefinition
     ? serviceEnvironmentValue(serviceDefinition, "ROOST_WEB_DIST_PATH", platform)?.trim()
     : null;
   const webDistPath = declared ? declared : null;
   return {
-    source: spaSourceKind(webDistPath ?? undefined, embeddedAssets),
+    serves: await _probeSpaRoot(coordUrl, fetchImpl),
     webDistPath,
+    webDistPresent: resolveDiskSpaRoot(webDistPath ?? undefined) !== null,
   };
+}
+
+/** HEAD the coordinator's own root. A page request is the only authority on
+ *  whether a build is being served: the stamped dist can be gone while a
+ *  compiled install still answers from its embedded manifest, and this CLI
+ *  cannot read that install's embed. */
+export async function _probeSpaRoot(
+  coordUrl: string | null,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean | null> {
+  if (!coordUrl) return null;
+  try {
+    const response = await fetchImpl(`${coordUrl}/`, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(5000),
+    });
+    return response.status === 200;
+  } catch {
+    return null;
+  }
 }
 
 function installedCoordinatorDbPath(): string {
@@ -365,6 +386,6 @@ export async function statusReport(
           ? coord.reachable
           : (await _probeCoordinatorIdentity(identityUrl(endpoint.publicUrl))).reachable,
     },
-    spa: resolveSpaStatus(serviceDefinition),
+    spa: await resolveSpaStatus(serviceDefinition, coordUrl),
   };
 }

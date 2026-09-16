@@ -3,12 +3,20 @@
 // stay aligned with the report fields without duplicating output decisions.
 
 import { STATUS_COORD_LABEL, STATUS_WORKER_LABEL } from "./status-native-probes.ts";
-import type { StatusReport } from "./status-types.ts";
+import type { SpaStatus, StatusReport } from "./status-types.ts";
 
 function mark(ok: boolean): string {
   return ok ? "✓" : "✗";
 }
 
+/** A 404 root has three distinguishable causes, and the remedy differs: the
+ *  stamped dist is gone, it is present but unused, or none was ever declared. */
+function spaMissingReason(spa: SpaStatus): string {
+  if (!spa.webDistPath) return "no ROOST_WEB_DIST_PATH and no embedded build";
+  return spa.webDistPresent
+    ? `ROOST_WEB_DIST_PATH=${spa.webDistPath} exists but the coordinator serves no page`
+    : `ROOST_WEB_DIST_PATH=${spa.webDistPath} has no index.html`;
+}
 
 /** Print the report as ✓/✗ lines, each failing line followed by its remedy. */
 export function printStatusReport(r: StatusReport): void {
@@ -34,14 +42,14 @@ export function printStatusReport(r: StatusReport): void {
     }
   }
 
-  if (r.spa.source === "none") {
-    console.log(`  ✗ spa: MISSING (${r.spa.webDistPath
-      ? `ROOST_WEB_DIST_PATH=${r.spa.webDistPath} has no index.html`
-      : "no ROOST_WEB_DIST_PATH and no embedded build"})`);
+  if (r.spa.serves === null) {
+    console.log("  - spa: not probed (no coordinator listener on this host)");
+  } else if (r.spa.serves) {
+    console.log(`  ✓ spa: served${r.spa.webDistPath ? ` (${r.spa.webDistPath})` : ""}`);
+  } else {
+    console.log(`  ✗ spa: MISSING (${spaMissingReason(r.spa)})`);
     console.log("      → every page answers 404 while the API still works; build the SPA");
     console.log("        (bun run --cwd apps/web build) and point ROOST_WEB_DIST_PATH at that dist");
-  } else {
-    console.log(`  ${mark(true)} spa: ${r.spa.source}${r.spa.webDistPath ? ` (${r.spa.webDistPath})` : ""}`);
   }
 
   if (r.workers.length === 0) {
