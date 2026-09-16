@@ -559,3 +559,42 @@ and `apps/web/tests/cellTerminalPresentation.test.ts`, which were part of a
 concurrent terminal-plane change in the working tree, not part of this feature.
 That work is unrecoverable from git. Nothing else in that change set was
 touched, and none of it is in this branch's commits.
+
+### Follow-up worth doing after the pane is proven: fleet-wide Mecatl config
+
+The operator value the pane is really chasing is "configure agents once for
+the whole fleet" instead of per-harness, per-machine. Mecatl gets you one
+schema, but its files are still per machine: `$XDG_CONFIG_HOME/mecatl/
+settings.yaml` (providers, models, permissions, posture, MCP, command_runner)
+and `auth.yaml` (provider credentials), both read by the daemon at startup —
+it has no hot reload, so applying a change means restarting the daemon.
+
+Roost already owns a mechanism for exactly this: `install-integrations.ts`
+plans and writes owned asset files onto each worker through a staged,
+rollback-capable transaction with per-asset ownership markers, refusing paths
+it does not own. Distributing a coordinator-held `settings.yaml` through that
+path (and restarting the supervised daemon after a write) turns provider,
+model, permission posture and MCP selection into one setting in Roost that
+converges on every machine.
+
+Scope is `settings.yaml` ONLY. `auth.yaml` is out, and not as a "decide later":
+step 1 of this plan states that provider credentials stay Mecatl's and that
+Roost never reads, writes, stores, or logs them. Distributing them would make
+the coordinator a secret store and put plaintext provider keys on every
+worker's disk. An operator installs credentials per machine, or points the
+fleet at a gateway.
+
+Prerequisite: the daemon supervisor must gain a restart-on-config-change path,
+because Mecatl reads both files only at startup.
+
+One plane, not one value: a fleet default that a machine may override is the
+target shape, and both halves already have a seam. Roost's deploy composer
+treats `DEPLOY_HOST_LOCAL_ENV_KEYS` as settings that belong to the target box
+— the installed value wins and a deploy only seeds a first install — which is
+exactly the override rule (`ROOST_MECATL_ROOT` already rides it). Mecatl has
+its own tier for the same purpose: a trusted project contributes
+`.mecatl/settings.yaml` or `.mecatl/settings.local.yaml`, while operator-only
+settings (providers, credentials, guardrail configuration) stay user-global
+and a project cannot weaken them. So the fleet default lives in Roost, a
+machine keeps whatever it was deliberately given, and a repo can narrow its
+own agent behavior without reaching operator authority.
