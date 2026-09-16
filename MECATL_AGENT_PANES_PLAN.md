@@ -512,29 +512,53 @@ Branch `mecatl-agent-panes`. Verified on that branch unless marked otherwise.
   proto), the heartbeat field AND its `main.ts` caller,
   `workers.mecatl_runtime_json` (migration 0032), the `roost status` line, and
   the `mecatl.err.log` doctor source.
+- **Step 3 — worker relay executor** (`apps/worker/src/mecatl/relay.ts`, the
+  `coord-link-*` arms, its `refs.mecatlRelay` binding).
+  `apps/worker/tests/mecatl-relay.test.ts` (10 pass) pins the frame sequence
+  against a throwaway upstream: head → body* → one end for a plain reply, many
+  body frames for an SSE reply, `relay_busy` for the ninth concurrent
+  exchange, `bad_path` / `bad_method` / `body_too_large` refused before the
+  daemon is touched, a not-ready daemon answering with its exact reason,
+  `disabled` for an opted-out machine, cancel aborting the upstream request
+  with no further frame, and a dropped transport writing nothing more. Three
+  mutations (removing the `bad_path` guard, raising `RELAY_IN_FLIGHT_CAP`,
+  making `handleCancel` a no-op) each killed exactly one test.
+- **Real-daemon proof, worker layer.** Against `mecated v0.0.38`
+  (linux_amd64 release archive, not Homebrew): the supervisor spawned it with
+  its production argv, reached `ready` in ~130 ms, answered an authenticated
+  `GET /v1/compatibility` with 200 and `api_major: 1`, and stopped cleanly to
+  `unavailable: stopped`. With `--mock` (offline provider), a session created
+  through the relay returned 201, and a prompt streamed back as head + 5 body
+  frames + 1 end carrying real `session.init`, `turn.start`, `message.delta`,
+  `turn.end` and `result` events; `/internal/x` was refused `bad_path`.
+  A daemon started with no provider configured exits at startup with an
+  actionable error — the `daemon_exit` state the pane reports.
 
 ### Done but NOT proven
 
-- **Step 3 — worker relay executor** (`apps/worker/src/mecatl/relay.ts`, the
-  `coord-link-*` arms, and its `refs.mecatlRelay` binding). Typechecks and
-  lints; its slice was cancelled before writing
-  `apps/worker/tests/mecatl-relay.test.ts`. **Write that test first**: chunk
-  order head → body* → end, `relay_busy` past 8 concurrent, `bad_path`, cancel
-  aborting the upstream fetch, and a not-ready daemon's reason.
 - **Step 5 — `/agent` pane** (`apps/web/src/components/Agent/**`, route,
   activity-bar entry, MainPane overlay). Builds and typechecks against
-  `@stacklok-oss/mecatl-sdk@0.2.0`; never rendered against a real daemon.
+  `@stacklok-oss/mecatl-sdk@0.2.0`; never rendered in a browser.
+- **The coordinator half of the relay in a live stack.** Its unit tests pass
+  with a fake worker sink, but no request has yet travelled
+  browser → coord → worker link → daemon. That is the next proof, and it needs
+  a stack with `ROOST_MECATL=1` plus a provider (or `--mock`) on the worker.
 
 ### Next actions, in order
 
-1. `apps/worker/tests/mecatl-relay.test.ts`.
-2. The end-to-end proof in Verification above. It needs `mecated` installed
-   (`brew install stacklok/tap/mecatl`); the box this was built on had neither
-   `mecated` nor `mecatui`, so no code path here has ever met a real daemon.
-3. Gates not yet run on this branch: `bun run test:unit`,
+1. Live-stack proof of the coordinator route: `bun run --cwd apps/web build`,
+   then `ROOST_MECATL=1 bun smoke/terminal/live-stack.ts`, then open
+   `<url>/agent/<fp>` in a paired browser. Expected: machine reads ready,
+   "New session" creates one, a prompt streams assistant text, and devtools
+   shows every call on `/api/mecatl/<fp>/v1/...` with no Mecatl bearer.
+2. Gates not yet run on this branch: `bun run test:unit`,
    `bun run test:terminal`, `bun run test:upgrade`. Green already:
    `bun run lint`, `bun run test:worker`, the web build, and
    `tsgo -p tsconfig.base.json --noEmit` for every file in this change.
+
+Note for the pane: the wire field is `type` (`{"type":"message.delta",…}`);
+the SDK exposes it as `event.kind`. Read events through the SDK, not by
+parsing SSE JSON, or the switch silently matches nothing.
 
 ### Decisions that differ from the body above
 
