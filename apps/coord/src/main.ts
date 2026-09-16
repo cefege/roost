@@ -17,6 +17,11 @@ import { createCoord } from "./coord-factory.ts";
 import { makeWorkerWsHandler } from "./connect/worker-ws-handler.ts";
 import { makeSyncWsHandler } from "./connect/sync-ws-handler.ts";
 import { makeSyncTerminalControlHooks } from "./connect/sync-terminal-controls.ts";
+import {
+  syncBackpressureBytes,
+  terminalScreenBudgetBytes,
+  terminalScreenCaps,
+} from "./connect/terminal-screen-budget.ts";
 import { TerminalViewHub, installTerminalViewHub } from "./connect/terminal-view-hub.ts";
 import { COORD_GIT_SHA } from "./git-sha.ts";
 import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./windows-update-deploy-jobs.ts";
@@ -25,6 +30,7 @@ import { serveServiceHealth } from "@roost/shared/service-health";
 import { log } from "@roost/shared/log";
 import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
 import { coordDataDir } from "@roost/shared/paths";
+import { effectiveMemoryCeilingBytes } from "@roost/shared/host-memory";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { WEB_ASSETS } from "@roost/shared/web-embed";
@@ -105,7 +111,20 @@ export async function runCoord() {
       closeDeletedWorkerSockets?.(fingerprint),
   });
   const spaResponse = createSpaResponder(cfg.webDistPath, WEB_ASSETS);
-  const terminalViews = new TerminalViewHub({ db });
+  // One read: effectiveMemoryCeilingBytes() stats and reads the cgroup files.
+  const terminalCeilingBytes = effectiveMemoryCeilingBytes();
+  const terminalBudgetBytes = terminalScreenBudgetBytes(
+    cfg.terminalMemoryBudgetBytes,
+    terminalCeilingBytes,
+  );
+  const terminalScreen = terminalScreenCaps(terminalBudgetBytes);
+  log.info("main", "terminal_replica_budget", {
+    budget_bytes: terminalBudgetBytes,
+    ceiling_bytes: terminalCeilingBytes,
+    max_resident_rows: terminalScreen.maxResidentRows,
+    max_resident_spans: terminalScreen.maxResidentSpans,
+  });
+  const terminalViews = new TerminalViewHub({ db, terminalScreen });
   installTerminalViewHub(terminalViews);
 
   // Raw-WS worker transport deps (Bun-specific; coord-factory stays
@@ -138,10 +157,10 @@ export async function runCoord() {
     uiStates,
   };
   const syncDepsWithAccess = { ...syncDeps, cfAccess: null };
-  const syncWs = makeSyncWsHandler(
-    syncDepsWithAccess,
-    makeSyncTerminalControlHooks(syncDepsWithAccess, terminalViews),
-  );
+  const syncWs = makeSyncWsHandler(syncDepsWithAccess, {
+    ...makeSyncTerminalControlHooks(syncDepsWithAccess, terminalViews),
+    backpressureLimitBytes: syncBackpressureBytes(terminalBudgetBytes),
+  });
   closeRevokedSockets = (fingerprint) => {
     // Before the transports close: the revoke frame needs this worker
     // generation still admitted, or the worker keeps serving a revoked

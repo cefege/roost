@@ -66,6 +66,9 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
     webPublicUrl: normalizeHttpsOrigin(env.ROOST_WEB_PUBLIC_URL, "ROOST_WEB_PUBLIC_URL"),
     logDir: env.ROOST_COORDINATOR_LOG_DIR,
     publicUrl: normalizeHttpsOrigin(env.ROOST_COORDINATOR_PUBLIC_URL, "ROOST_COORDINATOR_PUBLIC_URL"),
+    terminalMemoryBudgetBytes: env.ROOST_COORD_TERMINAL_MEMORY_BUDGET_BYTES
+      ? Number(env.ROOST_COORD_TERMINAL_MEMORY_BUDGET_BYTES)
+      : undefined,
   });
 
   // Trusting X-Forwarded-For makes the caller origin attacker-controlled unless every

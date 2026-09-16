@@ -4,6 +4,10 @@
 
 import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import type { TerminalSnapshotSource } from "./terminal-screen-frames.ts";
+// Type-only on purpose: terminal-screen-budget.ts imports this hub's two hard
+// maxima at runtime, so erasing this direction is what keeps the module graph
+// acyclic once compiled.
+import type { TerminalScreenCaps } from "./terminal-screen-budget.ts";
 
 export type TerminalDeltaEnqueueResult = "queued" | "needs_snapshot" | "handled";
 
@@ -40,4 +44,6 @@ export interface TerminalScreenHubOptions {
   setTimer?: SetTerminalScreenHubTimer;
   clearTimer?: ClearTerminalScreenHubTimer;
   now?: () => number;
+  /** Budget-derived residency ceilings; unset falls back to the hard maxima. */
+  terminalScreen?: TerminalScreenCaps;
 }

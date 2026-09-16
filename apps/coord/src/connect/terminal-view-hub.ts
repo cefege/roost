@@ -40,6 +40,7 @@ import {
   type TerminalViewInput,
 } from "@roost/shared/terminal-view";
 import { TerminalViewStreamController } from "./terminal-view-stream-controller.ts";
+import type { TerminalScreenCaps } from "./terminal-screen-budget.ts";
 import type {
   TerminalStreamDesired,
   TerminalStreamRoute,
@@ -92,6 +93,7 @@ export interface TerminalViewHubOptions {
     command: TerminalViewRelayCommand,
   ) => boolean;
   sendViewSocketClosed?: (workerFp: string, socketId: string) => boolean;
+  terminalScreen?: TerminalScreenCaps;
 }
 
 export interface TerminalSocketRegistration {
@@ -182,12 +184,10 @@ export function notifyTerminalWorkerRetired(
   productionHub?.workerRetired(workerFp, sessionIds);
 }
 
-/**
- * Coordinator owner for socket-bound terminal view membership and the one
+/** Coordinator owner for socket-bound terminal view membership and the one
  * effective worker stream per watched session. Membership and stream lifecycle
  * are split into single-owner collaborators; this facade preserves the public
- * API and wires their mutually dependent notifications.
- */
+ * API and wires their mutually dependent notifications. */
 export class TerminalViewHub {
   readonly screen: TerminalScreenHub;
   private readonly now: () => number;
@@ -208,9 +208,7 @@ export class TerminalViewHub {
     const currentWorker = options.currentWorker ?? (options.sendStreamState ? undefined : currentRoutableWorker);
     const streamDispatcher = new TerminalStreamDispatcher({
       resolveRoute,
-      sendStream: (workerFp, state, deadline) => options.sendStreamState
-        ? options.sendStreamState(workerFp, state, deadline)
-        : sendTerminalStreamStateRequest(workerFp, state, deadline),
+      sendStream: options.sendStreamState ?? sendTerminalStreamStateRequest,
       currentWorker,
     });
     const sendSnapshot = options.sendSnapshot
@@ -218,6 +216,7 @@ export class TerminalViewHub {
         sendTerminalSnapshotRequest(workerFp, { sessionId, streamId }));
 
     this.streams = new TerminalViewStreamController({
+      terminalScreen: options.terminalScreen,
       resolveRoute,
       streamDispatcher,
       currentWorker,

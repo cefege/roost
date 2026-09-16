@@ -48,6 +48,7 @@ export class TerminalViewStreamController {
   );
   constructor(private readonly options: TerminalViewStreamControllerOptions) {
     this.screen = new TerminalScreenHub({
+      terminalScreen: options.terminalScreen,
       requestSnapshot: (sessionId, streamId) => {
         void this.requestFull(sessionId, streamId);
       },

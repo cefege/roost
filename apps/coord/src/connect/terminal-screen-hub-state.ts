@@ -151,6 +151,19 @@ export function stampTerminalSnapshotReceipt(
   part.coordRecvMs = chunks.snapshotCoordRecvMs ?? receivedAtMs;
 }
 
+/** Whether a resident baseline already carries everything the browser's
+ * checkpoint is missing, so the socket can be seeded from cache instead of
+ * waiting for a source snapshot. An empty checkpoint means "send me anything". */
+export function residentCacheSupersedesCheckpoint(
+  cache: ResidentCache,
+  checkpoint: Readonly<{ gridEpoch: string; seq: bigint }> | null,
+): boolean {
+  if (checkpoint === null) return true;
+  if (checkpoint.gridEpoch === "" && checkpoint.seq === 0n) return true;
+  return checkpoint.gridEpoch !== "" && checkpoint.gridEpoch === cache.frame.gridEpoch
+    && BigInt(cache.frame.seq) > checkpoint.seq;
+}
+
 /** Mirrors the Sync v2 per-domain queue bounds: enough to ride out one baseline transfer. */
 export const TERMINAL_SCREEN_ASSEMBLY_HOLD_MAX_FRAMES = 512;
 export const TERMINAL_SCREEN_ASSEMBLY_HOLD_MAX_BYTES = 4 * 1024 * 1024;

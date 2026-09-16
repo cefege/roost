@@ -6,6 +6,7 @@ import type { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
 import type { TerminalViewGeometrySet } from "@roost/shared/terminal-view";
 import type { HopDeadline } from "./worker-send.ts";
 import type { TerminalStreamDispatcher } from "./terminal-stream-dispatcher.ts";
+import type { TerminalScreenCaps } from "./terminal-screen-budget.ts";
 
 export interface TerminalStreamDesired {
   streamId: string;
@@ -36,4 +37,6 @@ export interface TerminalViewStreamControllerOptions {
   /** Baseline repair for a session this controller never minimized, i.e. one
    * whose worker owns its own terminal views. */
   repairUnownedSession?(sessionId: string, streamId: string): void;
+  /** Budget-derived replica residency ceilings, forwarded to TerminalScreenHub. */
+  terminalScreen?: TerminalScreenCaps;
 }

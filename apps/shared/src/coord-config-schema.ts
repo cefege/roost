@@ -41,5 +41,8 @@ export const CoordConfig = z.object({
   // Coordinator identity origin for operators whose worker traffic enters through a
   // different door than the browser front door. Never derived, only declared.
   publicUrl: z.string().url().optional(),
+  // Operator-declared ceiling for the coordinator's retained terminal cell replicas.
+  // Unset means derive it from the cgroup/host memory ceiling at boot.
+  terminalMemoryBudgetBytes: z.number().int().positive().optional(),
 });
 export type CoordConfig = z.infer<typeof CoordConfig>;

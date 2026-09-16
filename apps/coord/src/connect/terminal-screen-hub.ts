@@ -30,7 +30,7 @@ import {
   detachTerminalScreenSocket,
   detachTerminalScreenSockets,
   detachTerminalScreenWatcher,
-  detachTerminalScreenWatchers, stampTerminalSnapshotReceipt,
+  detachTerminalScreenWatchers, residentCacheSupersedesCheckpoint, stampTerminalSnapshotReceipt,
   type SessionScreen,
   type SocketRegistration,
 } from "./terminal-screen-hub-state.ts";
@@ -58,12 +58,14 @@ export class TerminalScreenHub {
   private readonly unavailable: NonNullable<TerminalScreenHubOptions["unavailable"]>;
   private readonly now: () => number;
   private readonly snapshots: TerminalScreenSnapshotController;
-  private readonly residency = new TerminalScreenResidency(
-    TERMINAL_SCREEN_MAX_RESIDENT_ROWS,
-    TERMINAL_SCREEN_MAX_RESIDENT_SPANS,
-  );
+  private readonly residency: TerminalScreenResidency;
 
   constructor(private readonly options: TerminalScreenHubOptions) {
+    // Before this.snapshots: its snapshotSource closure reads this.residency.
+    this.residency = new TerminalScreenResidency(
+      options.terminalScreen?.maxResidentRows ?? TERMINAL_SCREEN_MAX_RESIDENT_ROWS,
+      options.terminalScreen?.maxResidentSpans ?? TERMINAL_SCREEN_MAX_RESIDENT_SPANS,
+    );
     this.unavailable = options.unavailable ?? (() => undefined);
     this.now = options.now ?? Date.now;
     this.snapshots = new TerminalScreenSnapshotController({
@@ -148,14 +150,8 @@ export class TerminalScreenHub {
     if (!socket?.watchedSessions.has(sessionId) || !state?.expected) return false;
     socket.sink.beginTerminalStream(sessionId, state.expected.streamId);
     const cache = state.cache;
-    if (cache?.valid && !state.resyncLatched && (
-      checkpoint === null
-      || (checkpoint.gridEpoch === "" && checkpoint.seq === 0n)
-      || (
-        checkpoint.gridEpoch !== "" && checkpoint.gridEpoch === cache.frame.gridEpoch
-        && BigInt(cache.frame.seq) > checkpoint.seq
-      )
-    )) {
+    if (cache?.valid && !state.resyncLatched
+      && residentCacheSupersedesCheckpoint(cache, checkpoint)) {
       return this.snapshots.seed(socket, sessionId, state.expected.streamId, cache);
     }
     this.snapshots.retry(sessionId, state, "browser checkpoint requires source baseline");
@@ -369,7 +365,11 @@ export class TerminalScreenHub {
       spans,
       valid: true,
     };
-    if (!this.residency.replace(state, nextCache)) return;
+    if (!this.residency.replace(state, nextCache)) {
+      // Unsignalled, a budget refusal makes an accepted full silently vanish.
+      signal("terminal.screen_capacity", { session_id: sessionId, rows, spans });
+      return;
+    }
     state.resyncLatched = false; recordCoordinatorFrame(sessionId, frame, frame, this.watchersBySession);
     const streamId = state.expected!.streamId;
     this.options.fullAccepted?.(sessionId, streamId);
