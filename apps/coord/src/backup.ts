@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { log } from "@roost/shared/log";
 import type { Database } from "bun:sqlite";
 import { createSqliteSnapshot } from "./db/snapshot.ts";
+import { gzipFileToPath } from "./gzip-file.ts";
 import { DAY_MS } from "./audit-retention.ts";
 
 const MAX_BACKUPS = 14;
@@ -52,12 +53,11 @@ export async function runBackup(
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     chmodSync(dir, 0o700);
     createSqliteSnapshot(sqlite, snapshotPath);
-    const raw = new Uint8Array(await Bun.file(snapshotPath).arrayBuffer());
-    await Bun.write(archivePath, Bun.gzipSync(raw));
+    const { bytesIn, bytesOut } = await gzipFileToPath(snapshotPath, archivePath);
     chmodSync(archivePath, 0o600);
     renameSync(archivePath, destPath);
     chmodSync(destPath, 0o600);
-    log.info("backup", "backup_written", { path: destPath, reason });
+    log.info("backup", "backup_written", { path: destPath, reason, bytes_in: bytesIn, bytes_out: bytesOut });
   } catch (error) {
     try { rmSync(archivePath, { force: true }); } catch { /* parent may be unusable */ }
     try { rmSync(destPath, { force: true }); } catch { /* parent may be unusable */ }
