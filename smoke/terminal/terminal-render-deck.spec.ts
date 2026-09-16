@@ -8,6 +8,11 @@ import {
   expectPaintedRowsPreserved,
   expectPaintedScrollbackWellFormed,
 } from "./terminal-probe-helpers.ts";
+import {
+  expectReservedIntervalPaintsWorkerRows,
+  expectTransitionedInterval,
+  readScrollbackLayoutEnd,
+} from "./terminal-reserved-scrollback.ts";
 // A stale pane keeps compatible painted history while parked. Its fresh-stream
 // full updates the live tail without blanking that DOM-owned history or
 // demand-fetching rows the renderer already has.
@@ -85,17 +90,15 @@ test("deck reveal preserves painted history and lands at the live bottom instant
         markerScan(sessionId: string, prefix: string): RecoveryMarkerScan;
       };
     }).__smoke;
-    const viewportRows = document.querySelector(`[data-testid="terminal-slot-${id}"] .cell-viewport`)
-      ?.querySelectorAll(".cell-row").length ?? 0;
     return {
       frames: smoke.cellFrameCount(id),
       requests: smoke.scrollbackBackfillRequestCount(id),
       painted: smoke.paintedScrollback(id),
       scan: smoke.markerScan(id, "SWL-"),
       ...smoke.renderProbe(id),
-      viewportRows,
     };
   }, sessionId);
+  const layoutEndBefore = await readScrollbackLayoutEnd(smokePage, sessionId);
   expect(before.rowCount).toBeGreaterThan(0);
   expect(before.atBottom).toBe(true);
   expectPaintedScrollbackWellFormed(before.painted);
@@ -180,7 +183,7 @@ test("deck reveal preserves painted history and lands at the live bottom instant
   expect(authoritative.top).toBeGreaterThanOrEqual(authoritative.height - authoritative.client - 2);
   expect(authoritative.snapshotSbRows).toBeGreaterThanOrEqual(0);
   expect(authoritative.historyRequests).toBe(reveal.priorRequests);
-  expect(authoritative.painted).toBe(before.rowCount + before.viewportRows);
+  expect(authoritative.painted).toBe(before.rowCount);
   expect(reveal.samples.slice(reveal.authoritativeAt).map((sample) => ({
     painted: sample.painted,
     historyRequests: sample.historyRequests,
@@ -201,14 +204,39 @@ test("deck reveal preserves painted history and lands at the live bottom instant
       scan: smoke.markerScan(id, "SWL-"),
     };
   }, sessionId);
+  // Painted history is only ever rows the worker sent: the interval the grid
+  // scrolled past while this pane was parked stays a reserved gap, holding its
+  // own scroll space open until the worker's rows for it arrive.
+  expect(afterReveal.painted.rows.filter((row) => !beforeIndices.has(row.index))).toEqual([]);
+  const transitioned = expectTransitionedInterval(
+    layoutEndBefore,
+    await readScrollbackLayoutEnd(smokePage, sessionId),
+  );
   expectPaintedRowsPreserved({ ...before.painted, rows: demandedSegment }, afterReveal.painted);
   expect(afterReveal.scan.total).toBeGreaterThan(0);
-  expect(afterReveal.scan).toMatchObject({
-    max: 8000,
+  // The tail this pane was painting while parked now sits inside the interval
+  // the grid scrolled past, so nothing paints it: the newest marker this pane
+  // holds is older than the one it held while parked.
+  expect(afterReveal.scan).toMatchObject({ duplicated: [], outOfOrder: 0 });
+  expect(afterReveal.scan.max).toBeLessThan(before.scan.max);
+  // That reserved interval stays reachable: one explicit demand paints the
+  // worker's own rows for exactly those indices — the held tail marker is
+  // painted again, and the output produced while the pane was parked is all
+  // there, each row once and in order.
+  await expectReservedIntervalPaintsWorkerRows(smokePage, stack.client, sessionId, transitioned);
+  const demanded = await smokePage.evaluate((id) => ({
+    tail: window.__smoke.markerScan(id, "SWL-"),
+    fresh: window.__smoke.markerScan(id, "FRESH-"),
+  }), sessionId);
+  expect(demanded.tail).toMatchObject({ max: 8000, duplicated: [], outOfOrder: 0 });
+  expect(demanded.tail.missing).toBeGreaterThan(0);
+  expect(demanded.fresh).toMatchObject({
+    min: 1,
+    max: 300,
+    missing: 0,
     duplicated: [],
     outOfOrder: 0,
   });
-  expect(afterReveal.scan.missing).toBeGreaterThan(0);
   const revealBox = await grid.boundingBox();
   if (!revealBox) throw new Error("revealed deck terminal has no scroll container");
   await smokePage.mouse.move(revealBox.x + revealBox.width / 2, revealBox.y + revealBox.height / 2);

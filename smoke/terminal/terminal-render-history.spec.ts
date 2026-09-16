@@ -216,6 +216,11 @@ test("identical link text with different URIs keeps both, through a backfill rou
           text: anchor.textContent ?? "",
         }));
     }, sessionId);
+  // The oldest row predates the renewal, so it can only reach the DOM through an
+  // epoch-addressed history page: painted-vs-reserved at row 0 is the observable
+  // demand-paging boundary, whatever the wire delivered as live appends.
+  const ownsOldestRow = (): Promise<boolean> =>
+    smokePage.evaluate((id) => window.__smoke.hasPaintedScrollbackRange(id, 0, 1), sessionId);
   const expectLinksIntact = async (): Promise<void> => {
     await expect.poll(
       async () => (await paintedLinks()).map((link) => link.href),
@@ -357,7 +362,7 @@ test("identical link text with different URIs keeps both, through a backfill rou
     duplicated: [],
     outOfOrder: 0,
   });
-  expect(beforeDemand.scan.total).toBeLessThan(deepCount);
+  expect(await ownsOldestRow()).toBe(false);
   expect(await paintedLinks()).toEqual([]);
   expect(await inferredUrls()).toEqual([]);
   expect(await fileLinks()).toEqual([]);
@@ -387,5 +392,8 @@ test("identical link text with different URIs keeps both, through a backfill rou
   });
   expect(demanded.total).toBeGreaterThan(0);
   expect(demanded.min).toBeGreaterThanOrEqual(1);
-  expect(demanded.total).toBeLessThan(deepCount);
+  // The round trip moved the reserved head into painted rows without dropping a
+  // row the live stream had already painted.
+  expect(await ownsOldestRow()).toBe(true);
+  expect(demanded.total).toBeGreaterThanOrEqual(beforeDemand.scan.total);
 });

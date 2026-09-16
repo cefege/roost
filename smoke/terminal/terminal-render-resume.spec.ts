@@ -13,6 +13,11 @@ import {
   demandInitialResumeScrollback,
   returnResumeScrollbackToBottom,
 } from "./terminal-render-resume-history-demand.ts";
+import {
+  expectReservedIntervalPaintsWorkerRows,
+  expectTransitionedInterval,
+  readScrollbackLayoutEnd,
+} from "./terminal-reserved-scrollback.ts";
 test("long hidden deep-history resume paints the current viewport before history", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop visibility and geometry contract");
   test.setTimeout(180_000);
@@ -72,6 +77,7 @@ test("long hidden deep-history resume paints the current viewport before history
       });
       return { key, nonce };
     }, sessionId);
+    const layoutEndBefore = await readScrollbackLayoutEnd(smokePage, sessionId);
     const before = await smokePage.evaluate((id) => {
       const smoke = (window as unknown as Window & {
         __smoke: {
@@ -269,7 +275,7 @@ test("long hidden deep-history resume paints the current viewport before history
     );
     expect(authoritative.snapshotSbRows).toBeGreaterThanOrEqual(0);
     expect(authoritative.historyRequests).toBe(before.requests);
-    expect(authoritative.rowCount).toBeGreaterThanOrEqual(before.rowCount);
+    expect(authoritative.rowCount).toBe(before.rowCount);
     expect(recovered.samples.slice(authoritativeAt).every((sample) =>
       sample.rowCount === authoritative.rowCount
       && sample.historyRequests === before.requests
@@ -284,12 +290,14 @@ test("long hidden deep-history resume paints the current viewport before history
       };
     }, sessionId);
     expect(afterResume.requests).toBe(before.requests);
-    const transitionedRows = afterResume.painted.rows.filter((row) => !beforeIndices.has(row.index));
-    expect(transitionedRows.length).toBeGreaterThan(0);
-    expect(transitionedRows.map((row) => row.index)).toEqual(
-      Array.from({ length: transitionedRows.length }, (_, offset) => transitionedRows[0]!.index + offset),
+    // Painted history is only ever rows the worker sent: the interval the grid
+    // scrolled past while this pane slept stays a reserved gap, holding its own
+    // scroll space open until the worker's rows for it arrive.
+    expect(afterResume.painted.rows.filter((row) => !beforeIndices.has(row.index))).toEqual([]);
+    const transitioned = expectTransitionedInterval(
+      layoutEndBefore,
+      await readScrollbackLayoutEnd(smokePage, sessionId),
     );
-    expect(authoritative.rowCount).toBe(before.rowCount + transitionedRows.length);
     expectPaintedRowsPreserved({ ...before.painted, rows: demandedSegment }, afterResume.painted);
     expect(afterResume.scan.total).toBeGreaterThan(0);
     expect(afterResume.scan, JSON.stringify(afterResume.scan)).toMatchObject({
@@ -298,6 +306,10 @@ test("long hidden deep-history resume paints the current viewport before history
       outOfOrder: 0,
     });
     expect(afterResume.scan.missing).toBeGreaterThan(0);
+    // That reserved interval stays reachable: one explicit demand paints the
+    // worker's own rows for exactly those indices.
+    await expectReservedIntervalPaintsWorkerRows(smokePage, stack.client, sessionId, transitioned);
+    await returnResumeScrollbackToBottom(smokePage, sessionId);
     // The resume itself re-dialed: the park is gone, the generation advanced,
     // and the document, slot, and renderer DOM above all survived.
     const resumed = await smokePage.evaluate(() => {

@@ -267,33 +267,6 @@ export function rendererReconcileBlockReason(
   return null;
 }
 
-/** Rows that left `previous`'s viewport and became history in `frame`, in
- *  absolute coordinates, or null when the checkpoint promotes nothing. */
-export function transitionedViewportRows(
-  previous: CellGridFrame | null,
-  frame: CellGridFrame | null,
-): CellRow[] | null {
-  if (
-    !frame
-    || !previous
-    || !frame.full
-    || previous.gridEpoch !== frame.gridEpoch
-    || previous.cols !== frame.cols
-    || previous.rows !== frame.rows
-    || previous.altScreen !== frame.altScreen
-    || previous.scrollbackTotal >= frame.scrollbackTotal
-  ) return null;
-  const transitioned = Math.min(
-    previous.rows,
-    frame.scrollbackTotal - previous.scrollbackTotal,
-  );
-  if (transitioned === 0) return null;
-  return previous.viewportRows.slice(0, transitioned).map((row) => ({
-    index: previous.scrollbackTotal + row.index,
-    spans: row.spans,
-  }));
-}
-
 export function createRendererPresentationSnapshot(
   state: RendererProjection,
 ): RendererPresentationSnapshot {

@@ -108,6 +108,9 @@ Break one of these and you get back the history-corruption class this repo keeps
   grid; `apps/web/src/lib/cellRenderer.ts` paints immutable cell rows at the worker's grid width and
   letterboxes surplus pane width. There is no client-side re-parse at a new width, no mirrored grid,
   no output reparse. Raw PTY bytes never enter the browser Sync socket.
+  The same ownership governs history CONTENT: the renderer never infers WHICH rows scrolled off the
+  viewport and never paints a history row it was not handed — only a frame's own `scrollbackRows` /
+  `scrollbackAppend` and an epoch-addressed `SessionsGetScrollbackCells` page reach the history sheet.
 - **`apps/web/src/lib/cellRenderer.ts` is ONE class and is never split.**
   `CellGridRenderer` methods share private per-frame state (`frame`,
   reader-intent holds,
@@ -123,7 +126,9 @@ Break one of these and you get back the history-corruption class this repo keeps
   `atBottom()` itself stays EXACT and keeps its meaning. Nothing else in the
   app writes terminal scroll position. Scrollback rows are append-only and immutable; every
   `content-visibility` block gets an exact pixel placeholder (`blockPlaceholder`) so a revealed block
-  cannot move the scroll maximum out from under a pinned pane.
+  cannot move the scroll maximum out from under a pinned pane. An unpainted reserved gap
+  (`_extendScrollbackGap`) plus demand backfill is the ONLY representation the browser has of history
+  it has not been given; a viewport-only checkpoint reserves that depth and paints nothing into it.
 - **A reader park must be exitable by an event the pane can still deliver.** A park whose whole
   state is a scroll position (`native_scroll`, `wheel`, `touch` — `isPositionOnlyReaderReason` in
   `apps/web/src/lib/cellRendererPresentation.ts`) resumes from `noteBoxResize()` when the reader sat

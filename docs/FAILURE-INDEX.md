@@ -131,6 +131,50 @@ mount state is not part of the continuity proof.
 `apps/web/tests/terminalStream.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
+### Inferred scrolled-off rows freeze a stale repaint generation into history
+
+**Symptom** — "the same TUI block repeats on consecutive rows and every copy is
+a different generation — a different spinner frame per row, `5m` on one status
+bar and `3m` on the next; duplicated card headers stacked above the live pane of
+an inline (main-screen) agent TUI"
+
+**Wrong** — infer WHICH rows left the viewport from `scrollbackTotal` growth and
+paint the previously held viewport head into
+`[previous.scrollbackTotal, frame.scrollbackTotal)` (`transitionedViewportRows`).
+Equal epoch, cols, rows and alt-screen are admission facts about the GRID, never
+proof about row CONTENT, so a TUI that repaints a block in place (cursor-up plus
+rewrite) before the grid scrolls gets whichever generation the browser happened
+to hold frozen into the next absolute index — one stale spinner glyph, one stale
+elapsed time, per checkpoint, and checkpoints are frequent for a chatty pane.
+Nothing ever contradicts the guess: canonical frames are normalized
+viewport-only (`normalizeCellGridFrame` in `apps/shared/src/cell/diff-grid.ts`),
+so no authoritative history disagrees, and
+`apps/web/src/lib/scrollbackBackfill.ts:242-246` deliberately tolerates a
+refused re-insert, so demand backfill never repairs those rows either.
+
+**Right** — **painted history content is only ever the worker's own rows.** A
+canonical viewport-only checkpoint reserves
+`[previous.scrollbackTotal, frame.scrollbackTotal)` as an UNPAINTED gap
+(`_extendScrollbackGap` in `apps/web/src/lib/cellRenderer.ts`, which already
+holds that interval's exact pixel height) and lets the epoch-addressed,
+worker-authoritative `SessionsGetScrollbackCells` backfill fill it on demand;
+only a frame's own `scrollbackRows` / `scrollbackAppend` are ever painted.
+Non-contiguous painted history is a first-class state
+(`missingCellHistoryRanges` in `apps/web/src/lib/cellHistoryRanges.ts`), so a
+reserved gap needs no inference to stand in for it. The delta path is NOT the
+same case and keeps its content-PROVED shift: `deltaViewportShift`
+(`apps/shared/src/cell/diff-grid.ts`) byte-matches the appended row against the
+held viewport head, and `applyDelta` accepts a delta only when every newly
+exposed tail row is present. This is the doctrine the emitter already records
+for the scrollback ORIGIN (`apps/shared/src/cell/emitter.ts:74-83`), extended
+from the origin to the content.
+
+**Guard** — `apps/web/tests/cellRenderer.history.dom.test.ts` —
+`"a checkpoint leaves the transitioned rows unpainted for authoritative backfill"`,
+`"a checkpoint never paints a stale repaint generation into history"`;
+`smoke/terminal/terminal-render-main-repaint.spec.ts` —
+`"a backgrounded inline TUI repaint never freezes a stale generation into history"`.
+
 ### Alt-screen wallpaper of stale text after a worker restart
 
 **Symptom** — "after worker restart an alternate-screen session shows wallpaper of stale text + overlapping/parallel lines"
@@ -584,7 +628,7 @@ block, and `nearHistoryTop()` reads `scrollbackEl.offsetTop` — which now inclu
 drags into reserved-but-unpainted space keeps the backfill drain pulling toward them.
 
 **Guard** — `apps/web/tests/` renderer DOM suite — `"the spacer reserves the unpainted history"`,
-`"a backfill prepend shrinks the spacer by exactly the rows it adds"`,
+`"a head page shrinks the spacer by exactly the rows it adds"`,
 `"an eviction grows the spacer by exactly the rows it drops"`,
 `"renderFull reserves the incoming spacer BEFORE wiping painted history"`.
 

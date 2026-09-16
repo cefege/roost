@@ -45,7 +45,6 @@ import {
   rendererReconcileBlockReason,
   scheduleReaderSettle,
   sameScrollbackRow,
-  transitionedViewportRows,
   type BackfillAnchor,
   type LiveInteractionResult,
   type ReaderAnchor,
@@ -195,13 +194,12 @@ export class CellGridRenderer {
       if (isPositionOnlyReaderReason(this._readerReason)) this._settleBottomPark();
       return true;
     }
-    const previousFrame = this.frame;
     this.frame = owned;
     if (this.holding) {
       this.pendingRender = true;
       return true;
     }
-    this._reconcileCanonical(true, false, previousFrame);
+    this._reconcileCanonical(true, false);
     return true;
   }
   applyDeltaFrames(deltas: readonly CellGridFrame[]): boolean {
@@ -364,9 +362,7 @@ export class CellGridRenderer {
     this._readerIntent = "live";
     this._readerReason = null;
     this._readerAnchor = null;
-    let previousFrame: CellGridFrame | null = null;
     if (this.readerPendingFrame) {
-      previousFrame = this.frame;
       this.frame = this.readerPendingFrame;
       this.readerPendingFrame = null;
       this.pendingRender = true;
@@ -383,7 +379,7 @@ export class CellGridRenderer {
       )
     ) {
       this.pendingRender = false;
-      this._reconcileCanonical(true, pinOnResume, previousFrame);
+      this._reconcileCanonical(true, pinOnResume);
       reconciled = true;
     } else {
       this._pinToBottom(true);
@@ -406,20 +402,7 @@ export class CellGridRenderer {
     ) return false;
     return frame.scrollbackTotal >= this._scrollbackLayoutEnd;
   }
-  private _promoteTransitionedViewportRows(
-    previousFrame: CellGridFrame | null,
-  ): boolean {
-    const rows = transitionedViewportRows(previousFrame, this.frame);
-    if (rows === null) return true;
-    // A compatible checkpoint retains rows visible in the old viewport.
-    // Authoritative history must agree; insertion fills only missing subranges.
-    return this._insertAuthoritativeHistory(rows, false);
-  }
-  private _reconcileCanonical(
-    followTail: boolean,
-    forcePin = false,
-    previousFrame: CellGridFrame | null = null,
-  ): void {
+  private _reconcileCanonical(followTail: boolean, forcePin = false): void {
     const frame = this.frame;
     if (!frame) return;
     const sameGrid = this._reconciledGridEpoch === frame.gridEpoch
@@ -433,10 +416,10 @@ export class CellGridRenderer {
     }
     this._extendScrollbackGap(frame.scrollbackTotal);
     const authoritativeHistory = frame.full ? frame.scrollbackRows : frame.scrollbackAppend;
-    if (
-      !this._promoteTransitionedViewportRows(previousFrame)
-      || !this._insertAuthoritativeHistory(authoritativeHistory, followTail)
-    ) {
+    // Painted history is only ever the worker's own rows: an unpainted interval
+    // keeps its reserved pixels and waits for authoritative backfill, because a
+    // viewport-only checkpoint cannot prove which rows left the grid.
+    if (!this._insertAuthoritativeHistory(authoritativeHistory, followTail)) {
       this.renderFull(followTail, shouldPin);
       return;
     }
