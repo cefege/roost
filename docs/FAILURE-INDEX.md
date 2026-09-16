@@ -149,8 +149,8 @@ elapsed time, per checkpoint, and checkpoints are frequent for a chatty pane.
 Nothing ever contradicts the guess: canonical frames are normalized
 viewport-only (`normalizeCellGridFrame` in `apps/shared/src/cell/diff-grid.ts`),
 so no authoritative history disagrees, and
-`apps/web/src/lib/scrollbackBackfill.ts:242-246` deliberately tolerates a
-refused re-insert, so demand backfill never repairs those rows either.
+`splicePage` in `apps/web/src/lib/scrollbackBackfill.ts` deliberately tolerates
+a refused re-insert, so demand backfill never repairs those rows either.
 
 **Right** — **painted history content is only ever the worker's own rows.** A
 canonical viewport-only checkpoint reserves
@@ -304,6 +304,62 @@ frames are now viewport-only, see the epoch-addressed entry below.
 
 **Guard** — `apps/worker/tests/scrollback-cells-backfill.test.ts`; `apps/web/tests/scrollbackBackfill.test.ts`;
 `apps/web/tests/` renderer DOM suite — `"CellGridRenderer DOM — viewport-only frames + backfill"`.
+
+### A demand page is only issued once the rows are already blank
+
+**Symptom** — "scrolling up into history is slow / takes a while to load while I scroll / the rows are empty and it looks like nothing is loading"
+
+**Wrong** — page only what the reader can ALREADY see: demand the missing interval the CURRENT visible window
+exposes (`missingScrollbackRangeAtScroll` with no read-ahead), size the page from the focus row FORWARD
+(`end = min(gap.end, focus + PAGE)` — clamped to the painted edge, that is the ~35-row sliver the step exposed,
+so page size never even bites), and treat every scroll event as a new demand that `generation++` orphans the
+in-flight page for. Measured on a hermetic stack with a 5000-row history: SIX one-viewport wheel steps cost SIX
+serialized demand round trips — one per screen, each one in the reader's critical path, and a remote reader
+pays a full RTT for every screen. Equally wrong: "fix" it by shipping history wholesale again (the entry above),
+or by widening the page while leaving the trigger and the anchor alone — a bigger page clamped to the painted
+edge is still one sliver per screen.
+
+**Right** — **pre-pay the rows the reader is scrolling TOWARD, one wave at a time.** Three rules in
+`apps/web/src/lib/scrollbackBackfill.ts`, and they only work together: (1) the trigger window is widened upward
+by `BACKFILL_AHEAD_ROWS`, so a demand is raised before the rows are visible — the bottom-most missing interval
+still wins, which is what keeps a visible gap ahead of a read-ahead gap; (2) a `scroll` page is anchored at the
+NEWEST missing row of that interval and extends `BACKFILL_FETCH_ROWS` (250 = one `SB_BLOCK`) OLDER, so one
+round trip covers the blank sliver plus the next several screens, while a `find` page keeps advancing forward
+from its match (a match needs the context newer than itself); (3) exactly ONE wave is in flight — a scroll
+raised mid-wave is coalesced instead of orphaning a page the worker already read and the wire already carried,
+and every settle RE-DERIVES the demand from live scroll state. That re-derive is load-bearing: `splicePage`
+reports false on benign paths, so a pager that only re-armed on success would leave the gap blank until the
+next scroll event — which is the symptom. An unchanged derivation relaunches a bounded number of times
+(`BACKFILL_IDENTICAL_RETRIES`) and then falls back to the `BACKFILL_RETRY_MS` cadence instead of waiting for a
+reader who may never scroll again: one wave per interval cannot hot-loop, and a reader parked on rows nothing
+has painted keeps getting waves. A page also lands in exactly ONE placeholder, so `scrollDemandBounds` /
+`findDemandBounds` pick the side of the painted head base (`backfillAnchor().sbBase`) that holds the row the
+wave owes — a page spanning the head spacer and the gap above it is refused by `_insertPageIntoPlaceholder`,
+and a reader dragged to the top of history is exactly where that page shape arises.
+Same measurement after: ONE demand wave, then every step until the pre-paid lead is consumed crossing
+already-painted rows at zero RPCs, and the next one re-arming the pager exactly where the band predicts. The
+page geometry itself is pure and lives apart in `apps/web/src/lib/scrollbackDemandBounds.ts`; each new pager
+state (`scrollback.demand_coalesced`, `demand_rearmed`, `demand_retry_deferred`, `demand_retry_woke`) emits one
+`diag()` line, the deferred pair naming the state that used to leave a visible gap unpainted. Unpainted
+placeholders also stop reading as empty — `.cell-grid .cell-sb-gap` / `.cell-sb-spacer` in
+`apps/web/src/styles/sidebar.css` paint a row-pitch skeleton (paint-only; those elements' inline pixel heights
+are what every scroll position is derived from, so never give them geometry). The head spacer drops that
+texture only while it lies ENTIRELY below a proven retention floor (`setHistoryFloor` →
+`data-history-floor`, re-derived in `_syncSpacer`): those rows are gone, not loading, and a pending sheet over
+them would read as a load that never ends — but a floor proven for an interior gap must not suppress head rows
+that are still pageable.
+
+**Guard** — `smoke/terminal/terminal-history-readahead.spec.ts` (real stack: the first wheel step crosses
+unpainted history and costs exactly the chain depth the pager's own constants predict, and every step inside a
+pre-paid count DERIVED from the measured row height and pane size is painted at zero demand RPCs);
+`apps/web/tests/scrollbackBackfill.bounds.test.ts` — the page never collapses to the sliver the window exposed,
+whatever the interval's shape; `apps/web/tests/scrollbackBackfill.test.ts` —
+`"a wheel step pre-pays the rows above the viewport and the next step is free"`,
+`"scrolls during a wave add no request, one coalesce line, and one demand after"`,
+`"a page that cannot splice retries bounded and stays armed for the reader"`,
+`"the reader's own rows paint when one page would span the painted base"`,
+`"a spent budget keeps re-deriving on the retry cadence, one wave per interval"`,
+`"suspend and dispose cancel the deferred re-arm"`.
 
 ### Scroll position lurches — many writers of scrollTop
 
@@ -1447,6 +1503,30 @@ already guard this path are what make the plain removal safe; keep both ahead of
 
 **Guard** — `apps/roost-cli/tests/deploy-local-release-retirement.test.ts`: "an rsync-staged prior release
 is retired even though it is no git worktree", plus the confinement and no-prior cases.
+
+### A retired release's dist leaves every page a 404 while the API still answers
+
+**Symptom** — "every page is 404 / `not found` in the browser but the API and terminals still work / the UI
+died after a deploy or a reboot".
+
+**Wrong** — trust the `ROOST_WEB_DIST_PATH` a deploy stamped into the installed service. It points INTO a
+release directory that a later settlement deletes
+(`apps/roost-cli/src/deploy-plist-env.ts:118-122` records why the value is never carried forward), and
+`createSpaResponder` then picks no source at all: `apps/coord/src/coord-factory.ts`'s SPA arm answers the
+bare `not found` 404 for `/` and every deep link, which reads like an edge, DNS or certificate fault
+because the RPC surface on the same listener is untouched. Chasing the front door here costs the outage.
+
+**Right** — the SPA source is startup-visible state, not something to infer from a 404. `createSpaResponder`
+reports the build it chose (`source: "disk" | "embedded" | "none"`), `apps/coord/src/main.ts` logs
+`spa_source_missing` once when that is `"none"` and keeps serving — worker links and keeper state outlive a
+browser build that went away — and `roost status` prints the `spa:` line with the configured path. A source
+install points `ROOST_WEB_DIST_PATH` at `$REPO_ROOT/apps/web/dist`, which no settlement deletes; a released
+install re-stamps it per deploy.
+
+**Guard** — `apps/coord/tests/spa-source-startup.test.ts` "a retired web dist is reported once at startup,
+not only as a page 404", `apps/shared/tests/spa.test.ts` "names the build it serves, so an empty pick is
+reportable instead of a bare 404", and `apps/roost-cli/tests/status.test.ts`'s "status spa source reporting"
+cases.
 
 ---
 
