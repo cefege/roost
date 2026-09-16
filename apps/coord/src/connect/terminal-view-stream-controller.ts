@@ -12,6 +12,7 @@ import {
 } from "@roost/shared/proto/worker_transport_pb";
 import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
 import { signal } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
 import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/shared/viewport";
 import { TerminalScreenHub } from "./terminal-screen-hub.ts";
 import {
@@ -26,11 +27,15 @@ import {
 } from "@roost/shared/terminal-view";
 import type {
   TerminalStreamDesired,
-  TerminalStreamRoute,
   TerminalViewStreamControllerOptions,
 } from "./terminal-view-stream-controller-types.ts";
+import { requestTerminalScreenSnapshot } from "./terminal-view-stream-snapshot-request.ts";
+import {
+  TerminalWorkerGenerations,
+  type TerminalStreamVerdictState,
+} from "./terminal-view-stream-worker-generations.ts";
 type TerminalStreamWork = TerminalStreamDesired & { deadline: HopDeadline };
-interface TerminalStreamSession extends TerminalStreamState {
+interface TerminalStreamSession extends TerminalStreamVerdictState {
   inFlight: TerminalStreamWork | null;
   latest: TerminalStreamWork | null;
   replacementWork: TerminalStreamWork | null;
@@ -38,6 +43,9 @@ interface TerminalStreamSession extends TerminalStreamState {
 export class TerminalViewStreamController {
   readonly screen: TerminalScreenHub;
   private readonly sessions = new Map<string, TerminalStreamSession>();
+  private readonly workerGenerations = new TerminalWorkerGenerations(
+    (workerFp) => this.options.currentWorker?.(workerFp) ?? null,
+  );
   constructor(private readonly options: TerminalViewStreamControllerOptions) {
     this.screen = new TerminalScreenHub({
       requestSnapshot: (sessionId, streamId) => {
@@ -119,6 +127,7 @@ export class TerminalViewStreamController {
   }
   workerReplacement(workerFp: string): void {
     this.options.streamDispatcher.workerReplacement(workerFp);
+    this.workerGenerations.observeReplacement(workerFp);
     this.reconcileRoutes(workerFp, this.sessions.keys());
   }
   routeReconciled(workerFp: string, sessionIds: Iterable<string>): void {
@@ -127,21 +136,27 @@ export class TerminalViewStreamController {
   workerRetired(workerFp: string, sessionIds: Iterable<string>): void {
     const retiredSessionIds = [...sessionIds];
     this.options.streamDispatcher.workerRetired(workerFp, retiredSessionIds);
+    this.workerGenerations.forgetWorker(workerFp);
     for (const sessionId of retiredSessionIds) this.closeSession(sessionId);
   }
   private reconcileRoutes(workerFp: string, sessionIds: Iterable<string>): void {
     for (const sessionId of sessionIds) {
       const session = this.sessions.get(sessionId);
-      if (
-        !session?.effective
-        || (session.unavailable && session.unavailablePolicy === "never")
-      ) continue;
+      if (!session?.effective) continue;
+      // A "never" verdict is fail-closed on purpose: the worker generation
+      // that answered outside the protocol is never retried on this route.
+      // Only a different worker connection reopens it.
+      const decision = this.workerGenerations.reconcileDecision(workerFp, session);
+      if (decision === "skip") continue;
       void this.options.resolveRoute(sessionId).then((route) => {
         if (
           route?.workerFp === workerFp
           && this.sessions.get(sessionId) === session
           && session.effective
         ) {
+          if (decision === "clear") {
+            this.workerGenerations.noteCleared(sessionId, workerFp, session);
+          }
           const currentWork = session.replacementWork?.streamId === session.streamId
             ? session.replacementWork
             : session.latest?.streamId === session.streamId
@@ -161,6 +176,7 @@ export class TerminalViewStreamController {
         unavailable: false,
         unavailableReason: "",
         unavailablePolicy: "heartbeat",
+        unavailableGeneration: 0,
         inFlight: null,
         latest: null,
         replacementWork: null,
@@ -348,6 +364,7 @@ export class TerminalViewStreamController {
     session.unavailable = true;
     session.unavailableReason = truncateTerminalReason(message);
     session.unavailablePolicy = policy;
+    session.unavailableGeneration = this.workerGenerations.currentGeneration();
     this.options.broadcast(sessionId, TerminalViewStatus.UNAVAILABLE, session.unavailableReason);
   }
   private redriveFreshStream(sessionId: string, expectedStreamId: string, _reason: string): void {
@@ -356,42 +373,11 @@ export class TerminalViewStreamController {
       || session.unavailablePolicy === "route") return;
     this.desire(sessionId, session.effective, 0);
   }
-  private isCurrentSnapshotRequest(
-    sessionId: string,
-    streamId: string,
-    session: TerminalStreamSession,
-  ): boolean {
-    return this.sessions.get(sessionId) === session
-      && session.effective !== null && session.streamId === streamId;
-  }
-  private async requestFull(sessionId: string, streamId: string): Promise<void> {
-    const session = this.sessions.get(sessionId);
-    // A session this controller never minimized belongs to a worker that owns
-    // its own terminal views; its repair leaves through that worker, not this
-    // desire loop, which holds no stream for it to resolve.
-    if (!session) {
-      this.options.repairUnownedSession?.(sessionId, streamId);
-      return;
-    }
-    if (!this.isCurrentSnapshotRequest(sessionId, streamId, session)) return;
-    let route: TerminalStreamRoute | null;
-    try {
-      route = await this.options.resolveRoute(sessionId);
-    } catch {
-      if (this.isCurrentSnapshotRequest(sessionId, streamId, session)) this.unavailable(sessionId, "snapshot request could not reach worker");
-      return;
-    }
-    if (!this.isCurrentSnapshotRequest(sessionId, streamId, session)) return;
-    if (!route) {
-      this.unavailable(sessionId, "snapshot request has no worker route", "route");
-      return;
-    }
-    try {
-      if (!this.options.sendSnapshot(route.workerFp, sessionId, streamId)) {
-        if (this.isCurrentSnapshotRequest(sessionId, streamId, session)) this.unavailable(sessionId, "snapshot request could not reach worker");
-      }
-    } catch {
-      if (this.isCurrentSnapshotRequest(sessionId, streamId, session)) this.unavailable(sessionId, "snapshot request could not reach worker");
-    }
+  private requestFull(sessionId: string, streamId: string): Promise<void> {
+    return requestTerminalScreenSnapshot(sessionId, streamId, {
+      sessions: this.sessions,
+      options: this.options,
+      unavailable: (id, message, policy) => this.unavailable(id, message, policy),
+    });
   }
 }

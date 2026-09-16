@@ -51,10 +51,14 @@ export interface BaselineProgress {
   totalChunks: number;
 }
 
-export type TerminalPresentationState = "idle" | "receiving" | "catching_up";
+export type TerminalPresentationState = "idle" | "receiving" | "catching_up" | "detached";
 export type TerminalRendererForegroundPredicate = () => boolean;
 
 export const FRAME_ACTIVITY_WINDOW_MS = 500;
+/** How long an actively-viewed pane may sit without an accepted, baseline-ready
+ *  view before the absence becomes operator-visible. An ordinary attach or tab
+ *  switch resolves well inside it, so `detached` never flashes on a healthy pane. */
+export const DETACHED_GRACE_MS = 1_000;
 
 export interface TerminalPresentationWatermark {
   grid_epoch: string | null;
@@ -88,8 +92,20 @@ export function deriveTerminalPresentationState(input: {
   reconciled: TerminalPresentationWatermark;
   activity: TerminalPresentationActivity | null;
   nowMs: number;
+  /** Epoch ms at which an actively-viewed pane entered the state of having no
+   *  accepted, active, baseline-ready view; null when it is not in that state. */
+  notReadySinceMs: number | null;
 }): TerminalPresentationState {
-  if (!input.active || !input.acceptedWithBaseline) return "idle";
+  // Absence of an indicator must mean exactly one thing — quiet and healthy.
+  // A pane the operator is looking at with no live stream is a failure to show,
+  // not silence to hide.
+  if (!input.active || !input.acceptedWithBaseline) {
+    return input.active
+        && input.notReadySinceMs !== null
+        && input.nowMs - input.notReadySinceMs >= DETACHED_GRACE_MS
+      ? "detached"
+      : "idle";
+  }
   if (
     input.canonical.grid_epoch !== input.reconciled.grid_epoch
     || input.canonical.seq !== input.reconciled.seq

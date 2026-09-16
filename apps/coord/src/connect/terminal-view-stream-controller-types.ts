@@ -23,6 +23,10 @@ export interface TerminalStreamRoute {
 export interface TerminalViewStreamControllerOptions {
   resolveRoute(sessionId: string): Promise<TerminalStreamRoute | null>;
   streamDispatcher: TerminalStreamDispatcher;
+  /** Production captures the exact routable WorkerHandle, so a different token
+   * is a different worker connection generation. Injected send seams may omit
+   * it, and then no generation is observable at all. */
+  currentWorker?(workerFp: string): unknown | null;
   createStreamDeadline?(): HopDeadline;
   sendSnapshot(workerFp: string, sessionId: string, streamId: string): boolean;
   geometries(sessionId: string): TerminalViewGeometrySet;

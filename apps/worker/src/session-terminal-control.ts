@@ -5,6 +5,7 @@
 import { initCellEmitState } from "@roost/shared/cell";
 import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS } from "@roost/shared/viewport";
 import { newTraceId } from "@roost/shared/trace";
+import { log } from "@roost/shared/log";
 import type { SessionManager } from "./session-manager.ts";
 import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
@@ -13,7 +14,9 @@ import { applyTerminalStreamNow } from "./session-terminal-txn.ts";
 import { retireStreamDelivery } from "./session-snapshot-cursor.ts";
 import { clearStreamDeliveryDirty } from "./session-cell-sinks.ts";
 import { cancelCellEmission } from "./session-cell-scheduler.ts";
+import { releaseResizeCapture } from "./session-resize-capture.ts";
 import type {
+	LiveResizeCapture,
 	TerminalStreamState,
 	WorkerTerminalStreamResult,
 } from "./session-terminal-state.ts";
@@ -223,6 +226,33 @@ export function applyTerminalStreamState(
 		clearStreamDeliveryDirty(current);
 		retireStreamDelivery(this, channelId, current);
 	}
+	const inheritedCapture = current?.resizeCapture ?? null;
+	// A capture that recorded a failure can never reach a boundary, so nothing
+	// will ever release what it holds. Inheriting it would put this generation's
+	// bytes on the capture lane behind a replay that never runs and leave the
+	// emission gate set for the life of the channel.
+	const liveCapture: LiveResizeCapture | null = inheritedCapture?.failedReason === null
+		? inheritedCapture
+		: null;
+	if (inheritedCapture !== null && liveCapture === null) {
+		releaseResizeCapture(this, channelId, inheritedCapture, "generation_minted");
+		log.warn("session-manager", "terminal_stream_dead_capture_dropped", {
+			channelId,
+			streamId: intent.streamId,
+			previousStreamId: current?.streamId ?? null,
+			resizeSeq: inheritedCapture.resizeSeq,
+			reason: inheritedCapture.failedReason,
+		});
+	}
+	if (current && !current.coreValid) {
+		log.warn("session-manager", "terminal_stream_core_invalid", {
+			channelId,
+			streamId: intent.streamId,
+			previousStreamId: current.streamId,
+			enabled: intent.enabled,
+			reason: "frozen core requires adoption before any generation can emit",
+		});
+	}
 
 	// Empty deliveries: every sink owes a baseline on this generation before it
 	// can take a delta.
@@ -232,9 +262,16 @@ export function applyTerminalStreamState(
 		cols: intent.cols,
 		rows: intent.rows,
 		version: this.nextTerminalStreamVersion(),
+		// A keeper boundary proves GEOMETRY, never the bytes a frozen core never
+		// parsed: while coreValid is false every chunk takes the retain-only lane
+		// (session-scrollback.ts::appendCapturedScrollback), so this generation's
+		// core is missing everything since the trap and only a rebuild from the
+		// keeper's ordered history (session-resume.ts adoption) can re-prove it.
+		// The verdict therefore crosses generations, and each one reports
+		// core_failed instead of painting a grid with a hole in it.
 		coreValid: current?.coreValid ?? true,
 		deliveries: new Map(),
-		resizeCapture: current?.resizeCapture ?? null,
+		resizeCapture: liveCapture,
 	};
 	this.terminalStreams.set(channelId, next);
 	// Stream generations own sequence space, not grid identity. A reconnect or

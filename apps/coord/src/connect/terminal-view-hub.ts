@@ -205,13 +205,13 @@ export class TerminalViewHub {
     this.now = options.now ?? Date.now;
     const resolveRoute = options.resolveRoute
       ?? ((sessionId: string) => resolveSessionRoute(options.db, sessionId));
+    const currentWorker = options.currentWorker ?? (options.sendStreamState ? undefined : currentRoutableWorker);
     const streamDispatcher = new TerminalStreamDispatcher({
       resolveRoute,
       sendStream: (workerFp, state, deadline) => options.sendStreamState
         ? options.sendStreamState(workerFp, state, deadline)
         : sendTerminalStreamStateRequest(workerFp, state, deadline),
-      currentWorker: options.currentWorker
-        ?? (options.sendStreamState ? undefined : currentRoutableWorker),
+      currentWorker,
     });
     const sendSnapshot = options.sendSnapshot
       ?? ((workerFp: string, sessionId: string, streamId: string) =>
@@ -220,6 +220,7 @@ export class TerminalViewHub {
     this.streams = new TerminalViewStreamController({
       resolveRoute,
       streamDispatcher,
+      currentWorker,
       createStreamDeadline: options.createStreamDeadline,
       sendSnapshot,
       geometries: (sessionId) => this.registry.geometries(sessionId),

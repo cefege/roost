@@ -1,9 +1,11 @@
 // Live resize capture for the cell emitter: while a sequenced resize boundary
 // is unresolved, incoming PTY bytes are captured instead of parsed at stale
 // geometry, then replayed once the new size is proven — protecting the core
-// from mid-repaint geometry flips. Owns the capture gate budget that flags
-// gates overstaying their ceiling.
+// from mid-repaint geometry flips. Owns the per-channel emission gate a capture
+// installs and its release on EVERY boundary outcome — resolved or trapped —
+// plus the capture gate budget that flags gates overstaying their ceiling.
 import { diag, signal } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
 import { newTraceId } from "@roost/shared/trace";
 import type { SessionManager } from "./session-manager.ts";
 import { retireStreamDelivery } from "./session-snapshot-cursor.ts";
@@ -18,6 +20,11 @@ import { noteResizeInstall, noteResizeResult } from "./diag/terminal-capture.ts"
 import type { TerminalWorkerResizeOutcome } from "@roost/shared/terminal-capture";
 
 export const CELL_GATE_BUDGET_MS = 2_500;
+
+/** Why a capture stopped owning the channel's emission gate: its boundary
+ *  resolved, it trapped the core, or a new stream generation refused to inherit
+ *  a capture nothing can ever finish. */
+export type ResizeCaptureRelease = "boundary_applied" | "core_failed" | "generation_minted";
 
 export function installLiveResizeCapture(
 	mgr: SessionManager,
@@ -132,6 +139,13 @@ function failCore(
 		stream.coreValid = false;
 		cancelCellEmission(mgr, channelId);
 	}
+	// Only a resolved boundary releases the capture gate, and this capture can
+	// never reach one. A gate left set here suppresses every later frame on this
+	// channel with no event able to lift it — including for a generation whose
+	// core has been re-proved. Emission stays refused by coreValid, which is the
+	// flag that means "these bytes never reached the core", so handing back the
+	// gate cannot resume emission against an untrustworthy core.
+	releaseResizeCapture(mgr, channelId, capture, "core_failed");
 	signal("terminal.core_failed", {
 		sid: String(mgr.sessions.get(channelId)?.sessionId ?? ""),
 		channel_id: channelId,
@@ -142,11 +156,30 @@ function failCore(
 	});
 }
 
-function finishCapture(mgr: SessionManager, channelId: number, capture: LiveResizeCapture): void {
-	const stream = mgr.terminalStreams.get(channelId);
-	if (stream?.resizeCapture === capture) stream.resizeCapture = null;
+/** Hand back everything one capture owns: its slot on the channel's stream and
+ *  the per-channel emission gate installLiveResizeCapture took. A capture the
+ *  stream has already replaced with another LIVE one owns neither — that
+ *  boundary is still unproven, and releasing on its behalf would let frames be
+ *  built at a geometry no keeper has acknowledged. */
+export function releaseResizeCapture(
+	mgr: SessionManager,
+	channelId: number,
+	capture: LiveResizeCapture,
+	reason: ResizeCaptureRelease,
+): void {
+	const holder = mgr.terminalStreams.get(channelId);
+	const held = holder?.resizeCapture ?? null;
+	if (held !== null && held !== capture && held.failedReason === null) return;
+	if (holder && held === capture) holder.resizeCapture = null;
 	mgr.cellEmissionGates.delete(channelId);
 	mgr.cellGateSuppression.delete(channelId);
+	log.info("session-manager", "cell_gate_released", {
+		channelId,
+		streamId: capture.streamId,
+		resizeSeq: capture.resizeSeq,
+		capturedBytes: capture.capturedBytes,
+		reason,
+	});
 }
 
 /** Runs synchronously inside ResizeAck/ResizeReject dispatch, before a later
@@ -190,7 +223,7 @@ export function applyResizeResultAtBoundary(
 			capture,
 			result.kind === "ack" ? "accepted" : "rejected",
 		);
-		finishCapture(mgr, channelId, capture);
+		releaseResizeCapture(mgr, channelId, capture, "boundary_applied");
 		forwardReplies(channelId, replies);
 	} catch (error) {
 		failCore(
@@ -269,7 +302,7 @@ export async function recoverAmbiguousResize(
 		capture.boundarySeq = history.headSeq;
 		capture.boundaryApplied = true;
 		noteResizeResult(mgr, channelId, capture, "recovered");
-		finishCapture(mgr, channelId, capture);
+		releaseResizeCapture(mgr, channelId, capture, "boundary_applied");
 		forwardReplies(channelId, replies);
 		diag("resize.wterm_core", {
 			sid: rec.sessionId,

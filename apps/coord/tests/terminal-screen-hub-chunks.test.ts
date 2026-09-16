@@ -158,8 +158,9 @@ describe("TerminalScreenHub bounded chunk assembly", () => {
     superseded.hub.expectStream(SESSION, STREAM, 8, 2);
     superseded.hub.publishFrame(SESSION, deltaFrame());
     expect(superseded.timers.size).toBe(1);
+    const requestTimer = [...superseded.timers.keys()][0]!;
     superseded.hub.expectStream(SESSION, OTHER_STREAM, 8, 2);
-    expect(superseded.timers.size).toBe(0);
+    expect(superseded.timers.has(requestTimer)).toBe(false);
     expect(superseded.freshStreams).toEqual([]);
   });
 

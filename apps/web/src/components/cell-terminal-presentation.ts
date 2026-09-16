@@ -1,7 +1,9 @@
-// Owns pane presentation readiness, reader holds, stall recovery, and notices.
+// Owns pane presentation readiness, reader holds, view liveness, and notices.
 // Renderer frames and viewport status feed this controller while CellTerminal
-// only paints its accessors. Pointer gestures defer reconciliation escalation so
-// live DOM cannot move under an active selection or scrollbar interaction.
+// only paints its accessors. DOM stall recovery lives in
+// cell-terminal-dom-repair.ts, driven from here with the pane's hold,
+// visibility and pointer-gesture facts so live DOM cannot move under an active
+// selection or scrollbar interaction.
 
 import {
   createEffect,
@@ -11,11 +13,8 @@ import {
   type Accessor,
   type Setter,
 } from "solid-js";
-import { diag, signal } from "@roost/shared/diag";
-import type {
-  LiveInteractionResult,
-  RendererEpochSeq,
-} from "../lib/cellRenderer.ts";
+import { diag } from "@roost/shared/diag";
+import type { LiveInteractionResult } from "../lib/cellRenderer.ts";
 import { createTerminalSelectionGuard } from "../lib/terminalSelectionGuard.ts";
 import {
   createTerminalPresentationController,
@@ -31,22 +30,23 @@ import {
   startAttachDiagnosis,
   type AttachDiagnosisHandle,
 } from "../lib/attachDiagnosis.ts";
-import type {
-  BaselineProgress,
-  TerminalPresentationState,
+import {
+  FRAME_ACTIVITY_WINDOW_MS,
+  type BaselineProgress,
+  type TerminalPresentationState,
 } from "../store/terminal-stream-types.ts";
-import { terminalStreamDiagnosticSnapshot, type TerminalViewHandleStatus } from "../store/terminal-stream.ts";
+import type { TerminalViewHandleStatus } from "../store/terminal-stream.ts";
 import {
   terminalViewportLoadingNotice,
   type TerminalLoadingNoticeProps,
 } from "./TerminalOfflineNotice.tsx";
 import type { TerminalSelectionGuard } from "./TerminalComposeButton.tsx";
+import { createCellTerminalDomRepair } from "./cell-terminal-dom-repair.ts";
 import type { CellTerminalProps } from "./cell-terminal-types.ts";
 import type { CellTerminalRuntime } from "./cell-terminal-runtime.ts";
 
 const OFFLINE_GRACE_MS = 3000;
 const ATTACH_DIAGNOSIS_GRACE_MS = 3_000;
-const DOM_RECONCILIATION_PROOF_MS = 3_000;
 
 export interface CellTerminalPresentation {
   attachPointerGestureGuard(): () => void;
@@ -95,10 +95,7 @@ export function createCellTerminalPresentation(
     createSignal<TerminalViewHandleStatus | null>(null);
   const [hasReconciledFrame, setHasReconciledFrame] = createSignal(false);
   const pointerGestures = new Set<number>();
-  let deferredDomStall: RendererEpochSeq | null = null;
-  let deferredDomEscalation: RendererEpochSeq | null = null;
-  let domReconciliationWatermark: RendererEpochSeq | null = null;
-  let domEscalationTimer: Timer | null = null;
+  let lastFramePaintedAtMs: number | null = null;
   let releasePointerGestureListeners = (): void => undefined;
 
   const protectedReaderReason = (): boolean =>
@@ -115,130 +112,31 @@ export function createCellTerminalPresentation(
         || (status?.status === "accepted" && !status.baselineReady)
       );
   };
-  const watermarkStillUnreconciled = (watermark: RendererEpochSeq): boolean => {
-    const renderer = runtime.renderer;
-    if (!renderer || watermark.grid_epoch === null || watermark.seq === null) return false;
-    const canonical = renderer.canonicalEpochSeq();
-    const reconciled = renderer.reconciledEpochSeq();
-    return canonical.grid_epoch === watermark.grid_epoch
-      && canonical.seq !== null
-      && canonical.seq >= watermark.seq
-      && (
-        reconciled.grid_epoch !== watermark.grid_epoch
-        || reconciled.seq === null
-        || reconciled.seq < watermark.seq
-      );
-  };
-  const reconciledWatermarkReached = (watermark: RendererEpochSeq): boolean => {
-    const reconciled = runtime.renderer?.reconciledEpochSeq();
-    return reconciled?.grid_epoch === watermark.grid_epoch
-      && reconciled.seq !== null
-      && watermark.seq !== null
-      && reconciled.seq >= watermark.seq;
-  };
-  const clearDomReconciliationTarget = (): void => {
-    clearTimeout(domEscalationTimer ?? undefined);
-    domEscalationTimer = null;
-    domReconciliationWatermark = null;
-    deferredDomEscalation = null;
-  };
-  const clearDomStallRecovery = (): void => {
-    clearDomReconciliationTarget();
-    deferredDomStall = null;
-  };
-  const recoverUnreconciledDom = (watermark: RendererEpochSeq): void => {
-    if (
-      domReconciliationWatermark !== watermark
-      || !viewActive()
-      || !foregroundViewReady()
-      || !isPageVisible()
-      || protectedReaderReason()
-      || !watermarkStillUnreconciled(watermark)
-    ) return;
-    if (pointerGestures.size > 0) {
-      deferredDomEscalation = watermark;
-      return;
-    }
-    const renderer = runtime.renderer;
-    const reconciled = renderer?.reconciledEpochSeq()
-      ?? { grid_epoch: null, seq: null };
-    const stream = terminalStreamDiagnosticSnapshot(
-      runtime.sessionId,
-      runtime.view?.viewId,
-    );
-    signal("cell.foreground_stall", {
-      sid: runtime.sessionId,
-      stream_id: stream.view.stream_id,
-      view_revision: stream.view.revision,
-      generation_socket: stream.sync.socket_generation,
-      generation_domain: stream.sync.domain_generation,
-      checkpoint_epoch: watermark.grid_epoch,
-      checkpoint_seq: watermark.seq,
-      replica_epoch: stream.replica.grid_epoch,
-      replica_seq: stream.replica.seq,
-      dom_reconciled_epoch: reconciled.grid_epoch,
-      dom_reconciled_seq: reconciled.seq,
-      reader_reason: renderer?.readerReason ?? null,
-      block_reason: renderer?.reconcileBlockReason() ?? null,
-      layer: "dom_reconcile",
-      action: "redial",
-      cooldownKey: runtime.sessionId,
-    });
-    runtime.view?.recoverUnreconciledDom();
-  };
-  const armDomReconciliationTarget = (watermark: RendererEpochSeq): void => {
-    if (!watermarkStillUnreconciled(watermark)) return;
-    if (
-      domReconciliationWatermark?.grid_epoch === watermark.grid_epoch
-      && domReconciliationWatermark.seq !== null
-      && watermark.seq !== null
-      && domReconciliationWatermark.seq <= watermark.seq
-    ) return;
-    clearDomReconciliationTarget();
-    const captured = { ...watermark };
-    domReconciliationWatermark = captured;
-    const timer = setTimeout(() => {
-      if (
-        domEscalationTimer !== timer
-        || domReconciliationWatermark !== captured
-      ) return;
-      domEscalationTimer = null;
-      recoverUnreconciledDom(captured);
-    }, DOM_RECONCILIATION_PROOF_MS);
-    domEscalationTimer = timer;
-  };
-  const handleCatchUpStalled = (watermark: RendererEpochSeq): void => {
-    if (
-      domReconciliationWatermark !== null
-      || !viewActive()
-      || !isPageVisible()
-      || protectedReaderReason()
-      || !foregroundViewReady()
-      || !watermarkStillUnreconciled(watermark)
-    ) return;
-    if (pointerGestures.size > 0) {
-      deferredDomStall = watermark;
-      return;
-    }
-    armDomReconciliationTarget(watermark);
-    if (domReconciliationWatermark === null) return;
-    runtime.predictor?.clear();
-    runtime.renderer?.setPredictedCursor(null);
-    selection.prepareLiveInteraction();
-    terminalPresentation.refreshTerminalPresentation();
-    runtime.view?.refresh();
-  };
+  const domRepair = createCellTerminalDomRepair({
+    runtime,
+    activelyViewed: () => viewActive() && isPageVisible(),
+    foregroundViewReady,
+    readerHoldActive: protectedReaderReason,
+    pointerGestureActive: () => pointerGestures.size > 0,
+    presentationState: () => terminalPresentation.state(),
+    prepareLiveInteraction: selection.prepareLiveInteraction,
+    refreshTerminalPresentation: () => terminalPresentation.refreshTerminalPresentation(),
+  });
   const terminalPresentation = createTerminalPresentationController({
     active: viewActive,
     focused: () => props.focused === true,
     status: viewStatus,
     renderer: () => runtime.renderer,
-    onCatchUpStalled: handleCatchUpStalled,
+    onCatchUpStalled: domRepair.handleCatchUpStalled,
   });
   const noteRendererReconciled = (): void => {
-    const watermark = domReconciliationWatermark;
-    if (watermark && reconciledWatermarkReached(watermark)) clearDomReconciliationTarget();
+    lastFramePaintedAtMs = Date.now();
+    domRepair.noteReconciled();
     terminalPresentation.refreshTerminalPresentation();
+    // A painted frame is proof this view delivers. The status it contradicts
+    // may never change again, so the retraction rides the frame rather than
+    // waiting for an event a detached pane has already stopped producing.
+    if (offline()) refreshOfflineWatch();
   };
   const syncNativeSelectionHold = (): void => {
     selection.syncNativeSelectionHold();
@@ -247,7 +145,7 @@ export function createCellTerminalPresentation(
   createEffect(() => {
     if (!pageVisible()) releasePointerGestureListeners();
     if (!viewActive() || !pageVisible() || !foregroundViewReady()) {
-      clearDomStallRecovery();
+      domRepair.clearDomStallRecovery();
     }
   });
 
@@ -259,20 +157,7 @@ export function createCellTerminalPresentation(
       if (pointerGestures.size > 0) return;
       window.removeEventListener("pointerup", onPointerSettled, true);
       window.removeEventListener("pointercancel", onPointerSettled, true);
-      const stalled = deferredDomStall;
-      deferredDomStall = null;
-      if (stalled) handleCatchUpStalled(stalled);
-      const escalation = deferredDomEscalation;
-      if (
-        !stalled
-        && terminalPresentation.state() === "catching_up"
-        && !protectedReaderReason()
-      ) {
-        const current = runtime.renderer?.canonicalEpochSeq();
-        if (current) handleCatchUpStalled(current);
-      }
-      deferredDomEscalation = null;
-      if (escalation) recoverUnreconciledDom(escalation);
+      domRepair.resumeAfterPointerGesture();
     };
     const onPointerDown = (event: PointerEvent): void => {
       if (pointerGestures.size === 0) {
@@ -299,10 +184,22 @@ export function createCellTerminalPresentation(
     diag("cell.offline_retry", { sid: runtime.sessionId });
     retryOffline();
   });
-  createEffect(() => offlineWatch.update(
+  /** A frame painted inside this window proves the view still delivers, so no
+   *  accusation may stand. The window is SHORTER than DETACHED_GRACE_MS, which
+   *  a view must outlast before it reads detached: freshness therefore cannot
+   *  still be true at the edge that arms the re-claim and mask it. */
+  const framePaintedRecently = (): boolean =>
+    lastFramePaintedAtMs !== null
+    && Date.now() - lastFramePaintedAtMs < FRAME_ACTIVITY_WINDOW_MS;
+  /** Output silence is never evidence — a quiet shell prints nothing for hours.
+   *  Only a view the operator is looking at that has stopped being deliverable
+   *  may be re-claimed, and `detached` is exactly that fact. */
+  const refreshOfflineWatch = (): void => offlineWatch.update(
     viewStatus() !== null && viewActive() && isPageVisible(),
-    hasReconciledFrame(),
-  ));
+    terminalPresentation.state() === "detached",
+    framePaintedRecently(),
+  );
+  createEffect(refreshOfflineWatch);
   const offlineSibling = () =>
     newestOpenSessionForFolderKey(folderKeyOf(props.session), runtime.sessionId);
   const openOfflineSibling = (): void => {
@@ -359,7 +256,7 @@ export function createCellTerminalPresentation(
     disposed = true;
     clearAttachDiagnosis();
     offlineWatch.dispose();
-    clearDomStallRecovery();
+    domRepair.clearDomStallRecovery();
     releasePointerGestureListeners();
     terminalPresentation.clearFrameActivity();
     terminalPresentation.clearCursorBlink();
@@ -370,7 +267,7 @@ export function createCellTerminalPresentation(
     attachPointerGestureGuard,
     captureTerminalSelection: selection.captureTerminalSelection,
     clearCursorBlink: terminalPresentation.clearCursorBlink,
-    clearDomStallRecovery,
+    clearDomStallRecovery: domRepair.clearDomStallRecovery,
     dispose,
     clearFrameActivity: terminalPresentation.clearFrameActivity,
     hasReconciledFrame,

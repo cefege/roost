@@ -1,4 +1,4 @@
-// These tests cover baseline admission, scoped repair, and ACK ownership.
+// These tests cover scoped repair, liveness watchdogs, and ACK ownership.
 // The shared fixture records renderer output and coordinator commands per session.
 // Generation and gap handling must remain deterministic across renewal timing.
 
@@ -6,6 +6,7 @@ import { describe, expect, test, vi } from "bun:test";
 import {
   TERMINAL_FOREGROUND_IDLE_PROBE_MS,
   TERMINAL_FOREGROUND_PROBE_DEADLINE_MS,
+  TERMINAL_VIEW_HEARTBEAT_MS,
 } from "@roost/shared/viewport";
 import {
   CELL_GRID_CHUNK_STALL_MS,
@@ -14,12 +15,10 @@ import {
   SESSION_ID,
   SNAPSHOT_A,
   STREAM_A,
-  STREAM_B,
   acceptView,
   cellFrameToProto,
   chunkCellGridFrame,
   delta,
-  dispatchTerminalCellFrameFrom,
   full,
   generationRecoveries,
   latestViewCommand,
@@ -46,6 +45,15 @@ function chunkedProofBaseline() {
   if (chunks.length < 2) throw new Error("proof fixture must split into chunks");
   return chunks;
 }
+
+// The generation the fixture's Sync socket owns; a test flips only `ready` to
+// take the publication target away without rotating the generation.
+const CURRENT_SYNC_OWNER = {
+  socketGeneration: 1,
+  socketId: "socket-1",
+  processEpoch: "process-1",
+  domainGeneration: 11n,
+};
 
 describe("per-session browser terminal replica", () => {
   test("requires a full baseline, admits only an exact delta, and latches one resync", () => {
@@ -87,101 +95,6 @@ describe("per-session browser terminal replica", () => {
       baseline_ready: true,
       resync_latched: false,
     });
-  });
-
-  test("rejects stale or conflicting fulls but admits a fresh stream baseline", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
-    const sink = new RecordingRenderer();
-    view.subscribeRenderer(renderer(sink));
-    view.setViewport({ cols: 1, rows: 1 });
-    const revision = latestViewCommand().value.revision as bigint;
-    acceptView(view.viewId, revision);
-
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(delta(2, "B"), SESSION_ID));
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(delta(3, "C"), SESSION_ID));
-    const conflicting = {
-      ...full(STREAM_A, [row(0, "X")], 3),
-      gridEpoch: "grid-epoch-conflict",
-    };
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(conflicting, SESSION_ID));
-    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
-      grid_epoch: EPOCH_A,
-      seq: 3,
-      resync_latched: true,
-    });
-    expect(resyncCommands()).toHaveLength(1);
-    terminalStream.dispatchTerminalCellFrame(
-      cellFrameToProto(full(STREAM_A, [row(0, "S")], 1), SESSION_ID),
-    );
-
-    expect(sink.fullFrames).toHaveLength(1);
-    expect(sink.fullFrames[0]!.viewportRows[0]!.spans[0]!.text).toBe("A");
-    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
-      expected_stream_id: STREAM_A,
-      grid_epoch: EPOCH_A,
-      seq: 3,
-      baseline_ready: true,
-      resync_latched: true,
-    });
-    expect(resyncCommands()).toHaveLength(1);
-
-    acceptView(view.viewId, revision, STREAM_B);
-    terminalStream.dispatchTerminalCellFrame(
-      cellFrameToProto(full(STREAM_B, [row(0, "R")], 1), SESSION_ID),
-    );
-
-    const freshBaseline = terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID);
-    expect(freshBaseline.wire_received).toEqual({
-      stream_id: STREAM_B,
-      grid_epoch: EPOCH_A,
-      seq: 1,
-    });
-    expect(freshBaseline.replica.seq).toBe(1);
-    expect(freshBaseline.replica).toMatchObject({
-      expected_stream_id: STREAM_B,
-      grid_epoch: EPOCH_A,
-      seq: 1,
-      baseline_ready: true,
-      resync_latched: false,
-    });
-    const replayed = new RecordingRenderer();
-    const unsubscribeReplay = view.subscribeRenderer(renderer(replayed));
-    expect(replayed.fullFrames).toHaveLength(1);
-    expect(replayed.fullFrames[0]!.viewportRows[0]!.spans[0]!.text).toBe("R");
-    unsubscribeReplay();
-  });
-
-  test("validates legacy full history before normalizing its canonical checkpoint", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
-    const sink = new RecordingRenderer();
-    view.subscribeRenderer(renderer(sink));
-    view.setViewport({ cols: 1, rows: 1 });
-    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
-
-    const malformed = cellFrameToProto(full(), SESSION_ID);
-    malformed.scrollbackTotal = 1n;
-    malformed.sbBase = 0n;
-    terminalStream.dispatchTerminalCellFrame(malformed);
-    expect(sink.fullFrames).toHaveLength(0);
-    expect(resyncCommands()).toHaveLength(1);
-
-    const legacy = full();
-    legacy.scrollbackRows = [row(0, "old")];
-    legacy.scrollbackTotal = 1;
-    legacy.sbBase = 0;
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(legacy, SESSION_ID));
-
-    const canonical = sink.fullFrames.at(-1);
-    expect(canonical).toMatchObject({
-      full: true,
-      baseSeq: 0,
-      scrollbackTotal: 1,
-      sbBase: 1,
-      scrollbackRows: [],
-      scrollbackAppend: [],
-    });
-    view.dispose();
   });
 
   test("owns ACK and terminal progress diagnostics by the complete generation", () => {
@@ -393,5 +306,71 @@ describe("per-session browser terminal replica", () => {
     expect(generationRecoveries).toHaveLength(1);
     first.dispose();
     second.dispose();
+  });
+
+  test("re-arms the idle probe when a liveness challenge cannot be published", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 1, rows: 1 });
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
+    updateSyncState({ ...CURRENT_SYNC_OWNER, ready: false });
+
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_IDLE_PROBE_MS);
+    expect(resyncCommands()).toHaveLength(0);
+    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
+      challenge_stream_id: null,
+      repair_attempts: 0,
+    });
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_IDLE_PROBE_MS);
+    expect(resyncCommands()).toHaveLength(0);
+
+    updateSyncState({ ...CURRENT_SYNC_OWNER, ready: true });
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_IDLE_PROBE_MS - 1);
+    expect(resyncCommands()).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    expect(resyncCommands()).toHaveLength(1);
+    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
+      challenge_stream_id: STREAM_A,
+      repair_outcome: "requested",
+    });
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_PROBE_DEADLINE_MS);
+    expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");
+    view.dispose();
+  });
+
+  test("arms a proof deadline for a latch whose delta cleared its latch timestamp", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 1, rows: 1 });
+    const revision = latestViewCommand().value.revision as bigint;
+    acceptView(view.viewId, revision);
+    let nowMs = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    try {
+      terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
+      terminalStream.dispatchTerminalCellFrame(
+        cellFrameToProto(delta(3, "gap", STREAM_A, 2), SESSION_ID),
+      );
+      terminalStream.dispatchTerminalCellFrame(cellFrameToProto(delta(2, "B"), SESSION_ID));
+      expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
+        resync_latched: true,
+        resync_latch_age_ms: null,
+        challenge_stream_id: null,
+        repair_outcome: "proved",
+      });
+
+      nowMs += TERMINAL_VIEW_HEARTBEAT_MS;
+      acceptView(view.viewId, revision);
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(resyncCommands()).toHaveLength(2);
+    expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica).toMatchObject({
+      challenge_stream_id: STREAM_A,
+      challenge_seq: 2,
+      repair_outcome: "requested",
+    });
+    vi.advanceTimersByTime(TERMINAL_FOREGROUND_PROBE_DEADLINE_MS);
+    expect(generationRecoveries.at(-1)?.reason).toBe("terminal-proof-timeout");
+    view.dispose();
   });
 });

@@ -1,8 +1,14 @@
-// These tests cover renderer lifecycle, generation rollover, and presentation state.
+// These tests cover renderer lifecycle, generation rollover, and the view
+// commands one pane publishes over its transport.
 // They share the terminal-stream fixture so each replica begins from the same reset state.
-// The cases protect atomic chunk assembly, view fencing, and activity reporting.
+// The cases protect atomic chunk assembly, view fencing, and renewal liveness
+// after a publication that never reached a socket.
 
 import { describe, expect, setSystemTime, test, vi } from "bun:test";
+import {
+  TERMINAL_VIEW_HEARTBEAT_MS,
+  TERMINAL_VIEW_LEASE_MS,
+} from "@roost/shared/viewport";
 import {
   CELL_GRID_CHUNK_STALL_MS,
   RecordingRenderer,
@@ -20,15 +26,14 @@ import {
   renderer,
   resyncCommands,
   row,
+  setPageVisible,
   terminalStream,
   updateSyncState,
   viewCommands,
   type TerminalViewHandleStatus,
 } from "./helpers/terminalStreamFixture.ts";
-import {
-  FRAME_ACTIVITY_WINDOW_MS,
-  deriveTerminalPresentationState,
-} from "../src/store/terminal-stream-types.ts";
+import { installRefusingLocalTransport } from "./helpers/refusingLocalTransport.ts";
+import { _terminalViewRenewalSchedulerSnapshotForTest } from "../src/store/terminal-stream-renewal-scheduler.ts";
 
 describe("per-session browser terminal replica", () => {
   test("keeps subscriber row shells independent from each other and the canonical replica", () => {
@@ -311,81 +316,79 @@ describe("per-session browser terminal replica", () => {
     expect(statuses).toHaveLength(statusCount);
     expect(statuses.at(-1)?.status).toBe("accepted");
   });
-});
 
-describe("terminal stream presentation state", () => {
-  const watermark = (grid_epoch: string, seq: number) => ({ grid_epoch, seq });
+  test("retries an active view whose socket write never reached the transport", () => {
+    const local = installRefusingLocalTransport(SESSION_ID);
+    try {
+      const view = terminalStream.createTerminalView(SESSION_ID);
+      view.setViewport({ cols: 80, rows: 24 });
+      expect(local.publishedViewIds).toEqual([view.viewId]);
+      expect(_terminalViewRenewalSchedulerSnapshotForTest()).toMatchObject({
+        armed: true,
+        scheduledViewCount: 1,
+      });
 
-  test("reports receiving for recent equal canonical and reconciled watermarks, then idles", () => {
-    const activity = {
-      grid_epoch: "epoch-a",
-      seq: 2,
-      started_at_ms: 1_000,
-    };
-    expect(FRAME_ACTIVITY_WINDOW_MS).toBe(500);
-    expect(deriveTerminalPresentationState({
-      active: true,
-      acceptedWithBaseline: true,
-      canonical: watermark("epoch-a", 2),
-      reconciled: watermark("epoch-a", 2),
-      activity,
-      nowMs: 1_499,
-    })).toBe("receiving");
-    expect(deriveTerminalPresentationState({
-      active: true,
-      acceptedWithBaseline: true,
-      canonical: watermark("epoch-a", 2),
-      reconciled: watermark("epoch-a", 2),
-      activity,
-      nowMs: 1_500,
-    })).toBe("idle");
+      // Nothing else happens: no visibility transition, no geometry change and
+      // no generation flip. The scheduler alone owes this pane its next attempt.
+      vi.advanceTimersByTime(TERMINAL_VIEW_HEARTBEAT_MS);
+      expect(local.publishedViewIds).toEqual([view.viewId, view.viewId]);
+
+      local.writeAccepted = true;
+      vi.advanceTimersByTime(TERMINAL_VIEW_HEARTBEAT_MS);
+      expect(local.publishedViewIds).toHaveLength(3);
+      expect(_terminalViewRenewalSchedulerSnapshotForTest()).toMatchObject({
+        armed: true,
+        scheduledViewCount: 1,
+      });
+    } finally {
+      local.release();
+    }
   });
 
-  test("reports catching_up while canonical is ahead of the renderer", () => {
-    expect(deriveTerminalPresentationState({
-      active: true,
-      acceptedWithBaseline: true,
-      canonical: watermark("epoch-a", 3),
-      reconciled: watermark("epoch-a", 2),
-      activity: {
-        grid_epoch: "epoch-a",
-        seq: 3,
-        started_at_ms: 1_000,
-      },
-      nowMs: 1_100,
-    })).toBe("catching_up");
+  test("republishes a refused active view inside one coordinator lease window", () => {
+    const local = installRefusingLocalTransport(SESSION_ID);
+    try {
+      const view = terminalStream.createTerminalView(SESSION_ID);
+      view.setViewport({ cols: 80, rows: 24 });
+      const refusedAttempts = local.publishedViewIds.length;
+      // A retry cadence at or past the lease lets the coordinator reap the view
+      // between attempts, so measure the gap instead of trusting the constant.
+      let elapsedMs = 0;
+      while (
+        local.publishedViewIds.length === refusedAttempts
+        && elapsedMs < TERMINAL_VIEW_LEASE_MS
+      ) {
+        vi.advanceTimersByTime(250);
+        elapsedMs += 250;
+      }
+      expect(local.publishedViewIds.length).toBeGreaterThan(refusedAttempts);
+      expect(elapsedMs).toBeLessThan(TERMINAL_VIEW_LEASE_MS);
+    } finally {
+      local.release();
+    }
   });
 
-  test("returns to receiving after hold reconciliation, then expires to idle", () => {
-    const activity = {
-      grid_epoch: "epoch-a",
-      seq: 4,
-      started_at_ms: 2_000,
-    };
-    const input = {
-      active: true,
-      acceptedWithBaseline: true,
-      canonical: watermark("epoch-a", 4),
-      reconciled: watermark("epoch-a", 4),
-      activity,
-    };
-    expect(deriveTerminalPresentationState({ ...input, nowMs: 2_250 })).toBe("receiving");
-    expect(deriveTerminalPresentationState({ ...input, nowMs: 2_500 })).toBe("idle");
-  });
+  test("leaves an active publish refused by a hidden page cancelled", () => {
+    const local = installRefusingLocalTransport(SESSION_ID);
+    try {
+      const view = terminalStream.createTerminalView(SESSION_ID);
+      setPageVisible(false);
+      view.setViewport({ cols: 80, rows: 24 });
+      expect(local.publishedViewIds).toHaveLength(0);
+      expect(_terminalViewRenewalSchedulerSnapshotForTest()).toMatchObject({
+        armed: false,
+        scheduledViewCount: 0,
+      });
 
-  test("keeps missing baseline and inactive panes idle even when watermarks differ", () => {
-    const input = {
-      acceptedWithBaseline: false,
-      canonical: watermark("epoch-a", 3),
-      reconciled: watermark("epoch-a", 2),
-      activity: null,
-      nowMs: 10_000,
-    };
-    expect(deriveTerminalPresentationState({ ...input, active: true })).toBe("idle");
-    expect(deriveTerminalPresentationState({
-      ...input,
-      active: false,
-      acceptedWithBaseline: true,
-    })).toBe("idle");
+      // A visible pane on another session drives the scheduler again; a hidden
+      // refusal that stayed in the renewal set would publish on its next tick.
+      setPageVisible(true);
+      const visiblePane = terminalStream.createTerminalView("session-second-pane");
+      visiblePane.setViewport({ cols: 80, rows: 24 });
+      vi.advanceTimersByTime(TERMINAL_VIEW_LEASE_MS);
+      expect(local.publishedViewIds).toHaveLength(0);
+    } finally {
+      local.release();
+    }
   });
 });

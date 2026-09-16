@@ -1,6 +1,7 @@
-// Covers lazy terminal snapshot source construction and immutable predecessor cursors.
-// The canonical-cache suite owns folding and watcher behavior; this suite owns cursor demand.
-// Deferred sinks avoid materializing a source before the test explicitly asks for it.
+// Covers lazy terminal snapshot source construction, immutable predecessor
+// cursors, and the first-byte deadline a freshly expected stream arms.
+// The canonical-cache suite owns folding and watcher behavior; this suite owns
+// cursor demand and the "worker committed a stream and shipped no baseline" net.
 
 import { describe, expect, test } from "bun:test";
 import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
@@ -14,12 +15,15 @@ import type {
 } from "../src/connect/terminal-screen-hub.ts";
 import {
   SESSION,
+  OTHER_STREAM,
   STREAM,
+  chunks,
   deltaFrame,
   fullFrame,
   makeHarness,
   texts,
 } from "./terminal-screen-hub-harness.ts";
+import { TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS } from "../src/connect/terminal-screen-hub.ts";
 
 class DeferredSnapshotSink implements TerminalScreenSocketSink {
   readonly begins: Array<[sessionId: string, streamId: string]> = [];
@@ -148,5 +152,100 @@ describe("TerminalScreenHub snapshot sources", () => {
     } finally {
       predecessorCursor.release();
     }
+  });
+});
+
+describe("TerminalScreenHub baseline watchdog", () => {
+  test("escalates a minted stream whose baseline never arrives", () => {
+    const clock = { value: 0 };
+    const { hub, requests, freshStreams, timers, fireTimer } = makeHarness(clock);
+    hub.expectStream(SESSION, STREAM, 8, 2);
+    expect(requests).toEqual([]);
+    expect(timers.size).toBe(1);
+    const [watchdog, deadline] = [...timers.entries()][0]!;
+    expect(deadline.delayMs).toBe(TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS);
+
+    clock.value += TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS;
+    fireTimer(watchdog);
+    expect(requests).toEqual([[SESSION, STREAM]]);
+
+    const firstAttempt = [...timers.keys()][0]!;
+    clock.value += TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS;
+    fireTimer(firstAttempt);
+    expect(requests).toHaveLength(2);
+    expect(freshStreams).toEqual([]);
+
+    const secondAttempt = [...timers.keys()][0]!;
+    clock.value += TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS;
+    fireTimer(secondAttempt);
+    expect(requests).toHaveLength(2);
+    expect(freshStreams).toEqual([[
+      SESSION,
+      STREAM,
+      expect.stringContaining("timed out"),
+    ]]);
+    expect(timers.size).toBe(0);
+  });
+
+  test("asks for nothing when the baseline lands before the deadline", () => {
+    const clock = { value: 0 };
+    const { hub, requests, freshStreams, timers } = makeHarness(clock);
+    hub.expectStream(SESSION, STREAM, 8, 2);
+    expect(timers.size).toBe(1);
+
+    hub.publishFrame(SESSION, fullFrame());
+    expect(hub.snapshot(SESSION)).toMatchObject({ seq: 1, valid: true });
+    expect(timers.size).toBe(0);
+
+    clock.value += TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS * 4;
+    hub.publishFrame(SESSION, deltaFrame({ text: "live" }));
+    expect(hub.snapshot(SESSION)).toMatchObject({ seq: 2, valid: true });
+    expect(requests).toEqual([]);
+    expect(freshStreams).toEqual([]);
+  });
+
+  test("a re-minted stream deadline replaces the superseded one", () => {
+    const clock = { value: 0 };
+    const { hub, requests, timers, fireTimer } = makeHarness(clock);
+    hub.expectStream(SESSION, STREAM, 8, 2);
+    const [stale, superseded] = [...timers.entries()][0]!;
+
+    hub.expectStream(SESSION, OTHER_STREAM, 8, 2);
+    expect(timers.has(stale)).toBe(false);
+
+    clock.value += TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS;
+    superseded.callback();
+    expect(requests).toEqual([]);
+
+    const fresh = [...timers.keys()][0]!;
+    expect(fresh).not.toBe(stale);
+    fireTimer(fresh);
+    expect(requests).toEqual([[SESSION, OTHER_STREAM]]);
+  });
+
+  test("leaves a chunked baseline mid-transfer to the chunk stall deadline", () => {
+    const clock = { value: 0 };
+    const { hub, requests, timers } = makeHarness(clock);
+    hub.expectStream(SESSION, STREAM, 8, 2);
+    const [watchdog, deadline] = [...timers.entries()][0]!;
+
+    const source = fullFrame();
+    const parts = chunks(source, [
+      [source.viewportRows[0]!],
+      [source.viewportRows[1]!],
+    ]);
+    clock.value += Math.floor(TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS / 2);
+    hub.publishChunk(SESSION, parts[0]!);
+
+    clock.value += TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS
+      - Math.floor(TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS / 2);
+    deadline.callback();
+    expect(requests).toEqual([]);
+    expect(timers.size).toBe(1);
+    expect([...timers.keys()][0]!).not.toBe(watchdog);
+
+    hub.publishChunk(SESSION, parts[1]!);
+    expect(hub.snapshot(SESSION)).toMatchObject({ seq: 1, valid: true });
+    expect(requests).toEqual([]);
   });
 });

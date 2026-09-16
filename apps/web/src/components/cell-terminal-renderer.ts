@@ -63,10 +63,34 @@ export function mountCellTerminalRenderer(
 		throw new Error("terminal renderer mounted without display or view");
 	}
 
+	let followSettleTimer: Timer | null = null;
+	// A gesture stops without an event of its own, so the band resume waits for
+	// the scroll stream to go quiet: a scrollTop write mid-gesture cancels the
+	// scroll animation Chromium is still running for the reader.
+	// Frame arrival asks for the window a gesture whose last scroll event
+	// preceded the park never armed, so this may only OPEN one: a busy PTY
+	// delivers a frame every few milliseconds, and re-arming per frame would
+	// defer the resume for as long as output continues.
+	const ensureFollowSettle = (): void => {
+		if (followSettleTimer !== null) return;
+		followSettleTimer = setTimeout(() => {
+			followSettleTimer = null;
+			const current = runtime.renderer;
+			if (current) presentation.notifyBackfill(current.settleFollowBand());
+		}, BOTTOM_FOLLOW_SETTLE_MS);
+	};
+	// A scroll event means the gesture is still live: push the window out.
+	const restartFollowSettle = (): void => {
+		clearTimeout(followSettleTimer ?? undefined);
+		followSettleTimer = null;
+		ensureFollowSettle();
+	};
+
 	const renderer = new CellGridRenderer(
 		display,
 		() => presentation.setHasReconciledFrame(true),
 		presentation.noteRendererReconciled,
+		ensureFollowSettle,
 	);
 	runtime.renderer = renderer;
 	const backfill = createScrollbackBackfill({
@@ -79,18 +103,6 @@ export function mountCellTerminalRenderer(
 		runtime.sessionId,
 		presentation.prepareLiveInteraction,
 	);
-	let followSettleTimer: Timer | null = null;
-	// A gesture stops without an event of its own, so the band resume waits for
-	// the scroll stream to go quiet: a scrollTop write mid-gesture cancels the
-	// scroll animation Chromium is still running for the reader.
-	const armFollowSettle = (): void => {
-		clearTimeout(followSettleTimer ?? undefined);
-		followSettleTimer = setTimeout(() => {
-			followSettleTimer = null;
-			const current = runtime.renderer;
-			if (current) presentation.notifyBackfill(current.settleFollowBand());
-		}, BOTTOM_FOLLOW_SETTLE_MS);
-	};
 	const onScroll = (): void => {
 		const currentRenderer = runtime.renderer;
 		if (!currentRenderer) return;
@@ -100,7 +112,7 @@ export function mountCellTerminalRenderer(
 		}
 		const interaction = currentRenderer.handleScroll();
 		presentation.notifyBackfill(interaction);
-		if (currentRenderer.readerIntent === "reading") armFollowSettle();
+		if (currentRenderer.readerIntent === "reading") restartFollowSettle();
 		if (currentRenderer.followsBottom()) {
 			if (currentRenderer.readerIntent === "live") backfill.suspend();
 			return;

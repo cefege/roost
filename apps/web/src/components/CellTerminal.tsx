@@ -185,6 +185,15 @@ export function CellTerminal(props: CellTerminalProps) {
 					aria-hidden="true"
 				/>
 			</Show>
+			<Show when={presentation.presentationState() === "detached"}>
+				<div
+					class="terminal-stream-indicator"
+					data-testid="terminal-stream-indicator"
+					data-state="detached"
+					title="No live terminal stream"
+					aria-hidden="true"
+				/>
+			</Show>
 			{/* Above the display and inside the pane: the bar consumes real rows, so
 			  ResizeObserver publishes the smaller viewport. */}
 			<Show when={input.find.open()}>

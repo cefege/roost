@@ -286,6 +286,27 @@ describe("cell terminal presentation DOM recovery", () => {
     }
   });
 
+  test("re-arms the DOM target after a reader hold declined the deadline", () => {
+    vi.useFakeTimers();
+    const fixture = createPresentationFixture();
+    try {
+      fixture.presentation.setViewStatus(accepted);
+      fixture.onCatchUpStalled({ grid_epoch: "epoch-a", seq: 2 });
+      fixture.renderer.readerReason = "wheel";
+      vi.advanceTimersByTime(3_000);
+      expect(fixture.recoveryCalls()).toBe(0);
+
+      fixture.renderer.readerReason = null;
+      fixture.onCatchUpStalled({ grid_epoch: "epoch-a", seq: 2 });
+      vi.advanceTimersByTime(2_999);
+      expect(fixture.recoveryCalls()).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(fixture.recoveryCalls()).toBe(1);
+    } finally {
+      fixture.dispose();
+    }
+  });
+
   test("keeps an active pointer guard through foreground recovery", () => {
     vi.useFakeTimers();
     const fixture = createPresentationFixture();

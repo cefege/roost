@@ -6,7 +6,11 @@ import {
   FOREGROUND_DOM_STALL_MS,
   preservesForegroundReaderHold,
 } from "../src/lib/terminalPresentation.ts";
-import type { TerminalViewHandleStatus } from "../src/store/terminal-stream-types.ts";
+import { setForceHidden } from "../src/lib/pageVisible.ts";
+import {
+  DETACHED_GRACE_MS,
+  type TerminalViewHandleStatus,
+} from "../src/store/terminal-stream-types.ts";
 
 const accepted: TerminalViewHandleStatus = {
   status: "accepted",
@@ -18,8 +22,22 @@ const accepted: TerminalViewHandleStatus = {
   baselineReady: true,
 };
 
+/** The production freeze shape: the view is accepted and active, but its
+ *  baseline never arrived, so there is nothing live to paint. */
+const acceptedWithoutBaseline: TerminalViewHandleStatus = { ...accepted, baselineReady: false };
+
+/** Renderer stub for the presentation paths that only read watermarks; its
+ *  canonical and reconciled watermarks are always equal, so a ready view never
+ *  lands in catching_up. */
+const reconciledRenderer = {
+  canonicalEpochSeq: () => ({ grid_epoch: "epoch-a", seq: 5 }),
+  reconciledEpochSeq: () => ({ grid_epoch: "epoch-a", seq: 5 }),
+  setCursorBlinkEnabled: () => undefined,
+} as unknown as CellGridRenderer;
+
 afterEach(() => {
   vi.useRealTimers();
+  setForceHidden(false);
 });
 
 describe("foreground terminal presentation stalls", () => {
@@ -154,5 +172,147 @@ describe("foreground terminal presentation stalls", () => {
     expect(preservesForegroundReaderHold("selection")).toBe(true);
     expect(preservesForegroundReaderHold("find")).toBe(true);
     expect(preservesForegroundReaderHold(null)).toBe(false);
+  });
+});
+
+describe("detached terminal panes", () => {
+  test("an actively viewed pane without an accepted view detaches once the grace expires", () => {
+    vi.useFakeTimers();
+    let dispose: () => void = () => undefined;
+    const controller = createRoot((rootDispose) => {
+      dispose = rootDispose;
+      return createTerminalPresentationController({
+        active: () => true,
+        focused: () => true,
+        status: () => acceptedWithoutBaseline,
+        renderer: () => reconciledRenderer,
+        onCatchUpStalled: () => undefined,
+      });
+    });
+    try {
+      controller.refreshTerminalPresentation();
+      expect(controller.state()).toBe("idle");
+      vi.advanceTimersByTime(DETACHED_GRACE_MS - 1);
+      expect(controller.state()).toBe("idle");
+      vi.advanceTimersByTime(1);
+      expect(controller.state()).toBe("detached");
+    } finally {
+      dispose();
+    }
+  });
+
+  test("the grace runs from the first lost view, not from the latest refresh", () => {
+    vi.useFakeTimers();
+    let dispose: () => void = () => undefined;
+    const controller = createRoot((rootDispose) => {
+      dispose = rootDispose;
+      return createTerminalPresentationController({
+        active: () => true,
+        focused: () => true,
+        status: () => acceptedWithoutBaseline,
+        renderer: () => reconciledRenderer,
+        onCatchUpStalled: () => undefined,
+      });
+    });
+    try {
+      controller.refreshTerminalPresentation();
+      for (let elapsedMs = 0; elapsedMs < DETACHED_GRACE_MS; elapsedMs += 100) {
+        vi.advanceTimersByTime(100);
+        controller.refreshTerminalPresentation();
+      }
+      expect(controller.state()).toBe("detached");
+    } finally {
+      dispose();
+    }
+  });
+
+  test("a view that becomes ready inside the grace never detaches", () => {
+    vi.useFakeTimers();
+    let status: TerminalViewHandleStatus = acceptedWithoutBaseline;
+    let dispose: () => void = () => undefined;
+    const controller = createRoot((rootDispose) => {
+      dispose = rootDispose;
+      return createTerminalPresentationController({
+        active: () => true,
+        focused: () => true,
+        status: () => status,
+        renderer: () => reconciledRenderer,
+        onCatchUpStalled: () => undefined,
+      });
+    });
+    try {
+      controller.refreshTerminalPresentation();
+      vi.advanceTimersByTime(DETACHED_GRACE_MS - 1);
+      status = accepted;
+      controller.refreshTerminalPresentation();
+      expect(controller.state()).toBe("idle");
+      vi.advanceTimersByTime(DETACHED_GRACE_MS * 3);
+      expect(controller.state()).toBe("idle");
+    } finally {
+      dispose();
+    }
+  });
+
+  test("panes that are not actively viewed never detach", () => {
+    vi.useFakeTimers();
+    let disposeInactive: () => void = () => undefined;
+    const inactive = createRoot((rootDispose) => {
+      disposeInactive = rootDispose;
+      return createTerminalPresentationController({
+        active: () => false,
+        focused: () => true,
+        status: () => acceptedWithoutBaseline,
+        renderer: () => reconciledRenderer,
+        onCatchUpStalled: () => undefined,
+      });
+    });
+    setForceHidden(true);
+    let disposeHidden: () => void = () => undefined;
+    const hidden = createRoot((rootDispose) => {
+      disposeHidden = rootDispose;
+      return createTerminalPresentationController({
+        active: () => true,
+        focused: () => true,
+        status: () => acceptedWithoutBaseline,
+        renderer: () => reconciledRenderer,
+        onCatchUpStalled: () => undefined,
+      });
+    });
+    try {
+      inactive.refreshTerminalPresentation();
+      hidden.refreshTerminalPresentation();
+      vi.advanceTimersByTime(DETACHED_GRACE_MS * 10);
+      expect(inactive.state()).toBe("idle");
+      expect(hidden.state()).toBe("idle");
+    } finally {
+      disposeInactive();
+      disposeHidden();
+    }
+  });
+
+  test("a detached pane reports receiving again on the next accepted delta", () => {
+    vi.useFakeTimers();
+    let status: TerminalViewHandleStatus = acceptedWithoutBaseline;
+    let dispose: () => void = () => undefined;
+    const controller = createRoot((rootDispose) => {
+      dispose = rootDispose;
+      return createTerminalPresentationController({
+        active: () => true,
+        focused: () => true,
+        status: () => status,
+        renderer: () => reconciledRenderer,
+        onCatchUpStalled: () => undefined,
+      });
+    });
+    try {
+      controller.refreshTerminalPresentation();
+      vi.advanceTimersByTime(DETACHED_GRACE_MS);
+      expect(controller.state()).toBe("detached");
+      status = accepted;
+      controller.noteFrameActivity({ full: false, gridEpoch: "epoch-a", seq: 5 });
+      expect(controller.state()).toBe("receiving");
+    } finally {
+      dispose();
+    }
   });
 });

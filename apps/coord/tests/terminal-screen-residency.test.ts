@@ -27,6 +27,7 @@ function screen(): SessionScreen {
       generation: 0,
       requestAttempt: 0,
       requestTimer: null,
+      baselineTimer: null,
     },
     hold: new TerminalAssemblyHold(),
   };

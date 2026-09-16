@@ -133,19 +133,14 @@ export class CellGridRenderer {
   private _reconciledAltScreen: boolean | null = null;
   private _reconciledCursorKeysApp: boolean | null = null;
   private _reconciledBracketedPaste: boolean | null = null;
-  private readonly container: HTMLElement;
-  private onFirstReconcile: (() => void) | undefined;
-  private onReconcile: (() => void) | undefined;
   /** Set only by an armed terminal incident recorder; null in production. */
   incidentObserver: RendererIncidentObserver | null = null;
   constructor(
-    container: HTMLElement,
-    onFirstReconcile?: () => void,
-    onReconcile?: () => void,
+    private readonly container: HTMLElement,
+    private onFirstReconcile?: () => void,
+    private onReconcile?: () => void,
+    private requestFollowBandSettle?: () => void,
   ) {
-    this.container = container;
-    this.onFirstReconcile = onFirstReconcile;
-    this.onReconcile = onReconcile;
     const elements = createCellRendererElements(container);
     this.doc = elements.doc;
     this.spacerEl = elements.spacer;
@@ -291,6 +286,11 @@ export class CellGridRenderer {
     if (this._readerReason === "find") this._readerReason = "native_scroll";
   }
   private _settleBottomPark(): void {
+    // The band settle's other armer is a scroll event, and the wheel/touch
+    // classifier can park a reader AFTER the gesture's last one, so frame
+    // arrival is the only guaranteed signal for a rest inside the band. It may
+    // only ASK: writing scrollTop mid-gesture cancels Chromium's own scroll.
+    if (this.followsBottom() && !this.atBottom()) this.requestFollowBandSettle?.();
     const epoch = ++this._bottomParkSettleEpoch;
     scheduleReaderSettle(() => {
       if (epoch !== this._bottomParkSettleEpoch || this.holding || !this.atBottom()) return;

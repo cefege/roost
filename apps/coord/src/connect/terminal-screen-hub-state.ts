@@ -41,6 +41,10 @@ export interface SnapshotRepairState {
   generation: number;
   requestAttempt: number;
   requestTimer: ReturnType<typeof setTimeout> | null;
+  /** First-byte deadline for a newly expected stream. Until a baseline lands
+   * there is no requestTimer, so without this nothing notices a worker that
+   * commits the stream and then installs no baseline. */
+  baselineTimer: NodeJS.Timeout | null;
 }
 
 export interface SessionScreen {

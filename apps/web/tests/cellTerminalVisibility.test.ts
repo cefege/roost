@@ -1,12 +1,12 @@
 // Terminal foreground-work gates share the canonical pane accessor and page visibility.
 // The interaction mount test exercises focus acquisition and release through real Solid effects;
 // the renderer gate test covers initial focus and cursor-poll admission without mounting a grid;
-// the withdraw tests drive a real renderer, selection guard and mouse forwarder across a park.
+// the withdraw and suspension tests drive a real renderer and selection guard across a park and a composer's suspend handoff.
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
 import type { CellTerminalInteractions } from "../src/components/cell-terminal-interactions.ts";
-import { FakeEl, deltaFrame, row } from "./helpers/cellRendererFakeDom.ts";
+import { FakeEl, deltaFrame, row, seedHeldHistory, vpEl } from "./helpers/cellRendererFakeDom.ts";
 import { mountCellTerminalPane } from "./helpers/cellTerminalPaneHarness.ts";
 
 const linkActivity: boolean[] = [];
@@ -39,6 +39,9 @@ class FakeTextarea extends EventTarget {
 Object.assign(globalThis, {
   document: fakeDocument,
   window: fakeWindow,
+  // The guard separates element from text endpoints, and admits owned rows, through the DOM classes: here FakeEl IS both.
+  Element: FakeEl,
+  HTMLElement: FakeEl,
 });
 
 // Intentional module-loading boundary: browser Solid and DOM-owner mocks must
@@ -93,6 +96,8 @@ const {
   setForceHidden,
   setForceVisible,
 } = await import("../src/lib/pageVisible.ts");
+const { CellGridRenderer } = await import("../src/lib/cellRenderer.ts");
+const { createTerminalSelectionGuard } = await import("../src/lib/terminalSelectionGuard.ts");
 
 afterEach(() => {
   setForceHidden(false);
@@ -268,6 +273,60 @@ describe("terminal selection hold across a foreground withdraw", () => {
     expect(pane.paintedTail()).toBe("v0");
 
     pane.dispose();
+  });
+});
+
+// One pane-owned range, yielded by a composer suspend() whose restore never runs.
+const suspendedComposerPane = () => {
+  const container = new FakeEl("div", fakeDocument);
+  const renderer = new CellGridRenderer(container as unknown as HTMLElement);
+  seedHeldHistory(renderer, 80, [row(0, "v0")], []);
+  const selectedRow = Object.assign(new FakeEl("div", fakeDocument), {
+    className: "cell-row", textContent: "v0", nodeValue: null, childNodes: [{}],
+    isConnected: true, getRootNode: () => fakeDocument,
+    closest(selector: string) { return selector === ".cell-row" ? this : null; },
+  });
+  const display = { ownerDocument: fakeDocument, isConnected: true,
+    contains: (node: unknown) => node === selectedRow && selectedRow.isConnected };
+  const range = { startContainer: selectedRow, endContainer: selectedRow, toString: () => "v0" };
+  liveSelection = {
+    isCollapsed: false, rangeCount: 1, toString: () => "v0",
+    anchorNode: selectedRow, anchorOffset: 0, focusNode: selectedRow, focusOffset: 1,
+    getRangeAt: () => ({ cloneRange: () => range }),
+    removeAllRanges(): void {
+      Object.assign(this, { anchorNode: null, focusNode: null, isCollapsed: true, rangeCount: 0 });
+    },
+  } as unknown as Selection;
+  const guard = createTerminalSelectionGuard({
+    getDisplay: () => display as unknown as HTMLDivElement,
+    getRenderer: () => renderer, getBackfill: () => null, getLinkAttachment: () => null,
+  });
+  // A composer suspends the pane's range only while its own field owns focus.
+  fakeDocument.activeElement = Object.assign(new FakeTextarea(), { isConnected: true });
+  expect(guard.captureTerminalSelection()?.suspend()).toBe(true);
+  guard.syncNativeSelectionHold();
+  return { guard, renderer, selectedRow,
+    paintedTail: (): string => String(vpEl(container).children[0].textContent) };
+};
+
+describe("terminal selection hold across a composer suspension", () => {
+  test("a suspension whose restore never runs stops holding paint once its range is gone", () => {
+    const pane = suspendedComposerPane();
+    expect(pane.renderer.holdMask).not.toBe(0);
+    // What a canonical repair does to the captured row; nothing restores or releases it after.
+    pane.selectedRow.isConnected = false;
+    pane.guard.syncNativeSelectionHold();
+    expect(pane.renderer.holdMask).toBe(0);
+    expect(pane.renderer.apply(deltaFrame(80, 1, [row(0, "v2")], [], 2))).toBe(true);
+    expect(pane.paintedTail()).toBe("v2");
+  });
+
+  test("a suspension whose range is still live and restorable keeps paint held", () => {
+    const pane = suspendedComposerPane();
+    pane.guard.syncNativeSelectionHold();
+    expect(pane.renderer.holdMask).not.toBe(0);
+    expect(pane.renderer.apply(deltaFrame(80, 1, [row(0, "v2")], [], 2))).toBe(true);
+    expect(pane.paintedTail()).toBe("v0");
   });
 });
 

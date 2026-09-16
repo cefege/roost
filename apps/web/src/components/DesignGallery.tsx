@@ -280,6 +280,24 @@ export const DesignGallery: Component = () => {
           </For>
         </div>
 
+        {/* The terminal pane's own read-out of stream health. It is a bare
+            positioned div rather than StatusDot because it must not join the
+            pane's flex flow, so the gallery is the only place its three states
+            can be compared side by side. */}
+        <SectionTitle>Terminal stream indicator</SectionTitle>
+        <div style={{ display: "flex", gap: "var(--md-space-5)", "flex-wrap": "wrap", "margin-bottom": "var(--md-space-5)" }}>
+          <For each={["receiving", "catching_up", "detached"]}>
+            {(state) => (
+              <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)", "align-items": "center" }}>
+                <div style={{ position: "relative", width: "var(--md-space-7)", height: "var(--md-space-7)" }}>
+                  <div class="terminal-stream-indicator" data-state={state} title={state} />
+                </div>
+                <span style={{ color: "var(--text-lo)", "font-size": "var(--md-label-s-size)", "line-height": "var(--md-label-s-line)", "font-family": "var(--font-mono)" }}>{state}</span>
+              </div>
+            )}
+          </For>
+        </div>
+
       </Section>
 
       <Section title="Overlay states">

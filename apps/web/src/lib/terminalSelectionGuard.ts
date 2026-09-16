@@ -5,6 +5,10 @@
 // retain the same text while replacing its nodes; resurrecting that detached
 // range is the bug this module exists to make impossible.
 //
+// Every paint hold this module reports — a live selection, or one suspended for
+// a focused field — is derived from the live document on each sync, so no hold
+// can outlive the reason it was taken for.
+//
 // Selection-API call ordering here is load-bearing: Chromium resets the native
 // editing target only through the Selection-wide clear, and it can dispatch a
 // reveal scroll after animation callbacks. Nothing in here may be reordered.
@@ -13,6 +17,7 @@
 // controller, link attachment) and threads them in as accessors, so the guard
 // never holds a stale reference across a remount.
 
+import { diag } from "@roost/shared/diag";
 import type {
 	CellGridRenderer,
 	LiveInteractionResult,
@@ -61,17 +66,46 @@ export function createTerminalSelectionGuard(
 	const { getDisplay, getRenderer, getBackfill, getLinkAttachment } = deps;
 	let selectionGuardEpoch = 0;
 	let activeSelectionGuard: TerminalSelectionGuard | null = null;
-	let selectionGuardSuspended = false;
+	// A suspension is a LEVEL, not a latch: it reports held only while the range
+	// it removed is still restorable and the element the user's focus moved to
+	// still owns it. Any non-zero hold mask is a total paint kill no scroll can
+	// heal, so a suspension whose restore never runs has to stop holding by
+	// itself rather than wait for a clear that is not coming.
+	let suspendedSelectionYield:
+		| (() => "yielded" | "capture_gone" | "owner_gone")
+		| null = null;
 	const paneOwnsSelectionEndpoint = (selection: Selection): boolean =>
 		(!!selection.anchorNode && !!getDisplay()?.contains(selection.anchorNode))
 		|| (!!selection.focusNode && !!getDisplay()?.contains(selection.focusNode));
+	// `activeElement` is the document's editing target, and reads as the body
+	// (or null) when nothing at all is focused — which is nothing to yield a
+	// range TO. Only a real focused element owns a suspension, and only while it
+	// keeps focus and stays connected: a focus move and a teardown are both
+	// events the page always delivers, so this level is always exitable.
+	// Recording an owner and re-deriving it must read focus identically, so both
+	// sides of that comparison come from here.
+	const focusedYieldOwner = (doc: Document): Element | null => {
+		const focused = doc.activeElement;
+		if (!focused || focused === doc.body || focused === doc.documentElement) return null;
+		return focused;
+	};
+	const suspendedYieldHoldsPaint = (): boolean => {
+		const yieldState = suspendedSelectionYield?.();
+		if (!yieldState) return false;
+		if (yieldState === "yielded") return true;
+		// Whoever suspended never came back. Name the lapse: a silent one hides
+		// that defect behind a pane that merely started painting again.
+		suspendedSelectionYield = null;
+		diag("cell.selection_yield_lapsed", { reason: yieldState });
+		return false;
+	};
 	const notifyBackfill = (result: LiveInteractionResult | undefined): void => {
 		if (result?.anchorChanged) getBackfill()?.onFullFrame();
 	};
 	const syncNativeSelectionHold = (): void => {
 		const selection = getDisplay()?.ownerDocument.getSelection();
 		const held =
-			selectionGuardSuspended
+			suspendedYieldHoldsPaint()
 			|| (
 				!!selection
 				&& !selection.isCollapsed
@@ -84,7 +118,7 @@ export function createTerminalSelectionGuard(
 	const discardActiveSelectionGuardForTransition = (): void => {
 		const guard = activeSelectionGuard;
 		activeSelectionGuard = null;
-		selectionGuardSuspended = false;
+		suspendedSelectionYield = null;
 		guard?.release();
 	};
 	const captureTerminalSelection = (): TerminalSelectionGuard | undefined => {
@@ -209,15 +243,29 @@ export function createTerminalSelectionGuard(
 				const current = currentSelection(saved);
 				if (!current) return false;
 				// A focused textarea cannot begin its native editing command while
-				// this document range remains active. Yield only the exact retained
-				// pane range while its explicit suspended state keeps the renderer's
-				// selection hold live across asynchronous selectionchange delivery.
+				// this document range remains active, so yield exactly the retained
+				// pane range. What keeps the renderer's selection hold live across
+				// asynchronous selectionchange delivery is the level below, never
+				// the fact that suspend() ran.
 				const restored = selectionMatchesCapture(current, saved);
 				if (restored && current.rangeCount !== 1) {
 					captured = null;
 					return false;
 				}
-				selectionGuardSuspended = true;
+				const yieldedTo = focusedYieldOwner(saved.doc);
+				suspendedSelectionYield = () => {
+					const live = validCapture();
+					if (activeSelectionGuard !== guard || !live || !currentSelection(live)) {
+						return "capture_gone";
+					}
+					if (
+						!yieldedTo
+						|| !yieldedTo.isConnected
+						|| focusedYieldOwner(saved.doc) !== yieldedTo
+					) return "owner_gone";
+					return "yielded";
+				};
+				diag("cell.selection_yield_suspended", { focus_owner: !!yieldedTo });
 				if (restored) {
 					// Chromium resets the native editing target only through the
 					// Selection-wide clear; rangeCount === 1 makes that clear exact.
@@ -247,7 +295,7 @@ export function createTerminalSelectionGuard(
 					captured = null;
 					return false;
 				}
-				selectionGuardSuspended = false;
+				suspendedSelectionYield = null;
 				syncNativeSelectionHold();
 				return true;
 			},
@@ -255,7 +303,7 @@ export function createTerminalSelectionGuard(
 				captured = null;
 				if (activeSelectionGuard === guard) {
 					activeSelectionGuard = null;
-					selectionGuardSuspended = false;
+					suspendedSelectionYield = null;
 					syncNativeSelectionHold();
 				}
 			},

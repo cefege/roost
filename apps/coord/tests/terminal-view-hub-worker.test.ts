@@ -257,6 +257,88 @@ describe("TerminalViewHub worker transition ownership", () => {
     expect(statesFor(sink, VIEW_A).at(-1)?.status).toBe(TerminalViewStatus.UNAVAILABLE);
   });
 
+  test("clears an invariant verdict for a new worker generation and streams again", async () => {
+    let attempts = 0;
+    let workerGeneration: object = { connection: 1 };
+    const { hub, sent } = makeHarness({
+      currentWorker: () => workerGeneration,
+      sendStreamState: (_workerFp, state) => {
+        attempts += 1;
+        return admitted(Promise.resolve(attempts === 1
+          ? resultFor(
+            state,
+            TerminalStreamStatus.REJECTED,
+            TerminalStreamFailureKind.INVALID_REQUEST,
+          )
+          : resultFor(state)));
+      },
+    });
+    const sink = register(hub);
+    hub.workerReplacement(WORKER);
+    hub.handleViewCommand("socket-a", viewCommand(VIEW_A, 1n));
+    await settle();
+    expect(sent).toHaveLength(1);
+    expect(hub.snapshot(SESSION)?.unavailable).toBe(true);
+
+    // The connection that earned the verdict re-announcing its own fleet is
+    // not a new participant, so it stays latched.
+    hub.workerReplacement(WORKER);
+    await settle();
+    expect(sent).toHaveLength(1);
+
+    workerGeneration = { connection: 2 };
+    hub.workerReplacement(WORKER);
+    await settle();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.streamId).not.toBe(sent[0]!.streamId);
+    expect(hub.snapshot(SESSION)).toMatchObject({
+      streamId: sent[1]!.streamId,
+      unavailable: false,
+    });
+    expect(statesFor(sink, VIEW_A).at(-1)?.status).toBe(TerminalViewStatus.ACCEPTED);
+  });
+
+  test("keeps an invariant verdict latched for its own worker generation", async () => {
+    const workerGeneration = { connection: 1 };
+    const { hub, sent } = makeHarness({
+      currentWorker: () => workerGeneration,
+      sendStreamState: (_workerFp, state) => admitted(Promise.resolve(
+        resultFor(
+          state,
+          TerminalStreamStatus.REJECTED,
+          TerminalStreamFailureKind.INVALID_REQUEST,
+        ),
+      )),
+    });
+    const sink = register(hub);
+    hub.workerReplacement(WORKER);
+    const command = viewCommand(VIEW_A, 1n);
+    hub.handleViewCommand("socket-a", command);
+    await settle();
+    expect(sent).toHaveLength(1);
+    expect(hub.snapshot(SESSION)?.unavailable).toBe(true);
+
+    hub.handleViewCommand("socket-a", command);
+    hub.routeReconciled(WORKER, [SESSION]);
+    hub.workerReplacement(WORKER);
+    await settle();
+    expect(sent).toHaveLength(1);
+    expect(hub.snapshot(SESSION)).toMatchObject({
+      streamId: sent[0]!.streamId,
+      unavailable: true,
+    });
+    expect(statesFor(sink, VIEW_A).at(-1)?.status).toBe(TerminalViewStatus.UNAVAILABLE);
+
+    // A geometry change re-announces the deferred verdict on a fresh stream
+    // id; forgetting the generation it was formed under would reopen the door
+    // to the very worker that broke the protocol.
+    hub.handleViewCommand("socket-a", viewCommand(VIEW_A, 2n, { cols: 100, rows: 40 }));
+    hub.routeReconciled(WORKER, [SESSION]);
+    await settle();
+    expect(sent).toHaveLength(1);
+    expect(statesFor(sink, VIEW_A).at(-1)?.status).toBe(TerminalViewStatus.UNAVAILABLE);
+  });
+
   test("no-first-byte repair mints a fresh stream and publishes redrive failure", async () => {
     vi.useFakeTimers();
     let attempts = 0;

@@ -146,12 +146,16 @@ Break one of these and you get back the history-corruption class this repo keeps
   parks a live reader only when it is OUTSIDE the follow band, so sub-row jitter, a fractional
   clamp and a flick that lands a row short cannot freeze the pane, while one wheel notch (~100px)
   still parks it. A park that came to REST inside the band resumes through `settleFollowBand()`,
-  which `cell-terminal-renderer.ts`'s scroll listener arms `BOTTOM_FOLLOW_SETTLE_MS` after the last
-  scroll event: never from `handleScroll()` synchronously, because a `scrollTop` write mid-gesture
-  cancels the scroll animation Chromium is still running for the reader. Releasing the last paint
-  hold also resumes a band-following position-only park, because the hold swallowed the one scroll
-  event that proved the reader came back. `_settleBottomPark()`'s rAF settle still demands
-  `atBottom()` exactly — the band never widens the clamp paths.
+  which `cell-terminal-renderer.ts` arms `BOTTOM_FOLLOW_SETTLE_MS` after the last scroll event —
+  from its scroll listener (`restartFollowSettle`) AND, because the wheel/touch classifier can park
+  a reader after that listener has run for the last time, from frame arrival
+  (`_settleBottomPark()` → the injected `requestFollowBandSettle` → `ensureFollowSettle`, which
+  opens a window only when none is pending so a frame stream cannot defer its own resume). Never
+  from `handleScroll()` synchronously and never straight from a frame, because a `scrollTop` write
+  mid-gesture cancels the scroll animation Chromium is still running for the reader. Releasing the
+  last paint hold also resumes a band-following position-only park, because the hold swallowed the
+  one scroll event that proved the reader came back. `_settleBottomPark()`'s rAF settle still
+  demands `atBottom()` exactly — the band never widens the clamp paths.
 - **`CellTerminal` renders inside the `<For>` deck, never a `<Show>`.** `src/components/TerminalDeck.tsx` feeds
   `<For each={mountedSessionIds()}>` primitive session ids (not `Session` objects) so a root snapshot
   that replaces a same-id object cannot tear down a warm renderer; a remount loses scrollback. Guard:

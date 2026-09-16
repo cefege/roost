@@ -8,6 +8,7 @@ import {
   CELL_GRID_CHUNK_STALL_MS,
 } from "@roost/shared/cell";
 import { diag, signal } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
 import type { TerminalSnapshotSource } from "./terminal-screen-frames.ts";
 import {
   TerminalAssemblyHold,
@@ -50,6 +51,7 @@ export class TerminalScreenSnapshotController {
           generation: 0,
           requestAttempt: 0,
           requestTimer: null,
+          baselineTimer: null,
         },
         hold: new TerminalAssemblyHold(),
       };
@@ -87,7 +89,42 @@ export class TerminalScreenSnapshotController {
     this.requestResync(sessionId, state, reason, true);
   }
 
+  /**
+   * A newly expected stream owns no repair timer, so a worker that commits the
+   * stream and installs no baseline leaves the replica holding `expected` with
+   * no cache: every watcher sits on an empty pane and nothing repairs it. This
+   * deadline hands that stream to the same latch -> snapshot request ->
+   * fresh-stream ladder a lost baseline already uses.
+   */
+  armBaselineTimer(sessionId: string, state: SessionScreen): void {
+    this.cancelBaselineTimer(state);
+    const expected = state.expected;
+    if (!expected) return;
+    const generation = state.repair.generation;
+    const streamId = expected.streamId;
+    const timer = this.options.setTimer(() => {
+      if (state.repair.baselineTimer !== timer) return;
+      state.repair.baselineTimer = null;
+      if (
+        this.options.sessions.get(sessionId) !== state
+        || state.repair.generation !== generation
+        || state.expected?.streamId !== streamId
+        || state.cache?.valid === true
+        || state.chunks.assembler.activeSnapshotId !== null
+      ) return;
+      log.warn("terminal-screen", "baseline_timeout", {
+        session_id: sessionId,
+        stream_id: streamId,
+      });
+      this.latch(sessionId, state, "terminal stream baseline never arrived");
+    }, TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS);
+    state.repair.baselineTimer = timer;
+    timer.unref?.();
+  }
+
   armChunkTimer(sessionId: string, state: SessionScreen): void {
+    // A chunk IS the baseline arriving, so the stall deadline below owns it.
+    this.cancelBaselineTimer(state);
     if (state.chunks.timer) this.options.clearTimer(state.chunks.timer);
     const generation = state.repair.generation;
     const timer = this.options.setTimer(() => {
@@ -123,13 +160,22 @@ export class TerminalScreenSnapshotController {
     if (resetAttempt) state.repair.requestAttempt = 0;
   }
 
+  cancelBaselineTimer(state: SessionScreen): void {
+    if (state.repair.baselineTimer) {
+      this.options.clearTimer(state.repair.baselineTimer);
+    }
+    state.repair.baselineTimer = null;
+  }
+
   complete(state: SessionScreen): void {
     this.cancelRequestTimer(state, true);
+    this.cancelBaselineTimer(state);
     this.resetChunks(state);
   }
 
   reset(state: SessionScreen, advanceGeneration: boolean): void {
     this.cancelRequestTimer(state, true);
+    this.cancelBaselineTimer(state);
     this.resetChunks(state);
     if (advanceGeneration) state.repair.generation++;
   }
@@ -188,6 +234,8 @@ export class TerminalScreenSnapshotController {
       );
     }, TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS);
     state.repair.requestTimer = timer;
+    // One first-byte deadline per session: this request escalates on its own.
+    this.cancelBaselineTimer(state);
     timer.unref?.();
     this.options.requestSnapshot(sessionId, streamId);
   }

@@ -380,9 +380,10 @@ use it: `handleScroll()`'s park decision, the pin capture `_atBottomOrOwnedPlace
 demand gate (`scrollbackBackfill.onUserScroll`, a band follower must not start paging history), and the
 band settle. A reader inside the band is riding the tail, so the pane keeps painting and keeps pinning;
 one wheel notch (~100px) is outside it and still parks. A park that comes to REST inside the band resumes
-through `CellGridRenderer.settleFollowBand()`, armed by the pane's own scroll listener
-(`apps/web/src/components/cell-terminal-renderer.ts`) `BOTTOM_FOLLOW_SETTLE_MS` (180ms) after the LAST
-scroll event, so the resume never runs mid-gesture. A hold release also resumes a band-following
+through `CellGridRenderer.settleFollowBand()`, armed `BOTTOM_FOLLOW_SETTLE_MS` (180ms) after the last
+scroll event by the pane's own scroll listener (`apps/web/src/components/cell-terminal-renderer.ts`) and
+also by frame arrival (see the entry below), so the resume never runs mid-gesture. A hold release also
+resumes a band-following
 position-only park, because the hold swallowed the only scroll event that could. `at_bottom` in the
 presentation snapshot keeps its exact meaning; `follows_bottom` is the band value beside it.
 
@@ -397,6 +398,43 @@ presentation snapshot keeps its exact meaning; `follows_bottom` is the band valu
 `smoke/terminal/terminal-follow-band.spec.ts` —
 `"a follow-band reader keeps streaming, self-resumes, and still parks past the band"` (real trusted wheel:
 an in-band flick self-resumes, a 1200px gesture still parks and still swallows output).
+
+### A wheel park created after the gesture's last scroll event never resumes
+
+**Symptom** — "I am sitting near the bottom, output stops, the dot goes amber and stays there; typing is the
+only thing that brings it back" — `reconcile_block_reason=reader_pending_frame` with `follows_bottom` TRUE,
+`at_bottom` FALSE, `reader_reason` `wheel` or `touch`, and canonical climbing away from the DOM forever.
+
+**Wrong** — arming the band settle from the pane's scroll listener ALONE. `enterReadingForNativeScroll`
+(`apps/web/src/lib/terminalMouseForwarding.ts`) parks from a capture-phase, non-passive wheel/touchmove
+listener whose `canMove` gate excludes only the EXACT clamp, never the band — so a park can be created
+AFTER the gesture's last scroll event, and the listener that would have armed its settle has already run
+for the final time. The frame-arrival settle could not rescue it either: `_settleBottomPark()` demands
+`atBottom()` exactly, and a rest one row short of the clamp is inside the band but not on it.
+`preservesForegroundReaderHold` then deliberately MUTES the foreground-stall watchdog for
+`native_scroll`/`wheel`/`touch`, so nothing escalated and nothing repaired. Equally wrong, and forbidden by
+the entries above: widening `atBottom()`, widening the rAF clamp settle to the band, or resuming
+synchronously on frame arrival — a `scrollTop` write mid-gesture cancels the scroll animation Chromium is
+still running for the reader.
+
+**Right** — **the guaranteed event recruits the settle; the settle still waits for quiet.** A parked
+position-only reader resting inside the band but off the clamp asks for the scroll-idle window on every
+applied frame (`CellGridRenderer._settleBottomPark()` → the injected `requestFollowBandSettle`), which the
+pane wires to `ensureFollowSettle()`. Frames are the one event a stalled pane always has, so liveness no
+longer depends on a scroll event that may never come; and because the resume still runs only
+`BOTTOM_FOLLOW_SETTLE_MS` after scrolling goes quiet, it cannot land mid-gesture. `ensureFollowSettle()`
+opens a window only when none is pending and `restartFollowSettle()` (the scroll path) is the only caller
+that re-arms — a busy PTY delivering a frame every few milliseconds would otherwise defer its own resume
+for as long as output continued. The rAF clamp settle keeps demanding `atBottom()` exactly and owns the
+clamped case, so an in-band frame never routes a clamped follower through the 180ms window.
+
+**Guard** — `apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
+`"a band rest parked with no scroll event recruits the settle on a frame"` (and asserts zero `scrollTop`
+writes at frame arrival),
+`"a stream of frames over a band rest keeps exactly one settle window"`, with
+`"a park beyond the follow band recruits no settle window"` and
+`"a park on the exact clamp resumes on the frame with no settle window"` as the boundary controls;
+`smoke/terminal/terminal-follow-band.spec.ts` for the real-flow band behaviour.
 
 ### A find park swallows the scroll that returns the pane to the bottom
 
@@ -499,6 +537,32 @@ a pane with nothing held can no longer revive a hold from a dead edge.
 `"a selection still live when the listeners re-attach keeps paint held"`;
 `apps/web/tests/terminal-links.dom.test.ts` — the modifier-level cases, including
 re-entry with no modifier held.
+
+### A reader hold declining the DOM deadline retires the pane's only repair
+
+**Symptom** — "the dot is amber and the terminal paints nothing until I type" / "only a reload fixes it",
+with `catching_up` held indefinitely, `onCatchUpStalled` observed over and over with no effect, and
+`cell.foreground_stall` never firing again for that session.
+
+**Wrong** — `recoverUnreconciledDom` returning on a reader hold — or a hidden page, an inactive view, an
+already-reconciled watermark — while `domReconciliationWatermark` stays SET. The 3s timer nulls
+`domEscalationTimer` before invoking the callback, so nothing is armed behind that target, yet
+`handleCatchUpStalled` early-returns for as long as the target is non-null. The pane-local repair net
+latches OFF for the rest of the foreground episode. The trap is reading a hold as a reason to "keep the
+target for later": nothing ever revisits it.
+
+**Right** — **a declined recovery leaves no armed target behind**, because the stall gate reads
+target-presence as "recovery already owns this repair". Only the stale-callback check
+(`domReconciliationWatermark !== watermark`) is a bare return — a newer target owns that state and must not
+be cleared. Every other decline calls `clearDomReconciliationTarget()` first, so the next
+`onCatchUpStalled` arms a fresh target once the hold lifts. The decline releases ONLY the target: it never
+escalates, redials, pins, resumes, or otherwise touches the held reader's paint park. Both gates read one
+predicate (`domRepairStillWarranted`) so the admitting facts cannot drift apart.
+
+**Guard** — `apps/web/tests/cellTerminalPresentation.test.ts` —
+`"re-arms the DOM target after a reader hold declined the deadline"`, with
+`"preserves reader holds and pointer gestures through the DOM deadline"` as the refusal control proving a
+hold still blocks escalation.
 
 ### The painted scroll space describes only the shipped tail
 
@@ -690,6 +754,193 @@ outright without a resync.
 **Guard** — `apps/coord/tests/terminal-screen-hub-chunks.test.ts` —
 `"holds live deltas during chunk assembly and folds them like an uninterrupted run"`,
 `"falls back to the resync latch when the delta hold overflows"`.
+
+### A newly minted terminal stream whose baseline never arrives hangs forever
+
+**Symptom** — "the pane shows nothing and there is no indicator at all", typically right after another
+viewer joined, left, parked or woke. The browser sits `accepted` with `baselineReady:false`, which
+`deriveTerminalPresentationState` reported as `idle` — no dot — so nothing even looked wrong. Only a reload
+recovered.
+
+**Wrong** — `TerminalScreenHub.expectStream` calling `snapshots.reset(state, true)` (which cancels
+`repair.requestTimer` and zeroes `requestAttempt`), installing `state.expected`, clearing `resyncLatched`,
+and arming NOTHING. The repair ladder was only ever entered by an ARRIVING frame: the `acceptDelta` latch, a
+chunk stall, or an invalid full. A worker transaction that commits `enabled` and installs no baseline sends
+no frame at all, so nothing entered the ladder and the coordinator waited forever with `expected` set and no
+cache. Stream re-mints are routine — `terminal-view-stream-controller.ts` mints a fresh `streamId` for every
+desire, so any other viewer joining, leaving, parking or waking re-mints for everyone — which makes ONE
+silent mint enough to freeze the session for the viewer that never moved. Equally wrong: papering over it in
+the SPA with a browser-side snapshot timer. The coordinator is the only party that knows which stream it
+expects.
+
+**Right** — **the party that mints a stream owns proof that its baseline arrived.** `expectStream` arms a
+first-byte deadline for the stream it just minted (`SnapshotRepairState.baselineTimer` +
+`TerminalScreenSnapshotController.armBaselineTimer`, `TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS` through the
+injected `setTimer`). On fire it re-validates exactly as `startSnapshotRequest`'s timer does — same `state`
+object still in `sessions`, unchanged `repair.generation`, unchanged `expected.streamId` — and stands down
+when the baseline already landed (`cache.valid`) or a chunked transfer is in flight, because the chunk stall
+timer owns that case; otherwise it calls the existing `latch`, which runs the established snapshot-request →
+two-attempt → `requestFreshStream` ladder. Exactly ONE first-byte deadline exists per session: `complete()`,
+`reset()`, `armChunkTimer()` (a chunk IS the baseline arriving) and `startSnapshotRequest` (once the request
+timer owns the deadline) all cancel it. The transition emits
+`log.warn("terminal-screen", "baseline_timeout", …)`, so a silent worker is readable in `*.err.log` instead
+of being inferred from a blank pane.
+
+**Guard** — `apps/coord/tests/terminal-screen-hub-snapshot.test.ts`, `describe("TerminalScreenHub baseline
+watchdog")` — escalation to a fresh stream across both ladder attempts; zero requests when the baseline
+lands in time; a re-mint replacing the superseded deadline while the stale callback stays inert; a chunked
+transfer in flight at the deadline left to the chunk stall timer.
+
+### A refused view-command write leaves an actively-viewed pane unscheduled
+
+**Symptom** — "the terminal stopped about fifteen seconds after a network blip and never came back on its
+own", with the pane still visible and focused and no error anywhere.
+
+**Wrong** — `publishIntent` calling `cancelTerminalViewRenewal(view)` when `sendSyncV2Command` returns
+false. That write is refused for a non-OPEN readyState, a non-accepting link, or a throwing `ws.send` — all
+transient — and `armTerminalViewRenewal` is reached ONLY from a successful publish, so the view left the
+renewal set with nothing scheduled. The coordinator lease then expired at `TERMINAL_VIEW_LEASE_MS` and
+frames stopped. No event follows a refused write on a still-ready link, so nothing republished.
+
+**Right** — a view that still wants frames is never left with no scheduled attempt. The refused-write
+branch re-arms through the EXISTING renewal scheduler (`TERMINAL_VIEW_HEARTBEAT_MS`, one third of the
+lease, so the lease is renewed before it can expire), and still cancels for a view that wants no frames —
+disposed, inactive intent, or a hidden page, where stopping the heartbeat is the correct behaviour. The
+no-publication-target branch deliberately still cancels: `retargetSession` republishes on the
+generation/ready flip and `cell-terminal-lifecycle` republishes on the visibility transition, so that class
+already has a guaranteed exit and a re-arm there would be a redundant poll.
+
+**Guard** — `apps/web/tests/terminalStreamLifecycle.test.ts` —
+`"retries an active view whose socket write never reached the transport"`,
+`"republishes a refused active view inside one coordinator lease window"`, with the hidden-page case as the
+refusal control.
+
+### The liveness watchdog deletes itself on the failure it exists to notice
+
+**Symptom** — "the pane just stops and nothing ever retries", with no `cell.foreground_stall` line for that
+session after the first one.
+
+**Wrong** — `armTerminalForegroundIdleProbe`'s callback discarding the boolean from
+`requestTerminalLivenessChallenge` after having already nulled `session.idleProbeTimer`. That call returns
+false when there is no publication target, when `expectedStreamId` is unset, or when the resync command
+cannot be written — so on exactly the failure that means something is wrong, the session was left with NO
+probe and NO proof deadline until a frame happened to arrive. Same shape one level down:
+`sendLatchedTerminalResync` armed a repair only while `resyncLatchedAtMs !== null`, and an accepted delta
+nulls that field, so a latched replica could end up with no proof deadline either.
+
+**Right** — every exit from the probe callback arms a proof deadline, re-arms the probe, or retires
+liveness because nothing is viewed. A challenge that cannot be published re-arms at the same interval,
+re-anchored at `now` so a stale frame timestamp cannot produce a 0ms spin, and emits
+`cell.foreground_stall` with `action:"rearm"` under its own cooldown key so the repeat cannot coalesce away
+the later resync or redial. A latch with no pending challenge for its owner arms a repair regardless of the
+latch timestamp; the pending-challenge gate remains the sole coalescer, so concurrent view renewals still
+cannot multiply repairs.
+
+**Guard** — `apps/web/tests/terminalStream.test.ts` —
+`"re-arms the idle probe when a liveness challenge cannot be published"`,
+`"arms a proof deadline for a latch whose delta cleared its latch timestamp"`, alongside
+`"coalesces same-generation repairs across concurrent view renewals"`.
+
+### The pane's re-claim net only protects a pane that never painted
+
+**Symptom** — "it was streaming, then it stopped, and nothing tried to reconnect it" — no re-claim, no
+notice, no diagnostic.
+
+**Wrong** — feeding `offlineWatch.update(viewed, hasReconciledFrame())` where `hasReconciledFrame` is set
+true once on the first reconcile and never reset. `createOfflineWatch` disarms whenever `hasFrame` is true,
+so the 3s grace and its two silent `view.refresh()` re-claims covered ONLY a pane that had never painted —
+the precise inverse of the reported failure.
+
+**Right** — the net takes two liveness FACTS instead of a one-way latch: the view is undeliverable while
+the operator is looking at it, and no frame has painted recently. Accusation requires both, sustained past
+the grace. Output silence alone may NEVER accuse: a shell with nothing to print is silent indefinitely, so
+the undeliverable-view fact is the only admissible evidence, and it reuses the presentation layer's
+existing `detached` determination rather than inventing a second notion of "broken".
+`FRAME_ACTIVITY_WINDOW_MS` (500ms) is deliberately shorter than `DETACHED_GRACE_MS` (1000ms) so freshness
+cannot still be true at the edge that arms the re-claim and mask it.
+
+**Guard** — `apps/web/tests/offlineWatch.test.ts` —
+`"a pane that painted, then lost its view, is re-claimed then accused"`, with
+`"a quiet pane with a healthy view is never re-claimed, however long"` as the false-positive control and
+`"a frame clears offline immediately even while the view reads detached"` for self-correction.
+
+### A composer suspension holds paint forever when its restore never runs
+
+**Symptom** — "typing reaches the PTY but the grid is frozen" with `hold_mask {selection: true}` while
+nothing is selected anywhere on the page — the same symptom as the level-derived-holds entry above, from
+the one hold that was still latched.
+
+**Wrong** — `selectionGuardSuspended` as an unconditional boolean forced into `held`, set by
+`guard.suspend()` and cleared only by `restore()` / `release()` /
+`discardActiveSelectionGuardForTransition`. If the suspending caller is torn down, its keyup or focus event
+is delivered elsewhere, or the pane's listeners are detached across the window that would have restored it,
+the pane holds paint for good. A timer was rejected as the fix: a held key legitimately keeps one
+suspension open for as long as the user holds it, so any bound short enough to cap the wedge cancels a live
+composer edit.
+
+**Right** — the suspension is LEVEL-derived like every sibling hold. It keeps holding only while every fact
+it was suspended FOR is still true: the captured range still validates by row identity, no other owner has
+established a non-collapsed selection, this guard is still the active guard, and the element that owned
+focus at suspend time is still `document.activeElement` and still connected. When any conjunct fails,
+`syncNativeSelectionHold()` simply stops reporting held — no explicit clear required — and the lapse emits
+`cell.selection_yield_lapsed` with its reason. A suspension taken while nothing was focused has no owner to
+wait for and never holds paint at all, while `suspend()` still performs its range yield so no keystroke is
+swallowed.
+
+**Guard** — `apps/web/tests/cellTerminalVisibility.test.ts` —
+`"a suspension whose restore never runs stops holding paint once its range is gone"`, with the still-live
+suspension case as the refusal control that keeps the composer contract, and both pre-existing
+level-derived cases untouched.
+
+### A trapped resize capture suppresses a channel's emission for good
+
+**Symptom** — one terminal stops producing frames permanently while its siblings on the same worker are
+fine; a fresh stream for that session changes nothing and only a respawn recovers it.
+
+**Wrong** — `failCore` leaving the per-channel `cellEmissionGates` entry SET and the live resize capture
+ATTACHED. The gate exists to suppress emission for the duration of a capture and `finishCapture` was its
+only non-teardown clear, so a capture that can never finish held the gate for the life of the channel.
+`applyTerminalStreamState` then copied that dead capture into every later generation, so minting a new
+stream inherited the suppression instead of escaping it.
+
+**Right** — one owner for the rule that a capture which stops owning the channel hands back BOTH its
+stream slot and the per-channel emission gate (`releaseResizeCapture`, called with a reason from the
+boundary-applied paths, from `failCore`, and when a new generation drops a dead capture — dropping it
+without releasing the gate would re-create the leak, because the gate is per-channel and outlives the
+discarded generation). The release is refused only while the stream has already replaced this capture with
+another LIVE one, whose boundary is still unproven. Fail-closed is unchanged: `coreValid` still gates
+emission, so a trapped core refuses to build frames for the generation it trapped, and the release and the
+invalid-core mint both log instead of passing silently.
+
+**Guard** — `apps/worker/tests/terminal-stream-state.test.ts` —
+`"a trapped resize releases the emission gate it can never lift"`,
+`"a generation minted after a core trap inherits no dead capture"`, with
+`"a trapped core still refuses frames for the generation it trapped"` as the fail-closed control.
+
+### A fail-closed stream verdict no new worker can clear
+
+**Symptom** — every viewer of one session sees an unavailable pane for the rest of the coordinator's life;
+restarting the worker does not help and nothing in the logs changes.
+
+**Wrong** — `unavailablePolicy === "never"` with no door at all: `classify` assigns it for genuine
+invariant failures (mismatched stream result, committed geometry mismatch, invalid request) and
+`reconcileRoutes` then skipped such a session unconditionally while `redrive` and `redriveFreshStream`
+refused too. Equally wrong, and the reason the blanket skip was written: retrying a protocol violation on a
+timer, which hammers a broken worker and hides the violation.
+
+**Right** — fail-closed stays; it becomes ATTRIBUTABLE. The verdict is stamped with the worker generation
+that was current when it formed, and a reconcile clears it only when the reconciling fingerprint's observed
+generation is strictly newer — a genuinely different participant, not a reconnect. Generation identity is
+the routable `WorkerHandle` the dispatcher already fences on, counted only when the handle DIFFERS (a
+connection re-announcing its own fleet snapshot repeats `workerReplacement` without being new), and a seam
+that exposes no handle never earns a generation, so an unobservable participant leaves the pane down. No
+timer and no retry budget: `onWorkerConnected` → `workerReplacement` is the guaranteed delivery. The
+clearing logs the old and new generation, and every `terminal.stream_invariant_failure` /
+`terminal.stream_result_mismatch` diagnostic is retained.
+
+**Guard** — `apps/coord/tests/terminal-view-hub-worker.test.ts` — the worker-generation recovery case plus
+`"never redrives an invalid worker request from heartbeat or route events"`, which is the control proving a
+protocol violation did not become a retry loop.
 
 ### A pane keeps a fallback font's cell advance and clips its own right edge
 

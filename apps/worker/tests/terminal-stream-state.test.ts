@@ -16,6 +16,7 @@ import {
   TEST_COLS,
   TEST_ROWS,
   trackKeeper,
+  type StreamHarness,
 } from "./terminal-stream-state-harness.ts";
 import {
   aggregateStreamDelivery,
@@ -24,6 +25,11 @@ import {
   suspendCellSink,
   unregisterCellSink,
 } from "../src/session-cell-sinks.ts";
+import {
+  applyResizeResultAtBoundary,
+  installLiveResizeCapture,
+} from "../src/session-resize-capture.ts";
+import type { LiveResizeCapture } from "../src/session-terminal-state.ts";
 
 afterEach(cleanupStreamHarnesses);
 
@@ -232,4 +238,110 @@ describe("worker terminal stream baseline and sequence contract", () => {
     expect(renewal.gridEpoch).toBe(initial.gridEpoch);
     expect(renewal.sbBase).toBe(renewal.scrollbackTotal);
   });
+
+  test("a trapped resize releases the emission gate it can never lift", async () => {
+    trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
+    const core = await createWtermCore(TEST_COLS, TEST_ROWS);
+    core.writeString("BEFORE-TRAP");
+    const harness = await makeHarness(core);
+
+    await enableStream(harness.manager, STREAM_A);
+    const stream = harness.manager.terminalStreams.get(CHANNEL_ID)!;
+    const capture = trapResizeCapture(harness);
+
+    expect(capture.boundaryApplied).toBe(false);
+    expect(capture.failedReason).not.toBeNull();
+    expect(stream.coreValid).toBe(false);
+    // Nothing can ever finish this capture, so neither it nor its gate may
+    // outlive the failure.
+    expect(stream.resizeCapture).toBeNull();
+    expect(harness.manager.cellEmissionGates.has(CHANNEL_ID)).toBe(false);
+    expect(harness.manager.cellGateSuppression.has(CHANNEL_ID)).toBe(false);
+  });
+
+  test("a generation minted after a core trap inherits no dead capture", async () => {
+    trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
+    const core = await createWtermCore(TEST_COLS, TEST_ROWS);
+    core.writeString("BEFORE-TRAP");
+    const harness = await makeHarness(core);
+
+    await enableStream(harness.manager, STREAM_A);
+    const capture = trapResizeCapture(harness);
+    // A generation boundary is the last place that can refuse a capture nothing
+    // will ever finish, so it must hold even when that capture is still attached
+    // and still holding the channel's emission gate.
+    harness.manager.terminalStreams.get(CHANNEL_ID)!.resizeCapture = capture;
+    harness.manager.cellEmissionGates.add(CHANNEL_ID);
+    const framesBeforeRenewal = harness.frameAttempts.length;
+
+    // Route reconciliation mints the next generation over the same channel.
+    await expect(enableStream(harness.manager, STREAM_B)).resolves.toMatchObject({
+      status: "rejected",
+      streamId: STREAM_B,
+      failure: "core_failed",
+    });
+    await flushLeadingCellEmit();
+    const minted = harness.manager.terminalStreams.get(CHANNEL_ID)!;
+    expect(minted.streamId).toBe(STREAM_B);
+    expect(minted.resizeCapture).toBeNull();
+    expect(harness.manager.cellEmissionGates.has(CHANNEL_ID)).toBe(false);
+    expect(harness.frameAttempts).toHaveLength(framesBeforeRenewal);
+
+    // Adoption is the only thing that can re-prove a frozen core; once it has,
+    // no stranded gate may keep this generation silent.
+    minted.coreValid = true;
+    harness.manager.installTerminalBaseline(CHANNEL_ID);
+    expect(harness.frameAttempts).toHaveLength(framesBeforeRenewal + 1);
+    expect(harness.frameAttempts.at(-1)).toMatchObject({
+      full: true,
+      streamId: STREAM_B,
+    });
+  });
+
+  test("a trapped core still refuses frames for the generation it trapped", async () => {
+    trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
+    const core = await createWtermCore(TEST_COLS, TEST_ROWS);
+    core.writeString("BEFORE-TRAP");
+    const harness = await makeHarness(core);
+
+    await enableStream(harness.manager, STREAM_A);
+    const stream = harness.manager.terminalStreams.get(CHANNEL_ID)!;
+    trapResizeCapture(harness);
+    const framesBeforeOutput = harness.frameAttempts.length;
+
+    harness.manager.emitUpstreamChunk(CHANNEL_ID, Buffer.from("\x1b[3;1HAFTER-TRAP"));
+    harness.manager.emitCellFrame(CHANNEL_ID, false);
+    harness.manager.installTerminalBaseline(CHANNEL_ID);
+    await flushLeadingCellEmit();
+
+    expect(harness.frameAttempts).toHaveLength(framesBeforeOutput);
+    expect(aggregateStreamDelivery(harness.manager, stream)).toMatchObject({
+      baselineReady: false,
+    });
+  });
 });
+
+/** Drive one live resize capture into the trap an ACK for geometry the worker
+ *  never asked for produces: the boundary can never be applied, so the capture
+ *  is exactly the one no later event can finish. */
+function trapResizeCapture(harness: StreamHarness): LiveResizeCapture {
+  const stream = harness.manager.terminalStreams.get(CHANNEL_ID)!;
+  const capture = installLiveResizeCapture(
+    harness.manager,
+    CHANNEL_ID,
+    stream,
+    1,
+    TEST_COLS,
+    TEST_ROWS,
+    TEST_COLS + 4,
+    TEST_ROWS,
+  );
+  expect(harness.manager.cellEmissionGates.has(CHANNEL_ID)).toBe(true);
+  applyResizeResultAtBoundary(harness.manager, CHANNEL_ID, capture, {
+    kind: "ack",
+    seq: 1,
+    cols: TEST_COLS + 9,
+    rows: TEST_ROWS,
+  });
+  return capture;
+}

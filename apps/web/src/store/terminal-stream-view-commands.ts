@@ -1,16 +1,18 @@
 // View commands keep viewport revisions and acknowledgements ordered across Sync generations.
 // The view registry calls this module whenever local geometry or activity changes.
 // Sync view-state frames return here before a stream is installed in the session replica.
-// ACK deadlines begin scoped repair; only liveness may later choose socket recovery.
+// ACK deadlines begin scoped repair; only liveness may later choose socket
+// recovery, and a write the transport refused stays on the renewal heartbeat.
 
 import { create } from "@bufbuild/protobuf";
-import { signal } from "@roost/shared/diag";
+import { diag, signal } from "@roost/shared/diag";
 import {
   TerminalViewCommandSchema,
   TerminalViewStatus,
   type TerminalViewStateFrame,
 } from "@roost/shared/proto/sync_pb";
 import {
+  TERMINAL_VIEW_HEARTBEAT_MS,
   TERMINAL_VIEW_LEASE_MS,
   isTerminalGeometry,
   isTerminalUuid,
@@ -78,6 +80,9 @@ export function publishIntent(
     || !target
     || (intent.active && !isPageVisible())
   ) {
+    // A missing transport is deliberately left unscheduled: retargetSession
+    // republishes every view on the generation/ready flip, and
+    // cell-terminal-lifecycle republishes on the visibility transition.
     cancelTerminalViewRenewal(view);
     if (!view.disposed && !statusCurrent) {
       emitTerminalViewStatus(view, {
@@ -102,7 +107,7 @@ export function publishIntent(
     domainGeneration: target.domainGeneration,
   }));
   if (!sent) {
-    cancelTerminalViewRenewal(view);
+    scheduleRefusedTerminalViewRetry(view, intent);
     return false;
   }
   view.leaseDeadlineMs = intent.active
@@ -284,6 +289,31 @@ function acknowledgeTerminalViewState(
   }
 }
 
+/** A view that still wants to be active must never be left with no scheduled
+ * attempt, and a write a still-ready link refused is followed by no event at
+ * all: no generation flip, no visibility transition, no geometry change. So the
+ * view keeps its place in the renewal scheduler and retries on the ordinary
+ * TERMINAL_VIEW_HEARTBEAT_MS cadence — one third of TERMINAL_VIEW_LEASE_MS, so
+ * the lease is renewed before it can expire. A view that wants no frames —
+ * disposed, inactive, or hidden — holds no lease worth renewing. */
+function scheduleRefusedTerminalViewRetry(
+  view: TerminalViewRecord,
+  intent: TerminalViewIntent,
+): void {
+  if (view.disposed || !intent.active || !isPageVisible()) {
+    cancelTerminalViewRenewal(view);
+    return;
+  }
+  diag("viewport.publish_retry", {
+    sid: view.session.sessionId,
+    view_id: view.viewId,
+    revision: intent.revision.toString(),
+    reason: "write_refused",
+    retry_in_ms: TERMINAL_VIEW_HEARTBEAT_MS,
+    lease_deadline_ms: view.leaseDeadlineMs,
+  });
+  armTerminalViewRenewal(view);
+}
 
 function armViewAckDeadline(
   view: TerminalViewRecord,

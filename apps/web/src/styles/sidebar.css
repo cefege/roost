@@ -208,8 +208,9 @@
 }
 
 /* The stream indicator is presentation-only. It is absolutely positioned so
-   receiving/catch-up state never joins the pane's flex flow or changes its
-   terminal viewport geometry. */
+   receiving/catch-up/detached state never joins the pane's flex flow or changes
+   its terminal viewport geometry. An absent dot means quiet and healthy: a
+   viewed pane with no live stream shows the detached dot instead. */
 .terminal-stream-indicator {
   position: absolute;
   top: var(--md-space-2);
@@ -230,6 +231,14 @@
 }
 .terminal-stream-indicator[data-state="catching_up"] {
   background: var(--status-warn);
+}
+/* Absence of a stream, not a third kind of traffic: the outline-only treatment
+   StatusDot uses for a missing thing, in the error role because no live stream
+   at all outranks frames that merely are not painting yet. */
+.terminal-stream-indicator[data-state="detached"] {
+  background: transparent;
+  border: 1.5px solid var(--status-err);
+  box-sizing: border-box;
 }
 
 /* Find-in-scrollback matches. CellGridRenderer splits a matched run into its own

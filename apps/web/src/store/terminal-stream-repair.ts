@@ -34,7 +34,6 @@ import type {
   TerminalViewRecord,
 } from "./terminal-stream-types.ts";
 
-
 export function requestTerminalLivenessChallenge(
   session: TerminalSessionReplica,
   reassert?: () => void,
@@ -51,19 +50,11 @@ export function requestTerminalLivenessChallenge(
     || hasPendingTerminalProofChallenge(session, owner)
   ) return false;
 
-  const sent = session.expectedStreamId
-    ? sendTerminalResyncCommand(session, view, target)
-    : false;
-  if (!sent && !reassert) return false;
+  // sendTerminalResyncCommand refuses a session with no expected stream, so a
+  // write that did not happen and no reassert leaves nothing to prove.
+  if (!sendTerminalResyncCommand(session, view, target) && !reassert) return false;
   beginTerminalScopedRepair(session, owner, performance.now());
-  signal("cell.foreground_stall", {
-    sid: session.sessionId,
-    stream_id: session.expectedStreamId,
-    layer: "terminal_proof",
-    action: "resync",
-    cooldownKey: session.sessionId,
-    ...terminalProofSignalFields(session, owner),
-  });
+  signalTerminalProofStall(session, owner, "resync");
   return true;
 }
 
@@ -81,39 +72,12 @@ export function requestTerminalDomReconcileRecovery(
   return requestTerminalGenerationRecovery(owner, "terminal-dom-reconcile-timeout");
 }
 
-export function armTerminalForegroundIdleProbe(
-  session: TerminalSessionReplica,
-): void {
-  if (session.idleProbeTimer !== null) return;
+export function armTerminalForegroundIdleProbe(session: TerminalSessionReplica): void {
   const owner = session.generation;
-  if (!owner || !session.baselineReady || !activeForegroundTerminalView(session)) return;
-  const startedAt = terminalGenerationMatches(session.lastAcceptedFrameGeneration, owner)
-    ? (session.lastAcceptedFrameAtMs ?? performance.now())
-    : performance.now();
-  const dueAt = startedAt + TERMINAL_FOREGROUND_IDLE_PROBE_MS;
-  const timer = setTimeout(() => {
-    if (session.idleProbeTimer !== timer) return;
-    session.idleProbeTimer = null;
-    const current = currentTerminalGenerationToken(session.sessionId);
-    if (
-      !activeForegroundTerminalView(session)
-      || !terminalGenerationMatches(session.generation, owner)
-      || !terminalGenerationMatches(owner, current)
-    ) {
-      clearTerminalSessionLiveness(session, "inactive");
-      return;
-    }
-    if (
-      terminalGenerationMatches(session.lastAcceptedFrameGeneration, owner)
-      && session.lastAcceptedFrameAtMs !== null
-      && session.lastAcceptedFrameAtMs > startedAt
-    ) {
-      armTerminalForegroundIdleProbe(session);
-      return;
-    }
-    requestTerminalLivenessChallenge(session);
-  }, Math.max(0, dueAt - performance.now()));
-  session.idleProbeTimer = timer;
+  const observedAt = terminalGenerationMatches(session.lastAcceptedFrameGeneration, owner)
+    ? session.lastAcceptedFrameAtMs
+    : null;
+  armTerminalIdleProbeSince(session, observedAt ?? performance.now());
 }
 
 export function sendLatchedTerminalResync(session: TerminalSessionReplica): void {
@@ -140,10 +104,10 @@ export function sendLatchedTerminalResync(session: TerminalSessionReplica): void
   session.resyncSentGeneration = key;
   session.resyncRetryGeneration = key;
   session.resyncRetryAtMs = now;
-  if (
-    session.resyncLatchedAtMs !== null
-    && !hasPendingTerminalProofChallenge(session, owner)
-  ) {
+  // Only a full frame repairs the canonical gap a latch owns, so a latched
+  // send with no proof deadline armed owes the session one: the accepted delta
+  // that cleared this latch's timestamp proved the lane, not the gap.
+  if (!hasPendingTerminalProofChallenge(session, owner)) {
     beginTerminalScopedRepair(session, owner, performance.now());
   }
 }
@@ -333,6 +297,44 @@ function clearTerminalProofChallenge(session: TerminalSessionReplica): void {
   session.proofChallengeSeq = null;
 }
 
+/** A pane that stopped painting has no other watchdog, so every exit from this
+ * callback either escalates to a proof deadline or re-arms the probe. `since`
+ * anchors the next due time, and a challenge that could not be published
+ * re-anchors at now so the retry stays one full interval away. */
+function armTerminalIdleProbeSince(
+  session: TerminalSessionReplica,
+  since: number,
+): void {
+  if (session.idleProbeTimer !== null) return;
+  const owner = session.generation;
+  if (!owner || !session.baselineReady || !activeForegroundTerminalView(session)) return;
+  const dueAt = since + TERMINAL_FOREGROUND_IDLE_PROBE_MS;
+  const timer = setTimeout(() => {
+    if (session.idleProbeTimer !== timer) return;
+    session.idleProbeTimer = null;
+    if (
+      !activeForegroundTerminalView(session)
+      || !terminalGenerationMatches(session.generation, owner)
+      || !terminalGenerationMatches(owner, currentTerminalGenerationToken(session.sessionId))
+    ) {
+      clearTerminalSessionLiveness(session, "inactive");
+      return;
+    }
+    if (
+      terminalGenerationMatches(session.lastAcceptedFrameGeneration, owner)
+      && session.lastAcceptedFrameAtMs !== null
+      && session.lastAcceptedFrameAtMs > since
+    ) {
+      armTerminalForegroundIdleProbe(session);
+      return;
+    }
+    if (requestTerminalLivenessChallenge(session)) return;
+    signalTerminalProofStall(session, owner, "rearm", Math.max(0, performance.now() - since));
+    armTerminalIdleProbeSince(session, performance.now());
+  }, Math.max(0, dueAt - performance.now()));
+  session.idleProbeTimer = timer;
+}
+
 function armTerminalProofDeadline(
   session: TerminalSessionReplica,
   owner: TerminalGenerationToken,
@@ -355,26 +357,30 @@ function armTerminalProofDeadline(
     }
     const proofAgeMs = Math.max(0, performance.now() - challengedAt);
     session.repairOutcome = "escalated";
-    signal("cell.foreground_stall", {
-      sid: session.sessionId,
-      stream_id: session.expectedStreamId,
-      layer: "terminal_proof",
-      action: "redial",
-      age_ms: proofAgeMs,
-      cooldownKey: session.sessionId,
-      ...terminalProofSignalFields(session, owner),
-    });
+    signalTerminalProofStall(session, owner, "redial", proofAgeMs);
     requestTerminalGenerationRecovery(owner, "terminal-proof-timeout");
   }, Math.max(0, dueAt - performance.now()));
   session.proofDeadlineTimer = timer;
 }
 
-function terminalProofSignalFields(
+/** One payload shape for this layer's transitions, so a field added here
+ * reaches all of them. A rearm keeps its own cooldown scope: it repeats for as
+ * long as the challenge cannot be published, and sharing the session's scope
+ * would coalesce away the resync or redial that follows it. */
+function signalTerminalProofStall(
   session: TerminalSessionReplica,
   owner: TerminalGenerationToken,
-) {
+  action: "resync" | "redial" | "rearm",
+  ageMs: number | null = null,
+): void {
   const canonical = session.canonical;
-  return {
+  signal("cell.foreground_stall", {
+    sid: session.sessionId,
+    stream_id: session.expectedStreamId,
+    layer: "terminal_proof",
+    action,
+    age_ms: ageMs,
+    cooldownKey: action === "rearm" ? `${session.sessionId}|rearm` : session.sessionId,
     expected_stream_id: session.expectedStreamId,
     checkpoint_stream_id: canonical?.streamId ?? null,
     checkpoint_seq: canonical?.seq ?? null,
@@ -387,5 +393,5 @@ function terminalProofSignalFields(
     socket_id: owner.socketId,
     process_epoch: owner.processEpoch,
     domain_generation: owner.domainGeneration.toString(),
-  };
+  });
 }

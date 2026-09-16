@@ -173,6 +173,7 @@ export class TerminalScreenHub {
     state.hold.clear();
     state.expected = { streamId, cols, rows };
     state.resyncLatched = false;
+    this.snapshots.armBaselineTimer(sessionId, state);
   }
 
   dropSession(sessionId: string): void {
