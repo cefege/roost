@@ -309,6 +309,7 @@ export function resolveCoordinatorDbPath(
  *  reported separately rather than one inferred from the other. */
 export async function resolveSpaStatus(
   serviceDefinition: string | null,
+  /** The coordinator's own loopback listener, never a front door. */
   coordUrl: string | null,
   platform: NodeJS.Platform = process.platform,
   fetchImpl: typeof fetch = fetch,
@@ -325,9 +326,12 @@ export async function resolveSpaStatus(
 }
 
 /** HEAD the coordinator's own root. A page request is the only authority on
- *  whether a build is being served: the stamped dist can be gone while a
- *  compiled install still answers from its embedded manifest, and this CLI
- *  cannot read that install's embed. */
+ *  whether a build is being served: `createSpaResponder` picks disk-vs-embed
+ *  once at boot, so a dist created after the coordinator started is not served
+ *  however current the configuration looks, and a compiled install answers
+ *  from an embedded manifest this CLI cannot read. Loopback only — coord's SPA
+ *  arm 404s a request it cannot see as on-host whenever Cloudflare Access is
+ *  configured. */
 export async function _probeSpaRoot(
   coordUrl: string | null,
   fetchImpl: typeof fetch = fetch,
@@ -386,6 +390,9 @@ export async function statusReport(
           ? coord.reachable
           : (await _probeCoordinatorIdentity(identityUrl(endpoint.publicUrl))).reachable,
     },
-    spa: await resolveSpaStatus(serviceDefinition, coordUrl),
+    // Loopback only, never the front door: coord's SPA arm 404s any request it
+    // cannot see as on-host once Cloudflare Access is configured, so probing
+    // the public origin would call a healthy install missing.
+    spa: await resolveSpaStatus(serviceDefinition, endpoint.coordUrl),
   };
 }

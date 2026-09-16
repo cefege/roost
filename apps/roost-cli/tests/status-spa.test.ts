@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { _probeSpaRoot, resolveSpaStatus } from "../src/status.ts";
+import { _probeSpaRoot, resolveSpaStatus, resolveStatusEndpoint } from "../src/status.ts";
 import { renderedStatusLines, statusReportFixture, testFetch } from "./status-render-fixture.ts";
 
 const RETIRED_DIST = "/var/roost/releases/deleted-release/apps/web/dist";
@@ -67,6 +67,41 @@ describe("status spa reporting", () => {
       "http://127.0.0.1:4103",
       testFetch(async () => { throw new Error("connection refused"); }),
     )).toBeNull();
+  });
+
+  test("the report probes the loopback bind, never the front door", async () => {
+    // A front door behind Cloudflare Access 404s any request coord cannot see
+    // as on-host, so probing it would call a healthy install missing. Off a
+    // coordinator host there is no bind, and the answer is unknown.
+    const probed: string[] = [];
+    const record = testFetch(async (input) => {
+      probed.push(String(input));
+      return new Response(null, { status: 404 });
+    });
+    const unit = [
+      "[Service]",
+      'Environment="ROOST_COORDINATOR_BIND=127.0.0.1:4103"',
+      'Environment="ROOST_WEB_PUBLIC_URL=https://dash.example.test"',
+    ].join("\n");
+
+    // An installed unit: the bind is probed, the declared front door is not.
+    const installed = resolveStatusEndpoint(unit, { platform: "linux" });
+    await resolveSpaStatus(unit, installed.coordUrl, "linux", record);
+    expect(probed).toEqual(["http://127.0.0.1:4103/"]);
+
+    // Off a coordinator host there is no bind, so nothing is probed and the
+    // front door's Access 404 can never be read as a missing build.
+    const offHost = resolveStatusEndpoint(null, {
+      platform: "linux",
+      override: { origin: "https://dash.example.test" },
+    });
+    expect(offHost.coordUrl).toBeNull();
+    expect(await resolveSpaStatus(null, offHost.coordUrl, "linux", record)).toEqual({
+      serves: null,
+      webDistPath: null,
+      webDistPresent: false,
+    });
+    expect(probed).toEqual(["http://127.0.0.1:4103/"]);
   });
 
   test("prints the served path, and a missing build with its cause and remedy", () => {
