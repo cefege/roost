@@ -223,6 +223,10 @@ export function makeSystemHandlers(
         .where("worker.deleted_at_ms", "is", null);
       if (filtered) {
         sessionQuery = sessionQuery.where("session.id", "in", sessionFilterIds);
+      } else {
+        // An unfiltered dump covers the whole fleet; cap it at the same bound
+        // the filtered path enforces so the snapshot cannot grow with the DB.
+        sessionQuery = sessionQuery.limit(DIAG_SNAPSHOT_MAX_SESSION_FILTER_IDS);
       }
       const scopedSessionRows = await sessionQuery.execute();
       const sessionWorkerFps = [...new Set(scopedSessionRows.map((row) => row.worker_fp))];
@@ -237,9 +241,19 @@ export function makeSystemHandlers(
         : await deps.db.selectFrom("workers")
           .select("fp")
           .where("deleted_at_ms", "is", null)
+          .limit(DIAG_SNAPSHOT_MAX_SESSION_FILTER_IDS)
           .execute();
+      const truncated = !filtered
+        && (scopedSessionRows.length === DIAG_SNAPSHOT_MAX_SESSION_FILTER_IDS
+          || scopedWorkerRows.length === DIAG_SNAPSHOT_MAX_SESSION_FILTER_IDS);
       const allowedSessionIds = new Set(scopedSessionRows.map((row) => row.id));
-      const allowedWorkerFps = new Set(scopedWorkerRows.map((row) => row.fp));
+      // The capped worker page can miss a worker that owns an admitted session;
+      // its live, non-deleted row is already proven by the session join, so
+      // seeding it keeps a truncated dump from misreporting route: null.
+      const allowedWorkerFps = new Set([
+        ...scopedWorkerRows.map((row) => row.fp),
+        ...sessionWorkerFps,
+      ]);
 
       // The registry is volatile, so a route, a connection bit, or a worker
       // dispatch is only taken for a worker the durable predicate admitted.
@@ -286,6 +300,7 @@ export function makeSystemHandlers(
         coord: coordState,
         workers,
         spa: spaPayload,
+        ...(truncated ? { truncated: true } : {}),
       };
       const snapshotJson = JSON.stringify(snapshot);
       log.info("diag", "diag.snapshot", { src: "coord", snapshot_size: snapshotJson.length });

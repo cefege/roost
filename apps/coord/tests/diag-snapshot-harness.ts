@@ -51,6 +51,7 @@ export interface SnapshotPayload {
       snapshot?: { sessions: Array<{ session_id: string }> };
     };
   }>;
+  truncated?: true;
 }
 
 export interface DiagWorkerLog {

@@ -179,21 +179,20 @@ describe("DiagSnapshot session filters", () => {
     expect(worker.pipelineTargetsByWorker).toEqual({});
   });
 
-  test("includes every open session and routable worker unfiltered", async () => {
+  test("caps the unfiltered fleet dump and marks it truncated", async () => {
     const snapshot = snapshotPayload(
       await systemHandlers().diagSnapshot(diagRequest(), deviceContext()),
     );
 
-    expect(Object.keys(snapshot.coord.sessions).sort()).toEqual([
-      ...BATCH_SESSION_IDS,
-      LOCAL_UNSELECTED_SESSION,
-    ].sort());
+    const openSessionIds = [...BATCH_SESSION_IDS, LOCAL_UNSELECTED_SESSION];
+    const returned = Object.keys(snapshot.coord.sessions);
+    expect(returned.length).toBe(64);
+    expect(returned.length).toBeLessThan(openSessionIds.length);
+    for (const sessionId of returned) expect(openSessionIds).toContain(sessionId);
+    expect(snapshot.truncated).toBe(true);
     expect(Object.keys(snapshot.workers).sort()).toEqual([WORKER_A, WORKER_C, WORKER_LOCAL]);
     expect(worker.sentWorkerFps.sort()).toEqual([WORKER_A, WORKER_C, WORKER_LOCAL]);
-    expect(returnedPipelineSessionIds(snapshot)).toEqual([
-      ...BATCH_SESSION_IDS,
-      LOCAL_UNSELECTED_SESSION,
-    ].sort());
+    expect(returnedPipelineSessionIds(snapshot).length).toBe(returned.length);
   });
 });
 

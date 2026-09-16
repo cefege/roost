@@ -37,6 +37,10 @@ function publishTaskState(row: Parameters<typeof taskRowToProto>[0]): void {
   taskBus.publish({ kind: "state", task: taskRowToProto(row) });
 }
 
+// The tasks table has no DELETE path, so an unbounded list read makes coord
+// heap a function of queue history. Oldest-first, so claim order is preserved.
+const TASKS_LIST_MAX_ROWS = 500;
+
 type TaskMethods =
   | "tasksList" | "tasksEnqueue" | "tasksNextPending" | "tasksSetState" | "tasksCancel";
 
@@ -47,7 +51,8 @@ export function makeTaskHandlers(
     async tasksList(req, ctx) {
       requireAccountDevice(ctx.values);
       let q = deps.db.selectFrom("tasks").selectAll()
-        .orderBy("enqueued_at_ms");
+        .orderBy("enqueued_at_ms")
+        .limit(TASKS_LIST_MAX_ROWS);
       if (req.state) q = q.where("state", "=", taskStateOf(req.state));
       const rows = await q.execute();
       return create(TasksListResponseSchema, { tasks: rows.map(taskRowToProto) });
