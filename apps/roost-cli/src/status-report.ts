@@ -19,6 +19,8 @@ import {
   type MecatlRuntimeReport,
 } from "@roost/shared/mecatl-runtime";
 import { coordDataDir, coordServicePath } from "@roost/shared/paths";
+import { spaSourceKind, type EmbeddedSpaAsset } from "@roost/shared/spa";
+import { WEB_ASSETS } from "@roost/shared/web-embed";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import {
@@ -28,6 +30,7 @@ import {
 } from "./status-native-probes.ts";
 import type {
   ResolvedStatusEndpoint,
+  SpaStatus,
   StatusEndpointOverride,
   StatusEndpointResolverOptions,
   StatusReport,
@@ -301,6 +304,25 @@ export function resolveCoordinatorDbPath(
   return installed ? installed : fallback;
 }
 
+/** Which SPA build the installed coordinator can serve: the unit names its
+ *  dist, and an embedded manifest exists only in a compiled install — the same
+ *  two inputs `createSpaResponder` chooses between. A stamped dist that a
+ *  later release settlement deleted reads as `"none"` here. */
+export function resolveSpaStatus(
+  serviceDefinition: string | null,
+  platform: NodeJS.Platform = process.platform,
+  embeddedAssets: ReadonlyMap<string, EmbeddedSpaAsset> = WEB_ASSETS,
+): SpaStatus {
+  const declared = serviceDefinition
+    ? serviceEnvironmentValue(serviceDefinition, "ROOST_WEB_DIST_PATH", platform)?.trim()
+    : null;
+  const webDistPath = declared ? declared : null;
+  return {
+    source: spaSourceKind(webDistPath ?? undefined, embeddedAssets),
+    webDistPath,
+  };
+}
+
 function installedCoordinatorDbPath(): string {
   const serviceFile = coordinatorServiceFile();
   if (!existsSync(serviceFile)) return defaultCoordinatorDbPath();
@@ -343,5 +365,6 @@ export async function statusReport(
           ? coord.reachable
           : (await _probeCoordinatorIdentity(identityUrl(endpoint.publicUrl))).reachable,
     },
+    spa: resolveSpaStatus(serviceDefinition),
   };
 }

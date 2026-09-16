@@ -55,6 +55,16 @@ export interface EmbeddedSpaAsset {
   readonly gzip?: string;
 }
 
+/** Which complete build a responder serves. `"none"` means neither a valid
+ *  on-disk `index.html` nor an embedded manifest exists, so every page request
+ *  answers 404 — the state that must be reported, never inferred from a 404. */
+export type SpaSource = "disk" | "embedded" | "none";
+
+export interface SpaResponder {
+  (url: URL, method: string, acceptEncoding: string): Promise<Response>;
+  readonly source: SpaSource;
+}
+
 function acceptsGzip(value: string): boolean {
   let wildcard = false;
   for (const item of value.split(",")) {
@@ -79,8 +89,8 @@ function acceptsGzip(value: string): boolean {
 export function createSpaResponder(
   webDistPath: string | undefined,
   embeddedAssets: ReadonlyMap<string, EmbeddedSpaAsset>,
-): (url: URL, method: string, acceptEncoding: string) => Promise<Response> {
-  const spaRoot = diskSpaRoot(webDistPath);
+): SpaResponder {
+  const spaRoot = resolveDiskSpaRoot(webDistPath);
   const webAssets = spaRoot || embeddedAssets.size === 0 ? null : embeddedAssets;
 
   // rel (no leading slash) → an embedded raw/gzip descriptor or disk path.
@@ -144,7 +154,7 @@ export function createSpaResponder(
     return new Response(method === "HEAD" ? null : Bun.file(asset.raw), { status: 200, headers });
   }
 
-  return async function spaResponse(url: URL, method: string, acceptEncoding: string): Promise<Response> {
+  const spaResponse = async (url: URL, method: string, acceptEncoding: string): Promise<Response> => {
     if (method !== "GET" && method !== "HEAD") {
       return new Response("method not allowed", { status: 405 });
     }
@@ -161,9 +171,24 @@ export function createSpaResponder(
     if (index) return fileResponse(index, "index.html", ".html", method, acceptEncoding, true, false, webAssets !== null);
     return new Response("not found", { status: 404 });
   };
+  return Object.assign(spaResponse, {
+    source: spaSourceKind(webDistPath, embeddedAssets),
+  });
 }
 
-function diskSpaRoot(webDistPath: string | undefined): string | null {
+/** The build `createSpaResponder` would pick for these inputs, so a CLI or a
+ *  startup report can name the SPA source without constructing a responder. */
+export function spaSourceKind(
+  webDistPath: string | undefined,
+  embeddedAssets: ReadonlyMap<string, EmbeddedSpaAsset>,
+): SpaSource {
+  if (resolveDiskSpaRoot(webDistPath)) return "disk";
+  return embeddedAssets.size === 0 ? "none" : "embedded";
+}
+
+/** The directory whose `index.html` is servable, or null when this path holds
+ *  no usable build — the single existence check every caller shares. */
+export function resolveDiskSpaRoot(webDistPath: string | undefined): string | null {
   if (!webDistPath) return null;
   const spaRoot = resolve(webDistPath);
   const indexPath = join(spaRoot, "index.html");

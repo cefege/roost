@@ -34,6 +34,16 @@ export function printStatusReport(r: StatusReport): void {
     }
   }
 
+  if (r.spa.source === "none") {
+    console.log(`  ✗ spa: MISSING (${r.spa.webDistPath
+      ? `ROOST_WEB_DIST_PATH=${r.spa.webDistPath} has no index.html`
+      : "no ROOST_WEB_DIST_PATH and no embedded build"})`);
+    console.log("      → every page answers 404 while the API still works; build the SPA");
+    console.log("        (bun run --cwd apps/web build) and point ROOST_WEB_DIST_PATH at that dist");
+  } else {
+    console.log(`  ${mark(true)} spa: ${r.spa.source}${r.spa.webDistPath ? ` (${r.spa.webDistPath})` : ""}`);
+  }
+
   if (r.workers.length === 0) {
     console.log(`  ✗ workers: none registered`);
   } else {

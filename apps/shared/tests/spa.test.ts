@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { normalizeManifestUrlKey } from "../../../scripts/gen-embed.ts";
-import { createSpaResponder } from "../src/spa.ts";
+import { createSpaResponder, spaSourceKind } from "../src/spa.ts";
 
 
 describe("createSpaResponder", () => {
@@ -135,5 +135,31 @@ describe("createSpaResponder", () => {
       .toBe("assets/chunks/terminal-deadbeef.js");
     expect(normalizeManifestUrlKey("assets/chunks/terminal-deadbeef.js"))
       .toBe("assets/chunks/terminal-deadbeef.js");
+  });
+
+  test("names the build it serves, so an empty pick is reportable instead of a bare 404", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "roost-spa-"));
+    try {
+      const diskRoot = join(workdir, "disk");
+      mkdirSync(diskRoot, { recursive: true });
+      writeFileSync(join(diskRoot, "index.html"), "disk index");
+      const embed = new Map([["index.html", { raw: join(diskRoot, "index.html") }]]);
+
+      expect(createSpaResponder(diskRoot, new Map()).source).toBe("disk");
+      expect(createSpaResponder(undefined, embed).source).toBe("embedded");
+
+      // The silent-404 state: a stamped dist a release settlement deleted, and
+      // no embedded manifest to fall back to.
+      const retired = createSpaResponder(join(workdir, "retired-release", "apps", "web", "dist"), new Map());
+      expect(retired.source).toBe("none");
+      expect((await retired(new URL("http://t/"), "GET", "")).status).toBe(404);
+
+      // A directory that exists but holds no index.html is equally unservable.
+      mkdirSync(join(workdir, "empty"), { recursive: true });
+      expect(spaSourceKind(join(workdir, "empty"), new Map())).toBe("none");
+      expect(spaSourceKind(join(workdir, "empty"), embed)).toBe("embedded");
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
   });
 });

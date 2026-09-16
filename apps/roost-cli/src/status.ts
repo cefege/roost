@@ -8,6 +8,7 @@ import { statusReport } from "./status-report.ts";
 export {
   _probeCoordinatorIdentity,
   resolveCoordinatorDbPath,
+  resolveSpaStatus,
   resolveStatusEndpoint,
   workerInventory,
   workerInventoryForUpdateAdmission,
@@ -21,6 +22,7 @@ export { routableWorkerFingerprints } from "./status-routability.ts";
 export type {
   EndpointStatus,
   ResolvedStatusEndpoint,
+  SpaStatus,
   StatusEndpointOverride,
   StatusEndpointResolverOptions,
   StatusReport,

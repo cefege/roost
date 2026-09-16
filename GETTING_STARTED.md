@@ -530,6 +530,12 @@ your front door at the coordinator's loopback bind. Its exit status gates both
 local services, coordinator reachability, and that public-URL answer; inspect
 the fleet rows rather than treating that exit status as proof that every remote
 worker converged.
+The `spa:` line names which browser build the installed coordinator can serve —
+`disk` with the `ROOST_WEB_DIST_PATH` it read, `embedded` for a compiled
+install, or `MISSING` when that path holds no `index.html` and no build is
+embedded. `MISSING` is the state where RPCs and terminals keep working while
+every page answers 404; the coordinator also logs `spa_source_missing` once at
+startup.
 `roost doctor --since <window>` summarizes local logs from that window and
 reports anomalies such as uncaught errors, sequence gaps, queue overflows,
 degraded keepers, and failed backups/readiness.

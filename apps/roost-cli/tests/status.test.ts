@@ -3,13 +3,14 @@
 // projection that feeds update admission.
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   _probeCoordinatorIdentity,
   printStatusReport,
   resolveCoordinatorDbPath,
+  resolveSpaStatus,
   resolveStatusEndpoint,
   statusReportIsHealthy,
   workerInventory,
@@ -24,6 +25,7 @@ function report(overrides: Partial<StatusReport> = {}): StatusReport {
     coord: { reachable: true, gitSha: null },
     workers: [],
     endpoint: { publicUrl: "https://dash.example.test", answers: true },
+    spa: { source: "disk", webDistPath: "/repo/apps/web/dist" },
     ...overrides,
   };
 }
@@ -79,6 +81,52 @@ describe("status endpoint resolution", () => {
       platform: "linux",
       override: { origin: "https://dash.example.test" },
     })).toEqual({ publicUrl: "https://dash.example.test", coordUrl: null });
+  });
+});
+
+describe("status spa source reporting", () => {
+  test("reads the dist the installed unit stamped and names the served build", () => {
+    const workdir = mkdtempSync(join(tmpdir(), "roost-status-spa-"));
+    try {
+      const dist = join(workdir, "apps", "web", "dist");
+      mkdirSync(dist, { recursive: true });
+      writeFileSync(join(dist, "index.html"), "<!doctype html>");
+      const service = `[Service]\nEnvironment="ROOST_WEB_DIST_PATH=${dist}"`;
+
+      expect(resolveSpaStatus(service, "linux", new Map())).toEqual({
+        source: "disk",
+        webDistPath: dist,
+      });
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  test("a stamped dist that no longer exists reads as no SPA at all", () => {
+    const retired = "/var/roost/releases/deleted-release/apps/web/dist";
+    const service = `[Service]\nEnvironment="ROOST_WEB_DIST_PATH=${retired}"`;
+
+    expect(resolveSpaStatus(service, "linux", new Map())).toEqual({
+      source: "none",
+      webDistPath: retired,
+    });
+    // A compiled install carries the build in its binary, so the same unit is
+    // servable there.
+    expect(resolveSpaStatus(service, "linux", new Map([
+      ["index.html", { raw: "/embedded/index.html" }],
+    ])).source).toBe("embedded");
+  });
+
+  test("a missing SPA prints the path and its remedy instead of only a page 404", () => {
+    const lines = renderedStatus(report({
+      spa: { source: "none", webDistPath: "/var/roost/releases/gone/apps/web/dist" },
+    }));
+
+    expect(lines).toContain(
+      "  ✗ spa: MISSING (ROOST_WEB_DIST_PATH=/var/roost/releases/gone/apps/web/dist has no index.html)",
+    );
+    expect(lines.join("\n")).toContain("every page answers 404 while the API still works");
+    expect(renderedStatus(report()).join("\n")).toContain("✓ spa: disk (/repo/apps/web/dist)");
   });
 });
 

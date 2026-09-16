@@ -111,6 +111,17 @@ export async function runCoord() {
       closeDeletedWorkerSockets?.(fingerprint),
   });
   const spaResponse = createSpaResponder(cfg.webDistPath, WEB_ASSETS);
+  // A missing SPA source otherwise presents only as a 404 on every page, which
+  // reads like an edge or DNS fault. Say it here instead, and keep serving:
+  // worker links and keeper state outlive a browser build that went away.
+  if (spaResponse.source === "none") {
+    log.error("main", "spa_source_missing", { web_dist_path: cfg.webDistPath ?? null });
+  } else {
+    log.info("main", "spa_source", {
+      source: spaResponse.source,
+      web_dist_path: cfg.webDistPath ?? null,
+    });
+  }
   // One read: effectiveMemoryCeilingBytes() stats and reads the cgroup files.
   const terminalCeilingBytes = effectiveMemoryCeilingBytes();
   const terminalBudgetBytes = terminalScreenBudgetBytes(

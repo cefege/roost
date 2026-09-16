@@ -5,6 +5,7 @@
 import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
 import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
 import type { MecatlRuntimeReport } from "@roost/shared/mecatl-runtime";
+import type { SpaSource } from "@roost/shared/spa";
 
 export interface WorkerStatus {
   fingerprint: string;
@@ -32,6 +33,13 @@ export interface EndpointStatus {
   answers: boolean;
 }
 
+/** Which SPA build the installed coordinator can serve. `"none"` is the
+ *  silent-404 state: the API answers while every page request misses. */
+export interface SpaStatus {
+  source: SpaSource;
+  webDistPath: string | null;
+}
+
 export interface StatusEndpointOverride {
   origin: string;
 }
@@ -42,6 +50,7 @@ export interface StatusReport {
   coord: { reachable: boolean; gitSha: string | null };
   workers: WorkerStatus[];
   endpoint: EndpointStatus;
+  spa: SpaStatus;
 }
 
 export interface ResolvedStatusEndpoint {

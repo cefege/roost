@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { coordServicePath, roostServiceDir } from "@roost/shared/paths";
+import { resolveDiskSpaRoot } from "@roost/shared/spa";
 import {
   acquireMachineTransaction,
   type AcquireMachineTransactionOptions,
@@ -113,23 +114,19 @@ export function foreignWorkerDeployJournalForCoordinator(serviceRoot: string): s
   return null;
 }
 
-function hasWebDist(path: string): boolean {
-  return existsSync(join(path, "index.html"));
-}
-
 export function preserveWebDistForNoBuild(
   releaseDir: string,
   installedEnvironment: Readonly<Record<string, string>>,
   priorRepo: string,
 ): string {
   const destination = join(releaseDir, "apps", "web", "dist");
-  if (hasWebDist(destination)) return destination;
+  if (resolveDiskSpaRoot(destination)) return destination;
   const configured = installedEnvironment.ROOST_WEB_DIST_PATH;
   for (const candidate of [
     configured ? (isAbsolute(configured) ? configured : resolve(priorRepo, configured)) : undefined,
     join(priorRepo, "apps", "web", "dist"),
   ]) {
-    if (!candidate || resolve(candidate) === resolve(destination) || !hasWebDist(candidate)) continue;
+    if (!candidate || resolve(candidate) === resolve(destination) || !resolveDiskSpaRoot(candidate)) continue;
     mkdirSync(dirname(destination), { recursive: true });
     cpSync(candidate, destination, { recursive: true, dereference: true });
     return destination;

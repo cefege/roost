@@ -14,15 +14,18 @@ Path references are relative to `apps/coord/` unless they start at the repo root
 `bun:sqlite`, migrates/backfills tenant state, imports self-hosted authorized
 keys, starts maintenance owners, constructs the coordinator write gate, and
 constructs auth, Connect, worker-WS, and Sync-WS dependencies. It calls
-`createCoord()`, then `startBunCoordinatorListeners()`.
+`createCoord()`, then `startBunCoordinatorListeners()`. It also reports which
+SPA build this process can serve (`spa_source`, or `spa_source_missing` when
+neither a disk dist nor an embedded manifest exists) so a missing browser build
+is a startup line rather than a 404 on every page.
 
 **`src/bun-coordinator-listeners.ts` — the Bun listener boundary.** Owns the
 single `Bun.serve` call, `server.requestIP()` → `resolveCallerOrigin`, the
 `/api/db-export` route (its only special non-Connect route), both WebSocket
 upgrades, the ONE multiplexed
 `websocket` object dispatching on `ws.data.kind`, the shared 4 MiB frame cap,
-and `idleTimeout: 120`. The SPA fallback is injected from `src/spa.ts` +
-`src/web-embed.generated.ts`.
+and `idleTimeout: 120`. The SPA fallback is injected from
+`@roost/shared/spa` + `@roost/shared/web-embed`.
 
 **`src/coord-factory.ts::createCoord(deps)` — the portable protocol layer.** Returns `{ fetch, dispose }`, where
 `fetch` is `(Request, CoordHandlerContext?) => Promise<Response>` and touches no Bun API. Owns OPTIONS
