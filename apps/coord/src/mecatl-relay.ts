@@ -20,6 +20,9 @@ const WORKER_FP_MAX_CHARS = 64;
 const RELAY_MAX_PER_WORKER = 16;
 /** Unread browser-bound bytes one relay may hold before it is abandoned. */
 const RELAY_UNREAD_BYTES_MAX = 512 * 1024;
+/** One relayed request body is buffered whole, RELAY_MAX_PER_WORKER of them
+ * at a time, so the browser's declared length is checked before it is read. */
+const RELAY_REQUEST_BYTES_MAX = 8 * 1024 * 1024;
 /** Silence from the daemon that ends the exchange. SSE keepalives make this
  * safe; the worker's own idle bound is shorter, so this only covers a link
  * that stopped delivering without reporting an error. */
@@ -82,7 +85,26 @@ export async function handleMecatlRelay(
     return relayError(429, "relay_busy");
   }
 
+  const declaredLength = req.headers.get("content-length");
+  if (declaredLength === null) {
+    // A body with no declared length is a chunked upload: its size is only
+    // knowable by buffering it, which is the unbounded case this refuses.
+    if (req.body !== null) return relayError(413, "body_too_large");
+  } else {
+    const declaredBytes = Number(declaredLength);
+    if (
+      !Number.isInteger(declaredBytes)
+      || declaredBytes < 0
+      || declaredBytes > RELAY_REQUEST_BYTES_MAX
+    ) {
+      return relayError(413, "body_too_large");
+    }
+  }
+
   const body = new Uint8Array(await req.arrayBuffer());
+  // The header is the caller's claim; the buffered length is the fact.
+  if (body.byteLength > RELAY_REQUEST_BYTES_MAX) return relayError(413, "body_too_large");
+
   const requestId = crypto.randomUUID();
   const entry = registerRelay(target.workerFp, requestId);
   const admitted = sendMecatlRelayRequest(target.workerFp, {

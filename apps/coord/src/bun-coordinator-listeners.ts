@@ -11,7 +11,7 @@ import { log } from "@roost/shared/log";
 import type { Server, ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   COORD_WEBSOCKET_MAX_PAYLOAD_BYTES,
@@ -40,6 +40,70 @@ const SESSIONS_PROMPT_IDLE_TIMEOUT_SECONDS =
     : 0;
 const SESSIONS_PROMPT_RPC_PATH =
   `/${CoordinatorService.typeName}/${CoordinatorService.method.sessionsPrompt.name}`;
+/** Ceiling on one buffered HTTP request body. */
+const COORD_MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
+const EXPORT_SNAPSHOT_PREFIX = ".coord-export-";
+const EXPORT_SNAPSHOT_SUFFIX = ".db";
+/** Bun reads an export's file body lazily, after the handler returned, so the
+ * snapshot must outlive the response: this is the window one download gets.
+ * Exported so the sweep's age bound is asserted against the real value. */
+export const EXPORT_SNAPSHOT_TTL_MS = 15 * 60_000;
+
+/** Newest export snapshots a directory may keep. Each one is a full copy of the
+ * database, so an age bound alone lets N exports inside a single TTL window pin
+ * N times the database size on the small disks this ceiling exists for.
+ * Unlinking a snapshot two exports old cannot break its download: Bun has the
+ * fd open by then and POSIX keeps the inode alive until it closes. Windows
+ * refuses the unlink instead, which the per-file guard below degrades to the
+ * age bound. */
+const EXPORT_SNAPSHOT_MAX_RESIDENT = 2;
+
+/** Exported for tests: removes export snapshots at or past the age bound, then
+ * every survivor beyond the `keepNewest` most recent. `olderThanMs === 0`
+ * removes every snapshot the directory holds. */
+export function _sweepExportSnapshots(
+  dbDir: string,
+  olderThanMs: number,
+  keepNewest = EXPORT_SNAPSHOT_MAX_RESIDENT,
+): number {
+  let names: string[];
+  try {
+    names = readdirSync(dbDir);
+  } catch {
+    return 0;
+  }
+  const deadlineMs = Date.now() - olderThanMs;
+  const survivors: { path: string; mtimeMs: number }[] = [];
+  let removed = 0;
+  for (const name of names) {
+    if (!name.startsWith(EXPORT_SNAPSHOT_PREFIX)) continue;
+    if (!name.endsWith(EXPORT_SNAPSHOT_SUFFIX)) continue;
+    const snapshotPath = join(dbDir, name);
+    // Another export's expiry timer can unlink between readdir and here; one
+    // file that vanished under us must never abandon the rest of the sweep.
+    try {
+      const mtimeMs = statSync(snapshotPath).mtimeMs;
+      if (mtimeMs > deadlineMs) {
+        survivors.push({ path: snapshotPath, mtimeMs });
+        continue;
+      }
+      rmSync(snapshotPath, { force: true });
+      removed++;
+    } catch {
+      continue;
+    }
+  }
+  survivors.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  for (const stale of survivors.slice(keepNewest)) {
+    try {
+      rmSync(stale.path, { force: true });
+      removed++;
+    } catch {
+      continue;
+    }
+  }
+  return removed;
+}
 
 interface WorkerWebSocketDispatch {
   open(ws: ServerWebSocket<WorkerWsData>): void;
@@ -143,21 +207,45 @@ export function startBunCoordinatorListeners(
     }
     if (!existsSync(cfg.dbPath)) return new Response(null, { status: 404 });
 
-    const snapshotPath = join(dirname(cfg.dbPath), `.coord-export-${randomUUID()}.db`);
+    const dbDir = dirname(cfg.dbPath);
+    // Sweeping before the new snapshot exists, so the keep count leaves it room:
+    // disk holds at most EXPORT_SNAPSHOT_MAX_RESIDENT full copies.
+    const pruned = _sweepExportSnapshots(
+      dbDir,
+      EXPORT_SNAPSHOT_TTL_MS,
+      EXPORT_SNAPSHOT_MAX_RESIDENT - 1,
+    );
+    if (pruned > 0) log.info("server", "db_export_snapshot_pruned", { count: pruned });
+
+    const snapshotPath = join(
+      dbDir,
+      `${EXPORT_SNAPSHOT_PREFIX}${randomUUID()}${EXPORT_SNAPSHOT_SUFFIX}`,
+    );
+    let size: number;
     try {
-      const { size } = createSqliteSnapshot(sqlite, snapshotPath);
-      const body = await Bun.file(snapshotPath).arrayBuffer();
-      return new Response(body, {
-        status: 200,
-        headers: {
-          "content-type": "application/x-sqlite3",
-          "content-length": String(size),
-          "content-disposition": `attachment; filename="coordinator_v2.db"`,
-        },
-      });
-    } finally {
+      ({ size } = createSqliteSnapshot(sqlite, snapshotPath));
+    } catch (error) {
+      // A partial snapshot must never survive into the download window;
+      // coord-factory.ts turns the rethrow into the 500 the caller sees.
       rmSync(snapshotPath, { force: true });
+      throw error;
     }
+    log.info("server", "db_export_snapshot_ready", { bytes: size });
+    // The body is a file Bun streams with sendfile AFTER this returns, so
+    // unlinking it here truncates the download. A timer, not an abort
+    // listener, reclaims it: subscribing to req.signal would install Bun
+    // 1.3.14's RequestContext.onAbort use-after-free path that
+    // connect/bun-handler.ts documents, and a cancelled multi-hundred-MB
+    // download is exactly the abort that triggers it.
+    setTimeout(() => rmSync(snapshotPath, { force: true }), EXPORT_SNAPSHOT_TTL_MS).unref();
+    return new Response(Bun.file(snapshotPath), {
+      status: 200,
+      headers: {
+        "content-type": "application/x-sqlite3",
+        "content-length": String(size),
+        "content-disposition": `attachment; filename="coordinator_v2.db"`,
+      },
+    });
   }
 
   const [host, portStr] = cfg.bind.split(":") as [string, string];
@@ -180,6 +268,10 @@ export function startBunCoordinatorListeners(
       }, 60_000);
     }
   }
+
+  // No download can be in flight before this listener exists, so any snapshot
+  // on disk now was leaked by a crash or a kill and owns nothing.
+  _sweepExportSnapshots(dirname(cfg.dbPath), 0);
 
   const server = serve({
     hostname: host, port,
@@ -204,10 +296,13 @@ export function startBunCoordinatorListeners(
     // HEALTH_POLL_INTERVAL_MS), so they're never idle either — only
     // genuinely dead connections hit the cap.
     idleTimeout: COORDINATOR_HTTP_IDLE_TIMEOUT_SECONDS,
-    // The worker link is a long-lived request carrying events and PTY bytes.
-    // Its body grows without bound, so use a request cap above any realistic
-    // connection volume to avoid terminating the stream mid-session.
-    maxRequestBodySize: 1024 * 1024 * 1024 * 256, // 256 GiB
+    // Bulk bytes never arrive in a request body: both the worker link and the
+    // browser Sync firehose are raw WebSocket upgrades, whose frames Bun caps
+    // at COORD_WEBSOCKET_MAX_PAYLOAD_BYTES (4 MiB, applied to
+    // websocket.maxPayloadLength above). The largest legitimate HTTP body is
+    // an attachment chunk, refused above 4 MiB by
+    // connect/handlers-attachments.ts, so this leaves 4x that headroom.
+    maxRequestBodySize: COORD_MAX_REQUEST_BODY_BYTES,
     fetch: withCoordinatorRequestIdleTimeout(async (
       req: Request,
       listenerServer: Server<WorkerWsData | SyncWsData>,
