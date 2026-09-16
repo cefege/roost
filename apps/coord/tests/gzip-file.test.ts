@@ -2,7 +2,7 @@
 // round-trips byte-for-byte through Bun.gunzipSync, the archive is created 0600,
 // and a failed run leaves no partial archive behind.
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GZIP_FILE_CHUNK_BYTES, gzipFileToPath } from "../src/gzip-file.ts";
@@ -74,12 +74,16 @@ describe("gzipFileToPath", () => {
   // /dev/full accepts the open and fails every write with ENOSPC, which is the
   // small-host failure this guards: the drain pump dies, nothing pulls the
   // compressor's readable side, and an unraced writer.ready would hang the
-  // nightly backup forever instead of reporting a failed run.
+  // nightly backup forever instead of reporting a failed run. The dest is a
+  // SYMLINK to the device, never the device path: the failure path unlinks its
+  // partial archive, and as root that would delete /dev/full itself.
   test.skipIf(process.platform !== "linux")(
     "a sink that fails mid-stream rejects instead of hanging",
     async () => {
       const dir = makeWorkdir();
       const sourcePath = join(dir, "source.bin");
+      const destPath = join(dir, "full.gz");
+      symlinkSync("/dev/full", destPath);
       // Incompressible, so the compressor emits output while the feed loop runs.
       const sourceBytes = new Uint8Array(GZIP_FILE_CHUNK_BYTES * 3);
       for (let offset = 0; offset < sourceBytes.length; offset += 65_536) {
@@ -87,7 +91,8 @@ describe("gzipFileToPath", () => {
       }
       writeFileSync(sourcePath, sourceBytes);
 
-      await expect(gzipFileToPath(sourcePath, "/dev/full")).rejects.toThrow();
+      await expect(gzipFileToPath(sourcePath, destPath)).rejects.toThrow();
+      expect(existsSync("/dev/full")).toBe(true);
     },
     10_000,
   );
