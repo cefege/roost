@@ -72,9 +72,9 @@ test("agent status reaches every browser surface and notification ACK", async ({
   await expect(folderStatus).toHaveAttribute("data-level", "working");
   await expect(folderStatus).toContainText("1 working");
 
-  // The always-visible Spaces filter exposes the per-session rows without
+  // The always-visible Folders filter exposes the per-session rows without
   // changing the active terminal, preserving the distinct session-row surface.
-  await smokePage.getByTestId("sidebar-view-spaces").click();
+  await smokePage.getByTestId("sidebar-view-folders").click();
   await smokePage.getByTestId("sidebar-search").fill("/tmp");
   const sessionRow = smokePage.locator(
     `[data-testid="sidebar-session-row"][data-session-id="${backgroundId}"]`,

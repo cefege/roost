@@ -1,5 +1,5 @@
 // Exercises the canonical desktop workbench against a real coordinator, worker, keeper, and PTY.
-// The scenarios cover geometry, the retained Spaces/Agents selector, and narrow tab/deck behavior.
+// The scenarios cover geometry, the retained Folders/Agents selector, and narrow tab/deck behavior.
 // They use the terminal smoke fixtures without synthetic clients or renderers.
 
 import type { Page } from "@playwright/test";
@@ -170,12 +170,12 @@ test("desktop workbench keeps measured geometry, status truth, and navigation", 
   await expect(smokePage.locator(".workbench-help")).toBeVisible();
   await navigateToSmokeSession(smokePage, sessionId);
 });
-test("desktop sidebar keeps Spaces and Agents independently navigable", async ({
+test("desktop sidebar keeps Folders and Agents independently navigable", async ({
   multiWorkerSmokePage,
   stack,
   secondWorker,
 }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "Chromium desktop Spaces/Agents contract");
+  test.skip(testInfo.project.name !== "chromium-desktop", "Chromium desktop Folders/Agents contract");
   test.setTimeout(180_000);
   await exerciseSidebarAgents(multiWorkerSmokePage, stack, secondWorker);
 });

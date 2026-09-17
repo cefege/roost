@@ -66,7 +66,7 @@ export async function openEnrolledPage(
     localStorage.setItem("roostSmoke", "1");
     localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
     if (!sessionStorage.getItem("roost.sidebarViewSeeded")) {
-      localStorage.setItem("roost.sidebarView", "spaces");
+      localStorage.setItem("roost.sidebarView", "folders");
       localStorage.setItem("roost.sidebarCollapsed", "0");
       sessionStorage.setItem("roost.sidebarViewSeeded", "1");
     }

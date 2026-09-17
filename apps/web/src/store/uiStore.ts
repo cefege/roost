@@ -6,7 +6,7 @@
 import { diag } from "@roost/shared/diag";
 import { createStore } from "solid-js/store";
 
-export type SidebarView = "spaces" | "agents";
+export type SidebarView = "folders" | "agents";
 
 interface UIState {
   sidebarOpen: boolean;               // mobile: drawer open; desktop: ignored
@@ -35,9 +35,9 @@ function persistCollapsed(v: boolean) {
 function loadSidebarView(): SidebarView {
   try {
     const value = localStorage.getItem(SIDEBAR_VIEW_KEY);
-    return value === "agents" || value === "spaces" ? value : "spaces";
+    return value === "agents" || value === "folders" ? value : "folders";
   } catch {
-    return "spaces";
+    return "folders";
   }
 }
 function persistSidebarView(view: SidebarView): void {

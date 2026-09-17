@@ -1,4 +1,4 @@
-// Spaces sidebar panel.
+// Folders sidebar panel.
 // SidebarRoot owns the shared filter input and debounce; FolderList remains
 // mounted while it switches between folder and filtered-session projections.
 // FolderList retains selection and keyboard-cursor ownership.

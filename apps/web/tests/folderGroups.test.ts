@@ -1,4 +1,4 @@
-// Folder group filtering matches the Spaces projection's visible folder metadata.
+// Folder group filtering matches the Folders projection's visible folder metadata.
 // The helper must preserve group order and require every normalized query term.
 
 import { describe, expect, test } from "bun:test";
