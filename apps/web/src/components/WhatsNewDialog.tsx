@@ -92,7 +92,6 @@ export const WhatsNewDialog: Component = () => {
         style={{
           "max-block-size": "50svh",
           "overflow-y": "auto",
-          "overscroll-behavior": "contain",
         }}
       >
         <Show when={entry()}>

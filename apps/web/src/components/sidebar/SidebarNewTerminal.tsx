@@ -1,13 +1,12 @@
-// Spaces-only new-terminal footer action.
-// FolderList mounts it after the current folders; HomeLanding retains FlatNewTerminal.
-// Depends on the reactive session/worker store and shared anchored-menu primitives.
+// Sidebar-wide pinned action bar: open a new folder plus its machine picker.
+// SidebarRoot mounts it in the sidebar grid's bottom row, outside both scrollers.
+// Depends on the shared new-terminal target resolver and anchored-menu primitives.
 
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { diag } from "@roost/shared/diag";
 import { browseHref } from "../../routes.ts";
-import { rootStore } from "../../store/root.ts";
-import { activeSessionForPath, allSessions } from "../../store/selectors.ts";
-import { workerOnline } from "../../store/sync.ts";
+import { defaultNewTerminalWorkerFp, onlineWorkersByLabel } from "../../lib/newTerminalTarget.ts";
 import { Button } from "../Settings/md/Button.tsx";
 import { Icon } from "../Settings/md/Icon.tsx";
 import { StatusDot } from "../Settings/md/StatusDot.tsx";
@@ -32,20 +31,8 @@ export function SidebarNewTerminal() {
   let menuTargetFp: string | null = null;
   let cancelPendingFocus: (() => void) | null = null;
 
-  const onlineWorkers = createMemo(() =>
-    Object.values(rootStore.workers)
-      .filter(workerOnline)
-      .sort((left, right) => left.label.localeCompare(right.label)),
-  );
-  const defaultTargetFp = createMemo(() => {
-    const workers = onlineWorkers();
-    const activeWorkerFp = activeSessionForPath(location.pathname)?.worker_fp;
-    if (activeWorkerFp && workers.some((worker) => worker.fp === activeWorkerFp)) return activeWorkerFp;
-    const recentWorkerFp = [...allSessions()]
-      .sort((left, right) => right.created_at - left.created_at)
-      .find((session) => workers.some((worker) => worker.fp === session.worker_fp))?.worker_fp;
-    return recentWorkerFp ?? workers[0]?.fp ?? null;
-  });
+  const onlineWorkers = createMemo(() => onlineWorkersByLabel());
+  const defaultTargetFp = createMemo(() => defaultNewTerminalWorkerFp(location.pathname));
   const effectiveTargetFp = createMemo(() => {
     const selectedFp = selectedWorkerFp();
     if (selectedFp && onlineWorkers().some((worker) => worker.fp === selectedFp)) return selectedFp;
@@ -94,6 +81,7 @@ export function SidebarNewTerminal() {
   }
   function chooseMachine(fp: string): void {
     setSelectedWorkerFp(fp);
+    diag("sidebar.new_terminal_target_changed", { from: effectiveTargetFp(), to: fp });
     closeMachineMenu(true);
   }
   function onMachineTriggerKeyDown(event: KeyboardEvent): void {
@@ -132,25 +120,26 @@ export function SidebarNewTerminal() {
   });
 
   return (
-    <footer class="workbench-sidebar-new-terminal" data-testid="sidebar-new-terminal">
+    <footer class="workbench-sidebar-actionbar" data-testid="sidebar-new-terminal">
       <Button
-        class="workbench-sidebar-new-terminal__action"
-        variant="ghost"
+        class="workbench-sidebar-actionbar__new"
+        variant="default"
         size="sm"
-        data-testid="flat-new-terminal-button"
+        icon="add"
+        data-testid="sidebar-new-terminal-button"
         disabled={!effectiveTargetFp()}
         onClick={() => {
           const fp = effectiveTargetFp();
           if (fp) navigate(browseHref(fp));
         }}
       >
-        new
+        New folder
       </Button>
       <Show when={onlineWorkers().length > 1}>
         <Button
           ref={machineMenuButton}
           id="sidebar-new-terminal-machine"
-          class="workbench-sidebar-new-terminal__machine"
+          class="workbench-sidebar-actionbar__machine"
           variant="ghost"
           size="sm"
           data-testid="sidebar-new-terminal-machine"
@@ -161,10 +150,9 @@ export function SidebarNewTerminal() {
           onClick={toggleMachineMenu}
           onKeyDown={onMachineTriggerKeyDown}
         >
-          <span class="workbench-sidebar-new-terminal__separator" aria-hidden="true"> · </span>
           <StatusDot status="ok" />
-          <span class="workbench-sidebar-new-terminal__machine-label">{effectiveWorkerLabel()}</span>
-          <Icon name="expand_more" class="workbench-sidebar-new-terminal__machine-chevron" size="sm" />
+          <span class="workbench-sidebar-actionbar__machine-label">{effectiveWorkerLabel()}</span>
+          <Icon name="expand_more" class="workbench-sidebar-actionbar__machine-chevron" size="sm" />
         </Button>
       </Show>
       <Show when={machineMenuPosition()}>
@@ -173,7 +161,7 @@ export function SidebarNewTerminal() {
             <div
               ref={machineMenuElement}
               id="sidebar-new-terminal-machine-menu"
-              class="df-menu-enter workbench-sidebar-new-terminal__machine-menu"
+              class="df-menu-enter workbench-sidebar-actionbar__machine-menu"
               data-testid="sidebar-new-terminal-machine-menu"
               role="menu"
               aria-labelledby="sidebar-new-terminal-machine"
@@ -183,16 +171,16 @@ export function SidebarNewTerminal() {
               <For each={onlineWorkers()}>
                 {(worker) => (
                   <CtxMenuItem
-                    class="workbench-sidebar-new-terminal__machine-option"
+                    class="workbench-sidebar-actionbar__machine-option"
                     testid="sidebar-new-terminal-machine-option"
                     selected={worker.fp === effectiveTargetFp()}
                     title={worker.label}
                     onClick={() => chooseMachine(worker.fp)}
                   >
                     <StatusDot status="ok" />
-                    <span class="workbench-sidebar-new-terminal__machine-option-label">{worker.label}</span>
+                    <span class="workbench-sidebar-actionbar__machine-option-label">{worker.label}</span>
                     <Show when={worker.fp === effectiveTargetFp()}>
-                      <Icon name="check" class="workbench-sidebar-new-terminal__machine-option-check" size="sm" />
+                      <Icon name="check" class="workbench-sidebar-actionbar__machine-option-check" size="sm" />
                     </Show>
                   </CtxMenuItem>
                 )}

@@ -25,6 +25,17 @@
         color: var(--text-hi);
         font-family: var(--md-font);
       }
+      /* One policy for the whole app: nothing overscrolls. A drag that reaches
+         the end of a list or of terminal scrollback stops there — no
+         rubber-band, no pull-to-refresh, and no chaining into an ancestor
+         scroller. A touch gesture the terminal owns can no longer be stolen by
+         the browser mid-drag and turned into a page pull. */
+      * { overscroll-behavior-y: none; }
+      /* .workbench-shell owns 100svh and every list scrolls inside it, so the
+         document must never acquire a scroll range of its own: `height: 100%`
+         resolves against the LARGE viewport on mobile while the shell is sized
+         in svh, which otherwise leaves ~one toolbar height of real page scroll. */
+      html, body { overflow: hidden; }
     </style>
   </head>
   <body>

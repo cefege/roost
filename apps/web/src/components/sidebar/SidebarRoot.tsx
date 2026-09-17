@@ -20,6 +20,7 @@ import { Button } from "../Settings/md/Button.tsx";
 import { IconButton } from "../Settings/md/IconButton.tsx";
 import { AllView } from "./AllView.tsx";
 import { SidebarAgents } from "./SidebarAgents.tsx";
+import { SidebarNewTerminal } from "./SidebarNewTerminal.tsx";
 import { SidebarSearch } from "./SidebarSearch.tsx";
 
 const SEARCH_DEBOUNCE_MS = 120;
@@ -66,57 +67,75 @@ export function SidebarRoot() {
   });
 
   const sidebarInteractive = () => isCompact() ? uiStore.sidebarOpen : !uiStore.sidebarCollapsed;
-  const spacesSelected = () => uiStore.sidebarView === "spaces";
+  const foldersSelected = () => uiStore.sidebarView === "folders";
   const agentsSelected = () => uiStore.sidebarView === "agents";
-  const spacesActive = () => sidebarInteractive() && spacesSelected();
+  const foldersActive = () => sidebarInteractive() && foldersSelected();
   const agentsActive = () => sidebarInteractive() && agentsSelected();
 
   return (
     <div class="workbench-sidebar-root" data-testid="sidebar-root">
       <div>
-        <div class="workbench-sidebar-selector" data-testid="sidebar-selector" role="group" aria-label="Sidebar view">
-          <Button
-            id="sidebar-view-spaces"
-            class="workbench-sidebar-selector__control"
-            data-selected={uiStore.sidebarView === "spaces" ? "true" : "false"}
-            data-testid="sidebar-view-spaces"
-            size="sm"
-            variant="ghost"
-            aria-pressed={uiStore.sidebarView === "spaces"}
-            onClick={() => setSidebarView("spaces")}
-          >
-            Spaces
-          </Button>
-          <Button
-            id="sidebar-view-agents"
-            class="workbench-sidebar-selector__control"
-            data-selected={uiStore.sidebarView === "agents" ? "true" : "false"}
-            data-testid="sidebar-view-agents"
-            size="sm"
-            variant="ghost"
-            aria-pressed={uiStore.sidebarView === "agents"}
-            onClick={() => setSidebarView("agents")}
-          >
-            Agents
-          </Button>
+        <div class="workbench-sidebar-header">
+          <Show when={isCompact()}>
+            <IconButton
+              icon="close"
+              label="Close sidebar"
+              onClick={closeSidebar}
+              data-testid="brand-row-collapse"
+            />
+          </Show>
+          <div class="workbench-sidebar-selector" data-testid="sidebar-selector" role="group" aria-label="Sidebar view">
+            <Button
+              id="sidebar-view-folders"
+              class="workbench-sidebar-selector__control"
+              data-selected={uiStore.sidebarView === "folders" ? "true" : "false"}
+              data-testid="sidebar-view-folders"
+              size="sm"
+              variant="ghost"
+              aria-pressed={uiStore.sidebarView === "folders"}
+              onClick={() => setSidebarView("folders")}
+            >
+              Folders
+            </Button>
+            <Button
+              id="sidebar-view-agents"
+              class="workbench-sidebar-selector__control"
+              data-selected={uiStore.sidebarView === "agents" ? "true" : "false"}
+              data-testid="sidebar-view-agents"
+              size="sm"
+              variant="ghost"
+              aria-pressed={uiStore.sidebarView === "agents"}
+              onClick={() => setSidebarView("agents")}
+            >
+              Agents
+            </Button>
+          </div>
+          <Show when={isCompact()}>
+            <IconButton
+              icon="settings"
+              label="Settings"
+              onClick={() => navigate(settingsPaneHref("devices"))}
+              data-testid="brand-row-settings"
+            />
+          </Show>
         </div>
         <SidebarSearch
           query={query()}
           onChange={onQueryChange}
           inputRef={(element) => { searchRef = element; }}
-          placeholder={spacesSelected() ? "Filter spaces…" : "Filter agents…"}
+          placeholder={foldersSelected() ? "Filter folders…" : "Filter agents…"}
         />
       </div>
 
       <div class="workbench-sidebar-panels">
         <div
-          class="workbench-sidebar-panel workbench-sidebar-panel--spaces"
-          data-active={spacesSelected() ? "true" : "false"}
-          data-testid="sidebar-spaces"
-          inert={!spacesActive() ? true : undefined}
-          aria-hidden={spacesSelected() ? undefined : "true"}
+          class="workbench-sidebar-panel workbench-sidebar-panel--folders"
+          data-active={foldersSelected() ? "true" : "false"}
+          data-testid="sidebar-folders"
+          inert={!foldersActive() ? true : undefined}
+          aria-hidden={foldersSelected() ? undefined : "true"}
         >
-          <AllView active={spacesActive()} query={debouncedQuery()} />
+          <AllView active={foldersActive()} query={debouncedQuery()} />
         </div>
         <div
           class="workbench-sidebar-panel workbench-sidebar-panel--agents"
@@ -129,22 +148,7 @@ export function SidebarRoot() {
         </div>
       </div>
 
-      <Show when={isCompact()}>
-        <footer class="workbench-sidebar-footer">
-          <IconButton
-            icon="settings"
-            label="Settings"
-            onClick={() => navigate(settingsPaneHref("devices"))}
-            data-testid="brand-row-settings"
-          />
-          <IconButton
-            icon="close"
-            label="Close sidebar"
-            onClick={closeSidebar}
-            data-testid="brand-row-collapse"
-          />
-        </footer>
-      </Show>
+      <SidebarNewTerminal />
     </div>
   );
 }

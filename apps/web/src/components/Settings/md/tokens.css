@@ -266,6 +266,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* `overflow: hidden` makes this a scroll container, and index.html's
+     `* { overscroll-behavior-y: none }` then makes it SWALLOW a wheel gesture
+     that lands on the text instead of chaining to the list it scrolls. It has
+     no scroll range of its own, so chaining here can only reach the list. */
+  overscroll-behavior-y: auto;
 }
 
 .md-list-row__support {

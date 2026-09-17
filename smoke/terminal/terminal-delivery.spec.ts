@@ -192,9 +192,9 @@ test("new-terminal server switch resets browse path before listing and spawning"
   });
 
   const sidebarFooter = multiWorkerSmokePage.getByTestId("sidebar-new-terminal");
-  await expect(sidebarFooter).toContainText("new");
+  await expect(sidebarFooter).toContainText("New folder");
   await expect(sidebarFooter.getByTestId("sidebar-new-terminal-machine")).toContainText("roost-terminal-test");
-  await sidebarFooter.getByTestId("flat-new-terminal-button").click();
+  await sidebarFooter.getByTestId("sidebar-new-terminal-button").click();
   await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/browse/${stack.workerFp}`);
   await expect(multiWorkerSmokePage.getByTestId("browse-server")).toHaveAttribute("title", "roost-terminal-test");
   await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", stack.workerHome);
@@ -229,7 +229,7 @@ test("new-terminal server switch resets browse path before listing and spawning"
   await expect(multiWorkerSmokePage).toHaveURL(sidebarUrl);
   await expect(sidebarFooter.getByTestId("sidebar-new-terminal-machine")).toHaveAttribute("title", secondWorker.label);
 
-  await sidebarFooter.getByTestId("flat-new-terminal-button").click();
+  await sidebarFooter.getByTestId("sidebar-new-terminal-button").click();
   await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/browse/${secondWorker.workerFp}`);
   await expect(multiWorkerSmokePage.getByTestId("browse-server")).toHaveAttribute("title", secondWorker.label);
   await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", bDefaultPath);
@@ -302,9 +302,9 @@ test("same session metadata updates preserve the mounted terminal DOM", async ({
     smokeWindow.__terminalIdentityProbe = { slot, grid, textarea };
   }, sessionId);
 
-  // Folder rows collapse sessions by cwd; the Spaces filter exposes the
+  // Folder rows collapse sessions by cwd; the Folders filter exposes the
   // per-session rows that carry the rename menu (same surface agent-status uses).
-  await smokePage.getByTestId("sidebar-view-spaces").click();
+  await smokePage.getByTestId("sidebar-view-folders").click();
   await smokePage.getByTestId("sidebar-search").fill("/tmp");
   const sessionRow = smokePage.locator(
     `[data-testid="sidebar-session-row"][data-session-id="${sessionId}"]`,

@@ -17,7 +17,7 @@ import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 
 const WIDE_VIEWPORT = { width: 1440, height: 900 } as const;
 const AGENT_SESSION_COUNT = 14;
-type SidebarView = "spaces" | "agents";
+type SidebarView = "folders" | "agents";
 type SidebarEdge = "top" | "bottom";
 type ScrollState = {
   overflowY: string;
@@ -26,25 +26,25 @@ type ScrollState = {
   clientHeight: number;
 };
 type SidebarPanelState = { ariaHidden: string | null; inert: boolean; scroll: ScrollState };
-type SidebarSurface = { spaces: SidebarPanelState; agents: SidebarPanelState };
+type SidebarSurface = { folders: SidebarPanelState; agents: SidebarPanelState };
 function sidebarPanelTestId(view: SidebarView): string {
-  return view === "spaces" ? "sidebar-spaces" : "sidebar-agents-section";
+  return view === "folders" ? "sidebar-folders" : "sidebar-agents-section";
 }
 function sidebarScrollTestId(view: SidebarView): string {
-  return view === "spaces" ? "all-view" : "sidebar-agents";
+  return view === "folders" ? "all-view" : "sidebar-agents";
 }
 function sidebarViewButton(page: Page, view: SidebarView) {
   return page.getByTestId(`sidebar-view-${view}`);
 }
 async function readSidebarSurface(page: Page): Promise<SidebarSurface | null> {
   return page.evaluate(() => {
-    const spacesPanel = document.querySelector<HTMLElement>('[data-testid="sidebar-spaces"]');
+    const foldersPanel = document.querySelector<HTMLElement>('[data-testid="sidebar-folders"]');
     const agentsPanel = document.querySelector<HTMLElement>(
       '[data-testid="sidebar-agents-section"]',
     );
-    const spacesScroll = document.querySelector<HTMLElement>('[data-testid="all-view"]');
+    const foldersScroll = document.querySelector<HTMLElement>('[data-testid="all-view"]');
     const agentsScroll = document.querySelector<HTMLElement>('[data-testid="sidebar-agents"]');
-    if (!spacesPanel || !agentsPanel || !spacesScroll || !agentsScroll) return null;
+    if (!foldersPanel || !agentsPanel || !foldersScroll || !agentsScroll) return null;
 
     const readScroll = (element: HTMLElement): ScrollState => ({
       overflowY: getComputedStyle(element).overflowY,
@@ -58,13 +58,13 @@ async function readSidebarSurface(page: Page): Promise<SidebarSurface | null> {
       scroll: readScroll(scrollHost),
     });
     return {
-      spaces: readPanel(spacesPanel, spacesScroll),
+      folders: readPanel(foldersPanel, foldersScroll),
       agents: readPanel(agentsPanel, agentsScroll),
     };
   });
 }
 async function expectSidebarHosts(page: Page): Promise<SidebarSurface> {
-  await expect(page.getByTestId("sidebar-spaces")).toHaveCount(1);
+  await expect(page.getByTestId("sidebar-folders")).toHaveCount(1);
   await expect(page.getByTestId("sidebar-agents-section")).toHaveCount(1);
   await expect(page.getByTestId("all-view")).toHaveCount(1);
   await expect(page.getByTestId("sidebar-agents")).toHaveCount(1);
@@ -72,14 +72,14 @@ async function expectSidebarHosts(page: Page): Promise<SidebarSurface> {
   const surface = await readSidebarSurface(page);
   if (!surface) throw new Error("sidebar selector did not retain both list hosts");
 
-  for (const panel of [surface.spaces, surface.agents]) {
+  for (const panel of [surface.folders, surface.agents]) {
     expect(panel.scroll.overflowY).toBe("auto");
     expect(panel.scroll.clientHeight).toBeGreaterThan(0);
   }
   return surface;
 }
 async function expectSidebarView(page: Page, selectedView: SidebarView): Promise<void> {
-  const inactiveView: SidebarView = selectedView === "spaces" ? "agents" : "spaces";
+  const inactiveView: SidebarView = selectedView === "folders" ? "agents" : "folders";
   await expect(sidebarViewButton(page, selectedView)).toHaveAttribute("aria-pressed", "true");
   await expect(sidebarViewButton(page, inactiveView)).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId(sidebarPanelTestId(inactiveView))).toHaveAttribute("aria-hidden", "true");
@@ -94,7 +94,7 @@ async function selectSidebarView(page: Page, view: SidebarView): Promise<void> {
   await expectSidebarView(page, view);
 }
 async function expectInactivePanelSkippedByTab(page: Page, activeView: SidebarView): Promise<void> {
-  const inactiveView: SidebarView = activeView === "spaces" ? "agents" : "spaces";
+  const inactiveView: SidebarView = activeView === "folders" ? "agents" : "folders";
   await sidebarViewButton(page, "agents").focus();
   await page.keyboard.press("Tab");
   const focusState = await page.evaluate(({ activePanelTestId, inactivePanelTestId }) => {
@@ -269,7 +269,7 @@ async function spawnWorkingAgents(
 }
 function expectNoLegacyChatControls(page: Page): Promise<void> {
   const sidebarPanels = page.locator(
-    '[data-testid="sidebar-spaces"], [data-testid="sidebar-agents-section"]',
+    '[data-testid="sidebar-folders"], [data-testid="sidebar-agents-section"]',
   );
   return Promise.all([
     expect(sidebarPanels.getByText("Chat", { exact: true })).toHaveCount(0),
@@ -285,12 +285,13 @@ export async function exerciseSidebarAgents(
   await page.setViewportSize(WIDE_VIEWPORT);
   const selector = page.getByRole("group", { name: "Sidebar view" });
   await expect(selector).toBeVisible();
-  await expect(selector.getByRole("button", { name: "Spaces", exact: true })).toHaveCount(1);
+  await expect(selector.getByRole("button", { name: "Folders", exact: true })).toHaveCount(1);
   await expect(selector.getByRole("button", { name: "Agents", exact: true })).toHaveCount(1);
   await expect(page.getByRole("tablist", { name: "Sidebar view" })).toHaveCount(0);
-  await expectSidebarView(page, "spaces");
+  await expectSidebarView(page, "folders");
 
   await selectSidebarView(page, "agents");
+  await expect(page.getByTestId("sidebar-new-terminal")).toBeVisible();
   await expect(page.getByTestId("sidebar-agents")).toContainText("No active agents");
   await expectSidebarView(page, "agents");
 
@@ -307,11 +308,11 @@ export async function exerciseSidebarAgents(
   await expectSidebarView(page, "agents");
   await expectInactivePanelSkippedByTab(page, "agents");
 
-  await selectSidebarView(page, "spaces");
-  await expectInactivePanelSkippedByTab(page, "spaces");
+  await selectSidebarView(page, "folders");
+  await expectInactivePanelSkippedByTab(page, "folders");
   const sidebarSearch = page.getByTestId("sidebar-search");
   await expect(sidebarSearch).toBeVisible();
-  await expect(sidebarSearch).toHaveAttribute("placeholder", "Filter spaces…");
+  await expect(sidebarSearch).toHaveAttribute("placeholder", "Filter folders…");
   await sidebarSearch.fill("/tmp");
   await expect.poll(() => page.getByTestId("sidebar-session-row").count(), {
     timeout: 30_000,
@@ -346,29 +347,29 @@ export async function exerciseSidebarAgents(
   await sidebarSearch.fill("");
   await expect(activeAgentRow).toBeVisible();
   const overflowingPanels = await expectSidebarHosts(page);
-  expect(overflowingPanels.spaces.scroll.scrollHeight).toBeGreaterThan(
-    overflowingPanels.spaces.scroll.clientHeight,
+  expect(overflowingPanels.folders.scroll.scrollHeight).toBeGreaterThan(
+    overflowingPanels.folders.scroll.clientHeight,
   );
   expect(overflowingPanels.agents.scroll.scrollHeight).toBeGreaterThan(
     overflowingPanels.agents.scroll.clientHeight,
   );
 
-  await expectEdgeGesturesPreserveView(page, "spaces", "top");
-  await expectEdgeGesturesPreserveView(page, "spaces", "bottom");
+  await expectEdgeGesturesPreserveView(page, "folders", "top");
+  await expectEdgeGesturesPreserveView(page, "folders", "bottom");
   await expectEdgeGesturesPreserveView(page, "agents", "top");
   await expectEdgeGesturesPreserveView(page, "agents", "bottom");
 
-  await selectSidebarView(page, "spaces");
-  await setPanelScrollEdge(page, "spaces", "top");
-  const spacesScrollTop = await scrollPanel(page, "spaces", 96);
+  await selectSidebarView(page, "folders");
+  await setPanelScrollEdge(page, "folders", "top");
+  const foldersScrollTop = await scrollPanel(page, "folders", 96);
   await selectSidebarView(page, "agents");
   await setPanelScrollEdge(page, "agents", "top");
   const agentsScrollTop = await scrollPanel(page, "agents", 288);
-  expect(Math.abs(spacesScrollTop - agentsScrollTop)).toBeGreaterThan(1);
+  expect(Math.abs(foldersScrollTop - agentsScrollTop)).toBeGreaterThan(1);
 
   for (let index = 0; index < 5; index += 1) {
-    await selectSidebarView(page, "spaces");
-    await expectRetainedPanelPosition(page, "spaces", spacesScrollTop);
+    await selectSidebarView(page, "folders");
+    await expectRetainedPanelPosition(page, "folders", foldersScrollTop);
     await selectSidebarView(page, "agents");
     await expectRetainedPanelPosition(page, "agents", agentsScrollTop);
   }

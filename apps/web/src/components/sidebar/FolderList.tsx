@@ -1,4 +1,4 @@
-// Spaces list — sidebar body for non-chat workspace groups and active filters.
+// Folders list — sidebar body for non-chat workspace groups and active filters.
 // Unfiltered rows group by current worker-and-folder identity and sort by recent
 // terminal activity; an active folder filter exposes each matching group's terminal rows.
 // Owns the sidebar keyboard surface: cursor order and ⏎ activation.
@@ -26,9 +26,9 @@ import {
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { isChatFolder } from "../../lib/quickChat.ts";
 import { isPendingClose } from "../../lib/pendingClose.ts";
+import { isCompact } from "../../lib/windowSizeClass.ts";
 import { SessionRow, relTimeTickMs } from "./SessionRow.tsx";
 import { FolderRowContextMenu } from "./FolderRowContextMenu.tsx";
-import { SidebarNewTerminal } from "./SidebarNewTerminal.tsx";
 import { FolderGlyph } from "../FolderGlyph.tsx";
 import { MachineIdentityMark } from "../MachineIdentityMark.tsx";
 import { IconButton } from "../Settings/md/IconButton.tsx";
@@ -126,7 +126,7 @@ export function FolderList(props: FolderListProps) {
     ? filteredSessionRows().map((session) => session.id)
     : folderRows().map((group) => group.leadId));
 
-  // Cursor commands must only target rows in the visible Spaces projection.
+  // Cursor commands must only target rows in the visible Folders projection.
   createEffect(() => {
     if (!props.active) {
       setActivateHandler(null);
@@ -190,17 +190,21 @@ export function FolderList(props: FolderListProps) {
         </Show>
         <FolderStatusRollup group={g} />
         <span class="df-flat-supporting">
-          <span class="df-flat-server" data-online={g.online ? "true" : "false"}>
-            <svg class="df-flat-server-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16" />
-            </svg>
-            <span class="df-flat-server-text">{g.server}</span>
-          </span>
-          <span class="df-flat-path" title={`${g.sessionIds.length} pane${g.sessionIds.length === 1 ? "" : "s"} in this workspace`}>
-            <FolderGlyph size={11} class="df-flat-folder-icon" />
-            <span>{g.sessionIds.length}</span>
-          </span>
+          <Show when={!isCompact() || !g.online}>
+            <span class="df-flat-server" data-online={g.online ? "true" : "false"}>
+              <svg class="df-flat-server-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16" />
+              </svg>
+              <span class="df-flat-server-text">{g.server}</span>
+            </span>
+          </Show>
+          <Show when={!isCompact()}>
+            <span class="df-flat-path" title={`${g.sessionIds.length} pane${g.sessionIds.length === 1 ? "" : "s"} in this workspace`}>
+              <FolderGlyph size={11} class="df-flat-folder-icon" />
+              <span>{g.sessionIds.length}</span>
+            </span>
+          </Show>
           <Show when={g.branch}>
             {(branch) => (
               <span class="df-flat-branch" title={`On branch ${branch()}`}>
@@ -241,20 +245,22 @@ export function FolderList(props: FolderListProps) {
               </a>
             )}
           </Show>
-          <For each={g.ports}>
-            {(port) => (
-              <a
-                class="df-flat-port"
-                data-testid={`port-chip-${g.key}-${port}`}
-                href={g.reachAddr ? `http://${g.reachAddr}:${port}` : undefined}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={g.reachAddr ? `Open http://${g.reachAddr}:${port}` : `Listening on :${port}`}
-                style={{ position: "relative", "z-index": 2, "pointer-events": "auto" }}
-                onClick={(e) => { e.stopPropagation(); if (!g.reachAddr) e.preventDefault(); }}
-              >:{port}</a>
-            )}
-          </For>
+          <Show when={!isCompact()}>
+            <For each={g.ports}>
+              {(port) => (
+                <a
+                  class="df-flat-port"
+                  data-testid={`port-chip-${g.key}-${port}`}
+                  href={g.reachAddr ? `http://${g.reachAddr}:${port}` : undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={g.reachAddr ? `Open http://${g.reachAddr}:${port}` : `Listening on :${port}`}
+                  style={{ position: "relative", "z-index": 2, "pointer-events": "auto" }}
+                  onClick={(e) => { e.stopPropagation(); if (!g.reachAddr) e.preventDefault(); }}
+                >:{port}</a>
+              )}
+            </For>
+          </Show>
         </span>
       </span>
       </span>
@@ -298,8 +304,8 @@ export function FolderList(props: FolderListProps) {
             fallback={(
               <EmptyState
                 icon="folder_off"
-                title="No spaces yet"
-                supporting="Open a terminal to create your first space."
+                title="No folders yet"
+                supporting="Open a terminal to add your first folder."
               />
             )}
           >
@@ -334,7 +340,6 @@ export function FolderList(props: FolderListProps) {
           </div>
         </Show>
       </Show>
-      <SidebarNewTerminal />
       <Show when={folderCtxMenu()}>
         {(m) => (
           <FolderRowContextMenu

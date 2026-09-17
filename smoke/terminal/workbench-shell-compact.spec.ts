@@ -37,12 +37,25 @@ test("compact workbench preserves drawer navigation and settings padding across 
   await expect(mobileSmokePage.locator(".workbench-titlebar")).toHaveCount(0);
   await expect(mobileSmokePage.locator(".workbench-activity-bar")).toHaveCount(0);
   await expect(mobileSmokePage.getByTestId("mobile-deck-bar")).toContainText(/\S/);
+  expect(await mobileSmokePage.evaluate(() => {
+    const root = document.documentElement;
+    const display = document.querySelector('[data-testid="terminal-display"]');
+    return {
+      documentScrollRange: root.scrollHeight - root.clientHeight,
+      rootOverscrollY: getComputedStyle(root).overscrollBehaviorY,
+      displayOverscrollY: display ? getComputedStyle(display).overscrollBehaviorY : null,
+    };
+  })).toEqual({
+    documentScrollRange: 0,
+    rootOverscrollY: "none",
+    displayOverscrollY: "none",
+  });
   const drawer = mobileSmokePage.getByTestId("sidebar-drawer");
   await mobileSmokePage.getByTestId("mobile-deck-bar-menu").tap();
   await expect(drawer).toHaveAttribute("data-open", "true");
   await expect(mobileSmokePage.getByTestId("sidebar-overlay")).toHaveAttribute("data-open", "true");
   const sidebarSearch = mobileSmokePage.getByTestId("sidebar-search");
-  await expect(mobileSmokePage.getByTestId("sidebar-view-spaces")).toHaveAttribute("aria-pressed", "true");
+  await expect(mobileSmokePage.getByTestId("sidebar-view-folders")).toHaveAttribute("aria-pressed", "true");
   await expect(sidebarSearch).toBeVisible();
   await expect(mobileSmokePage.getByTestId("folder-list")).toBeVisible();
   await sidebarSearch.fill("/tmp");
@@ -55,6 +68,28 @@ test("compact workbench preserves drawer navigation and settings padding across 
     .toBeGreaterThan(0);
   await expect(mobileSmokePage.getByTestId("sidebar-session-row")).toHaveCount(0);
   await expect(mobileSmokePage.getByTestId("folder-list")).toBeVisible();
+  // The action bar lives in the sidebar grid's bottom row, so scrolling the
+  // folders list must not move it and the scroller must not contain it.
+  const actionBar = mobileSmokePage.getByTestId("sidebar-new-terminal");
+  const foldersScroller = mobileSmokePage.getByTestId("all-view");
+  await expect(foldersScroller.locator('[data-testid="sidebar-new-terminal"]')).toHaveCount(0);
+  await expect(actionBar).toBeVisible();
+  const pinnedBox = await actionBar.boundingBox();
+  if (!pinnedBox) throw new Error("sidebar action bar has no layout box");
+  for (const scrollTop of ["bottom", "top"] as const) {
+    await foldersScroller.evaluate((element, edge) => {
+      element.scrollTop = edge === "bottom" ? element.scrollHeight : 0;
+    }, scrollTop);
+    await expect(actionBar).toBeVisible();
+    const scrolledBox = await actionBar.boundingBox();
+    if (!scrolledBox) throw new Error("sidebar action bar lost its layout box while scrolling");
+    expect(Math.abs(scrolledBox.y - pinnedBox.y)).toBeLessThanOrEqual(1);
+  }
+  // Compact rows drop the machine name and pane-count chip; the leading
+  // MachineIdentityMark already names the machine for an online worker.
+  const firstFolderRow = mobileSmokePage.locator('[data-testid^="folder-row-"]').first();
+  await expect(firstFolderRow.locator(".df-flat-server")).toHaveCount(0);
+  await expect(firstFolderRow.locator(".df-flat-path")).toHaveCount(0);
   await mobileSmokePage.getByTestId("brand-row-collapse").tap();
   await expect(drawer).toHaveAttribute("data-open", "false");
   await swipeFromEdge(mobileSmokePage, 1, 250, 420);
@@ -95,6 +130,8 @@ test("compact workbench preserves drawer navigation and settings padding across 
   await expect(mobileSmokePage.getByTestId("workbench-activity-sessions")).toBeVisible();
   await expect(mobileSmokePage.getByTestId("sidebar-desktop")).toBeVisible();
   await expect(mobileSmokePage.getByTestId("folder-list")).toBeVisible();
+  await expect(firstFolderRow.locator(".df-flat-server")).toHaveCount(1);
+  await expect(firstFolderRow.locator(".df-flat-path")).toHaveCount(1);
   await mobileSmokePage.setViewportSize(SHORT_SIDE_BOUNDARY_VIEWPORT);
   await expect(mobileSmokePage.locator(".workbench-shell")).toHaveAttribute("data-compact", "false");
   await mobileSmokePage.goto(`${stack.baseUrl}/settings/machines`, { waitUntil: "domcontentloaded" });
@@ -108,4 +145,38 @@ test("compact workbench preserves drawer navigation and settings padding across 
     return [style.paddingTop, style.paddingBottom].every((padding) => padding === blockPadding)
       && [style.paddingRight, style.paddingLeft].every((padding) => padding === inlinePadding);
   })).toBe(true);
+});
+
+test("notification dock rides above the compact composer", async ({ mobileSmokePage, stack }) => {
+  await mobileSmokePage.setViewportSize(COMPACT_VIEWPORT);
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+  const slot = mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`);
+  await slot.getByTestId("terminal-display").click();
+  await expect(slot).toHaveAttribute("data-focused", "true");
+  // The viewport composer mounts only for a focused compact pane, and the
+  // pane-placement composer shares the class, so pin the placement.
+  const composerSelector = '.term-chat__dock[data-placement="viewport"]';
+  await expect(mobileSmokePage.locator(composerSelector)).toBeVisible();
+  // The dock is always mounted and zero-height while empty, so its bottom edge
+  // — where a card's bottom edge lands — is read straight off layout instead of
+  // through visibility-gated boundingBox().
+  const geometry = await mobileSmokePage.evaluate((selector) => {
+    const dock = document.querySelector('[data-testid="notification-dock"]');
+    const composer = document.querySelector(selector);
+    if (!dock || !composer) return null;
+    const dockRect = dock.getBoundingClientRect();
+    const composerRect = composer.getBoundingClientRect();
+    return {
+      dockBottom: dockRect.bottom,
+      dockWidth: Math.round(dockRect.width),
+      composerTop: composerRect.top,
+      composerHeight: Math.round(composerRect.height),
+    };
+  }, composerSelector);
+  if (!geometry) throw new Error("dock or composer is not mounted on the compact terminal route");
+  expect(geometry.composerHeight).toBeGreaterThan(0);
+  expect(geometry.dockBottom).toBeLessThanOrEqual(geometry.composerTop + 1);
+  // 24 = 2 * --md-space-3, the dock's own inline gutters.
+  expect(geometry.dockWidth).toBe(COMPACT_VIEWPORT.width - 24);
 });

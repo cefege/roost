@@ -4,13 +4,19 @@
 // lives in the sidebar (FolderList) — no duplicate folder grid here.
 
 import { Show } from "solid-js";
+import { useLocation, useNavigate } from "@solidjs/router";
 import { openSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
+import { defaultNewTerminalWorkerFp } from "../lib/newTerminalTarget.ts";
+import { browseHref } from "../routes.ts";
 import { BrandMark } from "./BrandMark.tsx";
-import { FlatNewTerminal } from "./sidebar/FlatNewTerminal.tsx";
+import { IconButton } from "./Settings/md/IconButton.tsx";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 
 export function HomeLanding() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   return (
     <div class="home-landing" data-testid="home-landing">
       <div class="home-landing-head">
@@ -18,7 +24,16 @@ export function HomeLanding() {
           <button type="button" class="home-landing-menu"
             data-testid="home-open-sidebar" aria-label="Open sidebar"
             onClick={openSidebar}>☰</button>
-          <FlatNewTerminal />
+          <IconButton
+            icon="add"
+            label="New terminal"
+            title="New terminal"
+            data-testid="home-new-terminal"
+            onClick={() => {
+              const fp = defaultNewTerminalWorkerFp(location.pathname);
+              if (fp) navigate(browseHref(fp));
+            }}
+          />
         </Show>
         <BrandMark size={28} />
         <span class="home-landing-mark">Roost</span>
