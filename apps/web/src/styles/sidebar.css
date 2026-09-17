@@ -162,6 +162,33 @@
 .cell-grid .cell-sb-spacer {
   overflow-anchor: none;
 }
+/* Both placeholders stand in for scrollback the pager can still page in
+   (scrollbackBackfill.ts), never for history that is absent — an unpainted
+   blank sheet reads as "nothing here". The head spacer drops the claim once a
+   retention floor is proven ([data-history-floor]): those rows are gone, not
+   loading, and a pending texture there would read as a load that never ends.
+   Paint-only: the inline pixel heights the renderer derives every scroll
+   position from must not change, and a spacer can be 10k rows tall, so no
+   animation and no filter either. */
+.cell-grid .cell-sb-gap,
+.cell-grid .cell-sb-spacer:not([data-history-floor]) {
+  /* Faint ink over the terminal surface: 8% is the first step of the system's
+     state-overlay ramp (8/10/12/16, theme-vars.css --md-state-*), taken on
+     --term-fg because the --md-* roles track chrome ink, not terminal ink. */
+  --cell-sb-pending-ink: color-mix(in srgb, var(--term-fg) 8%, transparent);
+  /* 1.2em period = the .cell-row pitch above, so the bars sit on real row
+     boundaries and read as lines of text instead of a slab. They stop short of
+     the column box (0.6ch per column) so the sheet reads as text, not a fill. */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--cell-sb-pending-ink) 0em,
+    var(--cell-sb-pending-ink) 0.75em,
+    transparent 0.75em,
+    transparent 1.2em
+  );
+  background-repeat: no-repeat;
+  background-size: calc(var(--cell-cols, 80) * 0.6ch) 100%;
+}
 .cell-grid.alt-active { overflow-y: hidden; }
 .cell-grid .cell-row {
   white-space: pre;        /* preserve runs of spaces; no wrap = no reflow */
@@ -728,12 +755,6 @@
 @keyframes df-menu-enter {
   from { transform: scale(0.95); }
   to   { transform: scale(1); }
-}
-/* toast-in — was referenced by ToastContainer but never defined (toasts
-   snapped in). M3 emphasized-decelerate slide+fade. */
-@keyframes toast-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
 }
 .df-menu-enter {
   transform-origin: top right;

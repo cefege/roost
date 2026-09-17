@@ -55,33 +55,35 @@ export const WorkbenchShellSpecimen: Component = () => {
       <Icon name="settings" />
     </nav>
     <aside class="workbench-sidebar-region workbench-sidebar workbench-sidebar-root" style={{ display: "grid", background: "var(--workbench-sidebar)" }}>
-      <div class="workbench-sidebar-selector" role="group" aria-label="Sidebar view">
-        <Button
-          class="workbench-sidebar-selector__control"
-          data-selected="true"
-          size="sm"
-          variant="ghost"
-          aria-pressed={true}
-        >
-          Spaces
-        </Button>
-        <Button
-          class="workbench-sidebar-selector__control"
-          data-selected="false"
-          size="sm"
-          variant="ghost"
-          aria-pressed={false}
-        >
-          Agents
-        </Button>
+      <div class="workbench-sidebar-header">
+        <div class="workbench-sidebar-selector" role="group" aria-label="Sidebar view">
+          <Button
+            class="workbench-sidebar-selector__control"
+            data-selected="true"
+            size="sm"
+            variant="ghost"
+            aria-pressed={true}
+          >
+            Folders
+          </Button>
+          <Button
+            class="workbench-sidebar-selector__control"
+            data-selected="false"
+            size="sm"
+            variant="ghost"
+            aria-pressed={false}
+          >
+            Agents
+          </Button>
+        </div>
       </div>
       <SidebarSearch
         query={sidebarQuery()}
         onChange={setSidebarQuery}
-        placeholder="Filter spaces…"
+        placeholder="Filter folders…"
       />
       <div class="workbench-sidebar-panels">
-        <div class="workbench-sidebar-panel workbench-sidebar-panel--spaces" data-active="true">
+        <div class="workbench-sidebar-panel workbench-sidebar-panel--folders" data-active="true">
           <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-2)", padding: "var(--md-space-3)", color: "var(--text-hi)" }}>
             <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)", "font-size": "var(--md-body-s-size)" }}>
               <StatusDot status="running" /><span>roost · main</span>
@@ -90,6 +92,14 @@ export const WorkbenchShellSpecimen: Component = () => {
           </div>
         </div>
       </div>
+      <footer class="workbench-sidebar-actionbar">
+        <Button class="workbench-sidebar-actionbar__new" size="sm" icon="add">New folder</Button>
+        <span class="workbench-sidebar-actionbar__machine">
+          <StatusDot status="ok" />
+          <span class="workbench-sidebar-actionbar__machine-label">mini</span>
+          <Icon name="expand_more" size="sm" />
+        </span>
+      </footer>
     </aside>
     <main class="workbench-editor-region" style={{ display: "grid", "grid-template-rows": "var(--workbench-tab-strip-height) minmax(0, 1fr)", "min-width": 0 }}>
       <div class="workbench-pane-tab-strip" aria-label="Workbench tabs">

@@ -127,11 +127,11 @@ export function AuditLogPane() {
         return [row, ...prev];
       });
     });
-    const unsubDomain = registerLazySyncDomain(SyncDomain.AUDIT, async () => {
+    const unsubDomain = registerLazySyncDomain(SyncDomain.AUDIT, async (_token, { signal }) => {
       setLoading(true);
       setLoadErr(null);
       try {
-        const result = await coordClient.auditList({ limit: PAGE_LIMIT });
+        const result = await coordClient.auditList({ limit: PAGE_LIMIT }, { signal });
         const rows = auditRowsFromProto(result.rows);
         const cursor = result.nextCursor ? Number(result.nextCursor) : null;
         return {

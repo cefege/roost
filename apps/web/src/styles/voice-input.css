@@ -329,7 +329,6 @@
 }
 .term-chat__dock[data-placement="pane"][data-size-constrained] {
   overflow: auto;
-  overscroll-behavior: contain;
 }
 .term-chat__dock[data-placement="pane"][data-size-constrained] .voice-caption {
   position: static;
@@ -632,7 +631,6 @@
   box-shadow: var(--md-elev-3);
   pointer-events: auto;
   overflow-y: auto;
-  overscroll-behavior: contain;
   animation: voice-caption-enter 200ms var(--md-ease-emphasized);
   font-family: var(--md-font);
 }

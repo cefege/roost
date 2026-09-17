@@ -67,7 +67,7 @@ export function McpPane() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setDeleteError(msg);
-      addToast(`Delete failed: ${msg}`);
+      addToast(`Delete failed: ${msg}`, "err");
     }
   }
 
@@ -85,7 +85,7 @@ export function McpPane() {
       addToast("Relay added");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      addToast(`Add failed: ${msg}`);
+      addToast(`Add failed: ${msg}`, "err");
       throw e;
     }
   }

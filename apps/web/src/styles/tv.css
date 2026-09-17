@@ -95,3 +95,12 @@ html[data-tv="true"] {
     )
   );
 }
+
+/* The dock is viewport-fixed outside .workbench-shell's overscan padding, and a
+   television reports every env(safe-area-inset-*) as 0px, so its own gutters do
+   not clear the cropped bezel. */
+[data-tv="true"] .roost-notify-dock {
+  left: calc(var(--roost-main-left) + var(--tv-overscan-inline) + var(--md-space-3));
+  right: calc(var(--tv-overscan-inline) + var(--md-space-3));
+  --roost-notify-dock-overscan: var(--tv-overscan-block);
+}
