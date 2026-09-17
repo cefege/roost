@@ -2,8 +2,10 @@
 // This regression delays WorkersList past terminal hydration so a slow domain
 // cannot hold back the ones that already answered.
 // A WORKERS domain reset must withdraw readiness until its replacement snapshot lands.
+// A domain whose snapshot RPC never settles must be cancelled and retried, or it
+// holds its domain un-ready and mutes every mounted terminal for good.
 
-import { expect, test } from "bun:test";
+import { afterEach, expect, test, vi } from "bun:test";
 import { create, fromBinary } from "@bufbuild/protobuf";
 import {
   FirehoseFrameSchema,
@@ -29,6 +31,7 @@ import {
   sessionsHydrated,
   workersHydrated,
 } from "../src/store/sync-hydrated.ts";
+import { SYNC_HYDRATION_DEADLINE_MS } from "../src/store/sync-domain-hydration.ts";
 
 const EAGER_DOMAINS = [
   SyncDomain.TERMINAL,
@@ -42,6 +45,37 @@ const EAGER_DOMAINS = [
 async function flushHydrators(): Promise<void> {
   for (let turn = 0; turn < 24; turn++) await Promise.resolve();
 }
+
+/** One accepting v2 socket with every eager domain subscribed and un-ready:
+ *  the exact state a fresh Sync generation hands the hydrators. */
+function bootstrapLink(sent: Uint8Array[]): LiveSyncLink {
+  return {
+    ws: {
+      readyState: WebSocket.OPEN,
+      send: (data: Uint8Array) => { sent.push(data); },
+    } as unknown as WebSocket,
+    gen: 7,
+    abortReason: null,
+    accepting: true,
+    resolveClosed: () => {},
+    expectsV2: true,
+    openTimer: null,
+    closeEscapeTimer: null,
+    watchdog: null,
+    v2: {
+      socketId: "bootstrap-socket",
+      processEpoch: "bootstrap-epoch",
+      domains: new Map(EAGER_DOMAINS.map((domain) => [domain, {
+        generation: 1n,
+        subscribed: true,
+        ready: false,
+      }])),
+      routableChunks: new Map(),
+    },
+  };
+}
+
+afterEach(() => { vi.useRealTimers(); });
 
 test("bootstrap hydrates and rehydrates workers independently of the other domains", async () => {
   const sent: Uint8Array[] = [];
@@ -81,30 +115,7 @@ test("bootstrap hydrates and rehydrates workers independently of the other domai
       return { requests: [] };
     },
   };
-  const link: LiveSyncLink = {
-    ws: {
-      readyState: WebSocket.OPEN,
-      send: (data: Uint8Array) => { sent.push(data); },
-    } as unknown as WebSocket,
-    gen: 7,
-    abortReason: null,
-    accepting: true,
-    resolveClosed: () => {},
-    expectsV2: true,
-    openTimer: null,
-    closeEscapeTimer: null,
-    watchdog: null,
-    v2: {
-      socketId: "bootstrap-socket",
-      processEpoch: "bootstrap-epoch",
-      domains: new Map(EAGER_DOMAINS.map((domain) => [domain, {
-        generation: 1n,
-        subscribed: true,
-        ready: false,
-      }])),
-      routableChunks: new Map(),
-    },
-  };
+  const link = bootstrapLink(sent);
 
   setRootStore("pair_requests", "stale-pair", {
     ephemeral_id: "stale-pair",
@@ -204,6 +215,66 @@ test("bootstrap hydrates and rehydrates workers independently of the other domai
     }
     expect(rehydratedReady.value.domain).toBe(SyncDomain.WORKERS);
     expect(rehydratedReady.value.generation).toBe(2n);
+  } finally {
+    disposeHydrators();
+    _clearLiveSyncLink(link);
+    setRootStore("pair_requests", reconcile({}));
+    setRootStore("workers", reconcile({}));
+    resetSyncHydration();
+  }
+});
+
+test("a hydration that never settles is cancelled and retried", async () => {
+  vi.useFakeTimers();
+  const sent: Uint8Array[] = [];
+  const abortSignals: AbortSignal[] = [];
+  let sessionsListCalls = 0;
+  const coordClient = {
+    // A pooled half-open connection after a sleeping laptop wakes: the request
+    // is written and nothing ever answers it.
+    sessionsList: (_request: unknown, options: { signal: AbortSignal }) => {
+      sessionsListCalls += 1;
+      abortSignals.push(options.signal);
+      return Promise.withResolvers<never>().promise;
+    },
+    workersList: async () => ({ workers: [], routableFps: [] }),
+    workspacesList: async () => ({ workspaces: [] }),
+    tasksList: async () => ({ tasks: [] }),
+    mcpList: async () => ({ relays: [] }),
+    pairList: async () => ({ requests: [] }),
+  };
+  const link = bootstrapLink(sent);
+
+  resetSyncHydration();
+  _installLiveSyncLink(link);
+  const disposeHydrators = _installBootstrapDomainHydrators({
+    coordClient: coordClient as never,
+    onTerminalFailure: async () => {},
+    onTerminalSnapshotApplied: () => {},
+    requestReconnect: () => {},
+  });
+
+  try {
+    await flushHydrators();
+    expect(sessionsListCalls).toBe(1);
+    expect(sessionsHydrated()).toBe(false);
+    expect(abortSignals[0]?.aborted).toBe(false);
+
+    vi.advanceTimersByTime(SYNC_HYDRATION_DEADLINE_MS);
+    await flushHydrators();
+    expect(abortSignals[0]?.aborted).toBe(true);
+    expect(sessionsHydrated()).toBe(false);
+    expect(link.v2?.domains.get(SyncDomain.TERMINAL)?.ready).toBe(false);
+    // Pre-fix the hydrator was called once and never again: the deadline is
+    // what turns an unsettled snapshot back into the ordinary retry.
+    expect(sessionsListCalls).toBe(1);
+
+    vi.advanceTimersByTime(500);
+    await flushHydrators();
+    expect(sessionsListCalls).toBe(2);
+    expect(link.v2?.domains.get(SyncDomain.TERMINAL)?.ready).toBe(false);
+    // Every other domain answered inside the same generation.
+    expect(link.v2?.domains.get(SyncDomain.WORKSPACES)?.ready).toBe(true);
   } finally {
     disposeHydrators();
     _clearLiveSyncLink(link);

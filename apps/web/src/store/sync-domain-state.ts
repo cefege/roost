@@ -44,6 +44,7 @@ export interface SyncDomainSnapshot {
 
 export type SyncDomainHydrator = (
   token: SyncDomainToken,
+  options: { readonly signal: AbortSignal },
 ) => Promise<SyncDomainSnapshot | null>;
 
 const v2ControlHandlers = new Set<(

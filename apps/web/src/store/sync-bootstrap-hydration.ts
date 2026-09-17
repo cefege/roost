@@ -54,10 +54,10 @@ export function _installBootstrapDomainHydrators(
   deps: BootstrapDomainHydrationDeps,
 ): () => void {
   const unregisterHydrators: Array<() => void> = [];
-  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.TERMINAL, async (token) => {
+  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.TERMINAL, async (token, { signal }) => {
     let response: SessionsListResponse;
     try {
-      response = await deps.coordClient.sessionsList({ syncSocketId: token.socketId });
+      response = await deps.coordClient.sessionsList({ syncSocketId: token.socketId }, { signal });
     } catch (reason) {
       await deps.onTerminalFailure(reason);
       return null;
@@ -91,8 +91,8 @@ export function _installBootstrapDomainHydrators(
     };
   }));
 
-  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.WORKERS, async () => {
-    const response = await deps.coordClient.workersList({});
+  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.WORKERS, async (_token, { signal }) => {
+    const response = await deps.coordClient.workersList({}, { signal });
     const workers: Record<string, Worker> = {};
     for (const worker of response.workers) {
       workers[worker.fp] = {
@@ -138,8 +138,8 @@ export function _installBootstrapDomainHydrators(
     };
   }));
 
-  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.WORKSPACES, async () => {
-    const response = await deps.coordClient.workspacesList({});
+  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.WORKSPACES, async (_token, { signal }) => {
+    const response = await deps.coordClient.workspacesList({}, { signal });
     const workspaces: Record<string, Workspace> = {};
     for (const workspace of response.workspaces) {
       workspaces[workspace.id] = {
@@ -158,8 +158,8 @@ export function _installBootstrapDomainHydrators(
     return { apply: () => setRootStore("workspaces", workspaces) };
   }));
 
-  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.TASKS, async () => {
-    const response = await deps.coordClient.tasksList({});
+  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.TASKS, async (_token, { signal }) => {
+    const response = await deps.coordClient.tasksList({}, { signal });
     const tasks: Record<string, Task> = {};
     for (const task of response.tasks) {
       // A malformed JSON column drops its row rather than retrying the domain forever.
@@ -169,8 +169,8 @@ export function _installBootstrapDomainHydrators(
     return { apply: () => setRootStore("tasks", tasks) };
   }));
 
-  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.MCP, async () => {
-    const response = await deps.coordClient.mcpList({});
+  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.MCP, async (_token, { signal }) => {
+    const response = await deps.coordClient.mcpList({}, { signal });
     const relays: Record<string, McpRelay> = {};
     for (const relay of response.relays) {
       const wire = mcpRelayProtoToWire(relay);
@@ -179,8 +179,8 @@ export function _installBootstrapDomainHydrators(
     return { apply: () => setRootStore("mcp_relays", relays) };
   }));
 
-  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.PAIR, async () => {
-    const response = await deps.coordClient.pairList({});
+  unregisterHydrators.push(registerSyncDomainHydrator(SyncDomain.PAIR, async (_token, { signal }) => {
+    const response = await deps.coordClient.pairList({}, { signal });
     const requests: Record<string, PairRequest> = {};
     for (const request of response.requests) {
       requests[request.ephemeralId] = {

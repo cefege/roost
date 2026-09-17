@@ -8,7 +8,7 @@ import {
   SyncDomain,
   SyncDomainSubscriptionCommandSchema,
 } from "@roost/shared/proto/sync_pb";
-import { diag } from "@roost/shared/diag";
+import { diag, signal } from "@roost/shared/diag";
 import { markPhase } from "../lib/diag.ts";
 import {
   _currentLiveSyncLink,
@@ -24,6 +24,12 @@ import {
 
 const domainHydrationTriggers = new Map<SyncDomain, Set<() => void>>();
 const lazyHydrationTriggers = new Map<SyncDomain, Set<() => void>>();
+
+/** A hydration that never settles holds its domain un-ready forever: no
+ * publication target, so a mounted terminal view can never publish, never get
+ * an ACCEPTED stream, and never accept a frame again. The deadline converts
+ * that silence into the ordinary rejected-snapshot retry. */
+export const SYNC_HYDRATION_DEADLINE_MS = 15_000;
 
 export function registerSyncDomainHydrator(
   domain: SyncDomain,
@@ -93,7 +99,21 @@ function registerDomainHydrator(
   let retryTimer: Timer | null = null;
 
   const run = (token: SyncDomainToken, generationKey: string): void => {
-    void Promise.resolve().then(() => hydrate(token)).then((snapshot) => {
+    const controller = new AbortController();
+    const { promise: deadline, reject: failDeadline } = Promise.withResolvers<never>();
+    const timer = setTimeout(() => {
+      signal("sync.hydration_timeout", {
+        domain: SyncDomain[domain],
+        ms: SYNC_HYDRATION_DEADLINE_MS,
+        cooldownKey: SyncDomain[domain],
+      });
+      controller.abort();
+      failDeadline(new Error(`sync domain hydration exceeded ${SYNC_HYDRATION_DEADLINE_MS}ms`));
+    }, SYNC_HYDRATION_DEADLINE_MS);
+    void Promise.race([
+      Promise.resolve().then(() => hydrate(token, { signal: controller.signal })),
+      deadline,
+    ]).then((snapshot) => {
       markPhase("snapshot_complete", {
         domain: SyncDomain[domain],
         generation: token.domainGeneration,
@@ -113,7 +133,7 @@ function registerDomainHydrator(
       });
       diag("sync.snapshot_failed", { domain, error: String(error) });
       scheduleRetry(token, generationKey);
-    });
+    }).finally(() => { clearTimeout(timer); });
   };
 
   const scheduleRetry = (token: SyncDomainToken, generationKey: string): void => {
