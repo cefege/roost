@@ -68,6 +68,7 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
     const maxSize = Number.parseFloat(activeStyle.getPropertyValue("max-inline-size"));
     const tokenSize = Number.parseFloat(rootStyle.getPropertyValue("--md-space-8"));
     const inactiveClose = inactiveTab.querySelector<HTMLElement>(".df-tab-close");
+    const stripRect = shell.getBoundingClientRect();
     return {
       shellScrolls: shell.scrollWidth > shell.clientWidth + 1,
       railScrolls: rail.scrollWidth > rail.clientWidth + 1,
@@ -94,6 +95,12 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
       inactiveTopBorder: inactiveStyle.borderTopColor,
       focusRingColor,
       topBorderReserved: tabs.every((tab) => getComputedStyle(tab).borderTopWidth === rootStyle.getPropertyValue("--workbench-border-width").trim()),
+      tabsFillStrip: tabs.every((tab) => {
+        const rect = toRect(tab);
+        return Math.abs(rect.top - stripRect.top) < 0.5 && Math.abs(rect.bottom - stripRect.bottom) < 0.5;
+      }),
+      minSize,
+      maxSize,
       sizesMatchTokens: minSize === tokenSize * 3 && maxSize === tokenSize * 5,
       widthsWithinRange: tabs.every((tab) => {
         const rect = toRect(tab);
@@ -126,6 +133,7 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
   expect(tabStripLayout.activeTopBorder).toBe(tabStripLayout.focusRingColor);
   expect(tabStripLayout.unfocusedActiveBorder).toBe(tabStripLayout.inactiveTopBorder);
   expect(tabStripLayout.topBorderReserved).toBe(true);
+  expect(tabStripLayout.tabsFillStrip).toBe(true);
   expect(tabStripLayout.sizesMatchTokens).toBe(true);
   expect(tabStripLayout.widthsWithinRange).toBe(true);
   expect(tabStripLayout.iconAndTitleIdentity).toBe(true);
@@ -135,7 +143,54 @@ export async function expectConnectedWorkbenchTabStrip(page: Page): Promise<void
   const inactiveClose = inactiveTab.locator(".df-tab-close");
   await expect(inactiveClose).toHaveCSS("opacity", "0");
   await expect(inactiveClose).toHaveCSS("pointer-events", "none");
+  const label = inactiveTab.locator(".df-tab-label");
+  const tabWidthBeforeHover = (await inactiveTab.boundingBox())?.width ?? 0;
+  const labelWidthBeforeHover = (await label.boundingBox())?.width ?? 0;
+  expect(tabWidthBeforeHover).toBeGreaterThan(0);
+  expect(labelWidthBeforeHover).toBeGreaterThan(0);
   await inactiveTab.hover();
   await expect(inactiveClose).toHaveCSS("opacity", "1");
   await expect(inactiveClose).toHaveCSS("pointer-events", "auto");
+
+  // The close slot is reserved in layout whether or not the X is painted, so
+  // revealing it must move nothing: neither the tab box (which would shove its
+  // neighbours and stale the hover-card anchor rect PaneStrip captured on
+  // mouseenter) nor the label box (which would re-truncate the title mid-hover).
+  expect(Math.abs(((await inactiveTab.boundingBox())?.width ?? 0) - tabWidthBeforeHover)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(((await label.boundingBox())?.width ?? 0) - labelWidthBeforeHover)).toBeLessThanOrEqual(0.5);
+
+  // Width stability only bites on a tab sized by its own content: every session
+  // in this scenario rests at the 3×--md-space-8 floor, where the label absorbs
+  // the reserved close slot instead of widening the tab. Retitle one PTY so its
+  // tab sizes to content — the state the hover-time reflow was reported in.
+  const contentSizedId = (await inactiveTab.getAttribute("data-testid"))?.replace("tab-", "");
+  if (!contentSizedId) throw new Error("inactive workbench tab carries no session id");
+  await page.mouse.move(0, 0);
+  await page.evaluate(
+    (id) => window.__smoke.input(id, "printf '\\033]0;wb-tab-sizing-fix\\007'\n"),
+    contentSizedId,
+  );
+  await expect(label).toHaveText("wb-tab-sizing-fix");
+  const contentSizedWidth = (await inactiveTab.boundingBox())?.width ?? 0;
+  expect(contentSizedWidth).toBeGreaterThan(tabStripLayout.minSize);
+  expect(contentSizedWidth).toBeLessThan(tabStripLayout.maxSize);
+  await inactiveTab.hover();
+  await expect(inactiveClose).toHaveCSS("opacity", "1");
+  expect(Math.abs(((await inactiveTab.boundingBox())?.width ?? 0) - contentSizedWidth)).toBeLessThanOrEqual(0.5);
+
+  // The tab body is the only hovered surface: no descendant may paint its own
+  // fill or state layer over it, which is what produced the inset rounded patch.
+  const paintedInnerSurfaces = await inactiveTab.evaluate((tab) =>
+    Array.from(tab.querySelectorAll<HTMLElement>("*")).filter((element) => {
+      if (element.closest(".workbench-pane-tab__close")) return false;
+      const opaque = (color: string) => color !== "rgba(0, 0, 0, 0)" && color !== "transparent";
+      const layer = getComputedStyle(element, "::after");
+      return (layer.content !== "none" && opaque(layer.backgroundColor))
+        || opaque(getComputedStyle(element).backgroundColor);
+    }).length);
+  expect(paintedInnerSurfaces).toBe(0);
+
+  const activeClose = tabRail.locator(".df-tab[data-active='true'] .df-tab-close");
+  await expect(activeClose).toHaveCSS("opacity", "1");
+  await expect(activeClose).toHaveCSS("pointer-events", "auto");
 }

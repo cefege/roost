@@ -12,6 +12,7 @@ import { Button } from "./Settings/md/Button.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { Icon } from "./Settings/md/Icon.tsx";
 import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
+import { hoverCardAvailable } from "./PaneTabHoverCard.tsx";
 export interface PaneTabProps {
   session: Session;
   active: boolean;
@@ -27,6 +28,15 @@ export interface PaneTabProps {
 
 export function PaneTab(props: PaneTabProps) {
   let tabElement: HTMLDivElement | undefined;
+
+  // The hover card and the OS tooltip would otherwise stack on a plain desktop:
+  // the tooltip is the fallback for surfaces that get no hover card at all.
+  const nativeTooltip = () => {
+    if (hoverCardAvailable()) return undefined;
+    return sessionUsesLocalTransport(props.session.id)
+      ? `${sessionTitle(props.session)} — direct to this machine`
+      : sessionTitle(props.session);
+  };
 
   return (
     <div
@@ -49,9 +59,7 @@ export function PaneTab(props: PaneTabProps) {
         aria-current={props.active ? "page" : undefined}
         onPointerDown={props.onPointerDown}
         onClick={props.onSelect}
-        title={sessionUsesLocalTransport(props.session.id)
-          ? `${sessionTitle(props.session)} — direct to this machine`
-          : sessionTitle(props.session)}
+        title={nativeTooltip()}
       >
         <Icon name="terminal" size="sm" class="workbench-pane-tab__icon" />
         {/* Left of the label with the terminal mark: this is a property of the
@@ -61,7 +69,11 @@ export function PaneTab(props: PaneTabProps) {
           <Icon name="bolt" size="sm" class="workbench-pane-tab__local" />
         </Show>
         <span class="df-tab-label workbench-pane-tab__label">{sessionTitle(props.session)}</span>
-        <AgentStatusIndicator sessionId={props.session.id} compact />
+        <AgentStatusIndicator
+          sessionId={props.session.id}
+          compact
+          suppressTooltip={hoverCardAvailable()}
+        />
       </Button>
       <IconButton
         icon="close"

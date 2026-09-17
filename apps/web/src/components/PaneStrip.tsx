@@ -10,12 +10,11 @@ import type { Session } from "@roost/shared/wire";
 import { dragArmed } from "../lib/dragThreshold.ts";
 import { animateSpring, SPRING_SNAP } from "../lib/spring.ts";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
-import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { anchoredMenuPosition } from "./contextMenuPrimitives.tsx";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { PaneTab } from "./PaneTab.tsx";
-import { PaneTabHoverCard } from "./PaneTabHoverCard.tsx";
+import { PaneTabHoverCard, hoverCardAvailable } from "./PaneTabHoverCard.tsx";
 import { PaneTabList } from "./PaneTabList.tsx";
 
 export interface PaneStripProps {
@@ -117,7 +116,7 @@ export function PaneStrip(props: PaneStripProps) {
   }
 
   function armHover(id: string, rect: DOMRect): void {
-    if (isCompact() || isTouchDevice() || drag() || listOpen()) return;
+    if (!hoverCardAvailable() || drag() || listOpen()) return;
     clearHover();
     hoverTimer = window.setTimeout(() => setHover({ id, rect }), 450);
   }

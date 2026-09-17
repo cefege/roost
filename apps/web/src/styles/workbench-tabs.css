@@ -15,7 +15,6 @@
   overflow: hidden;
   position: relative;
   background: var(--workbench-tab-strip);
-  border-bottom: var(--workbench-border-width) solid var(--workbench-tab-border);
   isolation: isolate;
 }
 .workbench-pane-tab-strip {
@@ -26,7 +25,6 @@
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
-  min-height: var(--workbench-tab-strip-height);
   block-size: 100%;
   padding-inline-end: var(--workbench-tab-action-size);
   overflow-x: auto;
@@ -57,8 +55,7 @@
   align-items: center;
   flex: 0 0 auto;
   min-inline-size: calc(var(--md-space-8) * 3);
-  min-height: var(--workbench-tab-strip-height);
-  block-size: var(--workbench-tab-strip-height);
+  align-self: stretch;
   max-inline-size: calc(var(--md-space-8) * 5);
   padding-block: 0;
   padding-inline: var(--md-space-1);
@@ -95,6 +92,15 @@
   text-align: start;
   cursor: pointer;
 }
+/* The tab is one hover surface. The select button is a hit target inside it, so the
+   Button primitive's state layer would paint a second, inset, rounded rectangle. */
+.workbench-pane-tab .workbench-pane-tab__select::after { content: none; }
+.workbench-pane-tab .workbench-pane-tab__select:focus-visible {
+  outline: var(--workbench-border-width) solid var(--workbench-focus-ring);
+  outline-offset: calc(var(--workbench-border-width) * -1);
+}
+.workbench-pane-tab__icon,
+.workbench-pane-tab__select > .agent-status { flex-shrink: 0; }
 .workbench-pane-tab:not([data-active="true"]):hover,
 .df-tab:not([data-active="true"]):hover {
   background: var(--workbench-tab-hover);
@@ -115,34 +121,22 @@
   color: var(--workbench-tab-unfocused-active-foreground);
   border-block-start-color: transparent;
 }
-.workbench-pane-tab__close,
-.df-tab-close {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: var(--md-space-1);
+.workbench-pane-tab__close {
   flex: 0 0 auto;
   inline-size: var(--workbench-tab-action-size);
   block-size: var(--workbench-tab-action-size);
-  pointer-events: none;
-  margin-block: auto;
-  margin-inline-start: 0;
   color: var(--text-lo);
   opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard),
+    color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
 }
-.workbench-pane-tab__close:hover,
-.df-tab-close:hover {
+.workbench-pane-tab__close:hover {
   color: var(--text-hi);
-  opacity: 1;
-  pointer-events: auto;
-  background: var(--md-state-hover);
 }
-.df-tab:hover .workbench-pane-tab__select,
-.df-tab:focus-within .workbench-pane-tab__select {
-  padding-inline-end: calc(var(--workbench-tab-action-size) + var(--md-space-1));
-}
-.df-tab:hover .df-tab-close,
-.df-tab:focus-within .df-tab-close,
-.df-tab-close:focus-visible,
+.workbench-pane-tab:hover .workbench-pane-tab__close,
+.workbench-pane-tab:focus-within .workbench-pane-tab__close,
+.workbench-pane-tab[data-active="true"] .workbench-pane-tab__close,
 .workbench-pane-tab__close:focus-visible {
   opacity: 1;
   pointer-events: auto;
@@ -207,7 +201,7 @@
     color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
 }
 .df-tab-new:hover,
-.df-tab-overflow:hover,
+.df-tab-overflow:hover { color: var(--text-hi); }
 .df-arrange-btn:hover { background: var(--md-state-hover); color: var(--text-hi); }
 
 .workbench-tab-list {

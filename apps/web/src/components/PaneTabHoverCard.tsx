@@ -13,10 +13,18 @@ import { renderPreview } from "../lib/terminalPreview.ts";
 import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
 import { sessionUsesLocalTransport } from "../store/local-transport-indicator.ts";
 import { Icon, Surface } from "./Settings/md/primitives.tsx";
+import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 
 export interface PaneTabHoverCardProps {
   session: Session;
   rect: DOMRect;
+}
+
+/** The hover card is the desktop-pointer surface for tab detail. Anything that
+ *  cannot show it — compact layout, touch-capable device — must fall back to the
+ *  native tooltip, so this predicate is the single owner of that decision. */
+export function hoverCardAvailable(): boolean {
+  return !isCompact() && !isTouchDevice();
 }
 
 export function PaneTabHoverCard(props: PaneTabHoverCardProps) {

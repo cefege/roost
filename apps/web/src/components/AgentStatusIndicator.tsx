@@ -12,6 +12,10 @@ import { StatusDot } from "./Settings/md/StatusDot.tsx";
 export function AgentStatusIndicator(props: {
   sessionId: string;
   compact?: boolean;
+  /** Surfaces that own a richer hover affordance — the terminal tab, whose hover
+   *  card carries this same status — suppress the dot's native tooltip so the OS
+   *  tooltip cannot stack on top of that card. */
+  suppressTooltip?: boolean;
   class?: string;
 }) {
   const status = createMemo(
@@ -31,7 +35,9 @@ export function AgentStatusIndicator(props: {
             class={`agent-status ${props.compact ? "agent-status--compact" : ""} ${props.class ?? ""}`.trim()}
             data-testid={`agent-status-${props.sessionId}`}
             data-level={level()}
-            title={agentStatusTooltip(current(), seenAgentRevision(current()))}
+            title={props.suppressTooltip
+              ? undefined
+              : agentStatusTooltip(current(), seenAgentRevision(current()))}
             role="img"
             aria-label={presentation().label}
           >

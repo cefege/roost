@@ -1,7 +1,7 @@
-// Damped-spring solver for drag-follow + settle motion (tab reorder, overscroll
-// rubber-band, smooth scroll). Chrome/Chromium use physics springs for tab drag
-// and overscroll; this is the reusable equivalent. The math is pure so the
-// thresholds/step are unit-tested, mirroring deckSwipe.ts / edgeSwipeDrawer.ts.
+// Damped-spring solver for drag-follow + settle motion (tab reorder, smooth
+// scroll). Chrome/Chromium use physics springs for tab drag; this is the
+// reusable equivalent. The math is pure so the thresholds/step are
+// unit-tested, mirroring deckSwipe.ts / edgeSwipeDrawer.ts.
 // Physics runs in SECONDS; position in px, velocity in px/s.
 
 import { prefersReducedMotion } from "./prefersReducedMotion.ts";
@@ -52,10 +52,9 @@ export function isSpringAtRest(state: SpringState, target: number): boolean {
   );
 }
 
-// Chrome-ish presets. SNAP: crisp tab-reorder/settle (slightly underdamped for
-// a hint of life). GENTLE: overscroll rubber-band release.
+// Chrome-ish preset. SNAP: crisp tab-reorder/settle (slightly underdamped for
+// a hint of life).
 export const SPRING_SNAP: SpringConfig = { stiffness: 700, damping: 45, mass: 1 };
-export const SPRING_GENTLE: SpringConfig = { stiffness: 300, damping: 30, mass: 1 };
 
 // rAF driver over springStep. onFrame receives each position; resolves once at
 // rest (snapped exactly to target). Returns a cancel fn. Impure (rAF/perf) so it
