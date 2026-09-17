@@ -11,7 +11,8 @@ explicit POSIX-only restore gate enabled, involuntary loss may produce one
 worker-owned OMP resume input only after ordinary shell respawn; this does not
 turn the reference into public state or an agent-control channel. Its ONE
 inbound surface is the loopback UI door (`src/local-ui-server.ts`): a browser on
-this same machine gets the SPA and a direct terminal socket there, so its
+this same machine gets the SPA and a direct terminal socket there — whether the
+page came from that door or from the coordinator's own front door — so its
 keystrokes and cell frames never traverse the coordinator.
 
 Path references are relative to `apps/worker/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
@@ -99,9 +100,13 @@ The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL
 - `src/local-ui-server.ts` — the loopback door. It serves the SPA through the
   shared responder, answers `GET /api/local-bootstrap` with the coordinator URL
   and this fingerprint, and upgrades `/ws/local-terminal`. Fail-closed: a
-  non-loopback bind never listens, and a foreign `Host` or `Origin` is refused
-  before routing. `src/local-terminal-socket.ts` owns the frames on that socket
-  (`@roost/shared/proto/local_terminal_pb`),
+  non-loopback bind never listens, and a foreign `Host` is refused before
+  routing. The admitted `Origin` set is this door's own loopback names plus the
+  browser front door — the coordinator URL this worker dials, and any
+  `ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS` entry — by exact match, so a
+  coordinator-served page can discover the door (answered with CORS and a
+  local-network preflight) and dial its socket. `src/local-terminal-socket.ts`
+  owns the frames on that socket (`@roost/shared/proto/local_terminal_pb`),
   `src/local-terminal-scrollback.ts` wraps the shared history reader into its
   reply, and `src/local-terminal-grants.ts` is the in-memory grant store the
   hello is verified against — digests only, never persisted, so a worker restart

@@ -31,6 +31,7 @@
     "./host-identity-proto": "./src/host-identity-proto.ts",
     "./host-memory": "./src/host-memory.ts",
     "./config": "./src/config.ts",
+    "./local-ui-door": "./src/local-ui-door.ts",
     "./coordinator-dial-url": "./src/coordinator-dial-url.ts",
     "./paths": "./src/paths.ts",
     "./shell-quote": "./src/shell-quote.ts",

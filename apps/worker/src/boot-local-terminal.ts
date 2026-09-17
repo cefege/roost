@@ -20,6 +20,7 @@ export interface LocalTerminalDoorOptions {
 	bind: string;
 	coordinatorUrl: string;
 	workerFp: WorkerFp;
+	allowedBrowserOrigins: readonly string[];
 	webDistPath: string | undefined;
 	refs: CoordLinkRefs;
 }
@@ -54,6 +55,7 @@ export function startLocalTerminalDoor(options: LocalTerminalDoorOptions): Local
 		bind: options.bind,
 		coordinatorUrl: options.coordinatorUrl,
 		workerFingerprint: options.workerFp,
+		allowedBrowserOrigins: options.allowedBrowserOrigins,
 		spa: createSpaResponder(options.webDistPath, WEB_ASSETS),
 		terminal: sockets,
 	});

@@ -1,9 +1,11 @@
 // The local terminal fast path is a second transport for the SAME sessions, so
-// the observable contract is: nothing dials without a worker-served bootstrap,
-// a granted session's input leaves on the local socket and never on Sync, its
+// the observable contract is: nothing dials without a reachable local worker
+// door, the socket authority is that door rather than this page's origin, a
+// granted session's input leaves on the local socket and never on Sync, its
 // results settle that exact admission, a socket generation boundary fails
 // queued batches without replaying them, and inbound cells reach the one
-// canonical replica exactly once.
+// canonical replica exactly once. The page here is the coordinator's public
+// front door, which is the shape that must dial a plaintext loopback door.
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
@@ -32,7 +34,7 @@ let syncState: TestSyncState | null = {
   ready: true,
 };
 const syncSent: TestOneof[] = [];
-let bootstrap: { coordinatorUrl: string; workerFingerprint: string } | null = null;
+let door: { origin: string; workerFingerprint: string } | null = null;
 let sessions: Record<string, { status: string; worker_fp: string }> = {};
 let grantCalls: { sessionIds: string[]; workerFp: string; tabId: string }[] = [];
 let grantFails = false;
@@ -70,10 +72,15 @@ class FakeWebSocket {
   }
 }
 let sockets: FakeWebSocket[] = [];
-// The page IS the worker's loopback origin; the socket URL is derived from it.
+// The page is the coordinator's HTTPS front door; the socket authority comes
+// from the discovered door, never from this document.
 const globals = globalThis as unknown as { WebSocket: unknown; location: unknown };
 globals.WebSocket = FakeWebSocket;
-globals.location = { protocol: "http:", host: "127.0.0.1:4104", origin: "http://127.0.0.1:4104" };
+globals.location = {
+  protocol: "https:",
+  host: "mic.roost.test",
+  origin: "https://mic.roost.test",
+};
 
 mock.module("../src/store/sync.ts", () => ({
   currentSyncV2TerminalState: () => syncState,
@@ -87,7 +94,11 @@ mock.module("../src/store/terminal-stream.ts", () => ({
   dispatchTerminalCellChunk: () => {},
   dispatchTerminalViewState: (frame: { sessionId: string }) => { viewStates.push(frame.sessionId); },
 }));
-mock.module("../src/lib/localBootstrap.ts", () => ({ readLocalBootstrap: () => bootstrap }));
+mock.module("../src/lib/localWorkerDiscovery.ts", () => ({
+  readLocalWorkerDoor: () => door,
+  discoverLocalWorkerDoor: () => {},
+  registerLocalWorkerDoorHandler: () => {},
+}));
 mock.module("../src/lib/diag.ts", () => ({ getSessionTraceId: () => "trace" }));
 mock.module("../src/store/root.ts", () => ({ rootStore: { get sessions() { return sessions; } } }));
 mock.module("../src/auth/tab-id.ts", () => ({ getTabId: () => "tab-7" }));
@@ -157,7 +168,7 @@ beforeEach(() => {
     "s-local": { status: "open", worker_fp: "worker-fp" },
     "s-remote": { status: "open", worker_fp: "other-fp" },
   };
-  bootstrap = { coordinatorUrl: "https://coord.test", workerFingerprint: "worker-fp" };
+  door = { origin: "http://127.0.0.1:4104", workerFingerprint: "worker-fp" };
   local.startLocalTerminalFastPath();
 });
 
@@ -167,9 +178,9 @@ afterEach(() => {
 });
 
 describe("local terminal fast path", () => {
-  test("stays entirely absent without a worker-served bootstrap", async () => {
+  test("stays entirely absent when no local worker door is reachable", async () => {
     local._resetLocalTerminalForTest();
-    bootstrap = null;
+    door = null;
     sockets = [];
     local.startLocalTerminalFastPath();
     transport.localTerminalTransport()?.noteViewPublished("s-local");
@@ -187,6 +198,7 @@ describe("local terminal fast path", () => {
 
   test("routes a granted session to the worker and leaves the rest on Sync", async () => {
     const socket = await establishReadySocket();
+    expect(socket.url).toBe("ws://127.0.0.1:4104/ws/local-terminal");
     expect(grantCalls).toEqual([{
       sessionIds: ["s-local"],
       workerFp: "worker-fp",

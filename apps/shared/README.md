@@ -130,7 +130,9 @@ producers and consumers.
   `src/cell/frame-chunk-assembler.ts`.
 - **Config** — `src/coord-config-schema.ts` owns the declarative `CoordConfig`;
   `src/config.ts` owns environment normalization, secret resolution, cross-field
-  policy, and the public re-export.
+  policy, and the public re-export; `src/local-ui-door.ts` owns the worker
+  loopback door's default bind and origin and imports nothing, because the
+  browser bundle reads it too.
 - **Platform + paths** — `src/platform.ts`, `src/paths.ts`, `src/native-path.ts`,
   `src/tailnet.ts`, `src/durability.ts`,
   `src/local-endpoint.ts`, `src/service-health.ts`,

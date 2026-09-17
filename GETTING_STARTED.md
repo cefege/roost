@@ -503,16 +503,31 @@ Every worker also serves the SPA on its own loopback door, default
 `http://127.0.0.1:4104` and talks to that worker's PTYs directly, so its
 terminals keep painting and accepting input while the coordinator is down;
 sessions on other machines pause until the coordinator returns. The door
-refuses any non-loopback bind, serves exactly that one origin (`localhost:4104`
-is rejected on purpose, because the coordinator allowlists only the canonical
-one), and advertises nothing but the coordinator URL and the worker's own
-fingerprint at `/api/local-bootstrap`. `ROOST_WEB_DIST_PATH` overrides the SPA
-it serves for source runs.
+refuses any non-loopback bind, answers every name that reaches a loopback
+listener (`127.0.0.1`, `localhost`, `[::1]`) and refuses any other `Host`, and
+advertises nothing but the coordinator URL and the worker's own fingerprint at
+`/api/local-bootstrap`. `ROOST_WEB_DIST_PATH` overrides the SPA it serves for
+source runs.
+
+A page loaded from the coordinator's own front door takes that same direct
+path when a worker is running on the browser's machine. The first time a
+terminal pane goes live, the page probes `http://127.0.0.1:4104` once; if a
+worker answers, its sessions move onto that loopback socket and the pane tab
+shows the bolt marker. In Chromium this costs a one-time local-network
+permission prompt. Firefox and Safari block a plaintext-loopback request from
+an HTTPS page, so those browsers silently keep using the coordinator for
+terminal data — no error, no missing terminals. The door admits the
+coordinator's own origin for this; where the browser front door is not the URL
+the worker dials, name it in that machine's
+`ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS` (comma-separated).
 
 Changing that port means the page's origin is no longer the pre-allowlisted
 `http://127.0.0.1:4104`, so add the new origin to the coordinator's
 `ROOST_CORS_ALLOWED_ORIGINS` or its cross-origin RPCs and Sync socket are
-refused.
+refused. A coordinator-served page also has nothing to probe on a moved port —
+no worker reports its local-UI port to the coordinator — so set
+`localStorage.setItem("roost.localWorkerOrigin", "http://127.0.0.1:<port>")` in
+that browser to point discovery at it.
 
 ## Check current health and recent anomalies
 

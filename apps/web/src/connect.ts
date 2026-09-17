@@ -62,7 +62,9 @@ export function classifyAuthFailure(error: unknown, rpcPath: string): AuthFailur
  * bootstrap advertised when this page came from a worker, else the
  * Settings → Connection override once same-origin discovery has confirmed this
  * deployment, otherwise same-origin. Worker and WebSocket callers must use
- * this too. */
+ * this too. This rung reads the served-BY-a-worker fact only, never the door
+ * lib/localWorkerDiscovery.ts found: a coordinator-served page keeps its own
+ * origin for RPCs while using a discovered door for terminal frames alone. */
 export function coordBase(): string {
   const local = readLocalBootstrap();
   if (local) return local.coordinatorUrl;

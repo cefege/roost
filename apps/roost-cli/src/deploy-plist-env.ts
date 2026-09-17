@@ -122,6 +122,7 @@ const DEPLOY_IDENTITY_ENV_FLAGS: Record<string, string> = {
  *  built (deploy-linux.ts, deploy-macos.ts, deploy-local.ts). */
 export const DEPLOY_HOST_LOCAL_ENV_KEYS = [
   "ROOST_WORKER_LOCAL_UI_BIND",
+  "ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS",
   MECATL_ENABLED_ENV,
   MECATL_BIN_ENV,
   MECATL_ROOT_ENV,

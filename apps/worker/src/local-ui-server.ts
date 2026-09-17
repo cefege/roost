@@ -2,8 +2,10 @@
 // browser onto a direct terminal socket, so keystrokes and cell frames for local
 // PTYs never traverse the coordinator. Worker boot owns its lifetime and injects
 // the shared SPA responder plus the handlers that own local frame routing.
-// Every rule here is fail-closed: a non-loopback bind never listens, and a
-// request whose Host or Origin is not this door's own is refused unread.
+// Every rule here is fail-closed: a non-loopback bind never listens, a request
+// whose Host is not this door's own is refused unread, and only this door's own
+// loopback origins plus the coordinator's browser front door are admitted as an
+// Origin.
 
 import type { Server, ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
@@ -34,6 +36,10 @@ export interface LocalUiServerDeps {
   bind: string;
   coordinatorUrl: string;
   workerFingerprint: string;
+  /** Browser origins beyond this door's own loopback names that may discover it
+   * and dial its terminal socket. The coordinator this worker dials is always
+   * admitted; these cover a deployment whose browser front door differs. */
+  readonly allowedBrowserOrigins: readonly string[];
   spa: (url: URL, method: string, acceptEncoding: string) => Promise<Response>;
   terminal: LocalTerminalSocketHandlers;
 }
@@ -88,6 +94,27 @@ export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
     return secured(new Response(null, { status }));
   }
 
+  /** A page on the coordinator's origin reads the bootstrap answer
+   * cross-origin, so the allowance must be on the response. The probe sends no
+   * credentials, so no allow-credentials is emitted. */
+  function crossOriginHeaders(origin: string | null): Record<string, string> {
+    if (origin === null || !allowedOrigins.has(origin)) return {};
+    return { "access-control-allow-origin": origin, vary: "origin" };
+  }
+
+  /** Chrome's local-network-access check may preflight a public→loopback GET,
+   * and a 405 there fails the probe with nothing to diagnose. */
+  function preflightHeaders(origin: string | null): Record<string, string> {
+    const cors = crossOriginHeaders(origin);
+    if (Object.keys(cors).length === 0) return {};
+    return {
+      ...cors,
+      "access-control-allow-methods": "GET",
+      "access-control-allow-private-network": "true",
+      "access-control-max-age": "600",
+    };
+  }
+
   /** A throw out of a frame handler must cost that socket, never the worker
    * process: a local page is authorized to reach PTYs, not to end them. */
   function guarded(socket: LocalTerminalSocket, stage: string, run: () => void): void {
@@ -129,6 +156,12 @@ export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
       }
 
       if (url.pathname === LOCAL_BOOTSTRAP_PATH) {
+        if (req.method === "OPTIONS") {
+          return secured(new Response(null, {
+            status: 204,
+            headers: preflightHeaders(origin),
+          }));
+        }
         if (req.method !== "GET" && req.method !== "HEAD") {
           return refused(405, "bootstrap_method", req, url);
         }
@@ -139,6 +172,7 @@ export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
             // The advertised coordinator follows the worker's own config; a
             // cached copy would outlive a redeploy that moved it.
             "cache-control": "no-store",
+            ...crossOriginHeaders(origin),
           },
         }));
       }
@@ -225,9 +259,17 @@ export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
     allowedHosts.add(host);
     allowedOrigins.add(`http://${host}`);
   }
+  // Origins only, never hosts: a foreign page may discover this door and dial
+  // it, but the Host it sends must still be this loopback listener's own.
+  const admittedBrowserOrigins = browserOrigins(
+    deps.coordinatorUrl,
+    deps.allowedBrowserOrigins,
+  );
+  for (const origin of admittedBrowserOrigins) allowedOrigins.add(origin);
   log.info("local-ui", "local_ui_listening", {
     bind: canonicalHost,
     coordinator_url: deps.coordinatorUrl,
+    browser_origins: admittedBrowserOrigins.length,
   });
 
   return {
@@ -258,5 +300,24 @@ function coordinatorConnectOrigins(coordinatorUrl: string): string[] {
   const url = new URL(coordinatorUrl);
   const wsScheme = url.protocol === "https:" ? "wss:" : "ws:";
   return [url.origin, `${wsScheme}//${url.host}`];
+}
+
+/** The dashboard is served by the coordinator this worker already dials, so that
+ * origin is the one foreign page allowed to discover this door and dial its
+ * terminal socket. Exact match only: a prefix or pattern on the origin would
+ * admit an attacker's host that merely starts the same way. */
+function browserOrigins(coordinatorUrl: string, extra: readonly string[]): string[] {
+  const admitted: string[] = [];
+  for (const raw of [coordinatorUrl, ...extra]) {
+    let origin: string;
+    try {
+      origin = new URL(raw).origin;
+    } catch {
+      continue;
+    }
+    if (origin === "null") continue;
+    admitted.push(origin);
+  }
+  return admitted;
 }
 

@@ -10,7 +10,9 @@ export interface LocalBootstrap {
   workerFingerprint: string;
 }
 
-const BOOTSTRAP_PATH = "/api/local-bootstrap";
+/** The path only a worker's local UI door answers. Shared with
+ * localWorkerDiscovery.ts, which asks a DIFFERENT origin the same question. */
+export const LOCAL_BOOTSTRAP_PATH = "/api/local-bootstrap";
 const BOOTSTRAP_TIMEOUT_MS = 2_000;
 
 let bootstrap: LocalBootstrap | null = null;
@@ -31,20 +33,23 @@ async function fetchLocalBootstrap(): Promise<LocalBootstrap | null> {
     // Same-origin and relative on purpose: only the worker's local UI server
     // answers this path, and the coordinator's 404 is the "not worker-served"
     // answer. Bounded so a hung serving origin cannot stall SPA startup.
-    const response = await fetch(BOOTSTRAP_PATH, {
+    const response = await fetch(LOCAL_BOOTSTRAP_PATH, {
       method: "GET",
       cache: "no-store",
       credentials: "omit",
       signal: AbortSignal.timeout(BOOTSTRAP_TIMEOUT_MS),
     });
     if (!response.ok) return null;
-    return parseLocalBootstrap(await response.json());
+    return parseLocalBootstrapPayload(await response.json());
   } catch {
     return null;
   }
 }
 
-function parseLocalBootstrap(payload: unknown): LocalBootstrap | null {
+/** Validates a bootstrap answer from either the serving origin or a probed
+ * loopback door. One parser: a second copy is how the two would diverge on
+ * what counts as a usable answer. */
+export function parseLocalBootstrapPayload(payload: unknown): LocalBootstrap | null {
   if (typeof payload !== "object" || payload === null) return null;
   const fields = payload as { coordinatorUrl?: unknown; workerFingerprint?: unknown };
   if (typeof fields.coordinatorUrl !== "string" || typeof fields.workerFingerprint !== "string") {

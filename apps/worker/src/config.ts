@@ -45,6 +45,10 @@ export const WorkerConfig = z.object({
   // upgrades local terminal sockets. local-ui-server.ts refuses any non-loopback
   // host before it listens.
   localUiBind: z.string().default(DEFAULT_WORKER_LOCAL_UI_BIND),
+  // Extra browser origins the local UI door admits, for a deployment whose
+  // browser front door is not the URL this worker dials. The dialed
+  // coordinator is always admitted, so this stays empty in the common shape.
+  localUiAllowedOrigins: z.array(z.string()).default([]),
   // Same env key the coordinator reads: whichever door serves the SPA serves the
   // same build output, and an absent path falls back to the embedded assets.
   webDistPath: z.string().optional(),
@@ -87,6 +91,9 @@ function withDefaults(
     label: env.ROOST_WORKER_LABEL ?? hostname() ?? env.HOSTNAME ?? "worker",
     logDir: workerLogDir(env),
     localUiBind: env.ROOST_WORKER_LOCAL_UI_BIND,
+    localUiAllowedOrigins: env.ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS
+      ? env.ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
+      : [],
     webDistPath: env.ROOST_WEB_DIST_PATH,
     workerKeyPath: env.ROOST_WORKER_KEY_PATH ??
       join(SUPPORT, "coordinator_ed25519.key"),

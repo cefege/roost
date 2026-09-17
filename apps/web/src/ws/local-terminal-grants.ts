@@ -11,7 +11,7 @@ import { diag } from "@roost/shared/diag";
 import { getCurrentWebKeyInfo } from "../auth/web-key.ts";
 import { getTabId } from "../auth/tab-id.ts";
 import { coordClient } from "../connect.ts";
-import { readLocalBootstrap } from "../lib/localBootstrap.ts";
+import { readLocalWorkerDoor } from "../lib/localWorkerDiscovery.ts";
 import { rootStore } from "../store/root.ts";
 
 export const LOCAL_TERMINAL_GRANT_RENEW_MS = 60 * 60_000;
@@ -49,7 +49,10 @@ export function noteLocalTerminalViewPublished(
   socket: LocalTerminalGrantSocket,
   sessionId: string,
 ): void {
-  if (!readLocalBootstrap() || wantedSessions.has(sessionId)) return;
+  // Recorded before the door is known: the first pane publishes while discovery
+  // is still in flight, and a want that was never recorded can never be granted
+  // when the door arrives.
+  if (wantedSessions.has(sessionId)) return;
   wantedSessions.add(sessionId);
   void refreshLocalTerminalGrant(socket, "view_published");
 }
@@ -61,9 +64,9 @@ export async function refreshLocalTerminalGrant(
   socket: LocalTerminalGrantSocket,
   reason: string,
 ): Promise<void> {
-  const bootstrap = readLocalBootstrap();
-  if (!bootstrap || grantInFlight) return;
-  const workerFp = bootstrap.workerFingerprint;
+  const door = readLocalWorkerDoor();
+  if (!door || grantInFlight) return;
+  const workerFp = door.workerFingerprint;
   const eligible = grantableSessions(workerFp);
   if (eligible.length === 0) return;
   const held = grant;

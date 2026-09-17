@@ -1,5 +1,5 @@
-// The local terminal fast path. When the worker that owns a PTY also served
-// this page, its loopback socket carries that session's view commands, input,
+// The local terminal fast path. When a worker on this browser's machine owns a
+// PTY, its loopback socket carries that session's view commands, input,
 // cell frames and scrollback directly — the coordinator is not in the path, so
 // an open pane keeps painting while the coordinator is down. Inbound frames
 // enter the SAME replica and view-state owners Sync uses; this module owns the
@@ -19,7 +19,11 @@ import type {
   TerminalViewCommand,
 } from "@roost/shared/proto/sync_pb";
 import { backoffDelayMs } from "@roost/shared/retry";
-import { readLocalBootstrap } from "../lib/localBootstrap.ts";
+import {
+  discoverLocalWorkerDoor,
+  readLocalWorkerDoor,
+  registerLocalWorkerDoorHandler,
+} from "../lib/localWorkerDiscovery.ts";
 import { registerSyncV2GenerationHandler } from "../store/sync.ts";
 import {
   dispatchTerminalCellChunk,
@@ -55,9 +59,10 @@ import {
 } from "./local-terminal-requests.ts";
 import type { InputAdmission } from "./terminal-input-lanes.ts";
 
-// The worker's own door, declared in apps/worker/src/local-ui-server.ts. The
-// page IS that origin, so the host comes from the document instead of a pinned
-// port — harness workers bind reserved random ports.
+// The worker's own door, declared in apps/worker/src/local-ui-server.ts. Its
+// authority comes from the door lib/localWorkerDiscovery.ts found, NEVER from
+// the document: a page the coordinator served over HTTPS must still dial a
+// plaintext ws:// loopback door, and harness workers bind reserved random ports.
 const LOCAL_TERMINAL_PATH = "/ws/local-terminal";
 const LOCAL_TERMINAL_SUBPROTOCOL = "roost-local-terminal";
 const REDIAL_BASE_MS = 500;
@@ -87,8 +92,9 @@ const grantSocket: LocalTerminalGrantSocket = {
   present: presentGrant,
 };
 
-/** Install the fast path for this document. Without a worker-served bootstrap
- * there is no local worker to talk to and nothing is dialed. */
+/** Install the fast path for this document. The transport registration is
+ * unconditional — whether any session rides it is decided by the door
+ * discovery and the coordinator's grant, both of which resolve later. */
 export function startLocalTerminalFastPath(): void {
   if (installed) return;
   installed = true;
@@ -103,9 +109,6 @@ export function startLocalTerminalFastPath(): void {
     redial: redialLocalTerminal,
     reset: resetLocalTerminalState,
   });
-  const bootstrap = readLocalBootstrap();
-  if (!bootstrap) return;
-  diag("local_terminal.available", { worker_fp: bootstrap.workerFingerprint });
   // Every Sync (re)connect is a fresh chance to mint or renew a grant, and the
   // coordinator returning is exactly when a pane stranded on Sync can take the
   // fast path it could not be granted while the coordinator was gone.
@@ -114,10 +117,15 @@ export function startLocalTerminalFastPath(): void {
     clearLocalTerminalGrantRetry();
     void refreshLocalTerminalGrant(grantSocket, "sync_connected");
   });
+  // A door found after panes are already live mints immediately rather than
+  // waiting for the next Sync reconnect, which may be an hour away.
+  registerLocalWorkerDoorHandler(() => {
+    void refreshLocalTerminalGrant(grantSocket, "door_discovered");
+  });
 }
 
 export function localTerminalWorkerFingerprint(): string | null {
-  return readLocalBootstrap()?.workerFingerprint ?? null;
+  return readLocalWorkerDoor()?.workerFingerprint ?? null;
 }
 
 /** Granted by the coordinator AND acknowledged by a ready local socket. */
@@ -170,6 +178,10 @@ export function _resetLocalTerminalForTest(): void {
 }
 
 function noteViewPublished(sessionId: string): void {
+  // The activation trigger: one probe per page load, fired the first time a
+  // pane publishes a view, so a browser's local-network prompt (if any) appears
+  // at a moment the user can explain.
+  discoverLocalWorkerDoor();
   noteLocalTerminalViewPublished(grantSocket, sessionId);
 }
 
@@ -180,14 +192,13 @@ function presentGrant(grant: LocalTerminalGrant): void {
 }
 
 function dialSocket(grant = currentLocalTerminalGrant()): void {
-  if (!grant || socket || typeof location === "undefined") return;
-  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  const door = readLocalWorkerDoor();
+  if (!grant || !door || socket || typeof WebSocket === "undefined") return;
+  const url = new URL(LOCAL_TERMINAL_PATH, door.origin);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   let dialed: WebSocket;
   try {
-    dialed = new WebSocket(
-      `${scheme}//${location.host}${LOCAL_TERMINAL_PATH}`,
-      LOCAL_TERMINAL_SUBPROTOCOL,
-    );
+    dialed = new WebSocket(url.toString(), LOCAL_TERMINAL_SUBPROTOCOL);
   } catch (error) {
     diag("local_terminal.dial_failed", { error: String(error) });
     scheduleRedial();
@@ -275,7 +286,7 @@ function admitReadySocket(
   sessionIds: string[],
   generation: bigint,
 ): void {
-  const expected = readLocalBootstrap()?.workerFingerprint;
+  const expected = readLocalWorkerDoor()?.workerFingerprint;
   if (!expected || workerFingerprint !== expected) {
     diag("local_terminal.identity_mismatch", {
       advertised: expected ?? null,

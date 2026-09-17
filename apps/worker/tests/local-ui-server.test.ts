@@ -74,7 +74,13 @@ function signals<T>(): Signals<T> {
   };
 }
 
-function startDoor(options: { bind?: string; coordinatorUrl?: string } = {}): Door {
+function startDoor(
+  options: {
+    bind?: string;
+    coordinatorUrl?: string;
+    allowedBrowserOrigins?: readonly string[];
+  } = {},
+): Door {
   const spaCalls: SpaCall[] = [];
   const opened = signals<LocalTerminalSocket>();
   const frames = signals<Uint8Array>();
@@ -83,6 +89,7 @@ function startDoor(options: { bind?: string; coordinatorUrl?: string } = {}): Do
     bind: options.bind ?? "127.0.0.1:0",
     coordinatorUrl: options.coordinatorUrl ?? COORDINATOR_URL,
     workerFingerprint: WORKER_FP,
+    allowedBrowserOrigins: options.allowedBrowserOrigins ?? [],
     spa: async (url, method, acceptEncoding) => {
       spaCalls.push({ path: url.pathname, method, acceptEncoding });
       return new Response(SPA_BODY, { status: 200, headers: { "content-type": "text/html" } });
@@ -190,6 +197,53 @@ test("responses name only this door and its coordinator in connect-src", async (
   expect(overLoopback.headers.get("x-frame-options")).toBe("DENY");
 });
 
+test("the coordinator's own origin is admitted and answered with CORS", async () => {
+  const door = startDoor();
+
+  const response = await fetch(`${door.origin}${LOCAL_BOOTSTRAP_PATH}`, {
+    headers: { origin: COORDINATOR_URL },
+  });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    coordinatorUrl: COORDINATOR_URL,
+    workerFingerprint: WORKER_FP,
+  });
+  expect(response.headers.get("access-control-allow-origin")).toBe(COORDINATOR_URL);
+  expect(response.headers.get("vary")).toContain("origin");
+});
+
+test("a local-network preflight from the coordinator's origin is answered", async () => {
+  const door = startDoor();
+
+  const response = await fetch(`${door.origin}${LOCAL_BOOTSTRAP_PATH}`, {
+    method: "OPTIONS",
+    headers: { origin: COORDINATOR_URL },
+  });
+
+  expect(response.status).toBe(204);
+  expect(response.headers.get("access-control-allow-origin")).toBe(COORDINATOR_URL);
+  expect(response.headers.get("access-control-allow-methods")).toBe("GET");
+  expect(response.headers.get("access-control-allow-private-network")).toBe("true");
+});
+
+test("a configured extra origin is admitted and nothing else is", async () => {
+  const door = startDoor({ allowedBrowserOrigins: ["https://dash.example"] });
+
+  const admitted = await fetch(`${door.origin}${LOCAL_BOOTSTRAP_PATH}`, {
+    headers: { origin: "https://dash.example" },
+  });
+  const refused = await fetch(`${door.origin}${LOCAL_BOOTSTRAP_PATH}`, {
+    headers: { origin: "https://other.example" },
+  });
+
+  expect(admitted.status).toBe(200);
+  expect(admitted.headers.get("access-control-allow-origin")).toBe("https://dash.example");
+  expect(refused.status).toBe(403);
+  expect(await refused.text()).toBe("");
+  expect(door.spaCalls).toEqual([]);
+});
+
 test("unknown paths reach the injected SPA responder; writes do not", async () => {
   const door = startDoor();
 
@@ -268,16 +322,22 @@ test("a non-loopback bind throws and never takes the port", async () => {
   expect(reachable).toBeNull();
 });
 
-test("worker config feeds the bind and SPA root from the installed env", () => {
+test("worker config feeds the bind, admitted origins and SPA root from the env", () => {
   expect(loadWorkerConfig(CONFIG_ENV).localUiBind).toBe(DEFAULT_WORKER_LOCAL_UI_BIND);
+  expect(loadWorkerConfig(CONFIG_ENV).localUiAllowedOrigins).toEqual([]);
   expect(loadWorkerConfig(CONFIG_ENV).webDistPath).toBeUndefined();
 
   const configured = loadWorkerConfig({
     ...CONFIG_ENV,
     ROOST_WORKER_LOCAL_UI_BIND: "127.0.0.1:4999",
+    ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS: " https://dash.example , https://alt.example ,, ",
     ROOST_WEB_DIST_PATH: "/opt/roost/web/dist",
   });
 
   expect(configured.localUiBind).toBe("127.0.0.1:4999");
+  expect(configured.localUiAllowedOrigins).toEqual([
+    "https://dash.example",
+    "https://alt.example",
+  ]);
   expect(configured.webDistPath).toBe("/opt/roost/web/dist");
 });

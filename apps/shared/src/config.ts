@@ -3,12 +3,11 @@
 // The declarative configuration shape lives separately in coord-config-schema.ts.
 
 import { join } from "node:path";
+import { CoordConfig, DEFAULT_COORDINATOR_BIND } from "./coord-config-schema.ts";
 import {
-  CoordConfig,
-  DEFAULT_COORDINATOR_BIND,
   DEFAULT_WORKER_LOCAL_UI_BIND,
   DEFAULT_WORKER_LOCAL_UI_ORIGIN,
-} from "./coord-config-schema.ts";
+} from "./local-ui-door.ts";
 import { coordDataDir } from "./paths.ts";
 
 export {

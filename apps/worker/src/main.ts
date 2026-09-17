@@ -161,6 +161,7 @@ export async function runWorker() {
 		bind: cfg.localUiBind,
 		coordinatorUrl: cfg.coordinatorUrl,
 		workerFp,
+		allowedBrowserOrigins: cfg.localUiAllowedOrigins,
 		webDistPath: cfg.webDistPath,
 		refs,
 	});

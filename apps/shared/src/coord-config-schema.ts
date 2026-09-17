@@ -11,14 +11,6 @@ import { coordLogDir } from "./paths.ts";
  * reach a bare coordinator import this rather than restating the port. */
 export const DEFAULT_COORDINATOR_BIND = "127.0.0.1:4103";
 
-/** The bind an unset `ROOST_WORKER_LOCAL_UI_BIND` resolves to, and the origin a
- * browser reaches it at. Loopback only: this door upgrades terminal sockets for
- * the PTYs on the worker's own machine, so any non-loopback interface would hand
- * them to the network. The coordinator pre-allowlists the origin below for CORS
- * and Sync WS, so an operator who moves the port must also allowlist the new one. */
-export const DEFAULT_WORKER_LOCAL_UI_BIND = "127.0.0.1:4104";
-export const DEFAULT_WORKER_LOCAL_UI_ORIGIN = "http://127.0.0.1:4104";
-
 export const CoordConfig = z.object({
   bind: z.string().default(DEFAULT_COORDINATOR_BIND),
   dbPath: z.string(),

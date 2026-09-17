@@ -51,14 +51,18 @@ export interface WorkerCellDelivery {
  * tier's ordinary enrollment — only `baseUrl` differs, and everything after the
  * redeem (worker routable, folder list painted, no error boundary) is the same
  * readiness gate every smoke page crosses.
+ * `localWorkerOrigin` seeds the SPA's non-default-door override, which is how a
+ * coordinator-origin page reaches a harness worker's reserved loopback port.
  */
 export async function openEnrolledPage(
   browser: Browser,
   stack: TerminalTestStack,
   origin: string,
+  options: { localWorkerOrigin?: string } = {},
 ): Promise<EnrolledPage> {
   const context = await browser.newContext();
-  await context.addInitScript(() => {
+  await context.addInitScript((localWorkerOrigin: string | undefined) => {
+    if (localWorkerOrigin) localStorage.setItem("roost.localWorkerOrigin", localWorkerOrigin);
     localStorage.setItem("roostSmoke", "1");
     localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
     if (!sessionStorage.getItem("roost.sidebarViewSeeded")) {
@@ -66,7 +70,7 @@ export async function openEnrolledPage(
       localStorage.setItem("roost.sidebarCollapsed", "0");
       sessionStorage.setItem("roost.sidebarViewSeeded", "1");
     }
-  });
+  }, options.localWorkerOrigin);
   const page = await context.newPage();
   try {
     await enrollSmokeBrowser(page, { ...stack, baseUrl: origin }, stack.client);

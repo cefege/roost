@@ -19,19 +19,31 @@ export interface SecurityOptions {
   connectOrigins: string[];
 }
 
-/** The worker-served loopback SPA is a first-class browser origin: its fetches
- * carry a bearer JWT and no cookies, so allowing it grants reachability only. */
+/** The worker's loopback door is a first-class browser origin in both
+ * directions: its SPA's fetches carry a bearer JWT and no cookies, so allowing
+ * it for CORS grants reachability only, and a page this coordinator served
+ * dials that door's terminal socket, so it must be in connect-src too. */
 export function securityOptionsForConfig(cfg: CoordConfig, hsts: boolean): SecurityOptions {
   const corsAllowedOrigins = [DEFAULT_WORKER_LOCAL_UI_ORIGIN, ...cfg.corsAllowedOrigins];
   const origins = new Set<string>([
     "https://api.deepgram.com",
     "wss://api.deepgram.com",
   ]);
-  for (const raw of [cfg.publicUrl, cfg.webPublicUrl, ...cfg.corsAllowedOrigins]) {
+  for (
+    const raw of [
+      cfg.publicUrl,
+      cfg.webPublicUrl,
+      DEFAULT_WORKER_LOCAL_UI_ORIGIN,
+      ...cfg.corsAllowedOrigins,
+    ]
+  ) {
     if (!raw) continue;
     const origin = new URL(raw).origin;
     origins.add(origin);
-    if (origin.startsWith("https://")) origins.add(`wss://${origin.slice("https://".length)}`);
+    // Every browser transport this page opens has a WebSocket twin: Sync to the
+    // coordinator, and the local terminal socket to a worker's loopback door.
+    // The door is plaintext, so the twin must be derived from either scheme.
+    origins.add(origin.replace(/^http/, "ws"));
   }
   return {
     relaxedCsp: cfg.relaxedCsp,
