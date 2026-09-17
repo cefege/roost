@@ -7,6 +7,7 @@ import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { MobileVoiceInput } from "./MobileVoiceInput.tsx";
 import { IconButton } from "./Settings/md/primitives.tsx";
+import { createTerminalComposeDictation } from "./TerminalComposeDictation.ts";
 import { createTerminalComposeSelection } from "./TerminalComposeSelection.ts";
 import type { TerminalSelectionGuard } from "./TerminalComposeSelection.ts";
 import {
@@ -65,6 +66,7 @@ export function TerminalComposeButton(props: Props) {
   const [submissionStatus, setSubmissionStatus] = createSignal<string | null>(null);
   const unsubscribeDraft = subscribeComposerDraft(sessionId, setDraft);
   let inputEl: HTMLTextAreaElement | undefined;
+  let ghostEl: HTMLDivElement | undefined;
   let dockEl: HTMLDivElement | undefined;
   const ownsComposeFocus = () => activeComposeOwner()?.token === ownerToken;
   const claimComposeFocus = () => setActiveComposeOwner({
@@ -204,6 +206,7 @@ export function TerminalComposeButton(props: Props) {
     autoGrow();
     if (!inputEl) return;
     inputEl.scrollTop = inputEl.scrollHeight;
+    if (ghostEl) ghostEl.scrollTop = inputEl.scrollTop;
     // Dictation replaces a programmatic tail rather than the user's current
     // selection. Its next real edit must begin after that newest tail even while
     // the terminal Range owns document Selection.
@@ -212,6 +215,12 @@ export function TerminalComposeButton(props: Props) {
   const mountInput = (el: HTMLTextAreaElement) => {
     inputEl = el;
     terminalSelection.mountInput(el);
+  };
+  // The mirror mounts after a programmatic scroll has already happened, so align
+  // it on mount rather than waiting for a scroll event that may never come.
+  const mountGhost = (el: HTMLDivElement) => {
+    ghostEl = el;
+    if (inputEl) el.scrollTop = inputEl.scrollTop;
   };
 
   // Speech callbacks mutate a controlled textarea outside the browser's native
@@ -229,58 +238,25 @@ export function TerminalComposeButton(props: Props) {
     });
   };
 
-  // Append finalized dictation with exactly one separating space and never a
-  // leading one.
-  const glued = (base: string, text: string) =>
-    (base.length === 0 || base.endsWith(" ") ? base : `${base} `) + text;
+  const dictation = createTerminalComposeDictation({
+    draft,
+    write: writeSpeechDraft,
+    persist: (text) => saveComposerDraft(sessionId, text),
+  });
+  // Split of the painted draft: the settled head paints at normal emphasis, the
+  // unsettled tail lower — the field itself cannot style a substring.
+  const provisionalTail = () => {
+    const from = dictation.provisionalFrom();
+    return from === null || from >= draft().length ? "" : draft().slice(from);
+  };
+  const settledHead = () => {
+    const from = dictation.provisionalFrom();
+    return from === null ? "" : draft().slice(0, from);
+  };
 
   // Controls in the pill should not steal focus from an already-focused field.
   // If Escape/outside interaction blurred it, this does not reopen the keyboard.
   const keepKeyboard = (e: MouseEvent) => e.preventDefault();
-
-  // Each engine update replaces the live tail; dictationBase = typed-at-open.
-  // lastDictatedFinal snapshots settled phrases so an abandoned dictation can
-  // keep real words while dropping the provisional tail.
-  let dictationBase: string | null = null;
-  let lastDictatedFinal: string | null = null;
-  const showDictation = (text: string | null) => {
-    if (text === null) {
-      // Ended WITHOUT a commit (failure/empty/deactivation): keep base +
-      // finalized words, drop the unfinalized tail — reverting to base alone
-      // silently deleted dictated words, keeping draft() baked in a hypothesis
-      // the engine never settled ("still recording" leaking into the next take).
-      if (dictationBase === null) return;
-      const kept = lastDictatedFinal ? glued(dictationBase, lastDictatedFinal) : dictationBase;
-      dictationBase = null;
-      lastDictatedFinal = null;
-      writeSpeechDraft(kept);
-      saveComposerDraft(sessionId, kept);
-    } else {
-      if (dictationBase === null) {
-        dictationBase = draft();
-        lastDictatedFinal = null;
-      }
-      writeSpeechDraft(text.length === 0 ? dictationBase : glued(dictationBase, text));
-    }
-  };
-  // Explicit ✕: restore the pre-mic baseline — the only self-driven revert.
-  const discardDictation = () => {
-    const base = dictationBase ?? draft();
-    dictationBase = null;
-    lastDictatedFinal = null;
-    writeSpeechDraft(base);
-    saveComposerDraft(sessionId, base);
-  };
-  const commitDictation = (text: string) => {
-    const base = dictationBase ?? draft();
-    dictationBase = null;
-    lastDictatedFinal = null;
-    const committed = glued(base, text);
-    writeSpeechDraft(committed);
-    // Persist here, not via the reactive effect: an unmount-time commit runs
-    // while that effect is already being torn down.
-    saveComposerDraft(sessionId, committed);
-  };
 
   const [dictating, setDictating] = createSignal(false);
 
@@ -298,7 +274,7 @@ export function TerminalComposeButton(props: Props) {
     }
     terminalSelection.release();
     setPendingSubmission(text);
-    dictationBase = null;
+    dictation.release();
     setDraft("");
     setSubmissionStatus(null);
     void admission.result.then((outcome) => {
@@ -323,15 +299,7 @@ export function TerminalComposeButton(props: Props) {
   // replacement so a provisional dictation cannot survive in one instance.
   createEffect(() => saveComposerDraft(sessionId, draft()));
   onCleanup(() => {
-    // Unmount mid-dictation (tab switch, swap, pane close): keep base + settled
-    // phrases, drop the provisional tail; replacements read this draft.
-    if (dictationBase !== null) {
-      const kept = lastDictatedFinal ? glued(dictationBase, lastDictatedFinal) : dictationBase;
-      dictationBase = null;
-      lastDictatedFinal = null;
-      writeSpeechDraft(kept);
-      saveComposerDraft(sessionId, kept);
-    }
+    dictation.show(null); // unmount mid-dictation keeps settled words, drops the hypothesis
     unsubscribeDraft();
     stopPointerReleaseWatch?.();
     terminalSelection.dispose();
@@ -372,55 +340,74 @@ export function TerminalComposeButton(props: Props) {
             label="Attach files"
             title="Attach files"
           />
-          <textarea
-            class="term-chat__input"
-            data-testid="chat-input"
-            disabled={!props.active || pendingSubmission() !== null}
-            aria-label="Terminal input"
-            rows={1}
-            placeholder={dictating() ? "Listening…" : "Type terminal input…"}
-            value={draft()}
-            onInput={(e) => {
-              // Input proves that the textarea selection was active. Snapshot its
-              // post-edit caret before returning ownership to the terminal range.
-              terminalSelection.markComposerSelectionActive();
-              terminalSelection.rememberComposerSelection();
-              setDraft(e.currentTarget.value);
-              autoGrow();
-              if (!e.isComposing && !terminalSelection.isComposing()) {
-                terminalSelection.restoreAfterLayout();
-              }
-            }}
-            onKeyDown={(e) => {
-              if (
-                e.key === "Enter"
-                && !e.shiftKey
-                && !e.isComposing
-                && !terminalSelection.isComposing()
-                && !isTouchDevice()
-              ) {
-                e.preventDefault();
-                if (!dictating()) sendLine();
-                return;
-              }
-              // Plain desktop Enter is inert while provisional dictation is
-              // active. Shift+Enter and touch Return retain native newlines;
-              // Escape only dismisses keyboard focus.
-              if (e.key === "Escape") {
-                e.preventDefault();
-                e.currentTarget.blur();
-              }
-            }}
-            ref={mountInput}
-          />
+          <div class="term-chat__field" data-testid="chat-field">
+            <textarea
+              class="term-chat__input"
+              data-testid="chat-input"
+              data-ghosted={provisionalTail() ? "true" : undefined}
+              onScroll={() => { if (ghostEl && inputEl) ghostEl.scrollTop = inputEl.scrollTop; }}
+              disabled={!props.active || pendingSubmission() !== null}
+              aria-label="Terminal input"
+              rows={1}
+              placeholder={dictating() ? "Listening…" : "Type terminal input…"}
+              value={draft()}
+              onInput={(e) => {
+                // Input proves that the textarea selection was active. Snapshot its
+                // post-edit caret before returning ownership to the terminal range.
+                terminalSelection.markComposerSelectionActive();
+                terminalSelection.rememberComposerSelection();
+                setDraft(e.currentTarget.value);
+                // A hand edit invalidates the recorded split; the next engine
+                // update recomputes it.
+                dictation.clearProvisional();
+                autoGrow();
+                if (!e.isComposing && !terminalSelection.isComposing()) {
+                  terminalSelection.restoreAfterLayout();
+                }
+              }}
+              onKeyDown={(e) => {
+                if (
+                  e.key === "Enter"
+                  && !e.shiftKey
+                  && !e.isComposing
+                  && !terminalSelection.isComposing()
+                  && !isTouchDevice()
+                ) {
+                  e.preventDefault();
+                  if (!dictating()) sendLine();
+                  return;
+                }
+                // Plain desktop Enter is inert while provisional dictation is
+                // active. Shift+Enter and touch Return retain native newlines;
+                // Escape only dismisses keyboard focus.
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+              }}
+              ref={mountInput}
+            />
+            <Show when={provisionalTail()}>
+              <div
+                class="term-chat__ghost"
+                data-testid="chat-ghost"
+                aria-hidden="true"
+                ref={mountGhost}
+              >
+                <span>{settledHead()}</span>
+                <span class="term-chat__ghost-tail" data-testid="chat-ghost-tail">
+                  {provisionalTail()}
+                </span>
+              </div>
+            </Show>
+          </div>
           <MobileVoiceInput
-            onFinalTranscript={(finalText) => { lastDictatedFinal = finalText; }}
             ownerId={sessionId}
             active={props.active && pendingSubmission() === null}
             onActiveChange={setDictating}
-            onTranscript={commitDictation}
-            onLiveTranscript={showDictation}
-            onDiscard={discardDictation}
+            onTranscript={dictation.commit}
+            onLiveTranscript={dictation.show}
+            onDiscard={dictation.discard}
             readContext={props.readContext}
           />
           {/* Hidden while dictating: the inline mic's own discard action occupies

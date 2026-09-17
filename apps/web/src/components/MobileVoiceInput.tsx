@@ -106,15 +106,12 @@ interface Props {
 	onActiveChange?: (active: boolean) => void;
 	/** Inserts finalized speech into the owning composer's retained draft. */
 	onTranscript: (text: string) => void;
-	/** Replaces the provisional tail with live speech. null ends the dictation
-	 *  without a commit: the caller keeps base + finalized words and drops the
-	 *  unfinalized tail (see onFinalTranscript), so an abandoned recording never
-	 *  eats settled words nor bakes a hypothesis into the draft. */
-	onLiveTranscript: (text: string | null) => void;
-	/** Fires on every engine final update while dictating. The caller uses it
-	 *  as the keep-on-abandon snapshot: finals are real text, the interim tail
-	 *  is not. */
-	onFinalTranscript?: (finalText: string) => void;
+	/** Every engine update while dictating: `settled` is what the engine has
+	 *  finalized, `hypothesis` the unsettled tail it may still revise. null ends
+	 *  the dictation without a commit: the caller keeps base + settled words and
+	 *  drops the hypothesis, so an abandoned recording never eats settled words
+	 *  nor bakes a guess the engine never settled into the draft. */
+	onLiveTranscript: (update: { settled: string; hypothesis: string } | null) => void;
 	// Explicit ✕: caller restores its own pre-mic baseline (distinct from null).
 	onDiscard: () => void;
 	readContext?: () => TerminalContext;
@@ -187,13 +184,10 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	// engine update while a dictation is open; the idle guard keeps the post-reset
 	// clear (dg.reset() empties both getters) from wiping the caller's text.
 	createEffect(() => {
-		const finalPart = dispFinal();
-		const live = `${finalPart} ${dispInterim()}`.trim();
+		const settled = dispFinal().trim();
+		const hypothesis = dispInterim().trim();
 		if (voiceState() === "idle") return;
-		// Open the caller's session first: its reset must not erase the snapshot
-		// this same engine update is about to deliver.
-		props.onLiveTranscript(live);
-		props.onFinalTranscript?.(finalPart);
+		props.onLiveTranscript({ settled, hypothesis });
 	});
 
 	let recognition: AnySpeechRecognition | null = null;

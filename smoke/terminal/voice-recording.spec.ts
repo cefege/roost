@@ -127,10 +127,29 @@ test("mobile mic retries AudioContext resume after the input session opens", asy
   await mic.tap();
   await expect(voice).toHaveAttribute("data-state", "listening");
   await expect(input).toHaveValue("PCM ready");
+  const ghost = mobileSmokePage.getByTestId("chat-ghost");
+  await expect(ghost).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("chat-ghost-tail")).toHaveText("PCM ready");
+  await expect(input).toHaveAttribute("data-ghosted", "true");
+  // The field hands its glyphs to the mirror, which must cover exactly its box.
+  await expect(input).toHaveCSS("color", "rgba(0, 0, 0, 0)");
+  const [fieldBox, ghostBox] = [await input.boundingBox(), await ghost.boundingBox()];
+  if (!fieldBox || !ghostBox) throw new Error("composer field and mirror must both be laid out");
+  for (const side of ["x", "y", "width", "height"] as const) {
+    expect(Math.abs(fieldBox[side] - ghostBox[side])).toBeLessThanOrEqual(1);
+  }
+  // The hypothesis is the only lower-emphasis run: settled words read normally.
+  expect(await ghost.evaluate((el) => {
+    const head = el.firstElementChild, tail = el.lastElementChild;
+    if (!head || !tail) return "mirror is missing a run";
+    return getComputedStyle(head).color === getComputedStyle(tail).color ? "same" : "distinct";
+  })).toBe("distinct");
 
   await mic.tap();
   await expect(voice).toHaveAttribute("data-state", "idle", { timeout: 15_000 });
   await expect(input).toHaveValue("post-stream resume delivered audio");
+  await expect(mobileSmokePage.getByTestId("chat-ghost")).toHaveCount(0);
+  await expect(input).not.toHaveAttribute("data-ghosted", "true");
   await expect(mobileSmokePage.getByTestId("voice-caption")).toHaveCount(0);
 });
 
@@ -280,6 +299,7 @@ test("a second recording works exactly like the first", async ({ mobileSmokePage
   await mic.tap();
   await expect(voice).toHaveAttribute("data-state", "listening");
   await expect(input).toHaveValue(`${settledDraft} still recording`);
+  await expect(mobileSmokePage.getByTestId("chat-ghost-tail")).toHaveText("still recording");
   const drawer = mobileSmokePage.getByTestId("sidebar-drawer");
   await mobileSmokePage.getByTestId("mobile-deck-bar-menu").tap();
   await expect(drawer).toHaveAttribute("data-open", "true");

@@ -109,7 +109,7 @@ export async function prepareMobileKeyboardControls(
 
   expect(await box.evaluate((el) => Array.from(el.children).map((child) =>
     child instanceof HTMLElement ? child.dataset.testid ?? null : null,
-  ))).toEqual(["chat-attach", "chat-input", "mobile-voice-input", "chat-send"]);
+  ))).toEqual(["chat-attach", "chat-field", "mobile-voice-input", "chat-send"]);
   await expect(toggle).toBeVisible();
   await expect(toggle).toHaveAttribute("data-open", "false");
   await expect(toggle).toHaveAttribute("aria-label", "Show terminal keys");

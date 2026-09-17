@@ -280,9 +280,6 @@
   background: var(--md-sys-color-error-container);
   color: var(--md-sys-color-on-error-container);
 }
-.voice-caption__final { color: var(--md-sys-color-on-surface); }
-.voice-caption__interim { color: var(--md-sys-color-on-surface-variant); font-style: italic; }
-.voice-caption__hint { color: var(--md-sys-color-on-surface-variant); font-style: italic; }
 .voice-caption__error { color: var(--md-sys-color-on-error-container); }
 
 @keyframes voice-caption-enter {
@@ -384,27 +381,65 @@
 .term-chat__attach {
   grid-column: 1;
 }
-.term-chat__input {
+/* The field cell holds the textarea and, while a dictated hypothesis is still
+   unsettled, the mirror that recolors it. Grid placement lives here so both
+   boxes are one cell and the mirror can sit exactly over the glyphs. */
+.term-chat__field {
   grid-column: 1;
-  box-sizing: border-box;
+  position: relative;
+  display: grid;
   min-width: 0;
-  border: none;
-  outline: none;
-  resize: none;
-  background: transparent;
-  color: var(--md-sys-color-on-surface);
+}
+.term-chat__input,
+.term-chat__ghost {
+  box-sizing: border-box;
   /* Centers the first line against the control row without asserting it in a
      comment: (44 - 24) / 2 = 10px, and it follows the type ramp. */
   padding: calc((var(--term-chat-control) - var(--md-body-l-line)) / 2) var(--md-space-3);
-  min-height: var(--term-chat-control);
   font-family: var(--md-font);
   /* Floors at the iOS zoom-on-focus threshold while still following the ramp:
      a ramp step below 16px would silently reintroduce zoom-on-focus. */
   font-size: max(16px, var(--md-body-l-size));
   line-height: var(--md-body-l-line);
+}
+.term-chat__input {
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  /* Caret and selection paint above the mirror. */
+  position: relative;
+  z-index: 1;
+  min-height: var(--term-chat-control);
   max-height: 160px;
   overflow-y: auto;
 }
+/* While a hypothesis is unsettled the mirror paints every glyph, so the field
+   must not print its own text under it — the caret still needs a color. Hiding
+   the field's scrollbar keeps both boxes' wrap width identical: a gutter
+   reserved on one of them would shift every line. A selection made mid-
+   dictation shows its highlight without glyphs; dictating is not an editing
+   gesture, so that edge is left alone. */
+.term-chat__input[data-ghosted="true"] {
+  color: transparent;
+  caret-color: var(--md-sys-color-on-surface);
+  scrollbar-width: none;
+}
+.term-chat__input[data-ghosted="true"]::-webkit-scrollbar { display: none; }
+/* Same box, same metrics, no interaction. Reproducing the textarea's UA
+   wrapping (pre-wrap + break-word) is what keeps the glyphs aligned. */
+.term-chat__ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--md-sys-color-on-surface);
+}
+.term-chat__ghost-tail { color: var(--md-sys-color-on-surface-variant); }
 .term-chat__input:focus-visible {
   outline: 2px solid var(--md-sys-color-primary);
   outline-offset: -2px;
@@ -420,9 +455,11 @@
   grid-column: 1;
   grid-row: 1;
 }
-.term-chat__box[data-compact="false"] .term-chat__input {
+.term-chat__box[data-compact="false"] .term-chat__field {
   grid-column: 2;
   grid-row: 1;
+}
+.term-chat__box[data-compact="false"] .term-chat__input {
   padding: calc((var(--term-chat-control) - var(--md-body-l-line)) / 2) var(--md-space-3);
   min-height: var(--term-chat-control);
 }
@@ -442,7 +479,7 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-template-rows: auto auto;
   }
-  .term-chat__box[data-compact="false"] .term-chat__input {
+  .term-chat__box[data-compact="false"] .term-chat__field {
     grid-column: 1 / -1;
     grid-row: 1;
     width: 100%;
@@ -548,13 +585,19 @@
     padding: var(--md-space-1);
   }
 
-  .term-chat__box[data-compact="true"] .term-chat__input {
+  .term-chat__box[data-compact="true"] .term-chat__field {
     grid-column: 1 / -1;
     grid-row: 1;
     width: 100%;
+  }
+
+  .term-chat__box[data-compact="true"] :is(.term-chat__input, .term-chat__ghost) {
+    padding: var(--md-space-2) var(--md-space-3);
+  }
+
+  .term-chat__box[data-compact="true"] .term-chat__input {
     min-height: 40px;
     max-height: min(192px, 30dvh);
-    padding: var(--md-space-2) var(--md-space-3);
     overflow-y: auto;
   }
 
