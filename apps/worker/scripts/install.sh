@@ -219,7 +219,27 @@ fi
 # local UI door has no SPA to serve otherwise, because a source-run worker
 # carries the empty embed stub and would answer `/` with a 404 the browser
 # downloads instead of rendering.
-WEB_DIST_RESOLVED="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"
+#
+# An inherited value is honored only inside this install's own root. The
+# variable arrives from whatever ran the installer, so a shell that just
+# deployed the coordinator hands over a dist in the COORD service's release
+# tree; that release is retired on its next deploy and this unit then names a
+# deleted directory. Mirrored in apps/coord/scripts/install.sh.
+resolve_web_dist() {
+  local requested resolved root
+  requested="${ROOST_WEB_DIST_PATH:-}"
+  root="$(cd "$REPO_ROOT" 2>/dev/null && pwd -P || printf '%s' "$REPO_ROOT")"
+  if [[ -z "$requested" ]]; then printf '%s' "$root/apps/web/dist"; return 0; fi
+  resolved="$(cd "$requested" 2>/dev/null && pwd -P || true)"
+  if [[ -n "$resolved" && ( "$resolved" == "$root" || "$resolved" == "$root"/* ) ]]; then
+    printf '%s' "$resolved"
+    return 0
+  fi
+  echo "ignoring ROOST_WEB_DIST_PATH=$requested: not a directory under $root;" \
+    "stamping $root/apps/web/dist instead" >&2
+  printf '%s' "$root/apps/web/dist"
+}
+WEB_DIST_RESOLVED="$(resolve_web_dist)"
 WEB_DIST_PATH_PLIST=$'\n    <key>ROOST_WEB_DIST_PATH</key>\n    <string>'"$(xml_escape "${WEB_DIST_RESOLVED}")"$'</string>'
 
 # Stamp the current repo HEAD into the LaunchAgent so the running worker

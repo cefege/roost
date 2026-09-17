@@ -172,6 +172,29 @@ systemd_env() {
   printf 'Environment="%s=%s"\n' "$1" "$(systemd_escape "$value")"
 }
 
+# ROOST_WEB_DIST_PATH is inherited from whatever ran this installer, and a
+# shell that just deployed a worker exports a dist inside the WORKER service's
+# release tree. Worker settlement then deletes that release, and this
+# coordinator answers 404 on every page while its RPCs stay healthy — the
+# failure is silent because nothing else reads that path. An explicit value is
+# honored only inside this install's own root, which every legitimate caller
+# satisfies: a staged release deploy sets ROOST_REPO_ROOT to the release it
+# built. Mirrored in apps/worker/scripts/install.sh.
+resolve_web_dist() {
+  local requested resolved root
+  requested="${ROOST_WEB_DIST_PATH:-}"
+  root="$(cd "$REPO_ROOT" 2>/dev/null && pwd -P || printf '%s' "$REPO_ROOT")"
+  if [[ -z "$requested" ]]; then printf '%s' "$root/apps/web/dist"; return 0; fi
+  resolved="$(cd "$requested" 2>/dev/null && pwd -P || true)"
+  if [[ -n "$resolved" && ( "$resolved" == "$root" || "$resolved" == "$root"/* ) ]]; then
+    printf '%s' "$resolved"
+    return 0
+  fi
+  echo "ignoring ROOST_WEB_DIST_PATH=$requested: not a directory under $root;" \
+    "stamping $root/apps/web/dist instead" >&2
+  printf '%s' "$root/apps/web/dist"
+}
+
 # The coordinator owns no TLS, DNS, or tunnel: it binds loopback in plaintext
 # and the operator's front door terminates TLS and sets X-Forwarded-For. That
 # also dodges the Bun 1.3.14 segfault in us_internal_ssl_on_close /
@@ -212,7 +235,7 @@ write_plist() {
     prog_bin="${BUN_BIN}"; prog_arg2="${REPO_ROOT}/apps/coord/src/main.ts"
   fi
   workdir="${ROOST_WORKDIR:-$REPO_ROOT}"
-  web_dist="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"
+  web_dist="$(resolve_web_dist)"
   label_xml="$(xml_escape "$LABEL")"
   prog_bin_xml="$(xml_escape "$prog_bin")"
   prog_arg2_xml="$(xml_escape "$prog_arg2")"
@@ -319,7 +342,7 @@ write_unit() {
     prog_args_unit="$(systemd_quote "--env-file=/dev/null") $(systemd_quote "${REPO_ROOT}/apps/coord/src/main.ts")"
   fi
   workdir="${ROOST_WORKDIR:-$REPO_ROOT}"
-  web_dist="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"
+  web_dist="$(resolve_web_dist)"
   prog_bin_unit="$(systemd_quote "$prog_bin")"
   workdir_unit="$(systemd_path "$workdir")"
   stdout_unit="$(systemd_path "append:${LOG_DIR}/main.out.log")"

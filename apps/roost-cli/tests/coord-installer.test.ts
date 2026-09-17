@@ -1,6 +1,7 @@
-// Coordinator installer tests compose quickstart endpoint selection with the
-// shipping POSIX service writers. Fake native commands keep activation
-// hermetic while preserving the exact launchd and systemd boundaries.
+// POSIX installer tests: quickstart endpoint selection composed with the
+// shipping service writers, plus the dist-path confinement both the coordinator
+// and worker installers apply. Fake native commands keep activation hermetic
+// while preserving the exact launchd and systemd boundaries.
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
@@ -8,6 +9,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -20,6 +22,7 @@ import {
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const INSTALLER = join(ROOT, "apps/coord/scripts/install.sh");
+const WORKER_INSTALLER = join(ROOT, "apps/worker/scripts/install.sh");
 const cleanups: string[] = [];
 
 function executable(path: string, source: string): void {
@@ -173,5 +176,65 @@ describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpo
     expect(result.stdout.toString()).toContain(
       "Coord v2 ready - bind 127.0.0.1:4103, front door https://fresh.example.test",
     );
+  });
+
+  // Both installers canonicalize with `pwd -P`, and macOS resolves
+  // mkdtemp's /var/folders to /private/var/folders, so every expectation here
+  // compares against the realpath rather than the temp name.
+  test("a dist path from another service's release tree is refused, not stamped", () => {
+    for (const platform of ["Linux", "Darwin"] as const) {
+      const { root, env, definition } = fixture(platform);
+      // The coordinator installer honors ROOST_REPO_ROOT (a staged release
+      // deploy sets it); the worker installer derives its root from its own
+      // location and cannot be told otherwise. Each falls back inside its own.
+      for (const [installer, installRoot] of [
+        [INSTALLER, realpathSync(root)],
+        [WORKER_INSTALLER, realpathSync(ROOT)],
+      ] as const) {
+        // What a shell that just deployed the sibling service exports: a dist
+        // inside THAT service's tree, deleted by its next settlement. Left
+        // stamped here, this service answers 404 on every page.
+        const sibling = realpathSync(mkdtempSync(join(tmpdir(), "roost-sibling-service-")));
+        cleanups.push(sibling);
+        const foreign = join(sibling, "releases", "r1", "apps", "web", "dist");
+        mkdirSync(foreign, { recursive: true });
+        writeFileSync(join(foreign, "index.html"), "<!doctype html>");
+
+        const result = Bun.spawnSync(["bash", installer, "write-plist"], {
+          cwd: ROOT,
+          env: {
+            ...env,
+            ROOST_SKIP_ENV_LOCAL: "1",
+            ROOST_COORDINATOR_URL: "https://dash.example.test",
+            ROOST_WORKER_UNIT: definition,
+            ROOST_WORKER_PLIST: definition,
+            ROOST_WORKER_DATA_DIR: join(root, "worker-data"),
+            ROOST_WORKER_LOG_DIR: join(root, "worker-logs"),
+            ROOST_REPO_ROOT: root,
+            ROOST_WEB_DIST_PATH: foreign,
+          },
+        });
+
+        expect(result.exitCode, result.stderr.toString()).toBe(0);
+        expect(result.stderr.toString()).toContain(`ignoring ROOST_WEB_DIST_PATH=${foreign}`);
+        expect(envValue(readFileSync(definition, "utf8"), platform, "ROOST_WEB_DIST_PATH"))
+          .toBe(join(installRoot, "apps", "web", "dist"));
+      }
+    }
+  });
+
+  test("a dist inside this install's own root is stamped as given", () => {
+    const { root, env, definition } = fixture("Linux");
+    // The staged-release deploy shape: the installer's own root IS the release.
+    const own = join(realpathSync(root), "releases", "coord-r2", "apps", "web", "dist");
+    mkdirSync(own, { recursive: true });
+
+    const result = Bun.spawnSync(["bash", INSTALLER, "write-plist"], {
+      cwd: ROOT,
+      env: { ...env, ROOST_SKIP_ENV_LOCAL: "1", ROOST_REPO_ROOT: root, ROOST_WEB_DIST_PATH: own },
+    });
+
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(envValue(readFileSync(definition, "utf8"), "Linux", "ROOST_WEB_DIST_PATH")).toBe(own);
   });
 });

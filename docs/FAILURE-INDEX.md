@@ -1524,11 +1524,42 @@ repeat the inference: the CLI cannot read a released install's embedded manifest
 coordinator's own root and reports that answer next to the stamped path. A source install points
 `ROOST_WEB_DIST_PATH` at `$REPO_ROOT/apps/web/dist`, which no settlement deletes; a released install
 re-stamps it per deploy.
+These three make the state visible; what stops the commonest way INTO it is the next entry, "An installer
+inherits a sibling service's dist path from the shell that ran it".
 
 **Guard** — `apps/coord/tests/spa-source-startup.test.ts` "a retired web dist is reported once at startup,
 not only as a page 404", `apps/shared/tests/spa.test.ts` "names the build it serves, so an empty pick is
 reportable instead of a bare 404", and `apps/roost-cli/tests/status-spa.test.ts`, including "a compiled
 install serving its embedded build is not called missing".
+
+### An installer inherits a sibling service's dist path from the shell that ran it
+
+**Symptom** — a coordinator unit whose `ROOST_WEB_DIST_PATH` points inside
+`RoostWorkerV2/service/releases/worker/…` (or a worker unit pointing into the coordinator's releases), so the
+UI dies the next time the OTHER service deploys and retires that release.
+
+**Wrong** — read `ROOST_WEB_DIST_PATH` straight out of the environment in `write_plist`/`write_unit`:
+`web_dist="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"`. The variable arrives from whatever ran the
+installer, and the programmatic callers pass the ambient environment through —
+`runInherit` in `apps/roost-cli/src/quickstart-runtime.ts:28-37` spawns with `{ ...process.env, ...env }`, and
+the env it merges (`coordinatorEnvironmentForQuickstart`) names a bind, a public URL and
+`ROOST_SKIP_ENV_LOCAL`, nothing about the dist. So a dist exported for a DIFFERENT service silently lands in
+this service's definition. The CLI's carry-forward already strips the key
+(`apps/roost-cli/src/deploy-worker-environment.ts:26-39`) — the hole was the shell installers, which are also
+what `roost status` and GETTING_STARTED tell an operator to run by hand. Do not fix this by scrubbing the key
+at each caller: the installers are the single owner of what their own unit may name.
+
+**Right** — `resolve_web_dist()` in both installers honors an explicit value only when it resolves inside that
+install's own root, and otherwise warns on stderr and stamps `$REPO_ROOT/apps/web/dist`. Every legitimate
+caller satisfies it: `push-coordinator.ts:279-291` sets `ROOST_REPO_ROOT` to the release it staged, and the
+worker's remote activation runs `<release>/apps/worker/scripts/install.sh` with that release's own dist, so
+the script-derived root already contains it. The worker installer takes no `ROOST_REPO_ROOT` override at all
+(`apps/worker/scripts/install.sh:7`), which is why its root cannot be spoofed. The check never fails an
+install — a compiled install serves its embedded build regardless.
+
+**Guard** — `apps/roost-cli/tests/coord-installer.test.ts` "a dist path from another service's release tree is
+refused, not stamped" (runs BOTH installers, on the Linux and Darwin writers) and "a dist inside this
+install's own root is stamped as given".
 
 ---
 
