@@ -193,6 +193,8 @@ export async function exerciseMobileMouseAndGeometry(
       sessionId,
       data: Array.from(new TextEncoder().encode("\x1b[<65;1;1M")),
     }]);
+    await expect(terminalSlot.getByTestId("terminal-display"))
+      .toHaveCSS("touch-action", "none");
     const forwardRecoveredProof = await mobileSmokePage.evaluate(({ id, marker }) => {
       const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
       return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
@@ -202,6 +204,8 @@ export async function exerciseMobileMouseAndGeometry(
   }
   await mouse.tap();
   await expect(mouse).toHaveAttribute("aria-pressed", "false");
+  await expect(terminalSlot.getByTestId("terminal-display"))
+    .toHaveCSS("touch-action", "pan-y");
 
   const portrait = mobileSmokePage.viewportSize();
   expect(portrait).not.toBeNull();

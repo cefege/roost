@@ -17,6 +17,7 @@ import type { MouseTracking } from "@roost/shared/cell";
 import { signal } from "@roost/shared/diag";
 import { getSessionTraceId } from "../lib/diag.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
+import { mouseGesturesForwarded } from "../lib/mouseForwardPref.ts";
 import { tvModeActive } from "../lib/tvMode.ts";
 import { isPendingSpawn } from "../store/optimisticSpawn.ts";
 import { createTerminalView } from "../store/terminal-stream.ts";
@@ -215,7 +216,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					flex: "1",
 					"min-width": "0",
 					"min-height": "0",
-					"touch-action": "pan-y",
+					"touch-action": mouseGesturesForwarded(mouseTracking()) ? "none" : "pan-y",
 				}}
 			/>
 			{/* Mounted only while a multi-line paste is pending. Keeping a closed

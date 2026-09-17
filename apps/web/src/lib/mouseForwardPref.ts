@@ -13,6 +13,7 @@
 // is on AND the frame reports a nonzero tracking mode.
 
 import { createSignal } from "solid-js";
+import type { MouseTracking } from "@roost/shared/cell";
 
 const KEY = "roostMouseForward";
 const read = (): boolean => {
@@ -29,3 +30,10 @@ export const toggleMouseForward = (): void => {
     return next;
   });
 };
+
+/** Pointer and touch gestures belong to the terminal application, not the
+ *  browser: the frame reports a tracking mode AND this device allows
+ *  forwarding. One predicate so the gesture handlers and the pane's
+ *  touch-action can never disagree about who owns a drag. */
+export const mouseGesturesForwarded = (tracking: MouseTracking): boolean =>
+  mouseForwardEnabled() && tracking !== 0;

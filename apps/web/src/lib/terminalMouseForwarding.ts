@@ -21,7 +21,7 @@
 import { onCleanup, type Accessor } from "solid-js";
 import { diag } from "@roost/shared/diag";
 import type { MouseTracking } from "@roost/shared/cell";
-import { mouseForwardEnabled } from "./mouseForwardPref.ts";
+import { mouseGesturesForwarded } from "./mouseForwardPref.ts";
 import {
 	cellFromPoint,
 	terminalMouseReport,
@@ -82,7 +82,7 @@ export function attachTerminalMouseForwarding(
 		getCellH,
 		measureCell,
 	} = deps;
-	const forwardActive = () => mouseForwardEnabled() && mouseTracking() !== 0;
+	const forwardActive = () => mouseGesturesForwarded(mouseTracking());
 	let wheelAndTouchBound = false;
 	// Reader intent must only precede a native gesture that can actually move the
 	// display. Entering reader mode at a clamped edge (or with no overflow)
