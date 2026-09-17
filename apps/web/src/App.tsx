@@ -10,7 +10,6 @@ import { AppShell } from "./components/layout/AppShell.tsx";
 import { HomeLanding } from "./components/HomeLanding.tsx";
 import { MainPane } from "./components/MainPane.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
-import { TransferStack } from "./components/TransferCard.tsx";
 import { installKeyboardShortcuts, setSettingsOpener } from "./lib/keyboardShortcuts.ts";
 import { installSpatialNavigation } from "./lib/spatialNavigation.ts";
 import { rootStore } from "./store/root.ts";
@@ -20,9 +19,7 @@ import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { VersionBanner } from "./components/VersionBanner.tsx";
 import { WhatsNewDialog } from "./components/WhatsNewDialog.tsx";
 import { QueueTaskDialog } from "./components/QueueTaskDialog.tsx";
-import { ToastContainer } from "./components/ToastContainer.tsx";
-import { PairRequestNotifier } from "./components/PairRequestNotifier.tsx";
-import { UndoCloseBanner } from "./components/UndoCloseBanner.tsx";
+import { NotificationDock } from "./components/NotificationDock.tsx";
 import { RenameDialogHost } from "./components/RenameDialog.tsx";
 import { getLastTerminalPath } from "./lib/lastVisited.ts";
 import { shouldBootRestore, consumeBootRestore } from "./lib/bootRestore.ts";
@@ -141,11 +138,8 @@ export function App() {
           <HelpOverlay />
           <WhatsNewDialog />
           <QueueTaskDialog />
-          <ToastContainer />
-          <PairRequestNotifier />
-          <UndoCloseBanner />
+          <NotificationDock />
           <RenameDialogHost />
-          <TransferStack />
         </Show>
       </>
     );

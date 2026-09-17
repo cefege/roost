@@ -1,8 +1,9 @@
 // Toast notification store. Module-level signals; no rootStore dependency.
-// addToast(msg, kind, opts) appends a toast. "ok"/"warn" auto-dismiss
-// after 3s by default; "err" persists until the user dismisses it so
-// errors can be read + copied without racing the timer.
-// Consumers: ToastContainer.tsx (renders the stack via portal).
+// addToast(msg, kind, opts) appends a toast that auto-dismisses on its own
+// timer — ok after 3s, warn after 5s, err after 8s. Pass ttlMs:null for the
+// rare must-not-vanish toast; the card's Copy button is what preserves error
+// text, not the timer.
+// Consumers: ToastStack.tsx / ToastCard.tsx inside the notification dock.
 
 import { createSignal } from "solid-js";
 
@@ -21,7 +22,7 @@ export interface Toast {
    *  monospace block, full text selectable, with a Copy button. */
   details?: string;
   /** Auto-dismiss timer in ms, or `null` to stay until the user closes
-   *  the toast. Defaults: ok=3000, warn=5000, err=null (persistent). */
+   *  the toast. Defaults: ok=3000, warn=5000, err=8000. */
   ttlMs: number | null;
   /** Optional inline action button (e.g. "Jump to it" for attention toasts).
    *  Rendered to the left of Copy/✕. The action does NOT auto-dismiss the
@@ -44,10 +45,8 @@ export { toasts };
 const DEFAULT_TTL: Record<ToastKind, number | null> = {
   ok: 3000,
   warn: 5000,
-  // ponytail: err used to persist forever (null) — Author: "you need to wait"
-  // for it to go. Now auto-dismisses like the others; Copy button grabs the
-  // full text if it's needed. Pass ttlMs:null explicitly for a rare
-  // must-not-vanish error.
+  // Errors get the longest window but still expire: the card's Copy button is
+  // the durable path to the text. ttlMs:null is the explicit opt-out.
   err: 8000,
 };
 

@@ -1,0 +1,48 @@
+/* NotificationDock.css — geometry for the single bottom overlay column that
+   hosts toasts, undo snackbars, transfers and pair requests, plus the toast and
+   undo keyframes those cards animate with. Imported by NotificationDock.tsx,
+   which publishes --roost-notify-dock-lift. */
+
+.roost-notify-dock {
+  position: fixed;
+  left: calc(var(--roost-main-left) + env(safe-area-inset-left, 0px) + var(--md-space-3));
+  right: calc(env(safe-area-inset-right, 0px) + var(--md-space-3));
+  bottom: calc(var(--roost-notify-dock-lift) + var(--roost-notify-dock-overscan));
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-space-2);
+  pointer-events: none;
+}
+
+/* Cards own their hit area; the column itself must never eat a terminal tap. */
+.roost-notify-dock > * {
+  pointer-events: auto;
+  inline-size: min(70ch, 100%);
+}
+
+.roost-toast {
+  position: relative;
+  overflow: hidden;
+}
+
+@keyframes roost-toast-in {
+  from { opacity: 0; transform: translateY(var(--md-space-2)); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes roost-toast-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+@keyframes undo-snackbar-in {
+  from { opacity: 0; transform: translateY(var(--md-space-5)); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes undo-snackbar-bar {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}

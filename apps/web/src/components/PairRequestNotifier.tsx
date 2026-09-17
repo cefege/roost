@@ -1,4 +1,5 @@
-// Corner notifier for inbound pair requests on already-trusted browsers.
+// Inbound pair-request cards for already-trusted browsers, rendered as
+// notification-dock children (NotificationDock.tsx owns the geometry).
 // Reads rootStore.pair_requests (fed by the Sync firehose pairRequestDelta
 // frames + per-connect snapshot seed — store/sync.ts, perf sweep C2.4).
 // Approval and rendering are delegated to PairRequestCard so every surface
@@ -6,7 +7,6 @@
 
 import { useLocation } from "@solidjs/router";
 import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
-import { Portal } from "solid-js/web";
 import { rootStore } from "../store/root.ts";
 import { deletePairRequest } from "../store/mutations.ts";
 import { coordClient } from "../connect.ts";
@@ -62,34 +62,17 @@ export function PairRequestNotifier() {
   }
 
   return (
-    <Show when={canApprovePairRequests() && !isPairRequestNotifierSuppressed() && pending().length > 0}>
-      <Portal mount={document.body}>
-        <div
-          data-testid="pair-request-notifier"
-          style={{
-            position: "fixed",
-            bottom: "calc(var(--md-space-5) + var(--toast-stack-height) + var(--md-space-1))",
-            right: "var(--md-space-5)",
-            display: "flex",
-            "flex-direction": "column",
-            gap: "var(--md-space-3)",
-            "z-index": "10000",
-            "max-width": "calc(100vw - var(--md-space-6))",
-            "padding-bottom": "env(safe-area-inset-bottom, 0px)",
-          }}
-        >
-          <For each={pending()}>
-            {(request) => (
-              <PairRequestCard
-                request={request}
-                busy={busyRequestId() === request.ephemeral_id}
-                onApprove={() => void approve(request.ephemeral_id)}
-                onDeny={() => void deny(request.ephemeral_id)}
-              />
-            )}
-          </For>
-        </div>
-      </Portal>
+    <Show when={canApprovePairRequests() && !isPairRequestNotifierSuppressed()}>
+      <For each={pending()}>
+        {(request) => (
+          <PairRequestCard
+            request={request}
+            busy={busyRequestId() === request.ephemeral_id}
+            onApprove={() => void approve(request.ephemeral_id)}
+            onDeny={() => void deny(request.ephemeral_id)}
+          />
+        )}
+      </For>
     </Show>
   );
 }

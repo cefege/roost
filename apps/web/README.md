@@ -45,7 +45,7 @@ lives in that row's directory; prefixed refs follow the convention above.
 | Directory | Owns | Must not own |
 | --- | --- | --- |
 | `apps/web/src/` (root files) | `entry.ts` (credential scrub + deferred graph load), `main.tsx` (post-scrub bootstrap + mount), `App.tsx` (router + overlay shell), `routes.ts` (URL table), `connect.ts` (Connect-RPC client), `css-imports.d.ts` and `md-elements.d.ts` (ambient imports/elements) | feature-shaped UI |
-| `apps/web/src/components/` | screens/dialogs; `DesignGallery.tsx` is the visual reference for theme tokens, shared primitives, and the canonical title/activity/sidebar/editor/status composition; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `cell-terminal-document-lifecycle.ts` fans one page-lifecycle listener set to mounted terminals | global state, transport, or terminal cell parsing |
+| `apps/web/src/components/` | screens/dialogs; `NotificationDock.tsx` owns the ONE bottom overlay column (`ToastStack.tsx`/`ToastCard.tsx`, `UndoCloseBanner.tsx`, `TransferCard.tsx`, `PairRequestNotifier.tsx` render as its children and never position themselves); `DesignGallery.tsx` is the visual reference for theme tokens, shared primitives, and the canonical title/activity/sidebar/editor/status composition; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `cell-terminal-document-lifecycle.ts` fans one page-lifecycle listener set to mounted terminals | global state, transport, or terminal cell parsing |
 | `apps/web/src/components/layout/` | `AppShell.tsx` owns the canonical desktop workbench grid and compact/mobile shell; `WorkbenchTitleBar.tsx`, `WorkbenchActivityBar.tsx`, and `WorkbenchStatusBar.tsx` own truthful desktop chrome; `SidebarResizer.tsx` and `MobileSidebarDrawer.tsx` retain sidebar interaction seams; `MobileTopBar.tsx` owns compact route context | route-specific content |
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
 | `apps/web/src/components/Settings/` | settings shell/panes; `MachinesPane.tsx` owns workers, `DevicesPane.tsx` is the only identity surface, `settingsNavigation.ts` owns the single `SETTINGS_GROUPS` list | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
@@ -276,6 +276,14 @@ Break one of these and you get back the history-corruption class this repo keeps
   guarded prompt uses the same owner. Sync input and public `SessionsInput`
   still carry caller-encoded raw bytes and never acquire a status fence,
   transformation, implicit Enter, or retry.
+- **One notification dock owns bottom overlay placement.**
+  `apps/web/src/components/NotificationDock.tsx` is the only SPA surface that decides where a
+  transient notification sits: toasts (`ToastStack.tsx` + `ToastCard.tsx`), undo snackbars,
+  transfers and pair requests are its flex children, so two of them cannot claim the same rect,
+  and `apps/web/src/lib/notificationDockLift.ts` is the single formula that clears either the
+  compact viewport composer plus soft keyboard or the desktop status bar plus in-pane composer
+  row. A new transient surface becomes a dock child — never a new `position: fixed` corner with
+  its own `z-index`.
 - **Design system: no raw values in components.** No hex, `rgb()`, or px font-size outside the
   token-declaration files — `apps/web/src/styles/theme-vars.css`,
   `apps/web/src/styles/voice-input.css`,

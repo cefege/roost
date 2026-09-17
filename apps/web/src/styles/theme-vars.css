@@ -164,11 +164,14 @@
      and var(--kb-offset) resolves without a literal fallback. */
   --kb-offset: 0px;
 
-  /* Toast stack height (px). ToastContainer's ResizeObserver writes this at
-     runtime so PairRequestNotifier can offset above the toast stack.
-     Declared here so var(--toast-stack-height) resolves without a literal
-     fallback. Default 0 = no toasts visible. */
-  --toast-stack-height: 0px;
+  /* Notification dock geometry. NotificationDock publishes
+     --roost-notify-dock-lift inline per render (the bottom chrome it must clear:
+     compact composer + soft keyboard, or status bar + in-pane composer row);
+     tv.css raises --roost-notify-dock-overscan because a television reports
+     env(safe-area-inset-*) as 0px and crops the bezel. Declared here so
+     var(...) resolves without a literal fallback. */
+  --roost-notify-dock-lift: 0px;
+  --roost-notify-dock-overscan: 0px;
 
   /* M3 elevation shadows — the SINGLE declaration site (design-system phase 1:
      the md/tokens.css duplicate was removed). Global surfaces AND the settings

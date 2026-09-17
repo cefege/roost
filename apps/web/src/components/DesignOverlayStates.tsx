@@ -1,6 +1,6 @@
-// DesignOverlayStates renders the modal and menu reference for /design.
-// It delegates focus, dismissal, portal, and keyboard behavior to shipped owners.
-// DesignGallery supplies the surrounding catalog surface and theme tokens.
+// DesignOverlayStates renders the modal, menu, and notification reference for
+// /design. It delegates focus, dismissal, portal, and toast behavior to shipped
+// owners. DesignGallery supplies the surrounding catalog surface and theme tokens.
 
 import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -15,6 +15,7 @@ import {
 } from "./contextMenuPrimitives.tsx";
 import type { MenuFocusEdge } from "./contextMenuPrimitives.tsx";
 import { Button, IconButton, Sheet, Dialog } from "./Settings/md/primitives.tsx";
+import { addToast } from "../store/toastStore.ts";
 
 export const DesignOverlayStates: Component = () => {
   const [dialogOpen, setDialogOpen] = createSignal(false);
@@ -77,6 +78,24 @@ export const DesignOverlayStates: Component = () => {
         onClick={toggleMenu}
         onKeyDown={onTriggerKeyDown}
       />
+      <Button variant="ghost" onClick={() => addToast("Workspace created", "ok")}>
+        Toast: ok
+      </Button>
+      <Button variant="ghost" onClick={() => addToast("Scrollback before this point was lost", "warn")}>
+        Toast: warn
+      </Button>
+      <Button variant="ghost" onClick={() => addToast("Split terminal failed: worker offline", "err")}>
+        Toast: error
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={() => addToast("Terminal diagnostic captured", "ok", {
+          details: "capture 7f3a\nworker bundle: saved (18422 bytes)\nbrowser evidence: held locally for retry",
+          action: { label: "Download", onClick: () => undefined },
+        })}
+      >
+        Toast: details + action
+      </Button>
 
       <Dialog
         open={dialogOpen()}

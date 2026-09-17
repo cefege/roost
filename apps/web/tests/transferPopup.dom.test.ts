@@ -1,6 +1,7 @@
 // TransferStack DOM coverage — one popup must aggregate every live transfer record.
-// Bun renders TSX through a small client-Solid virtual renderer, so Portal output
-// lands in this fake document body while primitive stubs retain observable semantics.
+// Bun renders TSX through a small client-Solid virtual renderer, so assertions walk
+// the tree the component returns while primitive stubs retain observable semantics.
+// TransferStack is a notification-dock child, so nothing here portals to a body.
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
@@ -21,32 +22,6 @@ class FakeElement {
   getAttribute(name: string): string | null {
     const value = this.vnode.props[name];
     return value === undefined || value === null ? null : String(value);
-  }
-}
-
-class FakeBody {
-  private readonly children: unknown[] = [];
-
-  appendChild(child: unknown): unknown {
-    this.children.push(child);
-    return child;
-  }
-
-  replaceChildren(): void {
-    this.children.length = 0;
-  }
-
-  querySelectorAll(selector: string): FakeElement[] {
-    const testId = /^\[data-testid="([^"]+)"\]$/.exec(selector)?.[1];
-    if (!testId) throw new Error(`unsupported selector ${selector}`);
-
-    const matches: FakeElement[] = [];
-    for (const child of this.children) {
-      visitRendered(child, (vnode) => {
-        if (vnode.props["data-testid"] === testId) matches.push(new FakeElement(vnode));
-      });
-    }
-    return matches;
   }
 }
 
@@ -85,8 +60,13 @@ function renderedText(node: unknown): string {
     : renderedText(vnode.props.children);
 }
 
-const fakeDocument = { body: new FakeBody() };
-Object.defineProperty(globalThis, "document", { configurable: true, value: fakeDocument });
+function queryAllByTestId(root: unknown, testId: string): FakeElement[] {
+  const matches: FakeElement[] = [];
+  visitRendered(root, (vnode) => {
+    if (vnode.props["data-testid"] === testId) matches.push(new FakeElement(vnode));
+  });
+  return matches;
+}
 
 const solidClientUrl = new URL("./solid.js", import.meta.resolve("solid-js"));
 const Solid = await import(solidClientUrl.href) as typeof SolidApi;
@@ -135,11 +115,6 @@ mock.module("react/jsx-dev-runtime", () => ({
   },
 }));
 
-function portal(props: Record<string, unknown>): null {
-  (props.mount as FakeBody).appendChild(props.children);
-  return null;
-}
-
 function surface(props: Record<string, unknown>): VNode {
   return createElement(props.as ?? "div", props);
 }
@@ -166,7 +141,6 @@ function iconButton(props: Record<string, unknown>): VNode {
   });
 }
 
-mock.module("solid-js/web", () => ({ Portal: portal }));
 mock.module("../src/components/Settings/md/primitives.tsx", () => ({
   IconButton: iconButton,
   List: list,
@@ -175,28 +149,28 @@ mock.module("../src/components/Settings/md/primitives.tsx", () => ({
 }));
 
 // These imports must follow mock registration so the component binds the fake
-// client renderer, Portal, and primitives instead of browser-only modules.
+// client renderer and primitives instead of browser-only modules.
 const { TransferStack } = await import("../src/components/TransferCard.tsx");
 const { addTransfer, clearTransfersForLogout } = await import("../src/store/transfers.ts");
 
 const mountedRoots: Array<() => void> = [];
 
-function mountTransferStack(): void {
+function mountTransferStack(): unknown {
+  let tree: unknown;
   Solid.createRoot((dispose) => {
     mountedRoots.push(dispose);
-    visitRendered(TransferStack(), () => undefined);
+    tree = TransferStack();
   });
+  return tree;
 }
 
 beforeEach(() => {
   clearTransfersForLogout();
-  fakeDocument.body.replaceChildren();
 });
 
 afterEach(() => {
   while (mountedRoots.length > 0) mountedRoots.pop()?.();
   clearTransfersForLogout();
-  fakeDocument.body.replaceChildren();
 });
 
 describe("TransferStack", () => {
@@ -216,11 +190,11 @@ describe("TransferStack", () => {
       state: "hashing",
     });
 
-    mountTransferStack();
+    const tree = mountTransferStack();
 
-    expect(fakeDocument.body.querySelectorAll('[data-testid="transfer-card"]')).toHaveLength(1);
+    expect(queryAllByTestId(tree, "transfer-card")).toHaveLength(1);
 
-    const rows = fakeDocument.body.querySelectorAll('[data-testid="transfer-row"]');
+    const rows = queryAllByTestId(tree, "transfer-row");
     expect(rows).toHaveLength(2);
 
     const queuedRow = rows.find((row) => row.textContent.includes("awaiting-upload.tar"));
@@ -229,7 +203,7 @@ describe("TransferStack", () => {
     const hashingRow = rows.find((row) => row.textContent.includes("archive.tar"));
     expect(hashingRow?.textContent).toContain("Checking…");
 
-    const dismissButtons = fakeDocument.body.querySelectorAll('[data-testid="transfer-dismiss"]');
+    const dismissButtons = queryAllByTestId(tree, "transfer-dismiss");
     expect(dismissButtons).toHaveLength(2);
     expect(dismissButtons.map((button) => button.getAttribute("aria-label"))).toEqual(
       expect.arrayContaining(["Dismiss awaiting-upload.tar", "Dismiss archive.tar"]),
