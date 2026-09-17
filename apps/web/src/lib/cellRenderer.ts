@@ -17,6 +17,7 @@ import {
   missingCellHistoryRangeAtScroll,
   missingCellHistoryRanges,
   type CellHistoryRange,
+  type CellHistoryScrollTarget,
 } from "./cellHistoryRanges.ts";
 import {
   DEFAULT_CELL_ROW_PX as DEFAULT_ROW_PX,
@@ -120,6 +121,7 @@ export class CellGridRenderer {
   private _paintedCursorCol = -1;
   private _paintedSpacerHeight = "";
   private _paintedSbBase = 0;
+  private _historyFloorRow = 0;
   // The DOM may retain disjoint immutable rows separated by exact-height gaps.
   private _paintedRows: CellRow[] = [];
   private _scrollbackLayoutEnd = 0;
@@ -730,12 +732,24 @@ export class CellGridRenderer {
     if (rowH > 0 && rowH !== this._paintedGapRowHeight) {
       this._resizeHistoryPlaceholders(rowH);
     }
-    const height = `${(
-      this._paintedSbBase * (rowH > 0 ? rowH : DEFAULT_ROW_PX)
-    ).toFixed(2)}px`;
+    // Rows below a proven retention floor never arrive, so the head spacer's
+    // pending texture must stop claiming them — but only where the spacer lies
+    // ENTIRELY below it: an INTERIOR floor leaves [floor, _paintedSbBase)
+    // pageable, and splices move that base, so this is derived, never latched.
+    const floor = this._historyFloorRow;
+    if (floor > 0 && floor >= this._paintedSbBase) this.spacerEl.dataset.historyFloor = "1";
+    else delete this.spacerEl.dataset.historyFloor;
+    const height = `${(this._paintedSbBase * (rowH > 0 ? rowH : DEFAULT_ROW_PX)).toFixed(2)}px`;
     if (height === this._paintedSpacerHeight) return;
     this._paintedSpacerHeight = height;
     this.spacerEl.style.setProperty("height", height);
+  }
+
+  /** The pager owns the floor VALUE; the spacer's marker derives from it. */
+  setHistoryFloor(row: number): void {
+    if (row === this._historyFloorRow) return;
+    this._historyFloorRow = row;
+    this._syncSpacer();
   }
 
   backfillAnchor(): BackfillAnchor | null {
@@ -757,7 +771,7 @@ export class CellGridRenderer {
     return missingCellHistoryRange(this._paintedRows, anchor.total, row);
   }
 
-  missingScrollbackRangeAtScroll(): (CellHistoryRange & { focusRow: number }) | null {
+  missingScrollbackRangeAtScroll(aheadRows = 0): CellHistoryScrollTarget | null {
     const anchor = this.backfillAnchor();
     if (!anchor || this._scrollbackLayoutEnd !== anchor.total) return null;
     return missingCellHistoryRangeAtScroll(this._paintedRows, anchor.total, {
@@ -765,6 +779,7 @@ export class CellGridRenderer {
       spacerTop: this.spacerEl.offsetTop,
       clientHeight: this.container.clientHeight,
       rowHeight: this.rowHeight(),
+      aheadRows,
     });
   }
 
@@ -1226,6 +1241,7 @@ export class CellGridRenderer {
     this._liveSelectionReleasePending = false;
     this.pendingRender = false;
     this._paintedSbBase = 0;
+    this._historyFloorRow = 0;
     this._paintedRows = [];
     this._scrollbackLayoutEnd = 0;
     this._gapRows = 0;

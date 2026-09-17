@@ -222,3 +222,74 @@ describe("CellGridRenderer DOM — content-visibility placeholder exactness", ()
     expect(blockPlaceholder(10, 0)).toBe("168.00px");
   });
 });
+
+// Eviction is what proves a retention floor: once the worker answers a page
+// short, the rows below that floor are GONE, and the stylesheet's pending
+// skeleton must stop claiming them. But the floor may be proven by an INTERIOR
+// page while the head spacer still stands over pageable rows, so the marker is
+// DERIVED from the floor and the painted base on every paint, never latched.
+// It is PAINT-ONLY — the spacer's inline height is the scroll space every
+// absolute row offset is derived from, so the mark may not move a single pixel.
+describe("CellGridRenderer DOM — head-spacer retention-floor marker", () => {
+  const spacerOf = (c: FakeEl): FakeEl =>
+    c.children.find((el: FakeEl) => el.className === "cell-sb-spacer") as FakeEl;
+  const historyRows = (n: number, from: number) =>
+    Array.from({ length: n }, (_, i) => row(from + i, `s${from + i}`));
+  // 250 painted history rows above 500 unpainted ones: the spacer is [0, 500).
+  const seeded = () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], historyRows(250, 500), 750);
+    c.scrollTop = PAD_TOP + 600 * ROW_PX;
+    c.resetScrollTopWrites();
+    return { c, r, spacer: spacerOf(c) };
+  };
+
+  test("only a floor the whole spacer sits below marks it, and never as geometry", () => {
+    const { c, r, spacer } = seeded();
+    const height = String(spacer.style.height);
+    const scrollTop = c.scrollTop;
+    const scrollHeight = c.scrollHeight;
+    expect(height).toBe("8000.00px");            // 500 unpainted rows × 16px
+    expect(spacer.dataset.historyFloor).toBeUndefined();
+    const unmoved = () => {
+      expect(String(spacer.style.height)).toBe(height);
+      expect(c.scrollTop).toBe(scrollTop);
+      expect(c.scrollHeight).toBe(scrollHeight);
+    };
+
+    // Proven by an interior page: [120, 500) is still perfectly pageable, so a
+    // pending texture there is honest and must survive.
+    r.setHistoryFloor(120);
+    expect(spacer.dataset.historyFloor).toBeUndefined();
+    unmoved();
+
+    // The floor reaches the painted base: the whole spacer is unreachable.
+    r.setHistoryFloor(500);
+    expect(spacer.dataset.historyFloor).toBe("1");
+    unmoved();
+
+    r.setHistoryFloor(0);
+    expect(spacer.dataset.historyFloor).toBeUndefined();
+    unmoved();
+    expect(c.scrollTopWrites).toBe(0);
+  });
+
+  test("a splice that lowers the painted base onto the floor marks the spacer itself", () => {
+    const { c, r, spacer } = seeded();
+    const scrollTop = c.scrollTop;
+    const scrollHeight = c.scrollHeight;
+    r.setHistoryFloor(300);
+    expect(spacer.dataset.historyFloor).toBeUndefined();
+
+    // The pager pages [300, 500) and says nothing more about the floor: the
+    // spacer now ends exactly at it, so the derivation alone must mark it.
+    expect(r.insertHistoryPage(historyRows(200, 300), false)).toBe(true);
+    expect(spacer.dataset.historyFloor).toBe("1");
+    expect(String(spacer.style.height)).toBe("4800.00px"); // 300 rows × 16px
+    // Reserved pixels traded 1:1 for painted rows, so the reader never moves.
+    expect(c.scrollHeight).toBe(scrollHeight);
+    expect(c.scrollTop).toBe(scrollTop);
+    expect(c.scrollTopWrites).toBe(0);
+  });
+});

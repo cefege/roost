@@ -11,6 +11,13 @@ export interface CellHistoryRange {
   readonly end: number;
 }
 
+/** A missing interval the reader's scroll position exposes: `start`/`end` are
+ *  the whole interval, `focusRow`/`visibleEnd` bound the part inside the
+ *  window a pager asked about. */
+export interface CellHistoryScrollTarget extends CellHistoryRange {
+  readonly focusRow: number;
+  readonly visibleEnd: number;
+}
 
 /** True when a half-open absolute range belongs to one history total. */
 export function isCellHistoryRange(
@@ -161,18 +168,22 @@ export function visibleHistoryRowRange(input: {
   return start >= end ? null : { start, end };
 }
 
-/** The missing history interval the reader's own scroll position exposes, with
- *  the row a demand must focus, or null when the visible window is painted. */
+/** The missing history interval the reader's own scroll position exposes, or
+ *  null when the window is painted. `aheadRows` widens the window upward
+ *  (older) so a demand can precede the reader's arrival. */
 export function missingCellHistoryRangeAtScroll(
   rows: readonly CellHistoryIndex[],
   total: number,
-  view: { scrollTop: number; spacerTop: number; clientHeight: number; rowHeight: number },
-): (CellHistoryRange & { focusRow: number }) | null {
+  view: { scrollTop: number; spacerTop: number; clientHeight: number; rowHeight: number; aheadRows?: number },
+): CellHistoryScrollTarget | null {
   const visible = visibleHistoryRowRange({ ...view, total });
   if (!visible) return null;
-  const visibleGap = missingCellHistoryRanges(rows, total, visible.start, visible.end).at(-1);
-  if (!visibleGap) return null;
-  const focusRow = visibleGap.start;
+  const requested = view.aheadRows ?? 0;
+  const ahead = Number.isSafeInteger(requested) && requested > 0 ? requested : 0;
+  const windowStart = Math.max(0, visible.start - ahead);
+  const inWindow = missingCellHistoryRanges(rows, total, windowStart, visible.end).at(-1);
+  if (!inWindow) return null;
+  const focusRow = inWindow.start;
   const gap = missingCellHistoryRange(rows, total, focusRow);
-  return gap ? { ...gap, focusRow } : null;
+  return gap ? { ...gap, focusRow, visibleEnd: inWindow.end } : null;
 }

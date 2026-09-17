@@ -2,7 +2,6 @@
   "apps/coord/src/byte-hub.ts": 458,
   "apps/roost-cli/src/api.ts": 448,
   "apps/roost-cli/src/deploy-exec.ts": 507,
-  "apps/roost-cli/src/deploy-linux.ts": 427,
   "apps/roost-cli/src/install-binary-agents.ts": 938,
   "apps/roost-cli/src/windows/windows-update-broker.ts": 845,
   "apps/roost-cli/src/windows/windows-update-control.ts": 670,
@@ -17,13 +16,13 @@
   "apps/web/src/components/MobileVoiceInput.tsx": 484,
   "apps/web/src/components/TerminalComposeButton.tsx": 452,
   "apps/web/src/lib/audioPcmCapture.ts": 515,
-  "apps/web/src/lib/cellRenderer.ts": 1255,
+  "apps/web/src/lib/cellRenderer.ts": 1254,
   "apps/web/src/lib/deepgramDictation.ts": 623,
   "apps/web/src/lib/diag.ts": 436,
   "apps/web/src/lib/smokeHarness.ts": 613,
   "apps/web/tests/audioPcmCapture.test.ts": 525,
   "apps/web/tests/store.test.ts": 420,
   "apps/worker/src/keeper/keeper-frame-handler.ts": 553,
-  "scripts/lint-roost.ts": 657,
+  "scripts/lint-roost.ts": 409,
   "smoke/terminal/pty-fixture.ts": 411
 }

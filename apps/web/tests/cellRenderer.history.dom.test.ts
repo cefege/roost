@@ -42,11 +42,11 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     expect(c.scrollHeight).toBe(PAD_TOP + (750 + 1) * ROW_PX); // +1 viewport row
     // The pager targets the actual visible gap, not the diagnostic base.
     c.scrollTop = PAD_TOP + 100 * ROW_PX;
-    expect(r.missingScrollbackRangeAtScroll()).toEqual({
-      start: 0,
-      end: 500,
-      focusRow: 100,
-    });
+    expect(r.missingScrollbackRangeAtScroll()).toEqual({ start: 0, end: 500, focusRow: 100, visibleEnd: 132 });
+    // Read-ahead reaches the gap ABOVE a painted viewport; nothing without it.
+    c.scrollTop = PAD_TOP + 600 * ROW_PX;
+    expect(r.missingScrollbackRangeAtScroll()).toBeNull();
+    expect(r.missingScrollbackRangeAtScroll(500)).toEqual({ start: 0, end: 500, focusRow: 100, visibleEnd: 500 });
   });
 
 
