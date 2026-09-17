@@ -229,13 +229,30 @@ interface AutoChannel {
   appliedSeq: number;
 }
 
+export interface AutoKeeperOptions {
+  /** Resize sequences this keeper ACKs with geometry nobody asked for, leaving
+   *  the channel at its old size. That is exactly the conflicting ack the
+   *  worker's boundary check traps the core on, so a fixture can reach the
+   *  fail-closed verdict through the real two-phase resize path. */
+  trapResizeSeqs?: readonly number[];
+  /** Resize sequences this keeper answers with an UNINTERPRETABLE result whose
+   *  later status query it also cannot answer. That is the ack-timeout shape
+   *  that drives the worker's lost-ACK recovery. */
+  unknownResizeSeqs?: readonly number[];
+}
+
 /** A keeper that answers. Same fake socket, plus the keeper's own idempotence
  *  rules: a sequence at or below the highest consumed one is `unknown_sequence`,
  *  a status query answers from the cache, and terminal state reports live channel
  *  values. Fixtures that assert the SCD size the worker PROVED need this — with
  *  no keeper, every resize is a truthful pre-write rejection and nothing is ever
  *  proven. Replies land on a microtask: a keeper cannot answer inside the write. */
-export function installAutoKeeper(initial: { cols: number; rows: number }): FakeKeeper {
+export function installAutoKeeper(
+  initial: { cols: number; rows: number },
+  options: AutoKeeperOptions = {},
+): FakeKeeper {
+  const trappedSeqs = options.trapResizeSeqs ?? [];
+  const unknownSeqs = options.unknownResizeSeqs ?? [];
   const channels = new Map<number, AutoChannel>();
   const channelOf = (channelId: number): AutoChannel => {
     let channel = channels.get(channelId);
@@ -256,13 +273,32 @@ export function installAutoKeeper(initial: { cols: number; rows: number }): Fake
             return;
           }
           channel.highestSeq = seq;
+          // The channel keeps its old geometry, so the sequence is consumed and
+          // unprovable at once: the worker cannot resolve this boundary, and
+          // nothing later can finish it either.
+          if (trappedSeqs.includes(seq)) {
+            keeper.resizeAck(write.channelId, seq, channel.cols + 7, channel.rows);
+            return;
+          }
+          // Consumed but never interpretable, and its status query has no
+          // applied sequence to answer from: the ack-timeout shape that sends
+          // the worker into lost-ACK recovery.
+          if (unknownSeqs.includes(seq)) {
+            keeper.resizeUnknown(write.channelId, seq);
+            return;
+          }
           channel.appliedSeq = seq;
           channel.cols = write.cols ?? channel.cols;
           channel.rows = write.rows ?? channel.rows;
           keeper.resizeAck(write.channelId, seq, channel.cols, channel.rows);
           return;
         case MuxFrameType.ResizeStatus:
-          if (seq > 0 && seq === channel.appliedSeq) {
+          // A keeper that could not interpret the resize cannot interpret its
+          // status either: answering `reject` here would prove the PTY was
+          // untouched, which is the opposite of a lost ACK.
+          if (unknownSeqs.includes(seq)) {
+            keeper.resizeUnknown(write.channelId, seq);
+          } else if (seq > 0 && seq === channel.appliedSeq) {
             keeper.resizeAck(write.channelId, seq, channel.cols, channel.rows);
           } else {
             keeper.resizeReject(write.channelId, seq, "unknown_sequence");

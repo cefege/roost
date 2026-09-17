@@ -22,7 +22,8 @@ import {
 import { TerminalViewOwner } from "../src/terminal-view-owner.ts";
 import type { LocalViewTransport } from "../src/terminal-view-owner-screen.ts";
 import type { TerminalViewProjectionFrame } from "../src/transport/coord-link-types.ts";
-import { installAutoKeeper } from "./keeper-fake-pool.ts";
+import { installAutoKeeper, type AutoKeeperOptions } from "./keeper-fake-pool.ts";
+import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import {
   CHANNEL_ID,
   cleanupStreamHarnesses,
@@ -65,8 +66,8 @@ afterEach(() => {
   cleanupStreamHarnesses();
 });
 
-async function makeOwner(): Promise<OwnerFixture> {
-  trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
+async function makeOwner(keeperOptions: AutoKeeperOptions = {}): Promise<OwnerFixture> {
+  trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }, keeperOptions));
   const harness = await makeHarness();
   let clock = 1_000;
   const projections: TerminalViewProjectionFrame[] = [];
@@ -88,6 +89,38 @@ async function makeOwner(): Promise<OwnerFixture> {
     // lease and park-grace assertions deterministic.
     sweep: () => { owner._sweep(); },
   };
+}
+
+/** Every stream generation the owner told this socket about, in order. One
+ *  entry per `desire`, which is what bounds a self-healing retry. */
+function acceptedStreamIds(socket: RecordedSocket): string[] {
+  return socket.states
+    .filter((frame) => frame.status === TerminalViewStatus.ACCEPTED)
+    .map((frame) => frame.streamId);
+}
+
+/** Keeper history for a channel that has produced nothing: the re-proof
+ *  rebuilds an empty grid at the keeper's own geometry. The fake keeper socket
+ *  never answers history frames, so the read is stubbed at the pool. */
+function stubEmptyKeeperHistory(): () => void {
+  const pool = getMultiplexedPool();
+  const prior = pool.getHistoryRecords.bind(pool);
+  pool.getHistoryRecords = async () => ({
+    headSeq: 0,
+    baseCols: TEST_COLS,
+    baseRows: TEST_ROWS,
+    records: [],
+  });
+  return () => { pool.getHistoryRecords = prior; };
+}
+
+function stubRefusedKeeperHistory(): () => void {
+  const pool = getMultiplexedPool();
+  const prior = pool.getHistoryRecords.bind(pool);
+  pool.getHistoryRecords = async () => {
+    throw new Error("ordered history is unavailable");
+  };
+  return () => { pool.getHistoryRecords = prior; };
 }
 
 function localSocket(fixture: OwnerFixture, tabId: string): RecordedSocket {
@@ -294,5 +327,56 @@ describe("worker-owned terminal views", () => {
     expect(projection.viewers[0]).toMatchObject({ cols: 100, rows: 30, constrains: true });
     expect(projection).toMatchObject({ effectiveCols: 100, effectiveRows: 30 });
     expect(pane.expiries).toBe(0);
+  });
+
+  test("a trapped core re-proves itself on the desire the trap triggers", async () => {
+    // The first sequenced resize comes back acked at a size nobody asked for:
+    // the boundary can never be proven, so the apply answers core_failed.
+    const fixture = await makeOwner({ trapResizeSeqs: [1] });
+    const pane = localSocket(fixture, "tab-pane");
+
+    const restoreHistory = stubEmptyKeeperHistory();
+    try {
+      fixture.owner.handleViewCommand(pane.socketId, viewCommand(randomUUID(), 40, 12));
+      await settle(fixture.harness);
+    } finally {
+      restoreHistory();
+    }
+
+    // The trap drives exactly ONE further desire — the re-proof attempt. A
+    // third generation here would mean the repair loops on its own verdict.
+    const desired = acceptedStreamIds(pane);
+    expect(desired).toHaveLength(2);
+    expect(desired[1]).not.toBe(desired[0]);
+    expect(pane.states.at(-1)).toMatchObject({
+      status: TerminalViewStatus.ACCEPTED,
+      streamId: desired[1],
+      effectiveCols: 40,
+      effectiveRows: 12,
+    });
+    expect(fixture.harness.manager.terminalStreams.get(CHANNEL_ID)!.coreValid).toBe(true);
+    expect(geometry(fixture.harness)).toMatchObject({
+      streamId: desired[1],
+      cols: 40,
+      rows: 12,
+    });
+    expect(pane.order).toContain(`cell:${desired[1]}`);
+  });
+
+  test("a trap the keeper cannot re-prove stays fail-closed and desires nothing more", async () => {
+    const fixture = await makeOwner({ trapResizeSeqs: [1] });
+    const pane = localSocket(fixture, "tab-pane");
+
+    const restoreHistory = stubRefusedKeeperHistory();
+    try {
+      fixture.owner.handleViewCommand(pane.socketId, viewCommand(randomUUID(), 40, 12));
+      await settle(fixture.harness);
+    } finally {
+      restoreHistory();
+    }
+
+    expect(acceptedStreamIds(pane)).toHaveLength(2);
+    expect(pane.states.at(-1)).toMatchObject({ status: TerminalViewStatus.UNAVAILABLE });
+    expect(fixture.harness.manager.terminalStreams.get(CHANNEL_ID)!.coreValid).toBe(false);
   });
 });

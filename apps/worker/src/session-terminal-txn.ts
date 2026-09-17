@@ -22,6 +22,7 @@ import {
 	installLiveResizeCapture,
 	recoverAmbiguousResize,
 } from "./session-resize-capture.ts";
+import { reproveTerminalCore } from "./session-core-reprove.ts";
 
 
 function failed(
@@ -97,8 +98,27 @@ export async function applyTerminalStreamNow(
 		return committed(state, resizeSeqAtEntry, false);
 	}
 	if (!state.coreValid) {
-		ticket.release();
-		return failed(state, resizeSeqAtEntry, "core_failed", "terminal core is invalid and requires adoption");
+		const reproof = await reproveTerminalCore(mgr, channelId, state);
+		if (!reproof.ok) {
+			ticket.release();
+			return failed(
+				state,
+				resizeSeqAtEntry,
+				reproof.retryable ? "retryable_pre_write" : "core_failed",
+				`terminal core re-proof failed: ${reproof.reason ?? "unknown"}`,
+			);
+		}
+		// The ticket is deliberately still held: the resize below follows
+		// immediately, and the ticket is what stops a second transaction from
+		// racing the swap the re-proof just made.
+		if (!mgr.sessions.has(channelId) || mgr.terminalStreams.get(channelId) !== state) {
+			ticket.release();
+			return failed(state, resizeSeqAtEntry, "retryable_pre_write", "terminal stream was superseded during core re-proof");
+		}
+		if (budget && (!budget.isCurrentConnection() || budget.remainingMs() <= 0)) {
+			ticket.release();
+			return failed(state, resizeSeqAtEntry, "retryable_pre_write", "terminal stream budget expired during core re-proof");
+		}
 	}
 
 	const currentCols = rec.wtermCore.getCols();
@@ -180,9 +200,6 @@ export async function applyTerminalStreamNow(
 		if (status.admission.written) result = await status.result;
 	}
 	if (result.kind === "reject") {
-		if (capture.failedReason) {
-			return failed(state, resizeSeq, "core_failed", capture.failedReason, "ambiguous");
-		}
 		if (capture.boundaryApplied) {
 			const failure = result.reason === "channel_missing" || result.reason === "channel_exited"
 				? "session_not_live"
@@ -199,10 +216,30 @@ export async function applyTerminalStreamNow(
 			);
 		}
 	}
+	// A capture that already recorded a trap has nothing ambiguous left: the
+	// keeper's answer is known and the core is latched invalid. Running the
+	// lost-ACK recovery over it would re-fail the same capture behind another
+	// keeper history read and report the boundary as unknown, hiding the one
+	// verdict the view owner can repair (terminal-view-owner-streams.ts).
+	if (capture.failedReason) {
+		return failed(state, resizeSeq, "core_failed", capture.failedReason, "ambiguous");
+	}
 	if (result.kind !== "ack" || !capture.boundaryApplied) {
 		const recovery = await recoverAmbiguousResize(mgr, channelId, capture);
 		if (!recovery.ok) {
-			return failed(state, resizeSeq, "ambiguous_boundary", recovery.reason, "ambiguous");
+			// Every recovery path that fails closed does so by TRAPPING the core,
+			// and a trapped core is repairable from keeper history. Reporting it as
+			// an unknown boundary instead would file the one verdict the view owner
+			// can re-prove as un-retried (terminal-view-owner-streams.ts). Only a
+			// recovery that left the core valid — the session closed underneath it —
+			// is a genuinely ambiguous boundary.
+			return failed(
+				state,
+				resizeSeq,
+				capture.failedReason ? "core_failed" : "ambiguous_boundary",
+				recovery.reason,
+				"ambiguous",
+			);
 		}
 	}
 	if (capture.failedReason || !mgr.terminalStreams.get(channelId)?.coreValid) {

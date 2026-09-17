@@ -190,6 +190,15 @@ export class TerminalViewStreams {
 			this.desire(sessionId, session, session.effective, 1);
 			return;
 		}
+		// A trap the keeper boundary caused is the one failure the worker can
+		// repair itself: the next apply re-proves the core from keeper history
+		// (session-core-reprove.ts). One attempt per trap, driven by the trap and
+		// not by a timer or a heartbeat door; if it fails the verdict stays
+		// fail-closed.
+		if (result.failure === "core_failed" && retry === 0 && session.effective) {
+			this.desire(sessionId, session, session.effective, 1);
+			return;
+		}
 		this.unavailable(
 			sessionId,
 			session,

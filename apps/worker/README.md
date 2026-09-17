@@ -172,6 +172,8 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/session-snapshot-cursor.ts`,
   `src/session-terminal-control.ts`, `src/session-terminal-state.ts`,
   `src/session-terminal-txn.ts`, `src/session-resize-capture.ts`,
+  `src/session-core-reprove.ts` (the failure-path repair: rebuild a
+  `coreValid === false` core in place from keeper history),
   `src/session-diag-snapshot.ts`, `src/session-raw-metadata.ts`,
   `src/session-terminal-metadata.ts`, `src/session-control-lanes.ts`,
   `src/session-scrollback.ts`, `src/session-scrollback-ring.ts`,

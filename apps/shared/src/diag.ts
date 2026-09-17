@@ -138,6 +138,7 @@ export type SignalKind =
   | "scrollback.replay_bound"   // a core rebuild could not reproduce the history the core it replaced still held, and/or its monotonic origin pin CLAMPED — the "history shrank / mis-spliced after a resize" class. A rebuild replays a FIXED byte ring, so once that ring no longer reaches as far back as the old core's line ring the history floor silently JUMPS; kv names the pin's before/after values, how many rows the replay could not reach, and whether the clamp fired. The one moment sbOrigin's correctness is in doubt, so it reports even though the rebuild itself succeeded
   | "terminal.gate_over_budget"  // worker cell-emission gate outlived the keeper command budget: a resize transaction (or repair) is stalling frames, so kv names the gate, its monotonic age, the transaction phase, and the captured byte count
   | "terminal.core_failed"      // in-place core resize/recovery trapped; the stream is fail-closed and later PTY bytes stay in ordered recovery records until adoption
+  | "terminal.core_reproved"    // worker rebuilt a frozen terminal core in place from the keeper's ordered history; the stream can emit again and its grid identity is NEW, so browsers re-derive absolute rows instead of merging into retained ones
   | "terminal.core_capacity"    // worker refused a new/adopted terminal core before partial construction; kv reports bounded admission counters
   | "terminal.invalid_frame"    // worker canonical full exceeded structural/chunk limits and cannot establish a baseline for the stream
   | "terminal.screen_capacity" // coordinator replica bounds rejected a newly completing screen without evicting an active session
@@ -169,6 +170,7 @@ export type SignalKind =
   | "sync.queue_overflow"       // coord Sync per-stream queue crossed high-water → slow subscriber / runaway producer
   | "sync.auth_rejected"        // coord rejected a browser Sync WS upgrade (jwt invalid / missing token); kv.reason
   | "sync.ws_frame_dropped"     // coord's ws.send returned 0 = the frame was DROPPED, not merely backpressured. A cell frame lost here is what the SPA's cell.seq_gap then recovers from; without this the coord side of that story is invisible
+  | "sync.hydration_timeout"    // SPA domain snapshot RPC passed its deadline and was cancelled; the domain stayed un-ready, which mutes a mounted terminal until the retry or redial lands
   | "cell.seq_gap"              // SPA saw a cell-frame seq discontinuity (frame lost in transit) → forced a catch-up claim. A BURST means the socket is losing frames, not that recovery is broken
   | "cell.foreground_stall"     // foreground terminal liveness bound fired; kv.layer=view_ack|terminal_proof|dom_reconcile and kv.action=resync|redial|reconcile name the failed proof and recovery
   | "cell.paint_lag"            // PTY→browser-arrival latency for a cell frame exceeded the per-session felt-lag floor by PAINT_LAG_SIGNAL_MS (skew-corrected); kv's per-hop values name the hop that owns the delay
