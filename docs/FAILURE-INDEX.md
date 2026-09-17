@@ -224,6 +224,67 @@ switch terminal cores; the bug is one CSS rule.
 **Guard** — `scripts/lint-roost.ts` rule
 `"L11: .wterm must keep overflow-y: auto (scrollback rows clip otherwise — do NOT switch cores)"`.
 
+### The whole screen rubber-bands when a touch drag runs out of scroll
+
+**Symptom** — "on mobile, dragging at the bottom drags/bounces the whole screen",
+"the page gets pushed while I scroll the terminal", "pull-to-refresh fires inside
+the app".
+
+**Wrong** — a JS rubber-band, a `touchmove` `preventDefault()` race, or
+per-component scroll locks. `apps/web/src/lib/overscroll.ts` was exactly that and
+was deleted: a handler that claims the edge after the browser already started
+scrolling always loses, because later `preventDefault()` on a started scroll is
+ignored.
+
+**Right** — **declare the policy once in `apps/web/index.html`'s base style:
+`* { overscroll-behavior-y: none; }` plus `html, body { overflow: hidden; }`.**
+The first kills chaining and the local elastic edge for every scroller
+(`.wterm` included); the second denies the document a scroll range at all
+(`height: 100%` resolves against the large viewport while `.workbench-shell` is
+sized in `svh`). For a gesture the terminal application owns, `touch-action`
+flips to `none` on the pane display (`CellTerminal.tsx`, keyed on
+`mouseGesturesForwarded`) so the browser never starts a pan to begin with.
+
+**Guard** — `scripts/lint-roost.ts` rule
+`"L11: index.html base style must keep * { overscroll-behavior-y: none } + html,body { overflow: hidden } (else mobile drags the page)"`,
+plus `smoke/terminal/workbench-shell-compact.spec.ts` (document has no scroll
+range; root and terminal display compute `overscroll-behavior-y: none`) and
+`smoke/terminal/composer-mobile-keyboard.spec.ts` (`touch-action` flips to `none`
+while forwarding, back to `pan-y` when it is toggled off).
+
+### A list refuses to scroll while the cursor sits on a row's clipped label
+
+**Symptom** — "the agents list only scrolls from some parts of a row",
+"the wheel does nothing over the row title but works 20px lower", a wheel event
+that reaches the row (`defaultPrevented` false) with no `scroll` event on the
+list.
+
+**Wrong** — blame scroll latching, relax the gate that wheels at a panel's
+centre, or narrow `* { overscroll-behavior-y: none; }` in
+`apps/web/index.html` (the entry above owns that policy, and `lint-roost`'s L11
+rule pins it). Nothing about the scroller is broken: `scrollTop` writes still
+land, and the same wheel scrolls from a neighbouring pixel.
+
+**Right** — **a box that only clips text must not swallow the gesture.**
+`overflow: hidden` makes it a scroll container, the global policy then denies
+that container scroll chaining, and a wheel landing on the text is consumed by
+a container with no scroll range instead of reaching the list. Each text clip a
+pointer can land on inside a scroller opts chaining back in with
+`overscroll-behavior-y: auto` (`.md-list-row__headline` in
+`apps/web/src/components/Settings/md/tokens.css`;
+`.workbench-sidebar-agents__group-name`, `__group-server` and
+`.agent-status-rollup` in `apps/web/src/styles/workbench-sidebar.css`). It has
+no scroll range of its own, so chaining there can only reach the list, and the
+list's own `none` still stops the chain from reaching the document. Rows that
+cover their whole area with a hit target (`.df-row__primary` in the folders
+list) never showed the defect, which is why it surfaced only in the agents
+list.
+
+**Guard** — `smoke/terminal/workbench-shell.spec.ts`
+`"desktop sidebar keeps Folders and Agents independently navigable"`: it wheels
+at each panel's centre, which lands on an agent row's headline, and fails with
+`scrollTop` stuck at 0 without the opt-in.
+
 ### Scrollback mangles or drifts with no user action
 
 **Symptom** — "terminal history changes after another viewer joins, leaves, or
@@ -1020,7 +1081,7 @@ another LIVE one, whose boundary is still unproven. Fail-closed is unchanged: `c
 emission, so a trapped core refuses to build frames for the generation it trapped, and the release and the
 invalid-core mint both log instead of passing silently.
 
-**Guard** — `apps/worker/tests/terminal-stream-state.test.ts` —
+**Guard** — `apps/worker/tests/terminal-stream-core-trap.test.ts` —
 `"a trapped resize releases the emission gate it can never lift"`,
 `"a generation minted after a core trap inherits no dead capture"`, with
 `"a trapped core still refuses frames for the generation it trapped"` as the fail-closed control.
@@ -1049,6 +1110,51 @@ clearing logs the old and new generation, and every `terminal.stream_invariant_f
 **Guard** — `apps/coord/tests/terminal-view-hub-worker.test.ts` — the worker-generation recovery case plus
 `"never redrives an invalid worker request from heartbeat or route events"`, which is the control proving a
 protocol violation did not become a retry loop.
+
+### A terminal never repaints again after the device that opened it went away
+
+**Symptom** — a session opened on a phone is reopened on a desktop a day later and the grid is "frozen in
+place", still sized to the phone; the live screen never repaints, and nothing short of a worker restart or a
+reload that happens to hydrate recovers it.
+
+**Wrong** — two independent unbounded latches, either of which alone produces exactly that pane.
+(a) `stream.coreValid = false` is set by `failCore` (an unprovable resize boundary) AND by
+`installStreamBaseline` (a canonical full that cannot be encoded, `terminal.invalid_frame`), and every later
+generation inherits it (`coreValid: current?.coreValid ?? true`), so `applyTerminalStreamNow` short-circuits
+before any resize, both emission gates refuse, and `classify` files the verdict as
+`unavailablePolicy: "never"`. The only clears were session close and worker restart — a new device, a reload
+and a resize all re-hit the latch.
+(b) `registerDomainHydrator.run()` awaited its hydrator with no deadline while the Connect transports carry
+no `defaultTimeoutMs` and no signal, so a request that never settles (a pooled half-open connection after a
+sleeping laptop wakes) reached neither `.then` nor `.catch`, scheduled no retry, and left `domain.ready`
+false for the session's life — no publication target, no view command, no ACCEPTED stream, and every frame
+of any newer stream silently dropped against a stale `expectedStreamId`.
+
+**Right** — (a) an unprovable core is RE-PROVED in place from the keeper's ordered history whenever a
+stream desire reaches it (`apps/worker/src/session-core-reprove.ts`, spliced into the `!state.coreValid`
+rung of `applyTerminalStreamNow`), so the resize lands and a fresh full baseline paints. The rebuilt window
+mints a NEW `gridEpochBase`, because re-derived history must make browsers renumber instead of merging into
+retained rows. A fresh trap spends exactly ONE re-proof attempt on itself — the trap is the attributable
+event with guaranteed delivery, `retry === 1` bounds it, and a second `core_failed` falls through to the
+unchanged `"never"` verdict; no timer and no admission-time door, per the entry above. A capture that
+already recorded a trap reports `core_failed` directly instead of re-running the lost-ACK recovery, which
+would re-fail the same capture behind another keeper history read and hide that repairable verdict.
+The repair is keyed on the LATCH, not on the producer, so an unencodable-baseline latch also spends one
+attempt: the rebuild resets `sentFull` and the emitter state, and a second failure lands on the unchanged
+`"never"` verdict exactly as before.
+(b) the hydration deadline lives with the retry ladder it feeds (`SYNC_HYDRATION_DEADLINE_MS`), aborts the
+request, and converts the silence into the ordinary rejected-snapshot retry; every hydrator threads the
+`AbortSignal` into its RPC so the abandoned call is actually cancelled.
+
+**Guard** — `apps/worker/tests/terminal-stream-core-trap.test.ts` —
+`"a fail-closed core is re-proved from keeper history on the next stream desire"` with
+`"a core the keeper cannot re-prove stays fail-closed"` as the refusal control;
+`apps/worker/tests/terminal-view-owner.test.ts` —
+`"a trapped core re-proves itself on the desire the trap triggers"` (the desire COUNT is what proves it is
+not a loop) with `"a trap the keeper cannot re-prove stays fail-closed and desires nothing more"`;
+`apps/web/tests/sync-bootstrap-hydration.test.ts` —
+`"a hydration that never settles is cancelled and retried"`;
+`smoke/terminal/terminal-view-reap.spec.ts` — the real-flow reaped-then-newcomer path.
 
 ### A pane keeps a fallback font's cell advance and clips its own right edge
 
