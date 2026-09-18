@@ -102,11 +102,11 @@ async function writeAcknowledgedInputBatch(
 			return { status: "rejected", writtenBytes: 0, reason: `keeper did not accept the input: ${command.admission.reason}` };
 		}
 	} catch (error) {
-		return {
-			status: "ambiguous",
-			writtenBytes: 0,
-			reason: error instanceof Error ? error.message : String(error),
-		};
+		return ambiguousInputResult(
+			channelId,
+			0,
+			error instanceof Error ? error.message : String(error),
+		);
 	} finally {
 		ticket.release();
 	}
@@ -116,15 +116,34 @@ async function writeAcknowledgedInputBatch(
 		if (result.kind === "ack") {
 			return result.writtenBytes === owned.byteLength
 				? { status: "accepted", writtenBytes: result.writtenBytes }
-				: { status: "ambiguous", writtenBytes: result.writtenBytes, reason: "keeper acknowledged an incomplete input batch" };
+				: ambiguousInputResult(channelId, result.writtenBytes, "keeper acknowledged an incomplete input batch");
 		}
 		if (result.kind === "reject") {
 			return { status: "rejected", writtenBytes: 0, reason: result.reason };
 		}
-		return { status: "ambiguous", writtenBytes: result.writtenBytes ?? 0, reason: result.reason };
+		return ambiguousInputResult(channelId, result.writtenBytes ?? 0, result.reason);
 	} catch (error) {
-		return { status: "ambiguous", writtenBytes: 0, reason: error instanceof Error ? error.message : String(error) };
+		return ambiguousInputResult(
+			channelId,
+			0,
+			error instanceof Error ? error.message : String(error),
+		);
 	}
+}
+
+/** An unconfirmed keeper write is the only input outcome the user cannot
+ * attribute from the browser alone, so it is logged where it is manufactured. */
+function ambiguousInputResult(
+	channelId: number,
+	writtenBytes: number,
+	reason: string,
+): WorkerInputResult {
+	log.warn("worker", "terminal_input_ambiguous", {
+		channel_id: channelId,
+		written_bytes: writtenBytes,
+		reason,
+	});
+	return { status: "ambiguous", writtenBytes, reason };
 }
 
 function invalidResult(intent: WorkerTerminalStreamIntent, reason: string): WorkerTerminalStreamResult {

@@ -91,7 +91,9 @@ export abstract class SessionManagerState {
 	terminalMetadataFlushToken = 0;
 	terminalMetadataFlushing = false;
 	terminalMetadataNegotiated = false;
-	inputSensitiveChannels = new Set<number>();
+	// Count, not membership: a burst writes several keystrokes before the first
+	// return chunk consumes one, and a Set collapses them into one promotion.
+	inputSensitiveChannels = new Map<number, number>();
 	pendingCellRepairs = new Set<number>();
 	pendingSyncCellSnapshots = new Set<number>();
 	strayReaperTimer: NodeJS.Timeout | null = null;

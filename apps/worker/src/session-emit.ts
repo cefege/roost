@@ -26,6 +26,7 @@ import {
 import { captureResizeOutput } from "./session-resize-capture.ts";
 import {
 	cancelCellEmission,
+	consumeInputEchoPromotion,
 	noteCellGateSuppression,
 } from "./session-cell-scheduler.ts";
 import { noteUnhandledSequences } from "./session-unhandled-seq.ts";
@@ -112,7 +113,7 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 		return;
 	}
 	this.onTerminalChanged?.(channelId);
-	const promoteInputEcho = this.inputSensitiveChannels.delete(channelId);
+	const promoteInputEcho = consumeInputEchoPromotion(this, channelId);
 	if (stream?.enabled) {
 		const delivery = aggregateStreamDelivery(this, stream);
 		const baselineBoundaryReady = !delivery.baselineReady

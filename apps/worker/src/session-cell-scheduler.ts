@@ -139,6 +139,21 @@ function emitLeadingCellFrame(
 	armTrailingCooldown(mgr, channelId, schedule);
 }
 
+/** Take one queued input-echo promotion for a channel, if it holds any. The
+ * count exists because a fast burst admits several keystrokes before the first
+ * return chunk arrives: consuming membership instead would promote only the
+ * first echo and make every later one wait out CELL_EMIT_COALESCE_MS. */
+export function consumeInputEchoPromotion(
+	mgr: SessionManager,
+	channelId: number,
+): boolean {
+	const held = mgr.inputSensitiveChannels.get(channelId) ?? 0;
+	if (held <= 0) return false;
+	if (held === 1) mgr.inputSensitiveChannels.delete(channelId);
+	else mgr.inputSensitiveChannels.set(channelId, held - 1);
+	return true;
+}
+
 /** Rate governor: leading-edge cell emit plus trailing coalesce. A single
  * input-sensitive return chunk may replace an armed trailing timer with a fresh
  * leading microtask; that promoted echo begins a new cooldown. */

@@ -10,6 +10,7 @@ import * as respawnAdmission from "./session-respawn-admission.ts";
 import * as lifecycle from "./session-lifecycle.ts";
 import * as terminalControl from "./session-terminal-control.ts";
 import { scheduleCellEmission } from "./session-cell-scheduler.ts";
+import { MAX_PENDING_INPUT_ECHO_PROMOTIONS } from "./session-constants.ts";
 import { SessionManagerState } from "./session-manager-state.ts";
 import { SessionChannelCreationGate } from "./session-channel-creation-gate.ts";
 import { releaseSyncOutputHold } from "./session-sync-output.ts";
@@ -123,7 +124,12 @@ export class SessionManager extends SessionManagerState {
 	}
 
 	markInputSensitive(channelId: number): void {
-		if (this.sessions.has(channelId)) this.inputSensitiveChannels.add(channelId);
+		if (!this.sessions.has(channelId)) return;
+		const held = this.inputSensitiveChannels.get(channelId) ?? 0;
+		this.inputSensitiveChannels.set(
+			channelId,
+			Math.min(held + 1, MAX_PENDING_INPUT_ECHO_PROMOTIONS),
+		);
 	}
 	writeTerminalInput(
 		sessionId: string,

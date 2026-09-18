@@ -27,6 +27,10 @@ export const MODE_CARRY_MAX = 7;
 // of PtyOut chunks into a single latest-state delta. Imperceptible echo latency
 // on a local/LAN worker; bounds frame rate under floods.
 export const CELL_EMIT_COALESCE_MS = 16;
+// Ceiling on queued input-echo emit promotions per channel. A channel with no
+// active sink never consumes one, and past this many queued keystrokes another
+// promotion buys nothing — the next leading emit already carries them all.
+export const MAX_PENDING_INPUT_ECHO_PROMOTIONS = 8;
 // Coordinator-only raw terminal metadata uses this same leading/trailing
 // cadence. These caps bound the brief worker-side staging queues; the encoded
 // CoordLink outbox has its own independent 8 MiB cap.

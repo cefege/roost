@@ -4,7 +4,10 @@ import {
   CELL_EMIT_COALESCE_MS,
   SYNC_OUTPUT_MAX_MS,
 } from "../src/session-constants.ts";
-import { cancelCellEmission } from "../src/session-cell-scheduler.ts";
+import {
+  cancelCellEmission,
+  consumeInputEchoPromotion,
+} from "../src/session-cell-scheduler.ts";
 import { installLiveResizeCapture } from "../src/session-resize-capture.ts";
 import { installAutoKeeper } from "./keeper-fake-pool.ts";
 import {
@@ -167,5 +170,35 @@ describe("worker cell emission scheduler", () => {
       streamId: STREAM_A,
     });
     expect(frameRowText(harness.frameAttempts[2]!, 2)).toContain("AFTER-CAP");
+  });
+
+  test("a second keystroke in one coalesce window keeps its echo promotion", async () => {
+    trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
+    const core = await createWtermCore(TEST_COLS, TEST_ROWS);
+    const harness = await makeHarness(core);
+    await enableStream(harness.manager, STREAM_A);
+    vi.useFakeTimers();
+    harness.manager.markInputSensitive(CHANNEL_ID);
+    harness.manager.markInputSensitive(CHANNEL_ID);
+
+    core.writeString("\x1b[2;1HE1");
+    harness.manager._scheduleCellEmit(
+      CHANNEL_ID,
+      consumeInputEchoPromotion(harness.manager, CHANNEL_ID),
+    );
+    await flushLeadingCellEmit();
+    const afterFirstEcho = harness.frameAttempts.length;
+    expect(harness.manager.cellEmitSchedules.get(CHANNEL_ID)?.timer).not.toBeNull();
+
+    core.writeString("\x1b[3;1HE2");
+    harness.manager._scheduleCellEmit(
+      CHANNEL_ID,
+      consumeInputEchoPromotion(harness.manager, CHANNEL_ID),
+    );
+    await flushLeadingCellEmit();
+    // The promoted second echo re-leads instead of waiting out the cooldown.
+    expect(harness.frameAttempts.length).toBe(afterFirstEcho + 1);
+    expect(frameRowText(harness.frameAttempts.at(-1)!, 2)).toContain("E2");
+    expect(harness.manager.inputSensitiveChannels.has(CHANNEL_ID)).toBe(false);
   });
 });
