@@ -203,13 +203,6 @@ export function coordinatorFleetConvergenceProblems(
     || !coordinatorReportIsHealthy(report, journal.targetSha)) {
     problems.push(`coordinator is not healthy at ${journal.targetSha}`);
   }
-  const actualFingerprints = report.workers.map((worker) => worker.fingerprint).sort();
-  if (actualFingerprints.length !== journal.targetWorkerFingerprints.length
-    || actualFingerprints.some(
-      (fingerprint, index) => fingerprint !== journal.targetWorkerFingerprints[index],
-    )) {
-    problems.push("registered worker set does not exactly match the rollout target set");
-  }
   const seen = new Set<string>();
   for (const worker of report.workers) {
     if (seen.has(worker.fingerprint)) {
@@ -217,20 +210,32 @@ export function coordinatorFleetConvergenceProblems(
       continue;
     }
     seen.add(worker.fingerprint);
+  }
+  // Only the journaled participants are this rollout's business. A machine that
+  // registered mid-rollout, returned from offline, or stayed behind is deferred
+  // to its own catch-up and must never block the durable commit decision.
+  for (const fingerprint of journal.targetWorkerFingerprints) {
+    const worker = report.workers.find(
+      candidate => candidate.fingerprint === fingerprint,
+    );
+    if (!worker) {
+      problems.push(`worker ${fingerprint} is no longer registered`);
+      continue;
+    }
     if (routableFingerprints
-      && !routableFingerprints.has(worker.fingerprint)) {
-      problems.push(`worker ${worker.fingerprint} is not coordinator-routable`);
+      && !routableFingerprints.has(fingerprint)) {
+      problems.push(`worker ${fingerprint} is not coordinator-routable`);
       continue;
     }
     if (worker.gitSha !== journal.targetSha) {
-      problems.push(`worker ${worker.fingerprint} does not report ${journal.targetSha}`);
+      problems.push(`worker ${fingerprint} does not report ${journal.targetSha}`);
       continue;
     }
     const keeperPlan = journal.workerKeeperPlans.find(
-      candidate => candidate.fingerprint === worker.fingerprint,
+      candidate => candidate.fingerprint === fingerprint,
     );
     if (!keeperPlan) {
-      problems.push(`worker ${worker.fingerprint} has no journaled keeper plan`);
+      problems.push(`worker ${fingerprint} has no journaled keeper plan`);
       continue;
     }
     const keeperProblem = keeperUpdateConvergenceProblem(

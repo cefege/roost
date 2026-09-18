@@ -183,19 +183,44 @@ describe("coordinator fleet finalization", () => {
     }
   });
 
-  test("refuses a final decision without the exact worker and keeper set", async () => {
+  test("a deferred machine does not block the durable commit decision", async () => {
     const fixture = await coordinatorFixture("fleet-converging");
     const runtime = successfulRuntime(TARGET_SHA);
     runtime.readStatus = async () => statusReport(TARGET_SHA, [
-      workerStatus(WORKER_FP, TARGET_SHA, true),
-      workerStatus("b".repeat(64)),
+      workerStatus(),
+      workerStatus("b".repeat(64), PRIOR_SHA, true),
+    ]);
+    try {
+      expect((await beginCoordinatorDeployFinalization(
+        fixture.journalPath,
+        fixture.context,
+        runtime,
+      )).phase).toBe("finalizing");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a final decision when a journaled participant is behind or gone", async () => {
+    const fixture = await coordinatorFixture("fleet-converging");
+    const runtime = successfulRuntime(TARGET_SHA);
+    runtime.readStatus = async () => statusReport(TARGET_SHA, [
+      workerStatus(WORKER_FP, PRIOR_SHA),
     ]);
     try {
       await expect(beginCoordinatorDeployFinalization(
         fixture.journalPath,
         fixture.context,
         runtime,
-      )).rejects.toThrow("registered worker set");
+      )).rejects.toThrow(`does not report ${TARGET_SHA}`);
+      runtime.readStatus = async () => statusReport(TARGET_SHA, [
+        workerStatus("b".repeat(64)),
+      ]);
+      await expect(beginCoordinatorDeployFinalization(
+        fixture.journalPath,
+        fixture.context,
+        runtime,
+      )).rejects.toThrow("no longer registered");
       expect(loadCoordinatorDeployJournal(fixture.journalPath, fixture.context)?.phase)
         .toBe("fleet-converging");
       expect(existsSync(fixture.journal.databaseSnapshotPath)).toBeTrue();

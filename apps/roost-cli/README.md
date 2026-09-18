@@ -32,7 +32,7 @@ self-exec/service entries `keeper`, `__keeper-contract`, and
 | `dev` | Boot coord (:4102) + outbound-only worker + web dev server (:5174) in parallel |
 | `test [profile]` | Canonical entry point: `unit`, `worker`, `terminal`, `upgrade`, `live-api` optional monitor, or `all` |
 | `deploy <host> [--label=<name>] [--reachable-addr=<fqdn>] [--force-live]` | Refresh the worker on a remote host (macOS rsync + LaunchAgent, Linux in-place checkout). Staging requires keeper update admission from the coordinator registry, except for a worker that reports no keeper runtime at all — that one bootstraps without a journaled keeper update and says so. A remote target's `ROOST_WORKER_LABEL` / `ROOST_REACHABLE_ADDR` resolve only from `--label` / `--reachable-addr` or the target's own installed service definition; exporting either variable in the deploying shell refuses a first install on that host instead of registering it under this machine's identity. `--force-live` additionally authorizes the deployed worker to DESTROY every PTY held by a keeper it can neither adopt nor prove empty (a keeper predating binding proof); every shell, dev server, and test in those PTYs exits. It applies to that one deploy and the next deploy clears it |
-| `push` | Publish one clean commit, deploy every registered worker, update the coordinator's own checkout, and prove every process reports that commit before returning success |
+| `push` | Publish one clean commit, update the coordinator's own checkout, and deploy every registered worker it can reach, proving each one reports that commit before returning success. A worker that is unreachable, stale, or off the prior SHA is reported as deferred instead of refusing the rollout; the coordinator starts its catch-up deploy when it next attaches, and re-running `push` converges whatever returned |
 | `keeper-refresh <host> --yes [--force-live]` | Re-spawn a host's keeper on current code through the coordinator-fenced maintenance RPC. Destructive, explicitly confirmed, and the only workflow authorized to stop a keeper while the worker is live; `--force-live` ends every PTY that keeper hosts. A keeper the worker cannot identify is refused here — retire it with `roost deploy <host> --force-live` instead |
 | `logs <coord\|worker> [--tail N]` | Tail an app's log files; warns past 100 MB |
 | `reset` | Stop both services, wipe the coord DB + pinned keys + lock, re-run `bun install` |
@@ -69,8 +69,10 @@ and only then runs the update broker.
   `src/deploy-plist-env.ts` parses launchd environment. Platform activation and
   recovery live in `src/deploy-macos-rollout.ts`,
   `src/deploy-linux-recovery.ts`, and `src/deploy-local-activation.ts`.
-  `src/push.ts` is the operator entry; `src/push-fleet-rollout.ts` owns atomic
-  fleet convergence, `src/push-coordinator.ts` owns the held local target, and
+  `src/push.ts` is the operator entry; `src/push-fleet-rollout.ts` owns
+  participant convergence and `src/push-fleet-plan.ts` owns the
+  participant/deferred partition, `src/push-coordinator.ts` owns the held local
+  target, and
   `src/local-worker-rollout-coordinator.ts` validates intentional journal
   overlap. POSIX journals are `src/posix-deploy-journal.ts`,
   `src/deploy-macos-journal.ts`, `src/deploy-macos-journal-controller.ts`,

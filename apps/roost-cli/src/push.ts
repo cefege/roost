@@ -1,5 +1,6 @@
-// `roost push` publishes one clean commit and rolls the local POSIX
-// coordinator plus every registered POSIX worker as one journaled fleet.
+// `roost push` publishes one clean commit and rolls the local POSIX coordinator
+// plus every reachable POSIX worker already on the prior SHA as one journaled
+// fleet, deferring the machines it cannot converge to their own catch-up.
 // No participant drops rollback state before the durable global commit decision.
 
 import { resolve } from "node:path";
@@ -32,10 +33,12 @@ import {
 } from "./push-fleet-rollout.ts";
 import {
   _atomicFleetConvergenceProblems,
+  _partitionFleetForRollout,
   _resolveAtomicFleetWorkers,
-  atomicFleetPriorProblems,
+  fleetWorkerIdentityProblems,
   planFromJournal,
   sameRolloutTarget,
+  type DeferredFleetWorker,
 } from "./push-fleet-plan.ts";
 import { fleetRuntime } from "./push-rollout-runtime.ts";
 import {
@@ -60,8 +63,9 @@ export {
 } from "./push-coordinator.ts";
 export {
   _atomicFleetConvergenceProblems,
+  _partitionFleetForRollout,
   _resolveAtomicFleetWorkers,
-  atomicFleetPriorProblems,
+  fleetWorkerIdentityProblems,
 };
 export {
   ambiguousPushTargets,
@@ -137,6 +141,23 @@ async function recoverOrResumeCoordinatorRollout(
   return false;
 }
 
+/** The operator's whole view of a partial fleet: which machines this push left
+ *  alone, why, and how each one catches up. A deferred machine is not an error,
+ *  so these lines print beside a successful push. */
+export function _deferredFleetReportLines(
+  deferred: readonly DeferredFleetWorker[],
+): string[] {
+  if (deferred.length === 0) return [];
+  return [
+    `\n>> ${deferred.length} machine${
+      deferred.length === 1 ? "" : "s"
+    } deferred — update pending:`,
+    ...deferred.map((machine) => `   ${machine.label}: ${machine.reason}`),
+    "   Each updates automatically when it next attaches to the coordinator,"
+      + " or immediately with `roost deploy <host>`.",
+  ];
+}
+
 async function executePushUnderLease(
   args: readonly string[],
   configured: string | undefined,
@@ -162,7 +183,16 @@ async function executePushUnderLease(
     failDeploy(8, "coordinator did not report a full prior Git SHA");
   }
   const inventory = workerInventoryForUpdateAdmission();
-  const targets = _resolveAtomicFleetWorkers(configured, inventory);
+  const identityProblems = fleetWorkerIdentityProblems(inventory);
+  if (identityProblems.length > 0) {
+    failDeploy(
+      8,
+      `coordinator worker identity is not provable; zero mutation:\n${
+        identityProblems.join("\n")
+      }`,
+    );
+  }
+  const candidates = _resolveAtomicFleetWorkers(configured, inventory);
   let routableFingerprints: ReadonlySet<string>;
   try {
     routableFingerprints = await routableWorkerFingerprints();
@@ -174,25 +204,27 @@ async function executePushUnderLease(
       }`,
     );
   }
-  const plannedFingerprints = targets.map(target => target.fingerprint).sort();
-  const routedFingerprints = [...routableFingerprints].sort();
-  if (plannedFingerprints.length !== routedFingerprints.length
-    || plannedFingerprints.some(
-      (fingerprint, index) => fingerprint !== routedFingerprints[index],
-    )) {
+  const { participants, deferred } = _partitionFleetForRollout(
+    candidates,
+    inventory,
+    routableFingerprints,
+    priorSha,
+  );
+  // The coordinator can only move as one journaled transaction with at least one
+  // worker, so a fleet with nobody to converge is a refusal — unless the
+  // coordinator already runs the target, where there is simply nothing to do.
+  if (participants.length === 0 && priorSha !== expectedSha) {
     failDeploy(
       8,
-      "registered worker set is not exactly coordinator-routable; zero mutation",
+      `no registered worker is reachable and on the prior SHA; zero mutation\n${
+        deferred.map((machine) => `${machine.label}: ${machine.reason}`).join("\n")
+      }`,
     );
-  }
-  const priorProblems = atomicFleetPriorProblems(inventory, priorSha);
-  if (priorProblems.length > 0) {
-    failDeploy(8, `fleet is not wholly converged on prior SHA ${priorSha}:\n${priorProblems.join("\n")}`);
   }
   let targetContracts: Map<string, KeeperContractV1>;
   try {
     const sourceKeeperContract = await loadSourceKeeperContract(REPO_ROOT);
-    targetContracts = new Map(await Promise.all(targets.map(async (target) => [
+    targetContracts = new Map(await Promise.all(participants.map(async (target) => [
       target.fingerprint,
       await probeTargetKeeperContract(
         target.host,
@@ -209,7 +241,7 @@ async function executePushUnderLease(
     );
   }
   const admission = classifyFleetKeeperUpdates(
-    targets,
+    participants,
     inventory,
     targetContracts,
   );
@@ -220,13 +252,19 @@ async function executePushUnderLease(
     );
   }
 
-  if (priorSha === expectedSha
-    && admission.workers.every(
-      worker => worker.keeperUpdate.admission.required_action === "preserve",
-    )) {
+  // "Already satisfied" must mean every participant is provably on the target
+  // with no keeper work left. A machine that came back behind the fleet is
+  // deferred and reported, never counted as satisfied.
+  const unconverged = admission.workers.filter((worker) =>
+    worker.keeperUpdate.admission.required_action !== "preserve"
+    || inventory.find(
+      registered => registered.fingerprint === worker.fingerprint,
+    )?.gitSha !== expectedSha);
+  if (priorSha === expectedSha && unconverged.length === 0) {
     console.log(
-      `\n>> push complete — coordinator, ${targets.length} workers, and keepers already satisfy ${expectedSha}`,
+      `\n>> push complete — coordinator, ${participants.length} workers, and keepers already satisfy ${expectedSha}`,
     );
+    for (const line of _deferredFleetReportLines(deferred)) console.log(line);
     return;
   }
   const rolloutId = crypto.randomUUID();
@@ -252,7 +290,10 @@ async function executePushUnderLease(
     plan,
     fleetRuntime(held, plan, _atomicFleetConvergenceProblems),
   );
-  console.log(`\n>> push complete — coordinator and ${targets.length} workers report ${expectedSha}`);
+  console.log(
+    `\n>> push complete — coordinator and ${participants.length} workers report ${expectedSha}`,
+  );
+  for (const line of _deferredFleetReportLines(deferred)) console.log(line);
 }
 
 async function finishMandatoryCoordinatorRecovery(

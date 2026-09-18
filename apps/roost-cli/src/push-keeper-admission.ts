@@ -1,5 +1,5 @@
-// Atomic push keeper preflight classifies every registered POSIX worker from
-// one coordinator snapshot. The caller must reject the complete batch before
+// Atomic push keeper preflight classifies every rollout participant from one
+// coordinator snapshot. The caller must reject the complete batch before
 // creating coordinator or worker journals when any participant is blocked.
 
 import { join } from "node:path";

@@ -2,11 +2,28 @@
 // The command entry and quickstart share it so remedies and health gating
 // stay aligned with the report fields without duplicating output decisions.
 
+import { WORKER_UPDATE_LABELS, workerUpdateState } from "@roost/shared/fleet-update";
 import { STATUS_COORD_LABEL, STATUS_WORKER_LABEL } from "./status-native-probes.ts";
-import type { SpaStatus, StatusReport } from "./status-types.ts";
+import type { SpaStatus, StatusReport, WorkerStatus } from "./status-types.ts";
 
 function mark(ok: boolean): string {
   return ok ? "✓" : "✗";
+}
+
+/** Where one machine sits relative to the fleet's release: its short SHA plus
+ *  the shared update label, so the operator sees at a glance which machines are
+ *  behind and that they are queued to catch up. */
+function workerUpdatePosition(worker: WorkerStatus, coordGitSha: string | null): string {
+  const state = workerUpdateState({
+    workerGitSha: worker.gitSha,
+    coordGitSha,
+    // The CLI cannot see the coordinator's in-memory deploy jobs, so a deploy
+    // already in flight reads as "update available" in this readout.
+    deployInFlight: false,
+    online: !worker.stale,
+  });
+  const shortSha = worker.gitSha ? ` · ${worker.gitSha.slice(0, 8)}` : "";
+  return `${shortSha} · ${WORKER_UPDATE_LABELS[state]}`;
 }
 
 /** A 404 root has three distinguishable causes, and the remedy differs: the
@@ -58,7 +75,10 @@ export function printStatusReport(r: StatusReport): void {
     console.log(`  workers (${r.workers.length}):`);
     for (const w of r.workers) {
       const age = Math.round(w.ageMs / 1000);
-      console.log(`    ${mark(!w.stale)} ${w.label} — last seen ${age}s ago${w.stale ? " (STALE)" : ""}`);
+      console.log(
+        `    ${mark(!w.stale)} ${w.label} — last seen ${age}s ago${w.stale ? " (STALE)" : ""}`
+        + workerUpdatePosition(w, r.coord.gitSha),
+      );
       const keeper = w.keeperRuntime;
       console.log(keeper
         ? `      keeper: pid ${keeper.keeper_pid}, epoch ${keeper.keeper_epoch}, ` +

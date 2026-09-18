@@ -38,6 +38,7 @@
     "./native-path": "./src/native-path.ts",
     "./durability": "./src/durability.ts",
     "./fingerprint": "./src/fingerprint.ts",
+    "./fleet-update": "./src/fleet-update.ts",
     "./retry": "./src/retry.ts",
     "./jwt-base": "./src/jwt-base.ts",
     "./local-endpoint": "./src/local-endpoint.ts",

@@ -446,8 +446,10 @@ progress or triggers bounded recovery.”
   `keeper/multiplexed-client.ts`, and `fsm.ts` own the remote link, local
   keeper transport, and connection state.
 - **CLI:** `main.ts` dispatches commands; `quickstart-endpoint.ts` validates the
-  one declared front-door origin; `push.ts` and `push-fleet-rollout.ts` own
-  atomic rollout.
+  one declared front-door origin; `push.ts` and `push-fleet-rollout.ts` own the
+  journaled rollout of every reachable worker, and `push-fleet-plan.ts` owns the
+  participant/deferred partition that lets an offline machine catch up later
+  instead of blocking the fleet.
 - **Shared:** `proto/roost/v1/` and `src/gen/roost/v1/` are the source and
   generated contracts; `src/wire/event{,-proto}.ts` own the canonical event
   fold/adapters; `src/cell.ts` owns the grid model. `package.json` is the

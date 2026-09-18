@@ -76,7 +76,7 @@ bun apps/roost-cli/src/main.ts push
 ```
 
 `roost push` is one journaled transaction across the local POSIX coordinator
-and the exact complete registered macOS/Linux worker fleet. It requires at least
+and every registered macOS/Linux worker it can reach. It requires at least
 one registered worker, a clean complete Git commit, and proof that the commit is
 on the configured upstream unless `--no-git` was explicitly chosen.
 
@@ -86,15 +86,27 @@ in `v0.5.0`, which publishes no Windows package, manifest, or updater payload;
 
 Convergence is proven, not assumed. The command snapshots the live coordinator
 database, activates and proves the target coordinator in a held state, then
-stages and proves every worker at the same SHA with a current keeper and fresh
-heartbeat. Only then does it record the durable finalization decision. Before
-that decision, any participant failure rolls every worker back and restores and
-proves the prior coordinator and database. After it, interrupted recovery can
-only finish the target release.
+stages and proves every participating worker at the same SHA with a current
+keeper and fresh heartbeat. Only then does it record the durable finalization
+decision. Before that decision, any participant failure rolls every participant
+back and restores and proves the prior coordinator and database. After it,
+interrupted recovery can only finish the target release.
 
-`--targets` may name the exact complete registered worker set, but it cannot
-narrow the transaction to a partial fleet. `--no-web` retains the coordinator's
-existing web bundle instead of shipping a new one.
+A registered worker that is unreachable, stale, or not on the coordinator's
+prior SHA is deferred rather than fatal: the push converges the machines it can
+reach and names the rest. The fleet's desired release is the running
+coordinator's own SHA, so a deferred machine is simply behind it, and the
+coordinator starts that machine's catch-up deploy itself the next time the
+worker attaches. `roost status` and Settings → Machines report each machine as
+up to date, update available, updating, or update pending while offline.
+
+Between a push and a deferred machine's return the fleet is deliberately not
+one version. The cost is wire compatibility between a new coordinator and an
+old worker, so an event or cell-frame shape change must stay backward
+compatible for one release.
+
+`--targets` may name a subset of the registered workers. `--no-web` retains the
+coordinator's existing web bundle instead of shipping a new one.
 
 One-host POSIX deployment remains a separate source operation:
 `bun apps/roost-cli/src/main.ts deploy <host>` stages the exact pushed commit

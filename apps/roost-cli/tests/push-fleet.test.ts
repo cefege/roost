@@ -17,9 +17,9 @@ import {
 import {
   _atomicFleetConvergenceProblems,
   _resolveAtomicFleetWorkers,
-  atomicFleetPriorProblems,
   push,
 } from "../src/push.ts";
+import { sameRolloutTarget } from "../src/push-fleet-plan.ts";
 import {
   _handleCoordinatorInitialJournalWriteFailure,
   acquireFleetPushTransaction,
@@ -232,69 +232,45 @@ describe("atomic fleet decision", () => {
   });
 });
 
-describe("uniform fleet prior preflight", () => {
-  test("rejects drift before a global prior SHA can be journaled", () => {
-    expect(atomicFleetPriorProblems([
-      status(),
-      status({
-        fingerprint: "2".repeat(64),
-        label: "beta",
-        reachableAddr: "beta.example",
-        gitSha: "c".repeat(40),
-      }),
-    ], PRIOR_SHA)).toEqual([
-      `beta: reports ${"c".repeat(40)}, prior is ${PRIOR_SHA}`,
-    ]);
-  });
-
-  test("leaves keeper validity to the shared update classifier", () => {
-    expect(atomicFleetPriorProblems([
-      status({ keeperRuntime: null }),
-    ], PRIOR_SHA)).toEqual([]);
-  });
-});
-
 describe("fleet journal participant proof", () => {
   test("later registrations do not strand rollback or durable finalization", () => {
-    const workers = [
-      status(),
-      status({
-        fingerprint: "2".repeat(64),
-        label: "later",
-        reachableAddr: "later.example",
-      }),
+    const later = status({
+      fingerprint: "2".repeat(64),
+      label: "later",
+      reachableAddr: "later.example",
+    });
+    const journaled = [plan.workers[0]!];
+    const rollback = (worker: WorkerStatus) => _atomicFleetConvergenceProblems(
+      [status(), worker],
+      journaled,
+      PRIOR_SHA,
+      "rollback",
+      new Map(),
+      0,
+      null,
+      TARGET_SHA,
+    );
+    expect(rollback(later)).toEqual([]);
+    expect(rollback({ ...later, gitSha: TARGET_SHA })).toEqual([]);
+    expect(rollback({ ...later, stale: true })).toEqual([]);
+    expect(rollback({ ...later, gitSha: "c".repeat(40) })).toContain(
+      `later: unjournaled worker reports ${"c".repeat(8)}, outside this rollout`,
+    );
+    const atTarget = [
+      { ...status(), gitSha: TARGET_SHA },
+      { ...later, gitSha: TARGET_SHA },
     ];
     expect(_atomicFleetConvergenceProblems(
-      workers,
-      [plan.workers[0]!],
-      PRIOR_SHA,
-      "rollback",
-      new Map(),
+      atTarget, journaled, TARGET_SHA, "finalize", new Map(),
     )).toEqual([]);
     expect(_atomicFleetConvergenceProblems(
-      workers.map((worker) => worker.label === "later"
-        ? { ...worker, gitSha: TARGET_SHA }
-        : worker),
-      [plan.workers[0]!],
-      PRIOR_SHA,
-      "rollback",
-      new Map(),
-    )).toContain(`later: unjournaled worker did not remain at ${PRIOR_SHA}`);
-    const targetWorkers = workers.map((worker) => ({ ...worker, gitSha: TARGET_SHA }));
-    expect(_atomicFleetConvergenceProblems(
-      targetWorkers,
-      [plan.workers[0]!],
-      TARGET_SHA,
-      "finalize",
-      new Map(),
+      atTarget, journaled, TARGET_SHA, "hold", new Map(),
     )).toEqual([]);
     expect(_atomicFleetConvergenceProblems(
-      targetWorkers,
-      [plan.workers[0]!],
-      TARGET_SHA,
-      "hold",
-      new Map(),
-    )).toContain("registered worker set does not exactly match the rollout journal");
+      [{ ...later, gitSha: TARGET_SHA }], journaled, TARGET_SHA, "hold", new Map(),
+    )).toContain(
+      `${plan.workers[0]!.fingerprint}: missing from coordinator worker inventory`,
+    );
   });
 
   test("uses coordinator heartbeat baselines instead of CLI wall-clock time", () => {
@@ -317,6 +293,17 @@ describe("fleet journal participant proof", () => {
     )).toContain("alpha: awaiting a post-rollout heartbeat");
   });
 
+  test("an interrupted rollout resumes the same commit beside a deferred machine", () => {
+    const candidates = [
+      { fingerprint: plan.workers[0]!.fingerprint, host: "alpha.example" },
+      { fingerprint: plan.workers[1]!.fingerprint, host: "beta.example" },
+      { fingerprint: "3".repeat(64), host: "later.example" },
+    ];
+    expect(sameRolloutTarget(plan, TARGET_SHA, candidates)).toBeTrue();
+    expect(sameRolloutTarget(plan, TARGET_SHA, candidates.slice(0, 1))).toBeFalse();
+    expect(sameRolloutTarget(plan, PRIOR_SHA, candidates)).toBeFalse();
+  });
+
 });
 
 describe("fleet push admission", () => {
@@ -326,18 +313,19 @@ describe("fleet push admission", () => {
     await expect(push(["--no-coord"])).rejects.toThrow("cannot skip the coordinator");
   });
 
-  test("rejects Windows and partial target sets before orchestration", () => {
+  test("rejects Windows workers and unresolvable targets, but admits a named subset", () => {
+    const beta = status({
+      fingerprint: "2".repeat(64),
+      label: "beta",
+      reachableAddr: "beta.example",
+    });
     expect(() => _resolveAtomicFleetWorkers(undefined, [
       status({ os: "win32" }),
     ])).toThrow("Windows workers are registered");
-    expect(() => _resolveAtomicFleetWorkers("alpha.example", [
-      status(),
-      status({
-        fingerprint: "2".repeat(64),
-        label: "beta",
-        reachableAddr: "beta.example",
-      }),
-    ])).toThrow("exact registered worker set");
+    expect(() => _resolveAtomicFleetWorkers("gamma.example", [status()]))
+      .toThrow("missing from coordinator worker inventory");
+    expect(_resolveAtomicFleetWorkers("alpha.example", [status(), beta]))
+      .toEqual([{ fingerprint: "1".repeat(64), host: "alpha.example" }]);
   });
   test("a second orchestration cannot enter while the first owns the fleet lease", async () => {
     const root = mkdtempSync(join(tmpdir(), "roost-fleet-push-lock-"));

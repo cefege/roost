@@ -25,6 +25,7 @@ import {
 import { TerminalViewHub, installTerminalViewHub } from "./connect/terminal-view-hub.ts";
 import { COORD_GIT_SHA } from "./git-sha.ts";
 import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./windows-update-deploy-jobs.ts";
+import { startCatchUpDeployOnAttach } from "./worker-catchup-deploy.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
 import { serveServiceHealth } from "@roost/shared/service-health";
 import { log } from "@roost/shared/log";
@@ -151,6 +152,7 @@ export async function runCoord() {
     onWorkerConnected: async (workerFp) => {
       terminalViews.workerReplacement(workerFp);
       await resumeWindowsUpdateDeploysForWorker(workerFp);
+      await startCatchUpDeployOnAttach(db, workerFp);
     },
     onUpdateProgress: handleWorkerUpdateProgress,
   };

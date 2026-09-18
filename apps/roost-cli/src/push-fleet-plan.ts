@@ -1,6 +1,7 @@
-// Fleet worker selection and convergence proofs for `roost push`.
-// The push owner uses this module to build exact fingerprint plans and
-// validate worker state supplied to journaled rollout execution.
+// Fleet worker selection, rollout partition, and convergence proofs for `roost push`.
+// The push owner uses this module to split the registered workers into the
+// participants one journaled rollout converges now and the machines it defers,
+// and to validate worker state supplied to journaled rollout execution.
 
 import { failDeploy } from "./deploy-exec.ts";
 import { normalizedHost } from "./deploy-windows-channel.ts";
@@ -132,9 +133,11 @@ export function workerConvergenceThresholds(
   return thresholds;
 }
 
-export function atomicFleetPriorProblems(
+/** Identity integrity over the WHOLE registry. A duplicate or malformed
+ *  fingerprint makes every per-worker proof ambiguous, so it refuses the push
+ *  outright; version skew is not an identity defect and only defers a machine. */
+export function fleetWorkerIdentityProblems(
   workers: readonly WorkerStatus[],
-  priorSha: string,
 ): string[] {
   const problems: string[] = [];
   const seen = new Set<string>();
@@ -146,13 +149,63 @@ export function atomicFleetPriorProblems(
     seen.add(worker.fingerprint);
     if (!FULL_WORKER_FINGERPRINT_RE.test(worker.fingerprint)) {
       problems.push(`${worker.label}: invalid worker fingerprint`);
-    } else if (worker.stale) {
-      problems.push(`${worker.label}: stale before rollout`);
-    } else if (worker.gitSha !== priorSha) {
-      problems.push(`${worker.label}: reports ${worker.gitSha ?? "no SHA"}, prior is ${priorSha}`);
     }
   }
   return problems;
+}
+
+/** A registered worker this rollout skips, with the operator-facing reason. */
+export interface DeferredFleetWorker {
+  readonly fingerprint: string;
+  readonly label: string;
+  readonly reason: string;
+}
+
+export interface FleetRolloutPartition {
+  readonly participants: FleetRolloutTarget[];
+  readonly deferred: DeferredFleetWorker[];
+}
+
+/** Split the rollout candidates into the machines this push converges now and
+ *  the machines it defers to their own catch-up. A participant must be
+ *  reachable, heartbeat-fresh and already on `priorSha`: every per-worker
+ *  `hold` deploy proves the installed service against the rollout's prior SHA
+ *  and refuses anything else, so admitting a drifted machine would drag the
+ *  whole fleet into rollback. */
+export function _partitionFleetForRollout(
+  candidates: readonly FleetRolloutTarget[],
+  inventory: readonly WorkerStatus[],
+  routableFingerprints: ReadonlySet<string>,
+  priorSha: string,
+): FleetRolloutPartition {
+  const participants: FleetRolloutTarget[] = [];
+  const deferred: DeferredFleetWorker[] = [];
+  for (const candidate of candidates) {
+    const worker = inventory.find(
+      registered => registered.fingerprint === candidate.fingerprint,
+    );
+    const reason = !worker
+      ? "no longer registered"
+      : !routableFingerprints.has(candidate.fingerprint)
+        ? "not reachable"
+        : worker.stale
+          ? "stale"
+          : worker.gitSha !== priorSha
+            ? `reports ${worker.gitSha?.slice(0, 8) ?? "no SHA"}, prior is ${
+              priorSha.slice(0, 8)
+            }`
+            : null;
+    if (reason === null) {
+      participants.push(candidate);
+      continue;
+    }
+    deferred.push({
+      fingerprint: candidate.fingerprint,
+      label: worker?.label ?? candidate.host,
+      reason,
+    });
+  }
+  return { participants, deferred };
 }
 
 function workerConvergenceProblem(
@@ -184,19 +237,19 @@ export function _atomicFleetConvergenceProblems(
   heartbeatBoundaries: ReadonlyMap<string, number>,
   _admissionRecordedAtMs = 0,
   routableFingerprints: ReadonlySet<string> | null = null,
+  /** A rollback proves the fleet at `expectedSha`, the rollout's prior SHA, so
+   *  a deferred machine legitimately reports either end of the rollout and only
+   *  a third SHA is evidence of an unjournaled mutation. */
+  rolloutTargetSha: string | null = null,
 ): string[] {
   const actual = [...workers].sort((left, right) =>
     left.fingerprint.localeCompare(right.fingerprint));
   const expected = [...targets].sort((left, right) =>
     left.fingerprint.localeCompare(right.fingerprint));
   const problems: string[] = [];
-  if (action === "hold" && (
-    actual.length !== expected.length
-    || actual.some((worker, index) =>
-      worker.fingerprint !== expected[index]?.fingerprint)
-  )) {
-    problems.push("registered worker set does not exactly match the rollout journal");
-  }
+  // A worker outside the journal is a deferred machine, never a participant: one
+  // that registers or returns mid-rollout must not abort the rollout, so the
+  // per-participant proofs below are the only set comparison.
   for (const target of expected) {
     const worker = actual.find(
       candidate => candidate.fingerprint === target.fingerprint,
@@ -221,11 +274,19 @@ export function _atomicFleetConvergenceProblems(
   }
   if (action === "rollback") {
     const participants = new Set(expected.map(target => target.fingerprint));
+    const rolloutTargets = rolloutTargetSha
+      ? [expectedSha, rolloutTargetSha]
+      : [expectedSha];
     for (const worker of actual) {
       if (participants.has(worker.fingerprint)) continue;
-      if (worker.stale || worker.gitSha !== expectedSha) {
+      // A machine that never reported a SHA is unproven, not mutated, and a
+      // deferred machine keeps its own SHA: only a third one proves this rollout
+      // dragged a worker it never journaled.
+      if (worker.gitSha && !rolloutTargets.includes(worker.gitSha)) {
         problems.push(
-          `${worker.label}: unjournaled worker did not remain at ${expectedSha}`,
+          `${worker.label}: unjournaled worker reports ${
+            worker.gitSha.slice(0, 8)
+          }, outside this rollout`,
         );
       }
     }
@@ -233,6 +294,8 @@ export function _atomicFleetConvergenceProblems(
   return problems;
 }
 
+/** Resolve the rollout candidates. A named subset is legal: `_partitionFleetForRollout`
+ *  decides which candidates this rollout can actually converge. */
 export function _resolveAtomicFleetWorkers(
   configured: string | undefined,
   inventory: readonly WorkerStatus[],
@@ -251,7 +314,7 @@ export function _resolveAtomicFleetWorkers(
     failDeploy(2, `ambiguous push targets: ${ambiguous.join(", ")}; use exact full addresses`);
   }
   if (targets.length === 0) failDeploy(2, "atomic push requires at least one registered worker");
-  const resolved = targets.map((host) => {
+  return targets.map((host) => {
     const match = resolveWorkerTarget(inventory, host).worker;
     if (!match) failDeploy(2, `${host}: missing from coordinator worker inventory`);
     if (!FULL_WORKER_FINGERPRINT_RE.test(match.fingerprint)) {
@@ -259,13 +322,6 @@ export function _resolveAtomicFleetWorkers(
     }
     return { fingerprint: match.fingerprint, host };
   });
-  const selected = [...new Set(resolved.map((worker) => worker.fingerprint))].sort();
-  const registered = [...new Set(inventory.map((worker) => worker.fingerprint))].sort();
-  if (selected.length !== registered.length
-    || selected.some((fingerprint, index) => fingerprint !== registered[index])) {
-    failDeploy(2, "atomic push requires --targets to identify the exact registered worker set");
-  }
-  return resolved;
 }
 
 export function planFromJournal(
@@ -300,13 +356,16 @@ export function planFromJournal(
   };
 }
 
+/** Does an interrupted journal describe the rollout this push is asking for?
+ *  The journal holds that rollout's PARTICIPANTS, a subset of today's
+ *  candidates, so a machine deferred then — or one that has since returned —
+ *  must not turn a resume of the same commit into a fleet-wide rollback. */
 export function sameRolloutTarget(
   plan: FleetRolloutPlan,
   targetSha: string,
-  workers: readonly FleetRolloutTarget[],
+  candidates: readonly FleetRolloutTarget[],
 ): boolean {
-  if (plan.targetSha !== targetSha || plan.workers.length !== workers.length) return false;
-  const expected = plan.workers.map((worker) => worker.fingerprint).sort();
-  const requested = workers.map((worker) => worker.fingerprint).sort();
-  return expected.every((fingerprint, index) => fingerprint === requested[index]);
+  if (plan.targetSha !== targetSha || plan.workers.length === 0) return false;
+  const requested = new Set(candidates.map((candidate) => candidate.fingerprint));
+  return plan.workers.every((worker) => requested.has(worker.fingerprint));
 }

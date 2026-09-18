@@ -111,7 +111,7 @@ describe("fleet action-time keeper convergence", () => {
   });
 });
 
-test("rejects a fresh heartbeat from a disconnected worker", () => {
+test("proves routability for participants and ignores deferred machines", () => {
   expect(_atomicFleetConvergenceProblems(
     [status({ gitSha: TARGET_SHA })],
     [target],
@@ -121,4 +121,21 @@ test("rejects a fresh heartbeat from a disconnected worker", () => {
     0,
     new Set(),
   )).toContain("alpha: worker is not coordinator-routable");
+  expect(_atomicFleetConvergenceProblems(
+    [
+      status({ gitSha: TARGET_SHA }),
+      status({
+        fingerprint: "2".repeat(64),
+        label: "deferred",
+        reachableAddr: "deferred.example",
+        stale: true,
+      }),
+    ],
+    [target],
+    TARGET_SHA,
+    "finalize",
+    new Map(),
+    0,
+    new Set([target.fingerprint]),
+  )).toEqual([]);
 });

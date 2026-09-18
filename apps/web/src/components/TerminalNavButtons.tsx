@@ -40,6 +40,9 @@ const persistNavPadOpen = (open: boolean): void => {
 // The mounted sheet registers how to drop its armed modifiers. Closing the
 // sheet MUST disarm: it is the only surface that can clear a latched Ctrl, so
 // a close from anywhere else would leave a sticky modifier with no way out.
+// One registration wins, identity-guarded on release: the sheet is per-pane, so
+// a focus switch mounts the next instance BEFORE the old one's cleanup runs and
+// an unconditional null would drop the live registration.
 let disarmModifiers: (() => void) | null = null;
 
 /** The ONE key-pad toggle: the sheet's own button, and the controller adapter's
@@ -51,12 +54,13 @@ export function toggleTerminalNavPad(): void {
 }
 
 export function TerminalNavButtons(props: Props) {
-	disarmModifiers = () => {
+	const disarmThisSheet = () => {
 		props.onCtrlArmedChange(false);
 		props.onLinkActivationArmedChange(false);
 	};
+	disarmModifiers = disarmThisSheet;
 	onCleanup(() => {
-		disarmModifiers = null;
+		if (disarmModifiers === disarmThisSheet) disarmModifiers = null;
 	});
 
 	return (

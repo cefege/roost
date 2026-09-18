@@ -1,19 +1,25 @@
 // Owns rename, removal confirmation, and live metrics for one registered
-// machine. MachinesPane supplies the worker record and keeps enrollment state
-// at list scope. Shared M3 primitives preserve the settings surface's existing
-// hierarchy and interaction states.
+// machine, plus the update state badge on its row. MachinesPane supplies the
+// worker record and keeps enrollment state at list scope. The update state
+// comes from the ONE fleet classifier in @roost/shared/fleet-update — this file
+// never compares SHAs itself — and MachineUpdateDetails owns the action.
+// Shared M3 primitives preserve the settings surface's interaction states.
 
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { Worker } from "@roost/shared/wire";
+import { WORKER_UPDATE_LABELS, workerUpdateState } from "@roost/shared/fleet-update";
 import { rootStore } from "../../store/root.ts";
 import { workerOnline } from "../../store/sync.ts";
 import { applyWorkerDeleteResponse } from "../../store/worker-removal.ts";
 import { coordClient } from "../../connect.ts";
 import { addToast } from "../../store/toastStore.ts";
-import { Button, Icon, ListRow, MetricTile, StatusDot, TextField } from "./md/primitives.tsx";
+import { Button, Chip, Icon, ListRow, MetricTile, StatusDot, TextField } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { machinePlatformIcon } from "../../lib/machineActions.ts";
+import { machineDeployInFlight } from "./machine-update-deploy.ts";
+import { MachineUpdateDetails } from "./MachineUpdateDetails.tsx";
+
 function formatBps(bps: number): string {
   if (bps >= 1_073_741_824) return `${(bps / 1_073_741_824).toFixed(1)} GB/s`;
   if (bps >= 1_048_576) return `${(bps / 1_048_576).toFixed(1)} MB/s`;
@@ -42,6 +48,15 @@ export function MachineCard(props: { worker: Worker }) {
   const [confirmDelete, setConfirmDelete] = createSignal(false);
   const [deleteBusy, setDeleteBusy] = createSignal(false);
   let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const updateState = () =>
+    workerUpdateState({
+      workerGitSha: w().git_sha,
+      coordGitSha: rootStore.coord_identity?.git_sha ?? null,
+      online: workerOnline(w()),
+      deployInFlight: machineDeployInFlight(w().fp),
+    });
+
   function beginRename() {
     setRenameLabel(w().label);
     setRenameErr("");
@@ -141,6 +156,12 @@ export function MachineCard(props: { worker: Worker }) {
         trailing={
           <>
             <StatusDot status={isStale() ? "offline" : "ok"} title={isStale() ? "Offline" : "Online"} />
+            <Chip
+              label={WORKER_UPDATE_LABELS[updateState()]}
+              selected={updateState() === "update-available"}
+              testId={`machines-update-state-${w().fp}`}
+              title={`Coordinator release ${rootStore.coord_identity?.git_sha?.slice(0, 8) ?? "unknown"}`}
+            />
             <Button
               variant="destructive"
               size="icon-sm"
@@ -198,16 +219,17 @@ export function MachineCard(props: { worker: Worker }) {
               <span>{w().reachable_addr ?? "Address unknown"}</span>
               <span>Fingerprint {w().fp.slice(0, 12)}…</span>
               <Show when={w().git_sha}>
-                <span>Worker version {w().git_sha!.slice(0, 8)}</span>
+                {(gitSha) => <span>Worker version {gitSha().slice(0, 8)}</span>}
               </Show>
             </div>
           </Show>
 
-          <Show when={w().git_sha && rootStore.coord_identity?.git_sha && w().git_sha !== rootStore.coord_identity!.git_sha}>
-            <div class="md-body-s" style={{ color: "var(--md-sys-color-error)" }}>
-              Worker version differs from coordinator ({rootStore.coord_identity!.git_sha.slice(0, 8)})
-            </div>
-          </Show>
+          <MachineUpdateDetails
+            fp={w().fp}
+            state={updateState()}
+            expectedGitSha={rootStore.coord_identity?.git_sha ?? null}
+          />
+
           <Show when={renameErr()}>
             <div class="md-body-s" style={{ color: "var(--md-sys-color-error)" }}>{renameErr()}</div>
           </Show>

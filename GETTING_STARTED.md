@@ -470,20 +470,36 @@ bun apps/roost-cli/src/main.ts push
 ```
 
 `roost push` is one journaled transaction across the local POSIX coordinator
-and the exact complete registered macOS/Linux worker fleet. It requires at
-least one registered worker, a clean complete Git commit, and proof that the
-commit is on the configured upstream (unless `--no-git` was explicitly
-chosen). A registered Windows worker blocks the rollout. `--targets` may name
-the exact complete registered set, but cannot narrow it; `--no-web` only
-retains an existing coordinator SPA.
+and every registered macOS/Linux worker it can reach. It requires at least one
+registered worker, a clean complete Git commit, and proof that the commit is on
+the configured upstream (unless `--no-git` was explicitly chosen). A registered
+Windows worker blocks the rollout. `--targets` may name a subset; `--no-web`
+only retains an existing coordinator SPA.
 
 The command snapshots the live coordinator database, activates and proves the
-target coordinator in a held state, then stages and proves every worker at the
-same SHA with a current keeper and fresh heartbeat. Only then does it record
-the durable finalization decision. Before that decision, any participant
-failure rolls every worker back, restores and proves the prior coordinator and
-database, and reports failure. After that decision, interrupted recovery can
-only finish the target release.
+target coordinator in a held state, then stages and proves every **participant**
+worker at the same SHA with a current keeper and fresh heartbeat. Only then does
+it record the durable finalization decision. Before that decision, any
+participant failure rolls every participant back, restores and proves the prior
+coordinator and database, and reports failure. After that decision, interrupted
+recovery can only finish the target release.
+
+A registered worker that is unreachable, stale, or not on the coordinator's
+prior SHA is **deferred**, not a refusal: the push converges the machines it can
+reach and names the rest. The fleet's desired release is the running
+coordinator's own SHA, so a deferred machine is simply behind it, and the
+coordinator starts that machine's catch-up deploy itself the next time the
+worker attaches. `roost status` and Settings → Machines show each machine as up
+to date, update available, updating, or update pending while offline; re-running
+`roost push` on an unchanged commit also converges whatever came back, and
+`roost deploy <host>` still updates one machine immediately.
+
+The fleet is therefore NOT guaranteed to be one version between a push and a
+deferred machine's return. What that window costs is wire compatibility between
+a new coordinator and an old worker — the cell-frame and `SessionEvent` shapes
+in `apps/shared/src/wire/` — so a change to those shapes must stay backward
+compatible for one release, or the deferred machine must be updated before the
+shape change ships.
 
 One-host POSIX deployment remains a separate source operation:
 `bun apps/roost-cli/src/main.ts deploy <host>` stages the exact pushed commit
@@ -588,7 +604,7 @@ that transaction snapshot and journal.
 
 ## Release rollout and canaries
 
-Use one release commit and one atomic fleet transaction:
+Use one release commit and one fleet transaction:
 
 1. Qualify the four public host targets—macOS arm64/x64 and Linux arm64/x64—
    from the same source commit. Each published binary must match its GitHub
@@ -598,9 +614,12 @@ Use one release commit and one atomic fleet transaction:
    through `smoke/terminal/stack.ts`). That tier is the gate; a live canary
    only observes a deployment.
 3. From the clean pushed checkout, run
-   `bun apps/roost-cli/src/main.ts push`. Require the exact registered
-   macOS/Linux fleet to converge atomically: exhaustive staging/proof and
-   global rollback before the durable decision, finish-only recovery after it.
+   `bun apps/roost-cli/src/main.ts push`. Every reachable macOS/Linux worker
+   converges as one transaction: exhaustive staging/proof and rollback of the
+   participants before the durable decision, finish-only recovery after it. A
+   machine that was offline is named as deferred and catches up on its next
+   attach; for a release you care about, confirm it reaches the new SHA in
+   `roost status` before declaring the rollout done.
 4. Run the live API canary against the installed origin:
    ```sh
    ROOST_COORD_URL="https://roost.example.com" \

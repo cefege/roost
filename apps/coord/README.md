@@ -162,7 +162,10 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/agent-status-push-scheduler.ts` (debounced transition pushes).
   Web Push owners are `src/push-dispatch.ts`, `src/push-sender.ts`, and
   `src/vapid.ts`. `src/deploy-jobs.ts` owns the
-  generic job registry + POSIX `roost deploy` subprocess; remaining owners are
+  generic job registry + POSIX `roost deploy` subprocess, and
+  `src/worker-catchup-deploy.ts` owns the only autonomous caller of it: the
+  attach-time admission that converges a worker left behind the coordinator's
+  own `git_sha` by a push it slept through; remaining owners are
   `src/backup.ts`, `src/audit-retention.ts`, `src/sse.ts`
   (`busToAsyncIterable`, consumed by the deploy-output stream),
   `src/presence-hub.ts` and `src/telemetry.ts`.

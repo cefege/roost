@@ -35,6 +35,9 @@ type FleetConvergenceProblems = (
   heartbeatBoundaries: ReadonlyMap<string, number>,
   admissionRecordedAtMs: number,
   routableFingerprints: ReadonlySet<string>,
+  /** A rollback proves the fleet at the prior SHA, so the proof needs both ends
+   *  of the rollout to tell a deferred machine from an unjournaled mutation. */
+  rolloutTargetSha: string,
 ) => string[];
 
 export function fleetRuntime(
@@ -89,6 +92,7 @@ export function fleetRuntime(
           heartbeatBoundaries.get(action) ?? new Map(),
           plan.admissionRecordedAtMs,
           routableFingerprints,
+          plan.targetSha,
         );
         if (problems.length === 0) return [];
       } catch (error) {

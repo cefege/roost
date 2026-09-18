@@ -54,10 +54,11 @@ that host is live it refuses, leaving every PTY untouched. `--force-live` is
 the break-glass for a wedged keeper — it destroys every PTY that keeper hosts,
 so it prints exactly what it will end before acting, still requires `--yes`,
 and is refused when the keeper's identity is unproven. `reset` deletes local
-state outright. `push` may use `--targets` to name the exact complete
-registered worker set, but cannot narrow the transaction to a partial fleet;
-`--no-web` retains the existing web bundle. See [fleet](/docs/fleet/) for its
-convergence proof and rollback behavior.
+state outright. `push` may use `--targets` to name a subset of the registered
+workers, and reports any machine it could not reach as deferred instead of
+refusing the rollout; `--no-web` retains the existing web bundle. See
+[fleet](/docs/fleet/) for its convergence proof, catch-up and rollback
+behavior.
 
 Windows-specific host options that remain in the CLI are non-actionable in
 `v0.5.0`: no Windows package, installer, join script, manifest, or updater
