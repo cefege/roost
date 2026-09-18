@@ -93,7 +93,7 @@ export const WorkbenchShellSpecimen: Component = () => {
         </div>
       </div>
       <footer class="workbench-sidebar-actionbar">
-        <Button class="workbench-sidebar-actionbar__new" size="sm" icon="add">New folder</Button>
+        <Button class="workbench-sidebar-actionbar__new" size="sm" icon="add">New terminal</Button>
         <span class="workbench-sidebar-actionbar__machine">
           <StatusDot status="ok" />
           <span class="workbench-sidebar-actionbar__machine-label">mini</span>
@@ -118,9 +118,9 @@ export const WorkbenchShellSpecimen: Component = () => {
             </Button>
             <IconButton icon="close" label="Close worker logs" size="icon-sm" class="df-tab-close workbench-pane-tab__close" />
           </div>
-          <IconButton icon="add" label="New terminal" size="icon-sm" class="df-tab-new" />
-          <div class="df-tab-filler workbench-pane-tab-strip__filler" />
         </div>
+        <IconButton icon="add" label="New terminal" size="icon-sm" class="df-tab-new" />
+        <div class="df-tab-filler workbench-pane-tab-strip__filler" />
         <div class="workbench-pane-tab-strip__actions" role="toolbar" aria-label="Terminal actions">
           <IconButton icon="keyboard_arrow_down" label="All terminals in this pane" size="icon-sm" class="df-tab-overflow" />
         </div>

@@ -8,6 +8,7 @@ import { Show, type JSX } from "solid-js";
 import type { Session } from "@roost/shared/wire";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import { sessionUsesLocalTransport } from "../store/local-transport-indicator.ts";
+import { notifyTargetSessionId } from "../store/notifyTarget.ts";
 import { Button } from "./Settings/md/Button.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { Icon } from "./Settings/md/Icon.tsx";
@@ -47,6 +48,7 @@ export function PaneTab(props: PaneTabProps) {
       data-dragging={props.dragging ? "true" : "false"}
       data-closing={props.closing ? "true" : "false"}
       data-local-transport={sessionUsesLocalTransport(props.session.id) ? "true" : "false"}
+      data-notify-target={notifyTargetSessionId() === props.session.id ? "true" : undefined}
       style={props.style}
       onMouseEnter={() => {
         if (tabElement) props.onHoverStart(tabElement);
@@ -56,6 +58,7 @@ export function PaneTab(props: PaneTabProps) {
       <Button
         variant="ghost"
         class="workbench-pane-tab__select"
+        aria-label={sessionTitle(props.session)}
         aria-current={props.active ? "page" : undefined}
         onPointerDown={props.onPointerDown}
         onClick={props.onSelect}

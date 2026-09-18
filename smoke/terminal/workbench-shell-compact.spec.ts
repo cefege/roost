@@ -180,3 +180,35 @@ test("notification dock rides above the compact composer", async ({ mobileSmokeP
   // 24 = 2 * --md-space-3, the dock's own inline gutters.
   expect(geometry.dockWidth).toBe(COMPACT_VIEWPORT.width - 24);
 });
+
+test("compact deck badge counts the active terminal's position", async ({ mobileSmokePage, stack }) => {
+  await mobileSmokePage.setViewportSize(COMPACT_VIEWPORT);
+  const first = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, first);
+
+  // A swipe can mount a second deck bar, so the badge is scoped to the primary
+  // strip instead of matching whichever bar happens to render first.
+  const strip = mobileSmokePage.getByTestId("mobile-strip-wrap");
+  const badge = strip.getByTestId("mobile-tab-count");
+  await expect(badge).toHaveText("1");
+
+  const existingIds = await mobileSmokePage.evaluate(() => Object.keys(window.__smoke.state().sessions));
+  await strip.getByTestId("tab-new").tap();
+  await mobileSmokePage.waitForFunction(
+    (existing) => Object.keys(window.__smoke.state().sessions).some((id) => !existing.includes(id)),
+    existingIds,
+    { timeout: 30_000 },
+  );
+  const siblingId = await mobileSmokePage.evaluate(
+    (existing) => Object.keys(window.__smoke.state().sessions).find((id) => !existing.includes(id))!,
+    existingIds,
+  );
+  // Hand the spawn to the fixture's cleanup; the product spawned it, not the harness.
+  await mobileSmokePage.evaluate((id) => window.__smoke.trackCreatedSession(id), siblingId);
+
+  // The sibling lands last in flatTabs order and is the painted terminal.
+  await expect(badge).toHaveText("2/2");
+  await switchToSmokeSession(mobileSmokePage, first);
+  await expect(badge).toHaveText("1/2");
+  await expect(badge).toHaveAttribute("aria-label", "Open terminal grid — terminal 1 of 2 in this workspace");
+});

@@ -1,11 +1,12 @@
 /*
  * Per-pane terminal tab state owner.
- * TerminalDeck supplies layout callbacks; this component measures tabs, runs drag
- * transitions, and coordinates overflow/hover state without owning a session route.
- * PaneTab, PaneTabList, and PaneTabHoverCard render the split presentational pieces.
+ * TerminalDeck supplies layout callbacks; this component runs drag transitions and
+ * coordinates hover/menu state without owning a session route.
+ * paneTabRailScroll owns rail measurement; PaneTab, PaneTabList, and
+ * PaneTabHoverCard render the split presentational pieces.
  */
 
-import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
 import type { Session } from "@roost/shared/wire";
 import { dragArmed } from "../lib/dragThreshold.ts";
 import { animateSpring, SPRING_SNAP } from "../lib/spring.ts";
@@ -16,6 +17,7 @@ import { IconButton } from "./Settings/md/IconButton.tsx";
 import { PaneTab } from "./PaneTab.tsx";
 import { PaneTabHoverCard, hoverCardAvailable } from "./PaneTabHoverCard.tsx";
 import { PaneTabList } from "./PaneTabList.tsx";
+import { createPaneTabRailScroll } from "./paneTabRailScroll.ts";
 
 export interface PaneStripProps {
   paneId: string;
@@ -50,11 +52,9 @@ type DragState = {
 export function PaneStrip(props: PaneStripProps) {
   let tabRailElement: HTMLDivElement | undefined;
   let overflowButtonElement: HTMLButtonElement | undefined;
-  let measurementFrame = 0;
   let hoverTimer = 0;
   let cancelSettle: (() => void) | undefined;
 
-  const [overflow, setOverflow] = createSignal(false);
   const [drag, setDrag] = createSignal<DragState | null>(null);
   const [closing, setClosing] = createSignal<Set<string>>(new Set());
   const [listOpen, setListOpen] = createSignal<{ right: number; y: number } | null>(null);
@@ -66,33 +66,15 @@ export function PaneStrip(props: PaneStripProps) {
   });
   const setTimeoutTracked = createTrackedTimeouts();
 
-  function measureOverflow(): void {
-    if (!tabRailElement) return;
-    const isOverflowing = tabRailElement.scrollWidth > tabRailElement.clientWidth + 1;
-    setOverflow((previous) => previous === isOverflowing ? previous : isOverflowing);
-  }
-
-  const tabResizeObserver = new ResizeObserver(measureOverflow);
-  const tabRailResizeObserver = new ResizeObserver(measureOverflow);
-
-  onMount(() => {
-    if (tabRailElement) tabRailResizeObserver.observe(tabRailElement);
-    measureOverflow();
+  const railScroll = createPaneTabRailScroll({
+    paneId: () => props.paneId,
+    rail: () => tabRailElement,
+    selectedTab: () => props.selectedTab,
+    tabIdsKey,
+    dragging: () => drag() !== null,
   });
-  createEffect(on([() => props.selectedTab, tabIdsKey], () => {
-    cancelAnimationFrame(measurementFrame);
-    measurementFrame = requestAnimationFrame(() => {
-      measurementFrame = 0;
-      tabResizeObserver.disconnect();
-      const tabs = tabRailElement?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
-      for (const tab of tabs) tabResizeObserver.observe(tab);
-      measureOverflow();
-    });
-  }));
+
   onCleanup(() => {
-    cancelAnimationFrame(measurementFrame);
-    tabResizeObserver.disconnect();
-    tabRailResizeObserver.disconnect();
     cancelSettle?.();
     clearTimeout(hoverTimer);
   });
@@ -304,6 +286,7 @@ export function PaneStrip(props: PaneStripProps) {
         class="df-tab-bar workbench-pane-tab-strip__tabs"
         data-focused={props.focused ? "true" : "false"}
         data-dragging={drag() ? "true" : "false"}
+        data-packed={railScroll.overflowing() ? "true" : "false"}
       >
         <For each={props.tabs}>
           {(session, index) => (
@@ -328,24 +311,24 @@ export function PaneStrip(props: PaneStripProps) {
             />
           )}
         </For>
-        <IconButton
-          icon="add"
-          label="New terminal — same folder and server"
-          size="icon-sm"
-          class="df-tab-new workbench-pane-tab-control"
-          data-testid="tab-new"
-          title="New terminal in this folder (or double-click the empty bar)"
-          onClick={props.onNewTab}
-        />
-        <div
-          class="df-tab-filler workbench-pane-tab-strip__filler"
-          data-testid="tab-filler"
-          title="Double-click to open a new terminal in this folder"
-          onDblClick={props.onNewTab}
-        />
       </div>
+      <IconButton
+        icon="add"
+        label="New terminal — same folder and server"
+        size="icon-sm"
+        class="df-tab-new workbench-pane-tab-control"
+        data-testid="tab-new"
+        title="New terminal in this folder (or double-click the empty bar)"
+        onClick={props.onNewTab}
+      />
+      <div
+        class="df-tab-filler workbench-pane-tab-strip__filler"
+        data-testid="tab-filler"
+        title="Double-click to open a new terminal in this folder"
+        onDblClick={props.onNewTab}
+      />
       <div class="workbench-pane-tab-strip__actions" role="toolbar" aria-label="Terminal actions">
-        <Show when={overflow()}>
+        <Show when={railScroll.overflowing()}>
           <IconButton
             ref={overflowButtonElement}
             icon="keyboard_arrow_down"
@@ -368,8 +351,8 @@ export function PaneStrip(props: PaneStripProps) {
             tabs={props.tabs}
             selectedTab={props.selectedTab}
             trigger={() => overflowButtonElement}
-            tabBar={() => tabRailElement}
             onSelect={props.onSelect}
+            onRevealSelected={railScroll.revealSelected}
             onClose={() => setListOpen(null)}
           />
         )}

@@ -23,8 +23,8 @@ export interface PaneTabListProps {
   tabs: Session[];
   selectedTab: string;
   trigger: () => HTMLElement | undefined;
-  tabBar: () => HTMLElement | undefined;
   onSelect: (sessionId: string) => void;
+  onRevealSelected: () => void;
   onClose: () => void;
 }
 
@@ -65,10 +65,10 @@ export function PaneTabList(props: PaneTabListProps) {
       if (request !== focusRequest) return;
       const tab = document.querySelector<HTMLElement>(`[data-testid="tab-${session.id}"]`);
       const select = tab?.querySelector<HTMLElement>(".workbench-pane-tab__select");
-      if (tab && select) {
-        select.focus({ preventScroll: true });
-        tab.scrollIntoView({ inline: "nearest", block: "nearest" });
-      }
+      select?.focus({ preventScroll: true });
+      // Re-picking the already-selected tab writes no signal, so PaneStrip's selection
+      // effect never fires: reveal here or the menu focuses a tab scrolled out of view.
+      props.onRevealSelected();
       selectionFocusPending = false;
     });
   }

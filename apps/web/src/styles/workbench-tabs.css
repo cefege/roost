@@ -23,21 +23,18 @@
 .df-tab-bar.workbench-pane-tab-strip__tabs {
   display: flex;
   align-items: center;
-  flex: 1 1 auto;
+  /* Content-width basis that shrinks but never grows: the + button is the next flex
+     sibling, so the rail ends where the tabs end and scrolled tab content is clipped
+     at the rail edge instead of sliding under the button. */
+  flex: 0 1 auto;
   min-width: 0;
   block-size: 100%;
-  padding-inline-end: var(--workbench-tab-action-size);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
 }
 .df-tab-bar.workbench-pane-tab-strip__tabs::-webkit-scrollbar { display: none; }
-.df-tab-bar.workbench-pane-tab-strip__tabs > .df-tab-new {
-  position: sticky;
-  inset-inline-end: 0;
-  z-index: 1;
-  background: var(--workbench-tab-strip);
-}
+.workbench-pane-tab-strip > .df-tab-new { margin-inline-start: var(--md-space-1); }
 .workbench-pane-tab-strip__actions {
   display: flex;
   align-items: center;
@@ -53,10 +50,16 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  flex: 0 0 auto;
-  min-inline-size: calc(var(--md-space-8) * 3);
+  /* A DEFINITE width, not just a flex-basis: the container-type below applies
+     inline-size containment, which zeroes each tab's intrinsic contribution, so a
+     content-based rail would claim only the tabs' floor width and every tab would
+     sit at its minimum from the second tab on. */
+  flex: 0 1 auto;
+  inline-size: var(--workbench-tab-width-max);
+  min-inline-size: var(--workbench-tab-width-min);
   align-self: stretch;
-  max-inline-size: calc(var(--md-space-8) * 5);
+  max-inline-size: var(--workbench-tab-width-max);
+  container: pane-tab / inline-size;
   padding-block: 0;
   padding-inline: var(--md-space-1);
   gap: var(--md-space-1);
@@ -160,6 +163,23 @@
    property of the tab instead of outranking the label it sits beside. */
 .workbench-pane-tab__local { color: var(--md-sys-color-on-surface-variant); flex-shrink: 0; }
 
+/* Uniform tab widths mean one density per rail, so the only question at a given width
+   is which affordances still fit inside the tab's clip box. Anything that would be
+   clipped leaves layout entirely — a close button revealed on hover must never reflow
+   the tab it sits in (the hover-time reflow that staled the hover-card anchor). */
+@container pane-tab (max-inline-size: 120px) {
+  .workbench-pane-tab__local { display: none; }
+}
+/* Glyph-only is keyed on the rail, not on a calibrated width: tabs reach their floor
+   exactly when the rail starts to scroll, so data-packed IS "tabs are at their minimum"
+   at every density (the coarse-pointer and TV floors scale with the action size, and no
+   px literal has to track them). Hiding the label cannot feed back into layout because
+   the width is already pinned to the floor. */
+.df-tab-bar[data-packed="true"] .workbench-pane-tab__label { display: none; }
+.df-tab-bar[data-packed="true"] .workbench-pane-tab__select { justify-content: center; }
+.df-tab-bar[data-packed="true"] .workbench-pane-tab:not([data-active="true"]) .workbench-pane-tab__close { display: none; }
+.df-tab-bar[data-packed="true"] .workbench-pane-tab[data-active="true"] .workbench-pane-tab__icon { display: none; }
+
 .df-tab-bar[data-dragging="true"] { user-select: none; cursor: grabbing; }
 .df-tab[data-dragging="true"] {
   position: relative;
@@ -180,7 +200,7 @@
     padding-inline var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-accelerate),
     opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
 }
-.df-tab-filler { flex: 1 1 auto; align-self: stretch; min-width: var(--md-space-5); cursor: default; }
+.df-tab-filler { flex: 1 1 auto; align-self: stretch; min-width: 0; cursor: default; }
 
 .df-tab-new,
 .df-tab-overflow,

@@ -12,10 +12,17 @@ import {
 import { readRenderedLayout } from "./layout-document-snapshots.ts";
 import { expectStatusTruth } from "./workbench-status.ts";
 import { exerciseSidebarAgents } from "./workbench-shell-interactions.ts";
-import { expectConnectedWorkbenchTabStrip } from "./workbench-shell-tab-strip.ts";
+import {
+  expectConnectedWorkbenchTabStrip,
+  expectWorkbenchTabStripAtFloor,
+} from "./workbench-shell-tab-strip.ts";
 
 const WIDE_VIEWPORT = { width: 1440, height: 900 } as const;
 const NARROW_VIEWPORT = { width: 1024, height: 768 } as const;
+// Six tabs at their 68px floor need a rail under 408px: 800px leaves the desktop shell
+// (min side 768 stays out of the compact class) a 336px rail, so the strip is packed
+// without spawning a seventh PTY.
+const PACKED_VIEWPORT = { width: 800, height: 768 } as const;
 const SIDEBAR_WIDTH_DEFAULT = 300;
 type Rect = { x: number; y: number; width: number; height: number; top: number; right: number; bottom: number };
 type ShellGeometry = {
@@ -77,6 +84,16 @@ async function typeTrustedMarker(page: Page, sessionId: string, marker: string):
   await expect(slot).toHaveAttribute("data-focused", "true");
   await page.keyboard.type(`printf '%s\\n' ${marker}`); await page.keyboard.press("Enter");
   await expect.poll(() => slot.textContent(), { timeout: 30_000 }).toContain(marker);
+}
+async function activeTabWithinRail(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const rail = document.querySelector<HTMLElement>("[data-pane-strip] .workbench-pane-tab-strip__tabs");
+    const active = rail?.querySelector<HTMLElement>(".df-tab[data-active='true']");
+    if (!rail || !active) return false;
+    const railRect = rail.getBoundingClientRect();
+    const tabRect = active.getBoundingClientRect();
+    return tabRect.left >= railRect.left - 0.5 && tabRect.right <= railRect.right + 0.5;
+  });
 }
 function tabWrapper(page: Page, sessionId: string) { return page.locator(`.df-tab[data-testid="tab-${sessionId}"]`).first(); }
 async function dragTab(page: Page, sessionId: string, destination: { x: number; y: number }): Promise<void> {
@@ -223,6 +240,15 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   await expect(undo).toBeVisible();
   await undo.click();
   await expect(tabWrapper(smokePage, closedId)).toBeVisible();
+  // Uniform tab widths mean the undo re-insertion resizes every tab in the rail, so the
+  // drag target must be measured only once the restored six-tab geometry has settled.
+  await expect.poll(async () => {
+    const tabs = (await readRenderedLayout(smokePage, createdIds)).panes[0]?.tabs ?? [];
+    if (tabs.length !== createdIds.length) return false;
+    const widths = await smokePage.locator("[data-pane-strip] .df-tab").evaluateAll((elements) =>
+      elements.map((element) => Math.round(element.getBoundingClientRect().width)));
+    return widths.length === createdIds.length && new Set(widths).size === 1;
+  }).toBe(true);
   const beforeReorder = (await readRenderedLayout(smokePage, createdIds)).panes[0]?.tabs ?? [];
   const movedId = beforeReorder[0]!;
   const lastId = beforeReorder.at(-1)!;
@@ -240,8 +266,32 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
     panes: [{ selected: selectedId }],
   });
 
+  // Packing the same six tabs by viewport is the floor state without more PTYs: at 800px
+  // the rail is narrower than six tabs at their minimum, so they rest on the floor and the
+  // overflow chevron becomes the only way to reach a scrolled-out tab.
   const overflow = smokePage.getByTestId("tab-overflow");
+  await expect(overflow).toHaveCount(0);
+  await smokePage.setViewportSize(PACKED_VIEWPORT);
   await expect(overflow).toBeVisible();
+  await expectWorkbenchTabStripAtFloor(smokePage);
+
+  // Re-picking the tab that is ALREADY selected writes no selection signal, so only the
+  // menu's own reveal can scroll it back inside a rail scrolled away from it. The first
+  // tab in the rail is the one a full scroll-to-end is guaranteed to push out of view.
+  const rail = smokePage.locator("[data-pane-strip] .workbench-pane-tab-strip__tabs").first();
+  const firstTabId = (await readRenderedLayout(smokePage, createdIds)).panes[0]?.tabs[0];
+  if (!firstTabId) throw new Error("packed pane has no first tab");
+  await overflow.click();
+  await smokePage.getByTestId(`tab-list-item-${firstTabId}`).click();
+  await expect(tabWrapper(smokePage, firstTabId)).toHaveAttribute("data-active", "true");
+  await rail.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+  await expect.poll(() => activeTabWithinRail(smokePage)).toBe(false);
+  await overflow.click();
+  await smokePage.getByTestId(`tab-list-item-${firstTabId}`).click();
+  await expect.poll(() => activeTabWithinRail(smokePage)).toBe(true);
+  await tabWrapper(smokePage, selectedId).locator(".workbench-pane-tab__select").click();
+  await expect(smokePage).toHaveURL(`${stack.baseUrl}/s/${selectedId}`);
+
   await overflow.click();
   const popup = smokePage.getByTestId("tab-list-popup");
   const filter = smokePage.getByTestId("tab-list-filter");
@@ -276,8 +326,19 @@ test("narrow desktop keeps tab wrappers, overflow controls, and tile drops coher
   await expect(popup).toHaveCount(0);
   await expect(overflow).toBeFocused();
 
+  await smokePage.setViewportSize(NARROW_VIEWPORT);
+  await expect(overflow).toHaveCount(0);
+  // The chevron unmounts with the wider viewport, so focus would fall to the document
+  // body: put it back on the selected tab before the split chord is dispatched.
+  await tabWrapper(smokePage, selectedId).locator(".workbench-pane-tab__select").click();
+  await expect(tabWrapper(smokePage, selectedId)).toHaveAttribute("data-active", "true");
+  await expect(smokePage).toHaveURL(`${stack.baseUrl}/s/${selectedId}`);
+
   await pressPlatformShortcut(smokePage, "splitRight", "D");
-  await expect(smokePage.locator("[data-pane-slot]")).toHaveCount(2);
+  // Panes, not mounted slots: the deck keeps every session it has shown warm-mounted, so
+  // a slot count also counts tabs visited earlier in this scenario.
+  await expect.poll(async () =>
+    (await readRenderedLayout(smokePage, createdIds)).panes.length).toBe(2);
   const splitSessionIds = await smokePage.locator("[data-pane-slot]").evaluateAll((slots) =>
     slots.flatMap((slot) => {
       const testId = slot.getAttribute("data-testid") ?? "";
