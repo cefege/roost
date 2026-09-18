@@ -490,9 +490,13 @@ reach and names the rest. The fleet's desired release is the running
 coordinator's own SHA, so a deferred machine is simply behind it, and the
 coordinator starts that machine's catch-up deploy itself the next time the
 worker attaches. `roost status` and Settings → Machines show each machine as up
-to date, update available, updating, or update pending while offline; re-running
-`roost push` on an unchanged commit also converges whatever came back, and
-`roost deploy <host>` still updates one machine immediately.
+to date, update available, updating, or update pending while offline.
+
+A machine that returns is converged by the coordinator's own catch-up deploy, or
+immediately with `roost deploy <host>`. Re-running `roost push` will NOT pick it
+up: every per-host rollout proves the installed service against the rollout's
+single prior SHA and refuses anything else, so a machine sitting on an older
+commit is structurally a deferral for as long as the fleet has moved on.
 
 The fleet is therefore NOT guaranteed to be one version between a push and a
 deferred machine's return. What that window costs is wire compatibility between

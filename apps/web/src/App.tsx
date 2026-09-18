@@ -38,6 +38,7 @@ const SettingsRoot = lazy(() => import("./components/Settings/SettingsRoot.tsx")
 const Help = lazy(() => import("./components/Help.tsx").then((m) => ({ default: m.Help })));
 const DesignGallery = lazy(() => import("./components/DesignGallery.tsx").then((m) => ({ default: m.DesignGallery })));
 const HelpOverlay = lazy(() => import("./components/HelpOverlay.tsx").then((m) => ({ default: m.HelpOverlay })));
+const ControllerMap = lazy(() => import("./components/ControllerMap.tsx").then((m) => ({ default: m.ControllerMap })));
 const BrowsePage = lazy(() => import("./components/BrowsePage.tsx").then((m) => ({ default: m.BrowsePage })));
 const BrowseRedirect = lazy(() => import("./components/BrowsePage.tsx").then((m) => ({ default: m.BrowseRedirect })));
 
@@ -140,6 +141,7 @@ export function App() {
           <AgentNotificationBridge />
           <CommandPalette />
           <HelpOverlay />
+          <ControllerMap />
           <WhatsNewDialog />
           <QueueTaskDialog />
           <NotificationDock />

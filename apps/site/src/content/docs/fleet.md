@@ -92,13 +92,20 @@ decision. Before that decision, any participant failure rolls every participant
 back and restores and proves the prior coordinator and database. After it,
 interrupted recovery can only finish the target release.
 
-A registered worker that is unreachable, stale, or not on the coordinator's
-prior SHA is deferred rather than fatal: the push converges the machines it can
-reach and names the rest. The fleet's desired release is the running
-coordinator's own SHA, so a deferred machine is simply behind it, and the
-coordinator starts that machine's catch-up deploy itself the next time the
-worker attaches. `roost status` and Settings → Machines report each machine as
-up to date, update available, updating, or update pending while offline.
+A registered worker that is unreachable, stale, not on the coordinator's prior
+SHA, or holding a keeper the release cannot adopt is deferred rather than fatal:
+the push converges the machines it can reach and names the rest. The fleet's
+desired release is the running coordinator's own SHA, so a deferred machine is
+simply behind it, and the coordinator starts that machine's catch-up deploy
+itself the next time the worker attaches. `roost status` and Settings → Machines
+report each machine as up to date, update available, updating, or update pending
+while offline.
+
+A deferred machine is converged by that catch-up or by `roost deploy <host>`,
+not by re-running `push`: each per-host rollout admits only a worker already on
+the rollout's prior SHA. A machine whose keeper holds sessions the release
+cannot adopt stays deferred until those sessions end or
+`roost keeper-refresh <host> --yes` retires that keeper.
 
 Between a push and a deferred machine's return the fleet is deliberately not
 one version. The cost is wire compatibility between a new coordinator and an

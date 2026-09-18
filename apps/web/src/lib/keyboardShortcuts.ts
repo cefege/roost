@@ -76,6 +76,19 @@ export function closeHelp() {
 	_setHelpOpen(false);
 }
 
+// ── ControllerMap (Start button) ────────────────────────────────────────────
+// A separate signal from helpOpen on purpose: Shift+? opens the KEYBOARD
+// catalogue, Start opens the button diagram. Routing Start into HelpOverlay
+// strands a pad, whose autofocused filter field it cannot leave or type into.
+const [_controllerMapOpen, _setControllerMapOpen] = createSignal(false);
+export const controllerMapOpen = _controllerMapOpen;
+export function openControllerMap() {
+	_setControllerMapOpen(true);
+}
+export function closeControllerMap() {
+	_setControllerMapOpen(false);
+}
+
 // ── Settings (⌘,) ───────────────────────────────────────────────────────────
 // Navigation is router-scoped (useNavigate must run inside <Router>), so App.tsx
 // registers the opener from a router child. null until then, and the ⌘, branch
@@ -161,7 +174,7 @@ export function handleKeydown(e: KeyboardEvent): void {
 	// targets (focused PTY/inputs keep their arrows — shell history), and
 	// any modifier combo.
 	if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter") {
-		if (_cmdPaletteOpen() || _helpOpen()) return;
+		if (_cmdPaletteOpen() || _helpOpen() || _controllerMapOpen()) return;
 		if (isEditableTarget(e.target)) return;
 		if (terminalOwnsKeyboard()) return;
 		if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;

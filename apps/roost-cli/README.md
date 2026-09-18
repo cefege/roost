@@ -32,7 +32,7 @@ self-exec/service entries `keeper`, `__keeper-contract`, and
 | `dev` | Boot coord (:4102) + outbound-only worker + web dev server (:5174) in parallel |
 | `test [profile]` | Canonical entry point: `unit`, `worker`, `terminal`, `upgrade`, `live-api` optional monitor, or `all` |
 | `deploy <host> [--label=<name>] [--reachable-addr=<fqdn>] [--force-live]` | Refresh the worker on a remote host (macOS rsync + LaunchAgent, Linux in-place checkout). Staging requires keeper update admission from the coordinator registry, except for a worker that reports no keeper runtime at all — that one bootstraps without a journaled keeper update and says so. A remote target's `ROOST_WORKER_LABEL` / `ROOST_REACHABLE_ADDR` resolve only from `--label` / `--reachable-addr` or the target's own installed service definition; exporting either variable in the deploying shell refuses a first install on that host instead of registering it under this machine's identity. `--force-live` additionally authorizes the deployed worker to DESTROY every PTY held by a keeper it can neither adopt nor prove empty (a keeper predating binding proof); every shell, dev server, and test in those PTYs exits. It applies to that one deploy and the next deploy clears it |
-| `push` | Publish one clean commit, update the coordinator's own checkout, and deploy every registered worker it can reach, proving each one reports that commit before returning success. A worker that is unreachable, stale, or off the prior SHA is reported as deferred instead of refusing the rollout; the coordinator starts its catch-up deploy when it next attaches, and re-running `push` converges whatever returned |
+| `push` | Publish one clean commit, update the coordinator's own checkout, and deploy every registered worker it can reach, proving each one reports that commit before returning success. A worker that is unreachable, stale, off the prior SHA, or holding a keeper the release cannot adopt is reported as deferred instead of refusing the rollout. A deferred machine is converged by the coordinator's catch-up deploy on its next attach or by `roost deploy <host>` — NOT by re-running `push`, whose per-host rollout only admits a worker already on the prior SHA |
 | `keeper-refresh <host> --yes [--force-live]` | Re-spawn a host's keeper on current code through the coordinator-fenced maintenance RPC. Destructive, explicitly confirmed, and the only workflow authorized to stop a keeper while the worker is live; `--force-live` ends every PTY that keeper hosts. A keeper the worker cannot identify is refused here — retire it with `roost deploy <host> --force-live` instead |
 | `logs <coord\|worker> [--tail N]` | Tail an app's log files; warns past 100 MB |
 | `reset` | Stop both services, wipe the coord DB + pinned keys + lock, re-run `bun install` |
@@ -275,7 +275,7 @@ against one lock per machine. Importers are `src/deploy-local.ts`,
 operations driven through injected fakes. `tests/api-agent-status.test.ts`
 pins the public JSON and TSV status contracts; `tests/api-agent-wait.test.ts`
 pins wait parsing, occupant pinning, outcomes, and exit behavior;
-`tests/coordinator-deploy.test.ts` pins atomic fleet rollback; `tests/update.test.ts`
+`tests/coordinator-deploy.test.ts` pins participant-scoped fleet rollback; `tests/update.test.ts`
 pins release verification; `tests/machine-transaction.test.ts` pins the machine lock.
 
 The repo's test scripts run through this CLI: `bun run test:unit`,

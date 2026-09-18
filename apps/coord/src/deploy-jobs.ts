@@ -132,9 +132,19 @@ export function resolveDeployCoordinatorUrl(
   return declared;
 }
 
-export function startDeploy(host: string): DeployStartResult {
+export function startDeploy(
+  host: string,
+  expectedGitSha?: string,
+): DeployStartResult {
   if (!/^[A-Za-z0-9.-]+$/.test(host)) {
     return { ok: false, error: "invalid host" };
+  }
+  // Without this the job deploys whatever the coordinator's checkout HEAD
+  // happens to be, which is not necessarily the release the caller promised:
+  // the Machines badge names a SHA, and a catch-up converges on the
+  // coordinator's own SHA. Pin it so the deploy cannot land a third commit.
+  if (expectedGitSha !== undefined && !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(expectedGitSha)) {
+    return { ok: false, error: "invalid expected git sha" };
   }
   if (IS_COMPILED_ROOST_BUILD) {
     return {
@@ -200,11 +210,14 @@ export function startDeploy(host: string): DeployStartResult {
     _gcJob(jobId);
   }
 
+  const deployArgs = expectedGitSha === undefined
+    ? ["deploy", host]
+    : ["deploy", host, `--expected-sha=${expectedGitSha}`];
   try {
     const proc = Bun.spawn({
       cmd: IS_COMPILED_ROOST_BUILD
-        ? [bunBin, "deploy", host]
-        : [bunBin, "apps/roost-cli/src/main.ts", "deploy", host],
+        ? [bunBin, ...deployArgs]
+        : [bunBin, "apps/roost-cli/src/main.ts", ...deployArgs],
       cwd: repoRoot, env,
       stdout: "pipe", stderr: "pipe",
     });

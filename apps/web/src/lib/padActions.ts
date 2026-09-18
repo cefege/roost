@@ -4,27 +4,36 @@
 // owning them; only the two things an untrusted key cannot do (native click
 // activation, native scrolling) are compensated explicitly here.
 // Callers: App.tsx (installGamepadSource(runPadActions)), UiBridge (router io).
-// Depends on: lib/deckOps, lib/keyboardShortcuts, lib/terminalReaderScroll,
-// lib/padBindings, lib/padMode, store/paneLayout*, store/uiStore.
+// Depends on: lib/{deckOps,padBindings,padFolders,folderGroups,padMode,
+// keyboardShortcuts,terminalReaderScroll,voiceState}, TerminalNavButtons,
+// store/{paneLayout*,selectors,uiStore,toastStore}.
 
 import { createSignal } from "solid-js";
 import { diag } from "@roost/shared/diag";
 import { allLeaves, type Layout, type PaneLeaf } from "../store/paneLayout.ts";
 import { resolveLayout } from "../store/paneLayoutStore.ts";
 import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";
+import { addToast } from "../store/toastStore.ts";
 import { closeSidebar, uiStore } from "../store/uiStore.ts";
-import { toggleTerminalNavPad } from "../components/TerminalNavButtons.tsx";
+import {
+	closeTerminalNavPad, focusTerminalNavPadFirstKey, terminalNavPadOpen,
+	toggleTerminalNavPad,
+} from "../components/TerminalNavButtons.tsx";
 import {
 	deckOpsCtxForFolder, focusPaneOp, selectTabOp, spotlitPaneIdIn,
 	type DeckOpsCtx,
 } from "./deckOps.ts";
+import { buildFolderGroups } from "./folderGroups.ts";
 import { folderKeyOf } from "./folderKey.ts";
 import {
-	closeCmdPalette, closeHelp, cmdPaletteOpen, helpOpen, openCmdPalette, openHelp,
+	closeCmdPalette, closeControllerMap, cmdPaletteOpen, controllerMapOpen,
+	helpOpen, openCmdPalette, openControllerMap,
 } from "./keyboardShortcuts.ts";
 import type { PadAction, PadHintContext } from "./padBindings.ts";
+import { nextFolderSessionId } from "./padFolders.ts";
 import { padModeActive } from "./padMode.ts";
 import { PAD_SCROLL_STEP_PX, scrollTerminalReaderBox } from "./terminalReaderScroll.ts";
+import { voiceControls, voiceDictating } from "./voiceState.ts";
 
 export interface PadRouterIo {
 	navigate: (href: string) => void;
@@ -48,10 +57,19 @@ export function setPadRouterIo(io: PadRouterIo | null): void {
 export function runPadActions(actions: readonly PadAction[]): void {
 	if (!padModeActive()) return;
 	for (const action of actions) {
-		setHintContext(currentHintContext());
-		setHintsVisible(true);
-		if (hintTimer !== null) clearTimeout(hintTimer);
-		hintTimer = setTimeout(() => setHintsVisible(false), PAD_HINT_IDLE_MS);
+		// The controller map is the read-the-buttons surface: exploring the pad
+		// must not fire what the diagram documents, and the diagram IS the
+		// legend while it is up. Held state is published by the poll itself, so
+		// every cap still lights — only the side effects stand down. Start
+		// toggles the map shut and B closes it; nothing else gets through.
+		const mapOpen = controllerMapOpen();
+		if (mapOpen && action !== "controller-map" && action !== "back") continue;
+		if (!mapOpen) {
+			setHintContext(currentHintContext());
+			setHintsVisible(true);
+			clearTimeout(hintTimer);
+			hintTimer = setTimeout(() => setHintsVisible(false), PAD_HINT_IDLE_MS);
+		}
 		dispatchPadAction(action);
 		diag("pad.action", { action, context: hintContext() });
 	}
@@ -66,7 +84,14 @@ interface PadPaneTarget {
 }
 
 let routerIo: PadRouterIo | null = null;
-let hintTimer: ReturnType<typeof setTimeout> | null = null;
+let hintTimer: ReturnType<typeof setTimeout> | undefined;
+// The key-pad focus retry outlives the press that started it, so a second open
+// must cancel the first: two live rAF retries would fight over focus.
+let cancelKeypadFocus: (() => void) | null = null;
+// A Gamepad press carries no user activation, so a browser that gates
+// getUserMedia on a gesture denies a pad-started mic without even prompting.
+// Latched so a mashed stick click does not stack copies of the same advice.
+let micGestureRequired = false;
 
 function dispatchPadAction(action: PadAction): void {
 	switch (action) {
@@ -102,10 +127,18 @@ function dispatchPadAction(action: PadAction): void {
 			return;
 		}
 		case "activate": {
+			// While a dictation is owned, A is the commit gesture: the pad has no
+			// other way to accept a transcript.
+			if (voiceDictating()) {
+				voiceControls()?.toggle();
+				return;
+			}
 			// On the terminal box the pad has no keyboard, so A opens the one
-			// surface that sends raw keys instead of activating a control.
+			// surface that sends raw keys — and lands on a key, or the D-pad
+			// would have nothing to travel between.
 			if (focusedTerminalBox()) {
 				toggleTerminalNavPad();
+				if (terminalNavPadOpen()) startKeypadFocus();
 				return;
 			}
 			const active = document.activeElement as HTMLElement | null;
@@ -116,7 +149,27 @@ function dispatchPadAction(action: PadAction): void {
 			return;
 		}
 		case "back": {
+			if (voiceDictating()) {
+				voiceControls()?.discard();
+				return;
+			}
 			const active = document.activeElement as HTMLElement | null;
+			// The key pad renders in a body portal, so an Escape from inside it
+			// would escape past it to whatever owns the document. B leaves the
+			// pad explicitly and hands the terminal its focus back.
+			if (terminalNavPadOpen() && active?.closest(".term-nav")) {
+				closeTerminalNavPad();
+				paneTerminalBox()?.focus();
+				return;
+			}
+			// Kobalte dismisses on an untrusted document keydown WITHOUT calling
+			// preventDefault, so a dispatched Escape would close the map and let
+			// the rest of this chain close the drawer behind it too. One press,
+			// one effect: close it here.
+			if (controllerMapOpen()) {
+				closeControllerMap();
+				return;
+			}
 			if (!padKey("Escape")) return;
 			if (active?.matches(".terminal-input")) {
 				// The PTY textarea consumes every arrow, so a pad that cannot leave
@@ -162,10 +215,17 @@ function dispatchPadAction(action: PadAction): void {
 			return;
 		case "keypad":
 			toggleTerminalNavPad();
+			if (terminalNavPadOpen()) startKeypadFocus();
 			return;
-		case "help":
-			if (helpOpen()) closeHelp();
-			else openHelp();
+		case "controller-map":
+			if (controllerMapOpen()) closeControllerMap();
+			else openControllerMap();
+			return;
+		case "mic-toggle":
+			toggleDictation(action);
+			return;
+		case "folder-next":
+			stepFolder();
 			return;
 	}
 }
@@ -182,6 +242,62 @@ function padKey(key: string): boolean {
 function focusedTerminalBox(): HTMLElement | null {
 	const active = document.activeElement as HTMLElement | null;
 	return active?.matches(".wterm") ? active : null;
+}
+
+/** Focus the key pad's first key, cancelling a superseded attempt: the helper
+ *  retries across frames until the portal paints, so two live retries would
+ *  fight over which key the D-pad starts from. */
+function startKeypadFocus(): void {
+	cancelKeypadFocus?.();
+	cancelKeypadFocus = focusTerminalNavPadFirstKey();
+}
+
+/** The terminal box a portal-rendered surface hands focus back to: the target
+ *  pane's, else the only one painted. */
+function paneTerminalBox(): HTMLElement | null {
+	const target = targetPane();
+	const scoped = target
+		? document.querySelector<HTMLElement>(
+			`[data-pane-id="${target.leaf.paneId}"] .wterm`,
+		)
+		: null;
+	return scoped ?? document.querySelector<HTMLElement>(".wterm");
+}
+
+function toggleDictation(action: PadAction): void {
+	const controls = voiceControls();
+	// The composer that owns the mic mounts per focused pane, so a dead button
+	// here is a real state, not a bug — say which state it was.
+	if (!controls) {
+		diag("pad.action_unavailable", { action, reason: "no-composer" });
+		return;
+	}
+	// Stopping never needs permission; only a start does, and the pad cannot
+	// supply the user activation some browsers demand for it.
+	if (!voiceDictating() && !controls.canStartWithoutGesture()) {
+		diag("pad.action_unavailable", { action, reason: "mic-needs-gesture" });
+		if (!micGestureRequired) {
+			micGestureRequired = true;
+			addToast(
+				"Tap the mic once to allow it — the controller can start it after that.",
+				"warn",
+			);
+		}
+		return;
+	}
+	micGestureRequired = false;
+	controls.toggle();
+}
+
+function stepFolder(): void {
+	const io = routerIo;
+	if (!io) return;
+	const session = activeSessionForPath(io.getPath());
+	const next = nextFolderSessionId(
+		buildFolderGroups(),
+		session ? folderKeyOf(session) : null,
+	);
+	if (next) io.navigate(`/s/${next}`);
 }
 
 /** The pane the deck actions address: the one holding DOM focus, else the
@@ -224,8 +340,12 @@ function stepPane(step: number): void {
 }
 
 function currentHintContext(): PadHintContext {
-	if (cmdPaletteOpen() || helpOpen()) return "overlay";
+	if (voiceDictating()) return "dictation";
 	const active = document.activeElement as HTMLElement | null;
+	if (active?.closest(".term-nav")) return "keypad";
+	// The map stands the dispatcher down and is its own legend, so the hint
+	// state is never refreshed while it is open.
+	if (cmdPaletteOpen() || helpOpen()) return "overlay";
 	if (active?.closest('[role="menu"],[role="dialog"]')) return "menu";
 	if (focusedTerminalBox()) return "terminal";
 	return "default";

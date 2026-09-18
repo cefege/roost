@@ -63,6 +63,13 @@ export function padModeActive(): boolean {
 	return padSeenSignal();
 }
 
+/** Did a pad actually send input? `padModeActive()` deliberately conflates the
+ *  latch with "forced on in Settings", so a surface that must appear ONLY for a
+ *  real controller (the Start guide) has to read the latch itself. */
+export function padInputSeen(): boolean {
+	return padSeenSignal();
+}
+
 /** Latch `auto` on. A pad plugged in for games is a false positive: tvMode.ts
  *  records the incident where a weak heuristic switched real desktops into a
  *  D-pad UI that suppresses PTY focus, so mere connection must not flip the

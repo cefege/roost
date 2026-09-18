@@ -146,7 +146,7 @@ export function makeWorkerDeployHandlers(
           req.expectedGitSha,
           req.expectedManifestSha256,
         )
-        : startDeploy(host);
+        : startDeploy(host, req.expectedGitSha || undefined);
       return create(WorkersDeployStartResponseSchema, {
         ok: result.ok,
         jobId: result.jobId ?? "",

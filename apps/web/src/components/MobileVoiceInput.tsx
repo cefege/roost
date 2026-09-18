@@ -32,12 +32,7 @@ import {
 import { learnTerms, lexiconTopTerms } from "../lib/keytermLexicon.ts";
 import { keytermBiasing } from "../lib/keytermBiasingPref.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
-import {
-	activeVoiceOwner,
-	ensureTranscriptionConfig,
-	setActiveVoiceOwner,
-	transcriptionConfig,
-} from "../lib/voiceState.ts";
+import { activeVoiceOwner, ensureTranscriptionConfig, noteMicPermissionGranted, registerVoiceControls, setActiveVoiceOwner, transcriptionConfig, voiceControls, voiceControlsFor } from "../lib/voiceState.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import { IconButton } from "./Settings/md/primitives.tsx";
 // The capture pipeline stays warm after a recording so the next tap skips a
@@ -277,10 +272,9 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 			}
 		}
 	};
-	// Mic attached AND transport open — the tap's promise is kept.
-	const promoteToListening = () => {
-		setVoiceState((s) => (s === "starting" ? "listening" : s));
-	};
+	// Mic attached AND transport open — the tap's promise is kept. Reaching it is
+	// also proof this profile granted the mic, which a controller start depends on.
+	const promoteToListening = () => { noteMicPermissionGranted(); setVoiceState((s) => (s === "starting" ? "listening" : s)); };
 
 	// Stop recording and send automatically. Moves to `finalizing`; the actual
 	// send fires from the engine's onEnd (Deepgram) / onend (Web Speech).
@@ -394,6 +388,12 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		props.onDiscard();
 		resetToIdle();
 	};
+
+	// Identity guard: a pane focus switch mounts the NEXT composer before this
+	// one's cleanup runs, so an unconditional clear would kill the live mic.
+	const myVoiceControls = voiceControlsFor({ toggleRecord, failToIdle, discard });
+	registerVoiceControls(myVoiceControls);
+	onCleanup(() => { if (voiceControls() === myVoiceControls) registerVoiceControls(null); });
 
 	// A covered composer must never keep recording without reachable controls —
 	// but switching away commits what settled instead of silently discarding.

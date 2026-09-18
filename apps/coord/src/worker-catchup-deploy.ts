@@ -41,6 +41,26 @@ export interface CatchUpWorkerRow {
   readonly label: string;
   readonly reachableAddr: string | null;
   readonly gitSha: string | null;
+  /** The keeper proof the worker last reported, null until its first
+   *  post-reconcile heartbeat. Its epoch and channel count are what a keeper
+   *  block is pinned to, so the block clears when the situation changes. */
+  readonly keeperRuntimeJson: string | null;
+}
+
+/** One host resolution for the decision and the block registry: keying a block
+ *  by a differently-resolved host would silently never match. */
+function workerCatchUpHost(worker: CatchUpWorkerRow): string {
+  return workerDeployHost(
+    {
+      fp: worker.fp,
+      os: worker.os,
+      label: worker.label,
+      reachable_addr: worker.reachableAddr,
+    },
+    // An attach carries no operator-requested host, so there is nothing to fall
+    // back to: an empty resolution means nothing addressable is known.
+    "",
+  );
 }
 
 export interface CatchUpDeployDecisionInputs {
@@ -53,6 +73,11 @@ export interface CatchUpDeployDecisionInputs {
   readonly cooldownUntilMsByHost: ReadonlyMap<string, number>;
   /** `roost push` owns the fleet right now (its journal is on disk). */
   readonly operatorRolloutActive: boolean;
+  /** This host's keeper was already refused at this exact keeper signature. A
+   *  keeper holding sessions the release cannot adopt fails the SAME admission
+   *  every time, so retrying each attach would fill `roost doctor` with a
+   *  recurring failure for a machine only `roost keeper-refresh` can unblock. */
+  readonly keeperUpdateBlocked: boolean;
   readonly nowMs: number;
 }
 
@@ -83,17 +108,10 @@ export function _catchUpDeployDecision(
   if (!worker.gitSha || !FULL_GIT_SHA_RE.test(worker.gitSha)) {
     return { start: false, reason: "worker_sha_unknown" };
   }
-  const host = workerDeployHost(
-    {
-      fp: worker.fp,
-      os: worker.os,
-      label: worker.label,
-      reachable_addr: worker.reachableAddr,
-    },
-    // An attach carries no operator-requested host, so there is nothing to
-    // fall back to: an empty resolution means nothing addressable is known.
-    "",
-  );
+  if (inputs.keeperUpdateBlocked) {
+    return { start: false, reason: "keeper_update_blocked" };
+  }
+  const host = workerCatchUpHost(worker);
   if (!DEPLOY_HOST_RE.test(host)) {
     return { start: false, reason: "no_reachable_host" };
   }
@@ -129,11 +147,37 @@ export function _catchUpDeployDecision(
 const catchUpDeploys = {
   jobIdByHost: new Map<string, string>(),
   cooldownUntilMsByHost: new Map<string, number>(),
+  // host → the keeper signature that was refused. A keeper holding sessions the
+  // release cannot adopt fails the SAME admission on every attempt, so retrying
+  // it each attach would put a recurring failure in `roost doctor` for a machine
+  // only `roost keeper-refresh` can unblock. Keyed by signature, not host alone,
+  // so the block clears by itself once that keeper's epoch or channel count
+  // moves — the sessions ended, and the deploy can be admitted again.
+  keeperBlockedSignatureByHost: new Map<string, string>(),
 };
+
+/** Matches the refusals that mean "this machine's keeper cannot be updated now",
+ *  as printed by `roost deploy`'s own keeper admission. */
+const KEEPER_BLOCKED_OUTPUT_RE =
+  /keeper update (?:is )?(?:blocked|unproven|incompatible)|keeper replacement blocked/i;
+
+/** The keeper identity a block is pinned to: a new epoch or a changed channel
+ *  count is a different keeper situation and deserves a fresh attempt. */
+export function _keeperSignature(keeperRuntimeJson: string | null): string {
+  if (!keeperRuntimeJson) return "none";
+  try {
+    const parsed: unknown = JSON.parse(keeperRuntimeJson);
+    if (!parsed || typeof parsed !== "object") return "unparsed";
+    const runtime = parsed as { keeper_epoch?: unknown; channel_count?: unknown };
+    return `${String(runtime.keeper_epoch)}:${String(runtime.channel_count)}`;
+  } catch {
+    return "unparsed";
+  }
+}
 
 export interface CatchUpDeployOptions {
   /** Defaults to the real POSIX deploy job; a test substitutes a recorder. */
-  readonly deployStarter?: (host: string) => DeployStartResult;
+  readonly deployStarter?: (host: string, expectedGitSha?: string) => DeployStartResult;
   readonly nowMs?: number;
   /** The fleet's desired release. Production always leaves this unset: the
    *  desired SHA is the running coordinator's own, never a second record. */
@@ -150,12 +194,17 @@ export function _startCatchUpDeployForWorker(
   const nowMs = options.nowMs ?? Date.now();
   const deployStarter = options.deployStarter ?? startDeploy;
   const coordGitSha = options.coordGitSha ?? COORD_GIT_SHA;
+  const keeperSignature = _keeperSignature(worker.keeperRuntimeJson);
   const decision = _catchUpDeployDecision({
     worker,
     coordGitSha,
     hostsWithDeployInFlight: hostsWithDeployInFlight(),
     cooldownUntilMsByHost: catchUpDeploys.cooldownUntilMsByHost,
     operatorRolloutActive: operatorFleetRolloutActive(),
+    keeperUpdateBlocked:
+      catchUpDeploys.keeperBlockedSignatureByHost.get(
+        workerCatchUpHost(worker),
+      ) === keeperSignature,
     nowMs,
   });
   if (!decision.start) {
@@ -169,7 +218,9 @@ export function _startCatchUpDeployForWorker(
     });
     return decision;
   }
-  const result = deployStarter(decision.host);
+  // Pinned, not implicit: without the SHA the job deploys the coordinator's
+  // checkout HEAD, which is only the fleet's desired release by coincidence.
+  const result = deployStarter(decision.host, coordGitSha);
   if (!result.ok || !result.jobId) {
     const error = result.error ?? "deploy job did not start";
     catchUpDeploys.cooldownUntilMsByHost.set(
@@ -198,7 +249,7 @@ export function _startCatchUpDeployForWorker(
     worker_git_sha: worker.gitSha,
     coord_git_sha: coordGitSha,
   });
-  void _watchCatchUpDeployOutcome(decision.host, result.jobId);
+  void _watchCatchUpDeployOutcome(decision.host, result.jobId, keeperSignature);
   return decision;
 }
 
@@ -212,7 +263,7 @@ export async function startCatchUpDeployOnAttach(
   try {
     const row = await db
       .selectFrom("workers")
-      .select(["fp", "os", "label", "git_sha", "reachable_addr"])
+      .select(["fp", "os", "label", "git_sha", "reachable_addr", "keeper_runtime_json"])
       .where("fp", "=", workerFp)
       .where("deleted_at_ms", "is", null)
       .executeTakeFirst();
@@ -229,6 +280,7 @@ export async function startCatchUpDeployOnAttach(
       label: row.label,
       reachableAddr: row.reachable_addr,
       gitSha: row.git_sha,
+      keeperRuntimeJson: row.keeper_runtime_json,
     }, options);
   } catch (error) {
     log.warn("deploy", "catchup_attach_failed", {
@@ -241,23 +293,31 @@ export async function startCatchUpDeployOnAttach(
 export function __clearCatchUpDeployStateForTest(): void {
   catchUpDeploys.jobIdByHost.clear();
   catchUpDeploys.cooldownUntilMsByHost.clear();
+  catchUpDeploys.keeperBlockedSignatureByHost.clear();
 }
 
-/** Awaits the started job's terminal frame and records the outcome. The start
- *  path fires this and forgets it; a test awaits it for the settle transition. */
+/** Awaits the started job's terminal frame and records the outcome, watching the
+ *  output for a keeper refusal on the way: the job's terminal frame carries only
+ *  an exit code, so the keeper reason exists nowhere else. The start path fires
+ *  this and forgets it; a test awaits it for the settle transition. */
 export async function _watchCatchUpDeployOutcome(
   host: string,
   jobId: string,
+  keeperSignature = "none",
 ): Promise<void> {
+  let keeperBlocked = false;
   try {
     for await (const message of deployOutput(jobId)) {
-      if (message.kind !== "done") continue;
-      noteCatchUpDeploySettled(host, message.error);
+      if (message.kind === "line") {
+        if (KEEPER_BLOCKED_OUTPUT_RE.test(message.text)) keeperBlocked = true;
+        continue;
+      }
+      noteCatchUpDeploySettled(host, message.error, keeperBlocked ? keeperSignature : null);
       return;
     }
-    noteCatchUpDeploySettled(host, "deploy output ended without a result");
+    noteCatchUpDeploySettled(host, "deploy output ended without a result", null);
   } catch (error) {
-    noteCatchUpDeploySettled(host, String(error));
+    noteCatchUpDeploySettled(host, String(error), null);
   }
 }
 
@@ -289,20 +349,27 @@ function operatorFleetRolloutActive(): boolean {
 
 /** Records the end of this module's catch-up for `host`. A settled job always
  *  arms the cooldown, not only a failed one: a deploy that exits 0 without
- *  moving the worker's reported SHA would otherwise re-arm on every attach. */
+ *  moving the worker's reported SHA would otherwise re-arm on every attach.
+ *  `keeperBlockedSignature` additionally pins the refusal to that keeper, so the
+ *  machine is left alone until its keeper situation actually changes. */
 function noteCatchUpDeploySettled(
   host: string,
-  error?: string,
+  error: string | undefined,
+  keeperBlockedSignature: string | null,
   nowMs = Date.now(),
 ): void {
   catchUpDeploys.jobIdByHost.delete(host);
   catchUpDeploys.cooldownUntilMsByHost.set(host, nowMs + CATCH_UP_COOLDOWN_MS);
+  if (keeperBlockedSignature !== null) {
+    catchUpDeploys.keeperBlockedSignatureByHost.set(host, keeperBlockedSignature);
+  }
   if (error) {
     // deploy-jobs already signalled deploy.failed for the job itself; a second
     // signal for the same exit would only shorten doctor's cooldown window.
     log.warn("deploy", "catchup_failed", {
       host,
       error,
+      keeper_blocked: keeperBlockedSignature !== null,
       cooldown_ms: CATCH_UP_COOLDOWN_MS,
     });
     return;

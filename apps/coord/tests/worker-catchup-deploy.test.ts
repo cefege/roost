@@ -33,6 +33,7 @@ const BEHIND_WORKER: CatchUpWorkerRow = {
   label: "m1-us",
   reachableAddr: HOST,
   gitSha: BEHIND_SHA,
+  keeperRuntimeJson: null,
 };
 
 function decisionInputs(
@@ -44,6 +45,7 @@ function decisionInputs(
     hostsWithDeployInFlight: new Set<string>(),
     cooldownUntilMsByHost: new Map<string, number>(),
     operatorRolloutActive: false,
+    keeperUpdateBlocked: false,
     nowMs: 1_000,
     ...overrides,
   };
@@ -202,6 +204,48 @@ describe("worker catch-up deploy wiring", () => {
       deployStarter,
     })).toEqual({ start: false, reason: "failure_cooldown" });
     expect(started).toEqual([HOST]);
+  });
+
+  test("a keeper the release cannot adopt stops being retried until that keeper changes", async () => {
+    // The live incident: this machine's keeper holds PTYs the release cannot
+    // adopt, so every attempt fails the SAME admission. Retrying it on each
+    // attach would put a recurring deploy.failed in `roost doctor` for a
+    // machine only `roost keeper-refresh` can unblock.
+    const keeperWorker: CatchUpWorkerRow = {
+      ...BEHIND_WORKER,
+      keeperRuntimeJson: JSON.stringify({ keeper_epoch: "epoch-a", channel_count: 44 }),
+    };
+    const job = failedDeployJob(HOST, "deploy exit 1");
+    job.lines.push(">> keeper update is incompatible with live sessions");
+    _deployJobs.set(job.jobId, job);
+
+    expect(_startCatchUpDeployForWorker(keeperWorker, {
+      coordGitSha: FLEET_SHA,
+      deployStarter: recordingStarter(job.jobId),
+    })).toEqual({ start: true, host: HOST });
+    await _watchCatchUpDeployOutcome(HOST, job.jobId, "epoch-a:44");
+
+    // Past the cooldown the block still holds, because nothing about that
+    // keeper changed — this is the distinction a bare cooldown cannot make.
+    expect(_startCatchUpDeployForWorker(keeperWorker, {
+      coordGitSha: FLEET_SHA,
+      deployStarter: recordingStarter(crypto.randomUUID()),
+      nowMs: Date.now() + CATCH_UP_COOLDOWN_MS + 1,
+    })).toEqual({ start: false, reason: "keeper_update_blocked" });
+    expect(started).toEqual([HOST]);
+
+    // Its sessions ended: a new keeper signature is a new situation, so the
+    // machine is admitted again without operator action.
+    const freedWorker: CatchUpWorkerRow = {
+      ...BEHIND_WORKER,
+      keeperRuntimeJson: JSON.stringify({ keeper_epoch: "epoch-b", channel_count: 0 }),
+    };
+    expect(_startCatchUpDeployForWorker(freedWorker, {
+      coordGitSha: FLEET_SHA,
+      deployStarter: recordingStarter(crypto.randomUUID()),
+      nowMs: Date.now() + CATCH_UP_COOLDOWN_MS + 1,
+    })).toEqual({ start: true, host: HOST });
+    expect(started).toEqual([HOST, HOST]);
   });
 
   test("starts nothing for a Windows worker", () => {

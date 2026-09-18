@@ -265,7 +265,10 @@ describe("MachineCard update affordance", () => {
 
     expect(renderRow(worker).text()).toContain("Update pending — offline");
     const surface = renderUpdateSurface(worker);
-    expect(surface.text()).toContain("automatically when it comes back online");
+    // The copy must promise the coordinator's own retry AND name the one case
+    // it cannot clear by itself; the exact sentence is not the contract.
+    expect(surface.text()).toContain("when it reconnects");
+    expect(surface.text()).toContain("keeper-refresh");
     expect(surface.button(`machines-update-btn-${FP}`)).toBeUndefined();
   });
 

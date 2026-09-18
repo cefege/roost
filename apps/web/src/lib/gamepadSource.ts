@@ -1,12 +1,12 @@
-// Gamepad API adapter: polls the first standard-mapping pad and turns held
-// buttons and axes into PadActions with press/repeat semantics. The polling
-// loop exists ONLY while a standard pad is connected and the modality is not
-// off, so a desktop without one pays nothing. The mapper is pure and exported
-// (`_` prefix) so the unit tier drives it without a browser.
-// Callers: App.tsx (installGamepadSource(runPadActions)).
+// Gamepad API adapter: polls the first standard-mapping pad, turns held buttons
+// and axes into PadActions with press/repeat semantics, and publishes the live
+// held state the controller map highlights. The polling loop exists ONLY while
+// a standard pad is connected and the modality is not off, so a desktop without
+// one pays nothing. The mapper is pure and exported (`_` prefix) for the tests.
+// Callers: App.tsx (installGamepadSource(runPadActions)), ControllerMap.tsx.
 // Depends on: lib/padBindings, lib/padMode, @roost/shared/diag.
 
-import { createEffect } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import { diag } from "@roost/shared/diag";
 import {
 	PAD_BUTTON_ACTIONS,
@@ -30,13 +30,59 @@ export interface PadSnapshot {
  *  A Map, not a Record — entries appear and vanish with every press. */
 export type PadHoldState = Map<PadAction, number>;
 
-// Axis index → [action past -deadzone, action past +deadzone]. Standard
+const [heldButtons, setHeldButtons] = createSignal<ReadonlySet<number>>(new Set());
+const [heldActions, setHeldActions] = createSignal<ReadonlySet<PadAction>>(new Set());
+
+/** Standard-mapping indices held right now, INCLUDING unbound ones: seeing 10
+ *  and 11 light up on the controller map is how a user learns whether their pad
+ *  reports the stick clicks this build binds the mic and folders to. */
+export const padHeldButtons = heldButtons;
+
+/** Intents held right now. The map highlights by intent, so a D-pad press and
+ *  a stick push light the same row. */
+export const padHeldActions = heldActions;
+
+// Bound axis → [index, action past -deadzone, action past +deadzone]. Standard
 // mapping: 0/1 = left stick X/Y, 2/3 = right stick X/Y. Axis 2 is unbound.
-const AXIS_ACTIONS: Readonly<Record<number, readonly [PadAction, PadAction]>> = {
-	0: ["move-left", "move-right"],
-	1: ["move-up", "move-down"],
-	3: ["scroll-up", "scroll-down"],
-};
+// A list, not a Record: its order also fixes the held-signature bit positions.
+const AXIS_ACTIONS: readonly (readonly [number, PadAction, PadAction])[] = [
+	[0, "move-left", "move-right"],
+	[1, "move-up", "move-down"],
+	[3, "scroll-up", "scroll-down"],
+];
+
+/** Every intent held in this snapshot, before any press/repeat gating — the
+ *  controller map highlights what is held, not what fired. */
+export function _heldPadActions(snapshot: PadSnapshot): PadAction[] {
+	const held: PadAction[] = [];
+	for (let idx = 0; idx < snapshot.buttons.length; idx++) {
+		if (!snapshot.buttons[idx]) continue;
+		const action = PAD_BUTTON_ACTIONS[idx];
+		if (action) held.push(action);
+	}
+	for (const [index, negative, positive] of AXIS_ACTIONS) {
+		const value = snapshot.axes[index] ?? 0;
+		if (value <= -PAD_AXIS_DEADZONE) held.push(negative);
+		else if (value >= PAD_AXIS_DEADZONE) held.push(positive);
+	}
+	return held;
+}
+
+/** Publish held state for the live controller diagram; null when the loop
+ *  stops. The signature compare is the point: a fresh Set every frame would
+ *  re-render the whole map at 60 fps, and allocating one to discover it was
+ *  unchanged would burn a poll's worth of garbage per frame besides. */
+export function _publishPadHeld(snapshot: PadSnapshot | null): void {
+	const signature = snapshot ? heldSignature(snapshot) : 0;
+	if (signature === publishedSignature) return;
+	publishedSignature = signature;
+	const buttons = new Set<number>();
+	if (snapshot)
+		for (let idx = 0; idx < snapshot.buttons.length; idx++)
+			if (snapshot.buttons[idx]) buttons.add(idx);
+	setHeldButtons(buttons);
+	setHeldActions(new Set(snapshot ? _heldPadActions(snapshot) : []));
+}
 
 /** Actions to run for this poll: a fresh press, or a hold past its repeat gate.
  *  Mutates `holds` in place; exported for the unit test. */
@@ -45,17 +91,7 @@ export function _padActionsFromSnapshot(
 	holds: PadHoldState,
 	nowMs: number,
 ): PadAction[] {
-	const held: PadAction[] = [];
-	for (let idx = 0; idx < snapshot.buttons.length; idx++) {
-		if (!snapshot.buttons[idx]) continue;
-		const action = PAD_BUTTON_ACTIONS[idx];
-		if (action) held.push(action);
-	}
-	for (const [index, pair] of Object.entries(AXIS_ACTIONS)) {
-		const value = snapshot.axes[Number(index)] ?? 0;
-		if (value <= -PAD_AXIS_DEADZONE) held.push(pair[0]);
-		else if (value >= PAD_AXIS_DEADZONE) held.push(pair[1]);
-	}
+	const held = _heldPadActions(snapshot);
 
 	const fire: PadAction[] = [];
 	for (const action of held) {
@@ -96,12 +132,16 @@ export function installGamepadSource(
 	const poll = (): void => {
 		frame = requestAnimationFrame(poll);
 		const pad = standardPads()[0];
-		if (!pad) return;
-		const actions = _padActionsFromSnapshot(
-			{ buttons: pad.buttons.map((button) => button.pressed), axes: [...pad.axes] },
-			holds,
-			performance.now(),
-		);
+		if (!pad) {
+			_publishPadHeld(null);
+			return;
+		}
+		const snapshot: PadSnapshot = {
+			buttons: pad.buttons.map((button) => button.pressed),
+			axes: [...pad.axes],
+		};
+		_publishPadHeld(snapshot);
+		const actions = _padActionsFromSnapshot(snapshot, holds, performance.now());
 		if (actions.length === 0) return;
 		// Arm `auto` BEFORE dispatching: the first press must both flip the
 		// modality and act, so nothing is swallowed to "warm up" the mode.
@@ -120,6 +160,7 @@ export function installGamepadSource(
 			cancelAnimationFrame(frame);
 			frame = null;
 			holds.clear();
+			_publishPadHeld(null);
 		}
 	};
 
@@ -137,6 +178,7 @@ export function installGamepadSource(
 		installed = false;
 		if (frame !== null) cancelAnimationFrame(frame);
 		frame = null;
+		_publishPadHeld(null);
 		window.removeEventListener("gamepadconnected", refreshPads);
 		window.removeEventListener("gamepaddisconnected", refreshPads);
 	};
@@ -154,4 +196,25 @@ function standardPads(): Gamepad[] {
 		// no Gamepad API (older Safari, SSR, tests)
 		return [];
 	}
+}
+
+let publishedSignature = 0;
+
+// One integer per distinct held state: a bit per button index, then two bits
+// per bound axis for its deadzone crossings. Buttons past the bit budget are
+// still published, they just cannot trigger a republish alone — standard
+// mapping defines 17 (0-16, where 16 is the optional guide button).
+const SIGNATURE_BUTTON_BITS = 24;
+
+function heldSignature(snapshot: PadSnapshot): number {
+	let bits = 0;
+	const counted = Math.min(snapshot.buttons.length, SIGNATURE_BUTTON_BITS);
+	for (let idx = 0; idx < counted; idx++)
+		if (snapshot.buttons[idx]) bits |= 1 << idx;
+	for (let axis = 0; axis < AXIS_ACTIONS.length; axis++) {
+		const value = snapshot.axes[AXIS_ACTIONS[axis][0]] ?? 0;
+		if (value <= -PAD_AXIS_DEADZONE) bits |= 1 << (SIGNATURE_BUTTON_BITS + axis * 2);
+		else if (value >= PAD_AXIS_DEADZONE) bits |= 1 << (SIGNATURE_BUTTON_BITS + axis * 2 + 1);
+	}
+	return bits;
 }

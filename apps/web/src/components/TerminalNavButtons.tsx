@@ -45,12 +45,58 @@ const persistNavPadOpen = (open: boolean): void => {
 // an unconditional null would drop the live registration.
 let disarmModifiers: (() => void) | null = null;
 
+/** The reactive read of key-pad visibility, so the controller adapter can tell
+ *  "open the pad" from "press the focused key" without owning the signal. */
+export function terminalNavPadOpen(): boolean {
+	return navPadOpen();
+}
+
+/** The ONE close path, so every caller disarms: the sheet is the only surface
+ *  that can clear a latched Ctrl. */
+export function closeTerminalNavPad(): void {
+	if (!navPadOpen()) return;
+	disarmModifiers?.();
+	persistNavPadOpen(false);
+}
+
 /** The ONE key-pad toggle: the sheet's own button, and the controller adapter's
  *  `keypad` / `activate` actions. Closing always disarms the latches. */
 export function toggleTerminalNavPad(): void {
-	const next = !navPadOpen();
-	if (!next) disarmModifiers?.();
-	persistNavPadOpen(next);
+	if (navPadOpen()) {
+		closeTerminalNavPad();
+		return;
+	}
+	persistNavPadOpen(true);
+}
+
+const FIRST_KEY_FOCUS_ATTEMPTS = 4;
+
+/** Focus the pad's first key, for a device with no pointer: opening the pad is
+ *  useless to a controller until focus is inside it. The sheet is a Portal
+ *  mounted from a signal write, so the grid is absent for at least one turn —
+ *  retry by frame, bounded, and stop as soon as the key actually took focus.
+ *  Keys carry no `role`: a `[role="menu"]` container makes spatialNavigation
+ *  stand down, which would kill D-pad travel between the keys. Returns a
+ *  canceller for callers whose pad press is superseded. */
+export function focusTerminalNavPadFirstKey(): () => void {
+	let cancelled = false;
+	let animationFrame: number | null = null;
+	let attempts = 0;
+	const focusWhenMounted = () => {
+		if (cancelled) return;
+		const target = document.querySelector<HTMLElement>(".term-nav__grid button:not(:disabled)");
+		if (target) {
+			target.focus();
+			if (document.activeElement === target) return;
+		}
+		attempts++;
+		if (attempts < FIRST_KEY_FOCUS_ATTEMPTS) animationFrame = requestAnimationFrame(focusWhenMounted);
+	};
+	queueMicrotask(focusWhenMounted);
+	return () => {
+		cancelled = true;
+		if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+	};
 }
 
 export function TerminalNavButtons(props: Props) {

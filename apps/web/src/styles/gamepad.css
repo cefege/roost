@@ -57,3 +57,122 @@
   color: var(--text-mid);
   white-space: nowrap;
 }
+
+/* ── Controller map (components/ControllerMap.tsx) ─────────────────────────
+   A diagram, not a shortcut list: every cluster sits where it sits on the
+   hardware, so the user matches the screen to the pad in their hands instead
+   of reading a table. Geometry is px and grid-area names because a silhouette
+   is a fixed drawing; colour and type stay tokenised. */
+
+/* Compound selector on purpose: .roost-dialog (overlays.css) sets the same
+   property at equal specificity, and these two rules live in different
+   stylesheets — so which one wins must not depend on bundler emit order. A pad
+   is read at desk distance and the silhouette needs three columns side by side
+   or it stops reading as one object. */
+.roost-dialog.roost-dialog--controller-map {
+  max-inline-size: 1040px;
+}
+
+.pad-map-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-4);
+}
+
+.pad-map {
+  display: grid;
+  gap: var(--md-space-4);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 1.3fr);
+  /* The hardware: shoulders along the top edge, stick and D-pad under the left
+     thumb, the face diamond under the right, Back/Start between the hands. */
+  grid-template-areas:
+    "shoulder-left .      shoulder-right"
+    "stick-left    centre face"
+    "dpad          centre stick-right";
+  align-items: start;
+}
+
+.pad-map__cluster {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-2);
+}
+
+.pad-map__cluster[data-cluster="shoulder-left"] { grid-area: shoulder-left; }
+.pad-map__cluster[data-cluster="shoulder-right"] { grid-area: shoulder-right; }
+.pad-map__cluster[data-cluster="stick-left"] { grid-area: stick-left; }
+.pad-map__cluster[data-cluster="dpad"] { grid-area: dpad; }
+.pad-map__cluster[data-cluster="centre"] { grid-area: centre; }
+.pad-map__cluster[data-cluster="stick-right"] { grid-area: stick-right; }
+
+/* The face cluster is the one place source order is not the layout: A/B/X/Y
+   sit in a diamond, so each seat is addressed by its cap. */
+.pad-map__cluster[data-cluster="face"] {
+  display: grid;
+  grid-area: face;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-areas:
+    ".      face-y ."
+    "face-x .      face-b"
+    ".      face-a .";
+}
+
+.pad-map__cluster[data-cluster="face"] .pad-map__callout[data-cap="Y"] { grid-area: face-y; }
+.pad-map__cluster[data-cluster="face"] .pad-map__callout[data-cap="X"] { grid-area: face-x; }
+.pad-map__cluster[data-cluster="face"] .pad-map__callout[data-cap="B"] { grid-area: face-b; }
+.pad-map__cluster[data-cluster="face"] .pad-map__callout[data-cap="A"] { grid-area: face-a; }
+
+.pad-map__callout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--md-space-1);
+  padding: var(--md-space-2);
+  border: var(--workbench-border-width) solid var(--border-subtle);
+  border-radius: var(--md-shape-sm);
+  background: var(--surface-1);
+}
+
+/* The live half of the map: a cap under the user's thumb adopts the same
+   selected-state container the M3 chips use, so "this is the button you are
+   pressing" needs no colour of its own. */
+.pad-map__callout[data-held="true"] {
+  background: var(--md-sys-color-secondary-container);
+  border-color: var(--md-sys-color-primary);
+}
+
+.pad-map__callout[data-held="true"] .pad-map__label {
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.pad-map__label { color: var(--text-hi); }
+.pad-map__detail { color: var(--text-lo); }
+
+/* The face diamond is the one cluster with no column to spare — four clauses in
+   128px-wide seats would bury the silhouette in text. Its verbs (Select, Back,
+   Palette, Menu) are unique, so nothing is ambiguous without the clause the way
+   LB/RB and LT/RT are; those keep theirs. The title attribute still carries it. */
+.pad-map__cluster[data-cluster="face"] .pad-map__detail {
+  display: none;
+}
+
+/* The caption swaps between a one-line prompt and a control's full sentence, so
+   it reserves two body-small lines up front rather than resizing the dialog
+   under the user as they walk the buttons. */
+.pad-map__caption {
+  color: var(--text-mid);
+  margin: 0;
+  min-block-size: calc(var(--md-body-s-line) * 2);
+}
+
+/* Buttons this map does not name exist only while held, so they appear under
+   the silhouette rather than reserving a seat inside it. */
+.pad-map__extras,
+.pad-map__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--md-space-2);
+}
+
+.pad-map__note { color: var(--text-lo); }

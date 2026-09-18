@@ -45,8 +45,9 @@ export function MachineUpdateDetails(props: MachineUpdateDetailsProps) {
             data-testid={`machines-update-deferred-${props.fp}`}
             style={{ color: "var(--md-sys-color-on-surface-variant)" }}
           >
-            {WORKER_UPDATE_LABELS["update-deferred"]}. Roost updates this machine automatically when it
-            comes back online.
+            {WORKER_UPDATE_LABELS["update-deferred"]}. Roost starts this machine's update itself when
+            it reconnects. If it stays behind, its keeper is holding sessions the release cannot
+            adopt — run `roost keeper-refresh` on that machine when those sessions are expendable.
           </span>
         </Show>
         <Show when={props.state === "update-available" || props.state === "updating"}>
