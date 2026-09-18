@@ -278,7 +278,6 @@ test("replays reconnect-gap raw fallback to an old coordinator then discards it 
     agentRegistry: null,
     agentDetector: null,
     acquireKeeperUpdateBoundary: null,
-    mecatlRelay: null,
   };
   const deps = buildCoordLinkDeps({
     coordHttpUrl: "http://coord.test:4102",

@@ -11,8 +11,6 @@ import type {
   DKeeperUpdatePrepare,
   DLocalTerminalGrant,
   DLocalTerminalGrantRevoke,
-  DMecatlRelayCancel,
-  DMecatlRelayRequest,
   DTerminalPipelineSnapshotRequest,
   DTerminalSnapshotRequest,
   DTerminalStreamState,
@@ -111,11 +109,15 @@ export interface CoordLinkDeps {
   onLocalTerminalGrant?: (request: DLocalTerminalGrant) => void;
   onLocalTerminalGrantRevoke?: (request: DLocalTerminalGrantRevoke) => void;
   onAttachmentChunk?: (msg: { request_id: string; session_id: string; filename: string; short_path: boolean; data: Uint8Array; last: boolean; seq: number }) => void;
-  onUpdateBroker?: (msg: UpdateBrokerCommandFrame) => Promise<readonly UpdateProgressFrame[]> | readonly UpdateProgressFrame[];
-  // The relay is a transparent HTTP pipe to this machine's Mecatl daemon, so
-  // both arms are fire-and-forget: every answer travels back as chunks.
-  onMecatlRelayRequest?: (request: DMecatlRelayRequest) => void;
-  onMecatlRelayCancel?: (request: DMecatlRelayCancel) => void;
+  onUpdateBroker?: (msg: {
+    request_id: string;
+    job_id: string;
+    action: "START" | "STATUS";
+    manifest_url: string;
+    signature_url: string;
+    manifest_sha256: string;
+    publisher_sha256: string;
+  }) => Promise<readonly UpdateProgressFrame[]> | readonly UpdateProgressFrame[];
 }
 
 export interface UpdateProgressFrame {
@@ -126,30 +128,6 @@ export interface UpdateProgressFrame {
   message: string;
   terminal: boolean;
   success: boolean;
-  error?: string;
-}
-
-export interface UpdateBrokerCommandFrame {
-  request_id: string;
-  job_id: string;
-  action: "START" | "STATUS";
-  manifest_url: string;
-  signature_url: string;
-  manifest_sha256: string;
-  publisher_sha256: string;
-}
-
-/** One frame of a relayed Mecatl HTTP exchange: a `head` carrying status and
- * response headers, a body slice, or the single `end` that closes the
- * exchange — with `error` set when it failed or was refused. Roost reads none
- * of the payload. */
-export interface MecatlRelayChunkFrame {
-  request_id: string;
-  head?: boolean;
-  status?: number;
-  headers_json?: string;
-  body?: Uint8Array;
-  end?: boolean;
   error?: string;
 }
 export type TransportSendResult = "sent" | "queued" | "dropped";
@@ -196,10 +174,6 @@ export interface CoordLink {
   /** One view decision addressed back to a coordinator-relayed browser socket. */
   sendTerminalViewState(socketId: string, frame: TerminalViewStateFrame): TransportSendResult;
   sendTerminalViewProjection(projection: TerminalViewProjectionFrame): TransportSendResult;
-  /** One frame of a relayed Mecatl exchange. Returns the admission result
-   * rather than a boolean: the relay streams a response chunk by chunk, so it
-   * must tell a queued frame (keep reading) from a dropped one (stop). */
-  sendMecatlRelayChunk(chunk: MecatlRelayChunkFrame): TransportSendResult;
   state(): CoordLinkState;
   protocolPhase(): CoordLinkProtocolPhase;
   ready(): boolean;
@@ -255,7 +229,6 @@ export type UpstreamFrame =
       reason?: string;
     }
   | ({ kind: "update-progress" } & UpdateProgressFrame)
-  | ({ kind: "mecatl-relay-chunk" } & MecatlRelayChunkFrame)
   | {
       kind: "terminal-pipeline-snapshot";
       snapshot: WTerminalPipelineSnapshot;

@@ -8,13 +8,13 @@ import {
   CoordWorkerUpSchema, WHelloSchema, WPongSchema, WBinarySchema,
   WTerminalMetadataSchema, WRpcOkSchema, WRpcErrorSchema,
   WInputResultSchema, WTerminalStreamResultSchema, WUpdateProgressSchema,
-  WTerminalViewProjectionSchema, WTerminalViewStateSchema, WMecatlRelayChunkSchema,
+  WTerminalViewProjectionSchema, WTerminalViewStateSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
 import type { TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
 import { PbTerminalViewInputSchema } from "@roost/shared/proto/wire_pb";
 import type {
-  MecatlRelayChunkFrame, TerminalMetadataFrame, TerminalViewProjectionFrame, UpstreamFrame,
+  TerminalMetadataFrame, TerminalViewProjectionFrame, UpstreamFrame,
 } from "./coord-link-types.ts";
 
 export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
@@ -78,8 +78,6 @@ export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
         success: f.success,
         error: f.error ?? "",
       })}});
-    case "mecatl-relay-chunk":
-      return mecatlRelayChunkToProto(f);
   }
 }
 
@@ -148,23 +146,6 @@ export function terminalViewProjectionToProto(
       effectiveCols: projection.effectiveCols,
       effectiveRows: projection.effectiveRows,
       streamId: projection.streamId,
-    })},
-  });
-}
-
-/** One frame of a relayed Mecatl HTTP exchange. Every optional field falls
- * back to its proto default, so the coordinator reads the exchange's shape
- * from `head`/`end` rather than from field presence. */
-export function mecatlRelayChunkToProto(chunk: MecatlRelayChunkFrame): CoordWorkerUp {
-  return create(CoordWorkerUpSchema, {
-    frame: { case: "mecatlRelayChunk", value: create(WMecatlRelayChunkSchema, {
-      requestId: chunk.request_id,
-      head: chunk.head ?? false,
-      status: chunk.status ?? 0,
-      headersJson: chunk.headers_json ?? "",
-      body: chunk.body,
-      end: chunk.end ?? false,
-      error: chunk.error ?? "",
     })},
   });
 }

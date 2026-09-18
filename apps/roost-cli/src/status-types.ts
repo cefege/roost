@@ -4,7 +4,6 @@
 
 import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
 import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
-import type { MecatlRuntimeReport } from "@roost/shared/mecatl-runtime";
 
 export interface WorkerStatus {
   fingerprint: string;
@@ -15,10 +14,6 @@ export interface WorkerStatus {
   keeperRuntime: KeeperRuntimeObservationV1 | null;
   /** Absent for a status fixture or a coordinator predating capacity reporting. */
   terminalCoreCapacity?: TerminalCoreCapacityReport | null;
-  /** Worker-reported Mecatl daemon state. Null means the worker never
-   *  reported one, which is a coordinator or worker predating the agent
-   *  surface — distinct from an operator who left it off. */
-  mecatlRuntime?: MecatlRuntimeReport | null;
   coordinatorOpenSessionIds: readonly string[];
   lastSeenMs: number;
   ageMs: number;

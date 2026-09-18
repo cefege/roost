@@ -26,8 +26,6 @@
     "./keeper-update-proto": "./src/keeper-update-proto.ts",
     "./terminal-core-capacity": "./src/terminal-core-capacity.ts",
     "./terminal-core-capacity-proto": "./src/terminal-core-capacity-proto.ts",
-    "./mecatl-runtime": "./src/mecatl-runtime.ts",
-    "./mecatl-runtime-proto": "./src/mecatl-runtime-proto.ts",
     "./host-identity-proto": "./src/host-identity-proto.ts",
     "./host-memory": "./src/host-memory.ts",
     "./config": "./src/config.ts",

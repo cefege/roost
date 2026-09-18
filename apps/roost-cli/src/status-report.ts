@@ -14,10 +14,6 @@ import {
   TerminalCoreCapacityReportSchema,
   type TerminalCoreCapacityReport,
 } from "@roost/shared/terminal-core-capacity";
-import {
-  MecatlRuntimeReportSchema,
-  type MecatlRuntimeReport,
-} from "@roost/shared/mecatl-runtime";
 import { coordDataDir, coordServicePath } from "@roost/shared/paths";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 import { serviceEnvironmentValue } from "./status-service-env.ts";
@@ -106,19 +102,6 @@ export function parseTerminalCoreCapacityJson(
   }
 }
 
-export function parseMecatlRuntimeJson(
-  serialized: string | null,
-): MecatlRuntimeReport | null {
-  if (!serialized) return null;
-  try {
-    const parsed = MecatlRuntimeReportSchema.safeParse(JSON.parse(serialized));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-
 interface WorkerInventoryRow {
   fp: string;
   label: string;
@@ -127,7 +110,6 @@ interface WorkerInventoryRow {
   git_sha: string | null;
   keeper_runtime_json: string | null;
   terminal_core_capacity_json: string | null;
-  mecatl_runtime_json: string | null;
   last_seen_ms: number;
 }
 
@@ -147,19 +129,9 @@ function readWorkerInventorySnapshot(db: Database): WorkerStatus[] {
     const terminalCoreCapacityProjection = terminalCoreCapacityColumn
       ? "terminal_core_capacity_json"
       : "NULL AS terminal_core_capacity_json";
-    // A coordinator that predates the agent surface has no such column, and a
-    // status read must never fail against an older install it can still report.
-    const mecatlRuntimeColumn = db.query(
-      `SELECT name FROM pragma_table_info('workers')
-       WHERE name = 'mecatl_runtime_json'`,
-    ).get();
-    const mecatlRuntimeProjection = mecatlRuntimeColumn
-      ? "mecatl_runtime_json"
-      : "NULL AS mecatl_runtime_json";
     const rows = db.query(
       `SELECT fp, label, os, reachable_addr, git_sha,
               ${keeperRuntimeProjection}, ${terminalCoreCapacityProjection},
-              ${mecatlRuntimeProjection},
               last_seen_ms
        FROM workers
        WHERE deleted_at_ms IS NULL`,
@@ -188,7 +160,6 @@ function readWorkerInventorySnapshot(db: Database): WorkerStatus[] {
         terminalCoreCapacity: parseTerminalCoreCapacityJson(
           row.terminal_core_capacity_json,
         ),
-        mecatlRuntime: parseMecatlRuntimeJson(row.mecatl_runtime_json),
         coordinatorOpenSessionIds: (
           openSessionIdsByWorker.get(row.fp) ?? []
         ).sort(),

@@ -35,7 +35,6 @@ import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "./connect/ui-state-owner.ts";
 import type { SelfHostedTenant } from "./self-hosted-tenant.ts";
 import { createCloudflareAccessGate } from "./cf-access.ts";
-import { handleMecatlRelay } from "./mecatl-relay.ts";
 
 export interface CoordHandlerContext {
   origin: CallerOrigin;
@@ -125,9 +124,6 @@ export function createCoord(deps: CoordDeps): CoordHandle {
         resp = ctx?.dbExport
           ? await ctx.dbExport(origin)
           : new Response(JSON.stringify({ error: "db-export not configured" }), { status: 501 });
-      } else if (url.pathname.startsWith("/api/mecatl/")) {
-        nonConnectSurface = "api";
-        resp = await handleMecatlRelay(req, url, deps);
       } else if (url.pathname.startsWith("/api/")) {
         nonConnectSurface = "api";
         resp = new Response("not found", { status: 404 });

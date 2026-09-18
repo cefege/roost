@@ -169,7 +169,6 @@ export function App() {
               ROUTES.WORKSPACE_TERMINAL,
               ROUTES.FILE,
               ROUTES.SEARCH,
-              ROUTES.AGENT,
             ]}
             component={MainPane}
           />

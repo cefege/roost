@@ -25,7 +25,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/worker_transport.proto.
  */
 export const file_roost_v1_worker_transport: GenFile = /*@__PURE__*/
-  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSJCCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSFAoMY2FwYWJpbGl0aWVzGAMgAygJIhMKBVdQb25nEgoKAnRzGAEgASgEIk8KDVdTZXNzaW9uRXZlbnQSKgoFZXZlbnQYASABKAsyGy5yb29zdC52MS5TZXNzaW9uRXZlbnRQcm90bxISCgpjbGllbnRfc2VxGAIgASgEIi8KBldScGNPaxISCgpyZXF1ZXN0X2lkGAEgASgJEhEKCWRhdGFfanNvbhgCIAEoCSIwCglXUnBjRXJyb3ISEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdtZXNzYWdlGAIgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwifwoRV1Rlcm1pbmFsTWV0YWRhdGESEgoKY2hhbm5lbF9pZBgBIAEoDRIVCg10aXRsZV9jaGFuZ2VkGAIgASgIEg0KBXRpdGxlGAMgASgJEhgKEGFjdGl2aXR5X2NoYW5nZWQYBCABKAgSFgoOYWN0aXZpdHlfdHNfbXMYBSABKAQiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIk4KDldDZWxsR3JpZENodW5rEhIKCmNoYW5uZWxfaWQYASABKA0SKAoFY2h1bmsYAiABKAsyGS5yb29zdC52MS5QYkNlbGxHcmlkQ2h1bmsixgIKDFdBZ2VudFN0YXR1cxISCgpzZXNzaW9uX2lkGAEgASgJEhAKCGFnZW50X2lkGAIgASgJEg0KBXN0YXRlGAMgASgJEhQKB21lc3NhZ2UYBCABKAlIAIgBARIQCghyZXZpc2lvbhgFIAEoBBIaChJjb21wbGV0ZWRfcmV2aXNpb24YBiABKAQSEgoKdXBkYXRlZF9hdBgHIAEoARIOCgZhY3RpdmUYCCABKAgSGQoMc3RhdHVzX2Vwb2NoGAkgASgJSAGIAQESGAoLb2NjdXBhbnRfaWQYCiABKAlIAogBARITCgZzb3VyY2UYCyABKAlIA4gBARIXCg9vY2N1cGFudF9leGl0ZWQYDCABKAhCCgoIX21lc3NhZ2VCDwoNX3N0YXR1c19lcG9jaEIOCgxfb2NjdXBhbnRfaWRCCQoHX3NvdXJjZSKZAQoPV1VwZGF0ZVByb2dyZXNzEhIKCnJlcXVlc3RfaWQYASABKAkSDgoGam9iX2lkGAIgASgJEhAKCHNlcXVlbmNlGAMgASgEEg0KBXBoYXNlGAQgASgJEg8KB21lc3NhZ2UYBSABKAkSEAoIdGVybWluYWwYBiABKAgSDwoHc3VjY2VzcxgHIAEoCBINCgVlcnJvchgIIAEoCSLMAQoMV0lucHV0UmVzdWx0EhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIRCglpbnB1dF9zZXEYAyABKAQSLQoGc3RhdHVzGAQgASgOMh0ucm9vc3QudjEuVGVybWluYWxJbnB1dFN0YXR1cxIVCg13cml0dGVuX2J5dGVzGAUgASgNEg4KBnJlYXNvbhgGIAEoCRIrCgVwaGFzZRgHIAEoDjIcLnJvb3N0LnYxLlRlcm1pbmFsV3JpdGVQaGFzZSLoAgoVV1Rlcm1pbmFsU3RyZWFtUmVzdWx0EhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIRCglzdHJlYW1faWQYAyABKAkSDwoHZW5hYmxlZBgEIAEoCBIuCgZzdGF0dXMYBSABKA4yHi5yb29zdC52MS5UZXJtaW5hbFN0cmVhbVN0YXR1cxIaChJjaGFubmVsX3Jlc2l6ZV9zZXEYBiABKAQSFgoOZWZmZWN0aXZlX2NvbHMYByABKA0SFgoOZWZmZWN0aXZlX3Jvd3MYCCABKA0SDwoHcmVzaXplZBgJIAEoCBIOCgZyZWFzb24YCiABKAkSKwoFcGhhc2UYCyABKA4yHC5yb29zdC52MS5UZXJtaW5hbFdyaXRlUGhhc2USOQoMZmFpbHVyZV9raW5kGAwgASgOMiMucm9vc3QudjEuVGVybWluYWxTdHJlYW1GYWlsdXJlS2luZCKeAQoZV1Rlcm1pbmFsUGlwZWxpbmVTbmFwc2hvdBISCgpyZXF1ZXN0X2lkGAEgASgJEjsKCHNlc3Npb25zGAIgAygLMikucm9vc3QudjEuVGVybWluYWxQaXBlbGluZVNlc3Npb25TbmFwc2hvdBIXCg9kcm9wcGVkX3RhcmdldHMYAyABKA0SFwoPZHJvcHBlZF9yZWNvcmRzGAQgASgNIlgKEldUZXJtaW5hbFZpZXdTdGF0ZRIRCglzb2NrZXRfaWQYASABKAkSLwoFZnJhbWUYAiABKAsyIC5yb29zdC52MS5UZXJtaW5hbFZpZXdTdGF0ZUZyYW1lIqABChdXVGVybWluYWxWaWV3UHJvamVjdGlvbhISCgpzZXNzaW9uX2lkGAEgASgJEi4KB3ZpZXdlcnMYAiADKAsyHS5yb29zdC52MS5QYlRlcm1pbmFsVmlld0lucHV0EhYKDmVmZmVjdGl2ZV9jb2xzGAMgASgNEhYKDmVmZmVjdGl2ZV9yb3dzGAQgASgNEhEKCXN0cmVhbV9pZBgFIAEoCSKFAQoRV01lY2F0bFJlbGF5Q2h1bmsSEgoKcmVxdWVzdF9pZBgBIAEoCRIMCgRoZWFkGAIgASgIEg4KBnN0YXR1cxgDIAEoDRIUCgxoZWFkZXJzX2pzb24YBCABKAkSDAoEYm9keRgFIAEoDBILCgNlbmQYBiABKAgSDQoFZXJyb3IYByABKAki9gcKDUNvb3JkV29ya2VyVXASIQoFaGVsbG8YASABKAsyEC5yb29zdC52MS5XSGVsbG9IABIfCgRwb25nGAIgASgLMg8ucm9vc3QudjEuV1BvbmdIABIoCgVldmVudBgDIAEoCzIXLnJvb3N0LnYxLldTZXNzaW9uRXZlbnRIABIiCgZycGNfb2sYBiABKAsyEC5yb29zdC52MS5XUnBjT2tIABIoCglycGNfZXJyb3IYByABKAsyEy5yb29zdC52MS5XUnBjRXJyb3JIABIjCgZiaW5hcnkYCiABKAsyES5yb29zdC52MS5XQmluYXJ5SAASLAoLcmVmcmVzaF9qd3QYCyABKAsyFS5yb29zdC52MS5XUmVmcmVzaEp3dEgAEigKCWNlbGxfZ3JpZBgMIAEoCzITLnJvb3N0LnYxLldDZWxsR3JpZEgAEi4KDGFnZW50X3N0YXR1cxgOIAEoCzIWLnJvb3N0LnYxLldBZ2VudFN0YXR1c0gAEi4KDGlucHV0X3Jlc3VsdBgQIAEoCzIWLnJvb3N0LnYxLldJbnB1dFJlc3VsdEgAEkEKFnRlcm1pbmFsX3N0cmVhbV9yZXN1bHQYESABKAsyHy5yb29zdC52MS5XVGVybWluYWxTdHJlYW1SZXN1bHRIABIzCg9jZWxsX2dyaWRfY2h1bmsYEiABKAsyGC5yb29zdC52MS5XQ2VsbEdyaWRDaHVua0gAEjQKD3VwZGF0ZV9wcm9ncmVzcxgeIAEoCzIZLnJvb3N0LnYxLldVcGRhdGVQcm9ncmVzc0gAEkkKGnRlcm1pbmFsX3BpcGVsaW5lX3NuYXBzaG90GBMgASgLMiMucm9vc3QudjEuV1Rlcm1pbmFsUGlwZWxpbmVTbmFwc2hvdEgAEjgKEXRlcm1pbmFsX21ldGFkYXRhGBQgASgLMhsucm9vc3QudjEuV1Rlcm1pbmFsTWV0YWRhdGFIABI7ChN0ZXJtaW5hbF92aWV3X3N0YXRlGBUgASgLMhwucm9vc3QudjEuV1Rlcm1pbmFsVmlld1N0YXRlSAASRQoYdGVybWluYWxfdmlld19wcm9qZWN0aW9uGBYgASgLMiEucm9vc3QudjEuV1Rlcm1pbmFsVmlld1Byb2plY3Rpb25IABI5ChJtZWNhdGxfcmVsYXlfY2h1bmsYFyABKAsyGy5yb29zdC52MS5XTWVjYXRsUmVsYXlDaHVua0gAQgcKBWZyYW1lSgQIBBAFSgQIBRAGSgQICBAJSgQICRAKSgQIDRAOSgQIDxAQUg92aWV3cG9ydF9yZXN1bHRSDXRyYW5zZmVyX2xpbmVSDXRyYW5zZmVyX2RvbmUiUQoJREhlbGxvQWNrEhQKDGNhcGFiaWxpdGllcxgDIAMoCUoECAEQAkoECAIQA1IQY29vcmRfcHVia2V5X2I2NFIQY29vcmRfcHVia2V5X2tpZCITCgVEUGluZxIKCgJ0cxgBIAEoBCJgCg9EQnJvd3NlckNvbW1hbmQSEgoKYnJvd3Nlcl9pZBgBIAEoCRIRCgl2aWV3ZXJfaWQYAiABKAkSEgoKcmVxdWVzdF9pZBgDIAEoCRISCgpmcmFtZV9qc29uGAQgASgJIj4KB0RCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SDAoEZGF0YRgDIAEoDCIfCglERXZlbnRBY2sSEgoKY2xpZW50X3NlcRgBIAEoBCJrCg1ESW5wdXRSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIRCglpbnB1dF9zZXEYAyABKAQSDAoEZGF0YRgEIAEoDBIRCglidWRnZXRfbXMYBSABKA0ikQEKFERUZXJtaW5hbFN0cmVhbVN0YXRlEhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIRCglzdHJlYW1faWQYAyABKAkSDwoHZW5hYmxlZBgEIAEoCBIMCgRjb2xzGAUgASgNEgwKBHJvd3MYBiABKA0SEQoJYnVkZ2V0X21zGAcgASgNIkEKGERUZXJtaW5hbFNuYXBzaG90UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCXN0cmVhbV9pZBgCIAEoCSJpCiBEVGVybWluYWxQaXBlbGluZVNuYXBzaG90UmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEjEKB3RhcmdldHMYAiADKAsyIC5yb29zdC52MS5UZXJtaW5hbFBpcGVsaW5lVGFyZ2V0IokBChBEQXR0YWNobWVudENodW5rEhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIQCghmaWxlbmFtZRgDIAEoCRISCgpzaG9ydF9wYXRoGAQgASgIEgwKBGRhdGEYBSABKAwSDAoEbGFzdBgGIAEoCBILCgNzZXEYByABKA0ixAEKEURDb29yZE1vdmVQcmVwYXJlEhIKCnJlcXVlc3RfaWQYASABKAkSEgoKaGFuZG9mZl9pZBgCIAEoCRISCgpzb3VyY2VfdXJsGAMgASgJEhIKCnRhcmdldF91cmwYBCABKAkSGgoSZXhwZWN0ZWRfY29vcmRfa2lkGAUgASgJEhgKEGV4cGVjdGVkX2dpdF9zaGEYBiABKAkSGQoRZXN0aW1hdGVkX2RiX3NpemUYByABKAQSDgoGYWN0aW9uGAggASgJIskBChdEQ29vcmRNb3ZlU25hcHNob3RTdGFydBISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCmhhbmRvZmZfaWQYAiABKAkSEgoKdG90YWxfc2l6ZRgDIAEoBBIOCgZzaGEyNTYYBCABKAkSFQoNY29vcmRfa2V5X3BlbRgFIAEoDBIXCg9hdXRob3JpemVkX2tleXMYBiABKAwSFQoNc2VjcmV0X3NoYTI1NhgHIAEoCRIbChNleHBlY3RlZF93b3JrZXJfZnBzGAggAygJIlYKF0RDb29yZE1vdmVTbmFwc2hvdENodW5rEhIKCmhhbmRvZmZfaWQYASABKAkSCwoDc2VxGAIgASgNEgwKBGRhdGEYAyABKAwSDAoEbGFzdBgEIAEoCCJwCg5EQ29vcmRSZWxvY2F0ZRISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCmhhbmRvZmZfaWQYAiABKAkSEgoKc291cmNlX3VybBgDIAEoCRISCgp0YXJnZXRfdXJsGAQgASgJEg4KBmFjdGlvbhgFIAEoCSKjAQoNRFVwZGF0ZUJyb2tlchISCgpyZXF1ZXN0X2lkGAEgASgJEg4KBmpvYl9pZBgCIAEoCRIOCgZhY3Rpb24YAyABKAkSFAoMbWFuaWZlc3RfdXJsGAQgASgJEhUKDXNpZ25hdHVyZV91cmwYBSABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAYgASgJEhgKEHB1Ymxpc2hlcl9zaGEyNTYYByABKAkiygEKFERLZWVwZXJVcGRhdGVQcmVwYXJlEhIKCnJlcXVlc3RfaWQYASABKAkSIgoVam91cm5hbGVkX3VwZGF0ZV9qc29uGAIgASgJSACIAQESEQoJZGlyZWN0aW9uGAMgASgJEhMKC21haW50ZW5hbmNlGAQgASgIEiQKHGNvb3JkaW5hdG9yX29wZW5fc2Vzc2lvbl9pZHMYBSADKAkSEgoKZm9yY2VfbGl2ZRgGIAEoCEIYChZfam91cm5hbGVkX3VwZGF0ZV9qc29uItcBChJEVGVybWluYWxWaWV3UmVsYXkSEQoJc29ja2V0X2lkGAEgASgJEhIKCnZpZXdlcl9rZXkYAiABKAkSGgoSZGV2aWNlX2ZpbmdlcnByaW50GAMgASgJEhEKCWJ1ZGdldF9tcxgEIAEoDRItCgR2aWV3GAUgASgLMh0ucm9vc3QudjEuVGVybWluYWxWaWV3Q29tbWFuZEgAEjEKBnJlc3luYxgGIAEoCzIfLnJvb3N0LnYxLlRlcm1pbmFsUmVzeW5jQ29tbWFuZEgAQgkKB2NvbW1hbmQiLgoZRFRlcm1pbmFsVmlld1NvY2tldENsb3NlZBIRCglzb2NrZXRfaWQYASABKAkiowEKE0RMb2NhbFRlcm1pbmFsR3JhbnQSEgoKcmVxdWVzdF9pZBgBIAEoCRIQCghncmFudF9pZBgCIAEoCRIVCg1zZWNyZXRfc2hhMjU2GAMgASgJEhMKC3Nlc3Npb25faWRzGAQgAygJEhoKEmRldmljZV9maW5nZXJwcmludBgFIAEoCRIOCgZ0YWJfaWQYBiABKAkSDgoGdHRsX21zGAcgASgNIjcKGURMb2NhbFRlcm1pbmFsR3JhbnRSZXZva2USGgoSZGV2aWNlX2ZpbmdlcnByaW50GAEgASgJImsKE0RNZWNhdGxSZWxheVJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIOCgZtZXRob2QYAiABKAkSDAoEcGF0aBgDIAEoCRIUCgxoZWFkZXJzX2pzb24YBCABKAkSDAoEYm9keRgFIAEoDCIoChJETWVjYXRsUmVsYXlDYW5jZWwSEgoKcmVxdWVzdF9pZBgBIAEoCSL6CgoPQ29vcmRXb3JrZXJEb3duEigKCWhlbGxvX2FjaxgBIAEoCzITLnJvb3N0LnYxLkRIZWxsb0Fja0gAEh8KBHBpbmcYAiABKAsyDy5yb29zdC52MS5EUGluZ0gAEjQKD2Jyb3dzZXJfY29tbWFuZBgDIAEoCzIZLnJvb3N0LnYxLkRCcm93c2VyQ29tbWFuZEgAEiMKBmJpbmFyeRgEIAEoCzIRLnJvb3N0LnYxLkRCaW5hcnlIABIoCglldmVudF9hY2sYBSABKAsyEy5yb29zdC52MS5ERXZlbnRBY2tIABI2ChBhdHRhY2htZW50X2NodW5rGAYgASgLMhoucm9vc3QudjEuREF0dGFjaG1lbnRDaHVua0gAEjkKEmNvb3JkX21vdmVfcHJlcGFyZRgHIAEoCzIbLnJvb3N0LnYxLkRDb29yZE1vdmVQcmVwYXJlSAASRgoZY29vcmRfbW92ZV9zbmFwc2hvdF9zdGFydBgIIAEoCzIhLnJvb3N0LnYxLkRDb29yZE1vdmVTbmFwc2hvdFN0YXJ0SAASRgoZY29vcmRfbW92ZV9zbmFwc2hvdF9jaHVuaxgJIAEoCzIhLnJvb3N0LnYxLkRDb29yZE1vdmVTbmFwc2hvdENodW5rSAASMgoOY29vcmRfcmVsb2NhdGUYCiABKAsyGC5yb29zdC52MS5EQ29vcmRSZWxvY2F0ZUgAEjAKDWlucHV0X3JlcXVlc3QYDCABKAsyFy5yb29zdC52MS5ESW5wdXRSZXF1ZXN0SAASPwoVdGVybWluYWxfc3RyZWFtX3N0YXRlGA0gASgLMh4ucm9vc3QudjEuRFRlcm1pbmFsU3RyZWFtU3RhdGVIABJHChl0ZXJtaW5hbF9zbmFwc2hvdF9yZXF1ZXN0GA4gASgLMiIucm9vc3QudjEuRFRlcm1pbmFsU25hcHNob3RSZXF1ZXN0SAASMAoNdXBkYXRlX2Jyb2tlchgeIAEoCzIXLnJvb3N0LnYxLkRVcGRhdGVCcm9rZXJIABI/ChVrZWVwZXJfdXBkYXRlX3ByZXBhcmUYDyABKAsyHi5yb29zdC52MS5ES2VlcGVyVXBkYXRlUHJlcGFyZUgAEi4KDGFnZW50X3Byb21wdBgQIAEoCzIWLnJvb3N0LnYxLkRBZ2VudFByb21wdEgAElAKGnRlcm1pbmFsX3BpcGVsaW5lX3NuYXBzaG90GBEgASgLMioucm9vc3QudjEuRFRlcm1pbmFsUGlwZWxpbmVTbmFwc2hvdFJlcXVlc3RIABI7ChN0ZXJtaW5hbF92aWV3X3JlbGF5GBIgASgLMhwucm9vc3QudjEuRFRlcm1pbmFsVmlld1JlbGF5SAASSgobdGVybWluYWxfdmlld19zb2NrZXRfY2xvc2VkGBMgASgLMiMucm9vc3QudjEuRFRlcm1pbmFsVmlld1NvY2tldENsb3NlZEgAEj0KFGxvY2FsX3Rlcm1pbmFsX2dyYW50GBQgASgLMh0ucm9vc3QudjEuRExvY2FsVGVybWluYWxHcmFudEgAEkoKG2xvY2FsX3Rlcm1pbmFsX2dyYW50X3Jldm9rZRgVIAEoCzIjLnJvb3N0LnYxLkRMb2NhbFRlcm1pbmFsR3JhbnRSZXZva2VIABI9ChRtZWNhdGxfcmVsYXlfcmVxdWVzdBgWIAEoCzIdLnJvb3N0LnYxLkRNZWNhdGxSZWxheVJlcXVlc3RIABI7ChNtZWNhdGxfcmVsYXlfY2FuY2VsGBcgASgLMhwucm9vc3QudjEuRE1lY2F0bFJlbGF5Q2FuY2VsSABCBwoFZnJhbWVKBAgLEAxSEHZpZXdwb3J0X3JlcXVlc3QiwgEKDERBZ2VudFByb21wdBISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSEQoJaW5wdXRfc2VxGAMgASgEEh0KFWV4cGVjdGVkX3N0YXR1c19lcG9jaBgEIAEoCRIcChRleHBlY3RlZF9vY2N1cGFudF9pZBgFIAEoCRIZChFleHBlY3RlZF9yZXZpc2lvbhgGIAEoBBIMCgR0ZXh0GAcgASgJEhEKCWJ1ZGdldF9tcxgIIAEoDSqiAQoSVGVybWluYWxXcml0ZVBoYXNlEiQKIFRFUk1JTkFMX1dSSVRFX1BIQVNFX1VOU1BFQ0lGSUVEEAASIgoeVEVSTUlOQUxfV1JJVEVfUEhBU0VfUFJFX1dSSVRFEAESIAocVEVSTUlOQUxfV1JJVEVfUEhBU0VfV1JJVFRFThACEiAKHFRFUk1JTkFMX1dSSVRFX1BIQVNFX1VOS05PV04QAyqpAQoTVGVybWluYWxJbnB1dFN0YXR1cxIlCiFURVJNSU5BTF9JTlBVVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIiCh5URVJNSU5BTF9JTlBVVF9TVEFUVVNfQUNDRVBURUQQARIiCh5URVJNSU5BTF9JTlBVVF9TVEFUVVNfUkVKRUNURUQQAhIjCh9URVJNSU5BTF9JTlBVVF9TVEFUVVNfQU1CSUdVT1VTEAMqrwEKFFRlcm1pbmFsU3RyZWFtU3RhdHVzEiYKIlRFUk1JTkFMX1NUUkVBTV9TVEFUVVNfVU5TUEVDSUZJRUQQABIkCiBURVJNSU5BTF9TVFJFQU1fU1RBVFVTX0NPTU1JVFRFRBABEiMKH1RFUk1JTkFMX1NUUkVBTV9TVEFUVVNfUkVKRUNURUQQAhIkCiBURVJNSU5BTF9TVFJFQU1fU1RBVFVTX0FNQklHVU9VUxADKscCChlUZXJtaW5hbFN0cmVhbUZhaWx1cmVLaW5kEiwKKFRFUk1JTkFMX1NUUkVBTV9GQUlMVVJFX0tJTkRfVU5TUEVDSUZJRUQQABI0CjBURVJNSU5BTF9TVFJFQU1fRkFJTFVSRV9LSU5EX1JFVFJZQUJMRV9QUkVfV1JJVEUQARIxCi1URVJNSU5BTF9TVFJFQU1fRkFJTFVSRV9LSU5EX1NFU1NJT05fTk9UX0xJVkUQAhIwCixURVJNSU5BTF9TVFJFQU1fRkFJTFVSRV9LSU5EX0lOVkFMSURfUkVRVUVTVBADEiwKKFRFUk1JTkFMX1NUUkVBTV9GQUlMVVJFX0tJTkRfQ09SRV9GQUlMRUQQBBIzCi9URVJNSU5BTF9TVFJFQU1fRkFJTFVSRV9LSU5EX0FNQklHVU9VU19CT1VOREFSWRAFMlEKDVdvcmtlclNlcnZpY2USQAoGQXR0YWNoEhcucm9vc3QudjEuQ29vcmRXb3JrZXJVcBoZLnJvb3N0LnYxLkNvb3JkV29ya2VyRG93bigBMAFiBnByb3RvMw", [file_roost_v1_events, file_roost_v1_cell, file_roost_v1_wire, file_roost_v1_sync]);
+  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSJCCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSFAoMY2FwYWJpbGl0aWVzGAMgAygJIhMKBVdQb25nEgoKAnRzGAEgASgEIk8KDVdTZXNzaW9uRXZlbnQSKgoFZXZlbnQYASABKAsyGy5yb29zdC52MS5TZXNzaW9uRXZlbnRQcm90bxISCgpjbGllbnRfc2VxGAIgASgEIi8KBldScGNPaxISCgpyZXF1ZXN0X2lkGAEgASgJEhEKCWRhdGFfanNvbhgCIAEoCSIwCglXUnBjRXJyb3ISEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdtZXNzYWdlGAIgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwifwoRV1Rlcm1pbmFsTWV0YWRhdGESEgoKY2hhbm5lbF9pZBgBIAEoDRIVCg10aXRsZV9jaGFuZ2VkGAIgASgIEg0KBXRpdGxlGAMgASgJEhgKEGFjdGl2aXR5X2NoYW5nZWQYBCABKAgSFgoOYWN0aXZpdHlfdHNfbXMYBSABKAQiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIk4KDldDZWxsR3JpZENodW5rEhIKCmNoYW5uZWxfaWQYASABKA0SKAoFY2h1bmsYAiABKAsyGS5yb29zdC52MS5QYkNlbGxHcmlkQ2h1bmsixgIKDFdBZ2VudFN0YXR1cxISCgpzZXNzaW9uX2lkGAEgASgJEhAKCGFnZW50X2lkGAIgASgJEg0KBXN0YXRlGAMgASgJEhQKB21lc3NhZ2UYBCABKAlIAIgBARIQCghyZXZpc2lvbhgFIAEoBBIaChJjb21wbGV0ZWRfcmV2aXNpb24YBiABKAQSEgoKdXBkYXRlZF9hdBgHIAEoARIOCgZhY3RpdmUYCCABKAgSGQoMc3RhdHVzX2Vwb2NoGAkgASgJSAGIAQESGAoLb2NjdXBhbnRfaWQYCiABKAlIAogBARITCgZzb3VyY2UYCyABKAlIA4gBARIXCg9vY2N1cGFudF9leGl0ZWQYDCABKAhCCgoIX21lc3NhZ2VCDwoNX3N0YXR1c19lcG9jaEIOCgxfb2NjdXBhbnRfaWRCCQoHX3NvdXJjZSKZAQoPV1VwZGF0ZVByb2dyZXNzEhIKCnJlcXVlc3RfaWQYASABKAkSDgoGam9iX2lkGAIgASgJEhAKCHNlcXVlbmNlGAMgASgEEg0KBXBoYXNlGAQgASgJEg8KB21lc3NhZ2UYBSABKAkSEAoIdGVybWluYWwYBiABKAgSDwoHc3VjY2VzcxgHIAEoCBINCgVlcnJvchgIIAEoCSLMAQoMV0lucHV0UmVzdWx0EhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIRCglpbnB1dF9zZXEYAyABKAQSLQoGc3RhdHVzGAQgASgOMh0ucm9vc3QudjEuVGVybWluYWxJbnB1dFN0YXR1cxIVCg13cml0dGVuX2J5dGVzGAUgASgNEg4KBnJlYXNvbhgGIAEoCRIrCgVwaGFzZRgHIAEoDjIcLnJvb3N0LnYxLlRlcm1pbmFsV3JpdGVQaGFzZSLoAgoVV1Rlcm1pbmFsU3RyZWFtUmVzdWx0EhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIRCglzdHJlYW1faWQYAyABKAkSDwoHZW5hYmxlZBgEIAEoCBIuCgZzdGF0dXMYBSABKA4yHi5yb29zdC52MS5UZXJtaW5hbFN0cmVhbVN0YXR1cxIaChJjaGFubmVsX3Jlc2l6ZV9zZXEYBiABKAQSFgoOZWZmZWN0aXZlX2NvbHMYByABKA0SFgoOZWZmZWN0aXZlX3Jvd3MYCCABKA0SDwoHcmVzaXplZBgJIAEoCBIOCgZyZWFzb24YCiABKAkSKwoFcGhhc2UYCyABKA4yHC5yb29zdC52MS5UZXJtaW5hbFdyaXRlUGhhc2USOQoMZmFpbHVyZV9raW5kGAwgASgOMiMucm9vc3QudjEuVGVybWluYWxTdHJlYW1GYWlsdXJlS2luZCKeAQoZV1Rlcm1pbmFsUGlwZWxpbmVTbmFwc2hvdBISCgpyZXF1ZXN0X2lkGAEgASgJEjsKCHNlc3Npb25zGAIgAygLMikucm9vc3QudjEuVGVybWluYWxQaXBlbGluZVNlc3Npb25TbmFwc2hvdBIXCg9kcm9wcGVkX3RhcmdldHMYAyABKA0SFwoPZHJvcHBlZF9yZWNvcmRzGAQgASgNIlgKEldUZXJtaW5hbFZpZXdTdGF0ZRIRCglzb2NrZXRfaWQYASABKAkSLwoFZnJhbWUYAiABKAsyIC5yb29zdC52MS5UZXJtaW5hbFZpZXdTdGF0ZUZyYW1lIqABChdXVGVybWluYWxWaWV3UHJvamVjdGlvbhISCgpzZXNzaW9uX2lkGAEgASgJEi4KB3ZpZXdlcnMYAiADKAsyHS5yb29zdC52MS5QYlRlcm1pbmFsVmlld0lucHV0EhYKDmVmZmVjdGl2ZV9jb2xzGAMgASgNEhYKDmVmZmVjdGl2ZV9yb3dzGAQgASgNEhEKCXN0cmVhbV9pZBgFIAEoCSK7BwoNQ29vcmRXb3JrZXJVcBIhCgVoZWxsbxgBIAEoCzIQLnJvb3N0LnYxLldIZWxsb0gAEh8KBHBvbmcYAiABKAsyDy5yb29zdC52MS5XUG9uZ0gAEigKBWV2ZW50GAMgASgLMhcucm9vc3QudjEuV1Nlc3Npb25FdmVudEgAEiIKBnJwY19vaxgGIAEoCzIQLnJvb3N0LnYxLldScGNPa0gAEigKCXJwY19lcnJvchgHIAEoCzITLnJvb3N0LnYxLldScGNFcnJvckgAEiMKBmJpbmFyeRgKIAEoCzIRLnJvb3N0LnYxLldCaW5hcnlIABIsCgtyZWZyZXNoX2p3dBgLIAEoCzIVLnJvb3N0LnYxLldSZWZyZXNoSnd0SAASKAoJY2VsbF9ncmlkGAwgASgLMhMucm9vc3QudjEuV0NlbGxHcmlkSAASLgoMYWdlbnRfc3RhdHVzGA4gASgLMhYucm9vc3QudjEuV0FnZW50U3RhdHVzSAASLgoMaW5wdXRfcmVzdWx0GBAgASgLMhYucm9vc3QudjEuV0lucHV0UmVzdWx0SAASQQoWdGVybWluYWxfc3RyZWFtX3Jlc3VsdBgRIAEoCzIfLnJvb3N0LnYxLldUZXJtaW5hbFN0cmVhbVJlc3VsdEgAEjMKD2NlbGxfZ3JpZF9jaHVuaxgSIAEoCzIYLnJvb3N0LnYxLldDZWxsR3JpZENodW5rSAASNAoPdXBkYXRlX3Byb2dyZXNzGB4gASgLMhkucm9vc3QudjEuV1VwZGF0ZVByb2dyZXNzSAASSQoadGVybWluYWxfcGlwZWxpbmVfc25hcHNob3QYEyABKAsyIy5yb29zdC52MS5XVGVybWluYWxQaXBlbGluZVNuYXBzaG90SAASOAoRdGVybWluYWxfbWV0YWRhdGEYFCABKAsyGy5yb29zdC52MS5XVGVybWluYWxNZXRhZGF0YUgAEjsKE3Rlcm1pbmFsX3ZpZXdfc3RhdGUYFSABKAsyHC5yb29zdC52MS5XVGVybWluYWxWaWV3U3RhdGVIABJFChh0ZXJtaW5hbF92aWV3X3Byb2plY3Rpb24YFiABKAsyIS5yb29zdC52MS5XVGVybWluYWxWaWV3UHJvamVjdGlvbkgAQgcKBWZyYW1lSgQIBBAFSgQIBRAGSgQICBAJSgQICRAKSgQIDRAOSgQIDxAQUg92aWV3cG9ydF9yZXN1bHRSDXRyYW5zZmVyX2xpbmVSDXRyYW5zZmVyX2RvbmUiUQoJREhlbGxvQWNrEhQKDGNhcGFiaWxpdGllcxgDIAMoCUoECAEQAkoECAIQA1IQY29vcmRfcHVia2V5X2I2NFIQY29vcmRfcHVia2V5X2tpZCITCgVEUGluZxIKCgJ0cxgBIAEoBCJgCg9EQnJvd3NlckNvbW1hbmQSEgoKYnJvd3Nlcl9pZBgBIAEoCRIRCgl2aWV3ZXJfaWQYAiABKAkSEgoKcmVxdWVzdF9pZBgDIAEoCRISCgpmcmFtZV9qc29uGAQgASgJIj4KB0RCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SDAoEZGF0YRgDIAEoDCIfCglERXZlbnRBY2sSEgoKY2xpZW50X3NlcRgBIAEoBCJrCg1ESW5wdXRSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIRCglpbnB1dF9zZXEYAyABKAQSDAoEZGF0YRgEIAEoDBIRCglidWRnZXRfbXMYBSABKA0ikQEKFERUZXJtaW5hbFN0cmVhbVN0YXRlEhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIRCglzdHJlYW1faWQYAyABKAkSDwoHZW5hYmxlZBgEIAEoCBIMCgRjb2xzGAUgASgNEgwKBHJvd3MYBiABKA0SEQoJYnVkZ2V0X21zGAcgASgNIkEKGERUZXJtaW5hbFNuYXBzaG90UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCXN0cmVhbV9pZBgCIAEoCSJpCiBEVGVybWluYWxQaXBlbGluZVNuYXBzaG90UmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEjEKB3RhcmdldHMYAiADKAsyIC5yb29zdC52MS5UZXJtaW5hbFBpcGVsaW5lVGFyZ2V0IokBChBEQXR0YWNobWVudENodW5rEhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIQCghmaWxlbmFtZRgDIAEoCRISCgpzaG9ydF9wYXRoGAQgASgIEgwKBGRhdGEYBSABKAwSDAoEbGFzdBgGIAEoCBILCgNzZXEYByABKA0ixAEKEURDb29yZE1vdmVQcmVwYXJlEhIKCnJlcXVlc3RfaWQYASABKAkSEgoKaGFuZG9mZl9pZBgCIAEoCRISCgpzb3VyY2VfdXJsGAMgASgJEhIKCnRhcmdldF91cmwYBCABKAkSGgoSZXhwZWN0ZWRfY29vcmRfa2lkGAUgASgJEhgKEGV4cGVjdGVkX2dpdF9zaGEYBiABKAkSGQoRZXN0aW1hdGVkX2RiX3NpemUYByABKAQSDgoGYWN0aW9uGAggASgJIskBChdEQ29vcmRNb3ZlU25hcHNob3RTdGFydBISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCmhhbmRvZmZfaWQYAiABKAkSEgoKdG90YWxfc2l6ZRgDIAEoBBIOCgZzaGEyNTYYBCABKAkSFQoNY29vcmRfa2V5X3BlbRgFIAEoDBIXCg9hdXRob3JpemVkX2tleXMYBiABKAwSFQoNc2VjcmV0X3NoYTI1NhgHIAEoCRIbChNleHBlY3RlZF93b3JrZXJfZnBzGAggAygJIlYKF0RDb29yZE1vdmVTbmFwc2hvdENodW5rEhIKCmhhbmRvZmZfaWQYASABKAkSCwoDc2VxGAIgASgNEgwKBGRhdGEYAyABKAwSDAoEbGFzdBgEIAEoCCJwCg5EQ29vcmRSZWxvY2F0ZRISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCmhhbmRvZmZfaWQYAiABKAkSEgoKc291cmNlX3VybBgDIAEoCRISCgp0YXJnZXRfdXJsGAQgASgJEg4KBmFjdGlvbhgFIAEoCSKjAQoNRFVwZGF0ZUJyb2tlchISCgpyZXF1ZXN0X2lkGAEgASgJEg4KBmpvYl9pZBgCIAEoCRIOCgZhY3Rpb24YAyABKAkSFAoMbWFuaWZlc3RfdXJsGAQgASgJEhUKDXNpZ25hdHVyZV91cmwYBSABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAYgASgJEhgKEHB1Ymxpc2hlcl9zaGEyNTYYByABKAkiygEKFERLZWVwZXJVcGRhdGVQcmVwYXJlEhIKCnJlcXVlc3RfaWQYASABKAkSIgoVam91cm5hbGVkX3VwZGF0ZV9qc29uGAIgASgJSACIAQESEQoJZGlyZWN0aW9uGAMgASgJEhMKC21haW50ZW5hbmNlGAQgASgIEiQKHGNvb3JkaW5hdG9yX29wZW5fc2Vzc2lvbl9pZHMYBSADKAkSEgoKZm9yY2VfbGl2ZRgGIAEoCEIYChZfam91cm5hbGVkX3VwZGF0ZV9qc29uItcBChJEVGVybWluYWxWaWV3UmVsYXkSEQoJc29ja2V0X2lkGAEgASgJEhIKCnZpZXdlcl9rZXkYAiABKAkSGgoSZGV2aWNlX2ZpbmdlcnByaW50GAMgASgJEhEKCWJ1ZGdldF9tcxgEIAEoDRItCgR2aWV3GAUgASgLMh0ucm9vc3QudjEuVGVybWluYWxWaWV3Q29tbWFuZEgAEjEKBnJlc3luYxgGIAEoCzIfLnJvb3N0LnYxLlRlcm1pbmFsUmVzeW5jQ29tbWFuZEgAQgkKB2NvbW1hbmQiLgoZRFRlcm1pbmFsVmlld1NvY2tldENsb3NlZBIRCglzb2NrZXRfaWQYASABKAkiowEKE0RMb2NhbFRlcm1pbmFsR3JhbnQSEgoKcmVxdWVzdF9pZBgBIAEoCRIQCghncmFudF9pZBgCIAEoCRIVCg1zZWNyZXRfc2hhMjU2GAMgASgJEhMKC3Nlc3Npb25faWRzGAQgAygJEhoKEmRldmljZV9maW5nZXJwcmludBgFIAEoCRIOCgZ0YWJfaWQYBiABKAkSDgoGdHRsX21zGAcgASgNIjcKGURMb2NhbFRlcm1pbmFsR3JhbnRSZXZva2USGgoSZGV2aWNlX2ZpbmdlcnByaW50GAEgASgJIv4JCg9Db29yZFdvcmtlckRvd24SKAoJaGVsbG9fYWNrGAEgASgLMhMucm9vc3QudjEuREhlbGxvQWNrSAASHwoEcGluZxgCIAEoCzIPLnJvb3N0LnYxLkRQaW5nSAASNAoPYnJvd3Nlcl9jb21tYW5kGAMgASgLMhkucm9vc3QudjEuREJyb3dzZXJDb21tYW5kSAASIwoGYmluYXJ5GAQgASgLMhEucm9vc3QudjEuREJpbmFyeUgAEigKCWV2ZW50X2FjaxgFIAEoCzITLnJvb3N0LnYxLkRFdmVudEFja0gAEjYKEGF0dGFjaG1lbnRfY2h1bmsYBiABKAsyGi5yb29zdC52MS5EQXR0YWNobWVudENodW5rSAASOQoSY29vcmRfbW92ZV9wcmVwYXJlGAcgASgLMhsucm9vc3QudjEuRENvb3JkTW92ZVByZXBhcmVIABJGChljb29yZF9tb3ZlX3NuYXBzaG90X3N0YXJ0GAggASgLMiEucm9vc3QudjEuRENvb3JkTW92ZVNuYXBzaG90U3RhcnRIABJGChljb29yZF9tb3ZlX3NuYXBzaG90X2NodW5rGAkgASgLMiEucm9vc3QudjEuRENvb3JkTW92ZVNuYXBzaG90Q2h1bmtIABIyCg5jb29yZF9yZWxvY2F0ZRgKIAEoCzIYLnJvb3N0LnYxLkRDb29yZFJlbG9jYXRlSAASMAoNaW5wdXRfcmVxdWVzdBgMIAEoCzIXLnJvb3N0LnYxLkRJbnB1dFJlcXVlc3RIABI/ChV0ZXJtaW5hbF9zdHJlYW1fc3RhdGUYDSABKAsyHi5yb29zdC52MS5EVGVybWluYWxTdHJlYW1TdGF0ZUgAEkcKGXRlcm1pbmFsX3NuYXBzaG90X3JlcXVlc3QYDiABKAsyIi5yb29zdC52MS5EVGVybWluYWxTbmFwc2hvdFJlcXVlc3RIABIwCg11cGRhdGVfYnJva2VyGB4gASgLMhcucm9vc3QudjEuRFVwZGF0ZUJyb2tlckgAEj8KFWtlZXBlcl91cGRhdGVfcHJlcGFyZRgPIAEoCzIeLnJvb3N0LnYxLkRLZWVwZXJVcGRhdGVQcmVwYXJlSAASLgoMYWdlbnRfcHJvbXB0GBAgASgLMhYucm9vc3QudjEuREFnZW50UHJvbXB0SAASUAoadGVybWluYWxfcGlwZWxpbmVfc25hcHNob3QYESABKAsyKi5yb29zdC52MS5EVGVybWluYWxQaXBlbGluZVNuYXBzaG90UmVxdWVzdEgAEjsKE3Rlcm1pbmFsX3ZpZXdfcmVsYXkYEiABKAsyHC5yb29zdC52MS5EVGVybWluYWxWaWV3UmVsYXlIABJKCht0ZXJtaW5hbF92aWV3X3NvY2tldF9jbG9zZWQYEyABKAsyIy5yb29zdC52MS5EVGVybWluYWxWaWV3U29ja2V0Q2xvc2VkSAASPQoUbG9jYWxfdGVybWluYWxfZ3JhbnQYFCABKAsyHS5yb29zdC52MS5ETG9jYWxUZXJtaW5hbEdyYW50SAASSgobbG9jYWxfdGVybWluYWxfZ3JhbnRfcmV2b2tlGBUgASgLMiMucm9vc3QudjEuRExvY2FsVGVybWluYWxHcmFudFJldm9rZUgAQgcKBWZyYW1lSgQICxAMUhB2aWV3cG9ydF9yZXF1ZXN0IsIBCgxEQWdlbnRQcm9tcHQSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEhEKCWlucHV0X3NlcRgDIAEoBBIdChVleHBlY3RlZF9zdGF0dXNfZXBvY2gYBCABKAkSHAoUZXhwZWN0ZWRfb2NjdXBhbnRfaWQYBSABKAkSGQoRZXhwZWN0ZWRfcmV2aXNpb24YBiABKAQSDAoEdGV4dBgHIAEoCRIRCglidWRnZXRfbXMYCCABKA0qogEKElRlcm1pbmFsV3JpdGVQaGFzZRIkCiBURVJNSU5BTF9XUklURV9QSEFTRV9VTlNQRUNJRklFRBAAEiIKHlRFUk1JTkFMX1dSSVRFX1BIQVNFX1BSRV9XUklURRABEiAKHFRFUk1JTkFMX1dSSVRFX1BIQVNFX1dSSVRURU4QAhIgChxURVJNSU5BTF9XUklURV9QSEFTRV9VTktOT1dOEAMqqQEKE1Rlcm1pbmFsSW5wdXRTdGF0dXMSJQohVEVSTUlOQUxfSU5QVVRfU1RBVFVTX1VOU1BFQ0lGSUVEEAASIgoeVEVSTUlOQUxfSU5QVVRfU1RBVFVTX0FDQ0VQVEVEEAESIgoeVEVSTUlOQUxfSU5QVVRfU1RBVFVTX1JFSkVDVEVEEAISIwofVEVSTUlOQUxfSU5QVVRfU1RBVFVTX0FNQklHVU9VUxADKq8BChRUZXJtaW5hbFN0cmVhbVN0YXR1cxImCiJURVJNSU5BTF9TVFJFQU1fU1RBVFVTX1VOU1BFQ0lGSUVEEAASJAogVEVSTUlOQUxfU1RSRUFNX1NUQVRVU19DT01NSVRURUQQARIjCh9URVJNSU5BTF9TVFJFQU1fU1RBVFVTX1JFSkVDVEVEEAISJAogVEVSTUlOQUxfU1RSRUFNX1NUQVRVU19BTUJJR1VPVVMQAyrHAgoZVGVybWluYWxTdHJlYW1GYWlsdXJlS2luZBIsCihURVJNSU5BTF9TVFJFQU1fRkFJTFVSRV9LSU5EX1VOU1BFQ0lGSUVEEAASNAowVEVSTUlOQUxfU1RSRUFNX0ZBSUxVUkVfS0lORF9SRVRSWUFCTEVfUFJFX1dSSVRFEAESMQotVEVSTUlOQUxfU1RSRUFNX0ZBSUxVUkVfS0lORF9TRVNTSU9OX05PVF9MSVZFEAISMAosVEVSTUlOQUxfU1RSRUFNX0ZBSUxVUkVfS0lORF9JTlZBTElEX1JFUVVFU1QQAxIsCihURVJNSU5BTF9TVFJFQU1fRkFJTFVSRV9LSU5EX0NPUkVfRkFJTEVEEAQSMwovVEVSTUlOQUxfU1RSRUFNX0ZBSUxVUkVfS0lORF9BTUJJR1VPVVNfQk9VTkRBUlkQBTJRCg1Xb3JrZXJTZXJ2aWNlEkAKBkF0dGFjaBIXLnJvb3N0LnYxLkNvb3JkV29ya2VyVXAaGS5yb29zdC52MS5Db29yZFdvcmtlckRvd24oATABYgZwcm90bzM", [file_roost_v1_events, file_roost_v1_cell, file_roost_v1_wire, file_roost_v1_sync]);
 
 /**
  * @generated from message roost.v1.WHello
@@ -640,59 +640,6 @@ export const WTerminalViewProjectionSchema: GenMessage<WTerminalViewProjection> 
   messageDesc(file_roost_v1_worker_transport, 16);
 
 /**
- * Mecatl HTTP relay. The coordinator cannot dial a worker, so a browser's
- * request to that machine's local Mecatl daemon travels as an opaque HTTP
- * exchange: Roost forwards method, path, headers and bytes without modeling
- * the agent API. One response is a `head` chunk, zero or more body chunks,
- * and exactly one `end`, which may instead carry a refusal `error`.
- *
- * @generated from message roost.v1.WMecatlRelayChunk
- */
-export type WMecatlRelayChunk = Message<"roost.v1.WMecatlRelayChunk"> & {
-  /**
-   * @generated from field: string request_id = 1;
-   */
-  requestId: string;
-
-  /**
-   * @generated from field: bool head = 2;
-   */
-  head: boolean;
-
-  /**
-   * @generated from field: uint32 status = 3;
-   */
-  status: number;
-
-  /**
-   * @generated from field: string headers_json = 4;
-   */
-  headersJson: string;
-
-  /**
-   * @generated from field: bytes body = 5;
-   */
-  body: Uint8Array;
-
-  /**
-   * @generated from field: bool end = 6;
-   */
-  end: boolean;
-
-  /**
-   * @generated from field: string error = 7;
-   */
-  error: string;
-};
-
-/**
- * Describes the message roost.v1.WMecatlRelayChunk.
- * Use `create(WMecatlRelayChunkSchema)` to create a new message.
- */
-export const WMecatlRelayChunkSchema: GenMessage<WMecatlRelayChunk> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 17);
-
-/**
  * @generated from message roost.v1.CoordWorkerUp
  */
 export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
@@ -801,12 +748,6 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
      */
     value: WTerminalViewProjection;
     case: "terminalViewProjection";
-  } | {
-    /**
-     * @generated from field: roost.v1.WMecatlRelayChunk mecatl_relay_chunk = 23;
-     */
-    value: WMecatlRelayChunk;
-    case: "mecatlRelayChunk";
   } | { case: undefined; value?: undefined };
 };
 
@@ -815,7 +756,7 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
  * Use `create(CoordWorkerUpSchema)` to create a new message.
  */
 export const CoordWorkerUpSchema: GenMessage<CoordWorkerUp> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 18);
+  messageDesc(file_roost_v1_worker_transport, 17);
 
 /**
  * @generated from message roost.v1.DHelloAck
@@ -832,7 +773,7 @@ export type DHelloAck = Message<"roost.v1.DHelloAck"> & {
  * Use `create(DHelloAckSchema)` to create a new message.
  */
 export const DHelloAckSchema: GenMessage<DHelloAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 19);
+  messageDesc(file_roost_v1_worker_transport, 18);
 
 /**
  * @generated from message roost.v1.DPing
@@ -849,7 +790,7 @@ export type DPing = Message<"roost.v1.DPing"> & {
  * Use `create(DPingSchema)` to create a new message.
  */
 export const DPingSchema: GenMessage<DPing> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 20);
+  messageDesc(file_roost_v1_worker_transport, 19);
 
 /**
  * @generated from message roost.v1.DBrowserCommand
@@ -881,7 +822,7 @@ export type DBrowserCommand = Message<"roost.v1.DBrowserCommand"> & {
  * Use `create(DBrowserCommandSchema)` to create a new message.
  */
 export const DBrowserCommandSchema: GenMessage<DBrowserCommand> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 21);
+  messageDesc(file_roost_v1_worker_transport, 20);
 
 /**
  * @generated from message roost.v1.DBinary
@@ -908,7 +849,7 @@ export type DBinary = Message<"roost.v1.DBinary"> & {
  * Use `create(DBinarySchema)` to create a new message.
  */
 export const DBinarySchema: GenMessage<DBinary> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 22);
+  messageDesc(file_roost_v1_worker_transport, 21);
 
 /**
  * @generated from message roost.v1.DEventAck
@@ -925,7 +866,7 @@ export type DEventAck = Message<"roost.v1.DEventAck"> & {
  * Use `create(DEventAckSchema)` to create a new message.
  */
 export const DEventAckSchema: GenMessage<DEventAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 23);
+  messageDesc(file_roost_v1_worker_transport, 22);
 
 /**
  * Dedicated terminal-control requests. Input stays session-scoped. Terminal
@@ -973,7 +914,7 @@ export type DInputRequest = Message<"roost.v1.DInputRequest"> & {
  * Use `create(DInputRequestSchema)` to create a new message.
  */
 export const DInputRequestSchema: GenMessage<DInputRequest> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 24);
+  messageDesc(file_roost_v1_worker_transport, 23);
 
 /**
  * @generated from message roost.v1.DTerminalStreamState
@@ -1020,7 +961,7 @@ export type DTerminalStreamState = Message<"roost.v1.DTerminalStreamState"> & {
  * Use `create(DTerminalStreamStateSchema)` to create a new message.
  */
 export const DTerminalStreamStateSchema: GenMessage<DTerminalStreamState> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 25);
+  messageDesc(file_roost_v1_worker_transport, 24);
 
 /**
  * Fire-and-forget repair request. Repeating it replaces any partial same-stream
@@ -1045,7 +986,7 @@ export type DTerminalSnapshotRequest = Message<"roost.v1.DTerminalSnapshotReques
  * Use `create(DTerminalSnapshotRequestSchema)` to create a new message.
  */
 export const DTerminalSnapshotRequestSchema: GenMessage<DTerminalSnapshotRequest> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 26);
+  messageDesc(file_roost_v1_worker_transport, 25);
 
 /**
  * The coordinator chooses view-correlated targets; worker ownership ends at
@@ -1070,7 +1011,7 @@ export type DTerminalPipelineSnapshotRequest = Message<"roost.v1.DTerminalPipeli
  * Use `create(DTerminalPipelineSnapshotRequestSchema)` to create a new message.
  */
 export const DTerminalPipelineSnapshotRequestSchema: GenMessage<DTerminalPipelineSnapshotRequest> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 27);
+  messageDesc(file_roost_v1_worker_transport, 26);
 
 /**
  * @generated from message roost.v1.DAttachmentChunk
@@ -1117,7 +1058,7 @@ export type DAttachmentChunk = Message<"roost.v1.DAttachmentChunk"> & {
  * Use `create(DAttachmentChunkSchema)` to create a new message.
  */
 export const DAttachmentChunkSchema: GenMessage<DAttachmentChunk> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 28);
+  messageDesc(file_roost_v1_worker_transport, 27);
 
 /**
  * @generated from message roost.v1.DCoordMovePrepare
@@ -1169,7 +1110,7 @@ export type DCoordMovePrepare = Message<"roost.v1.DCoordMovePrepare"> & {
  * Use `create(DCoordMovePrepareSchema)` to create a new message.
  */
 export const DCoordMovePrepareSchema: GenMessage<DCoordMovePrepare> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 29);
+  messageDesc(file_roost_v1_worker_transport, 28);
 
 /**
  * @generated from message roost.v1.DCoordMoveSnapshotStart
@@ -1221,7 +1162,7 @@ export type DCoordMoveSnapshotStart = Message<"roost.v1.DCoordMoveSnapshotStart"
  * Use `create(DCoordMoveSnapshotStartSchema)` to create a new message.
  */
 export const DCoordMoveSnapshotStartSchema: GenMessage<DCoordMoveSnapshotStart> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 30);
+  messageDesc(file_roost_v1_worker_transport, 29);
 
 /**
  * @generated from message roost.v1.DCoordMoveSnapshotChunk
@@ -1253,7 +1194,7 @@ export type DCoordMoveSnapshotChunk = Message<"roost.v1.DCoordMoveSnapshotChunk"
  * Use `create(DCoordMoveSnapshotChunkSchema)` to create a new message.
  */
 export const DCoordMoveSnapshotChunkSchema: GenMessage<DCoordMoveSnapshotChunk> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 31);
+  messageDesc(file_roost_v1_worker_transport, 30);
 
 /**
  * @generated from message roost.v1.DCoordRelocate
@@ -1290,7 +1231,7 @@ export type DCoordRelocate = Message<"roost.v1.DCoordRelocate"> & {
  * Use `create(DCoordRelocateSchema)` to create a new message.
  */
 export const DCoordRelocateSchema: GenMessage<DCoordRelocate> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 32);
+  messageDesc(file_roost_v1_worker_transport, 31);
 
 /**
  * Authenticated coordinator control for the out-of-job Windows updater. The
@@ -1344,7 +1285,7 @@ export type DUpdateBroker = Message<"roost.v1.DUpdateBroker"> & {
  * Use `create(DUpdateBrokerSchema)` to create a new message.
  */
 export const DUpdateBrokerSchema: GenMessage<DUpdateBroker> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 33);
+  messageDesc(file_roost_v1_worker_transport, 32);
 
 /**
  * Runs only under the coordinator's exclusive channel-creation drain. A
@@ -1392,7 +1333,7 @@ export type DKeeperUpdatePrepare = Message<"roost.v1.DKeeperUpdatePrepare"> & {
  * Use `create(DKeeperUpdatePrepareSchema)` to create a new message.
  */
 export const DKeeperUpdatePrepareSchema: GenMessage<DKeeperUpdatePrepare> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 34);
+  messageDesc(file_roost_v1_worker_transport, 33);
 
 /**
  * Relay to a worker that owns its own terminal views. The coordinator has
@@ -1446,7 +1387,7 @@ export type DTerminalViewRelay = Message<"roost.v1.DTerminalViewRelay"> & {
  * Use `create(DTerminalViewRelaySchema)` to create a new message.
  */
 export const DTerminalViewRelaySchema: GenMessage<DTerminalViewRelay> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 35);
+  messageDesc(file_roost_v1_worker_transport, 34);
 
 /**
  * @generated from message roost.v1.DTerminalViewSocketClosed
@@ -1463,7 +1404,7 @@ export type DTerminalViewSocketClosed = Message<"roost.v1.DTerminalViewSocketClo
  * Use `create(DTerminalViewSocketClosedSchema)` to create a new message.
  */
 export const DTerminalViewSocketClosedSchema: GenMessage<DTerminalViewSocketClosed> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 36);
+  messageDesc(file_roost_v1_worker_transport, 35);
 
 /**
  * Authorization for one browser to talk to this worker's loopback terminal
@@ -1515,7 +1456,7 @@ export type DLocalTerminalGrant = Message<"roost.v1.DLocalTerminalGrant"> & {
  * Use `create(DLocalTerminalGrantSchema)` to create a new message.
  */
 export const DLocalTerminalGrantSchema: GenMessage<DLocalTerminalGrant> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 37);
+  messageDesc(file_roost_v1_worker_transport, 36);
 
 /**
  * @generated from message roost.v1.DLocalTerminalGrantRevoke
@@ -1532,61 +1473,7 @@ export type DLocalTerminalGrantRevoke = Message<"roost.v1.DLocalTerminalGrantRev
  * Use `create(DLocalTerminalGrantRevokeSchema)` to create a new message.
  */
 export const DLocalTerminalGrantRevokeSchema: GenMessage<DLocalTerminalGrantRevoke> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 38);
-
-/**
- * @generated from message roost.v1.DMecatlRelayRequest
- */
-export type DMecatlRelayRequest = Message<"roost.v1.DMecatlRelayRequest"> & {
-  /**
-   * @generated from field: string request_id = 1;
-   */
-  requestId: string;
-
-  /**
-   * @generated from field: string method = 2;
-   */
-  method: string;
-
-  /**
-   * @generated from field: string path = 3;
-   */
-  path: string;
-
-  /**
-   * @generated from field: string headers_json = 4;
-   */
-  headersJson: string;
-
-  /**
-   * @generated from field: bytes body = 5;
-   */
-  body: Uint8Array;
-};
-
-/**
- * Describes the message roost.v1.DMecatlRelayRequest.
- * Use `create(DMecatlRelayRequestSchema)` to create a new message.
- */
-export const DMecatlRelayRequestSchema: GenMessage<DMecatlRelayRequest> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 39);
-
-/**
- * @generated from message roost.v1.DMecatlRelayCancel
- */
-export type DMecatlRelayCancel = Message<"roost.v1.DMecatlRelayCancel"> & {
-  /**
-   * @generated from field: string request_id = 1;
-   */
-  requestId: string;
-};
-
-/**
- * Describes the message roost.v1.DMecatlRelayCancel.
- * Use `create(DMecatlRelayCancelSchema)` to create a new message.
- */
-export const DMecatlRelayCancelSchema: GenMessage<DMecatlRelayCancel> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 40);
+  messageDesc(file_roost_v1_worker_transport, 37);
 
 /**
  * @generated from message roost.v1.CoordWorkerDown
@@ -1721,18 +1608,6 @@ export type CoordWorkerDown = Message<"roost.v1.CoordWorkerDown"> & {
      */
     value: DLocalTerminalGrantRevoke;
     case: "localTerminalGrantRevoke";
-  } | {
-    /**
-     * @generated from field: roost.v1.DMecatlRelayRequest mecatl_relay_request = 22;
-     */
-    value: DMecatlRelayRequest;
-    case: "mecatlRelayRequest";
-  } | {
-    /**
-     * @generated from field: roost.v1.DMecatlRelayCancel mecatl_relay_cancel = 23;
-     */
-    value: DMecatlRelayCancel;
-    case: "mecatlRelayCancel";
   } | { case: undefined; value?: undefined };
 };
 
@@ -1741,7 +1616,7 @@ export type CoordWorkerDown = Message<"roost.v1.CoordWorkerDown"> & {
  * Use `create(CoordWorkerDownSchema)` to create a new message.
  */
 export const CoordWorkerDownSchema: GenMessage<CoordWorkerDown> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 41);
+  messageDesc(file_roost_v1_worker_transport, 38);
 
 /**
  * @generated from message roost.v1.DAgentPrompt
@@ -1793,7 +1668,7 @@ export type DAgentPrompt = Message<"roost.v1.DAgentPrompt"> & {
  * Use `create(DAgentPromptSchema)` to create a new message.
  */
 export const DAgentPromptSchema: GenMessage<DAgentPrompt> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 42);
+  messageDesc(file_roost_v1_worker_transport, 39);
 
 /**
  * Where a terminal-control request stopped relative to the keeper/PTY write.

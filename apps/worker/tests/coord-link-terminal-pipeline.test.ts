@@ -103,7 +103,6 @@ describe("CoordLink terminal pipeline route", () => {
       agentRegistry: null,
       agentDetector: null,
       acquireKeeperUpdateBoundary: null,
-      mecatlRelay: null,
     };
     try {
       const deps = buildCoordLinkDeps({

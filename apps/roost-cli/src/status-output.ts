@@ -72,10 +72,6 @@ export function printStatusReport(r: StatusReport): void {
           `${Math.round(terminalCoreCapacity.estimated_reserved_bytes / (1024 * 1024))} MiB reserved, ` +
           `${terminalCoreCapacity.refusal_count} refused`
         : "      terminal cores: capacity unavailable");
-      const mecatl = w.mecatlRuntime ?? null;
-      console.log(mecatl
-        ? `      mecatl: ${mecatl.state}${mecatl.reason ? ` (${mecatl.reason})` : ""}`
-        : "      mecatl: not reported");
     }
   }
 

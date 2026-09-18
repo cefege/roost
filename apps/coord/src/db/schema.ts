@@ -48,9 +48,8 @@ export interface WorkersTable {
     string | null | undefined,
     string | null
   >;
-  // Worker-reported Mecatl runtime state for that machine. NULL is "never
-  // reported": an operator cannot tell an opted-out machine from a crashed
-  // daemon without the worker's own word for it.
+  // Migration 0032_workers_mecatl_runtime is applied on every live coordinator
+  // DB, so this type map must mirror it; no code reads or writes the column.
   mecatl_runtime_json: ColumnType<
     string | null,
     string | null | undefined,

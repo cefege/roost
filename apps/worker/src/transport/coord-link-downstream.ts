@@ -18,14 +18,12 @@ import type {
   DInputRequest,
   DLocalTerminalGrant,
   DLocalTerminalGrantRevoke,
-  DMecatlRelayCancel, DMecatlRelayRequest,
   DTerminalPipelineSnapshotRequest,
   DTerminalSnapshotRequest,
   DTerminalStreamState,
   DTerminalViewRelay,
   DTerminalViewSocketClosed,
   DKeeperUpdatePrepare,
-  DUpdateBroker,
 } from "@roost/shared/proto/worker_transport_pb";
 import { ClientControlFrame } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
@@ -350,7 +348,15 @@ export function createCoordLinkDownstream(
         return;
       }
       case "updateBroker": {
-        const update = v as DUpdateBroker;
+        const update = v as {
+          requestId: string;
+          jobId: string;
+          action: string;
+          manifestUrl: string;
+          signatureUrl: string;
+          manifestSha256: string;
+          publisherSha256: string;
+        };
         if (update.action !== "START" && update.action !== "STATUS") {
           send({ kind: "rpc-error", request_id: update.requestId, message: `unsupported updater action: ${update.action}` });
           return;
@@ -385,12 +391,6 @@ export function createCoordLinkDownstream(
         }
         return;
       }
-      case "mecatlRelayRequest":
-        deps.onMecatlRelayRequest?.(v as DMecatlRelayRequest);
-        return;
-      case "mecatlRelayCancel":
-        deps.onMecatlRelayCancel?.(v as DMecatlRelayCancel);
-        return;
     }
   }
 

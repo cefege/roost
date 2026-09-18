@@ -56,9 +56,6 @@ message WorkersHeartbeatRequest {
   // Static machine identity is re-sent so a reused worker key converges to the
   // machine actually beating. It publishes through the full Worker presence.
   optional HostIdentity host_identity = 8;
-  // This machine's supervised Mecatl daemon state. Absent from workers that
-  // predate agent-surface reporting, which reads as unknown, not disabled.
-  optional MecatlRuntimeReport mecatl_runtime = 9;
 }
 message WorkersHeartbeatResponse {
   reserved 1, 2;

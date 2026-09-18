@@ -23,7 +23,6 @@ import { appendEvent, dispatchSnapshotOrphanReaps } from "../event-log.ts";
 import { rejectPendingRpc, resolvePendingRpc } from "../router/pending-rpcs.ts";
 import { isTerminalPipelineSnapshotWireShape } from "./worker-terminal-pipeline-snapshot.ts";
 import { resolvePendingSpawnOpened } from "./pending-spawns.ts";
-import { deliverMecatlRelayChunk } from "../mecatl-relay.ts";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
 import type { WriteLease } from "../coordinator-write-gate.ts";
 interface WorkerFrameDispatcherOptions {
@@ -381,13 +380,6 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
             frame.frame.value.message,
             resultWorkerFp,
           );
-        }
-        return true;
-      }
-      case "mecatlRelayChunk": {
-        const resultWorkerFp = pendingResultWorker("mecatl_relay_chunk");
-        if (resultWorkerFp) {
-          deliverMecatlRelayChunk(resultWorkerFp, frame.frame.value);
         }
         return true;
       }

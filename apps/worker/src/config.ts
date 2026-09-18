@@ -5,18 +5,13 @@
 
 import { z } from "zod";
 import { workerDataDir, workerLogDir } from "@roost/shared/paths";
-import { isAbsolute, join } from "node:path";
-import { homedir, hostname } from "node:os";
+import { join } from "node:path";
+import { hostname } from "node:os";
 
 /** Owned by service-definition-env.ts, which has no module-scope host-path
  * resolution: the config read below and the boot-time erasure there must
  * address the same installed entry. */
 import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "./service-definition-env.ts";
-import {
-  MECATL_BIN_ENV,
-  MECATL_ENABLED_ENV,
-  MECATL_ROOT_ENV,
-} from "@roost/shared/worker-service-env";
 import {
   DEFAULT_COORDINATOR_BIND,
   DEFAULT_WORKER_LOCAL_UI_BIND,
@@ -29,12 +24,6 @@ export const WorkerConfig = z.object({
   agentConversationRestore: z.boolean().default(false),
   keeperForceLiveRetire: z.boolean().default(false),
   terminalCoreCap: z.number().int().nonnegative().max(0xffffffff).optional(),
-  // Mecatl runtime supervision. Disabled everywhere unless the operator opts
-  // this machine in; an enabled worker with no resolvable binary reports the
-  // machine as agent-incapable rather than failing boot.
-  mecatlEnabled: z.boolean().default(false),
-  mecatlBin: z.string().optional(),
-  mecatlRoot: z.string().default(() => homedir()),
   // Resolved lazily: this module is imported by Windows enrollment paths that
   // validate env BEFORE a host layout exists, and an eager default made the
   // import itself throw "LOCALAPPDATA or USERPROFILE is required" ahead of the
@@ -81,9 +70,6 @@ function withDefaults(
       env[KEEPER_FORCE_LIVE_RETIRE_ENV],
     ),
     terminalCoreCap: parseTerminalCoreCap(env.ROOST_WORKER_TERMINAL_CAP),
-    mecatlEnabled: parseMecatlEnabled(env[MECATL_ENABLED_ENV]),
-    mecatlBin: parseMecatlAbsolutePath(env[MECATL_BIN_ENV], MECATL_BIN_ENV),
-    mecatlRoot: parseMecatlAbsolutePath(env[MECATL_ROOT_ENV], MECATL_ROOT_ENV),
     // Prefer the actual machine hostname from node:os over env.HOSTNAME,
     // which isn't set on macOS by default — that was the regression
     // behind every worker registering as the literal string "worker"
@@ -144,25 +130,4 @@ function parseTerminalCoreCap(value: string | undefined): number | undefined {
     throw new Error("ROOST_WORKER_TERMINAL_CAP must be a nonnegative decimal integer");
   }
   return parsed;
-}
-
-/** Supervising another daemon is an explicit operator decision, so an
- * unrecognized value is a hard error rather than a silent truthy arming. */
-function parseMecatlEnabled(value: string | undefined): boolean {
-  if (value === undefined || value === "0") return false;
-  if (value !== "1") {
-    throw new Error(`${MECATL_ENABLED_ENV} must be exactly 0 or 1`);
-  }
-  return true;
-}
-
-/** A relative binary or root would resolve against whatever cwd the service
- * manager happened to hand the worker, so only absolute paths are accepted. */
-function parseMecatlAbsolutePath(
-  value: string | undefined,
-  key: string,
-): string | undefined {
-  if (value === undefined || value === "") return undefined;
-  if (!isAbsolute(value)) throw new Error(`${key} must be an absolute path`);
-  return value;
 }

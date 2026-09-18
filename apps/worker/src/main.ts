@@ -15,7 +15,6 @@ import { COORD_CELL_SINK_ID, registerCellSink } from "./session-cell-sinks.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { startCoordLink } from "./transport/coord-link.ts";
 import { buildCoordLinkDeps, type CoordLinkRefs } from "./coord-link-deps.ts";
-import { startMecatlRuntime } from "./mecatl/boot.ts";
 import { handleKeeperSurvivor } from "./boot-keeper.ts";
 import { createWorkerTerminalCoreCapacity } from "./terminal-core-capacity.ts";
 import { spendKeeperForceLiveRetireAuthorization } from "./service-definition-env.ts";
@@ -153,7 +152,6 @@ export async function runWorker() {
 		agentRegistry: null,
 		agentDetector: null,
 		acquireKeeperUpdateBoundary: null,
-		mecatlRelay: null,
 	};
 	// The local door listens before the link: a browser on this machine must keep
 	// reaching its own PTYs while the coordinator is unreachable.
@@ -188,8 +186,6 @@ export async function runWorker() {
 	const { startAttachmentReaper } = await import("./attachment-reaper.ts");
 	startAttachmentReaper();
 
-	const mecatl = startMecatlRuntime(cfg, coordLink);
-	refs.mecatlRelay = mecatl.relay;
 
 	// Session manager emits cells plus negotiated semantic metadata through
 	// CoordLink; WBinary remains only for an old coordinator acknowledgement.
@@ -301,7 +297,6 @@ export async function runWorker() {
 	stopHeartbeat = await startHeartbeat({
 		client: () => client,
 		reconciledAtMs: () => keeperReconciledAtMs,
-		readMecatlRuntime: () => mecatl.report(),
 		readTerminalCoreCapacity: () => {
 			const snapshot = terminalCoreCapacity.snapshot();
 			return {
@@ -367,14 +362,6 @@ export async function runWorker() {
 		diag("worker.shutdown", { step: "coordlink" });
 		try {
 			coordLink.dispose();
-		} catch {
-			/* best-effort */
-		}
-		// Before the store closes: Mecatl drains and persists its own sessions
-		// on stdin EOF, and an orphaned daemon would keep the loopback port.
-		diag("worker.shutdown", { step: "mecatl" });
-		try {
-			await mecatl.daemon.stop();
 		} catch {
 			/* best-effort */
 		}

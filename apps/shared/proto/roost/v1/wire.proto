@@ -38,14 +38,6 @@ message TerminalCoreCapacityReport {
   uint64 refusal_count = 8;
 }
 
-// Worker-reported Mecatl daemon state for one machine. `reason` is set only
-// when `state` is `unavailable`, so an operator sees why a machine offers no
-// agent surface rather than only that it does not.
-message MecatlRuntimeReport {
-  string state = 1;
-  string reason = 2;
-}
-
 // Content-free, bounded evidence shared by worker, coordinator, and browser
 // pipeline owners. IDs correlate a sampled path; terminal content never crosses
 // this diagnostic contract.

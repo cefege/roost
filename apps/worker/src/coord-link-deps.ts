@@ -18,7 +18,6 @@ import {
 	resumeCellSink,
 	suspendCellSink,
 } from "./session-cell-sinks.ts";
-import { mecatlRelayHandlers, type MecatlRelay } from "./mecatl/link-handlers.ts";
 import { createKeeperUpdatePrepareHandler } from "./coord-link-keeper-update.ts";
 import { handleAttachmentChunk } from "./attachment-upload.ts";
 import { handleBrowserCommand } from "./browser-command-handler.ts";
@@ -100,7 +99,6 @@ export interface CoordLinkRefs {
 	agentRegistry: AgentStatusRegistry | null;
 	agentDetector: Pick<AgentScreenDetector, "reportingAgentForSession"> | null;
 	acquireKeeperUpdateBoundary: (() => Promise<() => void>) | null;
-	mecatlRelay: MecatlRelay | null;
 }
 
 /** Terminal-view ownership plus the loopback door that shares it. Built before
@@ -244,7 +242,6 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 			);
 			sendInputResult(request, result, false);
 		},
-		...mecatlRelayHandlers(refs),
 		onAgentPrompt: async (request, budget) => {
 			const registry = refs.agentRegistry;
 			const detector = refs.agentDetector;
