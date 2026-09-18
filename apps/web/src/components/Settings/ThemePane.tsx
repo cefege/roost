@@ -17,6 +17,11 @@ import {
   setTvModeChoice,
   type TvModeChoice,
 } from "../../lib/tvMode.ts";
+import {
+  padModeChoice,
+  setPadModeChoice,
+  type PadModeChoice,
+} from "../../lib/padMode.ts";
 
 interface Entry {
   choice: string;   // "auto" | theme id
@@ -79,6 +84,23 @@ export const ThemePane: Component = () => {
             { value: "off", label: "Off" },
           ]}
           description="Larger type, overscan-safe edges, and D-pad focus navigation. Also reachable as ?tv=1 / ?tv=0."
+        />
+      </div>
+      <div style={{ "margin-block-end": "var(--md-space-5)" }}>
+        <Select
+          testId="pad-mode-select"
+          label="Game controller"
+          value={padModeChoice()}
+          onChange={(value) => {
+            setPadModeChoice(value as PadModeChoice);
+            addToast("Controller mode saved");
+          }}
+          options={[
+            { value: "auto", label: "Auto (when a controller is used)" },
+            { value: "on", label: "On" },
+            { value: "off", label: "Off" },
+          ]}
+          description="Focus navigation, button hints, and D-pad scrolling for a connected controller. Also reachable as ?pad=1 / ?pad=0."
         />
       </div>
       <p class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", margin: "0 0 18px 2px" }}>

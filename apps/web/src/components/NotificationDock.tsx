@@ -9,6 +9,7 @@ import { ToastStack } from "./ToastStack.tsx";
 import { UndoCloseBanner } from "./UndoCloseBanner.tsx";
 import { TransferStack } from "./TransferCard.tsx";
 import { PairRequestNotifier } from "./PairRequestNotifier.tsx";
+import { PadHintBar } from "./PadHintBar.tsx";
 import { composerActive, composerHeightPx } from "./TerminalComposeButton.tsx";
 import { notificationDockLift } from "../lib/notificationDockLift.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
@@ -31,6 +32,7 @@ export function NotificationDock() {
       <UndoCloseBanner />
       <TransferStack />
       <PairRequestNotifier />
+      <PadHintBar />
     </div>
   );
 }

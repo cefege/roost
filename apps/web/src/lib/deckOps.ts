@@ -12,14 +12,16 @@ import type { Session } from "@roost/shared/wire";
 import { batch } from "solid-js";
 import { diag } from "@roost/shared/diag";
 import { rootStore } from "../store/root.ts";
-import { commitLayout } from "../store/paneLayoutStore.ts";
+import { commitLayout, resolveLayout } from "../store/paneLayoutStore.ts";
 import {
   selectTab, focusPane, closeTab, findLeafOfTab, allLeaves, type Layout,
 } from "../store/paneLayout.ts";
-import { setSpotlightSessionId } from "../store/spotlight.ts";
+import { setSpotlightSessionId, spotlightSessionId } from "../store/spotlight.ts";
 import { isPendingSpawn, abortOptimisticSpawn } from "../store/optimisticSpawn.ts";
 import { scheduleClose } from "./pendingClose.ts";
 import { closeLabelsFor, siblingOrHomeHref, killAfterUndo } from "./closeSession.ts";
+import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";
+import { isCompact } from "./windowSizeClass.ts";
 
 export interface DeckOpsCtx {
   /** Folder bucket the ops commit into (null = no active folder → no-op). */
@@ -29,6 +31,37 @@ export interface DeckOpsCtx {
   /** URL-active session id (TerminalDeck: props.activeSessionId). */
   activeSessionId: () => string | null;
   navigate: (href: string) => void;
+}
+
+export interface DeckOpsIo {
+  navigate: (href: string) => void;
+  /** Current router pathname — resolves the URL-active session. */
+  getPath: () => string;
+}
+
+/** A LIVE DeckOpsCtx over one folder bucket, layout re-resolved from the store
+ *  on every read (the header's accessor invariant). Shared by the Sync command
+ *  dispatcher and the controller adapter. */
+export function deckOpsCtxForFolder(folderKey: string, io: DeckOpsIo): DeckOpsCtx {
+  return {
+    folderKey: () => folderKey,
+    layout: () => resolveLayout(folderKey, liveSessionIdsForFolder(folderKey)),
+    activeSessionId: () => {
+      const session = activeSessionForPath(io.getPath());
+      return session && session.status === "open" ? session.id : null;
+    },
+    navigate: io.navigate,
+  };
+}
+
+/** The floated pane, iff `layout` shows the spotlit session — the "spotlight
+ *  follows an in-pane tab swap" input selectTabOp takes, computed the same way
+ *  TerminalDeck derives it from its view() (compact never floats). */
+export function spotlitPaneIdIn(layout: Layout): string | null {
+  const sid = spotlightSessionId();
+  if (!sid || isCompact()) return null;
+  const leaf = findLeafOfTab(layout.root, sid);
+  return leaf && leaf.selectedTab === sid ? leaf.paneId : null;
 }
 
 /** Apply a pure transform to the ctx's CURRENT layout + persist — the same

@@ -5,18 +5,17 @@
 
 import type { UiCommand, UiCommandFrame } from "@roost/shared/proto/sync_pb";
 import { diag, signal } from "@roost/shared/diag";
-import { findLeafOfTab, type Layout } from "../store/paneLayout.ts";
+import { findLeafOfTab } from "../store/paneLayout.ts";
 import { commitLayout, resolveLayout } from "../store/paneLayoutStore.ts";
 import { rootStore } from "../store/root.ts";
 import type { Session } from "@roost/shared/wire";
 import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";
-import { spotlightSessionId, setSpotlightSessionId, clearSpotlight } from "../store/spotlight.ts";
+import { setSpotlightSessionId, clearSpotlight } from "../store/spotlight.ts";
 import { getTabId } from "../auth/tab-id.ts";
-import { isCompact } from "./windowSizeClass.ts";
 import { folderKeyOf } from "./folderKey.ts";
 import { applyUiCommandToLayout, frameAccepted } from "./uiCommandCore.ts";
 import {
-  selectTabOp, focusPaneOp, closeSessionOp, type DeckOpsCtx,
+  selectTabOp, focusPaneOp, closeSessionOp, deckOpsCtxForFolder, spotlitPaneIdIn,
 } from "./deckOps.ts";
 import {
   handleUiLayoutApply,
@@ -36,30 +35,6 @@ export interface UiCommandIo {
 /** One warn per dropped frame — frames are fire-and-forget, never throw. */
 function dropUnknown(kind: string, sid: string): void {
   console.warn("[ui-cc] ui_command_unknown_session", { kind, sid });
-}
-
-/** DeckOpsCtx over a folder bucket, layout resolved live from the store —
- *  the dispatcher's stand-in for TerminalDeck's folderKey/layout memos. */
-function ctxFor(fk: string, io: UiCommandIo): DeckOpsCtx {
-  return {
-    folderKey: () => fk,
-    layout: () => resolveLayout(fk, liveSessionIdsForFolder(fk)),
-    activeSessionId: () => {
-      const s = activeSessionForPath(io.getPath());
-      return s && s.status === "open" ? s.id : null;
-    },
-    navigate: io.navigate,
-  };
-}
-
-/** The floated pane, iff the command's layout shows the spotlit session — the
- *  same "spotlight follows an in-pane tab swap" input TerminalDeck computes
- *  from its view() (compact never floats). */
-function spotlitPaneIdIn(l: Layout): string | null {
-  const sid = spotlightSessionId();
-  if (!sid || isCompact()) return null;
-  const leaf = findLeafOfTab(l.root, sid);
-  return leaf && leaf.selectedTab === sid ? leaf.paneId : null;
 }
 
 function openSession(sid: string): Session | null {
@@ -92,7 +67,7 @@ export function handleUiCommand(frame: UiCommandFrame, io: UiCommandIo): void {
       // Same soft-close path as the tab ✕: pendingClose undo + deferred kill.
       const s = openSession(c.value.sessionId);
       if (!s) return dropUnknown(c.case, c.value.sessionId);
-      closeSessionOp(ctxFor(folderKeyOf(s), io), s);
+      closeSessionOp(deckOpsCtxForFolder(folderKeyOf(s), io), s);
       return;
     }
     case "selectTab": {
@@ -102,7 +77,7 @@ export function handleUiCommand(frame: UiCommandFrame, io: UiCommandIo): void {
       // tab is guaranteed present — selectTabOp navigates like a strip click.
       const fk = folderKeyOf(s);
       const l = resolveLayout(fk, liveSessionIdsForFolder(fk));
-      selectTabOp(ctxFor(fk, io), s.id, spotlitPaneIdIn(l));
+      selectTabOp(deckOpsCtxForFolder(fk, io), s.id, spotlitPaneIdIn(l));
       return;
     }
     case "focusPane": {
@@ -113,7 +88,7 @@ export function handleUiCommand(frame: UiCommandFrame, io: UiCommandIo): void {
       if (!leaf) return dropUnknown(c.case, s.id);
       // Deck semantics: focusing a pane navigates to ITS SELECTED tab (which
       // may differ from the addressed session when it's a background tab).
-      focusPaneOp(ctxFor(fk, io), leaf.paneId);
+      focusPaneOp(deckOpsCtxForFolder(fk, io), leaf.paneId);
       return;
     }
     case "placeSplit": {

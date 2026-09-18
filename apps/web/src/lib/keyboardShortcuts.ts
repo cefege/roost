@@ -13,7 +13,7 @@ import {
 	cursorSessionId,
 	hasCursorTargets,
 } from "./sidebarCursor.ts";
-import { tvModeActive } from "./tvMode.ts";
+import { directionalInputActive } from "./directionalInput.ts";
 import { stepTermFontSize, resetTermFontSize } from "./terminalFontPref.ts";
 import { browserPlatform, matchesPlatformShortcut } from "./browserPlatform.ts";
 
@@ -69,7 +69,7 @@ export function closeCmdPalette() {
 // ── HelpOverlay (Shift+?) ───────────────────────────────────────────────────
 const [_helpOpen, _setHelpOpen] = createSignal(false);
 export const helpOpen = _helpOpen;
-function openHelp() {
+export function openHelp() {
 	_setHelpOpen(true);
 }
 export function closeHelp() {
@@ -165,9 +165,10 @@ export function handleKeydown(e: KeyboardEvent): void {
 		if (isEditableTarget(e.target)) return;
 		if (terminalOwnsKeyboard()) return;
 		if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-		// TV mode gives the arrows to the directional-navigation controller; the
-		// sidebar's rows are real <a> elements it can reach.
-		if (tvModeActive()) return;
+		// Directional input (TV remote, game controller) gives the arrows to the
+		// directional-navigation controller; the sidebar's rows are real <a>
+		// elements it can reach.
+		if (directionalInputActive()) return;
 		// Belt-and-suspenders: ⏎ activating the sidebar cursor NAVIGATES to another
 		// session — the boot-loop failure mode. Even if terminalOwnsKeyboard() ever
 		// regresses, ⏎ must never teleport while a terminal deck is mounted. (↑/↓

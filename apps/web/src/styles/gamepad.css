@@ -1,0 +1,59 @@
+/* Controller presentation. One root attribute (data-pad, written by
+   lib/padMode.ts) adds the only thing a pad needs that a pointer does not:
+   an unmistakable focus cursor and always-visible row actions.
+   Deliberately NOT a type-scale change — this is a desk-distance modality.
+   Depends on: styles/theme-vars.css token names. */
+
+/* :focus, not :focus-visible — a pad moves focus from an UNTRUSTED keydown,
+   so Chromium's focus-visible heuristic may never arm and the user would be
+   left with no cursor at all. */
+[data-pad="true"] :focus {
+  outline: var(--md-space-1) solid var(--workbench-focus-ring);
+  outline-offset: var(--md-space-1);
+}
+
+/* Pane focus, not control focus: a terminal box is a pane surface, the same
+   role tv.css and workbench-tabs.css paint. */
+[data-pad="true"] .wterm:focus {
+  outline: var(--md-space-1) solid var(--workbench-pane-focus);
+  outline-offset: calc(var(--md-space-1) * -1);
+}
+
+/* A pad has no hover, so the hover-gated row actions would stay invisible.
+   Mirrors the same carve-out in styles/tv.css. */
+[data-pad="true"] .df-row .df-action,
+[data-pad="true"] .df-row[data-density="flat"] .df-action-always {
+  opacity: 1;
+}
+
+.pad-hint {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  /* Wider than the within-hint gap below, so a cap reads as bound to its own
+     label rather than to the next hint. */
+  gap: var(--md-space-3);
+}
+
+.pad-hint__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--md-space-1);
+}
+
+/* The dock stretches every child to min(70ch, 100%) and gives it
+   pointer-events:auto; the legend shrink-wraps and stays untouchable — it is a
+   legend, never a focus or hit target (lib/focusOwners.ts). Both declarations
+   are qualified by the dock selector so neither depends on which stylesheet
+   the bundler emits last. */
+.roost-notify-dock > .pad-hint {
+  inline-size: auto;
+  max-inline-size: 100%;
+  pointer-events: none;
+}
+
+.pad-hint__label {
+  color: var(--text-mid);
+  white-space: nowrap;
+}

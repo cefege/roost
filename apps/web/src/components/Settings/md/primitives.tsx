@@ -7,6 +7,7 @@ export { IconButton } from "./IconButton.tsx";
 export { TextField } from "./TextField.tsx";
 export { Dialog } from "./Dialog.tsx";
 export { Chip } from "./Chip.tsx";
+export { BindingChip } from "./BindingChip.tsx";
 export { Select } from "./Select.tsx";
 export { Checkbox } from "./Checkbox.tsx";
 export { Icon } from "./Icon.tsx";

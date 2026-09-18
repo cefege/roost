@@ -18,7 +18,7 @@ import { isPageVisible } from "../lib/pageVisible.ts";
 import { FOCUS_OWNERS } from "../lib/focusOwners.ts";
 import { isAltGraphKey } from "../lib/terminalInput.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
-import { tvModeActive } from "../lib/tvMode.ts";
+import { directionalInputActive } from "../lib/directionalInput.ts";
 import { registerCellTerminalDocumentLifecycle } from "./cell-terminal-document-lifecycle.ts";
 import type { CellTerminalProps } from "./cell-terminal-types.ts";
 import type { CellTerminalRuntime } from "./cell-terminal-runtime.ts";
@@ -214,10 +214,10 @@ export function mountCellTerminalLifecycle(
     }
     const activeElement = document.activeElement as HTMLElement | null;
     if (runtime.inputController?.ownsTarget(activeElement)) return;
-    // TV mode has no physical keyboard: focus recovery would pull the remote's
-    // focus into the off-screen textarea and leave the D-pad with nothing to
-    // drive. Raw keys reach the PTY from the on-screen key pad instead.
-    if (tvModeActive()) return;
+    // A remote or a game controller has no physical keyboard: focus recovery
+    // would pull its focus into the off-screen textarea and leave the D-pad
+    // with nothing to drive. Raw keys reach the PTY from the on-screen key pad.
+    if (directionalInputActive()) return;
     if (
       activeElement === document.body
       || activeElement === document.documentElement

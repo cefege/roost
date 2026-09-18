@@ -11,6 +11,7 @@ type Fixtures = {
   mobileSmokePage: Page;
   multiWorkerSmokePage: Page;
   tvSmokePage: Page;
+  padSmokePage: Page;
 };
 
 type WorkerFixtures = {
@@ -23,7 +24,29 @@ type SmokePageOptions = {
   expectedWorkerFps?: readonly string[];
   /** Force TV mode on before first paint (lib/tvMode.ts reads this at boot). */
   tvMode?: boolean;
+  /** Force controller mode on and install a standard-mapping pad stub before
+   *  first paint (the spec drives it through window.__fakePad). */
+  gamepadMode?: boolean;
 };
+
+/** The stub pad `gamepadMode` installs. Specs mutate it in-page — a press is
+ *  `window.__fakePad.buttons[i].pressed = true`, read back by the rAF poll. */
+export interface FakeGamepad {
+  id: string;
+  index: number;
+  connected: boolean;
+  mapping: string;
+  timestamp: number;
+  axes: number[];
+  buttons: { pressed: boolean; touched: boolean; value: number }[];
+}
+
+declare global {
+  interface Window {
+    __fakePad?: FakeGamepad;
+    __attachFakePad?: () => void;
+  }
+}
 
 const { defaultBrowserType: _defaultBrowserType, ...iphone15 } = devices["iPhone 15"];
 
@@ -182,6 +205,41 @@ async function useSmokePage(
         localStorage.setItem("roost.tvMode", "on");
       });
     }
+    // Stubbed, not real hardware, and seeded rather than auto-armed: the spec
+    // asserts what the pad DOES, so a missed activity latch must not look like
+    // a navigation bug. The pad starts DETACHED — getGamepads reports none until
+    // the spec calls window.__attachFakePad() — because "plug a controller into
+    // an already-open tab" is the real flow, and it is the only one that
+    // exercises gamepadSource's gamepadconnected → refreshPads branch.
+    if (options.gamepadMode) {
+      await context.addInitScript(() => {
+        localStorage.setItem("roost.padMode", "on");
+        const pad: FakeGamepad = {
+          id: "smoke pad",
+          index: 0,
+          connected: true,
+          mapping: "standard",
+          timestamp: 0,
+          axes: [0, 0, 0, 0],
+          buttons: Array.from({ length: 16 }, () => ({ pressed: false, touched: false, value: 0 })),
+        };
+        // Attachment survives the full document loads specs make between
+        // assertions (navigateToSmokeSession is a page.goto): a closure-only
+        // flag would silently unplug the pad on the next navigation.
+        const ATTACHED_KEY = "roost.fakePadAttached";
+        let attached = sessionStorage.getItem(ATTACHED_KEY) === "1";
+        window.__fakePad = pad;
+        Object.defineProperty(navigator, "getGamepads", {
+          configurable: true,
+          value: () => (attached ? [pad] : []),
+        });
+        window.__attachFakePad = () => {
+          attached = true;
+          sessionStorage.setItem(ATTACHED_KEY, "1");
+          window.dispatchEvent(new Event("gamepadconnected"));
+        };
+      });
+    }
     page = await context.newPage();
     await enrollSmokeBrowser(page, stack, stack.client, readinessDeadline);
     await waitForSmokeWorkers(page, expectedWorkerFps, readinessDeadline);
@@ -280,6 +338,9 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
       contextOptions: { viewport: { width: 1920, height: 1080 }, hasTouch: false },
       tvMode: true,
     });
+  },
+  padSmokePage: async ({ browser, stack }, use, testInfo) => {
+    await useSmokePage(browser, stack, use, testInfo, { gamepadMode: true });
   },
 });
 

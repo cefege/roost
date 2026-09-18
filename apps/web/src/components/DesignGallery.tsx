@@ -11,7 +11,7 @@
 import { type JSX, type Component, For } from "solid-js";
 import {
   Button, IconButton, Card, SectionTitle, List, ListRow, MetricTile, EmptyState,
-  Surface, StatusDot, Icon, Skeleton, Chip,
+  Surface, StatusDot, Icon, Skeleton, Chip, BindingChip,
 } from "./Settings/md/primitives";
 import { WorkbenchShellSpecimen } from "./WorkbenchShellSpecimen.tsx";
 import { SettingsNavigationSpecimen } from "./SettingsNavigationSpecimen.tsx";
@@ -261,6 +261,14 @@ export const DesignGallery: Component = () => {
             )}
           </For>
         </List>
+
+        <SectionTitle>Binding chips (keyboard + controller caps)</SectionTitle>
+        <div style={{ display: "flex", "flex-wrap": "wrap", gap: "var(--md-space-2)", "margin-bottom": "var(--md-space-5)" }}>
+          <BindingChip>⌘K</BindingChip>
+          <BindingChip>Shift+?</BindingChip>
+          <BindingChip>D-pad</BindingChip>
+          <BindingChip>LB/RB</BindingChip>
+        </div>
         <div style={{ height: "var(--md-space-5)" }} />
 
         <SectionTitle>Skeleton (loading placeholder)</SectionTitle>

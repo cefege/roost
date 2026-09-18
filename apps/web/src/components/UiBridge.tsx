@@ -5,6 +5,7 @@
 
 import { createEffect, on, onCleanup, onMount } from "solid-js";
 import { useLocation, useNavigate } from "@solidjs/router";
+import { setPadRouterIo } from "../lib/padActions.ts";
 import {
   authoritativeUiReportSessionId,
   initUiStateReport,
@@ -23,7 +24,8 @@ export function UiBridge() {
   onMount(() => {
     const disposeReport = initUiStateReport(io.getPath);
     const unregister = registerUiCommandHandler((frame) => handleUiCommand(frame, io));
-    onCleanup(() => { disposeReport(); unregister(); });
+    setPadRouterIo(io);
+    onCleanup(() => { disposeReport(); unregister(); setPadRouterIo(null); });
   });
   // Route change = navigation state change → report (debounced in the reporter).
   createEffect(on(() => location.pathname, () => scheduleUiStateReport(), { defer: true }));

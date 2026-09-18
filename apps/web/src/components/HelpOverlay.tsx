@@ -6,9 +6,8 @@
 // Depends on: keyboardShortcuts signals only — no store reads.
 
 import { createMemo, createSignal, For, Show } from "solid-js";
-import type { JSX } from "solid-js";
 import { helpOpen, closeHelp } from "../lib/keyboardShortcuts.ts";
-import { Button, TextField } from "./Settings/md/primitives.tsx";
+import { BindingChip, Button, TextField } from "./Settings/md/primitives.tsx";
 import { Sheet } from "./Settings/md/Sheet.tsx";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";
@@ -48,6 +47,17 @@ const SHORTCUTS: ShortcutEntry[] = [
   { category: "Terminal", label: "Close find", binding: "Esc" },
   // Settings
   { category: "Settings", label: "Open Settings", binding: platformShortcutLabel("settings", "⌘,") },
+  // Controller — physical button names, so the legend in PadHintBar is greppable.
+  { category: "Controller", label: "Move focus / scroll the terminal", binding: "D-pad / L-stick" },
+  { category: "Controller", label: "Scroll terminal scrollback", binding: "R-stick" },
+  { category: "Controller", label: "Select / activate", binding: "A" },
+  { category: "Controller", label: "Back / close / leave the terminal", binding: "B" },
+  { category: "Controller", label: "Command palette", binding: "X" },
+  { category: "Controller", label: "Context menu for the focused item", binding: "Y" },
+  { category: "Controller", label: "Previous / next tab in the pane", binding: "LB / RB" },
+  { category: "Controller", label: "Previous / next pane", binding: "LT / RT" },
+  { category: "Controller", label: "Terminal key pad (Esc, Tab, Ctrl-…)", binding: "Back" },
+  { category: "Controller", label: "This help", binding: "Start" },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -159,24 +169,6 @@ export function HelpOverlay() {
         </div>
       </Show>
     </Sheet>
-  );
-}
-
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
-function BindingChip(props: { children: JSX.Element }) {
-  return (
-    <kbd style={{
-      font: "var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--font-mono)",
-      padding: "var(--md-space-1) var(--md-space-2)",
-      "border-radius": "var(--md-shape-xs)",
-      background: "var(--surface-1)",
-      border: "var(--workbench-border-width) solid var(--md-sys-color-outline-variant)",
-      color: "var(--text-mid)",
-      "white-space": "nowrap",
-    }}>
-      {props.children}
-    </kbd>
   );
 }
 

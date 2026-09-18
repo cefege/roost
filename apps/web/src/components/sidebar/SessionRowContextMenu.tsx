@@ -8,7 +8,7 @@
 //
 // Props: session, pos {x,y}, onClose(), onDelete(MouseEvent).
 
-import { Show, For } from "solid-js";
+import { Show, For, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate } from "@solidjs/router";
 import type { Session } from "@roost/shared/wire";
@@ -24,6 +24,8 @@ import {
 	ctxMenuSurfaceStyle,
 	CtxMenuItem,
 	CtxMenuSeparator,
+	focusMenuEdge,
+	handleMenuKeyboardNavigation,
 } from "../contextMenuPrimitives.tsx";
 
 interface SessionRowContextMenuProps {
@@ -36,6 +38,22 @@ interface SessionRowContextMenuProps {
 export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 	const navigate = useNavigate();
 	const session = () => props.session;
+
+	// Roving focus, so a keyboard or a controller can reach these items at all:
+	// CtxMenuItem is tabIndex=-1, which only programmatic focus can enter.
+	// Escape hands focus back to the row it was invoked from: dropping to <body>
+	// would leave spatialNavigation with no origin geometry, so the next
+	// directional press teleports to the topmost-leftmost control on the page.
+	// Tab is excluded deliberately — native sequential focus already moved.
+	const invoker = document.activeElement as HTMLElement | null;
+	let menuElement: HTMLDivElement | undefined;
+	const closeAndRestoreFocus = () => {
+		props.onClose();
+		if (invoker?.isConnected) queueMicrotask(() => invoker.focus());
+	};
+	const onMenuKeyDown = (event: KeyboardEvent) =>
+		handleMenuKeyboardNavigation(event, menuElement, closeAndRestoreFocus, props.onClose);
+	onCleanup(focusMenuEdge(() => menuElement, "first"));
 
 	// Pre-fill with the current custom name, or the displayed auto title if none
 	// (`customTitle ?? title`). The dialog commits via coordClient.
@@ -215,10 +233,14 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
           shadow/padding/font, same item hover, same separator). z-index 100 to
           clear the click-away scrim (99). */}
 				<div
+					ref={menuElement}
+					role="menu"
+					aria-label="Terminal actions"
 					data-testid={`session-context-menu-${session().id}`}
 					class="df-menu-enter"
 					style={ctxMenuSurfaceStyle(props.pos.x, props.pos.y, 100)}
 					onClick={(e) => e.stopPropagation()}
+					onKeyDown={onMenuKeyDown}
 				>
 					<For each={primaryItems()}>
 						{(item) => (

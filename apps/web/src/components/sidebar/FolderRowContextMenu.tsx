@@ -15,12 +15,17 @@
 // the session + terminal menus. Props: pos, workerFp, folderPath, displayName,
 // sessionIds, onClose.
 
-import { Show, For } from "solid-js";
+import { Show, For, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { rootStore } from "../../store/root.ts";
 import { workspaceForFolder } from "../../lib/folderKey.ts";
 import { openRenameDialog } from "../../store/renameDialog.ts";
-import { ctxMenuSurfaceStyle, CtxMenuItem } from "../contextMenuPrimitives.tsx";
+import {
+	ctxMenuSurfaceStyle,
+	CtxMenuItem,
+	focusMenuEdge,
+	handleMenuKeyboardNavigation,
+} from "../contextMenuPrimitives.tsx";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { invokeMachineAction, machineActionsForWorker } from "../../lib/machineActions.ts";
 import type { MachineActionDefinition } from "../../lib/machineActions.ts";
@@ -50,6 +55,21 @@ const NO_ADDR_TOOLTIP =
 	"No reachable address yet — the machine's worker must heartbeat its live tailnet name first.";
 
 export function FolderRowContextMenu(props: FolderRowContextMenuProps) {
+	// Roving focus, so a keyboard or a controller can reach these items at all:
+	// CtxMenuItem is tabIndex=-1, which only programmatic focus can enter.
+	// Escape hands focus back to the invoking row: dropping to <body> leaves
+	// spatialNavigation with no origin, so the next directional press teleports
+	// to the topmost-leftmost control. Tab already moved focus natively.
+	const invoker = document.activeElement as HTMLElement | null;
+	let menuElement: HTMLDivElement | undefined;
+	const closeAndRestoreFocus = () => {
+		props.onClose();
+		if (invoker?.isConnected) queueMicrotask(() => invoker.focus());
+	};
+	const onMenuKeyDown = (event: KeyboardEvent) =>
+		handleMenuKeyboardNavigation(event, menuElement, closeAndRestoreFocus, props.onClose);
+	onCleanup(focusMenuEdge(() => menuElement, "first"));
+
 	// Capture props into locals up front. The menu renders under
 	// <Show when={folderCtxMenu()}>, so its props read from that accessor, which
 	// turns null on close — reading props AFTER onClose(), or inside the deferred
@@ -140,10 +160,14 @@ export function FolderRowContextMenu(props: FolderRowContextMenuProps) {
 					}}
 				/>
 				<div
+					ref={menuElement}
+					role="menu"
+					aria-label="Workspace actions"
 					data-testid="folder-context-menu"
 					class="df-menu-enter"
 					style={ctxMenuSurfaceStyle(props.pos.x, props.pos.y, 100)}
 					onClick={(e) => e.stopPropagation()}
+					onKeyDown={onMenuKeyDown}
 				>
 					<For each={items()}>
 						{(item) => (

@@ -3,7 +3,7 @@
 // Sheet visibility is shared and persisted independently of the composer.
 // Its Alt control is a local link-activation latch, never terminal input.
 
-import { createSignal, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { mouseForwardEnabled, toggleMouseForward } from "../lib/mouseForwardPref.ts";
 import { Button, Icon, IconButton } from "./Settings/md/primitives.tsx";
@@ -37,15 +37,27 @@ const persistNavPadOpen = (open: boolean): void => {
 	}
 };
 
+// The mounted sheet registers how to drop its armed modifiers. Closing the
+// sheet MUST disarm: it is the only surface that can clear a latched Ctrl, so
+// a close from anywhere else would leave a sticky modifier with no way out.
+let disarmModifiers: (() => void) | null = null;
+
+/** The ONE key-pad toggle: the sheet's own button, and the controller adapter's
+ *  `keypad` / `activate` actions. Closing always disarms the latches. */
+export function toggleTerminalNavPad(): void {
+	const next = !navPadOpen();
+	if (!next) disarmModifiers?.();
+	persistNavPadOpen(next);
+}
+
 export function TerminalNavButtons(props: Props) {
-	const togglePad = () => {
-		const next = !navPadOpen();
-		if (!next) {
-			props.onCtrlArmedChange(false);
-			props.onLinkActivationArmedChange(false);
-		}
-		persistNavPadOpen(next);
+	disarmModifiers = () => {
+		props.onCtrlArmedChange(false);
+		props.onLinkActivationArmedChange(false);
 	};
+	onCleanup(() => {
+		disarmModifiers = null;
+	});
 
 	return (
 		<Portal>
@@ -119,7 +131,7 @@ export function TerminalNavButtons(props: Props) {
 				data-open={navPadOpen() ? "true" : "false"}
 				label={navPadOpen() ? "Hide terminal keys" : "Show terminal keys"}
 				onMouseDown={(e) => e.preventDefault()}
-				onClick={togglePad}
+				onClick={toggleTerminalNavPad}
 				icon={navPadOpen() ? "keyboard_arrow_down" : "keyboard"}
 			/>
 		</Portal>

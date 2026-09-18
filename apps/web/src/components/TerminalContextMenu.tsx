@@ -12,7 +12,10 @@ import { Show, batch, createSignal, onCleanup, onMount, type JSX } from "solid-j
 import { Portal } from "solid-js/web";
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { Session } from "@roost/shared/wire";
-import { ctxMenuSurfaceStyle, CtxMenuItem, CtxMenuSeparator } from "./contextMenuPrimitives.tsx";
+import {
+  ctxMenuSurfaceStyle, CtxMenuItem, CtxMenuSeparator, focusMenuEdge,
+  handleMenuKeyboardNavigation,
+} from "./contextMenuPrimitives.tsx";
 import { spawnSessionSibling } from "../lib/sessionSiblingAction.ts";
 import { scheduleClose } from "../lib/pendingClose.ts";
 import { closeLabelsFor, killAfterUndo, siblingOrHomeHref } from "../lib/closeSession.ts";
@@ -60,6 +63,23 @@ export function TerminalContextMenu(props: Props) {
   const location = useLocation();
   const [open, setOpen] = createSignal<OpenState | null>(null);
   const capture = createTerminalCaptureMenuController(() => props.session.id);
+  // Roving focus for the floating menu, so a keyboard or a controller can reach
+  // its items at all: CtxMenuItem is tabIndex=-1. The sheet branch's rows are
+  // tabIndex=0 and are reached by ordinary directional travel instead.
+  let menuElement: HTMLDivElement | undefined;
+  let cancelPendingFocus: (() => void) | null = null;
+  // Escape hands focus back to whatever held it when the menu opened (normally
+  // the PTY textarea): dropping to <body> leaves spatialNavigation with no
+  // origin, so the next directional press teleports across the page. Tab is
+  // excluded — native sequential focus has already moved.
+  let invoker: HTMLElement | null = null;
+  const dismissAndRestoreFocus = () => {
+    const target = invoker;
+    dismiss();
+    if (target?.isConnected) queueMicrotask(() => target.focus());
+  };
+  const onMenuKeyDown = (event: KeyboardEvent) =>
+    handleMenuKeyboardNavigation(event, menuElement, dismissAndRestoreFocus, dismiss);
 
   const onCtx = (e: MouseEvent) => {
     const container = props.getContainer();
@@ -82,8 +102,17 @@ export function TerminalContextMenu(props: Props) {
       link: linkTarget ? link : null,
       linkTarget,
     });
+    invoker = document.activeElement as HTMLElement | null;
+    cancelPendingFocus?.();
+    cancelPendingFocus = usesActionSheet()
+      ? null
+      : focusMenuEdge(() => menuElement, "first");
   };
-  const dismiss = () => setOpen(null);
+  const dismiss = () => {
+    cancelPendingFocus?.();
+    cancelPendingFocus = null;
+    setOpen(null);
+  };
   const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") dismiss(); };
 
   onMount(() => {
@@ -262,11 +291,15 @@ export function TerminalContextMenu(props: Props) {
         >
           {/* ── Desktop: floating positioned menu ──────────────────────── */}
           <div
+            ref={menuElement}
+            role="menu"
+            aria-label="Terminal pane actions"
             data-testid="terminal-context-menu"
             data-variant="floating"
             class="df-menu-enter"
             style={ctxMenuSurfaceStyle(s().x, s().y)}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={onMenuKeyDown}
           >
             <Show when={s().link}>
               {(link) => (

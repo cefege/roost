@@ -21,6 +21,7 @@ export const Surface: Component<{
   role?: JSX.HTMLAttributes<HTMLElement>["role"];
   "aria-live"?: JSX.AriaAttributes["aria-live"];
   "aria-atomic"?: JSX.AriaAttributes["aria-atomic"];
+  "aria-hidden"?: JSX.AriaAttributes["aria-hidden"];
   children: JSX.Element;
 }> = (props) => (
   <Dynamic
@@ -33,6 +34,7 @@ export const Surface: Component<{
     role={props.role}
     aria-live={props["aria-live"]}
     aria-atomic={props["aria-atomic"]}
+    aria-hidden={props["aria-hidden"]}
     style={{
       background: `var(--surface-${props.level ?? 1})`,
       "box-shadow": `var(--md-elev-${props.elevation ?? 0})`,

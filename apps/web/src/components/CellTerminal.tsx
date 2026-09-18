@@ -18,7 +18,7 @@ import { signal } from "@roost/shared/diag";
 import { getSessionTraceId } from "../lib/diag.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { mouseGesturesForwarded } from "../lib/mouseForwardPref.ts";
-import { tvModeActive } from "../lib/tvMode.ts";
+import { directionalInputActive } from "../lib/directionalInput.ts";
 import { isPendingSpawn } from "../store/optimisticSpawn.ts";
 import { createTerminalView } from "../store/terminal-stream.ts";
 import { uiStore } from "../store/uiStore.ts";
@@ -223,7 +223,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			<div
 				ref={displayRef}
 				data-testid="terminal-display"
-				tabindex={tvModeActive() ? "0" : undefined}
+				tabindex={directionalInputActive() ? "0" : undefined}
 				style={{
 					flex: "1",
 					"min-width": "0",
@@ -270,7 +270,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			<Show when={
 				props.inLayout === true
 				&& props.focused === true
-				&& (isCompact() || tvModeActive())
+				&& (isCompact() || directionalInputActive())
 				&& !uiStore.sidebarOpen
 				&& props.surfaceVisible
 			}>
@@ -278,7 +278,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					onKey={(key: string) => { runtime.inputController?.dispatchKeydown(key); }}
 					ctrlArmed={input.ctrlArmed()}
 					onCtrlArmedChange={(armed: boolean) => {
-						if (armed && !isTouchDevice() && !tvModeActive())
+						if (armed && !isTouchDevice() && !directionalInputActive())
 							runtime.inputController?.forceFocus();
 						input.setCtrlArmed(armed);
 					}}

@@ -7,6 +7,7 @@ import { render } from "solid-js/web";
 import { App } from "./App.tsx";
 import { loadTheme, applyTheme } from "./lib/theme.ts";
 import { applyTvMode } from "./lib/tvMode.ts";
+import { applyPadMode } from "./lib/padMode.ts";
 import { loadAgentConfig } from "./lib/agents.ts";
 import { installSpaDiag, installSignalShip, markPhase } from "./lib/diag.ts";
 import { installLocalTransportIndicator } from "./store/local-transport-indicator.ts";
@@ -28,12 +29,14 @@ import "./styles/workbench-shell.css";
 import "./styles/workbench-sidebar.css";
 import "./styles/workbench-tabs.css";
 import "./styles/tv.css";
+import "./styles/gamepad.css";
 
 markPhase("module_start");
 
 // Apply presentation choices before Solid renders any component.
 applyTheme(loadTheme());
 applyTvMode();
+applyPadMode();
 
 // Tier-1 signal channel — ALWAYS on (ships anomalies/errors to coord
 // *.err.log even with the diag firehose off). Tier-2 diag firehose is

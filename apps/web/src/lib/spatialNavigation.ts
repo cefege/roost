@@ -1,15 +1,16 @@
-// Directional (D-pad) focus navigation for TV mode. Chromium's own spatial
-// navigation is not guaranteed on TV browsers and the app ships none, so a
-// remote's four arrows would otherwise never move DOM focus at all.
+// Directional (D-pad) focus navigation for every non-pointer device — a TV
+// remote and a game controller both land here. Chromium's own spatial
+// navigation is not guaranteed on TV browsers and the app ships none, so those
+// four arrows would otherwise never move DOM focus at all.
 //
 // Installed once from App.tsx onMount. Listens in the BUBBLE phase so it is
 // strictly the last claimant on an arrow key: anything with its own arrow
 // handling (the shortcut router, a Kobalte listbox, a scrolling .wterm) has
 // already run and either consumed the key or left it alone.
-// Depends on: lib/tvMode.ts, @roost/shared/diag.
+// Depends on: lib/directionalInput.ts, @roost/shared/diag.
 
 import { diag } from "@roost/shared/diag";
-import { tvModeActive } from "./tvMode.ts";
+import { directionalInputActive } from "./directionalInput.ts";
 
 type Direction = "up" | "down" | "left" | "right";
 
@@ -103,7 +104,7 @@ export function installSpatialNavigation(): () => void {
 }
 
 function handleDirectionalKeydown(event: KeyboardEvent): void {
-	if (!tvModeActive()) return;
+	if (!directionalInputActive()) return;
 	if (event.defaultPrevented) return;
 	if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
 	const direction = DIRECTION_BY_KEY[event.key];
@@ -125,7 +126,7 @@ function handleDirectionalKeydown(event: KeyboardEvent): void {
 	event.preventDefault();
 	target.focus();
 	target.scrollIntoView({ block: "nearest", inline: "nearest" });
-	diag("tv.nav", {
+	diag("dpad.nav", {
 		key: event.key,
 		to: target.dataset.testid ?? target.id ?? target.tagName,
 	});
@@ -148,6 +149,12 @@ function collectCandidates(active: HTMLElement | null): HTMLElement[] {
 		if (element === active) continue;
 		if (element.getClientRects().length === 0) continue;
 		if (element.closest('[inert],[aria-hidden="true"]')) continue;
+		// The PTY textarea is off-screen and consumes every arrow, so landing on
+		// it traps focus with no way back. terminalInputController sets its
+		// tabIndex once in the constructor, so a pad connected after a pane
+		// mounted would leave a tabIndex=0 target behind; excluding it here is
+		// the only place that holds for both modalities.
+		if (element.classList.contains("terminal-input")) continue;
 		out.push(element);
 	}
 	return out;
