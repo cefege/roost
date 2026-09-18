@@ -36,6 +36,11 @@ const BURST_KEY_INTERVAL_MS = 40;
 // Keystrokes typed before the first echo confirms epoch 1 stay hidden by
 // design (the tentative gate), so only later indices are required to paint.
 const FIRST_REQUIRED_INDEX = 3;
+// A burst typed faster than one echo round-trip can finish entirely inside the
+// tentative gate, which paints nothing and leaves the contradiction oracle
+// with no records to judge. One keystroke echoed to the grid first confirms
+// epoch 1, so the burst that follows is painted rather than swallowed.
+const GATE_PRIMER = "PRIMEGATE";
 
 interface PredictionRecord {
   ch: string;
@@ -57,9 +62,12 @@ test("fast typing never paints a prediction the PTY contradicts", async ({
   );
   expect(dimensions.cols, "payload must fit one unwrapped row").toBeGreaterThanOrEqual(60);
 
+  await smokePage.keyboard.type(GATE_PRIMER);
+  await waitForEchoedText(smokePage, sessionId, GATE_PRIMER);
+
   await installPredictionRecorder(smokePage, sessionId);
   await smokePage.keyboard.type(PAYLOAD);
-  await waitForEchoedPayload(smokePage, sessionId);
+  await waitForEchoedText(smokePage, sessionId, PAYLOAD);
 
   const finalRows = await readViewportRows(smokePage, sessionId);
   const records = await readPredictionRecords(smokePage);
@@ -90,7 +98,7 @@ test("sustained fast typing never wipes its own predictions @serial", async ({
   // FOREGROUND_DOM_STALL_MS boundary: a watermark that tracked the predicted
   // caret froze here and the watchdog wiped the overlay mid-burst.
   await smokePage.keyboard.type(PAYLOAD, { delay: BURST_KEY_INTERVAL_MS });
-  await waitForEchoedPayload(smokePage, sessionId);
+  await waitForEchoedText(smokePage, sessionId, PAYLOAD);
 
   const after = await readPredictState(smokePage);
   // The regression is an EXTERNAL wipe of correct predictions by the pane's
@@ -212,9 +220,9 @@ function readViewportRows(page: Page, sessionId: string): Promise<string[]> {
   }, sessionId);
 }
 
-async function waitForEchoedPayload(page: Page, sessionId: string): Promise<void> {
+async function waitForEchoedText(page: Page, sessionId: string, text: string): Promise<void> {
   await expect
-    .poll(async () => (await readViewportRows(page, sessionId)).some((text) => text.includes(PAYLOAD)), {
+    .poll(async () => (await readViewportRows(page, sessionId)).some((row) => row.includes(text)), {
       timeout: 30_000,
       intervals: [50, 100, 250],
     })
