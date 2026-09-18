@@ -1,65 +1,53 @@
-// Predictive (speculative) local echo — the prediction engine adapted to
-// Roost's cell
-// stream. On a high-latency link (mobile over cellular → tailnet), every typed
-// char otherwise waits a full round-trip to echo. This paints the predicted
-// char IMMEDIATELY, reconciled against the authoritative CellGridFrame that
-// arrives ~1 RTT later.
+// Predictive (speculative) local echo — the prediction state machine over
+// Roost's cell stream. Paints a typed char IMMEDIATELY instead of waiting a
+// full round-trip, then reconciles it against the authoritative CellGridFrame.
+// Driven by CellTerminal: predict() per keystroke, noteInputWritten() per input
+// admission ack, onFrame() per frame. Grid predicates live in
+// predictiveEchoGrid.ts, DOM in predictiveEchoOverlay.ts.
 //
-// Safety (why it can never corrupt the terminal):
-//  - Pure CLIENT overlay; never touches the byte/cell stream or the worker.
-//  - Two-epoch confidence gate: a prediction stays INVISIBLE until an
-//    earlier prediction in its epoch is server-CONFIRMED → no flicker, and the
-//    first keystroke of a burst is never shown on a guess.
-//  - A SHOWN prediction that the next authoritative frame contradicts → reset
-//    ALL predictions (fall back to authoritative). A wrong guess lives ≤1 frame.
-//  - SRTT-gated (Adaptive): predictions only SHOW when echo RTT > ~60ms; on a
-//    fast LAN/tailnet link it's a no-op (no benefit, so no risk).
-//  - Suppressed entirely in alt-screen (claude/vim) — can't predict a TUI.
-//
-// Driven by CellTerminal: predict() on each keystroke, onFrame() on each
-// authoritative CellGridFrame. The display preference is an injected typed
-// accessor, so this hot path performs no storage reads.
+// A pure client overlay: it never touches the byte/cell stream or the worker,
+// and the epoch/ack/grace gates below are what keep a wrong guess off screen.
 
-import { columnText, type CellGridFrame } from "@roost/shared/cell";
 import { diag } from "@roost/shared/diag";
+import { columnText, type CellGridFrame, type CellSpan } from "@roost/shared/cell";
 import type { PredictMode } from "./predictPref.ts";
-// SRTT/2 thresholds. send_interval = SRTT/2. Lowered so local echo engages on a
-// LAN/tailnet link (~15-30ms RTT) — where every keystroke otherwise visibly
-// trails one full round-trip (the everyday typing lag) — and only a true
-// single-digit-ms loopback stays a no-op. Validated: roostPredict="always"
-// makes typing feel instant on this link; this makes it the default, per
-// browser, with no localStorage toggle. (Still suppressed in alt-screen TUIs.)
+import { PredictionExpiryTimer } from "./predictiveEchoExpiry.ts";
+import {
+  cellCharAt,
+  erasableCell,
+  judgePrediction,
+  type Pred,
+} from "./predictiveEchoGrid.ts";
+import {
+  PredictiveEchoOverlay,
+  type PredictedCell,
+} from "./predictiveEchoOverlay.ts";
+import { PredictionPainter } from "./predictiveEchoPaint.ts";
+
+// SRTT/2 thresholds, low enough that local echo engages on a LAN/tailnet link
+// (~15-30ms RTT) and only a single-digit-ms loopback stays a no-op.
 const SHOW_ON_MS = 5;     // srtt/2 > 5 (≈ RTT > 10ms) → engage predictions
 const SHOW_OFF_MS = 3;    // srtt/2 ≤ 3 (≈ RTT < 6ms) & idle → disengage
 const FLAG_ON_MS = 80;    // srtt/2 > 80 (≈ RTT > 160ms) → underline the guess
 const GLITCH_MS = 250;    // a prediction pending this long → force-show (link stalled)
 
-interface Pred {
-  row: number;
-  col: number;
-  ch: string;
-  epoch: number;        // tentative_until_epoch
-  bornMs: number;       // for RTT sampling + glitch
-  bornSeq: number;      // frame seq when predicted — confirm only against a LATER frame
-}
-
-/** Text painted at viewport (row,col) in a frame's run-length spans.
- * `null` means a sparse delta did not include the row, while `""` means the
- * represented row is blank or ends before the requested column. */
-function cellCharAt(frame: CellGridFrame, row: number, col: number): string | null {
-  const viewportRow = frame.viewportRows.find((candidate) => candidate.index === row);
-  if (!viewportRow) return null;
-  return columnText(viewportRow.spans, col);
-}
-
 export class PredictiveEcho {
-  private overlay: HTMLDivElement;
+  private overlay: PredictiveEchoOverlay;
+  private painter: PredictionPainter;
   private preds: Pred[] = [];
   private predictionEpoch = 1;
   private confirmedEpoch = 0;
   private srtt = 0;            // EWMA of echo RTT (ms); 0 = unmeasured
   private glitch = false;
-  private srttTrigger = false;  // srtt_trigger (armed/hysteresis): once engaged, stays on through the dead-band until idle + low SRTT
+  private srttTrigger = false;  // hysteresis: once engaged, stays on through the dead-band until idle + low SRTT
+  // Wipe accounting, read by the smoke tier: a burst that resets itself is the
+  // felt-latency defect, and it is invisible in painted state alone.
+  // clearedCount is tracked apart from resetCount because only clear() — the
+  // pane's DOM-stall watchdog — is an EXTERNAL wipe of correct predictions; a
+  // contradiction or expiry reset is the engine's own documented rule firing.
+  private resetCount = 0;
+  private clearedCount = 0;
+  private lastReset: string | null = null;
 
   // Authoritative grid state, updated each frame.
   private cursorRow = 0;
@@ -67,8 +55,9 @@ export class PredictiveEcho {
   private cols = 0;
   private rows = 0;            // last-seen viewport HEIGHT (frame.rows) for resize detection, mirrors cols
   private altScreen = false;
-  private lastSeq = 0;
+  private cursorRowSpans: readonly CellSpan[] = [];
   private predCursorCol = -1;  // predicted cursor col (−1 = none ahead of auth)
+  private readonly expiry: PredictionExpiryTimer;
 
   private readonly now: () => number;
   private readonly onCursor: (col: number | null) => void;
@@ -76,38 +65,50 @@ export class PredictiveEcho {
   private readonly getMode: () => PredictMode;
 
   constructor(
-    private readonly viewportEl: HTMLElement,
+    viewportEl: HTMLElement,
     opts: {
       mode: () => PredictMode;
       now?: () => number;
       onCursor?: (col: number | null) => void;
       sid?: string;
+      /** Arms a deferred expiry pass; returns its canceller. Tests inject a
+       *  no-op scheduler and drive _expirePredictions() against their clock. */
+      schedule?: (callback: () => void, delayMs: number) => () => void;
     },
   ) {
     this.now = opts.now ?? nowMs;
     this.sid = opts.sid ?? "";
     this.onCursor = opts.onCursor ?? (() => {});
     this.getMode = opts.mode;
-    this.overlay = viewportEl.ownerDocument.createElement("div");
-    this.overlay.className = "cell-predict";
-    this.overlay.style.position = "absolute";
-    this.overlay.style.top = "0";
-    this.overlay.style.left = "0";
-    this.overlay.style.pointerEvents = "none";
-    viewportEl.appendChild(this.overlay);
+    this.expiry = new PredictionExpiryTimer({
+      now: this.now,
+      schedule: opts.schedule ?? ((callback, delayMs) => {
+        const id = setTimeout(callback, delayMs);
+        return () => clearTimeout(id);
+      }),
+      oldestBornMs: () => {
+        let oldest: number | null = null;
+        for (const pred of this.preds) {
+          if (oldest === null || pred.bornMs < oldest) oldest = pred.bornMs;
+        }
+        return oldest;
+      },
+      srtt: () => this.srtt,
+      onExpire: () => this.resetAll("expired"),
+    });
+    this.overlay = new PredictiveEchoOverlay(viewportEl);
+    this.painter = new PredictionPainter(this.overlay, this.onCursor);
   }
 
-  /** The display gate: Always/Experimental
-   *  paint unconditionally; Adaptive paints only when srtt_trigger||glitch_trigger
-   *  (the SRTT hysteresis) — i.e. only on a slow link. The epoch
-   *  confidence gate (isTentative) is applied separately in repaint. */
+  /** The display gate: Always/Experimental paint unconditionally; Adaptive
+   *  paints only on a slow link (the SRTT hysteresis). The epoch confidence gate
+   *  (isTentative) is applied separately in repaint. */
   private shouldShow(mode: PredictMode): boolean {
     if (mode === "always" || mode === "experimental") return true;
     const half = this.srtt / 2;
-    // srtt_trigger hysteresis: arm at
-    // SRTT/2 > SHOW_ON, stay armed through the 20–30 ms dead-band, disarm only
-    // when SRTT/2 ≤ SHOW_OFF AND idle (no pending preds). The old stateless
-    // recomputation returned false in that band, so nothing ever painted there.
+    // Arm at SRTT/2 > SHOW_ON and stay armed through the 20–30 ms dead-band,
+    // disarming only when SRTT/2 ≤ SHOW_OFF AND idle: a stateless recomputation
+    // returns false inside that band, so nothing would ever paint there.
     if (this.glitch) this.srttTrigger = true;
     else if (half > SHOW_ON_MS) this.srttTrigger = true;
     else if (half <= SHOW_OFF_MS && this.preds.length === 0) this.srttTrigger = false;
@@ -119,39 +120,46 @@ export class PredictiveEcho {
 
   private becomeTentative(): void { this.predictionEpoch++; }
 
-  private resetAll(): void {
+  /** Drop every prediction AND re-arm the confidence gate. Without the re-arm,
+   *  the next keystroke is shown on an authoritative cursor column that still
+   *  lags the un-echoed input — the wrong glyph the user sees snap back. */
+  private resetAll(reason: string): void {
     this.preds = [];
     this.predCursorCol = -1;
     this.glitch = false;
     this.srttTrigger = false;
+    this.resetCount++;
+    if (reason === "cleared") this.clearedCount++;
+    this.lastReset = reason;
+    this.becomeTentative();
+    this.expiry.arm();
+    diag("echo.reset", { sid: this.sid, reason });
     this.repaint();
   }
 
   /** A keystroke the user typed. Predict its echo (always — to measure RTT;
    *  display is gated in repaint). Only printable width-1 + backspace; anything
-   *  ambiguous bumps the epoch so later predictions stay hidden until reproven. */
-  predict(bytes: Uint8Array): void {
-    if (this.getMode() === "never" || this.altScreen) { if (this.preds.length) this.resetAll(); return; }
-    // Paste guard (paste = bytes > 100 →
-    // reset): never predict a paste — it floods the overlay and its echo is
-    // unguessable. Reset any pending predictions and drop.
-    if (bytes.length > 100) { this.resetAll(); return; }
-    // Experimental mode: no tentative epoch — predictions
-    // show IMMEDIATELY (predictionEpoch == confirmedEpoch ⇒ not tentative),
-    // trading the no-flicker guarantee for zero-latency display.
+   *  ambiguous bumps the epoch so later predictions stay hidden until reproven.
+   *  `inputSeq` is the admission sequence of the batch carrying these bytes;
+   *  noteInputWritten(seq) later proves the worker wrote them to the PTY. */
+  predict(bytes: Uint8Array, inputSeq: bigint): void {
+    if (this.getMode() === "never" || this.altScreen) {
+      if (this.preds.length) this.resetAll("suppressed");
+      return;
+    }
+    // Never predict a paste: it floods the overlay and its echo is unguessable.
+    if (bytes.length > 100) { this.resetAll("paste"); return; }
+    // Experimental mode has no tentative epoch — predictions show IMMEDIATELY
+    // (predictionEpoch == confirmedEpoch ⇒ not tentative), trading the
+    // no-flicker guarantee for zero-latency display.
     if (this.getMode() === "experimental") this.predictionEpoch = this.confirmedEpoch;
     for (let i = 0; i < bytes.length; i++) {
       const b = bytes[i]!;
       if (b === 0x7f || b === 0x08) {            // backspace
-        const col = (this.predCursorCol >= 0 ? this.predCursorCol : this.cursorCol) - 1;
-        if (col < 0) { this.becomeTentative(); continue; }
-        this.predCursorCol = col;
-        // drop a prediction sitting at the now-deleted col
-        this.preds = this.preds.filter((p) => !(p.row === this.cursorRow && p.col === col));
+        this.predictErase(inputSeq);
         continue;
       }
-      // Left/right arrow (CSI 'C'/'D'): predict
-      // the cursor move only (no glyph). ESC[C = right, ESC[D = left.
+      // Left/right arrow (CSI 'C'/'D'): predict the cursor move only (no glyph).
       if (b === 0x1b && bytes[i + 1] === 0x5b && (bytes[i + 2] === 0x43 || bytes[i + 2] === 0x44)) {
         const base = this.predCursorCol >= 0 ? this.predCursorCol : this.cursorCol;
         const dir = bytes[i + 2] === 0x43 ? 1 : -1;
@@ -164,13 +172,52 @@ export class PredictiveEcho {
       if (b < 0x20 || b > 0x7e) { this.becomeTentative(); continue; }
       const col = this.predCursorCol >= 0 ? this.predCursorCol : this.cursorCol;
       if (col + 1 >= this.cols) { this.becomeTentative(); continue; } // last-col wrap ambiguous
+      // A glyph typed over our own eraser supersedes it; keeping both would make
+      // the eraser contradict the very echo that confirms the glyph.
+      const stale = this.preds.findIndex(
+        (pred) => pred.ch === "" && pred.row === this.cursorRow && pred.col === col,
+      );
+      if (stale >= 0) this.preds.splice(stale, 1);
       this.preds.push({
         row: this.cursorRow, col, ch: String.fromCharCode(b),
-        epoch: this.predictionEpoch, bornMs: this.now(), bornSeq: this.lastSeq,
+        originalCh: columnText(this.cursorRowSpans, col),
+        epoch: this.predictionEpoch, bornMs: this.now(), inputSeq, ackedMs: null,
       });
       this.predCursorCol = col + 1;
     }
+
+    this.expiry.arm();
     this.repaint();
+  }
+
+  /** Backspace: paint an ERASE over the column the echo is about to clear.
+   *  Moving the caret alone leaves the authoritative glyph under it for a full
+   *  round-trip, which reads as "my correction did nothing". */
+  private predictErase(inputSeq: bigint): void {
+    const col = (this.predCursorCol >= 0 ? this.predCursorCol : this.cursorCol) - 1;
+    if (col < 0) { this.becomeTentative(); return; }
+    this.predCursorCol = col;
+    const owned = this.preds.findIndex(
+      (pred) => pred.row === this.cursorRow && pred.col === col,
+    );
+    if (owned >= 0) { this.preds.splice(owned, 1); return; }  // erasing our own guess
+    const erasable = erasableCell(this.cursorRowSpans, col);
+    if (erasable === "blank") return;                         // nothing painted there
+    if (erasable === "refuse") { this.becomeTentative(); return; }
+    this.preds.push({
+      row: this.cursorRow, col, ch: "",
+      originalCh: columnText(this.cursorRowSpans, col),
+      epoch: this.predictionEpoch, bornMs: this.now(), inputSeq, ackedMs: null,
+    });
+  }
+
+  /** The worker acknowledged writing every byte up to `inputSeq` to the PTY.
+   *  Predictions from those batches become judgeable after ECHO_GRACE_MS. */
+  noteInputWritten(inputSeq: bigint): void {
+    for (const pred of this.preds) {
+      if (pred.ackedMs === null && pred.inputSeq <= inputSeq) pred.ackedMs = this.now();
+    }
+    this.expiry.arm();
   }
 
   /** An authoritative cell frame landed. Update grid state, reconcile every
@@ -186,74 +233,92 @@ export class PredictiveEcho {
     this.cursorCol = frame.cursorCol;
     this.cols = frame.cols;
     this.altScreen = frame.altScreen;
-    this.lastSeq = frame.seq;
     this.rows = frame.rows;
+    this.cursorRowSpans = frame.viewportRows.find(
+      (row) => row.index === frame.cursorRow,
+    )?.spans ?? [];
 
     // Wipe ONLY when prediction coordinates are actually invalidated: alt-screen
-    // entry/toggle, content scroll, or a detected resize (cols / viewport HEIGHT
-    // changed). A non-resize full OR delta frame keeps the same viewport coords,
-    // so RECONCILE against it — there's no "full frame wipes
-    // predictions" concept (cull judges every framebuffer
-    // update). The old `|| frame.full` wiped on every attach/claim/force/first-
-    // emit full frame, killing predictions before the echo delta could confirm
-    // them, so SRTT was never sampled when full frames interleaved the first
-    // keystrokes. NOTE: resize is detected via frame.rows (the viewport height,
-    // stable across non-resize deltas) — NOT frame.viewportRows.length, which on
-    // a DELTA is the dirty-ROW COUNT (types.ts:58-61, grid-to-cells.ts:112-114)
-    // and drifts every frame, which would wipe on every delta and keep SRTT at 0.
+    // entry/toggle, content scroll, or a detected resize. A non-resize full OR
+    // delta frame keeps the same viewport coords, so RECONCILE against it —
+    // wiping on every full frame kills predictions before the echo delta can
+    // confirm them, and SRTT is then never sampled. Resize is detected via
+    // frame.rows (the viewport height, stable across non-resize deltas) — NOT
+    // frame.viewportRows.length, which on a DELTA is the dirty-ROW COUNT
+    // (types.ts:58-61, grid-to-cells.ts:112-114) and drifts every frame.
     const resized = prevCols !== 0 &&
       (frame.cols !== prevCols || frame.rows !== prevRows);
     if (this.altScreen || prevAlt !== this.altScreen || scrollbackAppended || resized) {
-      this.resetAll();
-      this.predCursorCol = -1;
+      this.resetAll(
+        this.altScreen || prevAlt !== this.altScreen
+          ? "alt_screen"
+          : resized ? "resized" : "scrolled",
+      );
       return;
     }
 
-    const now = this.now();
+    this.reconcileAgainst(frame, this.now());
+  }
+
+  /** Judge every prediction against one frame. `frameAtMs` is when the frame
+   *  ARRIVED: RTT is sampled from it so a deferred pass can never inflate SRTT,
+   *  and the ack/grace comparisons are meaningless against any other clock. */
+  private reconcileAgainst(frame: CellGridFrame, frameAtMs: number): void {
     const survivors: Pred[] = [];
     let hardReset = false;
-    for (const p of this.preds) {
-      const shownBefore = !this.isTentative(p);
-      // Only judge against a frame produced AFTER the prediction (echo had a
-      // chance to land); a same/older frame is "pending".
-      if (frame.seq <= p.bornSeq) {
-        if (now - p.bornMs >= GLITCH_MS) this.glitch = true;
-        survivors.push(p);
-        continue;
-      }
-      const actual = cellCharAt(frame, p.row, p.col);
-      if (actual === null) {
-        // A sparse delta for another row cannot judge this prediction yet.
-        survivors.push(p);
-        continue;
-      }
-      if (actual === p.ch) {
-        // Correct → confirm: unlock display for this epoch, sample RTT, retire.
-        this.confirmedEpoch = Math.max(this.confirmedEpoch, p.epoch);
-        this.sampleRtt(now - p.bornMs);
+    for (const pred of this.preds) {
+      const shownBefore = !this.isTentative(pred);
+      const verdict = judgePrediction(pred, cellCharAt(frame, pred.row, pred.col), frameAtMs);
+      if (verdict === "credit" || verdict === "retire") {
+        if (verdict === "credit") {
+          this.confirmedEpoch = Math.max(this.confirmedEpoch, pred.epoch);
+          this.sampleRtt(frameAtMs - pred.bornMs);
+        }
         this.glitch = false;
-      } else if (this.getMode() === "experimental") {
-        // Experimental mode: reset just the wrong cell — never a
-        // hard reset, never an epoch kill. Flickerier, but each cell
-        // self-corrects independently.
-        p.epoch = -1;
-      } else {
-        // Server reached a later frame but the cell differs → wrong guess.
-        if (shownBefore) { hardReset = true; break; }   // a SHOWN guess was wrong → nuke all
-        // hidden/tentative wrong guess → drop just this epoch
-        this.preds.forEach((q) => { if (q.epoch === p.epoch) q.epoch = -1; });
+        continue;
       }
+      if (verdict === "unproven") {
+        if (this.now() - pred.bornMs >= GLITCH_MS) this.glitch = true;
+        survivors.push(pred);
+        continue;
+      }
+      if (verdict === "echoing") { survivors.push(pred); continue; }
+      // Experimental mode drops just the wrong cell — never a hard reset, never
+      // an epoch kill. Flickerier, but each cell self-corrects independently.
+      if (this.getMode() === "experimental") continue;
+      if (shownBefore) { hardReset = true; break; }   // a SHOWN guess was wrong → nuke all
+      // hidden/tentative wrong guess → drop just this epoch, and re-arm the gate
+      this.preds.forEach((other) => { if (other.epoch === pred.epoch) other.epoch = -1; });
+      this.becomeTentative();
     }
-    if (hardReset) { this.resetAll(); return; }
-    this.preds = survivors.filter((p) => p.epoch >= 0);
-    // Re-anchor predicted cursor: authoritative col + count of pending preds on
-    // the cursor row to the right of the authoritative cursor.
-    const ahead = this.preds.filter((p) => p.row === this.cursorRow && p.col >= this.cursorCol).length;
-    this.predCursorCol = ahead > 0 ? this.cursorCol + ahead : -1;
+    if (hardReset) { this.resetAll("contradicted"); return; }
+    this.preds = survivors.filter((pred) => pred.epoch >= 0);
+    this.reanchorPredictedCursor();
+    this.expiry.arm();
     this.repaint();
   }
 
-  private isTentative(p: Pred): boolean { return p.epoch > this.confirmedEpoch; }
+  /** Authoritative col plus the NET un-echoed column change on the cursor row:
+   *  a glyph is one column forward, an erase one column back. */
+  private reanchorPredictedCursor(): void {
+    let delta = 0;
+    for (const pred of this.preds) {
+      if (pred.row !== this.cursorRow) continue;
+      delta += pred.ch === "" ? -1 : 1;
+    }
+    const predicted = this.cursorCol + delta;
+    this.predCursorCol = delta !== 0 && predicted >= 0 && predicted < this.cols
+      ? predicted
+      : -1;
+  }
+
+  /** Test seam — the deferred expiry pass, driveable against an injected clock
+   *  instead of a real timer. */
+  _expirePredictions(): void {
+    this.expiry.check();
+  }
+
+  private isTentative(pred: Pred): boolean { return pred.epoch > this.confirmedEpoch; }
 
   private sampleRtt(rttMs: number): void {
     if (rttMs <= 0 || rttMs > 5000) return;          // ignore absurd samples
@@ -261,61 +326,56 @@ export class PredictiveEcho {
     diag("echo.rtt_sample", { sid: this.sid, rtt_ms: rttMs });
   }
 
-  /** Paint visible, non-tentative predictions into the overlay (re-attached
-   *  because the renderer's replaceChildren wipes viewport children). */
+  /** Hand the painter the visible, non-tentative predictions. */
   private repaint(): void {
-    // Re-attach after an explicit full repair may have rebuilt the viewport.
-    if (this.overlay.parentNode !== this.viewportEl) this.viewportEl.appendChild(this.overlay);
     const mode = this.getMode();
-    const show = mode !== "never" && !this.altScreen && this.shouldShow(mode);
-    if (!show) { this.overlay.replaceChildren(); this.onCursor(null); return; }
-    // Predicted cursor (ConditionalCursorMove): the caret leads the
-    // echoed chars / an arrow move. Suppressed while any char prediction is
-    // still tentative (hidden) — don't jump the caret ahead of unshown text.
-    const blocked = this.preds.some((p) => this.isTentative(p));
-    this.onCursor(this.predCursorCol >= 0 && !blocked ? this.predCursorCol : null);
-    const flag = this.shouldFlag();
-    const doc = this.viewportEl.ownerDocument;
-    const frag = doc.createDocumentFragment();
-    for (const p of this.preds) {
-      if (this.isTentative(p)) continue;             // hidden until epoch confirmed
-      const el = doc.createElement("span");
-      el.className = "cell-predict-ch";
-      el.textContent = p.ch;
-      el.style.position = "absolute";
-      el.style.top = `${p.row}lh`;
-      el.style.left = `${p.col}ch`;
-      if (flag) el.style.textDecoration = "underline";
-      frag.appendChild(el);
+    if (mode === "never" || this.altScreen || !this.shouldShow(mode)) {
+      this.painter.request(null);
+      return;
     }
-    this.overlay.replaceChildren(frag);
+    // The caret leads the echoed chars / an arrow move, but never leads text
+    // that is still tentative (hidden).
+    const blocked = this.preds.some((pred) => this.isTentative(pred));
+    const cells: PredictedCell[] = [];
+    for (const pred of this.preds) {
+      if (this.isTentative(pred)) continue;          // hidden until epoch confirmed
+      cells.push({ row: pred.row, col: pred.col, ch: pred.ch });
+    }
+    this.painter.request({
+      cells,
+      flagged: this.shouldFlag(),
+      caretCol: this.predCursorCol >= 0 && !blocked ? this.predCursorCol : null,
+    });
   }
 
   /** Apply a reactive Settings change immediately, even while the terminal is
    * idle and no keystroke/frame would otherwise trigger repaint. */
   refreshPreference(): void {
-    if (this.getMode() === "never") this.resetAll();
+    if (this.getMode() === "never") this.resetAll("preference");
     else this.repaint();
   }
 
   clear(): void {
-    this.resetAll();
+    this.resetAll("cleared");
   }
 
   dispose(): void {
-    this.overlay.remove();
+    this.expiry.cancel();
+    this.painter.cancel();
+    this.overlay.dispose();
     this.preds = [];
   }
 
   /** Test seam — internal state for unit tests (no DOM assertions needed). */
-  _debug(): { total: number; visible: number; srtt: number; confirmedEpoch: number; predictionEpoch: number; mode: string; predCursorCol: number } {
+  _debug(): { total: number; visible: number; srtt: number; confirmedEpoch: number; predictionEpoch: number; mode: string; predCursorCol: number; resetCount: number; clearedCount: number; lastReset: string | null } {
     const mode = this.getMode();
     const showing = mode !== "never" && !this.altScreen && this.shouldShow(mode);
-    const visible = showing ? this.preds.filter((p) => !this.isTentative(p)).length : 0;
+    const visible = showing ? this.preds.filter((pred) => !this.isTentative(pred)).length : 0;
     return {
       total: this.preds.length, visible, srtt: this.srtt,
       confirmedEpoch: this.confirmedEpoch, predictionEpoch: this.predictionEpoch, mode,
       predCursorCol: this.predCursorCol,
+      resetCount: this.resetCount, clearedCount: this.clearedCount, lastReset: this.lastReset,
     };
   }
 }

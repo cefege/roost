@@ -90,6 +90,93 @@ before/after diff taken off a Solid store.
 **Guard** — `scripts/lint-roost.ts` rule
 `"L11: sidebar data-selected must be URL-driven, never sessions().length"`.
 
+### A full-surface loading or error card reads as a failure, then "flips" to the real UI
+
+**Symptom** — "I press the button and it shows an error, then it flips to the folder list". No
+console error, no failed RPC: on loopback the card is invisible, and on a phone over a tailnet it is
+the whole screen for over a second.
+
+**Wrong** — a route-level `<Show>` that swaps the ENTIRE page between states, with an
+`EmptyState icon="progress_activity"` as the loading arm. `progress_activity` has no spin rule in
+`apps/web/src/styles`, so the "loading" arm is a static icon-plus-text card structurally identical
+to the error arm beside it, and the wholesale swap to the loaded UI is the "flip". The same shape
+turns every listing failure into an empty result: a `.catch` that only nulls the data renders
+"Empty folder" for a directory that failed to read.
+
+**Right** — mount the chrome once and switch only the content region. A surface owns an explicit
+status (`loading | ready | error | offline`), loading paints skeleton rows shaped like the rows that
+will replace them, and a failure keeps its own reader-facing copy plus a Retry that re-runs the
+fetch. Denial replacements that a test pins by accessible name (here `browse-worker-unavailable`)
+stay byte-identical and take the content region's place, never the page's.
+
+**Guard** — `smoke/terminal/browse-picker.spec.ts` "folder picker keeps its chrome and names every
+failure" (close/up/home/filter/New folder all visible the whole time, an invalid name reported
+inline with `toHaveCount(0)` on the toast locator) and `smoke/terminal/worker-route-guards.spec.ts`,
+which still pins the `Loading machine…` caption and the unavailable block's accessible name.
+
+### A flex column with no width bound grows to min-content and clips every row
+
+**Symptom** — on a phone, a surface's controls and text run off the right edge with no horizontal
+scrollbar: a button label half-cut, an empty state's sentence clipped mid-word, `flex-wrap: wrap`
+visibly not wrapping. `document.documentElement.scrollWidth > window.innerWidth`.
+
+**Wrong** — relying on `flex-wrap: wrap` inside a `flex-direction: column` panel that has no
+`max-inline-size`. The panel's own width resolves to the widest row's min-content, so the row it was
+supposed to wrap always "fits" and never wraps; a native `<input>` (~20ch intrinsic) or a
+non-shrinking label is enough to widen the whole page. Hiding the labels on compact
+(`display: none`) papers over it and costs the phone the very affordances it needs.
+
+**Right** — bound the panel (`max-inline-size: 100%` plus `min-inline-size: 0`) and let the
+intrinsically-wide children shrink (`min-inline-size: 0` on the field wrapper AND on
+`.roost-text-field__control`). Then wrapping happens, and every label can stay visible at every
+width.
+
+**Guard** — `smoke/terminal/browse-picker.spec.ts` "folder picker fits a phone": the `New folder`
+control must be `toBeInViewport({ ratio: 1 })` and the machine label visible in an iPhone 15
+context.
+
+### An inline-size container query pins every flex item to its minimum width
+
+**Symptom** — "the tabs don't fit properly": every tab in a strip sits at its floor width while the
+strip still has hundreds of free pixels, and the control that follows the scroller ends up far right
+of the last tab.
+
+**Wrong** — `container-type: inline-size` on the flex item plus a flex BASIS for its resting width
+(`flex: 0 1 var(--workbench-tab-width-max)`) inside a shrink-to-fit scroller (`flex: 0 1 auto`).
+Inline-size containment zeroes the item's intrinsic contribution, so the scroller's content-based
+base size resolves to the sum of the items' `min-inline-size` — not their flex bases. Every item is
+at its floor from the second item on, and every container query written for the floor fires at all
+widths.
+
+**Right** — give the contained item a DEFINITE outer size (`inline-size:
+var(--workbench-tab-width-max)` beside `min-inline-size` / `max-inline-size`). The flex base size
+then comes from the width property, the scroller's max-content resolves to n×max, and items land
+uniformly at `clamp(min, rail / n, max)`.
+
+**Guard** — `smoke/terminal/workbench-shell-tab-strip.ts` `expectConnectedWorkbenchTabStrip`:
+`widthsAboveFloor`, `fillerYieldsToTabs` and `widthsUniform` over six real sessions at 1024×768 (a
+collapsed rail parks all six on the 68px floor and hands the leftover ~180px to the filler), with
+`expectWorkbenchTabStripAtFloor` pinning the packed state.
+
+### A sticky control inside a scroller is painted over by the content it must clear
+
+**Symptom** — "existing tabs paint over the + button": a scrolled inactive tab merges into the
+trailing button, the active tab is sliced at the button's left edge, and a dragged tab floats over it.
+
+**Wrong** — parking the trailing control inside the scrolling rail as `position: sticky;
+inset-inline-end: 0; z-index: 1` over an opaque background, and reserving its width with
+`padding-inline-end` on the scroll content. Its z-index loses to any item that raises its own (a drag
+lifts the grabbed tab), and the reserved padding inflates `scrollWidth`, which is the overflow signal
+the chevron reads.
+
+**Right** — make the control a flex SIBLING after the scroller. The scroller clips its content at its
+own edge, so no scroll position, drag, or close animation can reach the control, and `scrollWidth`
+stays honest.
+
+**Guard** — `smoke/terminal/workbench-shell-tab-strip.ts`: `newTabFollowsRail`,
+`newTabClearOfRail`, and `newTabIntersectsTabAt{Start,End}` at both scroll extremes, asserted in the
+fit helper and again in `expectWorkbenchTabStripAtFloor`.
+
 ---
 
 ## Terminal history, rendering and scroll ownership
@@ -1289,6 +1376,33 @@ a capture-phase router must prove it will act before it cancels.
 rows exist"` and `"⏎ stays a focused button's activation when no cursor row is highlighted"`;
 `smoke/terminal/tv-dpad.spec.ts` asserts the `/pair` ArrowDown arrives with `defaultPrevented === false`.
 
+### A terminal domain reset is treated as the input fence
+
+**Symptom** — "Input may have been partially sent; it was not retried" after a terminal domain reset /
+composer freezes ~10 s then reports ambiguous
+
+**Wrong** — fencing terminal input on the terminal `domainGeneration`, so a `domain_overflow` /
+`aggregate_overflow` / recovery reset on a LIVE socket settles every in-flight batch as ambiguous and then
+discards the coordinator's late result; and returning silently from coord's terminal command gate when an
+`input` command is refused, which leaves the browser waiting out `INPUT_RESULT_TIMEOUT_MS`.
+
+**Right** — **the socket is the input fence.** Input results ride the CONTROL lane
+(`apps/coord/src/connect/sync-ws-v2-control.ts` stamps `domain = UNSPECIFIED, domainGeneration = 0`), which no
+domain reset touches, so a started batch keeps its 10 s deadline and settles from the real result;
+`apps/web/src/ws/sync-outbound.ts::handleControl` correlates on `(socketId, sessionId, inputSeq)` plus the
+generation coord echoes from the command, and `handleGeneration` only settles pendings when the SOCKET changed
+(an unsent batch under the closing generation is `rejected`, never ambiguous). `resetSequence()` runs only on a
+socket change, because a surviving pending must not share an `inputSeq` with a new batch. Coord's
+`sync-ws-v2-commands.ts` answers every refused `input` with an `inputRejected` carrying the command's own
+`domainGeneration` and the refusal reason — nothing reached a worker, so `rejected` is the truthful
+classification and the composer restores the draft instead of claiming possible loss.
+
+**Guard** — `apps/web/tests/syncOutbound.test.ts` — `"a terminal domain reset on a live socket keeps an
+in-flight batch and settles it from the late result"`; `apps/coord/tests/sync-ws-v2-terminal-command-gate.test.ts`
+— `"an input command for a resubscribing terminal domain is rejected, not dropped"`;
+`apps/web/tests/terminalInputStatus.test.ts` — `"an unconfirmed batch with no written bytes never claims a
+partial send"`.
+
 ---
 
 ## Worker, keeper and host
@@ -2089,6 +2203,66 @@ bypass, repair was collateral.
 **Guard** — `smoke/terminal/terminal-stream-reliability.spec.ts:87` "worker upstream delta loss
 obtains a source full on the same browser socket" plus the reveal/deck specs
 (`terminal-render-reveal*.spec.ts`, `terminal-render-deck-overlay.spec.ts`).
+
+---
+
+### A predicted character flashes the wrong glyph while typing fast
+
+**Symptom** — typing quickly into a terminal pane paints a wrong character at a cell for a
+fraction of a second before the authoritative frame replaces it; the prediction snaps back, and the
+glyph shown is the one an EARLIER keystroke is about to occupy that column with.
+
+**Wrong** — judging a prediction against any frame with a later sequence number. The frame the
+predictor sees is the fully folded canonical viewport, so every row is present and every arriving
+frame judges every in-flight prediction: while "abc" is in flight, the echo frame for `a` confirms
+`a` (raising `confirmedEpoch`, which makes `b` count as SHOWN inside the same loop) and then
+contradicts `b`, hard-resetting the burst. Compounding it, `resetAll` did not re-arm the confidence
+gate, so the next keystroke was painted immediately at the stale authoritative `cursorCol` — behind
+the un-echoed input. That mis-anchored, immediately-shown guess IS the wrong glyph.
+
+**Right** — a prediction may only be CONTRADICTED by grid state that could already hold its echo:
+`Pred.ackedMs` is stamped from the client-side input admission (`noteInputWritten`, fed by
+`InputAdmission.result`), an unacked prediction is never contradicted, and a contradiction must
+outlive `ECHO_GRACE_MS`. A proving MATCH is judged unconditionally and credits immediately, even
+before the ack lands, so the burst unlocks at the first echo frame and the fix costs no latency —
+`judgePrediction` (`predictiveEchoGrid.ts`) is the single place those two asymmetric rules live.
+Every reset — contradiction, expiry, alt-screen, paste — ends in `becomeTentative()`, so a guess
+anchored on a lagging cursor is never painted. Do not respond to a surviving flicker by widening
+what counts as a contradiction; raise the grace instead.
+
+**Guard** — `apps/web/tests/predictiveEchoAck.test.ts` "an echo frame for an earlier keystroke
+never contradicts a later one", "a reset re-arms the confidence gate", "an echo that beats the write
+ack still unlocks the burst" and "a match that reproduces the cell's own text proves nothing", plus
+the real-flow `smoke/terminal/terminal-predictive-echo.spec.ts` "fast typing never paints a
+prediction the PTY contradicts".
+
+---
+
+### Sustained fast typing wipes its own predictions once a second
+
+**Symptom** — typing fast in a terminal pane feels laggy in ~1 s cycles, the `Screen catching up`
+spinner shows while typing, and `echo.reset` reports `reason: cleared` for a pane nobody touched:
+~1 s of instant local echo, then every prediction disappears, then a full round-trip of nothing
+painted, repeating for as long as the burst lasts.
+
+**Wrong** — deriving the DOM-reconcile watermark from the predicted caret column. A prediction that
+leads the authoritative `frame.cursorCol` made `_markReconciledIfCurrent()` return early for the
+whole burst, so `dom_reconciled` froze behind `handler_canonical`, the pane read `catching_up`, and
+its `FOREGROUND_DOM_STALL_MS` watchdog (`handleCatchUpStalled`) called `predictor.clear()` — wiping
+the overlay, re-arming the tentative gate, and arming a `DOM_RECONCILIATION_PROOF_MS` redial. The
+predictions were correct; the watermark was measuring the client overlay, not the DOM.
+
+**Right** — the watermark compares the painted caret against the column the renderer INTENDED to
+paint: `this._paintedCursorCol !== (this.predictedCol ?? frame.cursorCol)`, the same expression
+`updateCursor()` paints. A client overlay never blocks reconciliation; only real DOM-fidelity
+conditions (reader-pending frame, holds, pending render, row/col count, alt-screen, cursor
+visibility) do. `ReconcileBlockReason` has no `predicted_cursor` member — a predicted caret is not
+a block.
+
+**Guard** — `apps/web/tests/cellRenderer.reconcile.dom.test.ts` "a leading predicted caret does not
+freeze reconciliation" and the real-flow `smoke/terminal/terminal-predictive-echo.spec.ts`
+"sustained fast typing never wipes its own predictions" (asserts a `resetCount` delta of 0 across a
+1.6 s burst).
 
 ---
 

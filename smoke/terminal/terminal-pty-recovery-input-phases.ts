@@ -284,11 +284,7 @@ export async function proveCursorAndImeRecovery({
     return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
   }, { id: sessionId, marker: wheelPendingMarker });
   expect(imeRecoveredProof).toMatchObject({ marker: wheelPendingMarker, frames: 2 });
-  expectRecoveredLive(
-    wheelPending,
-    await readTerminalStreamProbe(page, sessionId),
-    { predictiveCursor: true },
-  );
+  expectRecoveredLive(wheelPending, await readTerminalStreamProbe(page, sessionId));
   await waitForStableCellFrames(page, sessionId);
 }
 
@@ -391,9 +387,5 @@ export async function proveFindPasteRecovery({
   await expect.poll(async () =>
     (await readTerminalInputCapture(page)).batches.flatMap((batch) => batch.data)
   ).toEqual(Array.from(new TextEncoder().encode(pasteText)));
-  expectRecoveredLive(
-    findPending,
-    await readTerminalStreamProbe(page, sessionId),
-    { predictiveCursor: true },
-  );
+  expectRecoveredLive(findPending, await readTerminalStreamProbe(page, sessionId));
 }

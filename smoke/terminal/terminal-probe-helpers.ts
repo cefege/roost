@@ -11,7 +11,6 @@ import type {
 } from "./terminal-smoke-api.ts";
 
 type RecoveredLiveOptions = {
-  predictiveCursor?: boolean;
   streamTransition?: "continuous" | "rebaseline";
   rebaselineEpoch?: "same" | "changed";
 };
@@ -186,11 +185,7 @@ export function expectRecoveredLive(
     link: false,
   });
   expect(recovered.browser.presentation?.at_bottom).toBe(true);
-  if (options.predictiveCursor) {
-    expect([null, "predicted_cursor"]).toContain(recovered.browser.reconcile_block_reason);
-  } else {
-    expect(recovered.browser.reconcile_block_reason).toBeNull();
-  }
+  expect(recovered.browser.reconcile_block_reason).toBeNull();
 }
 
 export async function waitForRecoveredLive(

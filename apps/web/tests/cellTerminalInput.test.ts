@@ -49,13 +49,16 @@ afterEach(_resetTerminalFindIntentsForTest);
 
 function inputHarness() {
   const runtime = createCellTerminalRuntime("session-a", () => undefined);
-  const predict = mock(() => {});
+  const predict = mock((_bytes: Uint8Array, _inputSeq: bigint) => {});
+  const noteInputWritten = mock((_inputSeq: bigint) => {});
   const clear = mock(() => {});
   const setPredictedCursor = mock(() => {});
-  runtime.predictor = { predict, clear } as unknown as PredictiveEcho;
+  runtime.predictor = {
+    predict, noteInputWritten, clear,
+  } as unknown as PredictiveEcho;
   runtime.renderer = { setPredictedCursor } as unknown as CellGridRenderer;
   const input = createCellTerminalInput(props, runtime);
-  return { input, predict, clear, setPredictedCursor };
+  return { input, predict, noteInputWritten, clear, setPredictedCursor };
 }
 
 describe("CellTerminal find handoff lifecycle", () => {
@@ -96,15 +99,18 @@ describe("CellTerminal input prediction admission", () => {
     harness.input.dispose();
   });
 
-  test("accepted completion preserves pending prediction", async () => {
+  test("accepted completion preserves the prediction and acks its write", async () => {
     const harness = inputHarness();
     harness.input.sendControllerData("a");
+    expect(harness.predict.mock.calls[0]![1]).toBe(1n);
     outcome.resolve({ status: "accepted", inputSeq: 1n, writtenBytes: 1 });
     await outcome.promise;
     await Promise.resolve();
 
     expect(harness.clear).not.toHaveBeenCalled();
     expect(harness.setPredictedCursor).not.toHaveBeenCalled();
+    expect(harness.noteInputWritten).toHaveBeenCalledTimes(1);
+    expect(harness.noteInputWritten).toHaveBeenCalledWith(1n);
     harness.input.dispose();
   });
 });

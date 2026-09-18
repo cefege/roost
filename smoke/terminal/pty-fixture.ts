@@ -8,6 +8,13 @@ import {
   PTY_FIXTURE_READY,
 } from "./pty-fixture-protocol.ts";
 import type { PtyFixtureCommand } from "./pty-fixture-protocol.ts";
+import {
+  armedInputForCommand,
+  boundedInteger,
+  requiredString,
+  type ArmedInput,
+} from "./pty-fixture-commands.ts";
+import { EchoInputMode } from "./pty-fixture-echo.ts";
 
 const MAX_FRAME_BYTES = 1024 * 1024;
 const MAX_FLOOD_LINES = 100_000;
@@ -18,11 +25,7 @@ const protocolBytes = Buffer.from(PTY_FIXTURE_PROTOCOL, "ascii");
 const newlineByte = 0x0a;
 const treeChildren: Array<{ pid: number; kill(signal?: number | NodeJS.Signals): void }> = [];
 let restored = false;
-type ArmedInput =
-  | { kind: "legacy-key"; nonce: string }
-  | { kind: "cursor-move"; nonce: string }
-  | { kind: "line-overwrite"; nonce: string; bytes: number }
-  | { kind: "alt-redraw"; nonce: string; trigger: "key" | "line"; bytes: number };
+const echoInput = new EchoInputMode(writeOutput);
 
 let armedInput: ArmedInput | null = null;
 let discardNextLineFeed = false;
@@ -74,47 +77,6 @@ if (treeChildArg >= 0) {
     process.stdin.setRawMode(true);
     process.stdin.resume();
   }
-
-  const requiredString = (value: unknown, field: string): string => {
-    if (typeof value !== "string" || value.length === 0 || value.length > 4_096) {
-      throw new Error(`${field} must be a non-empty string no longer than 4096 characters`);
-    }
-    return value;
-  };
-
-  const boundedInteger = (value: unknown, field: string, minimum: number, maximum: number): number => {
-    if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) {
-      throw new Error(`${field} must be an integer in [${minimum}, ${maximum}]`);
-    }
-    return value as number;
-  };
-
-  const armedInputForCommand = (raw: unknown): ArmedInput | null => {
-    if (!raw || typeof raw !== "object" || !("op" in raw) || typeof raw.op !== "string") return null;
-    const nonce = "nonce" in raw ? raw.nonce : undefined;
-    switch (raw.op) {
-      case "ARM_KEY":
-        return { kind: "legacy-key", nonce: requiredString(nonce, "nonce") };
-      case "ARM_CURSOR_MOVE":
-        return { kind: "cursor-move", nonce: requiredString(nonce, "nonce") };
-      case "ARM_LINE_OVERWRITE":
-        return { kind: "line-overwrite", nonce: requiredString(nonce, "nonce"), bytes: 0 };
-      case "ARM_ALT_REDRAW": {
-        const trigger = "trigger" in raw ? raw.trigger : undefined;
-        if (trigger !== "key" && trigger !== "line") {
-          throw new Error("trigger must be key or line");
-        }
-        return {
-          kind: "alt-redraw",
-          nonce: requiredString(nonce, "nonce"),
-          trigger,
-          bytes: 0,
-        };
-      }
-      default:
-        return null;
-    }
-  };
 
   const nextCounter = (current: number, name: string): number => {
     if (current >= Number.MAX_SAFE_INTEGER) throw new Error(`${name} counter exhausted`);
@@ -237,6 +199,8 @@ if (treeChildArg >= 0) {
         await writeOutput(`TREE:${nonce}:${child.pid}\r\n`);
         return;
       }
+      case "ECHO_INPUT":
+        return echoInput.writeArmedMarker();
       case "EXIT":
         restoreInput();
         process.exit(0);
@@ -326,6 +290,15 @@ if (treeChildArg >= 0) {
 
   function consumeInput(): void {
     for (;;) {
+      if (echoInput.armed) {
+        // Armed: every remaining byte — including the tail of the chunk that
+        // carried the arming frame — is input to echo, never a command.
+        if (bufferedInput.length > 0) {
+          echoInput.push(bufferedInput);
+          bufferedInput = Buffer.alloc(0);
+        }
+        return;
+      }
       if (pendingWork >= MAX_PENDING_WORK) {
         process.stdin.pause();
         return;
@@ -343,6 +316,8 @@ if (treeChildArg >= 0) {
           const nextArmedInput = armedInputForCommand(raw);
           if (nextArmedInput !== null) armedInput = nextArmedInput;
           queueWork(() => handleCommand(raw));
+          // Arm AFTER queueing, so the marker is already on commandLane.
+          if (echoInput.armFromCommand(raw, commandLane)) armedInput = null;
         } catch (error) {
           queueFixtureError(error);
         }

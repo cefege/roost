@@ -11,6 +11,11 @@ export type PtyFixtureCommand =
   | { op: "REPORT_SIZE"; nonce: string }
   | { op: "ALT_SCREEN"; active: boolean; prefix?: string; count?: number; nonce?: string }
   | { op: "SPAWN_TREE"; nonce: string; depth?: number }
+  /** Echo every subsequent stdin byte back after `delayMs` (default 0). Arming
+   *  ENDS this session's command channel: nothing is parsed as a command again,
+   *  so this must be the last command a spec sends. The fixture writes
+   *  ECHO_INPUT_ARMED before the first echoed byte. */
+  | { op: "ECHO_INPUT"; delayMs?: number }
   | { op: "EXIT" };
 
 /** Length is UTF-8 bytes, not JS code units, so Unicode payloads stay framed. */

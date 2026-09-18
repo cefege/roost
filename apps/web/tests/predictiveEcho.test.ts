@@ -1,68 +1,22 @@
 // Predictive-echo state machine (lib/predictiveEcho.ts) — the epoch/
-// confidence logic. No jsdom in this repo, so a tiny fake DOM + an injectable
-// clock (to simulate link RTT) drive the SM; assertions read the _debug() seam,
-// not the DOM. Covers: SRTT gate (no-op on fast link), the two-epoch confidence
-// gate (first keystroke of a burst hidden until confirmed), hard-reset on a
-// shown wrong guess, and alt-screen suppression.
+// confidence logic. The fake DOM, injectable clock (to simulate link RTT) and
+// keystroke helpers live in predictiveEcho-test-harness.ts; assertions read the
+// _debug() seam, not the DOM. Covers: SRTT gate (no-op on fast link), the
+// two-epoch confidence gate (first keystroke of a burst hidden until
+// confirmed), hard-reset on a shown wrong guess, and alt-screen suppression.
 
 import { describe, test, expect } from "bun:test";
-import { PredictiveEcho } from "../src/lib/predictiveEcho.ts";
 import { normalizePredictMode, type PredictMode } from "../src/lib/predictPref.ts";
 import type { CellGridFrame } from "@roost/shared/cell";
-
-
-// ── minimal fake DOM (only what the overlay touches) ──────────────────
-function fakeEl(): any {
-  const el: any = {
-    className: "", textContent: "", style: {}, parentNode: null, _kids: [],
-    ownerDocument: null,
-    appendChild(c: any) { c.parentNode = el; el._kids.push(c); return c; },
-    replaceChildren() { el._kids = []; },
-    remove() { el.parentNode = null; },
-  };
-  return el;
-}
-function fakeHost(): HTMLElement {
-  const doc: any = {
-    createElement() { const e = fakeEl(); e.ownerDocument = doc; return e; },
-    createDocumentFragment() { return { appendChild() {} }; },
-  };
-  const host = fakeEl(); host.ownerDocument = doc;
-  return host as unknown as HTMLElement;
-}
-
-function frame(o: { seq: number; cc?: number; cr?: number; rows?: (string | null)[]; alt?: boolean; full?: boolean; cols?: number }): CellGridFrame {
-  const rows = o.rows ?? [null];
-  return {
-    streamId: "test-stream:0",
-    gridEpoch: "test-grid:0",
-    cols: o.cols ?? 80, rows: 24,
-    cursorRow: o.cr ?? 0, cursorCol: o.cc ?? 0, cursorVisible: true,
-    altScreen: o.alt ?? false, cursorKeysApp: false, bracketedPaste: false, full: o.full ?? false,
-    mouseTracking: 0, mouseSgr: false, focusEvents: false,
-    viewportRows: rows.map((t, i) => ({ index: i, spans: t ? [{ text: t, columns: t.length, fg: 256, bg: 256, flags: 0 }] : [] })),
-    scrollbackRows: [], scrollbackAppend: [], scrollbackTotal: 0, sbBase: 0,
-    seq: o.seq,
-    baseSeq: o.full === true ? 0 : Math.max(0, o.seq - 1),
-  } as CellGridFrame;
-}
-
-const enc = (s: string) => new TextEncoder().encode(s);
-
-let clock = { t: 0 };
-function mk(mode: PredictMode = "adaptive"): PredictiveEcho {
-  clock = { t: 0 };
-  const pe = new PredictiveEcho(fakeHost(), { mode: () => mode, now: () => clock.t });
-  pe.onFrame(frame({ seq: 1, full: true, cc: 0 })); // initial full frame → anchor
-  return pe;
-}
-
+import {
+  clock, enc, frame, mk, mkWithHost, type,
+} from "./predictiveEcho-test-harness.ts";
 
 describe("predictive echo SM", () => {
   test("slow link: first keystroke hidden, confirmed → next keystroke shown", () => {
     const pe = mk();
     clock.t = 0;
-    pe.predict(enc("a"));
+    type(pe, "a");
     expect(pe._debug().total).toBe(1);
     expect(pe._debug().visible).toBe(0); // tentative (epoch unconfirmed) AND srtt unmeasured
 
@@ -73,26 +27,26 @@ describe("predictive echo SM", () => {
     expect(d.srtt).toBeGreaterThan(100);
 
     clock.t = 210;
-    pe.predict(enc("b")); // same epoch, now confirmed → visible on the slow link
+    type(pe, "b"); // same epoch, now confirmed → visible on the slow link
     expect(pe._debug().visible).toBe(1);
   });
 
   test("fast link: predictions made but never shown (SRTT gate)", () => {
     const pe = mk();
-    pe.predict(enc("a"));
+    type(pe, "a");
     clock.t = 5; // 5ms RTT → fast link
     pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] }));
     clock.t = 6;
-    pe.predict(enc("b"));
+    type(pe, "b");
     expect(pe._debug().total).toBe(1);
     expect(pe._debug().visible).toBe(0); // srtt/2 ≈ 2.5ms ≤ 30 → no-op
   });
 
   test("shown wrong guess → hard reset (fall back to authoritative)", () => {
     const pe = mk();
-    pe.predict(enc("a"));
+    type(pe, "a");
     clock.t = 200; pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] })); // confirm epoch
-    clock.t = 210; pe.predict(enc("b"));
+    clock.t = 210; type(pe, "b");
     expect(pe._debug().visible).toBe(1); // "b" is shown
     // Next frame contradicts the SHOWN "b" (col 1 is "x") → nuke all predictions.
     clock.t = 410; pe.onFrame(frame({ seq: 3, cc: 1, rows: ["ax"] }));
@@ -101,26 +55,26 @@ describe("predictive echo SM", () => {
 
   test("alt-screen suppresses + clears predictions", () => {
     const pe = mk();
-    pe.predict(enc("a"));
+    type(pe, "a");
     expect(pe._debug().total).toBe(1);
     pe.onFrame(frame({ seq: 2, alt: true })); // entered a TUI
     expect(pe._debug().total).toBe(0);
-    pe.predict(enc("xyz")); // no-op while alt
+    type(pe, "xyz"); // no-op while alt
     expect(pe._debug().total).toBe(0);
   });
 
   test("ESC / control byte refuses (bumps epoch → stays hidden)", () => {
     const pe = mk();
-    pe.predict(new Uint8Array([0x1b])); // ESC → becomeTentative, no prediction
+    type(pe, new Uint8Array([0x1b])); // ESC → becomeTentative, no prediction
     expect(pe._debug().total).toBe(0);
     expect(pe._debug().predictionEpoch).toBe(2);
-    pe.predict(enc("a")); // epoch 2, confirmedEpoch 0 → tentative → hidden
+    type(pe, "a"); // epoch 2, confirmedEpoch 0 → tentative → hidden
     expect(pe._debug().visible).toBe(0);
   });
 
   test("injected never mode disables prediction", () => {
     const pe = mk("never");
-    pe.predict(enc("a"));
+    type(pe, "a");
     expect(pe._debug().total).toBe(0);
   });
 });
@@ -143,7 +97,7 @@ describe("display_preference modes", () => {
 
   test("Experimental: first keystroke shown IMMEDIATELY (no confidence gate, no RTT)", () => {
     const pe = mk("experimental");
-    pe.predict(enc("a")); // no prior confirm, srtt=0 → still visible (epoch == confirmedEpoch)
+    type(pe, "a"); // no prior confirm, srtt=0 → still visible (epoch == confirmedEpoch)
     const d = pe._debug();
     expect(d.mode).toBe("experimental");
     expect(d.visible).toBe(1);
@@ -151,42 +105,40 @@ describe("display_preference modes", () => {
 
   test("Always: shown after the epoch confirms even on a fast link", () => {
     const pe = mk("always");
-    pe.predict(enc("a"));
+    type(pe, "a");
     expect(pe._debug().visible).toBe(0); // first char tentative until confirmed
     clock.t = 5; pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] })); // confirm (fast 5ms)
-    clock.t = 6; pe.predict(enc("b"));
+    clock.t = 6; type(pe, "b");
     expect(pe._debug().visible).toBe(1); // always-mode shows despite srtt≈5ms
   });
 
   test("right/left arrow predicts a cursor move (CSI C/D)", () => {
     const pe = mk("always"); // initial frame cursor at col 0
-    pe.predict(new Uint8Array([0x1b, 0x5b, 0x43])); // ESC[C — right
+    type(pe, new Uint8Array([0x1b, 0x5b, 0x43])); // ESC[C — right
     expect(pe._debug().predCursorCol).toBe(1);
-    pe.predict(new Uint8Array([0x1b, 0x5b, 0x43])); // right again
+    type(pe, new Uint8Array([0x1b, 0x5b, 0x43])); // right again
     expect(pe._debug().predCursorCol).toBe(2);
-    pe.predict(new Uint8Array([0x1b, 0x5b, 0x44])); // ESC[D — left
+    type(pe, new Uint8Array([0x1b, 0x5b, 0x44])); // ESC[D — left
     expect(pe._debug().predCursorCol).toBe(1);
     expect(pe._debug().total).toBe(0); // arrows move the caret, predict no glyph
   });
 
   test("predicted cursor (onCursor) leads the echoed chars when shown", () => {
     const cursorCalls: (number | null)[] = [];
-    const pe = new PredictiveEcho(fakeHost(), {
-      mode: () => "experimental",
-      now: () => clock.t,
-      onCursor: (c) => cursorCalls.push(c),
+    const { pe } = mkWithHost("experimental", {
+      onCursor: (col) => cursorCalls.push(col),
     });
-    pe.onFrame(frame({ seq: 1, full: true, cc: 0 }));
-    pe.predict(enc("ab")); // a@0, b@1 → caret should lead to col 2
+    type(pe, "ab"); // a@0, b@1 → caret should lead to col 2
     expect(cursorCalls[cursorCalls.length - 1]).toBe(2);
   });
 
   test("Experimental wrong guess resets only that cell (no hard reset)", () => {
     const pe = mk("experimental"); // initial frame seq=1
-    pe.predict(enc("ab")); // a@0, b@1 — both shown immediately
+    type(pe, "ab"); // a@0, b@1 — both shown immediately
     expect(pe._debug().visible).toBe(2);
-    // Frame echoes "a" correctly but col1 is "x" (b was wrong).
-    clock.t = 50; pe.onFrame(frame({ seq: 2, cc: 1, rows: ["ax"] }));
+    // Frame echoes "a" correctly but col1 is "x" (b was wrong). Past ack+grace,
+    // so the contradiction is judgeable rather than pending.
+    clock.t = 100; pe.onFrame(frame({ seq: 2, cc: 1, rows: ["ax"] }));
     // a confirmed+retired, b dropped (its own cell) — engine still in experimental, no throw.
     expect(pe._debug().mode).toBe("experimental");
     expect(pe._debug().total).toBe(0);
@@ -199,7 +151,7 @@ describe("display_preference modes", () => {
 describe("prediction-engine hardening", () => {
   test("non-resize full frame reconciles instead of wiping", () => {
     const pe = mk();                  // seq 1 full → anchors cols 80, viewportRows 1
-    pe.predict(enc("a"));             // a@0, bornSeq 1
+    type(pe, "a");                    // a@0
     expect(pe._debug().total).toBe(1);
     clock.t = 200;
     // SAME dimensions, full frame → RECONCILE (cull), NOT wipe.
@@ -211,7 +163,7 @@ describe("prediction-engine hardening", () => {
 
   test("resize full frame still wipes (coords invalidated)", () => {
     const pe = mk();                  // cols 80
-    pe.predict(enc("a"));             // a@0, bornSeq 1
+    type(pe, "a");                    // a@0
     clock.t = 200;
     // cols changed → resize → wipe BEFORE reconcile (SRTT never sampled).
     pe.onFrame(frame({ seq: 2, full: true, cols: 100, cc: 1, rows: ["a"] }));
@@ -222,7 +174,7 @@ describe("prediction-engine hardening", () => {
 
   test("a batch history signal clears predictions from an earlier delta", () => {
     const pe = mk("always");
-    pe.predict(enc("a"));
+    type(pe, "a");
     expect(pe._debug().total).toBe(1);
 
     pe.onFrame(frame({ seq: 2, full: true, cc: 0, rows: [null] }), true);
@@ -233,7 +185,7 @@ describe("prediction-engine hardening", () => {
   test("hysteresis: shows through the 20–30 ms dead-band once armed", () => {
     const pe = mk();
     // Arm: a high-RTT confirmation (SRTT/2 > SHOW_ON arms srttTrigger).
-    pe.predict(enc("a"));
+    type(pe, "a");
     clock.t = 200;
     pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] })); // srtt=200, half 100 > 30 → armed
     // Drive the EWMA down into the 40–60 ms band (half 20–30, the old dead-band
@@ -242,7 +194,7 @@ describe("prediction-engine hardening", () => {
     let row = "a", seq = 3;
     for (let i = 0; i < 29; i++) {
       const ch = String.fromCharCode(98 + i); // b, c, … ~
-      pe.predict(enc(ch));
+      type(pe, ch);
       clock.t += 50;
       row += ch;
       pe.onFrame(frame({ seq: seq++, cc: row.length, rows: [row] }));
@@ -251,15 +203,15 @@ describe("prediction-engine hardening", () => {
     expect(mid.srtt).toBeGreaterThan(40);      // genuinely in the dead-band…
     expect(mid.srtt).toBeLessThanOrEqual(60);  // …where OLD code hid everything
     // A fresh prediction in the band is still visible — armed persists through it.
-    pe.predict(enc("0"));
+    type(pe, "0");
     expect(pe._debug().visible).toBe(1);
   });
 
   test("paste guard: >100 bytes reset, never predicted", () => {
     const pe = mk();
-    pe.predict(enc("a"));                 // a real keystroke
+    type(pe, "a");                        // a real keystroke
     expect(pe._debug().total).toBe(1);
-    pe.predict(new Uint8Array(101));      // a paste → reset + drop
+    type(pe, new Uint8Array(101));        // a paste → reset + drop
     expect(pe._debug().total).toBe(0);
   });
   test("delta frame (partial viewportRows) reconciles, not wiped by dirty-count drift", () => {
@@ -270,11 +222,11 @@ describe("prediction-engine hardening", () => {
     // every prediction and SRTT never gets sampled. A single delta reaches the
     // predictor as sparse input; a coalesced batch supplies its final canonical
     // viewport so every changed row is judgeable.
-    clock.t = 0;
-    const pe = new PredictiveEcho(fakeHost(), { mode: () => "adaptive", now: () => clock.t });
     // First FULL frame: 2 viewport rows → seeds the height tracker.
-    pe.onFrame(frame({ seq: 1, full: true, cc: 0, rows: [null, null] }));
-    pe.predict(enc("a"));                    // a@0, bornSeq 1, bornMs 0
+    const { pe } = mkWithHost("adaptive", {
+      anchor: frame({ seq: 1, full: true, cc: 0, rows: [null, null] }),
+    });
+    type(pe, "a");                           // a@0, bornMs 0
     clock.t = 200;
     // DELTA: full:false, only ONE changed row (the echoed "a"). Same height
     // (frame.rows=24) but viewportRows.length=1 ≠ the full frame's 2.
@@ -289,10 +241,10 @@ describe("prediction-engine hardening", () => {
     // common bottom-prompt case) otherwise reads the wrong cell → no confirm →
     // srtt stays 0 and Adaptive never arms. confirmedEpoch>0 is the
     // RTT-independent discriminator (wipe→0, reconcile→advances).
-    clock.t = 0;
-    const pe = new PredictiveEcho(fakeHost(), { mode: () => "adaptive", now: () => clock.t });
-    pe.onFrame(frame({ seq: 1, full: true, cr: 5, cc: 0, rows: [null] })); // cursor on row 5
-    pe.predict(enc("a")); // a@(5,0), bornSeq 1
+    const { pe } = mkWithHost("adaptive", {
+      anchor: frame({ seq: 1, full: true, cr: 5, cc: 0, rows: [null] }), // cursor on row 5
+    });
+    type(pe, "a"); // a@(5,0)
     clock.t = 200;
     // DELTA: only row 5 changed, at viewportRows ARRAY POSITION 0 (.index=5).
     const delta = {
@@ -312,10 +264,10 @@ describe("prediction-engine hardening", () => {
   });
   test("unrelated sparse delta does not judge a pending prediction", () => {
     const pe = mk("always");
-    pe.predict(enc("a"));
+    type(pe, "a");
     clock.t = 20;
     pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] }));
-    pe.predict(enc("b"));
+    type(pe, "b");
     expect(pe._debug().visible).toBe(1);
 
     const unrelatedDelta = {

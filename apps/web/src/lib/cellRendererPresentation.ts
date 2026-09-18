@@ -89,7 +89,6 @@ export type ReconcileBlockReason =
   | "selection_hold"
   | "link_hold"
   | "selection_and_link_hold"
-  | "predicted_cursor"
   | "pending_render"
   | "not_reconciled"
   | null;
@@ -238,8 +237,6 @@ export function sameScrollbackRow(left: CellRow, right: CellRow): boolean {
 export interface RendererReconcileState {
   readerPending: boolean;
   holdMask: number;
-  predictedCol: number | null;
-  cursorCol: number | null;
   pendingRender: boolean;
   canonical: RendererEpochSeq;
   reconciled: RendererEpochSeq;
@@ -254,11 +251,6 @@ export function rendererReconcileBlockReason(
   if (selection && link) return "selection_and_link_hold";
   if (selection) return "selection_hold";
   if (link) return "link_hold";
-  if (
-    state.cursorCol !== null
-    && state.predictedCol !== null
-    && state.predictedCol !== state.cursorCol
-  ) return "predicted_cursor";
   if (state.pendingRender) return "pending_render";
   if (
     state.canonical.grid_epoch !== state.reconciled.grid_epoch

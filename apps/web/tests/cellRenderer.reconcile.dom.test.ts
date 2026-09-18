@@ -65,6 +65,22 @@ describe("CellGridRenderer DOM — viewport diff", () => {
     expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
   });
 
+  test("a leading predicted caret does not freeze reconciliation", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
+    r.setPredictedCursor(7);                              // caret ahead of the echo
+
+    expect(r.applyDeltaFrames([{
+      ...deltaFrame(80, 2, [], [], 2),
+      cursorRow: 1,
+      cursorCol: 3,
+    }])).toBe(true);
+
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+    expect(r.reconcileBlockReason()).toBeNull();
+  });
+
   test("cursor-only pending state resumes cleanly without replacing row nodes", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);

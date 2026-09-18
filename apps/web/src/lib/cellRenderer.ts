@@ -832,8 +832,6 @@ export class CellGridRenderer {
     return rendererReconcileBlockReason({
       readerPending: this.readerPendingFrame !== null,
       holdMask: this._holdMask,
-      predictedCol: this.predictedCol,
-      cursorCol: this.frame?.cursorCol ?? null,
       pendingRender: this.pendingRender,
       canonical: this.canonicalEpochSeq(),
       reconciled: this.reconciledEpochSeq(),
@@ -903,9 +901,10 @@ export class CellGridRenderer {
       || (
         frame.cursorVisible
         && (
-          (this.predictedCol !== null && this.predictedCol !== frame.cursorCol)
-          || this._paintedCursorRow !== frame.cursorRow
-          || this._paintedCursorCol !== frame.cursorCol
+          this._paintedCursorRow !== frame.cursorRow
+          // Compare the column updateCursor INTENDED to paint: judging a leading
+          // prediction against frame.cursorCol froze this watermark all burst.
+          || this._paintedCursorCol !== (this.predictedCol ?? frame.cursorCol)
         )
       )
     ) return;

@@ -71,7 +71,9 @@ export function createCellTerminalInput(
 		runtime.renderer?.setPredictedCursor(null);
 	};
 
-	const reportImmediateRejection = (admission: InputAdmission): boolean => {
+	const reportImmediateRejection = (
+		admission: InputAdmission,
+	): admission is { accepted: false; reason: string } => {
 		if (admission.accepted) return false;
 		clearUncertainPrediction();
 		signal("input.drop_burst", {
@@ -84,12 +86,15 @@ export function createCellTerminalInput(
 	const watchAcceptedAdmission = (admission: InputAdmission): void => {
 		if (!admission.accepted) return;
 		void admission.result.then((result) => {
-			if (result.status === "accepted") return;
+			if (result.status === "accepted") {
+				runtime.predictor?.noteInputWritten(result.inputSeq);
+				return;
+			}
 			clearUncertainPrediction();
 			signal("input.drop_burst", {
 				sid: sessionId,
-				reason: result.status === "ambiguous" ? "ambiguous" : result.reason,
-				cooldownKey: sessionId,
+				reason: result.reason,
+				cooldownKey: `${sessionId}|${result.status}`,
 			});
 		});
 	};
@@ -121,7 +126,7 @@ export function createCellTerminalInput(
 			runtime.view?.viewId,
 		);
 		if (reportImmediateRejection(admission)) return;
-		runtime.predictor?.predict(bytes);
+		runtime.predictor?.predict(bytes, admission.inputSeq);
 		recordInput(sessionId, controlledData);
 		watchAcceptedAdmission(admission);
 	};
