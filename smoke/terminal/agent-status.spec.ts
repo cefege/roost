@@ -95,6 +95,16 @@ test("agent status reaches every browser surface and notification ACK", async ({
   const blockedToast = smokePage.getByTestId("toast").filter({ hasText: "needs your input" });
   await expect(blockedToast).toBeVisible({ timeout: 10_000 });
   await expect(blockedToast.getByTestId("toast-details")).toContainText("Approval needed");
+
+  // Hovering a session-targeted toast rings the live surface its View action
+  // lands on — here the target's own pane tab, because it shares /tmp with the
+  // terminal on screen. The pointer must leave again before the run continues:
+  // a hovered toast freezes its own auto-dismiss.
+  const blockedTab = smokePage.getByTestId(`tab-${backgroundId}`);
+  await blockedToast.hover();
+  await expect(blockedTab).toHaveAttribute("data-notify-target", "true");
+  await smokePage.mouse.move(0, 0);
+  await expect(blockedTab).not.toHaveAttribute("data-notify-target", "true");
   const blockedStatus = await pollAgentStatus(stack.client, backgroundId, "blocked");
   expect([blockedStatus.statusEpoch, blockedStatus.occupantId]).toEqual([
     sameShellEpoch,

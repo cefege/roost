@@ -433,6 +433,17 @@ aside[data-testid="sidebar-desktop"] {
   color: var(--md-sys-color-on-secondary-container);
 }
 .workbench-sidebar-actionbar__machine-option-check { flex: 0 0 auto; }
+/* The compact drawer is full-bleed, so a stretched filled action paints a
+   screen-wide slab; size it to its label and keep it under the thumb. */
+aside[data-testid="sidebar-drawer"] .workbench-sidebar-actionbar { justify-content: flex-end; }
+aside[data-testid="sidebar-drawer"] .workbench-sidebar-actionbar__new {
+  flex: 0 0 auto;
+  padding-inline: var(--md-space-4);
+}
+aside[data-testid="sidebar-drawer"] .workbench-sidebar-actionbar__machine {
+  margin-inline-end: auto;
+  max-inline-size: 55%;
+}
 @media (hover: none) {
   .df-row .df-action { opacity: 1; }
 }

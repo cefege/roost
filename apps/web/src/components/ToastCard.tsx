@@ -1,14 +1,24 @@
 // ToastCard — one toast surface inside the notification dock. Owns the kind
 // presentation (StatusDot plus a countdown tint), the compact two-row action
-// layout, and the copy affordance for error and detail text.
-// Rendered by ToastStack.tsx; state and dismissal come from store/toastStore.ts.
+// layout, the copy affordance for error and detail text, and the hover/focus
+// hold that freezes auto-dismiss and rings the toast's target session.
+// Rendered by ToastStack.tsx; state and dismissal come from store/toastStore.ts,
+// target highlighting from store/notifyTarget.ts.
 
-import { Show, createSignal } from "solid-js";
+import { Show, createSignal, onCleanup } from "solid-js";
 import { Button, IconButton, StatusDot, Surface } from "./Settings/md/primitives.tsx";
-import { dismissToast, type Toast, type ToastKind } from "../store/toastStore.ts";
+import {
+  dismissToast,
+  holdToastDismiss,
+  releaseToastDismiss,
+  type Toast,
+  type ToastKind,
+} from "../store/toastStore.ts";
+import { holdNotifyTarget, releaseNotifyTarget } from "../store/notifyTarget.ts";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
+import { hoverCardAvailable } from "./PaneTabHoverCard.tsx";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
 
 const TOAST_STATUS: Record<ToastKind, "ok" | "warn" | "error"> = {
@@ -26,6 +36,30 @@ const TOAST_ACCENT: Record<ToastKind, string> = {
 export function ToastCard(props: { toast: Toast }) {
   const setTimeoutTracked = createTrackedTimeouts();
   const [copied, setCopied] = createSignal(false);
+  const [dismissHeld, setDismissHeld] = createSignal(false);
+  // Captured at body time: a Toast row is never mutated after addToast, and
+  // reading props.* inside onCleanup is not allowed.
+  const toastId = props.toast.id;
+
+  function holdToast(): void {
+    // hoverCardAvailable() is this repo's single owner of "this device really
+    // hovers". A tap on a touch device synthesizes mouseenter with no matching
+    // mouseleave, which would freeze the dismissal and pin the target ring
+    // until the user hit ✕; width alone does not catch a touch laptop or TV.
+    if (!hoverCardAvailable()) return;
+    holdToastDismiss(toastId);
+    setDismissHeld(true);
+    const sessionId = props.toast.targetSessionId;
+    if (sessionId) holdNotifyTarget(toastId, sessionId);
+  }
+
+  function releaseToast(): void {
+    releaseToastDismiss(toastId);
+    setDismissHeld(false);
+    releaseNotifyTarget(toastId);
+  }
+
+  onCleanup(() => { releaseNotifyTarget(toastId); });
 
   async function copy(event: MouseEvent) {
     event.stopPropagation();
@@ -75,7 +109,18 @@ export function ToastCard(props: { toast: Toast }) {
   );
 
   return (
-    <div data-testid="toast" data-kind={props.toast.kind} style={{ "user-select": "text" }}>
+    <div
+      data-testid="toast"
+      data-kind={props.toast.kind}
+      class="roost-toast-slot"
+      data-compact={isCompact() ? "true" : "false"}
+      data-dismiss-held={dismissHeld() ? "true" : undefined}
+      style={{ "user-select": "text" }}
+      onMouseEnter={holdToast}
+      onMouseLeave={releaseToast}
+      onFocusIn={holdToast}
+      onFocusOut={releaseToast}
+    >
       <Surface
         level={2}
         elevation={3}
@@ -157,6 +202,11 @@ export function ToastCard(props: { toast: Toast }) {
               background: TOAST_ACCENT[props.toast.kind],
               "transform-origin": "left center",
               animation: `roost-toast-countdown ${props.toast.ttlMs}ms linear forwards`,
+              // Inline, beside the shorthand that sets the duration: the
+              // shorthand resets play-state at inline specificity, so a
+              // stylesheet rule could never pause the bar. Same signal as the
+              // JS freeze, so the bar cannot outlive or outrun the timer.
+              "animation-play-state": dismissHeld() ? "paused" : "running",
             }}
           />
         </Show>

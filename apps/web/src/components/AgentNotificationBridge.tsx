@@ -111,6 +111,7 @@ export function AgentNotificationBridge() {
         {
           details: status.message,
           ttlMs: delivery.kind === "blocked" ? 8_000 : 5_000,
+          targetSessionId: sessionId,
           action: {
             label: "View",
             onClick: () => {

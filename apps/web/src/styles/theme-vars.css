@@ -173,6 +173,12 @@
   --roost-notify-dock-lift: 0px;
   --roost-notify-dock-overscan: 0px;
 
+  /* Toast slot measure. A toast card shrink-wraps its content between these
+     bounds on desktop instead of taking the dock's full 70ch; declared here
+     because theme-vars.css is the only legal var declaration site. */
+  --roost-toast-min-inline-size: 34ch;
+  --roost-toast-max-inline-size: 52ch;
+
   /* M3 elevation shadows — the SINGLE declaration site (design-system phase 1:
      the md/tokens.css duplicate was removed). Global surfaces AND the settings
      subtree resolve from here. */
@@ -379,6 +385,8 @@
   --workbench-tab-strip-height: 35px;
   --md-icon-button-icon-size: 24px;
   --workbench-tab-action-size: 28px;
+  --workbench-tab-width-max: calc(var(--md-space-8) * 5);
+  --workbench-tab-width-min: calc(var(--workbench-tab-action-size) + var(--md-space-8));
   --workbench-border-width: 1px;
   --workbench-sidebar-expanded-width: 300px;
   --workbench-sidebar-width: var(--workbench-sidebar-expanded-width);

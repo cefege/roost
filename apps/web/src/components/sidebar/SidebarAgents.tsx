@@ -12,6 +12,7 @@ import { AGENT_STATUS_PRESENTATION } from "../../lib/agentStatus.ts";
 import { buildFolderGroups } from "../../lib/folderGroups.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";
+import { notifyTargetSessionId } from "../../store/notifyTarget.ts";
 import {
   navigationSearchDocuments,
   normalizeNavigationSearchQuery,
@@ -91,6 +92,7 @@ export function SidebarAgents(props: SidebarAgentsProps): JSX.Element {
                   {(row) => (
                     <div
                       class="workbench-sidebar-agents__row"
+                      data-notify-target={notifyTargetSessionId() === row.document.sessionId ? "true" : undefined}
                       onClick={(event) => recordNavigation(event, row.document.sessionId)}
                     >
                       <ListRow

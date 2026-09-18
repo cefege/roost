@@ -10,6 +10,7 @@ import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { scheduleClose } from "../../lib/pendingClose.ts";
 import { closeLabelsFor, killAfterUndo, siblingOrHomeHref } from "../../lib/closeSession.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";
+import { notifyTargetSessionId } from "../../store/notifyTarget.ts";
 import { relTimeSince } from "../../lib/relTime.ts";
 import { shortServerLabel } from "../../lib/sidebarFormat.ts";
 import { sessionTitle } from "../../lib/sessionTitle.ts";
@@ -194,6 +195,7 @@ export function SessionRow(props: SessionRowProps) {
       data-status={session().status}
       data-selected={isActive() ? "focused" : ""}
       data-cursor={props.cursor ? "on" : undefined}
+      data-notify-target={notifyTargetSessionId() === session().id ? "true" : undefined}
       data-density={density()}
       data-swiping={swiping() ? "1" : undefined}
       class="df-row"

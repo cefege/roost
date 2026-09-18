@@ -1,7 +1,9 @@
 /* NotificationDock.css — geometry for the single bottom overlay column that
    hosts toasts, undo snackbars, transfers and pair requests, plus the toast and
-   undo keyframes those cards animate with. Imported by NotificationDock.tsx,
-   which publishes --roost-notify-dock-lift. */
+   undo keyframes those cards animate with, the desktop toast slot measure, and
+   the notify-target ring a hovered toast paints on the pane tab or sidebar row
+   it points at. Imported by NotificationDock.tsx, which publishes
+   --roost-notify-dock-lift. */
 
 .roost-notify-dock {
   position: fixed;
@@ -22,9 +24,34 @@
   inline-size: min(70ch, 100%);
 }
 
+/* A short toast should read as a short card. The slot shrink-wraps between a
+   floor that keeps a stack of cards from looking ragged and a measure that caps
+   a long line well before the 70ch the wider dock cards need. Compact keeps the
+   full-width slot: a phone toast puts its action row on its own line. */
+.roost-notify-dock > .roost-toast-slot[data-compact="false"] {
+  inline-size: auto;
+  min-inline-size: min(var(--roost-toast-min-inline-size), 100%);
+  max-inline-size: min(var(--roost-toast-max-inline-size), 100%);
+}
+
 .roost-toast {
   position: relative;
   overflow: hidden;
+}
+
+/* The notify-target ring lives here, not in workbench-tabs.css /
+   workbench-sidebar.css, because it is one dock affordance painted on foreign
+   surfaces — two copies of one value is how these drift apart. It is an INSET
+   box-shadow, not an outline: `.df-row:focus-within` and
+   `.workbench-pane-tab__select:focus-visible` already own `outline` at equal
+   specificity, and neither `.df-row` nor `.workbench-pane-tab` sets box-shadow —
+   so the ring can never lose a cross-stylesheet ordering coin flip, and it
+   stacks with a focus ring instead of replacing it. Inset affects no layout, so
+   nothing shifts under the pointer and the tab's overflow cannot clip it. */
+.workbench-pane-tab[data-notify-target="true"],
+.df-row[data-notify-target="true"],
+.workbench-sidebar-agents__row[data-notify-target="true"] {
+  box-shadow: inset 0 0 0 calc(var(--workbench-border-width) * 2) var(--md-sys-color-primary);
 }
 
 @keyframes roost-toast-in {

@@ -15,6 +15,7 @@ import { getLastSessionForFolder } from "../../lib/lastVisited.ts";
 import { cursorSessionId, setActivateHandler, setOrderedSessionIds } from "../../lib/sidebarCursor.ts";
 import { relTimeSince } from "../../lib/relTime.ts";
 import { folderKeyOf } from "../../lib/folderKey.ts";
+import { notifyTargetFolderKey } from "../../store/notifyTarget.ts";
 import { colorForFp } from "../../lib/fpColor.ts";
 import {
   buildFolderGroups,
@@ -82,6 +83,14 @@ export function FolderList(props: FolderListProps) {
   const activeFolderKey = createMemo(() => {
     const s = activeSession();
     return s ? folderKeyOf(s) : null;
+  });
+
+  // A hovered notification whose target sits in the active folder is answered by
+  // that folder's pane tab, and its row already reads as selected — ringing it
+  // too would be noise. Only a cross-folder target claims a row.
+  const notifyTargetRowKey = createMemo(() => {
+    const key = notifyTargetFolderKey();
+    return key !== null && key !== activeFolderKey() ? key : null;
   });
 
   function targetIdFor(g: FolderGroup): string {
@@ -158,6 +167,7 @@ export function FolderList(props: FolderListProps) {
       data-testid={`folder-row-${g.key}`}
       data-selected={activeFolderKey() === g.key ? "focused" : ""}
       data-cursor={cursorSessionId() === g.leadId ? "on" : undefined}
+      data-notify-target={notifyTargetRowKey() === g.key ? "true" : undefined}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
