@@ -87,7 +87,7 @@ mock.module("../src/lib/attachDiagnosis.ts", () => ({
   attachDiagnosisWaitKey: () => null,
   startAttachDiagnosis: () => ({ dispose: () => undefined }),
 }));
-mock.module("../src/components/TerminalOfflineNotice.tsx", () => ({
+mock.module("../src/components/TerminalStartupOverlay.tsx", () => ({
   terminalViewportLoadingNotice: () => null,
 }));
 mock.module("../src/store/terminal-stream.ts", () => ({

@@ -25,9 +25,10 @@ import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import type { Session } from "@roost/shared/wire";
 import {
-  TerminalLoadingNotice,
-  type TerminalLoadingStage,
-} from "./TerminalOfflineNotice.tsx";
+  TerminalStartupOverlay,
+  type TerminalStartupNotice,
+} from "./TerminalStartupOverlay.tsx";
+import type { TerminalStartupStage } from "../lib/terminalStartupProgress.ts";
 
 // Code-split boundary (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism. File-viewer and metadata-search dependencies load
@@ -43,7 +44,7 @@ const AgentPane = lazy(() =>
 );
 
 interface BootstrapLoadingCopy {
-  stage: Exclude<TerminalBootstrapStage, "ready"> & TerminalLoadingStage;
+  stage: Exclude<TerminalBootstrapStage, "ready"> & TerminalStartupStage;
   title: string;
   detail: string;
 }
@@ -178,6 +179,22 @@ export function MainPane() {
     return terminalBootstrapCopy(terminalBootstrapStage());
   });
 
+  const bootstrapNotice = createMemo((): TerminalStartupNotice | null => {
+    const copy = bootstrapLoading();
+    if (!copy) return null;
+    return {
+      ...copy,
+      actions: stuckKind() === "connecting"
+        ? (
+          <Button variant="secondary" data-testid="stuck-terminal-home"
+            onClick={() => { consumeBootRestore(); navigate("/"); }}>
+            Go home
+          </Button>
+        )
+        : undefined,
+    };
+  });
+
   // Remember where you were (browser-local): boot restores into your last
   // terminal, and each folder reopens its last-viewed tab. Only records a LIVE
   // terminal so a dead route never overwrites a good memory.
@@ -258,23 +275,7 @@ export function MainPane() {
           surfaceVisible={!overlayActive()}
         />
 
-        <Show when={bootstrapLoading()}>
-          {(loading) => (
-            <TerminalLoadingNotice
-              stage={loading().stage}
-              title={loading().title}
-              detail={loading().detail}
-              actions={stuckKind() === "connecting"
-                ? (
-                  <Button variant="secondary" data-testid="stuck-terminal-home"
-                  onClick={() => { consumeBootRestore(); navigate("/"); }}>
-                    Go home
-                  </Button>
-                )
-                : undefined}
-            />
-          )}
-        </Show>
+        <TerminalStartupOverlay notice={bootstrapNotice()} />
 
         {/* An unpaired browser cannot progress through bootstrap without user
             action, so replace progress immediately with pairing escapes. */}

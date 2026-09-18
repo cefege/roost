@@ -38,8 +38,8 @@ import {
 import type { TerminalViewHandleStatus } from "../store/terminal-stream.ts";
 import {
   terminalViewportLoadingNotice,
-  type TerminalLoadingNoticeProps,
-} from "./TerminalOfflineNotice.tsx";
+  type TerminalStartupNotice,
+} from "./TerminalStartupOverlay.tsx";
 import type { TerminalSelectionGuard } from "./TerminalComposeButton.tsx";
 import { createCellTerminalDomRepair } from "./cell-terminal-dom-repair.ts";
 import type { CellTerminalProps } from "./cell-terminal-types.ts";
@@ -56,7 +56,7 @@ export interface CellTerminalPresentation {
   clearDomStallRecovery(): void;
   clearFrameActivity(): void;
   hasReconciledFrame: Accessor<boolean>;
-  loadingNotice: Accessor<TerminalLoadingNoticeProps | null>;
+  loadingNotice: Accessor<TerminalStartupNotice | null>;
   loadingProgress: Accessor<{ received: number; total: number } | null>;
   noteFrameActivity: TerminalPresentationController["noteFrameActivity"];
   noteRendererReconciled(): void;

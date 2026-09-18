@@ -10,6 +10,7 @@ import { spawnSmokeShell, navigateToSmokeSession } from "./terminal-helpers.ts";
 import {
   installTerminalLoadingStageProbe,
   terminalLoadingStages,
+  terminalStartupMeterSamples,
 } from "./terminal-loading-stage-probe.ts";
 
 test("browser smoke flow creates and cleans its resources", async ({ smokePage, stack }) => {
@@ -93,9 +94,11 @@ test("cold document shows loading until an existing terminal paints", async ({
     const loadingStatus = coldSmokePage.getByTestId("terminal-loading-status");
     await expect(loadingStatus).toHaveAttribute("data-stage", "sessions");
     await expect(coldSmokePage.getByTestId("terminal-loading-title"))
-      .toHaveText("Loading terminal sessions");
+      .toHaveText("Opening terminal");
     await expect(coldSmokePage.getByTestId("terminal-loading-detail"))
-      .toHaveText("Live terminal channel opened; waiting for the session list.");
+      .toHaveText("Finding your terminals");
+    // The technical block stays collapsed until a step is slow or stuck.
+    await expect(coldSmokePage.getByTestId("terminal-loading-details")).toBeHidden();
     await expect.poll(() => terminalLoadingStages(coldSmokePage)).toContain("sessions");
     await expect.poll(async () => {
       return loadingStatus.evaluate((status) => {
@@ -122,6 +125,15 @@ test("cold document shows loading until an existing terminal paints", async ({
       frames: 2,
     });
     await expect(coldSmokePage.getByTestId("terminal-loading-status")).toHaveCount(0);
+    const meter = await terminalStartupMeterSamples(coldSmokePage, true);
+    const percents = meter.map((sample) => sample.percent);
+    expect(percents).toEqual([...percents].sort((a, b) => a - b));
+    expect(meter.some((sample) =>
+      sample.stage === "sessions" && sample.percent >= 30 && sample.percent < 46)).toBe(true);
+    expect(meter.filter((sample) => sample.stage === "sessions").length)
+      .toBeGreaterThan(1);
+    expect(meter.some((sample) => sample.percent >= 46)).toBe(true);
+    expect(meter.at(-1)).toMatchObject({ phase: "complete", percent: 100 });
     await expect(coldSmokePage).toHaveURL(targetUrl);
     expect(documentRequests).toEqual([targetUrl]);
   } finally {
@@ -192,7 +204,7 @@ test("new-terminal server switch resets browse path before listing and spawning"
   });
 
   const sidebarFooter = multiWorkerSmokePage.getByTestId("sidebar-new-terminal");
-  await expect(sidebarFooter).toContainText("New folder");
+  await expect(sidebarFooter).toContainText("New terminal");
   await expect(sidebarFooter.getByTestId("sidebar-new-terminal-machine")).toContainText("roost-terminal-test");
   await sidebarFooter.getByTestId("sidebar-new-terminal-button").click();
   await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/browse/${stack.workerFp}`);
@@ -200,7 +212,7 @@ test("new-terminal server switch resets browse path before listing and spawning"
   await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", stack.workerHome);
 
   const aFolder = multiWorkerSmokePage
-    .locator('[data-testid="browse-tile"], [data-testid="browse-row"]')
+    .locator('[data-testid="browse-row"]')
     .filter({ hasText: aChildName });
   await expect(aFolder).toHaveCount(1);
 
@@ -241,7 +253,7 @@ test("new-terminal server switch resets browse path before listing and spawning"
   ).toBe(true);
 
   const bFolder = multiWorkerSmokePage
-    .locator('[data-testid="browse-tile"], [data-testid="browse-row"]')
+    .locator('[data-testid="browse-row"]')
     .filter({ hasText: bChildName });
   await expect(bFolder).toHaveCount(1);
   await bFolder.click();

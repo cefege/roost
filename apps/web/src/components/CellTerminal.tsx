@@ -26,10 +26,11 @@ import { TerminalComposeButton } from "./TerminalComposeButton.tsx";
 import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
 import { TerminalFindBar } from "./TerminalFindBar.tsx";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
+import { TerminalOfflineNotice } from "./TerminalOfflineNotice.tsx";
 import {
-	TerminalLoadingNotice,
-	TerminalOfflineNotice,
-} from "./TerminalOfflineNotice.tsx";
+	TerminalStartupOverlay,
+	type TerminalStartupNotice,
+} from "./TerminalStartupOverlay.tsx";
 import { Button, Dialog } from "./Settings/md/primitives.tsx";
 import {
 	mountCellTerminalInteractions,
@@ -154,6 +155,17 @@ export function CellTerminal(props: CellTerminalProps) {
 		releaseViewStatus?.();
 		runtime.view?.dispose();
 		runtime.view = null;
+	});
+
+	const startupNotice = createMemo((): TerminalStartupNotice | null => {
+		const notice = presentation.loadingNotice();
+		if (!notice) return null;
+		return {
+			...notice,
+			progress: presentation.loadingProgress(),
+			stuckReason: presentation.stuckReason(),
+			sessionId: runtime.sessionId,
+		};
 	});
 
 	return (
@@ -312,16 +324,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				describeLink={(anchor) =>
 					runtime.linkAttachment?.describeLink(anchor) ?? null}
 			/>
-			<Show when={presentation.loadingNotice()}>
-				{(notice) => (
-					<TerminalLoadingNotice
-						{...notice()}
-						progress={presentation.loadingProgress()}
-						stuckReason={presentation.stuckReason()}
-						sessionId={runtime.sessionId}
-					/>
-				)}
-			</Show>
+			<TerminalStartupOverlay notice={startupNotice()} />
 			<Show when={presentation.offline()}>
 				<TerminalOfflineNotice
 					onRetry={presentation.retryOffline}

@@ -9,11 +9,12 @@ export const Surface: Component<{
   as?: "div" | "section";
   level?: 0 | 1 | 2 | 3;
   elevation?: 0 | 1 | 2 | 3 | 4 | 5;
-  radius?: "xs" | "sm" | "md" | "lg" | "xl" | "full";
+  radius?: "none" | "xs" | "sm" | "md" | "lg" | "xl" | "full";
   pad?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   border?: boolean;
   class?: string;
   style?: JSX.CSSProperties;
+  ref?: (element: HTMLElement) => void;
   onClick?: () => void;
   "data-testid"?: string;
   "aria-labelledby"?: string;
@@ -24,6 +25,7 @@ export const Surface: Component<{
 }> = (props) => (
   <Dynamic
     component={props.as ?? "div"}
+    ref={props.ref}
     class={props.class}
     onClick={props.onClick}
     attr:data-testid={props["data-testid"]}
@@ -34,7 +36,9 @@ export const Surface: Component<{
     style={{
       background: `var(--surface-${props.level ?? 1})`,
       "box-shadow": `var(--md-elev-${props.elevation ?? 0})`,
-      "border-radius": `var(--md-shape-${props.radius ?? "md"})`,
+      // Border-radius is written inline, so a consumer stylesheet cannot override it;
+      // radius="none" is how full-bleed stacked bands get square corners.
+      "border-radius": props.radius === "none" ? "0" : `var(--md-shape-${props.radius ?? "md"})`,
       ...(props.pad !== undefined ? { padding: `var(--md-space-${props.pad})` } : {}),
       ...(props.border ? { border: "1px solid var(--md-outline-variant)" } : {}),
       ...props.style,
