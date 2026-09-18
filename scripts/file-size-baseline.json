@@ -12,17 +12,15 @@
   "apps/shared/src/service-health.ts": 411,
   "apps/shared/src/windows-helper.ts": 1117,
   "apps/shared/tests/trace-oracle.ts": 1078,
-  "apps/web/src/components/MobileDeckBar.tsx": 481,
-  "apps/web/src/components/MobileVoiceInput.tsx": 484,
-  "apps/web/src/components/TerminalComposeButton.tsx": 452,
+  "apps/web/src/components/MobileVoiceInput.tsx": 478,
+  "apps/web/src/components/TerminalComposeButton.tsx": 435,
   "apps/web/src/lib/audioPcmCapture.ts": 515,
-  "apps/web/src/lib/cellRenderer.ts": 1254,
+  "apps/web/src/lib/cellRenderer.ts": 1253,
   "apps/web/src/lib/deepgramDictation.ts": 623,
   "apps/web/src/lib/diag.ts": 436,
   "apps/web/src/lib/smokeHarness.ts": 613,
   "apps/web/tests/audioPcmCapture.test.ts": 525,
   "apps/web/tests/store.test.ts": 420,
   "apps/worker/src/keeper/keeper-frame-handler.ts": 553,
-  "scripts/lint-roost.ts": 409,
-  "smoke/terminal/pty-fixture.ts": 411
+  "scripts/lint-roost.ts": 409
 }
