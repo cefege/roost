@@ -10,6 +10,7 @@ import {
   fleetWorkerIdentityProblems,
 } from "../src/push.ts";
 import { classifyFleetKeeperUpdates } from "../src/push-keeper-admission.ts";
+import type { KeeperContractV1 } from "@roost/shared/keeper-update";
 import type { WorkerStatus } from "../src/status.ts";
 
 const PRIOR_SHA = "a".repeat(40);
@@ -145,13 +146,15 @@ describe("deferred machine report", () => {
 });
 
 describe("keeper admission deferral", () => {
-  const contract = {
-    build_sha: "b".repeat(40),
+  const contract: KeeperContractV1 = {
+    protocol_version: 1,
+    supported_features: [],
+    required_features: [],
+    implementation_digest: "d".repeat(64),
     bun_abi: "1.3.14",
     platform: "linux",
     arch: "x64",
-    entry_digest: "d".repeat(64),
-    protocol_version: 1,
+    build_sha: "b".repeat(40),
   };
 
   test("a keeper that cannot be adopted defers that machine and admits the others", () => {
