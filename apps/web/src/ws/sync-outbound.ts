@@ -107,7 +107,6 @@ function handleControl(control: ResultControl, state: TerminalState): void {
     || !pending.started
     || pending.fence.socketId !== state.socketId
     || pending.fence.domainGeneration !== value.domainGeneration
-    || pending.fence.domainGeneration !== state.domainGeneration
   ) return;
 
   if (control.case === "inputAccepted") {
@@ -152,37 +151,53 @@ export function handleGeneration(state: TerminalState | null): void {
   if (changed) {
     const closingSocket = observedSocketId;
     const closingDomain = observedDomainGeneration;
+    const socketChanged = !state || state.socketId !== observedSocketId;
     for (const pending of lanes.pending()) {
-      if (
-        closingSocket !== null
-        && (pending.fence.socketId !== closingSocket
-          || pending.fence.domainGeneration !== closingDomain)
-      ) continue;
-      const outcome: InputOutcome = pending.started
-        ? {
-            status: "ambiguous",
-            inputSeq: pending.inputSeq,
-            writtenBytes: 0,
-            reason: "Sync closed after input was sent; the batch will not be retried",
-          }
-        : {
-            status: "rejected",
-            inputSeq: pending.inputSeq,
-            writtenBytes: 0,
-            reason: "Sync closed before input was sent",
-          };
-      lanes.finish(pending, outcome);
+      if (closingSocket !== null && pending.fence.socketId !== closingSocket) continue;
+      if (socketChanged) {
+        const outcome: InputOutcome = pending.started
+          ? {
+              status: "ambiguous",
+              inputSeq: pending.inputSeq,
+              writtenBytes: 0,
+              reason: "Sync closed after input was sent; the batch will not be retried",
+            }
+          : {
+              status: "rejected",
+              inputSeq: pending.inputSeq,
+              writtenBytes: 0,
+              reason: "Sync closed before input was sent",
+            };
+        lanes.finish(pending, outcome);
+        signal("input.drop_burst", {
+          sid: pending.sessionId,
+          reason: outcome.status === "ambiguous"
+            ? "generation_ambiguous"
+            : "generation_closed",
+          cooldownKey: pending.sessionId,
+        });
+        continue;
+      }
+      // A domain reset keeps the socket, and input results ride the control
+      // lane no reset touches: a started batch is still awaiting its result.
+      if (pending.started || pending.fence.domainGeneration !== closingDomain) continue;
+      lanes.finish(pending, {
+        status: "rejected",
+        inputSeq: pending.inputSeq,
+        writtenBytes: 0,
+        reason: "Sync generation closed before input was sent",
+      });
       signal("input.drop_burst", {
         sid: pending.sessionId,
-        reason: outcome.status === "ambiguous"
-          ? "generation_ambiguous"
-          : "generation_closed",
+        reason: "generation_closed",
         cooldownKey: pending.sessionId,
       });
     }
     observedSocketId = state?.socketId ?? null;
     observedDomainGeneration = state?.domainGeneration ?? null;
-    lanes.resetSequence();
+    // A surviving pending must never share an inputSeq with a new batch;
+    // (sessionId, inputSeq) is the only result correlation.
+    if (socketChanged) lanes.resetSequence();
   }
 
   if (!state?.ready) return;

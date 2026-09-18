@@ -44,6 +44,25 @@ describe("Sync v2 terminal input outbound", () => {
     state = { socketGeneration: 2, socketId: "socket-2", processEpoch: "epoch-1", domainGeneration: 12n, ready: true };
     generationHandler?.(state); expect(sent).toHaveLength(1);
   });
+  test("a terminal domain reset on a live socket keeps an in-flight batch and settles it from the late result", async () => {
+    const admission = outbound.sendTerminalInput("s1", new Uint8Array([1]), "view-1");
+    if (!admission.accepted) throw new Error(admission.reason);
+    state = { socketGeneration: 1, socketId: "socket-1", processEpoch: "epoch-1", domainGeneration: 12n, ready: true };
+    generationHandler?.(state);
+    emit({ case: "inputAccepted", value: { sessionId: "s1", inputSeq: admission.inputSeq, writtenBytes: 1, domainGeneration: 11n } });
+    expect((await admission.result).status).toBe("accepted");
+    expect(sent).toHaveLength(1);
+  });
+  test("a terminal domain reset rejects a batch that was never sent", async () => {
+    state = { socketGeneration: 1, socketId: "socket-1", processEpoch: "epoch-1", domainGeneration: 11n, ready: false };
+    const admission = outbound.sendTerminalInput("s1", new Uint8Array([1]), "view-1");
+    if (!admission.accepted) throw new Error(admission.reason);
+    expect(sent).toHaveLength(0);
+    state = { socketGeneration: 1, socketId: "socket-1", processEpoch: "epoch-1", domainGeneration: 12n, ready: true };
+    generationHandler?.(state);
+    expect((await admission.result).status).toBe("rejected");
+    expect(sent).toHaveLength(0);
+  });
   test("assigns distinct local correlations to complete FIFO batches", async () => {
     const first = outbound.sendTerminalInput("s1", new Uint8Array([1, 2]), "view-a");
     const second = outbound.sendTerminalInput("s1", new Uint8Array([3, 4]), "view-b");

@@ -16,6 +16,7 @@ import {
   subscribeComposerDraft,
 } from "../lib/composerDrafts.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
+import { describeInputOutcome } from "../lib/terminalInputStatus.ts";
 import type { TerminalContext } from "../lib/keytermContext.ts";
 import type { Session } from "@roost/shared/wire";
 import type { InputAdmission } from "../ws/terminal-input-lanes.ts";
@@ -279,14 +280,9 @@ export function TerminalComposeButton(props: Props) {
     setSubmissionStatus(null);
     void admission.result.then((outcome) => {
       setPendingSubmission(null);
-      if (outcome.status === "rejected") {
-        if (draft() === "") setDraft(text);
-        setSubmissionStatus(outcome.reason);
-      } else if (outcome.status === "ambiguous") {
-        setSubmissionStatus("Input may have been partially sent; it was not retried.");
-      } else {
-        setSubmissionStatus(null);
-      }
+      const status = describeInputOutcome(outcome);
+      setSubmissionStatus(status.message);
+      if (status.restoreDraft && draft() === "") setDraft(text);
       queueMicrotask(() => {
         autoGrow();
         if (!retainInputFocus || !inputEl) return;
