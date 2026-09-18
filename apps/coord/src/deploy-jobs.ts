@@ -148,7 +148,13 @@ export function startDeploy(host: string): DeployStartResult {
     return { ok: false, error: COORDINATOR_DIAL_URL_REQUIRED_MESSAGE };
   }
   const env = { ...process.env, ROOST_COORDINATOR_URL: coordUrl };
-  const DEPLOY_TIMEOUT_MS = 180_000;
+  // A real POSIX deploy fetches the commit, runs a frozen install and builds the
+  // SPA on the target, which routinely passes three minutes. At 180s this timer
+  // killed deploys mid-activation — the journal recovered them, but the job was
+  // reported failed and the catch-up host went into cooldown while the release
+  // had in fact landed. Bound a genuinely hung deploy instead, past the remote
+  // lease's own 15-minute renewal window.
+  const DEPLOY_TIMEOUT_MS = 1_200_000;
   const bunBin = process.execPath;
   const jobId = crypto.randomUUID();
   const job: DeployJob = {
