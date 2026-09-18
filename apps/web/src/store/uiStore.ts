@@ -13,7 +13,6 @@ interface UIState {
   sidebarCollapsed: boolean;          // desktop sidebar visibility
   sidebarView: SidebarView;           // selected retained sidebar projection
   sidebarWidth: number;               // desktop: pixel width — drag-resizable
-  homeFolderViewMode: "grid" | "list"; // home page: grid vs dense list of folders
   homeFolderShowFiles: boolean;        // home/browse: reveal view-only files alongside folders
 }
 
@@ -24,7 +23,6 @@ const SIDEBAR_VIEW_KEY = "roost.sidebarView";
 export const SIDEBAR_WIDTH_DEFAULT = 300;
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 600;
-const HOME_FOLDER_VIEW_MODE_KEY = "roost.homeFolderViewMode";
 const HOME_FOLDER_SHOW_FILES_KEY = "roost.homeFolderShowFiles";
 function loadCollapsed(): boolean {
   try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1"; } catch { return false; }
@@ -42,15 +40,6 @@ function loadSidebarView(): SidebarView {
 }
 function persistSidebarView(view: SidebarView): void {
   try { localStorage.setItem(SIDEBAR_VIEW_KEY, view); } catch { /* ignore */ }
-}
-function loadHomeFolderViewMode(): "grid" | "list" {
-  try {
-    const v = localStorage.getItem(HOME_FOLDER_VIEW_MODE_KEY);
-    return v === "grid" ? "grid" : "list";
-  } catch { return "list"; }
-}
-function persistHomeFolderViewMode(v: "grid" | "list") {
-  try { localStorage.setItem(HOME_FOLDER_VIEW_MODE_KEY, v); } catch { /* ignore */ }
 }
 function loadHomeFolderShowFiles(): boolean {
   try { return localStorage.getItem(HOME_FOLDER_SHOW_FILES_KEY) === "1"; } catch { return false; }
@@ -77,7 +66,6 @@ export const [uiStore, setUiStore] = createStore<UIState>({
   sidebarCollapsed: loadCollapsed(),
   sidebarView: loadSidebarView(),
   sidebarWidth: loadWidth(),
-  homeFolderViewMode: loadHomeFolderViewMode(),
   homeFolderShowFiles: loadHomeFolderShowFiles(),
 });
 
@@ -103,10 +91,6 @@ export const toggleSidebarCollapsed = () => {
     persistCollapsed(next);
     return next;
   });
-};
-export const setHomeFolderViewMode = (mode: "grid" | "list") => {
-  setUiStore("homeFolderViewMode", mode);
-  persistHomeFolderViewMode(mode);
 };
 export const setHomeFolderShowFiles = (v: boolean) => {
   setUiStore("homeFolderShowFiles", v);

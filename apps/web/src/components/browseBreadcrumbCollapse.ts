@@ -6,7 +6,7 @@ import { createEffect, createSignal, on, onCleanup, onMount, type Accessor } fro
 
 export function createBrowseBreadcrumbCollapse(crumbs: Accessor<unknown>) {
   const [hideMiddle, setHideMiddle] = createSignal(0);
-  let strip: HTMLDivElement | undefined;
+  let strip: HTMLElement | undefined;
   let mirror: HTMLDivElement | undefined;
 
   function availableWidth(): number {
@@ -19,7 +19,10 @@ export function createBrowseBreadcrumbCollapse(crumbs: Accessor<unknown>) {
   function measure(): void {
     if (!mirror) return;
     const sampleCrumb = mirror.querySelector<HTMLElement>("[data-mirror-crumb]");
-    const separator = mirror.querySelector<HTMLElement>("[data-mirror-sep]");
+    // The mirror separator is the same Icon primitive the visible strip paints,
+    // so its marker is a class: the primitive takes no data attributes and a
+    // hand-rolled span would measure a different width than it renders.
+    const separator = mirror.querySelector<HTMLElement>(".df-browse-crumb-sep-mirror");
     const overflow = mirror.querySelector<HTMLElement>("[data-mirror-overflow]");
     if (!sampleCrumb || !separator || !overflow) return;
 
@@ -56,10 +59,7 @@ export function createBrowseBreadcrumbCollapse(crumbs: Accessor<unknown>) {
   }
 
   const resizeObserver = new ResizeObserver(measure);
-  onMount(() => {
-    if (strip) resizeObserver.observe(strip);
-    measure();
-  });
+  onMount(measure);
   onCleanup(() => resizeObserver.disconnect());
   createEffect(() => {
     crumbs();
@@ -72,7 +72,14 @@ export function createBrowseBreadcrumbCollapse(crumbs: Accessor<unknown>) {
 
   return {
     hideMiddle,
-    setStripRef: (element: HTMLDivElement) => { strip = element; },
+    // The band swaps this element out when the filter field takes its place, so
+    // the observer follows the ref instead of whatever existed at mount.
+    setStripRef: (element: HTMLElement) => {
+      if (strip) resizeObserver.unobserve(strip);
+      strip = element;
+      resizeObserver.observe(element);
+      queueMicrotask(measure);
+    },
     setMirrorRef: (element: HTMLDivElement) => { mirror = element; },
   };
 }

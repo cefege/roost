@@ -208,8 +208,16 @@
   padding: var(--md-space-5);
 }
 
+/* The picker's content has no intrinsic width, so .roost-dialog's fit-content
+   collapses it to a phone-shaped rail on desktop. Both axes are token
+   arithmetic: 720 x 576 at full size — wide enough for four entry columns,
+   short enough not to fill the screen — clamped by the viewport margin. */
 .roost-dialog--browse {
-  block-size: var(--roost-dialog-max-block-size);
+  block-size: min(var(--roost-dialog-max-block-size), calc(var(--md-space-9) * 12));
+  inline-size: min(
+    var(--roost-dialog-wide-max-inline-size),
+    calc(100vw - 2 * var(--roost-dialog-viewport-margin))
+  );
 }
 
 @keyframes roost-dialog-enter {

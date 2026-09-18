@@ -4,33 +4,37 @@
 
 import { createMemo, createSignal, createEffect, For, Show, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
+import { diag } from "@roost/shared/diag";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
 import { workersHydrated } from "../store/sync-bootstrap.ts";
-import { coordClient } from "../connect.ts";
 import { ROUTES, browseHref } from "../routes.ts";
 import { computeFolderActivity, type FolderActivity } from "../lib/folderActivity.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
-import { addToast } from "../store/toastStore.ts";
-import {
-  captureAuthResourceToken,
-  isCurrentAuthResourceToken,
-} from "../store/auth-boundary.ts";
-import { childPath, pathCrumbs, collapseCrumbsTo, type CrumbView } from "../lib/folderPalette.ts";
+import { childPath, parentPath, pathCrumbs, collapseCrumbsTo, type CrumbView } from "../lib/folderPalette.ts";
 import { workerPathBasename } from "../lib/nativePath.ts";
+import { visibleFolders, visibleFiles } from "../lib/browseEntries.ts";
 import { initHistory, pushHistory as pushHistoryFn, goBack as goBackFn, goForward as goForwardFn, canGoBack as canBackFn, canGoForward as canFwdFn, type HistoryState } from "../lib/browseHistory.ts";
-import { uiStore, setHomeFolderViewMode, setHomeFolderShowFiles } from "../store/uiStore.ts";
+import { uiStore, setHomeFolderShowFiles } from "../store/uiStore.ts";
 import { BrowseToolbar } from "./BrowseToolbar.tsx";
-import { BrowseBreadcrumbs } from "./BrowseBreadcrumbs.tsx";
-import { BrowseFolderGrid, type DirEntry } from "./BrowseFolderGrid.tsx";
+import { BrowsePathBar } from "./BrowsePathBar.tsx";
+import { BrowseEntryList, type BrowseListingStatus } from "./BrowseEntryList.tsx";
 import { NewFolderDialog } from "./NewFolderDialog.tsx";
 import { createBrowseBreadcrumbCollapse } from "./browseBreadcrumbCollapse.ts";
+import { createBrowseDirectoryListing } from "./browseDirectoryListing.ts";
+import { createBrowseNewFolder } from "./browseNewFolder.ts";
+import { createBrowsePickerKeys } from "./browsePickerKeys.ts";
 import { launchWorkerBrowseTerminal } from "./workerBrowseActions.ts";
 import type { WorkerFp } from "@roost/shared/wire";
 import { Button } from "./Settings/md/Button.tsx";
+import { Chip } from "./Settings/md/Chip.tsx";
 import { EmptyState } from "./Settings/md/EmptyState.tsx";
+import { Surface } from "./Settings/md/Surface.tsx";
+import { SectionTitle } from "./Settings/md/SectionTitle.tsx";
 import { Sheet } from "./Settings/md/Sheet.tsx";
+import type { TextFieldElement } from "./Settings/md/TextField.tsx";
+
 export function WorkerBrowsePage(props: { workerFp: string }) {
   const workerFp = props.workerFp;
   const navigate = useNavigate();
@@ -43,16 +47,24 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
   const [cwd, setCwd] = createSignal(initialDir);
   const [startDir] = createSignal(initialDir);
   const [historyState, setHistoryState] = createSignal<HistoryState>(initHistory(initialDir));
-  const [activeIdx, setActiveIdx] = createSignal(0);
+  // -1 = no keyboard cursor yet: entry 0 must not look picked before an arrow
+  // key says so.
+  const [activeIdx, setActiveIdx] = createSignal(-1);
+  const [filter, setFilter] = createSignal("");
+  const [filterOpen, setFilterOpen] = createSignal(false);
   const [serverMenuOpen, setServerMenuOpen] = createSignal(false);
   const [crumbMenuOpen, setCrumbMenuOpen] = createSignal(false);
   const [crumbMenuPos, setCrumbMenuPos] = createSignal<{ top: number; left: number }>({ top: 0, left: 0 });
   let browseSurfaceRef: HTMLDivElement | undefined, resultsRef: HTMLDivElement | undefined;
   let unavailableRef: HTMLDivElement | undefined;
-  const [newFolderOpen, setNewFolderOpen] = createSignal(false);
-  const [newFolderName, setNewFolderName] = createSignal("");
-  const [newFolderBusy, setNewFolderBusy] = createSignal(false);
-  let newFolderInput: HTMLElement | undefined;
+  const newFolder = createBrowseNewFolder({
+    workerFp: () => workerFp,
+    parent: () => cwd(),
+    siblings: () => folderNames(),
+    scoped: () => scopedWorker(),
+    onCreated: (resolvedPath) => pushCwd(resolvedPath),
+  });
+  let filterInput: TextFieldElement | undefined;
   const folderServer = () => workerFp;
   const serverLabel = createMemo(() => rootStore.workers[folderServer()]?.label ?? folderServer().slice(0, 8));
   const serverOnline = createMemo(() => { const w = rootStore.workers[folderServer()]; return w ? workerOnline(w) : false; });
@@ -66,45 +78,15 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     if (scopedWorker()) return;
     setServerMenuOpen(false);
     setCrumbMenuOpen(false);
-    setNewFolderOpen(false);
-    setNewFolderName("");
-    setNewFolderBusy(false);
+    newFolder.close();
   });
   const onlineWorkers = createMemo(() =>
     Object.values(rootStore.workers).filter(workerOnline).sort((a, b) => a.label.localeCompare(b.label)),
   );
-  const [dirData, setDirData] = createSignal<{ resolved: string; entries: DirEntry[] } | null>(null);
-  const [dirLoading, setDirLoading] = createSignal(false);
-  createEffect(() => {
-    const fp = folderServer();
-    const dir = cwd();
-    if (!fp || !scopedWorker()) {
-      setDirData(null);
-      setDirLoading(false);
-      return;
-    }
-    const authToken = captureAuthResourceToken();
-    let cancelled = false;
-    setDirLoading(true);
-    coordClient.filesListDir({ workerFp: fp as unknown as WorkerFp, path: dir })
-      .then((response) => {
-        if (cancelled || !isCurrentAuthResourceToken(authToken)) return;
-        setDirData({
-          resolved: response.resolvedPath || dir,
-          entries: response.entries.map((entry) => ({
-            name: entry.name, isDir: entry.isDir, mtimeMs: Number(entry.mtimeMs),
-          })),
-        });
-      })
-      .catch(() => {
-        if (cancelled || !isCurrentAuthResourceToken(authToken)) return;
-        setDirData(null);
-      })
-      .finally(() => {
-        if (cancelled || !isCurrentAuthResourceToken(authToken)) return;
-        setDirLoading(false);
-      });
-    onCleanup(() => { cancelled = true; });
+  const listing = createBrowseDirectoryListing({
+    workerFp: folderServer,
+    path: cwd,
+    scoped: scopedWorker,
   });
   const folderRecents = createMemo<string[]>(() => {
     const fp = folderServer();
@@ -118,40 +100,44 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     return out;
   });
 
-  const cwdNow = createMemo(() => dirData()?.resolved ?? cwd());
+  const cwdNow = createMemo(() => listing.resolvedPath() ?? cwd());
   const crumbs = createMemo(() => pathCrumbs(folderServer(), cwdNow()));
   const breadcrumbCollapse = createBrowseBreadcrumbCollapse(crumbs);
   const crumbViews = createMemo<CrumbView[]>(() => collapseCrumbsTo(crumbs(), breadcrumbCollapse.hideMiddle()));
   const backEnabled = createMemo(() => canBackFn(historyState()));
   const forwardEnabled = createMemo(() => canFwdFn(historyState()));
-  const filteredDirs = createMemo<DirEntry[]>(() => {
-    const dirs = dirData()?.entries ?? [];
-    return dirs.filter((d) => d.isDir && !d.name.startsWith("."));
-  });
-  const filteredFiles = createMemo<DirEntry[]>(() => {
-    const files = (dirData()?.entries ?? [])
-      .filter((d) => !d.isDir && !d.name.startsWith("."));
-    return [...files].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  const upEnabled = createMemo(() => parentPath(folderServer(), cwdNow()) !== cwdNow());
+  const listedFolders = createMemo(() => visibleFolders(listing.entries(), filter()));
+  const listedFiles = createMemo(() => visibleFiles(listing.entries(), filter()));
+  // Siblings mkdir would collide with, including the dot-directories the list
+  // hides — a hidden name still makes the RPC fail.
+  const folderNames = createMemo(() =>
+    listing.entries().filter((entry) => entry.isDir).map((entry) => entry.name));
+  const listingStatus = createMemo<BrowseListingStatus>(() => {
+    if (scopeState() === "loading" || listing.loading()) return "loading";
+    if (listing.error() !== null) return "error";
+    if (!serverOnline() && listing.entries().length === 0) return "offline";
+    return "ready";
   });
   const folderActivity = createMemo<Map<string, FolderActivity>>(() => {
     const fp = folderServer();
     if (!fp) return new Map();
     const base = cwdNow();
-    const childPaths = filteredDirs().map((d) => childPath(fp, base, d.name));
+    const childPaths = listedFolders().map((d) => childPath(fp, base, d.name));
     return computeFolderActivity(allSessions(), fp, childPaths);
   });
-  const folderSubtitles = createMemo<Map<string, string>>(() => {
-    const out = new Map<string, string>();
-    for (const [path, a] of folderActivity()) {
-      if (a.terminals > 0) out.set(path, `${a.terminals} terminal${a.terminals === 1 ? "" : "s"}`);
+  const folderTerminalCounts = createMemo<Map<string, number>>(() => {
+    const out = new Map<string, number>();
+    for (const [path, activity] of folderActivity()) {
+      if (activity.terminals > 0) out.set(path, activity.terminals);
     }
     return out;
   });
-  createEffect(() => { cwd(); setActiveIdx(0); });
-  // Keep the keyboard-highlighted tile in view.
+  createEffect(() => { cwd(); setActiveIdx(-1); setFilter(""); });
+  // Keep the keyboard-highlighted row in view.
   createEffect(() => {
     const idx = activeIdx();
-    const el = resultsRef?.querySelectorAll<HTMLElement>('[data-testid="browse-tile"],[data-testid="browse-row"]')[idx];
+    const el = resultsRef?.querySelectorAll<HTMLElement>('[data-testid="browse-row"]')[idx];
     el?.scrollIntoView({ block: "nearest" });
   });
   createEffect(() => {
@@ -166,23 +152,40 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
   function pushCwd(path: string) {
     setCwd(path);
     setHistoryState((s) => pushHistoryFn(s, path));
-    setActiveIdx(0);
+    setActiveIdx(-1);
   }
   function drill(name: string) { pushCwd(childPath(folderServer(), cwd(), name)); }
-  function goToDir(path: string) { pushCwd(path); }
+  function goUp() {
+    const next = parentPath(folderServer(), cwdNow());
+    if (next !== cwdNow()) pushCwd(next);
+  }
+  function toggleFilter() {
+    if (filterOpen()) {
+      closeFilter();
+      return;
+    }
+    setFilterOpen(true);
+    queueMicrotask(() => filterInput?.focus());
+  }
+  // Closing clears: a hidden filter that still hides entries is the "where did
+  // my folders go" report.
+  function closeFilter() {
+    setFilterOpen(false);
+    setFilter("");
+  }
   function goBack() {
     const next = goBackFn(historyState());
     if (next === historyState()) return;
     setHistoryState(next);
     setCwd(next.entries[next.cursor]);
-    setActiveIdx(0);
+    setActiveIdx(-1);
   }
   function goForward() {
     const next = goForwardFn(historyState());
     if (next === historyState()) return;
     setHistoryState(next);
     setCwd(next.entries[next.cursor]);
-    setActiveIdx(0);
+    setActiveIdx(-1);
   }
 
   function pickFolder(path: string): void {
@@ -190,92 +193,121 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     if (!fp || !scopedWorker()) return;
     void launchWorkerBrowseTerminal(fp as unknown as WorkerFp, path, navigate);
   }
-  function newFolder() {
-    if (!scopedWorker()) return;
-    setNewFolderName("");
-    setNewFolderBusy(false);
-    setNewFolderOpen(true);
-    queueMicrotask(() => newFolderInput?.focus());
-  }
-  async function commitNewFolder() {
-    const name = newFolderName().trim();
-    if (!name || newFolderBusy()) return;
-    const fp = folderServer();
-    if (!fp || !scopedWorker()) return;
-    const authToken = captureAuthResourceToken();
-    setNewFolderBusy(true);
-    try {
-      const target = childPath(fp, cwd(), name);
-      const response = await coordClient.filesMkdir({
-        workerFp: fp as unknown as WorkerFp,
-        path: target,
-      });
-      if (!isCurrentAuthResourceToken(authToken)) return;
-      setNewFolderOpen(false);
-      pushCwd(response.resolvedPath || target);
-    } catch (error) {
-      if (!isCurrentAuthResourceToken(authToken)) return;
-      addToast(`Create folder failed: ${error instanceof Error ? error.message : String(error)}`, "err");
-      setNewFolderBusy(false);
-    }
-  }
   function selectServer(fp: string) {
     setServerMenuOpen(false);
     navigate(browseHref(fp));
   }
-  function onKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented) return;
-    if (newFolderOpen()) return;
-    const eventPath = event.composedPath();
-    if (!browseSurfaceRef || !eventPath.includes(browseSurfaceRef)) return;
-    if (event.key === "Escape") {
-      if (isCompact()) {
-        event.preventDefault();
-        navigate(ROUTES.ROOT);
-      }
-      return;
-    }
-    if (!scopedWorker() || !resultsRef || !eventPath.includes(resultsRef)) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveIdx((idx) => Math.min(filteredDirs().length - 1, idx + 1));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveIdx((idx) => Math.max(0, idx - 1));
-    } else if (event.key === "ArrowRight") {
-      const directory = filteredDirs()[activeIdx()];
-      if (directory) {
-        event.preventDefault();
-        drill(directory.name);
-      }
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      goBack();
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      void pickFolder(cwdNow());
-    }
-  }
-  onMount(() => window.addEventListener("keydown", onKeydown));
+  const onKeydown = createBrowsePickerKeys({
+    surface: () => browseSurfaceRef,
+    results: () => resultsRef,
+    dialogOpen: newFolder.open,
+    scoped: scopedWorker,
+    compact: isCompact,
+    folderCount: () => listedFolders().length,
+    // CSS owns the column count (auto-fill), so the live grid is the only
+    // honest source for what "one row down" means.
+    columns: () => {
+      const grid = resultsRef?.querySelector(".md-list--grid");
+      if (!grid) return 1;
+      return getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length;
+    },
+    folderNameAt: (index) => listedFolders()[index]?.name,
+    activeIdx,
+    setActiveIdx,
+    onDrill: drill,
+    onBack: goBack,
+    onParent: goUp,
+    onOpenHere: () => pickFolder(cwdNow()),
+    onEscape: () => navigate(ROUTES.ROOT),
+  });
+  onMount(() => {
+    window.addEventListener("keydown", onKeydown);
+    diag("browse.opened", { worker_fp: folderServer(), cwd: cwd(), compact: isCompact() });
+  });
   onCleanup(() => window.removeEventListener("keydown", onKeydown));
 
-  const viewMode = () => uiStore.homeFolderViewMode;
   const showFiles = () => uiStore.homeFolderShowFiles;
   const compact = isCompact;
 
   const innerContent = (
     <div ref={(element) => { browseSurfaceRef = element; }} class="df-browse-page" data-testid="browse-page" data-compact={compact() ? "true" : "false"} data-overlay={!compact() ? "true" : undefined}>
-      <Show when={scopeState() === "loading"}>
-        <div class="df-browse-area" aria-busy="true">
-          <EmptyState
-            icon="progress_activity"
-            title="Loading machine…"
-            supporting="Checking which machines this coordinator can reach."
-          />
-        </div>
-      </Show>
+      <BrowseToolbar
+        folderName={workerPathBasename(folderServer(), cwdNow()) || cwdNow()}
+        ready={scopeState() === "available"}
+        showFiles={showFiles()}
+        filterOpen={filterOpen()}
+        serverFp={folderServer()}
+        serverLabel={serverLabel()}
+        serverOnline={serverOnline()}
+        onlineWorkers={onlineWorkers()}
+        serverMenuOpen={serverMenuOpen()}
+        setServerMenuOpen={(open) => setServerMenuOpen(open)}
+        onClose={() => navigate(ROUTES.ROOT)}
+        onToggleFilter={toggleFilter}
+        onToggleShowFiles={() => setHomeFolderShowFiles(!showFiles())}
+        onNewFolder={newFolder.begin}
+        onSelectServer={selectServer}
+      />
 
-      <Show when={scopeState() === "unavailable"}>
+      <BrowsePathBar
+        crumbViews={crumbViews()}
+        crumbs={crumbs()}
+        menuOpen={crumbMenuOpen()}
+        menuPos={crumbMenuPos()}
+        backEnabled={backEnabled()}
+        forwardEnabled={forwardEnabled()}
+        upEnabled={upEnabled()}
+        filterOpen={filterOpen()}
+        filter={filter()}
+        setMenuOpen={(open) => setCrumbMenuOpen(open)}
+        setMenuPos={(pos) => setCrumbMenuPos(pos)}
+        onNavigate={pushCwd}
+        onBack={goBack}
+        onForward={goForward}
+        onUp={goUp}
+        onHome={() => pushCwd("~")}
+        onFilter={(value) => setFilter(value)}
+        onCloseFilter={closeFilter}
+        setStripRef={breadcrumbCollapse.setStripRef}
+        setMirrorRef={breadcrumbCollapse.setMirrorRef}
+        setFilterRef={(element) => { filterInput = element; }}
+      />
+
+      <Show
+        when={scopeState() === "unavailable"}
+        fallback={
+          <BrowseEntryList
+            status={listingStatus()}
+            loadingCaption={scopeState() === "loading" ? "Loading machine…" : "Loading folders…"}
+            folders={listedFolders()}
+            files={listedFiles()}
+            showFiles={showFiles()}
+            filter={filter()}
+            serverFp={folderServer()}
+            cwd={cwdNow()}
+            activeIdx={activeIdx()}
+            terminalCounts={folderTerminalCounts()}
+            errorMessage={listing.error()}
+            header={
+              <Show when={cwd() === startDir() && folderRecents().length > 0}>
+                <div class="df-browse-recents">
+                  <SectionTitle>Recent</SectionTitle>
+                  <For each={folderRecents()}>
+                    {(recent) => (
+                      <Chip label={workerPathBasename(folderServer(), recent) || recent} icon="folder"
+                        title={recent} testId="browse-recent" onClick={() => pickFolder(recent)} />
+                    )}
+                  </For>
+                </div>
+              </Show>
+            }
+            onDrill={drill}
+            onClearFilter={closeFilter}
+            onRetry={listing.reload}
+            setAreaRef={(el) => { resultsRef = el; }}
+          />
+        }
+      >
         <div
           ref={unavailableRef}
           class="df-browse-area"
@@ -300,94 +332,29 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
         </div>
       </Show>
 
-      <Show when={scopeState() === "available"}>
-      <BrowseToolbar
-        compact={compact()}
-        viewMode={viewMode()}
-        showFiles={showFiles()}
-        backEnabled={backEnabled()}
-        forwardEnabled={forwardEnabled()}
-        serverFp={folderServer()}
-        serverLabel={serverLabel()}
-        serverOnline={serverOnline()}
-        onlineWorkers={onlineWorkers()}
-        serverMenuOpen={serverMenuOpen()}
-        setServerMenuOpen={(open) => setServerMenuOpen(open)}
-        onCancel={() => navigate(ROUTES.ROOT)}
-        onBack={goBack}
-        onForward={goForward}
-        onViewMode={setHomeFolderViewMode}
-        onToggleShowFiles={() => setHomeFolderShowFiles(!showFiles())}
-        onNewFolder={newFolder}
-        onSelectServer={selectServer}
-      />
-
-      <BrowseBreadcrumbs
-        crumbViews={crumbViews()}
-        crumbs={crumbs()}
-        menuOpen={crumbMenuOpen()}
-        menuPos={crumbMenuPos()}
-        setMenuOpen={(open) => setCrumbMenuOpen(open)}
-        setMenuPos={(pos) => setCrumbMenuPos(pos)}
-        onNavigate={goToDir}
-        setStripRef={breadcrumbCollapse.setStripRef}
-        setMirrorRef={breadcrumbCollapse.setMirrorRef}
-      />
-
-      <Show when={cwd() === startDir() && folderRecents().length > 0}>
-        <div class="df-browse-recents">
-          <span class="df-browse-recents-label md-label-s">Recent</span>
-          <For each={folderRecents()}>
-            {(r) => (
-              <Button class="df-browse-recent-chip" variant="outline" size="sm"
-                data-testid="browse-recent" icon="folder" onClick={() => void pickFolder(r)} title={r}>
-                {workerPathBasename(folderServer(), r) || r}
-              </Button>
-            )}
-          </For>
-        </div>
-      </Show>
-
-      <BrowseFolderGrid
-        loading={dirLoading()}
-        dirs={filteredDirs()}
-        files={filteredFiles()}
-        serverFp={folderServer()}
-        serverOnline={serverOnline()}
-        cwd={cwdNow()}
-        viewMode={viewMode()}
-        showFiles={showFiles()}
-        activeIdx={activeIdx()}
-        activity={folderActivity()}
-        subtitles={folderSubtitles()}
-        onActivate={(idx) => setActiveIdx(idx)}
-        onDrill={drill}
-        setAreaRef={(el) => { resultsRef = el; }}
-      />
-
-      <div class="df-browse-actions">
+      <Surface class="df-browse-actions" level={1} radius="none">
         <Button class="df-browse-open" data-testid="browse-open" icon="terminal"
-          onClick={() => void pickFolder(cwdNow())}>
+          disabled={scopeState() !== "available"} onClick={() => pickFolder(cwdNow())}>
           Open terminal here
         </Button>
-      </div>
+      </Surface>
       <NewFolderDialog
-        open={newFolderOpen()}
-        name={newFolderName()}
-        busy={newFolderBusy()}
+        open={newFolder.open()}
+        name={newFolder.name()}
+        busy={newFolder.busy()}
+        error={newFolder.error()}
         targetPath={cwdNow()}
-        onName={(v) => setNewFolderName(v)}
-        onClose={() => setNewFolderOpen(false)}
-        onCreate={() => void commitNewFolder()}
-        setInputRef={(el) => { newFolderInput = el; }}
+        onName={newFolder.setName}
+        onClose={newFolder.close}
+        onCreate={newFolder.commit}
+        setInputRef={newFolder.setInputRef}
       />
-      </Show>
     </div>
   )
 
   return !compact() ? (
     <Sheet open onClose={() => navigate(ROUTES.ROOT)} headline="Browse folders" side="center"
-      class="roost-dialog--wide roost-dialog--browse" showCloseButton={scopeState() === "loading"}
+      class="roost-dialog--wide roost-dialog--browse" showCloseButton={false}
       onOpenAutoFocus={(event) => event.preventDefault()}>
       {innerContent}
     </Sheet>

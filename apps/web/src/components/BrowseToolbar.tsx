@@ -1,9 +1,10 @@
-// Browse-page toolbar: cancel (compact only), back/forward, grid⇄list, the
-// show-files toggle, New folder, and the server switcher. Split out of
-// BrowsePage.tsx so the page keeps state ownership — every value below arrives
-// already computed and every button reports back through a callback.
+// Folder-picker header band: close, the folder being browsed over its machine,
+// and the three actions that act on this folder — filter, show files, New
+// folder — plus the machine switcher when more than one machine is online.
+// One row at every width; the path band below owns navigation. The page keeps
+// state ownership: every value arrives computed, every control reports back.
 //
-// Callers: BrowsePage.tsx (WorkerBrowsePage).
+// Callers: WorkerBrowsePage.tsx.
 
 import { For, Show, createSignal } from "solid-js";
 import type { Worker } from "@roost/shared/wire";
@@ -11,6 +12,7 @@ import { Button } from "./Settings/md/Button.tsx";
 import { Icon } from "./Settings/md/Icon.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { StatusDot } from "./Settings/md/StatusDot.tsx";
+import { Surface } from "./Settings/md/Surface.tsx";
 import {
   anchoredMenuPosition,
   anchoredMenuSurfaceStyle,
@@ -22,21 +24,20 @@ import {
 import type { MenuFocusEdge } from "./contextMenuPrimitives.tsx";
 
 export function BrowseToolbar(props: {
-  compact: boolean;
-  viewMode: "grid" | "list";
+  /** Basename of the folder being browsed — the picker's own title. */
+  folderName: string;
+  /** The machine is in scope: mkdir and launch are reachable. */
+  ready: boolean;
   showFiles: boolean;
-  backEnabled: boolean;
-  forwardEnabled: boolean;
+  filterOpen: boolean;
   serverFp: string;
   serverLabel: string;
   serverOnline: boolean;
   onlineWorkers: Worker[];
   serverMenuOpen: boolean;
   setServerMenuOpen: (open: boolean) => void;
-  onCancel: () => void;
-  onBack: () => void;
-  onForward: () => void;
-  onViewMode: (mode: "grid" | "list") => void;
+  onClose: () => void;
+  onToggleFilter: () => void;
   onToggleShowFiles: () => void;
   onNewFolder: () => void;
   onSelectServer: (fp: string) => void;
@@ -95,95 +96,89 @@ export function BrowseToolbar(props: {
   });
 
   return (
-    <div class="df-browse-toolbar">
-      <Show when={props.compact}>
-        <IconButton class="df-browse-toolbar-icon" data-testid="browse-close" icon="close"
-          label="Cancel" title="Cancel" onClick={props.onCancel} />
-      </Show>
-      <IconButton class="df-browse-toolbar-icon" data-testid="browse-back" icon="arrow_back"
-        label="Back" title="Back" disabled={!props.backEnabled} onClick={props.onBack} />
-      <IconButton class="df-browse-toolbar-icon" data-testid="browse-forward" icon="arrow_forward"
-        label="Forward" title="Forward" disabled={!props.forwardEnabled} onClick={props.onForward} />
-
-      <div class="df-browse-toggle" role="group" aria-label="View mode">
-        <IconButton class="df-browse-toggle-btn" data-testid="browse-view-grid" icon="grid_view"
-          label="Grid view" title="Grid view" data-active={props.viewMode === "grid" ? "true" : undefined}
-          aria-pressed={props.viewMode === "grid"} onClick={() => props.onViewMode("grid")} />
-        <IconButton class="df-browse-toggle-btn" data-testid="browse-view-list" icon="view_list"
-          label="List view" title="List view" data-active={props.viewMode === "list" ? "true" : undefined}
-          aria-pressed={props.viewMode === "list"} onClick={() => props.onViewMode("list")} />
+    <Surface class="df-browse-header" level={2} radius="none">
+      <IconButton size="icon-sm" data-testid="browse-close" icon="close"
+        label="Close" title="Close" onClick={props.onClose} />
+      <div class="df-browse-header-title">
+        <span class="df-browse-header-folder md-title-s" data-testid="browse-folder-name">{props.folderName}</span>
+        <span class="df-browse-header-machine md-label-s" data-testid="browse-machine">
+          <StatusDot status={props.serverOnline ? "ok" : "idle"} />
+          {props.serverLabel}
+        </span>
       </div>
 
-      <div class="df-browse-toolbar-actions">
-        <IconButton class="df-browse-toggle-btn" data-testid="browse-show-files" icon="description"
-          label="Show files in this folder" title="Show files in this folder"
-          data-active={props.showFiles ? "true" : undefined} aria-pressed={props.showFiles}
-          onClick={props.onToggleShowFiles} />
-        <Button class="df-browse-new" variant="secondary" icon="create_new_folder"
-          data-testid="browse-new" onClick={props.onNewFolder}>
-          <span class="df-browse-new-label">New folder</span>
-        </Button>
-
-        <Show when={props.onlineWorkers.length > 1}>
-          <Button
-            ref={serverMenuButton}
-            id="browse-server-trigger"
-            class="df-browse-server"
-            variant="secondary"
-            size="sm"
-            data-testid="browse-server"
-            title={props.serverLabel}
-            aria-haspopup="menu"
-            aria-controls="browse-server-menu"
-            aria-expanded={props.serverMenuOpen}
-            onClick={toggleServerMenu}
-            onKeyDown={onServerTriggerKeyDown}
-          >
-            <StatusDot status={props.serverOnline ? "ok" : "idle"} />
-            <span class="df-browse-server-label">{props.serverLabel}</span>
-            <Icon name="expand_more" class="df-browse-server-chevron" size="sm" />
-          </Button>
-          <Show when={serverMenuPosition()}>
-            {(position) => (
-              <Show when={props.serverMenuOpen}>
-                <div
-                  ref={serverMenuElement}
-                  id="browse-server-menu"
-                  class="df-menu-enter df-browse-server-menu"
-                  data-testid="browse-server-menu"
-                  role="menu"
-                  aria-labelledby="browse-server-trigger"
-                  style={anchoredMenuSurfaceStyle(position(), {
-                    minWidth: "calc(var(--control-touch-target) * 4)",
-                  })}
-                  onKeyDown={onServerMenuKeyDown}
-                >
-                  <For each={props.onlineWorkers}>
-                    {(worker) => {
-                      const selected = String(worker.fp) === props.serverFp;
-                      return (
-                        <CtxMenuItem
-                          class="df-browse-server-option"
-                          testid="browse-server-option"
-                          selected={selected}
-                          title={worker.label}
-                          onClick={() => chooseServer(String(worker.fp))}
-                        >
-                          <StatusDot status="ok" />
-                          <span class="df-browse-server-option-label">{worker.label}</span>
-                          <Show when={selected}>
-                            <Icon name="check" class="df-browse-server-option-check" size="sm" />
-                          </Show>
-                        </CtxMenuItem>
-                      );
-                    }}
-                  </For>
-                </div>
-              </Show>
-            )}
-          </Show>
+      <Show when={props.onlineWorkers.length > 1}>
+        {/* Icon-only: the header line above already names the machine, and a
+            trigger that repeats it makes a screen reader say it twice. */}
+        <IconButton
+          ref={serverMenuButton}
+          id="browse-server-trigger"
+          class="df-browse-server"
+          size="icon-sm"
+          icon="unfold_more"
+          label="Switch machine"
+          data-testid="browse-server"
+          title={props.serverLabel}
+          menuPopup="menu"
+          controlsId="browse-server-menu"
+          expanded={props.serverMenuOpen}
+          onClick={toggleServerMenu}
+          onKeyDown={onServerTriggerKeyDown}
+        />
+        <Show when={serverMenuPosition()}>
+          {(position) => (
+            <Show when={props.serverMenuOpen}>
+              <div
+                ref={serverMenuElement}
+                id="browse-server-menu"
+                class="df-menu-enter df-browse-server-menu"
+                data-testid="browse-server-menu"
+                role="menu"
+                aria-labelledby="browse-server-trigger"
+                style={anchoredMenuSurfaceStyle(position(), {
+                  minWidth: "calc(var(--control-touch-target) * 4)",
+                })}
+                onKeyDown={onServerMenuKeyDown}
+              >
+                <For each={props.onlineWorkers}>
+                  {(worker) => {
+                    const selected = String(worker.fp) === props.serverFp;
+                    return (
+                      <CtxMenuItem
+                        class="df-browse-server-option"
+                        testid="browse-server-option"
+                        selected={selected}
+                        title={worker.label}
+                        onClick={() => chooseServer(String(worker.fp))}
+                      >
+                        <StatusDot status="ok" />
+                        <span class="df-browse-server-option-label">{worker.label}</span>
+                        <Show when={selected}>
+                          <Icon name="check" size="sm" />
+                        </Show>
+                      </CtxMenuItem>
+                    );
+                  }}
+                </For>
+              </div>
+            </Show>
+          )}
         </Show>
-      </div>
-    </div>
+      </Show>
+
+      <IconButton class="df-browse-toggle" size="icon-sm" data-testid="browse-filter-toggle"
+        icon="search" label="Filter this folder" title="Filter this folder"
+        data-active={props.filterOpen ? "true" : undefined} aria-pressed={props.filterOpen}
+        onClick={props.onToggleFilter} />
+      <IconButton class="df-browse-toggle" size="icon-sm" data-testid="browse-show-files"
+        icon="description" label="Show files in this folder" title="Show files in this folder"
+        data-active={props.showFiles ? "true" : undefined} aria-pressed={props.showFiles}
+        onClick={props.onToggleShowFiles} />
+      <Button class="df-browse-new" variant="secondary" size="sm" icon="create_new_folder"
+        data-testid="browse-new" title="New folder" disabled={!props.ready}
+        onClick={props.onNewFolder}>
+        New folder
+      </Button>
+    </Surface>
   );
 }

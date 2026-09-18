@@ -1,50 +1,72 @@
 /*
- * Browse page layout and file-grid presentation.
- * WorkerBrowsePage composes the shared controls; this sheet owns only page-specific layout.
- * Shared Button, IconButton, and menu primitives retain their interaction chrome.
+ * Folder-picker layout: two chrome bands (header, then the path band that also
+ * hosts the filter field), the recents strip, and the scrolling entry area.
+ * WorkerBrowsePage composes shared primitives; this sheet owns only
+ * page-specific layout. Surface, Button, IconButton, List, TextField, and the
+ * menu primitives keep their own visual treatment.
  */
 .df-browse-page {
   background: var(--md-surface);
   block-size: 100%;
   display: flex;
   flex-direction: column;
+  /* Bounded on BOTH axes: without max-inline-size the column grows to its
+     widest row's min-content, so no band ever wraps and every row — including
+     the entry grid and its empty state — is clipped off a phone's right edge. */
+  max-inline-size: 100%;
   min-block-size: 0;
+  min-inline-size: 0;
+  /* Anchors .df-browse-crumbs-measure: on desktop the nearest positioned
+     ancestor is otherwise the fixed dialog, which mis-measures the strip. */
+  position: relative;
 }
 .df-browse-page[data-overlay="true"] { flex: 1 1 auto; }
-.df-browse-toolbar {
+.df-browse-header {
   align-items: center;
-  background: var(--md-surface-container);
   display: flex;
   flex: 0 0 auto;
   gap: var(--md-space-2);
-  padding: var(--md-space-2) var(--md-space-4);
+  padding: var(--md-space-2) var(--md-space-3);
 }
-.df-browse-toolbar-actions {
+.df-browse-path {
   align-items: center;
-  display: flex;
-  gap: var(--md-space-2);
-  margin-inline-start: auto;
-}
-.df-browse-toggle {
-  align-items: center;
-  background: var(--md-surface-container-low);
-  border-radius: var(--md-shape-full);
+  border-block-end: var(--workbench-border-width) solid var(--md-outline-variant);
   display: flex;
   flex: 0 0 auto;
   gap: var(--md-space-1);
-  padding: var(--md-space-1);
+  padding: var(--md-space-1) var(--md-space-2);
 }
-.df-browse-toggle-btn[data-active="true"] {
-  background: var(--md-secondary-container);
-  color: var(--md-on-secondary-container);
+.df-browse-header-title {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-inline-size: 0;
+}
+.df-browse-header-folder,
+.df-browse-header-machine {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.df-browse-header-machine {
+  align-items: center;
+  color: var(--md-on-surface-variant);
+  display: flex;
+  gap: var(--md-space-1);
+}
+.df-browse-filter {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+/* A native input keeps a ~20ch intrinsic width, which is what pushes the band
+   past a phone's viewport unless it is allowed to shrink. */
+.df-browse-filter .roost-text-field__control { min-inline-size: 0; }
+.df-browse-toggle[data-active="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
 .df-browse-new,
 .df-browse-server { flex: 0 0 auto; }
-.df-browse-server {
-  gap: var(--md-space-2);
-  max-inline-size: calc(var(--md-space-9) * 5);
-}
-.df-browse-server-label,
 .df-browse-server-option-label,
 .df-browse-crumb-menu-item > span {
   min-inline-size: 0;
@@ -52,7 +74,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.df-browse-server-label,
 .df-browse-server-option-label { flex: 1 1 auto; }
 .df-browse-server-menu,
 .df-browse-crumb-menu {
@@ -67,18 +88,16 @@
   gap: var(--md-space-2);
 }
 .df-browse-server-option[data-selected="true"] {
-  background: var(--md-secondary-container);
-  color: var(--md-on-secondary-container);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
 .df-browse-crumbs {
   align-items: center;
-  background: var(--md-surface-container);
-  border-block-end: var(--workbench-border-width) solid var(--md-outline-variant);
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   gap: var(--md-space-1);
+  min-inline-size: 0;
   overflow-x: auto;
-  padding: var(--md-space-1) var(--md-space-3) var(--md-space-2);
   scrollbar-width: none;
   white-space: nowrap;
 }
@@ -107,237 +126,59 @@
   white-space: nowrap;
   z-index: -1;
 }
-.df-browse-crumbs-measure .df-browse-crumb {
-  min-block-size: var(--control-height-sm);
-  padding-inline: var(--md-space-2);
-}
 .df-browse-crumb-menu-item > span { display: block; }
+/* Scrolls with the entries, so it costs the picker no permanent chrome. */
 .df-browse-recents {
   align-items: center;
-  border-block-end: var(--workbench-border-width) solid var(--md-outline-variant);
   display: flex;
-  flex: 0 0 auto;
   gap: var(--md-space-2);
+  margin-block-end: var(--md-space-2);
   overflow-x: auto;
-  padding: var(--md-space-2) var(--md-space-4);
   scrollbar-width: none;
   white-space: nowrap;
 }
-.df-browse-recents-label {
-  color: var(--md-on-surface-variant);
-  flex: 0 0 auto;
-  text-transform: uppercase;
-}
-.df-browse-recent-chip { flex: 0 0 auto; }
+.df-browse-recents .md-section-title { flex: 0 0 auto; }
+.df-browse-recents .roost-chip { flex: 0 0 auto; }
 .df-browse-area {
   -webkit-overflow-scrolling: touch;
   flex: 1 1 auto;
   min-block-size: 0;
   overflow-y: auto;
-  padding: var(--md-space-4);
+  padding: var(--md-space-3);
 }
-.df-browse-grid {
-  display: grid;
-  gap: var(--md-space-2);
-  grid-template-columns: repeat(auto-fill, minmax(calc(var(--md-space-9) * 4 + var(--md-space-2)), 1fr));
+/* The keyboard cursor IS the selected entry, and this scroller takes focus
+   programmatically on every mount, so the default ring is chrome pointing at
+   nothing. A keyboard arrival still gets one, inset so it reads as this
+   region rather than as a border on the band above it. */
+.df-browse-area:focus { outline: none; }
+.df-browse-area:focus-visible {
+  outline: var(--workbench-border-width) solid var(--md-sys-color-primary);
+  outline-offset: calc(-1 * var(--workbench-border-width));
 }
-.df-browse-tile {
-  align-items: center;
-  background: var(--md-surface-container);
-  border: var(--workbench-border-width) solid var(--md-outline-variant);
-  border-radius: var(--md-shape-md);
-  color: var(--md-on-surface);
-  cursor: pointer;
-  display: flex;
-  font: var(--md-body-m-weight) var(--md-body-m-size) / var(--md-body-m-line) var(--md-font);
-  gap: var(--md-space-2);
-  min-block-size: var(--control-touch-target);
-  padding: var(--md-space-2) var(--md-space-3);
-  text-align: start;
-  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard), border-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
-}
-@media (hover: hover) {
-  .df-browse-tile:hover {
-    background: var(--md-surface-container-high);
-    border-color: var(--md-outline);
-  }
-}
-.df-browse-tile[data-active="true"] {
-  background: var(--md-sys-color-secondary-container);
-  border-color: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-}
-.df-browse-tile-icon,
-.df-browse-row-icon {
-  align-items: center;
+.df-browse-loading-caption {
   color: var(--md-on-surface-variant);
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-.df-browse-tile-icon > svg {
-  block-size: var(--md-title-l-size);
-  inline-size: var(--md-title-l-size);
-}
-.df-browse-row-icon > svg {
-  block-size: var(--md-space-5);
-  inline-size: var(--md-space-5);
-}
-.df-browse-tile[data-active="true"] .df-browse-tile-icon,
-.df-browse-row[data-active="true"] .df-browse-row-icon { color: inherit; }
-.df-browse-tile-text {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: var(--md-space-1);
-  min-inline-size: 0;
-}
-.df-browse-tile-name,
-.df-browse-row-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.df-browse-tile-name {
-  font: var(--md-title-s-weight) var(--md-title-s-size) / var(--md-title-s-line) var(--md-font);
-}
-.df-browse-tile-subtitle,
-.df-browse-tile-meta,
-.df-browse-row-meta {
-  color: var(--md-on-surface-variant);
-  font: var(--md-label-s-weight) var(--md-label-s-size) / var(--md-label-s-line) var(--md-font);
-}
-.df-browse-tile[data-active="true"] .df-browse-tile-subtitle,
-.df-browse-tile[data-active="true"] .df-browse-tile-meta { color: var(--md-sys-color-on-secondary-container); }
-.df-browse-tile-meta,
-.df-browse-row-meta {
-  align-items: center;
-  display: inline-flex;
-  flex: 0 0 auto;
-  gap: var(--md-space-1);
-  white-space: nowrap;
-}
-.df-browse-meta-clock {
-  flex: 0 0 auto;
-  font-size: var(--md-label-s-size);
-}
-.df-browse-tile-badges,
-.df-browse-row-badges {
-  align-items: center;
-  display: inline-flex;
-  flex: 0 0 auto;
-  gap: var(--md-space-1);
-}
-.df-browse-badge {
-  align-items: center;
-  background: var(--md-surface-container-highest);
-  border-radius: var(--md-shape-full);
-  color: var(--md-on-surface-variant);
-  display: inline-flex;
-  font: var(--md-label-s-weight) var(--md-label-s-size) / var(--md-label-s-line) var(--md-font);
-  gap: var(--md-space-1);
-  padding: 0 var(--md-space-2);
-  white-space: nowrap;
-}
-.df-browse-badge-terminals::before {
-  content: ">_";
-  font-family: var(--term-font-family);
-}
-.df-browse-tile-file,
-.df-browse-row-file {
-  color: var(--md-on-surface-variant);
-  cursor: default;
-}
-.df-browse-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-space-1);
-}
-.df-browse-row {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: var(--md-shape-md);
-  color: var(--md-on-surface);
-  cursor: pointer;
-  display: flex;
-  font: var(--md-body-m-weight) var(--md-body-m-size) / var(--md-body-m-line) var(--md-font);
-  gap: var(--md-space-3);
-  min-block-size: var(--control-touch-target);
-  padding: var(--md-space-2) var(--md-space-3);
-  text-align: start;
-  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
-}
-@media (hover: hover) {
-  .df-browse-row:hover { background: var(--md-state-hover); }
-}
-.df-browse-row[data-active="true"] {
-  background: var(--md-secondary-container);
-  color: var(--md-on-secondary-container);
-}
-.df-browse-row-name {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-}
-.df-browse-row-chev {
-  color: var(--md-on-surface-variant);
-  flex: 0 0 auto;
-}
-.df-browse-empty {
-  align-items: center;
-  color: var(--md-on-surface-variant);
-  display: flex;
-  flex-direction: column;
-  font: var(--md-body-m-weight) var(--md-body-m-size) / var(--md-body-m-line) var(--md-font);
-  gap: var(--md-space-2);
-  padding: var(--md-space-9) var(--md-space-4);
-  text-align: center;
-}
-.df-browse-empty-icon {
-  color: var(--md-on-surface-variant);
-  display: inline-flex;
-}
-.df-browse-empty-icon > svg {
-  block-size: var(--md-title-l-size);
-  inline-size: var(--md-title-l-size);
-}
-.df-browse-empty-sub {
-  font: var(--md-body-s-weight) var(--md-body-s-size) / var(--md-body-s-line) var(--md-font);
-  max-inline-size: calc(var(--md-space-9) * 8);
+  padding: var(--md-space-2) var(--md-space-1);
 }
 .df-browse-actions {
   align-items: center;
-  background: var(--md-surface-container);
   border-block-start: var(--workbench-border-width) solid var(--md-outline-variant);
   display: flex;
   flex: 0 0 auto;
   gap: var(--md-space-3);
-  padding: var(--md-space-2) var(--md-space-4);
+  padding: var(--md-space-2) var(--md-space-3);
   padding-block-end: calc(var(--md-space-2) + env(safe-area-inset-bottom));
 }
 .df-browse-open {
   flex: 1 1 auto;
   min-block-size: var(--control-touch-target);
 }
-:where(.df-browse-page[data-compact="true"]) .df-browse-toolbar {
+:where(.df-browse-page[data-compact="true"]) .df-browse-header {
+  padding: var(--md-space-2) var(--md-space-2);
+  padding-block-start: calc(var(--md-space-2) + env(safe-area-inset-top, 0px));
+}
+:where(.df-browse-page[data-compact="true"]) .df-browse-header,
+:where(.df-browse-page[data-compact="true"]) .df-browse-path {
   gap: var(--md-space-1);
-  padding: var(--md-space-1) var(--md-space-2);
-}
-:where(.df-browse-page[data-compact="true"]) .df-browse-toolbar-actions { gap: var(--md-space-1); }
-:where(.df-browse-page[data-compact="true"]) .df-browse-toggle { display: none; }
-:where(.df-browse-page[data-compact="true"]) .df-browse-new {
-  min-inline-size: var(--control-touch-target);
-  padding-inline: 0;
-}
-:where(.df-browse-page[data-compact="true"]) .df-browse-new-label,
-:where(.df-browse-page[data-compact="true"]) .df-browse-server-label { display: none; }
-:where(.df-browse-page[data-compact="true"]) .df-browse-server {
-  gap: var(--md-space-1);
-  justify-content: center;
-  min-inline-size: var(--control-touch-target);
-  padding-inline: 0;
-}
-:where(.df-browse-page[data-compact="true"]) .df-browse-grid {
-  grid-template-columns: repeat(auto-fill, minmax(calc(var(--md-space-9) * 3), 1fr));
 }
 @media (any-pointer: coarse) {
   .df-browse-crumb,

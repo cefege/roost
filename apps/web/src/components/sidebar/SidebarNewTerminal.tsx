@@ -1,4 +1,4 @@
-// Sidebar-wide pinned action bar: open a new folder plus its machine picker.
+// Sidebar-wide pinned action bar: pick a folder for a new terminal plus its machine picker.
 // SidebarRoot mounts it in the sidebar grid's bottom row, outside both scrollers.
 // Depends on the shared new-terminal target resolver and anchored-menu primitives.
 
@@ -127,13 +127,14 @@ export function SidebarNewTerminal() {
         size="sm"
         icon="add"
         data-testid="sidebar-new-terminal-button"
+        title="New terminal in a folder"
         disabled={!effectiveTargetFp()}
         onClick={() => {
           const fp = effectiveTargetFp();
           if (fp) navigate(browseHref(fp));
         }}
       >
-        New folder
+        New terminal
       </Button>
       <Show when={onlineWorkers().length > 1}>
         <Button

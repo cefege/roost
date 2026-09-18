@@ -1,45 +1,55 @@
-// New-folder dialog for the browse page: name field + Create/Cancel. Split out
-// of BrowsePage.tsx; the page owns the open/name/busy signals, the mkdir RPC,
-// and the post-create navigation, and hands the input element back to the page
-// so its open path can focus it.
+// New-folder prompt for the folder picker: name field, the inline failure the
+// attempt produced, and Create/Cancel. Compact gets the app's standard
+// bottom sheet, desktop the centered dialog. The page owns the open/name/busy/
+// error signals, the mkdir RPC, and the post-create navigation, and hands the
+// input element back so its open path can focus it.
 //
-// Callers: BrowsePage.tsx (WorkerBrowsePage).
+// Callers: WorkerBrowsePage.tsx.
 
+import { isCompact } from "../lib/windowSizeClass.ts";
 import { Dialog, Button, TextField } from "./Settings/md/primitives.tsx";
 
 export function NewFolderDialog(props: {
   open: boolean;
   name: string;
   busy: boolean;
+  /** Validation or RPC failure for this attempt — shown under the field. */
+  error: string | null;
   /** Resolved directory the folder lands in (cwdNow) — shown as the hint. */
   targetPath: string;
-  onName: (v: string) => void;
+  onName: (value: string) => void;
   onClose: () => void;
   onCreate: () => void;
-  setInputRef: (el: HTMLElement) => void;
+  setInputRef: (element: HTMLElement) => void;
 }) {
   return (
     <Dialog
       open={props.open}
       onClose={props.onClose}
       headline="New folder"
+      class={isCompact() ? "roost-sheet--bottom" : undefined}
       actions={
         <>
-          <span style={{ flex: "1" }} />
           <Button variant="outline" onClick={props.onClose}>Cancel</Button>
           <Button variant="default" data-testid="newfolder-confirm"
             onClick={props.onCreate} disabled={props.busy || !props.name.trim()}>{props.busy ? "Creating…" : "Create"}</Button>
         </>
       }
     >
-      <div style={{ display: "flex", "flex-direction": "column", gap: "12px", "min-width": "320px" }}>
-        <TextField value={props.name} onInput={(v) => props.onName(v)} label="Folder name"
-          testId="newfolder-input" style={{ width: "100%" }} ref={props.setInputRef}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); props.onCreate(); } }} />
-        <div style={{ "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)" }}>
-          Creates a folder in {props.targetPath}.
-        </div>
-      </div>
+      <TextField
+        value={props.name}
+        onInput={props.onName}
+        label="Folder name"
+        testId="newfolder-input"
+        ref={props.setInputRef}
+        description={`Creates a folder in ${props.targetPath}.`}
+        error={props.error ? <span role="alert">{props.error}</span> : null}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          props.onCreate();
+        }}
+      />
     </Dialog>
   );
 }
