@@ -197,7 +197,10 @@ test("the deck mounts a bounded number of panes @serial", async ({
   if (QUALIFY) expect(p95).toBeLessThanOrEqual(150);
 
   const targetSlot = smokePage.getByTestId(`terminal-slot-${lruTarget}`);
-  const loadingStatus = smokePage.getByTestId("terminal-loading-status");
+  // Every pane owns its own startup card, and a card that just completed stays
+  // mounted for its finish hold, so an unscoped query can match a neighbour
+  // pane mid-hand-off. Only this pane's card proves this pane's repair.
+  const loadingStatus = targetSlot.getByTestId("terminal-loading-status");
 
   // Round A — ordinary cold remount. The first-visited session is now the true
   // LRU, and absence of its slot proves this is a remount rather than a warm
@@ -257,7 +260,9 @@ test("the deck mounts a bounded number of panes @serial", async ({
   await expect(loadingStatus).toBeVisible();
 
   const loadingAtInput = await smokePage.evaluate(async ({ id, frame }) => {
-    const status = document.querySelector('[data-testid="terminal-loading-status"]');
+    const status = document.querySelector(
+      `[data-testid="terminal-loading-status"][data-session-id="${id}"]`,
+    );
     if (!(status instanceof HTMLElement)) return false;
     const box = status.getBoundingClientRect();
     const style = getComputedStyle(status);
