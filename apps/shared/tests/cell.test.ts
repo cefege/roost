@@ -9,7 +9,8 @@ import type { TerminalCore, CellData, CursorState } from "@wterm/core";
 import {
   rowToSpans, gridToCellFrame, readScrollbackRangeCells,
   DEFAULT_COLOR, CELL_BOLD,
-  spanIsAtomic, rowColumns, spansText, textOffsetToColumn, textRangeToColumns, columnText,
+  spanIsAtomic, rowColumns, spansText, textOffsetToColumn, textRangeToColumns,
+  columnSpan, columnText,
 } from "../src/cell/index.ts";
 
 // ── mock core ──────────────────────────────────────────────────────
@@ -192,6 +193,19 @@ describe("span column geometry", () => {
   test("column lookups read the glyph occupying that column", () => {
     expect([0, 1, 2, 3, 4, 5, 6, 7, 8].map((col) => columnText(spans, col)))
       .toEqual(["a", "b", "中", "中", "文", "文", "c", "d", ""]);
+  });
+
+  test("columnSpan reports the span covering a column, and its offset in it", () => {
+    // The predictor's erase guard needs the span's STYLE at a column, which
+    // columnText cannot report.
+    expect(columnSpan(spans, -1)).toBeNull();          // no column before 0
+    expect(columnSpan(spans, 8)).toBeNull();           // past the row's end
+    expect(columnSpan(spans, 1)?.span.text).toBe("ab");
+    expect(columnSpan(spans, 1)?.offset).toBe(1);
+    // A wide glyph's continuation column resolves to its LEAD span, offset 1.
+    const continuation = columnSpan(spans, 3);
+    expect(continuation?.span.text).toBe("中");
+    expect(continuation?.offset).toBe(1);
   });
 });
 

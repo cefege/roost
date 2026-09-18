@@ -176,8 +176,9 @@ export const SB_SNAPSHOT_HISTORY_ROWS = 0;
 // ── Column geometry ────────────────────────────────────────────────────
 // The single implementation of "which grid column is this text at", shared by
 // the worker's find RPC (offset → column) and the SPA's paint, hit splitting,
-// and predictive echo (column → text). Nothing may re-derive columns from
-// text.length; a wide glyph and an astral codepoint both break that identity.
+// and predictive echo (column → span via columnSpan, column → text via
+// columnText). Nothing may re-derive columns from text.length; a wide glyph and
+// an astral codepoint both break that identity.
 
 /** True when the span is ONE grid cell that must be painted and highlighted
  *  whole: a wide lead, an astral codepoint, or a grapheme cluster. False for a
@@ -252,17 +253,27 @@ export function textRangeToColumns(
   return { col, columns: Math.max(textOffsetToColumnEnd(spans, offset + length) - col, 1) };
 }
 
-/** Text painted at grid column `col`: the whole glyph for an atomic span (both
- *  columns of a wide one), one character of a run, "" past the row's end. */
-export function columnText(spans: readonly CellSpan[], col: number): string {
-  if (col < 0) return "";
+/** The span painted at grid column `col` with the column's offset inside it,
+ *  or null past the row's end. One walk shared with columnText. */
+export function columnSpan(
+  spans: readonly CellSpan[], col: number,
+): { span: CellSpan; offset: number } | null {
+  if (col < 0) return null;
   let at = 0;
   for (const span of spans) {
     const next = at + span.columns;
-    if (col < next) return spanIsAtomic(span) ? span.text : (span.text[col - at] ?? "");
+    if (col < next) return { span, offset: col - at };
     at = next;
   }
-  return "";
+  return null;
+}
+
+/** Text painted at grid column `col`: the whole glyph for an atomic span (both
+ *  columns of a wide one), one character of a run, "" past the row's end. */
+export function columnText(spans: readonly CellSpan[], col: number): string {
+  const cell = columnSpan(spans, col);
+  if (cell === null) return "";
+  return spanIsAtomic(cell.span) ? cell.span.text : (cell.span.text[cell.offset] ?? "");
 }
 
 /** Decode-side contract check: every span must claim at least one column and
