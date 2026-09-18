@@ -15,10 +15,15 @@ export const ListRow: Component<{
   onClick?: () => void;
   href?: string;
   selected?: boolean;
+  dense?: boolean;
   ariaCurrent?: "page";
   testId?: string;
   class?: string;
 }> = (props) => {
+  const rowClass = () =>
+    ["md-list-row", props.dense ? "md-list-row--dense" : "", props.class ?? ""]
+      .filter(Boolean)
+      .join(" ");
   const inner = (
     <>
       <Show when={props.leading}>
@@ -44,7 +49,7 @@ export const ListRow: Component<{
   return props.href ? (
     <A
       href={props.href}
-      class={props.class ? `md-list-row ${props.class}` : "md-list-row"}
+      class={rowClass()}
       data-selected={props.selected ? "true" : undefined}
       attr:data-testid={props.testId}
       aria-current={props.ariaCurrent}
@@ -54,7 +59,7 @@ export const ListRow: Component<{
   ) : props.onClick ? (
     <button
       type="button"
-      class={props.class ? `md-list-row ${props.class}` : "md-list-row"}
+      class={rowClass()}
       data-selected={props.selected ? "true" : undefined}
       attr:data-testid={props.testId}
       onClick={props.onClick}
@@ -63,7 +68,7 @@ export const ListRow: Component<{
     </button>
   ) : (
     <div
-      class={props.class ? `md-list-row ${props.class}` : "md-list-row"}
+      class={rowClass()}
       data-selected={props.selected ? "true" : undefined}
       attr:data-testid={props.testId}
     >

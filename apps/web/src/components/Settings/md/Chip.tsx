@@ -10,6 +10,7 @@ export type ChipProps = {
   icon?: string;
   selected?: boolean;
   onClick?: () => void;
+  title?: string;
   testId?: string;
 };
 
@@ -30,6 +31,7 @@ export const Chip: Component<ChipProps> = (props) => {
       data-selected={props.selected ? "true" : undefined}
       aria-pressed={props.selected === undefined ? undefined : props.selected}
       data-testid={props.testId}
+      title={props.title}
       onClick={props.onClick}
     >
       {content}
@@ -39,6 +41,7 @@ export const Chip: Component<ChipProps> = (props) => {
       class="roost-chip"
       data-selected={props.selected ? "true" : undefined}
       data-testid={props.testId}
+      title={props.title}
     >
       {content}
     </span>

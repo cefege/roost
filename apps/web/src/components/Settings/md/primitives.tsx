@@ -20,3 +20,4 @@ export { Surface } from "./Surface.tsx";
 export { StatusDot } from "./StatusDot.tsx";
 export { Sheet } from "./Sheet.tsx";
 export { Button } from "./Button.tsx";
+export { Skeleton } from "./Skeleton.tsx";

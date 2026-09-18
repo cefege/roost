@@ -11,12 +11,13 @@
 import { type JSX, type Component, For } from "solid-js";
 import {
   Button, IconButton, Card, SectionTitle, List, ListRow, MetricTile, EmptyState,
-  Surface, StatusDot, Icon,
+  Surface, StatusDot, Icon, Skeleton, Chip,
 } from "./Settings/md/primitives";
 import { WorkbenchShellSpecimen } from "./WorkbenchShellSpecimen.tsx";
 import { SettingsNavigationSpecimen } from "./SettingsNavigationSpecimen.tsx";
 import { DesignControlStates } from "./DesignControlStates.tsx";
 import { DesignOverlayStates } from "./DesignOverlayStates.tsx";
+import { TerminalStartupOverlay } from "./TerminalStartupOverlay.tsx";
 
 // ─── token catalogs (grep-tokens; each maps 1:1 to a declared theme var) ─────
 const COLOR_GROUPS: { title: string; tokens: string[] }[] = [
@@ -43,6 +44,14 @@ const SPACE_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 const SHAPE_STEPS = ["xs", "sm", "md", "lg", "xl", "full"] as const;
 const ELEV_STEPS = [0, 1, 2, 3, 4, 5] as const;
 const STATUS_DOTS = ["ok", "running", "idle", "error", "offline"] as const;
+const DENSE_GRID_ROWS = [
+  { name: "apps", support: "2h ago", selected: false },
+  { name: "docs", support: "just now", selected: true },
+  { name: "packages", support: "5m ago", selected: false },
+  { name: "scripts", support: "3d ago", selected: false },
+  { name: "smoke", support: "1h ago", selected: false },
+  { name: "very-long-folder-name-that-must-ellipsize", support: "12d ago", selected: false },
+] as const;
 
 // ─── leaf helpers ────────────────────────────────────────────────────────────
 const Swatch: Component<{ token: string }> = (props) => (
@@ -233,12 +242,36 @@ export const DesignGallery: Component = () => {
         </div>
 
         <SectionTitle>List</SectionTitle>
-        <List contained class="" >
+        <List contained>
           <ListRow leading={<Icon name="terminal" />} headline="Static row" support="non-interactive" trailing={<StatusDot status="idle" />} />
           <ListRow leading="folder" headline="Clickable row" support="onClick set" onClick={() => {}} trailing={<Icon name="chevron_right" />} />
           <ListRow leading={<Icon name="check_circle" />} headline="Selected row" support="selected=true" selected onClick={() => {}} trailing={<StatusDot status="ok" />} />
         </List>
         <div style={{ height: "var(--md-space-5)" }} />
+
+        <SectionTitle>List (layout=grid + dense rows)</SectionTitle>
+        <List layout="grid">
+          <For each={DENSE_GRID_ROWS}>
+            {(row) => (
+              <ListRow
+                dense leading="folder" headline={row.name} support={row.support}
+                selected={row.selected} onClick={() => {}}
+                trailing={<Chip label="2" icon="terminal" title="2 terminals" />}
+              />
+            )}
+          </For>
+        </List>
+        <div style={{ height: "var(--md-space-5)" }} />
+
+        <SectionTitle>Skeleton (loading placeholder)</SectionTitle>
+        <List contained>
+          <ListRow leading="folder" headline={<Skeleton />} support={<Skeleton width="30%" />} />
+          <ListRow leading="folder" headline={<Skeleton width="40%" />} />
+        </List>
+        <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)", "margin-block": "var(--md-space-4) var(--md-space-5)" }}>
+          <Skeleton />
+          <Skeleton width="40%" />
+        </div>
 
         <SectionTitle>Metric tiles</SectionTitle>
         <div style={{ ...grid("calc(var(--md-space-9) * 4)"), "margin-bottom": "var(--md-space-5)" }}>
@@ -262,6 +295,9 @@ export const DesignGallery: Component = () => {
           </Surface>
           <Surface level={0} elevation={4} radius="xl" pad={6} border>
             <span style={{ "font-size": "var(--md-label-m-size)", "line-height": "var(--md-label-m-line)", color: "var(--text-mid)" }}>level=0 elev=4 xl pad=6 border</span>
+          </Surface>
+          <Surface level={2} elevation={0} radius="none" pad={4} border>
+            <span style={{ "font-size": "var(--md-label-m-size)", "line-height": "var(--md-label-m-line)", color: "var(--text-mid)" }}>level=2 elev=0 radius=none pad=4 border</span>
           </Surface>
         </div>
 
@@ -298,6 +334,23 @@ export const DesignGallery: Component = () => {
           </For>
         </div>
 
+      </Section>
+
+      <Section title="Terminal startup">
+        <div style={{
+          position: "relative",
+          height: "calc(var(--md-space-9) * 3)",
+          background: "var(--term-bg)",
+          "border-radius": "var(--md-shape-md)",
+          overflow: "hidden",
+        }}>
+          <TerminalStartupOverlay notice={{
+            stage: "frame",
+            title: "Waiting for terminal screen",
+            detail: "View accepted at 120×32; waiting for its full baseline.",
+            progress: { received: 3, total: 7 },
+          }} />
+        </div>
       </Section>
 
       <Section title="Overlay states">

@@ -237,6 +237,51 @@
 .md-list-row + .md-list-row {
   border-top: 1px solid var(--md-sys-color-outline-variant);
 }
+/* minmax(168px) is the density contract: two columns on a 390px phone, three
+   in a 720px dialog, and enough width that a row's headline is readable rather
+   than ellipsized after ~14 characters. Changing it reshapes every grid list. */
+.md-list--grid {
+  display: grid;
+  gap: var(--md-space-2);
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(calc(var(--md-space-9) * 3 + var(--md-space-6)), 1fr)
+  );
+}
+/* A grid row is a card, so it carries a full outline and never the stack's
+   top divider — the second selector outranks `.md-list-row + .md-list-row`. */
+.md-list--grid > .md-list-row,
+.md-list--grid > .md-list-row + .md-list-row {
+  border: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-md);
+}
+.md-list-row--dense {
+  gap: var(--md-space-2);
+  padding: var(--md-space-2) var(--md-space-3);
+  min-block-size: var(--control-touch-target);
+}
+.md-list-row--dense .md-list-row__leading {
+  width: var(--md-space-7);
+  height: var(--md-space-7);
+  background: none;
+}
+/* A passive count badge is not a touch target, and the coarse-pointer rule's
+   44px minimum would otherwise stretch the whole dense row. */
+.md-list-row--dense .md-list-row__trailing .roost-chip {
+  min-block-size: var(--md-space-6);
+}
+.md-list-row--dense .md-list-row__headline {
+  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+}
+.md-list-row--dense .md-list-row__support {
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.md-list-row--dense .md-list-row__trailing {
+  gap: var(--md-space-1);
+}
 .md-list-row__leading {
   width: 40px;
   height: 40px;
@@ -283,6 +328,16 @@
   align-items: center;
   gap: var(--md-space-2);
   flex-shrink: 0;
+}
+
+/* A container role, not --md-state-hover: a hovered list row paints that same
+   state layer, which would make the bar vanish exactly where it is needed. */
+.md-skeleton {
+  display: block;
+  background: var(--md-sys-color-surface-container-highest);
+  border-radius: var(--md-shape-full);
+  block-size: var(--md-space-3);
+  inline-size: 60%;
 }
 
 .md-list > .machines-worker + .machines-worker {
