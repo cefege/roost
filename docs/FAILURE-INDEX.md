@@ -2264,6 +2264,32 @@ freeze reconciliation" and the real-flow `smoke/terminal/terminal-predictive-ech
 "sustained fast typing never wipes its own predictions" (asserts a `resetCount` delta of 0 across a
 1.6 s burst).
 
+### A terminal proof fails with "strict mode violation: resolved to 2 elements"
+
+**Symptom** — a Playwright terminal spec dies on `getByTestId('terminal-loading-status')` (or any
+other per-pane testid) with `strict mode violation: … resolved to 2 elements`, one card reading
+`data-phase="loading"` and the other `data-phase="complete"`. It passes alone and fails in a
+multi-pane case such as `smoke/terminal/terminal-switch-perf.spec.ts` "the deck mounts a bounded
+number of panes".
+
+**Wrong** — treating the second element as a leak and hunting for the card that "failed to
+unmount", or suppressing it with `.first()`. The startup card is per session: `MainPane` mounts one
+for the bootstrap steps and every `CellTerminal` mounts its own, and a card that just completed
+stays in the DOM for `FINISH_GRACE_MS + FINISH_HOLD_MS` (300 ms, `TerminalStartupOverlay.tsx`) so
+the meter can land on 100% instead of vanishing mid-band. Two cards during a hand-off is the
+contract, not a defect, and `.first()` silently asserts against whichever pane the DOM happens to
+order first.
+
+**Right** — scope the query to the pane under proof: `page.getByTestId('terminal-slot-<sid>')
+.getByTestId('terminal-loading-status')`, and inside `page.evaluate` match on the card's own owner
+with `[data-testid="terminal-loading-status"][data-session-id="<sid>"]`. A global
+`toHaveCount(0)` is only valid in a single-pane spec.
+
+**Guard** — `smoke/terminal/terminal-switch-perf.spec.ts` "the deck mounts a bounded number of
+panes" (scoped `targetSlot` locator plus the session-scoped `querySelector` in its repair round)
+and `smoke/terminal/terminal-delivery.spec.ts`, which still pins the single-pane stage/percent
+series.
+
 ---
 
 ## Process rule
