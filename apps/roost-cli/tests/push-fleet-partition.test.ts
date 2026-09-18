@@ -9,6 +9,7 @@ import {
   _partitionFleetForRollout,
   fleetWorkerIdentityProblems,
 } from "../src/push.ts";
+import { classifyFleetKeeperUpdates } from "../src/push-keeper-admission.ts";
 import type { WorkerStatus } from "../src/status.ts";
 
 const PRIOR_SHA = "a".repeat(40);
@@ -140,5 +141,37 @@ describe("deferred machine report", () => {
 
   test("a wholly reachable fleet prints no deferral block", () => {
     expect(_deferredFleetReportLines([])).toEqual([]);
+  });
+});
+
+describe("keeper admission deferral", () => {
+  const contract = {
+    build_sha: "b".repeat(40),
+    bun_abi: "1.3.14",
+    platform: "linux",
+    arch: "x64",
+    entry_digest: "d".repeat(64),
+    protocol_version: 1,
+  };
+
+  test("a keeper that cannot be adopted defers that machine and admits the others", () => {
+    // The live incident this pins: one machine whose keeper holds PTYs the new
+    // release cannot adopt used to refuse the whole push with zero mutation.
+    const result = classifyFleetKeeperUpdates(
+      [
+        { fingerprint: ALPHA_FP, host: "alpha.example" },
+        { fingerprint: BETA_FP, host: "beta.example" },
+      ],
+      [
+        status({ fingerprint: ALPHA_FP, label: "alpha", keeperRuntime: null }),
+        status({ fingerprint: BETA_FP, label: "beta", keeperRuntime: null }),
+      ],
+      new Map([[ALPHA_FP, contract]]),
+    );
+    expect(result.workers).toEqual([]);
+    expect(result.deferred.map((machine) => `${machine.label}: ${machine.reason}`)).toEqual([
+      "alpha: keeper update admission is unproven",
+      "beta: target keeper runtime proof is unavailable",
+    ]);
   });
 });

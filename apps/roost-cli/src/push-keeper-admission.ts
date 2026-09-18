@@ -1,6 +1,7 @@
-// Atomic push keeper preflight classifies every rollout participant from one
-// coordinator snapshot. The caller must reject the complete batch before
-// creating coordinator or worker journals when any participant is blocked.
+// Push keeper preflight classifies every rollout participant from one
+// coordinator snapshot. A participant whose keeper cannot be updated safely is
+// DEFERRED, not fatal: refusing the batch would let one unadoptable keeper
+// block every other machine, and forcing it would end live PTYs.
 
 import { join } from "node:path";
 import {
@@ -15,10 +16,12 @@ import { sshExec } from "./deploy-exec.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
 import type { FleetRolloutWorker } from "./push-fleet-rollout.ts";
 import type { WorkerStatus } from "./status-types.ts";
+import type { DeferredFleetWorker } from "./push-fleet-plan.ts";
 
 export interface FleetKeeperAdmissionResult {
   workers: FleetRolloutWorker[];
-  problems: string[];
+  /** Participants this push must skip, each with its operator-facing reason. */
+  deferred: DeferredFleetWorker[];
 }
 export function sourceKeeperContractCommand(
   sourceRoot: string,
@@ -127,21 +130,27 @@ export function classifyFleetKeeperUpdates(
   targetContracts: ReadonlyMap<string, KeeperContractV1>,
 ): FleetKeeperAdmissionResult {
   const workers: FleetRolloutWorker[] = [];
-  const problems: string[] = [];
+  const deferred: DeferredFleetWorker[] = [];
   for (const target of targets) {
     const matchingWorkers = inventory.filter(
       worker => worker.fingerprint === target.fingerprint,
     );
     if (matchingWorkers.length !== 1) {
-      problems.push(
-        `${target.fingerprint}: update admission cannot resolve one worker`,
-      );
+      deferred.push({
+        fingerprint: target.fingerprint,
+        label: target.fingerprint.slice(0, 12),
+        reason: "update admission cannot resolve one worker",
+      });
       continue;
     }
     const worker = matchingWorkers[0]!;
     const targetContract = targetContracts.get(target.fingerprint);
     if (!targetContract) {
-      problems.push(`${worker.label}: target keeper runtime proof is unavailable`);
+      deferred.push({
+        fingerprint: target.fingerprint,
+        label: worker.label,
+        reason: "target keeper runtime proof is unavailable",
+      });
       continue;
     }
     const openSessions = new Set(worker.coordinatorOpenSessionIds);
@@ -156,7 +165,11 @@ export function classifyFleetKeeperUpdates(
       openSessions,
     );
     if (!admission || !worker.keeperRuntime) {
-      problems.push(classificationProblem(worker, classification));
+      deferred.push({
+        fingerprint: target.fingerprint,
+        label: worker.label,
+        reason: keeperDeferralReason(classification),
+      });
       continue;
     }
     workers.push({
@@ -169,20 +182,21 @@ export function classifyFleetKeeperUpdates(
       }),
     });
   }
-  return { workers, problems };
+  return { workers, deferred };
 }
 
-function classificationProblem(
-  worker: WorkerStatus,
-  classification: KeeperUpdateClassification,
-): string {
+/** Each reason names the operator's own way out, because a keeper deferral is
+ *  the one kind that does not clear itself on the machine's next attach. */
+function keeperDeferralReason(classification: KeeperUpdateClassification): string {
   switch (classification) {
     case "incompatible-with-live-sessions":
-      return `${worker.label}: keeper update is incompatible with live sessions`;
+      return "keeper cannot be adopted while its sessions are live —"
+        + " `roost keeper-refresh <host> --yes` when those PTYs are expendable";
     case "unproven":
-      return `${worker.label}: keeper update admission is unproven`;
+      return "keeper update admission is unproven";
     case "worker-only-safe":
     case "keeper-restart-required":
-      return `${worker.label}: keeper update admission metadata is incomplete`;
+      return "keeper update admission metadata is incomplete";
   }
 }
+

@@ -221,34 +221,50 @@ async function executePushUnderLease(
       }`,
     );
   }
-  let targetContracts: Map<string, KeeperContractV1>;
+  // Probed per host, not as one Promise.all: a machine whose keeper contract
+  // cannot be read is exactly a deferral, and rejecting the batch on the first
+  // unreadable host is the wedge this model removes.
+  const targetContracts = new Map<string, KeeperContractV1>();
+  const probeDeferred: DeferredFleetWorker[] = [];
+  let sourceKeeperContract: KeeperContractV1;
   try {
-    const sourceKeeperContract = await loadSourceKeeperContract(REPO_ROOT);
-    targetContracts = new Map(await Promise.all(participants.map(async (target) => [
-      target.fingerprint,
-      await probeTargetKeeperContract(
-        target.host,
-        expectedSha,
-        sourceKeeperContract,
-      ),
-    ] as const)));
+    sourceKeeperContract = await loadSourceKeeperContract(REPO_ROOT);
   } catch (error) {
     failDeploy(
       8,
-      `fleet keeper target proof failed with zero mutation: ${
+      `fleet keeper source proof failed with zero mutation: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
   }
+  await Promise.all(participants.map(async (target) => {
+    try {
+      targetContracts.set(
+        target.fingerprint,
+        await probeTargetKeeperContract(target.host, expectedSha, sourceKeeperContract),
+      );
+    } catch (error) {
+      probeDeferred.push({
+        fingerprint: target.fingerprint,
+        label: target.host,
+        reason: `keeper target proof failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+  }));
   const admission = classifyFleetKeeperUpdates(
-    participants,
+    participants.filter((target) => targetContracts.has(target.fingerprint)),
     inventory,
     targetContracts,
   );
-  if (admission.problems.length > 0) {
+  const allDeferred = [...deferred, ...probeDeferred, ...admission.deferred];
+  if (admission.workers.length === 0 && priorSha !== expectedSha) {
     failDeploy(
       8,
-      `fleet keeper update admission blocked with zero mutation:\n${admission.problems.join("\n")}`,
+      `no registered worker can be updated safely; zero mutation\n${
+        allDeferred.map((machine) => `${machine.label}: ${machine.reason}`).join("\n")
+      }`,
     );
   }
 
@@ -262,9 +278,9 @@ async function executePushUnderLease(
     )?.gitSha !== expectedSha);
   if (priorSha === expectedSha && unconverged.length === 0) {
     console.log(
-      `\n>> push complete — coordinator, ${participants.length} workers, and keepers already satisfy ${expectedSha}`,
+      `\n>> push complete — coordinator, ${admission.workers.length} workers, and keepers already satisfy ${expectedSha}`,
     );
-    for (const line of _deferredFleetReportLines(deferred)) console.log(line);
+    for (const line of _deferredFleetReportLines(allDeferred)) console.log(line);
     return;
   }
   const rolloutId = crypto.randomUUID();
@@ -291,9 +307,9 @@ async function executePushUnderLease(
     fleetRuntime(held, plan, _atomicFleetConvergenceProblems),
   );
   console.log(
-    `\n>> push complete — coordinator and ${participants.length} workers report ${expectedSha}`,
+    `\n>> push complete — coordinator and ${admission.workers.length} workers report ${expectedSha}`,
   );
-  for (const line of _deferredFleetReportLines(deferred)) console.log(line);
+  for (const line of _deferredFleetReportLines(allDeferred)) console.log(line);
 }
 
 async function finishMandatoryCoordinatorRecovery(
