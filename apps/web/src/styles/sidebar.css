@@ -344,7 +344,16 @@
   pointer-events: none;
 }
 
-
+/* Backspace prediction: one column of terminal background painted over the
+   glyph the echo is about to delete. The engine refuses any styled or wide
+   cell, so the default bg is always the correct cover. */
+.cell-grid .cell-predict-erase {
+  position: absolute;
+  width: 1ch;
+  height: 1lh;
+  background: var(--term-bg);
+  pointer-events: none;
+}
 
 /* Sleeping-mascot Zzz: two z's drift up and right, then fade.
    The HTML spans overlay the SVG so the float is compositor-animated. */
@@ -378,9 +387,9 @@
 }
 
 /* ── Mobile (compact) Chrome-style workspace bar (MobileDeckBar) ────────
-   Replaces the old scrollable MobileTabStrip row. The bar chrome is
-   inline-styled (48px, surface-1); these rules style its interactive bits
-   and the full-screen terminal card grid (WorkspaceTabsSheet) it opens.
+   The bar chrome is inline-styled (48px, surface-1); these rules style its
+   interactive bits and the full-screen terminal card grid
+   (WorkspaceTabsSheet) it opens.
 
    Card layout follows Chrome's tab_grid_card_item_layout spec:
    24dp border-radius, 1dp elevation, 40dp header (favicon + title + close ✕),
@@ -417,6 +426,15 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--md-on-surface);
+}
+/* The 28px square fits one digit; a fraction ("12/15") needs to grow, and
+   tabular figures stop the badge reflowing as the position changes mid-swipe. */
+.mobile-deck-count--fraction {
+  width: auto;
+  min-width: var(--control-height-sm);
+  padding: 0 var(--md-space-1);
+  font-size: var(--md-label-m-size);
+  font-variant-numeric: tabular-nums;
 }
 @media (hover: hover) {
   .mobile-deck-new:hover,
