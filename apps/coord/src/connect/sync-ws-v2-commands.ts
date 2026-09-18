@@ -8,6 +8,7 @@ import type { ServerWebSocket } from "bun";
 import { clone, create } from "@bufbuild/protobuf";
 import {
   FirehoseFrameSchema,
+  InputRejectedSchema,
   SyncClientFrameSchema,
   SyncDomainResetFrameSchema,
   SyncDomain,
@@ -21,6 +22,7 @@ import {
   allocateDomainGeneration,
   clearV2DomainQueue,
   isLazyDomain,
+  type SyncV2DomainState,
 } from "./sync-ws-v2-state.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 
@@ -156,17 +158,35 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
       }));
       return;
     }
-    if (ws.data.readOnly) return;
     if (
       command.case !== "terminalView"
       && command.case !== "terminalResync"
       && command.case !== "input"
     ) return;
     const terminal = v2.domains.get(SyncDomain.TERMINAL);
-    if (
-      !terminal?.ready
-      || command.value.domainGeneration !== terminal.generation
-    ) return;
+    const refusal = terminalCommandRefusal(
+      ws.data.readOnly,
+      terminal,
+      command.value.domainGeneration,
+    );
+    if (refusal !== null) {
+      // Nothing reached a worker, so the browser gets a definite rejection
+      // instead of waiting out its input-result deadline and reporting loss.
+      if (command.case === "input") {
+        sendV2ControlFrame(ws, create(FirehoseFrameSchema, {
+          frame: {
+            case: "inputRejected",
+            value: create(InputRejectedSchema, {
+              sessionId: command.value.sessionId,
+              inputSeq: command.value.inputSeq,
+              domainGeneration: command.value.domainGeneration,
+              reason: refusal,
+            }),
+          },
+        }));
+      }
+      return;
+    }
     const owned = clone(SyncClientFrameSchema, clientFrame).command;
     if (
       owned.case !== "terminalView"
@@ -188,4 +208,18 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
   };
 
   return { handleV2Command };
+}
+
+/** Why a terminal command cannot be honoured on this socket, or null. */
+function terminalCommandRefusal(
+  readOnly: boolean,
+  terminal: SyncV2DomainState | undefined,
+  domainGeneration: bigint,
+): string | null {
+  if (readOnly) return "this Sync socket cannot write terminal input";
+  if (!terminal?.ready) return "terminal domain is resubscribing; input was not sent";
+  if (domainGeneration !== terminal.generation) {
+    return "terminal view generation was reset; input was not sent";
+  }
+  return null;
 }
