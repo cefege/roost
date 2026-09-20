@@ -7,7 +7,7 @@
 import { Show, type JSX } from "solid-js";
 import type { Session } from "@roost/shared/wire";
 import { sessionTitle } from "../lib/sessionTitle.ts";
-import { sessionTerminalTransportKind } from "../store/local-transport-indicator.ts";
+import { sessionTerminalTransportKind, sessionTerminalTransportLabel } from "../store/local-transport-indicator.ts";
 import { notifyTargetSessionId } from "../store/notifyTarget.ts";
 import { Button } from "./Settings/md/Button.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
@@ -30,16 +30,7 @@ export interface PaneTabProps {
 export function PaneTab(props: PaneTabProps) {
   let tabElement: HTMLDivElement | undefined;
   const transportKind = () => sessionTerminalTransportKind(props.session.id);
-  const directTooltip = () => {
-    switch (transportKind()) {
-      case "loopback":
-        return "Direct on this device";
-      case "webrtc":
-        return "Direct peer connection";
-      default:
-        return null;
-    }
-  };
+  const directTooltip = () => sessionTerminalTransportLabel(props.session.id);
 
   // The hover card and the OS tooltip would otherwise stack on a plain desktop:
   // the tooltip is the fallback for surfaces that get no hover card at all.

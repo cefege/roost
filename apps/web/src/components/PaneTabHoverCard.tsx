@@ -11,7 +11,7 @@ import { programSubtitle, sessionTitle } from "../lib/sessionTitle.ts";
 import { shortCwd } from "../lib/sidebarFormat.ts";
 import { renderPreview } from "../lib/terminalPreview.ts";
 import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
-import { sessionTerminalTransportKind } from "../store/local-transport-indicator.ts";
+import { sessionTerminalTransportLabel } from "../store/local-transport-indicator.ts";
 import { Icon, Surface } from "./Settings/md/primitives.tsx";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 
@@ -32,16 +32,7 @@ export function PaneTabHoverCard(props: PaneTabHoverCardProps) {
   const [hasPreview, setHasPreview] = createSignal(false);
   const subtitle = createMemo(() => programSubtitle(props.session));
   const left = `max(var(--md-space-2), min(${props.rect.left}px, calc(100vw - var(--workbench-tab-hovercard-width) - var(--md-space-2))))`;
-  const directTooltip = () => {
-    switch (sessionTerminalTransportKind(props.session.id)) {
-      case "loopback":
-        return "Direct on this device";
-      case "webrtc":
-        return "Direct peer connection";
-      default:
-        return null;
-    }
-  };
+  const directTooltip = () => sessionTerminalTransportLabel(props.session.id);
 
   onMount(() => {
     if (previewElement) setHasPreview(renderPreview(props.session.id, previewElement));

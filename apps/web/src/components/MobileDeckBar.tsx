@@ -8,6 +8,7 @@
 import { For, Show, createEffect, createMemo, createSignal, on } from "solid-js";
 import { Portal } from "solid-js/web";
 import { sessionTitle } from "../lib/sessionTitle.ts";
+import { sessionTerminalTransportLabel } from "../store/local-transport-indicator.ts";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { openSidebar } from "../store/uiStore.ts";
 import type { Session } from "@roost/shared/wire";
@@ -42,6 +43,11 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
     const s = active();
     return s ? sessionTitle(s) : "Terminal";
   });
+  const nativeTitle = createMemo(() => {
+    const session = active();
+    const carrier = session ? sessionTerminalTransportLabel(session.id) : null;
+    return carrier ? `${title()} — ${carrier}` : title();
+  });
   const badge = createMemo(() => deckTabBadge(props.tabs.length, props.tabs.findIndex((tab) => tab.id === props.selectedTab)));
 
   return (
@@ -70,7 +76,7 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
           style={{ "flex-shrink": "0" }}
         />
         <div style={{ flex: "1 1 0", "min-width": "0", position: "relative", overflow: "hidden", height: "48px" }}>
-          <span title={title()} style={{ ...TITLE_TEXT, display: "block", width: "100%" }}>
+          <span title={nativeTitle()} style={{ ...TITLE_TEXT, display: "block", width: "100%" }}>
             {title()}
           </span>
         </div>

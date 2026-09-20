@@ -44,6 +44,18 @@ export function sessionTerminalTransportKind(
     : null;
 }
 
+/** Human-facing carrier label for native tooltip and hover-card surfaces. */
+export function sessionTerminalTransportLabel(sessionId: string): string | null {
+  switch (sessionTerminalTransportKind(sessionId)) {
+    case "loopback":
+      return "Direct on this device";
+    case "webrtc":
+      return "Direct peer connection";
+    default:
+      return null;
+  }
+}
+
 /** True only while an elected direct route still has a current terminal proof. */
 export function hasLivenessQualifiedDirectTerminal(): boolean {
   terminalTransportRevision();
