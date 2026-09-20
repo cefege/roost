@@ -2,13 +2,12 @@
 // Forward refs preserve construction order for the link, SessionManager, and
 // agent registry; focused handlers own stateful downstream protocols.
 
-import { randomUUID, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { diag, isDiagEnabled } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import type { WorkerFp } from "@roost/shared/wire";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
 import {
-	TerminalInputStatus,
-	TerminalStreamFailureKind,
 	TerminalStreamStatus,
 	TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
@@ -24,72 +23,28 @@ import { handleBrowserCommand } from "./browser-command-handler.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { AgentScreenDetector } from "./agent-status/detector.ts";
 import type { AgentStatusRegistry } from "./agent-status/registry.ts";
-import type { TerminalStreamFailure } from "./session-terminal-state.ts";
-import type { WorkerInputResult } from "./session-terminal-control.ts";
+import { makeCoordLinkDirectTerminalHandlers } from "./coord-link-direct-deps.ts";
+import { coordLinkInputAuthority } from "./coord-link-input-authority.ts";
+import {
+	boundedTerminalReason,
+	sendTerminalInputResult,
+	terminalStreamFailureKind,
+} from "./coord-link-terminal-results.ts";
+import { replayDurableWindowsUpdateProgress } from "./coord-link-windows-update.ts";
 import type { CoordLink, CoordLinkDeps } from "./transport/coord-link.ts";
+import type { LocalTerminalWiring } from "./transport/coord-link-types.ts";
 import type { SessionEventStore } from "./transport/session-event-store.ts";
-import type { LocalTerminalGrantStore } from "./local-terminal-grants.ts";
-import type { LocalTerminalSockets } from "./local-terminal-socket.ts";
-import type { TerminalViewOwner } from "./terminal-view-owner.ts";
 import { terminalPipelineSnapshot } from "./terminal-pipeline-snapshot.ts";
 import {
 	flushTerminalMetadata,
 	replayTerminalMetadata,
 	setTerminalMetadataNegotiated,
 } from "./session-terminal-metadata.ts";
+import { TERMINAL_VIEW_OWNER_CAPABILITY } from "./transport/coord-link-constants.ts";
 
-const _workerSha8 = (b: Uint8Array): string =>
-	createHash("sha256").update(b).digest("hex").slice(0, 8);
-function terminalFailureKind(
-	failure: TerminalStreamFailure | undefined,
-): TerminalStreamFailureKind {
-	switch (failure) {
-		case "retryable_pre_write": return TerminalStreamFailureKind.RETRYABLE_PRE_WRITE;
-		case "session_not_live": return TerminalStreamFailureKind.SESSION_NOT_LIVE;
-		case "invalid_request": return TerminalStreamFailureKind.INVALID_REQUEST;
-		case "core_failed": return TerminalStreamFailureKind.CORE_FAILED;
-		case "ambiguous_boundary": return TerminalStreamFailureKind.AMBIGUOUS_BOUNDARY;
-		default: return TerminalStreamFailureKind.UNSPECIFIED;
-	}
-}
+const _workerSha8 = (bytes: Uint8Array): string =>
+	createHash("sha256").update(bytes).digest("hex").slice(0, 8);
 
-function boundedTerminalReason(reason: string | undefined): string | undefined {
-	if (!reason) return undefined;
-	const encoded = Buffer.from(reason);
-	if (encoded.byteLength <= 200) return reason;
-	for (let end = 200; end > 0; end -= 1) {
-		try {
-			return new TextDecoder("utf-8", { fatal: true }).decode(encoded.subarray(0, end));
-		} catch {
-			// Continue to the previous UTF-8 boundary.
-		}
-	}
-	return "";
-}
-
-async function replayDurableWindowsUpdateProgress(coordLink: CoordLink): Promise<void> {
-	if (process.platform !== "win32") return;
-	const {
-		DurableWindowsUpdateJournalStore,
-		readWindowsUpdateProgressFromJournal,
-	} = await import("../../roost-cli/src/windows/windows-update-journal.ts");
-	const journal = await new DurableWindowsUpdateJournalStore().load();
-	if (!journal) return;
-	const requestId = randomUUID();
-	for (const entry of readWindowsUpdateProgressFromJournal(journal, 0)) {
-		coordLink.send({
-			kind: "update-progress",
-			request_id: requestId,
-			job_id: journal.jobId,
-			sequence: entry.sequence,
-			phase: entry.phase,
-			message: entry.message,
-			terminal: entry.terminal,
-			success: entry.success,
-			error: entry.error,
-		});
-	}
-}
 
 /** Forward refs to the objects built FROM these deps. runWorker assigns each
  * one the instant it exists; downstream frames arrive only after binding. */
@@ -101,21 +56,18 @@ export interface CoordLinkRefs {
 	acquireKeeperUpdateBoundary: (() => Promise<() => void>) | null;
 }
 
-/** Terminal-view ownership plus the loopback door that shares it. Built before
- * the link (both only need lazy access to the session manager), so this is a
- * plain input rather than a forward ref. */
-export interface LocalTerminalWiring {
-	viewOwner: TerminalViewOwner;
-	grants: LocalTerminalGrantStore;
-	sockets: LocalTerminalSockets;
-}
+export type { LocalTerminalWiring } from "./transport/coord-link-types.ts";
 
 export interface CoordLinkDepsCtx {
 	coordHttpUrl: string;
 	workerFp: WorkerFp;
+	/** Fresh worker-process UUID advertised on every coordinator connection. */
+	processEpoch: string;
 	mintJwt: () => Promise<string>;
 	sessionEventStore: SessionEventStore;
 	refs: CoordLinkRefs;
+	/** Extends the terminal base capabilities without duplicating hello assembly. */
+	additionalCapabilities?: ReadonlySet<string>;
 	/** Absent in focused link tests: the worker then answers no view relay, no
 	 * grant install and no revocation. */
 	localTerminal?: LocalTerminalWiring;
@@ -131,43 +83,30 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		if (!refs.link) throw new Error("coord-link deps used before the link was bound");
 		return refs.link;
 	};
-	const sendInputResult = (
-		request: { requestId: string; sessionId: string; inputSeq: bigint },
-		result: WorkerInputResult,
-		boundReason: boolean,
-	): void => {
-		link().send({
-			kind: "input-result",
-			request_id: request.requestId,
-			session_id: request.sessionId,
-			input_seq: request.inputSeq,
-			status: result.status === "accepted"
-				? TerminalInputStatus.ACCEPTED
-				: result.status === "rejected"
-					? TerminalInputStatus.REJECTED
-					: TerminalInputStatus.AMBIGUOUS,
-			written_bytes: result.writtenBytes,
-			phase: result.status === "accepted"
-				? TerminalWritePhase.WRITTEN
-				: result.status === "rejected"
-					? TerminalWritePhase.PRE_WRITE
-					: TerminalWritePhase.UNKNOWN,
-			reason: result.status === "accepted"
-				? undefined
-				: (boundReason ? boundedTerminalReason(result.reason) : result.reason),
-		});
-	};
 	const onKeeperUpdatePrepare = createKeeperUpdatePrepareHandler({
 		sessionManager: mgr,
 		acquireKeeperUpdateBoundary: () => refs.acquireKeeperUpdateBoundary,
 	});
 	const local = ctx.localTerminal;
+	const directTerminalHandlers = makeCoordLinkDirectTerminalHandlers({
+		localTerminal: local,
+		processEpoch: ctx.processEpoch,
+		sessions: mgr,
+	});
+	const capabilities = [...new Set([
+		TERMINAL_METADATA_CAPABILITY,
+		TERMINAL_VIEW_OWNER_CAPABILITY,
+		...(ctx.additionalCapabilities ?? []),
+	])].sort();
 	return {
 		coordHttpUrl: ctx.coordHttpUrl,
 		workerFp: ctx.workerFp,
+		processEpoch: ctx.processEpoch,
 		workerVersion: "v2",
+		capabilities,
 		sessionEventStore: ctx.sessionEventStore,
 		mintJwt: ctx.mintJwt,
+		...directTerminalHandlers,
 		onHelloAck: ({ terminalMetadataNegotiated }) => {
 			// The coordinator's own browser sockets are gone with its previous
 			// generation; a LOCAL viewer keeps its views, its lease and the live
@@ -183,6 +122,7 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		},
 		onTerminalViewRelay: (request) => { local?.viewOwner.handleRelay(request); },
 		onTerminalViewSocketClosed: (request) => {
+			local?.inputRouteOwner.retireConnection(request.socketId);
 			local?.viewOwner.closeSocket(request.socketId);
 		},
 		// A throw here answers the coordinator's acknowledged install with
@@ -191,7 +131,7 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 			? (request) => { local.grants.install(request); }
 			: undefined,
 		onLocalTerminalGrantRevoke: (request) => {
-			local?.sockets.revokeDevice(request.deviceFingerprint);
+			local?.revokeDevice(request.deviceFingerprint);
 		},
 		onOpen: () => {
 			const sessionMgr = refs.sessionMgr;
@@ -202,6 +142,11 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 			suspendCellSink(sessionMgr, COORD_CELL_SINK_ID);
 		},
 		onDetach: () => {
+			// Only unsettled signaling is fenced by coordinator loss. Established
+			// authorized peers retain their grant/expiry lifetime while cells keep
+			// flowing directly.
+			local?.clearCoordinatorGeneration();
+			local?.peerOwner.cancelPendingForCoordinator("coordinator_detached");
 			const sessionMgr = refs.sessionMgr;
 			if (!sessionMgr) return;
 			setTerminalMetadataNegotiated(sessionMgr, false);
@@ -234,13 +179,34 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		// coordinator unwinds provisional state only on PRE_WRITE, so a status
 		// that overstates certainty can never license a duplicate write.
 		onInputRequest: async (request, budget) => {
-			const result = await mgr().writeTerminalInput(
-				request.sessionId,
-				request.inputSeq,
-				request.data,
-				budget,
-			);
-			sendInputResult(request, result, false);
+			const workAdmission = local?.inputWorkBudget.reserveInput({
+				origin: "sync",
+				byteLength: request.data.byteLength,
+			});
+			if (workAdmission && !workAdmission.admitted) {
+				sendTerminalInputResult(link().send, request, {
+					status: "rejected",
+					writtenBytes: 0,
+					reason: workAdmission.reason,
+				}, false);
+				return;
+			}
+			const reservation = workAdmission && workAdmission.admitted
+				? workAdmission.reservation
+				: undefined;
+			try {
+				const sessionMgr = mgr();
+				const result = await sessionMgr.writeTerminalInput(
+					request.sessionId,
+					request.inputSeq,
+					request.data,
+					budget,
+					coordLinkInputAuthority(local, request, budget, sessionMgr),
+				);
+				sendTerminalInputResult(link().send, request, result, false);
+			} finally {
+				reservation?.release();
+			}
 		},
 		onAgentPrompt: async (request, budget) => {
 			const registry = refs.agentRegistry;
@@ -248,12 +214,31 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 			if (!registry || !detector) {
 				throw new Error("agent prompt control used before status detection was bound");
 			}
-			const result = await writeAgentPrompt(request, budget, {
-				sessions: mgr(),
-				registry,
-				detector,
+			const workAdmission = local?.inputWorkBudget.reserveInput({
+				origin: "sync",
+				byteLength: Buffer.byteLength(request.text, "utf8") + 13,
 			});
-			sendInputResult(request, result, true);
+			if (workAdmission && !workAdmission.admitted) {
+				sendTerminalInputResult(link().send, request, {
+					status: "rejected",
+					writtenBytes: 0,
+					reason: workAdmission.reason,
+				}, true);
+				return;
+			}
+			const reservation = workAdmission && workAdmission.admitted
+				? workAdmission.reservation
+				: undefined;
+			try {
+				const result = await writeAgentPrompt(request, budget, {
+					sessions: mgr(),
+					registry,
+					detector,
+				});
+				sendTerminalInputResult(link().send, request, result, true);
+			} finally {
+				reservation?.release();
+			}
 		},
 		onTerminalStreamState: async (request, budget) => {
 			const result = await mgr().applyTerminalStreamState({
@@ -285,7 +270,7 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 					: result.phase === "pre_write"
 						? TerminalWritePhase.PRE_WRITE
 						: TerminalWritePhase.UNKNOWN,
-				failure_kind: terminalFailureKind(
+				failure_kind: terminalStreamFailureKind(
 					result.status === "committed" ? undefined : result.failure,
 				),
 				reason: boundedTerminalReason(

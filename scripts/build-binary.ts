@@ -10,6 +10,12 @@
 // consumed by scripts/windows/package-windows.ps1.
 import { $ } from "bun";
 import { copyFile } from "node:fs/promises";
+import {
+  hostTerminalPeerTarget,
+  isTerminalPeerNativeTarget,
+  stageTerminalPeerNative,
+  type TerminalPeerNativeTarget,
+} from "./terminal-peer-native-assets.ts";
 import { buildKeeperImplementationDigest } from "./keeper-bundle-digest.ts";
 
 const OUT = "dist/roost";
@@ -18,7 +24,12 @@ const OUT = "dist/roost";
 // explicit Darwin arm64 output after every full matrix build.
 const DARWIN_ARM64_OUT = "dist/roost-darwin-arm64";
 const WINDOWS_X64_OUT = "dist/roost-windows-x64.exe";
-const TARGETS = [
+
+type BinaryTarget = {
+  target: TerminalPeerNativeTarget | "bun-windows-x64-baseline";
+  out: string;
+};
+const TARGETS: readonly BinaryTarget[] = [
   { target: "bun-darwin-arm64", out: DARWIN_ARM64_OUT },
   { target: "bun-darwin-x64", out: "dist/roost-darwin-x64" },
   { target: "bun-linux-x64", out: "dist/roost-linux-x64" },
@@ -62,21 +73,47 @@ try {
     "--define", `__ROOST_GIT_SHA__=${JSON.stringify(gitSha)}`,
     "--define", `__ROOST_KEEPER_IMPLEMENTATION_DIGEST__=${JSON.stringify(keeperImplementationDigest)}`,
   ];
+  const nativeDefineArgs = [
+    ...defineArgs,
+    "--define", "__ROOST_EMBEDDED_TERMINAL_PEER__=true",
+  ];
+  const windowsDefineArgs = [
+    ...defineArgs,
+    "--define", "__ROOST_EMBEDDED_TERMINAL_PEER__=false",
+  ];
   if (hostOnly) {
-    console.log(`>> bun build --compile → ${OUT} (host, version ${VERSION})`);
-    await $`bun build --compile ${defineArgs} apps/roost-cli/src/main.ts --outfile ${OUT}`;
+    if (process.platform === "win32") {
+      console.log(`>> bun build --compile → ${OUT} (host Windows stub, version ${VERSION})`);
+      await $`bun build --compile ${windowsDefineArgs} apps/roost-cli/src/main.ts --outfile ${OUT}`;
+    } else {
+      const target = hostTerminalPeerTarget();
+      await stageTerminalPeerNative(target, async () => {
+        console.log(`>> bun build --compile --target=${target} → ${OUT} (host, version ${VERSION})`);
+        await $`bun build --compile --target=${target} ${nativeDefineArgs} apps/roost-cli/src/main.ts --outfile ${OUT}`;
+      });
+    }
   } else {
     const targets = windowsOnly
       ? TARGETS.filter((candidate) => candidate.out === WINDOWS_X64_OUT)
       : TARGETS;
-    for (const t of targets) {
-      console.log(`>> bun build --compile --target=${t.target} → ${t.out}`);
-      await $`bun build --compile --target=${t.target} ${defineArgs} apps/roost-cli/src/main.ts --outfile ${t.out}`;
+    for (const targetSpec of targets) {
+      if (isTerminalPeerNativeTarget(targetSpec.target)) {
+        await stageTerminalPeerNative(targetSpec.target, async () => {
+          console.log(`>> bun build --compile --target=${targetSpec.target} → ${targetSpec.out}`);
+          await $`bun build --compile --target=${targetSpec.target} ${nativeDefineArgs} apps/roost-cli/src/main.ts --outfile ${targetSpec.out}`;
+        });
+        continue;
+      }
+      console.log(`>> bun build --compile --target=${targetSpec.target} → ${targetSpec.out} (Windows stub)`);
+      await $`bun build --compile --target=${targetSpec.target} ${windowsDefineArgs} apps/roost-cli/src/main.ts --outfile ${targetSpec.out}`;
     }
     if (!windowsOnly) {
       console.log(`>> copy ${DARWIN_ARM64_OUT} → ${OUT}`);
       await copyFile(DARWIN_ARM64_OUT, OUT);
     }
+  }
+  if (!windowsOnly && (!hostOnly || process.platform !== "win32")) {
+    await copyFile("THIRD_PARTY_NOTICES.txt", "dist/THIRD_PARTY_NOTICES.txt");
   }
 } finally {
   console.log(">> restore embed stubs");

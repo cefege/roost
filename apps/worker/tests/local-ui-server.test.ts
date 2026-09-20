@@ -11,9 +11,9 @@ import {
   LOCAL_TERMINAL_PATH,
   LOCAL_TERMINAL_SUBPROTOCOL,
   startLocalUiServer,
-  type LocalTerminalSocket,
   type LocalUiServer,
 } from "../src/local-ui-server.ts";
+import type { TerminalPacketPort } from "../src/terminal-packet-port.ts";
 
 const COORDINATOR_URL = "http://coord.test:4102";
 const WORKER_FP = "a".repeat(64);
@@ -41,7 +41,7 @@ interface Door {
   server: LocalUiServer;
   origin: string;
   spaCalls: SpaCall[];
-  opened: Signals<LocalTerminalSocket>;
+  opened: Signals<TerminalPacketPort>;
   frames: Signals<Uint8Array>;
   closed: Signals<string>;
 }
@@ -82,7 +82,7 @@ function startDoor(
   } = {},
 ): Door {
   const spaCalls: SpaCall[] = [];
-  const opened = signals<LocalTerminalSocket>();
+  const opened = signals<TerminalPacketPort>();
   const frames = signals<Uint8Array>();
   const closed = signals<string>();
   const server = startLocalUiServer({
@@ -273,7 +273,7 @@ test("the terminal socket carries binary frames both ways and reports close", as
   client.send("not a frame");
   client.send(new Uint8Array([1, 2, 3]));
   const inbound = await door.frames.take();
-  socket.send(new Uint8Array([9, 8]));
+  socket.send(new Uint8Array([9, 8]), "control");
   const outbound = await received.take();
 
   expect(client.protocol).toBe(LOCAL_TERMINAL_SUBPROTOCOL);

@@ -2,18 +2,21 @@
 
 The Bun process on every released fleet machine (macOS or Linux; the retained
 Windows implementation is paused). It owns every session's shell PTY, holds the
-one authoritative terminal grid, and relays PTY bytes both ways over a single
-**outbound** WebSocket. Agent CLIs are ordinary programs launched inside those
-PTYs; the worker never interprets agent output and owns no agent process,
-conversation, transcript, tool call, or approval model. It may persist an
-official opaque conversation reference as private recovery metadata. With the
+one authoritative terminal grid, and sends coordinator control and durable-event
+traffic over one **outbound** WebSocket. Agent CLIs are ordinary programs launched
+inside those PTYs; the worker never interprets agent output and owns no agent
+process, conversation, transcript, tool call, or approval model. It may persist
+an official opaque conversation reference as private recovery metadata. With the
 explicit POSIX-only restore gate enabled, involuntary loss may produce one
 worker-owned OMP resume input only after ordinary shell respawn; this does not
-turn the reference into public state or an agent-control channel. Its ONE
-inbound surface is the loopback UI door (`src/local-ui-server.ts`): a browser on
-this same machine gets the SPA and a direct terminal socket there — whether the
-page came from that door or from the coordinator's own front door — so its
-keystrokes and cell frames never traverse the coordinator.
+turn the reference into public state or an agent-control channel.
+
+`src/local-ui-server.ts` remains the loopback UI door for a browser on this
+machine. A native WebRTC peer creates a UDP endpoint only after a current
+coordinator-authenticated grant and offer; it is not a public HTTP/TLS listener.
+Browser terminal election is same-worker loopback first, qualified authenticated
+WebRTC second, and coordinator Sync fallback. Direct carriers do not replace
+CoordLink, coordinator authorization, or Sync metadata/control.
 
 Path references are relative to `apps/worker/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
 
@@ -26,11 +29,13 @@ Path references are relative to `apps/worker/` unless they start at the repo roo
 2. `runInstall()` (`src/install.ts`) is awaited only when a bootstrap token is
    present; otherwise it and agent-integration installation cannot gate the
    coordinator link or heartbeat.
-3. `startLocalTerminalDoor()` (`src/boot-local-terminal.ts`) builds the terminal
-   view owner, the grant store and the loopback door BEFORE the link, so an
-   already-granted browser keeps reaching its own PTYs while the coordinator is
-   down. Then open `SessionEventStore`, pass it through `src/coord-link-deps.ts`
-   into `startCoordLink()`, bind `coordLinkSink()`, then construct
+3. `startLocalTerminalDoor()` (`src/boot-local-terminal.ts`) composes the
+   terminal view, grant, input-work, input-route, socket, and peer owners;
+   it completes native peer bootstrap and starts the loopback door BEFORE the
+   link. An already-granted direct browser can therefore keep reaching its PTYs
+   while the coordinator is down. Then open `SessionEventStore`, pass it through
+   `src/coord-link-deps.ts` into `startCoordLink()`, bind `coordLinkSink()`,
+   then construct
    `SessionManager`, agent status, local health/report servers, and heartbeat.
 4. Reconciliation serializes reference reports while the CoordLink exactly
    replays and ACKs all durable session events, then reads the coordinator's
@@ -52,14 +57,19 @@ them exists when it is built. Callbacks read `refs.sessionMgr` / `refs.link` thr
 unbound, and `runWorker()` binds each ref the instant it exists; a null read there is a boot-wiring bug, never a
 race. Add a callback here, not in `src/main.ts`.
 
-## Transport — one outbound link, one loopback door
+## Transport — outbound CoordLink plus direct carriers
 
-`src/transport/coord-link.ts` is the composer: it dials a long-lived raw Bun `WebSocket` at
-`<coordinatorUrl>/ws/coord-worker/<fp>` and authenticates with the exact `roost-worker-auth` marker plus JWT
-subprotocol pair. It owns the FSM (`idle → connecting → open → reconnecting → …`, plus `closed` on `dispose()`).
-Every browser command arrives *downstream* on this one socket. Frames are proto-typed `CoordWorkerUp` /
-`CoordWorkerDown` oneofs (`@roost/shared/proto/worker_transport_pb`), serialized binary — no JSON on the hot path.
-The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL, so one stream stays open for hours.
+`src/transport/coord-link.ts` is the composer: it dials a long-lived raw Bun
+`WebSocket` at `<coordinatorUrl>/ws/coord-worker/<fp>` and authenticates with
+the exact `roost-worker-auth` marker plus JWT subprotocol pair. It owns the FSM
+(`idle → connecting → open → reconnecting → …`, plus `closed` on `dispose()`).
+Coordinator-origin controls, including direct grants/signaling and Sync-relayed
+terminal commands, arrive downstream on this socket. Direct loopback/WebRTC
+`LocalTerminal` frames do not traverse it. Frames are proto-typed
+`CoordWorkerUp` / `CoordWorkerDown` oneofs
+(`@roost/shared/proto/worker_transport_pb`), serialized binary — no JSON on
+the hot path. The JWT rotates **in band** via the `refreshJwt` frame 30 s before
+its 300 s TTL, so one stream stays open for hours.
 
 - `src/transport/coord-link-outbox.ts` — protocol-barrier ordering for the
   pending transport lanes; `src/transport/coord-link-native-writer.ts` owns
@@ -112,6 +122,32 @@ The JWT rotates **in band** via the `refreshJwt` frame 30 s before its 300 s TTL
   hello is verified against — digests only, never persisted, so a worker restart
   requires a fresh coordinator-issued grant.
 
+`src/terminal-peer-owner.ts` owns bounded authenticated native peer admission:
+it accepts a coordinator-fenced offer only after grant/epoch/identity/SDP
+checks and creates the UDP peer. Cancellation or coordinator replacement retires
+only its matching pending offer; established peers follow their local
+connection, grant, revocation, and worker-disposal lifecycle.
+`src/terminal-peer-native.ts` is the lazy `node-datachannel`/embedded-addon
+loader invoked by `TerminalPeerOwner.bootstrap()` before WebRTC capability is
+reported; coordinator, browser, and ordinary non-peer worker code do not import
+the native runtime. A disabled or unavailable native bootstrap establishes no
+peer and leaves loopback, CoordLink, and Sync fallback available.
+`src/terminal-peer-connection.ts` and `src/terminal-peer-packet-port.ts` own
+the static control/terminal/history channels, shared outer packet framing,
+backpressure, and packet lifecycle. They hand authenticated packets to
+`LocalTerminalSockets`, the sole `local_terminal.proto` ingress/dispatch
+boundary; it delegates grant, view/cell, input, and history state to the
+injected grant store, `TerminalViewOwner`, and `SessionManager` owners. There
+is no second terminal protocol or worker HTTP peer front door.
+
+`src/config.ts` owns strict worker peer configuration:
+`ROOST_TERMINAL_PEER_ENABLED=0|1` defaults enabled on macOS/Linux and disabled
+on paused Windows; explicit Windows enable fails. Optional
+`ROOST_TERMINAL_PEER_BIND_ADDRESS` is a literal unicast IPv4/IPv6 address and
+`ROOST_TERMINAL_PEER_PORT_RANGE` is a decimal `1024..65535` inclusive range.
+Omitted bind/range leaves native ICE to supported interfaces/ephemeral UDP
+ports. The worker never changes firewalls or Tailscale settings.
+
 All filenames are kebab-case; do not add a parallel PascalCase entry.
 
 ## Keeper
@@ -161,6 +197,13 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   that owns one `CellSink` per local socket. The loopback door
   (`src/local-ui-server.ts`, `src/local-terminal-socket.ts`,
   `src/local-terminal-grants.ts`) is described above.
+- **Direct terminal composition** — `src/boot-local-terminal.ts` constructs one
+  `TerminalViewOwner`, `LocalTerminalGrantStore`, `TerminalInputWorkBudget`,
+  `TerminalInputRouteOwner`, `LocalTerminalSockets`, and `TerminalPeerOwner`
+  around the worker process epoch. `src/terminal-packet-port.ts` is the common
+  loopback/WebRTC carrier contract; `src/terminal-peer-packet-budget.ts` owns
+  peer retained-byte quotas. Loopback and peer ports share these owners rather
+  than adding a parallel session, view, input, or packet implementation.
 - **Session family**, one owner split across `this`-bound modules:
   `src/session-manager.ts` (facade/delegating wrappers),
   `src/session-manager-state.ts` (channel-keyed maps + event sink),
@@ -230,6 +273,19 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 
 ## Invariants
 
+- **Direct terminal ingress has one frame and authority boundary.**
+  `LocalTerminalSockets` serializes and validates `local_terminal.proto` for
+  both `TerminalPacketPort` kinds; a carrier owns only packet admission,
+  backpressure, and close. `TerminalPeerPacketPort` reassembles bounded shared
+  packets before that boundary, while `TerminalViewOwner` and
+  `session-cell-sinks.ts` remain the authoritative view/cell owners.
+- **Direct browser input is worker-fenced before the keeper write.**
+  `TerminalInputRouteOwner` owns per-device/tab/session route epochs and
+  `TerminalInputWorkBudget` reserves bounded input/claim work before retained
+  bytes or keeper admission. `LocalTerminalGrantStore` expiry, revocation, and
+  scope reduction invalidate affected ports/routes before asynchronous input
+  can begin; `SessionManager.writeTerminalInput` rechecks live grant/session
+  and route authority immediately before `beginInput`.
 - **Durable session events precede local acknowledgement or mutation.**
   `src/event-sink.ts` persists `opened`/`closed`/`respawned` and private
   `agent_reference` events through `src/transport/session-event-store.ts`;
@@ -267,12 +323,14 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   stream ID gates deltas until every registered cell sink's complete full cursor
   is installed and sent. Disable gates cell emission without changing the
   keeper/core geometry.
-- **A coordinator reconnect never disturbs a local viewer.** `onHelloAck` drops
-  only coordinator-relayed registry sockets (`dropCoordinatorSockets()`); a local
-  socket keeps its views, its lease and the live stream, and only the coord cell
-  sink is re-baselined. Zero LIVE viewers HOLD the last geometry — park absorbs
-  reconnect wobble — so losing membership entirely, not a socket blip, is what
-  disables a stream.
+- **A coordinator reconnect never disturbs an established direct viewer.**
+  `onHelloAck` drops only coordinator-relayed registry sockets
+  (`dropCoordinatorSockets()`); a loopback or still-authorized WebRTC port
+  keeps its views, lease, and live stream, while only the coordinator cell sink
+  re-baselines. Grant expiry, revoke, scope reduction, or a peer close retire
+  that direct port before later input can use it. Zero LIVE viewers HOLD the
+  last geometry — park absorbs reconnect wobble — so losing membership
+  entirely, not a socket blip, is what disables a stream.
 - **One frame builder, independent per-sink delivery.** `emitCellFrame` builds
   exactly ONE frame per tick (a second `CellEmitState` over one core steals its
   dirty rows) and fans it to every ACTIVE sink registered through

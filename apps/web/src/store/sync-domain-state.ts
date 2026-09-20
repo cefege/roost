@@ -27,9 +27,16 @@ export type SyncV2Control = Extract<
     case:
       | "inputAccepted"
       | "inputRejected"
-      | "inputAmbiguous";
+      | "inputAmbiguous"
+      | "inputRouteResult"
+      | "terminalTransportProbeResult";
   }
 >;
+
+export type SyncV2ProbeResult = Extract<
+  SyncV2Control,
+  { case: "terminalTransportProbeResult" }
+>["value"];
 
 export interface SyncSubscribedState {
   readonly socketGeneration: number;
@@ -51,6 +58,10 @@ const v2ControlHandlers = new Set<(
   control: SyncV2Control,
   state: SyncV2TerminalState,
 ) => void>();
+const v2ProbeResultHandlers = new Set<(
+  result: SyncV2ProbeResult,
+  state: SyncV2TerminalState,
+) => void>();
 const subscribedWaiters = new Set<(state: SyncSubscribedState) => void>();
 
 export function registerSyncV2ControlHandler(
@@ -58,6 +69,15 @@ export function registerSyncV2ControlHandler(
 ): () => void {
   v2ControlHandlers.add(handler);
   return () => { v2ControlHandlers.delete(handler); };
+}
+
+/** Content-free probe controls share the current Sync socket fence but do not
+ * enter terminal input/cell queues. */
+export function registerSyncV2ProbeResultHandler(
+  handler: (result: SyncV2ProbeResult, state: SyncV2TerminalState) => void,
+): () => void {
+  v2ProbeResultHandlers.add(handler);
+  return () => { v2ProbeResultHandlers.delete(handler); };
 }
 
 export function sendSyncV2Command(command: SyncClientFrame["command"]): boolean {
@@ -148,4 +168,6 @@ export function _dispatchSyncV2Control(
   state: SyncV2TerminalState,
 ): void {
   for (const handler of v2ControlHandlers) handler(control, state);
+  if (control.case !== "terminalTransportProbeResult") return;
+  for (const handler of v2ProbeResultHandlers) handler(control.value, state);
 }

@@ -11,6 +11,8 @@ import {
   InputRejectedSchema,
   SyncClientFrameSchema,
   SyncDomainResetFrameSchema,
+  TerminalInputRouteResultSchema,
+  TerminalTransportProbeResultSchema,
   SyncDomain,
   type FirehoseFrame,
   type SyncClientFrame,
@@ -28,17 +30,34 @@ import type { SyncWsData } from "./sync-ws-handler.ts";
 
 type SyncTerminalCommand = Extract<
   SyncClientFrame["command"],
-  { case: "terminalView" | "terminalResync" | "input" }
+  {
+    case:
+      | "terminalView"
+      | "terminalResync"
+      | "input"
+      | "inputRouteClaim"
+      | "terminalTransportProbe";
+  }
 >;
 export type SyncV2ResultControl = Extract<
   FirehoseFrame["frame"],
-  { case: "inputAccepted" | "inputRejected" | "inputAmbiguous" }
+  {
+    case:
+      | "inputAccepted"
+      | "inputRejected"
+      | "inputAmbiguous"
+      | "inputRouteResult"
+      | "terminalTransportProbeResult";
+  }
 >;
 
 export interface SyncV2CommandContext {
   readonly caller: SyncWsData["caller"];
   /** Resource ids this socket may observe, resolved before the upgrade. */
   readonly scope: SyncWsData["scope"];
+  readonly deviceFingerprint: string;
+  readonly tabId: string | null;
+  readonly readOnly: boolean;
   readonly viewerKey: string | null;
   readonly remoteAddress?: string;
   readonly socketId: string;
@@ -158,44 +177,32 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
       }));
       return;
     }
-    if (
-      command.case !== "terminalView"
-      && command.case !== "terminalResync"
-      && command.case !== "input"
-    ) return;
-    const terminal = v2.domains.get(SyncDomain.TERMINAL);
-    const refusal = terminalCommandRefusal(
-      ws.data.readOnly,
-      terminal,
-      command.value.domainGeneration,
-    );
-    if (refusal !== null) {
-      // Nothing reached a worker, so the browser gets a definite rejection
-      // instead of waiting out its input-result deadline and reporting loss.
-      if (command.case === "input") {
-        sendV2ControlFrame(ws, create(FirehoseFrameSchema, {
-          frame: {
-            case: "inputRejected",
-            value: create(InputRejectedSchema, {
-              sessionId: command.value.sessionId,
-              inputSeq: command.value.inputSeq,
-              domainGeneration: command.value.domainGeneration,
-              reason: refusal,
-            }),
-          },
-        }));
+    if (!isTerminalCommand(command)) return;
+    if (command.case === "terminalTransportProbe") {
+      if (ws.data.readOnly) {
+        sendTerminalCommandRefusal(sendV2ControlFrame, ws, command, "this Sync socket cannot write terminal input");
+        return;
       }
-      return;
+    } else {
+      const terminal = v2.domains.get(SyncDomain.TERMINAL);
+      const refusal = terminalCommandRefusal(
+        ws.data.readOnly,
+        terminal,
+        command.value.domainGeneration,
+      );
+      if (refusal !== null) {
+        sendTerminalCommandRefusal(sendV2ControlFrame, ws, command, refusal);
+        return;
+      }
     }
     const owned = clone(SyncClientFrameSchema, clientFrame).command;
-    if (
-      owned.case !== "terminalView"
-      && owned.case !== "terminalResync"
-      && owned.case !== "input"
-    ) return;
+    if (!isTerminalCommand(owned)) return;
     deps.onV2Command?.({
       caller: ws.data.caller,
       scope: ws.data.scope,
+      deviceFingerprint: ws.data.caller.fingerprint,
+      tabId: ws.data.tabId,
+      readOnly: ws.data.readOnly,
       viewerKey: ws.data.viewerKey,
       remoteAddress: ws.data.remoteAddress ?? undefined,
       socketId: v2.socketId,
@@ -208,6 +215,73 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
   };
 
   return { handleV2Command };
+}
+
+function isTerminalCommand(
+  command: SyncClientFrame["command"],
+): command is SyncTerminalCommand {
+  return command.case === "terminalView"
+    || command.case === "terminalResync"
+    || command.case === "input"
+    || command.case === "inputRouteClaim"
+    || command.case === "terminalTransportProbe";
+}
+
+function sendTerminalCommandRefusal(
+  sendV2ControlFrame: SyncV2CommandDeps["sendV2ControlFrame"],
+  ws: ServerWebSocket<SyncWsData>,
+  command: SyncTerminalCommand,
+  reason: string,
+): void {
+  switch (command.case) {
+    case "input":
+      sendV2ControlFrame(ws, create(FirehoseFrameSchema, {
+        frame: {
+          case: "inputRejected",
+          value: create(InputRejectedSchema, {
+            sessionId: command.value.sessionId,
+            inputSeq: command.value.inputSeq,
+            domainGeneration: command.value.domainGeneration,
+            reason,
+          }),
+        },
+      }));
+      return;
+    case "inputRouteClaim":
+      sendV2ControlFrame(ws, create(FirehoseFrameSchema, {
+        frame: {
+          case: "inputRouteResult",
+          value: create(TerminalInputRouteResultSchema, {
+            requestId: command.value.requestId,
+            sessionId: command.value.sessionId,
+            revision: command.value.revision,
+            accepted: false,
+            latestRevision: 0n,
+            inputRouteEpoch: "",
+            workerEpoch: command.value.workerEpoch,
+            reason,
+          }),
+        },
+      }));
+      return;
+    case "terminalTransportProbe":
+      // The probe wire shape has no error field. An empty epoch is explicitly
+      // non-successful to the browser's correlator and never impersonates a worker.
+      sendV2ControlFrame(ws, create(FirehoseFrameSchema, {
+        frame: {
+          case: "terminalTransportProbeResult",
+          value: create(TerminalTransportProbeResultSchema, {
+            requestId: command.value.requestId,
+            workerFp: command.value.workerFp,
+            workerEpoch: "",
+          }),
+        },
+      }));
+      return;
+    case "terminalView":
+    case "terminalResync":
+      return;
+  }
 }
 
 /** Why a terminal command cannot be honoured on this socket, or null. */

@@ -1,72 +1,162 @@
-// The pane marker must track the transport a session is actually published
-// over. The smoke tier can only observe steady state on each origin, so the
-// transition — a grant landing or a socket dropping mid-session — is pinned
-// here, against Solid's real client scheduler.
+// Terminal transport UI state is canonical-replica state, never merely a
+// connection that happened to register. The selector must hide a candidate
+// until a baseline is installed and then expose all elected carrier kinds.
 
-import { describe, expect, mock, test } from "bun:test";
-import type * as SolidApi from "solid-js";
-// Type-only, so it is erased and cannot load the module before the mock lands.
-import type { TerminalLocalTransport } from "../src/store/terminal-stream-transport.ts";
-
-const solidClientUrl = new URL("./solid.js", import.meta.resolve("solid-js"));
-const Solid = await import(solidClientUrl.href) as typeof SolidApi;
-mock.module("solid-js", () => ({ ...Solid }));
-
-// Both imports must be dynamic: mock.module has to replace solid-js with its
-// client build BEFORE the subject module resolves solid, or the effect never
-// schedules. Same boundary trick as cellTerminalDocumentLifecycle.test.ts.
-
-const transportModule = await import("../src/store/terminal-stream-transport.ts");
-const indicator = await import("../src/store/local-transport-indicator.ts");
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+  hasLivenessQualifiedDirectTerminal,
+  sessionTerminalTransportKind,
+} from "../src/store/local-transport-indicator.ts";
+import { terminalSessions } from "../src/store/terminal-stream-state.ts";
+import { terminalDirectRegistry } from "../src/store/terminal-stream-transport.ts";
+import type {
+  TerminalGenerationToken,
+  TerminalSessionReplica,
+} from "../src/store/terminal-stream-types.ts";
 
 const SESSION = "11111111-2222-4333-8444-555555555555";
 
-function fakeTransport(owned: Set<string>): TerminalLocalTransport {
-  return {
-    ownsSession: (sessionId: string) => owned.has(sessionId),
-    noteViewPublished: () => {},
-    generationToken: () => ({
-      socketGeneration: 1,
-      socketId: "socket-1",
-      processEpoch: transportModule.LOCAL_TERMINAL_PROCESS_EPOCH,
-      domainGeneration: 0n,
-    }),
+const LOOPBACK_TOKEN: TerminalGenerationToken = {
+  socketGeneration: 1,
+  socketId: "loopback-socket",
+  processEpoch: "worker-epoch",
+  domainGeneration: 0n,
+  transportKind: "loopback",
+  workerFp: "worker-fp",
+};
+
+const SYNC_TOKEN: TerminalGenerationToken = {
+  socketGeneration: 2,
+  socketId: "sync-socket",
+  processEpoch: "sync-epoch",
+  domainGeneration: 3n,
+  transportKind: "sync",
+  workerFp: null,
+};
+
+afterEach(() => {
+  terminalDirectRegistry.reset("transport indicator test cleanup");
+  terminalSessions.delete(SESSION);
+});
+
+describe("sessionTerminalTransportKind", () => {
+  test("reports only an elected carrier that owns a baseline", () => {
+    const session = {
+      baselineReady: false,
+      generation: LOOPBACK_TOKEN,
+    } as unknown as TerminalSessionReplica;
+    terminalSessions.set(SESSION, session);
+
+    expect(sessionTerminalTransportKind(SESSION)).toBeNull();
+    session.baselineReady = true;
+
+    expect(sessionTerminalTransportKind(SESSION)).toBeNull();
+
+    session.generation = SYNC_TOKEN;
+    expect(sessionTerminalTransportKind(SESSION)).toBe("sync");
+  });
+});
+
+test("requires an elected route with a current terminal proof before direct availability", () => {
+  const session = {
+    baselineReady: true,
+    generation: LOOPBACK_TOKEN,
+    lastAcceptedFrameAtMs: null,
+    lastAcceptedFrameGeneration: null,
+  } as unknown as TerminalSessionReplica;
+  terminalSessions.set(SESSION, session);
+  const connection = {
+    workerFp: "worker-fp",
+    kind: "loopback" as const,
+    connectionId: "loopback-connection",
+    workerEpoch: "worker-epoch",
+    inputRouteSupported: true,
+    token: () => LOOPBACK_TOKEN,
+    allowsSession: (sessionId: string) => sessionId === SESSION,
     publishView: () => true,
     publishResync: () => true,
-    sendInput: () => ({ outcome: "rejected", reason: "test" }) as never,
-    requestScrollback: () => Promise.reject(new Error("unused")),
-    redial: () => true,
-    reset: () => {},
+    sendInput: () => "accepted" as const,
+    claimInputRoute: async () => { throw new Error("unused"); },
+    requestScrollback: async () => { throw new Error("unused"); },
+    probe: async () => undefined,
+    close: () => undefined,
   };
-}
+  terminalDirectRegistry.register(connection);
+  terminalDirectRegistry.setViewDemand("worker-fp", SESSION, "view-direct", true);
+  expect(terminalDirectRegistry.commitSessionPromotion(SESSION, "attempt-direct", {
+    attemptId: "attempt-direct",
+    connection,
+    token: LOOPBACK_TOKEN,
+    oldToken: null,
+    currentToken: null,
+    claimEpoch: "",
+    candidateFrame: {} as never,
+    expectedStreamId: "stream-direct",
+    prospectiveViews: new Map(),
+    applyCanonical: () => true,
+  })).toBe(true);
 
-describe("sessionUsesLocalTransport", () => {
-  test("repaints a pane when the local socket takes the session and gives it up", () => {
-    indicator.installLocalTransportIndicator();
-    const owned = new Set<string>();
-    transportModule.registerTerminalLocalTransport(fakeTransport(owned));
+  expect(sessionTerminalTransportKind(SESSION)).toBe("loopback");
 
-    const seen: boolean[] = [];
-    const dispose = Solid.createRoot((disposeRoot) => {
-      Solid.createEffect(() => {
-        seen.push(indicator.sessionUsesLocalTransport(SESSION));
-      });
-      return disposeRoot;
-    });
-    expect(seen).toEqual([false]);
+  expect(hasLivenessQualifiedDirectTerminal()).toBe(false);
 
-    // A grant landing mid-session must repaint the marker rather than leave the
-    // pane reporting whatever transport it had at mount.
-    owned.add(SESSION);
-    transportModule.notifyTerminalLocalTransportChanged();
-    expect(seen).toEqual([false, true]);
+  session.lastAcceptedFrameAtMs = 1;
+  session.lastAcceptedFrameGeneration = LOOPBACK_TOKEN;
+  expect(hasLivenessQualifiedDirectTerminal()).toBe(true);
 
-    // ...and the socket dropping must clear it, or the pane keeps claiming a
-    // fast path whose frames now travel through the coordinator.
-    owned.delete(SESSION);
-    transportModule.notifyTerminalLocalTransportChanged();
-    expect(seen).toEqual([false, true, false]);
+  session.lastAcceptedFrameGeneration = { ...LOOPBACK_TOKEN, socketId: "stale" };
+  expect(hasLivenessQualifiedDirectTerminal()).toBe(false);
+});
 
-    dispose();
-  });
+test("requires a current WebRTC probe before reporting direct outage continuity", () => {
+  const token: TerminalGenerationToken = { ...LOOPBACK_TOKEN, transportKind: "webrtc" };
+  const session = {
+    baselineReady: true,
+    generation: token,
+    lastAcceptedFrameAtMs: 1,
+    lastAcceptedFrameGeneration: token,
+  } as unknown as TerminalSessionReplica;
+  terminalSessions.set(SESSION, session);
+  let probeQualified = false;
+  const connection = {
+    workerFp: "worker-fp",
+    kind: "webrtc" as const,
+    connectionId: "peer-connection",
+    workerEpoch: "worker-epoch",
+    inputRouteSupported: true,
+    token: () => token,
+    allowsSession: (sessionId: string) => sessionId === SESSION,
+    publishView: () => true,
+    publishResync: () => true,
+    sendInput: () => "accepted" as const,
+    claimInputRoute: async () => { throw new Error("unused"); },
+    requestScrollback: async () => { throw new Error("unused"); },
+    probe: async () => undefined,
+    telemetry: () => ({
+      opaquePeerId: "peer-id",
+      lastProbeAtMs: probeQualified ? 1 : null,
+      rttMs: probeQualified ? 1 : null,
+      livenessQualified: probeQualified,
+      bufferedBytes: 0,
+    }),
+    close: () => undefined,
+  };
+  terminalDirectRegistry.register(connection);
+  terminalDirectRegistry.setViewDemand("worker-fp", SESSION, "view-peer", true);
+  expect(terminalDirectRegistry.commitSessionPromotion(SESSION, "attempt-peer", {
+    attemptId: "attempt-peer",
+    connection,
+    token,
+    oldToken: null,
+    currentToken: null,
+    claimEpoch: "route-peer",
+    candidateFrame: {} as never,
+    expectedStreamId: "stream-peer",
+    prospectiveViews: new Map(),
+    applyCanonical: () => true,
+  })).toBe(true);
+
+  expect(hasLivenessQualifiedDirectTerminal()).toBe(false);
+  probeQualified = true;
+  expect(hasLivenessQualifiedDirectTerminal()).toBe(true);
 });

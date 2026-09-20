@@ -14,6 +14,7 @@ import {
   registerTerminalFind,
   requestTerminalFind,
 } from "../src/lib/terminalFindIntent.ts";
+import { terminalDirectRegistry } from "../src/store/terminal-stream-transport.ts";
 
 const local = new Map<string, string>([
   ["roost.syncLastEventId", "41"],
@@ -55,8 +56,9 @@ const stream = await import("../src/store/terminal-stream.ts");
 const terminalState = await import("../src/store/terminal-stream-state.ts");
 const hydrated = await import("../src/store/sync-hydrated.ts");
 const frame = await import("../src/store/sync-frame.ts");
+const inputRouter = await import("../src/ws/terminal-input-router.ts");
 
-test("suspending authenticated client state releases overlays, runtime owners, and root replicas", () => {
+test("suspending authenticated client state releases overlays, runtime owners, and root replicas", async () => {
   // The persisted cursor is intentionally present before the boundary runs.
   expect(frame.lastSeenSyncEventId()).toBe(41);
   root.setRootStore("coord_identity", {
@@ -119,10 +121,14 @@ test("suspending authenticated client state releases overlays, runtime owners, a
   });
   requestTerminalFind("cold-find", "retired needle");
 
-  const retainedView = stream.createTerminalView("session-a");
+  const retainedView = stream.createTerminalView("session-a", "worker-a");
   expect(terminalState.terminalSessions.has("session-a")).toBe(true);
+  inputRouter.holdTerminalInput("session-input");
+  const heldInput = inputRouter.admitTerminalInput(null, "session-input", new Uint8Array([1]));
+  if (!heldInput.accepted) throw new Error(heldInput.reason);
 
   boundary.suspendAuthenticatedClientState();
+  expect((await heldInput.result).status).toBe("rejected");
 
   // Overlays that retain a path, name, or action are closed and emptied.
   expect(activeRenameDialog()).toBeNull();
@@ -187,4 +193,36 @@ test("a resource token captured before the credential boundary stops being curre
   // new one captures a token that is current again.
   expect(boundary.isCurrentAuthResourceToken(heldToken)).toBe(false);
   expect(boundary.isCurrentAuthResourceToken(boundary.captureAuthResourceToken())).toBe(true);
+});
+
+test("credential teardown closes registered direct carriers before a replacement identity", () => {
+  const closeReasons: string[] = [];
+  const token = {
+    socketGeneration: 3,
+    socketId: "direct-boundary-socket",
+    processEpoch: "direct-boundary-epoch",
+    domainGeneration: 1n,
+    transportKind: "loopback" as const,
+    workerFp: "direct-boundary-worker",
+  };
+  terminalDirectRegistry.register({
+    workerFp: token.workerFp,
+    kind: "loopback",
+    connectionId: "direct-boundary-connection",
+    workerEpoch: token.processEpoch,
+    inputRouteSupported: false,
+    token: () => token,
+    allowsSession: () => false,
+    publishView: () => false,
+    publishResync: () => false,
+    sendInput: () => "refused",
+    claimInputRoute: async () => { throw new Error("unused"); },
+    requestScrollback: async () => { throw new Error("unused"); },
+    probe: async () => undefined,
+    close: (reason: string) => { closeReasons.push(reason); },
+  });
+
+  boundary.suspendAuthenticatedClientState();
+
+  expect(closeReasons).toEqual(["credential boundary"]);
 });

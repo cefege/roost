@@ -20,6 +20,7 @@ message WHello {
   string worker_fp = 1;
   string version = 2;
   repeated string capabilities = 3;
+  string process_epoch = 4;
 }
 message WPong { uint64 ts = 1; }
 // D-4b at-least-once delivery: worker stamps a per-worker monotonic
@@ -184,6 +185,34 @@ message WTerminalViewProjection {
   string stream_id = 5;
 }
 
+message WLocalTerminalPeerAnswer {
+  string request_id = 1;
+  string connection_generation = 2;
+  string worker_epoch = 3;
+  string peer_id = 4;
+  string answer_sdp = 5;
+}
+
+// `reason` is one of disabled, native_unavailable, invalid_offer,
+// grant_unavailable, capacity, expired, connection_superseded, or ice_failed.
+message WLocalTerminalPeerError {
+  string request_id = 1;
+  string connection_generation = 2;
+  string worker_epoch = 3;
+  string peer_id = 4;
+  string reason = 5;
+}
+
+message WTerminalInputRouteResult {
+  string request_id = 1;
+  TerminalInputRouteResult result = 2;
+}
+
+message WTerminalTransportProbeResult {
+  string request_id = 1;
+  string worker_epoch = 2;
+}
+
 message CoordWorkerUp {
   reserved 4, 5, 8, 9, 13, 15;
   reserved "viewport_result", "transfer_line", "transfer_done";
@@ -205,6 +234,10 @@ message CoordWorkerUp {
     WTerminalMetadata terminal_metadata = 20;
     WTerminalViewState terminal_view_state = 21;
     WTerminalViewProjection terminal_view_projection = 22;
+    WLocalTerminalPeerAnswer local_terminal_peer_answer = 23;
+    WLocalTerminalPeerError local_terminal_peer_error = 24;
+    WTerminalInputRouteResult terminal_input_route_result = 25;
+    WTerminalTransportProbeResult terminal_transport_probe_result = 26;
   }
 }
 
@@ -241,6 +274,10 @@ message DInputRequest {
   uint64 input_seq = 3;
   bytes data = 4;
   uint32 budget_ms = 5;
+  string device_fingerprint = 6;
+  string tab_id = 7;
+  string input_route_epoch = 8;
+  string browser_connection_id = 9;
 }
 
 message DTerminalStreamState {
@@ -361,10 +398,11 @@ message DTerminalViewSocketClosed {
   string socket_id = 1;
 }
 
-// Authorization for one browser to talk to this worker's loopback terminal
-// socket. Only the secret's digest crosses the wire; the secret itself goes to
-// the browser over the coordinator's authenticated RPC and never lands in a
-// log, an audit row, or durable worker state.
+// Authorization for one browser to talk to this worker's direct terminal
+// carrier (loopback socket or negotiated WebRTC). Only the secret's digest
+// crosses the wire; the secret itself goes to the browser over the
+// coordinator's authenticated RPC and never lands in a log, an audit row, or
+// durable worker state.
 message DLocalTerminalGrant {
   string request_id = 1;
   string grant_id = 2;
@@ -373,10 +411,53 @@ message DLocalTerminalGrant {
   string device_fingerprint = 5;
   string tab_id = 6;
   uint32 ttl_ms = 7;
+  string worker_epoch = 8;
 }
 
 message DLocalTerminalGrantRevoke {
   string device_fingerprint = 1;
+}
+
+message DLocalTerminalPeerOffer {
+  string request_id = 1;
+  string connection_generation = 2;
+  string worker_epoch = 3;
+  string grant_id = 4;
+  string peer_id = 5;
+  string device_fingerprint = 6;
+  string tab_id = 7;
+  string offer_sdp = 8;
+  uint32 budget_ms = 9;
+  repeated string stun_urls = 10;
+}
+
+message DLocalTerminalPeerCancel {
+  string request_id = 1;
+  string connection_generation = 2;
+  string worker_epoch = 3;
+  string peer_id = 4;
+}
+
+message DTerminalInputRouteClaim {
+  string request_id = 1;
+  string session_id = 2;
+  string device_fingerprint = 3;
+  string tab_id = 4;
+  string browser_connection_id = 5;
+  uint64 revision = 6;
+  uint32 budget_ms = 7;
+  string worker_epoch = 8;
+}
+
+message DTerminalTransportProbe {
+  string request_id = 1;
+  string worker_epoch = 2;
+}
+
+// `reason` is one of worker_deleted or worker_revoked.
+message DTerminalDirectRetire {
+  string worker_epoch = 1;
+  string reason = 2;
 }
 
 message CoordWorkerDown {
@@ -404,6 +485,11 @@ message CoordWorkerDown {
     DTerminalViewSocketClosed terminal_view_socket_closed = 19;
     DLocalTerminalGrant local_terminal_grant = 20;
     DLocalTerminalGrantRevoke local_terminal_grant_revoke = 21;
+    DLocalTerminalPeerOffer local_terminal_peer_offer = 22;
+    DLocalTerminalPeerCancel local_terminal_peer_cancel = 23;
+    DTerminalInputRouteClaim terminal_input_route_claim = 24;
+    DTerminalTransportProbe terminal_transport_probe = 25;
+    DTerminalDirectRetire terminal_direct_retire = 26;
   }
 }
 

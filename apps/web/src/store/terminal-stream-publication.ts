@@ -1,8 +1,6 @@
-// Where one session's next view/resync command goes, and which socket owns the
-// generation stamped on its frames. The local socket wins whenever it holds a
-// grant for that session; otherwise a ready Sync socket does. The view, repair
-// and retarget owners ask here instead of choosing a transport themselves, so
-// exactly one publication path exists per session.
+// Chooses the one route that may publish a session's views and resyncs. Direct
+// routes are elected by terminal-stream-transport; Sync remains the ready
+// fallback. Consumers never infer a route from a sentinel process epoch.
 
 import type {
   TerminalResyncCommand,
@@ -15,18 +13,24 @@ import {
   type SyncV2TerminalState,
   type TerminalGenerationRecoveryReason,
 } from "./sync.ts";
-import { terminalGenerationToken } from "./terminal-stream-liveness.ts";
 import {
-  isLocalTerminalGenerationToken,
-  localTerminalGenerationToken,
-  localTerminalTransport,
+  terminalGenerationMatches,
+  terminalGenerationToken,
+} from "./terminal-stream-liveness.ts";
+import {
+  terminalDirectRegistry,
+  type TerminalDirectConnection,
 } from "./terminal-stream-transport.ts";
-import type { TerminalGenerationToken } from "./terminal-stream-types.ts";
+import type {
+  TerminalGenerationToken,
+  TerminalTransportKind,
+} from "./terminal-stream-types.ts";
 
 export interface TerminalPublicationTarget {
   readonly token: TerminalGenerationToken;
   readonly domainGeneration: bigint;
-  readonly local: boolean;
+  readonly transportKind: TerminalTransportKind;
+  readonly workerFp: string | null;
   publishView(command: TerminalViewCommand): boolean;
   publishResync(command: TerminalResyncCommand): boolean;
 }
@@ -35,52 +39,63 @@ export function currentTerminalGenerationToken(
   sessionId: string,
   sync: SyncV2TerminalState | null = currentSyncV2TerminalState(),
 ): TerminalGenerationToken | null {
-  return localTerminalGenerationToken(sessionId)
-    ?? (sync ? terminalGenerationToken(sync) : null);
+  const direct = terminalDirectRegistry.activeForSession(sessionId);
+  return direct?.token() ?? (sync ? terminalGenerationToken(sync) : null);
 }
 
-/** Where this session's next command goes, or null when neither transport can
+/** Where this session's next command goes, or null when neither route can
  * carry it. */
 export function terminalPublicationTarget(
   sessionId: string,
   sync: SyncV2TerminalState | null = currentSyncV2TerminalState(),
 ): TerminalPublicationTarget | null {
-  if (localTerminalGenerationToken(sessionId)) return localTarget();
-  return syncTarget(sync);
+  const direct = terminalDirectRegistry.activeForSession(sessionId);
+  return directTarget(direct) ?? syncTarget(sync);
 }
 
 /** The target that still owns an already-stamped generation — used to release a
- * view key on the transport it is leaving. */
+ * view key on the route it is leaving. */
 export function terminalTransportTargetForToken(
   token: TerminalGenerationToken,
   sync: SyncV2TerminalState | null = currentSyncV2TerminalState(),
 ): TerminalPublicationTarget | null {
-  return isLocalTerminalGenerationToken(token) ? localTarget() : syncTarget(sync);
+  if (token.transportKind !== "sync") {
+    return directTarget(terminalDirectRegistry.targetForToken(token));
+  }
+  const target = syncTarget(sync);
+  return target && terminalGenerationMatches(target.token, token) ? target : null;
 }
 
-/** Replace the socket that owns this generation. A local token can only be
- * recovered by the local socket; a Sync redial would not touch it. */
+/** Replaces only the exact route that owns a stalled generation. */
 export function requestTerminalGenerationRecovery(
   owner: TerminalGenerationToken,
   reason: TerminalGenerationRecoveryReason,
 ): boolean {
-  if (isLocalTerminalGenerationToken(owner)) {
-    return localTerminalTransport()?.redial(reason) ?? false;
+  if (owner.transportKind !== "sync") {
+    const direct = terminalDirectRegistry.targetForToken(owner);
+    if (!direct) return false;
+    direct.close(reason);
+    return true;
   }
   return requestSyncGenerationRecovery(owner, reason);
 }
 
-function localTarget(): TerminalPublicationTarget | null {
-  const owner = localTerminalTransport();
-  const token = owner?.generationToken() ?? null;
-  if (!owner || !token) return null;
+function directTarget(
+  connection: TerminalDirectConnection | null,
+): TerminalPublicationTarget | null {
+  const token = connection?.token() ?? null;
+  if (
+    !connection
+    || !token
+    || terminalDirectRegistry.targetForToken(token) !== connection
+  ) return null;
   return {
     token,
-    // The local socket is its own fence; the worker never reads this field.
-    domainGeneration: 0n,
-    local: true,
-    publishView: (command) => owner.publishView(command),
-    publishResync: (command) => owner.publishResync(command),
+    domainGeneration: token.domainGeneration,
+    transportKind: token.transportKind,
+    workerFp: token.workerFp,
+    publishView: (command) => connection.publishView(command),
+    publishResync: (command) => connection.publishResync(command),
   };
 }
 
@@ -91,7 +106,8 @@ function syncTarget(
   return {
     token: terminalGenerationToken(sync),
     domainGeneration: sync.domainGeneration,
-    local: false,
+    transportKind: "sync",
+    workerFp: null,
     publishView: (command) => sendSyncV2Command({ case: "terminalView", value: command }),
     publishResync: (command) => sendSyncV2Command({ case: "terminalResync", value: command }),
   };

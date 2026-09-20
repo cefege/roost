@@ -28,12 +28,17 @@ export type {
   SmokeApi,
   SmokeTerminalInputBatch,
   SmokeTerminalInputCapture,
+  SmokeTerminalTransportProbe,
   TerminalStreamProbe,
 } from "./smokeTypes.ts";
 
 export function maybeInstallSmokeBackdoor(): void {
   if (typeof window === "undefined") return;
   if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
+  const directHistoryResponses = new Map<string, number>();
+  (window as unknown as { __roostRecordDirectHistoryResponse?: (id: string) => void })
+    .__roostRecordDirectHistoryResponse = (sessionId) =>
+      directHistoryResponses.set(sessionId, (directHistoryResponses.get(sessionId) ?? 0) + 1);
 
   const createdResources = createSmokeCreatedResourceMethods();
   const terminalInput = createSmokeTerminalInputMethods();
@@ -60,6 +65,7 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     terminalStreamProbe: terminalStreamProbe.terminalStreamProbe,
     terminalBrowserSnapshot: terminalStreamProbe.terminalBrowserSnapshot,
+    probeTerminalTransport: terminalStreamProbe.probeTerminalTransport,
     async beginTerminalTiming(kind, sessionId) {
       return beginTerminalTimingImpl(kind, sessionId);
     },
@@ -88,6 +94,7 @@ export function maybeInstallSmokeBackdoor(): void {
     cellFullFrameCount: runtimeControls.cellFullFrameCount,
     lastFullFrameSbRows: runtimeControls.lastFullFrameSbRows,
     scrollbackBackfillRequestCount: runtimeControls.scrollbackBackfillRequestCount,
+    directHistoryResponseCount: (sessionId) => directHistoryResponses.get(sessionId) ?? 0,
     cellGridEpoch: runtimeControls.cellGridEpoch,
     blackholeTerminalFramesForCurrentGeneration:
       runtimeControls.blackholeTerminalFramesForCurrentGeneration,

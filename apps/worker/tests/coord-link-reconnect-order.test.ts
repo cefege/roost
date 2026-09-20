@@ -109,6 +109,8 @@ test("hello gates exact-ACK replay, one fresh snapshot, and post-copy traffic ac
     coordHttpUrl: "http://coord.test:4102",
     workerFp,
     workerVersion: "test",
+    processEpoch: "test-process-epoch",
+    capabilities: [],
     sessionEventStore: store,
     mintJwt: async () => "jwt",
     webSocketFactory: () => {
@@ -234,6 +236,8 @@ test("oversized snapshots stay unready and become eligible after membership and 
     coordHttpUrl: "http://coord.test:4102",
     workerFp,
     workerVersion: "test",
+    processEpoch: "test-process-epoch",
+    capabilities: [],
     sessionEventStore: store,
     mintJwt: async () => "jwt",
     webSocketFactory: () => {
@@ -315,6 +319,8 @@ test("reference replay drains before snapshot activation across a disconnect", a
     coordHttpUrl: "http://coord.test:4102",
     workerFp,
     workerVersion: "test",
+    processEpoch: "test-process-epoch",
+    capabilities: [],
     sessionEventStore: store,
     mintJwt: async () => "jwt",
     webSocketFactory: () => {

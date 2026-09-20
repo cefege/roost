@@ -229,9 +229,10 @@ message SessionsGetScrollbackCellsResponse {
   ScrollbackHistoryFloor history_floor = 7;
 }
 
-// Authorization for a browser to reach a worker's loopback terminal socket
-// directly. Granted per session, and only for sessions that actually live on
-// the named worker: the fast path must never widen what a device can reach.
+// Authorization for a browser to reach a worker's direct terminal carrier
+// (loopback socket or negotiated WebRTC). Granted per session, and only for
+// sessions that actually live on the named worker: the fast path must never
+// widen what a device can reach.
 message SessionsGrantLocalTerminalRequest {
   repeated string session_ids = 1;
   string worker_fp = 2;
@@ -245,6 +246,25 @@ message SessionsGrantLocalTerminalResponse {
   string grant_id = 1;
   string secret = 2;
   uint32 ttl_ms = 3;
+  string worker_epoch = 4;
+  bool peer_supported = 5;
+  repeated string stun_urls = 6;
+  bool input_route_supported = 7;
+}
+
+message SessionsNegotiateLocalTerminalPeerRequest {
+  string worker_fp = 1;
+  string grant_id = 2;
+  string tab_id = 3;
+  string peer_id = 4;
+  string offer_sdp = 5;
+  string worker_epoch = 6;
+}
+
+message SessionsNegotiateLocalTerminalPeerResponse {
+  string peer_id = 1;
+  string answer_sdp = 2;
+  string worker_epoch = 3;
 }
 
 
@@ -866,6 +886,7 @@ service CoordinatorService {
   rpc SessionsSearchGlobal(SessionsSearchGlobalRequest) returns (SessionsSearchGlobalResponse);
   rpc SessionsCancelGlobalSearch(SessionsCancelGlobalSearchRequest) returns (SessionsCancelGlobalSearchResponse);
   rpc SessionsGrantLocalTerminal(SessionsGrantLocalTerminalRequest) returns (SessionsGrantLocalTerminalResponse);
+  rpc SessionsNegotiateLocalTerminalPeer(SessionsNegotiateLocalTerminalPeerRequest) returns (SessionsNegotiateLocalTerminalPeerResponse);
 
   // dashboard-authorized observed agent state
   rpc AgentStatusGet(AgentStatusGetRequest) returns (AgentStatusGetResponse);

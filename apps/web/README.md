@@ -18,8 +18,11 @@ security boundary. Startup order:
 4. `installSignalShip()` + `installSpaDiag()` and the global
    error/rejection/chunk-recovery handlers install before render.
 5. `claimTabIdentity()` settles this document's unique identity, then
-   `applyTermFontSize()` sets terminal metrics.
-6. `render(() => <App />, #app)` mounts Solid; leak watch and agent-config load
+   `startLocalTerminalFastPath()` initializes direct transport ownership before
+   any pane can publish a view. Sync bootstrap remains in `App` and starts
+   unchanged as the metadata/control/fallback transport.
+6. `applyTermFontSize()` sets terminal metrics.
+7. `render(() => <App />, #app)` mounts Solid; leak watch and agent-config load
    follow.
 
 `apps/web/src/App.tsx` is the root: `AppErrorBoundary` outermost, `ConnectionBanner` +
@@ -50,8 +53,8 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
 | `apps/web/src/components/Settings/` | settings shell/panes; `MachinesPane.tsx` owns workers, `DevicesPane.tsx` is the only identity surface, `settingsNavigation.ts` owns the single `SETTINGS_GROUPS` list | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
 | `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons; `Skeleton.tsx` is the shared loading placeholder | app state, data fetching, or token declarations |
-| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves (`terminal-stream-renewal-scheduler.ts` owns one document renewal timer and `terminal-stream-progress.ts` pushes chunk progress), pane/UI stores; `terminal-stream-transport.ts` is the dependency-free registration seam for the local worker transport and `terminal-stream-publication.ts` turns it into the single publication target per session, while `terminal-stream-retarget.ts` owns every generation/transport retarget and the view-id rotation it requires; `paneLayoutDocument.ts` is the portable-document adapter over the browser-local pane store; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `auth-boundary.ts` owns the credential-boundary generation guard and authenticated-state teardown; `notifyTarget.ts` owns the single hovered-toast target signal | JSX or module-global socket/reconnect state |
-| `apps/web/src/ws/` | the **outbound** halves of both terminal transports: `terminal-input-lanes.ts` owns the per-session input lane (caps, correlations, result timeouts) shared by Sync (`sync-outbound.ts`, which also routes each session to its transport) and the local worker socket (`local-terminal.ts` + `local-terminal-requests.ts` + `local-terminal-grants.ts`), plus smoke hooks | socket dispatch for Sync, inbound cell decoding, membership, or continuity — local frames enter the same `store/terminal-stream*.ts` replica |
+| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves (`terminal-stream-renewal-scheduler.ts` owns one document renewal timer and `terminal-stream-progress.ts` pushes chunk progress), pane/UI stores; `terminal-stream-transport.ts` owns the one document-scoped `TerminalDirectRegistry` and elected direct-route identity; `terminal-stream-promotion.ts` plus `terminal-stream-frame-fold.ts` stage and validate candidate full baselines without mutating the canonical replica; `terminal-stream-publication.ts` chooses an elected direct target before Sync and `terminal-stream-retarget.ts` owns route-loss fresh-baseline repair; `paneLayoutDocument.ts` is the portable-document adapter over the browser-local pane store; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `auth-bootstrap.ts` starts the authenticated snapshot | transport implementation, UI components, or a second terminal replica |
+| `apps/web/src/ws/` | terminal transport adapters: `terminal-input-router.ts` owns the one document input router, bounded batches/holds/route claims, exact token correlation, and settlement; `terminal-input-lanes.ts` supplies its lane mechanics. `sync-outbound.ts` is the Sync adapter; `local-terminal.ts` plus `local-terminal-requests.ts`/`local-terminal-grants.ts` own each per-worker loopback connection and carrier requests after `localWorkerDiscovery.ts` supplies its one-shot discovery result. `terminal-peer.ts` plus `terminal-peer-connection.ts` own demand-driven WebRTC attempts, candidate promotion lifecycle, and liveness. Each carrier stages through `TerminalDirectRegistry`; none elects a canonical route itself. | canonical terminal fold, independent input queues, or worker-native code |
 | `apps/web/src/lib/` | pure helpers and browser adapters; `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; `terminalCellGeometry.ts` is the ONE pixels→cols/rows measurement, shared by the live view claim and the pre-spawn size hint; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag); `localWorkerDiscovery.ts` owns the one-shot probe for a worker door on this browser's machine while `localBootstrap.ts` stays the served-BY-a-worker fact `connect.ts` routes RPCs off; `predictiveEcho.ts` plus `predictiveEchoExpiry.ts`/`predictiveEchoGrid.ts`/`predictiveEchoOverlay.ts`/`predictiveEchoPaint.ts` own local keystroke prediction, its expiry and its paint; `terminalStartupProgress.ts` owns the monotone opening-terminal stage/percent series; `terminalInputStatus.ts` phrases a send's outcome; `browseEntries.ts`, `browseErrorMessage.ts` and `folderNameValidation.ts` back the folder picker; `deckTabBadge.ts` counts the compact deck's terminals | JSX or terminal stream owner |
 | `apps/web/src/auth/` | web-key/IndexedDB, `fragment-credential.ts` (`#pair=<token>`, the only URL credential kind), pairing and tab identity | RPC plumbing (`apps/web/src/connect.ts`) or UI |
 | `apps/web/src/styles/` | global stylesheets imported once by `main.tsx`; `theme-vars.css` owns canonical theme tokens and aliases; `components/Settings/md/tokens.css` owns shared settings primitives; `sidebar.css` owns terminal `.wterm` and legacy drawer rules; `workbench-shell.css` owns desktop shell and workbench-mounted Settings presentation; `workbench-sidebar.css` and `workbench-tabs.css` own sidebar and tab/deck presentation respectively | component-local one-offs |
@@ -232,16 +235,34 @@ Break one of these and you get back the history-corruption class this repo keeps
   MCP, pair, and audit generations, with audit as the only lazy domain. Missing or extra domains are
   a protocol mismatch that requires the current SPA to reload; there are no tombstone domains or
   compatibility subscriptions.
-- **Only visible panes publish active terminal views.** Input goes through
-  `sendTerminalInput` in `apps/web/src/ws/sync-outbound.ts`; every batch resolves
-  accepted/rejected/ambiguous and is never silently retried. `src/store/terminal-stream.ts`
-  owns stable `view_id` handles, revisions, Sync-generation replay and one
-  canonical viewport replica per session. `CellTerminal.tsx` composes the pane;
+- **Only visible panes publish active terminal views.** `sendTerminalInput` in
+  `apps/web/src/ws/sync-outbound.ts` remains the public entry but delegates
+  admission, transition holds, exact destination tokens, and outcomes to the
+  one `terminal-input-router.ts` owner. Started input is never replayed; an
+  ambiguous result remains ambiguous. `src/store/terminal-stream.ts` owns stable
+  view handles, revisions, Sync-generation replay and one canonical viewport
+  replica per session. `CellTerminal.tsx` composes the pane;
   `src/components/cell-terminal-viewport.ts` alone publishes active/inactive
   view geometry, while `src/components/cell-terminal-renderer.ts` attaches the
   renderer/stream. Hidden panes receive no cells, but detach or tab switching
   cannot delete the session replica; reactivation receives a complete baseline
   before deltas.
+- **Direct election is document-scoped and baseline-gated.**
+  `TerminalDirectRegistry` holds one active direct connection and at most one
+  candidate per worker; UI and components never select a route. Per session,
+  same-worker loopback wins over an authenticated qualified WebRTC connection,
+  which wins over ready Sync fallback. A candidate folds under the same
+  `terminal-stream-frame-fold.ts` rules as the canonical replica and cannot
+  publish until a complete valid baseline and atomic
+  `commitSessionPromotion()` succeed. Route loss retires its exact token,
+  cancels direct work, and invokes normal Sync fresh-baseline repair instead of
+  allowing stale frames to overwrite the current replica.
+- **Direct handoff has one input router and one worker claim boundary.**
+  `terminal-input-router.ts` drains started work on its original token, holds
+  only bounded unsent input during promotion, and releases it only after the
+  candidate's worker-acknowledged route claim. It fences callbacks by request
+  ID and generation, rejects unserviceable input rather than queueing offline
+  bytes, and never turns a lost acknowledgement into an input retry.
 - **Terminal incident capture is opt-in and consent-gated.** Ordinary terminals
   keep only their existing content-free diagnostics.
   `apps/web/src/components/TerminalContextMenu.tsx` carries `Start

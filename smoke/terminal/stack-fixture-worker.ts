@@ -7,6 +7,8 @@ import type { CoordWorkerUp } from "../../apps/shared/src/gen/roost/v1/worker_tr
 import { startDelayedWorkerLink, type DelayedWorkerLink } from "./delayed-worker-link.ts";
 import {
   createTerminalWorkerStarter,
+  type TerminalWorkerPeerPortRange,
+  type TerminalWorkerRuntime,
   waitForTerminalWorkerRoutable,
 } from "./stack-worker-runtime.ts";
 import type { WorkerLocalUi } from "./stack-local-ui.ts";
@@ -38,6 +40,7 @@ export interface FixtureWorkerLaunchOptions {
   bunExecutable: string;
   coordinatorUrl: string;
   sourceRoot: string;
+  runtime?: TerminalWorkerRuntime;
   compileFixture(): void;
   fixtureExecutable: string;
   client: AuthorizedApiClient;
@@ -47,6 +50,9 @@ export interface FixtureWorkerLaunchOptions {
   localUi: WorkerLocalUi;
   oneWayDelayMs?: 0 | 25 | 200;
   workerFrameFilter?: (frame: CoordWorkerUp) => boolean;
+  terminalPeerEnabled?: boolean;
+  terminalPeerBindAddress?: string;
+  terminalPeerPortRange?: TerminalWorkerPeerPortRange;
   onWorkerStarted(service: RunningService): void;
   onLinkStarted(link: DelayedWorkerLink | undefined): void;
 }
@@ -67,6 +73,7 @@ export async function startFixtureWorker(
     options.bunExecutable,
     link?.url ?? options.coordinatorUrl,
     options.sourceRoot,
+    options.runtime,
   );
   const bootstrapToken = (
     await options.client.authMintBootstrap({ kind: "worker", label: options.paths.label })
@@ -77,6 +84,9 @@ export async function startFixtureWorker(
     bootstrapToken,
     shell: options.fixtureExecutable,
     localUiBind: options.localUi.bind,
+    terminalPeerEnabled: options.terminalPeerEnabled,
+    terminalPeerBindAddress: options.terminalPeerBindAddress,
+    terminalPeerPortRange: options.terminalPeerPortRange,
   });
   options.onWorkerStarted(service);
   const workerFp = await waitForTerminalWorkerRoutable(

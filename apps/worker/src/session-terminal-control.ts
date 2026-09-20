@@ -30,6 +30,12 @@ export type WorkerInputResult =
 	| { status: "rejected"; writtenBytes: 0; reason: string }
 	| { status: "ambiguous"; writtenBytes: number; reason: string };
 
+/** Live predicates supplied only by browser-originated writers. */
+export interface TerminalWriteAuthority {
+	isSessionAuthorized(): boolean;
+	isCurrentInputRoute(): boolean;
+}
+
 export interface WorkerTerminalStreamIntent {
 	requestId: string;
 	sessionId: string;
@@ -46,15 +52,24 @@ export async function writeTerminalInput(
 	inputSeq: bigint,
 	bytes: Uint8Array,
 	budget?: TerminalRequestBudget,
+	authority?: TerminalWriteAuthority,
 ): Promise<WorkerInputResult> {
+	if (authority && !authority.isSessionAuthorized()) {
+		return { status: "rejected", writtenBytes: 0, reason: "terminal session is unavailable" };
+	}
+	if (authority && !authority.isCurrentInputRoute()) {
+		return { status: "rejected", writtenBytes: 0, reason: "terminal input route changed" };
+	}
 	const rec = this.getBySessionId(sessionId);
 	if (!rec) {
-		return { status: "rejected", writtenBytes: 0, reason: "session is not live" };
+		return authority
+			? { status: "rejected", writtenBytes: 0, reason: "terminal session is unavailable" }
+			: { status: "rejected", writtenBytes: 0, reason: "session is not live" };
 	}
 	if (inputSeq <= 0n) {
 		return { status: "rejected", writtenBytes: 0, reason: "input sequence must be positive" };
 	}
-	return writeAcknowledgedInputBatch(this, rec.channelId, bytes, budget);
+	return writeAcknowledgedInputBatch(this, rec.channelId, bytes, budget, authority);
 }
 
 /** Write one worker-originated batch without manufacturing a coordinator input
@@ -76,6 +91,7 @@ async function writeAcknowledgedInputBatch(
 	channelId: number,
 	bytes: Uint8Array,
 	budget?: TerminalRequestBudget,
+	authority?: TerminalWriteAuthority,
 ): Promise<WorkerInputResult> {
 	if (bytes.byteLength === 0) return { status: "accepted", writtenBytes: 0 };
 	const admission = acquireKeeperAdmission(manager, channelId, "terminal_input");
@@ -87,8 +103,16 @@ async function writeAcknowledgedInputBatch(
 	let command;
 	try {
 		await ticket.granted;
+		if (authority && !authority.isSessionAuthorized()) {
+			return { status: "rejected", writtenBytes: 0, reason: "terminal session is unavailable" };
+		}
+		if (authority && !authority.isCurrentInputRoute()) {
+			return { status: "rejected", writtenBytes: 0, reason: "terminal input route changed" };
+		}
 		if (!manager.sessions.has(channelId)) {
-			return { status: "rejected", writtenBytes: 0, reason: "session closed before the keeper write" };
+			return authority
+				? { status: "rejected", writtenBytes: 0, reason: "terminal session is unavailable" }
+				: { status: "rejected", writtenBytes: 0, reason: "session closed before the keeper write" };
 		}
 		if (budget && !budget.isCurrentConnection()) {
 			return { status: "rejected", writtenBytes: 0, reason: "worker connection superseded before the keeper write" };

@@ -30,9 +30,10 @@ import { diag } from "@roost/shared/diag";
 import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
 import { log } from "@roost/shared/log";
 import {
-  INPUT_REQUEST_INFLIGHT_CAP, TERMINAL_STREAM_REQUEST_INFLIGHT_CAP,
+  TERMINAL_STREAM_REQUEST_INFLIGHT_CAP,
   TERMINAL_REQUEST_BUDGET_CAP_MS,
 } from "./coord-link-constants.ts";
+import { createCoordLinkDirectTerminalDownstream } from "./coord-link-direct-terminal.ts";
 import type {
   CoordLinkDeps, CoordLinkDownstream, CoordLinkOutbox, TerminalRequestBudget,
 } from "./coord-link-types.ts";
@@ -42,9 +43,9 @@ export function createCoordLinkDownstream(
   outbox: CoordLinkOutbox,
 ): CoordLinkDownstream {
   const { send } = outbox;
-  // Stream-state and input requests have independent bounded admissions so a
-  // keeper resize cannot consume the input lane.
-  let inputRequestsInFlight = 0;
+  // Stream-state owns a separate bounded admission so resize traffic cannot
+  // block its own completion path. Browser input is bounded by the process-wide
+  // TerminalInputWorkBudget before bytes are copied or keeper work is admitted.
   let terminalStreamRequestsInFlight = 0;
 
   /** Bound one downstream terminal request to a monotonic budget derived from
@@ -62,6 +63,13 @@ export function createCoordLinkDownstream(
       isCurrentConnection: () => outbox.activeSocket() === socket,
     };
   }
+
+  const directTerminal = createCoordLinkDirectTerminalDownstream(
+    deps,
+    outbox,
+    send,
+    terminalBudget,
+  );
 
   function sendImmediateInputResult(
     request: { requestId: string; sessionId: string; inputSeq: bigint },
@@ -85,12 +93,10 @@ export function createCoordLinkDownstream(
     const k = frame.frame?.case;
     if (!k) return;
     const v = frame.frame.value;
+    if (outbox.activeSocket() !== socket) return;
+    if (directTerminal.handle(k, v, socket)) return;
     switch (k) {
       case "helloAck": {
-        if (outbox.activeSocket() !== socket) {
-          log.warn("coord-link", "hello_ack_stale_socket", {});
-          return;
-        }
         const helloAck = v as DHelloAck;
         const terminalMetadataNegotiated = helloAck.capabilities.includes(TERMINAL_METADATA_CAPABILITY);
         outbox.acceptHelloAck(reconnected, terminalMetadataNegotiated);
@@ -136,26 +142,19 @@ export function createCoordLinkDownstream(
       }
       case "inputRequest": {
         const request = v as DInputRequest;
-        if (inputRequestsInFlight >= INPUT_REQUEST_INFLIGHT_CAP) {
-          // Nothing reached the session manager, so retry remains safe.
-          diag("transport.terminal_admission_full", {
-            kind: "input",
-            in_flight: inputRequestsInFlight,
-          });
+        if (!deps.onInputRequest) {
           sendImmediateInputResult(
             request,
             TerminalInputStatus.REJECTED,
             TerminalWritePhase.PRE_WRITE,
-            "worker input admission is full",
+            "worker input handler is unavailable",
           );
           return;
         }
-        inputRequestsInFlight += 1;
-        // Invoke synchronously to preserve receive order into keeper admission;
-        // the IIFE turns a synchronous throw into a correlated result.
-        void (async () => deps.onInputRequest?.(request, terminalBudget(socket, request.budgetMs)))()
+        // Invoke synchronously so the shared work budget reserves before the
+        // next received frame can retain another input payload.
+        void (async () => deps.onInputRequest!(request, terminalBudget(socket, request.budgetMs)))()
           .catch((error: unknown) => {
-            // A thrown handler cannot prove which side of the write it reached.
             const message = error instanceof Error ? error.message : String(error);
             log.warn("coord-link", "input_request_failed", {
               request_id: request.requestId,
@@ -167,8 +166,7 @@ export function createCoordLinkDownstream(
               TerminalWritePhase.UNKNOWN,
               message,
             );
-          })
-          .finally(() => { inputRequestsInFlight -= 1; });
+          });
         return;
       }
       case "agentPrompt": {
@@ -182,37 +180,21 @@ export function createCoordLinkDownstream(
           );
           return;
         }
-        if (inputRequestsInFlight >= INPUT_REQUEST_INFLIGHT_CAP) {
-          diag("transport.terminal_admission_full", {
-            kind: "agent_prompt",
-            in_flight: inputRequestsInFlight,
+        void (async () => deps.onAgentPrompt!(request, terminalBudget(socket, request.budgetMs)))()
+          .catch(() => {
+            log.warn("coord-link", "agent_prompt_failed", {
+              request_id: request.requestId,
+              session_id: request.sessionId,
+              occupant_id: request.expectedOccupantId,
+              outcome: "ambiguous",
+            });
+            sendImmediateInputResult(
+              request,
+              TerminalInputStatus.AMBIGUOUS,
+              TerminalWritePhase.UNKNOWN,
+              "worker agent prompt handler failed",
+            );
           });
-          sendImmediateInputResult(
-            request,
-            TerminalInputStatus.REJECTED,
-            TerminalWritePhase.PRE_WRITE,
-            "worker agent prompt admission is full",
-          );
-          return;
-        }
-        inputRequestsInFlight += 1;
-        void (async () => deps.onAgentPrompt!(
-          request,
-          terminalBudget(socket, request.budgetMs),
-        ))().catch(() => {
-          log.warn("coord-link", "agent_prompt_failed", {
-            request_id: request.requestId,
-            session_id: request.sessionId,
-            occupant_id: request.expectedOccupantId,
-            outcome: "ambiguous",
-          });
-          sendImmediateInputResult(
-            request,
-            TerminalInputStatus.AMBIGUOUS,
-            TerminalWritePhase.UNKNOWN,
-            "worker agent prompt handler failed",
-          );
-        }).finally(() => { inputRequestsInFlight -= 1; });
         return;
       }
       case "terminalStreamState": {

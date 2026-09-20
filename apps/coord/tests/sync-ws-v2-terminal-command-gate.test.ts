@@ -8,6 +8,7 @@ import {
   InputCommandSchema,
   SyncClientFrameSchema,
   type SyncClientFrame,
+  TerminalInputRouteClaimSchema,
 } from "@roost/shared/proto/sync_pb";
 import { makeSyncV2CommandHandler } from "../src/connect/sync-ws-v2-commands.ts";
 import {
@@ -64,6 +65,22 @@ function resyncFrame(gate: GateFixture, domainGeneration: bigint): SyncClientFra
   });
 }
 
+function routeClaimFrame(gate: GateFixture, domainGeneration: bigint): SyncClientFrame {
+  return create(SyncClientFrameSchema, {
+    socketId: gate.harness.socket.data.v2!.socketId,
+    command: {
+      case: "inputRouteClaim",
+      value: create(TerminalInputRouteClaimSchema, {
+        requestId: "route-command-gate",
+        sessionId: SESSION_A,
+        revision: 1n,
+        domainGeneration,
+        workerEpoch: "worker-epoch",
+      }),
+    },
+  });
+}
+
 function onlyRejection(gate: GateFixture): {
   sessionId: string;
   inputSeq: bigint;
@@ -103,6 +120,22 @@ describe("Sync v2 terminal command gate", () => {
     gate.harness.socket.data.readOnly = true;
     gate.handleV2Command(inputFrame(gate, gate.harness.terminal.generation));
     expect(onlyRejection(gate).reason).toContain("cannot write terminal input");
+    expect(gate.commands).toEqual([]);
+  });
+
+  test("a read-only socket receives a definite route-claim refusal", () => {
+    const gate = makeGate(true);
+    gate.harness.socket.data.readOnly = true;
+    gate.handleV2Command(routeClaimFrame(gate, gate.harness.terminal.generation));
+    const frames = decodedFrames(gate.harness.socket);
+    expect(frames).toHaveLength(1);
+    const frame = frames[0]?.frame;
+    if (frame?.case !== "inputRouteResult") throw new Error(`expected inputRouteResult, got ${frame?.case}`);
+    expect(frame.value).toMatchObject({
+      requestId: "route-command-gate",
+      accepted: false,
+      reason: "this Sync socket cannot write terminal input",
+    });
     expect(gate.commands).toEqual([]);
   });
 

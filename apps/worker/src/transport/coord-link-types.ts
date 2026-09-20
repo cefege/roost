@@ -4,27 +4,42 @@
 
 import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type {
-  CoordWorkerDown,
-  CoordWorkerUp,
-  DAgentPrompt,
-  DInputRequest,
-  DKeeperUpdatePrepare,
-  DLocalTerminalGrant,
-  DLocalTerminalGrantRevoke,
-  DTerminalPipelineSnapshotRequest,
-  DTerminalSnapshotRequest,
-  DTerminalStreamState,
-  DTerminalViewRelay,
-  DTerminalViewSocketClosed,
-  TerminalInputStatus,
-  TerminalStreamFailureKind,
-  TerminalStreamStatus,
-  TerminalWritePhase,
-  WTerminalPipelineSnapshot,
+	CoordWorkerDown,
+	CoordWorkerUp,
+	DAgentPrompt,
+	DInputRequest,
+	DKeeperUpdatePrepare,
+	DLocalTerminalGrant,
+	DLocalTerminalGrantRevoke,
+	DLocalTerminalPeerCancel,
+	DLocalTerminalPeerOffer,
+	DTerminalDirectRetire,
+	DTerminalInputRouteClaim,
+	DTerminalPipelineSnapshotRequest,
+	DTerminalSnapshotRequest,
+	DTerminalStreamState,
+	DTerminalTransportProbe,
+	DTerminalViewRelay,
+	DTerminalViewSocketClosed,
+	TerminalInputStatus,
+	TerminalStreamFailureKind,
+	TerminalStreamStatus,
+	TerminalWritePhase,
+	WLocalTerminalPeerAnswer,
+	WLocalTerminalPeerError,
+	WTerminalPipelineSnapshot,
+	WTerminalTransportProbeResult,
 } from "@roost/shared/proto/worker_transport_pb";
-import type { TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
+import type { TerminalInputRouteResult, TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
 import type { TerminalViewInput } from "@roost/shared/terminal-view";
 import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
+import type { LocalTerminalGrantStore } from "../local-terminal-grants.ts";
+import type { LocalTerminalSockets } from "../local-terminal-socket.ts";
+import type { TerminalInputRouteOwner } from "../terminal-input-route-owner.ts";
+import type { TerminalInputWorkBudget } from "../terminal-input-work-budget.ts";
+import type { TerminalPeerOwner } from "../terminal-peer-owner.ts";
+import type { TerminalPeerTestFaultState } from "../terminal-peer-test-faults.ts";
+import type { TerminalViewOwner } from "../terminal-view-owner.ts";
 import type { SessionEventStore } from "./session-event-store.ts";
 
 /** Bounded, monotonic budget for one downstream terminal-control request.
@@ -45,6 +60,25 @@ export interface TerminalRequestBudget {
   isCurrentConnection(): boolean;
 }
 
+/** Process-owned direct terminal owners created once before CoordLink. */
+export interface LocalTerminalWiring {
+  viewOwner: TerminalViewOwner;
+  grants: LocalTerminalGrantStore;
+  sockets: LocalTerminalSockets;
+  inputWorkBudget: TerminalInputWorkBudget;
+  inputRouteOwner: TerminalInputRouteOwner;
+  peerOwner: TerminalPeerOwner;
+  /** Source-smoke-only direct fault state, omitted by ordinary worker boot. */
+  terminalPeerTestFaults?: TerminalPeerTestFaultState;
+  workerEpoch: string;
+  peerSupported: boolean;
+  useCoordinatorGeneration(generation: string): boolean;
+  clearCoordinatorGeneration(): void;
+  revokeDevice(deviceFingerprint: string): void;
+  retireDirect(reason: "worker_deleted" | "worker_revoked"): void;
+  disposeDirect(): void;
+}
+
 export type WorkerSnapshotEvent = Extract<SessionEvent, { kind: "snapshot" }>;
 export type WorkerSnapshotProvider = () => WorkerSnapshotEvent;
 export type CoordLinkProtocolPhase = "hello" | "replay" | "snapshot" | "live";
@@ -55,7 +89,11 @@ export interface CoordLinkDeps {
   // Tail/coord URL e.g. "https://<coord-host>.<tailnet>.ts.net:4102".
   coordHttpUrl: string;
   workerFp: WorkerFp;
+  /** Fresh worker-process UUID; distinct from the retained keeper epoch. */
+  processEpoch: string;
   workerVersion: string;
+  /** Exact capabilities this worker offers on every authenticated connection. */
+  capabilities: readonly string[];
   sessionEventStore: SessionEventStore;
   mintJwt: () => Promise<string>;
   jwtTtlSecs?: number;
@@ -108,6 +146,19 @@ export interface CoordLinkDeps {
   // resolves, so a throw here must reach it as WRpcError.
   onLocalTerminalGrant?: (request: DLocalTerminalGrant) => void;
   onLocalTerminalGrantRevoke?: (request: DLocalTerminalGrantRevoke) => void;
+  onLocalTerminalPeerOffer?: (
+    request: DLocalTerminalPeerOffer,
+    budget: TerminalRequestBudget,
+  ) => Promise<WLocalTerminalPeerAnswer>;
+  onLocalTerminalPeerCancel?: (request: DLocalTerminalPeerCancel) => void;
+  onTerminalInputRouteClaim?: (
+    request: DTerminalInputRouteClaim,
+    budget: TerminalRequestBudget,
+  ) => Promise<TerminalInputRouteResult>;
+  onTerminalTransportProbe?: (
+    request: DTerminalTransportProbe,
+  ) => WTerminalTransportProbeResult | null;
+  onTerminalDirectRetire?: (request: DTerminalDirectRetire) => void;
   onAttachmentChunk?: (msg: { request_id: string; session_id: string; filename: string; short_path: boolean; data: Uint8Array; last: boolean; seq: number }) => void;
   onUpdateBroker?: (msg: {
     request_id: string;
@@ -229,6 +280,14 @@ export type UpstreamFrame =
       reason?: string;
     }
   | ({ kind: "update-progress" } & UpdateProgressFrame)
+  | { kind: "local-terminal-peer-answer"; answer: WLocalTerminalPeerAnswer }
+  | { kind: "local-terminal-peer-error"; error: WLocalTerminalPeerError }
+  | {
+      kind: "terminal-input-route-result";
+      request_id: string;
+      result: TerminalInputRouteResult;
+    }
+  | { kind: "terminal-transport-probe-result"; result: WTerminalTransportProbeResult }
   | {
       kind: "terminal-pipeline-snapshot";
       snapshot: WTerminalPipelineSnapshot;

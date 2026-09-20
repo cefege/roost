@@ -25,7 +25,7 @@ jobs:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
       - name: Install Playwright browsers
-        run: bunx playwright install --with-deps chromium ${{ matrix.os == 'macos-15' && 'webkit' || '' }}
+        run: bunx playwright install --with-deps chromium firefox ${{ matrix.os == 'macos-15' && 'webkit' || '' }}
       - run: bun x tsgo -p tsconfig.base.json --noEmit
       - run: bun run test:unit
       - run: bun run test:terminal
@@ -71,6 +71,7 @@ jobs:
             dist/roost-linux-x64.sha256
             dist/roost-linux-arm64
             dist/roost-linux-arm64.sha256
+            dist/THIRD_PARTY_NOTICES.txt
 
   native-smoke:
     name: native smoke (${{ matrix.runner }} / ${{ matrix.asset }})
@@ -98,6 +99,12 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+      - name: Build production SPA for packaged-worker proof
+        env:
+          VITE_ROOST_SMOKE: "0"
+        run: bun run --cwd apps/web build
       - uses: actions/download-artifact@v4
         with:
           name: release-candidates
@@ -128,6 +135,14 @@ jobs:
           ROOST_LOCAL_BIN="$PWD/$ASSET" ROOST_BIN_DIR="$INSTALL_DIR" bash ../install-binary.sh
           INSTALLED_VERSION="$("$INSTALL_DIR/roost" version)"
           test "$INSTALLED_VERSION" = "$CANDIDATE_VERSION"
+
+      - name: Qualify packaged worker flow
+        env:
+          ASSET: ${{ matrix.asset }}
+        run: |
+          set -euo pipefail
+          chmod 0755 "dist/$ASSET"
+          bun smoke/peer/qualify-packaged-worker.ts --binary "$PWD/dist/$ASSET"
 
       - name: Compare canonical, source, and candidate skill bytes
         env:
@@ -160,6 +175,7 @@ jobs:
         dist/roost-linux-x64.sha256
         dist/roost-linux-arm64
         dist/roost-linux-arm64.sha256
+        dist/THIRD_PARTY_NOTICES.txt
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -172,7 +188,7 @@ jobs:
           expected="$(mktemp)"
           actual="$(mktemp)"
           printf '%s\n' "$PUBLIC_RELEASE_ASSETS" | sed 's#^dist/##' | LC_ALL=C sort > "$expected"
-          test "$(wc -l < "$expected")" -eq 10
+          test "$(wc -l < "$expected")" -eq 11
           find dist -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > "$actual"
           diff -u "$expected" "$actual"
       - uses: softprops/action-gh-release@v3

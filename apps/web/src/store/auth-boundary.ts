@@ -12,6 +12,7 @@ import {
 } from "./root.ts";
 import { resetTerminalStream } from "./terminal-stream.ts";
 import { resetTerminalOutboundState } from "../ws/sync-outbound.ts";
+import { resetLocalTerminalState } from "../ws/local-terminal.ts";
 import { resetLastSeenSyncEventId } from "./sync.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { resetSyncHydration } from "./sync-hydrated.ts";
@@ -69,8 +70,9 @@ function clearAuthScopedRuntimeState(): void {
   resetSpawnSessionRuntime();
   resetAgentStatusProjection();
   resetSyncHandlerRuntimeForAuthBoundary();
-  resetTerminalStream();
+  resetLocalTerminalState("credential boundary");
   resetTerminalOutboundState();
+  resetTerminalStream();
   resetScrollbackBackfillState();
   resetLastSeenSyncEventId();
   clearAgentConfigForAuthBoundary();

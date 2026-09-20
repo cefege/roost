@@ -71,6 +71,9 @@ test("batches concurrent target scopes and reuses only their own cached records"
   const requests: DTerminalPipelineSnapshotRequest[] = [];
   const worker: WorkerHandle = {
     workerFp: WORKER_FP,
+    processEpoch: null,
+    connectionGeneration: "pipeline-cache-test-connection",
+    capabilities: new Set(),
     ready: true,
     revoked: false,
     send(frame) {

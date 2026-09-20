@@ -23,8 +23,9 @@ export function registerUserTerminalInput(
 }
 
 /**
- * Admit bytes to the bounded terminal input lane, then synchronously notify the
- * currently mounted pane. Rejected input is passive and never changes its view.
+ * Admit bytes to the bounded document input router, then synchronously notify
+ * the mounted pane. A transition-held batch is admitted but never replayed;
+ * rejected input is passive and never changes its view.
  */
 export function sendUserTerminalInput(
   sessionId: string,

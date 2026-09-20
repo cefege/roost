@@ -9,6 +9,7 @@ import {
   SESSION_ID,
   STREAM_A,
   STREAM_B,
+  WORKER_FP,
   acceptView,
   cellFrameToProto,
   delta,
@@ -22,7 +23,7 @@ import {
 
 describe("browser terminal baseline admission", () => {
   test("rejects stale or conflicting fulls but admits a fresh stream baseline", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const sink = new RecordingRenderer();
     view.subscribeRenderer(renderer(sink));
     view.setViewport({ cols: 1, rows: 1 });
@@ -85,7 +86,7 @@ describe("browser terminal baseline admission", () => {
   });
 
   test("validates legacy full history before normalizing its canonical checkpoint", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const sink = new RecordingRenderer();
     view.subscribeRenderer(renderer(sink));
     view.setViewport({ cols: 1, rows: 1 });

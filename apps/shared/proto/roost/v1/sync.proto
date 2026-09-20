@@ -193,6 +193,37 @@ message InputCommand {
   bytes data = 3;
   uint64 domain_generation = 4;
   optional string view_id = 5;
+  string input_route_epoch = 6;
+}
+
+message TerminalInputRouteClaim {
+  string request_id = 1;
+  string session_id = 2;
+  uint64 revision = 3;
+  uint64 domain_generation = 4;
+  string worker_epoch = 5;
+}
+
+message TerminalInputRouteResult {
+  string request_id = 1;
+  string session_id = 2;
+  uint64 revision = 3;
+  bool accepted = 4;
+  uint64 latest_revision = 5;
+  string input_route_epoch = 6;
+  string worker_epoch = 7;
+  string reason = 8;
+}
+
+message TerminalTransportProbe {
+  string request_id = 1;
+  string worker_fp = 2;
+}
+
+message TerminalTransportProbeResult {
+  string request_id = 1;
+  string worker_fp = 2;
+  string worker_epoch = 3;
 }
 
 message InputAccepted {
@@ -262,6 +293,8 @@ message FirehoseFrame {
     InputRejected input_rejected = 45;
     InputAmbiguous input_ambiguous = 46;
     TerminalViewStateFrame terminal_view_state = 48;
+    TerminalInputRouteResult input_route_result = 49;
+    TerminalTransportProbeResult terminal_transport_probe_result = 50;
   }
 }
 
@@ -280,6 +313,8 @@ message SyncClientFrame {
     TerminalViewCommand terminal_view = 7;
     TerminalResyncCommand terminal_resync = 8;
     UiApplyLayoutResult ui_apply_layout_result = 9;
+    TerminalInputRouteClaim input_route_claim = 11;
+    TerminalTransportProbe terminal_transport_probe = 12;
   }
   // Opaque v2 socket identity from SyncSubscribedFrame. A stale socket id is
   // ignored rather than allowing an old generation to ACK or mutate a new one.

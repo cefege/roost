@@ -1,6 +1,6 @@
-// Covers the coordinator configuration contract: loopback-only trust, declared public
-// origins, and allowed-origin parsing. The suite drives loadCoordConfig at the
-// environment boundary, so every assertion is what a booting coordinator would see.
+// Covers coordinator configuration: listener trust, declared origins, and terminal
+// peer settings. The suite drives loadCoordConfig at the environment boundary, so
+// every assertion is what a booting coordinator would see.
 
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_COORDINATOR_BIND, loadCoordConfig } from "../src/config.ts";
@@ -111,6 +111,83 @@ describe("coordinator configuration", () => {
     ]) {
       expect(() => loadCoordConfig({ ROOST_PUSH_ALLOWED_ORIGINS: origin }), origin)
         .toThrow("ROOST_PUSH_ALLOWED_ORIGINS");
+    }
+  });
+});
+
+describe("ROOST_TERMINAL_PEER_ENABLED", () => {
+  test("defaults enabled and accepts only exact operator values", () => {
+    expect(loadCoordConfig({}).terminalPeerEnabled).toBe(true);
+    expect(loadCoordConfig({
+      ROOST_TERMINAL_PEER_ENABLED: "0",
+    }).terminalPeerEnabled).toBe(false);
+    expect(loadCoordConfig({
+      ROOST_TERMINAL_PEER_ENABLED: "1",
+    }).terminalPeerEnabled).toBe(true);
+
+    for (const value of ["", "2", "true", "01", " 1 "]) {
+      expect(() => loadCoordConfig({
+        ROOST_TERMINAL_PEER_ENABLED: value,
+      })).toThrow("ROOST_TERMINAL_PEER_ENABLED must be exactly 0 or 1");
+    }
+  });
+});
+
+describe("ROOST_TERMINAL_PEER_STUN_URLS", () => {
+  test("defaults to Cloudflare, permits explicit disablement, and normalizes entries", () => {
+    expect(loadCoordConfig({}).terminalPeerStunUrls)
+      .toEqual(["stun:stun.cloudflare.com:3478"]);
+    expect(loadCoordConfig({
+      ROOST_TERMINAL_PEER_STUN_URLS: "",
+    }).terminalPeerStunUrls).toEqual([]);
+    expect(loadCoordConfig({
+      ROOST_TERMINAL_PEER_STUN_URLS:
+        "STUN:Stun.One.Example:3478,stun:192.0.2.8:5349,stun:[2001:DB8::8]:3478",
+    }).terminalPeerStunUrls).toEqual([
+      "stun:stun.one.example:3478",
+      "stun:192.0.2.8:5349",
+      "stun:[2001:db8::8]:3478",
+    ]);
+  });
+
+  test("accepts at most four distinct STUN URLs", () => {
+    expect(loadCoordConfig({
+      ROOST_TERMINAL_PEER_STUN_URLS:
+        "stun:one.example,stun:two.example,stun:three.example,stun:four.example",
+    }).terminalPeerStunUrls).toEqual([
+      "stun:one.example",
+      "stun:two.example",
+      "stun:three.example",
+      "stun:four.example",
+    ]);
+
+    expect(() => loadCoordConfig({
+      ROOST_TERMINAL_PEER_STUN_URLS: "stun:one.example,stun:one.example",
+    })).toThrow("ROOST_TERMINAL_PEER_STUN_URLS must contain 1 to 4 distinct stun: UDP URLs");
+    expect(() => loadCoordConfig({
+      ROOST_TERMINAL_PEER_STUN_URLS:
+        "stun:one.example,stun:two.example,stun:three.example,stun:four.example,stun:five.example",
+    })).toThrow("ROOST_TERMINAL_PEER_STUN_URLS must contain 1 to 4 distinct stun: UDP URLs");
+  });
+
+  test("rejects relay schemes and unsafe STUN URI components", () => {
+    for (const value of [
+      "turn:turn.example:3478",
+      "turns:turn.example:5349",
+      "stuns:stun.example:5349",
+      "stun:user@stun.example:3478",
+      "stun:stun.example/path",
+      "stun:stun.example?transport=udp",
+      "stun:stun.example#fragment",
+      "stun:stun.example:0",
+      "stun:stun.example:65536",
+      "stun:stun.example:abc",
+      "stun:stun.example,",
+      "stun:stun.example,\nstun:other.example",
+    ]) {
+      expect(() => loadCoordConfig({
+        ROOST_TERMINAL_PEER_STUN_URLS: value,
+      })).toThrow("ROOST_TERMINAL_PEER_STUN_URLS contains an invalid STUN URL");
     }
   });
 });

@@ -61,10 +61,8 @@ export const UNACKED_CAP = 8192;
 export const STALE_LINK_TIMEOUT_MS = 90_000;
 export const STALE_CHECK_INTERVAL_MS = 15_000;
 
-// Downstream terminal-control admission. Input and stream state hold
-// independent budgets so a keeper resize can never consume the input lane.
-// Over-cap admission fails closed with a provable pre-write result.
-export const INPUT_REQUEST_INFLIGHT_CAP = 256;
+// Terminal stream state retains its own downstream cap. Browser input work is
+// owned by TerminalInputWorkBudget so Sync and direct ports share one limit.
 export const TERMINAL_STREAM_REQUEST_INFLIGHT_CAP = 64;
 // Ceiling on the coordinator-supplied relative budget, and the budget used
 // when a peer supplies none, so one downstream request can never park an

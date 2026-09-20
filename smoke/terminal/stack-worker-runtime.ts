@@ -1,6 +1,7 @@
 // Terminal stack worker support owns child launch, routability waits, and fixture compilation.
 // The stack lifecycle supplies isolated paths while this module keeps worker setup byte-identical.
 // One checkout parameter lets an upgrade run relaunch the same worker identity from a new release.
+// A smoke entrypoint may inject an in-process test seam; packaged binaries always run `worker`.
 
 import { execFileSync, spawn } from "node:child_process";
 import { openSync } from "node:fs";
@@ -17,6 +18,19 @@ import {
 
 const WORKER_READY_TIMEOUT_MS = 30_000;
 
+export type TerminalWorkerPeerPortRange = {
+  readonly min: number;
+  readonly max: number;
+};
+
+export interface TerminalWorkerRuntime {
+  /** Exact compiled `roost` binary. It receives the ordinary `worker` subcommand. */
+  workerExecutable?: string;
+  /** Smoke-only source entrypoint that calls the ordinary worker runtime with injected deps. */
+  sourceEntrypoint?: string;
+  sourceEntrypointArgs?: readonly string[];
+}
+
 export interface TerminalWorkerStartConfig {
   label: string;
   home: string;
@@ -29,6 +43,10 @@ export interface TerminalWorkerStartConfig {
    *  distinct reserved port per worker, because the 4104 default collides
    *  between the workers of one stack and between concurrent stacks. */
   localUiBind?: string;
+  /** Explicit peer runtime settings for hermetic direct-transport smoke cases. */
+  terminalPeerEnabled?: boolean;
+  terminalPeerBindAddress?: string;
+  terminalPeerPortRange?: TerminalWorkerPeerPortRange;
   /** Build identity the worker reports; deploy admission compares it. */
   gitSha?: string;
   /** Outlive the spawning process, the way an installed service would. */
@@ -41,12 +59,23 @@ export function createTerminalWorkerStarter(
   bunExecutable: string,
   coordinatorUrl: string,
   sourceRoot: string = REPOSITORY_ROOT,
+  runtime: TerminalWorkerRuntime = {},
 ): (config: TerminalWorkerStartConfig) => RunningService {
+  if (runtime.workerExecutable && runtime.sourceEntrypoint) {
+    throw new Error("a packaged worker cannot use a source smoke entrypoint");
+  }
+  const command = runtime.workerExecutable ?? bunExecutable;
+  const args = runtime.workerExecutable
+    ? ["worker"]
+    : [
+      runtime.sourceEntrypoint ?? "apps/worker/src/main.ts",
+      ...(runtime.sourceEntrypointArgs ?? []),
+    ];
   return (config) => {
     const workerLog = openSync(config.logPath, "a");
     return {
       logPath: config.logPath,
-      child: spawn(bunExecutable, ["apps/worker/src/main.ts"], {
+      child: spawn(command, args, {
         cwd: sourceRoot,
         detached: config.detached ?? false,
         env: childEnvironment(config.home, config.tmpDir, {
@@ -61,6 +90,18 @@ export function createTerminalWorkerStarter(
           ...(config.gitSha ? { GIT_SHA: config.gitSha, ROOST_GIT_SHA: config.gitSha } : {}),
           ...(config.forceLiveKeeperRetire ? { [KEEPER_FORCE_LIVE_RETIRE_ENV]: "1" } : {}),
           ...(config.localUiBind ? { ROOST_WORKER_LOCAL_UI_BIND: config.localUiBind } : {}),
+          ...(config.terminalPeerEnabled === undefined
+            ? {}
+            : { ROOST_TERMINAL_PEER_ENABLED: config.terminalPeerEnabled ? "1" : "0" }),
+          ...(config.terminalPeerBindAddress === undefined
+            ? {}
+            : { ROOST_TERMINAL_PEER_BIND_ADDRESS: config.terminalPeerBindAddress }),
+          ...(config.terminalPeerPortRange === undefined
+            ? {}
+            : {
+              ROOST_TERMINAL_PEER_PORT_RANGE:
+                `${config.terminalPeerPortRange.min}-${config.terminalPeerPortRange.max}`,
+            }),
           ...(config.shell ? { SHELL: config.shell, ROOST_SHELL: config.shell } : {}),
         }),
         stdio: ["ignore", workerLog, workerLog],

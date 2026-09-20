@@ -9,6 +9,7 @@ import { TERMINAL_FOREGROUND_IDLE_PROBE_MS } from "@roost/shared/viewport";
 import {
   CURRENT_SYNC_OWNER,
   SESSION_ID,
+  WORKER_FP,
   acceptView,
   cellFrameToProto,
   delta,
@@ -21,7 +22,7 @@ import {
 
 describe("terminal idle-probe rearm episodes", () => {
   test("reports a rearm episode again after liveness retirement", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 1, rows: 1 });
     acceptView(view.viewId, latestViewCommand().value.revision as bigint);
     terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));

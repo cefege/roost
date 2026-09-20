@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "member": "package/node_datachannel.node",
+  "targets": [
+    {
+      "target": "bun-darwin-arm64",
+      "package": "@node-datachannel/darwin-arm64",
+      "version": "0.33.4",
+      "suffix": "darwin-arm64",
+      "tarball": "https://registry.npmjs.org/@node-datachannel/darwin-arm64/-/darwin-arm64-0.33.4.tgz",
+      "integrity": "sha512-bkIA+IbModz/NUmbVYTSWj8dZvkiab+cU4zOa6rhfKsNcW3EkdD2/DDoJjUrRrw+LbEZ40V7NuAKUlMNFDXFsw=="
+    },
+    {
+      "target": "bun-darwin-x64",
+      "package": "@node-datachannel/darwin-x64",
+      "version": "0.33.4",
+      "suffix": "darwin-x64",
+      "tarball": "https://registry.npmjs.org/@node-datachannel/darwin-x64/-/darwin-x64-0.33.4.tgz",
+      "integrity": "sha512-+dLnwiwC3GdWqW0OQShZcSFYrx3hRx0+7U85swoiP3iiRqtDUARME6AIAmW3glpP0vmus1jv5KhPCy/Q+jAvqw=="
+    },
+    {
+      "target": "bun-linux-x64",
+      "package": "@node-datachannel/linux-x64-gnu",
+      "version": "0.33.4",
+      "suffix": "linux-x64-gnu",
+      "tarball": "https://registry.npmjs.org/@node-datachannel/linux-x64-gnu/-/linux-x64-gnu-0.33.4.tgz",
+      "integrity": "sha512-xN0x3lcQ87qwOAmf1dBLVWrYY40LQ7pM4Y9wuNjP+EtN4IwiXqrhPdgupzGAElxna+n2NgBG0gT60dZpgoYU2Q=="
+    },
+    {
+      "target": "bun-linux-arm64",
+      "package": "@node-datachannel/linux-arm64-gnu",
+      "version": "0.33.4",
+      "suffix": "linux-arm64-gnu",
+      "tarball": "https://registry.npmjs.org/@node-datachannel/linux-arm64-gnu/-/linux-arm64-gnu-0.33.4.tgz",
+      "integrity": "sha512-rR4yjwxpI1miLSrruLGcfR9yfw0Qebw+Twt+u+lKsL9SwmXxTm5pJhUAa9RU+c35oZ98IyAxGFjRwwq85BTbog=="
+    }
+  ]
+}

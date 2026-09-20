@@ -9,11 +9,6 @@ import { create, fromBinary, toBinary, type MessageInitShape } from "@bufbuild/p
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
-	PbCellGridFrameSchema,
-	PbCellRowSchema,
-	PbCellSpanSchema,
-} from "@roost/shared/proto/cell_pb";
-import {
 	LocalTerminalClientFrameSchema,
 	LocalTerminalServerFrameSchema,
 	type LocalTerminalReady,
@@ -27,7 +22,9 @@ import {
 import { DLocalTerminalGrantSchema } from "@roost/shared/proto/worker_transport_pb";
 import { LocalTerminalGrantStore } from "../src/local-terminal-grants.ts";
 import { LocalTerminalSockets } from "../src/local-terminal-socket.ts";
-import type { LocalTerminalSocket } from "../src/local-ui-server.ts";
+import { TerminalInputRouteOwner } from "../src/terminal-input-route-owner.ts";
+import { TerminalInputWorkBudget } from "../src/terminal-input-work-budget.ts";
+import type { TerminalPacketPort, TerminalPacketSendResult } from "../src/terminal-packet-port.ts";
 import { sendCellDeltaToSinks } from "../src/session-cell-sinks.ts";
 import { TerminalViewOwner } from "../src/terminal-view-owner.ts";
 import { installAutoKeeper } from "./keeper-fake-pool.ts";
@@ -41,21 +38,22 @@ import {
 	trackKeeper,
 	type StreamHarness,
 } from "./terminal-stream-state-harness.ts";
+import { oversizedLocalTerminalDelta } from "./local-terminal-socket-frames.ts";
 
 const DEVICE = "c".repeat(64);
 const TAB = "tab-local";
 const WORKER_FP = "d".repeat(64);
+const WORKER_EPOCH = "11111111-1111-4111-8111-111111111111";
 /** In the grant, but no live session: proves input consults the real write
  *  path instead of answering from the grant alone. */
 const GRANTED_DEAD_SESSION = "22222222-3333-4333-8444-555555555555";
 const UNGRANTED_SESSION = "33333333-4444-4333-8444-555555555555";
 
 interface StubSocket {
-	socket: LocalTerminalSocket;
+	socket: TerminalPacketPort;
 	frames: LocalTerminalServerFrame[];
 	closeReasons: string[];
-	/** Bytes reported by send(); -1 is Bun's "enqueued under backpressure". */
-	sendResult: number | null;
+	sendResult: TerminalPacketSendResult | null;
 }
 
 interface SocketFixture {
@@ -69,8 +67,10 @@ interface SocketFixture {
 }
 
 const owners: TerminalViewOwner[] = [];
+const directCleanups: Array<() => void> = [];
 
 afterEach(() => {
+	for (const cleanup of directCleanups.splice(0)) cleanup();
 	for (const owner of owners.splice(0)) owner.dispose();
 	cleanupStreamHarnesses();
 });
@@ -84,7 +84,18 @@ async function makeFixture(): Promise<SocketFixture> {
 		sendProjection: () => undefined,
 	});
 	owners.push(owner);
-	const grants = new LocalTerminalGrantStore();
+	const grants = new LocalTerminalGrantStore({ workerEpoch: WORKER_EPOCH });
+	const inputWorkBudget = new TerminalInputWorkBudget();
+	const inputRouteOwner = new TerminalInputRouteOwner({
+		workerEpoch: WORKER_EPOCH,
+		sessions: () => harness.manager,
+		inputWorkBudget,
+	});
+	directCleanups.push(() => {
+		inputRouteOwner.dispose();
+		inputWorkBudget.dispose();
+		grants.dispose();
+	});
 	const secret = randomBytes(32).toString("hex");
 	const grantId = randomUUID();
 	grants.install(create(DLocalTerminalGrantSchema, {
@@ -95,12 +106,16 @@ async function makeFixture(): Promise<SocketFixture> {
 		deviceFingerprint: DEVICE,
 		tabId: TAB,
 		ttlMs: 60_000,
+		workerEpoch: WORKER_EPOCH,
 	}));
 	const sockets = new LocalTerminalSockets({
 		sessions: () => harness.manager,
 		grants,
 		viewOwner: owner,
+		inputWorkBudget,
+		inputRouteOwner,
 		workerFingerprint: WORKER_FP,
+		workerEpoch: WORKER_EPOCH,
 	});
 	return {
 		harness,
@@ -117,9 +132,11 @@ async function makeFixture(): Promise<SocketFixture> {
 				sendResult: null,
 				socket: {
 					socketId: randomUUID(),
+					kind: "loopback",
+					bufferedBytes: () => 0,
 					send: (bytes: Uint8Array) => {
 						stub.frames.push(fromBinary(LocalTerminalServerFrameSchema, bytes));
-						return stub.sendResult ?? bytes.byteLength;
+						return stub.sendResult ?? "accepted";
 					},
 					close: (_code?: number, reason?: string) => {
 						stub.closeReasons.push(reason ?? "");
@@ -151,15 +168,16 @@ function sendClient(fixture: SocketFixture, stub: StubSocket, frame: ClientFrame
 	);
 }
 
-function hello(fixture: SocketFixture, secret: string) {
+function hello(
+	fixture: SocketFixture,
+	secret: string,
+	grantId = fixture.grantId,
+	tabId = TAB,
+	deviceFingerprint = DEVICE,
+) {
 	return {
 		case: "hello" as const,
-		value: {
-			grantId: fixture.grantId,
-			secret,
-			tabId: TAB,
-			deviceFingerprint: DEVICE,
-		},
+		value: { grantId, secret, tabId, deviceFingerprint },
 	};
 }
 
@@ -192,21 +210,6 @@ function frameCases(stub: StubSocket): string[] {
 	return stub.frames.map((frame) => frame.frame.case ?? "unset");
 }
 
-/** One frame large enough that two of them exceed the socket's backpressure
- *  bound, so the overflow is reached without shipping thousands of frames. */
-function oversizedDelta() {
-	return create(PbCellGridFrameSchema, {
-		sessionId: String(SESSION_ID),
-		streamId: randomUUID(),
-		seq: 2n,
-		baseSeq: 1n,
-		full: false,
-		viewportRows: [create(PbCellRowSchema, {
-			index: 0,
-			spans: [create(PbCellSpanSchema, { text: "x".repeat(3_000_000) })],
-		})],
-	});
-}
 
 /** The oneof case is the narrowing, so a frame read never asserts a shape. */
 function readyFrame(stub: StubSocket): LocalTerminalReady {
@@ -260,19 +263,23 @@ describe("local terminal socket", () => {
 		sendClient(fixture, first, hello(fixture, fixture.secret));
 		sendClient(fixture, second, hello(fixture, fixture.secret));
 
-		expect(frameCases(first)).toEqual(["ready"]);
 		expect(readyFrame(first)).toMatchObject({
 			workerFingerprint: WORKER_FP,
 			sessionIds: [String(SESSION_ID), GRANTED_DEAD_SESSION],
+			workerEpoch: WORKER_EPOCH,
+			socketId: first.socket.socketId,
+			peerId: "",
 		});
 		expect(readyFrame(first).socketGeneration).toBeGreaterThan(0n);
 		expect(readyFrame(second).socketGeneration).not.toBe(readyFrame(first).socketGeneration);
-		expect(fixture.harness.manager.cellSinks.has(`local:${first.socket.socketId}`)).toBe(true);
+		expect(first.closeReasons).toEqual(["local terminal grant connection replaced"]);
+		expect(fixture.harness.manager.cellSinks.has(`local:${first.socket.socketId}`)).toBe(false);
+		expect(fixture.harness.manager.cellSinks.has(`local:${second.socket.socketId}`)).toBe(true);
 
 		// A second hello on a live socket would silently re-point membership.
-		sendClient(fixture, first, hello(fixture, fixture.secret));
-		expect(frameCases(first)).toEqual(["ready", "closed"]);
-		expect(first.frames[1]!.frame.value).toMatchObject({ reason: "duplicate hello" });
+		sendClient(fixture, second, hello(fixture, fixture.secret));
+		expect(frameCases(second)).toEqual(["ready", "closed"]);
+		expect(second.frames[1]!.frame.value).toMatchObject({ reason: "duplicate hello" });
 	});
 
 	test("a view for a session outside the grant is refused", async () => {
@@ -311,7 +318,7 @@ describe("local terminal socket", () => {
 		expect(stub.frames.at(-1)!.frame.value).toMatchObject({
 			sessionId: GRANTED_DEAD_SESSION,
 			inputSeq: 2n,
-			reason: "session is not live",
+			reason: "terminal session is unavailable",
 		});
 
 		sendClient(fixture, stub, input(UNGRANTED_SESSION, 3n, "forbidden"));
@@ -341,18 +348,35 @@ describe("local terminal socket", () => {
 	test("a socket that stops draining is dropped alone", async () => {
 		const fixture = await makeFixture();
 		const stalled = fixture.open();
+		const healthySecret = randomBytes(32).toString("hex");
+		const healthyGrantId = randomUUID();
+		fixture.grants.install(create(DLocalTerminalGrantSchema, {
+			requestId: randomUUID(),
+			grantId: healthyGrantId,
+			secretSha256: createHash("sha256").update(healthySecret).digest("hex"),
+			sessionIds: [String(SESSION_ID)],
+			deviceFingerprint: DEVICE,
+			tabId: `${TAB}-healthy`,
+			ttlMs: 60_000,
+			workerEpoch: WORKER_EPOCH,
+		}));
 		const healthy = fixture.open();
 		sendClient(fixture, stalled, hello(fixture, fixture.secret));
-		sendClient(fixture, healthy, hello(fixture, fixture.secret));
+		sendClient(fixture, healthy, hello(
+			fixture,
+			healthySecret,
+			healthyGrantId,
+			`${TAB}-healthy`,
+		));
 		sendClient(fixture, stalled, view(String(SESSION_ID)));
 		sendClient(fixture, healthy, view(String(SESSION_ID)));
-		// Bun answers -1 while a frame is buffered rather than written.
-		stalled.sendResult = -1;
+		// A carrier that cannot accept a whole cell frame is retired alone.
+		stalled.sendResult = "refused";
 		const stalledSink = `local:${stalled.socket.socketId}`;
 		const healthySink = `local:${healthy.socket.socketId}`;
 		expect(fixture.harness.manager.cellSinks.has(stalledSink)).toBe(true);
 
-		const delta = oversizedDelta();
+		const delta = oversizedLocalTerminalDelta(String(SESSION_ID));
 		for (let attempt = 0; attempt < 8 && stalled.socket.open; attempt += 1) {
 			sendCellDeltaToSinks(fixture.harness.manager, CHANNEL_ID, delta);
 		}

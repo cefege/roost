@@ -6,16 +6,13 @@
 
 import { describe, expect, setSystemTime, test, vi } from "bun:test";
 import {
-  TERMINAL_VIEW_HEARTBEAT_MS,
-  TERMINAL_VIEW_LEASE_MS,
-} from "@roost/shared/viewport";
-import {
   CELL_GRID_CHUNK_STALL_MS,
   RecordingRenderer,
   SESSION_ID,
   SNAPSHOT_A,
   STREAM_A,
   STREAM_B,
+  WORKER_FP,
   acceptView,
   cellFrameToProto,
   chunkCellGridFrame,
@@ -26,18 +23,16 @@ import {
   renderer,
   resyncCommands,
   row,
-  setPageVisible,
   terminalStream,
   updateSyncState,
   viewCommands,
   type TerminalViewHandleStatus,
 } from "./helpers/terminalStreamFixture.ts";
-import { installRefusingLocalTransport } from "./helpers/refusingLocalTransport.ts";
-import { _terminalViewRenewalSchedulerSnapshotForTest } from "../src/store/terminal-stream-renewal-scheduler.ts";
+import { terminalSessions } from "../src/store/terminal-stream-state.ts";
 
 describe("per-session browser terminal replica", () => {
   test("keeps subscriber row shells independent from each other and the canonical replica", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const mutating = new RecordingRenderer();
     mutating.mutateRows = true;
     const observing = new RecordingRenderer();
@@ -63,7 +58,7 @@ describe("per-session browser terminal replica", () => {
     expect(late.fullFrames[0]!.baseSeq).toBe(0);
   });
   test("survives renderer detach and evicts only after the final handle", () => {
-    const firstView = terminalStream.createTerminalView(SESSION_ID);
+    const firstView = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const firstRenderer = new RecordingRenderer();
     const detach = firstView.subscribeRenderer(renderer(firstRenderer));
     firstView.setViewport({ cols: 1, rows: 1 });
@@ -78,21 +73,36 @@ describe("per-session browser terminal replica", () => {
     expect(reattached.fullFrames[0]!.viewportRows[0]!.spans[0]!.text).toBe("D");
     expect(reattached.fullFrames[0]!.seq).toBe(2);
 
-    const secondView = terminalStream.createTerminalView(SESSION_ID);
+    const secondView = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     firstView.dispose();
     const stillRetained = new RecordingRenderer();
     secondView.subscribeRenderer(renderer(stillRetained));
     expect(stillRetained.fullFrames[0]!.seq).toBe(2);
 
     secondView.dispose();
-    const replacement = terminalStream.createTerminalView(SESSION_ID);
+    const replacement = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const empty = new RecordingRenderer();
     replacement.subscribeRenderer(renderer(empty));
     expect(empty.fullFrames).toHaveLength(0);
     replacement.dispose();
   });
+
+  test("retires and recreates a same-session replica when its worker changes", () => {
+    const first = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
+    first.setViewport({ cols: 80, rows: 24 });
+    const commandCount = viewCommands().length;
+
+    const replacement = terminalStream.createTerminalView(SESSION_ID, "worker-replacement");
+    replacement.setViewport({ cols: 100, rows: 30 });
+
+    expect(terminalSessions.get(SESSION_ID)?.workerFp).toBe("worker-replacement");
+    expect(viewCommands()).toHaveLength(commandCount + 1);
+    first.setViewport({ cols: 120, rows: 40 });
+    expect(viewCommands()).toHaveLength(commandCount + 1);
+    replacement.dispose();
+  });
   test("assembles chunks atomically and resyncs on order and idle violations", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const sink = new RecordingRenderer();
     view.subscribeRenderer(renderer(sink));
     view.setViewport({ cols: 256, rows: 256 });
@@ -146,7 +156,7 @@ describe("per-session browser terminal replica", () => {
   test("keeps accepted status stable across exact renewals", () => {
     setSystemTime(0);
     try {
-      const view = terminalStream.createTerminalView(SESSION_ID);
+      const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
       const sink = new RecordingRenderer();
       view.subscribeRenderer(renderer(sink));
       const statuses: TerminalViewHandleStatus[] = [];
@@ -206,7 +216,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("replays one fresh baseline without carrying an old resync latch into the next generation", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const sink = new RecordingRenderer();
     const statuses: TerminalViewHandleStatus[] = [];
     view.subscribeRenderer(renderer(sink));
@@ -288,7 +298,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("rolls rejected intent above the fence and renews the rollback", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const statuses: TerminalViewHandleStatus[] = [];
     view.subscribeStatus((status) => statuses.push(status));
     view.setViewport({ cols: 100, rows: 40 });
@@ -317,78 +327,4 @@ describe("per-session browser terminal replica", () => {
     expect(statuses.at(-1)?.status).toBe("accepted");
   });
 
-  test("retries an active view whose socket write never reached the transport", () => {
-    const local = installRefusingLocalTransport(SESSION_ID);
-    try {
-      const view = terminalStream.createTerminalView(SESSION_ID);
-      view.setViewport({ cols: 80, rows: 24 });
-      expect(local.publishedViewIds).toEqual([view.viewId]);
-      expect(_terminalViewRenewalSchedulerSnapshotForTest()).toMatchObject({
-        armed: true,
-        scheduledViewCount: 1,
-      });
-
-      // Nothing else happens: no visibility transition, no geometry change and
-      // no generation flip. The scheduler alone owes this pane its next attempt.
-      vi.advanceTimersByTime(TERMINAL_VIEW_HEARTBEAT_MS);
-      expect(local.publishedViewIds).toEqual([view.viewId, view.viewId]);
-
-      local.writeAccepted = true;
-      vi.advanceTimersByTime(TERMINAL_VIEW_HEARTBEAT_MS);
-      expect(local.publishedViewIds).toHaveLength(3);
-      expect(_terminalViewRenewalSchedulerSnapshotForTest()).toMatchObject({
-        armed: true,
-        scheduledViewCount: 1,
-      });
-    } finally {
-      local.release();
-    }
-  });
-
-  test("republishes a refused active view inside one coordinator lease window", () => {
-    const local = installRefusingLocalTransport(SESSION_ID);
-    try {
-      const view = terminalStream.createTerminalView(SESSION_ID);
-      view.setViewport({ cols: 80, rows: 24 });
-      const refusedAttempts = local.publishedViewIds.length;
-      // A retry cadence at or past the lease lets the coordinator reap the view
-      // between attempts, so measure the gap instead of trusting the constant.
-      let elapsedMs = 0;
-      while (
-        local.publishedViewIds.length === refusedAttempts
-        && elapsedMs < TERMINAL_VIEW_LEASE_MS
-      ) {
-        vi.advanceTimersByTime(250);
-        elapsedMs += 250;
-      }
-      expect(local.publishedViewIds.length).toBeGreaterThan(refusedAttempts);
-      expect(elapsedMs).toBeLessThan(TERMINAL_VIEW_LEASE_MS);
-    } finally {
-      local.release();
-    }
-  });
-
-  test("leaves an active publish refused by a hidden page cancelled", () => {
-    const local = installRefusingLocalTransport(SESSION_ID);
-    try {
-      const view = terminalStream.createTerminalView(SESSION_ID);
-      setPageVisible(false);
-      view.setViewport({ cols: 80, rows: 24 });
-      expect(local.publishedViewIds).toHaveLength(0);
-      expect(_terminalViewRenewalSchedulerSnapshotForTest()).toMatchObject({
-        armed: false,
-        scheduledViewCount: 0,
-      });
-
-      // A visible pane on another session drives the scheduler again; a hidden
-      // refusal that stayed in the renewal set would publish on its next tick.
-      setPageVisible(true);
-      const visiblePane = terminalStream.createTerminalView("session-second-pane");
-      visiblePane.setViewport({ cols: 80, rows: 24 });
-      vi.advanceTimersByTime(TERMINAL_VIEW_LEASE_MS);
-      expect(local.publishedViewIds).toHaveLength(0);
-    } finally {
-      local.release();
-    }
-  });
 });

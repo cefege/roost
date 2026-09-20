@@ -35,6 +35,8 @@ import type { ConnectDeps } from "../src/connect/router.ts";
 import { PendingEventPublicationStore } from "../src/pending-event-publications.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
+import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
+import { TerminalPeerNegotiations } from "../src/connect/terminal-peer-negotiations.ts";
 
 export interface TestWorkerConnection {
   ws: WebSocket;
@@ -79,7 +81,15 @@ export async function startWorkerWsTransportFixture() {
     corsAllowedOrigins: [],
     logDir: workdir,
     publicUrl: undefined,
+    terminalPeerEnabled: false,
+    terminalPeerStunUrls: [],
   };
+  const terminalGrants = new TerminalGrantOwner();
+  const terminalPeerNegotiations = new TerminalPeerNegotiations({
+    db,
+    cfg,
+    terminalGrants,
+  });
   const deps: WorkerServiceDeps = {
     db,
     pendingPublications: new PendingEventPublicationStore(),
@@ -87,12 +97,16 @@ export async function startWorkerWsTransportFixture() {
     cfg,
     writeGate: new CoordinatorWriteGate(),
     selfHostedTenant,
+    terminalPeerNegotiations,
   };
   const connectDeps: ConnectDeps = {
     ...deps,
+    terminalInputRouteResults: undefined,
     sqlite,
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
+    terminalGrants,
+    terminalPeerNegotiations,
     cfAccess: null,
   };
 
@@ -301,6 +315,8 @@ export async function startWorkerWsTransportFixture() {
       }
       connectDeps.uiLayoutApplies.dispose();
       connectDeps.uiStates.dispose();
+      terminalPeerNegotiations.dispose();
+      terminalGrants.dispose();
       try {
         await opened.close();
       } finally {

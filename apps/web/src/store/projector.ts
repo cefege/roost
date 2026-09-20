@@ -22,7 +22,7 @@ import { signal } from "@roost/shared/diag";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 import { isPendingSpawn } from "./optimisticSpawn.ts";
 import { pruneTerminalSession } from "./terminal-stream.ts";
-import { pruneTerminalInput } from "../ws/terminal-input-lanes.ts";
+import { pruneTerminalInputRoute } from "../ws/terminal-input-router.ts";
 import { pruneSessionTrace } from "../lib/diag.ts";
 import {
   clearAgentStatusForSession,
@@ -60,7 +60,7 @@ function _deleteSession(id: string): void {
   deleteStoreRecord("session_viewers", id);
   clearAgentStatusForSession(id);
   pruneTerminalSession(id);
-  pruneTerminalInput(id);
+  pruneTerminalInputRoute(id);
   pruneSessionTrace(id); // diag session_trace_id cache
 }
 

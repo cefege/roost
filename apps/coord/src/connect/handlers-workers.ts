@@ -207,6 +207,17 @@ export function makeWorkerHandlers(
 					.execute();
 				return sessionRows.map((row) => row.id);
 			});
+			// Retirement owns the direct-grant invalidation and emits its exact-worker
+			// control before this irreversible deletion fences that generation.
+			try {
+				deps.terminalGrants.retireWorker(req.fp, "worker_deleted");
+			} catch (error) {
+				log.warn("workers-delete", "terminal_retirement_failed", {
+					worker_fp: req.fp,
+					error: String(error),
+				});
+			}
+
 
 			// The commit is irrevocable. Fence synchronously before any
 			// best-effort cleanup can yield, publish, or fail.

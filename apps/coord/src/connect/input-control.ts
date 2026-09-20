@@ -28,12 +28,23 @@ const INPUT_AUDIT_BATCH_MAX = 64;
 
 export type InputControlResult = TerminalWriteControlResult;
 
+/** Authenticated browser actor and current route epoch carried to the worker. */
+export interface InputRouteAuthority {
+  readonly deviceFingerprint: string;
+  readonly tabId: string;
+  readonly connectionId: string;
+  readonly inputRouteEpoch: string;
+}
+
 export interface InputControlCommand {
   identity: TerminalViewerIdentity;
   sessionId: string;
   inputSeq: bigint;
   data: Uint8Array;
   socketGeneration?: TerminalControlGeneration;
+  /** Present only for Sync/browser input. Unary and worker-owned writers stay
+   * outside browser route ownership and carry the legacy-empty envelope. */
+  inputRouteAuthority?: InputRouteAuthority;
   audit?: { traceId?: string };
   /** Monotonic hop budget shared by the lane wait and the worker send.
    * Injected by tests; production starts it at entry. */
@@ -193,6 +204,10 @@ export function processInputControl(
       sessionId: command.sessionId,
       inputSeq: command.inputSeq,
       data: ownedData,
+      deviceFingerprint: command.inputRouteAuthority?.deviceFingerprint ?? "",
+      tabId: command.inputRouteAuthority?.tabId ?? "",
+      browserConnectionId: command.inputRouteAuthority?.connectionId ?? "",
+      inputRouteEpoch: command.inputRouteAuthority?.inputRouteEpoch ?? "",
     }, deadline),
   ));
 }

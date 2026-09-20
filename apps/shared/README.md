@@ -29,6 +29,9 @@ import style is now correct instead of two.
 | `@roost/shared/wire/row-proto` | scrollback row ↔ proto |
 | `@roost/shared/wire/sync-ws` | Sync WebSocket path, auth subprotocol, negotiation query constants |
 | `@roost/shared/wire/headers` | shared `x-roost-*` header names and listener-trust sentinel values |
+| `@roost/shared/terminal-peer` | browser-safe direct-peer capabilities, fixed data-channel definitions, deadlines/quotas, and operator STUN URL policy |
+| `@roost/shared/terminal-peer-sdp` | bounded UDP/DTLS/SCTP application SDP inspection plus browser UDP-candidate filtering |
+| `@roost/shared/terminal-peer-packets` | mandatory 16-byte outer packet framing, bounded reassembly, and `TerminalPeerPacketQueue` |
 | `@roost/shared/terminal-search` | bounded paging limits, Unicode code-point utilities, stop reasons, worker-result validation |
 | `@roost/shared/terminal-input` | terminal newline/paste encoding plus guarded-prompt byte and wait bounds |
 | `@roost/shared/terminal-metadata` | incremental OSC 0/2 parsing, title normalization, metadata negotiation, and activity throttle |
@@ -73,7 +76,7 @@ reached through `@roost/shared/service-health`, which re-exports it.
 ## Adding a wire field
 
 1. Edit the `.proto` under `proto/roost/v1/` (`wire.proto`, `coordinator.proto`,
-   `sync.proto`, `events.proto`, `cell.proto`, `worker_transport.proto`).
+   `sync.proto`, `local_terminal.proto`, `events.proto`, `cell.proto`, `worker_transport.proto`).
 2. `bun run --filter='@roost/shared' proto:gen` (`buf generate`; config in
    `buf.gen.yaml` + `proto/buf.yaml`). Output lands in `src/gen/roost/v1/`, one
    `_pb.ts` per proto; generated files are never hand-edited and are excluded
@@ -93,6 +96,16 @@ producers and consumers.
   projectors), `src/wire/control.ts`, `src/wire/coord-worker.ts`,
   `src/wire/sync-ws.ts`, `src/wire/headers.ts`, `src/wire/workspace.ts`,
   `src/wire/task.ts`, `src/wire/mcp.ts`, plus the `*-proto.ts` adapters.
+- **Terminal peer contract** — `src/terminal-peer.ts` owns direct-peer capability
+  literals, fixed control/terminal/history data-channel identities, common
+  limits, and `parseTerminalPeerStunUrls`; `src/terminal-peer-sdp.ts` owns
+  bounded application-only UDP/DTLS/SCTP SDP inspection; and
+  `src/terminal-peer-packets.ts` plus `src/terminal-peer-packet-queue.ts` own
+  WebRTC's one 16-byte outer framing, ordered assembly, retained-buffer
+  accounting, and on-demand fragmentation. WebRTC carries the existing
+  `local_terminal.proto` frames after that header; loopback carries the same
+  frames through its existing WebSocket boundary. Neither carrier creates a
+  second terminal payload schema or packet implementation.
 - **Terminal input** — `src/terminal-input.ts` is the single encoder and limit
   owner shared by the browser composer and the worker's guarded prompt path.
   It normalizes every newline spelling to CR and, when bracketed paste is
@@ -128,11 +141,12 @@ producers and consumers.
   `src/cell/emitter.ts`, `src/cell/cell-proto.ts`, and snapshot owners
   `src/cell/frame-chunks.ts`, `src/cell/frame-chunk-validation.ts`,
   `src/cell/frame-chunk-assembler.ts`.
-- **Config** — `src/coord-config-schema.ts` owns the declarative `CoordConfig`;
-  `src/config.ts` owns environment normalization, secret resolution, cross-field
-  policy, and the public re-export; `src/local-ui-door.ts` owns the worker
-  loopback door's default bind and origin and imports nothing, because the
-  browser bundle reads it too.
+- **Config** — `src/coord-config-schema.ts` owns declarative `CoordConfig`;
+  `src/config.ts` owns coordinator environment normalization, including strict
+  `ROOST_TERMINAL_PEER_ENABLED` and `ROOST_TERMINAL_PEER_STUN_URLS`;
+  `src/terminal-peer.ts` owns their shared bounded STUN URL policy.
+  `src/local-ui-door.ts` owns the worker loopback door's default bind and
+  origin and imports nothing, because the browser bundle reads it too.
 - **Platform + paths** — `src/platform.ts`, `src/paths.ts`, `src/native-path.ts`,
   `src/tailnet.ts`, `src/durability.ts`,
   `src/local-endpoint.ts`, `src/service-health.ts`,
@@ -149,6 +163,21 @@ producers and consumers.
 
 ## Invariants
 
+- **Direct terminal message schema is carrier-independent; outer packets are
+  WebRTC-only.** `local_terminal.proto` remains the terminal client/server
+  message schema for loopback and WebRTC. WebRTC's
+  `terminal-peer-packets.ts` header is mandatory on every data-channel packet;
+  each lane reassembles in order under its shared limit, and
+  `TerminalPeerPacketQueue` retains complete source buffers until accepted
+  fragments drain or the generation closes. Loopback retains its existing
+  WebSocket frame boundary.
+- **Peer STUN configuration is coordinator-only and discovery-only.**
+  An unset `ROOST_TERMINAL_PEER_STUN_URLS` defaults to
+  `stun:stun.cloudflare.com:3478`; an explicitly empty value disables external
+  discovery; a nonempty value permits only one to four distinct `stun:` UDP
+  URLs. TURN, credentials, and browser-supplied ICE servers are not part of
+  this contract. STUN exchanges address-discovery traffic, never terminal
+  cells, grants, or Sync payloads.
 - **Conversation references are opaque private recovery state.**
   `AgentConversationReferenceV1` admits only schema version 1, agent `omp`,
   kind `id|path`, and a nonempty, well-formed, NUL-free value of at most 4,096

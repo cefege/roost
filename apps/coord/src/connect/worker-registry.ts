@@ -3,12 +3,19 @@
 // SPA online indicator read. Populated/cleared by makeWorkerConn
 // (worker-conn.ts) as raw WSs attach/close.
 
+import { randomUUID } from "node:crypto";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { workerRoutableBus } from "../buses.ts";
 import { diag } from "@roost/shared/diag";
 
 export interface WorkerHandle {
   workerFp: string;
+  /** Worker boot identity supplied by WHello; absent on rolling workers. */
+  processEpoch: string | null;
+  /** Unique identity for this authenticated coordinator socket. */
+  connectionGeneration: string;
+  /** Exactly the capabilities acknowledged for this socket generation. */
+  capabilities: ReadonlySet<string>;
   /** Synchronous credential fence. Once set, this handle can never admit or
    *  send another authoritative frame, even if a caller retained the object. */
   revoked: boolean;
@@ -36,14 +43,20 @@ export const connectWorkers = new Map<string, WorkerHandle>();
  * admission and response correlation. Production code never calls this. */
 export function __setConnectWorkerForTest(
   workerFp: string,
-  handle: (Omit<WorkerHandle, "revoked" | "ready"> & {
+  handle: (Omit<WorkerHandle, "revoked" | "ready" | "processEpoch" | "connectionGeneration" | "capabilities"> & {
     revoked?: boolean;
     ready?: boolean;
+    processEpoch?: string | null;
+    connectionGeneration?: string;
+    capabilities?: ReadonlySet<string>;
   }) | null,
 ): void {
   if (handle) {
     handle.revoked ??= false;
     handle.ready ??= true;
+    handle.processEpoch ??= null;
+    handle.connectionGeneration ??= randomUUID();
+    handle.capabilities ??= new Set();
     connectWorkers.set(workerFp, handle as WorkerHandle);
   } else {
     connectWorkers.delete(workerFp);

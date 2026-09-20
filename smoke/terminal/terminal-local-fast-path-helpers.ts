@@ -8,6 +8,7 @@
 import type { Browser, BrowserContext, Page, TestInfo } from "@playwright/test";
 import { workerInventoryForUpdateAdmission } from "../../apps/roost-cli/src/status-report.ts";
 import type { KeeperRuntimeObservationV1 } from "../../apps/shared/src/keeper-update.ts";
+import { installDisabledLoopbackProbe } from "./stack-browser-faults.ts";
 import { enrollSmokeBrowser } from "./fixtures.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import { logTail, waitFor } from "./stack-runtime.ts";
@@ -25,12 +26,15 @@ export interface EnrolledPage {
 }
 
 /** Browser-local terminal facts that survive a coordinator outage: no RPC, so
- *  this is the only transport reading available while coord is down. */
+ * this is the only transport reading available while coord is down. The
+ * accepted frame token is compared with the elected route rather than inferred
+ * from its epoch. */
 export interface LocalTransportReading {
-  /** Process epoch of the generation the last ACCEPTED cell frame carried.
-   *  LOCAL_TERMINAL_PROCESS_EPOCH means that frame arrived on the local socket;
-   *  a coordinator-minted epoch means it came over Sync. */
-  acceptedFrameEpoch: string | null;
+  acceptedTransportKind: "sync" | "loopback" | "webrtc" | null;
+  acceptedWorkerEpoch: string | null;
+  electedTransportKind: "sync" | "loopback" | "webrtc" | null;
+  electedWorkerEpoch: string | null;
+  tokenMatchesElectedRoute: boolean;
   viewStatus: string | null;
   viewStreamId: string | null;
   wireStreamId: string | null;
@@ -61,6 +65,9 @@ export async function openEnrolledPage(
   options: { localWorkerOrigin?: string } = {},
 ): Promise<EnrolledPage> {
   const context = await browser.newContext();
+  if (stack.disableLoopbackProbe && !options.localWorkerOrigin) {
+    await installDisabledLoopbackProbe(context);
+  }
   await context.addInitScript((localWorkerOrigin: string | undefined) => {
     if (localWorkerOrigin) localStorage.setItem("roost.localWorkerOrigin", localWorkerOrigin);
     localStorage.setItem("roostSmoke", "1");
@@ -116,8 +123,22 @@ export function readLocalTransportReading(
 ): Promise<LocalTransportReading> {
   return page.evaluate((id) => {
     const snapshot = window.__smoke.terminalBrowserSnapshot(id);
+    const token = snapshot.replica.last_terminal_proof_generation;
+    const route = snapshot.route.active;
+    const acceptedTransportKind = token?.transportKind ?? null;
+    const acceptedWorkerEpoch = acceptedTransportKind === "sync"
+      ? null
+      : token?.processEpoch ?? null;
+    const electedTransportKind = route?.kind ?? null;
+    const electedWorkerEpoch = route?.worker_epoch ?? null;
     return {
-      acceptedFrameEpoch: snapshot.replica.last_terminal_proof_generation?.processEpoch ?? null,
+      acceptedTransportKind,
+      acceptedWorkerEpoch,
+      electedTransportKind,
+      electedWorkerEpoch,
+      tokenMatchesElectedRoute: acceptedTransportKind !== null
+        && acceptedTransportKind === electedTransportKind
+        && acceptedWorkerEpoch === electedWorkerEpoch,
       viewStatus: snapshot.view.status,
       viewStreamId: snapshot.view.stream_id,
       wireStreamId: snapshot.wire_received.stream_id,

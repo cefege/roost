@@ -22,92 +22,45 @@ import {
   createPtyFixtureCompiler,
   createTerminalWorkerStarter,
   waitForTerminalWorkerRoutable,
+  type TerminalWorkerRuntime,
   type TerminalWorkerStartConfig,
 } from "./stack-worker-runtime.ts";
 import type { DelayedWorkerLink } from "./delayed-worker-link.ts";
 import { createFixtureWorkerStarter, type PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
 import { createLocalUiOrigins } from "./stack-local-ui.ts";
 import { startCoordinatorControl, type CoordinatorControl } from "./stack-coordinator.ts";
+import {
+  startDirectInputHold,
+  type DirectInputHold,
+} from "./stack-direct-input-hold.ts";
+import {
+  startStackPeerFaultControl,
+  type StackPeerFaultControl,
+} from "./stack-peer-fault-control.ts";
+import { createTerminalPeerFaults } from "./stack-peer-faults.ts";
+import type {
+  TerminalReleaseCheckout,
+  TerminalTestStack,
+  TerminalTestStackOptions,
+  TerminalTestWorker,
+} from "./stack-types.ts";
+export type {
+  TerminalPeerFaults,
+  TerminalPeerSmokeOptions,
+  TerminalReleaseCheckout,
+  TerminalTestStack,
+  TerminalTestStackOptions,
+  TerminalTestWorker,
+} from "./stack-types.ts";
 export type { PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
+export type {
+  PeerFaultMalformedPacketKind,
+  PeerFaultOfferKind,
+} from "./stack-peer-fault-control.ts";
 const WORKER_LABEL = "roost-terminal-test";
 const SECOND_WORKER_LABEL = "roost-terminal-test-second";
 const PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture";
 const SECOND_PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture-second";
-
-export type TerminalTestWorker = {
-  workerFp: string;
-  label: string;
-  home: string;
-  logPath: string;
-};
-
-export type TerminalTestStack = {
-  baseUrl: string;
-  workerFp: string;
-  workerHome: string;
-  coordLogPath: string;
-  workerLogPath: string;
-  ptyFixtureWorkerLogPath: string;
-  secondPtyFixtureWorkerLogPath: string;
-  secondWorkerLogPath: string;
-  // The authorized client the harness already had to mint to bootstrap the
-  // worker. Exposed so callers don't build a second (unauthorized) one.
-  client: AuthorizedApiClient;
-  // Lazily start one independent worker with its own HOME, data, key, log, and
-  // keeper. Repeated calls return the same running worker.
-  startSecondWorker(): Promise<TerminalTestWorker>;
-  /** Lazily start a worker whose shell is the compiled portable PTY fixture. */
-  startPtyFixtureWorker(options?: PtyFixtureWorkerStartOptions): Promise<TerminalTestWorker>;
-  /** Lazily start an independent compiled fixture worker with separate keeper state. */
-  startSecondPtyFixtureWorker(options?: PtyFixtureWorkerStartOptions): Promise<TerminalTestWorker>;
-  /** Delayed coordinator link the PTY fixture worker dials, when one was requested. */
-  ptyFixtureWorkerLink: DelayedWorkerLink | null;
-  /** Stop or relaunch only the coordinator child; worker, keeper and PTYs stay live. */
-  stopCoordinator(): Promise<void>;
-  startCoordinator(): Promise<void>;
-  /** Worker-served local UI origin for a fingerprint this stack started. */
-  localUiUrl(workerFp: string): string;
-  // Bounce the primary worker process, keeping coord and the persisted worker
-  // identity. Resolves once the same fingerprint is routable again.
-  restartWorker(): Promise<void>;
-  /** Coordinator database the CLI reads for deploy admission. */
-  coordDbPath: string;
-  /** Key the harness authorized, so a deploy can call the same coordinator. */
-  apiKeyPath: string;
-  /** Persisted primary-worker launch spec, for a deploy running out of process. */
-  workerServiceSpecPath: string;
-  /** Process id of the running primary worker. */
-  workerPid(): number | undefined;
-  /** Take teardown ownership of a worker a deploy left running. */
-  adoptDeployedWorker(pid: number): void;
-  /** Release the primary worker runs, so a deploy can name what it replaces. */
-  workerRelease: TerminalReleaseCheckout;
-  stop(): Promise<void>;
-};
-
-export type TerminalReleaseCheckout = {
-  /** Checkout the process runs from. */
-  sourceRoot: string;
-  /** Build identity it reports; deploy admission and convergence compare it. */
-  gitSha: string;
-};
-
-export type TerminalTestStackOptions = {
-  // Keep the caller's real HOME instead of the isolated temp one. Needed only
-  // by the agent smoke: the worker forks `omp`, which reads its model
-  // credentials from the real ~/.omp — under a temp HOME every turn fails
-  // unauthenticated. Coord/worker state stays isolated either way (their paths
-  // are ROOST_* env overrides, not HOME-derived).
-  useRealHome?: boolean;
-  // Releases the coordinator and the workers run from. Both default to this
-  // checkout; the upgrade tier points them at different ones, because a real
-  // upgrade moves the coordinator first and the workers afterwards.
-  coordRelease?: Partial<TerminalReleaseCheckout>;
-  workerRelease?: Partial<TerminalReleaseCheckout>;
-  // Coordinator database to boot over. Default is a fresh one under the test
-  // root; an upgrade run supplies one a prior release already migrated.
-  coordDbPath?: string;
-};
 
 export async function startTerminalTestStack(
   options: TerminalTestStackOptions = {},
@@ -119,7 +72,9 @@ export async function startTerminalTestStack(
   // realpathSync: macOS tmp dirs are symlinks and workers report resolved cwds.
   const tmpRoot = process.platform === "win32" ? tmpdir() : "/tmp";
   const root = realpathSync(mkdtempSync(join(tmpRoot, "roost-terminal-system-")));
-  const home = options.useRealHome ? (process.env.HOME ?? join(root, "home")) : join(root, "home");
+  const home = options.useRealHome === true
+    ? (process.env.HOME ?? join(root, "home"))
+    : join(root, "home");
   const secondHome = join(root, "second-home");
   const coordLogPath = join(root, "coord.log");
   const coordDbPath = options.coordDbPath ?? join(root, "coord.db");
@@ -147,6 +102,10 @@ export async function startTerminalTestStack(
     sourceRoot: options.workerRelease?.sourceRoot ?? coordRelease.sourceRoot,
     gitSha: options.workerRelease?.gitSha ?? coordRelease.gitSha,
   };
+  const terminalPeer = options.terminalPeer;
+  let workerRuntime: TerminalWorkerRuntime = options.workerExecutable
+    ? { workerExecutable: options.workerExecutable }
+    : {};
   mkdirSync(home, { recursive: true });
   mkdirSync(secondHome, { recursive: true });
   mkdirSync(ptyFixtureHome, { recursive: true });
@@ -169,6 +128,8 @@ export async function startTerminalTestStack(
   let secondPtyFixtureWorker: RunningService | undefined;
   let secondPtyFixtureWorkerLink: DelayedWorkerLink | undefined;
   let client: AuthorizedApiClient | undefined;
+  let directInputHold: DirectInputHold | undefined;
+  let peerFaultControl: StackPeerFaultControl | undefined;
   const localUi = createLocalUiOrigins();
 
   const stop = async () => {
@@ -206,6 +167,8 @@ export async function startTerminalTestStack(
       };
       if (client) await cleanInstallResources(client);
     } finally {
+      await directInputHold?.stop().catch((error) => errors.push(`stop direct input hold: ${String(error)}`));
+      await peerFaultControl?.stop().catch((error) => errors.push(`stop terminal peer fault control: ${String(error)}`));
       await stopChild(secondWorker).catch((error) => errors.push(`stop second worker: ${String(error)}`));
       await stopChild(secondPtyFixtureWorker).catch((error) => {
         errors.push(`stop second PTY fixture worker: ${String(error)}`);
@@ -233,6 +196,23 @@ export async function startTerminalTestStack(
   };
 
   try {
+    if (terminalPeer?.enableFaults) {
+      if (options.workerExecutable) {
+        throw new Error("terminal peer fault controls require a source worker");
+      }
+      if (process.platform === "win32") {
+        throw new Error("terminal peer fault controls are unavailable on Windows");
+      }
+      peerFaultControl = await startStackPeerFaultControl(root);
+      directInputHold = await startDirectInputHold(root);
+      workerRuntime = {
+        sourceEntrypoint: join(REPOSITORY_ROOT, "smoke", "terminal", "stack-direct-input-worker.ts"),
+        sourceEntrypointArgs: [
+          `--direct-input-hold-socket=${directInputHold.socketPath}`,
+          `--terminal-peer-fault-socket=${peerFaultControl.socketPath}`,
+        ],
+      };
+    }
     // Every local UI port is reserved before the coordinator launches: product
     // code pre-allowlists only the 4104 default, so the coordinator has to be
     // told these origins at boot and on every relaunch.
@@ -250,6 +230,8 @@ export async function startTerminalTestStack(
       logPath: coordLogPath,
       gitSha: coordRelease.gitSha,
       corsAllowedOrigins: localUi.origins(),
+      terminalPeerEnabled: terminalPeer?.coordinatorEnabled ?? false,
+      terminalPeerStunUrls: terminalPeer?.coordinatorStunUrls,
       probeReady: () => client!.workersList({}),
     });
     const baseUrl = coordinator.baseUrl;
@@ -262,15 +244,24 @@ export async function startTerminalTestStack(
       keyPath: apiKeyPath,
       label: "roost-terminal-test-api",
     });
-    const startWorker = createTerminalWorkerStarter(bunExecutable, baseUrl, workerRelease.sourceRoot);
+    const startWorker = createTerminalWorkerStarter(
+      bunExecutable,
+      baseUrl,
+      workerRelease.sourceRoot,
+      workerRuntime,
+    );
     const compilePtyFixture = createPtyFixtureCompiler(bunExecutable, ptyFixtureExecutable);
     const fixtureLaunch = {
       bunExecutable,
       coordinatorUrl: baseUrl,
+      runtime: workerRuntime,
       compileFixture: compilePtyFixture,
       sourceRoot: workerRelease.sourceRoot,
       fixtureExecutable: ptyFixtureExecutable,
       client: client!,
+      terminalPeerEnabled: terminalPeer?.workerEnabled ?? false,
+      terminalPeerBindAddress: terminalPeer?.workerBindAddress,
+      terminalPeerPortRange: terminalPeer?.workerPortRange,
     };
 
     const bootstrapToken = (await client.authMintBootstrap({ kind: "worker", label: WORKER_LABEL })).token;
@@ -282,6 +273,9 @@ export async function startTerminalTestStack(
       tmpDir: childTmpDirs.worker,
       bootstrapToken,
       localUiBind: workerLocalUi.bind,
+      terminalPeerEnabled: terminalPeer?.workerEnabled,
+      terminalPeerBindAddress: terminalPeer?.workerBindAddress,
+      terminalPeerPortRange: terminalPeer?.workerPortRange,
       gitSha: workerRelease.gitSha,
     };
     // A deploy runs out of process and must relaunch this exact identity, so the
@@ -306,6 +300,10 @@ export async function startTerminalTestStack(
           tmpDir: childTmpDirs.secondWorker,
           bootstrapToken: secondBootstrapToken,
           localUiBind: secondWorkerLocalUi.bind,
+          terminalPeerEnabled: terminalPeer?.workerEnabled,
+          terminalPeerBindAddress: terminalPeer?.workerBindAddress,
+          terminalPeerPortRange: terminalPeer?.workerPortRange,
+          gitSha: workerRelease.gitSha,
         });
         const workerFp = await waitForTerminalWorkerRoutable(
           client!,
@@ -353,6 +351,9 @@ export async function startTerminalTestStack(
       await waitForTerminalWorkerRoutable(client!, WORKER_LABEL, workerLogPath);
     };
     const { stop: stopCoordinator, start: startCoordinator } = coordinator;
+    const peerFaults = directInputHold && peerFaultControl
+      ? createTerminalPeerFaults(directInputHold, peerFaultControl)
+      : null;
 
     return {
       baseUrl,
@@ -363,6 +364,8 @@ export async function startTerminalTestStack(
       secondWorkerLogPath,
       ptyFixtureWorkerLogPath: ptyFixtureLogPath,
       secondPtyFixtureWorkerLogPath: secondPtyFixtureLogPath,
+      disableLoopbackProbe: terminalPeer?.disableLoopbackProbe === true,
+      peerFaults,
       client,
       startSecondWorker,
       startPtyFixtureWorker,

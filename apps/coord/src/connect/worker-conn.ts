@@ -4,8 +4,10 @@
 // a superseded socket cannot publish after an awaited database append.
 
 import { create } from "@bufbuild/protobuf";
+import { randomUUID } from "node:crypto";
 import { CoordWorkerDownSchema, DHelloAckSchema } from "@roost/shared/proto/worker_transport_pb";
-import type { CoordWorkerUp, CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import type { CoordWorkerDown, CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
+import { TERMINAL_INPUT_ROUTE_CAPABILITY, TERMINAL_PEER_WEBRTC_CAPABILITY } from "@roost/shared/terminal-peer";
 import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
 import {
   jwtKeyGeneration,
@@ -51,11 +53,15 @@ export function makeWorkerConn(
   let terminalMetadataNegotiated = false;
   let terminalViewOwner: TerminalViewOwnerRegistration | null = null;
   let done = false;
+  let revokedCleanupDone = false;
   let respawnTimer: ReturnType<typeof setTimeout> | null = null;
   // Cleanup is identity-stamped so a reconnecting worker's delayed old socket
   // cannot delete the replacement handle and silently disable browser commands.
   const myHandle: WorkerHandle = {
     workerFp: "",
+    processEpoch: null,
+    connectionGeneration: randomUUID(),
+    capabilities: new Set(),
     revoked: false,
     ready: false,
     send(frame): number {
@@ -139,6 +145,7 @@ export function makeWorkerConn(
     requestClose,
     getWorkerFp: () => workerFp,
     isSnapshotReady: () => myHandle.ready,
+    getWorkerHandle: () => myHandle,
     isCurrentGeneration: _isCurrentGeneration,
     fenced: _fenced,
     terminalMetadataNegotiated: () => terminalMetadataNegotiated,
@@ -171,6 +178,10 @@ export function makeWorkerConn(
   }
 
   function revoke(): void {
+    deps.terminalInputRouteResults?.cancelForWorkerHandle(myHandle, "worker_revoked");
+    deps.terminalPeerNegotiations?.cancelForWorkerHandle(myHandle, "worker_revoked");
+    if (revokedCleanupDone) return;
+    revokedCleanupDone = true;
     myHandle.revoked = true;
     stopLocalWork();
     terminalViewOwner?.release();
@@ -182,6 +193,9 @@ export function makeWorkerConn(
 
   function close(): void {
     if (done) return;
+    deps.terminalInputRouteResults?.cancelForWorkerHandle(myHandle, "worker_disconnected");
+    deps.terminalPeerNegotiations?.cancelForWorkerHandle(myHandle, "worker_disconnected");
+    revokedCleanupDone = true;
     done = true;
     myHandle.revoked = true;
     stopLocalWork();
@@ -256,6 +270,8 @@ export function makeWorkerConn(
         myHandle.workerFp = fp;
         myHandle.ready = false;
         if (superseded && superseded !== myHandle) {
+          deps.terminalInputRouteResults?.cancelForWorkerHandle(superseded, "connection_superseded");
+          deps.terminalPeerNegotiations?.cancelForWorkerHandle(superseded, "connection_superseded");
           rejectPendingRpcsForWorker(fp, "worker connection superseded");
         }
         connectWorkers.set(fp, myHandle);
@@ -278,6 +294,7 @@ export function makeWorkerConn(
         // dispatch, callback, or respawn is admitted before the exact snapshot.
         const advertised = f.frame.value.capabilities;
         const acknowledgedCapabilities: string[] = [];
+        myHandle.processEpoch = f.frame.value.processEpoch || null;
         terminalMetadataNegotiated = advertised.includes(TERMINAL_METADATA_CAPABILITY);
         if (terminalMetadataNegotiated) acknowledgedCapabilities.push(TERMINAL_METADATA_CAPABILITY);
         // This hello is the authoritative generation for the fingerprint in
@@ -293,6 +310,18 @@ export function makeWorkerConn(
         } else {
           clearTerminalViewOwner(fp);
         }
+        const terminalInputRouteNegotiated = deps.terminalInputRouteResults !== undefined
+          && advertised.includes(TERMINAL_INPUT_ROUTE_CAPABILITY);
+        if (terminalInputRouteNegotiated) {
+          acknowledgedCapabilities.push(TERMINAL_INPUT_ROUTE_CAPABILITY);
+        }
+        const terminalPeerNegotiated = deps.cfg?.terminalPeerEnabled === true
+          && deps.terminalPeerNegotiations !== undefined
+          && advertised.includes(TERMINAL_PEER_WEBRTC_CAPABILITY);
+        if (terminalPeerNegotiated) {
+          acknowledgedCapabilities.push(TERMINAL_PEER_WEBRTC_CAPABILITY);
+        }
+        myHandle.capabilities = new Set(acknowledgedCapabilities);
         trySend("hello_ack", create(CoordWorkerDownSchema, {
           frame: { case: "helloAck", value: create(DHelloAckSchema, {
             capabilities: acknowledgedCapabilities,
@@ -302,6 +331,8 @@ export function makeWorkerConn(
           worker_fp: fp,
           terminal_metadata_v1: terminalMetadataNegotiated,
           terminal_view_owner_v1: terminalViewOwnerNegotiated,
+          terminal_input_route_v1: terminalInputRouteNegotiated,
+          terminal_peer_webrtc_v1: terminalPeerNegotiated,
         });
         return;
       }

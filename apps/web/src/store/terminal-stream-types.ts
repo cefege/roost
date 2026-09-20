@@ -1,3 +1,7 @@
+// Shared browser terminal replica contracts. View, fold, liveness, transport,
+// and diagnostics use these identities to fence one canonical stream per
+// session without coupling adapter implementation to renderer state.
+
 import type { CellGridChunkAssembler, CellGridFrame } from "@roost/shared/cell";
 import type { SyncClientFrame } from "@roost/shared/proto/sync_pb";
 import type { TerminalGeometry } from "@roost/shared/viewport";
@@ -70,17 +74,38 @@ export interface TerminalPresentationActivity {
   seq: number;
   started_at_ms: number;
 }
+export type TerminalTransportKind = "sync" | "loopback" | "webrtc";
+
 export interface TerminalGenerationToken {
   readonly socketGeneration: number;
   readonly socketId: string;
   readonly processEpoch: string;
   readonly domainGeneration: bigint;
+  readonly transportKind: TerminalTransportKind;
+  /** Sync multiplexes workers, so it intentionally has no worker owner. */
+  readonly workerFp: string | null;
 }
 export interface TerminalGenerationDiagnosticToken {
   readonly socketGeneration: number;
   readonly socketId: string;
   readonly processEpoch: string;
   readonly domainGeneration: string;
+  readonly transportKind: TerminalTransportKind;
+  readonly workerFp: string | null;
+}
+
+export function terminalGenerationTokenEquals(
+  left: TerminalGenerationToken | null,
+  right: TerminalGenerationToken | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.socketGeneration === right.socketGeneration
+    && left.socketId === right.socketId
+    && left.processEpoch === right.processEpoch
+    && left.domainGeneration === right.domainGeneration
+    && left.transportKind === right.transportKind
+    && left.workerFp === right.workerFp;
 }
 
 
@@ -190,6 +215,7 @@ export interface TerminalRendererSubscriber {
 
 export interface TerminalSessionReplica {
   sessionId: string;
+  workerFp: string;
   handles: Map<string, TerminalViewRecord>;
   subscribers: Set<TerminalRendererSubscriber>;
   expectedStreamId: string | null;

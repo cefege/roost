@@ -41,6 +41,8 @@ import type {
 import { TerminalViewHub } from "../src/connect/terminal-view-hub.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
+import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
+import { TerminalPeerNegotiations } from "../src/connect/terminal-peer-negotiations.ts";
 
 let workdir: string;
 let coord: CoordHandle;
@@ -76,7 +78,15 @@ beforeAll(async () => {
   corsAllowedOrigins: [],
   logDir: workdir,
   publicUrl: undefined,
+  terminalPeerEnabled: false,
+  terminalPeerStunUrls: [],
   }
+  const terminalGrants = new TerminalGrantOwner();
+  const terminalPeerNegotiations = new TerminalPeerNegotiations({
+    db,
+    cfg,
+    terminalGrants,
+  });
   const deps: ConnectDeps = {
     db,
     sqlite,
@@ -87,6 +97,8 @@ beforeAll(async () => {
     uiStates: new UiStateOwner(),
     selfHostedTenant,
     cfAccess: null,
+    terminalGrants,
+    terminalPeerNegotiations,
   };
   coord = createCoord(deps);
   terminalViews = new TerminalViewHub({ db });
@@ -177,6 +189,9 @@ function dispatchSyncTerminalCommand(
       validUntilMs: Date.now() + 60_000,
     },
     scope: SYNC_SCOPE,
+    deviceFingerprint: browserFp,
+    tabId,
+    readOnly: false,
     viewerKey: syncViewerKey(tabId),
     remoteAddress,
     socketId: `coord-bidi:${tabId}`,

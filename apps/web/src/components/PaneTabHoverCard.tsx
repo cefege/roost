@@ -11,7 +11,7 @@ import { programSubtitle, sessionTitle } from "../lib/sessionTitle.ts";
 import { shortCwd } from "../lib/sidebarFormat.ts";
 import { renderPreview } from "../lib/terminalPreview.ts";
 import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
-import { sessionUsesLocalTransport } from "../store/local-transport-indicator.ts";
+import { sessionTerminalTransportKind } from "../store/local-transport-indicator.ts";
 import { Icon, Surface } from "./Settings/md/primitives.tsx";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 
@@ -32,6 +32,16 @@ export function PaneTabHoverCard(props: PaneTabHoverCardProps) {
   const [hasPreview, setHasPreview] = createSignal(false);
   const subtitle = createMemo(() => programSubtitle(props.session));
   const left = `max(var(--md-space-2), min(${props.rect.left}px, calc(100vw - var(--workbench-tab-hovercard-width) - var(--md-space-2))))`;
+  const directTooltip = () => {
+    switch (sessionTerminalTransportKind(props.session.id)) {
+      case "loopback":
+        return "Direct on this device";
+      case "webrtc":
+        return "Direct peer connection";
+      default:
+        return null;
+    }
+  };
 
   onMount(() => {
     if (previewElement) setHasPreview(renderPreview(props.session.id, previewElement));
@@ -60,11 +70,13 @@ export function PaneTabHoverCard(props: PaneTabHoverCardProps) {
         <Show when={subtitle()}>
           <div class="df-tab-hovercard-line">{subtitle()}</div>
         </Show>
-        <Show when={sessionUsesLocalTransport(props.session.id)}>
-          <div class="df-tab-hovercard-chip">
-            <Icon name="bolt" size="sm" />
-            Direct to this machine
-          </div>
+        <Show when={directTooltip()}>
+          {(tooltip) => (
+            <div class="df-tab-hovercard-chip" title={tooltip()}>
+              <Icon name="bolt" size="sm" />
+              {tooltip()}
+            </div>
+          )}
         </Show>
         <div class="df-tab-hovercard-cwd">
           {shortCwd(props.session.cwd, props.session.worker_fp)}

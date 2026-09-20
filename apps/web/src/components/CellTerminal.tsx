@@ -20,8 +20,9 @@ import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { mouseGesturesForwarded } from "../lib/mouseForwardPref.ts";
 import { directionalInputActive } from "../lib/directionalInput.ts";
 import { isPendingSpawn } from "../store/optimisticSpawn.ts";
-import { createTerminalView } from "../store/terminal-stream.ts";
 import { uiStore } from "../store/uiStore.ts";
+import { createTerminalView } from "../store/terminal-stream.ts";
+import { sessionTerminalTransportKind } from "../store/local-transport-indicator.ts";
 import { TerminalComposeButton } from "./TerminalComposeButton.tsx";
 import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
 import { TerminalFindBar } from "./TerminalFindBar.tsx";
@@ -85,7 +86,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	let releaseViewProgress: (() => void) | null = null;
 
 	onMount(() => {
-		const view = createTerminalView(sessionId);
+		const view = createTerminalView(sessionId, props.session.worker_fp);
 		runtime.view = view;
 		releaseViewStatus = view.subscribeStatus(presentation.setViewStatus);
 		releaseViewProgress = view.subscribeProgress(presentation.setAttachProgress);
@@ -172,6 +173,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		<div
 			data-testid="cell-terminal-pane"
 			data-session-id={props.session.id}
+			data-terminal-transport={sessionTerminalTransportKind(sessionId) ?? undefined}
 			style={{
 				position: "absolute",
 				inset: "0",

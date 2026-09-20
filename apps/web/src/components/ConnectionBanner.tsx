@@ -2,14 +2,15 @@
 // Subscribes to navigator.onLine events and polls window.__roostCoordHealth
 // (set by store/sync.ts in production; test hooks set it directly).
 // Callers: App.tsx (always mounted; internal Show gate).
-// Exposes: data-testid="connection-banner" data-banner-reason="offline"|"coord-unreachable"|"coord-unreachable-local-live"|"coord-mixed-content"
-
+// Exposes: data-testid="connection-banner" data-banner-reason="offline"|"coord-unreachable"|"coord-unreachable-direct-live"|"coord-mixed-content"
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import type { Component } from "solid-js";
 import { Button, StatusDot, Surface } from "./Settings/md/primitives.tsx";
-import { reconnectNow } from "../store/sync.ts";
+import {
+  hasLivenessQualifiedDirectTerminal,
+} from "../store/local-transport-indicator.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
-import { localTerminalSessionsLive } from "../ws/local-terminal.ts";
+import { reconnectNow } from "../store/sync-redial.ts";
 
 export interface CoordHealthSnapshot {
   lastSuccessMs: number | null;
@@ -20,7 +21,7 @@ export interface CoordHealthSnapshot {
 type BannerReason =
   | "offline"
   | "coord-unreachable"
-  | "coord-unreachable-local-live"
+  | "coord-unreachable-direct-live"
   | "coord-mixed-content"
   | null;
 
@@ -30,13 +31,14 @@ function readCoordHealth(): CoordHealthSnapshot | null {
   return (window as Window & { __roostCoordHealth?: CoordHealthSnapshot }).__roostCoordHealth ?? null;
 }
 
+
 export const ConnectionBanner: Component = () => {
   const [reason, setReason] = createSignal<BannerReason>(null);
   // The underlying error (ConnectError message / HTTP status) behind an
   // "unreachable" — shown as a tooltip so the banner is diagnosable instead of
   // a bare "unreachable". Empty when the trigger was staleness, not an error.
   const [detail, setDetail] = createSignal<string>("");
-  const localTerminalsStillLive = () => reason() === "coord-unreachable-local-live";
+  const directTerminalsStillLive = () => reason() === "coord-unreachable-direct-live";
 
   function evaluate(): void {
     if (!navigator.onLine) {
@@ -59,10 +61,10 @@ export const ConnectionBanner: Component = () => {
         setDetail(lastErr || (stale ? `no response in ${Math.round(COORD_STALE_MS / 1000)}s` : ""));
         if (lastErr.includes("mixed") || lastErr.includes("blocked")) {
           setReason("coord-mixed-content");
-        } else if (localTerminalSessionsLive()) {
-          // The PTYs on this machine are reached directly, so "sessions
-          // paused" would be a lie about the pane the user is typing into.
-          setReason("coord-unreachable-local-live");
+        } else if (hasLivenessQualifiedDirectTerminal()) {
+          // A confirmed direct terminal may continue independently, so an outage
+          // banner must not claim that its terminal is unavailable.
+          setReason("coord-unreachable-direct-live");
         } else {
           setReason("coord-unreachable");
         }
@@ -111,22 +113,22 @@ export const ConnectionBanner: Component = () => {
             gap: "var(--md-space-3)",
             padding: "var(--md-space-2) var(--md-space-4)",
             "border-bottom": `var(--workbench-border-width) solid ${
-              localTerminalsStillLive() ? "var(--status-warn)" : "var(--md-sys-color-error)"
+              directTerminalsStillLive() ? "var(--status-warn)" : "var(--md-sys-color-error)"
             }`,
             color: "var(--md-sys-color-on-surface)",
             font: "var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font)",
           }}
         >
-          {/* Partial degradation, not an outage: the terminals this user is
-              typing into are still live, so full error red would overstate it. */}
-          <StatusDot status={localTerminalsStillLive() ? "warn" : "error"} />
+          {/* Partial degradation, not an outage: direct terminals can remain
+              available while coordinator-owned fleet controls cannot. */}
+          <StatusDot status={directTerminalsStillLive() ? "warn" : "error"} />
           <Show when={reason() === "offline"}>
             <span>Offline — check your network connection</span>
           </Show>
-          <Show when={reason() === "coord-unreachable" || reason() === "coord-unreachable-local-live"}>
+          <Show when={reason() === "coord-unreachable" || reason() === "coord-unreachable-direct-live"}>
             <span>
-              {localTerminalsStillLive()
-                ? "Coordinator unreachable — local terminals still live; remote machines paused"
+              {directTerminalsStillLive()
+                ? "Coordinator unreachable — direct terminals may remain available; fleet controls unavailable"
                 : "Coordinator unreachable — sessions paused"}
             </span>
             <Button

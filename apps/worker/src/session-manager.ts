@@ -136,8 +136,9 @@ export class SessionManager extends SessionManagerState {
 		inputSeq: bigint,
 		bytes: Uint8Array,
 		budget?: TerminalRequestBudget,
+		authority?: terminalControl.TerminalWriteAuthority,
 	): Promise<terminalControl.WorkerInputResult> {
-		return terminalControl.writeTerminalInput.call(this, sessionId, inputSeq, bytes, budget);
+		return terminalControl.writeTerminalInput.call(this, sessionId, inputSeq, bytes, budget, authority);
 	}
 
 	applyTerminalStreamState(

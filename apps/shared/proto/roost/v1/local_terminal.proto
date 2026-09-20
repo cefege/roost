@@ -1,8 +1,9 @@
-// Browser ↔ local worker terminal socket. A browser whose PTY lives on the
-// same machine talks to the worker's loopback listener directly, so keystrokes
-// and cell frames never traverse the coordinator. The payload messages are the
-// same ones Sync carries (sync.proto) — one wire shape, two transports — and
-// only the hello, ready, scrollback and close frames are local-only.
+// Browser ↔ direct worker terminal carrier. A browser can use the worker's
+// loopback listener or a negotiated WebRTC peer connection, while keystrokes
+// and cell frames never traverse the coordinator. The payload messages are
+// the same ones Sync carries (sync.proto) — one wire shape across direct
+// carriers — and only the hello, ready, scrollback and close frames are
+// terminal-transport-specific.
 
 syntax = "proto3";
 package roost.v1;
@@ -13,28 +14,33 @@ import "roost/v1/sync.proto";
 // needed it; the local socket reuses that vocabulary rather than forking one.
 import "roost/v1/coordinator.proto";
 
-// Presented once, before any other client frame. The secret was minted by the
-// coordinator and installed here as a digest; the worker never learns it from
-// the browser's origin alone.
+// Presented once, before any other client frame, after a direct carrier opens.
+// The secret was minted by the coordinator and installed here as a digest; the
+// worker never learns it from the browser's origin alone.
 message LocalTerminalHello {
   string grant_id = 1;
   string secret = 2;
   string tab_id = 3;
   string device_fingerprint = 4;
+  string peer_id = 5;
+  string worker_epoch = 6;
 }
 
 message LocalTerminalReady {
   string worker_fingerprint = 1;
   repeated string session_ids = 2;
   uint64 socket_generation = 3;
+  string worker_epoch = 4;
+  string socket_id = 5;
+  string peer_id = 6;
 }
 
 message LocalTerminalClosed {
   string reason = 1;
 }
 
-// Mirrors SessionsGetScrollbackCells over the local socket. `request_id`
-// correlates the reply because the socket has no RPC framing of its own.
+// Mirrors SessionsGetScrollbackCells over a direct terminal carrier.
+// `request_id` correlates the reply because the carrier has no RPC framing.
 message LocalScrollbackRequest {
   string request_id = 1;
   string session_id = 2;
@@ -62,6 +68,8 @@ message LocalTerminalClientFrame {
     TerminalResyncCommand terminal_resync = 3;
     InputCommand input = 4;
     LocalScrollbackRequest scrollback = 5;
+    TerminalInputRouteClaim input_route_claim = 6;
+    TerminalTransportProbe transport_probe = 7;
   }
 }
 
@@ -76,5 +84,7 @@ message LocalTerminalServerFrame {
     InputAmbiguous input_ambiguous = 7;
     LocalScrollbackResponse scrollback = 8;
     LocalTerminalClosed closed = 9;
+    TerminalInputRouteResult input_route_result = 10;
+    TerminalTransportProbeResult transport_probe_result = 11;
   }
 }

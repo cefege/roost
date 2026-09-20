@@ -30,6 +30,10 @@ export interface ScrollbackCellsRequest {
 	gridEpoch: string;
 	endRow: number;
 	maxRows: number;
+	/** Optional transport budget gate, evaluated before retaining each row. */
+	admitRow?: (row: CellRow) => boolean;
+	/** Live transport authority; direct reads stop after close/revoke between slices. */
+	continueRead?: () => boolean;
 }
 
 export interface ScrollbackCellsPage {
@@ -106,7 +110,12 @@ export async function readScrollbackCells(
 		const rows: CellRow[] = [];
 		let liveDropped = sbDropped;
 		let slices = 0;
-		for (let sliceStart = startRow; sliceStart < endRow; sliceStart += SCROLLBACK_CELLS_SLICE_ROWS) {
+		let admittedRowCount = 0;
+		const sliceRows = request.admitRow ? 1 : SCROLLBACK_CELLS_SLICE_ROWS;
+		for (let sliceStart = startRow; sliceStart < endRow; sliceStart += sliceRows) {
+			if (request.continueRead && !request.continueRead()) {
+				return { ok: false, error: "terminal session is unavailable" };
+			}
 			if (slices > 0) {
 				await new Promise<void>((resolve) => { setImmediate(resolve); });
 				const liveRec = sessionMgr.getBySessionId(request.sessionId);
@@ -120,8 +129,17 @@ export async function readScrollbackCells(
 					return { ok: false, error: "scrollback evicted mid-read" };
 				}
 			}
-			const sliceEnd = Math.min(sliceStart + SCROLLBACK_CELLS_SLICE_ROWS, endRow);
-			for (const row of readScrollbackRangeCells(core, sliceStart, sliceEnd, liveDropped)) rows.push(row);
+			const sliceEnd = Math.min(sliceStart + sliceRows, endRow);
+			for (const row of readScrollbackRangeCells(core, sliceStart, sliceEnd, liveDropped)) {
+				if (request.admitRow) {
+					if (!request.admitRow(row)) {
+						return { ok: false, error: "scrollback response exceeds direct transport limit" };
+					}
+				} else {
+					rows.push(row);
+				}
+				admittedRowCount++;
+			}
 			slices++;
 		}
 		diag("scrollback.cells", {
@@ -130,7 +148,7 @@ export async function readScrollbackCells(
 			session_trace_id: rec.session_trace_id,
 			start_row: startRow, end_row: endRow, want_start: wantStart,
 			total, sb_dropped: sbDropped, history_floor: historyFloor,
-			rows: rows.length,
+			rows: admittedRowCount,
 			slices,
 		});
 		return {

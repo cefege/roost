@@ -9,9 +9,9 @@ you browse *from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Androi
 phone, an iPad, an Android tablet, whatever — needs nothing but a modern
 browser (optionally added to the home screen as a PWA).
 
-## One deployment shape
+## One coordinator HTTP/TLS front-door shape
 
-There is exactly one contract:
+There is exactly one coordinator HTTP/TLS front-door contract:
 
 - The coordinator listens on loopback, in plaintext:
   `ROOST_COORDINATOR_BIND=127.0.0.1:4103`.
@@ -27,8 +27,11 @@ invents a hostname for you. The origin you declare seeds the SPA's CSP
 `connect-src` and the Sync WebSocket origin allowlist, so it must be exactly
 the origin a browser addresses — scheme, host, and non-default port included.
 
-The coordinator serves the SPA from its own binary, so nothing else has to host
-the dashboard.
+This one-front-door statement applies to coordinator HTTP/TLS only. Peer
+transport does not add a worker HTTP/TLS front door: it can create an
+authenticated worker UDP endpoint only after coordinator admission. The
+coordinator serves the SPA from its own binary, so nothing else has to host the
+dashboard.
 
 ## Install + run
 
@@ -51,7 +54,7 @@ fragment and no path beyond `/`. An explicit port is optional:
 accepted. Quickstart builds the SPA, installs the coordinator service bound to
 loopback, deploys a worker on the same machine, waits for health, prints a
 status readout, and opens an already-authorized browser. It proves coordinator
-health on the loopback bind — the only listener Roost owns — and points the
+health on its loopback HTTP bind, not direct-peer connectivity, and points the
 local worker at the origin you declared, so a successful worker registration
 also proves your front door passes worker traffic.
 
@@ -94,11 +97,12 @@ organization, and the `default` dashboard. Existing coherent single-tenant
 databases keep their IDs and names. There is no separate organization bootstrap
 command to run before quickstart or after an upgrade.
 
-## Three front-door recipes
+## Three coordinator HTTP/TLS front-door recipes
 
 Pick one. Roost implements none of them: each is ordinary configuration for
-software you already know how to operate, and each ends with the same two facts
-— the coordinator's loopback bind and the `ROOST_WEB_PUBLIC_URL` it is told.
+software you already know how to operate, and each ends with the same two
+coordinator HTTP/TLS facts — the loopback bind and the `ROOST_WEB_PUBLIC_URL`
+it is told.
 
 ### Recipe 1 — Caddy with your own domain
 
@@ -518,36 +522,115 @@ derives its own hostname and reachable address. Exporting either variable while
 deploying to a host that has no prior install refuses the deploy rather than
 registering that host under this machine's name.
 
-Every worker also serves the SPA on its own loopback door, default
-`ROOST_WORKER_LOCAL_UI_BIND=127.0.0.1:4104`. A browser on that machine opens
-`http://127.0.0.1:4104` and talks to that worker's PTYs directly, so its
-terminals keep painting and accepting input while the coordinator is down;
-sessions on other machines pause until the coordinator returns. The door
-refuses any non-loopback bind, answers every name that reaches a loopback
-listener (`127.0.0.1`, `localhost`, `[::1]`) and refuses any other `Host`, and
-advertises nothing but the coordinator URL and the worker's own fingerprint at
-`/api/local-bootstrap`. `ROOST_WEB_DIST_PATH` overrides the SPA it serves for
-source runs.
+## Automatic terminal transport
 
-A page loaded from the coordinator's own front door takes that same direct
-path when a worker is running on the browser's machine. The first time a
-terminal pane goes live, the page probes `http://127.0.0.1:4104` once; if a
-worker answers, its sessions move onto that loopback socket and the pane tab
-shows the bolt marker. In Chromium this costs a one-time local-network
-permission prompt. Firefox and Safari block a plaintext-loopback request from
-an HTTPS page, so those browsers silently keep using the coordinator for
-terminal data — no error, no missing terminals. The door admits the
-coordinator's own origin for this; where the browser front door is not the URL
-the worker dials, name it in that machine's
+Roost starts coordinator Sync immediately and automatically elects one carrier
+per terminal session, in this order:
+
+1. Same-worker loopback, when the browser can reach the selected worker's local
+   door.
+2. A qualified, coordinator-admitted, authenticated WebRTC peer.
+3. Coordinator Sync fallback.
+
+There is no browser setting to force a carrier. Sync remains the metadata,
+authorization/control, signaling, and fallback plane; direct transport carries
+only the worker-authoritative terminal view, cells, input, and history. It is
+not an SSH transport, a browser-side terminal renderer, a worker HTTPS service,
+or a replacement for coordinator control.
+
+### Same-worker loopback
+
+Every worker serves the SPA on its own loopback door, default
+`ROOST_WORKER_LOCAL_UI_BIND=127.0.0.1:4104`. A browser on that machine can open
+`http://127.0.0.1:4104` and talk to that worker's PTYs directly. The door
+refuses any non-loopback bind, answers only loopback names
+(`127.0.0.1`, `localhost`, `[::1]`), refuses other `Host` values, and advertises
+only the coordinator URL and worker fingerprint at `/api/local-bootstrap`.
+`ROOST_WEB_DIST_PATH` overrides the SPA it serves for source runs.
+
+When a coordinator-served page has a worker on the browser machine, its first
+live terminal pane probes `http://127.0.0.1:4104` once. If the worker answers,
+that worker's sessions prefer loopback and their pane tabs show the direct
+marker. Chromium can require a one-time local-network permission. Firefox and
+Safari block a plaintext-loopback request from an HTTPS page; those browsers
+continue with qualified WebRTC or Sync without a missing terminal. The door
+admits the coordinator origin; if the browser front door differs from the
+worker's coordinator URL, list it in the worker's
 `ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS` (comma-separated).
 
-Changing that port means the page's origin is no longer the pre-allowlisted
-`http://127.0.0.1:4104`, so add the new origin to the coordinator's
+Changing the local door port changes the pre-allowlisted
+`http://127.0.0.1:4104` origin. Add the new origin to the coordinator's
 `ROOST_CORS_ALLOWED_ORIGINS` or its cross-origin RPCs and Sync socket are
-refused. A coordinator-served page also has nothing to probe on a moved port —
-no worker reports its local-UI port to the coordinator — so set
-`localStorage.setItem("roost.localWorkerOrigin", "http://127.0.0.1:<port>")` in
-that browser to point discovery at it.
+refused. A coordinator-served page does not learn a moved local port, so point
+its one-shot probe at it with
+`localStorage.setItem("roost.localWorkerOrigin", "http://127.0.0.1:<port>")`.
+
+### WebRTC peer configuration
+
+These settings are read when the relevant service starts. Values other than
+the stated exact forms fail startup instead of being treated as truthy.
+
+| Service | Variable | Default and effect |
+|---|---|---|
+| Coordinator | `ROOST_TERMINAL_PEER_ENABLED` | `1` when unset; accepts only `0` or `1`. `0` disables WebRTC peer admission and negotiation fleet-wide. |
+| Coordinator | `ROOST_TERMINAL_PEER_STUN_URLS` | Unset: `stun:stun.cloudflare.com:3478`. An explicit empty value disables external STUN discovery. Custom values are constrained below. |
+| Worker | `ROOST_TERMINAL_PEER_ENABLED` | `1` when unset on macOS/Linux; `0` when unset on Windows. Accepts only `0` or `1`; Windows rejects explicit `1`. `0` keeps this worker on loopback/Sync only. |
+| Worker | `ROOST_TERMINAL_PEER_BIND_ADDRESS` | Unset: ICE may gather supported interfaces. Otherwise one literal unicast IPv4 or IPv6 address; hostnames are rejected. |
+| Worker | `ROOST_TERMINAL_PEER_PORT_RANGE` | Unset: ICE uses ephemeral UDP ports. Otherwise `min-max`, inclusive decimal ports from `1024` through `65535`. |
+
+Set `ROOST_TERMINAL_PEER_ENABLED=0` on the coordinator to disable new WebRTC
+peers across the fleet, or on an individual worker to disable its peer
+capability. Both choices retain same-worker loopback and Sync. Set
+`ROOST_TERMINAL_PEER_STUN_URLS=` on the coordinator to retain WebRTC host
+candidates while disabling external address discovery.
+
+The STUN list is coordinator-owned and sent unchanged to both peer endpoints;
+a browser or worker request cannot choose it. A nonempty list contains one to
+four distinct comma-separated `stun:` UDP URLs. Each URL is a DNS name, IPv4,
+or bracketed IPv6 address with an optional valid port; whitespace, control
+characters, duplicates, credentials, paths, queries, fragments, `turn:`,
+`turns:`, and `stuns:` are rejected. Roost provides no TURN service or
+credentials. STUN observes address-discovery traffic, not terminal contents or
+Roost grants; an unavailable STUN server leaves host candidates, loopback, and
+Sync usable.
+
+### UDP, privacy, and fallback boundaries
+
+A worker opens no peer UDP socket until a coordinator-authenticated, current
+grant admits an offer. WebRTC terminal data is encrypted, but ICE necessarily
+shares candidate route IP/port metadata with the authenticated peer, and a
+STUN service observes its address-discovery traffic. Browser privacy policy can
+hide candidates or deny usable UDP paths; Roost requests no camera or
+microphone permission.
+
+Roost does not open firewalls, forward ports, install or manage Tailscale, or
+guarantee NAT traversal. `ROOST_TERMINAL_PEER_PORT_RANGE` and
+`ROOST_TERMINAL_PEER_BIND_ADDRESS` let an operator fit existing UDP policy, but
+blocked UDP, browser policy, NAT, or ICE failure simply leaves the session on
+Sync. A Tailscale or other VPN interface may provide a usable route; it is
+neither required nor evidence that WebRTC will connect.
+
+An established healthy direct route can continue painting and accepting input
+during a coordinator outage while its authorization remains valid. It is not
+permanent: new negotiation, grant renewal, Sync fallback, and fleet controls
+need coordinator reachability. The UI says
+`Coordinator unreachable — direct terminals may remain available; fleet controls unavailable`
+only for currently live direct routes. If the direct route ends before the
+coordinator returns, the terminal remains unavailable rather than receiving a
+replayed input; Sync repairs the route after the coordinator returns.
+
+### Route state and diagnostics
+
+An elected loopback pane is labeled **Direct on this device**; an elected WebRTC
+pane is labeled **Direct peer connection**. A candidate is not displayed as an
+active direct route. Use the terminal context menu's **Capture terminal
+diagnostic** action to inspect route metadata: active/candidate carrier kind,
+worker epoch, opaque peer ID, candidate type, peer phase, probe age, control
+RTT, buffered bytes, fallback reason, and pending-input count.
+
+Route metadata excludes SDP, ICE candidate addresses, grant material, and
+credentials. Terminal diagnostic capture has its separate terminal-content
+consent and warning; handle the full capture according to that warning.
 
 ## Check current health and recent anomalies
 

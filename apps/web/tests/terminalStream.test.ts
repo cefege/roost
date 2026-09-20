@@ -16,6 +16,7 @@ import {
   SESSION_ID,
   SNAPSHOT_A,
   STREAM_A,
+  WORKER_FP,
   acceptView,
   cellFrameToProto,
   chunkCellGridFrame,
@@ -49,7 +50,7 @@ function chunkedProofBaseline() {
 
 describe("per-session browser terminal replica", () => {
   test("requires a full baseline, admits only an exact delta, and latches one resync", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const sink = new RecordingRenderer();
     view.subscribeRenderer(renderer(sink));
     view.setViewport({ cols: 1, rows: 1 });
@@ -90,7 +91,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("owns ACK and terminal progress diagnostics by the complete generation", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 1, rows: 1 });
     const revision = latestViewCommand().value.revision as bigint;
     expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).view).toMatchObject({
@@ -100,6 +101,8 @@ describe("per-session browser terminal replica", () => {
         socketId: "socket-1",
         processEpoch: "process-1",
         domainGeneration: "11",
+        transportKind: "sync",
+        workerFp: null,
       },
     });
     vi.advanceTimersByTime(5_000);
@@ -123,6 +126,8 @@ describe("per-session browser terminal replica", () => {
         socketId: "socket-1",
         processEpoch: "process-1",
         domainGeneration: "11",
+        transportKind: "sync",
+        workerFp: null,
       },
       challenge_age_ms: null,
       resync_latch_age_ms: null,
@@ -145,7 +150,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("redials DOM reconciliation only for a ready current foreground view", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 1, rows: 1 });
     setPageVisible(false);
     view.recoverUnreconciledDom();
@@ -176,7 +181,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("accepts only a newer same-stream canonical checkpoint as source proof", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 1, rows: 1 });
     acceptView(view.viewId, latestViewCommand().value.revision as bigint);
     terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
@@ -196,7 +201,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("rejects equal and stale same-stream checkpoints as source proof", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 1, rows: 1 });
     acceptView(view.viewId, latestViewCommand().value.revision as bigint);
     terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(STREAM_A, [row(0, "A")], 2), SESSION_ID));
@@ -222,7 +227,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("suspends source proof deadline while a newer chunked baseline progresses", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     const progress: number[] = [];
     view.subscribeProgress((value) => {
       if (value) progress.push(value.receivedChunks);
@@ -251,7 +256,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("rearms a fresh proof deadline after a stalled chunk transfer", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 256, rows: 256 });
     acceptView(view.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 256, 256);
     const baselineRows = Array.from(
@@ -283,10 +288,10 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("coalesces same-generation repairs across concurrent view renewals", () => {
-    const first = terminalStream.createTerminalView(SESSION_ID);
+    const first = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     first.setViewport({ cols: 1, rows: 1 });
     acceptView(first.viewId, latestViewCommand().value.revision as bigint);
-    const second = terminalStream.createTerminalView(SESSION_ID);
+    const second = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     second.setViewport({ cols: 1, rows: 1 });
     acceptView(second.viewId, latestViewCommand().value.revision as bigint);
 
@@ -301,7 +306,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("re-arms the idle probe when a liveness challenge cannot be published", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 1, rows: 1 });
     acceptView(view.viewId, latestViewCommand().value.revision as bigint);
     terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
@@ -331,7 +336,7 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("arms a proof deadline for a latch whose delta cleared its latch timestamp", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 1, rows: 1 });
     const revision = latestViewCommand().value.revision as bigint;
     acceptView(view.viewId, revision);

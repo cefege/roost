@@ -21,6 +21,7 @@ import type {
 } from "./smokeHarness.ts";
 import type { SyncRedialStatus } from "../store/sync.ts";
 import type { TerminalBrowserStreamSnapshot } from "./terminalDiagSnapshot.ts";
+import type { TerminalPeerCandidateType } from "../store/terminal-stream-transport.ts";
 
 export type { PaintedCursorProof } from "./smokeHarness.ts";
 
@@ -28,10 +29,14 @@ export interface SmokeTerminalInputBatch {
   sessionId: string;
   data: number[];
 }
-
 export interface SmokeTerminalInputCapture {
   batches: SmokeTerminalInputBatch[];
   droppedBatches: number;
+  outcomes: {
+    accepted: number;
+    rejected: number;
+    ambiguous: number;
+  };
 }
 
 export type SmokePaintedScrollbackProbe = RendererPaintPresentation;
@@ -75,6 +80,14 @@ export interface TerminalStreamProbe {
     error: { code: string | null; message: string | null } | null;
   };
 }
+export interface SmokeTerminalTransportProbe {
+  transport_kind: "sync" | "loopback" | "webrtc";
+  worker_epoch: string | null;
+  candidate_type: TerminalPeerCandidateType;
+  worker_control_rtt_ms: number;
+  pending_input_count: number;
+}
+
 
 export interface SmokeRenderProbe {
   found: boolean;
@@ -108,8 +121,8 @@ export interface SmokeApi {
    *  test: it stays green when focus is dead. For the real input check use
    *  paneFocused() + real keystrokes (chrome_keyboard). */
   input(sessionId: string, text: string): Promise<void>;
-  /** Exact accepted input batches in admission order. Smoke-only and bounded;
-   *  reset immediately before the UI action under observation. */
+  /** Bounded admitted batches plus settled outcome counters; reset immediately
+   * before the UI action under observation. */
   terminalInputCapture(): SmokeTerminalInputCapture;
   resetTerminalInputCapture(): void;
   /** Real-input regression probe: is the active pane's textarea actually the
@@ -154,6 +167,8 @@ export interface SmokeApi {
   /** One on-demand, bounded per-session snapshot spanning browser, coordinator,
    * and the routed worker. Missing layer fields remain explicit null/missing. */
   terminalStreamProbe(sessionId: string): Promise<TerminalStreamProbe>;
+  /** Sends the selected carrier's content-free worker probe and returns only safe route telemetry. */
+  probeTerminalTransport(sessionId: string): Promise<SmokeTerminalTransportProbe>;
   /** Begin/finish the trusted-key, reveal, resize, and optimistic paint clocks.
    * trusted_key starts on the real `isTrusted` keydown, not this method call. */
   beginTerminalTiming(kind: TerminalTimingKind, sessionId?: string): Promise<string>;
@@ -203,6 +218,8 @@ export interface SmokeApi {
   lastFullFrameSbRows(sessionId: string): number;
   /** Epoch-addressed retained-history RPCs issued for this session. */
   scrollbackBackfillRequestCount(sessionId: string): number;
+  /** Successful direct-history replies observed only by smoke-enabled builds. */
+  directHistoryResponseCount(sessionId: string): number;
   /** Opaque worker grid epoch on the latest cell frame. */
   cellGridEpoch(sessionId: string): string;
   /** Drop terminal application frames for exactly the current full terminal generation. */

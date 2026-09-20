@@ -184,6 +184,8 @@ async function createReadyLink(capabilities: string[]) {
     coordHttpUrl: "http://coord.test:4102",
     workerFp,
     workerVersion: "test",
+    processEpoch: "test-process-epoch",
+    capabilities: [TERMINAL_METADATA_CAPABILITY],
     sessionEventStore: eventStore,
     mintJwt: async () => "jwt",
     webSocketFactory: () => socket as unknown as WebSocket,
@@ -219,9 +221,8 @@ test("advertises and uses terminal_metadata_v1 only after the coordinator acknow
   try {
     const hello = ready.hello.frame;
     if (hello.case !== "hello") throw new Error(`expected a hello frame, got ${hello.case}`);
-    // Containment, not array identity: the worker advertises every capability
-    // it supports, and this test owns only the metadata one.
-    expect(hello.value.capabilities).toContain(TERMINAL_METADATA_CAPABILITY);
+    expect(hello.value.capabilities).toEqual([TERMINAL_METADATA_CAPABILITY]);
+    expect(hello.value.processEpoch).toBe("test-process-epoch");
     expect(ready.link.sendTerminalMetadata({
       channelId: 21,
       titleChanged: true,
@@ -283,6 +284,7 @@ test("replays reconnect-gap raw fallback to an old coordinator then discards it 
     coordHttpUrl: "http://coord.test:4102",
     workerFp,
     mintJwt: async () => "jwt",
+    processEpoch: "test-process-epoch",
     sessionEventStore: eventStore,
     refs,
   });

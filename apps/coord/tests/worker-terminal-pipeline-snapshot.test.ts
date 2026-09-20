@@ -78,6 +78,9 @@ describe("typed worker terminal pipeline diagnostics", () => {
     let receivedTargets: TerminalPipelineDiagnosticTarget[] = [];
     const worker: WorkerHandle = {
       workerFp: TARGET_WORKER_FP,
+      processEpoch: null,
+      connectionGeneration: "pipeline-snapshot-test-connection-1",
+      capabilities: new Set(),
       revoked: false,
       ready: true,
       send(frame) {
@@ -123,6 +126,9 @@ describe("typed worker terminal pipeline diagnostics", () => {
   test("ignores a mismatched reply before the matching response arrives", async () => {
     const worker: WorkerHandle = {
       workerFp: TARGET_WORKER_FP,
+      processEpoch: null,
+      connectionGeneration: "pipeline-snapshot-test-connection-2",
+      capabilities: new Set(),
       revoked: false,
       ready: true,
       send(frame) {
@@ -153,6 +159,9 @@ describe("typed worker terminal pipeline diagnostics", () => {
   test("rejects an unaccounted partial response", async () => {
     const worker: WorkerHandle = {
       workerFp: TARGET_WORKER_FP,
+      processEpoch: null,
+      connectionGeneration: "pipeline-snapshot-test-connection-3",
+      capabilities: new Set(),
       revoked: false,
       ready: true,
       send(frame) {
@@ -188,6 +197,9 @@ describe("typed worker terminal pipeline diagnostics", () => {
   test("does not send to an unready worker", async () => {
     const worker: WorkerHandle = {
       workerFp: TARGET_WORKER_FP,
+      processEpoch: null,
+      connectionGeneration: "pipeline-snapshot-test-connection-4",
+      capabilities: new Set(),
       revoked: false,
       ready: false,
       send() {

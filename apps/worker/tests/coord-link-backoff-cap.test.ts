@@ -94,6 +94,8 @@ test("link that opened then lost coord re-dials on the normal ladder", async () 
     coordHttpUrl: `http://127.0.0.1:${server.port}`,
     workerFp: "backoff-fp" as WorkerFp,
     workerVersion: "test",
+    processEpoch: "test-process-epoch",
+    capabilities: [],
     mintJwt: async () => "jwt",
     sessionEventStore: eventStore,
   });

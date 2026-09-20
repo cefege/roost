@@ -16,6 +16,7 @@ import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
 
 import type * as TerminalStreamModule from "../../src/store/terminal-stream.ts";
 import type { TerminalViewHandleStatus } from "../../src/store/terminal-stream-types.ts";
+import { terminalDirectRegistry } from "../../src/store/terminal-stream-transport.ts";
 type TerminalStreamFixtureModule = Omit<
   typeof TerminalStreamModule,
   "dispatchTerminalCellFrame" | "dispatchTerminalCellChunk" | "dispatchTerminalViewState"
@@ -63,6 +64,8 @@ let focused = true;
 
 mock.module("../../src/store/sync.ts", () => ({
   currentSyncV2TerminalState: () => syncState,
+  registerSyncV2ControlHandler: () => () => undefined,
+  registerSyncV2ProbeResultHandler: () => () => undefined,
   sendSyncV2Command: (value: TestCommand) => {
     sent.push(value);
     return syncState?.ready === true;
@@ -123,7 +126,7 @@ const terminalStream = new Proxy({} as TerminalStreamFixtureModule, {
         if (!syncState) return undefined;
         return Reflect.apply(value as (...args: unknown[]) => unknown, undefined, [
           frame,
-          syncState,
+          { ...syncState, transportKind: "sync", workerFp: null },
         ]);
       };
     }
@@ -140,6 +143,7 @@ const STREAM_A = "10000000-0000-4000-8000-000000000001";
 const STREAM_B = "10000000-0000-4000-8000-000000000002";
 const SNAPSHOT_A = "20000000-0000-4000-8000-000000000001";
 const EPOCH_A = "grid-epoch-a";
+const WORKER_FP = "worker-browser-replica";
 
 function row(index: number, text: string, linkUri?: string): CellRow {
   return {
@@ -300,12 +304,17 @@ function dispatchTerminalCellFrameFrom(
   frame: Parameters<typeof TerminalStreamModule.dispatchTerminalCellFrame>[0],
 ): void {
   if (!loadedTerminalStream) throw new Error("terminal stream fixture is not initialized");
-  loadedTerminalStream.dispatchTerminalCellFrame(frame, owner);
+  loadedTerminalStream.dispatchTerminalCellFrame(frame, {
+    ...owner,
+    transportKind: "sync",
+    workerFp: null,
+  });
 }
 
 
 
 beforeEach(() => {
+  terminalDirectRegistry.reset("terminal stream fixture reset");
   vi.useFakeTimers();
   terminalStream._resetTerminalStreamForTest();
   sent.length = 0;
@@ -317,6 +326,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  terminalDirectRegistry.reset("terminal stream fixture reset");
   terminalStream._resetTerminalStreamForTest();
   vi.useRealTimers();
 });
@@ -329,6 +339,7 @@ export {
   SNAPSHOT_A,
   STREAM_A,
   STREAM_B,
+  WORKER_FP,
   acceptView,
   cellFrameToProto,
   chunkCellGridFrame,

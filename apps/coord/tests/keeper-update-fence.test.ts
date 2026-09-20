@@ -132,6 +132,8 @@ async function openHarness(): Promise<KeeperFenceHarness> {
     webDistPath: "", jwtMaxAgeSecs: 300,
     auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [], logDir: directory,
     publicUrl: undefined,
+    terminalPeerEnabled: false,
+    terminalPeerStunUrls: [],
   };
   const coord = createCoord({
     db: opened.db,

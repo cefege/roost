@@ -1,9 +1,11 @@
+import { createSignal } from "solid-js";
 import { CellGridChunkAssembler } from "@roost/shared/cell";
 import { clearTerminalChunkTransfer } from "./terminal-stream-chunks.ts";
 import {
   cancelTerminalViewRenewals,
   invalidateTerminalViewRenewals,
 } from "./terminal-stream-renewal-scheduler.ts";
+import { terminalDirectRegistry } from "./terminal-stream-transport.ts";
 import type {
   TerminalGenerationToken,
   TerminalSessionReplica,
@@ -28,6 +30,24 @@ export const terminalBlackholeDropCounts = new Map<string, number>();
 export const terminalWireDeltaDropCounts = new Map<string, number>();
 export const terminalWireDeltaDroppedSeq = new Map<string, number>();
 export const terminalWireDeltaPostDropSeq = new Map<string, number>();
+
+const [terminalTransportRevision, advanceTerminalTransportRevision] = createSignal(0);
+export { terminalTransportRevision };
+
+/** Signals a carrier/baseline transition without making UI components own routes. */
+export function notifyTerminalTransportStateChange(): void {
+  advanceTerminalTransportRevision((revision) => revision + 1);
+}
+
+type TerminalPromotionStateDisposer = (sessionId: string, reason: string) => void;
+
+let disposeTerminalPromotionForSession: TerminalPromotionStateDisposer | null = null;
+
+export function registerTerminalPromotionStateDisposer(
+  disposer: TerminalPromotionStateDisposer,
+): void {
+  disposeTerminalPromotionForSession = disposer;
+}
 
 // Drop keys are written only from the smoke-gated dropNextCellFrame path, so
 // deriving the prefix from the build flag drops the roostSmoke literal from
@@ -79,11 +99,19 @@ export const terminalGenerationObservation: {
   initialized: false,
 };
 
-export function terminalSessionReplica(sessionId: string): TerminalSessionReplica {
-  let session = terminalSessions.get(sessionId);
-  if (session) return session;
-  session = {
+export function terminalSessionReplica(
+  sessionId: string,
+  workerFp: string,
+): TerminalSessionReplica {
+  const existing = terminalSessions.get(sessionId);
+  if (existing?.workerFp === workerFp) return existing;
+  if (existing) {
+    discardTerminalSessionState(existing);
+    terminalSessions.delete(sessionId);
+  }
+  const session: TerminalSessionReplica = {
     sessionId,
+    workerFp,
     handles: new Map(),
     subscribers: new Set(),
     expectedStreamId: null,
@@ -129,6 +157,7 @@ export function emitTerminalViewStatus(
 }
 
 function discardTerminalSessionState(session: TerminalSessionReplica): void {
+  disposeTerminalPromotionForSession?.(session.sessionId, "session discarded");
   clearTerminalChunkTransfer(session);
   // A credential reset may tear down the replica before Solid unmounts the
   // CellTerminal that owns these handles. Mark every handle inert first: its
@@ -151,6 +180,12 @@ function discardTerminalSessionState(session: TerminalSessionReplica): void {
   for (const subscriber of session.subscribers) subscriber.scheduler.dispose();
   cancelTerminalViewRenewals(session.handles.values());
   for (const view of session.handles.values()) {
+    terminalDirectRegistry.setViewDemand(
+      session.workerFp,
+      session.sessionId,
+      view.viewId,
+      false,
+    );
     view.disposed = true;
     clearTimeout(view.viewAckTimer ?? undefined);
     view.viewAckTimer = null;
@@ -165,8 +200,12 @@ function discardTerminalSessionState(session: TerminalSessionReplica): void {
   session.subscribers.clear();
 }
 
-export function pruneTerminalSessionState(sessionId: string): void {
+export function pruneTerminalSessionState(
+  sessionId: string,
+  expectedSession?: TerminalSessionReplica,
+): void {
   const session = terminalSessions.get(sessionId);
+  if (expectedSession && session !== expectedSession) return;
   if (session) {
     discardTerminalSessionState(session);
     terminalSessions.delete(sessionId);

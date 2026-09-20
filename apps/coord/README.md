@@ -1,9 +1,14 @@
 # apps/coord — coordinator control plane (Bun)
 
-The only writer of the SQLite database, and the only process both workers and browsers talk to. Request/response is
-Connect-RPC (`CoordinatorService`, POST-only, binary protobuf); the streams are raw Bun WebSockets —
-`/ws/coord-worker/:fp` for workers, `/ws/coord-sync` for browsers. Neither is a Connect bidi: Connect bidi cannot
-hold a stable full-duplex stream under Bun (see the `src/connect/worker-service.ts` header and
+The only SQLite writer and coordinator control-plane authority. Workers dial it;
+browsers use Connect-RPC (`CoordinatorService`, POST-only, binary protobuf) and
+raw Bun WebSockets — `/ws/coord-worker/:fp` for workers and `/ws/coord-sync`
+for browser Sync. Sync remains the metadata/control plane and terminal fallback.
+Direct terminal cells and input may instead use same-worker loopback or a
+coordinator-admitted authenticated WebRTC worker peer; the coordinator owns
+authorization, grants, and signaling but is not that peer endpoint. Neither
+WebSocket is a Connect bidi: Connect bidi cannot hold a stable full-duplex
+stream under Bun (see the `src/connect/worker-service.ts` header and
 `docs/FAILURE-INDEX.md`).
 
 Path references are relative to `apps/coord/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
@@ -72,7 +77,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | workspaces | `src/connect/handlers-workspaces.ts` | version-CAS workspace rows, set-sessions, orphan GC |
 | tasks | `src/connect/handlers-tasks.ts` | claimable task queue: list/enqueue/next-pending/set-state/cancel |
 | workers | `src/connect/handlers-workers.ts` | registry lifecycle; composes deploy start/output from `src/connect/handlers-workers-deploy.ts` |
-| sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment plus owning-worker-only private recovery metadata; composes spawn from `src/connect/handler-session-spawn.ts`, terminal cell/search/cancel RPCs from `src/connect/handlers-sessions-scrollback.ts`, and authorized global terminal search from `src/connect/handlers-sessions-global-search.ts`; resize is socket-bound |
+| sessions | `src/connect/handlers-sessions.ts` | list/attach/kill/rename/input/cursor/assignment, direct-terminal grant and peer-negotiation admission, plus owning-worker-only private recovery metadata; composes spawn from `src/connect/handler-session-spawn.ts`, terminal cell/search/cancel RPCs from `src/connect/handlers-sessions-scrollback.ts`, and authorized global terminal search from `src/connect/handlers-sessions-global-search.ts`; resize is socket-bound |
 | streaming | `src/connect/handlers-streaming.ts` | only the `sync` stub (below) |
 | ui | `src/connect/handlers-ui.ts` | typed per-tab reports/listing, bounded composition-owned TTL retention in `ui-state-owner.ts`, canonical legacy-command admission in `ui-legacy-command.ts`, and exact bounded fingerprint/tab apply admission in `ui-layout-apply-owner.ts`; the spatial model stays browser-local |
 | push | `src/connect/handlers-push.ts` | VAPID public key + Web Push subscribe/unsubscribe (`push_subscriptions`) |
@@ -84,6 +89,18 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   feed/scheduler, terminal view/screen hubs, terminal stream dispatcher, raw
   terminal input lane, guarded agent-prompt orchestration, worker facade,
   announced-channel barrier, and pending spawns.
+- **Direct terminal control** — `src/connect/terminal-grant-owner.ts` is the
+  one composition-owned direct-grant lease registry; it binds a lease to its
+  authenticated owner/tab/worker and exact live `WorkerHandle`.
+  `src/connect/local-terminal-grants.ts` owns the
+  `SessionsGrantLocalTerminal` boundary. `src/connect/terminal-peer-negotiations.ts`
+  owns bounded pending browser→worker offer admission and cancellation;
+  `src/connect/handlers-sessions-terminal-peer.ts` is its trusted Connect
+  bridge; `src/connect/worker-send-terminal-peer.ts` serializes typed peer
+  offer/cancel frames. `src/connect/terminal-input-route-results.ts` owns typed
+  route-claim/probe correlation for Sync; `src/connect/worker-send-terminal-route.ts`
+  is its exact-worker sender. No handler creates a second grant, signal, or
+  route-result registry.
 - SQLite access — `src/db/connection.ts` (Kysely over `kysely-bun-sqlite`, WAL + busy timeout), `src/db/schema.ts` (the `DB`
   interface), `src/db/migrate.ts` (custom runner over `apps/coord/migrations/*.sql`, throws on any failure), `src/db/snapshot.ts`
   (online SQLite copy backing `/api/db-export`).
@@ -174,6 +191,26 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/windows-update-deploy-record.ts`, and
   `src/windows-update-manifest.ts`; `src/deploy-jobs.ts` does **not** own it.
 
+### Direct terminal admission
+
+`src/coord-factory.ts::createCoord()` constructs and disposes exactly one
+`TerminalGrantOwner`, `TerminalPeerNegotiations`, and
+`TerminalInputRouteResults`, then injects them into Connect, worker-WS, and
+Sync composition. A grant secret is returned only after worker installation;
+the live lease retains its exact worker connection/epoch while signaling is
+pending. Worker replacement, grant invalidation, browser abort, or coordinator
+dispose cancels the captured operation rather than allowing a late typed answer
+to establish a peer on a replacement connection.
+
+`CoordConfig` (`@roost/shared/config`) owns
+`ROOST_TERMINAL_PEER_ENABLED=0|1` (enabled by default) and
+`ROOST_TERMINAL_PEER_STUN_URLS`. An unset STUN value defaults to
+`stun:stun.cloudflare.com:3478`; an explicit empty value disables external
+discovery; a nonempty value permits only one to four distinct `stun:` UDP URLs.
+No TURN, credentials, browser-supplied ICE configuration, automatic firewall
+change, or Tailscale management belongs here. STUN is address discovery only;
+it never carries terminal cells, grants, or Sync control.
+
 ### `src/coordinator-write-gate.ts` — the keeper-update fence
 
 `CoordinatorWriteGate` is a REQUIRED dependency of every coordinator mutation path, never an option: it is
@@ -248,6 +285,20 @@ its byte-for-byte semantics.
 
 ## Invariants
 
+- **Direct grants and signaling are exact-current-operation control.**
+  `TerminalGrantOwner` owns lease lifecycle and worker retirement;
+  `TerminalPeerNegotiations` validates bounded SDP, reserves capacity, captures
+  the current `WorkerHandle`/connection generation/worker epoch, and settles
+  only the matching typed worker result. Revocation, handle replacement, abort,
+  or disposal removes pending signaling and sends cancellation only to the
+  captured current worker. SDP, candidates, grant secrets, and fingerprints
+  never enter logs, audit rows, or a generic signaling store.
+- **Sync remains the direct transport's control plane and fallback.** Browser
+  Sync stays subscribed for metadata, worker projections, input-route controls,
+  and terminal fallback; browser Connect RPC retains authentication,
+  authorization, grants, and peer signaling. A direct peer carries
+  authenticated terminal traffic only; it does not create a second coordinator
+  service, endpoint, or authorization realm.
 - **Post-commit publication order is load-bearing.**
   `src/event-transaction.ts::appendEvent` inserts the event and folds the
   `sessions` projection in one transaction. After commit,

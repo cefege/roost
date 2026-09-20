@@ -5,8 +5,9 @@
 
 import { z } from "zod";
 import { workerDataDir, workerLogDir } from "@roost/shared/paths";
-import { join } from "node:path";
+import { isIP } from "node:net";
 import { hostname } from "node:os";
+import { join } from "node:path";
 
 /** Owned by service-definition-env.ts, which has no module-scope host-path
  * resolution: the config read below and the boot-time erasure there must
@@ -24,6 +25,12 @@ export const WorkerConfig = z.object({
   agentConversationRestore: z.boolean().default(false),
   keeperForceLiveRetire: z.boolean().default(false),
   terminalCoreCap: z.number().int().nonnegative().max(0xffffffff).optional(),
+  terminalPeerEnabled: z.boolean(),
+  terminalPeerBindAddress: z.string().optional(),
+  terminalPeerPortRange: z.object({
+    min: z.number().int().min(1024).max(65535),
+    max: z.number().int().min(1024).max(65535),
+  }).optional(),
   // Resolved lazily: this module is imported by Windows enrollment paths that
   // validate env BEFORE a host layout exists, and an eager default made the
   // import itself throw "LOCALAPPDATA or USERPROFILE is required" ahead of the
@@ -70,6 +77,16 @@ function withDefaults(
       env[KEEPER_FORCE_LIVE_RETIRE_ENV],
     ),
     terminalCoreCap: parseTerminalCoreCap(env.ROOST_WORKER_TERMINAL_CAP),
+    terminalPeerEnabled: parseTerminalPeerEnabled(
+      env.ROOST_TERMINAL_PEER_ENABLED,
+      platform,
+    ),
+    terminalPeerBindAddress: parseTerminalPeerBindAddress(
+      env.ROOST_TERMINAL_PEER_BIND_ADDRESS,
+    ),
+    terminalPeerPortRange: parseTerminalPeerPortRange(
+      env.ROOST_TERMINAL_PEER_PORT_RANGE,
+    ),
     // Prefer the actual machine hostname from node:os over env.HOSTNAME,
     // which isn't set on macOS by default — that was the regression
     // behind every worker registering as the literal string "worker"
@@ -105,6 +122,82 @@ function parseAgentConversationRestore(
     throw new Error("ROOST_AGENT_CONVERSATION_RESTORE=1 is unsupported on Windows");
   }
   return true;
+}
+
+function parseTerminalPeerEnabled(
+  value: string | undefined,
+  platform: NodeJS.Platform,
+): boolean {
+  if (value === undefined) {
+    return platform === "darwin" || platform === "linux";
+  }
+  if (value === "0") return false;
+  if (value !== "1") {
+    throw new Error("ROOST_TERMINAL_PEER_ENABLED must be exactly 0 or 1");
+  }
+  if (platform === "win32") {
+    throw new Error("ROOST_TERMINAL_PEER_ENABLED=1 is unsupported on Windows");
+  }
+  return true;
+}
+
+function parseTerminalPeerBindAddress(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const family = isIP(value);
+  const ipv4FirstOctet = family === 4
+    ? Number(value.slice(0, value.indexOf(".")))
+    : undefined;
+  if (
+    family === 0 ||
+    (family === 4 && (ipv4FirstOctet! <= 0 || ipv4FirstOctet! >= 224)) ||
+    (family === 6 && !isUnicastIpv6(value))
+  ) {
+    throw new Error(
+      "ROOST_TERMINAL_PEER_BIND_ADDRESS must be a literal unicast IPv4 or IPv6 address",
+    );
+  }
+  return value;
+}
+
+function parseTerminalPeerPortRange(
+  value: string | undefined,
+): { min: number; max: number } | undefined {
+  if (value === undefined) return undefined;
+  const match = /^([1-9]\d*)-([1-9]\d*)$/.exec(value);
+  if (!match || match[0] !== value) {
+    throw new Error(
+      "ROOST_TERMINAL_PEER_PORT_RANGE must be min-max with decimal ports from 1024 to 65535",
+    );
+  }
+  const min = Number(match[1]);
+  const max = Number(match[2]);
+  if (
+    !Number.isSafeInteger(min) ||
+    !Number.isSafeInteger(max) ||
+    min < 1024 ||
+    max > 65535 ||
+    min > max
+  ) {
+    throw new Error(
+      "ROOST_TERMINAL_PEER_PORT_RANGE must be min-max with decimal ports from 1024 to 65535",
+    );
+  }
+  return { min, max };
+}
+
+function isUnicastIpv6(address: string): boolean {
+  try {
+    const host = new URL(`http://[${address}]/`).hostname;
+    const normalized = host.startsWith("[") && host.endsWith("]")
+      ? host.slice(1, -1)
+      : host;
+    if (normalized === "::" || normalized.startsWith("ff")) return false;
+    const mapped = /^::ffff:([0-9a-f]+):([0-9a-f]+)$/i.exec(normalized);
+    const mappedFirstOctet = mapped ? Number.parseInt(mapped[1], 16) >>> 8 : undefined;
+    return !mapped || (mappedFirstOctet! > 0 && mappedFirstOctet! < 224);
+  } catch {
+    return false;
+  }
 }
 
 /** Operator authorization to discard a keeper the worker can neither adopt nor

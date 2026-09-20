@@ -3,14 +3,7 @@
 // Sync dispatch calls it for full frames and chunks, while subscribers enqueue DOM work.
 // Liveness repair is separate but consumes the same stream, epoch, sequence, and viewport facts.
 
-import {
-  CELL_GRID_PART_MAX_BYTES,
-  applyDelta,
-  encodedCellGridFrameSize,
-  normalizeCellGridFrame,
-  type CellGridFrame,
-} from "@roost/shared/cell";
-import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
+import type { CellGridFrame } from "@roost/shared/cell";
 import type {
   PbCellGridChunk,
   PbCellGridFrame,
@@ -22,6 +15,10 @@ import {
   pushTerminalCellChunk,
 } from "./terminal-stream-chunks.ts";
 import {
+  decodeTerminalWireFrame,
+  foldTerminalFrame,
+} from "./terminal-stream-frame-fold.ts";
+import {
   clearTerminalSessionLiveness,
   terminalGenerationMatches,
 } from "./terminal-stream-liveness.ts";
@@ -32,6 +29,7 @@ import {
 } from "./terminal-stream-repair.ts";
 import {
   emitTerminalViewStatus,
+  notifyTerminalTransportStateChange,
   takePersistedTerminalRendererDrop,
   terminalDropNextFrames,
   terminalDroppedFrameCounts,
@@ -80,6 +78,7 @@ export function installExpectedTerminalStream(
   cols: number,
   rows: number,
 ): void {
+  const priorBaselineReady = session.baselineReady;
   const streamChanged = session.expectedStreamId !== streamId;
   if (
     !streamChanged
@@ -99,6 +98,7 @@ export function installExpectedTerminalStream(
     && session.canonical.streamId === streamId
     && session.canonical.cols === cols
     && session.canonical.rows === rows;
+  if (session.baselineReady !== priorBaselineReady) notifyTerminalTransportStateChange();
 }
 
 function enqueueTerminalFrameForSubscriber(
@@ -166,7 +166,7 @@ function suppressNextRendererFrame(session: TerminalSessionReplica): boolean {
   return true;
 }
 
-function notifyBaselineState(session: TerminalSessionReplica): void {
+export function notifyTerminalBaselineState(session: TerminalSessionReplica): void {
   for (const view of session.handles.values()) {
     const status = view.status;
     if (
@@ -178,50 +178,12 @@ function notifyBaselineState(session: TerminalSessionReplica): void {
   }
 }
 
-function deliverFull(session: TerminalSessionReplica): void {
+export function deliverTerminalCanonicalFull(session: TerminalSessionReplica): void {
   const canonical = session.canonical;
   if (!canonical) return;
   for (const subscriber of session.subscribers) {
     enqueueTerminalFrameForSubscriber(subscriber, canonical, canonical);
   }
-}
-
-function validFull(session: TerminalSessionReplica, frame: CellGridFrame): boolean {
-  if (
-    !frame.full
-    || frame.baseSeq !== 0
-    || frame.streamId !== session.expectedStreamId
-    || frame.cols !== session.effectiveCols
-    || frame.rows !== session.effectiveRows
-    || frame.viewportRows.length !== frame.rows
-    || frame.scrollbackAppend.length !== 0
-  ) return false;
-  for (let index = 0; index < frame.rows; index++) {
-    if (frame.viewportRows[index]?.index !== index) return false;
-  }
-  let historyIndex = frame.sbBase;
-  for (const row of frame.scrollbackRows) {
-    if (row.index !== historyIndex || row.index >= frame.scrollbackTotal) return false;
-    historyIndex++;
-  }
-  if (historyIndex !== frame.scrollbackTotal) return false;
-  return true;
-}
-function fullFollowsCanonical(
-  session: TerminalSessionReplica,
-  frame: CellGridFrame,
-): boolean {
-  const canonical = session.canonical;
-  return canonical === null
-    || canonical.streamId !== frame.streamId
-    || frame.seq > canonical.seq
-    || (
-      frame.seq === canonical.seq
-      && frame.gridEpoch === canonical.gridEpoch
-      && frame.cols === canonical.cols
-      && frame.rows === canonical.rows
-      && frame.altScreen === canonical.altScreen
-    );
 }
 
 function acceptFull(
@@ -230,29 +192,18 @@ function acceptFull(
   owner: TerminalGenerationToken,
   assembled: boolean,
 ): void {
-  if (!validFull(session, frame)) {
-    noteTerminalReplicaTransition(session.sessionId, "replica_repair", frame, "invalid_full");
-    requestTerminalResync(
-      session,
-      "invalid full terminal baseline",
-      owner,
-      true,
-      assembled,
-    );
+  const result = foldTerminalFrame(session, frame);
+  if (result.kind !== "full") {
+    const reason = result.kind === "invalid" && result.reason === "invalid_full"
+      ? "invalid full terminal baseline"
+      : "terminal full conflicted with canonical state";
+    const phase = result.kind === "invalid" && result.reason === "invalid_full"
+      ? "invalid_full"
+      : "full_conflict";
+    noteTerminalReplicaTransition(session.sessionId, "replica_repair", frame, phase);
+    requestTerminalResync(session, reason, owner, true, assembled);
     return;
   }
-  if (!fullFollowsCanonical(session, frame)) {
-    noteTerminalReplicaTransition(session.sessionId, "replica_repair", frame, "full_conflict");
-    requestTerminalResync(
-      session,
-      "terminal full conflicted with canonical state",
-      owner,
-      true,
-      assembled,
-    );
-    return;
-  }
-  normalizeCellGridFrame(frame);
   session.canonical = frame;
   noteTerminalReplicaTransition(session.sessionId, "replica_admitted", frame, "full");
   session.baselineReady = true;
@@ -262,10 +213,11 @@ function acceptFull(
   session.resyncRetryGeneration = null;
   session.resyncRetryAtMs = null;
   noteTerminalCellFrame(session, frame, true, owner);
+  notifyTerminalTransportStateChange();
   clearTerminalChunkTransfer(session);
   const suppressRendererDelivery = suppressNextRendererFrame(session);
-  if (!suppressRendererDelivery) deliverFull(session);
-  notifyBaselineState(session);
+  if (!suppressRendererDelivery) deliverTerminalCanonicalFull(session);
+  notifyTerminalBaselineState(session);
 }
 
 function acceptDelta(
@@ -274,45 +226,19 @@ function acceptDelta(
   owner: TerminalGenerationToken,
   assembled: boolean,
 ): void {
-  const base = session.canonical;
-  if (
-    delta.full
-    || !session.baselineReady
-    || !base
-    || session.assembler.activeSnapshotId !== null
-    || delta.streamId !== session.expectedStreamId
-    || base.streamId !== session.expectedStreamId
-    || delta.gridEpoch !== base.gridEpoch
-    || delta.cols !== session.effectiveCols
-    || delta.rows !== session.effectiveRows
-    || delta.baseSeq !== base.seq
-    || delta.seq !== delta.baseSeq + 1
-  ) {
-    noteTerminalReplicaTransition(session.sessionId, "replica_repair", delta, "delta_unfollowed");
-    requestTerminalResync(
-      session,
-      "terminal delta did not follow the canonical baseline",
-      owner,
-      true,
-      assembled,
-    );
+  const result = foldTerminalFrame(session, delta);
+  if (result.kind !== "delta") {
+    const reason = result.kind === "invalid" && result.reason === "delta_fold_rejected"
+      ? "terminal delta fold rejected its canonical base"
+      : "terminal delta did not follow the canonical baseline";
+    const phase = result.kind === "invalid" && result.reason === "delta_fold_rejected"
+      ? "delta_fold_rejected"
+      : "delta_unfollowed";
+    noteTerminalReplicaTransition(session.sessionId, "replica_repair", delta, phase);
+    requestTerminalResync(session, reason, owner, true, assembled);
     return;
   }
-
-  const folded = applyDelta(base, delta);
-  if (!folded) {
-    noteTerminalReplicaTransition(session.sessionId, "replica_repair", delta, "delta_fold_rejected");
-    requestTerminalResync(
-      session,
-      "terminal delta fold rejected its canonical base",
-      owner,
-      true,
-      assembled,
-    );
-    return;
-  }
-  normalizeCellGridFrame(folded);
-  session.canonical = folded;
+  const folded = result.canonical;
   noteTerminalReplicaTransition(session.sessionId, "replica_admitted", folded, "delta");
   noteTerminalCellFrame(session, folded, false, owner);
 
@@ -361,21 +287,12 @@ function acceptProtoFrame(
     return;
   }
   if (pb.streamId !== session.expectedStreamId) return;
-  if (!assembled && encodedCellGridFrameSize(pb) > CELL_GRID_PART_MAX_BYTES) {
-    requestTerminalResync(
-      session,
-      "terminal frame exceeded the encoded part ceiling",
-      owner,
-    );
+  const decoded = decodeTerminalWireFrame(pb, assembled);
+  if (decoded.kind === "invalid") {
+    requestTerminalResync(session, decoded.reason, owner, true, assembled);
     return;
   }
-  let frame: CellGridFrame;
-  try {
-    frame = protoToCellFrame(pb);
-  } catch (error) {
-    requestTerminalResync(session, String(error), owner, true, assembled);
-    return;
-  }
+  const frame = decoded.frame;
   noteWireFrame(session, pb);
   recordCellLag(pb, Date.now());
   markPhaseOnce("first_cell_receive", session.sessionId, {

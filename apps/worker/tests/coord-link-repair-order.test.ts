@@ -123,6 +123,8 @@ test("pending cell repair drains before a queued scrollback RPC reply", async ()
     coordHttpUrl: "http://coord.test:4102",
     workerFp: "test-fp" as WorkerFp,
     workerVersion: "test",
+    processEpoch: "test-process-epoch",
+    capabilities: [],
     mintJwt: async () => "jwt",
     sessionEventStore: eventStore,
     webSocketFactory: (url, protocols) => {

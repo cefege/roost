@@ -169,6 +169,10 @@ export interface CoordinatorServiceConfig {
    *  from; the harness's worker-served local UI origins are not the 4104
    *  default the product pre-allowlists. */
   corsAllowedOrigins?: readonly string[];
+  /** Explicit peer enablement for a hermetic stack; absent preserves product defaults. */
+  terminalPeerEnabled?: boolean;
+  /** Explicitly empty disables STUN discovery without changing coordinator behavior. */
+  terminalPeerStunUrls?: readonly string[];
   gitSha: string;
 }
 
@@ -193,6 +197,12 @@ export function startCoordinatorService(config: CoordinatorServiceConfig): Runni
         ...(config.corsAllowedOrigins?.length
           ? { ROOST_CORS_ALLOWED_ORIGINS: config.corsAllowedOrigins.join(",") }
           : {}),
+        ...(config.terminalPeerEnabled === undefined
+          ? {}
+          : { ROOST_TERMINAL_PEER_ENABLED: config.terminalPeerEnabled ? "1" : "0" }),
+        ...(config.terminalPeerStunUrls === undefined
+          ? {}
+          : { ROOST_TERMINAL_PEER_STUN_URLS: config.terminalPeerStunUrls.join(",") }),
       }),
       stdio: ["ignore", coordLog, coordLog],
     }),

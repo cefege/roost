@@ -265,11 +265,21 @@ export class PredictiveEcho {
    *  and the ack/grace comparisons are meaningless against any other clock. */
   private reconcileAgainst(frame: CellGridFrame, frameAtMs: number): void {
     const survivors: Pred[] = [];
+    const firstTentativeByEpoch = new Map<number, Pred>();
+    for (const pred of this.preds) {
+      if (this.isTentative(pred) && !firstTentativeByEpoch.has(pred.epoch)) {
+        firstTentativeByEpoch.set(pred.epoch, pred);
+      }
+    }
     let hardReset = false;
     for (const pred of this.preds) {
       const shownBefore = !this.isTentative(pred);
       const verdict = judgePrediction(pred, cellCharAt(frame, pred.row, pred.col), frameAtMs);
       if (verdict === "credit" || verdict === "retire") {
+        if (verdict === "credit" && this.isTentative(pred) && firstTentativeByEpoch.get(pred.epoch) !== pred) {
+          survivors.push(pred);
+          continue;
+        }
         if (verdict === "credit") {
           this.confirmedEpoch = Math.max(this.confirmedEpoch, pred.epoch);
           this.sampleRtt(frameAtMs - pred.bornMs);
@@ -298,18 +308,17 @@ export class PredictiveEcho {
     this.repaint();
   }
 
-  /** Authoritative col plus the NET un-echoed column change on the cursor row:
-   *  a glyph is one column forward, an erase one column back. */
+  /** The final surviving prediction already carries the absolute predicted
+   *  caret. Deriving from authoritative cursor + survivor count double-counts
+   *  echoes when a sparse cursor-only frame omits the row that changed. */
   private reanchorPredictedCursor(): void {
-    let delta = 0;
-    for (const pred of this.preds) {
-      if (pred.row !== this.cursorRow) continue;
-      delta += pred.ch === "" ? -1 : 1;
+    const last = this.preds.at(-1);
+    if (!last) {
+      this.predCursorCol = -1;
+      return;
     }
-    const predicted = this.cursorCol + delta;
-    this.predCursorCol = delta !== 0 && predicted >= 0 && predicted < this.cols
-      ? predicted
-      : -1;
+    const predicted = last.col + (last.ch === "" ? 0 : 1);
+    this.predCursorCol = predicted >= 0 && predicted < this.cols ? predicted : -1;
   }
 
   /** Test seam — the deferred expiry pass, driveable against an injected clock

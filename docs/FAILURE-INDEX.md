@@ -1403,6 +1403,39 @@ in-flight batch and settles it from the late result"`; `apps/coord/tests/sync-ws
 `apps/web/tests/terminalInputStatus.test.ts` — `"an unconfirmed batch with no written bytes never claims a
 partial send"`.
 
+### Delayed old-route input crosses a direct-promotion fence
+
+**Symptom** — "a key sent on Sync appears after WebRTC became active / an old-route input reaches the PTY after
+direct promotion".
+
+**Wrong** — treat browser no-replay, a closed old socket, or a new renderer route as the input fence. A
+coordinator→worker `DInputRequest` already in flight can arrive after the browser has promoted a direct route.
+
+**Right** — the worker owns the fence: `TerminalInputRouteOwner` issues the actor/session route epoch, and
+`writeTerminalInput` in `apps/worker/src/session-terminal-control.ts` rechecks live route authority after keeper
+admission immediately before `beginInput`. A stale epoch returns `terminal input route changed`; it never writes
+the PTY.
+
+**Guard** — `apps/worker/tests/terminal-stream-input.test.ts` —
+`"rechecks a live route after keeper admission before writing PTY input"`; real stack
+`smoke/terminal/terminal-peer-failover.spec.ts` —
+`"a delayed old Sync input is fenced after peer promotion and cannot reach the PTY"`.
+
+### node-datachannel `sendMessageBinary(false)` is accepted buffered delivery
+
+**Symptom** — "a direct terminal fragment duplicates after WebRTC backpressure / a false native send result
+resends a control, cell, or history fragment".
+
+**Wrong** — interpret `node-datachannel` `sendMessageBinary(...) === false` as refusal and retry the fragment.
+The native channel accepted it into its buffer, so retry duplicates protocol bytes.
+
+**Right** — `TerminalPeerPacketPort` commits the fragment exactly once; `false` marks the lane
+`backpressured` and waits for its low-water callback. Queue refusal happens before the native call; a native
+throw retires the peer.
+
+**Guard** — `apps/worker/tests/terminal-peer-packet-port.test.ts` —
+`"commits a native false return once without retrying its accepted fragment"`.
+
 ---
 
 ## Worker, keeper and host
@@ -2289,6 +2322,51 @@ with `[data-testid="terminal-loading-status"][data-session-id="<sid>"]`. A globa
 panes" (scoped `targetSlot` locator plus the session-scoped `querySelector` in its repair round)
 and `smoke/terminal/terminal-delivery.spec.ts`, which still pins the single-pane stage/percent
 series.
+
+---
+
+### A deleted worker's direct terminal still accepts input
+
+**Symptom** — deleting a worker removes it from the machine list, but an already-open loopback or
+WebRTC terminal can still accept PTY input until its grant expires when the worker retirement frame
+is lost.
+
+**Wrong** — treat the coordinator retirement frame or `deleteStoreRecord("workers", fp)` as the
+only authority fence. The browser still owns a grant, an elected route, and possibly an in-flight
+grant mint; none of those live in the worker projection.
+
+**Right** — both the confirmed delete response and the later presence delta call
+`applyWorkerRemoval()`. It retires the worker's grant state and in-flight mint, closes every
+worker-scoped direct candidate and elected route, emits `worker_retired` so peer retries dispose,
+then removes the worker record. Sessions and workspaces remain as offline history.
+
+**Guard** — `apps/web/tests/terminalDirectRegistry.test.ts` "retires every route and candidate for
+only the removed worker", `apps/web/tests/localTerminalGrants.test.ts` "removal clears a worker
+grant and fences its in-flight mint", `apps/web/tests/machines-delete.dom.test.ts`, and
+`smoke/terminal/terminal-peer-failover.spec.ts` "worker deletion retires direct authority before a
+held authenticated input reaches the PTY".
+
+---
+
+### A restarted worker stays on Sync with peer phase "grant"
+
+**Symptom** — a worker restart or grant-expiry recovery closes the old direct peer, paints through
+Sync, then never elects a replacement; diagnostics remain at `peer_phase="grant"` with
+`failure_detail="terminal peer grant changed"`.
+
+**Wrong** — let an old retry timer remain armed after a fresh grant arrives, or drop the current
+grant merely because a probe proves the old connection epoch is stale. The timer blocks
+`maybeStart()`, and an old-connection callback can erase the replacement grant.
+
+**Right** — a successful grant publication cancels the preinstalled retry timer before starting
+the peer, and worker-epoch handling drops a grant only when that grant still names the stale
+connection's epoch. Negotiation rejection likewise invalidates only the exact grant that attempted
+the failed request.
+
+**Guard** — `apps/web/tests/terminalPeerOwner.test.ts` "retries a transient initial grant failure at
+the bounded retry deadline" plus `smoke/terminal/terminal-peer-failover.spec.ts` "worker restart
+retires the old peer epoch while its keeper PTY survives" and "active direct grant expiry closes
+the peer during coordinator loss and a renewed route stays usable".
 
 ---
 

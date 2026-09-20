@@ -76,12 +76,14 @@ export {
 export {
   applySyncDomainSnapshot,
   registerSyncV2ControlHandler,
+  registerSyncV2ProbeResultHandler,
   sendSyncV2Command,
   waitForSyncSubscribed,
   type SyncDomainHydrator,
   type SyncDomainSnapshot,
   type SyncSubscribedState,
   type SyncV2Control,
+  type SyncV2ProbeResult,
 } from "./sync-domain-state.ts";
 export {
   registerLazySyncDomain,

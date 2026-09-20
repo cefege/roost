@@ -12,7 +12,6 @@
 // generation/hydration/park state machine under test is the production one. Bun
 // fake timers advance the capped backoff (and performance.now with it), so no
 // wall-clock seconds are spent proving a 30 s cap.
-
 import { afterAll, beforeAll, describe, expect, mock, test, vi } from "bun:test";
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
@@ -107,8 +106,8 @@ Object.assign(globalThis, {
 mock.module("../src/auth/web-key.ts", () => ({
   signCoordinatorJwt: async () => "test-jwt",
   getPublicKeyB64: async () => "test-key",
+  getCurrentWebKeyInfo: async () => ({ fingerprint: "test-browser", extractable: false }),
 }));
-
 // Intentional module-loading boundary: the host fakes and the JWT mock must be
 // installed before the singleton sync module evaluates.
 const sync = await import("../src/store/sync.ts");
@@ -347,6 +346,7 @@ describe("Sync redial never leaves a visible page parked", () => {
       socketId: current.socketId,
       processEpoch: current.processEpoch,
       domainGeneration: current.domainGeneration,
+      transportKind: "sync" as const, workerFp: null,
     };
     const stale = [
       { ...expected, socketGeneration: expected.socketGeneration + 1 },

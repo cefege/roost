@@ -144,7 +144,7 @@ export function startHopDeadline(totalMs: number): HopDeadline {
 
 /** The worker's slice of what is left, or null when too little remains to
  * attempt the hop at all. */
-function workerBudgetMs(deadline: HopDeadline): number | null {
+export function workerBudgetMs(deadline: HopDeadline): number | null {
   const budget = Math.floor(deadline.remainingMs()) - WORKER_HOP_RESERVE_MS;
   return budget >= MIN_WORKER_BUDGET_MS ? budget : null;
 }
@@ -181,6 +181,10 @@ export function sendTerminalInputRequest(
     sessionId: string;
     inputSeq: bigint;
     data: Uint8Array;
+    deviceFingerprint: string;
+    tabId: string;
+    browserConnectionId: string;
+    inputRouteEpoch: string;
   },
   deadline: HopDeadline = startHopDeadline(INPUT_CONTROL_TIMEOUT_MS),
 ): TerminalWorkerRequest<WInputResult> {
@@ -203,6 +207,10 @@ export function sendTerminalInputRequest(
         inputSeq: message.inputSeq,
         data: message.data,
         budgetMs,
+        deviceFingerprint: message.deviceFingerprint,
+        tabId: message.tabId,
+        browserConnectionId: message.browserConnectionId,
+        inputRouteEpoch: message.inputRouteEpoch,
       }) },
     }));
     admitted = sent !== 0;

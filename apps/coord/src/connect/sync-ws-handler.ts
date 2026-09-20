@@ -71,6 +71,8 @@ export interface SyncWsHandlerOptions {
   onV2Close?: (context: {
     viewerKey: string;
     socketId: string;
+    deviceFingerprint: string;
+    tabId: string;
   }) => void;
   terminalViews?: TerminalViewHub;
 }
@@ -130,9 +132,16 @@ export function makeSyncWsHandler(
     const v2 = ws.data.v2;
     if (v2 && !v2.closeNotified) {
       v2.closeNotified = true;
-      options.terminalViews?.closeSocket(v2.socketId);
       const viewerKey = ws.data.viewerKey;
-      if (viewerKey !== null) options.onV2Close?.({ viewerKey, socketId: v2.socketId });
+      if (viewerKey !== null && ws.data.tabId !== null) {
+        options.onV2Close?.({
+          viewerKey,
+          socketId: v2.socketId,
+          deviceFingerprint: ws.data.caller.fingerprint,
+          tabId: ws.data.tabId,
+        });
+      }
+      options.terminalViews?.closeSocket(v2.socketId);
     }
     if (ws.data.keepaliveTimer) {
       clearInterval(ws.data.keepaliveTimer);

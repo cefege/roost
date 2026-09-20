@@ -1,91 +1,136 @@
-// Frame routing for the worker's loopback terminal sockets. It verifies each
-// hello against the in-memory grant store, registers the socket as a terminal
-// view owner socket, and carries view commands, input, scrollback reads and
-// cell frames for the granted sessions only. Input takes the ordinary
-// coordinator-facing write path, so the keeper-update write freeze and every
-// admission fence still apply to a local keystroke.
+// Direct terminal frame owner for loopback and authenticated WebRTC packet ports.
+// It verifies grants and expected peer tuples, keeps session authorization live
+// through asynchronous input/history work, and selects the three carrier lanes.
+// TerminalPeerPacketPort owns WebRTC framing; this file owns LocalTerminal protobufs.
 
-import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { create, fromBinary } from "@bufbuild/protobuf";
 import { log } from "@roost/shared/log";
 import {
 	LocalTerminalClientFrameSchema,
 	LocalTerminalClosedSchema,
 	LocalTerminalReadySchema,
-	LocalTerminalServerFrameSchema,
-	type LocalScrollbackRequest,
 	type LocalTerminalHello,
 	type LocalTerminalServerFrame,
 } from "@roost/shared/proto/local_terminal_pb";
+import type { LocalTerminalGrantChange, LocalTerminalGrantStore } from "./local-terminal-grants.ts";
 import {
-	InputAcceptedSchema,
-	InputAmbiguousSchema,
-	InputRejectedSchema,
-	type InputCommand,
-} from "@roost/shared/proto/sync_pb";
-import { KEEPER_MAX_INPUT_BYTES } from "./keeper/protocol.ts";
-import type {
-	LocalTerminalSocket,
-	LocalTerminalSocketHandlers,
-} from "./local-ui-server.ts";
-import type { LocalTerminalGrant, LocalTerminalGrantStore } from "./local-terminal-grants.ts";
-import { readLocalScrollback } from "./local-terminal-scrollback.ts";
+	LocalTerminalPortControls,
+	type LocalTerminalPeerHistoryFault,
+} from "./local-terminal-socket-controls.ts";
+import {
+	directPortActor,
+	directPortRequestBudget,
+	isDirectPortSessionAuthorized,
+	type LocalTerminalAuthorizationDeps,
+	type LocalTerminalPortSession,
+} from "./local-terminal-socket-authority.ts";
+import {
+	localTerminalCellDelivery,
+	sendLocalTerminalFrame,
+	sendLocalTerminalInputResult,
+} from "./local-terminal-socket-delivery.ts";
+import {
+	writeLocalTerminalInput,
+	type LocalTerminalPeerInputFault,
+	type LocalTerminalPeerInputResultFault,
+} from "./local-terminal-socket-input.ts";
+import { LocalTerminalPreHelloOwner } from "./local-terminal-prehello.ts";
 import type { SessionManager } from "./session-manager.ts";
-import type { WorkerInputResult } from "./session-terminal-control.ts";
+import type { TerminalInputRouteOwner } from "./terminal-input-route-owner.ts";
+import type { TerminalInputWorkBudget } from "./terminal-input-work-budget.ts";
+import type { TerminalPacketPort } from "./terminal-packet-port.ts";
+import type { TerminalPeerExpectedTuple } from "./terminal-peer-connection.ts";
 import type { TerminalViewOwner } from "./terminal-view-owner.ts";
 import type { LocalViewTransport } from "./terminal-view-owner-screen.ts";
-import { TERMINAL_REQUEST_BUDGET_CAP_MS } from "./transport/coord-link-constants.ts";
-import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
-import { monoNowMs } from "./util/mono.ts";
 
-/** Bytes the browser has left unread before its socket is judged unable to
- * drain. One full 256×256 grid is well under this, so a pane that is merely
- * busy recovers while a wedged one is dropped instead of queueing forever. */
-const MAX_BACKPRESSURE_BYTES = 4 * 1024 * 1024;
+interface PeerTerminalPacketPort extends TerminalPacketPort {
+	markAuthenticated(): void;
+}
+
+/** Source-smoke-only faults injected through an alternate worker entrypoint. */
+export interface LocalTerminalSocketTestFaults {
+	readonly onAuthenticatedPeerInput?: LocalTerminalPeerInputFault;
+	readonly shouldSendPeerInputResult?: LocalTerminalPeerInputResultFault;
+	readonly onPeerHistoryResponse?: LocalTerminalPeerHistoryFault;
+}
 
 export interface LocalTerminalSocketDeps {
 	sessions(): SessionManager;
 	grants: LocalTerminalGrantStore;
 	viewOwner: TerminalViewOwner;
+	inputWorkBudget: TerminalInputWorkBudget;
+	inputRouteOwner: TerminalInputRouteOwner;
 	workerFingerprint: string;
+	workerEpoch: string;
+	testFaults?: LocalTerminalSocketTestFaults;
 }
 
-interface LocalTerminalSession {
-	readonly socket: LocalTerminalSocket;
-	/** Unique per accepted socket: the browser fences pending input on it. */
-	generation: bigint;
-	grant: LocalTerminalGrant | null;
-	/** Bytes the socket buffered since its last clean write. */
-	backpressuredBytes: number;
-	closing: boolean;
-}
-
-export class LocalTerminalSockets implements LocalTerminalSocketHandlers {
-	private readonly sockets = new Map<string, LocalTerminalSession>();
+/** One direct carrier registry. Loopback calls onOpen; TerminalPeerOwner calls
+ * openPeerPort before it applies remote SDP, so neither can race an ingress frame. */
+export class LocalTerminalSockets {
+	private readonly ports = new Map<string, LocalTerminalPortSession>();
+	private readonly preHello: LocalTerminalPreHelloOwner;
+	private readonly authorizationDeps: LocalTerminalAuthorizationDeps;
+	private readonly controls: LocalTerminalPortControls;
+	private readonly unsubscribeGrantChanges: () => void;
 	private generations = 0n;
-
-	constructor(private readonly deps: LocalTerminalSocketDeps) {}
-
-	onOpen(socket: LocalTerminalSocket): void {
-		this.sockets.set(socket.socketId, {
-			socket,
-			generation: 0n,
-			grant: null,
-			backpressuredBytes: 0,
-			closing: false,
+	private disposed = false;
+	constructor(private readonly deps: LocalTerminalSocketDeps) {
+		this.preHello = new LocalTerminalPreHelloOwner((socketId) => {
+			const session = this.ports.get(socketId);
+			if (session && session.grantId === null) this.close(session, "local terminal hello timed out");
+		});
+		this.authorizationDeps = {
+			sessions: deps.sessions,
+			grants: deps.grants,
+			inputRouteOwner: deps.inputRouteOwner,
+			workerEpoch: deps.workerEpoch,
+			isCurrentPort: (session) => this.ports.get(session.port.socketId) === session,
+		};
+		this.controls = new LocalTerminalPortControls({
+			sessions: deps.sessions,
+			inputRouteOwner: deps.inputRouteOwner,
+			workerFingerprint: deps.workerFingerprint,
+			workerEpoch: deps.workerEpoch,
+			actor: directPortActor,
+			requestBudget: (session) =>
+				directPortRequestBudget(this.authorizationDeps.isCurrentPort, session),
+			isSessionAuthorized: (session, sessionId) => this.isSessionAuthorized(session, sessionId),
+			sendControl: (session, frame) => { this.sendControl(session, frame); },
+			sendHistory: (session, response, closeOnRefusal) =>
+				this.sendFrame(session, { case: "scrollback", value: response }, "history", closeOnRefusal),
+			close: (session, reason) => { this.close(session, reason); },
+			testFaults: {
+				onPeerHistoryResponse: deps.testFaults?.onPeerHistoryResponse,
+			},
+		});
+		this.unsubscribeGrantChanges = deps.grants.subscribe((change) => {
+			this.onGrantChange(change);
 		});
 	}
 
-	onMessage(socket: LocalTerminalSocket, data: Uint8Array): void {
-		const session = this.sockets.get(socket.socketId);
-		if (!session) return;
+	onOpen(port: TerminalPacketPort): void {
+		this.registerPort(port, null);
+	}
+
+	openPeerPort(
+		port: PeerTerminalPacketPort,
+		expectedPeer: TerminalPeerExpectedTuple,
+	): { onMessage(bytes: Uint8Array): void; onClose(): void } {
+		this.registerPort(port, expectedPeer);
+		return {
+			onMessage: (bytes) => { this.onMessage(port, bytes); },
+			onClose: () => { this.onClose(port); },
+		};
+	}
+
+	onMessage(port: TerminalPacketPort, data: Uint8Array): void {
+		const session = this.ports.get(port.socketId);
+		if (!session || this.disposed) return;
 		let frame;
 		try {
 			frame = fromBinary(LocalTerminalClientFrameSchema, data);
-		} catch (error) {
-			log.warn("local-terminal", "frame_decode_failed", {
-				socket_id: socket.socketId,
-				error: error instanceof Error ? error.message : String(error),
-			});
+		} catch {
 			this.close(session, "undecodable frame");
 			return;
 		}
@@ -94,50 +139,105 @@ export class LocalTerminalSockets implements LocalTerminalSocketHandlers {
 			this.accept(session, client.value);
 			return;
 		}
-		// Nothing is served before the capability is proven, and a second hello
-		// would silently re-point a live socket's membership.
-		if (!session.grant) {
+		if (!session.grantId) {
 			this.close(session, "hello required");
 			return;
 		}
 		switch (client.case) {
 			case "terminalView":
-				this.deps.viewOwner.handleViewCommand(socket.socketId, client.value);
+				this.deps.viewOwner.handleViewCommand(port.socketId, client.value);
 				return;
 			case "terminalResync":
-				this.deps.viewOwner.handleResync(socket.socketId, client.value);
+				this.deps.viewOwner.handleResync(port.socketId, client.value);
 				return;
 			case "input":
-				void this.write(session, client.value);
+				void writeLocalTerminalInput({
+					session,
+					command: client.value,
+					sessions: this.deps.sessions,
+					inputWorkBudget: this.deps.inputWorkBudget,
+					authorizationDeps: this.authorizationDeps,
+					isSessionAuthorized: (candidate, sessionId) => this.isSessionAuthorized(candidate, sessionId),
+					sendResult: (command, result) => {
+						sendLocalTerminalInputResult(
+							(frame) => { this.sendControl(session, frame); },
+							session.generation,
+							command,
+							result,
+						);
+					},
+					onAuthenticatedPeerInput: this.deps.testFaults?.onAuthenticatedPeerInput,
+					shouldSendPeerInputResult: this.deps.testFaults?.shouldSendPeerInputResult,
+				});
 				return;
 			case "scrollback":
-				void this.serveScrollback(session, client.value);
+				void this.controls.scrollback(session, client.value);
+				return;
+			case "inputRouteClaim":
+				void this.controls.claim(session, client.value);
+				return;
+			case "transportProbe":
+				this.controls.probe(session, client.value);
 				return;
 			case undefined:
 				return;
 		}
 	}
 
-	onClose(socket: LocalTerminalSocket): void {
-		const session = this.sockets.get(socket.socketId);
+	onClose(port: TerminalPacketPort): void {
+		const session = this.ports.get(port.socketId);
 		if (!session) return;
-		this.sockets.delete(socket.socketId);
-		if (session.grant) this.deps.viewOwner.closeSocket(socket.socketId);
+		this.preHello.retire(port.socketId);
+		this.ports.delete(port.socketId);
+		this.controls.retirePort(port.socketId);
+		this.deps.inputRouteOwner.retireConnection(port.socketId);
+		if (session.grantId) this.deps.viewOwner.closeSocket(port.socketId);
 	}
 
-	/** The coordinator revoked this device's key: its grants are already gone,
-	 * and a socket holding one must not outlive them. */
 	revokeDevice(deviceFingerprint: string): void {
+		this.deps.inputRouteOwner.revokeDevice(deviceFingerprint);
 		this.deps.grants.revokeDevice(deviceFingerprint);
-		for (const session of [...this.sockets.values()]) {
-			if (session.grant?.deviceFingerprint !== deviceFingerprint) continue;
-			this.close(session, "local terminal grant revoked");
-		}
 	}
 
-	private accept(session: LocalTerminalSession, hello: LocalTerminalHello): void {
-		if (session.grant) {
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.unsubscribeGrantChanges();
+		for (const session of [...this.ports.values()]) {
+			this.close(session, "local terminal worker is stopping");
+		}
+		this.preHello.dispose();
+	}
+
+	private registerPort(port: TerminalPacketPort, expectedPeer: TerminalPeerExpectedTuple | null): void {
+		if (this.disposed || this.ports.has(port.socketId)) {
+			port.close(1008, "local terminal port unavailable");
+			return;
+		}
+		if (!expectedPeer && !this.preHello.admit(port.socketId)) {
+			port.close(1008, "local terminal pre-hello capacity reached");
+			return;
+		}
+		this.ports.set(port.socketId, {
+			port,
+			expectedPeer,
+			generation: 0n,
+			grantId: null,
+			deviceFingerprint: null,
+			tabId: null,
+			closing: false,
+		});
+	}
+
+	private accept(session: LocalTerminalPortSession, hello: LocalTerminalHello): void {
+		if (session.grantId) {
 			this.close(session, "duplicate hello");
+			return;
+		}
+		if (!this.matchesExpectedPeer(session, hello)) {
+			this.close(session, session.expectedPeer
+				? "peer hello does not match offer"
+				: "loopback hello must not include peer identity");
 			return;
 		}
 		const verdict = this.deps.grants.verify({
@@ -148,7 +248,7 @@ export class LocalTerminalSockets implements LocalTerminalSocketHandlers {
 		});
 		if (!verdict.ok) {
 			log.warn("local-terminal", "hello_refused", {
-				socket_id: session.socket.socketId,
+				socket_id: session.port.socketId,
 				grant_id: hello.grantId,
 				reason: verdict.reason,
 			});
@@ -156,39 +256,75 @@ export class LocalTerminalSockets implements LocalTerminalSocketHandlers {
 			return;
 		}
 		const grant = verdict.grant;
+		if (session.expectedPeer && grant.workerEpoch !== session.expectedPeer.workerEpoch) {
+			this.close(session, "peer grant is unavailable");
+			return;
+		}
+		if (!session.expectedPeer && grant.workerEpoch !== "" && grant.workerEpoch !== this.deps.workerEpoch) {
+			this.close(session, "local terminal worker epoch changed");
+			return;
+		}
+		if (!session.expectedPeer) {
+			const admission = this.preHello.authenticate(grant.grantId, session.port.socketId);
+			if (!admission.admitted) {
+				this.close(session, "local terminal authenticated capacity reached");
+				return;
+			}
+			const replaced = admission.replacedSocketId
+				? this.ports.get(admission.replacedSocketId)
+				: null;
+			if (replaced) this.close(replaced, "local terminal grant connection replaced");
+		}
 		this.generations += 1n;
 		session.generation = this.generations;
-		session.grant = grant;
-		this.send(session, {
+		session.grantId = grant.grantId;
+		session.deviceFingerprint = grant.deviceFingerprint;
+		session.tabId = grant.tabId;
+		if (session.expectedPeer) (session.port as PeerTerminalPacketPort).markAuthenticated();
+		if (!this.sendControl(session, {
 			case: "ready",
 			value: create(LocalTerminalReadySchema, {
 				workerFingerprint: this.deps.workerFingerprint,
 				sessionIds: [...grant.sessionIds],
 				socketGeneration: session.generation,
+				workerEpoch: this.deps.workerEpoch,
+				socketId: session.port.socketId,
+				peerId: session.expectedPeer?.peerId ?? "",
 			}),
+		})) return;
+		this.deps.viewOwner.registerLocalSocket({
+			socketId: session.port.socketId,
+			deviceFingerprint: grant.deviceFingerprint,
+			tabId: grant.tabId,
+			allowsSession: (sessionId) => this.isSessionAuthorized(session, sessionId),
+			transport: this.transport(session),
 		});
 		log.info("local-terminal", "hello_accepted", {
-			socket_id: session.socket.socketId,
+			socket_id: session.port.socketId,
 			grant_id: grant.grantId,
 			device_fingerprint: grant.deviceFingerprint,
 			tab_id: grant.tabId,
 			socket_generation: session.generation.toString(),
 			sessions: grant.sessionIds.length,
-		});
-		this.deps.viewOwner.registerLocalSocket({
-			socketId: session.socket.socketId,
-			deviceFingerprint: grant.deviceFingerprint,
-			tabId: grant.tabId,
-			allowsSession: (sessionId) => grant.sessionIds.includes(sessionId),
-			transport: this.transport(session),
+			kind: session.port.kind,
 		});
 	}
 
-	private transport(session: LocalTerminalSession): LocalViewTransport {
+	private matchesExpectedPeer(session: LocalTerminalPortSession, hello: LocalTerminalHello): boolean {
+		const expectedPeer = session.expectedPeer;
+		if (!expectedPeer) return hello.peerId === "" && hello.workerEpoch === "";
+		return hello.peerId === expectedPeer.peerId
+			&& hello.grantId === expectedPeer.grantId
+			&& hello.deviceFingerprint === expectedPeer.deviceFingerprint
+			&& hello.tabId === expectedPeer.tabId
+			&& hello.workerEpoch === expectedPeer.workerEpoch;
+	}
+
+	private transport(session: LocalTerminalPortSession): LocalViewTransport {
 		return {
 			kind: "local",
 			sendViewState: (frame) => {
-				this.send(session, { case: "terminalViewState", value: frame });
+				this.sendFrame(session, { case: "terminalViewState", value: frame }, "terminal", true);
 			},
 			sendCellFrame: (frame) => this.sendCells(session, { case: "cellGrid", value: frame }),
 			sendCellChunk: (chunk) => this.sendCells(session, { case: "cellGridChunk", value: chunk }),
@@ -196,161 +332,68 @@ export class LocalTerminalSockets implements LocalTerminalSocketHandlers {
 			onViewExpired: () => { this.close(session, "terminal view lease expired"); },
 		};
 	}
-
-	private async write(session: LocalTerminalSession, command: InputCommand): Promise<void> {
-		const grant = session.grant;
-		if (!grant) return;
-		const sessionId = command.sessionId;
-		if (!grant.sessionIds.includes(sessionId)) {
-			this.sendInputResult(session, command, {
-				status: "rejected",
-				writtenBytes: 0,
-				reason: "terminal session is unavailable",
-			});
-			return;
-		}
-		if (command.data.byteLength === 0) {
-			this.sendInputResult(session, command, { status: "accepted", writtenBytes: 0 });
-			return;
-		}
-		// The keeper refuses a larger payload outright, so the door refuses it
-		// with a provable pre-write result instead of a silent drop.
-		if (command.data.byteLength > KEEPER_MAX_INPUT_BYTES) {
-			this.sendInputResult(session, command, {
-				status: "rejected",
-				writtenBytes: 0,
-				reason: "input exceeds 64 KiB",
-			});
-			return;
-		}
-		// A protobuf bytes field views the socket's receive buffer, which is
-		// recycled on the next read; the keeper admission lane outlives this turn,
-		// so ownership must transfer before the write is queued.
-		const owned = command.data.slice();
-		const result = await this.deps.sessions().writeTerminalInput(
-			sessionId,
-			command.inputSeq,
-			owned,
-			this.budget(session),
-		);
-		this.sendInputResult(session, command, result);
+	private isSessionAuthorized(session: LocalTerminalPortSession, sessionId: string): boolean {
+		return isDirectPortSessionAuthorized(this.authorizationDeps, session, sessionId);
 	}
 
-	private async serveScrollback(
-		session: LocalTerminalSession,
-		request: LocalScrollbackRequest,
-	): Promise<void> {
-		const grant = session.grant;
-		if (!grant) return;
-		const value = await readLocalScrollback(
-			this.deps.sessions(),
-			request,
-			(sessionId) => grant.sessionIds.includes(sessionId),
-		);
-		this.send(session, { case: "scrollback", value });
+	private sendControl(session: LocalTerminalPortSession, frame: LocalTerminalServerFrame["frame"]): boolean {
+		return this.sendFrame(session, frame, "control", true) !== "refused";
 	}
 
-	/** The local socket is both the requester and the reply path, so a write
-	 * stays current exactly while this socket generation is the live one. */
-	private budget(session: LocalTerminalSession): TerminalRequestBudget {
-		const startedAtMono = monoNowMs();
-		const generation = session.generation;
-		return {
-			remainingMs: () => TERMINAL_REQUEST_BUDGET_CAP_MS - (monoNowMs() - startedAtMono),
-			isCurrentConnection: () =>
-				session.socket.open
-				&& this.sockets.get(session.socket.socketId)?.generation === generation,
-		};
-	}
-
-	private sendInputResult(
-		session: LocalTerminalSession,
-		command: InputCommand,
-		result: WorkerInputResult,
-	): void {
-		const common = {
-			sessionId: command.sessionId,
-			inputSeq: command.inputSeq,
-			domainGeneration: session.generation,
-		};
-		if (result.status === "accepted") {
-			this.send(session, {
-				case: "inputAccepted",
-				value: create(InputAcceptedSchema, { ...common, writtenBytes: result.writtenBytes }),
-			});
-			return;
-		}
-		if (result.status === "rejected") {
-			this.send(session, {
-				case: "inputRejected",
-				value: create(InputRejectedSchema, { ...common, reason: result.reason }),
-			});
-			return;
-		}
-		this.send(session, {
-			case: "inputAmbiguous",
-			value: create(InputAmbiguousSchema, {
-				...common,
-				writtenBytes: result.writtenBytes,
-				reason: result.reason,
-			}),
-		});
-	}
-
-	private send(session: LocalTerminalSession, frame: LocalTerminalServerFrame["frame"]): void {
-		const bytes = this.encode(session, frame);
-		if (bytes) session.socket.send(bytes);
-	}
-
-	/** Cells answer the sink contract: "sent" once the socket owns the bytes,
-	 * "overflow" once it has stopped draining, so the registry drops this sink
-	 * alone instead of growing an unbounded local queue. */
 	private sendCells(
-		session: LocalTerminalSession,
+		session: LocalTerminalPortSession,
 		frame: LocalTerminalServerFrame["frame"],
-	): "sent" | "dropped" | "overflow" {
-		const bytes = this.encode(session, frame);
-		if (!bytes) return "dropped";
-		if (!session.socket.open) return "overflow";
-		const written = session.socket.send(bytes);
-		if (written > 0) {
-			session.backpressuredBytes = 0;
-			return "sent";
-		}
-		if (written < 0) {
-			session.backpressuredBytes += bytes.byteLength;
-			return session.backpressuredBytes > MAX_BACKPRESSURE_BYTES ? "overflow" : "sent";
-		}
-		return "dropped";
+	): "sent" | "overflow" {
+		return localTerminalCellDelivery(
+			this.sendFrame(session, frame, "terminal", false),
+			() => { this.close(session, "local delivery overflow"); },
+		);
 	}
 
-	private encode(
-		session: LocalTerminalSession,
+	private sendFrame(
+		session: LocalTerminalPortSession,
 		frame: LocalTerminalServerFrame["frame"],
-	): Uint8Array | null {
-		try {
-			return toBinary(LocalTerminalServerFrameSchema, create(LocalTerminalServerFrameSchema, { frame }));
-		} catch (error) {
-			log.warn("local-terminal", "frame_encode_failed", {
-				socket_id: session.socket.socketId,
-				kind: frame.case ?? "unset",
-				error: error instanceof Error ? error.message : String(error),
-			});
-			return null;
-		}
+		lane: "control" | "terminal" | "history",
+		closeOnRefusal: boolean,
+	) {
+		return sendLocalTerminalFrame(
+			session.port,
+			frame,
+			lane,
+			closeOnRefusal ? (reason) => { this.close(session, reason); } : undefined,
+		);
 	}
 
-	private close(session: LocalTerminalSession, reason: string): void {
+	private close(session: LocalTerminalPortSession, reason: string): void {
 		if (session.closing) return;
 		session.closing = true;
 		log.info("local-terminal", "socket_closing", {
-			socket_id: session.socket.socketId,
+			socket_id: session.port.socketId,
 			reason,
 		});
-		this.send(session, {
+		this.sendFrame(session, {
 			case: "closed",
 			value: create(LocalTerminalClosedSchema, { reason }),
-		});
-		session.socket.close(1000, reason);
+		}, "control", false);
+		this.onClose(session.port);
+		session.port.close(1000, reason);
+	}
+
+	private onGrantChange(change: LocalTerminalGrantChange): void {
+		if (change.kind === "removed") {
+			const reason = change.reason === "expired"
+				? "local terminal grant expired"
+				: "local terminal grant revoked";
+			for (const session of [...this.ports.values()]) {
+				if (session.grantId === change.grant.grantId) this.close(session, reason);
+			}
+			return;
+		}
+		if (change.kind === "installed" || change.removedSessionIds.length === 0) return;
+		for (const session of [...this.ports.values()]) {
+			if (session.grantId === change.grant.grantId) {
+				this.close(session, "local terminal grant scope reduced");
+			}
+		}
 	}
 }

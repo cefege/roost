@@ -1,5 +1,13 @@
 import { availableParallelism } from "node:os";
 import { defineConfig, devices } from "@playwright/test";
+const firefoxPeerProjects = process.platform === "darwin" || process.platform === "linux"
+  ? [{
+    name: "firefox-peer",
+    testMatch: ["**/terminal-peer.spec.ts", "**/terminal-peer-failover.spec.ts"],
+    fullyParallel: false,
+    use: { ...devices["Desktop Firefox"], userAgent: undefined },
+  }]
+  : [];
 
 export default defineConfig({
   testDir: "smoke/terminal",
@@ -49,12 +57,10 @@ export default defineConfig({
   // project, so the skip — not this list — is what keeps them honest. Gating
   // here rather than via a CI --project flag keeps `bun run test:terminal`
   // correct on a Linux dev box too.
-  // Two passes, run back to back by `roost test terminal`. Correctness cases
-  // fan out across workers; anything tagged @serial (the perf/latency cases)
-  // runs afterwards with --workers=1 on an otherwise idle box, because a
-  // throughput or paint-latency number measured against three other stacks is
-  // not a measurement. Keeping the split here rather than in the runner means a
-  // bare `bunx playwright test` is still correct: it just runs both projects.
+  // Chromium correctness and serial performance remain separate passes; Firefox
+  // runs only the peer correctness specs. Keeping the split here rather than in
+  // the runner means a bare `bunx playwright test` keeps every selected project
+  // honest while serial measurements stay isolated.
   // The `tv` project drives a 1920×1080 pointerless viewport with TV mode
   // forced on. Its name deliberately does NOT start with "chromium": ~20 specs
   // open with test.skip(!project.name.startsWith("chromium"), …) and would all
@@ -63,11 +69,13 @@ export default defineConfig({
     ? [
       { name: "chromium-desktop", grepInvert: /@serial|@tv/, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
       { name: "webkit-iphone", grepInvert: /@serial|@tv/, use: { ...devices["iPhone 15"] } },
+      ...firefoxPeerProjects,
       { name: "chromium-serial", grep: /@serial/, fullyParallel: false, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
       { name: "tv", grep: /@tv/, use: { ...devices["Desktop Chrome"], userAgent: undefined, viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1, hasTouch: false, isMobile: false } },
     ]
     : [
       { name: "chromium-desktop", grepInvert: /@serial|@tv/, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
+      ...firefoxPeerProjects,
       { name: "chromium-serial", grep: /@serial/, fullyParallel: false, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
       { name: "tv", grep: /@tv/, use: { ...devices["Desktop Chrome"], userAgent: undefined, viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1, hasTouch: false, isMobile: false } },
     ],

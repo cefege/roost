@@ -1,12 +1,20 @@
-// Generation-aware terminal input transport for Sync, and the single routing
-// point that hands a session's input to the local worker socket instead. View
-// membership and screen continuity live in store/terminal-stream.ts; queue
-// caps, correlations and timeouts live in ws/terminal-input-lanes.ts. This
-// module owns only the Sync fence and the Sync wire send.
+// Sync input adapter and public terminal input entry point. The document router
+// owns queueing, holds, route epochs, and outcome fences; this module only
+// selects the elected direct route or encodes the current Sync command. A
+// terminal-domain reset is not an input fence: only socket replacement retires
+// started Sync input.
 
-import { diag, signal } from "@roost/shared/diag";
-import { getSessionTraceId } from "../lib/diag.ts";
-import { localTerminalTransport } from "../store/terminal-stream-transport.ts";
+import type {
+  TerminalInputRouteClaim,
+  TerminalInputRouteResult,
+} from "@roost/shared/proto/sync_pb";
+import {
+  terminalDirectRegistry,
+  type TerminalDirectConnection,
+} from "../store/terminal-stream-transport.ts";
+import { currentTerminalGrant, resetTerminalGrants } from "./local-terminal-grants.ts";
+import { rootStore } from "../store/root.ts";
+import type { TerminalGenerationToken } from "../store/terminal-stream-types.ts";
 import {
   currentSyncV2TerminalState,
   registerSyncV2ControlHandler,
@@ -16,192 +24,249 @@ import {
   type SyncV2TerminalState,
 } from "../store/sync.ts";
 import { _resetSmokeOutboundForTest } from "./sync-outbound-smoke.ts";
+import { resetSyncTerminalControlProbes } from "./sync-terminal-control-probe.ts";
+import type { InputAdmission } from "./terminal-input-lanes.ts";
 import {
-  createTerminalInputLanes,
-  resetTerminalInputLanes,
-  type InputAdmission,
-  type InputOutcome,
-  type PendingTerminalInput,
-} from "./terminal-input-lanes.ts";
+  admitTerminalInput,
+  claimTerminalInputRoute,
+  holdTerminalInput,
+  refreshTerminalInputDestination,
+  resetTerminalInputRouter,
+  retireTerminalInputConnection,
+  settleTerminalInput,
+  terminalInputPhase,
+  type TerminalInputDestination,
+} from "./terminal-input-router.ts";
 
-export { setSmokeTerminalInputObserver } from "./sync-outbound-smoke.ts";
-export type { SmokeTerminalInputObserver } from "./sync-outbound-smoke.ts";
+export {
+  setSmokeTerminalInputObserver,
+  setSmokeTerminalInputOutcomeObserver,
+} from "./sync-outbound-smoke.ts";
+export type {
+  SmokeTerminalInputObserver,
+  SmokeTerminalInputOutcomeObserver,
+} from "./sync-outbound-smoke.ts";
 
 type TerminalState = SyncV2TerminalState;
-type ResultControl = SyncV2Control;
 type OutboundCommand = Parameters<typeof sendSyncV2Command>[0];
 
-/** The Sync socket and terminal domain generation a batch was admitted under. */
-interface SyncInputFence {
-  socketId: string;
-  domainGeneration: bigint;
+interface SyncRouteContext {
+  readonly workerEpoch: string;
+  readonly inputRouteSupported: boolean;
 }
 
-type SyncPendingInput = PendingTerminalInput<SyncInputFence>;
+interface SyncClaimWaiter {
+  readonly socketId: string;
+  readonly processEpoch: string;
+  resolve(result: TerminalInputRouteResult): void;
+  reject(error: Error): void;
+  timer: ReturnType<typeof setTimeout>;
+}
 
-const lanes = createTerminalInputLanes<SyncInputFence>();
-let observedSocketId: string | null = null;
-let observedDomainGeneration: bigint | null = null;
+const syncClaimWaiters = new Map<string, SyncClaimWaiter>();
+let observedSyncToken: TerminalGenerationToken | null = null;
 
 function command(value: unknown): OutboundCommand {
   return value as OutboundCommand;
 }
 
-function trySendInput(
-  pending: SyncPendingInput,
-  state = currentSyncV2TerminalState(),
-): void {
-  if (pending.started || !state?.ready) return;
-  if (
-    state.socketId !== pending.fence.socketId
-    || state.domainGeneration !== pending.fence.domainGeneration
-  ) {
-    lanes.finish(pending, {
-      status: "rejected",
-      inputSeq: pending.inputSeq,
-      writtenBytes: 0,
-      reason: "Sync generation closed before input was sent",
-    });
-    return;
+function syncToken(state: TerminalState, domainGeneration = state.domainGeneration): TerminalGenerationToken {
+  return {
+    socketGeneration: state.socketGeneration,
+    socketId: state.socketId,
+    processEpoch: state.processEpoch,
+    domainGeneration,
+    transportKind: "sync",
+    workerFp: null,
+  };
+}
+
+function sameSyncConnection(left: TerminalGenerationToken, right: TerminalGenerationToken): boolean {
+  return left.socketGeneration === right.socketGeneration
+    && left.socketId === right.socketId
+    && left.processEpoch === right.processEpoch;
+}
+
+function rejectSyncClaims(reason: string, token?: TerminalGenerationToken): void {
+  for (const [requestId, waiter] of syncClaimWaiters) {
+    if (
+      token
+      && (waiter.socketId !== token.socketId || waiter.processEpoch !== token.processEpoch)
+    ) continue;
+    syncClaimWaiters.delete(requestId);
+    clearTimeout(waiter.timer);
+    waiter.reject(new Error(reason));
   }
-  const sent = sendSyncV2Command(command({
-    case: "input",
-    value: {
-      sessionId: pending.sessionId,
-      inputSeq: pending.inputSeq,
-      data: pending.bytes,
-      domainGeneration: pending.fence.domainGeneration,
-      ...(pending.viewId === undefined ? {} : { viewId: pending.viewId }),
+}
+
+function claimSyncInputRoute(
+  state: TerminalState,
+  routeClaim: TerminalInputRouteClaim,
+): Promise<TerminalInputRouteResult> {
+  const current = currentSyncV2TerminalState();
+  if (
+    !current?.ready
+    || current.socketId !== state.socketId
+    || current.processEpoch !== state.processEpoch
+    || current.domainGeneration !== state.domainGeneration
+  ) return Promise.reject(new Error("terminal Sync is not connected"));
+  const { promise, resolve, reject } = Promise.withResolvers<TerminalInputRouteResult>();
+  const timer = setTimeout(() => {
+    syncClaimWaiters.delete(routeClaim.requestId);
+    reject(new Error("terminal input route claim timed out"));
+  }, 8_000);
+  syncClaimWaiters.set(routeClaim.requestId, {
+    socketId: state.socketId,
+    processEpoch: state.processEpoch,
+    resolve,
+    reject,
+    timer,
+  });
+  if (sendSyncV2Command(command({ case: "inputRouteClaim", value: routeClaim }))) return promise;
+  syncClaimWaiters.delete(routeClaim.requestId);
+  clearTimeout(timer);
+  reject(new Error("terminal Sync did not accept the input route claim"));
+  return promise;
+}
+
+function syncInputDestination(
+  state: TerminalState,
+  route: SyncRouteContext = { workerEpoch: state.processEpoch, inputRouteSupported: false },
+): TerminalInputDestination {
+  const routeSupported = route.inputRouteSupported;
+  return {
+    token: syncToken(state),
+    workerEpoch: route.workerEpoch,
+    inputRouteSupported: routeSupported,
+    sendInput(input): "accepted" | "queued" | "refused" {
+      const current = currentSyncV2TerminalState();
+      if (
+        !current
+        || current.socketId !== state.socketId
+        || current.processEpoch !== state.processEpoch
+        || current.domainGeneration !== state.domainGeneration
+      ) return "refused";
+      if (!current.ready) return "queued";
+      return sendSyncV2Command(command({ case: "input", value: input }))
+        ? "accepted"
+        : "refused";
     },
-  }));
-  if (!sent) {
-    lanes.finish(pending, {
-      status: "rejected",
-      inputSeq: pending.inputSeq,
-      writtenBytes: 0,
-      reason: "Sync input command was not admitted",
-    });
-    return;
-  }
-  lanes.markStarted(pending);
-  diag("bytes.up_send", {
-    sid: pending.sessionId,
-    session_trace_id: getSessionTraceId(pending.sessionId),
-    dir: "up",
-    len: pending.bytes.byteLength,
-    input_seq: pending.inputSeq,
-    view_id: pending.viewId,
-  });
+    ...(routeSupported ? {
+      claimInputRoute: (routeClaim: TerminalInputRouteClaim) => claimSyncInputRoute(state, routeClaim),
+    } : {}),
+  };
 }
 
-function handleControl(control: ResultControl, state: TerminalState): void {
+export function terminalInputDestinationForDirectConnection(
+  connection: TerminalDirectConnection,
+  allowUnqualified = false,
+): TerminalInputDestination | null {
+  const token = connection.token();
+  if (!token) return null;
   if (
-    control.case !== "inputAccepted"
-    && control.case !== "inputRejected"
-    && control.case !== "inputAmbiguous"
-  ) return;
-  const value = control.value;
-  const pending = lanes.find(value.sessionId, value.inputSeq);
-  if (
-    !pending
-    || !pending.started
-    || pending.fence.socketId !== state.socketId
-    || pending.fence.domainGeneration !== value.domainGeneration
-  ) return;
+    connection.kind === "webrtc"
+    && !allowUnqualified
+    && connection.telemetry?.().livenessQualified !== true
+  ) return null;
+  return {
+    token,
+    workerEpoch: connection.workerEpoch,
+    inputRouteSupported: connection.inputRouteSupported,
+    sendInput: (input) => connection.sendInput(input),
+    ...(connection.inputRouteSupported ? {
+      claimInputRoute: (routeClaim: TerminalInputRouteClaim) => connection.claimInputRoute(routeClaim),
+    } : {}),
+    close: (reason) => connection.close(reason),
+  };
+}
 
-  if (control.case === "inputAccepted") {
-    const accepted = control.value;
-    if (accepted.writtenBytes === pending.bytes.byteLength) {
-      lanes.finish(pending, {
-        status: "accepted",
-        inputSeq: pending.inputSeq,
-        writtenBytes: accepted.writtenBytes,
+export function terminalInputDestinationForSession(sessionId: string): TerminalInputDestination | null {
+  const direct = terminalDirectRegistry.activeForSession(sessionId);
+  if (direct) return terminalInputDestinationForDirectConnection(direct);
+  const state = currentSyncV2TerminalState();
+  if (!state) return null;
+  const workerFp = rootStore.sessions[sessionId]?.worker_fp;
+  const grant = workerFp ? currentTerminalGrant(workerFp) : null;
+  return syncInputDestination(state, {
+    workerEpoch: grant?.workerEpoch || state.processEpoch,
+    inputRouteSupported: grant?.inputRouteSupported === true && !!grant.workerEpoch,
+  });
+}
+function handleControl(control: SyncV2Control, state: TerminalState): void {
+  if (control.case === "inputRouteResult") {
+    const waiter = syncClaimWaiters.get(control.value.requestId);
+    if (
+      !waiter
+      || waiter.socketId !== state.socketId
+      || waiter.processEpoch !== state.processEpoch
+    ) return;
+    syncClaimWaiters.delete(control.value.requestId);
+    clearTimeout(waiter.timer);
+    waiter.resolve(control.value);
+    return;
+  }
+  switch (control.case) {
+    case "inputAccepted": {
+      const value = control.value;
+      settleTerminalInput(syncToken(state, value.domainGeneration), {
+        sessionId: value.sessionId, inputSeq: value.inputSeq, status: "accepted", writtenBytes: value.writtenBytes,
       });
-    } else {
-      lanes.finish(pending, {
-        status: "ambiguous",
-        inputSeq: pending.inputSeq,
-        writtenBytes: accepted.writtenBytes,
-        reason: "coordinator accepted an incomplete input batch",
-      });
+      return;
     }
-    return;
+    case "inputRejected": {
+      const value = control.value;
+      settleTerminalInput(syncToken(state, value.domainGeneration), {
+        sessionId: value.sessionId, inputSeq: value.inputSeq, status: "rejected", reason: value.reason,
+      });
+      return;
+    }
+    case "inputAmbiguous": {
+      const value = control.value;
+      settleTerminalInput(syncToken(state, value.domainGeneration), {
+        sessionId: value.sessionId, inputSeq: value.inputSeq, status: "ambiguous",
+        writtenBytes: value.writtenBytes, reason: value.reason,
+      });
+      return;
+    }
+    default:
+      return;
   }
-  if (control.case === "inputRejected") {
-    lanes.finish(pending, {
-      status: "rejected",
-      inputSeq: pending.inputSeq,
-      writtenBytes: 0,
-      reason: control.value.reason,
-    });
-    return;
-  }
-  lanes.finish(pending, {
-    status: "ambiguous",
-    inputSeq: pending.inputSeq,
-    writtenBytes: control.value.writtenBytes,
-    reason: control.value.reason,
-  });
 }
 
+/** Refreshes only unsent input at a terminal-domain change. Started input stays
+ * correlated to its original domain until control reports its real outcome. */
 export function handleGeneration(state: TerminalState | null): void {
-  const changed = !state
-    || state.socketId !== observedSocketId
-    || state.domainGeneration !== observedDomainGeneration;
-  if (changed) {
-    const closingSocket = observedSocketId;
-    const closingDomain = observedDomainGeneration;
-    const socketChanged = !state || state.socketId !== observedSocketId;
-    for (const pending of lanes.pending()) {
-      if (closingSocket !== null && pending.fence.socketId !== closingSocket) continue;
-      if (socketChanged) {
-        const outcome: InputOutcome = pending.started
-          ? {
-              status: "ambiguous",
-              inputSeq: pending.inputSeq,
-              writtenBytes: 0,
-              reason: "Sync closed after input was sent; the batch will not be retried",
-            }
-          : {
-              status: "rejected",
-              inputSeq: pending.inputSeq,
-              writtenBytes: 0,
-              reason: "Sync closed before input was sent",
-            };
-        lanes.finish(pending, outcome);
-        signal("input.drop_burst", {
-          sid: pending.sessionId,
-          reason: outcome.status === "ambiguous"
-            ? "generation_ambiguous"
-            : "generation_closed",
-          cooldownKey: pending.sessionId,
-        });
-        continue;
-      }
-      // A domain reset keeps the socket, and input results ride the control
-      // lane no reset touches: a started batch is still awaiting its result.
-      if (pending.started || pending.fence.domainGeneration !== closingDomain) continue;
-      lanes.finish(pending, {
-        status: "rejected",
-        inputSeq: pending.inputSeq,
-        writtenBytes: 0,
-        reason: "Sync generation closed before input was sent",
-      });
-      signal("input.drop_burst", {
-        sid: pending.sessionId,
-        reason: "generation_closed",
-        cooldownKey: pending.sessionId,
-      });
-    }
-    observedSocketId = state?.socketId ?? null;
-    observedDomainGeneration = state?.domainGeneration ?? null;
-    // A surviving pending must never share an inputSeq with a new batch;
-    // (sessionId, inputSeq) is the only result correlation.
-    if (socketChanged) lanes.resetSequence();
+  const current = state ? syncInputDestination(state) : null;
+  const currentToken = current?.token ?? null;
+  if (
+    observedSyncToken
+    && (!currentToken || !sameSyncConnection(observedSyncToken, currentToken))
+  ) {
+    retireTerminalInputConnection(observedSyncToken, "Sync closed");
+    rejectSyncClaims("terminal Sync closed", observedSyncToken);
   }
+  if (current) refreshTerminalInputDestination(current);
+  observedSyncToken = currentToken;
+  if (state?.ready) void reclaimBlockedSyncInputs();
+}
 
-  if (!state?.ready) return;
-  for (const pending of lanes.pending()) trySendInput(pending, state);
+async function reclaimBlockedSyncInputs(): Promise<void> {
+  for (const sessionId of Object.keys(rootStore.sessions)) {
+    if (terminalInputPhase(sessionId) !== "blocked") continue;
+    const destination = terminalInputDestinationForSession(sessionId);
+    if (!destination || destination.token.transportKind !== "sync") continue;
+    const release = holdTerminalInput(sessionId);
+    if (!destination.inputRouteSupported) {
+      release(destination);
+      continue;
+    }
+    try {
+      const claimed = await claimTerminalInputRoute(sessionId, destination);
+      if (claimed.accepted) release(destination);
+    } catch {
+      release();
+    }
+  }
 }
 
 queueMicrotask(() => {
@@ -209,41 +274,25 @@ queueMicrotask(() => {
   registerSyncV2GenerationHandler(handleGeneration);
 });
 
-/** Admit one complete PTY input batch on the transport that owns the session.
- * `viewId` is attribution only; callers without a mounted browser view
- * intentionally omit it. */
+/** Admit one complete PTY input batch on the elected direct route or Sync.
+ * `viewId` is attribution only; callers without a mounted view omit it. */
 export function sendTerminalInput(
   sessionId: string,
   bytes: Uint8Array,
   viewId?: string,
 ): InputAdmission {
-  const local = localTerminalTransport();
-  if (local?.ownsSession(sessionId)) return local.sendInput(sessionId, bytes, viewId);
-  const state = currentSyncV2TerminalState();
-  if (!state) return { accepted: false, reason: "terminal Sync is not connected" };
-  const refusal = lanes.refuse(sessionId, bytes.byteLength);
-  if (refusal) return { accepted: false, reason: refusal };
-  if (
-    observedSocketId !== state.socketId
-    || observedDomainGeneration !== state.domainGeneration
-  ) handleGeneration(state);
-  const admitted = lanes.enqueue(sessionId, bytes, viewId, {
-    socketId: state.socketId,
-    domainGeneration: state.domainGeneration,
-  });
-  trySendInput(admitted.pending, state);
-  return { accepted: true, inputSeq: admitted.inputSeq, result: admitted.result };
+  return admitTerminalInput(terminalInputDestinationForSession(sessionId), sessionId, bytes, viewId);
 }
 
-/** Reject every credential-bound input lane and drop the local fast path. A
- * credential boundary is a hard transport boundary: queued bytes must never be
- * replayed onto a newly accepted socket, and a grant minted for the retired
- * credential must not survive it. */
+/** Credential teardown never replays retained bytes onto a fresh authenticated
+ * transport and closes all credential-bound direct routes. */
 export function resetTerminalOutboundState(reason = "credential boundary"): void {
-  resetTerminalInputLanes(reason);
-  observedSocketId = null;
-  observedDomainGeneration = null;
-  localTerminalTransport()?.reset(reason);
+  resetTerminalInputRouter(reason);
+  rejectSyncClaims(reason);
+  resetSyncTerminalControlProbes(reason);
+  observedSyncToken = null;
+  resetTerminalGrants();
+  terminalDirectRegistry.reset(reason);
 }
 
 export function _resetTerminalOutboundForTest(): void {

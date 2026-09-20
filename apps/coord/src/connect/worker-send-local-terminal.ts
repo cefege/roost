@@ -1,9 +1,7 @@
-// Sends the two local-terminal authorization frames to the worker generation
-// currently authoritative in the shared registry: the acknowledged grant
-// install and the fire-and-forget device revocation.
-// Only a secret's SHA-256 digest ever reaches this module — the secret itself
-// stays in the coordinator's authenticated RPC response to the browser.
-// Called by connect/local-terminal-grants.ts, which owns the lease registry.
+// Sends direct-terminal authorization frames to one exact authenticated worker
+// generation. Grant callers await the worker ACK before returning a browser
+// secret; revocation and retirement remain synchronous best-effort controls.
+// This module receives only secret digests and never logs their values.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -11,15 +9,16 @@ import {
   CoordWorkerDownSchema,
   DLocalTerminalGrantSchema,
   DLocalTerminalGrantRevokeSchema,
+  DTerminalDirectRetireSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import {
   createPendingRpc,
   rejectPendingRpcUnavailable,
 } from "../router/pending-rpcs.ts";
+import type { TerminalDirectRetireReason } from "./terminal-grant-owner.ts";
+import type { WorkerHandle } from "./worker-registry.ts";
 import { currentRoutableWorker } from "./worker-send-target.ts";
 
-// A browser is blocked on this install, so the ack waits well inside the
-// browser's own RPC patience instead of the 30s pending-RPC default.
 const GRANT_ACK_TIMEOUT_MS = 10_000;
 
 export interface LocalTerminalGrantInstall {
@@ -31,17 +30,22 @@ export interface LocalTerminalGrantInstall {
   readonly ttlMs: number;
 }
 
-/** Install one grant and wait for the worker's WRpcOk/WRpcError. Transport
- * loss rejects this exact install, so the coordinator can never hand a browser
- * a secret for a grant the worker does not hold. */
+export interface PendingLocalTerminalGrantInstall {
+  readonly requestId: string;
+  readonly promise: Promise<unknown>;
+}
+
+/** Installs a grant only on the captured handle and worker boot epoch. */
 export function sendLocalTerminalGrantRequest(
-  workerFp: string,
+  worker: WorkerHandle,
+  workerEpoch: string | null,
   message: LocalTerminalGrantInstall,
   timeoutMs = GRANT_ACK_TIMEOUT_MS,
-): { requestId: string; promise: Promise<unknown> } {
-  const worker = currentRoutableWorker(workerFp);
-  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
-  const pending = createPendingRpc(timeoutMs, workerFp);
+): PendingLocalTerminalGrantInstall {
+  if (!isExactRoutableWorker(worker, workerEpoch)) {
+    throw new ConnectError("worker offline", Code.Unavailable);
+  }
+  const pending = createPendingRpc(timeoutMs, worker.workerFp);
   try {
     const sent = worker.send(create(CoordWorkerDownSchema, {
       frame: {
@@ -54,29 +58,23 @@ export function sendLocalTerminalGrantRequest(
           deviceFingerprint: message.deviceFingerprint,
           tabId: message.tabId,
           ttlMs: message.ttlMs,
+          workerEpoch: workerEpoch ?? "",
         }),
       },
     }));
     if (sent === 0) throw new Error("worker dropped the local terminal grant");
-  } catch (error) {
-    rejectPendingRpcUnavailable(
-      pending.request_id,
-      error instanceof Error ? error.message : String(error),
-      workerFp,
-    );
+  } catch {
+    rejectPendingRpcUnavailable(pending.request_id, "worker transport unavailable", worker.workerFp);
   }
   return { requestId: pending.request_id, promise: pending.promise };
 }
 
-/** Revocation is fire-and-forget: a consumed credential must not wait on the
- * worker whose reachability is exactly what is in doubt. Returns whether this
- * worker's transport admitted the frame. */
+/** Broadcast callers capture each worker before invoking this exact-handle send. */
 export function sendLocalTerminalGrantRevoke(
-  workerFp: string,
+  worker: WorkerHandle,
   deviceFingerprint: string,
 ): boolean {
-  const worker = currentRoutableWorker(workerFp);
-  if (!worker) return false;
+  if (!isExactRoutableWorker(worker, worker.processEpoch)) return false;
   try {
     return worker.send(create(CoordWorkerDownSchema, {
       frame: {
@@ -87,4 +85,28 @@ export function sendLocalTerminalGrantRevoke(
   } catch {
     return false;
   }
+}
+
+/** Retirement must be enqueued before the caller fences the captured worker handle. */
+export function sendTerminalDirectRetire(
+  worker: WorkerHandle,
+  workerEpoch: string,
+  reason: TerminalDirectRetireReason,
+): boolean {
+  if (!isExactRoutableWorker(worker, workerEpoch)) return false;
+  try {
+    return worker.send(create(CoordWorkerDownSchema, {
+      frame: {
+        case: "terminalDirectRetire",
+        value: create(DTerminalDirectRetireSchema, { workerEpoch, reason }),
+      },
+    })) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+function isExactRoutableWorker(worker: WorkerHandle, workerEpoch: string | null): boolean {
+  return worker.processEpoch === workerEpoch
+    && currentRoutableWorker(worker.workerFp) === worker;
 }

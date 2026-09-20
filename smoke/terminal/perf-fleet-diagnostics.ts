@@ -6,6 +6,13 @@ import { test } from "./fixtures.ts";
 import type { FleetPeer } from "./perf-fleet-peer-flood.ts";
 import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
 
+export interface FleetTransportCapture {
+  active_kind: "sync" | "loopback" | "webrtc" | null;
+  active_candidate_type: "host" | "srflx" | "prflx" | "none" | null;
+  active_worker_control_rtt_ms: number | null;
+  pending_input_count: number | null;
+}
+
 export interface FleetPresentationCapture {
   probe: TerminalStreamProbe | null;
   geometry: {
@@ -21,6 +28,7 @@ export interface FleetPresentationCapture {
       focusInPane: boolean;
     } | null;
   } | null;
+  transport: FleetTransportCapture | null;
   diagnosticError: string | null;
 }
 
@@ -37,6 +45,17 @@ type FleetReaderTrace = {
 type FleetReaderTraceWindow = Window & { __fleetReaderTrace?: FleetReaderTrace };
 
 const FLEET_READER_TRACE_CAPACITY = 512;
+
+function captureFleetTransport(probe: TerminalStreamProbe | null): FleetTransportCapture | null {
+  if (!probe) return null;
+  const route = probe.browser.route;
+  return {
+    active_kind: route.active?.kind ?? null,
+    active_candidate_type: route.active?.candidate_type ?? null,
+    active_worker_control_rtt_ms: route.active?.worker_control_rtt_ms ?? null,
+    pending_input_count: route.pending_input_count,
+  };
+}
 
 function diagnosticMessage(label: string, error: unknown): string {
   return `${label}: ${String(error)}`;
@@ -73,6 +92,7 @@ export async function captureFleetPresentation(peer: FleetPeer): Promise<FleetPr
   return {
     probe: probeResult.probe,
     geometry: geometryResult.geometry,
+    transport: captureFleetTransport(probeResult.probe),
     diagnosticError: [probeResult.error, geometryResult.error].filter((message): message is string => message !== null).join("; ") || null,
   };
 }
@@ -118,6 +138,7 @@ export async function installFleetReaderTrace(peers: readonly FleetPeer[]): Prom
         const smokeWindow = window as unknown as Pick<Window, never> & { __smoke: SmokeApi };
         const snapshot = smokeWindow.__smoke.terminalBrowserSnapshot(sessionId);
         const presentation = snapshot.presentation;
+        const route = snapshot.route;
         return presentation ? {
           reader_intent: presentation.reader_intent,
           reader_reason: presentation.reader_reason,
@@ -126,6 +147,12 @@ export async function installFleetReaderTrace(peers: readonly FleetPeer[]): Prom
           canonical: presentation.canonical,
           reconciled: presentation.reconciled,
           reconcile_block_reason: snapshot.reconcile_block_reason,
+          transport: {
+            kind: route.active?.kind ?? null,
+            candidate_type: route.active?.candidate_type ?? null,
+            worker_control_rtt_ms: route.active?.worker_control_rtt_ms ?? null,
+            pending_input_count: route.pending_input_count,
+          },
         } : null;
       };
       const paneForNode = (node: EventTarget | null) => {

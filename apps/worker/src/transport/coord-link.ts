@@ -29,7 +29,6 @@ import {
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { diag, signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
-import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
 import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
 import { createCoordLinkOutbox } from "./coord-link-outbox.ts";
 import { createCoordLinkReconnect } from "./coord-link-reconnect.ts";
@@ -41,7 +40,6 @@ import {
 import {
   STABLE_SESSION_MS,
   STALE_LINK_TIMEOUT_MS, STALE_CHECK_INTERVAL_MS,
-  TERMINAL_VIEW_OWNER_CAPABILITY,
 } from "./coord-link-constants.ts";
 import type {
   CoordLinkDeps, CoordLink, CoordLinkState,
@@ -207,7 +205,8 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
           frame: { case: "hello", value: create(WHelloSchema, {
             workerFp: deps.workerFp,
             version: deps.workerVersion,
-            capabilities: [TERMINAL_METADATA_CAPABILITY, TERMINAL_VIEW_OWNER_CAPABILITY],
+            capabilities: [...deps.capabilities],
+            processEpoch: deps.processEpoch,
           }) },
         }));
         if (!hello) throw new Error("hello encode failed");

@@ -7,7 +7,6 @@
 
 import { test, expect } from "./fixtures.ts";
 import { PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
-import { LOCAL_TERMINAL_PROCESS_EPOCH } from "../../apps/web/src/store/terminal-stream-transport.ts";
 import { startTerminalTestStack } from "./stack.ts";
 import { navigateToSmokeSession, spawnPtyFixtureSession } from "./terminal-helpers.ts";
 import {
@@ -50,20 +49,21 @@ test("coordinator-served page takes the direct path to a worker on its own machi
     await navigateToSmokeSession(page, sessionId);
     await waitForPainted(page, sessionId, PTY_FIXTURE_READY);
 
-    // The view decision and every accepted cell frame pass the SAME generation
-    // fence, so a local process epoch on the accepted frame means these cells
-    // arrived on the worker's socket rather than the coordinator's Sync tube.
+    // The accepted cell token and elected route agree after the direct
+    // baseline commits, proving this coordinator-origin page uses loopback.
     await expect.poll(
       () => readLocalTransportReading(page, sessionId),
       { timeout: 60_000, intervals: [100, 250, 500] },
     ).toMatchObject({
-      acceptedFrameEpoch: LOCAL_TERMINAL_PROCESS_EPOCH,
+      acceptedTransportKind: "loopback",
+      electedTransportKind: "loopback",
+      tokenMatchesElectedRoute: true,
       viewStatus: "accepted",
       baselineReady: true,
     });
     // The marker a user actually reads, now on a coordinator-origin page.
     await expect(page.getByTestId(`tab-${sessionId}`))
-      .toHaveAttribute("data-local-transport", "true");
+      .toHaveAttribute("data-terminal-transport", "loopback");
 
     // Keystrokes travel the same socket: arm the product's own paint proof
     // before the marker can exist, then type it from this page.

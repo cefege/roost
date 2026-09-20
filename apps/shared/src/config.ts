@@ -9,6 +9,7 @@ import {
   DEFAULT_WORKER_LOCAL_UI_ORIGIN,
 } from "./local-ui-door.ts";
 import { coordDataDir } from "./paths.ts";
+import { parseTerminalPeerStunUrls } from "./terminal-peer.ts";
 
 export {
   CoordConfig,
@@ -16,6 +17,12 @@ export {
   DEFAULT_WORKER_LOCAL_UI_BIND,
   DEFAULT_WORKER_LOCAL_UI_ORIGIN,
 };
+
+function parseTerminalPeerEnabled(value: string | undefined): boolean {
+  if (value === undefined || value === "1") return true;
+  if (value === "0") return false;
+  throw new Error("ROOST_TERMINAL_PEER_ENABLED must be exactly 0 or 1");
+}
 
 function normalizeHttpsOrigin(raw: string | undefined, envName: string): string | undefined {
   if (!raw) return undefined;
@@ -68,6 +75,8 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
     terminalMemoryBudgetBytes: env.ROOST_COORD_TERMINAL_MEMORY_BUDGET_BYTES
       ? Number(env.ROOST_COORD_TERMINAL_MEMORY_BUDGET_BYTES)
       : undefined,
+    terminalPeerEnabled: parseTerminalPeerEnabled(env.ROOST_TERMINAL_PEER_ENABLED),
+    terminalPeerStunUrls: parseTerminalPeerStunUrls(env.ROOST_TERMINAL_PEER_STUN_URLS),
   });
 
   // Trusting X-Forwarded-For makes the caller origin attacker-controlled unless every

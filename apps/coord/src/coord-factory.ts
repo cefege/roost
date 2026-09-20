@@ -35,6 +35,9 @@ import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "./connect/ui-state-owner.ts";
 import type { SelfHostedTenant } from "./self-hosted-tenant.ts";
 import { createCloudflareAccessGate } from "./cf-access.ts";
+import { TerminalGrantOwner } from "./connect/terminal-grant-owner.ts";
+import { TerminalPeerNegotiations } from "./connect/terminal-peer-negotiations.ts";
+import { TerminalInputRouteResults } from "./connect/terminal-input-route-results.ts";
 
 export interface CoordHandlerContext {
   origin: CallerOrigin;
@@ -60,6 +63,12 @@ export interface CoordDeps {
   uiLayoutApplies?: UiLayoutApplyOwner;
   uiStates?: UiStateOwner;
   pendingPublications?: PendingEventPublicationStore;
+  /** Test/composition injection; the factory otherwise owns one grant registry. */
+  terminalGrants?: TerminalGrantOwner;
+  /** Test/composition injection; the factory otherwise owns one peer signal owner. */
+  terminalPeerNegotiations?: TerminalPeerNegotiations;
+  /** Test/composition injection; the factory otherwise owns typed route controls. */
+  terminalInputRouteResults?: TerminalInputRouteResults;
   /** Test observation point forwarded to the keeper-update handler. */
   _onKeeperUpdateFinalEmptyRecheck?: () => void;
   onKeyRevoked?: (fingerprint: string) => void;
@@ -76,16 +85,37 @@ export interface CoordHandle {
   fetch(req: Request, ctx?: CoordHandlerContext): Promise<Response>;
   /** Drop any in-process state. Per-runtime cleanup is the caller's job. */
   dispose(): void;
+  /** Factory-owned direct-terminal leases, used by process composition. */
+  terminalGrants: TerminalGrantOwner;
+  /** Factory-owned typed peer signaling, used by raw worker and Sync composition. */
+  terminalPeerNegotiations: TerminalPeerNegotiations;
+  /** Factory-owned typed route controls, shared by Sync and worker raw WebSockets. */
+  terminalInputRouteResults: TerminalInputRouteResults;
 }
 export function createCoord(deps: CoordDeps): CoordHandle {
+  const terminalGrants = deps.terminalGrants ?? new TerminalGrantOwner();
+  const terminalPeerNegotiations = deps.terminalPeerNegotiations ?? new TerminalPeerNegotiations({
+    db: deps.db,
+    cfg: deps.cfg,
+    terminalGrants,
+  });
+  const terminalInputRouteResults = deps.terminalInputRouteResults ?? new TerminalInputRouteResults();
   const uiLayoutApplies = deps.uiLayoutApplies ?? new UiLayoutApplyOwner();
   const uiStates = deps.uiStates ?? new UiStateOwner();
   const cfAccess = createCloudflareAccessGate(deps.cfg);
-  const connectRouter = buildConnectRouter({ ...deps, uiLayoutApplies, uiStates, cfAccess });
-  const connectHandler = makeConnectBunHandler(connectRouter);
 
   // Coordinator-retained terminal metadata arrives as semantic worker frames;
   // the compatibility adapter derives the same observations from old WBinary.
+  const connectRouter = buildConnectRouter({
+    ...deps,
+    terminalGrants,
+    terminalPeerNegotiations,
+    terminalInputRouteResults,
+    uiLayoutApplies,
+    uiStates,
+    cfAccess,
+  });
+  const connectHandler = makeConnectBunHandler(connectRouter);
   const stopTerminalMetadataAdapter = startTerminalMetadataAdapter();
   const stopTerminalTitleHub = startTerminalTitleHub();
   const stopLastActivityHub = startLastActivityHub();
@@ -177,6 +207,9 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   }
 
   function dispose(): void {
+    terminalPeerNegotiations.dispose();
+    terminalInputRouteResults.dispose();
+    terminalGrants.dispose();
     stopTerminalMetadataAdapter();
     stopTerminalTitleHub();
     stopLastActivityHub();
@@ -184,5 +217,11 @@ export function createCoord(deps: CoordDeps): CoordHandle {
     uiStates.dispose();
   }
 
-  return { fetch: fetchHandler, dispose };
+  return {
+    fetch: fetchHandler,
+    dispose,
+    terminalGrants,
+    terminalPeerNegotiations,
+    terminalInputRouteResults,
+  };
 }

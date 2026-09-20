@@ -48,6 +48,9 @@ describe("coordinator diagnostic worker fan-out", () => {
     let lateRequestId = "";
     const responding: WorkerHandle = {
       workerFp: RESPONDING_FP,
+      processEpoch: null,
+      connectionGeneration: "responding-test-connection",
+      capabilities: new Set(),
       revoked: false,
       ready: true,
       send(frame) {
@@ -59,6 +62,9 @@ describe("coordinator diagnostic worker fan-out", () => {
     };
     const timedOut: WorkerHandle = {
       workerFp: TIMED_OUT_FP,
+      processEpoch: null,
+      connectionGeneration: "timed-out-test-connection",
+      capabilities: new Set(),
       revoked: false,
       ready: true,
       send(frame) {

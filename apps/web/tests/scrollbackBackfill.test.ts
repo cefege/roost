@@ -15,6 +15,8 @@ const rpcCalls: ScrollRequest[] = [];
 let rpcImpl: (request: ScrollRequest) => Promise<ScrollResponse>;
 
 mock.module("../src/connect.ts", () => ({
+  coordinatorBaseUrl: () => "http://coord.test",
+  coordinatorRpcUrl: (path: string) => `http://coord.test${path}`,
   coordClient: {
     sessionsGetScrollbackCells(request: ScrollRequest) { rpcCalls.push(request); return rpcImpl(request); },
   },

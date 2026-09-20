@@ -64,6 +64,8 @@ beforeAll(async () => {
     corsAllowedOrigins: [],
     logDir: workdir,
     publicUrl: undefined,
+    terminalPeerEnabled: false,
+    terminalPeerStunUrls: [],
   };
   coord = createCoord({
     db,

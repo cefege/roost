@@ -1,7 +1,7 @@
 // WebSocket frame queueing for the delayed terminal worker-link fixture.
 // The link proxy feeds each direction's TCP bytes here after a successful HTTP upgrade.
-// An optional worker→coordinator filter decodes an owned payload copy only for an armed fault.
-// Accepted messages retain their original masked WebSocket bytes.
+// A worker filter and a downstream input hold inspect a payload only while their fault is armed.
+// Accepted messages retain their original WebSocket bytes and cannot overtake a held input.
 
 import { Buffer } from "node:buffer";
 import type { Socket } from "node:net";
@@ -10,6 +10,11 @@ import {
   CoordWorkerUpSchema,
   type CoordWorkerUp,
 } from "../../apps/shared/src/gen/roost/v1/worker_transport_pb.ts";
+import type {
+  DelayedInputHoldCapture,
+  DelayedInputHoldMatch,
+  DelayedWorkerInputHold,
+} from "./delayed-worker-input-hold.ts";
 
 const EMPTY_BUFFER: Buffer<ArrayBufferLike> = Buffer.alloc(0);
 const MAX_FRAME_BYTES = 4 * 1024 * 1024;
@@ -26,8 +31,14 @@ type FrameInspection = {
   fin: boolean;
   reservedBits: number;
 } | "incomplete" | "oversized";
-type QueuedFrame = { bytes: Buffer; dueAtMs: number };
+type QueuedFrame = {
+  bytes: Buffer;
+  dueAtMs: number;
+  held: boolean;
+  holdControls?: DelayedInputHoldCapture;
+};
 type FilterDisposition = "forward" | "drop" | "failed";
+type InputHoldDisposition = "forward" | "held" | "closed";
 
 export type WorkerFrameFilter = (frame: CoordWorkerUp) => boolean;
 
@@ -45,6 +56,7 @@ export class DelayedFrameStream {
   readonly #closePair: () => void;
   readonly #workerFrameFilter: WorkerFrameFilter | undefined;
   readonly #onFilterFailure: ((message: string) => void) | undefined;
+  readonly #downstreamInputHold: DelayedWorkerInputHold | undefined;
 
   constructor(
     destination: Socket,
@@ -52,12 +64,14 @@ export class DelayedFrameStream {
     closePair: () => void,
     workerFrameFilter?: WorkerFrameFilter,
     onFilterFailure?: (message: string) => void,
+    downstreamInputHold?: DelayedWorkerInputHold,
   ) {
     this.#destination = destination;
     this.#oneWayDelayMs = oneWayDelayMs;
     this.#closePair = closePair;
     this.#workerFrameFilter = workerFrameFilter;
     this.#onFilterFailure = onFilterFailure;
+    this.#downstreamInputHold = downstreamInputHold;
   }
 
   receive(chunk: Buffer): void {
@@ -87,6 +101,12 @@ export class DelayedFrameStream {
           continue;
         }
       }
+      const inputHoldDisposition = this.#tryHoldDownstreamInput(ownedFrame, inspection);
+      if (inputHoldDisposition === "closed") return;
+      if (inputHoldDisposition === "held") {
+        offset += inspection.frameBytes;
+        continue;
+      }
       if (!this.#enqueue(ownedFrame)) return;
       offset += inspection.frameBytes;
     }
@@ -106,6 +126,12 @@ export class DelayedFrameStream {
     clearTimeout(this.#timer);
     this.#timer = undefined;
     this.#pending = EMPTY_BUFFER;
+    const inputHold = this.#downstreamInputHold;
+    if (inputHold) {
+      for (const frame of this.#frames) {
+        if (frame.held && frame.holdControls) inputHold.abandonCapture(frame.holdControls);
+      }
+    }
     this.#frames = [];
     this.#queuedBytes = 0;
     this.#onDrained = undefined;
@@ -141,6 +167,26 @@ export class DelayedFrameStream {
     return "failed";
   }
 
+  #tryHoldDownstreamInput(
+    frame: Buffer,
+    inspection: Exclude<FrameInspection, string>,
+  ): InputHoldDisposition {
+    const hold = this.#downstreamInputHold;
+    if (
+      !hold?.armed
+      || inspection.opcode !== BINARY_OPCODE
+      || !inspection.fin
+      || inspection.reservedBits !== 0
+      || inspection.maskOffset !== null
+    ) return "forward";
+    const match = hold.match(frame.subarray(
+      inspection.payloadOffset,
+      inspection.payloadOffset + inspection.payloadBytes,
+    ));
+    if (match === null) return "forward";
+    return this.#enqueueHeld(frame, match) ? "held" : "closed";
+  }
+
   #holdPending(bytes: Buffer, alreadyOwned: boolean): void {
     const pending = alreadyOwned ? bytes : Buffer.from(bytes);
     if (pending.byteLength > MAX_DIRECTION_QUEUE_BYTES - this.#queuedBytes) {
@@ -156,14 +202,60 @@ export class DelayedFrameStream {
       return false;
     }
     this.#queuedBytes += ownedFrame.byteLength;
-    this.#frames.push({ bytes: ownedFrame, dueAtMs: Date.now() + this.#oneWayDelayMs });
+    this.#frames.push({
+      bytes: ownedFrame,
+      dueAtMs: Date.now() + this.#oneWayDelayMs,
+      held: false,
+    });
     this.#schedule();
     return true;
   }
 
+  #enqueueHeld(ownedFrame: Buffer, match: DelayedInputHoldMatch): boolean {
+    const hold = this.#downstreamInputHold;
+    if (!hold || ownedFrame.byteLength > MAX_DIRECTION_QUEUE_BYTES - this.#queuedBytes) {
+      this.#closePair();
+      return false;
+    }
+    const frame: QueuedFrame = { bytes: ownedFrame, dueAtMs: 0, held: true };
+    const controls: DelayedInputHoldCapture = {
+      release: () => { this.#releaseHeld(frame); },
+      drop: () => { this.#dropHeld(frame); },
+    };
+    frame.holdControls = controls;
+    this.#queuedBytes += ownedFrame.byteLength;
+    this.#frames.push(frame);
+    if (hold.capture(match, controls)) return true;
+    this.#frames.pop();
+    this.#queuedBytes -= ownedFrame.byteLength;
+    this.#closePair();
+    return false;
+  }
+
+  #releaseHeld(frame: QueuedFrame): void {
+    if (this.#stopped || !frame.held) return;
+    frame.held = false;
+    frame.holdControls = undefined;
+    frame.dueAtMs = Date.now() + this.#oneWayDelayMs;
+    this.#schedule();
+  }
+
+  #dropHeld(frame: QueuedFrame): void {
+    if (!frame.held) return;
+    frame.holdControls = undefined;
+    const index = this.#frames.indexOf(frame);
+    if (index < 0) return;
+    this.#frames.splice(index, 1);
+    this.#queuedBytes -= frame.bytes.byteLength;
+    this.#finishIfDrained();
+    this.#schedule();
+  }
+
   #schedule(): void {
     if (this.#stopped || this.#writing || this.#timer || this.#frames.length === 0) return;
-    const delayMs = Math.max(0, this.#frames[0]!.dueAtMs - Date.now());
+    const frame = this.#frames[0]!;
+    if (frame.held) return;
+    const delayMs = Math.max(0, frame.dueAtMs - Date.now());
     if (delayMs === 0) return this.#writeHead();
     this.#timer = setTimeout(() => {
       this.#timer = undefined;
@@ -175,6 +267,7 @@ export class DelayedFrameStream {
     if (this.#stopped || this.#writing) return;
     const frame = this.#frames[0];
     if (!frame) return this.#finishIfDrained();
+    if (frame.held) return;
     if (this.#destination.destroyed || !this.#destination.writable) return this.#closePair();
     this.#writing = true;
     try {

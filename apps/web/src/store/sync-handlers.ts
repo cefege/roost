@@ -1,13 +1,13 @@
 // Per-domain delta handlers — fold one decoded wire event into rootStore.
 // Split out of store/sync.ts (400-line cap). The firehose (_runConnectSync in
-// sync.ts) decodes each Sync-stream frame to its wire shape then calls the
-// matching _handle* here; this module imports root/projector/dispatch only,
-// never sync.ts → no import cycle. Also owns the keeper-death respawn-toast
-// detector and audit delta subscriber registry (iterated by the firehose).
+// sync.ts decodes each Sync frame then calls the matching handler here.
+// Worker deletion also retires browser-held direct credentials and carriers;
+// other handlers depend only on root/projector/dispatch state.
 
 import { deleteStoreRecord, setRootStore } from "./root.ts";
 import { foldEventIntoStore } from "./projector.ts";
 import type { Worker, Workspace, Task, McpRelay } from "@roost/shared/wire";
+import { applyWorkerRemoval } from "./worker-removal.ts";
 
 // Keeper-death awareness toast. A burst of `respawned` events while the SPA
 // stream is steady AND no worker just re-registered = a keeper died mid-life
@@ -87,7 +87,7 @@ export function _handlePresenceEvent(event: unknown): void {
         : prev,
     );
   } else if (ev.kind === "removed") {
-    deleteStoreRecord("workers", ev.fp);
+    applyWorkerRemoval(ev.fp);
   }
 }
 export function _handleWorkspacesDelta(event: unknown): void {

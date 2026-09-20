@@ -1,34 +1,65 @@
-// Reactive answer to "is this pane talking straight to its own machine's
-// worker, skipping the coordinator?" — the one fact the terminal UI surfaces
-// about transport choice.
-// Callers: PaneTab, PaneTabHoverCard.
-// Depends on: terminal-stream-transport.ts, whose change seam ws/local-terminal
-// fires whenever the grant set or socket generation moves.
+// Reactive transport state for terminal tabs. A route is visible only after
+// its elected canonical replica has a baseline, so candidates never leak into
+// UI state. Registry and canonical-baseline transitions advance one revision.
 
-import { createSignal } from "solid-js";
+import { terminalDirectRegistry } from "./terminal-stream-transport.ts";
 import {
-  localTerminalGenerationToken,
-  registerTerminalLocalTransportHandler,
-} from "./terminal-stream-transport.ts";
+  notifyTerminalTransportStateChange,
+  terminalSessions,
+  terminalTransportRevision,
+} from "./terminal-stream-state.ts";
+import {
+  terminalGenerationTokenEquals,
+  type TerminalTransportKind,
+} from "./terminal-stream-types.ts";
 
-const [transportRevision, advanceTransportRevision] = createSignal(0);
+let installed = false;
+let refreshQueued = false;
 
-/** Called from main.tsx before the first render: a grant that lands during
- *  boot notifies once, and a handler registered after that notification would
- *  leave the marker stale. */
-export function installLocalTransportIndicator(): void {
-  registerTerminalLocalTransportHandler(() => {
-    advanceTransportRevision((revision) => revision + 1);
+/** Installs one document-level refresh bridge before terminal tabs render. */
+export function installTerminalTransportIndicator(): void {
+  if (installed) return;
+  installed = true;
+  terminalDirectRegistry.subscribe(() => {
+    if (refreshQueued) return;
+    refreshQueued = true;
+    queueMicrotask(() => {
+      refreshQueued = false;
+      notifyTerminalTransportStateChange();
+    });
   });
 }
 
-/** True while this session's frames come straight from its own machine's
- *  worker. Deliberately the SAME expression terminalPublicationTarget branches
- *  on, so the marker can never claim a transport the router is not using — a
- *  grant that failed leaves the session on Sync and unmarked. Transport
- *  ownership is plain module state, so the revision signal is what makes a
- *  socket opening or dropping mid-session re-render the marker. */
-export function sessionUsesLocalTransport(sessionId: string): boolean {
-  transportRevision();
-  return localTerminalGenerationToken(sessionId) !== null;
+/** The elected carrier only after it owns a complete canonical baseline. */
+export function sessionTerminalTransportKind(
+  sessionId: string,
+): TerminalTransportKind | null {
+  terminalTransportRevision();
+  const session = terminalSessions.get(sessionId);
+  if (!session?.baselineReady || !session.generation) return null;
+  if (session.generation.transportKind === "sync") return "sync";
+  const direct = terminalDirectRegistry.activeForSession(sessionId);
+  return direct && terminalGenerationTokenEquals(direct.token(), session.generation)
+    ? session.generation.transportKind
+    : null;
+}
+
+/** True only while an elected direct route still has a current terminal proof. */
+export function hasLivenessQualifiedDirectTerminal(): boolean {
+  terminalTransportRevision();
+  for (const [sessionId, session] of terminalSessions) {
+    const token = session.generation;
+    if (
+      !session.baselineReady
+      || !token
+      || token.transportKind === "sync"
+      || session.lastAcceptedFrameAtMs === null
+      || !terminalGenerationTokenEquals(session.lastAcceptedFrameGeneration, token)
+    ) continue;
+    const direct = terminalDirectRegistry.activeForSession(sessionId);
+    if (!direct || !terminalGenerationTokenEquals(direct.token(), token)) continue;
+    if (token.transportKind === "webrtc" && direct.telemetry?.().livenessQualified !== true) continue;
+    return true;
+  }
+  return false;
 }

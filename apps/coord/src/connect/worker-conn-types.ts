@@ -5,12 +5,16 @@
 import type { CoordConfig } from "@roost/shared/config";
 import type {
   CoordWorkerUp,
+  WTerminalInputRouteResult,
+  WTerminalTransportProbeResult,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import type { KyselyDB } from "../db/connection.ts";
 import type { PendingEventPublicationStore } from "../pending-event-publications.ts";
 import type { JwtCache } from "../jwt.ts";
 import type { SelfHostedTenant } from "../self-hosted-tenant.ts";
+import type { WorkerHandle } from "./worker-registry.ts";
+import type { TerminalPeerNegotiationWorkerResultSink } from "./terminal-peer-negotiation-state.ts";
 
 export interface WorkerUpdateProgress {
   request_id: string;
@@ -21,6 +25,12 @@ export interface WorkerUpdateProgress {
   terminal: boolean;
   success: boolean;
   error?: string;
+}
+
+export interface TerminalInputRouteResultSink {
+  acceptInputRouteResult(source: WorkerHandle, result: WTerminalInputRouteResult): boolean;
+  acceptTransportProbeResult(source: WorkerHandle, result: WTerminalTransportProbeResult): boolean;
+  cancelForWorkerHandle(worker: WorkerHandle, reason: string): void;
 }
 
 export interface WorkerServiceDeps {
@@ -34,6 +44,10 @@ export interface WorkerServiceDeps {
   /** Required: the single self-hosted account/organization/dashboard resolved
    * once at startup. Every scoped write takes its value from here. */
   selfHostedTenant: SelfHostedTenant;
+  /** Installed only after the composition owner can correlate typed peer results. */
+  terminalPeerNegotiations?: TerminalPeerNegotiationWorkerResultSink;
+  /** Present only when a typed route-result owner can correlate current frames. */
+  terminalInputRouteResults?: TerminalInputRouteResultSink;
   onWorkerConnected?: (workerFp: string) => Promise<void> | void;
   onUpdateProgress?: (
     workerFp: string,

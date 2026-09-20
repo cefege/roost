@@ -43,8 +43,11 @@ export { dispatchTerminalViewState } from "./terminal-stream-view-commands.ts";
 
 const alwaysForeground = (): boolean => true;
 
-export function createTerminalView(sessionId: string): TerminalViewHandle {
-  const session = terminalSessionReplica(sessionId);
+export function createTerminalView(
+  sessionId: string,
+  workerFp: string,
+): TerminalViewHandle {
+  const session = terminalSessionReplica(sessionId, workerFp);
   const view: TerminalViewRecord = {
     session,
     viewId: crypto.randomUUID(),
@@ -182,7 +185,7 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
       }
       view.rendererSubscribers.clear();
       session.handles.delete(view.viewId);
-      if (session.handles.size === 0) pruneTerminalSessionState(sessionId);
+      if (session.handles.size === 0) pruneTerminalSessionState(sessionId, session);
     },
   };
 }

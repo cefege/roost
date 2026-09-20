@@ -4,13 +4,21 @@
 // Missing and malformed layers stay explicit instead of being mistaken for healthy state.
 
 import { coordClient } from "../connect.ts";
+import { rootStore } from "../store/root.ts";
+import { terminalDirectRegistry } from "../store/terminal-stream-transport.ts";
+import { terminalGenerationTokenEquals } from "../store/terminal-stream-types.ts";
+import { createTerminalDirectRequestId } from "../ws/terminal-direct-browser.ts";
+import { probeSyncTerminalWorker } from "../ws/sync-terminal-control-probe.ts";
 import type { SmokeApi, TerminalStreamProbe } from "./smokeTypes.ts";
 import {
   terminalBrowserStreamSnapshot,
   type TerminalBrowserStreamSnapshot,
 } from "./terminalDiagSnapshot.ts";
 
-type SmokeTerminalStreamProbeMethods = Pick<SmokeApi, "terminalBrowserSnapshot" | "terminalStreamProbe">;
+type SmokeTerminalStreamProbeMethods = Pick<
+  SmokeApi,
+  "terminalBrowserSnapshot" | "terminalStreamProbe" | "probeTerminalTransport"
+>;
 
 export function createSmokeTerminalStreamProbeMethods(): SmokeTerminalStreamProbeMethods {
   return {
@@ -30,6 +38,41 @@ export function createSmokeTerminalStreamProbeMethods(): SmokeTerminalStreamProb
       }
       return normalizeTerminalStreamProbe(sessionId, browser, decoded);
     },
+    probeTerminalTransport,
+  };
+}
+
+async function probeTerminalTransport(sessionId: string) {
+  const direct = terminalDirectRegistry.activeForSession(sessionId);
+  const directToken = direct?.token() ?? null;
+  if (direct) {
+    await direct.probe(createTerminalDirectRequestId());
+    const current = terminalDirectRegistry.activeForSession(sessionId);
+    if (current !== direct || !terminalGenerationTokenEquals(current.token(), directToken)) {
+      throw new Error("terminal route changed during direct control probe");
+    }
+  } else {
+    const workerFp = rootStore.sessions[sessionId]?.worker_fp;
+    if (!workerFp) throw new Error("terminal session has no selected worker");
+    await probeSyncTerminalWorker(workerFp);
+    if (terminalDirectRegistry.activeForSession(sessionId) !== null) {
+      throw new Error("terminal route changed during Sync control probe");
+    }
+  }
+  const routeSnapshot = terminalBrowserStreamSnapshot(sessionId).route;
+  const route = routeSnapshot.active;
+  if (!route || route.worker_control_rtt_ms === null) {
+    throw new Error("terminal worker control probe did not produce route telemetry");
+  }
+  if (direct ? route.kind !== direct.kind : route.kind !== "sync") {
+    throw new Error("terminal worker control probe observed a different route");
+  }
+  return {
+    transport_kind: route.kind,
+    worker_epoch: route.worker_epoch,
+    candidate_type: route.candidate_type,
+    worker_control_rtt_ms: route.worker_control_rtt_ms,
+    pending_input_count: routeSnapshot.pending_input_count,
   };
 }
 

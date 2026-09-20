@@ -28,6 +28,9 @@ export interface CoordinatorControlOptions {
    *  from. Only the 4104 default is pre-allowlisted in product code, so the
    *  harness's reserved local UI origins must be named here. */
   corsAllowedOrigins: readonly string[];
+  /** Explicit peer settings used by direct-transport smoke stacks. */
+  terminalPeerEnabled?: boolean;
+  terminalPeerStunUrls?: readonly string[];
   /** Proof a relaunched coordinator serves RPC again. Called only on restart:
    *  the first boot has no authorized client yet and learns its port from the log. */
   probeReady: () => Promise<unknown>;
@@ -91,5 +94,7 @@ function launch(options: CoordinatorControlOptions, bind: string): RunningServic
     logPath: options.logPath,
     gitSha: options.gitSha,
     corsAllowedOrigins: options.corsAllowedOrigins,
+    terminalPeerEnabled: options.terminalPeerEnabled,
+    terminalPeerStunUrls: options.terminalPeerStunUrls,
   });
 }

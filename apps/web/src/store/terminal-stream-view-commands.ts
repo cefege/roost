@@ -37,7 +37,7 @@ import {
   currentTerminalGenerationToken,
   terminalPublicationTarget,
 } from "./terminal-stream-publication.ts";
-import { localTerminalTransport } from "./terminal-stream-transport.ts";
+import { terminalDirectRegistry } from "./terminal-stream-transport.ts";
 import {
   emitTerminalViewStatus,
   terminalSessions,
@@ -71,9 +71,12 @@ export function publishIntent(
 ): boolean {
   const statusCurrent = view.status?.revision === intent.revision;
   const sessionId = view.session.sessionId;
-  if (!view.disposed && intent.active) {
-    localTerminalTransport()?.noteViewPublished(sessionId);
-  }
+  terminalDirectRegistry.setViewDemand(
+    view.session.workerFp,
+    sessionId,
+    view.viewId,
+    !view.disposed && intent.active,
+  );
   const target = terminalPublicationTarget(sessionId, sync);
   if (
     view.disposed

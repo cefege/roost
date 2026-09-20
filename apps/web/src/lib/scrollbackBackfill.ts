@@ -5,14 +5,15 @@
 // flight: a scroll raised mid-wave is coalesced, every settle re-derives the
 // reader's gap, and an unchanged derivation backs off to the retry cadence.
 
-import { coordClient } from "../connect.ts";
 import { diag, type DiagKv } from "@roost/shared/diag";
 import type { CellRow } from "@roost/shared/cell";
 import { cellRowFromProto } from "@roost/shared/cell/cell-proto";
-import type { SessionsGetScrollbackCellsResponse } from "@roost/shared/proto/coordinator_pb";
-import { localTerminalTransport } from "../store/terminal-stream-transport.ts";
 import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 import type { CellGridRenderer } from "./cellRenderer.ts";
+import {
+  requestScrollbackPage,
+  type ScrollbackPageResponse,
+} from "./scrollbackDirectHistory.ts";
 import {
   BACKFILL_AHEAD_ROWS,
   BACKFILL_IDENTICAL_RETRIES,
@@ -48,12 +49,6 @@ type ScrollbackRenderer = Pick<
   | "missingScrollbackRange"
   | "missingScrollbackRangeAtScroll"
   | "setHistoryFloor"
->;
-/** The fields a page is validated against. The coordinator RPC and the local
- * worker socket answer the same query with the same shape. */
-type ScrollbackPageResponse = Pick<
-  SessionsGetScrollbackCellsResponse,
-  "rows" | "cols" | "scrollbackTotal" | "startRow" | "endRow" | "gridEpoch" | "historyFloor"
 >;
 
 interface Demand extends DemandBounds {
@@ -194,12 +189,7 @@ export function createScrollbackBackfill(opts: {
       maxRows: demand.end - demand.start,
       gridEpoch: demand.gridEpoch,
     };
-    // History pages follow the session's live transport, so a local pane can
-    // still page its own worker's history with the coordinator unreachable.
-    const local = localTerminalTransport();
-    const response = local?.ownsSession(opts.sessionId)
-      ? await local.requestScrollback(query)
-      : await coordClient.sessionsGetScrollbackCells(query);
+    const response = await requestScrollbackPage(opts.sessionId, query);
     if (!isCurrent(demand)) return null;
     return validatePage(response, demand);
   }

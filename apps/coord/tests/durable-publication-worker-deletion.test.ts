@@ -58,6 +58,9 @@ describe("worker deletion publication fence", () => {
     const liveHandle = {
       workerFp: FP,
       dashboardId: fixture.dashboardId,
+      processEpoch: null,
+      connectionGeneration: "test-connection",
+      capabilities: new Set<string>(),
       revoked: false,
       send: () => 1,
     };

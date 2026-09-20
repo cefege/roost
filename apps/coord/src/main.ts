@@ -43,7 +43,6 @@ import { startBunCoordinatorListeners } from "./bun-coordinator-listeners.ts";
 import { PendingEventPublicationStore } from "./pending-event-publications.ts";
 import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "./connect/ui-state-owner.ts";
-import { revokeLocalTerminalGrantsForFingerprint } from "./connect/local-terminal-grants.ts";
 
 
 export async function runCoord() {
@@ -149,7 +148,10 @@ export async function runCoord() {
     cfg,
     writeGate,
     selfHostedTenant,
+    terminalPeerNegotiations: coord.terminalPeerNegotiations,
+    terminalInputRouteResults: coord.terminalInputRouteResults,
     onWorkerConnected: async (workerFp) => {
+      coord.terminalInputRouteResults.flushWorkerRetirements(workerFp);
       terminalViews.workerReplacement(workerFp);
       await resumeWindowsUpdateDeploysForWorker(workerFp);
       await startCatchUpDeployOnAttach(db, workerFp);
@@ -168,6 +170,9 @@ export async function runCoord() {
     selfHostedTenant,
     uiLayoutApplies,
     uiStates,
+    terminalGrants: coord.terminalGrants,
+    terminalPeerNegotiations: coord.terminalPeerNegotiations,
+    terminalInputRouteResults: coord.terminalInputRouteResults,
   };
   const syncDepsWithAccess = { ...syncDeps, cfAccess: null };
   const syncWs = makeSyncWsHandler(syncDepsWithAccess, {
@@ -175,10 +180,11 @@ export async function runCoord() {
     backpressureLimitBytes: syncBackpressureBytes(terminalBudgetBytes),
   });
   closeRevokedSockets = (fingerprint) => {
-    // Before the transports close: the revoke frame needs this worker
-    // generation still admitted, or the worker keeps serving a revoked
-    // device's loopback terminal socket until the grant TTL lapses.
-    revokeLocalTerminalGrantsForFingerprint(fingerprint);
+    // A worker credential needs direct-route retirement while its exact handle
+    // still admits sends; a device revocation removes its grants before either
+    // raw transport can be fenced or closed.
+    coord.terminalGrants.retireWorker(fingerprint, "worker_revoked");
+    coord.terminalGrants.revokeDevice(fingerprint);
     terminalViews.removeFingerprint(fingerprint);
     syncWs.closeForFingerprint(fingerprint);
     workerWs.closeForFingerprint(fingerprint);

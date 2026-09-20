@@ -1,8 +1,7 @@
-// Focused coverage for the SessionsGrantLocalTerminal handler: route
-// authorization against the named worker, the digest-only worker install, the
-// ack gate in front of the secret, renewal replacement, and device revocation.
-// Runs on an isolated SQLite with a fake worker handle installed through the
-// registry's test seam, so no listener or network is involved.
+// Focused SessionsGrantLocalTerminal boundary coverage: authenticated tab binding,
+// durable session-route checks, worker ACK fencing, and capability response fields.
+// Lease renewal, revocation, and retirement lifecycle behavior lives beside its
+// composition owner in terminal-grant-owner.test.ts.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -16,21 +15,22 @@ import {
   SessionsGrantLocalTerminalResponseSchema,
   type SessionsGrantLocalTerminalResponse,
 } from "@roost/shared/proto/coordinator_pb";
-import type {
-  CoordWorkerDown,
-  DLocalTerminalGrant,
-} from "@roost/shared/proto/worker_transport_pb";
-import { callerKey } from "../src/connect/auth-interceptor.ts";
 import {
-  LOCAL_TERMINAL_GRANT_TTL_MS,
-  _localTerminalGrantLeases,
-  _resetLocalTerminalGrants,
+  TERMINAL_INPUT_ROUTE_CAPABILITY,
+  TERMINAL_PEER_WEBRTC_CAPABILITY,
+} from "@roost/shared/terminal-peer";
+import type { CoordWorkerDown, DLocalTerminalGrant } from "@roost/shared/proto/worker_transport_pb";
+import { callerKey, tabIdKey } from "../src/connect/auth-interceptor.ts";
+import {
   makeSessionLocalTerminalGrantHandlers,
-  revokeLocalTerminalGrantsForFingerprint,
   type LocalTerminalGrantHandlers,
 } from "../src/connect/local-terminal-grants.ts";
+import {
+  LOCAL_TERMINAL_GRANT_TTL_MS,
+  TerminalGrantOwner,
+} from "../src/connect/terminal-grant-owner.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
-import { rejectPendingRpc, resolvePendingRpc } from "../src/router/pending-rpcs.ts";
+import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb, type DbHandle } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
@@ -40,32 +40,48 @@ const LOCAL_WORKER_FP = "a".repeat(64);
 const REMOTE_WORKER_FP = "b".repeat(64);
 const DEVICE_FP = "c".repeat(64);
 const TAB_ID = "local-tab";
+const LOCAL_EPOCH = "worker-epoch-local";
+const REMOTE_EPOCH = "worker-epoch-remote";
+const STUN_URL = "stun:stun.example.test:3478";
 
 interface StartedGrant {
   readonly response: Promise<SessionsGrantLocalTerminalResponse>;
+  readonly workerFp: string;
   readonly frame: DLocalTerminalGrant;
 }
 
-const grantFrames: DLocalTerminalGrant[] = [];
-const revokedFingerprints: string[] = [];
+interface GrantRequestOptions {
+  readonly workerFp?: string;
+  readonly tabId?: string;
+  readonly headerTabId?: string | undefined;
+}
 
+interface GrantTestConfig {
+  terminalPeerEnabled: boolean;
+  terminalPeerStunUrls: string[];
+}
+
+const grantFrames: Array<{ workerFp: string; frame: DLocalTerminalGrant }> = [];
+let announceGrantFrame: ((frame: { workerFp: string; frame: DLocalTerminalGrant }) => void) | null = null;
 let workdir: string;
 let opened: DbHandle;
 let deps: ConnectDeps;
 let accountId: string;
 let dashboardId: string;
 let handlers: LocalTerminalGrantHandlers;
+let terminalGrants: TerminalGrantOwner;
+let config: GrantTestConfig;
 let sessionSequence = 0;
-let announceGrantFrame: ((frame: DLocalTerminalGrant) => void) | null = null;
 
-function browserContext(): HandlerContext {
+function browserContext(headerTabId: string | undefined): HandlerContext {
   const values = createContextValues();
   values.set(callerKey, {
     kind: "account-device",
     fingerprint: DEVICE_FP,
-    label: "Loopback page",
+    label: "Terminal browser",
     accountId,
   });
+  values.set(tabIdKey, headerTabId);
   return { values, signal: new AbortController().signal } as unknown as HandlerContext;
 }
 
@@ -88,64 +104,71 @@ async function insertSession(
   return id;
 }
 
-/** The service impl may answer with a message init shape; normalize once so the
- *  assertions read the concrete response. */
-function requestGrant(sessionIds: string[]): Promise<SessionsGrantLocalTerminalResponse> {
+function requestGrant(
+  sessionIds: string[],
+  options: GrantRequestOptions = {},
+): Promise<SessionsGrantLocalTerminalResponse> {
+  const headerTabId = "headerTabId" in options ? options.headerTabId : TAB_ID;
   return Promise.resolve(handlers.sessionsGrantLocalTerminal(
     create(SessionsGrantLocalTerminalRequestSchema, {
       sessionIds,
-      workerFp: LOCAL_WORKER_FP,
-      tabId: TAB_ID,
+      workerFp: options.workerFp ?? LOCAL_WORKER_FP,
+      tabId: options.tabId ?? TAB_ID,
     }),
-    browserContext(),
+    browserContext(headerTabId),
   )).then((value) => create(SessionsGrantLocalTerminalResponseSchema, value));
 }
 
-/** Drive the handler to the instant the worker holds the install and leave the
- *  pending RPC unsettled, so each caller decides how the worker answers. */
-async function startGrant(sessionIds: string[]): Promise<StartedGrant> {
-  const { promise: frameArrived, resolve } = Promise.withResolvers<DLocalTerminalGrant>();
+async function startGrant(
+  sessionIds: string[],
+  options: GrantRequestOptions = {},
+): Promise<StartedGrant> {
+  const { promise: frameArrived, resolve } = Promise.withResolvers<{
+    workerFp: string;
+    frame: DLocalTerminalGrant;
+  }>();
   announceGrantFrame = resolve;
-  const response = requestGrant(sessionIds);
+  const response = requestGrant(sessionIds, options);
   response.catch(() => {});
-  // Racing the response surfaces a pre-send refusal as its own error instead of
-  // waiting out the suite timeout on a frame that will never arrive.
-  const frame = await Promise.race([
+  const received = await Promise.race([
     frameArrived,
     response.then(() => {
       throw new Error("handler answered without installing a grant");
     }),
   ]);
-  return { response, frame };
+  return { response, ...received };
 }
 
 async function grantWithWorkerAck(
   sessionIds: string[],
+  options: GrantRequestOptions = {},
 ): Promise<SessionsGrantLocalTerminalResponse> {
-  const started = await startGrant(sessionIds);
-  resolvePendingRpc(started.frame.requestId, {}, LOCAL_WORKER_FP);
+  const started = await startGrant(sessionIds, options);
+  resolvePendingRpc(started.frame.requestId, {}, started.workerFp);
   return started.response;
 }
 
 async function connectErrorFrom(work: Promise<unknown>): Promise<ConnectError> {
   const error = await work.then(() => null, (thrown: unknown) => thrown);
-  if (!(error instanceof ConnectError)) {
-    throw new Error(`expected a ConnectError, got ${String(error)}`);
-  }
+  if (!(error instanceof ConnectError)) throw new Error(`expected a ConnectError, got ${String(error)}`);
   return error;
 }
 
-function installFakeWorker(workerFp: string): void {
+function installFakeWorker(
+  workerFp: string,
+  processEpoch: string | null,
+  capabilities: readonly string[] = [],
+): void {
   __setConnectWorkerForTest(workerFp, {
     workerFp,
+    processEpoch,
+    capabilities: new Set(capabilities),
     send: (frame: CoordWorkerDown) => {
       if (frame.frame.case === "localTerminalGrant") {
-        grantFrames.push(frame.frame.value);
-        announceGrantFrame?.(frame.frame.value);
+        const received = { workerFp, frame: frame.frame.value };
+        grantFrames.push(received);
+        announceGrantFrame?.(received);
         announceGrantFrame = null;
-      }
-      if (frame.frame.case === "localTerminalGrantRevoke") {
-        revokedFingerprints.push(frame.frame.value.deviceFingerprint);
       }
       return 1;
     },
@@ -173,125 +196,129 @@ beforeAll(async () => {
       reachable_addr: null,
     })),
   ).execute();
-  deps = { db: opened.db, selfHostedTenant: tenant } as unknown as ConnectDeps;
-  handlers = makeSessionLocalTerminalGrantHandlers(deps);
-  for (const fp of [LOCAL_WORKER_FP, REMOTE_WORKER_FP]) installFakeWorker(fp);
 });
 
 afterAll(async () => {
-  for (const fp of [LOCAL_WORKER_FP, REMOTE_WORKER_FP]) __setConnectWorkerForTest(fp, null);
-  _resetLocalTerminalGrants();
-  await opened?.close();
+  terminalGrants.dispose();
+  __setConnectWorkerForTest(LOCAL_WORKER_FP, null);
+  __setConnectWorkerForTest(REMOTE_WORKER_FP, null);
+  await opened.close();
   rmSync(workdir, { recursive: true, force: true });
 });
 
 beforeEach(() => {
-  _resetLocalTerminalGrants();
+  terminalGrants?.dispose();
+  terminalGrants = new TerminalGrantOwner();
+  config = { terminalPeerEnabled: true, terminalPeerStunUrls: [STUN_URL] };
+  deps = {
+    db: opened.db,
+    selfHostedTenant: { accountId, dashboardId },
+    cfg: config,
+    terminalGrants,
+  } as unknown as ConnectDeps;
+  handlers = makeSessionLocalTerminalGrantHandlers(deps);
+  installFakeWorker(LOCAL_WORKER_FP, LOCAL_EPOCH, [
+    TERMINAL_PEER_WEBRTC_CAPABILITY,
+    TERMINAL_INPUT_ROUTE_CAPABILITY,
+  ]);
+  installFakeWorker(REMOTE_WORKER_FP, REMOTE_EPOCH);
   grantFrames.length = 0;
-  revokedFingerprints.length = 0;
   announceGrantFrame = null;
 });
 
 describe("sessionsGrantLocalTerminal", () => {
-  test("refuses a session that lives on another worker without installing a grant", async () => {
-    const remoteSession = await insertSession(REMOTE_WORKER_FP);
-    const error = await connectErrorFrom(requestGrant([remoteSession]));
-    expect(error.code).toBe(Code.PermissionDenied);
-    expect(grantFrames).toHaveLength(0);
-    expect(_localTerminalGrantLeases()).toHaveLength(0);
-  });
-
-  test("reports a closed session as not found", async () => {
-    const closedSession = await insertSession(LOCAL_WORKER_FP, "closed");
-    const error = await connectErrorFrom(requestGrant([closedSession]));
-    expect(error.code).toBe(Code.NotFound);
-    expect(grantFrames).toHaveLength(0);
-  });
-
-  test("rejects a grant request that names no session", async () => {
-    const error = await connectErrorFrom(requestGrant([]));
-    expect(error.code).toBe(Code.InvalidArgument);
-    expect(grantFrames).toHaveLength(0);
-  });
-
-  test("reports an offline worker so the browser can stay on the coordinator", async () => {
+  test("requires the request tab to equal the authenticated interceptor tab", async () => {
     const session = await insertSession(LOCAL_WORKER_FP);
-    __setConnectWorkerForTest(LOCAL_WORKER_FP, null);
-    try {
-      const error = await connectErrorFrom(requestGrant([session]));
-      expect(error.code).toBe(Code.Unavailable);
-      expect(error.rawMessage.startsWith("worker_offline:")).toBe(true);
-    } finally {
-      installFakeWorker(LOCAL_WORKER_FP);
-    }
+    const mismatch = await connectErrorFrom(requestGrant([session], { tabId: "other-tab" }));
+    const missing = await connectErrorFrom(requestGrant([session], { headerTabId: undefined }));
+
+    expect(mismatch.code).toBe(Code.PermissionDenied);
+    expect(missing.code).toBe(Code.InvalidArgument);
     expect(grantFrames).toHaveLength(0);
-    expect(_localTerminalGrantLeases()).toHaveLength(0);
   });
 
-  test("hands the worker only the secret's digest and the browser the secret", async () => {
+  test("caps request strings and unique session membership before worker install", async () => {
+    const session = await insertSession(LOCAL_WORKER_FP);
+    const tooLong = await connectErrorFrom(requestGrant([session], { tabId: "x".repeat(129) }));
+    const duplicate = await connectErrorFrom(requestGrant([session, session]));
+    const tooMany = await connectErrorFrom(requestGrant(
+      Array.from({ length: 257 }, (_, index) => `session-${index}`),
+    ));
+
+    expect(tooLong.code).toBe(Code.InvalidArgument);
+    expect(duplicate.code).toBe(Code.InvalidArgument);
+    expect(tooMany.code).toBe(Code.InvalidArgument);
+    expect(grantFrames).toHaveLength(0);
+  });
+
+  test("refuses closed or cross-worker sessions without installing a grant", async () => {
+    const remoteSession = await insertSession(REMOTE_WORKER_FP);
+    const closedSession = await insertSession(LOCAL_WORKER_FP, "closed");
+    const wrongRoute = await connectErrorFrom(requestGrant([remoteSession]));
+    const closed = await connectErrorFrom(requestGrant([closedSession]));
+
+    expect(wrongRoute.code).toBe(Code.PermissionDenied);
+    expect(closed.code).toBe(Code.NotFound);
+    expect(grantFrames).toHaveLength(0);
+  });
+
+  test("returns a secret only after digest-only worker install and exposes supported capabilities", async () => {
     const session = await insertSession(LOCAL_WORKER_FP);
     const response = await grantWithWorkerAck([session]);
+    const frame = grantFrames[0]!.frame;
 
     expect(response.secret).toMatch(/^[0-9a-f]{64}$/);
     expect(response.ttlMs).toBe(LOCAL_TERMINAL_GRANT_TTL_MS);
-
-    const frame = grantFrames[0]!;
-    expect(frame.grantId).toBe(response.grantId);
-    expect(frame.secretSha256).toBe(
-      createHash("sha256").update(response.secret).digest("hex"),
-    );
+    expect(frame.secretSha256).toBe(createHash("sha256").update(response.secret).digest("hex"));
     expect(JSON.stringify(frame)).not.toContain(response.secret);
-    expect(frame.sessionIds).toEqual([session]);
-    expect(frame.deviceFingerprint).toBe(DEVICE_FP);
-    expect(frame.tabId).toBe(TAB_ID);
-    expect(frame.ttlMs).toBe(LOCAL_TERMINAL_GRANT_TTL_MS);
-
-    const leases = _localTerminalGrantLeases();
-    expect(leases).toHaveLength(1);
-    expect(leases[0]).toMatchObject({
+    expect(frame.workerEpoch).toBe(LOCAL_EPOCH);
+    expect(response.workerEpoch).toBe(LOCAL_EPOCH);
+    expect(response.peerSupported).toBe(true);
+    expect(response.stunUrls).toEqual([STUN_URL]);
+    expect(response.inputRouteSupported).toBe(true);
+    expect(JSON.stringify(terminalGrants.list())).not.toContain(response.secret);
+    expect(JSON.stringify(terminalGrants.list())).not.toContain(frame.secretSha256);
+    expect(terminalGrants.list()).toMatchObject([{
       grantId: response.grantId,
       workerFp: LOCAL_WORKER_FP,
-      deviceFingerprint: DEVICE_FP,
+      workerEpoch: LOCAL_EPOCH,
       sessionIds: [session],
-    });
-    expect(JSON.stringify(leases)).not.toContain(response.secret);
+    }]);
   });
 
-  test("returns no secret when the worker refuses the install", async () => {
+  test("keeps input-route support independent when peer setup is disabled", async () => {
+    config.terminalPeerEnabled = false;
+    const session = await insertSession(LOCAL_WORKER_FP);
+    const response = await grantWithWorkerAck([session]);
+
+    expect(response.peerSupported).toBe(false);
+    expect(response.stunUrls).toEqual([]);
+    expect(response.inputRouteSupported).toBe(true);
+  });
+
+  test("keeps rolling workers on unchanged base response fields", async () => {
+    installFakeWorker(LOCAL_WORKER_FP, null, [
+      TERMINAL_PEER_WEBRTC_CAPABILITY,
+      TERMINAL_INPUT_ROUTE_CAPABILITY,
+    ]);
+    const session = await insertSession(LOCAL_WORKER_FP);
+    const response = await grantWithWorkerAck([session]);
+
+    expect(response.workerEpoch).toBe("");
+    expect(response.peerSupported).toBe(false);
+    expect(response.stunUrls).toEqual([]);
+    expect(response.inputRouteSupported).toBe(false);
+    expect(grantFrames[0]!.frame.workerEpoch).toBe("");
+  });
+
+  test("rechecks durable authorization after the worker ACK before returning a secret", async () => {
     const session = await insertSession(LOCAL_WORKER_FP);
     const started = await startGrant([session]);
-    rejectPendingRpc(started.frame.requestId, "keeper refused the grant", LOCAL_WORKER_FP);
+    await opened.db.updateTable("sessions").set({ status: "closed" }).where("id", "=", session).execute();
+    resolvePendingRpc(started.frame.requestId, {}, started.workerFp);
     const error = await connectErrorFrom(started.response);
 
-    expect(error.code).toBe(Code.Internal);
-    expect(error.rawMessage.startsWith("worker_failed:")).toBe(true);
-    expect(grantFrames).toHaveLength(1);
-    expect(_localTerminalGrantLeases()).toHaveLength(0);
-  });
-
-  test("a renewal from the same device and tab replaces its predecessor", async () => {
-    const first = await insertSession(LOCAL_WORKER_FP);
-    const second = await insertSession(LOCAL_WORKER_FP);
-    const initial = await grantWithWorkerAck([first]);
-    const renewed = await grantWithWorkerAck([first, second]);
-
-    expect(renewed.grantId).not.toBe(initial.grantId);
-    expect(renewed.secret).not.toBe(initial.secret);
-    expect(grantFrames).toHaveLength(2);
-    const leases = _localTerminalGrantLeases();
-    expect(leases).toHaveLength(1);
-    expect(leases[0]).toMatchObject({
-      grantId: renewed.grantId,
-      sessionIds: [first, second],
-    });
-  });
-
-  test("revoking the device drops its lease and tells the workers", async () => {
-    const session = await insertSession(LOCAL_WORKER_FP);
-    await grantWithWorkerAck([session]);
-
-    expect(revokeLocalTerminalGrantsForFingerprint(DEVICE_FP)).toBe(1);
-    expect(revokedFingerprints).toContain(DEVICE_FP);
-    expect(_localTerminalGrantLeases()).toHaveLength(0);
+    expect(error.code).toBe(Code.NotFound);
+    expect(terminalGrants.list()).toEqual([]);
   });
 });

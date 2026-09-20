@@ -200,6 +200,8 @@ function dispatchV2Application(link: LiveSyncLink, frame: FirehoseFrame): boolea
         socketId: v2.socketId,
         processEpoch: v2.processEpoch,
         domainGeneration: domain.generation,
+        transportKind: "sync",
+        workerFp: null,
       }
       : null,
   );
@@ -220,7 +222,9 @@ function handleV2Control(link: LiveSyncLink, frame: FirehoseFrame): boolean {
       return true;
     case "inputAccepted":
     case "inputRejected":
-    case "inputAmbiguous": {
+    case "inputAmbiguous":
+    case "inputRouteResult":
+    case "terminalTransportProbeResult": {
       const state = currentSyncV2TerminalState();
       if (!state) return true;
       _dispatchSyncV2Control(frame.frame as SyncV2Control, state);

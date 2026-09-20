@@ -1,10 +1,12 @@
-// Per-session terminal input lane bookkeeping, shared by both input transports:
-// Sync (ws/sync-outbound.ts) and the local worker socket (ws/local-terminal.ts).
-// This module owns the queue caps, the local correlation sequence, the result
-// timeout and the admission/outcome vocabulary; each transport owns only its own
-// fence comparison and wire send, so neither forks a second queue.
+// Per-session terminal input lane bookkeeping for the document router. It owns
+// the shared caps, input sequence, owned byte copy, deadline, and public
+// admission/outcome vocabulary. Sync and direct adapters only encode an already
+// admitted command or return its outcome, so no transport keeps another queue.
 
-import { currentSmokeTerminalInputObserver } from "./sync-outbound-smoke.ts";
+import {
+  currentSmokeTerminalInputObserver,
+  currentSmokeTerminalInputOutcomeObserver,
+} from "./sync-outbound-smoke.ts";
 
 export const MAX_INPUT_BYTES = 64 * 1024;
 export const MAX_PENDING_INPUTS_PER_SESSION = 200;
@@ -21,15 +23,17 @@ export type InputAdmission =
   | { accepted: true; inputSeq: bigint; result: Promise<InputOutcome> };
 
 /** One admitted batch. `fence` is the transport's own generation identity; the
- * lane never interprets it, it only carries it back to the transport. */
+ * lane never interprets it, it only carries it back to the transport. The
+ * document router assigns a held batch's fence when it is released. */
 export interface PendingTerminalInput<Fence> {
   readonly sessionId: string;
   readonly viewId: string | undefined;
   readonly inputSeq: bigint;
   readonly bytes: Uint8Array;
-  readonly fence: Fence;
+  fence: Fence;
   started: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  readonly result: Promise<InputOutcome>;
   resolve(outcome: InputOutcome): void;
 }
 
@@ -60,7 +64,8 @@ export interface TerminalInputLanes<Fence> extends TerminalInputLaneControl {
   markStarted(pending: PendingTerminalInput<Fence>): void;
   finish(pending: PendingTerminalInput<Fence>, outcome: InputOutcome): void;
   pending(): PendingTerminalInput<Fence>[];
-  resetSequence(): void;
+  /** Unregister this owner from document-wide pruning and release its lanes. */
+  dispose(reason?: string): void;
 }
 
 interface InputLane<Fence> {
@@ -70,8 +75,21 @@ interface InputLane<Fence> {
 
 const lastInputSendTs = new Map<string, number>();
 const laneSets = new Set<TerminalInputLaneControl>();
+function reportSmokeTerminalInputOutcome(
+  sessionId: string,
+  outcome: InputOutcome["status"],
+): void {
+  try {
+    currentSmokeTerminalInputOutcomeObserver()?.(sessionId, outcome);
+  } catch {
+    // Smoke instrumentation must never perturb delivery.
+  }
+}
 
-export function createTerminalInputLanes<Fence>(): TerminalInputLanes<Fence> {
+
+export function createTerminalInputLanes<Fence>(
+  onOutcome?: (sessionId: string, outcome: InputOutcome) => void,
+): TerminalInputLanes<Fence> {
   const lanes = new Map<string, InputLane<Fence>>();
   let nextInputSeq = 0n;
 
@@ -83,8 +101,11 @@ export function createTerminalInputLanes<Fence>(): TerminalInputLanes<Fence> {
     lane.pending.splice(index, 1);
     lane.bytes -= pending.bytes.byteLength;
     clearTimeout(pending.timer ?? undefined);
+    pending.timer = null;
     if (lane.pending.length === 0) lanes.delete(pending.sessionId);
     pending.resolve(outcome);
+    reportSmokeTerminalInputOutcome(pending.sessionId, outcome.status);
+    onOutcome?.(pending.sessionId, outcome);
   }
 
   const owned: TerminalInputLanes<Fence> = {
@@ -115,6 +136,7 @@ export function createTerminalInputLanes<Fence>(): TerminalInputLanes<Fence> {
         fence,
         started: false,
         timer: null,
+        result: promise,
         resolve,
       };
       lane.pending.push(pending);
@@ -133,7 +155,9 @@ export function createTerminalInputLanes<Fence>(): TerminalInputLanes<Fence> {
       ) ?? null;
     },
     markStarted(pending): void {
+      if (pending.started) return;
       pending.started = true;
+      clearTimeout(pending.timer ?? undefined);
       pending.timer = setTimeout(() => {
         finish(pending, {
           status: "ambiguous",
@@ -165,12 +189,15 @@ export function createTerminalInputLanes<Fence>(): TerminalInputLanes<Fence> {
       for (const lane of lanes.values()) {
         for (const pending of lane.pending) {
           clearTimeout(pending.timer ?? undefined);
-          pending.resolve({
+          const outcome: InputOutcome = {
             status: pending.started ? "ambiguous" : "rejected",
             inputSeq: pending.inputSeq,
             writtenBytes: 0,
             reason,
-          });
+          };
+          pending.resolve(outcome);
+          reportSmokeTerminalInputOutcome(pending.sessionId, outcome.status);
+          onOutcome?.(pending.sessionId, outcome);
         }
       }
       lanes.clear();
@@ -179,24 +206,24 @@ export function createTerminalInputLanes<Fence>(): TerminalInputLanes<Fence> {
     laneCount(): number {
       return lanes.size;
     },
-    resetSequence(): void {
-      nextInputSeq = 0n;
+    dispose(reason = "terminal input lanes disposed"): void {
+      const sessionIds = [...lanes.keys()];
+      owned.clear(reason);
+      for (const sessionId of sessionIds) lastInputSendTs.delete(sessionId);
+      laneSets.delete(owned);
     },
   };
   laneSets.add(owned);
   return owned;
 }
 
-/** A closed session owns no input on any transport. */
-export function pruneTerminalInput(sessionId: string): void {
-  for (const set of laneSets) set.prune(sessionId, "session closed");
+/** Input timing belongs to the document router, while this module retains the
+ * shared observation used by the paint-latency diagnostic. */
+export function forgetTerminalInputSendTs(sessionId: string): void {
   lastInputSendTs.delete(sessionId);
 }
 
-/** Reject every queued batch on every transport. Queued bytes must never be
- * replayed onto a newly accepted socket. */
-export function resetTerminalInputLanes(reason: string): void {
-  for (const set of laneSets) set.clear(reason);
+export function resetTerminalInputSendTs(): void {
   lastInputSendTs.clear();
 }
 

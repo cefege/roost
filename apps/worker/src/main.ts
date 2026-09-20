@@ -19,11 +19,10 @@ import { handleKeeperSurvivor } from "./boot-keeper.ts";
 import { createWorkerTerminalCoreCapacity } from "./terminal-core-capacity.ts";
 import { spendKeeperForceLiveRetireAuthorization } from "./service-definition-env.ts";
 import { startLocalTerminalDoor } from "./boot-local-terminal.ts";
-import {
-	setupReconcile,
-	type ReconcileAdmissionOutcome,
-	type ReconcileAdmissionSuccess,
-} from "./boot-reconcile.ts";
+import { setupReconcile } from "./boot-reconcile.ts";
+import { completeWorkerBootAdmission } from "./worker-boot-admission.ts";
+import type { LocalTerminalSocketTestFaults } from "./local-terminal-socket.ts";
+import type { TerminalPeerTestFaultState } from "./terminal-peer-test-faults.ts";
 import { coordLinkSink, isFatalSessionEventError } from "./event-sink.ts";
 import { openSessionEventStore } from "./transport/session-event-store.ts";
 import { AgentScreenDetector } from "./agent-status/detector.ts";
@@ -41,6 +40,10 @@ import { log } from "@roost/shared/log";
 import { ROOST_ARTIFACT_VERSION, ROOST_BUILD_SHA } from "@roost/shared/build-identity";
 import { workerDataDir } from "@roost/shared/paths";
 import { prepareWtermCoreModule } from "@roost/shared/wterm-core-factory";
+import {
+	TERMINAL_INPUT_ROUTE_CAPABILITY,
+	TERMINAL_PEER_WEBRTC_CAPABILITY,
+} from "@roost/shared/terminal-peer";
 
 import { randomUUID } from "node:crypto";
 
@@ -48,19 +51,16 @@ import { randomUUID } from "node:crypto";
 // install.sh always sets ROOST_WORKER_DATA_DIR; default is v2-isolated.
 const SUPPORT = workerDataDir();
 
-export async function completeWorkerBootAdmission(deps: {
-	reconcile: () => Promise<ReconcileAdmissionOutcome>;
-	activateSnapshotProvider: () => void;
-	markReady: () => void;
-}): Promise<ReconcileAdmissionSuccess> {
-	const outcome = await deps.reconcile();
-	if (!outcome.admitted) throw outcome.error;
-	deps.activateSnapshotProvider();
-	deps.markReady();
-	return outcome;
+export { completeWorkerBootAdmission } from "./worker-boot-admission.ts";
+
+/** In-process-only fixture seams. Product entrypoints always call runWorker() without them. */
+export interface WorkerRunOptions {
+	readonly localTerminalTestFaults?: LocalTerminalSocketTestFaults;
+	readonly terminalPeerTestFaults?: TerminalPeerTestFaultState;
+	readonly onTerminalPeerTestReady?: (sessions: SessionManager) => void;
 }
 
-export async function runWorker() {
+export async function runWorker(options: WorkerRunOptions = {}) {
 	// Worker-scoped global handlers — installed when the worker RUNS (source
 	// `bun run main.ts` or compiled `roost worker`), NOT on mere import into the
 	// CLI, so other subcommands never inherit the worker's exit-on-error.
@@ -155,22 +155,33 @@ export async function runWorker() {
 	};
 	// The local door listens before the link: a browser on this machine must keep
 	// reaching its own PTYs while the coordinator is unreachable.
-	const localDoor = startLocalTerminalDoor({
+	const localDoor = await startLocalTerminalDoor({
 		bind: cfg.localUiBind,
 		coordinatorUrl: cfg.coordinatorUrl,
 		workerFp,
+		processEpoch,
+		terminalPeerEnabled: cfg.terminalPeerEnabled,
+		terminalPeerBindAddress: cfg.terminalPeerBindAddress,
+		terminalPeerPortRange: cfg.terminalPeerPortRange,
 		allowedBrowserOrigins: cfg.localUiAllowedOrigins,
 		webDistPath: cfg.webDistPath,
 		refs,
+		testFaults: options.localTerminalTestFaults,
+		terminalPeerTestFaults: options.terminalPeerTestFaults,
 	});
 	const sessionEventStore = openSessionEventStore();
 	const coordLink = startCoordLink(buildCoordLinkDeps({
 		coordHttpUrl: cfg.coordinatorUrl,
 		workerFp,
+		processEpoch,
 		mintJwt: () => mintJwt(key, "roost-coordinator"),
 		refs,
 		sessionEventStore,
 		localTerminal: localDoor.wiring,
+		additionalCapabilities: new Set([
+			TERMINAL_INPUT_ROUTE_CAPABILITY,
+			...(localDoor.wiring.peerSupported ? [TERMINAL_PEER_WEBRTC_CAPABILITY] : []),
+		]),
 	}));
 	// Bind the forward ref before yielding: startCoordLink's first dial awaits
 	// mintJwt(), so no callback can observe a null link on this tick.
@@ -206,6 +217,7 @@ export async function runWorker() {
 		sendChunk: (channelId, chunk) => coordLink.sendCellGridChunk(channelId, chunk),
 	});
 	refs.sessionMgr = sessionMgr;
+	options.onTerminalPeerTestReady?.(sessionMgr);
 	const agentRegistry = new AgentStatusRegistry({
 		publish: (status) => { coordLink.sendAgentStatus(status); },
 	});
@@ -218,6 +230,7 @@ export async function runWorker() {
 		terminalChanged: (channelId) => agentDetector.schedule(channelId),
 		sessionClosed: (sessionId) => {
 			agentDetector.closeSession(sessionId);
+			localDoor.wiring.inputRouteOwner.retireSession(sessionId);
 			// The view owner holds this session's membership and stream identity,
 			// so a closed PTY must drop both instead of holding a dead geometry.
 			localDoor.wiring.viewOwner.closeSession(sessionId);

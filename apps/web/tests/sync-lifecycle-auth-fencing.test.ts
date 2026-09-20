@@ -73,6 +73,7 @@ Object.assign(globalThis, {
 mock.module("../src/auth/web-key.ts", () => ({
   signCoordinatorJwt: signTestJwt,
   getPublicKeyB64: async () => "test-key",
+  getCurrentWebKeyInfo: async () => ({ fingerprint: "test-browser", extractable: false }),
 }));
 
 // The browser fakes and JWT mock must exist before the Sync singleton evaluates.

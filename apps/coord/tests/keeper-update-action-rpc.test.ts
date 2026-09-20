@@ -152,6 +152,8 @@ async function openHarness(
     corsAllowedOrigins: [],
     logDir: directory,
     publicUrl: undefined,
+    terminalPeerEnabled: false,
+    terminalPeerStunUrls: [],
   };
   const coord = createCoord({
     db: opened.db,

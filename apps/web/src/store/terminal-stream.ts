@@ -12,6 +12,14 @@ export {
   dispatchTerminalViewState,
 } from "./terminal-stream-view.ts";
 export {
+  createTerminalSessionPromotion,
+  dispatchDirectTerminalFrame,
+} from "./terminal-stream-promotion.ts";
+export type {
+  TerminalSessionPromotion,
+  TerminalSessionPromotionOptions,
+} from "./terminal-stream-promotion.ts";
+export {
   blackholeTerminalFramesForCurrentGeneration,
   consumeTerminalSmokeFrameFault,
   dropNextTerminalWireDelta,

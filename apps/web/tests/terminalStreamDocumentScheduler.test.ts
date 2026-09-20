@@ -6,6 +6,7 @@ import { describe, expect, setSystemTime, test, vi } from "bun:test";
 import {
   SESSION_ID,
   STREAM_A,
+  WORKER_FP,
   acceptView,
   cellFrameToProto,
   full,
@@ -23,10 +24,10 @@ import {
 
 describe("terminal document renewal scheduler", () => {
   test("serves many active views from one earliest deadline", () => {
-    const first = terminalStream.createTerminalView(SESSION_ID);
+    const first = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     first.setViewport({ cols: 80, rows: 24 });
     acceptView(first.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 80, 24);
-    const second = terminalStream.createTerminalView(SESSION_ID);
+    const second = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     second.setViewport({ cols: 100, rows: 30 });
     acceptView(second.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 100, 30);
     const initialCommandCount = viewCommands().length;
@@ -49,7 +50,7 @@ describe("terminal document renewal scheduler", () => {
   });
 
   test("cancels due callbacks on disposal and generation replacement", () => {
-    const disposed = terminalStream.createTerminalView(SESSION_ID);
+    const disposed = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     disposed.setViewport({ cols: 80, rows: 24 });
     disposed.dispose();
     const afterDispose = viewCommands().length;
@@ -60,7 +61,7 @@ describe("terminal document renewal scheduler", () => {
     vi.advanceTimersByTime(5_000);
     expect(viewCommands()).toHaveLength(afterDispose);
 
-    const replaced = terminalStream.createTerminalView(SESSION_ID);
+    const replaced = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     replaced.setViewport({ cols: 80, rows: 24 });
     updateSyncState({
       socketGeneration: 2,
@@ -80,7 +81,7 @@ describe("terminal document renewal scheduler", () => {
   });
 
   test("renews after a wall-clock rollback", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 80, rows: 24 });
     acceptView(view.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 80, 24);
     const commandCount = viewCommands().length;
@@ -96,7 +97,7 @@ describe("terminal document renewal scheduler", () => {
 
   test("renews a visible terminal even when its window is unfocused", () => {
     setPageFocused(false);
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 80, rows: 24 });
     acceptView(view.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 80, 24);
     const initialCommandCount = viewCommands().length;
@@ -114,7 +115,7 @@ describe("terminal document renewal scheduler", () => {
   });
 
   test("redials an unanswered visible terminal after its scoped proof deadline", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 80, rows: 24 });
     const initial = latestViewCommand().value;
 
@@ -137,7 +138,7 @@ describe("terminal document renewal scheduler", () => {
   });
 
   test("retires a no-stream proof challenge when a late ACK adopts its stream", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 80, rows: 24 });
 
     vi.advanceTimersByTime(15_000);
@@ -156,7 +157,7 @@ describe("terminal document renewal scheduler", () => {
   });
 
   test("does not accept a renewed view ACK as terminal proof", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
+    const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
     view.setViewport({ cols: 1, rows: 1 });
     acceptView(view.viewId, latestViewCommand().value.revision as bigint);
     terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));

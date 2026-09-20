@@ -8,6 +8,7 @@ import type { CellGridFrame } from "@roost/shared/cell";
 import {
   RecordingRenderer,
   SESSION_ID,
+  WORKER_FP,
   acceptView,
   cellFrameToProto,
   delta,
@@ -72,7 +73,7 @@ describe("terminal stream renderer scheduling", () => {
     const frames = installAnimationFrameQueue();
     try {
       let foreground = true;
-      const view = terminalStream.createTerminalView(SESSION_ID);
+      const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
       const sink = new RecordingRenderer();
       const deliveries: CellGridFrame[] = [];
       view.subscribeRenderer(
@@ -111,7 +112,7 @@ describe("terminal stream renderer scheduling", () => {
   test("repairs a renderer-only dropped delta with a viewport-only checkpoint", () => {
     const frames = installAnimationFrameQueue();
     try {
-      const view = terminalStream.createTerminalView(SESSION_ID);
+      const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
       const sink = new RecordingRenderer();
       view.subscribeRenderer(renderer(sink));
       view.setViewport({ cols: 1, rows: 1 });
@@ -156,7 +157,7 @@ describe("terminal stream renderer scheduling", () => {
   test("cancels a queued renderer frame when stream state resets", () => {
     const frames = installAnimationFrameQueue();
     try {
-      const view = terminalStream.createTerminalView(SESSION_ID);
+      const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
       const sink = new RecordingRenderer();
       view.subscribeRenderer(renderer(sink));
       view.setViewport({ cols: 1, rows: 1 });

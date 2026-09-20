@@ -1,13 +1,13 @@
-// Terminal liveness state binds repairs to the current Sync generation.
-// This module owns identity comparison and timer retirement only.
-// terminal-stream-repair.ts owns scoped resync commands and proof deadlines.
-// The session replica supplies continuity state while views supply active leases.
+// Terminal liveness binds repairs to the current carrier generation. This
+// module owns exact identity comparison and timer retirement only; repair owns
+// scoped resync/proof deadlines while views supply active leases.
 
 import type { SyncV2TerminalState } from "./sync.ts";
-import type {
-  TerminalGenerationToken,
-  TerminalSessionReplica,
-  TerminalViewRecord,
+import {
+  terminalGenerationTokenEquals,
+  type TerminalGenerationToken,
+  type TerminalSessionReplica,
+  type TerminalViewRecord,
 } from "./terminal-stream-types.ts";
 
 export function terminalGenerationToken(
@@ -18,6 +18,8 @@ export function terminalGenerationToken(
     socketId: state.socketId,
     processEpoch: state.processEpoch,
     domainGeneration: state.domainGeneration,
+    transportKind: "sync",
+    workerFp: null,
   };
 }
 
@@ -25,23 +27,31 @@ export function terminalGenerationMatches(
   token: TerminalGenerationToken | null,
   state: SyncV2TerminalState | TerminalGenerationToken | null,
 ): boolean {
-  return token !== null
-    && state !== null
-    && token.socketGeneration === state.socketGeneration
+  if (!token || !state) return false;
+  if ("transportKind" in state) {
+    return terminalGenerationTokenEquals(token, state);
+  }
+  return token.socketGeneration === state.socketGeneration
     && token.socketId === state.socketId
     && token.processEpoch === state.processEpoch
-    && token.domainGeneration === state.domainGeneration;
+    && token.domainGeneration === state.domainGeneration
+    && token.transportKind === "sync"
+    && token.workerFp === null;
 }
 
 export function terminalGenerationKey(
   state: SyncV2TerminalState | TerminalGenerationToken,
 ): string {
-  return [
+  const transportKind = "transportKind" in state ? state.transportKind : "sync";
+  const workerFp = "workerFp" in state ? state.workerFp : null;
+  return JSON.stringify([
     state.socketGeneration,
     state.socketId,
     state.processEpoch,
-    state.domainGeneration,
-  ].join("\u0000");
+    state.domainGeneration.toString(),
+    transportKind,
+    workerFp,
+  ]);
 }
 
 export function activeTerminalResyncView(

@@ -30,6 +30,25 @@ describe("ack-gated reconciliation", () => {
     expect(d.confirmedEpoch).toBe(1);    // a's echo still unlocks the burst
   });
 
+  test("a later coincidental match cannot unlock a tentative epoch", () => {
+    const { pe } = mkWithHost("always");
+    typeUnacked(pe, "a");
+    const seqB = typeUnacked(pe, "b");
+    pe.noteInputWritten(seqB);
+    clock.t = 20;
+    pe.onFrame(frame({ seq: 2, cc: 2, rows: ["zb"] }));
+
+    expect(pe._debug()).toMatchObject({ confirmedEpoch: 0, visible: 0, total: 2 });
+  });
+
+  test("a sparse cursor frame does not double-count pending absolute columns", () => {
+    const { pe } = mkWithHost("always");
+    typeUnacked(pe, "abc");
+    pe.onFrame(frame({ seq: 2, cc: 2, rows: [] }));
+
+    expect(pe._debug().predCursorCol).toBe(3);
+  });
+
   test("a prediction is not judged before its write is acknowledged", () => {
     const { pe } = mkWithHost("always");
     const seq = typeUnacked(pe, "a");

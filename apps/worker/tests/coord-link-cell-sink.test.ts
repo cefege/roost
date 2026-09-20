@@ -37,6 +37,7 @@ test("a clean boot delivers cells and a link bounce costs one forced full", asyn
   const deps = buildCoordLinkDeps({
     coordHttpUrl: "http://127.0.0.1:4103",
     workerFp: asWorkerFp("00".repeat(32)),
+    processEpoch: "test-process-epoch",
     mintJwt: async () => "jwt",
     refs,
     sessionEventStore: {} as SessionEventStore,

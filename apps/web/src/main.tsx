@@ -10,7 +10,7 @@ import { applyTvMode } from "./lib/tvMode.ts";
 import { applyPadMode } from "./lib/padMode.ts";
 import { loadAgentConfig } from "./lib/agents.ts";
 import { installSpaDiag, installSignalShip, markPhase } from "./lib/diag.ts";
-import { installLocalTransportIndicator } from "./store/local-transport-indicator.ts";
+import { installTerminalTransportIndicator } from "./store/local-transport-indicator.ts";
 import { installTerminalSnapshotFacade } from "./lib/terminalSnapshotFacade.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import { applyTermFontSize } from "./lib/terminalFontPref.ts";
@@ -45,9 +45,6 @@ applyPadMode();
 installSignalShip();
 installTerminalSnapshotFacade();
 installSpaDiag();
-// Before first render: the pane tabs read transport ownership during their
-// initial paint, so a later registration would show an unmarked local pane.
-installLocalTransportIndicator();
 // Global error catch — Solid reactive throws + chunk-load failures go
 // to window.onerror; rejected promises to onunhandledrejection. Both
 // are otherwise invisible (console.error gets eaten in app-corner windows).
@@ -155,8 +152,10 @@ async function mountApp(): Promise<void> {
   // Browser tab duplication copies sessionStorage. Settle the document's
   // unique identity before App can open any authenticated transport.
   await claimTabIdentity();
-  // The local socket presents this tab's identity, so it installs after the
-  // identity claim and before any pane can publish a view.
+  // Terminal tabs read direct carrier ownership during their first paint.
+  installTerminalTransportIndicator();
+  // Direct transports present this tab's identity, so startup follows its claim
+  // before any pane can publish a view.
   startLocalTerminalFastPath();
   // Push the persisted terminal zoom onto the document BEFORE the first pane
   // measures its cell box, or that pane claims a viewport sized for 14px and

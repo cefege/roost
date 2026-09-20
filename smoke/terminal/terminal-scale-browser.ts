@@ -42,7 +42,7 @@ export interface ScaleRetainedMarkerScan {
   markerDuplicated: number[];
   markerOutOfOrder: number;
 }
-export interface ScaleInputCapture { batches: Array<{ sessionId: string; data: number[] }>; droppedBatches: number; }
+export interface ScaleInputCapture { batches: Array<{ sessionId: string; data: number[] }>; droppedBatches: number; outcomes: { accepted: number; rejected: number; ambiguous: number }; }
 type ScaleSmokeApi = Pick<
   SmokeApi,
   | "input" | "navigate" | "waitForPaintedMarker" | "markerScan" | "renderProbe"
@@ -50,8 +50,8 @@ type ScaleSmokeApi = Pick<
   | "dropNextTerminalWireDelta" | "forceVisible" | "forceHidden"
   | "paneFocused" | "resetTerminalInputCapture" | "terminalInputCapture"
   | "terminalDimensions" | "state" | "beginTerminalTiming" | "finishTerminalTiming"
-  | "pauseSyncTransport" | "resumeSyncTransport" | "viewportText" | "cellGridEpoch"
-  | "perfProbe"
+  | "pauseSyncTransport" | "resumeSyncTransport" | "probeTerminalTransport"
+  | "viewportText" | "cellGridEpoch" | "perfProbe"
 >;
 export interface ScaleSmokeWindow { __smoke: ScaleSmokeApi; }
 export interface ScaleSession {

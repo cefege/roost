@@ -11,20 +11,24 @@ import type { Server, ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { applySecurityHeaders } from "@roost/shared/http-security";
 import { log } from "@roost/shared/log";
+import type { TerminalPacketPort, TerminalPacketSendResult } from "./terminal-packet-port.ts";
 
-export interface LocalTerminalSocket {
-  readonly socketId: string;
-  send(bytes: Uint8Array): number;
-  close(code?: number, reason?: string): void;
-  readonly open: boolean;
+export interface LocalTerminalSocket extends TerminalPacketPort {
+	readonly kind: "loopback";
 }
 
 export interface LocalTerminalSocketHandlers {
-  /** A newly upgraded local terminal socket. The handler owns capability
-   * verification and refuses by closing the socket. */
-  onOpen(socket: LocalTerminalSocket): void;
-  onMessage(socket: LocalTerminalSocket, data: Uint8Array): void;
-  onClose(socket: LocalTerminalSocket): void;
+	/** A newly upgraded local terminal port. The handler owns capability
+	 * verification and refuses by closing the port. */
+	onOpen(port: TerminalPacketPort): void;
+	onMessage(port: TerminalPacketPort, data: Uint8Array): void;
+	onClose(port: TerminalPacketPort): void;
+}
+
+interface BunLocalTerminalSocket {
+	send(bytes: Uint8Array): number;
+	close(code?: number, reason?: string): void;
+	readonly open: boolean;
 }
 
 export interface LocalUiServer {
@@ -52,6 +56,7 @@ export const LOCAL_BOOTSTRAP_PATH = "/api/local-bootstrap";
  * inside a protobuf envelope; 1 MiB leaves headroom for view and scrollback
  * commands while keeping a compromised page from queueing megabyte frames. */
 const LOCAL_TERMINAL_MAX_PAYLOAD_BYTES = 1024 * 1024;
+export const LOCAL_TERMINAL_MAX_BACKPRESSURE_BYTES = 4 * 1024 * 1024;
 const WEBSOCKET_OPEN = 1;
 
 interface LocalTerminalWsData {
@@ -203,14 +208,13 @@ export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
       perMessageDeflate: false,
       maxPayloadLength: LOCAL_TERMINAL_MAX_PAYLOAD_BYTES,
       open(ws: ServerWebSocket<LocalTerminalWsData>): void {
-        const socket: LocalTerminalSocket = {
-          socketId: ws.data.socketId,
-          send: (bytes: Uint8Array) => ws.send(bytes),
-          close: (code?: number, reason?: string) => ws.close(code, reason),
+        const socket = new LoopbackTerminalPacketPort(ws.data.socketId, {
+          send: (bytes) => ws.send(bytes),
+          close: (code, reason) => ws.close(code, reason),
           get open(): boolean {
             return ws.readyState === WEBSOCKET_OPEN;
           },
-        };
+        });
         ws.data.socket = socket;
         log.info("local-ui", "local_terminal_socket_opened", { socket_id: socket.socketId });
         guarded(socket, "open", () => deps.terminal.onOpen(socket));
@@ -321,3 +325,46 @@ function browserOrigins(coordinatorUrl: string, extra: readonly string[]): strin
   return admitted;
 }
 
+
+/** Maps Bun's raw websocket ownership results into the common direct-port
+ * contract. A backpressured frame is already Bun-owned; only refusal loses it. */
+class LoopbackTerminalPacketPort implements LocalTerminalSocket {
+	readonly kind = "loopback" as const;
+	private backpressuredBytes = 0;
+
+	constructor(
+		readonly socketId: string,
+		private readonly socket: BunLocalTerminalSocket,
+	) {}
+
+	get open(): boolean {
+		return this.socket.open;
+	}
+
+	bufferedBytes(): number {
+		return this.backpressuredBytes;
+	}
+
+	send(
+		bytes: Uint8Array,
+		_lane: "control" | "terminal" | "history",
+	): TerminalPacketSendResult {
+		if (!this.socket.open) return "refused";
+		const result = this.socket.send(bytes);
+		if (result > 0) {
+			this.backpressuredBytes = 0;
+			return "accepted";
+		}
+		if (result < 0) {
+			this.backpressuredBytes += bytes.byteLength;
+			return this.backpressuredBytes <= LOCAL_TERMINAL_MAX_BACKPRESSURE_BYTES
+				? "backpressured"
+				: "refused";
+		}
+		return "refused";
+	}
+
+	close(code?: number, reason?: string): void {
+		this.socket.close(code, reason);
+	}
+}

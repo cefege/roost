@@ -1,7 +1,7 @@
 // Loopback TCP reverse proxy for delayed terminal smoke worker links.
 // Stack-owned fixture workers use it to exercise only worker↔coordinator wire latency.
 // It tunnels boot HTTP untouched and queues complete WebSocket frames only after a 101 upgrade.
-// Socket-pair ownership makes stop deterministic and prevents timer or connection leaks.
+// Socket-pair ownership makes stop deterministic and drops an armed input hold on teardown.
 
 import { Buffer } from "node:buffer";
 import { createConnection, createServer, type Socket } from "node:net";
@@ -10,6 +10,10 @@ import {
   DelayedFrameStream,
   type WorkerFrameFilter,
 } from "./delayed-worker-frames.ts";
+import {
+  DelayedWorkerInputHold,
+  type HeldDelayedInput,
+} from "./delayed-worker-input-hold.ts";
 
 const HTTP_HEADER_END = Buffer.from("\r\n\r\n");
 const EMPTY_BUFFER: Buffer<ArrayBufferLike> = Buffer.alloc(0);
@@ -26,6 +30,8 @@ export type DelayedWorkerLinkOptions = {
 
 export interface DelayedWorkerLink {
   url: string;
+  /** Hold exactly one coordinator→worker DInputRequest for this session. */
+  holdNextInput(sessionId: string): Promise<HeldDelayedInput>;
   stop(): Promise<void>;
 }
 
@@ -52,6 +58,7 @@ export async function startDelayedWorkerLink(
   let stopping = false;
   let stopPromise: Promise<void> | undefined;
   let filterFailure: Error | undefined;
+  const inputHold = new DelayedWorkerInputHold();
   const server = createServer({ allowHalfOpen: true });
   server.on("connection", (clientSocket) => {
     if (stopping) {
@@ -65,6 +72,7 @@ export async function startDelayedWorkerLink(
       targetSocket,
       options.oneWayDelayMs,
       options.workerFrameFilter,
+      inputHold,
       () => connections.delete(connection),
       (error) => { filterFailure ??= error; },
     );
@@ -87,6 +95,7 @@ export async function startDelayedWorkerLink(
   const stop = async (): Promise<void> => {
     stopPromise ??= new Promise<void>((resolve) => {
       stopping = true;
+      inputHold.dispose();
       for (const connection of connections) connection.close();
       try {
         server.close(() => resolve());
@@ -103,7 +112,11 @@ export async function startDelayedWorkerLink(
     throw new Error("delayed worker link did not bind a TCP port");
   }
   server.on("error", () => { void stop().catch(() => undefined); });
-  return { url: `http://127.0.0.1:${address.port}`, stop };
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    holdNextInput: (sessionId) => inputHold.holdNextInput(sessionId),
+    stop,
+  };
 }
 
 class SocketPair {
@@ -127,6 +140,7 @@ class SocketPair {
     target: Socket,
     oneWayDelayMs: 0 | 25 | 200,
     workerFrameFilter: WorkerFrameFilter | undefined,
+    downstreamInputHold: DelayedWorkerInputHold,
     onClosed: () => void,
     onFilterFailure: (error: Error) => void,
   ) {
@@ -145,6 +159,9 @@ class SocketPair {
       this.#client,
       oneWayDelayMs,
       () => this.close(),
+      undefined,
+      undefined,
+      downstreamInputHold,
     );
   }
 

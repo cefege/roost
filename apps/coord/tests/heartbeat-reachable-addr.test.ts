@@ -51,7 +51,9 @@ beforeAll(async () => {
 		relaxedCsp: false,
 		corsAllowedOrigins: [],
 		logDir: workdir,
-		publicUrl: undefined, }
+		publicUrl: undefined,
+		terminalPeerEnabled: false,
+		terminalPeerStunUrls: [], }
 	coord = createCoord({
 		db,
 		sqlite,

@@ -36,6 +36,9 @@ import type { UiLayoutApplyOwner } from "./ui-layout-apply-owner.ts";
 import type { UiStateOwner } from "./ui-state-owner.ts";
 import type { SelfHostedTenant } from "../self-hosted-tenant.ts";
 import type { CloudflareAccessGate } from "../cf-access.ts";
+import type { TerminalGrantOwner } from "./terminal-grant-owner.ts";
+import type { TerminalPeerNegotiations } from "./terminal-peer-negotiations.ts";
+import type { TerminalInputRouteResults } from "./terminal-input-route-results.ts";
 
 // ─── deps + helpers ───────────────────────────────────────────────────────
 
@@ -55,6 +58,12 @@ export interface ConnectDeps {
   /** Optional browser front-door verifier, derived once from cfg. */
   cfAccess: CloudflareAccessGate | null;
   pendingPublications?: PendingEventPublicationStore;
+  /** Factory-owned direct-terminal leases; handlers never construct a second registry. */
+  terminalGrants: TerminalGrantOwner;
+  /** Factory-owned typed peer signaling; worker frames settle only this owner. */
+  terminalPeerNegotiations: TerminalPeerNegotiations;
+  /** Factory-owned typed route controls; absent only in isolated legacy fixtures. */
+  terminalInputRouteResults?: TerminalInputRouteResults;
   /** Deterministic observation point immediately before the keeper-update
    * handler's final empty-session query. */
   _onKeeperUpdateFinalEmptyRecheck?: () => void;

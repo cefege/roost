@@ -320,6 +320,10 @@ describe("TerminalStreamDispatcher", () => {
       sessionId: "input-session",
       inputSeq: 1n,
       data: Uint8Array.of(0x61),
+      deviceFingerprint: "",
+      tabId: "",
+      browserConnectionId: "",
+      inputRouteEpoch: "",
     });
     void input.result.catch(() => undefined);
 

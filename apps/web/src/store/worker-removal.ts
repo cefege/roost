@@ -1,7 +1,9 @@
-// Applies the durable worker-removal boundary to browser replica state.
-// Only the machine record disappears; saved sessions/workspaces remain as
-// offline history and missing workers stay force-removable.
+// Applies the durable worker-removal boundary to browser replica and direct state.
+// Saved sessions/workspaces remain offline history; browser-held credentials and
+// carriers retire before the machine record disappears.
 import type { Worker } from "@roost/shared/wire";
+import { terminalDirectRegistry } from "./terminal-stream-transport.ts";
+import { retireTerminalGrantsForWorker } from "../ws/local-terminal-grants.ts";
 import { deleteStoreRecord } from "./root.ts";
 import { workerOnline } from "./sync-routable.ts";
 
@@ -12,8 +14,14 @@ export function applyWorkerDeleteResponse(
   response: { ok: boolean },
 ): boolean {
   if (response.ok !== true) return false;
-  deleteStoreRecord("workers", fp);
+  applyWorkerRemoval(fp);
   return true;
+}
+
+export function applyWorkerRemoval(fp: string): void {
+  retireTerminalGrantsForWorker(fp);
+  terminalDirectRegistry.retireWorker(fp, "worker removed");
+  deleteStoreRecord("workers", fp);
 }
 
 /** A missing worker is a permanent-offboarding breadcrumb and therefore just

@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { WorkersDeleteRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
 import {
   lookupSessionId,
@@ -87,11 +88,18 @@ describe("authorized device lifecycle", () => {
       ts: 1,
       client_seq: 1,
     }).execute();
+    const directFrames: CoordWorkerDown[] = [];
     const liveHandle = {
       workerFp: worker.fingerprint,
+      processEpoch: "worker-direct-epoch",
+      connectionGeneration: "test-connection",
+      capabilities: new Set<string>(),
       revoked: false,
       ready: true,
-      send: () => 1,
+      send: (frame: CoordWorkerDown) => {
+        directFrames.push(frame);
+        return 1;
+      },
     };
     __setConnectWorkerForTest(worker.fingerprint, liveHandle);
     primeChannelMap([{
@@ -125,6 +133,7 @@ describe("authorized device lifecycle", () => {
       .toHaveLength(2);
     expect(h.workerFences).toEqual([]);
     expect(h.workerSyncRemovals).toEqual([]);
+    expect(h.workerLifecycle).toEqual([]);
     expect(h.revoked).toEqual([]);
     expect(connectWorkers.get(worker.fingerprint)).toBe(liveHandle);
     expect(liveHandle.revoked).toBe(false);
@@ -163,6 +172,17 @@ describe("authorized device lifecycle", () => {
     expect(lookupSessionId(asWorkerFp(worker.fingerprint), asChannelId(17)))
       .toBeUndefined();
     expect(h.workerFences).toEqual([worker.fingerprint]);
+    expect(h.workerLifecycle).toEqual([
+      `retire:${worker.fingerprint}:worker_deleted`,
+      `fence:${worker.fingerprint}`,
+    ]);
+    const retirement = directFrames.find((frame) => frame.frame.case === "terminalDirectRetire");
+    expect(retirement?.frame.case).toBe("terminalDirectRetire");
+    if (retirement?.frame.case !== "terminalDirectRetire") throw new Error("expected terminal direct retirement");
+    expect(retirement.frame.value).toMatchObject({
+      workerEpoch: "worker-direct-epoch",
+      reason: "worker_deleted",
+    });
     expect(h.workerSyncRemovals).toEqual([worker.fingerprint]);
     await expect(h.db.insertInto("authorized_keys").values({
       fingerprint: worker.fingerprint,

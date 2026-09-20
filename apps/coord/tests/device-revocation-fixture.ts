@@ -22,6 +22,7 @@ import {
 } from "../src/connect/auth-interceptor.ts";
 import { makeAuthHandlers } from "../src/connect/handlers-auth.ts";
 import { makeWorkerHandlers } from "../src/connect/handlers-workers.ts";
+import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
@@ -60,6 +61,7 @@ export interface DeviceRevocationHarness {
   callbackStates: Array<{ keys: number; devices: number; pushes: number }>;
   close(): Promise<void>;
   workerFences: string[];
+  workerLifecycle: string[];
   workerSyncRemovals: string[];
 }
 
@@ -85,12 +87,20 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
     const callbackStates: Array<{ keys: number; devices: number; pushes: number }> = [];
     const workerFences: string[] = [];
     const workerSyncRemovals: string[] = [];
+    const workerLifecycle: string[] = [];
+    const terminalGrants = new TerminalGrantOwner();
+    const retireWorker = terminalGrants.retireWorker.bind(terminalGrants);
+    terminalGrants.retireWorker = (fingerprint, reason) => {
+      workerLifecycle.push(`retire:${fingerprint}:${reason}`);
+      retireWorker(fingerprint, reason);
+    };
     const deps = {
       db,
       sqlite,
       cfg: {},
       jwtCache: newJwtCache(),
       selfHostedTenant: tenant,
+      terminalGrants,
       onKeyRevoked: (fingerprint: string) => {
         revoked.push(fingerprint);
         const keyCount = sqlite.query("SELECT COUNT(*) AS count FROM authorized_keys WHERE fingerprint = ?")
@@ -110,6 +120,7 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
       },
       onWorkerDeletedFence: (fingerprint: string) => {
         workerFences.push(fingerprint);
+        workerLifecycle.push(`fence:${fingerprint}`);
       },
       onWorkerDeletedSyncScope: (fingerprint: string) => {
         workerSyncRemovals.push(fingerprint);
@@ -117,6 +128,7 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
       },
     } as unknown as ConnectDeps;
     const close = async () => {
+      terminalGrants.dispose();
       try { await opened.close(); } finally { rmSync(dir, { recursive: true, force: true }); }
     };
     cleanups.push(close);
@@ -129,11 +141,11 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
       revoked,
       callbackStates,
       workerFences,
+      workerLifecycle,
       workerSyncRemovals,
       close,
     };
   }
-
   return { cleanupHarnesses, openHarness };
 }
 

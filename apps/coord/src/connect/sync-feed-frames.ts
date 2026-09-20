@@ -159,6 +159,8 @@ export function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
     case "inputAccepted":
     case "inputRejected":
     case "inputAmbiguous":
+    case "inputRouteResult":
+    case "terminalTransportProbeResult":
     case undefined:
       return { domain: null, lane: "control" };
   }

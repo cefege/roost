@@ -8,7 +8,6 @@
 import { writeFileSync } from "node:fs";
 import { test, expect } from "./fixtures.ts";
 import { PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
-import { LOCAL_TERMINAL_PROCESS_EPOCH } from "../../apps/web/src/store/terminal-stream-transport.ts";
 import { startTerminalTestStack } from "./stack.ts";
 import {
   expectCleanRecovery,
@@ -109,22 +108,21 @@ test("worker-served page owns its local PTYs while the coordinator only mirrors 
     await navigateToSmokeSession(localPage, sessionId);
     await waitForPainted(localPage, sessionId, PTY_FIXTURE_READY);
 
-    // Both the view decision and every accepted cell frame pass the SAME
-    // generation fence (store/terminal-stream-view-commands.ts and
-    // terminal-stream-repair.ts both test session.generation), so a local
-    // process epoch on the accepted frame means neither could have come from
-    // the coordinator's Sync tube.
+    // The accepted frame reports its actual generation token, and the elected
+    // route reports the carrier it committed after a complete baseline.
     await expect.poll(
       () => readLocalTransportReading(localPage, sessionId),
       { timeout: 60_000, intervals: [100, 250, 500] },
     ).toMatchObject({
-      acceptedFrameEpoch: LOCAL_TERMINAL_PROCESS_EPOCH,
+      acceptedTransportKind: "loopback",
+      electedTransportKind: "loopback",
+      tokenMatchesElectedRoute: true,
       viewStatus: "accepted",
       baselineReady: true,
     });
     const reading = await readLocalTransportReading(localPage, sessionId);
     const localStreamId = reading.viewStreamId;
-    expect(localStreamId).toEqual(reading.wireStreamId);
+    expect(reading.wireStreamId).toBeNull();
     expect(localStreamId).toMatch(/^[0-9a-f-]{36}$/);
 
     // The stream the pane paints from is the worker's own: the worker reports
@@ -155,13 +153,12 @@ test("worker-served page owns its local PTYs while the coordinator only mirrors 
     await Promise.all(pages.map((page) => setRecoveryCanary(page, canary)));
     await waitForTransition(pages, sessionId, { activeIndices: [0, 1], activeViewCount: 2 });
 
-    // The tag a user actually reads: the same session is marked local on the
-    // worker-served page and NOT on the coordinator-served one, so the marker
-    // tracks the transport rather than the session.
+    // The tag a user actually reads: the worker-served page elects loopback.
+    // The coordinator-served page may use its Sync fallback or WebRTC.
     await expect(localPage.getByTestId(`tab-${sessionId}`))
-      .toHaveAttribute("data-local-transport", "true");
+      .toHaveAttribute("data-terminal-transport", "loopback");
     await expect(remotePage.getByTestId(`tab-${sessionId}`))
-      .toHaveAttribute("data-local-transport", "false");
+      .toHaveAttribute("data-terminal-transport", /^(sync|webrtc)$/);
 
     const localMarker = `${prefix}1`;
     await Promise.all(pages.map((page) => armPaintedMarkerEpoch(page, sessionId, localMarker)));
@@ -183,7 +180,7 @@ test("worker-served page owns its local PTYs while the coordinator only mirrors 
     expect(measured.remoteTypedLocalPaintMs)
       .toBeLessThan(measured.remoteTypedRemotePaintMs);
 
-    // ── the coordinator goes away; the local pane does not ────────────────
+    // ── the coordinator goes away; the direct pane does not ───────────────
     // The pane holds this worker's only PTY, so the keeper accounting the
     // bounce must not disturb is exactly one channel.
     const keeperBefore = await waitForKeeperChannels(stack, fixtureWorker.workerFp, 1);
@@ -191,8 +188,11 @@ test("worker-served page owns its local PTYs while the coordinator only mirrors 
     await stack.stopCoordinator();
     await expect(localPage.getByTestId("connection-banner")).toHaveAttribute(
       "data-banner-reason",
-      "coord-unreachable-local-live",
+      "coord-unreachable-direct-live",
       { timeout: 60_000 },
+    );
+    await expect(localPage.getByTestId("connection-banner")).toContainText(
+      "Coordinator unreachable — direct terminals may remain available; fleet controls unavailable",
     );
 
     const outageMarker = `${prefix}3`;
@@ -200,10 +200,12 @@ test("worker-served page owns its local PTYs while the coordinator only mirrors 
     const outageSentAt = await emitMarkerFromPage(localPage, sessionId, outageMarker);
     measured.outagePaintMs = await readArmedPaintedMarkerEpoch(localPage) - outageSentAt;
     expect(measured.outagePaintMs).toBeLessThan(OUTAGE_PAINT_BUDGET_MS);
-    // Sync is provably down while those frames were accepted, so nothing but
-    // the worker's own socket could have delivered them.
+    // Sync is provably down while those frames were accepted, and the direct
+    // token still matches the elected loopback route.
     expect(await readLocalTransportReading(localPage, sessionId)).toMatchObject({
-      acceptedFrameEpoch: LOCAL_TERMINAL_PROCESS_EPOCH,
+      acceptedTransportKind: "loopback",
+      electedTransportKind: "loopback",
+      tokenMatchesElectedRoute: true,
       viewStatus: "accepted",
       syncReady: false,
     });

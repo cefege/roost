@@ -35,6 +35,9 @@ async function dispatchedRespawnFrames(): Promise<Array<Record<string, unknown>>
   const frames: Array<Record<string, unknown>> = [];
   const worker: WorkerHandle = {
     workerFp: WORKER_FP,
+    processEpoch: null,
+    connectionGeneration: "respawn-geometry-test-connection",
+    capabilities: new Set(),
     revoked: false,
     ready: true,
     send: (frame) => {

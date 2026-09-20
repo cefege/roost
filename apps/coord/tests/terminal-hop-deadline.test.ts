@@ -38,6 +38,8 @@ import { processInputControl } from "../src/connect/input-control.ts";
 import type { TerminalViewerIdentity } from "../src/connect/terminal-control-lane.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
+import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
+import { TerminalPeerNegotiations } from "../src/connect/terminal-peer-negotiations.ts";
 import {
   startHopDeadline,
   INPUT_CONTROL_TIMEOUT_MS,
@@ -68,7 +70,15 @@ beforeAll(async () => {
     authorizedKeysPath: authPath, webDistPath: "", jwtMaxAgeSecs: 300,
     auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [],
     logDir: workdir, publicUrl: undefined,
+    terminalPeerEnabled: false,
+    terminalPeerStunUrls: [],
   };
+  const terminalGrants = new TerminalGrantOwner();
+  const terminalPeerNegotiations = new TerminalPeerNegotiations({
+    db,
+    cfg,
+    terminalGrants,
+  });
   deps = {
     db,
     sqlite: opened.sqlite,
@@ -79,6 +89,8 @@ beforeAll(async () => {
     uiStates: new UiStateOwner(),
     selfHostedTenant,
     cfAccess: null,
+    terminalGrants,
+    terminalPeerNegotiations,
   };
   const now = Date.now();
   await db.insertInto("workers").values({
@@ -92,6 +104,8 @@ beforeAll(async () => {
     __setConnectWorkerForTest(WORKER_FP, null);
     deps.uiLayoutApplies.dispose();
     deps.uiStates.dispose();
+    terminalPeerNegotiations.dispose();
+    terminalGrants.dispose();
     try { await opened.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
   };
 });
@@ -165,6 +179,12 @@ describe("pre-send expiry is a definite rejection", () => {
     const result = await processInputControl(deps, {
       identity: identity("tab-input-nested"), sessionId, inputSeq: 1n,
       data: Uint8Array.of(0x61),
+      inputRouteAuthority: {
+        deviceFingerprint: CALLER_FP,
+        tabId: "tab-input-nested",
+        connectionId: "sync-input-nested",
+        inputRouteEpoch: "route-epoch-nested",
+      },
       deadline: frozenDeadline(INPUT_CONTROL_TIMEOUT_MS, 4_000),
     });
 
@@ -175,6 +195,12 @@ describe("pre-send expiry is a definite rejection", () => {
     // Nesting is what guarantees the worker can answer while we still wait.
     expect(sent.frame.value.budgetMs).toBeGreaterThan(0);
     expect(sent.frame.value.budgetMs).toBeLessThan(4_000);
+    expect(sent.frame.value).toMatchObject({
+      deviceFingerprint: CALLER_FP,
+      tabId: "tab-input-nested",
+      browserConnectionId: "sync-input-nested",
+      inputRouteEpoch: "route-epoch-nested",
+    });
   });
 });
 

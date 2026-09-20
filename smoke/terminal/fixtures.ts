@@ -1,5 +1,6 @@
 import { test as base, expect, devices, type Browser, type Page, type TestInfo } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { installDisabledLoopbackProbe } from "./stack-browser-faults.ts";
 import { startTerminalTestStack, type TerminalTestStack, type TerminalTestWorker } from "./stack.ts";
 
 type Fixtures = {
@@ -185,6 +186,7 @@ async function useSmokePage(
   const expectedWorkerFps = options.expectedWorkerFps ?? [stack.workerFp];
   const readinessDeadline = Date.now() + SMOKE_BROWSER_READINESS_TIMEOUT_MS;
   const context = await browser.newContext(options.contextOptions);
+  if (stack.disableLoopbackProbe) await installDisabledLoopbackProbe(context);
   let page: Page | undefined;
   let setupComplete = false;
   try {
@@ -269,6 +271,7 @@ async function useColdSmokePage(
 ): Promise<void> {
   const readinessDeadline = Date.now() + SMOKE_BROWSER_READINESS_TIMEOUT_MS;
   const context = await browser.newContext();
+  if (stack.disableLoopbackProbe) await installDisabledLoopbackProbe(context);
   let page: Page | undefined;
   let setupComplete = false;
   try {

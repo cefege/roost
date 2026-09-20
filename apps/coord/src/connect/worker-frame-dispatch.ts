@@ -1,8 +1,6 @@
 // Dispatches worker frames that mutate durable or live coordinator state.
 // makeWorkerConn performs connection admission and generation checks first,
 // then supplies guarded readiness and delayed-respawn capabilities here.
-// Keeping these effects together preserves append, publish, and ACK order.
-
 import { create } from "@bufbuild/protobuf";
 import {
   CoordWorkerDownSchema,
@@ -23,7 +21,9 @@ import { appendEvent, dispatchSnapshotOrphanReaps } from "../event-log.ts";
 import { rejectPendingRpc, resolvePendingRpc } from "../router/pending-rpcs.ts";
 import { isTerminalPipelineSnapshotWireShape } from "./worker-terminal-pipeline-snapshot.ts";
 import { resolvePendingSpawnOpened } from "./pending-spawns.ts";
+import { dispatchDirectTerminalWorkerResult } from "./worker-frame-dispatch-direct-terminal.ts";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
+import type { WorkerHandle } from "./worker-registry.ts";
 import type { WriteLease } from "../coordinator-write-gate.ts";
 interface WorkerFrameDispatcherOptions {
   deps: WorkerServiceDeps;
@@ -32,6 +32,7 @@ interface WorkerFrameDispatcherOptions {
   getWorkerFp(): string | null;
   isSnapshotReady(): boolean;
   isCurrentGeneration(): boolean;
+  getWorkerHandle?(): WorkerHandle | null;
   terminalMetadataNegotiated?(): boolean;
   fenced(what: string): boolean;
   sendBestEffort(what: string, frame: CoordWorkerDown): boolean;
@@ -228,7 +229,6 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
       }));
     }
   }
-
   function pendingResultWorker(frameKind: string): string | null {
     const workerFp = options.getWorkerFp();
     if (
@@ -315,6 +315,14 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
         }
         return true;
       }
+      case "localTerminalPeerAnswer":
+      case "localTerminalPeerError":
+      case "terminalInputRouteResult":
+      case "terminalTransportProbeResult":
+        if (pendingResultWorker("direct_terminal_result")) {
+          dispatchDirectTerminalWorkerResult(options.deps, options.getWorkerHandle?.(), frame.frame);
+        }
+        return true;
       case "terminalPipelineSnapshot": {
         const resultWorkerFp = pendingResultWorker("terminal_pipeline_snapshot");
         if (!resultWorkerFp) return true;

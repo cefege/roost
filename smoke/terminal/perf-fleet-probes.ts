@@ -5,6 +5,7 @@ import type { Browser, Page, TestInfo } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import { QUALIFY, percentile } from "./perf-probe-fixture.ts";
+import { disableTerminalPredictions } from "./perf-terminal-preconditions.ts";
 import { pressPlatformShortcut } from "./terminal-helpers.ts";
 import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
 import { attachFleetFailure, captureFleetPresentation, disposeFleetReaderTrace, installFleetReaderTrace } from "./perf-fleet-diagnostics.ts";
@@ -27,10 +28,8 @@ import {
   type ScaleSmokeWindow,
 } from "./terminal-scale-browser.ts";
 import { waitForWorkerCapacity, type ScaleWorkerCapacity } from "./terminal-scale-preflight.ts";
-const KEY_WARMUPS = 10;
-const KEY_SAMPLES = 100;
-const DRAIN_WARMUPS = 3;
-const DRAIN_SAMPLES = 20;
+const KEY_WARMUPS = 10; const KEY_SAMPLES = 100;
+const DRAIN_WARMUPS = 3; const DRAIN_SAMPLES = 20;
 const LOADED_WINDOW_MS = 20_000;
 type Workload = FleetFloodWorkload;
 type FleetTopology = {
@@ -109,10 +108,9 @@ async function timeTrustedKey(
     const smokeWindow = window as unknown as ScaleSmokeWindow;
     return smokeWindow.__smoke.finishTerminalTiming(idForTiming, id, marker);
   }, { id: target.session.id, timingId, marker: `ACK:${nonce}` });
-  expect(timing.trustedKey).toBe(true);
-  expect(timing.durationMs).toBeGreaterThanOrEqual(0);
+  expect(timing.trustedKey).toBe(true); expect(timing.durationMs).toBeGreaterThanOrEqual(0);
   const capture = await readScaleInputCapture(target.document.page);
-  expect(capture.droppedBatches).toBe(0);
+  expect(capture.droppedBatches).toBe(0); expect(capture.outcomes).toMatchObject({ rejected: 0, ambiguous: 0 });
   expect(capture.batches.some((batch) => batch.sessionId === target.session.id && batch.data.includes("x".charCodeAt(0)))).toBe(true);
   const peerPaints = await Promise.all(await peerFloods);
   // Documents have independent monotonic clocks; epoch stamps establish ordering.
@@ -120,10 +118,11 @@ async function timeTrustedKey(
     ? peerPaints.length === 0
     : peerPaints.some((peerPaint) => peerPaint.completion.epochMs >= timing.startedEpochMs);
   expect(peerOutputAfterKey).toBe(true);
-  const metrics = await target.document.page.evaluate((id) => {
+  const metrics = await target.document.page.evaluate(async (id) => {
     const smokeWindow = window as unknown as ScaleSmokeWindow;
-    return { predictiveEchoMode: localStorage.getItem("roostPredict") ?? "adaptive", perf: smokeWindow.__smoke.perfProbe(id) };
+    return { predictiveEchoMode: localStorage.getItem("roostPredict") ?? "adaptive", transport: await smokeWindow.__smoke.probeTerminalTransport(id), perf: smokeWindow.__smoke.perfProbe(id) };
   }, target.session.id);
+  expect(metrics.predictiveEchoMode).toBe("never"); expect(metrics.transport.pending_input_count).toBe(0);
   return {
     retained: index >= KEY_WARMUPS,
     phase,
@@ -132,13 +131,13 @@ async function timeTrustedKey(
     workerFp: target.session.worker.workerFp,
     linkDelayMs: target === topology.delayed ? 25 : 0,
     frame: { kind: "trusted_key", bytes: 1, armBytes: Buffer.byteLength(armFrame) },
-    armDispatchMonotonicMs,
-    armed,
+    armDispatchMonotonicMs, armed,
     timing,
     durationMs: timing.durationMs,
     peerPaints,
     peerOutputAfterKey,
     metrics,
+    inputIntegrity: { captureDroppedBatches: capture.droppedBatches, outcomes: capture.outcomes },
   };
 }
 async function collectTyping(
@@ -268,6 +267,7 @@ async function createFleet(browser: Browser, smokePage: Page, stack: TerminalTes
   expect(directSessions).toHaveLength(4);
   expect(delayedSessions).toHaveLength(4);
   documents.push(...await createScaleDocuments({ browser, stack, contexts: 2, pagesPerContext: 1, workerFps: [direct.workerFp, delayed.workerFp], initialPage: smokePage }));
+  await disableTerminalPredictions(documents.map((document) => document.page), [direct.workerFp, delayed.workerFp]);
   const [directDocument, delayedDocument] = documents;
   assertScale(directDocument && delayedDocument, "fleet did not create two viewer documents");
   await applyScaleSplitPairLayout({ page: directDocument.page, stack, firstSessionId: directSessions[0]!.id, secondSessionId: directSessions[1]!.id });

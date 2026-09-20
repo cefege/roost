@@ -109,11 +109,10 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      # webkit is macOS-only here: playwright.config.ts drops the webkit-iphone
-      # project off darwin, so installing that engine on Linux would only buy a
-      # slow no-op (and RHEL/Ubuntu webkit system deps are the fragile part).
+      # WebKit is macOS-only. Firefox runs only the peer-correctness project;
+      # the paused Windows terminal path continues to install Chromium alone.
       - name: playwright install
-        run: bunx playwright install --with-deps chromium ${{ matrix.os == 'macos-latest' && 'webkit' || '' }}
+        run: bunx playwright install --with-deps chromium firefox ${{ matrix.os == 'macos-latest' && 'webkit' || '' }}
       - name: terminal
         run: bun run test:terminal
       - name: terminal artifacts

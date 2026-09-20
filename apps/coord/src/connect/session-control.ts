@@ -5,4 +5,4 @@ export type {
   TerminalViewerIdentity,
 } from "./terminal-control-lane.ts";
 export { nextCompatibilityInputSeq, processInputControl } from "./input-control.ts";
-export type { InputControlCommand, InputControlResult } from "./input-control.ts";
+export type { InputControlCommand, InputControlResult, InputRouteAuthority } from "./input-control.ts";

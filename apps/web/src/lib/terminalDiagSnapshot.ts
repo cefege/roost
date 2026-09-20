@@ -2,19 +2,21 @@
 // the registered CellGridRenderer plus the per-session replica/view owner and
 // reports their independent stream watermarks in one bounded JSON record.
 //
-// Audience: diagnostics only. Every caller is a smoke-only module that is
-// dynamically imported (lib/smoke.ts, lib/smokeHarness.ts), so nothing here is
-// on the shipped terminal render path. The renderer registry itself lives in
-// terminalPreview.ts (the tab-thumbnail feature) and stays there — this module
-// reads it through rendererRegistryEntry() rather than keeping a second map.
+// Audience: bounded browser diagnostics. Smoke modules and the production
+// snapshot facade call this on demand, so it never adds work to terminal
+// rendering. The renderer registry itself lives in terminalPreview.ts (the
+// tab-thumbnail feature) and stays there — this module reads it through
+// rendererRegistryEntry() rather than keeping a second map.
 
 import type {
   ReconcileBlockReason,
   RendererEpochSeq,
   RendererPresentationSnapshot,
 } from "./cellRenderer.ts";
-import { terminalStreamDiagnosticSnapshot } from "../store/terminal-stream-diagnostics.ts";
-import type { TerminalStreamDiagnosticSnapshot } from "../store/terminal-stream-types.ts";
+import {
+  terminalStreamDiagnosticSnapshot,
+  type TerminalStreamDiagnosticsSnapshot,
+} from "../store/terminal-stream-diagnostics.ts";
 import { isPageVisible } from "./pageVisible.ts";
 import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 import { scrollbackHistoryFloor } from "./scrollbackBackfill.ts";
@@ -61,14 +63,15 @@ export interface TerminalBrowserStreamSnapshot {
   session_id: string;
   captured_at_ms: number;
   build: { git_sha: string | null };
-  wire_received: TerminalStreamDiagnosticSnapshot["wire_received"];
-  replica: TerminalStreamDiagnosticSnapshot["replica"];
-  view: TerminalStreamDiagnosticSnapshot["view"];
-  faults: TerminalStreamDiagnosticSnapshot["faults"];
+  wire_received: TerminalStreamDiagnosticsSnapshot["wire_received"];
+  replica: TerminalStreamDiagnosticsSnapshot["replica"];
+  view: TerminalStreamDiagnosticsSnapshot["view"];
+  faults: TerminalStreamDiagnosticsSnapshot["faults"];
   /** Retained name for adjacent probes; this is the browser replica watermark. */
   handler_canonical: RendererEpochSeq;
   dom_reconciled: RendererEpochSeq;
   reconcile_block_reason: ReconcileBlockReason;
+  route: TerminalStreamDiagnosticsSnapshot["route"];
   presentation: RendererPresentationSnapshot | null;
   /** The range THIS document holds, for comparison against the worker's core and
    *  ring ranges in the same layered probe. `sb_base`/`total` are the frame's own
@@ -93,7 +96,7 @@ export interface TerminalBrowserStreamSnapshot {
     css_visible: boolean | null;
   };
   visibility: TerminalRendererOwnerSnapshot["visibility"];
-  sync: TerminalStreamDiagnosticSnapshot["sync"];
+  sync: TerminalStreamDiagnosticsSnapshot["sync"];
 }
 
 const buildShaValue = "VITE_BUILD_SHA" in import.meta.env
@@ -146,6 +149,7 @@ export function terminalBrowserStreamSnapshot(sessionId: string): TerminalBrowse
     replica: stream.replica,
     view: stream.view,
     faults: stream.faults,
+    route: stream.route,
     handler_canonical: {
       grid_epoch: stream.replica.grid_epoch,
       seq: stream.replica.seq,

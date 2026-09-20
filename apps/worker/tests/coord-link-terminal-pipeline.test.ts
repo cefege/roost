@@ -108,6 +108,7 @@ describe("CoordLink terminal pipeline route", () => {
       const deps = buildCoordLinkDeps({
         coordHttpUrl: "https://coord.invalid",
         workerFp: WORKER_FP,
+        processEpoch: "test-process-epoch",
         mintJwt: async () => "",
         sessionEventStore: {} as SessionEventStore,
         refs,

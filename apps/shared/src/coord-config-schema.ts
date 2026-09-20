@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 import { coordLogDir } from "./paths.ts";
+import { DEFAULT_TERMINAL_PEER_STUN_URLS } from "./terminal-peer.ts";
 
 /** The bind an unset `ROOST_COORDINATOR_BIND` resolves to. Loopback, because the
  * coordinator serves plaintext and must never expose the dashboard on every
@@ -36,5 +37,7 @@ export const CoordConfig = z.object({
   // Operator-declared ceiling for the coordinator's retained terminal cell replicas.
   // Unset means derive it from the cgroup/host memory ceiling at boot.
   terminalMemoryBudgetBytes: z.number().int().positive().optional(),
+  terminalPeerEnabled: z.boolean().default(true),
+  terminalPeerStunUrls: z.array(z.string()).default(() => [...DEFAULT_TERMINAL_PEER_STUN_URLS]),
 });
 export type CoordConfig = z.infer<typeof CoordConfig>;

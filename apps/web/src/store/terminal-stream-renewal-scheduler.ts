@@ -5,11 +5,21 @@
 
 import { TERMINAL_VIEW_HEARTBEAT_MS } from "@roost/shared/viewport";
 import { isPageVisible } from "../lib/pageVisible.ts";
-import type { TerminalViewRecord } from "./terminal-stream-types.ts";
+import type {
+  TerminalViewIntent,
+  TerminalViewRecord,
+} from "./terminal-stream-types.ts";
+
+export interface TerminalViewRenewalTarget {
+  disposed: boolean;
+  readonly desired: TerminalViewIntent | null;
+  renewalDueAtMs: number | null;
+  renew?(): void;
+}
 
 type TerminalViewRenewalHandler = (view: TerminalViewRecord) => void;
 
-const scheduledViews = new Set<TerminalViewRecord>();
+const scheduledViews = new Set<TerminalViewRenewalTarget>();
 let renewalHandler: TerminalViewRenewalHandler | null = null;
 let renewalTimer: Timer | null = null;
 let schedulerEpoch = 0;
@@ -36,7 +46,7 @@ export function endTerminalViewRenewalBatch(): void {
 }
 
 
-export function armTerminalViewRenewal(view: TerminalViewRecord): void {
+export function armTerminalViewRenewal(view: TerminalViewRenewalTarget): void {
   if (!view.desired?.active || view.disposed) {
     cancelTerminalViewRenewal(view);
     return;
@@ -46,18 +56,38 @@ export function armTerminalViewRenewal(view: TerminalViewRecord): void {
   scheduleTerminalViewRenewals();
 }
 
-export function cancelTerminalViewRenewal(view: TerminalViewRecord): void {
+export function cancelTerminalViewRenewal(view: TerminalViewRenewalTarget): void {
   view.renewalDueAtMs = null;
   scheduledViews.delete(view);
   scheduleTerminalViewRenewals();
 }
 
 export function cancelTerminalViewRenewals(
-  views: Iterable<TerminalViewRecord>,
+  views: Iterable<TerminalViewRenewalTarget>,
 ): void {
   for (const view of views) {
     view.renewalDueAtMs = null;
     scheduledViews.delete(view);
+  }
+  scheduleTerminalViewRenewals();
+}
+
+/** Moves one lease deadline without allowing the old and new view identities
+ * to coexist in the document scheduler. */
+export function transferTerminalViewRenewal(
+  source: TerminalViewRenewalTarget,
+  target: TerminalViewRenewalTarget,
+): void {
+  if (source === target) return;
+  const dueAtMs = source.renewalDueAtMs;
+  source.renewalDueAtMs = null;
+  scheduledViews.delete(source);
+  if (dueAtMs !== null && !target.disposed && target.desired?.active) {
+    target.renewalDueAtMs = dueAtMs;
+    scheduledViews.add(target);
+  } else {
+    target.renewalDueAtMs = null;
+    scheduledViews.delete(target);
   }
   scheduleTerminalViewRenewals();
 }
@@ -83,7 +113,7 @@ export function scheduleTerminalViewRenewals(): void {
   clearTimeout(renewalTimer ?? undefined);
   renewalTimer = null;
   nextDeadlineMs = null;
-  if (!renewalHandler || !isPageVisible()) return;
+  if (!isPageVisible()) return;
 
   let earliestDueAtMs: number | null = null;
   for (const view of scheduledViews) {
@@ -133,7 +163,7 @@ export function _terminalViewRenewalSchedulerSnapshotForTest(): {
 
 function renewDueTerminalViews(epoch: number): void {
   const handler = renewalHandler;
-  if (!handler || !isPageVisible()) return;
+  if (!isPageVisible()) return;
   const nowMs = performance.now();
   for (const view of scheduledViews) {
     if (epoch !== schedulerEpoch) return;
@@ -146,10 +176,11 @@ function renewDueTerminalViews(epoch: number): void {
     // Reserve the next slot before the command path runs so a failed write
     // cannot re-enter the same due view in this scheduler turn.
     view.renewalDueAtMs = nowMs + TERMINAL_VIEW_HEARTBEAT_MS;
-    handler(view);
+    if (view.renew) view.renew();
+    else handler?.(view as TerminalViewRecord);
   }
 }
 
-function eligibleForRenewal(view: TerminalViewRecord): boolean {
+function eligibleForRenewal(view: TerminalViewRenewalTarget): boolean {
   return !view.disposed && view.desired?.active === true && isPageVisible();
 }

@@ -20,6 +20,7 @@ export interface TerminalProductionSnapshot {
   replica: TerminalBrowserStreamSnapshot["replica"];
   view: TerminalBrowserStreamSnapshot["view"];
   sync: TerminalBrowserStreamSnapshot["sync"];
+  route: TerminalBrowserStreamSnapshot["route"];
   handler_canonical: TerminalBrowserStreamSnapshot["handler_canonical"];
   dom_reconciled: TerminalBrowserStreamSnapshot["dom_reconciled"];
   reconcile_block_reason: TerminalBrowserStreamSnapshot["reconcile_block_reason"];
@@ -73,8 +74,26 @@ async function readTerminalProductionSnapshot(
   }
 }
 
+function productionRouteEntry(
+  route: TerminalBrowserStreamSnapshot["route"]["active"],
+) {
+  if (!route) return null;
+  return {
+    kind: route.kind,
+    worker_epoch: route.worker_epoch,
+    peer_id: route.peer_id,
+    phase: route.phase,
+    candidate_type: route.candidate_type,
+    probe_age_ms: route.probe_age_ms,
+    rtt_ms: route.rtt_ms,
+    worker_control_rtt_ms: route.worker_control_rtt_ms,
+    buffered_bytes: route.buffered_bytes,
+  };
+}
+
 function productionSnapshotFor(sessionId: string): TerminalProductionSnapshot {
   const snapshot = terminalBrowserStreamSnapshot(sessionId);
+  const route = snapshot.route;
   return {
     session_id: snapshot.session_id,
     captured_at_ms: snapshot.captured_at_ms,
@@ -83,6 +102,15 @@ function productionSnapshotFor(sessionId: string): TerminalProductionSnapshot {
     replica: snapshot.replica,
     view: snapshot.view,
     sync: snapshot.sync,
+    route: {
+      active: productionRouteEntry(route.active),
+      candidate: productionRouteEntry(route.candidate),
+      peer_phase: route.peer_phase,
+      fallback_reason: route.fallback_reason,
+      failure_detail: route.failure_detail,
+      input_phase: route.input_phase,
+      pending_input_count: route.pending_input_count,
+    },
     handler_canonical: snapshot.handler_canonical,
     dom_reconciled: snapshot.dom_reconciled,
     reconcile_block_reason: snapshot.reconcile_block_reason,

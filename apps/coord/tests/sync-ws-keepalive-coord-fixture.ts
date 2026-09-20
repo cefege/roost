@@ -16,6 +16,8 @@ import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
+import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
+import { TerminalPeerNegotiations } from "../src/connect/terminal-peer-negotiations.ts";
 
 export interface SyncWsKeepaliveCoordFixture {
   deps: ConnectDeps;
@@ -49,7 +51,15 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     logDir: workdir,
     webPublicUrl: "https://public.example",
     publicUrl: undefined,
+    terminalPeerEnabled: false,
+    terminalPeerStunUrls: [],
   };
+  const terminalGrants = new TerminalGrantOwner();
+  const terminalPeerNegotiations = new TerminalPeerNegotiations({
+    db,
+    cfg,
+    terminalGrants,
+  });
   const deps: ConnectDeps = {
     db,
     sqlite,
@@ -60,6 +70,8 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     uiStates: new UiStateOwner(),
     selfHostedTenant,
     cfAccess: null,
+    terminalGrants,
+    terminalPeerNegotiations,
   };
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -92,6 +104,8 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     async close() {
       deps.uiLayoutApplies.dispose();
       deps.uiStates.dispose();
+      terminalPeerNegotiations.dispose();
+      terminalGrants.dispose();
       try {
         await opened.close();
       } finally {

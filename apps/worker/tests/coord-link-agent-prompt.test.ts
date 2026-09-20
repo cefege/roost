@@ -99,6 +99,7 @@ test("agentPrompt dispatch submits text then CR and returns an accepted WInputRe
   const deps = buildCoordLinkDeps({
     coordHttpUrl: "https://coord.test",
     workerFp: asWorkerFp("00".repeat(32)),
+    processEpoch: "test-process-epoch",
     mintJwt: async () => "jwt",
     sessionEventStore: {} as unknown as SessionEventStore,
     refs,

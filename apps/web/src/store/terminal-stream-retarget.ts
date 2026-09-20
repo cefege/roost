@@ -1,9 +1,6 @@
-// Sessions follow their transport. This module retargets every session replica
-// when the Sync generation moves or the local socket's grant set changes, and
-// it is the only place a view's published identity rotates. A transport change
-// IS a generation change: liveness resets, the view relinquishes its old key on
-// the transport it is leaving and republishes under a fresh view id on the new
-// one, so the owner mints a new stream whose baseline precedes any delta.
+// Sessions follow the elected direct route or ready Sync fallback. This module
+// owns ordinary generation retargeting and view-id rotation; staged direct
+// promotion has already atomically installed its baseline before notification.
 
 import { create } from "@bufbuild/protobuf";
 import { TerminalViewCommandSchema } from "@roost/shared/proto/sync_pb";
@@ -29,6 +26,7 @@ import {
 } from "./terminal-stream-renewal-scheduler.ts";
 import {
   emitTerminalViewStatus,
+  notifyTerminalTransportStateChange,
   terminalBlackholeFaults,
   terminalGenerationObservation,
   terminalSessions,
@@ -36,9 +34,8 @@ import {
 } from "./terminal-stream-state.ts";
 import { terminalTransportTargetForToken } from "./terminal-stream-publication.ts";
 import {
-  isLocalTerminalGenerationToken,
-  localTerminalGenerationToken,
-  registerTerminalLocalTransportHandler,
+  terminalDirectRegistry,
+  type TerminalDirectRegistryEvent,
 } from "./terminal-stream-transport.ts";
 import type {
   TerminalGenerationToken,
@@ -49,7 +46,7 @@ import { clearViewAck, publishIntent } from "./terminal-stream-view-commands.ts"
 
 export function installTerminalTransportRetarget(): void {
   registerSyncV2GenerationHandler(handleSyncGeneration);
-  registerTerminalLocalTransportHandler(handleLocalTransportChange);
+  terminalDirectRegistry.subscribe(handleDirectRegistryEvent);
 }
 
 function handleSyncGeneration(state: SyncV2TerminalState | null): void {
@@ -61,25 +58,31 @@ function handleSyncGeneration(state: SyncV2TerminalState | null): void {
   if (generationChanged) invalidateTerminalViewRenewals();
   if (import.meta.env.VITE_ROOST_SMOKE === "1" && generationChanged) {
     for (const [sessionId, fault] of terminalBlackholeFaults) {
-      if (!terminalGenerationMatches(fault.generation, state)) {
-        terminalBlackholeFaults.delete(sessionId);
-      }
+      if (
+        fault.generation.transportKind === "sync"
+        && !terminalGenerationMatches(fault.generation, state)
+      ) terminalBlackholeFaults.delete(sessionId);
     }
     for (const [sessionId, fault] of terminalWireDeltaFaults) {
-      if (!terminalGenerationMatches(fault.generation, state)) {
-        terminalWireDeltaFaults.delete(sessionId);
-      }
+      if (
+        fault.generation.transportKind === "sync"
+        && !terminalGenerationMatches(fault.generation, state)
+      ) terminalWireDeltaFaults.delete(sessionId);
     }
   }
-  // A ready flip carries the same generation key and still owes every view its
-  // authoritative replay, so an unchanged Sync generation republishes.
+  // A ready flip carries the same generation key and still owes every Sync
+  // view its authoritative replay. Elected direct routes remain undisturbed.
   retargetTerminalSessions(state, generationChanged, true);
 }
 
-/** The local socket's grant set or generation moved: only the sessions whose
- * owning transport actually changed are disturbed. */
-function handleLocalTransportChange(): void {
-  retargetTerminalSessions(currentSyncV2TerminalState(), false, false);
+function handleDirectRegistryEvent(event: TerminalDirectRegistryEvent): void {
+  if (event.kind !== "route_lost") return;
+  const session = terminalSessions.get(event.sessionId);
+  if (
+    !session
+    || !terminalGenerationMatches(session.generation, event.token)
+  ) return;
+  retargetSession(session, currentSyncV2TerminalState(), false, false);
 }
 
 function retargetTerminalSessions(
@@ -104,22 +107,31 @@ function retargetSession(
   replayUnchanged: boolean,
 ): void {
   const previous = session.generation;
-  const localToken = localTerminalGenerationToken(session.sessionId);
-  const token = localToken ?? (state ? terminalGenerationToken(state) : null);
-  const wasLocal = isLocalTerminalGenerationToken(previous);
-  const changed = localToken !== null || wasLocal
+  const direct = terminalDirectRegistry.activeForSession(session.sessionId);
+  const directToken = direct?.token() ?? null;
+  const token = directToken ?? (state ? terminalGenerationToken(state) : null);
+  const wasDirect = previous?.transportKind === "loopback"
+    || previous?.transportKind === "webrtc";
+  const changed = directToken !== null || wasDirect
     ? !terminalGenerationMatches(previous, token)
     : syncGenerationChanged;
-  if (!changed && !replayUnchanged) return;
-  const transportChanged = previous !== null && wasLocal !== (localToken !== null);
+  if (!changed && (directToken !== null || !replayUnchanged)) return;
+  const transportChanged = previous !== null
+    && (
+      previous.transportKind !== "sync"
+        ? token === null
+          || previous.transportKind !== token.transportKind
+          || previous.workerFp !== token.workerFp
+        : token !== null && token.transportKind !== "sync"
+    );
   session.generation = token;
   clearTerminalChunkTransfer(session);
   if (changed) {
     clearTerminalSessionLiveness(session, "generation_reset");
     if (token !== null) {
       // The replayed view command is this generation's one authoritative
-      // baseline request. A resync latch belongs to the prior socket and
-      // would otherwise race that replay with a duplicate full frame.
+      // baseline request. A resync latch belongs to the prior route and would
+      // otherwise race that replay with a duplicate full frame.
       session.requiresFreshBaseline = true;
       session.baselineReady = false;
       session.resyncLatched = false;
@@ -150,13 +162,13 @@ function retargetSession(
     }
     publishIntent(view, view.desired, state);
   }
-  if (localToken !== null || state?.ready) sendLatchedTerminalResync(session);
+  if (changed) notifyTerminalTransportStateChange();
+  if (directToken !== null || state?.ready) sendLatchedTerminalResync(session);
 }
 
-/** Release this view's key on the transport it is leaving, then take a fresh
- * identity for the new one. Two live sockets sharing one viewer key would
- * otherwise contend for the same registry record and the newcomer would be
- * refused as "owned by another live socket". */
+/** Release this view's key on the route it is leaving, then take a fresh
+ * identity for a different carrier. Two live carriers sharing one viewer key
+ * would otherwise contend for the same worker view record. */
 function rotateViewTransport(
   view: TerminalViewRecord,
   previous: TerminalGenerationToken,
@@ -174,7 +186,22 @@ function rotateViewTransport(
       domainGeneration: leaving.domainGeneration,
     }));
   }
-  view.session.handles.delete(view.viewId);
+  const oldViewId = view.viewId;
+  terminalDirectRegistry.setViewDemand(
+    view.session.workerFp,
+    view.session.sessionId,
+    oldViewId,
+    false,
+  );
+  view.session.handles.delete(oldViewId);
   view.viewId = crypto.randomUUID();
   view.session.handles.set(view.viewId, view);
+  if (view.desired?.active) {
+    terminalDirectRegistry.setViewDemand(
+      view.session.workerFp,
+      view.session.sessionId,
+      view.viewId,
+      true,
+    );
+  }
 }

@@ -9,6 +9,7 @@ import {
   WTerminalMetadataSchema, WRpcOkSchema, WRpcErrorSchema,
   WInputResultSchema, WTerminalStreamResultSchema, WUpdateProgressSchema,
   WTerminalViewProjectionSchema, WTerminalViewStateSchema,
+  WTerminalInputRouteResultSchema, WTerminalTransportProbeResultSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
 import type { TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
@@ -63,6 +64,28 @@ export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
         phase: f.phase,
         failureKind: f.failure_kind,
       })}});
+    case "local-terminal-peer-answer":
+      return create(CoordWorkerUpSchema, {
+        frame: { case: "localTerminalPeerAnswer", value: f.answer },
+      });
+    case "local-terminal-peer-error":
+      return create(CoordWorkerUpSchema, {
+        frame: { case: "localTerminalPeerError", value: f.error },
+      });
+    case "terminal-input-route-result":
+      return create(CoordWorkerUpSchema, {
+        frame: { case: "terminalInputRouteResult", value: create(WTerminalInputRouteResultSchema, {
+          requestId: f.request_id,
+          result: f.result,
+        }) },
+      });
+    case "terminal-transport-probe-result":
+      return create(CoordWorkerUpSchema, {
+        frame: { case: "terminalTransportProbeResult", value: create(WTerminalTransportProbeResultSchema, {
+          requestId: f.result.requestId,
+          workerEpoch: f.result.workerEpoch,
+        }) },
+      });
     case "terminal-pipeline-snapshot":
       return create(CoordWorkerUpSchema, {
         frame: { case: "terminalPipelineSnapshot", value: f.snapshot },

@@ -7,6 +7,7 @@ import {
   SESSION_ID,
   SNAPSHOT_A,
   STREAM_A,
+  WORKER_FP,
   acceptView,
   cellFrameToProto,
   chunkCellGridFrame,
@@ -47,7 +48,7 @@ function multiChunkBaseline(): PbCellGridChunk[] {
 }
 
 function acceptedView(): TerminalViewHandle {
-  const view = terminalStream.createTerminalView(SESSION_ID);
+  const view = terminalStream.createTerminalView(SESSION_ID, WORKER_FP);
   view.setViewport({ cols: 256, rows: 256 });
   acceptView(view.viewId, latestViewCommand().value.revision as bigint, STREAM_A, 256, 256);
   return view;

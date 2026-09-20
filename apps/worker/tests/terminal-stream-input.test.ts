@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
-import { installFakeKeeper } from "./keeper-fake-pool.ts";
+import { writeWorkerOwnedTerminalInput } from "../src/session-terminal-control.ts";
+import { installFakeKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import {
   CHANNEL_ID,
   cleanupStreamHarnesses,
+  holdKeeperAdmission,
   makeHarness,
   SESSION_ID,
   trackKeeper,
@@ -74,4 +76,79 @@ describe("worker-owned keeper input correlation", () => {
     expect(pool.pendingInputs.has(`${CHANNEL_ID}:${firstKeeperSeq}`)).toBe(false);
     expect(pool.pendingInputs.has(`${CHANNEL_ID}:${secondKeeperSeq}`)).toBe(false);
   });
+});
+
+describe("browser terminal write authority", () => {
+	test("rechecks a live route after keeper admission before writing PTY input", async () => {
+		const keeper = trackKeeper(installFakeKeeper());
+		const harness = await makeHarness();
+		const blocker = holdKeeperAdmission(harness.manager, CHANNEL_ID, "terminal_resize");
+		await blocker.granted;
+		const sessionAuthorized = true;
+		let routeCurrent = true;
+		const pending = harness.manager.writeTerminalInput(
+			SESSION_ID,
+			2n,
+			new Uint8Array([0x52]),
+			undefined,
+			{
+				isSessionAuthorized: () => sessionAuthorized,
+				isCurrentInputRoute: () => routeCurrent,
+			},
+		);
+		routeCurrent = false;
+		blocker.release();
+		expect(await pending).toEqual({
+			status: "rejected",
+			writtenBytes: 0,
+			reason: "terminal input route changed",
+		});
+		expect(keeper.writes.filter((write) => write.type === MuxFrameType.PtyInRequest)).toHaveLength(0);
+	});
+
+	test("rechecks live session authority after keeper admission before writing PTY input", async () => {
+		const keeper = trackKeeper(installFakeKeeper());
+		const harness = await makeHarness();
+		const blocker = holdKeeperAdmission(harness.manager, CHANNEL_ID, "terminal_resize");
+		await blocker.granted;
+		let sessionAuthorized = true;
+		const pending = harness.manager.writeTerminalInput(
+			SESSION_ID,
+			3n,
+			new Uint8Array([0x53]),
+			undefined,
+			{
+				isSessionAuthorized: () => sessionAuthorized,
+				isCurrentInputRoute: () => true,
+			},
+		);
+		harness.manager.sessions.delete(CHANNEL_ID);
+		sessionAuthorized = false;
+		blocker.release();
+		expect(await pending).toEqual({
+			status: "rejected",
+			writtenBytes: 0,
+			reason: "terminal session is unavailable",
+		});
+		expect(keeper.writes.filter((write) => write.type === MuxFrameType.PtyInRequest)).toHaveLength(0);
+	});
+
+	test("worker-owned input remains independent of browser route authority", async () => {
+		let keeper!: FakeKeeper;
+		keeper = trackKeeper(installFakeKeeper({
+			onWrite: (write) => {
+				if (write.type === MuxFrameType.PtyInRequest) {
+					keeper.inputAck(write.channelId, write.seq!, write.bytes!.byteLength);
+				}
+			},
+		}));
+		const harness = await makeHarness();
+		const result = await writeWorkerOwnedTerminalInput.call(
+			harness.manager,
+			SESSION_ID,
+			new Uint8Array([0x57]),
+		);
+		expect(result).toEqual({ status: "accepted", writtenBytes: 1 });
+		expect(keeper.writes.filter((write) => write.type === MuxFrameType.PtyInRequest)).toHaveLength(1);
+	});
 });

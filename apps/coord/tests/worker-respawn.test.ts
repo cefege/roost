@@ -27,6 +27,9 @@ test("defers reconnect respawn until keeper-update exclusivity releases", async 
   };
   const worker: WorkerHandle = {
     workerFp: WORKER_FP,
+    processEpoch: null,
+    connectionGeneration: "respawn-test-connection",
+    capabilities: new Set(),
     revoked: false,
     ready: true,
     send,

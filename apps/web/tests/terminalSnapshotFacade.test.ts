@@ -137,6 +137,39 @@ function snapshotFixture(): Record<string, unknown> {
     replica: { expected_stream_id: "stream", grid_epoch: "epoch", seq: 9 },
     view: { view_id: "view", stream_id: "stream" },
     sync: { socket_generation: 2, socket_id: "socket", process_epoch: "process", ready: true },
+    route: {
+      active: {
+        kind: "loopback",
+        worker_epoch: "worker-epoch",
+        peer_id: null,
+        phase: "active",
+        candidate_type: "none",
+        probe_age_ms: 12,
+        rtt_ms: null,
+        worker_control_rtt_ms: 1,
+        buffered_bytes: 0,
+        answer_sdp: "ACTIVE-SDP-MUST-NOT-LEAK",
+      },
+      candidate: {
+        kind: "webrtc",
+        worker_epoch: "worker-epoch",
+        peer_id: "opaque-peer-id",
+        phase: "candidate",
+        candidate_type: "host",
+        probe_age_ms: null,
+        rtt_ms: null,
+        worker_control_rtt_ms: null,
+        buffered_bytes: 0,
+        address: "CANDIDATE-ADDRESS-MUST-NOT-LEAK",
+      },
+      peer_phase: "candidate",
+      fallback_reason: null,
+      pending_input_count: 0,
+      offer_sdp: "DIRECT-SDP-MUST-NOT-LEAK",
+      address: "DIRECT-ADDRESS-MUST-NOT-LEAK",
+      credential: "DIRECT-CREDENTIAL-MUST-NOT-LEAK",
+      terminal_content: "DIRECT-TERMINAL-CONTENT-MUST-NOT-LEAK",
+    },
     handler_canonical: { grid_epoch: "epoch", seq: 9 },
     dom_reconciled: { grid_epoch: "epoch", seq: 9 },
     reconcile_block_reason: null,
@@ -187,6 +220,7 @@ describe("terminal production snapshot facade", () => {
       "presentation",
       "reconcile_block_reason",
       "replica",
+      "route",
       "session_id",
       "slot",
       "sync",
@@ -194,9 +228,42 @@ describe("terminal production snapshot facade", () => {
       "visibility",
       "wire_received",
     ]);
+    expect(result.browser.route).toEqual({
+      active: {
+        kind: "loopback",
+        worker_epoch: "worker-epoch",
+        peer_id: null,
+        phase: "active",
+        candidate_type: "none",
+        probe_age_ms: 12,
+        rtt_ms: null,
+        worker_control_rtt_ms: 1,
+        buffered_bytes: 0,
+      },
+      candidate: {
+        kind: "webrtc",
+        worker_epoch: "worker-epoch",
+        peer_id: "opaque-peer-id",
+        phase: "candidate",
+        candidate_type: "host",
+        probe_age_ms: null,
+        rtt_ms: null,
+        worker_control_rtt_ms: null,
+        buffered_bytes: 0,
+      },
+      peer_phase: "candidate",
+      fallback_reason: null,
+      pending_input_count: 0,
+    });
     expect(result.browser).not.toHaveProperty("faults");
     expect(result.browser).not.toHaveProperty("history");
     expect(result.browser).not.toHaveProperty("last_geometry_proof");
+    expect(JSON.stringify(result.browser)).not.toContain("DIRECT-SDP-MUST-NOT-LEAK");
+    expect(JSON.stringify(result.browser)).not.toContain("DIRECT-ADDRESS-MUST-NOT-LEAK");
+    expect(JSON.stringify(result.browser)).not.toContain("DIRECT-CREDENTIAL-MUST-NOT-LEAK");
+    expect(JSON.stringify(result.browser)).not.toContain("DIRECT-TERMINAL-CONTENT-MUST-NOT-LEAK");
+    expect(JSON.stringify(result.browser)).not.toContain("ACTIVE-SDP-MUST-NOT-LEAK");
+    expect(JSON.stringify(result.browser)).not.toContain("CANDIDATE-ADDRESS-MUST-NOT-LEAK");
     expect(result.diagnostic).toEqual({ coord: { ok: true } });
     expect(diagRequests).toEqual([{
       sessionFilterIds: [SESSION_ID],

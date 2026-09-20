@@ -60,6 +60,8 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
     pushAllowedOrigins: [...PUSH_ORIGINS],
     logDir: workdir,
     publicUrl: undefined,
+    terminalPeerEnabled: false,
+    terminalPeerStunUrls: [],
   };
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);

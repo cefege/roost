@@ -34,6 +34,7 @@ import { sendBrowserCmd, forwardToSessionWorker, requireSessionWorkerSocket } fr
 import type { ConnectDeps } from "./router.ts";
 import { makeSessionScrollbackHandlers } from "./handlers-sessions-scrollback.ts";
 import { makeSessionLocalTerminalGrantHandlers } from "./local-terminal-grants.ts";
+import { makeSessionTerminalPeerHandlers } from "./handlers-sessions-terminal-peer.ts";
 import { makeSessionGlobalSearchHandlers } from "./handlers-sessions-global-search.ts";
 import { GlobalSearchCursorOwner } from "./global-search-cursors.ts";
 import { GlobalSearchWorkerLaneOwner } from "./global-search-worker-lanes.ts";
@@ -63,7 +64,8 @@ type SessionMethods =
   | "sessionsAssignWorkspace"
   | "sessionsGetScrollbackCells" | "sessionsSearchScrollback"
   | "sessionsCancelScrollbackSearch" | "sessionsSearchGlobal"
-  | "sessionsCancelGlobalSearch" | "sessionsGrantLocalTerminal";
+  | "sessionsCancelGlobalSearch" | "sessionsGrantLocalTerminal"
+  | "sessionsNegotiateLocalTerminalPeer";
 
 export function makeSessionHandlers(
   deps: ConnectDeps,
@@ -323,6 +325,7 @@ export function makeSessionHandlers(
 
     ...makeSessionScrollbackHandlers(deps),
     ...makeSessionLocalTerminalGrantHandlers(deps),
+    ...makeSessionTerminalPeerHandlers(deps),
     ...makeSessionGlobalSearchHandlers(
       deps,
       globalSearchCursors,

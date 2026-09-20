@@ -9,10 +9,15 @@ wins.
   in the `workers` table.
 
 - **worker** — the Bun process running on a machine. Owns the PTYs (via the
-  keeper) and the per-session state machines. Purely outbound: it dials the
-  coordinator and exposes no inbound port. Identified by the SHA-256
-  fingerprint of its ed25519 public key (`fp`).
-  Source: `apps/worker/src/main.ts`, `apps/worker/src/session-manager.ts`.
+  keeper) and the per-session state machines, and maintains its outbound
+  coordinator link. Its loopback UI door is a same-machine direct terminal
+  carrier; after coordinator admission, it may create a bounded authenticated
+  WebRTC UDP peer. It exposes no unauthenticated terminal endpoint or public
+  worker HTTP terminal endpoint. Identified by the SHA-256 fingerprint of its
+  ed25519 public key
+  (`fp`).
+  Source: `apps/worker/src/main.ts`, `apps/worker/src/session-manager.ts`,
+  `apps/worker/src/boot-local-terminal.ts`.
 
 - **coordinator** (coord) — the control-plane Bun process, one per cluster. Auth,
   the event log, the `sessions` projection, and fan-out to browsers. Holds no
@@ -59,9 +64,70 @@ wins.
 - **Sync stream** — one long-lived protobuf WebSocket that multiplexes exactly
   seven generation domains: terminal, workers, workspaces, tasks, MCP, pair, and
   audit. Audit is the only lazy domain. A missing or extra generation is a
-  protocol mismatch, so a tab from an incompatible deployment must reload.
+  protocol mismatch, so a tab from an incompatible deployment must reload. Sync
+  remains the authenticated metadata/control plane and terminal fallback even
+  while an elected direct carrier transports a session's cells and input.
   Source: `apps/coord/src/connect/handlers-streaming.ts`,
   `apps/web/src/store/sync.ts`.
+
+- **direct terminal transport** — the browser-to-worker carrier selected per
+  session without changing the cell model: same-worker **loopback** first, then
+  a qualified authenticated **WebRTC terminal peer**, then Sync. The browser
+  keeps one document-scoped direct registry, stages a candidate full baseline,
+  and elects it atomically; direct transport never carries raw PTY bytes.
+  Source: `apps/web/src/store/terminal-stream-transport.ts`,
+  `apps/web/src/store/terminal-stream-promotion.ts`.
+
+- **loopback carrier** — an authenticated `LocalTerminal` WebSocket from a
+  browser to the loopback UI door of the worker on the same machine. A
+  coordinator-issued, worker-scoped grant and `LocalTerminalHello` authorize
+  it. It has priority over WebRTC, needs no UDP/ICE, and can continue through a
+  coordinator outage only while its existing grant and route remain valid.
+  Source: `apps/worker/src/local-ui-server.ts`,
+  `apps/worker/src/local-terminal-socket.ts`.
+
+- **WebRTC terminal peer** — one browser-to-worker encrypted DTLS/SCTP
+  `RTCPeerConnection` carrying ordered control, terminal-cell, and history data
+  channels. The browser offers; the worker creates its UDP endpoint only after
+  coordinator admission of the authenticated device/tab/grant/worker-epoch
+  tuple and verifies the expected direct hello. It is opportunistic: a failed
+  or unavailable peer falls back to Sync. It is not a worker HTTP endpoint,
+  TURN relay, or a promise that NAT traversal will succeed.
+  Source: `apps/web/src/ws/terminal-peer-connection.ts`,
+  `apps/worker/src/terminal-peer-owner.ts`.
+
+- **worker epoch** — a fresh worker-process identity, distinct from terminal
+  grid epoch, terminal `domain_generation`, and coordinator connection
+  generation. Direct grants, SDP answers, `LocalTerminalReady`, probes, and
+  input routes carry it so a restarted worker cannot accept stale peer work.
+  Source: `apps/worker/src/boot-local-terminal.ts`,
+  `apps/coord/src/connect/terminal-grant-owner.ts`.
+
+- **input route** — worker-acknowledged authority for one
+  device/tab/connection/session writer, identified by a monotonically revised
+  claim and an `input_route_epoch`. On a route-capable carrier handoff, the
+  browser claims the new route before releasing unsent input; the worker checks
+  it immediately before the keeper write. Late bytes from the old route are
+  rejected, never replayed. Older loopback retains its established no-replay
+  behavior without an unsupported claim. This is not a global PTY lock:
+  worker-owned CLI and agent-prompt writers remain separate.
+  Source: `apps/worker/src/terminal-input-route-owner.ts`,
+  `apps/web/src/ws/terminal-input-router.ts`.
+
+- **STUN** — operator-configured UDP address discovery for WebRTC. The default
+  is `stun:stun.cloudflare.com:3478`; an explicitly empty
+  `ROOST_TERMINAL_PEER_STUN_URLS` disables external discovery. Roost accepts
+  only bounded `stun:` UDP URLs, not TURN, relay credentials, or browser-supplied
+  ICE-server configuration. STUN sees discovery traffic and address mapping,
+  not terminal cells, input, or grants.
+  Source: `apps/shared/src/terminal-peer.ts`.
+
+- **ICE candidate** — a bounded UDP endpoint candidate in the authenticated
+  WebRTC offer/answer: host, server-reflexive (`srflx`), or peer-reflexive
+  (`prflx`), never relay or ICE-TCP. An authenticated direct peer can learn
+  the candidate's address/port metadata during connectivity checks; browser
+  policy, NAT, or firewalls can still prevent a direct path.
+  Source: `apps/shared/src/terminal-peer-sdp.ts`.
 
 - **scrollback** — a session's history. Fresh and grid-incompatible full frames
   carry only the visible grid; a compatible same-grid renewal may carry a
@@ -137,7 +203,10 @@ wins.
   `apps/coord/src/connect/sync-ws-upgrade.ts`.
 
 - **tailnet** — your [Tailscale](https://tailscale.com) network, when you run
-  one. Roost resolves the MagicDNS name only to publish a worker's
-  `reachable_addr` for worker-to-worker reachability; a tailnet address is
-  transport metadata, never authority.
+  one. Roost may resolve its own MagicDNS name to publish a worker's
+  `reachable_addr`, but that address is transport metadata, never authority.
+  An existing tailnet interface may yield a usable ICE host candidate only if
+  normal browser/worker ICE policy exposes it and the route works. Roost does
+  not install, configure, manage, or require Tailscale, and does not promise
+  tailnet direct-terminal reachability.
   Source: `apps/shared/src/tailnet.ts`.

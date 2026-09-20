@@ -55,6 +55,16 @@ async function runUnit(): Promise<void> {
   });
 }
 
+function terminalCorrectnessProjects(): string[] {
+  if (process.platform === "darwin") {
+    return ["--project=chromium-desktop", "--project=webkit-iphone", "--project=firefox-peer", "--project=tv"];
+  }
+  if (process.platform === "linux") {
+    return ["--project=chromium-desktop", "--project=firefox-peer", "--project=tv"];
+  }
+  return ["--project=chromium-desktop", "--project=tv"];
+}
+
 async function runTerminal(): Promise<void> {
   try {
     // VITE_ROOST_SMOKE=1 bakes the window.__smoke backdoor chunk into dist; the SPA
@@ -68,9 +78,7 @@ async function runTerminal(): Promise<void> {
       "terminal",
       [
         process.execPath, PLAYWRIGHT_CLI, "test", "--config=playwright.config.ts",
-        ...(process.platform === "darwin"
-          ? ["--project=chromium-desktop", "--project=webkit-iphone", "--project=tv"]
-          : ["--project=chromium-desktop", "--project=tv"]),
+        ...terminalCorrectnessProjects(),
       ],
       { ROOST_TEST_BUN: process.execPath },
     );
