@@ -47,6 +47,7 @@ import { navigateToSmokeSession, spawnSmokeShell } from "./terminal-helpers.ts";
 import { expectMarkersOnce, waitForPainted } from "./terminal-multiview-helpers.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import { startTerminalTestStack, type TerminalTestStack } from "./stack.ts";
+import { expectTerminalTransportIndicator } from "./terminal-transport-indicator-helpers.ts";
 
 const PEER_STACK_OPTIONS = {
   terminalPeer: {
@@ -121,6 +122,7 @@ test("WebRTC continues terminal paint through a coordinator outage without direc
       "Coordinator unreachable — direct terminals may remain available; fleet controls unavailable",
     );
     const duringOutage = await waitForDirectRoute(page.page, sessionId, "webrtc", { syncMetadata: false });
+    await expectTerminalTransportIndicator(page.page, sessionId, "webrtc");
     expect(peerRouteIdentity(duringOutage)).toBe(peerRouteIdentity(beforeOutage));
     const key = await sendTrustedPeerKey(page.page, sessionId);
     await waitForPainted(page.page, sessionId, key.marker);
@@ -280,12 +282,14 @@ test("a healthy Sync input drains before WebRTC promotion and fresh direct input
         && route.candidateKind === "webrtc"
         && route.inputPhase === "holding";
     }, { timeout: 30_000, intervals: [50, 100, 250] }).toBe(true);
+    await expectTerminalTransportIndicator(page.page, sessionId, "sync");
     held.release();
     const oldOutcome = await settlePeerSmokeInput(page.page);
     expect(oldOutcome).toEqual({ status: "accepted", reason: null });
     await waitForPainted(page.page, sessionId, oldAckMarker);
     await expectMarkersOnce(page.page, sessionId, [oldAckMarker]);
     await waitForDirectRoute(page.page, sessionId);
+    await expectTerminalTransportIndicator(page.page, sessionId, "webrtc");
     const directKey = await sendTrustedPeerKey(page.page, sessionId);
     await expectMarkersOnce(page.page, sessionId, [oldAckMarker, directKey.marker]);
   } finally {

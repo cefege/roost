@@ -45,6 +45,21 @@
   background: var(--workbench-tab-strip);
 }
 
+.terminal-transport-indicator {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.terminal-transport-indicator > .roost-chip {
+  min-height: 0;
+  padding: var(--md-space-1) var(--md-space-2);
+  color: var(--text-mid);
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+}
+
 .workbench-pane-tab,
 .df-tab {
   position: relative;

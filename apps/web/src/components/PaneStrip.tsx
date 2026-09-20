@@ -2,8 +2,8 @@
  * Per-pane terminal tab state owner.
  * TerminalDeck supplies layout callbacks; this component runs drag transitions and
  * coordinates hover/menu state without owning a session route.
- * paneTabRailScroll owns rail measurement; PaneTab, PaneTabList, and
- * PaneTabHoverCard render the split presentational pieces.
+ * paneTabRailScroll owns rail measurement; PaneTab, PaneTabList, PaneTabHoverCard, and
+ * TerminalTransportIndicator render the split presentational pieces.
  */
 
 import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
@@ -18,6 +18,7 @@ import { PaneTab } from "./PaneTab.tsx";
 import { PaneTabHoverCard, hoverCardAvailable } from "./PaneTabHoverCard.tsx";
 import { PaneTabList } from "./PaneTabList.tsx";
 import { createPaneTabRailScroll } from "./paneTabRailScroll.ts";
+import { TerminalTransportIndicator } from "./TerminalTransportIndicator.tsx";
 
 export interface PaneStripProps {
   paneId: string;
@@ -327,6 +328,7 @@ export function PaneStrip(props: PaneStripProps) {
         title="Double-click to open a new terminal in this folder"
         onDblClick={props.onNewTab}
       />
+      <TerminalTransportIndicator sessionId={props.selectedTab} />
       <div class="workbench-pane-tab-strip__actions" role="toolbar" aria-label="Terminal actions">
         <Show when={railScroll.overflowing()}>
           <IconButton

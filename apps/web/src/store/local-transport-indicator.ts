@@ -13,6 +13,33 @@ import {
   type TerminalTransportKind,
 } from "./terminal-stream-types.ts";
 
+export interface TerminalTransportPresentation {
+  readonly kind: TerminalTransportKind | null;
+  readonly label: string;
+  readonly description: string;
+}
+
+const LOOPBACK_PRESENTATION = Object.freeze<TerminalTransportPresentation>({
+  kind: "loopback",
+  label: "Loopback",
+  description: "Terminal cells and input use a direct connection on this device.",
+});
+const WEBRTC_PRESENTATION = Object.freeze<TerminalTransportPresentation>({
+  kind: "webrtc",
+  label: "WebRTC",
+  description: "Terminal cells and input use a direct WebRTC connection to the worker.",
+});
+const SYNC_PRESENTATION = Object.freeze<TerminalTransportPresentation>({
+  kind: "sync",
+  label: "Coordinator",
+  description: "Terminal cells and input go through the coordinator over Sync.",
+});
+const WAITING_PRESENTATION = Object.freeze<TerminalTransportPresentation>({
+  kind: null,
+  label: "Waiting",
+  description: "No transport is confirmed for the current terminal screen.",
+});
+
 let installed = false;
 let refreshQueued = false;
 
@@ -42,6 +69,22 @@ export function sessionTerminalTransportKind(
   return direct && terminalGenerationTokenEquals(direct.token(), session.generation)
     ? session.generation.transportKind
     : null;
+}
+
+/** Stable visible carrier presentation for selected terminal headers. */
+export function sessionTerminalTransportPresentation(
+  sessionId: string,
+): TerminalTransportPresentation {
+  switch (sessionTerminalTransportKind(sessionId)) {
+    case "loopback":
+      return LOOPBACK_PRESENTATION;
+    case "webrtc":
+      return WEBRTC_PRESENTATION;
+    case "sync":
+      return SYNC_PRESENTATION;
+    default:
+      return WAITING_PRESENTATION;
+  }
 }
 
 /** Human-facing carrier label for native tooltip and hover-card surfaces. */

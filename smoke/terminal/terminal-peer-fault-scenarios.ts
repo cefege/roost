@@ -33,6 +33,7 @@ import {
 } from "./terminal-multiview-helpers.ts";
 import type { TerminalTestStack } from "./stack.ts";
 import { startTerminalTestStack } from "./stack.ts";
+import { expectTerminalTransportIndicator } from "./terminal-transport-indicator-helpers.ts";
 
 const PEER_FAULT_STACK_OPTIONS = {
   terminalPeer: {
@@ -69,6 +70,7 @@ export async function verifyPeerBlackholeFallback(browser: Browser, testInfo: Te
     page = await openPeerSmokePage(browser, stack);
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     await waitForDirectRoute(page.page, sessionId);
+    await expectTerminalTransportIndicator(page.page, sessionId, "webrtc");
 
     const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
     const historyPrefix = `PEER-HISTORY-${suffix}-`;
@@ -93,6 +95,7 @@ export async function verifyPeerBlackholeFallback(browser: Browser, testInfo: Te
     const beforeFulls = await page.page.evaluate((id) => window.__smoke.cellFullFrameCount(id), sessionId);
     await waitForSyncRoute(page.page, sessionId);
     await waitForTerminalInputReady(page.page, sessionId);
+    await expectTerminalTransportIndicator(page.page, sessionId, "sync");
     await expect.poll(() => page!.page.evaluate(
       (id) => window.__smoke.cellFullFrameCount(id),
       sessionId,

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   hasLivenessQualifiedDirectTerminal,
   sessionTerminalTransportKind,
+  sessionTerminalTransportPresentation,
 } from "../src/store/local-transport-indicator.ts";
 import { terminalSessions } from "../src/store/terminal-stream-state.ts";
 import { terminalDirectRegistry } from "../src/store/terminal-stream-transport.ts";
@@ -34,6 +35,27 @@ const SYNC_TOKEN: TerminalGenerationToken = {
   workerFp: null,
 };
 
+const WAITING_PRESENTATION = {
+  kind: null,
+  label: "Waiting",
+  description: "No transport is confirmed for the current terminal screen.",
+} as const;
+const LOOPBACK_PRESENTATION = {
+  kind: "loopback",
+  label: "Loopback",
+  description: "Terminal cells and input use a direct connection on this device.",
+} as const;
+const WEBRTC_PRESENTATION = {
+  kind: "webrtc",
+  label: "WebRTC",
+  description: "Terminal cells and input use a direct WebRTC connection to the worker.",
+} as const;
+const COORDINATOR_PRESENTATION = {
+  kind: "sync",
+  label: "Coordinator",
+  description: "Terminal cells and input go through the coordinator over Sync.",
+} as const;
+
 afterEach(() => {
   terminalDirectRegistry.reset("transport indicator test cleanup");
   terminalSessions.delete(SESSION);
@@ -48,12 +70,18 @@ describe("sessionTerminalTransportKind", () => {
     terminalSessions.set(SESSION, session);
 
     expect(sessionTerminalTransportKind(SESSION)).toBeNull();
+    expect(sessionTerminalTransportPresentation(SESSION)).toEqual(WAITING_PRESENTATION);
     session.baselineReady = true;
 
     expect(sessionTerminalTransportKind(SESSION)).toBeNull();
+    expect(sessionTerminalTransportPresentation(SESSION)).toEqual(WAITING_PRESENTATION);
 
     session.generation = SYNC_TOKEN;
     expect(sessionTerminalTransportKind(SESSION)).toBe("sync");
+    expect(sessionTerminalTransportPresentation(SESSION)).toEqual(COORDINATOR_PRESENTATION);
+
+    session.generation = null;
+    expect(sessionTerminalTransportPresentation(SESSION)).toEqual(WAITING_PRESENTATION);
   });
 });
 
@@ -97,6 +125,7 @@ test("requires an elected route with a current terminal proof before direct avai
   })).toBe(true);
 
   expect(sessionTerminalTransportKind(SESSION)).toBe("loopback");
+  expect(sessionTerminalTransportPresentation(SESSION)).toEqual(LOOPBACK_PRESENTATION);
 
   expect(hasLivenessQualifiedDirectTerminal()).toBe(false);
 
@@ -106,6 +135,8 @@ test("requires an elected route with a current terminal proof before direct avai
 
   session.lastAcceptedFrameGeneration = { ...LOOPBACK_TOKEN, socketId: "stale" };
   expect(hasLivenessQualifiedDirectTerminal()).toBe(false);
+  terminalDirectRegistry.retireSessionRoute(SESSION, LOOPBACK_TOKEN, "test route retirement");
+  expect(sessionTerminalTransportPresentation(SESSION)).toEqual(WAITING_PRESENTATION);
 });
 
 test("requires a current WebRTC probe before reporting direct outage continuity", () => {
@@ -155,6 +186,7 @@ test("requires a current WebRTC probe before reporting direct outage continuity"
     prospectiveViews: new Map(),
     applyCanonical: () => true,
   })).toBe(true);
+  expect(sessionTerminalTransportPresentation(SESSION)).toEqual(WEBRTC_PRESENTATION);
 
   expect(hasLivenessQualifiedDirectTerminal()).toBe(false);
   probeQualified = true;

@@ -27,6 +27,10 @@ import { navigateToSmokeSession, spawnPtyFixtureSession } from "./terminal-helpe
 import { expectMarkersOnce, forceVisible, waitForPainted, waitForTransition } from "./terminal-multiview-helpers.ts";
 import { PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import { verifyLargeDirectPacketAndHistory } from "./terminal-peer-packet-scenarios.ts";
+import {
+  expectCompactTerminalTransportHeader,
+  expectTerminalTransportIndicator,
+} from "./terminal-transport-indicator-helpers.ts";
 
 const PEER_STACK_OPTIONS = {
   terminalPeer: {
@@ -74,12 +78,15 @@ test("loopback wins before a WebRTC peer is allocated and keeps Sync metadata li
     });
     await expect(localPage.page.getByTestId(`tab-${sessionId}`))
       .toHaveAttribute("data-terminal-transport", "loopback");
+    await expectTerminalTransportIndicator(localPage.page, sessionId, "loopback");
 
     const key = await sendTrustedPeerKey(localPage.page, sessionId);
     await expectMarkersOnce(localPage.page, sessionId, [key.marker]);
     const afterKey = await readPeerRoute(localPage.page, sessionId);
     expect(peerRouteIdentity(afterKey)).toBe(peerRouteIdentity(route));
     expect(afterKey.candidateKind).toBeNull();
+    await localPage.page.setViewportSize({ width: 500, height: 800 });
+    await expectCompactTerminalTransportHeader(localPage.page, sessionId, "loopback");
   } finally {
     await stopPeerStack(stack, [localPage], testInfo);
   }
@@ -138,6 +145,7 @@ test("host-candidate WebRTC multiplexes each worker and preserves crossed browse
 
     await navigateToSmokeSession(firstPage.page, firstWorkerSessionOne);
     await waitForDirectRoute(firstPage.page, firstWorkerSessionOne);
+    await expectTerminalTransportIndicator(firstPage.page, firstWorkerSessionOne, "webrtc");
     const trusted = await sendTrustedPeerKey(firstPage.page, firstWorkerSessionOne);
     await expectMarkersOnce(firstPage.page, firstWorkerSessionOne, [trusted.marker]);
     await expectMarkersOnce(secondPage.page, firstWorkerSessionOne, [trusted.marker]);
@@ -152,6 +160,8 @@ test("host-candidate WebRTC multiplexes each worker and preserves crossed browse
       expect(route.activePeerId).not.toBeNull();
       expect(route.activeWorkerEpoch).not.toBeNull();
     }
+    await firstPage.page.setViewportSize({ width: 500, height: 800 });
+    await expectCompactTerminalTransportHeader(firstPage.page, firstWorkerSessionOne, "webrtc");
   } finally {
     await stopPeerStack(
       stack,
@@ -184,8 +194,11 @@ test("an unavailable browser WebRTC API falls back to Sync without a blank termi
     await expect(page.page.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
     await expect(page.page.getByTestId(`tab-${sessionId}`))
       .toHaveAttribute("data-terminal-transport", "sync");
+    await expectTerminalTransportIndicator(page.page, sessionId, "sync");
     const trusted = await sendTrustedPeerKey(page.page, sessionId);
     await expectMarkersOnce(page.page, sessionId, [trusted.marker]);
+    await page.page.setViewportSize({ width: 500, height: 800 });
+    await expectCompactTerminalTransportHeader(page.page, sessionId, "sync");
   } finally {
     await stopPeerStack(stack, [page], testInfo);
   }
@@ -199,6 +212,7 @@ test("disabled peer capability retains usable Sync terminal input without a blan
     terminalPeer: { ...PEER_STACK_OPTIONS.terminalPeer, workerEnabled: false, disableLoopbackProbe: true },
   });
   let page: EnrolledPage | undefined;
+  let syncPaused = false;
   try {
     const fixtureWorker = await stack.startPtyFixtureWorker();
     page = await openPeerSmokePage(browser, stack);
@@ -214,9 +228,33 @@ test("disabled peer capability retains usable Sync terminal input without a blan
     });
     await expect(page.page.getByTestId(`tab-${sessionId}`))
       .toHaveAttribute("data-terminal-transport", "sync");
+    await expectTerminalTransportIndicator(page.page, sessionId, "sync");
     const trusted = await sendTrustedPeerKey(page.page, sessionId);
     await expectMarkersOnce(page.page, sessionId, [trusted.marker]);
+    await page.page.evaluate(() => window.__smoke.pauseSyncTransport());
+    syncPaused = true;
+    await expectTerminalTransportIndicator(page.page, sessionId, null);
+    await page.page.evaluate(() => window.__smoke.resumeSyncTransport());
+    syncPaused = false;
+    await waitForSyncRoute(page.page, sessionId);
+    await expectTerminalTransportIndicator(page.page, sessionId, "sync");
+    const recovered = await sendTrustedPeerKey(page.page, sessionId);
+    await expectMarkersOnce(page.page, sessionId, [trusted.marker, recovered.marker]);
+
+    for (const viewport of [
+      { width: 500, height: 800 },
+      { width: 320, height: 740 },
+      { width: 844, height: 390 },
+    ]) {
+      await page.page.setViewportSize(viewport);
+      await expectCompactTerminalTransportHeader(page.page, sessionId, "sync");
+    }
+    await page.page.setViewportSize({ width: 1_280, height: 800 });
+    await expectTerminalTransportIndicator(page.page, sessionId, "sync");
   } finally {
+    if (syncPaused && page) {
+      await page.page.evaluate(() => window.__smoke.resumeSyncTransport()).catch(() => undefined);
+    }
     await stopPeerStack(stack, [page], testInfo);
   }
 });

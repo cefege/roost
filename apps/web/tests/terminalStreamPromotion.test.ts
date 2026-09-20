@@ -18,6 +18,7 @@ import {
   type TerminalViewCommand,
 } from "@roost/shared/proto/sync_pb";
 import { terminalGenerationToken } from "../src/store/terminal-stream-liveness.ts";
+import { sessionTerminalTransportPresentation } from "../src/store/local-transport-indicator.ts";
 import {
   _terminalViewRenewalSchedulerSnapshotForTest,
 } from "../src/store/terminal-stream-renewal-scheduler.ts";
@@ -207,12 +208,20 @@ describe("terminal direct promotion", () => {
     );
     expect(candidate.isReady()).toBe(true);
     expect(await ready).toBe(true);
+    expect(sessionTerminalTransportPresentation(SESSION_ID)).toMatchObject({
+      kind: "sync",
+      label: "Coordinator",
+    });
     expect(sink.fullFrames).toHaveLength(1);
     let notifications = 0;
     view.subscribeStatus(() => { notifications++; });
     notifications = 0;
 
     expect(commitCandidate(candidate)).toBe(true);
+    expect(sessionTerminalTransportPresentation(SESSION_ID)).toMatchObject({
+      kind: "webrtc",
+      label: "WebRTC",
+    });
     expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).route).toMatchObject({
       active: {
         kind: "webrtc",
@@ -247,6 +256,10 @@ describe("terminal direct promotion", () => {
       peer_id: "opaque-peer-91",
     });
     laterSessionCandidate.cancel("diagnostic candidate test complete");
+    expect(sessionTerminalTransportPresentation(SESSION_ID)).toMatchObject({
+      kind: "webrtc",
+      label: "WebRTC",
+    });
     expect(viewCommands().some((command) => command.value.active === false)).toBe(true);
     direct.unregister();
   });
@@ -303,6 +316,27 @@ describe("terminal direct promotion", () => {
     direct.unregister();
   });
 
+  test("returns to Waiting after a committed direct route retires", () => {
+    canonicalView();
+    const { candidate, direct } = stagedCandidate();
+    terminalStream.dispatchDirectTerminalFrame(
+      DIRECT_TOKEN,
+      directCell(cellFrameToProto(full(STREAM_B, [row(0, "R")]), SESSION_ID)),
+    );
+
+    expect(commitCandidate(candidate)).toBe(true);
+    expect(sessionTerminalTransportPresentation(SESSION_ID)).toMatchObject({
+      kind: "webrtc",
+      label: "WebRTC",
+    });
+    terminalDirectRegistry.retireSessionRoute(SESSION_ID, DIRECT_TOKEN, "test route retirement");
+    expect(sessionTerminalTransportPresentation(SESSION_ID)).toMatchObject({
+      kind: null,
+      label: "Waiting",
+    });
+    direct.unregister();
+  });
+
   test("refuses a same-stream candidate that trails the canonical sequence", () => {
     canonicalView();
     terminalStream.dispatchTerminalCellFrame(cellFrameToProto(delta(2, "B"), SESSION_ID));
@@ -323,11 +357,19 @@ describe("terminal direct promotion", () => {
     canonicalView();
     const { candidate, direct } = stagedCandidate();
     const ready = candidate.awaitReady();
+    expect(sessionTerminalTransportPresentation(SESSION_ID)).toMatchObject({
+      kind: "sync",
+      label: "Coordinator",
+    });
     expect(_terminalViewRenewalSchedulerSnapshotForTest().scheduledViewCount).toBe(2);
     const activeRevision = direct.published.at(-1)?.revision;
 
     candidate.cancel("attempt abandoned");
     expect(await ready).toBe(false);
+    expect(sessionTerminalTransportPresentation(SESSION_ID)).toMatchObject({
+      kind: "sync",
+      label: "Coordinator",
+    });
 
     expect(_terminalViewRenewalSchedulerSnapshotForTest().scheduledViewCount).toBe(1);
     expect(direct.published.at(-1)?.active).toBe(false);

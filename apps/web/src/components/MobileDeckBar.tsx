@@ -1,5 +1,5 @@
 // Mobile (compact) workspace bar. ONE 48px row, left→right:
-//   [menu] [current-tab title] [+] [count ▢]
+//   [menu] [current-tab title] [transport] [+] [count ▢]
 // `+` spawns a sibling into the focused pane. The count square opens
 // WorkspaceTabsSheet: a full-screen card grid of the folder's terminals,
 // mirroring the home page's FolderCard grid — tap a card to switch, ✕ to close.
@@ -10,6 +10,7 @@ import { Portal } from "solid-js/web";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import { sessionTerminalTransportLabel } from "../store/local-transport-indicator.ts";
 import { IconButton } from "./Settings/md/IconButton.tsx";
+import { TerminalTransportIndicator } from "./TerminalTransportIndicator.tsx";
 import { openSidebar } from "../store/uiStore.ts";
 import type { Session } from "@roost/shared/wire";
 import { WorkspaceTabsMenu } from "./WorkspaceTabsMenu.tsx";
@@ -80,6 +81,10 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
             {title()}
           </span>
         </div>
+
+        <Show when={active()}>
+          {(session) => <TerminalTransportIndicator sessionId={session().id} />}
+        </Show>
 
         {/* New terminal — same folder & server (unchanged behavior). */}
         <button
