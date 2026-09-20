@@ -120,6 +120,8 @@ describe("TerminalDirectRegistry", () => {
     expect(registry.activeForSession(SESSION_B)).toBe(second);
     expect(registry.targetForToken(first.token()!)).toBe(first);
     expect(registry.targetForToken(second.token()!)).toBe(second);
+    expect(registry.hasRoutesForConnection(first)).toBe(true);
+    expect(registry.hasRoutesForConnection(second)).toBe(true);
   });
 
   test("registration is inert until an active demanded session commits", () => {

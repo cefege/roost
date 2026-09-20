@@ -47,14 +47,16 @@ interface PeerBudgetFloodWindow {
 async function stopPeerLimitScenario(
   stack: TerminalTestStack,
   page: EnrolledPage | undefined,
-  failed: boolean,
   testInfo: TestInfo,
 ): Promise<void> {
   try {
-    if (failed) await attachStackLogs(testInfo, stack);
-    await page?.close();
+    await attachStackLogs(testInfo, stack);
   } finally {
-    await stack.stop();
+    try {
+      await page?.close();
+    } finally {
+      await stack.stop();
+    }
   }
 }
 
@@ -121,7 +123,7 @@ export async function verifyGrantShrinkFencesInputAndHistory(browser: Browser, t
     const retainedKey = await sendTrustedPeerKey(page.page, retainedSessionId);
     await waitForPainted(page.page, retainedSessionId, retainedKey.marker);
   } finally {
-    await stopPeerLimitScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerLimitScenario(stack, page, testInfo);
   }
 }
 
@@ -183,6 +185,6 @@ export async function verifyPeerInputBudgetFlood(browser: Browser, testInfo: Tes
     const text = await page.page.evaluate((id) => window.__smoke.viewportText(id), sessionId);
     expect(text.match(/BUDGET\d+\|/gu)).toHaveLength(32);
   } finally {
-    await stopPeerLimitScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerLimitScenario(stack, page, testInfo);
   }
 }

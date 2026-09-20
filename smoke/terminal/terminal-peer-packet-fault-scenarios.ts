@@ -34,14 +34,16 @@ const PEER_PACKET_FAULT_STACK_OPTIONS = {
 async function stopPeerPacketFaultScenario(
   stack: TerminalTestStack,
   page: EnrolledPage | undefined,
-  failed: boolean,
   testInfo: TestInfo,
 ): Promise<void> {
   try {
-    if (failed) await attachStackLogs(testInfo, stack);
-    await page?.close();
+    await attachStackLogs(testInfo, stack);
   } finally {
-    await stack.stop();
+    try {
+      await page?.close();
+    } finally {
+      await stack.stop();
+    }
   }
 }
 
@@ -69,7 +71,7 @@ export async function verifyMalformedPeerPacketIsolation(browser: Browser, testI
       const healthyKey = await sendTrustedPeerKey(page.page, healthySessionId);
       await waitForPainted(page.page, healthySessionId, healthyKey.marker);
     } finally {
-      await stopPeerPacketFaultScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+      await stopPeerPacketFaultScenario(stack, page, testInfo);
     }
   }
 }
@@ -134,6 +136,6 @@ export async function verifyPausedHistoryDoesNotStarveControl(browser: Browser, 
     ), { timeout: 60_000, intervals: [100, 250, 500] }).toBeGreaterThan(directHistoryResponsesBefore);
   } finally {
     await unblockCoordinatorHistory?.().catch(() => undefined);
-    await stopPeerPacketFaultScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerPacketFaultScenario(stack, page, testInfo);
   }
 }

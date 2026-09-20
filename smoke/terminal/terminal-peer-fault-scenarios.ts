@@ -47,14 +47,16 @@ const PEER_FAULT_STACK_OPTIONS = {
 async function stopPeerFaultScenario(
   stack: TerminalTestStack,
   page: EnrolledPage | undefined,
-  failed: boolean,
   testInfo: TestInfo,
 ): Promise<void> {
   try {
-    if (failed) await attachStackLogs(testInfo, stack);
-    await page?.close();
+    await attachStackLogs(testInfo, stack);
   } finally {
-    await stack.stop();
+    try {
+      await page?.close();
+    } finally {
+      await stack.stop();
+    }
   }
 }
 
@@ -110,7 +112,7 @@ export async function verifyPeerBlackholeFallback(browser: Browser, testInfo: Te
     await expectMarkersOnce(page.page, sessionId, [fallbackKey.marker]);
     expect((await readPeerRoute(page.page, sessionId)).activeKind).toBe("sync");
   } finally {
-    await stopPeerFaultScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerFaultScenario(stack, page, testInfo);
   }
 }
 
@@ -137,16 +139,15 @@ export async function verifyDroppedPeerResultIsAmbiguous(browser: Browser, testI
 
     await peerFaults.setPeerPacketBlackhole(fixtureWorker.label, true);
     await waitForSyncRoute(page.page, sessionId);
+    await waitForTerminalInputReady(page.page, sessionId);
     await expectMarkersOnce(page.page, sessionId, [ackMarker]);
     const capture = await page.page.evaluate(() => window.__smoke.terminalInputCapture());
     expect(capture.batches).toHaveLength(1);
     expect(capture.batches[0]).toMatchObject({ sessionId, data: [120] });
-    await expect(page.page.evaluate(
-      (id) => window.__smoke.input(id, "x"),
-      sessionId,
-    )).rejects.toThrow("terminal input route is reconnecting");
+    const repairedKey = await sendTrustedPeerKey(page.page, sessionId);
+    await expectMarkersOnce(page.page, sessionId, [ackMarker, repairedKey.marker]);
   } finally {
-    await stopPeerFaultScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerFaultScenario(stack, page, testInfo);
   }
 }
 
@@ -173,13 +174,11 @@ export async function verifyPeerToSyncInputFence(browser: Browser, testInfo: Tes
     await settlePeerSmokeInput(page.page);
     await expectNoPeerFixtureAck(page.page, sessionId, oldAckMarker);
     await waitForPeerRouteLoss(page.page, sessionId);
-
-    await expect(page.page.evaluate(
-      (id) => window.__smoke.input(id, "x"),
-      sessionId,
-    )).rejects.toThrow("terminal input route is reconnecting");
+    await waitForTerminalInputReady(page.page, sessionId);
+    const repairedKey = await sendTrustedPeerKey(page.page, sessionId);
+    await expectMarkersOnce(page.page, sessionId, [repairedKey.marker]);
   } finally {
-    await stopPeerFaultScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerFaultScenario(stack, page, testInfo);
   }
 }
 
@@ -207,7 +206,7 @@ export async function verifyDirectGrantExpiry(browser: Browser, testInfo: TestIn
     const key = await sendTrustedPeerKey(page.page, sessionId);
     await expectMarkersOnce(page.page, sessionId, [key.marker]);
   } finally {
-    await stopPeerFaultScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerFaultScenario(stack, page, testInfo);
   }
 }
 
@@ -236,6 +235,6 @@ export async function verifyDroppedRetirementExpires(browser: Browser, testInfo:
     await waitForPeerRouteLoss(page.page, sessionId);
     await expectNoPeerFixtureAck(page.page, sessionId, oldAckMarker);
   } finally {
-    await stopPeerFaultScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerFaultScenario(stack, page, testInfo);
   }
 }

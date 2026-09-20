@@ -14,7 +14,6 @@ const ARCHIVE_LIMIT_BYTES = 32 * 1024 * 1024;
 const TAR_LIMIT_BYTES = 64 * 1024 * 1024;
 const FETCH_DEADLINE_MS = 30_000;
 const ADDON_MEMBER = "package/node_datachannel.node";
-const NATIVE_PACKAGE_VERSION = "0.33.4";
 const REPOSITORY_ROOT = join(import.meta.dir, "..");
 const GENERATED_LOADER_PATH = join(REPOSITORY_ROOT, "apps/worker/src/terminal-peer-native.generated.ts");
 const STAGED_ADDON_PATH = join(REPOSITORY_ROOT, "apps/worker/src/terminal-peer.node");
@@ -337,6 +336,13 @@ function tarText(header: Uint8Array, start: number, length: number, field: strin
 }
 
 function loadTerminalPeerNativeManifest(): TerminalPeerNativeManifest {
+  const packageJson = JSON.parse(readFileSync(new URL("../apps/worker/package.json", import.meta.url), "utf8")) as {
+    dependencies?: Record<string, unknown>;
+  } | null;
+  const packageVersion = packageJson?.dependencies?.["node-datachannel"];
+  if (typeof packageVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(packageVersion)) {
+    throw new Error("terminal peer native dependency must use an exact version");
+  }
   const decoded = JSON.parse(readFileSync(new URL("./terminal-peer-native-assets.json", import.meta.url), "utf8")) as {
     version?: unknown;
     member?: unknown;
@@ -357,9 +363,9 @@ function loadTerminalPeerNativeManifest(): TerminalPeerNativeManifest {
     }
     const expectedSuffix = terminalPeerNativeSuffixByTarget[entry.target];
     const expectedPackage = `@node-datachannel/${entry.suffix}`;
-    const expectedTarball = `https://registry.npmjs.org/${expectedPackage}/-/${entry.suffix}-${NATIVE_PACKAGE_VERSION}.tgz`;
+    const expectedTarball = `https://registry.npmjs.org/${expectedPackage}/-/${entry.suffix}-${packageVersion}.tgz`;
     if (
-      entry.suffix !== expectedSuffix || entry.package !== expectedPackage || entry.version !== NATIVE_PACKAGE_VERSION
+      entry.suffix !== expectedSuffix || entry.package !== expectedPackage || entry.version !== packageVersion
       || entry.tarball !== expectedTarball || !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(entry.integrity)
     ) {
       throw new Error("terminal peer native asset manifest violates the pinned package contract");

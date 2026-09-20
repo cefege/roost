@@ -23,6 +23,7 @@ import {
 	TerminalPeerConnectionError,
 	type OpenTerminalPeerPort,
 	type TerminalPeerConnectionConfig,
+	type TerminalPeerConnectionFailureReason,
 	type TerminalPeerExpectedTuple,
 } from "./terminal-peer-connection.ts";
 import { loadTerminalPeerNative, type TerminalPeerNative } from "./terminal-peer-native.ts";
@@ -80,7 +81,6 @@ interface ActivePeer {
 	readonly expectedTuple: TerminalPeerExpectedTuple;
 	readonly connection: TerminalPeerConnection;
 }
-
 
 /** One worker's bounded direct-peer owner. Bootstrap is explicit for capability publication and lazy on offer. */
 export class TerminalPeerOwner {
@@ -206,8 +206,8 @@ export class TerminalPeerOwner {
 					config: pending.config,
 					packetBudget: peerBudget,
 					openPeerPort: this.deps.openPeerPort,
-					onClosed: () => {
-						if (connection) this.handleConnectionClosed(pending, connection);
+					onClosed: (reason) => {
+						if (connection) this.handleConnectionClosed(pending, connection, reason);
 					},
 					shouldBlackholeOutgoing: () => this.deps.testFaults?.peerPacketsBlackholed() === true,
 				});
@@ -375,20 +375,21 @@ export class TerminalPeerOwner {
 			&& pending.request.peerId === request.peerId;
 	}
 
-	private handleConnectionClosed(pending: PendingPeer, connection: TerminalPeerConnection): void {
+	private handleConnectionClosed(
+		pending: PendingPeer,
+		connection: TerminalPeerConnection, reason: TerminalPeerConnectionFailureReason,
+	): void {
 		const active = this.active.get(pending.request.peerId);
 		if (active?.connection === connection) {
 			this.active.delete(pending.request.peerId);
-			log.info("terminal-peer", "peer_closed", { peers: this.active.size });
+			log.info("terminal-peer", "peer_closed", { peers: this.active.size, reason });
 		}
 	}
-
 	private offerFailureReason(error: unknown): TerminalPeerOfferFailureReason {
 		if (error instanceof TerminalPeerOfferError) return error.reason;
 		if (error instanceof TerminalPeerConnectionError) return error.reason;
 		return "ice_failed";
 	}
-
 
 	private cleanupNative(native: TerminalPeerNative): void {
 		if (this.nativeCleaned) return;

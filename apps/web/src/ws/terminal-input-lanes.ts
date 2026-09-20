@@ -87,9 +87,7 @@ function reportSmokeTerminalInputOutcome(
 }
 
 
-export function createTerminalInputLanes<Fence>(
-  onOutcome?: (sessionId: string, outcome: InputOutcome) => void,
-): TerminalInputLanes<Fence> {
+export function createTerminalInputLanes<Fence>(): TerminalInputLanes<Fence> {
   const lanes = new Map<string, InputLane<Fence>>();
   let nextInputSeq = 0n;
 
@@ -105,7 +103,6 @@ export function createTerminalInputLanes<Fence>(
     if (lane.pending.length === 0) lanes.delete(pending.sessionId);
     pending.resolve(outcome);
     reportSmokeTerminalInputOutcome(pending.sessionId, outcome.status);
-    onOutcome?.(pending.sessionId, outcome);
   }
 
   const owned: TerminalInputLanes<Fence> = {
@@ -197,7 +194,6 @@ export function createTerminalInputLanes<Fence>(
           };
           pending.resolve(outcome);
           reportSmokeTerminalInputOutcome(pending.sessionId, outcome.status);
-          onOutcome?.(pending.sessionId, outcome);
         }
       }
       lanes.clear();

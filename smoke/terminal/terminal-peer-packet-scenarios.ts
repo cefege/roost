@@ -32,14 +32,16 @@ const PEER_STACK_OPTIONS = {
 async function stopPeerPacketScenario(
   stack: TerminalTestStack,
   page: EnrolledPage | undefined,
-  failed: boolean,
   testInfo: TestInfo,
 ): Promise<void> {
   try {
-    if (failed) await attachStackLogs(testInfo, stack);
-    await page?.close();
+    await attachStackLogs(testInfo, stack);
   } finally {
-    await stack.stop();
+    try {
+      await page?.close();
+    } finally {
+      await stack.stop();
+    }
   }
 }
 
@@ -104,6 +106,6 @@ export async function verifyLargeDirectPacketAndHistory(browser: Browser, testIn
     await waitForPainted(page.page, sessionId, key.marker);
   } finally {
     await unblockCoordinatorHistory?.().catch(() => undefined);
-    await stopPeerPacketScenario(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerPacketScenario(stack, page, testInfo);
   }
 }

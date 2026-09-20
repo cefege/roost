@@ -14,7 +14,10 @@ import {
 } from "../store/terminal-stream-transport.ts";
 import { currentTerminalGrant, resetTerminalGrants } from "./local-terminal-grants.ts";
 import { rootStore } from "../store/root.ts";
-import type { TerminalGenerationToken } from "../store/terminal-stream-types.ts";
+import {
+  terminalGenerationTokenEquals,
+  type TerminalGenerationToken,
+} from "../store/terminal-stream-types.ts";
 import {
   currentSyncV2TerminalState,
   registerSyncV2ControlHandler,
@@ -35,6 +38,7 @@ import {
   retireTerminalInputConnection,
   settleTerminalInput,
   terminalInputPhase,
+  terminalInputRequiresRouteClaim,
   type TerminalInputDestination,
 } from "./terminal-input-router.ts";
 
@@ -192,6 +196,20 @@ export function terminalInputDestinationForSession(sessionId: string): TerminalI
     inputRouteSupported: grant?.inputRouteSupported === true && !!grant.workerEpoch,
   });
 }
+
+/** Selects only a ready Sync fallback, never an elected direct route. */
+export function readySyncTerminalInputDestinationForSession(
+  sessionId: string,
+): TerminalInputDestination | null {
+  const state = currentSyncV2TerminalState();
+  if (!state?.ready) return null;
+  const workerFp = rootStore.sessions[sessionId]?.worker_fp;
+  const grant = workerFp ? currentTerminalGrant(workerFp) : null;
+  return syncInputDestination(state, {
+    workerEpoch: grant?.workerEpoch || state.processEpoch,
+    inputRouteSupported: grant?.inputRouteSupported === true && !!grant.workerEpoch,
+  });
+}
 function handleControl(control: SyncV2Control, state: TerminalState): void {
   if (control.case === "inputRouteResult") {
     const waiter = syncClaimWaiters.get(control.value.requestId);
@@ -253,18 +271,32 @@ export function handleGeneration(state: TerminalState | null): void {
 async function reclaimBlockedSyncInputs(): Promise<void> {
   for (const sessionId of Object.keys(rootStore.sessions)) {
     if (terminalInputPhase(sessionId) !== "blocked") continue;
-    const destination = terminalInputDestinationForSession(sessionId);
-    if (!destination || destination.token.transportKind !== "sync") continue;
-    const release = holdTerminalInput(sessionId);
+    const elected = terminalInputDestinationForSession(sessionId);
+    if (!elected || elected.token.transportKind !== "sync") continue;
+    const destination = readySyncTerminalInputDestinationForSession(sessionId);
+    if (!destination || !terminalGenerationTokenEquals(destination.token, elected.token)) continue;
+    const hold = holdTerminalInput(sessionId);
     if (!destination.inputRouteSupported) {
-      release(destination);
+      if (terminalInputRequiresRouteClaim(sessionId)) hold.release();
+      else hold.release(destination);
       continue;
     }
     try {
       const claimed = await claimTerminalInputRoute(sessionId, destination);
-      if (claimed.accepted) release(destination);
+      if (!hold.isCurrent()) continue;
+      const current = readySyncTerminalInputDestinationForSession(sessionId);
+      if (
+        claimed.accepted
+        && current
+        && terminalGenerationTokenEquals(current.token, destination.token)
+      ) {
+        hold.release(current);
+        if (hold.isCurrent()) hold.release();
+      } else {
+        hold.release();
+      }
     } catch {
-      release();
+      if (hold.isCurrent()) hold.release();
     }
   }
 }

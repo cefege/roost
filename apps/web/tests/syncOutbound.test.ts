@@ -8,6 +8,7 @@ let generationHandler: ((state: TestState | null) => void) | null = null;
 const sent: TestOneof[] = [];
 let sessions: Record<string, { worker_fp: string }> = {};
 let grant: { workerFp: string; workerEpoch: string; inputRouteSupported: boolean } | null = null;
+let activeDirect: Record<string, unknown> | null = null;
 mock.module("../src/store/sync.ts", () => ({
   currentSyncV2TerminalState: () => state,
   sendSyncV2Command: (value: TestOneof) => { sent.push(value); return state?.ready === true; },
@@ -19,6 +20,9 @@ mock.module("../src/ws/local-terminal-grants.ts", () => ({
   currentTerminalGrant: (workerFp: string) => grant?.workerFp === workerFp ? grant : null,
   resetTerminalGrants: () => { grant = null; },
 }));
+mock.module("../src/store/terminal-stream-transport.ts", () => ({
+  terminalDirectRegistry: { activeForSession: () => activeDirect, reset: () => { activeDirect = null; } },
+}));
 // Mocks must precede singleton registration; this intentionally tests that load boundary.
 const outbound = await import("../src/ws/sync-outbound.ts");
 await Promise.resolve();
@@ -28,6 +32,7 @@ beforeEach(() => {
   vi.useFakeTimers(); outbound._resetTerminalOutboundForTest(); sent.length = 0;
   sessions = {};
   grant = null;
+  activeDirect = null;
   state = { socketGeneration: 1, socketId: "socket-1", processEpoch: "epoch-1", domainGeneration: 11n, ready: true };
   generationHandler?.(state);
 });
@@ -106,7 +111,53 @@ describe("Sync v2 terminal input outbound", () => {
       },
     });
     expect(await claim).toEqual({ accepted: true, inputRouteEpoch: "route-epoch", revision: 1n });
-    release(destination);
+    release.release(destination);
+  });
+  test("keeps claim-required input blocked while Sync capability is unavailable", async () => {
+    sessions = { s1: { worker_fp: "worker-a" } };
+    grant = { workerFp: "worker-a", workerEpoch: "worker-epoch", inputRouteSupported: true };
+    const supported = outbound.terminalInputDestinationForSession("s1");
+    if (!supported) throw new Error("Sync destination unavailable");
+    void inputRouter.claimTerminalInputRoute("s1", supported);
+    const blocked = inputRouter.holdTerminalInput("s1");
+    blocked.release();
+    grant = { workerFp: "worker-a", workerEpoch: "worker-epoch", inputRouteSupported: false };
+    generationHandler?.(state);
+    await Promise.resolve();
+    expect(inputRouter.terminalInputPhase("s1")).toBe("blocked");
+    expect(outbound.sendTerminalInput("s1", new Uint8Array([1])).accepted).toBe(false);
+  });
+  test("does not reclaim Sync ownership while a direct route remains elected", async () => {
+    sessions = { s1: { worker_fp: "worker-a" } };
+    grant = { workerFp: "worker-a", workerEpoch: "worker-epoch", inputRouteSupported: true };
+    const supported = outbound.terminalInputDestinationForSession("s1");
+    if (!supported) throw new Error("Sync destination unavailable");
+    void inputRouter.claimTerminalInputRoute("s1", supported);
+    const blocked = inputRouter.holdTerminalInput("s1");
+    blocked.release();
+    activeDirect = {
+      kind: "loopback",
+      workerFp: "worker-a",
+      workerEpoch: "worker-epoch",
+      connectionId: "loopback",
+      inputRouteSupported: true,
+      token: () => ({
+        socketGeneration: 1,
+        socketId: "loopback",
+        processEpoch: "worker-epoch",
+        domainGeneration: 1n,
+        transportKind: "loopback",
+        workerFp: "worker-a",
+      }),
+      allowsSession: () => true,
+      sendInput: () => "accepted",
+      claimInputRoute: async () => { throw new Error("unused"); },
+    };
+    const sentBeforeRecovery = sent.length;
+    generationHandler?.(state);
+    await Promise.resolve();
+    expect(sent).toHaveLength(sentBeforeRecovery);
+    expect(inputRouter.terminalInputPhase("s1")).toBe("blocked");
   });
   test("blocks resumed WebRTC input until a fresh worker probe succeeds", () => {
     let qualified = false;

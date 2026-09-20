@@ -1,8 +1,7 @@
 // Document-owned terminal input routing. Every transport presents an exact
 // generation token and only encodes accepted commands; this owner retains
-// bounded batches, transition holds, route claims, and result correlation.
-// Session cleanup and credential teardown call this owner before a replacement
-// transport can receive any byte retained by an earlier route.
+// bounded batches, current transition holds, route claims, and result correlation.
+// Session cleanup and credential teardown fence retained bytes before replacement.
 
 import { create } from "@bufbuild/protobuf";
 import {
@@ -21,15 +20,21 @@ import {
   type PendingTerminalInput,
 } from "./terminal-input-lanes.ts";
 import {
-  claimTerminalInputRouteState, refreshTerminalInputRouteState,
+  claimTerminalInputRouteState,
+  createTerminalInputHold,
+  refreshTerminalInputRouteState,
+  retireTerminalInputRouteState,
+  type TerminalInputHold,
   type TerminalInputPhase,
   type TerminalInputRouteClaimOutcome,
   type TerminalInputRouteClaimState,
 } from "./terminal-input-route-claim.ts";
+
 export { MAX_TERMINAL_INPUT_ROUTE_REVISION } from "./terminal-input-route-claim.ts";
 export const HELD_INPUT_ADMISSION_TIMEOUT_MS = 10_000;
-export type { TerminalInputPhase, TerminalInputRouteClaimOutcome };
+export type { TerminalInputHold, TerminalInputPhase, TerminalInputRouteClaimOutcome };
 export type TerminalInputSendStatus = "accepted" | "queued" | "refused";
+
 export interface TerminalInputDestination {
   readonly token: TerminalGenerationToken;
   readonly workerEpoch: string;
@@ -49,10 +54,6 @@ export interface TerminalInputSettlement {
   readonly reason?: string;
 }
 
-/** A release without an acknowledged destination rejects held input; it never
- * reuses the route that was active when the hold began. */
-export type TerminalInputHoldRelease = (destination?: TerminalInputDestination) => void;
-
 interface TerminalInputFence {
   readonly destination: TerminalInputDestination;
   readonly tokenKey: string;
@@ -61,15 +62,11 @@ interface TerminalInputFence {
 
 type LaneFence = TerminalInputFence | null;
 
-interface SessionInputState extends TerminalInputRouteClaimState {
-  holdId: number;
-}
-
 export interface TerminalInputPendingSnapshot { readonly count: number; }
 
 export interface TerminalInputRouter {
   admit(destination: TerminalInputDestination | null, sessionId: string, bytes: Uint8Array, viewId?: string): InputAdmission;
-  hold(sessionId: string): TerminalInputHoldRelease;
+  hold(sessionId: string): TerminalInputHold;
   drain(sessionId: string, token: TerminalGenerationToken): Promise<void>;
   claim(sessionId: string, destination: TerminalInputDestination): Promise<TerminalInputRouteClaimOutcome>;
   refresh(destination: TerminalInputDestination): void;
@@ -80,8 +77,10 @@ export interface TerminalInputRouter {
   reset(reason: string): void;
   dispose(reason?: string): void;
   phase(sessionId: string): TerminalInputPhase | null; pendingSnapshot(sessionId: string): TerminalInputPendingSnapshot;
+  requiresRouteClaim(sessionId: string): boolean;
 }
-function tokenKey(token: TerminalGenerationToken): string {
+
+function terminalInputTokenKey(token: TerminalGenerationToken): string {
   return JSON.stringify([
     token.socketGeneration,
     token.socketId,
@@ -92,7 +91,8 @@ function tokenKey(token: TerminalGenerationToken): string {
   ]);
 }
 
-function connectionKey(token: TerminalGenerationToken): string {
+/** Identifies a carrier connection while intentionally excluding its terminal domain. */
+export function terminalInputConnectionKey(token: TerminalGenerationToken): string {
   return JSON.stringify([
     token.socketGeneration,
     token.socketId,
@@ -101,21 +101,19 @@ function connectionKey(token: TerminalGenerationToken): string {
     token.workerFp,
   ]);
 }
-export function createTerminalInputRouter(revisions = new Map<string, bigint>()): TerminalInputRouter {
-  const sessions = new Map<string, SessionInputState>();
-  const lanes = createTerminalInputLanes<LaneFence>((sessionId, outcome) => {
-    const state = sessions.get(sessionId);
-    if (!state) return;
-    if (outcome.status === "ambiguous") state.phase = "ambiguous";
-  });
 
-  function stateFor(sessionId: string): SessionInputState {
+export function createTerminalInputRouter(revisions = new Map<string, bigint>()): TerminalInputRouter {
+  const sessions = new Map<string, TerminalInputRouteClaimState>();
+  const lanes = createTerminalInputLanes<LaneFence>();
+
+  function stateFor(sessionId: string): TerminalInputRouteClaimState {
     let state = sessions.get(sessionId);
     if (!state) {
       state = {
         phase: "sending",
         holdId: 0,
         claimId: 0,
+        requiresRouteClaim: false,
         routeEpoch: "",
         routeTokenKey: null,
         activeDestination: null,
@@ -128,15 +126,12 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
   function fenceFor(destination: TerminalInputDestination): TerminalInputFence {
     return {
       destination,
-      tokenKey: tokenKey(destination.token),
-      connectionKey: connectionKey(destination.token),
+      tokenKey: terminalInputTokenKey(destination.token),
+      connectionKey: terminalInputConnectionKey(destination.token),
     };
   }
 
-  function finishRejected(
-    pending: PendingTerminalInput<LaneFence>,
-    reason: string,
-  ): void {
+  function finishRejected(pending: PendingTerminalInput<LaneFence>, reason: string): void {
     lanes.finish(pending, {
       status: "rejected",
       inputSeq: pending.inputSeq,
@@ -146,14 +141,12 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
   }
 
   function dispatchPending(
-    state: SessionInputState,
+    state: TerminalInputRouteClaimState,
     pending: PendingTerminalInput<LaneFence>,
     fence: TerminalInputFence,
   ): void {
     if (pending.started) return;
-    const inputRouteEpoch = state.routeTokenKey === fence.tokenKey
-      ? state.routeEpoch
-      : "";
+    const inputRouteEpoch = state.routeTokenKey === fence.tokenKey ? state.routeEpoch : "";
     let status: TerminalInputSendStatus;
     try {
       status = fence.destination.sendInput(create(InputCommandSchema, {
@@ -175,18 +168,13 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
     if (status === "refused") finishRejected(pending, "terminal transport did not accept input");
   }
 
-  function armHeldAdmission(
-    pending: PendingTerminalInput<LaneFence>,
-  ): void {
+  function armHeldAdmission(pending: PendingTerminalInput<LaneFence>): void {
     pending.timer = setTimeout(() => {
       finishRejected(pending, "terminal input route is reconnecting");
     }, HELD_INPUT_ADMISSION_TIMEOUT_MS);
   }
 
-  function finishForRetirement(
-    pending: PendingTerminalInput<LaneFence>,
-    reason: string,
-  ): void {
+  function finishForRetirement(pending: PendingTerminalInput<LaneFence>, reason: string): void {
     if (!pending.started) {
       finishRejected(pending, `${reason} before input was sent`);
       return;
@@ -199,6 +187,31 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
     });
   }
 
+  function releaseHeld(sessionId: string, destination: TerminalInputDestination): void {
+    const state = stateFor(sessionId);
+    const fence = fenceFor(destination);
+    for (const pending of lanes.pending()) {
+      if (pending.sessionId !== sessionId || pending.fence !== null) continue;
+      pending.fence = fence;
+      dispatchPending(state, pending, fence);
+    }
+  }
+
+  function rejectHeld(sessionId: string, reason: string): void {
+    for (const pending of lanes.pending()) {
+      if (pending.sessionId === sessionId && pending.fence === null) finishRejected(pending, reason);
+    }
+  }
+
+  function hold(sessionId: string): TerminalInputHold {
+    const state = stateFor(sessionId);
+    return createTerminalInputHold(state, {
+      release: (destination) => releaseHeld(sessionId, destination),
+      rejectUnsent: (reason) => rejectHeld(sessionId, reason),
+      tokenKey: terminalInputTokenKey,
+    });
+  }
+
   async function claim(
     sessionId: string,
     destination: TerminalInputDestination,
@@ -208,9 +221,10 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
       revisions,
       sessionId,
       destination,
-      tokenKey(destination.token),
+      terminalInputTokenKey(destination.token),
     );
   }
+
 
   const router: TerminalInputRouter = {
     admit(destination, sessionId, bytes, viewId): InputAdmission {
@@ -218,7 +232,7 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
       if (refusal) return { accepted: false, reason: refusal };
       const state = stateFor(sessionId);
       if (state.phase === "closed") return { accepted: false, reason: "terminal session is closed" };
-      if (state.phase === "blocked" || state.phase === "ambiguous") return { accepted: false, reason: "terminal input route is reconnecting" };
+      if (state.phase === "blocked") return { accepted: false, reason: "terminal input route is reconnecting" };
       if (state.phase === "holding" || state.phase === "claiming") {
         const admitted = lanes.enqueue(sessionId, bytes, viewId, null);
         armHeldAdmission(admitted.pending);
@@ -231,36 +245,11 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
       dispatchPending(state, admitted.pending, fence);
       return { accepted: true, inputSeq: admitted.inputSeq, result: admitted.result };
     },
-    hold(sessionId): TerminalInputHoldRelease {
-      const state = stateFor(sessionId);
-      if (state.phase === "closed") return () => undefined;
-      const holdId = ++state.holdId;
-      state.phase = "holding";
-      return (destination): void => {
-        if (state.holdId !== holdId || state.phase === "closed" || state.phase === "blocked") return;
-        if (state.phase === "claiming") return;
-        if (!destination) {
-          for (const pending of lanes.pending()) {
-            if (pending.sessionId === sessionId && pending.fence === null) {
-              finishRejected(pending, "terminal transport is not connected");
-            }
-          }
-          return;
-        }
-        state.activeDestination = destination;
-        state.phase = "sending";
-        const fence = fenceFor(destination);
-        for (const pending of lanes.pending()) {
-          if (pending.sessionId !== sessionId || pending.fence !== null) continue;
-          pending.fence = fence;
-          dispatchPending(state, pending, fence);
-        }
-      };
-    },
+    hold,
     async drain(sessionId, token): Promise<void> {
-      const expected = tokenKey(token);
+      const expected = terminalInputConnectionKey(token);
       const outcomes = await Promise.all(lanes.pending()
-        .filter((pending) => pending.sessionId === sessionId && pending.started && pending.fence?.tokenKey === expected)
+        .filter((pending) => pending.sessionId === sessionId && pending.started && pending.fence?.connectionKey === expected)
         .map((pending) => pending.result));
       if (outcomes.some((outcome) => outcome.status === "ambiguous")) {
         throw new Error("terminal input route cannot drain an ambiguous batch");
@@ -268,7 +257,15 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
     },
     claim,
     refresh(destination): void {
-      const current = fenceFor(destination); refreshTerminalInputRouteState(sessions.values(), destination, current.tokenKey, current.connectionKey, tokenKey, connectionKey);
+      const current = fenceFor(destination);
+      refreshTerminalInputRouteState(
+        sessions.values(),
+        destination,
+        current.tokenKey,
+        current.connectionKey,
+        terminalInputTokenKey,
+        terminalInputConnectionKey,
+      );
       for (const pending of lanes.pending()) {
         const previous = pending.fence;
         if (!previous || previous.connectionKey !== current.connectionKey || pending.started) continue;
@@ -281,26 +278,26 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
       }
     },
     retire(token, reason): void {
-      const expected = tokenKey(token);
+      const expected = terminalInputTokenKey(token);
       for (const pending of lanes.pending()) {
         if (pending.fence?.tokenKey === expected) finishForRetirement(pending, reason);
       }
       for (const state of sessions.values()) {
-        if (state.activeDestination && tokenKey(state.activeDestination.token) === expected && state.phase !== "ambiguous") state.phase = "blocked";
+        retireTerminalInputRouteState(state, (candidate) => terminalInputTokenKey(candidate) === expected);
       }
     },
     retireConnection(token, reason): void {
-      const expected = connectionKey(token);
+      const expected = terminalInputConnectionKey(token);
       for (const pending of lanes.pending()) {
         if (pending.fence?.connectionKey === expected) finishForRetirement(pending, reason);
       }
       for (const state of sessions.values()) {
-        if (state.activeDestination && connectionKey(state.activeDestination.token) === expected && state.phase !== "ambiguous") state.phase = "blocked";
+        retireTerminalInputRouteState(state, (candidate) => terminalInputConnectionKey(candidate) === expected);
       }
     },
     settle(token, settlement): void {
       const pending = lanes.find(settlement.sessionId, settlement.inputSeq);
-      if (!pending || !pending.started || pending.fence?.tokenKey !== tokenKey(token)) return;
+      if (!pending || !pending.started || pending.fence?.tokenKey !== terminalInputTokenKey(token)) return;
       if (settlement.status === "accepted") {
         const writtenBytes = settlement.writtenBytes ?? 0;
         if (writtenBytes === pending.bytes.byteLength) {
@@ -331,10 +328,12 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
       lanes.prune(sessionId, "session closed");
       const state = stateFor(sessionId);
       state.phase = "closed";
+      state.holdId += 1;
+      state.claimId += 1;
+      state.requiresRouteClaim = false;
       state.routeEpoch = "";
       state.routeTokenKey = null;
       state.activeDestination = null;
-      state.claimId += 1;
     },
     reset(reason): void {
       lanes.clear(reason);
@@ -352,6 +351,9 @@ export function createTerminalInputRouter(revisions = new Map<string, bigint>())
     pendingSnapshot(sessionId): TerminalInputPendingSnapshot {
       return { count: lanes.pending().filter((pending) => pending.sessionId === sessionId).length };
     },
+    requiresRouteClaim(sessionId): boolean {
+      return sessions.get(sessionId)?.requiresRouteClaim === true;
+    },
   };
   return router;
 }
@@ -362,19 +364,11 @@ export function admitTerminalInput(
   destination: TerminalInputDestination | null, sessionId: string, bytes: Uint8Array, viewId?: string,
 ): InputAdmission { return documentTerminalInputRouter.admit(destination, sessionId, bytes, viewId); }
 
-export function holdTerminalInput(sessionId: string): TerminalInputHoldRelease {
-  return documentTerminalInputRouter.hold(sessionId);
-}
+export function holdTerminalInput(sessionId: string): TerminalInputHold { return documentTerminalInputRouter.hold(sessionId); }
 
-export function drainTerminalInput(sessionId: string, token: TerminalGenerationToken): Promise<void> {
-  return documentTerminalInputRouter.drain(sessionId, token);
-}
+export function drainTerminalInput(sessionId: string, token: TerminalGenerationToken): Promise<void> { return documentTerminalInputRouter.drain(sessionId, token); }
 
-export function claimTerminalInputRoute(
-  sessionId: string, destination: TerminalInputDestination,
-): Promise<TerminalInputRouteClaimOutcome> {
-  return documentTerminalInputRouter.claim(sessionId, destination);
-}
+export function claimTerminalInputRoute(sessionId: string, destination: TerminalInputDestination): Promise<TerminalInputRouteClaimOutcome> { return documentTerminalInputRouter.claim(sessionId, destination); }
 
 export function refreshTerminalInputDestination(destination: TerminalInputDestination): void {
   documentTerminalInputRouter.refresh(destination);
@@ -396,4 +390,5 @@ export function pruneTerminalInputRoute(sessionId: string): void { documentTermi
 export function resetTerminalInputRouter(reason: string): void { documentTerminalInputRouter.reset(reason); }
 export function terminalInputPendingSnapshot(sessionId: string): TerminalInputPendingSnapshot { return documentTerminalInputRouter.pendingSnapshot(sessionId); }
 export function terminalInputPhase(sessionId: string): TerminalInputPhase | null { return documentTerminalInputRouter.phase(sessionId); }
+export function terminalInputRequiresRouteClaim(sessionId: string): boolean { return documentTerminalInputRouter.requiresRouteClaim(sessionId); }
 export function _terminalInputRouterForTest(): TerminalInputRouter { return documentTerminalInputRouter; }

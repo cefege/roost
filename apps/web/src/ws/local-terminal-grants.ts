@@ -53,13 +53,18 @@ interface WorkerGrantState {
  */
 export class TerminalGrantOwner {
   private readonly states = new Map<string, WorkerGrantState>();
+  private readonly retiredWorkers = new Set<string>();
   private renewalTimer: Timer | null = null;
-
   current(workerFp: string): LocalTerminalGrant | null {
     return this.states.get(workerFp)?.grant ?? null;
   }
 
+  isWorkerRetired(workerFp: string): boolean {
+    return this.retiredWorkers.has(workerFp);
+  }
+
   subscribe(workerFp: string, listener: TerminalGrantListener): () => void {
+    if (this.retiredWorkers.has(workerFp)) return () => undefined;
     const state = this.state(workerFp);
     state.listeners.add(listener);
     return () => state.listeners.delete(listener);
@@ -71,7 +76,7 @@ export class TerminalGrantOwner {
    * again without a fresh coordinator-authorized mint.
    */
   setDemand(workerFp: string, sessionId: string, active: boolean): void {
-    if (!workerFp || !sessionId) return;
+    if (!workerFp || !sessionId || this.retiredWorkers.has(workerFp)) return;
     const state = this.state(workerFp);
     if (active) {
       if (state.wantedSessions.has(sessionId)) return;
@@ -95,6 +100,7 @@ export class TerminalGrantOwner {
     workerFp: string,
     reason: TerminalGrantRefreshReason,
   ): Promise<LocalTerminalGrant | null> {
+    if (this.retiredWorkers.has(workerFp)) return Promise.resolve(null);
     const state = this.states.get(workerFp);
     if (!state || state.wantedSessions.size === 0) return Promise.resolve(state?.grant ?? null);
     if (state.inFlight) {
@@ -136,6 +142,7 @@ export class TerminalGrantOwner {
       if (
         refreshAgain
         && this.states.get(workerFp) === state
+        && !this.retiredWorkers.has(workerFp)
         && state.wantedSessions.size > 0
       ) {
         queueMicrotask(() => void this.refresh(workerFp, "demand_added"));
@@ -153,8 +160,12 @@ export class TerminalGrantOwner {
   }
 
   retireWorker(workerFp: string): void {
+    this.retiredWorkers.add(workerFp);
     const state = this.states.get(workerFp);
-    if (!state) return;
+    if (!state) {
+      this.disarmRenewalWhenIdle();
+      return;
+    }
     state.grant = null;
     state.wantedSessions.clear();
     state.demandVersion += 1;
@@ -183,6 +194,7 @@ export class TerminalGrantOwner {
       this.publish(state, null);
     }
     this.states.clear();
+    this.retiredWorkers.clear();
     this.releaseRenewal();
   }
 
@@ -211,6 +223,7 @@ export class TerminalGrantOwner {
 
   private isCurrentState(state: WorkerGrantState, authGeneration: number): boolean {
     return this.states.get(state.workerFp) === state
+      && !this.retiredWorkers.has(state.workerFp)
       && rootStore.auth_generation === authGeneration;
   }
 
@@ -315,6 +328,11 @@ export function clearTerminalGrantRetry(workerFp?: string): void {
 }
 
 export function retireTerminalGrantsForWorker(workerFp: string): void { terminalGrantOwner.retireWorker(workerFp); }
+
+/** True after an explicit coordinator-confirmed removal until the auth boundary resets. */
+export function isTerminalGrantWorkerRetired(workerFp: string): boolean {
+  return terminalGrantOwner.isWorkerRetired(workerFp);
+}
 export function resetTerminalGrants(): void {
   terminalGrantOwner.reset();
 }

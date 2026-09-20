@@ -1,18 +1,19 @@
-// Input-route claim sequencing for the document terminal input router. The
-// router passes its session state and token key function so this module never
-// owns a second route table or transport callback. It creates UUID request IDs,
-// validates every reply, and permits exactly one server-directed stale retry.
+// Input-route claim sequencing and current-aware transition holds for the
+// document terminal input router. The router supplies lane release hooks so
+// this owner never retains queues or transport callbacks. Claims validate
+// exact replies and install only the acknowledged route epoch.
 
 import { create } from "@bufbuild/protobuf";
 import {
   TerminalInputRouteClaimSchema,
   type TerminalInputRouteResult,
 } from "@roost/shared/proto/sync_pb";
+import type { TerminalGenerationToken } from "../store/terminal-stream-types.ts";
 import type { TerminalInputDestination } from "./terminal-input-router.ts";
 
 export const MAX_TERMINAL_INPUT_ROUTE_REVISION = (1n << 63n) - 1n;
 
-export type TerminalInputPhase = "sending" | "holding" | "claiming" | "blocked" | "ambiguous" | "closed";
+export type TerminalInputPhase = "sending" | "holding" | "claiming" | "blocked" | "closed";
 
 export type TerminalInputRouteClaimOutcome =
   | { accepted: true; inputRouteEpoch: string; revision: bigint }
@@ -21,10 +22,57 @@ export type TerminalInputRouteClaimOutcome =
 
 export interface TerminalInputRouteClaimState {
   phase: TerminalInputPhase;
+  holdId: number;
   claimId: number;
+  requiresRouteClaim: boolean;
   routeEpoch: string;
   routeTokenKey: string | null;
   activeDestination: TerminalInputDestination | null;
+}
+
+export interface TerminalInputHold {
+  isCurrent(): boolean;
+  release(destination?: TerminalInputDestination): void;
+}
+
+export interface TerminalInputHoldHooks {
+  release(destination: TerminalInputDestination): void;
+  rejectUnsent(reason: string): void;
+  tokenKey(token: TerminalGenerationToken): string;
+}
+
+export function createTerminalInputHold(
+  state: TerminalInputRouteClaimState,
+  hooks: TerminalInputHoldHooks,
+): TerminalInputHold {
+  if (state.phase === "closed") return { isCurrent: () => false, release: () => undefined };
+  const holdId = ++state.holdId;
+  state.claimId += 1;
+  state.phase = "holding";
+  const isCurrent = (): boolean => state.holdId === holdId && state.phase !== "closed";
+  return {
+    isCurrent,
+    release(destination): void {
+      if (!isCurrent()) return;
+      if (!destination) {
+        state.phase = "blocked";
+        state.claimId += 1;
+        state.holdId += 1;
+        hooks.rejectUnsent("terminal transport is not connected");
+        return;
+      }
+      const destinationTokenKey = hooks.tokenKey(destination.token);
+      if (
+        state.requiresRouteClaim
+        && (state.routeEpoch === "" || state.routeTokenKey !== destinationTokenKey)
+      ) return;
+      state.activeDestination = destination;
+      state.phase = "sending";
+      state.claimId += 1;
+      state.holdId += 1;
+      hooks.release(destination);
+    },
+  };
 }
 
 export function createTerminalRequestId(): string {
@@ -55,6 +103,9 @@ export async function claimTerminalInputRouteState(
   if (!destination.inputRouteSupported || !destination.claimInputRoute) {
     return { accepted: false, unsupported: true, reason: "terminal input routes are unsupported" };
   }
+  state.requiresRouteClaim = true;
+  state.routeEpoch = "";
+  state.routeTokenKey = null;
   const previous = revisions.get(sessionId) ?? 0n;
   if (previous >= MAX_TERMINAL_INPUT_ROUTE_REVISION) {
     state.phase = "blocked";
@@ -122,18 +173,35 @@ export function refreshTerminalInputRouteState(
   destination: TerminalInputDestination,
   destinationTokenKey: string,
   destinationConnectionKey: string,
-  tokenKey: (token: TerminalInputDestination["token"]) => string,
-  connectionKey: (token: TerminalInputDestination["token"]) => string,
+  tokenKey: (token: TerminalGenerationToken) => string,
+  connectionKey: (token: TerminalGenerationToken) => string,
 ): void {
   for (const state of states) {
     const previous = state.activeDestination;
-    if (
-      !previous
-      || (state.phase !== "sending" && state.phase !== "holding")
-      || connectionKey(previous.token) !== destinationConnectionKey
-    ) continue;
+    if (!previous || connectionKey(previous.token) !== destinationConnectionKey) continue;
+    if (state.phase === "claiming") {
+      state.claimId += 1;
+      state.phase = "blocked";
+      state.routeEpoch = "";
+      state.routeTokenKey = null;
+      state.activeDestination = { ...previous, token: destination.token };
+      continue;
+    }
+    if (state.phase !== "sending" && state.phase !== "holding") continue;
     const previousTokenKey = tokenKey(previous.token);
     state.activeDestination = { ...previous, token: destination.token };
     if (state.routeTokenKey === previousTokenKey) state.routeTokenKey = destinationTokenKey;
   }
+
+}
+
+export function retireTerminalInputRouteState(
+  state: TerminalInputRouteClaimState,
+  matches: (token: TerminalGenerationToken) => boolean,
+): void {
+  if (!state.activeDestination || !matches(state.activeDestination.token)) return;
+  state.phase = "blocked";
+  state.claimId += 1;
+  state.routeEpoch = "";
+  state.routeTokenKey = null;
 }

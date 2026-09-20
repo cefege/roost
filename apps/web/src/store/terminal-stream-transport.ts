@@ -146,7 +146,7 @@ export class TerminalDirectRegistry {
       return () => this.#unregister(connection, "connection closed");
     }
     const displaced = workerConnections.candidate;
-    if (displaced && this.#hasRouteForConnection(displaced)) {
+    if (displaced && this.hasRoutesForConnection(displaced)) {
       connection.close("terminal direct candidate capacity reached");
       return () => undefined;
     }
@@ -184,6 +184,13 @@ export class TerminalDirectRegistry {
 
   hasViewDemand(workerFp: string, sessionId: string): boolean {
     return (this.#demands.get(workerFp)?.get(sessionId)?.size ?? 0) > 0;
+  }
+
+  hasRoutesForConnection(connection: TerminalDirectConnection): boolean {
+    for (const route of this.#routes.values()) {
+      if (route.connection === connection) return true;
+    }
+    return false;
   }
 
   setViewDemand(
@@ -349,22 +356,16 @@ export class TerminalDirectRegistry {
     }
   }
 
-  #hasRouteForConnection(connection: TerminalDirectConnection): boolean {
-    for (const route of this.#routes.values()) {
-      if (route.connection === connection) return true;
-    }
-    return false;
-  }
 
   #promoteCandidateIfPossible(workerFp: string): void {
     const workerConnections = this.#connections.get(workerFp);
     if (
       !workerConnections?.candidate
-      || !this.#hasRouteForConnection(workerConnections.candidate)
+      || !this.hasRoutesForConnection(workerConnections.candidate)
     ) return;
     if (
       workerConnections.active !== null
-      && this.#hasRouteForConnection(workerConnections.active)
+      && this.hasRoutesForConnection(workerConnections.active)
     ) return;
     workerConnections.active = workerConnections.candidate;
     workerConnections.candidate = null;

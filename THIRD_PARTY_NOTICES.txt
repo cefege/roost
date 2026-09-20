@@ -4,15 +4,28 @@ Roost third-party notices
 node-datachannel 0.33.4
 -----------------------
 
-Roost release binaries for macOS and Linux include the unmodified native addon
-from node-datachannel 0.33.4 and its libdatachannel dependencies.
+Roost release binaries for macOS and Linux include the unmodified
+node-datachannel 0.33.4 native addon.
 
-Copyright (c) the node-datachannel and libdatachannel contributors.
+Copyright (c) the node-datachannel contributors.
 Licensed under the Mozilla Public License, Version 2.0.
 
 License text: https://www.mozilla.org/MPL/2.0/
 Corresponding Source Code Form:
 https://github.com/murat-dogan/node-datachannel/tree/v0.33.4
+
+libdatachannel 0.24.5
+---------------------
+
+The node-datachannel addon statically links the unmodified libdatachannel
+0.24.5 component.
+
+Copyright (c) the libdatachannel contributors.
+Licensed under the Mozilla Public License, Version 2.0.
+
+License text: https://www.mozilla.org/MPL/2.0/
+Corresponding Source Code Form:
+https://github.com/paullouisageneau/libdatachannel/tree/v0.24.5
 
 The native package version, platform package names, download URLs, and integrity
 digests used by Roost are pinned in scripts/terminal-peer-native-assets.json.

@@ -20,7 +20,6 @@ import {
   sendTrustedPeerKey,
   waitForDirectRoute,
   waitForSyncRoute,
-  waitForWebRtcCandidate,
 } from "./terminal-peer-helpers.ts";
 import {
   armPeerFixtureKey,
@@ -45,7 +44,7 @@ import {
   verifyPausedHistoryDoesNotStarveControl,
 } from "./terminal-peer-packet-fault-scenarios.ts";
 import { navigateToSmokeSession, spawnSmokeShell } from "./terminal-helpers.ts";
-import { waitForPainted } from "./terminal-multiview-helpers.ts";
+import { expectMarkersOnce, waitForPainted } from "./terminal-multiview-helpers.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import { startTerminalTestStack, type TerminalTestStack } from "./stack.ts";
 
@@ -66,14 +65,16 @@ const PEER_FAULT_STACK_OPTIONS = {
 async function stopPeerStack(
   stack: TerminalTestStack,
   page: EnrolledPage | undefined,
-  failed: boolean,
   testInfo: TestInfo,
 ): Promise<void> {
   try {
-    if (failed) await attachStackLogs(testInfo, stack);
-    await page?.close();
+    await attachStackLogs(testInfo, stack);
   } finally {
-    await stack.stop();
+    try {
+      await page?.close();
+    } finally {
+      await stack.stop();
+    }
   }
 }
 
@@ -134,8 +135,11 @@ test("WebRTC continues terminal paint through a coordinator outage without direc
       binding_digest: keeperBefore.runtime.binding_digest,
     });
   } finally {
-    await stack.startCoordinator();
-    await stopPeerStack(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    try {
+      await stack.startCoordinator();
+    } finally {
+      await stopPeerStack(stack, page, testInfo);
+    }
   }
 });
 
@@ -176,7 +180,7 @@ test("worker restart retires the old peer epoch while its keeper PTY survives", 
     const route = await readPeerRoute(page.page, sessionId);
     expect(route).toMatchObject({ activeKind: "webrtc", proofKind: "webrtc", syncReady: true });
   } finally {
-    await stopPeerStack(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerStack(stack, page, testInfo);
   }
 });
 
@@ -211,7 +215,7 @@ test("worker deletion retires direct authority before a held authenticated input
     expect(capture.batches).toHaveLength(1);
     expect(capture.batches[0]).toMatchObject({ sessionId, data: [120] });
   } finally {
-    await stopPeerStack(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerStack(stack, page, testInfo);
   }
 });
 
@@ -242,7 +246,50 @@ test("device revocation closes the direct peer before a held input can mutate it
     await waitForPeerRouteLoss(page.page, sessionId);
     await expectNoPeerFixtureAck(page.page, sessionId, ackMarker);
   } finally {
-    await stopPeerStack(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerStack(stack, page, testInfo);
+  }
+});
+
+test("a healthy Sync input drains before WebRTC promotion and fresh direct input stays exactly once", async ({ browser }, testInfo) => {
+  test.setTimeout(300_000);
+  const stack = await startTerminalTestStack(PEER_STACK_OPTIONS);
+  let page: EnrolledPage | undefined;
+  try {
+    const fixtureWorker = await stack.startPtyFixtureWorker({ workerLinkOneWayDelayMs: 200 });
+    const delayedLink = stack.ptyFixtureWorkerLink;
+    if (!delayedLink) throw new Error("fixture worker did not expose its delayed coordinator link");
+    page = await openPeerSmokePage(browser, stack, { holdRtcAnswer: true });
+    const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
+    await waitForSyncRoute(page.page, sessionId);
+    await expect.poll(async () => (await readPeerRoute(page!.page, sessionId)).peerPhase, {
+      timeout: 30_000,
+      intervals: [50, 100, 250],
+    }).toBe("authenticating");
+    const oldAckMarker = await armPeerFixtureKey(page.page, sessionId, crypto.randomUUID());
+    const heldInput = delayedLink.holdNextInput(sessionId);
+    await beginPeerSmokeInput(page.page, sessionId, "x");
+    const held = await heldInput;
+    expect(held.requestId).not.toBe("");
+    await page.page.evaluate(() => {
+      window.__releaseTerminalPeerAnswer?.();
+      delete window.__releaseTerminalPeerAnswer;
+    });
+    await expect.poll(async () => {
+      const route = await readPeerRoute(page!.page, sessionId);
+      return route.activeKind === "sync"
+        && route.candidateKind === "webrtc"
+        && route.inputPhase === "holding";
+    }, { timeout: 30_000, intervals: [50, 100, 250] }).toBe(true);
+    held.release();
+    const oldOutcome = await settlePeerSmokeInput(page.page);
+    expect(oldOutcome).toEqual({ status: "accepted", reason: null });
+    await waitForPainted(page.page, sessionId, oldAckMarker);
+    await expectMarkersOnce(page.page, sessionId, [oldAckMarker]);
+    await waitForDirectRoute(page.page, sessionId);
+    const directKey = await sendTrustedPeerKey(page.page, sessionId);
+    await expectMarkersOnce(page.page, sessionId, [oldAckMarker, directKey.marker]);
+  } finally {
+    await stopPeerStack(stack, page, testInfo);
   }
 });
 
@@ -267,27 +314,23 @@ test("a delayed old Sync input is fenced after peer promotion and cannot reach t
     await beginPeerSmokeInput(page.page, sessionId, "x");
     const held = await heldInput;
     expect(held.requestId).not.toBe("");
+    await page.page.evaluate(() => window.__smoke.pauseSyncTransport());
     await page.page.evaluate(() => {
       window.__releaseTerminalPeerAnswer?.();
       delete window.__releaseTerminalPeerAnswer;
     });
-
-    const candidate = await waitForWebRtcCandidate(page.page, sessionId);
-    const direct = await waitForDirectRoute(page.page, sessionId);
-    expect(direct.activePeerId).toBe(candidate.candidatePeerId ?? candidate.activePeerId);
+    await waitForDirectRoute(page.page, sessionId, "webrtc", { syncMetadata: false });
     held.release();
     await settlePeerSmokeInput(page.page);
     await expectNoPeerFixtureAck(page.page, sessionId, oldAckMarker);
     const capture = await page.page.evaluate(() => window.__smoke.terminalInputCapture());
     expect(capture.batches).toHaveLength(1);
     expect(capture.batches[0]).toMatchObject({ sessionId, data: [120] });
-    await page.page.evaluate(() => window.__smoke.pauseSyncTransport());
-
-    const newKey = await sendTrustedPeerKey(page.page, sessionId);
-    await waitForPainted(page.page, sessionId, newKey.marker);
+    const directKey = await sendTrustedPeerKey(page.page, sessionId);
+    await expectMarkersOnce(page.page, sessionId, [directKey.marker]);
     expect((await readPeerRoute(page.page, sessionId)).activeKind).toBe("webrtc");
   } finally {
-    await stopPeerStack(stack, page, testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerStack(stack, page, testInfo);
   }
 });
 

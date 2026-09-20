@@ -45,7 +45,9 @@ export function PaneTab(props: PaneTabProps) {
   // the tooltip is the fallback for surfaces that get no hover card at all.
   const nativeTooltip = () => {
     if (hoverCardAvailable()) return undefined;
-    return directTooltip() ?? sessionTitle(props.session);
+    const title = sessionTitle(props.session);
+    const carrier = directTooltip();
+    return carrier ? `${title} — ${carrier}` : title;
   };
 
   return (

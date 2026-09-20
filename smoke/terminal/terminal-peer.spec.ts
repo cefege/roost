@@ -39,15 +39,17 @@ const PEER_STACK_OPTIONS = {
 async function stopPeerStack(
   stack: TerminalTestStack,
   pages: Array<{ close(): Promise<void> } | undefined>,
-  failed: boolean,
   testInfo: TestInfo,
 ): Promise<void> {
   try {
     await attachStackLogs(testInfo, stack);
-    await Promise.all(pages.filter((page): page is { close(): Promise<void> } => page !== undefined)
-      .map((page) => page.close()));
   } finally {
-    await stack.stop();
+    try {
+      await Promise.all(pages.filter((page): page is { close(): Promise<void> } => page !== undefined)
+        .map((page) => page.close()));
+    } finally {
+      await stack.stop();
+    }
   }
 }
 
@@ -79,7 +81,7 @@ test("loopback wins before a WebRTC peer is allocated and keeps Sync metadata li
     expect(peerRouteIdentity(afterKey)).toBe(peerRouteIdentity(route));
     expect(afterKey.candidateKind).toBeNull();
   } finally {
-    await stopPeerStack(stack, [localPage], testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerStack(stack, [localPage], testInfo);
   }
 });
 
@@ -154,7 +156,6 @@ test("host-candidate WebRTC multiplexes each worker and preserves crossed browse
     await stopPeerStack(
       stack,
       [firstPage, secondPage],
-      testInfo.status !== testInfo.expectedStatus,
       testInfo,
     );
   }
@@ -186,7 +187,7 @@ test("an unavailable browser WebRTC API falls back to Sync without a blank termi
     const trusted = await sendTrustedPeerKey(page.page, sessionId);
     await expectMarkersOnce(page.page, sessionId, [trusted.marker]);
   } finally {
-    await stopPeerStack(stack, [page], testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerStack(stack, [page], testInfo);
   }
 });
 
@@ -216,7 +217,7 @@ test("disabled peer capability retains usable Sync terminal input without a blan
     const trusted = await sendTrustedPeerKey(page.page, sessionId);
     await expectMarkersOnce(page.page, sessionId, [trusted.marker]);
   } finally {
-    await stopPeerStack(stack, [page], testInfo.status !== testInfo.expectedStatus, testInfo);
+    await stopPeerStack(stack, [page], testInfo);
   }
 });
 
@@ -249,7 +250,7 @@ test("invalid offers, unavailable grants, expired grants, and identity mismatche
       const trusted = await sendTrustedPeerKey(page.page, sessionId);
       await expectMarkersOnce(page.page, sessionId, [trusted.marker]);
     } finally {
-      await stopPeerStack(stack, [page], testInfo.status !== testInfo.expectedStatus, testInfo);
+      await stopPeerStack(stack, [page], testInfo);
     }
   }
 });
