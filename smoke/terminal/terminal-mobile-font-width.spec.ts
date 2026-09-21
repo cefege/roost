@@ -1,19 +1,26 @@
-// Right-edge visibility for a terminal whose webfont settles late: a pane must
-// re-measure its cell advance before claiming columns again, or the canonical
-// `cols × 1ch` sheet paints past the pane's clipped content box and the final
-// column becomes unreachable. The test-only 'RoostWidthRegression' face reuses
-// the shipped JetBrains woff2 at size-adjust 125%, so a later loading epoch is
-// deterministically wider without touching production typography.
+// Mobile terminal right-edge proofs reject late-font geometry and text inflation.
+// Worker grid dimensions own columns while .cell-grid owns fixed cell geometry.
+// Real shells and DOM Ranges check final glyphs against terminal and visual clips.
+// A wide font exercises lifecycle invalidation; parent inflation exercises CSS isolation.
+// No proof infers visibility from row text or adds terminal geometry math.
 
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import {
-  inputSmokeTerminal,
   navigateToSmokeSession,
   spawnSmokeShell,
   waitForStableCellFrames,
 } from "./terminal-helpers.ts";
 import { forceHidden, forceVisible } from "./terminal-multiview-helpers.ts";
+import {
+  expectSheetFitsPane,
+  measureCellAdvance,
+  paintAndProveLastColumn,
+  readDimensions,
+  SETTLE_INTERVALS,
+  SETTLE_TIMEOUT_MS,
+  waitForConvergedColumns,
+} from "./terminal-mobile-width-proof.ts";
 
 const REGRESSION_FONT_FAMILY = "RoostWidthRegression";
 const REGRESSION_FONT_PATH = "/fonts/JetBrainsMonoNerdFontMono-Regular.woff2";
@@ -22,224 +29,131 @@ const REGRESSION_FONT_PATH = "/fonts/JetBrainsMonoNerdFontMono-Regular.woff2";
 const REGRESSION_FONT_QUERY = "mobile-width-regression";
 const DESKTOP_VIEWPORT = { width: 1_280, height: 860 };
 const NARROW_VIEWPORT = { width: 360, height: 780 };
-// Sub-pixel advances put an exactly fitted sheet a fraction over the content
-// box it was measured from. A real overclaim is whole columns wide.
-const FIT_TOLERANCE_PX = 1;
 // size-adjust: 125% against measurement noise. Below this the swap never
 // landed and every geometry claim behind it would be vacuous.
 const LOADED_ADVANCE_RATIO = 1.2;
-const SETTLE_TIMEOUT_MS = 30_000;
-const SETTLE_INTERVALS = [100, 250];
-const MARKER_HEAD = "EDGE_";
 
-/** Ten-cell probe inside the mounted grid, the shape measureTerminalCellBox
- *  uses, so a swapped face is read the way the geometry owner reads it. */
-async function measureCellAdvance(page: Page, sessionId: string): Promise<number> {
-  return page.evaluate((id) => {
-    const grid = document.querySelector(`[data-testid="terminal-slot-${id}"] .cell-grid`);
-    if (!(grid instanceof HTMLElement)) throw new Error(`terminal grid unavailable for ${id}`);
-    const probe = document.createElement("span");
-    probe.className = "cell-row";
-    probe.style.position = "absolute";
-    probe.style.visibility = "hidden";
-    probe.style.whiteSpace = "pre";
-    probe.textContent = "0".repeat(10);
-    grid.append(probe);
-    const width = probe.getBoundingClientRect().width;
-    probe.remove();
-    return width / 10;
-  }, sessionId);
-}
+const TEXT_INFLATION_CONTROL_TEST_ID = "terminal-text-inflation-control";
+const TEXT_INFLATION_ROOT_ATTRIBUTE = "data-terminal-text-inflation-root";
+const TEXT_INFLATION_STYLE_TEST_ID = "terminal-text-inflation-style";
+const TEXT_INFLATION_UNPROTECTED_STYLE_TEST_ID = "terminal-text-inflation-unprotected-style";
+const TEXT_INFLATION_ASCII = "0123456789";
 
-async function readDimensions(
-  page: Page,
-  sessionId: string,
-): Promise<{ cols: number; rows: number }> {
-  return page.evaluate((id) => window.__smoke.terminalDimensions(id), sessionId);
-}
+type TerminalGridBox = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  clientWidth: number;
+  clientHeight: number;
+};
 
-/** 1-based viewport rows painted fully inside the terminal clip and the visual
- *  viewport, so a marker placed there is expected to be seen. */
-async function readFullyVisibleRows(page: Page, sessionId: string): Promise<number[]> {
-  return page.evaluate((id) => {
-    const grid = document.querySelector(`[data-testid="terminal-slot-${id}"] .cell-grid`);
-    const sheet = grid?.querySelector(".cell-viewport");
-    if (!(grid instanceof HTMLElement) || !(sheet instanceof HTMLElement)) {
-      throw new Error(`terminal viewport unavailable for ${id}`);
+type TextInflationProbe = {
+  controlWidth: number;
+  terminalBox: TerminalGridBox;
+};
+
+async function installTextInflationControl(page: Page, sessionId: string): Promise<void> {
+  await page.evaluate(({ id, controlTestId, text }) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    if (!(slot instanceof HTMLElement)) throw new Error(`terminal slot unavailable for ${id}`);
+    if (slot.querySelector(`[data-testid="${controlTestId}"]`)) {
+      throw new Error(`text inflation control already installed for ${id}`);
     }
-    const gridRect = grid.getBoundingClientRect();
-    const visual = window.visualViewport;
-    const visualTop = visual?.offsetTop ?? 0;
-    const clipTop = Math.max(gridRect.top, visualTop);
-    const clipBottom = Math.min(gridRect.bottom, visualTop + (visual?.height ?? innerHeight));
-    return Array.from(sheet.querySelectorAll(":scope > .cell-row")).flatMap((row, index) => {
-      const rect = row.getBoundingClientRect();
-      return rect.width > 0
-        && rect.height > 0
-        && rect.top >= clipTop + 1
-        && rect.bottom <= clipBottom - 1
-        ? [index + 1]
-        : [];
-    });
-  }, sessionId);
-}
-
-/** The canonical sheet against the pane's own content box, measured the way
- *  lib/terminalCellGeometry.ts measures it: clientWidth minus its padding. */
-async function expectSheetFitsPane(page: Page, sessionId: string, label: string): Promise<void> {
-  await expect.poll(() => page.evaluate((id) => {
-    const grid = document.querySelector(`[data-testid="terminal-slot-${id}"] .cell-grid`);
-    const sheet = grid?.querySelector(".cell-viewport");
-    // A pane mid-remount has no sheet to fit; keep polling rather than
-    // reporting a layout gap as an overclaim.
-    if (!(grid instanceof HTMLElement) || !(sheet instanceof HTMLElement)) return Infinity;
-    const styles = getComputedStyle(grid);
-    const usableWidth = grid.clientWidth
-      - (Number.parseFloat(styles.paddingLeft) || 0)
-      - (Number.parseFloat(styles.paddingRight) || 0);
-    return sheet.getBoundingClientRect().width - usableWidth;
-  }, sessionId), {
-    timeout: SETTLE_TIMEOUT_MS,
-    intervals: SETTLE_INTERVALS,
-    message: `${label}: CSS px the canonical sheet overflows the pane's content box`,
-  }).toBeLessThanOrEqual(FIT_TOLERANCE_PX);
-}
-
-/** Every viewer reports the same grid, unchanged across consecutive reads. */
-async function waitForConvergedColumns(
-  viewers: readonly Page[],
-  sessionId: string,
-  label: string,
-): Promise<number> {
-  let previous = "";
-  let stableReads = 0;
-  await expect.poll(async () => {
-    const dimensions = await Promise.all(
-      viewers.map((viewer) => readDimensions(viewer, sessionId)),
-    );
-    const signature = JSON.stringify(dimensions);
-    const converged = dimensions.every((value) => value.cols > 0
-      && value.cols === dimensions[0].cols
-      && value.rows === dimensions[0].rows);
-    stableReads = converged && signature === previous ? stableReads + 1 : 0;
-    previous = signature;
-    return stableReads;
+    const control = document.createElement("span");
+    control.dataset.testid = controlTestId;
+    control.setAttribute("aria-hidden", "true");
+    control.textContent = text;
+    control.style.cssText = "position:absolute;top:0;left:0;opacity:0;pointer-events:none;"
+      + "white-space:pre;font:16px/1 monospace;";
+    slot.append(control);
   }, {
-    timeout: SETTLE_TIMEOUT_MS,
-    intervals: SETTLE_INTERVALS,
-    message: `${label}: every viewer settled on one grid`,
-  }).toBeGreaterThanOrEqual(2);
-  return (await readDimensions(viewers[0], sessionId)).cols;
+    id: sessionId,
+    controlTestId: TEXT_INFLATION_CONTROL_TEST_ID,
+    text: TEXT_INFLATION_ASCII,
+  });
 }
 
-/** Right edge of the marker's last glyph, read from a DOM Range over exactly
- *  that text and compared with the terminal clip intersected with the visual
- *  viewport. A clipped column still owns its row text, so presence in the grid
- *  is never visibility. */
-async function expectLastColumnVisible(
+async function readTextInflationProbe(page: Page, sessionId: string): Promise<TextInflationProbe> {
+  return page.evaluate(({ id, controlTestId }) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const grid = slot?.querySelector(".cell-grid");
+    const control = slot?.querySelector(`[data-testid="${controlTestId}"]`);
+    if (!(grid instanceof HTMLElement) || !(control instanceof HTMLElement)) {
+      throw new Error(`text inflation probe unavailable for ${id}`);
+    }
+    const range = document.createRange();
+    range.selectNodeContents(control);
+    const rect = grid.getBoundingClientRect();
+    return {
+      controlWidth: range.getBoundingClientRect().width,
+      terminalBox: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        clientWidth: grid.clientWidth,
+        clientHeight: grid.clientHeight,
+      },
+    };
+  }, { id: sessionId, controlTestId: TEXT_INFLATION_CONTROL_TEST_ID });
+}
+
+async function enableTextInflationCalibration(page: Page, sessionId: string): Promise<void> {
+  await page.evaluate(({ id, rootAttribute, styleTestId }) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    if (!(slot instanceof HTMLElement)) throw new Error(`terminal slot unavailable for ${id}`);
+    if (document.querySelector(`[data-testid="${styleTestId}"]`)) {
+      throw new Error(`text inflation calibration already enabled for ${id}`);
+    }
+    const style = document.createElement("style");
+    style.dataset.testid = styleTestId;
+    style.textContent = `[${rootAttribute}]{-webkit-text-size-adjust:200%;text-size-adjust:200%;}`;
+    slot.setAttribute(rootAttribute, "true");
+    document.head.append(style);
+  }, {
+    id: sessionId,
+    rootAttribute: TEXT_INFLATION_ROOT_ATTRIBUTE,
+    styleTestId: TEXT_INFLATION_STYLE_TEST_ID,
+  });
+}
+
+async function setTerminalInflationProtectionDisabled(
   page: Page,
   sessionId: string,
-  marker: string,
-  label: string,
+  disabled: boolean,
 ): Promise<void> {
-  await expect.poll(
-    () => page.evaluate(
-      ({ id, text }) => window.__smoke.viewportText(id).includes(text),
-      { id: sessionId, text: marker },
-    ),
-    {
-      timeout: SETTLE_TIMEOUT_MS,
-      intervals: SETTLE_INTERVALS,
-      message: `${label}: the grid painted ${marker}`,
-    },
-  ).toBe(true);
-  const edge = await page.evaluate(({ id, text }) => {
-    const grid = document.querySelector(`[data-testid="terminal-slot-${id}"] .cell-grid`);
-    const sheet = grid?.querySelector(".cell-viewport");
-    if (!(grid instanceof HTMLElement) || !(sheet instanceof HTMLElement)) return null;
-    for (const row of Array.from(sheet.querySelectorAll(":scope > .cell-row"))) {
-      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-      const nodes: Text[] = [];
-      let rowText = "";
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const chunk = node as Text;
-        if (chunk.data.length === 0) continue;
-        nodes.push(chunk);
-        rowText += chunk.data;
-      }
-      const start = rowText.indexOf(text);
-      if (start < 0) continue;
-      const end = start + text.length;
-      const range = document.createRange();
-      let offset = 0;
-      let anchored = false;
-      for (const node of nodes) {
-        const next = offset + node.data.length;
-        if (!anchored && start >= offset && start < next) {
-          range.setStart(node, start - offset);
-          anchored = true;
-        }
-        if (end > offset && end <= next) range.setEnd(node, end - offset);
-        offset = next;
-      }
-      const markerRect = range.getBoundingClientRect();
-      if (!anchored || markerRect.width <= 0 || markerRect.height <= 0) continue;
-      const gridRect = grid.getBoundingClientRect();
-      const visual = window.visualViewport;
-      const visualLeft = visual?.offsetLeft ?? 0;
-      const clipRight = Math.min(gridRect.right, visualLeft + (visual?.width ?? innerWidth));
-      return {
-        markerRight: markerRect.right,
-        clipRight,
-        overflowPx: markerRect.right - clipRight,
-        scrollLeft: grid.scrollLeft,
-      };
-    }
-    return null;
-  }, { id: sessionId, text: marker });
-  if (!edge) throw new Error(`${label}: ${marker} left the grid before it could be measured`);
-  expect(
-    edge.overflowPx,
-    `${label}: last glyph right edge ${edge.markerRight} against clip ${edge.clipRight}`,
-  ).toBeLessThanOrEqual(FIT_TOLERANCE_PX);
-  expect(edge.scrollLeft, `${label}: the terminal never scrolled horizontally`).toBe(0);
+  await page.evaluate(({ id, styleTestId, shouldDisable }) => {
+    document.querySelector(`[data-testid="${styleTestId}"]`)?.remove();
+    if (!shouldDisable) return;
+    const style = document.createElement("style");
+    style.dataset.testid = styleTestId;
+    style.textContent = `[data-testid="terminal-slot-${id}"] .cell-grid{`
+      + "-webkit-text-size-adjust:inherit!important;text-size-adjust:inherit!important;}";
+    document.head.append(style);
+  }, {
+    id: sessionId,
+    styleTestId: TEXT_INFLATION_UNPROTECTED_STYLE_TEST_ID,
+    shouldDisable: disabled,
+  });
 }
 
-/** Address the shell's cursor at the settled grid's final columns and prove the
- *  glyph landing there is inside every viewer's clip. The marker reaches the
- *  PTY as two arguments, so the shell's echo of the command line cannot contain
- *  it and text presence alone can never satisfy the proof. */
-async function paintAndProveLastColumn(
-  viewers: readonly Page[],
-  sender: Page,
-  sessionId: string,
-  label: string,
-): Promise<number> {
-  // Fit first: a viewer still painting a superseded grid overflows its pane,
-  // so the settled sheet is what makes the column read the final one.
-  for (const viewer of viewers) await expectSheetFitsPane(viewer, sessionId, label);
-  const cols = await waitForConvergedColumns(viewers, sessionId, label);
-  const perViewerRows = await Promise.all(
-    viewers.map((viewer) => readFullyVisibleRows(viewer, sessionId)),
-  );
-  const shared = perViewerRows.reduce<readonly number[]>(
-    (rows, viewerRows) => rows.filter((row) => viewerRows.includes(row)),
-    perViewerRows[0] ?? [],
-  );
-  if (shared.length === 0) throw new Error(`${label}: no row is fully visible in every viewer`);
-  const row = shared[Math.floor(shared.length / 2)];
-  const tail = crypto.randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase();
-  const marker = `${MARKER_HEAD}${tail}`;
-  const column = cols - marker.length + 1;
-  expect(column, `${label}: the settled grid is wider than one marker`).toBeGreaterThan(1);
-  await inputSmokeTerminal(
-    sender,
-    sessionId,
-    `printf '\\033[${row};${column}H%s%s' '${MARKER_HEAD}' '${tail}'\r`,
-  );
-  for (const viewer of viewers) await expectLastColumnVisible(viewer, sessionId, marker, label);
-  return cols;
+async function removeTextInflationProbe(page: Page, sessionId: string): Promise<void> {
+  await page.evaluate(({ id, controlTestId, rootAttribute, styleTestId, unprotectedStyleTestId }) => {
+    document.querySelector(`[data-testid="${styleTestId}"]`)?.remove();
+    document.querySelector(`[data-testid="${unprotectedStyleTestId}"]`)?.remove();
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    slot?.removeAttribute(rootAttribute);
+    slot?.querySelector(`[data-testid="${controlTestId}"]`)?.remove();
+  }, {
+    id: sessionId,
+    controlTestId: TEXT_INFLATION_CONTROL_TEST_ID,
+    rootAttribute: TEXT_INFLATION_ROOT_ATTRIBUTE,
+    styleTestId: TEXT_INFLATION_STYLE_TEST_ID,
+    unprotectedStyleTestId: TEXT_INFLATION_UNPROTECTED_STYLE_TEST_ID,
+  });
 }
+
 
 test("a terminal font that loads while hidden keeps the mobile right edge reachable", async ({
   mobileSmokePage,
@@ -337,6 +251,96 @@ test("a terminal font that loads while hidden keeps the mobile right edge reacha
     if (fontRequested) await fontRouteFinished.promise.catch(() => undefined);
     await mobileSmokePage.unroute(regressionFontRequest).catch(() => undefined);
     await forceVisible(mobileSmokePage, false).catch(() => undefined);
+  }
+});
+
+test("mobile text inflation cannot enlarge a settled terminal grid", async ({
+  mobileSmokePage,
+  stack,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "webkit-iphone", "iPhone text-inflation contract");
+  test.setTimeout(180_000);
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+  await mobileSmokePage.evaluate(async () => { await document.fonts.ready; });
+  await waitForStableCellFrames(mobileSmokePage, sessionId);
+  await expectSheetFitsPane(mobileSmokePage, sessionId, "settled production fonts before inflation");
+  await installTextInflationControl(mobileSmokePage, sessionId);
+  try {
+    const baselineDimensions = await readDimensions(mobileSmokePage, sessionId);
+    const baselineAdvance = await measureCellAdvance(mobileSmokePage, sessionId);
+    const baselineProbe = await readTextInflationProbe(mobileSmokePage, sessionId);
+    expect(baselineDimensions.cols, "the settled grid reported columns").toBeGreaterThan(0);
+    expect(baselineAdvance, "the settled grid measured a cell advance").toBeGreaterThan(0);
+    expect(baselineProbe.controlWidth, "the external ASCII control measured a DOM Range").toBeGreaterThan(0);
+
+    await enableTextInflationCalibration(mobileSmokePage, sessionId);
+    await expect.poll(
+      async () => (await readTextInflationProbe(mobileSmokePage, sessionId)).controlWidth,
+      {
+        timeout: SETTLE_TIMEOUT_MS,
+        intervals: SETTLE_INTERVALS,
+        message: "the WebKit text-inflation calibration enlarged its external ASCII control",
+      },
+    ).toBeGreaterThanOrEqual(baselineProbe.controlWidth * 1.5);
+
+    await setTerminalInflationProtectionDisabled(mobileSmokePage, sessionId, true);
+    await expect.poll(
+      () => measureCellAdvance(mobileSmokePage, sessionId),
+      {
+        timeout: SETTLE_TIMEOUT_MS,
+        intervals: SETTLE_INTERVALS,
+        message: "the calibrated grid advance grows when its inflation protection is disabled",
+      },
+    ).toBeGreaterThanOrEqual(baselineAdvance * 1.5);
+    expect(
+      (await readDimensions(mobileSmokePage, sessionId)).cols,
+      "text inflation changes glyph fit without changing the worker grid",
+    ).toBe(baselineDimensions.cols);
+    await setTerminalInflationProtectionDisabled(mobileSmokePage, sessionId, false);
+    await expect.poll(
+      () => measureCellAdvance(mobileSmokePage, sessionId),
+      {
+        timeout: SETTLE_TIMEOUT_MS,
+        intervals: SETTLE_INTERVALS,
+        message: "restoring the grid protection restores its measured cell advance",
+      },
+    ).toBe(baselineAdvance);
+
+    const inflatedDimensions = await readDimensions(mobileSmokePage, sessionId);
+    const inflatedAdvance = await measureCellAdvance(mobileSmokePage, sessionId);
+    const inflatedProbe = await readTextInflationProbe(mobileSmokePage, sessionId);
+    expect(inflatedDimensions.cols, "text inflation leaves settled terminal columns unchanged")
+      .toBe(baselineDimensions.cols);
+    expect(inflatedAdvance, "text inflation leaves the ten-cell advance unchanged")
+      .toBe(baselineAdvance);
+    expect(inflatedProbe.terminalBox, "text inflation leaves the terminal box unchanged")
+      .toEqual(baselineProbe.terminalBox);
+
+    await paintAndProveLastColumn(
+      [mobileSmokePage],
+      mobileSmokePage,
+      sessionId,
+      "inflated external text",
+    );
+    const portrait = mobileSmokePage.viewportSize();
+    if (!portrait) throw new Error("the mobile page reported no viewport size");
+    await mobileSmokePage.setViewportSize({ width: portrait.height, height: portrait.width });
+    await paintAndProveLastColumn(
+      [mobileSmokePage],
+      mobileSmokePage,
+      sessionId,
+      "inflated external text in landscape",
+    );
+    await mobileSmokePage.setViewportSize(portrait);
+    await paintAndProveLastColumn(
+      [mobileSmokePage],
+      mobileSmokePage,
+      sessionId,
+      "inflated external text in restored portrait",
+    );
+  } finally {
+    await removeTextInflationProbe(mobileSmokePage, sessionId).catch(() => undefined);
   }
 });
 

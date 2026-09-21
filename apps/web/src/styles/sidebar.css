@@ -145,6 +145,8 @@
   background: var(--term-bg);
   line-height: 1.2;
   font-variant-ligatures: none;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
 }
 .cell-grid .cell-scrollback,
 .cell-grid .cell-viewport {
