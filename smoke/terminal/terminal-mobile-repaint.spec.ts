@@ -162,12 +162,13 @@ function registerMobileRepaintScenario(
     const fixtureWorker = await stack.startPtyFixtureWorker();
     let sessionId: string | null = null;
     try {
-      sessionId = await spawnPtyFixtureSession(mobileSmokePage, fixtureWorker);
-      await navigateToSmokeSession(mobileSmokePage, sessionId);
+      const activeSessionId = await spawnPtyFixtureSession(mobileSmokePage, fixtureWorker);
+      sessionId = activeSessionId;
+      await navigateToSmokeSession(mobileSmokePage, activeSessionId);
       await expect.poll(
         () => mobileSmokePage.evaluate(
           ({ id, marker }) => window.__smoke.viewportText(id).includes(marker),
-          { id: sessionId, marker: PTY_FIXTURE_READY },
+          { id: activeSessionId, marker: PTY_FIXTURE_READY },
         ),
         { timeout: REPAINT_TIMEOUT_MS, intervals: REPAINT_INTERVALS_MS },
       ).toBe(true);
@@ -274,7 +275,7 @@ function registerMobileRepaintScenario(
       await expect.poll(async () => {
         const painted = await mobileSmokePage.evaluate(
           (id) => window.__smoke.paintedScrollback(id).rows.map((row) => row.text.trimEnd()),
-          sessionId,
+          activeSessionId,
         );
         return painted.filter((row) => row.startsWith("TRANSCRIPT-") || row.startsWith("NEXT-"));
       }, {
