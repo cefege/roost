@@ -35,6 +35,7 @@ import {
   verifyPeerBlackholeFallback,
   verifyPeerToSyncInputFence,
 } from "./terminal-peer-fault-scenarios.ts";
+import { verifyPeerHistoryContinuity } from "./terminal-peer-history-scenarios.ts";
 import {
   verifyGrantShrinkFencesInputAndHistory,
   verifyPeerInputBudgetFlood,
@@ -342,6 +343,17 @@ test("missed direct peer probes fall back through one repaired baseline while pr
   test.setTimeout(300_000);
   await verifyPeerBlackholeFallback(browser, testInfo);
 });
+
+for (const carrier of ["sync", "loopback", "webrtc"] as const) {
+  test(`${carrier} preserves 2,500 retained history rows through resize, demand, and tab cycles`, async ({
+    browser,
+    browserName,
+  }, testInfo) => {
+    test.skip(browserName === "firefox", "scroll-wheel backfill demand is covered by Chromium");
+    test.setTimeout(480_000);
+    await verifyPeerHistoryContinuity(browser, testInfo, carrier);
+  });
+}
 
 test("a dropped direct input result is ambiguous and fallback never replays the PTY write", async ({ browser }, testInfo) => {
   test.setTimeout(240_000);

@@ -473,34 +473,33 @@ Roost checkout, run:
 bun apps/roost-cli/src/main.ts push
 ```
 
-`roost push` is one journaled transaction across the local POSIX coordinator
-and every registered macOS/Linux worker it can reach. It requires at least one
-registered worker, a clean complete Git commit, and proof that the commit is on
-the configured upstream (unless `--no-git` was explicitly chosen). A registered
-Windows worker blocks the rollout. `--targets` may name a subset; `--no-web`
-only retains an existing coordinator SPA.
+`roost push` first commits the local POSIX coordinator through participant-free
+journal V4. It requires a clean complete Git commit and proof that the commit is
+on the configured upstream unless `--no-git` was explicitly chosen. Zero online
+workers is valid; `--targets` may name a subset; `--no-web` retains the current
+coordinator SPA.
 
-The command snapshots the live coordinator database, activates and proves the
-target coordinator in a held state, then stages and proves every **participant**
-worker at the same SHA with a current keeper and fresh heartbeat. Only then does
-it record the durable finalization decision. Before that decision, any
-participant failure rolls every participant back, restores and proves the prior
-coordinator and database, and reports failure. After that decision, interrupted
-recovery can only finish the target release.
+Coordinator activation stages an immutable release, stops the prior service,
+then snapshots the database. The target boots with durable mutation ingress held
+and reports `update_ready=false` plus its transaction ID. After target identity,
+SPA stamp, service definition and startup policy are proved, the CLI checkpoints
+`finalizing`; the target releases the write gate and reports ready. Rollback
+checkpoints `prior-restored` before the prior service can admit writes, so
+recovery never restores the database twice.
 
-A registered worker that is unreachable, stale, or not on the coordinator's
-prior SHA is **deferred**, not a refusal: the push converges the machines it can
-reach and names the rest. The fleet's desired release is the running
-coordinator's own SHA, so a deferred machine is simply behind it, and the
-coordinator starts that machine's catch-up deploy itself the next time the
-worker attaches. `roost status` and Settings → Machines show each machine as up
-to date, update available, updating, or update pending while offline.
+After coordinator commit and lock release, `push` submits one durable job per
+selected worker. Each host owns its platform journal and lease independently:
+one activation failure cannot roll back a successful worker or the coordinator.
+Offline, keeper-blocked, missing-runtime and paused-Windows hosts are deferred,
+not forced. Exit 8 means an attempted worker failed; output separately counts
+updated, already-current, deferred and failed machines.
 
-A machine that returns is converged by the coordinator's own catch-up deploy, or
-immediately with `roost deploy <host>`. Re-running `roost push` will NOT pick it
-up: every per-host rollout proves the installed service against the rollout's
-single prior SHA and refuses anything else, so a machine sitting on an older
-commit is structurally a deferral for as long as the fleet has moved on.
+The coordinator reevaluates routable workers every 30 seconds and retained
+waiting/recovery records on their persisted schedule. A returning machine
+automatically catches up to the running coordinator SHA. Settings → Machines
+shows the same durable operation in every browser and keeps Update/Retry plus a
+copyable structured report; Refresh status never reloads the page or starts a
+deployment.
 
 The fleet is therefore NOT guaranteed to be one version between a push and a
 deferred machine's return. What that window costs is wire compatibility between
@@ -701,12 +700,11 @@ Use one release commit and one fleet transaction:
    through `smoke/terminal/stack.ts`). That tier is the gate; a live canary
    only observes a deployment.
 3. From the clean pushed checkout, run
-   `bun apps/roost-cli/src/main.ts push`. Every reachable macOS/Linux worker
-   converges as one transaction: exhaustive staging/proof and rollback of the
-   participants before the durable decision, finish-only recovery after it. A
-   machine that was offline is named as deferred and catches up on its next
-   attach; for a release you care about, confirm it reaches the new SHA in
-   `roost status` before declaring the rollout done.
+   `bun apps/roost-cli/src/main.ts push`. The coordinator commits independently,
+   then each macOS/Linux worker settles through its own durable job. A failed
+   host leaves successful machines committed; an offline or safety-blocked host
+   is named as deferred and automatically catches up when safe. Confirm required
+   machines reach the new SHA in `roost status` or Settings → Machines.
 4. Run the live API canary against the installed origin:
    ```sh
    ROOST_COORD_URL="https://roost.example.com" \

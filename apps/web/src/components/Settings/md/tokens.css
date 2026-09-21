@@ -365,6 +365,21 @@
   justify-content: flex-end;
   gap: var(--md-space-2);
 }
+.machines-update-report {
+  flex: 1 1 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  max-block-size: calc(var(--md-space-9) * 8);
+  overflow: auto;
+  padding: var(--md-space-3);
+  border-radius: var(--md-shape-sm);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  text-align: start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
 
 /* ─── Metric tile (used by Machines + Metrics panes) ──────────── */
 .md-metric-grid {

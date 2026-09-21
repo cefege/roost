@@ -52,6 +52,9 @@ export type TerminalTestStackOptions = {
   // upgrade moves the coordinator first and the workers afterwards.
   coordRelease?: Partial<TerminalReleaseCheckout>;
   workerRelease?: Partial<TerminalReleaseCheckout>;
+  /** Harness-only coordinator entrypoint that injects process-local test seams. */
+  coordSourceEntrypoint?: string;
+  coordSourceEntrypointArgs?: readonly string[];
   // Coordinator database to boot over. Default is a fresh one under the test
   // root; an upgrade run supplies one a prior release already migrated.
   coordDbPath?: string;

@@ -24,6 +24,9 @@ import { worker } from "./worker.ts";
 import { keeper } from "./keeper.ts";
 import { update } from "./update.ts";
 import { version } from "./version.ts";
+import { deploySettlementProbe } from "./deploy-settlement-probe.ts";
+import { WorkerUpdateFailureSchema } from "@roost/shared/worker-update-operation";
+import { persistWorkerUpdateChildFailure } from "@roost/shared/worker-update-result-channel";
 
 const SUBCOMMANDS = {
   quickstart,
@@ -37,6 +40,7 @@ const SUBCOMMANDS = {
   keeper,
   update,
   "__keeper-contract": keeperContractCommand,
+  "__deploy-settlement-probe": deploySettlementProbe,
   "__windows-updater-broker": async (args: string[]) => {
     if (process.platform !== "win32" || args.length !== 0) {
       throw new Error("internal Windows updater broker dispatch refused");
@@ -119,7 +123,30 @@ if (args.includes("--help") || args.includes("-h")) usage();
 try {
   await SUBCOMMANDS[cmd as Subcommand](args);
 } catch (error) {
-  console.error(JSON.stringify({ cmd, error: String(error) }));
+  const failureCandidate = error && typeof error === "object"
+    && "workerUpdateFailure" in error
+    ? error.workerUpdateFailure
+    : undefined;
+  const parsedFailure = WorkerUpdateFailureSchema.safeParse(failureCandidate);
+  const workerUpdateFailure = parsedFailure.success ? parsedFailure.data : undefined;
+  const deployJobId = args.find((argument) =>
+    argument.startsWith("--deploy-job-id="))?.slice("--deploy-job-id=".length);
+  const deployResultId = process.env.ROOST_DEPLOY_RESULT_ID;
+  const deployWorkerFp = process.env.ROOST_DEPLOY_WORKER_FP;
+  if (cmd === "deploy" && workerUpdateFailure && deployJobId && deployWorkerFp
+    && deployResultId) {
+    await persistWorkerUpdateChildFailure({
+      workerFp: deployWorkerFp,
+      jobId: deployJobId,
+      failure: workerUpdateFailure,
+      resultId: deployResultId,
+    }).catch(() => undefined);
+  }
+  console.error(JSON.stringify({
+    cmd,
+    error: String(error),
+    ...(workerUpdateFailure !== undefined && { report: workerUpdateFailure }),
+  }));
   const exitCode = error && typeof error === "object" && "exitCode" in error
     && typeof error.exitCode === "number" ? error.exitCode : 1;
   process.exit(exitCode);

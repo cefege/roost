@@ -39,6 +39,8 @@ import type { CloudflareAccessGate } from "../cf-access.ts";
 import type { TerminalGrantOwner } from "./terminal-grant-owner.ts";
 import type { TerminalPeerNegotiations } from "./terminal-peer-negotiations.ts";
 import type { TerminalInputRouteResults } from "./terminal-input-route-results.ts";
+import type { WorkerUpdateOwner } from "../worker-update-owner.ts";
+import type { CoordinatorActivationGate } from "../coordinator-update-activation.ts";
 
 // ─── deps + helpers ───────────────────────────────────────────────────────
 
@@ -52,6 +54,9 @@ export interface ConnectDeps {
   /** Required: the keeper-update fence only holds if every mutation path
    * leases the same gate instance. */
   writeGate: CoordinatorWriteGate;
+  updateOwner: WorkerUpdateOwner;
+  updateSourceRoot: string;
+  activationGate: CoordinatorActivationGate;
   /** Required: the single self-hosted account/organization/dashboard resolved
    * once at startup. Every scoped write takes its value from here. */
   selfHostedTenant: SelfHostedTenant;

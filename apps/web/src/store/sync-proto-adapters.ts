@@ -18,10 +18,12 @@ import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-p
 import {
   terminalCoreCapacityReportFromProto,
 } from "@roost/shared/terminal-core-capacity-proto";
+import { workerUpdateOperationFromProto } from "@roost/shared/worker-update-operation-proto";
 import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
 import type {
   McpRelay as McpRelayWire,
   Task as TaskWire,
+  Worker as WorkerWire,
 } from "@roost/shared/wire";
 import type {
   McpStreamMessageProto,
@@ -34,6 +36,7 @@ import type {
   McpRelay,
   Task,
   TerminalCoreCapacityReport as TerminalCoreCapacityReportProto,
+  WorkerUpdateOperation as WorkerUpdateOperationProto,
   Workspace,
 } from "@roost/shared/proto/wire_pb";
 
@@ -72,6 +75,37 @@ export function terminalCoreCapacityProtoToWire(
     });
     return null;
   }
+}
+
+/** Decode an optional coordinator-owned operation without letting malformed
+ * persisted evidence tear down the Sync stream. */
+export function workerUpdateOperationProtoToWire(
+  operation: WorkerUpdateOperationProto | undefined,
+  frame: string,
+): WorkerWire["update_operation"] {
+  if (!operation) return null;
+  try {
+    return workerUpdateOperationFromProto(operation);
+  } catch (error) {
+    signal("diag.corruption_signal", {
+      kind: "worker_update_operation_invalid",
+      frame,
+      msg: String(error),
+      cooldownKey: "sync",
+    });
+    return null;
+  }
+}
+
+/** Later operation revisions supersede earlier records; legacy nulls never
+ * erase a coordinator update operation already visible in this browser. */
+export function mergeWorkerUpdateOperation(
+  current: WorkerWire["update_operation"] | undefined,
+  incoming: WorkerWire["update_operation"],
+): WorkerWire["update_operation"] {
+  if (!incoming) return current ?? null;
+  if (!current || incoming.revision > current.revision) return incoming;
+  return current;
 }
 
 function hostMetricsProtoToWire(m: HostMetrics | undefined) {
@@ -207,6 +241,10 @@ export function _presenceProtoToWire(d: WorkerPresenceProto) {
             : null,
           terminal_core_capacity: terminalCoreCapacityProtoToWire(
             v.terminalCoreCapacity,
+            "worker_presence_registered",
+          ),
+          update_operation: workerUpdateOperationProtoToWire(
+            v.updateOperation,
             "worker_presence_registered",
           ),
         },

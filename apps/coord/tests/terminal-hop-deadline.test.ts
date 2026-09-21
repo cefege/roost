@@ -45,6 +45,7 @@ import {
   INPUT_CONTROL_TIMEOUT_MS,
   type HopDeadline,
 } from "../src/connect/worker-send.ts";
+import { workerUpdateTestDeps } from "./worker-update-test-deps.ts";
 
 const WORKER_FP = "abadcafe".repeat(8);
 const CALLER_FP = "feedface".repeat(8);
@@ -80,6 +81,7 @@ beforeAll(async () => {
     terminalGrants,
   });
   deps = {
+    ...workerUpdateTestDeps(),
     db,
     sqlite: opened.sqlite,
     writeGate: new CoordinatorWriteGate(),

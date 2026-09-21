@@ -21,14 +21,16 @@ import type {
 import { sessionFromProto } from "@roost/shared/wire/session-proto";
 import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
 import { diag } from "@roost/shared/diag";
-import { setRootStore } from "./root.ts";
+import { rootStore, setRootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { applySessionsSnapshot } from "./projector.ts";
 import {
   mcpRelayProtoToWire,
+  mergeWorkerUpdateOperation,
   taskProtoToWire,
   terminalCoreCapacityProtoToWire,
+  workerUpdateOperationProtoToWire,
 } from "./sync-proto-adapters.ts";
 import {
   setSessionsHydrated,
@@ -125,13 +127,26 @@ export function _installBootstrapDomainHydrators(
           worker.terminalCoreCapacity,
           "workers_list_hydration",
         ),
+        update_operation: workerUpdateOperationProtoToWire(
+          worker.updateOperation,
+          "workers_list_hydration",
+        ),
       };
     }
     return {
       apply: () => {
         batch(() => {
           setRoutableFps(new Set(response.routableFps));
-          setRootStore("workers", workers);
+          for (const [fp, worker] of Object.entries(workers)) {
+            const current = rootStore.workers[fp];
+            setRootStore("workers", fp, reconcile({
+              ...worker,
+              update_operation: mergeWorkerUpdateOperation(
+                current?.update_operation,
+                worker.update_operation,
+              ),
+            }));
+          }
           setWorkersHydrated(true);
         });
       },

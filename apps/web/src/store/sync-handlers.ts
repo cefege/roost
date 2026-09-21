@@ -8,6 +8,7 @@ import { deleteStoreRecord, setRootStore } from "./root.ts";
 import { foldEventIntoStore } from "./projector.ts";
 import type { Worker, Workspace, Task, McpRelay } from "@roost/shared/wire";
 import { applyWorkerRemoval } from "./worker-removal.ts";
+import { mergeWorkerUpdateOperation } from "./sync-proto-adapters.ts";
 
 // Keeper-death awareness toast. A burst of `respawned` events while the SPA
 // stream is steady AND no worker just re-registered = a keeper died mid-life
@@ -74,7 +75,17 @@ export function _handlePresenceEvent(event: unknown): void {
     // Timestamp the (re)register so a respawn burst within the grace window is
     // attributed to a worker restart/deploy, not a keeper-death memory event.
     _lastWorkerRegisterAt = performance.now();
-    setRootStore("workers", ev.worker.fp, ev.worker);
+    setRootStore("workers", ev.worker.fp, (current) =>
+      current
+        ? {
+          ...ev.worker,
+          update_operation: mergeWorkerUpdateOperation(
+            current.update_operation,
+            ev.worker.update_operation,
+          ),
+        }
+        : ev.worker,
+    );
   } else if (ev.kind === "heartbeat") {
     setRootStore("workers", ev.fp, (prev) =>
       prev

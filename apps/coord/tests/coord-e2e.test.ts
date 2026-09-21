@@ -14,6 +14,7 @@ import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { newJwtCache } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import type { CoordConfig } from "@roost/shared/config";
+import { workerUpdateTestDeps } from "./worker-update-test-deps.ts";
 
 let workdir: string;
 let coord: CoordHandle;
@@ -44,6 +45,7 @@ beforeAll(async () => {
   terminalPeerStunUrls: [],
   }
   coord = createCoord({
+    ...workerUpdateTestDeps(),
     db,
     sqlite,
     writeGate: new CoordinatorWriteGate(),

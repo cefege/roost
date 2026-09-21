@@ -4,16 +4,22 @@
 // windows-update-manifest.ts; this file only authorizes and adapts them.
 
 import { create } from "@bufbuild/protobuf";
-import type { ServiceImpl } from "@connectrpc/connect";
+import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
 import {
   type CoordinatorService,
   WorkersDeployOutputFrameSchema,
   WorkersDeployStartResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
-import { deployOutput, startDeploy } from "../deploy-jobs.ts";
+import { WorkerUpdateSource as ProtoWorkerUpdateSource } from "@roost/shared/proto/wire_pb";
+import {
+  workerUpdateOperationToProto,
+  workerUpdateReportToProto,
+} from "@roost/shared/worker-update-operation-proto";
+import { deployOutput } from "../deploy-jobs.ts";
 import { SseQueueOverflowError } from "../sse.ts";
 import { startWindowsDeploy } from "../windows-update-manifest.ts";
 import { requireAccountDevice } from "./auth-interceptor.ts";
+import { COORD_GIT_SHA } from "../git-sha.ts";
 import type { ConnectDeps } from "./router.ts";
 
 type WorkerDeployMethods =
@@ -80,11 +86,21 @@ export function makeWorkerDeployHandlers(
     async *workersDeployOutput(req, ctx) {
       requireAccountDevice(ctx.values);
       try {
-        for await (const msg of deployOutput(req.jobId, ctx.signal)) {
+        for await (const msg of deployOutput(req.jobId, ctx.signal, deps.updateOwner)) {
           if (msg.kind === "line") {
             yield create(WorkersDeployOutputFrameSchema, {
               kind: "line",
               text: msg.text,
+            });
+          } else if (msg.kind === "operation") {
+            yield create(WorkersDeployOutputFrameSchema, {
+              kind: "operation",
+              operation: workerUpdateOperationToProto(msg.operation),
+            });
+          } else if (msg.kind === "report") {
+            yield create(WorkersDeployOutputFrameSchema, {
+              kind: "report",
+              report: workerUpdateReportToProto(msg.report),
             });
           } else {
             yield create(WorkersDeployOutputFrameSchema, {
@@ -96,14 +112,11 @@ export function makeWorkerDeployHandlers(
         }
       } catch (error) {
         // A stalled reader tripped the bounded SSE queue: end with a terminal
-        // frame so the SPA can explain the stop and reconnect for the tail.
         if (error instanceof SseQueueOverflowError) {
-          yield create(WorkersDeployOutputFrameSchema, {
-            kind: "done",
-            exit: -1,
-            error: "deploy output stream overflowed; reopen to resume",
-          });
-          return;
+          throw new ConnectError(
+            "deploy output stream overflowed; reopen to resume",
+            Code.ResourceExhausted,
+          );
         }
         throw error;
       }
@@ -140,13 +153,41 @@ export function makeWorkerDeployHandlers(
         });
       }
       const host = workerDeployHost(worker, req.host);
+      const expectedGitSha = req.expectedGitSha || COORD_GIT_SHA;
+      if (req.expectedGitSha && req.expectedGitSha !== COORD_GIT_SHA) {
+        return create(WorkersDeployStartResponseSchema, {
+          ok: false,
+          jobId: "",
+          error: "stale target; refresh coordinator status",
+        });
+      }
+      const source = req.source === ProtoWorkerUpdateSource.PUSH
+        ? "push"
+        : req.source === ProtoWorkerUpdateSource.UNSPECIFIED
+          || req.source === ProtoWorkerUpdateSource.MANUAL
+          ? "manual"
+          : null;
+      if (!source) {
+        return create(WorkersDeployStartResponseSchema, {
+          ok: false,
+          jobId: "",
+          error: "invalid external worker update source",
+        });
+      }
       const result = worker.os === "win32"
         ? await startWindowsDeploy(
           worker.fp,
-          req.expectedGitSha,
+          expectedGitSha,
           req.expectedManifestSha256,
         )
-        : startDeploy(host, req.expectedGitSha || undefined);
+        : await deps.updateOwner.startDeploy({
+          workerFp: worker.fp,
+          host,
+          expectedGitSha,
+          source,
+          sourceRoot: deps.updateSourceRoot,
+          sourceMode: "coordinator-pinned",
+        });
       return create(WorkersDeployStartResponseSchema, {
         ok: result.ok,
         jobId: result.jobId ?? "",

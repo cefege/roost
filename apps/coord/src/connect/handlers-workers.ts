@@ -23,7 +23,7 @@ import { listRoutableFps } from "./worker-service.ts";
 import { requireAccountDevice, requireWorker } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import { invalidateJwtKey } from "../jwt.ts";
-import { asWorkerFp } from "@roost/shared/wire";
+import { asWorkerFp, type Worker as WireWorker } from "@roost/shared/wire";
 import { retireWorkerRoutes } from "../byte-hub.ts";
 import {
 	fenceWorkerCredential,
@@ -79,7 +79,8 @@ export function makeWorkerHandlers(
 				.execute();
 			const workerFps = new Set(rows.map((worker) => worker.fp));
 			return create(WorkersListResponseSchema, {
-				workers: rows.map(workerRowToProto),
+				workers: rows.map((row) =>
+					workerRowToProto(row, deps.updateOwner.readSummary(row.fp))),
 				routableFps: listRoutableFps().filter((fp) => workerFps.has(fp)),
 			});
 		},
@@ -136,10 +137,11 @@ export function makeWorkerHandlers(
 				.where("deleted_at_ms", "is", null)
 				.returningAll()
 				.executeTakeFirstOrThrow();
-			const w = workerRowToProto(updated);
+			const operation = deps.updateOwner.readSummary(updated.fp);
+			const w = workerRowToProto(updated, operation);
 			presenceBus.publish({
 				kind: "registered",
-				worker: workerRowToWirePresence(updated) as any,
+				worker: workerRowToWirePresence(updated, operation) as unknown as WireWorker,
 			});
 			return create(WorkersRegisterResponseSchema, { worker: w });
 		},
@@ -161,12 +163,13 @@ export function makeWorkerHandlers(
 				.where("deleted_at_ms", "is", null)
 				.returningAll()
 				.executeTakeFirstOrThrow();
+			const operation = deps.updateOwner.readSummary(updated.fp);
 			presenceBus.publish({
 				kind: "registered",
-				worker: workerRowToWirePresence(updated) as any,
+				worker: workerRowToWirePresence(updated, operation) as unknown as WireWorker,
 			});
 			return create(WorkersRenameResponseSchema, {
-				worker: workerRowToProto(updated),
+				worker: workerRowToProto(updated, operation),
 			});
 		},
 
@@ -207,6 +210,7 @@ export function makeWorkerHandlers(
 					.execute();
 				return sessionRows.map((row) => row.id);
 			});
+			await deps.updateOwner.deleteWorker(req.fp);
 			// Retirement owns the direct-grant invalidation and emits its exact-worker
 			// control before this irreversible deletion fences that generation.
 			try {

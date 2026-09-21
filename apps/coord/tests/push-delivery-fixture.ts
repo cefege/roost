@@ -19,6 +19,7 @@ import { runMigrations } from "../src/db/migrate.ts";
 import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { resetVapidKeysForTest } from "../src/vapid.ts";
+import { workerUpdateTestDeps } from "./worker-update-test-deps.ts";
 
 export const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 export const VIEW_ID = "33333333-3333-4333-8333-333333333333";
@@ -92,6 +93,7 @@ export async function createPushDeliveryFixture(): Promise<PushDeliveryFixture> 
   });
   installTerminalViewHub(terminalViews);
   const coord = createCoord({
+    ...workerUpdateTestDeps(),
     db,
     sqlite,
     writeGate: new CoordinatorWriteGate(),

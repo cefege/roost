@@ -1,86 +1,53 @@
-// MachineCard's row badge and MachineUpdateDetails' action are both decided by
-// the ONE shared classifier (@roost/shared/fleet-update). Bun has no browser
-// DOM, so this suite uses the same client-Solid virtual renderer as the other
-// DOM tests and stubs the M3 primitives that register browser custom elements.
-// The renderer evaluates props once, so each state is its own render — which is
-// also how the card behaves: the badge and the action come from one state read.
+// Machine update UI state comes solely from Worker.update_operation plus the
+// current worker projection. Browser request guards never become deployment
+// state, and durable report text is one structured value for Details and copy.
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
 import type { Worker } from "@roost/shared/wire";
-import type { MachineUpdateDetailsProps } from "../src/components/Settings/MachineUpdateDetails.tsx";
-
-type VNode = {
-  tag: unknown;
-  props: Record<string, unknown>;
-  rendered?: unknown;
-};
+import type {
+  WorkerUpdateOperation,
+  WorkerUpdateReport,
+} from "@roost/shared/worker-update-operation";
+import { workerUpdateReportToProto } from "@roost/shared/worker-update-operation-proto";
+import { WorkerUpdateSource } from "@roost/shared/proto/wire_pb";
 
 const COORD_SHA = "a".repeat(40);
 const WORKER_SHA = "b".repeat(40);
-const FP = "c".repeat(64);
+const STALE_SHA = "c".repeat(40);
+const FP = "d".repeat(64);
+const JOB_ID = "00000000-0000-4000-8000-000000000001";
 
+// The client renderer is selected by resolved test runtime URL.
 const solidClientUrl = new URL("./solid.js", import.meta.resolve("solid-js"));
 const Solid = await import(solidClientUrl.href) as typeof SolidApi;
 mock.module("solid-js", () => Solid);
 
-function invokeComponent(vnode: VNode): void {
-  if (typeof vnode.tag !== "function") return;
-  const component = vnode.tag as (props: Record<string, unknown>) => unknown;
-  vnode.rendered = Solid.runWithOwner(Solid.getOwner(), () => component(vnode.props));
-}
-
-function createElement(
-  tag: unknown,
-  props: Record<string, unknown> | null,
-  ...children: unknown[]
-): VNode {
-  const merged = { ...(props ?? {}) };
-  if (children.length > 0) merged.children = children.length === 1 ? children[0] : children;
-  const vnode: VNode = { tag, props: merged };
-  invokeComponent(vnode);
-  return vnode;
-}
-
-const ReactShim = { Fragment: Symbol("Fragment"), createElement };
-const testGlobal = globalThis as typeof globalThis & { React: unknown };
-testGlobal.React = ReactShim;
+const ReactShim = { Fragment: Symbol("Fragment"), createElement: () => null };
+(globalThis as typeof globalThis & { React: unknown }).React = ReactShim;
 mock.module("react/jsx-dev-runtime", () => ({
   Fragment: ReactShim.Fragment,
-  jsxDEV(tag: unknown, props: Record<string, unknown> | null): VNode {
-    const children = props?.children === undefined ? [] : [props.children];
-    return createElement(tag, props, ...children);
-  },
+  jsxDEV: () => null,
+}));
+mock.module("../src/components/Settings/md/primitives.tsx", () => ({ Button: () => null }));
+mock.module("../src/store/sync-bootstrap.ts", () => ({
+  refreshCoordAndWorkers: async () => true,
 }));
 
-const ButtonStub = (props: Record<string, unknown>): unknown => props.children;
-mock.module("../src/components/Settings/md/primitives.tsx", () => ({
-  Button: ButtonStub,
-  Chip: (props: Record<string, unknown>) => props.label,
-  Icon: () => null,
-  ListRow: (props: Record<string, unknown>) => [props.headline, props.support, props.trailing],
-  MetricTile: () => null,
-  StatusDot: () => null,
-  TextField: () => null,
-}));
-
-const onlineFps = new Set<string>();
-mock.module("../src/store/sync.ts", () => ({
-  workerOnline: (worker: Worker) => onlineFps.has(worker.fp),
-}));
-mock.module("../src/store/root.ts", () => ({
-  rootStore: { coord_identity: { git_sha: COORD_SHA, public_url: "" }, workers: {} },
-  deleteStoreRecord: () => undefined,
-}));
-mock.module("../src/store/toastStore.ts", () => ({ addToast: () => () => undefined }));
-
-type DeployStartRequest = { host: string; expectedGitSha?: string };
+type DeployStartRequest = {
+  host: string;
+  expectedGitSha?: string;
+  source?: WorkerUpdateSource;
+};
 type DeployStartResponse = { ok: boolean; jobId: string; error: string };
 
 const startRequests: DeployStartRequest[] = [];
-let startResponse: (request: DeployStartRequest) => Promise<DeployStartResponse> = () =>
-  new Promise<DeployStartResponse>(() => undefined);
-
+let startResponse: (request: DeployStartRequest) => Promise<DeployStartResponse> = async () => ({
+  ok: true,
+  jobId: JOB_ID,
+  error: "",
+});
+let outputFrames: Array<Record<string, unknown>> = [];
 mock.module("../src/connect.ts", () => ({
   coordClient: {
     workersDeployStart: (request: DeployStartRequest) => {
@@ -88,214 +55,238 @@ mock.module("../src/connect.ts", () => ({
       return startResponse(request);
     },
     workersDeployOutput: () => (async function* () {
-      yield { kind: "done", text: "", exit: 0, error: "" };
+      for (const frame of outputFrames) yield frame;
     })(),
   },
 }));
 
-// The card and its deploy owner bind coordClient and the store at module
-// evaluation time, so both imports must follow the mocks above.
-const { MachineCard } = await import("../src/components/Settings/MachineCard.tsx");
-const { MachineUpdateDetails } = await import(
-  "../src/components/Settings/MachineUpdateDetails.tsx"
-);
-const { _resetMachineDeploys, machineDeployInFlight, startMachineUpdateDeploy } = await import(
-  "../src/components/Settings/machine-update-deploy.ts"
-);
+// These modules bind mocked RPC and UI dependencies during evaluation.
+const {
+  _resetMachineUpdateStarts,
+  machineUpdateStartPending,
+  machineUpdateReportRefreshRevision,
+  noteMachineUpdateStatusRefreshed,
+  readMachineUpdateReport,
+  startMachineUpdateDeploy,
+} = await import("../src/components/Settings/machine-update-deploy.ts");
+const {
+  deriveMachineUpdatePresentation,
+  formatMachineUpdateReport,
+} = await import("../src/components/Settings/MachineUpdateDetails.tsx");
 
-function makeWorker(gitSha: string | null): Worker {
+function makeOperation(
+  status: WorkerUpdateOperation["status"],
+  targetGitSha = COORD_SHA,
+  overrides: Partial<WorkerUpdateOperation> = {},
+): WorkerUpdateOperation {
   return {
-    fp: FP,
-    label: "workshop",
-    os: "linux",
-    git_sha: gitSha,
-    host_metrics: null,
-    registered_at_ms: 1,
-    last_seen_ms: Date.now(),
-    reachable_addr: "100.64.0.2",
-    keeper_runtime: null,
-    terminal_core_capacity: null,
-  } as Worker;
-}
-
-function resolvedNode(node: unknown): unknown {
-  let resolved = node;
-  while (typeof resolved === "function") resolved = resolved();
-  return resolved;
-}
-
-/** Every vnode Solid would actually paint: <Show> is resolved through its memo,
- *  so a branch whose condition is false contributes nothing. */
-function collectRendered(node: unknown, output: VNode[] = []): VNode[] {
-  const resolved = resolvedNode(node);
-  if (Array.isArray(resolved)) {
-    for (const child of resolved) collectRendered(child, output);
-    return output;
-  }
-  if (!resolved || typeof resolved !== "object") return output;
-  const vnode = resolved as VNode;
-  output.push(vnode);
-  if (typeof vnode.tag === "function") collectRendered(vnode.rendered, output);
-  else collectRendered(vnode.props.children, output);
-  return output;
-}
-
-function collectText(node: unknown, output: string[] = []): string[] {
-  const resolved = resolvedNode(node);
-  if (typeof resolved === "string" || typeof resolved === "number") {
-    output.push(String(resolved));
-    return output;
-  }
-  if (Array.isArray(resolved)) {
-    for (const child of resolved) collectText(child, output);
-    return output;
-  }
-  if (!resolved || typeof resolved !== "object") return output;
-  const vnode = resolved as VNode;
-  if (typeof vnode.tag === "function") collectText(vnode.rendered, output);
-  else collectText(vnode.props.children, output);
-  return output;
-}
-
-/** Every vnode the render CREATED, memos unresolved — the only way to see the
- *  props a collapsed section was handed. */
-function collectCreated(node: unknown, output: VNode[] = []): VNode[] {
-  if (Array.isArray(node)) {
-    for (const child of node) collectCreated(child, output);
-    return output;
-  }
-  if (!node || typeof node !== "object") return output;
-  const vnode = node as VNode;
-  output.push(vnode);
-  return collectCreated(vnode.props.children, output);
-}
-
-interface RenderedSurface {
-  text: () => string;
-  button: (testId: string) => Record<string, unknown> | undefined;
-}
-
-const disposers: Array<() => void> = [];
-
-function render<Props>(component: (props: Props) => unknown, props: Props): {
-  tree: unknown;
-  surface: RenderedSurface;
-} {
-  let tree: unknown;
-  Solid.createRoot((dispose) => {
-    disposers.push(dispose);
-    tree = component(props);
-  });
-  return {
-    tree,
-    surface: {
-      text: () => collectText(tree).join(" ").replace(/\s+/g, " ").trim(),
-      button: (testId: string) =>
-        collectRendered(tree)
-          .find((vnode) => vnode.tag === ButtonStub && vnode.props["data-testid"] === testId)
-          ?.props,
-    },
+    jobId: JOB_ID,
+    workerFp: FP as WorkerUpdateOperation["workerFp"],
+    host: "workshop.example",
+    revision: 1,
+    targetGitSha,
+    source: "manual",
+    status,
+    phase: status === "verifying" ? "confirmation" : "activation",
+    reasonCode: null,
+    message: null,
+    createdAtMs: 10,
+    updatedAtMs: 10,
+    startedAtMs: 10,
+    completedAtMs: status === "queued" || status === "running" || status === "verifying"
+      ? null
+      : 11,
+    nextAttemptAtMs: null,
+    exitCode: null,
+    ...overrides,
   };
 }
 
-/** The update surface as the card drives it: the card classifies, this renders
- *  the exact props it handed over. The card's details section starts collapsed,
- *  so the handoff is read from the created tree. */
-function renderUpdateSurface(worker: Worker): RenderedSurface {
-  const card = render(MachineCard, { worker });
-  const handoff = collectCreated(card.tree)
-    .find((vnode) => vnode.tag === MachineUpdateDetails)!
-    .props as MachineUpdateDetailsProps;
-  return render(MachineUpdateDetails, handoff).surface;
+function makeWorker(): Worker {
+  return {
+    fp: FP as Worker["fp"],
+    label: "Workshop",
+    os: "linux",
+    git_sha: WORKER_SHA,
+    host_identity: null,
+    host_metrics: null,
+    registered_at_ms: 1,
+    last_seen_ms: 2,
+    reachable_addr: "workshop.example",
+    keeper_runtime: null,
+    terminal_core_capacity: null,
+    update_operation: null,
+  };
 }
 
-function renderRow(worker: Worker): RenderedSurface {
-  return render(MachineCard, { worker }).surface;
+function makeReport(operation: WorkerUpdateOperation): WorkerUpdateReport {
+  return {
+    schemaVersion: 1,
+    operation,
+    observedGitSha: WORKER_SHA,
+    coordinatorOrigin: "https://coord.example",
+    failure: {
+      code: "keeper_incompatible",
+      phase: "preflight",
+      message: "Keeper ABI differs from the target.",
+      journal: {
+        path: "/var/lib/roost/deploy-jobs/report.json",
+        phase: "activation",
+        ownerId: "job-owner",
+        rolloutId: null,
+        priorSha: WORKER_SHA,
+        targetSha: COORD_SHA,
+      },
+      expectedKeeper: null,
+      observedKeeper: null,
+      targetContract: null,
+    },
+    events: [{
+      atMs: 10,
+      phase: "preflight",
+      message: "Checking worker update admission.",
+    }],
+  };
 }
 
 beforeEach(() => {
-  _resetMachineDeploys();
-  onlineFps.clear();
-  onlineFps.add(FP);
+  _resetMachineUpdateStarts();
   startRequests.length = 0;
-  startResponse = () => new Promise<DeployStartResponse>(() => undefined);
+  outputFrames = [];
+  startResponse = async () => ({ ok: true, jobId: JOB_ID, error: "" });
 });
 
-afterEach(() => {
-  while (disposers.length > 0) disposers.pop()?.();
+describe("MachineUpdateDetails projection", () => {
+  test("unsettled operations override matching worker versions in every tab", () => {
+    const operation = makeOperation("running");
+    const firstTab = deriveMachineUpdatePresentation({
+      workerGitSha: COORD_SHA,
+      coordinatorGitSha: COORD_SHA,
+      online: true,
+      operation,
+    });
+    const reloadedTab = deriveMachineUpdatePresentation({
+      workerGitSha: COORD_SHA,
+      coordinatorGitSha: COORD_SHA,
+      online: true,
+      operation,
+    });
+
+    expect(firstTab).toEqual(reloadedTab);
+    expect(firstTab.label).toContain("Updating");
+    expect(firstTab.action).toBe("update");
+    expect(firstTab.actionDisabled).toBe(true);
+  });
+
+  test("maps offline, blocked, failed, and stale operations to their safe actions", () => {
+    const offline = deriveMachineUpdatePresentation({
+      workerGitSha: WORKER_SHA,
+      coordinatorGitSha: COORD_SHA,
+      online: false,
+      operation: null,
+    });
+    const blocked = deriveMachineUpdatePresentation({
+      workerGitSha: WORKER_SHA,
+      coordinatorGitSha: COORD_SHA,
+      online: true,
+      operation: makeOperation("blocked", COORD_SHA, { reasonCode: "keeper_incompatible" }),
+    });
+    const failed = deriveMachineUpdatePresentation({
+      workerGitSha: WORKER_SHA,
+      coordinatorGitSha: COORD_SHA,
+      online: true,
+      operation: makeOperation("failed"),
+    });
+    const staleFailure = deriveMachineUpdatePresentation({
+      workerGitSha: WORKER_SHA,
+      coordinatorGitSha: COORD_SHA,
+      online: true,
+      operation: makeOperation("failed", STALE_SHA),
+    });
+
+    expect(offline).toMatchObject({
+      label: "Update pending — offline",
+      detail: "Updates automatically when this machine returns.",
+      action: null,
+    });
+    expect(blocked).toMatchObject({
+      label: "Update blocked",
+      action: "retry",
+      detail: expect.stringContaining("incompatible"),
+    });
+    expect(failed).toMatchObject({ label: "Update failed", action: "retry" });
+    expect(staleFailure).toMatchObject({ label: "Update available", action: "update" });
+  });
 });
 
-describe("MachineCard update affordance", () => {
-  test("a machine on the coordinator's release reads up to date and offers no update", () => {
-    const worker = makeWorker(COORD_SHA);
+describe("machine update request and report ownership", () => {
+  test("the browser guards only its unresolved start request and leaves coalescing to the coordinator", async () => {
+    const response = Promise.withResolvers<DeployStartResponse>();
+    startResponse = async () => response.promise;
 
-    expect(renderRow(worker).text()).toContain("Up to date");
-    const surface = renderUpdateSurface(worker);
-    expect(surface.button(`machines-update-btn-${FP}`)).toBeUndefined();
-    expect(surface.text()).toBe("");
+    const first = startMachineUpdateDeploy(FP, COORD_SHA);
+    const duplicate = startMachineUpdateDeploy(FP, COORD_SHA);
+
+    expect(startRequests).toEqual([{
+      host: FP,
+      expectedGitSha: COORD_SHA,
+      source: WorkerUpdateSource.MANUAL,
+    }]);
+    expect(machineUpdateStartPending(FP)).toBe(true);
+
+    response.resolve({ ok: true, jobId: JOB_ID, error: "" });
+    await expect(first).resolves.toBeNull();
+    await expect(duplicate).resolves.toBeNull();
+    expect(machineUpdateStartPending(FP)).toBe(false);
   });
 
-  test("an online machine behind the coordinator offers an enabled update", () => {
-    const worker = makeWorker(WORKER_SHA);
-
-    expect(renderRow(worker).text()).toContain("Update available");
-    const surface = renderUpdateSurface(worker);
-    expect(surface.text()).toContain("Update");
-    expect(surface.button(`machines-update-btn-${FP}`)?.disabled).toBe(false);
+  test("status refresh invalidates an unavailable report read without changing job state", () => {
+    const before = machineUpdateReportRefreshRevision();
+    noteMachineUpdateStatusRefreshed();
+    expect(machineUpdateReportRefreshRevision()).toBe(before + 1);
   });
 
-  test("the update button starts the host's deploy job and the row then reads Updating…", () => {
-    const worker = makeWorker(WORKER_SHA);
-    const surface = renderUpdateSurface(worker);
+  test("reopens a durable report without treating a missing report as a deploy failure", async () => {
+    const operation = makeOperation("failed");
+    const report = makeReport(operation);
+    outputFrames = [
+      { kind: "operation", operation: workerUpdateReportToProto(report).operation },
+      { kind: "report", report: workerUpdateReportToProto(report) },
+    ];
 
-    (surface.button(`machines-update-btn-${FP}`)!.onClick as () => void)();
+    await expect(readMachineUpdateReport(JOB_ID)).resolves.toEqual({
+      kind: "available",
+      report,
+    });
 
-    expect(startRequests).toEqual([{ host: FP, expectedGitSha: COORD_SHA }]);
-    expect(machineDeployInFlight(FP)).toBe(true);
-
-    const rowText = renderRow(worker).text();
-    expect(rowText).toContain("Updating…");
-    expect(rowText).not.toContain("Update available");
-    expect(renderUpdateSurface(worker).button(`machines-update-btn-${FP}`)?.disabled).toBe(true);
+    outputFrames = [{ kind: "done", exit: 8, error: "not a report" }];
+    await expect(readMachineUpdateReport(JOB_ID)).resolves.toEqual({ kind: "unavailable" });
   });
 
-  test("an offline machine behind the coordinator defers instead of offering a button", () => {
-    onlineFps.clear();
-    const worker = makeWorker(WORKER_SHA);
+  test("formats one structured report for the selectable Details region and copy action", () => {
+    const report = makeReport(makeOperation("failed"));
+    const payload = JSON.parse(formatMachineUpdateReport(makeWorker(), report));
 
-    expect(renderRow(worker).text()).toContain("Update pending — offline");
-    const surface = renderUpdateSurface(worker);
-    // The copy must promise the coordinator's own retry AND name the one case
-    // it cannot clear by itself; the exact sentence is not the contract.
-    expect(surface.text()).toContain("when it reconnects");
-    expect(surface.text()).toContain("keeper-refresh");
-    expect(surface.button(`machines-update-btn-${FP}`)).toBeUndefined();
-  });
-
-  test("a machine with no reported version reads unknown and offers no update", () => {
-    const worker = makeWorker(null);
-
-    expect(renderRow(worker).text()).toContain("Version unknown");
-    expect(renderUpdateSurface(worker).button(`machines-update-btn-${FP}`)).toBeUndefined();
-  });
-});
-
-describe("machine deploy job ownership", () => {
-  test("a refused start returns the coordinator's reason and releases the in-flight record", async () => {
-    startResponse = async () => ({ ok: false, jobId: "", error: "worker not found" });
-
-    const failure = await startMachineUpdateDeploy(FP, COORD_SHA);
-
-    expect(failure).toBe("worker not found");
-    expect(machineDeployInFlight(FP)).toBe(false);
-  });
-
-  test("a completed job reports success and releases the in-flight record", async () => {
-    startResponse = async () => ({ ok: true, jobId: "job-1", error: "" });
-
-    const failure = await startMachineUpdateDeploy(FP, COORD_SHA);
-
-    expect(failure).toBeNull();
-    expect(machineDeployInFlight(FP)).toBe(false);
+    expect(payload).toMatchObject({
+      schemaVersion: 1,
+      machine: {
+        label: "Workshop",
+        fingerprint: FP,
+        host: "workshop.example",
+        reachableAddress: "workshop.example",
+      },
+      coordinatorOrigin: "https://coord.example",
+      operation: {
+        jobId: JOB_ID,
+        source: "manual",
+        targetGitSha: COORD_SHA,
+        status: "failed",
+      },
+      observedGitSha: WORKER_SHA,
+      failure: {
+        code: "keeper_incompatible",
+        journal: { path: "/var/lib/roost/deploy-jobs/report.json" },
+      },
+    });
   });
 });

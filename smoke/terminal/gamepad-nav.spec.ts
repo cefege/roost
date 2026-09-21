@@ -13,6 +13,7 @@ import {
   readRenderProbe,
 } from "./terminal-helpers.ts";
 
+const BUTTON_A = 0;
 const BUTTON_B = 1;
 const BUTTON_X = 2;
 const BUTTON_Y = 3;
@@ -20,7 +21,7 @@ const BUTTON_RB = 5;
 const BUTTON_DOWN = 13;
 const RIGHT_STICK_Y = 3;
 
-test("a game controller moves focus, scrolls scrollback, and cycles tabs @pad", async ({
+test("a game controller moves focus, scrolls scrollback, activates sidebar search, and cycles tabs @pad", async ({
   padSmokePage,
   stack,
 }, testInfo) => {
@@ -160,4 +161,25 @@ test("a game controller moves focus, scrolls scrollback, and cycles tabs @pad", 
   // ── The legend names the current bindings ───────────────────────────────
   await pressPadButton(BUTTON_DOWN);
   await expect(padSmokePage.getByTestId("pad-hint-bar")).toBeVisible();
+  // ── Sidebar search: A enters, B unwinds before closing the drawer ────────
+  await padSmokePage.setViewportSize({ width: 500, height: 800 });
+  const drawer = padSmokePage.getByTestId("sidebar-drawer");
+  await expect(padSmokePage.getByTestId("mobile-deck-bar-menu")).toBeVisible();
+  await padSmokePage.getByTestId("mobile-deck-bar-menu").click();
+  await expect(drawer).toHaveAttribute("data-open", "true");
+
+  const sidebarSearch = drawer.getByTestId("sidebar-search");
+  const searchTrigger = drawer.getByTestId("sidebar-search-trigger");
+  await searchTrigger.focus();
+  await pressPadButton(BUTTON_A);
+  await expect(sidebarSearch).toBeFocused();
+
+  await sidebarSearch.fill("keep-input-focused");
+  await pressPadButton(BUTTON_B);
+  await expect(sidebarSearch).toHaveValue("");
+  await expect(sidebarSearch).toBeFocused();
+  await pressPadButton(BUTTON_B);
+  await expect(searchTrigger).toBeFocused();
+  await pressPadButton(BUTTON_B);
+  await expect(drawer).toHaveAttribute("data-open", "false");
 });

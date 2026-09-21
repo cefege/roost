@@ -129,7 +129,7 @@ export async function _handleCoordinatorInitialJournalWriteFailure(
   throw forwardError;
 }
 
-export async function deployLocalCoordinatorHeld(options: {
+export async function deployLocalCoordinatorLegacyV3Held(options: {
   targetSha: string;
   priorSha: string;
   rolloutId: string;

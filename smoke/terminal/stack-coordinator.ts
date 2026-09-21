@@ -18,6 +18,8 @@ export interface CoordinatorControlOptions {
   bunExecutable: string;
   /** Checkout the coordinator runs from; an upgrade run swaps it. */
   sourceRoot: string;
+  sourceEntrypoint?: string;
+  sourceEntrypointArgs?: readonly string[];
   root: string;
   home: string;
   tmpDir: string;
@@ -87,6 +89,8 @@ function launch(options: CoordinatorControlOptions, bind: string): RunningServic
     bunExecutable: options.bunExecutable,
     sourceRoot: options.sourceRoot,
     root: options.root,
+    sourceEntrypoint: options.sourceEntrypoint,
+    sourceEntrypointArgs: options.sourceEntrypointArgs,
     home: options.home,
     tmpDir: options.tmpDir,
     bind,

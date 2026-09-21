@@ -7,7 +7,10 @@
 // carrying only the getBoundingClientRect the scorer reads.
 
 import { describe, test, expect } from "bun:test";
-import { _bestCandidateInDirection } from "../src/lib/spatialNavigation.ts";
+import {
+	_bestCandidateInDirection,
+	_isExcludedSpatialCandidate,
+} from "../src/lib/spatialNavigation.ts";
 
 function fakeRect(left: number, top: number, width: number, height: number): DOMRect {
 	return {
@@ -24,6 +27,18 @@ function fakeRect(left: number, top: number, width: number, height: number): DOM
 
 function fakeElement(rect: DOMRect): HTMLElement {
 	return { getBoundingClientRect: () => rect } as unknown as HTMLElement;
+}
+
+function fakeFocusability(
+	terminalInput = false,
+	spatialNavigation?: string,
+): Pick<HTMLElement, "classList" | "dataset"> {
+	return {
+		classList: {
+			contains: (className: string) => terminalInput && className === "terminal-input",
+		},
+		dataset: spatialNavigation === undefined ? {} : { spatialNavigation },
+	} as Pick<HTMLElement, "classList" | "dataset">;
 }
 
 // Origin sits mid-screen: left 100, top 100, right 200, bottom 150.
@@ -66,5 +81,17 @@ describe("_bestCandidateInDirection", () => {
 
 		expect(_bestCandidateInDirection(origin, [overlapping], "down")).toBeNull();
 		expect(_bestCandidateInDirection(origin, [overlapping], "up")).toBeNull();
+	});
+});
+
+describe("_isExcludedSpatialCandidate", () => {
+	test("keeps only the exact manual marker out of directional focus", () => {
+		expect(_isExcludedSpatialCandidate(fakeFocusability(false, "manual"))).toBe(true);
+		expect(_isExcludedSpatialCandidate(fakeFocusability(false, "auto"))).toBe(false);
+		expect(_isExcludedSpatialCandidate(fakeFocusability())).toBe(false);
+	});
+
+	test("continues excluding the terminal input", () => {
+		expect(_isExcludedSpatialCandidate(fakeFocusability(true))).toBe(true);
 	});
 });

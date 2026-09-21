@@ -113,7 +113,10 @@ export function makeWorkerHeartbeatHandler(
 				if (keeperRuntimeMalformed) {
 					presenceBus.publish({
 						kind: "registered",
-						worker: workerRowToWirePresence(cleared) as unknown as WireWorker,
+						worker: workerRowToWirePresence(
+							cleared,
+							deps.updateOwner.readSummary(cleared.fp),
+						) as unknown as WireWorker,
 					});
 				} else {
 					presenceBus.publish({
@@ -208,7 +211,10 @@ export function makeWorkerHeartbeatHandler(
 			) {
 				presenceBus.publish({
 					kind: "registered",
-					worker: workerRowToWirePresence(updated) as unknown as WireWorker,
+					worker: workerRowToWirePresence(
+						updated,
+						deps.updateOwner.readSummary(updated.fp),
+					) as unknown as WireWorker,
 				});
 			} else {
 				presenceBus.publish({

@@ -135,7 +135,12 @@ describe("status coordinator liveness", () => {
     );
 
     expect(requestedUrl).toEndWith("/AuthCoordIdentity");
-    expect(result).toEqual({ reachable: true, gitSha: "abcdef123456" });
+    expect(result).toEqual({
+      reachable: true,
+      gitSha: "abcdef123456",
+      updateReady: null,
+      updateTransactionId: null,
+    });
   });
 
   test("rejects a successful response without coordinator identity", async () => {
@@ -143,7 +148,12 @@ describe("status coordinator liveness", () => {
       "https://coord.example.test/roost.v1.CoordinatorService/AuthCoordIdentity",
       testFetch(async () => Response.json({ ok: true })),
     );
-    expect(result).toEqual({ reachable: false, gitSha: null });
+    expect(result).toEqual({
+      reachable: false,
+      gitSha: null,
+      updateReady: null,
+      updateTransactionId: null,
+    });
   });
 });
 

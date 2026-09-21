@@ -23,6 +23,7 @@ const FIXTURE_WORKER: Worker = {
   reachable_addr: null,
   keeper_runtime: null,
   terminal_core_capacity: null,
+  update_operation: null,
 };
 
 const FIXTURE_SESSION: Session = {

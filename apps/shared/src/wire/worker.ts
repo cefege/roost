@@ -4,6 +4,8 @@ import { z } from "zod";
 import { WorkerFp } from "./brand.ts";
 import { KeeperRuntimeObservationV1Schema } from "../keeper-update.ts";
 import { TerminalCoreCapacityReportSchema } from "../terminal-core-capacity.ts";
+import { WorkerUpdateOperationSchema } from "../worker-update-operation.ts";
+export type { WorkerUpdateOperation } from "../worker-update-operation.ts";
 export type { TerminalCoreCapacityReport } from "../terminal-core-capacity.ts";
 
 export const HOST_IDENTITY_VALUE_MAX_UTF8_BYTES = 256;
@@ -115,6 +117,7 @@ export const Worker = z.object({
   reachable_addr: z.string().nullable(),
   keeper_runtime: KeeperRuntimeObservationV1Schema.nullable(),
   terminal_core_capacity: TerminalCoreCapacityReportSchema.nullable(),
+  update_operation: WorkerUpdateOperationSchema.nullable(),
 });
 export type Worker = z.infer<typeof Worker>;
 

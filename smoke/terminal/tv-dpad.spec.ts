@@ -9,6 +9,7 @@ import {
   navigateToSmokeSession,
   waitForStableCellFrames,
   inputSmokeTerminal,
+  pressPlatformShortcut,
 } from "./terminal-helpers.ts";
 
 declare global {
@@ -19,7 +20,7 @@ declare global {
   }
 }
 
-test("TV mode navigates, scrolls scrollback, and activates with a D-pad @tv", async ({
+test("TV mode navigates, scrolls scrollback, and explicitly activates sidebar search @tv", async ({
   tvSmokePage,
   stack,
 }) => {
@@ -115,6 +116,51 @@ test("TV mode navigates, scrolls scrollback, and activates with a D-pad @tv", as
   expect(await focusSignature()).toBe(activityOrigin);
   await tvSmokePage.keyboard.press("ArrowRight");
   expect(await focusSignature()).not.toBe(activityOrigin);
+
+  // ── Sidebar search needs deliberate activation ───────────────────────────
+  const sidebarSearch = tvSmokePage.getByTestId("sidebar-search");
+  const searchTrigger = tvSmokePage.getByTestId("sidebar-search-trigger");
+  await expect(searchTrigger).toBeVisible();
+
+  // Directional travel, list edges, and scrolling must never transfer focus to
+  // the text field and open a TV keyboard.
+  await searchTrigger.focus();
+  await tvSmokePage.keyboard.press("ArrowDown");
+  await expect(sidebarSearch).not.toBeFocused();
+  const firstFolderRow = tvSmokePage.locator(".df-row__primary").first();
+  await expect(firstFolderRow).toBeVisible();
+  await firstFolderRow.focus();
+  await tvSmokePage.keyboard.press("ArrowUp");
+  await expect(sidebarSearch).not.toBeFocused();
+  await tvSmokePage.mouse.wheel(0, 180);
+  await expect(sidebarSearch).not.toBeFocused();
+
+  // Native Enter, Tab, pointer activation, and the platform shortcut retain
+  // their desktop behavior while TV navigation requires the trigger first.
+  await searchTrigger.focus();
+  await tvSmokePage.keyboard.press("Enter");
+  await expect(sidebarSearch).toBeFocused();
+  await sidebarSearch.fill("only-this-query");
+  await tvSmokePage.keyboard.press("Escape");
+  await expect(sidebarSearch).toHaveValue("");
+  await expect(sidebarSearch).toBeFocused();
+  await tvSmokePage.keyboard.press("Escape");
+  await expect(searchTrigger).toBeFocused();
+
+  await searchTrigger.focus();
+  await tvSmokePage.keyboard.press("Tab");
+  await expect(sidebarSearch).toBeFocused();
+  await searchTrigger.click();
+  await expect(sidebarSearch).toBeFocused();
+  // Terminal routes intentionally keep application shortcuts behind PTY
+  // ownership. Prove the unchanged platform shortcut on a non-terminal route.
+  await tvSmokePage.goto(`${stack.baseUrl}/settings/machines?tv=1`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(sidebarSearch).toBeVisible();
+  await tvSmokePage.getByRole("button", { name: "Add machine" }).first().focus();
+  await pressPlatformShortcut(tvSmokePage, "sidebarSearch", "f");
+  await expect(sidebarSearch).toBeFocused();
 
   // ── /pair: the arrows must not be swallowed ──────────────────────────────
   // This route renders outside the workbench shell and publishes no sidebar

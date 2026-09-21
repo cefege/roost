@@ -132,6 +132,88 @@ message KeeperRuntimeObservationV1 {
   uint64 reconciled_at_ms = 7;
 }
 
+enum WorkerUpdateSource {
+  WORKER_UPDATE_SOURCE_UNSPECIFIED = 0;
+  WORKER_UPDATE_SOURCE_PUSH = 1;
+  WORKER_UPDATE_SOURCE_MANUAL = 2;
+  WORKER_UPDATE_SOURCE_CATCHUP = 3;
+}
+
+enum WorkerUpdateStatus {
+  WORKER_UPDATE_STATUS_UNSPECIFIED = 0;
+  WORKER_UPDATE_STATUS_QUEUED = 1;
+  WORKER_UPDATE_STATUS_RUNNING = 2;
+  WORKER_UPDATE_STATUS_VERIFYING = 3;
+  WORKER_UPDATE_STATUS_WAITING = 4;
+  WORKER_UPDATE_STATUS_BLOCKED = 5;
+  WORKER_UPDATE_STATUS_SUCCEEDED = 6;
+  WORKER_UPDATE_STATUS_FAILED = 7;
+}
+
+enum WorkerUpdatePhase {
+  WORKER_UPDATE_PHASE_UNSPECIFIED = 0;
+  WORKER_UPDATE_PHASE_PREFLIGHT = 1;
+  WORKER_UPDATE_PHASE_RECOVERY = 2;
+  WORKER_UPDATE_PHASE_STAGING = 3;
+  WORKER_UPDATE_PHASE_ACTIVATION = 4;
+  WORKER_UPDATE_PHASE_CONFIRMATION = 5;
+  WORKER_UPDATE_PHASE_SETTLED = 6;
+}
+
+message WorkerUpdateOperation {
+  string job_id = 1;
+  string worker_fp = 2;
+  string host = 3;
+  uint64 revision = 4;
+  string target_git_sha = 5;
+  WorkerUpdateSource source = 6;
+  WorkerUpdateStatus status = 7;
+  WorkerUpdatePhase phase = 8;
+  optional string reason_code = 9;
+  optional string message = 10;
+  uint64 created_at_ms = 11;
+  uint64 updated_at_ms = 12;
+  optional uint64 started_at_ms = 13;
+  optional uint64 completed_at_ms = 14;
+  optional uint64 next_attempt_at_ms = 15;
+  optional int32 exit_code = 16;
+}
+
+message WorkerUpdateProgressEvent {
+  uint64 at_ms = 1;
+  WorkerUpdatePhase phase = 2;
+  string message = 3;
+}
+
+message WorkerUpdateJournalEvidence {
+  string path = 1;
+  optional string phase = 2;
+  optional string owner_id = 3;
+  optional string rollout_id = 4;
+  optional string prior_sha = 5;
+  optional string target_sha = 6;
+}
+
+message WorkerUpdateFailure {
+  string code = 1;
+  WorkerUpdatePhase phase = 2;
+  string message = 3;
+  optional WorkerUpdateJournalEvidence journal = 4;
+  optional KeeperRuntimeObservationV1 expected_keeper = 5;
+  optional KeeperRuntimeObservationV1 observed_keeper = 6;
+  optional KeeperContractV1 target_contract = 7;
+}
+
+message WorkerUpdateReport {
+  uint32 schema_version = 1;
+  WorkerUpdateOperation operation = 2;
+  optional string observed_git_sha = 3;
+  string coordinator_origin = 4;
+  optional WorkerUpdateFailure failure = 5;
+  repeated WorkerUpdateProgressEvent events = 6;
+}
+
+
 message Worker {
   string fp = 1;
   string label = 2;
@@ -154,6 +236,7 @@ message Worker {
   // allocation remains local to the worker that owns its terminal cores.
   optional TerminalCoreCapacityReport terminal_core_capacity = 11;
   optional HostIdentity host_identity = 12;
+  optional WorkerUpdateOperation update_operation = 13;
 }
 
 // Private opaque continuation metadata. It is carried by durable events and

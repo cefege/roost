@@ -223,6 +223,8 @@ export async function startTerminalTestStack(
     coordinator = await startCoordinatorControl({
       bunExecutable,
       sourceRoot: coordRelease.sourceRoot,
+      sourceEntrypoint: options.coordSourceEntrypoint,
+      sourceEntrypointArgs: options.coordSourceEntrypointArgs,
       root,
       home,
       tmpDir: childTmpDirs.coord,

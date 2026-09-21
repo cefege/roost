@@ -7,14 +7,11 @@
 
 import { BoundedBus } from "./buses.ts";
 import { busToAsyncIterable } from "./sse.ts";
-import { signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import type { SignalKind } from "@roost/shared/diag";
 import {
   COORDINATOR_DIAL_URL_REQUIRED_MESSAGE,
   resolveCoordinatorDialUrl,
 } from "@roost/shared/coordinator-dial-url";
-import { IS_COMPILED_ROOST_BUILD } from "@roost/shared/build-identity";
+import { log } from "@roost/shared/log";
 import { durableRemove } from "@roost/shared/durability";
 import {
   WINDOWS_UPDATE_POLL_MS,
@@ -22,10 +19,11 @@ import {
   windowsUpdateDeployRecordPath,
 } from "./windows-update-deploy-record.ts";
 import { recoverWindowsUpdateJob } from "./windows-update-deploy-jobs.ts";
+import type { DeployStreamMsg } from "./deploy-job-stream.ts";
+import type { WorkerUpdateOwner } from "./worker-update-owner.ts";
+export type { DeployStreamMsg } from "./deploy-job-stream.ts";
+export type { DeployStartResult } from "./worker-update-owner.ts";
 
-export type DeployStreamMsg =
-  | { kind: "line"; text: string }
-  | { kind: "done"; exit: number | null; error?: string };
 
 export interface DeployJob {
   jobId: string;
@@ -58,12 +56,6 @@ export interface DeployJob {
 
 export const _deployJobs = new Map<string, DeployJob>();
 
-// Child-originated signal kinds the ROOST_SIGNAL sentinel bridge will forward.
-// Runtime-membership check on dynamically parsed subprocess output — the
-// `kind as SignalKind` cast in emitLine bypasses compile-time typo-safety,
-// so this allowlist is what keeps a phantom/unknown kind out of doctor.
-// (`deploy.failed` fires from emitDone on exit code, not via the bridge.)
-const KNOWN_DEPLOY_SIGNALS = new Set(["deploy.cert_skipped"]);
 export const DEPLOY_JOB_TTL_MS = 20 * 60 * 1000;
 export function _gcJob(jobId: string, completedAt = Date.now()): void {
   const job = _deployJobs.get(jobId);
@@ -99,11 +91,6 @@ export function _gcJob(jobId: string, completedAt = Date.now()): void {
   );
 }
 
-export interface DeployStartResult {
-  ok: boolean;
-  jobId?: string;
-  error?: string;
-}
 
 /** The operator-declared origin a deployed worker dials. A worker reaches it
  * from another machine, so a loopback or link-local host is refused even when
@@ -132,140 +119,6 @@ export function resolveDeployCoordinatorUrl(
   return declared;
 }
 
-export function startDeploy(
-  host: string,
-  expectedGitSha?: string,
-): DeployStartResult {
-  if (!/^[A-Za-z0-9.-]+$/.test(host)) {
-    return { ok: false, error: "invalid host" };
-  }
-  // Without this the job deploys whatever the coordinator's checkout HEAD
-  // happens to be, which is not necessarily the release the caller promised:
-  // the Machines badge names a SHA, and a catch-up converges on the
-  // coordinator's own SHA. Pin it so the deploy cannot land a third commit.
-  if (expectedGitSha !== undefined && !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(expectedGitSha)) {
-    return { ok: false, error: "invalid expected git sha" };
-  }
-  if (IS_COMPILED_ROOST_BUILD) {
-    return {
-      ok: false,
-      error: "POSIX source deployment requires a coordinator source checkout; run `roost push` from that checkout",
-    };
-  }
-  const repoRoot = process.cwd();
-  const coordUrl = resolveDeployCoordinatorUrl(process.env);
-  if (!coordUrl) {
-    return { ok: false, error: COORDINATOR_DIAL_URL_REQUIRED_MESSAGE };
-  }
-  const env = { ...process.env, ROOST_COORDINATOR_URL: coordUrl };
-  // A real POSIX deploy fetches the commit, runs a frozen install and builds the
-  // SPA on the target, which routinely passes three minutes. At 180s this timer
-  // killed deploys mid-activation — the journal recovered them, but the job was
-  // reported failed and the catch-up host went into cooldown while the release
-  // had in fact landed. Bound a genuinely hung deploy instead, past the remote
-  // lease's own 15-minute renewal window.
-  const DEPLOY_TIMEOUT_MS = 1_200_000;
-  const bunBin = process.execPath;
-  const jobId = crypto.randomUUID();
-  const job: DeployJob = {
-    jobId, host, startedAt: Date.now(),
-    lines: [], status: "running",
-    bus: new BoundedBus<DeployStreamMsg>(2048),
-    gcTimer: null,
-  };
-  _deployJobs.set(jobId, job);
-
-  function emitLine(text: string): void {
-    const trimmed = text.replace(/\r$/, "");
-    // Subprocess→coord signal bridge: the detached `roost deploy` child's
-    // stderr only reaches this ephemeral bus, so it emits `ROOST_SIGNAL
-    // <kind> [json-kv]` sentinels that we lift into durable signals here.
-    if (trimmed.startsWith("ROOST_SIGNAL ")) {
-      const rest = trimmed.slice("ROOST_SIGNAL ".length).trimStart();
-      const sp = rest.indexOf(" ");
-      const kind = sp === -1 ? rest : rest.slice(0, sp);
-      if (KNOWN_DEPLOY_SIGNALS.has(kind)) {
-        let kv: Record<string, unknown> = {};
-        if (sp !== -1) {
-          try {
-            const parsed = JSON.parse(rest.slice(sp + 1));
-            if (parsed && typeof parsed === "object") kv = parsed as Record<string, unknown>;
-          } catch { /* malformed kv → forward the sentinel's kind with no detail */ }
-        }
-        signal(kind as SignalKind, { host, ...kv, cooldownKey: host });
-        return;
-      }
-      // Unknown/typo'd sentinel — never emit a phantom signal; fall through
-      // and publish it as an ordinary deploy line.
-    }
-    job.lines.push(trimmed);
-    job.bus.publish({ kind: "line", text: trimmed });
-  }
-  function emitDone(exit: number | null, error?: string): void {
-    job.status = "done";
-    job.exitCode = exit;
-    if (error) job.error = error;
-    if (error) signal("deploy.failed", { host, exit, reason: error, cooldownKey: host });
-    job.bus.publish({ kind: "done", exit, error });
-    _gcJob(jobId);
-  }
-
-  const deployArgs = expectedGitSha === undefined
-    ? ["deploy", host]
-    : ["deploy", host, `--expected-sha=${expectedGitSha}`];
-  try {
-    const proc = Bun.spawn({
-      cmd: IS_COMPILED_ROOST_BUILD
-        ? [bunBin, ...deployArgs]
-        : [bunBin, "apps/roost-cli/src/main.ts", ...deployArgs],
-      cwd: repoRoot, env,
-      stdout: "pipe", stderr: "pipe",
-    });
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try { proc.kill(); } catch { /* ignore */ }
-    }, DEPLOY_TIMEOUT_MS);
-
-    async function pump(stream: ReadableStream<Uint8Array>): Promise<void> {
-      const reader = stream.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let idx: number;
-        while ((idx = buf.indexOf("\n")) !== -1) {
-          emitLine(buf.slice(0, idx));
-          buf = buf.slice(idx + 1);
-        }
-      }
-      // Flush any trailing partial-multibyte sequence held in the
-      // decoder's internal buffer. Without this final no-stream
-      // decode, a non-ASCII path that lands at the very end of the
-      // rsync output silently loses its last 1-3 bytes.
-      buf += dec.decode();
-      if (buf.length > 0) emitLine(buf);
-    }
-
-    void Promise.all([pump(proc.stdout), pump(proc.stderr), proc.exited])
-      .then(([, , exit]) => {
-        clearTimeout(timer);
-        if (timedOut) emitDone(exit ?? null, `deploy timed out after ${DEPLOY_TIMEOUT_MS / 1000}s`);
-        else if (exit !== 0) emitDone(exit ?? null, `deploy exit ${exit}`);
-        else emitDone(exit ?? 0);
-      })
-      .catch((e) => {
-        clearTimeout(timer);
-        emitDone(null, (e as Error).message);
-      });
-    return { ok: true, jobId };
-  } catch (e) {
-    emitDone(null, (e as Error).message);
-    return { ok: true, jobId };
-  }
-}
 
 export function __clearDeployJobsForTest(): void {
   for (const job of _deployJobs.values()) {
@@ -277,9 +130,17 @@ export function __clearDeployJobsForTest(): void {
   _deployJobs.clear();
 }
 
-export async function* deployOutput(jobId: string, signal?: AbortSignal): AsyncGenerator<DeployStreamMsg> {
+export async function* deployOutput(
+  jobId: string,
+  signal?: AbortSignal,
+  updateOwner?: WorkerUpdateOwner,
+): AsyncGenerator<DeployStreamMsg> {
   if (!isDeployJobId(jobId)) {
     yield { kind: "done", exit: null, error: "unknown jobId" };
+    return;
+  }
+  if (updateOwner?.ownsJob(jobId)) {
+    yield* updateOwner.output(jobId, signal);
     return;
   }
   let job = _deployJobs.get(jobId);

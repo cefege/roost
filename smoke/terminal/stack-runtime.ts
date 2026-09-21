@@ -159,6 +159,8 @@ export interface CoordinatorServiceConfig {
   bunExecutable: string;
   /** Checkout the coordinator process runs from; a release upgrade swaps it. */
   sourceRoot: string;
+  sourceEntrypoint?: string;
+  sourceEntrypointArgs?: readonly string[];
   root: string;
   home: string;
   tmpDir: string;
@@ -180,7 +182,13 @@ export function startCoordinatorService(config: CoordinatorServiceConfig): Runni
   const coordLog = openSync(config.logPath, "a");
   return {
     logPath: config.logPath,
-    child: spawn(config.bunExecutable, ["apps/coord/src/main.ts"], {
+    child: spawn(
+      config.bunExecutable,
+      [
+        config.sourceEntrypoint ?? "apps/coord/src/main.ts",
+        ...(config.sourceEntrypointArgs ?? []),
+      ],
+      {
       cwd: config.sourceRoot,
       env: childEnvironment(config.home, config.tmpDir, {
         ROOST_COORDINATOR_BIND: config.bind,
@@ -205,7 +213,8 @@ export function startCoordinatorService(config: CoordinatorServiceConfig): Runni
           : { ROOST_TERMINAL_PEER_STUN_URLS: config.terminalPeerStunUrls.join(",") }),
       }),
       stdio: ["ignore", coordLog, coordLog],
-    }),
+      },
+    ),
   };
 }
 

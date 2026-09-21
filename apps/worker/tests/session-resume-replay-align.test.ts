@@ -66,6 +66,8 @@ async function resumeWith(opts: {
   headSeq: number;
   baseCols?: number;
   baseRows?: number;
+  terminalCols?: number;
+  terminalRows?: number;
   liveOutput?: Uint8Array;
   liveExit?: number;
 }): Promise<Fixture> {
@@ -73,7 +75,9 @@ async function resumeWith(opts: {
   // adopted by that dial would replace the fake socket mid-test.
   const baseCols = opts.baseCols ?? 80;
   const baseRows = opts.baseRows ?? 24;
-  const keeper = installAutoKeeper({ cols: baseCols, rows: baseRows });
+  const terminalCols = opts.terminalCols ?? baseCols;
+  const terminalRows = opts.terminalRows ?? baseRows;
+  const keeper = installAutoKeeper({ cols: terminalCols, rows: terminalRows });
   const pool = getMultiplexedPool();
   const priorListChannels = pool.listChannels;
   const priorReattach = pool.reattach;
@@ -159,6 +163,32 @@ function coreText(mgr: SessionManager): string {
     const rec = f.mgr.sessions.get(CHANNEL_ID)!;
     expect(rec.head_seq).toBe(history.byteLength + liveOutput.byteLength);
     expect(ringLength(rec.scrollback)).toBe(history.byteLength + liveOutput.byteLength);
+  });
+  test("ordered output and resize history reaches the resumed core once before staged live output", async () => {
+    const beforeResize = enc.encode("\x1b[1;1HORDERED-BEFORE");
+    const afterResize = enc.encode("\x1b[2;1HORDERED-AFTER");
+    const liveAfterHistory = enc.encode("\x1b[3;1HORDERED-LIVE");
+    const f = await resumeWith({
+      records: [
+        { kind: "output", bytes: beforeResize },
+        { kind: "resize", seq: 1, cols: 96, rows: 28 },
+        { kind: "output", bytes: afterResize },
+      ],
+      headSeq: beforeResize.byteLength + afterResize.byteLength,
+      liveOutput: liveAfterHistory,
+      terminalCols: 96,
+      terminalRows: 28,
+    });
+
+    const rec = f.mgr.sessions.get(CHANNEL_ID)!;
+    const text = coreText(f.mgr);
+    expect([rec.wtermCore.getCols(), rec.wtermCore.getRows()]).toEqual([96, 28]);
+    for (const marker of ["ORDERED-BEFORE", "ORDERED-AFTER", "ORDERED-LIVE"]) {
+      expect(text.split(marker).length - 1).toBe(1);
+    }
+    const expectedBytes = beforeResize.byteLength + afterResize.byteLength + liveAfterHistory.byteLength;
+    expect(rec.head_seq).toBe(expectedBytes);
+    expect(ringLength(rec.scrollback)).toBe(expectedBytes);
   });
   test("a staged keeper exit cannot leave partial resume state", async () => {
     const f = await resumeWith({

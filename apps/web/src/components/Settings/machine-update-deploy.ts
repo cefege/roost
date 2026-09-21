@@ -1,69 +1,96 @@
-// Owns "a coordinator deploy job is running for this machine" — the
-// deployInFlight input of workerUpdateState. The record is module-scoped, not
-// MachineCard state, because the job outlives the row that started it (details
-// collapse, list re-sort, pane close) and two rows must never drive two deploys
-// for one host. Callers: components/Settings/MachineCard.tsx.
-// Depends on: connect.ts (coordClient), @roost/shared/diag.
+// Owns the browser's short-lived update-start guard and durable report reader.
+// Coordinator job records remain authoritative after the request returns; this
+// module never turns a client output stream into machine update state.
+// Callers: MachineUpdateDetails.tsx. Depends on the typed coordinator RPC.
 
 import { createSignal } from "solid-js";
 import { diag } from "@roost/shared/diag";
+import { WorkerUpdateSource } from "@roost/shared/proto/wire_pb";
+import type { WorkerUpdateReport } from "@roost/shared/worker-update-operation";
+import { workerUpdateReportFromProto } from "@roost/shared/worker-update-operation-proto";
 import { coordClient } from "../../connect.ts";
 
-const [deployingFps, setDeployingFps] = createSignal<ReadonlySet<string>>(new Set());
+export type MachineUpdateReportResult =
+  | { readonly kind: "available"; readonly report: WorkerUpdateReport }
+  | { readonly kind: "unavailable" };
 
-/** Reactive: true while this machine's coordinator deploy job is running. */
-export function machineDeployInFlight(fp: string): boolean {
-  return deployingFps().has(fp);
+const [pendingStartFps, setPendingStartFps] = createSignal<ReadonlySet<string>>(new Set());
+const [reportRefreshRevision, setReportRefreshRevision] = createSignal(0);
+
+export const machineUpdateReportRefreshRevision = reportRefreshRevision;
+
+export function noteMachineUpdateStatusRefreshed(): void {
+  setReportRefreshRevision((revision) => revision + 1);
 }
 
-/** Drop every in-flight record. Exists so a test can start from a clean fleet;
- *  no product path forgets a running job. */
-export function _resetMachineDeploys(): void {
-  setDeployingFps(new Set<string>());
+/** Reactive only while this browser has not received its DeployStart response. */
+export function machineUpdateStartPending(fp: string): boolean {
+  return pendingStartFps().has(fp);
 }
 
-/** Start the coordinator's deploy job for one machine and drain its output to
- *  the terminal frame. Resolves null on success, else the failure text the row
- *  shows. `expectedGitSha` pins the release the fleet is converging on — the
- *  running coordinator's own SHA, which is the desired fleet SHA. */
+/** Test-only reset for the browser-local request guard. */
+export function _resetMachineUpdateStarts(): void {
+  setPendingStartFps(new Set<string>());
+}
+
+/** Request an authoritative manual update. A returned error only describes this
+ * admission request; operation progress and completion arrive through workers. */
 export async function startMachineUpdateDeploy(
   fp: string,
   expectedGitSha: string,
 ): Promise<string | null> {
-  if (machineDeployInFlight(fp)) return null;
-  markDeploying(fp, true);
+  if (machineUpdateStartPending(fp)) return null;
+  markStartPending(fp, true);
   diag("machine.update.start", { worker_fp: fp, expected_git_sha: expectedGitSha });
-  const failure = await drainDeployJob(fp, expectedGitSha);
-  markDeploying(fp, false);
-  diag(failure ? "machine.update.failed" : "machine.update.done", {
-    worker_fp: fp,
-    error: failure ?? "",
-  });
-  return failure;
-}
-
-/** The whole RPC exchange, so the in-flight record is released and logged on
- *  exactly one path whatever the coordinator or the transport does. */
-async function drainDeployJob(fp: string, expectedGitSha: string): Promise<string | null> {
   try {
-    const started = await coordClient.workersDeployStart({ host: fp, expectedGitSha });
+    const started = await coordClient.workersDeployStart({
+      host: fp,
+      expectedGitSha,
+      source: WorkerUpdateSource.MANUAL,
+    });
     if (!started.ok || !started.jobId) {
-      return started.error || "coordinator refused to start the update";
+      const error = started.error || "Coordinator refused to start the update";
+      diag("machine.update.refused", { worker_fp: fp, error });
+      return error;
     }
-    for await (const frame of coordClient.workersDeployOutput({ jobId: started.jobId })) {
-      if (frame.kind !== "done") continue;
-      return frame.exit === 0 ? null : frame.error || `update failed with exit ${frame.exit}`;
-    }
-    return "update output stream ended without a result";
+    diag("machine.update.accepted", { worker_fp: fp, job_id: started.jobId });
+    return null;
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
+    diag("machine.update.start_failed", { worker_fp: fp, error: message });
+    return message;
+  } finally {
+    markStartPending(fp, false);
   }
 }
 
-function markDeploying(fp: string, running: boolean): void {
-  setDeployingFps((current) => {
+/** Reopen the coordinator-owned record stream for a durable report. Stream
+ * transport failure is intentionally reported separately from job failure. */
+export async function readMachineUpdateReport(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<MachineUpdateReportResult> {
+  try {
+    for await (const frame of coordClient.workersDeployOutput({ jobId }, signal ? { signal } : undefined)) {
+      if (frame.kind !== "report" || !frame.report) continue;
+      return { kind: "available", report: workerUpdateReportFromProto(frame.report) };
+    }
+  } catch {
+    if (!signal?.aborted) {
+      diag("machine.update.report_unavailable", { job_id: jobId, reason: "stream_failed" });
+    }
+    return { kind: "unavailable" };
+  }
+  if (!signal?.aborted) {
+    diag("machine.update.report_unavailable", { job_id: jobId, reason: "missing_report" });
+  }
+  return { kind: "unavailable" };
+}
+
+function markStartPending(fp: string, pending: boolean): void {
+  setPendingStartFps((current) => {
     const next = new Set(current);
-    if (running) next.add(fp);
+    if (pending) next.add(fp);
     else next.delete(fp);
     return next;
   });

@@ -56,6 +56,8 @@ export function makeAuthBootstrapHandlers(
       return create(AuthCoordIdentityResponseSchema, {
         gitSha: COORD_GIT_SHA,
         publicUrl: deps.cfg.publicUrl ?? "",
+        updateReady: deps.activationGate.updateReady(),
+        updateTransactionId: deps.activationGate.updateTransactionId() ?? undefined,
       });
     },
 

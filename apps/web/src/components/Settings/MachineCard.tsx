@@ -1,13 +1,10 @@
 // Owns rename, removal confirmation, and live metrics for one registered
-// machine, plus the update state badge on its row. MachinesPane supplies the
-// worker record and keeps enrollment state at list scope. The update state
-// comes from the ONE fleet classifier in @roost/shared/fleet-update — this file
-// never compares SHAs itself — and MachineUpdateDetails owns the action.
-// Shared M3 primitives preserve the settings surface's interaction states.
+// machine. The worker projection supplies the coordinator-authoritative update
+// operation; MachineUpdateDetails derives its state, actions, and report.
+// MachinesPane owns list scope; shared M3 primitives preserve row interaction.
 
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { Worker } from "@roost/shared/wire";
-import { WORKER_UPDATE_LABELS, workerUpdateState } from "@roost/shared/fleet-update";
 import { rootStore } from "../../store/root.ts";
 import { workerOnline } from "../../store/sync.ts";
 import { applyWorkerDeleteResponse } from "../../store/worker-removal.ts";
@@ -17,8 +14,10 @@ import { Button, Chip, Icon, ListRow, MetricTile, StatusDot, TextField } from ".
 import { formatBytes } from "../../lib/format.ts";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { machinePlatformIcon } from "../../lib/machineActions.ts";
-import { machineDeployInFlight } from "./machine-update-deploy.ts";
-import { MachineUpdateDetails } from "./MachineUpdateDetails.tsx";
+import {
+  deriveMachineUpdatePresentation,
+  MachineUpdateDetails,
+} from "./MachineUpdateDetails.tsx";
 
 function formatBps(bps: number): string {
   if (bps >= 1_073_741_824) return `${(bps / 1_073_741_824).toFixed(1)} GB/s`;
@@ -49,12 +48,12 @@ export function MachineCard(props: { worker: Worker }) {
   const [deleteBusy, setDeleteBusy] = createSignal(false);
   let confirmTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const updateState = () =>
-    workerUpdateState({
+  const updatePresentation = () =>
+    deriveMachineUpdatePresentation({
       workerGitSha: w().git_sha,
-      coordGitSha: rootStore.coord_identity?.git_sha ?? null,
+      coordinatorGitSha: rootStore.coord_identity?.git_sha ?? null,
       online: workerOnline(w()),
-      deployInFlight: machineDeployInFlight(w().fp),
+      operation: w().update_operation,
     });
 
   function beginRename() {
@@ -157,8 +156,8 @@ export function MachineCard(props: { worker: Worker }) {
           <>
             <StatusDot status={isStale() ? "offline" : "ok"} title={isStale() ? "Offline" : "Online"} />
             <Chip
-              label={WORKER_UPDATE_LABELS[updateState()]}
-              selected={updateState() === "update-available"}
+              label={updatePresentation().label}
+              selected={updatePresentation().state === "available"}
               testId={`machines-update-state-${w().fp}`}
               title={`Coordinator release ${rootStore.coord_identity?.git_sha?.slice(0, 8) ?? "unknown"}`}
             />
@@ -225,9 +224,8 @@ export function MachineCard(props: { worker: Worker }) {
           </Show>
 
           <MachineUpdateDetails
-            fp={w().fp}
-            state={updateState()}
-            expectedGitSha={rootStore.coord_identity?.git_sha ?? null}
+            worker={w()}
+            presentation={updatePresentation()}
           />
 
           <Show when={renameErr()}>

@@ -3,7 +3,7 @@
 // public command and renderer deterministic.
 
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { log } from "@roost/shared/log";
 import {
@@ -14,6 +14,10 @@ import {
   TerminalCoreCapacityReportSchema,
   type TerminalCoreCapacityReport,
 } from "@roost/shared/terminal-core-capacity";
+import {
+  WorkerUpdateOperationSchema,
+  type WorkerUpdateOperation,
+} from "@roost/shared/worker-update-operation";
 import { coordDataDir, coordServicePath } from "@roost/shared/paths";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 import { serviceEnvironmentValue } from "./status-service-env.ts";
@@ -55,8 +59,15 @@ function coordinatorServiceFile(): string {
 export async function _probeCoordinatorIdentity(
   healthUrl: string | null,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ reachable: boolean; gitSha: string | null }> {
-  if (!healthUrl) return { reachable: false, gitSha: null };
+): Promise<StatusReport["coord"]> {
+  if (!healthUrl) {
+    return {
+      reachable: false,
+      gitSha: null,
+      updateReady: null,
+      updateTransactionId: null,
+    };
+  }
   try {
     const response = await fetchImpl(healthUrl, {
       method: "POST",
@@ -64,14 +75,30 @@ export async function _probeCoordinatorIdentity(
       body: "{}",
       signal: AbortSignal.timeout(5000),
     });
-    if (!response.ok) return { reachable: false, gitSha: null };
-    const identity = (await response.json()) as { gitSha?: unknown };
-    if (typeof identity.gitSha !== "string" || identity.gitSha.length === 0) {
-      return { reachable: false, gitSha: null };
+    if (!response.ok) {
+      return { reachable: false, gitSha: null, updateReady: null, updateTransactionId: null };
     }
-    return { reachable: true, gitSha: identity.gitSha };
+    const identity = (await response.json()) as {
+      gitSha?: unknown;
+      updateReady?: unknown;
+      updateTransactionId?: unknown;
+    };
+    if (typeof identity.gitSha !== "string" || identity.gitSha.length === 0) {
+      return { reachable: false, gitSha: null, updateReady: null, updateTransactionId: null };
+    }
+    return {
+      reachable: true,
+      gitSha: identity.gitSha,
+      updateReady: typeof identity.updateReady === "boolean"
+        ? identity.updateReady
+        : null,
+      updateTransactionId: typeof identity.updateTransactionId === "string"
+        && identity.updateTransactionId.length > 0
+        ? identity.updateTransactionId
+        : null,
+    };
   } catch {
-    return { reachable: false, gitSha: null };
+    return { reachable: false, gitSha: null, updateReady: null, updateTransactionId: null };
   }
 }
 export function parseKeeperRuntimeJson(
@@ -86,6 +113,31 @@ export function parseKeeperRuntimeJson(
   } catch {
     return null;
   }
+}
+
+function readWorkerUpdateOperation(workerFp: string): WorkerUpdateOperation | null {
+  if (!/^[0-9a-f]{64}$/.test(workerFp)) return null;
+  const directory = join(coordDataDir(), "deploy-jobs", workerFp);
+  if (!existsSync(directory)) return null;
+  let latest: WorkerUpdateOperation | null = null;
+  for (const name of readdirSync(directory)) {
+    if (!/^[0-9a-f-]{36}\.json$/.test(name)) continue;
+    try {
+      const value: unknown = JSON.parse(readFileSync(join(directory, name), "utf8"));
+      if (!value || typeof value !== "object" || Array.isArray(value)
+        || !("operation" in value)) throw new Error("operation is absent");
+      const operation = WorkerUpdateOperationSchema.parse(value.operation);
+      if (operation.workerFp !== workerFp) throw new Error("worker identity mismatch");
+      if (!latest || operation.revision > latest.revision) latest = operation;
+    } catch (error) {
+      log.warn("status", "worker_update_record_invalid", {
+        worker_fp: workerFp,
+        record: name,
+        error: String(error),
+      });
+    }
+  }
+  return latest;
 }
 
 export function parseTerminalCoreCapacityJson(
@@ -160,6 +212,7 @@ function readWorkerInventorySnapshot(db: Database): WorkerStatus[] {
         terminalCoreCapacity: parseTerminalCoreCapacityJson(
           row.terminal_core_capacity_json,
         ),
+        updateOperation: readWorkerUpdateOperation(row.fp),
         coordinatorOpenSessionIds: (
           openSessionIdsByWorker.get(row.fp) ?? []
         ).sort(),

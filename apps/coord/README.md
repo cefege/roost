@@ -178,14 +178,16 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/agent-status-order.ts` (epoch/occupant admission and retirement), and
   `src/agent-status-push-scheduler.ts` (debounced transition pushes).
   Web Push owners are `src/push-dispatch.ts`, `src/push-sender.ts`, and
-  `src/vapid.ts`. `src/deploy-jobs.ts` owns the
-  generic job registry + POSIX `roost deploy` subprocess, and
-  `src/worker-catchup-deploy.ts` owns the only autonomous caller of it: the
-  attach-time admission that converges a worker left behind the coordinator's
-  own `git_sha` by a push it slept through; remaining owners are
-  `src/backup.ts`, `src/audit-retention.ts`, `src/sse.ts`
-  (`busToAsyncIterable`, consumed by the deploy-output stream),
-  `src/presence-hub.ts` and `src/telemetry.ts`.
+  `src/vapid.ts`. `src/worker-update-owner.ts` is the durable POSIX update
+  authority: per-worker/host ownership, revision ordering, the two-child limit,
+  persisted reports, restart recovery and confirmation. Its record/runtime/
+  composition splits are `src/deploy-job-{record,runtime,stream}.ts`,
+  `src/worker-update-owner-types.ts`, and `src/worker-update-composition.ts`.
+  `src/worker-catchup-deploy.ts` owns the disposable worker-ready + 30-second
+  scheduler; manual, push and catch-up requests all enter the same owner.
+  `src/deploy-jobs.ts` remains the shared output facade plus legacy Windows job
+  registry. `src/coordinator-update-activation.ts` maps journal V4 onto the one
+  process write gate before listeners serve mutations.
   The paused Windows path keeps signed-update bookkeeping entirely in
   `src/windows-update-deploy-jobs.ts`, `src/windows-update-deploy-runtime.ts`,
   `src/windows-update-deploy-record.ts`, and

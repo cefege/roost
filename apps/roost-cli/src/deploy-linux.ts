@@ -63,6 +63,7 @@ export async function deployLinux(
   opts: {
     gitSha: string;
     passthroughEnv: string;
+    bunExecutable: string;
     machineTransactionPath: string;
     rollout?: WorkerRolloutDirective;
     keeperUpdate: JournaledKeeperUpdateV1 | null;
@@ -267,7 +268,9 @@ export async function deployLinux(
       applyKeeperUpdate, proveKeeperUpdate, rollout,
     });
     console.log(`>> frozen bun install on ${host}`);
-    const install = await deploySsh(_linuxInstallWorkerDependenciesCommand(releaseDir));
+    const install = await deploySsh(
+      _linuxInstallWorkerDependenciesCommand(releaseDir, opts.bunExecutable),
+    );
     if (install.exit !== 0) {
       await settleActivationFailure("bun install failed", install);
     }
@@ -275,6 +278,7 @@ export async function deployLinux(
     const webDistPath = await buildStagedWorkerSpaOverSsh({
       label: `on ${host}`,
       releaseDirectory: posixShellQuote(releaseDir),
+      bunExecutable: opts.bunExecutable,
       execute: deploySsh,
       settle: settleActivationFailure,
     });
@@ -283,7 +287,11 @@ export async function deployLinux(
     // names the release this deploy's settlement deletes.
     const activationEnvironment = linuxWorkerActivationEnvironment(
       journal.priorUnit ?? "",
-      [passthroughEnv, `ROOST_WEB_DIST_PATH=${posixShellQuote(webDistPath)}`].filter(Boolean).join(" "),
+      [
+        passthroughEnv,
+        `BUN_BIN=${posixShellQuote(opts.bunExecutable)}`,
+        `ROOST_WEB_DIST_PATH=${posixShellQuote(webDistPath)}`,
+      ].filter(Boolean).join(" "),
     );
     const activating = await deploySsh(
       _linuxCheckpointDeployJournalCommand(journalPath, "prepared", "activating"),

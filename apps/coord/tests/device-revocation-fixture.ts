@@ -31,6 +31,7 @@ import {
   ensureSelfHostedTenant,
   type SelfHostedTenant,
 } from "../src/self-hosted-tenant.ts";
+import { workerUpdateTestDeps } from "./worker-update-test-deps.ts";
 
 type AuthHandlers = Pick<
   ServiceImpl<typeof CoordinatorService>,
@@ -95,6 +96,7 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
       retireWorker(fingerprint, reason);
     };
     const deps = {
+      ...workerUpdateTestDeps(),
       db,
       sqlite,
       cfg: {},

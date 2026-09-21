@@ -9,6 +9,7 @@
 import { existsSync } from "node:fs";
 import { join, posix } from "node:path";
 import { DeployFailure, failDeploy, run } from "./deploy-exec.ts";
+import { posixShellQuote } from "@roost/shared/shell-quote";
 
 export interface WorkerSpaCommandResult {
   exit: number;
@@ -43,12 +44,14 @@ export async function buildStagedWorkerSpaOverSsh(deps: {
   /** The staged release as shell text — a quoted absolute path, or a remote
    *  stage's unexpanded `~/…` which the remote shell must still expand. */
   releaseDirectory: string;
+  /** Exact executable admitted from the installed service or first-install discovery. */
+  bunExecutable: string;
   execute: (command: string) => Promise<WorkerSpaCommandResult>;
   settle: SettleWorkerSpaFailure;
 }): Promise<string> {
   console.log(`>> build worker SPA ${deps.label}`);
   const built = await deps.execute(
-    `set -eo pipefail; cd ${deps.releaseDirectory} && bun run --cwd apps/web build 2>&1 | tail -25`,
+    `set -eo pipefail; cd ${deps.releaseDirectory} && ${posixShellQuote(deps.bunExecutable)} run --cwd apps/web build 2>&1 | tail -25`,
   );
   if (built.exit !== 0) await refuseActivation(deps.settle, SPA_BUILD_FAILED, built);
   // A zero-exit build that produced no index is still a shut door. `pwd -P`

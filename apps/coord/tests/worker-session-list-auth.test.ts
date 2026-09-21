@@ -17,6 +17,7 @@ import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
+import { workerUpdateTestDeps } from "./worker-update-test-deps.ts";
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000103";
 const NEVER_SET_SESSION_ID = "00000000-0000-4000-8000-000000000104";
@@ -68,6 +69,7 @@ beforeAll(async () => {
     terminalPeerStunUrls: [],
   };
   coord = createCoord({
+    ...workerUpdateTestDeps(),
     db,
     sqlite: opened.sqlite,
     writeGate: new CoordinatorWriteGate(),

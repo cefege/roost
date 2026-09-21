@@ -79,9 +79,12 @@ export function _linuxStageWorkerReleaseCommand(
     `${posixShellQuote(releasePath)} ${posixShellQuote(gitSha)}`;
 }
 
-export function _linuxInstallWorkerDependenciesCommand(releasePath: string): string {
+export function _linuxInstallWorkerDependenciesCommand(
+  releasePath: string,
+  bunExecutable: string,
+): string {
   return `set -eo pipefail; cd ${posixShellQuote(releasePath)} && ` +
-    `bun install --frozen-lockfile 2>&1 | tail -25`;
+    `${posixShellQuote(bunExecutable)} install --frozen-lockfile 2>&1 | tail -25`;
 }
 
 export function _linuxActivateWorkerReleaseCommand(

@@ -27,6 +27,8 @@ import {
   TerminalCoreCapacityReportSchema,
   type TerminalCoreCapacityReport,
 } from "../terminal-core-capacity.ts";
+import type { WorkerUpdateOperation } from "../worker-update-operation.ts";
+import { workerUpdateOperationToProto } from "../worker-update-operation-proto.ts";
 import { normalizeHostIdentity, type HostIdentity } from "./worker.ts";
 
 // Wire-shape (Zod) Worker payload for presenceBus.publish. Used by
@@ -41,6 +43,7 @@ export interface WireWorkerPresence {
   reachable_addr: string | null;
   keeper_runtime: KeeperRuntimeObservationV1 | null;
   terminal_core_capacity: TerminalCoreCapacityReport | null;
+  update_operation: WorkerUpdateOperation | null;
 }
 export function workerRowToWirePresence(row: {
   fp: string; label: string; os: string; git_sha: string | null;
@@ -50,7 +53,7 @@ export function workerRowToWirePresence(row: {
   host_identity_json?: string | null;
   keeper_runtime_json?: string | null;
   terminal_core_capacity_json?: string | null;
-}): WireWorkerPresence {
+}, operation: WorkerUpdateOperation | null): WireWorkerPresence {
   return {
     fp: row.fp, label: row.label, os: row.os,
     host_identity: hostIdentityFromJson(row.host_identity_json),
@@ -63,6 +66,7 @@ export function workerRowToWirePresence(row: {
     terminal_core_capacity: terminalCoreCapacityFromJson(
       row.terminal_core_capacity_json,
     ),
+    update_operation: operation,
   };
 }
 
@@ -74,7 +78,7 @@ export function workerRowToProto(row: {
   host_identity_json?: string | null;
   keeper_runtime_json?: string | null;
   terminal_core_capacity_json?: string | null;
-}): PbWorker {
+}, operation: WorkerUpdateOperation | null): PbWorker {
   const hostMetricsRaw: any = safeJsonParse(row.host_metrics_json, null, "host_metrics_json");
   const keeperRuntime = keeperRuntimeFromJson(row.keeper_runtime_json);
   const terminalCoreCapacity = terminalCoreCapacityFromJson(
@@ -105,6 +109,9 @@ export function workerRowToProto(row: {
       : undefined,
     terminalCoreCapacity: terminalCoreCapacity
       ? terminalCoreCapacityReportToProto(terminalCoreCapacity)
+      : undefined,
+    updateOperation: operation
+      ? workerUpdateOperationToProto(operation)
       : undefined,
   });
 }

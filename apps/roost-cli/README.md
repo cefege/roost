@@ -15,9 +15,9 @@ for the command surface: `src/main.ts` looks the argv up in that object, so a co
 exists exactly when it has a key there. `--version` / `-v` alias to `version`; an
 unknown key prints `usage()` and exits 1.
 
-`SUBCOMMANDS` has **23 keys**: `usage()` prints 20; the three internal
-self-exec/service entries `keeper`, `__keeper-contract`, and
-`__windows-updater-broker` are omitted.
+`SUBCOMMANDS` has **24 keys**: `usage()` prints 20; the four internal
+self-exec/service entries `keeper`, `__keeper-contract`,
+`__deploy-settlement-probe`, and `__windows-updater-broker` are omitted.
 
 | Command | Purpose |
 | --- | --- |
@@ -32,7 +32,7 @@ self-exec/service entries `keeper`, `__keeper-contract`, and
 | `dev` | Boot coord (:4102) + outbound-only worker + web dev server (:5174) in parallel |
 | `test [profile]` | Canonical entry point: `unit`, `worker`, `terminal`, `upgrade`, `live-api` optional monitor, or `all` |
 | `deploy <host> [--label=<name>] [--reachable-addr=<fqdn>] [--force-live]` | Refresh the worker on a remote host (macOS rsync + LaunchAgent, Linux in-place checkout). Staging requires keeper update admission from the coordinator registry, except for a worker that reports no keeper runtime at all — that one bootstraps without a journaled keeper update and says so. A remote target's `ROOST_WORKER_LABEL` / `ROOST_REACHABLE_ADDR` resolve only from `--label` / `--reachable-addr` or the target's own installed service definition; exporting either variable in the deploying shell refuses a first install on that host instead of registering it under this machine's identity. `--force-live` additionally authorizes the deployed worker to DESTROY every PTY held by a keeper it can neither adopt nor prove empty (a keeper predating binding proof); every shell, dev server, and test in those PTYs exits. It applies to that one deploy and the next deploy clears it |
-| `push` | Publish one clean commit, update the coordinator's own checkout, and deploy every registered worker it can reach, proving each one reports that commit before returning success. A worker that is unreachable, stale, off the prior SHA, or holding a keeper the release cannot adopt is reported as deferred instead of refusing the rollout. A deferred machine is converged by the coordinator's catch-up deploy on its next attach or by `roost deploy <host>` — NOT by re-running `push`, whose per-host rollout only admits a worker already on the prior SHA |
+| `push` | Publish one clean commit, commit the local coordinator through participant-free journal V4, then submit one durable coordinator-owned job per selected worker. Successful workers stay updated when another host fails; offline/safety-blocked/runtime-unavailable hosts remain deferred with automatic catch-up and Settings → Machines Retry. Exit 8 means at least one attempted worker failed, never coordinator rollback. |
 | `keeper-refresh <host> --yes [--force-live]` | Re-spawn a host's keeper on current code through the coordinator-fenced maintenance RPC. Destructive, explicitly confirmed, and the only workflow authorized to stop a keeper while the worker is live; `--force-live` ends every PTY that keeper hosts. A keeper the worker cannot identify is refused here — retire it with `roost deploy <host> --force-live` instead |
 | `logs <coord\|worker> [--tail N]` | Tail an app's log files; warns past 100 MB |
 | `reset` | Stop both services, wipe the coord DB + pinned keys + lock, re-run `bun install` |
@@ -69,27 +69,20 @@ and only then runs the update broker.
   `src/deploy-plist-env.ts` parses launchd environment. Platform activation and
   recovery live in `src/deploy-macos-rollout.ts`,
   `src/deploy-linux-recovery.ts`, and `src/deploy-local-activation.ts`.
-  `src/push.ts` is the operator entry; `src/push-fleet-rollout.ts` owns
-  participant convergence and `src/push-fleet-plan.ts` owns the
-  participant/deferred partition, `src/push-coordinator.ts` owns the held local
-  target, and
-  `src/local-worker-rollout-coordinator.ts` validates intentional journal
-  overlap. POSIX journals are `src/posix-deploy-journal.ts`,
-  `src/deploy-macos-journal.ts`, `src/deploy-macos-journal-controller.ts`,
-  `src/macos-deploy-journal-program.ts` (with its
-  `-environment` and `-validation` halves), `src/linux-deploy-journal.ts`,
-  `src/linux-deploy-journal-commands.ts`,
-  `src/linux-prior-service-commands.ts`,
-  `src/linux-prior-service-recovery.ts`, and
-  `src/local-worker-deploy-journal.ts`. `src/durable-worker-state.ts` owns the
-  durable session-event store's schema version — both remote probes plus the
-  rule that a forward migration makes a rollback impossible, which is what
-  turns a wedged journal into a roll-forward. Coordinator rollout is split across
-  `src/coordinator-deploy-journal.ts`, `src/coordinator-deploy-recovery.ts`,
-  `src/coordinator-deploy-finalization.ts`,
-  `src/coordinator-deploy-snapshot.ts`,
-  `src/coordinator-deploy-release.ts`, and
-  `src/coordinator-service-definition.ts`.
+  `src/push.ts` is the operator entry; `src/push-coordinator-v4.ts` owns new
+  participant-free coordinator activation, `src/coordinator-deploy-recovery-v4.ts`
+  owns its rollback checkpoints, and `src/push-worker-jobs.ts` submits independent
+  per-worker jobs after coordinator commit. Schema-3 participant recovery remains
+  isolated in `src/push-fleet-rollout.ts`, `src/push-rollout-runtime.ts`,
+  `src/push-coordinator.ts`, and `src/coordinator-deploy-{journal,recovery,finalization}.ts`;
+  no new forward caller uses that path. POSIX worker journals are
+  `src/posix-deploy-journal.ts`, `src/deploy-macos-journal.ts`,
+  `src/deploy-macos-journal-controller.ts`,
+  `src/macos-deploy-journal-program.ts`, `src/linux-deploy-journal.ts`,
+  `src/linux-deploy-journal-commands.ts`, `src/linux-prior-service-commands.ts`,
+  `src/linux-prior-service-recovery.ts`, and `src/local-worker-deploy-journal.ts`.
+  `src/deploy-source-identity.ts` proves pinned coordinator source without fetch;
+  `src/worker-service-runtime.ts` pins the installed Bun executable.
   `src/remote-deploy-lock-program.ts` owns remote leases;
   `src/deploy-self-host.ts` is detection only;
   `src/keeper-refresh.ts` owns the explicit destructive workflow.

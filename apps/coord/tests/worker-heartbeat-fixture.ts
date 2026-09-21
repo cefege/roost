@@ -86,5 +86,6 @@ export function workerHeartbeatHandlers(db: ConnectDeps["db"]) {
   return makeWorkerHandlers({
     db,
     cfg: {},
+    updateOwner: { readSummary: () => null },
   } as unknown as ConnectDeps);
 }

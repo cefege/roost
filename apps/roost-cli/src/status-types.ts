@@ -4,6 +4,7 @@
 
 import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
 import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
+import type { WorkerUpdateOperation } from "@roost/shared/worker-update-operation";
 
 export interface WorkerStatus {
   fingerprint: string;
@@ -14,6 +15,7 @@ export interface WorkerStatus {
   keeperRuntime: KeeperRuntimeObservationV1 | null;
   /** Absent for a status fixture or a coordinator predating capacity reporting. */
   terminalCoreCapacity?: TerminalCoreCapacityReport | null;
+  updateOperation?: WorkerUpdateOperation | null;
   coordinatorOpenSessionIds: readonly string[];
   lastSeenMs: number;
   ageMs: number;
@@ -48,7 +50,12 @@ export interface StatusEndpointOverride {
 export interface StatusReport {
   coordAgentLoaded: boolean;
   workerAgentLoaded: boolean;
-  coord: { reachable: boolean; gitSha: string | null };
+  coord: {
+    reachable: boolean;
+    gitSha: string | null;
+    updateReady?: boolean | null;
+    updateTransactionId?: string | null;
+  };
   workers: WorkerStatus[];
   endpoint: EndpointStatus;
   spa: SpaStatus;

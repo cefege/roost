@@ -19,6 +19,7 @@ import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import { presenceBus } from "../src/buses.ts";
 import type { CoordConfig } from "@roost/shared/config";
+import { workerUpdateTestDeps } from "./worker-update-test-deps.ts";
 
 let workdir: string;
 let coord: CoordHandle;
@@ -55,6 +56,7 @@ beforeAll(async () => {
 		terminalPeerEnabled: false,
 		terminalPeerStunUrls: [], }
 	coord = createCoord({
+		...workerUpdateTestDeps(),
 		db,
 		sqlite,
 		writeGate: new CoordinatorWriteGate(),

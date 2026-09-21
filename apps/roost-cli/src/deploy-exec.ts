@@ -3,8 +3,9 @@
 
 import { posix } from "node:path";
 import { spawn } from "bun";
-import { REMOTE_DEPLOY_LOCK_PROGRAM } from "./remote-deploy-lock-program.ts";
+import type { WorkerUpdateFailure } from "@roost/shared/worker-update-operation";
 import { posixShellQuote } from "@roost/shared/shell-quote";
+import { REMOTE_DEPLOY_LOCK_PROGRAM } from "./remote-deploy-lock-program.ts";
 
 export interface RunOptions {
   quiet?: boolean;
@@ -77,7 +78,7 @@ export async function run(cmd: string[], opts: RunOptions = {}): Promise<{ exit:
 }
 
 export class DeployFailure extends Error {
-  constructor(readonly exitCode: number, message: string) {
+  constructor(readonly exitCode: number, message: string, readonly workerUpdateFailure?: WorkerUpdateFailure) {
     super(message);
     this.name = "DeployFailure";
   }
@@ -390,117 +391,5 @@ export async function releaseRemoteDeployLock(
   }
   if (refreshFailure) throw refreshFailure;
 }
-
-/** Local git HEAD to stamp into the deployed service's GIT_SHA, with the
- *  dirty-tree guard every deploy path shares. Refuses (exit 7) on
- *  uncommitted changes unless ROOST_ALLOW_DIRTY=1, because otherwise the
- *  shipped tree and the stamp disagree and the SPA's drift badge fires
- *  falsely until the next clean deploy. */
-export function resolveLocalGitShaOrDie(cwd: string = process.cwd()): string {
-  let sha = "";
-  try {
-    const result = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd });
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.toString().trim() || `git rev-parse exited ${result.exitCode}`);
-    }
-    sha = result.stdout.toString().trim();
-    if (!/^[0-9a-f]{40}$/i.test(sha)) throw new Error("git rev-parse returned an invalid commit");
-  } catch (error) {
-    throw new DeployFailure(7, `cannot resolve the source commit: ${String(error)}`);
-  }
-  let isDirty: boolean;
-  try {
-    const result = Bun.spawnSync(["git", "status", "--porcelain"], { cwd });
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.toString().trim() || `git status exited ${result.exitCode}`);
-    }
-    isDirty = result.stdout.toString().trim().length > 0;
-  } catch (error) {
-    throw new DeployFailure(7, `cannot verify the source working tree: ${String(error)}`);
-  }
-  if (!isDirty) return sha;
-  if (process.env.ROOST_ALLOW_DIRTY === "1") {
-    console.warn(`>> WARN: uncommitted changes — stamping GIT_SHA=${sha}-dirty (ROOST_ALLOW_DIRTY=1)`);
-    return `${sha}-dirty`;
-  }
-  throw new DeployFailure(
-    7,
-    [
-      "uncommitted changes in working tree.",
-      "Commit first, OR re-run with ROOST_ALLOW_DIRTY=1 to ship the dirty state",
-      "with a `-dirty` GIT_SHA suffix. Run `git status` to see what's pending.",
-    ].join("\n"),
-  );
-}
-
-export interface GitPublishTarget {
-  branch: string;
-  remote: string;
-  mergeRef: string;
-}
-
-export function resolveGitPublishTargetOrDie(cwd: string): GitPublishTarget {
-  const text = (args: string[], label: string): string => {
-    const result = Bun.spawnSync(["git", ...args], { cwd });
-    const value = result.stdout.toString().trim();
-    if (result.exitCode !== 0 || !value || /[\r\n\0]/.test(value)) {
-      throw new DeployFailure(
-        7,
-        `${label}: ${result.stderr.toString().trim() || `git exited ${result.exitCode}`}`,
-      );
-    }
-    return value;
-  };
-  const branch = text(["symbolic-ref", "--quiet", "--short", "HEAD"], "source HEAD has no publishable branch");
-  const remote = text(["config", "--get", `branch.${branch}.remote`], "source branch has no configured remote");
-  const mergeRef = text(["config", "--get", `branch.${branch}.merge`], "source branch has no configured upstream ref");
-  if (remote === "." || !mergeRef.startsWith("refs/heads/") || /\s/.test(mergeRef)
-    || ["~", "^", ":", "?", "*", "[", "\\"].some((character) => mergeRef.includes(character))) {
-    throw new DeployFailure(7, "source branch upstream is not a publishable remote branch");
-  }
-  return { branch, remote, mergeRef };
-}
-
-/** Prove a clean source HEAD is the exact tip of its refreshed configured
- * upstream before any POSIX host mutation. */
-export function resolvePublishedGitShaOrDie(
-  cwd: string,
-  expectedSha?: string,
-): string {
-  const sha = resolveLocalGitShaOrDie(cwd);
-  if (sha.endsWith("-dirty")) {
-    throw new DeployFailure(7, "a published deploy requires a clean committed source snapshot");
-  }
-  if (expectedSha !== undefined && sha.toLowerCase() !== expectedSha.toLowerCase()) {
-    throw new DeployFailure(
-      7,
-      `source HEAD ${sha.slice(0, 8)} does not match required build ${expectedSha.slice(0, 8)}`,
-    );
-  }
-  const { remote, mergeRef } = resolveGitPublishTargetOrDie(cwd);
-  const fetched = Bun.spawnSync(
-    ["git", "fetch", "--quiet", "--no-tags", "--", remote, mergeRef],
-    { cwd },
-  );
-  if (fetched.exitCode !== 0) {
-    throw new DeployFailure(
-      7,
-      `cannot refresh source upstream: ${fetched.stderr.toString().trim() || `git fetch exited ${fetched.exitCode}`}`,
-    );
-  }
-  const remoteShaResult = Bun.spawnSync(["git", "rev-parse", "FETCH_HEAD"], { cwd });
-  const remoteSha = remoteShaResult.stdout.toString().trim();
-  if (remoteShaResult.exitCode !== 0 || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/i.test(remoteSha)) {
-    throw new DeployFailure(
-      7,
-      `cannot resolve refreshed source upstream: ${remoteShaResult.stderr.toString().trim() || `git exited ${remoteShaResult.exitCode}`}`,
-    );
-  }
-  if (remoteSha.toLowerCase() !== sha.toLowerCase()) {
-    throw new DeployFailure(
-      7,
-      `source HEAD ${sha.slice(0, 8)} is not the exact refreshed upstream tip ${remoteSha.slice(0, 8)}`,
-    );
-  }
-  return sha;
-}
+export { resolveGitPublishTargetOrDie, resolveLocalGitShaOrDie, resolvePinnedSourceShaOrDie, resolvePublishedGitShaOrDie } from "./deploy-source-identity.ts";
+export type { GitPublishTarget } from "./deploy-source-identity.ts";

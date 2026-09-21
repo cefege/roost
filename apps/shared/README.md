@@ -42,6 +42,10 @@ import style is now correct instead of two.
 | `@roost/shared/agent-conversation-reference-proto` | strict reference/recovery metadata ↔ protobuf adapters |
 | `@roost/shared/host-identity-proto` | static Worker host identity ↔ protobuf adapter |
 | `@roost/shared/ui-state` | allocation-free UTF-8 measurement plus UI report text, cardinality, and identity-rate limits |
+| `@roost/shared/worker-update-operation` | strict durable worker operation/report/failure contracts and bounds |
+| `@roost/shared/worker-update-operation-proto` | worker update operation/report ↔ protobuf adapters |
+| `@roost/shared/worker-update-result-channel` | private worker/job/attempt-bound deploy child failure channel |
+| `@roost/shared/coordinator-deploy-state` | data-only participant-free coordinator journal V4 schema |
 | `@roost/shared/cell` | cell-grid model, emitter, delta apply, bounded snapshot chunking/assembly (R11) |
 | `@roost/shared/cell/cell-proto` | cell frame ↔ proto |
 | `@roost/shared/proto/*` | every generated `_pb.ts` (`…/proto/coordinator_pb`) |

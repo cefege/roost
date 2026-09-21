@@ -17,9 +17,9 @@ function workerUpdatePosition(worker: WorkerStatus, coordGitSha: string | null):
   const state = workerUpdateState({
     workerGitSha: worker.gitSha,
     coordGitSha,
-    // The CLI cannot see the coordinator's in-memory deploy jobs, so a deploy
-    // already in flight reads as "update available" in this readout.
-    deployInFlight: false,
+    deployInFlight: worker.updateOperation !== undefined
+      && worker.updateOperation !== null
+      && !["blocked", "failed", "succeeded"].includes(worker.updateOperation.status),
     online: !worker.stale,
   });
   const shortSha = worker.gitSha ? ` · ${worker.gitSha.slice(0, 8)}` : "";

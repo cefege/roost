@@ -10,6 +10,7 @@ import {
 import { callerKey } from "../src/connect/auth-interceptor.ts";
 import { makeWorkerHandlers } from "../src/connect/handlers-workers.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
+import { workerUpdateTestDeps } from "./worker-update-test-deps.ts";
 
 const WORKER_FP = "a".repeat(64);
 
@@ -94,6 +95,7 @@ function browserContext(): HandlerContext {
 test("worker register, heartbeat, and rename cap every persisted string at a UTF-8 boundary", async () => {
   const database = recordingWorkerDb();
   const handlers = makeWorkerHandlers({
+    ...workerUpdateTestDeps(),
     db: database.db,
     cfg: {},
   } as unknown as ConnectDeps);
@@ -136,6 +138,7 @@ test("worker register, heartbeat, and rename cap every persisted string at a UTF
 
 test("browser principals cannot register or heartbeat as workers", async () => {
   const handlers = makeWorkerHandlers({
+    ...workerUpdateTestDeps(),
     cfg: {},
   } as unknown as ConnectDeps);
   await expect(handlers.workersRegister(

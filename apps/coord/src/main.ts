@@ -25,15 +25,19 @@ import {
 import { TerminalViewHub, installTerminalViewHub } from "./connect/terminal-view-hub.ts";
 import { COORD_GIT_SHA } from "./git-sha.ts";
 import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./windows-update-deploy-jobs.ts";
-import { startCatchUpDeployOnAttach } from "./worker-catchup-deploy.ts";
+import {
+  createWorkerCatchUpScheduler,
+  type WorkerCatchUpScheduler,
+} from "./worker-catchup-deploy.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
 import { serveServiceHealth } from "@roost/shared/service-health";
 import { log } from "@roost/shared/log";
 import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
-import { coordDataDir } from "@roost/shared/paths";
+import { coordDataDir, roostServiceDir } from "@roost/shared/paths";
 import { effectiveMemoryCeilingBytes } from "@roost/shared/host-memory";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { WEB_ASSETS } from "@roost/shared/web-embed";
 import { createSpaResponder } from "@roost/shared/spa";
 import { MIGRATIONS } from "./migrations-embed.generated.ts";
@@ -43,9 +47,16 @@ import { startBunCoordinatorListeners } from "./bun-coordinator-listeners.ts";
 import { PendingEventPublicationStore } from "./pending-event-publications.ts";
 import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "./connect/ui-state-owner.ts";
+import { createWorkerUpdateComposition } from "./worker-update-composition.ts";
+import { createCoordinatorActivationGate } from "./coordinator-update-activation.ts";
+import type { startDeployJobRuntime } from "./deploy-job-runtime.ts";
 
 
-export async function runCoord() {
+export interface RunCoordOptions {
+  startWorkerUpdateRuntime?: typeof startDeployJobRuntime;
+}
+
+export async function runCoord(options: RunCoordOptions = {}) {
   const bootMs = Date.now();
   const processEpoch = randomUUID();
 
@@ -56,6 +67,16 @@ export async function runCoord() {
     console.error(JSON.stringify({ ev: "config_error", error: (e as Error).message }));
     process.exit(1);
   }
+  // The target activation fence exists before migrations or listeners can
+  // acknowledge durable writes.
+  const writeGate = new CoordinatorWriteGate();
+  const updateSourceRoot = process.env.ROOST_REPO_ROOT?.trim() || process.cwd();
+  const activationGate = await createCoordinatorActivationGate({
+    journalPath: join(roostServiceDir(), "transactions", "coordinator-deploy.json"),
+    sourceRoot: updateSourceRoot,
+    targetSha: COORD_GIT_SHA,
+    writeGate,
+  });
 
   const databaseExisted = existsSync(cfg.dbPath);
   const { db, sqlite, close: closeDb } = openDb(cfg.dbPath);
@@ -86,9 +107,12 @@ export async function runCoord() {
   await runStartupJanitor(db);
 
   const jwtCache = newJwtCache();
-  // ONE gate per process: keeper-update exclusivity is meaningless if a
-  // mutation path can reach a second instance and bypass the fence.
-  const writeGate = new CoordinatorWriteGate();
+  // ONE gate per process reaches keeper and coordinator activation owners.
+  const workerUpdates = createWorkerUpdateComposition(db, cfg, {
+    startRuntime: options.startWorkerUpdateRuntime,
+  });
+  await workerUpdates.owner.initialize();
+  let catchUpScheduler: WorkerCatchUpScheduler | null = null;
 
   const pendingPublications = new PendingEventPublicationStore();
   const uiLayoutApplies = new UiLayoutApplyOwner();
@@ -99,6 +123,9 @@ export async function runCoord() {
   let closeDeletedWorkerSockets: ((fingerprint: string) => void) | null = null;
   const coord = createCoord({
     db, sqlite, cfg, jwtCache, writeGate, selfHostedTenant,
+    updateOwner: workerUpdates.owner,
+    updateSourceRoot: workerUpdates.sourceRoot,
+    activationGate,
     pendingPublications, uiLayoutApplies, uiStates,
     onKeyRevoked: (fingerprint) => {
       pendingPublications.clearWorker(fingerprint);
@@ -149,12 +176,11 @@ export async function runCoord() {
     writeGate,
     selfHostedTenant,
     terminalPeerNegotiations: coord.terminalPeerNegotiations,
-    terminalInputRouteResults: coord.terminalInputRouteResults,
     onWorkerConnected: async (workerFp) => {
       coord.terminalInputRouteResults.flushWorkerRetirements(workerFp);
       terminalViews.workerReplacement(workerFp);
       await resumeWindowsUpdateDeploysForWorker(workerFp);
-      await startCatchUpDeployOnAttach(db, workerFp);
+      catchUpScheduler?.onWorkerReady(workerFp);
     },
     onUpdateProgress: handleWorkerUpdateProgress,
   };
@@ -168,6 +194,9 @@ export async function runCoord() {
     cfg,
     writeGate,
     selfHostedTenant,
+    updateOwner: workerUpdates.owner,
+    updateSourceRoot: workerUpdates.sourceRoot,
+    activationGate,
     uiLayoutApplies,
     uiStates,
     terminalGrants: coord.terminalGrants,
@@ -208,6 +237,12 @@ export async function runCoord() {
     syncWs,
     spa: spaResponse,
   });
+  catchUpScheduler = createWorkerCatchUpScheduler({
+    db,
+    updateOwner: workerUpdates.owner,
+    sourceRoot: workerUpdates.sourceRoot,
+  });
+  void catchUpScheduler.sweep();
   let closeServiceHealth: (() => Promise<void>) | undefined;
   switch (process.platform) {
     case "win32": {
@@ -248,6 +283,9 @@ export async function runCoord() {
       log.warn("main", "service_health_close_failed", { error: String(error) });
     }
     server.stop(true);
+    catchUpScheduler?.dispose();
+    await workerUpdates.owner.dispose();
+    activationGate.dispose();
     coord.dispose();
     installTerminalViewHub(null);
     terminalViews.dispose();

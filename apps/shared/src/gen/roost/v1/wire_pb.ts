@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/wire.proto.
  */
 export const file_roost_v1_wire: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS93aXJlLnByb3RvEghyb29zdC52MSLBAQoLSG9zdE1ldHJpY3MSDwoHY3B1X3BjdBgBIAEoARIWCg5tZW1fdXNlZF9ieXRlcxgCIAEoBBIXCg9tZW1fdG90YWxfYnl0ZXMYAyABKAQSFwoPZGlza191c2VkX2J5dGVzGAQgASgEEhgKEGRpc2tfdG90YWxfYnl0ZXMYBSABKAQSEgoKbmV0X3J4X2JwcxgGIAEoBBISCgpuZXRfdHhfYnBzGAcgASgEEhUKDXNhbXBsZWRfYXRfbXMYCCABKAQikgEKDEhvc3RJZGVudGl0eRIbCg5oYXJkd2FyZV9tb2RlbBgBIAEoCUgAiAEBEhEKBGNoaXAYAiABKAlIAYgBARIfChJsaW51eF9kaXN0cmlidXRpb24YAyABKAlIAogBAUIRCg9faGFyZHdhcmVfbW9kZWxCBwoFX2NoaXBCFQoTX2xpbnV4X2Rpc3RyaWJ1dGlvbiLgAQoaVGVybWluYWxDb3JlQ2FwYWNpdHlSZXBvcnQSDAoEdXNlZBgBIAEoDRIPCgdwZW5kaW5nGAIgASgNEhAKCGNhcGFjaXR5GAMgASgNEiAKGGVzdGltYXRlZF9yZXNlcnZlZF9ieXRlcxgEIAEoBBImCh5lZmZlY3RpdmVfbWVtb3J5X2NlaWxpbmdfYnl0ZXMYBSABKAQSFgoOYm9vdF9yc3NfYnl0ZXMYBiABKAQSGAoQb3ZlcmNvbW1pdF9jb3VudBgHIAEoDRIVCg1yZWZ1c2FsX2NvdW50GAggASgEIj0KFlRlcm1pbmFsUGlwZWxpbmVUYXJnZXQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIPCgd2aWV3X2lkGAIgASgJIsUCCh1UZXJtaW5hbFBpcGVsaW5lU3RhZ2VTbmFwc2hvdBIuCgVzdGFnZRgBIAEoDjIfLnJvb3N0LnYxLlRlcm1pbmFsUGlwZWxpbmVTdGFnZRIwCgZyZWFzb24YAiABKA4yIC5yb29zdC52MS5UZXJtaW5hbFBpcGVsaW5lUmVhc29uEhIKCmdlbmVyYXRpb24YAyABKAQSEQoJc3RyZWFtX2lkGAQgASgJEhAKCHNlcXVlbmNlGAUgASgEEhQKDHF1ZXVlX2ZyYW1lcxgGIAEoBBITCgtxdWV1ZV9ieXRlcxgHIAEoBBIdChVuYXRpdmVfYnVmZmVyZWRfYnl0ZXMYCCABKAQSFQoNb2xkZXN0X2FnZV9tcxgJIAEoBBINCgVjb3VudBgKIAEoBBIZChFoaXN0b2dyYW1fYnVja2V0cxgLIAMoBCJ/Ch9UZXJtaW5hbFBpcGVsaW5lU2Vzc2lvblNuYXBzaG90EhIKCnNlc3Npb25faWQYASABKAkSDwoHdmlld19pZBgCIAEoCRI3CgZzdGFnZXMYAyADKAsyJy5yb29zdC52MS5UZXJtaW5hbFBpcGVsaW5lU3RhZ2VTbmFwc2hvdCLlAQoQS2VlcGVyQ29udHJhY3RWMRIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEhoKEnN1cHBvcnRlZF9mZWF0dXJlcxgCIAMoCRIZChFyZXF1aXJlZF9mZWF0dXJlcxgDIAMoCRIiChVpbXBsZW1lbnRhdGlvbl9kaWdlc3QYBCABKAlIAIgBARIPCgdidW5fYWJpGAUgASgJEhAKCHBsYXRmb3JtGAYgASgJEgwKBGFyY2gYByABKAkSEQoJYnVpbGRfc2hhGAggASgJQhgKFl9pbXBsZW1lbnRhdGlvbl9kaWdlc3Qi3QEKGktlZXBlclJ1bnRpbWVPYnNlcnZhdGlvblYxEhYKDnNjaGVtYV92ZXJzaW9uGAEgASgNEjQKEHJ1bm5pbmdfY29udHJhY3QYAiABKAsyGi5yb29zdC52MS5LZWVwZXJDb250cmFjdFYxEhIKCmtlZXBlcl9waWQYAyABKAQSFAoMa2VlcGVyX2Vwb2NoGAQgASgJEhUKDWNoYW5uZWxfY291bnQYBSABKA0SFgoOYmluZGluZ19kaWdlc3QYBiABKAkSGAoQcmVjb25jaWxlZF9hdF9tcxgHIAEoBCKKBAoGV29ya2VyEgoKAmZwGAEgASgJEg0KBWxhYmVsGAIgASgJEgoKAm9zGAMgASgJEhQKB2dpdF9zaGEYBCABKAlIAIgBARIwCgxob3N0X21ldHJpY3MYBSABKAsyFS5yb29zdC52MS5Ib3N0TWV0cmljc0gBiAEBEhgKEHJlZ2lzdGVyZWRfYXRfbXMYBiABKAQSFAoMbGFzdF9zZWVuX21zGAcgASgEEhsKDnJlYWNoYWJsZV9hZGRyGAggASgJSAKIAQESQQoOa2VlcGVyX3J1bnRpbWUYCiABKAsyJC5yb29zdC52MS5LZWVwZXJSdW50aW1lT2JzZXJ2YXRpb25WMUgDiAEBEkkKFnRlcm1pbmFsX2NvcmVfY2FwYWNpdHkYCyABKAsyJC5yb29zdC52MS5UZXJtaW5hbENvcmVDYXBhY2l0eVJlcG9ydEgEiAEBEjIKDWhvc3RfaWRlbnRpdHkYDCABKAsyFi5yb29zdC52MS5Ib3N0SWRlbnRpdHlIBYgBAUIKCghfZ2l0X3NoYUIPCg1faG9zdF9tZXRyaWNzQhEKD19yZWFjaGFibGVfYWRkckIRCg9fa2VlcGVyX3J1bnRpbWVCGQoXX3Rlcm1pbmFsX2NvcmVfY2FwYWNpdHlCEAoOX2hvc3RfaWRlbnRpdHlKBAgJEApSDGtlZXBlcl9zdGFsZSJlChxBZ2VudENvbnZlcnNhdGlvblJlZmVyZW5jZVYxEhYKDnNjaGVtYV92ZXJzaW9uGAEgASgNEhAKCGFnZW50X2lkGAIgASgJEgwKBGtpbmQYAyABKAkSDQoFdmFsdWUYBCABKAkikQQKB1Nlc3Npb24SCgoCaWQYASABKAkSEQoJd29ya2VyX2ZwGAIgASgJEg8KB2NoYW5uZWwYAyABKA0SDAoEa2luZBgEIAEoCRILCgNjd2QYBSABKAkSGQoMd29ya3NwYWNlX2lkGAYgASgJSACIAQESDgoGc3RhdHVzGAcgASgJEhIKCmNyZWF0ZWRfYXQYCSABKAQSFgoJY2xvc2VkX2F0GAogASgESAGIAQESGQoMY3VzdG9tX3RpdGxlGAsgASgJSAKIAQESFwoKZ2l0X2JyYW5jaBgMIAEoCUgDiAEBEhcKCmdpdF9yZW1vdGUYDSABKAlIBIgBARIWCglwcl9udW1iZXIYDiABKAVIBYgBARIVCghwcl9zdGF0ZRgPIAEoCUgGiAEBEhYKCXByX2NoZWNrcxgQIAEoCUgHiAEBEhMKBnByX3VybBgRIAEoCUgIiAEBEg0KBXBvcnRzGBIgAygFEhYKCXNwYXduX2N3ZBgTIAEoCUgJiAEBQg8KDV93b3Jrc3BhY2VfaWRCDAoKX2Nsb3NlZF9hdEIPCg1fY3VzdG9tX3RpdGxlQg0KC19naXRfYnJhbmNoQg0KC19naXRfcmVtb3RlQgwKCl9wcl9udW1iZXJCCwoJX3ByX3N0YXRlQgwKCl9wcl9jaGVja3NCCQoHX3ByX3VybEIMCgpfc3Bhd25fY3dkSgQICBAJItEBCglXb3Jrc3BhY2USCgoCaWQYASABKAkSEQoJd29ya2VyX2ZwGAIgASgJEgwKBG5hbWUYAyABKAkSEwoLZm9sZGVyX3BhdGgYBCABKAkSEgoFY29sb3IYBSABKAlIAIgBARIQCghwb3NpdGlvbhgGIAEoDRIPCgd2ZXJzaW9uGAcgASgEEhUKDWNyZWF0ZWRfYXRfbXMYCCABKAQSFQoNdXBkYXRlZF9hdF9tcxgJIAEoBBITCgtzZXNzaW9uX2lkcxgKIAMoCUIICgZfY29sb3IinQMKBFRhc2sSCgoCaWQYASABKAkSDQoFc3RhdGUYAiABKAkSFAoMcGF5bG9hZF9qc29uGAMgASgJEhYKDmVucXVldWVkX2F0X21zGAQgASgEEhoKDWNsYWltZWRfYXRfbXMYBSABKARIAIgBARIXCgpjbGFpbWVkX2J5GAYgASgJSAGIAQESGwoOZmluaXNoZWRfYXRfbXMYByABKARIAogBARIYCgtyZXN1bHRfanNvbhgIIAEoCUgDiAEBEh0KEGNvbXBsZXRpb25fY2hlY2sYCSABKAlIBIgBARItCiBjb21wbGV0aW9uX2NoZWNrX2xhc3RfYXR0ZW1wdF9tcxgKIAEoBEgFiAEBEhQKDGNsYWltX3R0bF9tcxgLIAEoBEIQCg5fY2xhaW1lZF9hdF9tc0INCgtfY2xhaW1lZF9ieUIRCg9fZmluaXNoZWRfYXRfbXNCDgoMX3Jlc3VsdF9qc29uQhMKEV9jb21wbGV0aW9uX2NoZWNrQiMKIV9jb21wbGV0aW9uX2NoZWNrX2xhc3RfYXR0ZW1wdF9tcyJfCghNY3BSZWxheRIKCgJpZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIMCgRraW5kGAMgASgJEhMKC2NvbmZpZ19qc29uGAQgASgJEhUKDWNyZWF0ZWRfYXRfbXMYBSABKAQi2QIKC1BhaXJSZXF1ZXN0EhQKDGVwaGVtZXJhbF9pZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIVCg1jcmVhdGVkX2F0X21zGAMgASgEEhIKCnVzZXJfYWdlbnQYBCABKAkSFgoOY2xpZW50X2Jyb3dzZXIYBSABKAkSEQoJY2xpZW50X29zGAYgASgJEhoKEmNsaWVudF9kZXZpY2VfdHlwZRgHIAEoCRIRCglzb3VyY2VfaXAYCCABKAkSFAoMY291bnRyeV9jb2RlGAkgASgJEg4KBnJlZ2lvbhgKIAEoCRIMCgRjaXR5GAsgASgJEh4KFmVkZ2VfaWRlbnRpdHlfcHJvdmlkZXIYDCABKAkSFQoNZWRnZV9pZGVudGl0eRgNIAEoCRIeChZlZGdlX2lkZW50aXR5X3ZlcmlmaWVkGA4gASgIEhUKDWV4cGlyZXNfYXRfbXMYDyABKAQixgEKCEF1ZGl0Um93EgoKAmlkGAEgASgEEgoKAnRzGAIgASgEEhYKCWNhbGxlcl9mcBgDIAEoCUgAiAEBEhkKDGNhbGxlcl9sYWJlbBgEIAEoCUgBiAEBEg4KBm1ldGhvZBgFIAEoCRIMCgRwYXRoGAYgASgJEg4KBnN0YXR1cxgHIAEoDRIVCgh0cmFjZV9pZBgIIAEoCUgCiAEBQgwKCl9jYWxsZXJfZnBCDwoNX2NhbGxlcl9sYWJlbEILCglfdHJhY2VfaWQiewoTUGJUZXJtaW5hbFZpZXdJbnB1dBITCgtmaW5nZXJwcmludBgBIAEoCRIPCgd2aWV3X2lkGAIgASgJEgwKBGNvbHMYAyABKA0SDAoEcm93cxgEIAEoDRIOCgZwYXJrZWQYBSABKAgSEgoKY29uc3RyYWlucxgGIAEoCCqIBQoVVGVybWluYWxQaXBlbGluZVN0YWdlEicKI1RFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX1VOU1BFQ0lGSUVEEAASJgoiVEVSTUlOQUxfUElQRUxJTkVfU1RBR0VfV09SS0VSX1BUWRABEicKI1RFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX1dPUktFUl9DT1JFEAISLAooVEVSTUlOQUxfUElQRUxJTkVfU1RBR0VfV09SS0VSX1NDSEVEVUxFUhADEikKJVRFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX1dPUktFUl9TVFJFQU0QBBIxCi1URVJNSU5BTF9QSVBFTElORV9TVEFHRV9XT1JLRVJfU1RSRUFNX0NPTlRST0wQBRIpCiVURVJNSU5BTF9QSVBFTElORV9TVEFHRV9XT1JLRVJfS0VFUEVSEAYSLQopVEVSTUlOQUxfUElQRUxJTkVfU1RBR0VfV09SS0VSX0NPT1JEX0xJTksQBxIwCixURVJNSU5BTF9QSVBFTElORV9TVEFHRV9DT09SRF9XT1JLRVJfSU5HUkVTUxAIEisKJ1RFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX0NPT1JEX0NBTk9OSUNBTBAJEigKJFRFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX0NPT1JEX0VHUkVTUxAKEisKJ1RFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX0JST1dTRVJfSU5HUkVTUxALEisKJ1RFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX0JST1dTRVJfUkVQTElDQRAMEiwKKFRFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX0JST1dTRVJfUkVOREVSRVIQDSr/BgoWVGVybWluYWxQaXBlbGluZVJlYXNvbhIoCiRURVJNSU5BTF9QSVBFTElORV9SRUFTT05fVU5TUEVDSUZJRUQQABIhCh1URVJNSU5BTF9QSVBFTElORV9SRUFTT05fTk9ORRABEi4KKlRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9TRVNTSU9OX05PVF9GT1VORBACEi0KKVRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9TVFJFQU1fTk9UX0ZPVU5EEAMSLAooVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX1NUUkVBTV9ESVNBQkxFRBAEEi0KKVRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9CQVNFTElORV9QRU5ESU5HEAUSKQolVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX0NPUkVfSU5WQUxJRBAGEi0KKVRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9TTkFQU0hPVF9QRU5ESU5HEAcSJgoiVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX0NFTExfR0FURRAIEigKJFRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9TWU5DX09VVFBVVBAJEicKI1RFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9DRUxMX0RJUlRZEAoSKwonVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX1BFTkRJTkdfUkVQQUlSEAsSKwonVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX0NPTlRST0xfUVVFVUVEEAwSMAosVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX0tFRVBFUl9ESVNDT05ORUNURUQQDRIxCi1URVJNSU5BTF9QSVBFTElORV9SRUFTT05fS0VFUEVSX0lOUFVUX1BFTkRJTkcQDhIyCi5URVJNSU5BTF9QSVBFTElORV9SRUFTT05fS0VFUEVSX1JFU0laRV9QRU5ESU5HEA8SMwovVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX0NPT1JEX0xJTktfVU5BVkFJTEFCTEUQEBIsCihURVJNSU5BTF9QSVBFTElORV9SRUFTT05fTkFUSVZFX0JVRkZFUkVEEBESMQotVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX1JBV19NRVRBREFUQV9QRU5ESU5HEBJiBnByb3RvMw");
+  fileDesc("ChNyb29zdC92MS93aXJlLnByb3RvEghyb29zdC52MSLBAQoLSG9zdE1ldHJpY3MSDwoHY3B1X3BjdBgBIAEoARIWCg5tZW1fdXNlZF9ieXRlcxgCIAEoBBIXCg9tZW1fdG90YWxfYnl0ZXMYAyABKAQSFwoPZGlza191c2VkX2J5dGVzGAQgASgEEhgKEGRpc2tfdG90YWxfYnl0ZXMYBSABKAQSEgoKbmV0X3J4X2JwcxgGIAEoBBISCgpuZXRfdHhfYnBzGAcgASgEEhUKDXNhbXBsZWRfYXRfbXMYCCABKAQikgEKDEhvc3RJZGVudGl0eRIbCg5oYXJkd2FyZV9tb2RlbBgBIAEoCUgAiAEBEhEKBGNoaXAYAiABKAlIAYgBARIfChJsaW51eF9kaXN0cmlidXRpb24YAyABKAlIAogBAUIRCg9faGFyZHdhcmVfbW9kZWxCBwoFX2NoaXBCFQoTX2xpbnV4X2Rpc3RyaWJ1dGlvbiLgAQoaVGVybWluYWxDb3JlQ2FwYWNpdHlSZXBvcnQSDAoEdXNlZBgBIAEoDRIPCgdwZW5kaW5nGAIgASgNEhAKCGNhcGFjaXR5GAMgASgNEiAKGGVzdGltYXRlZF9yZXNlcnZlZF9ieXRlcxgEIAEoBBImCh5lZmZlY3RpdmVfbWVtb3J5X2NlaWxpbmdfYnl0ZXMYBSABKAQSFgoOYm9vdF9yc3NfYnl0ZXMYBiABKAQSGAoQb3ZlcmNvbW1pdF9jb3VudBgHIAEoDRIVCg1yZWZ1c2FsX2NvdW50GAggASgEIj0KFlRlcm1pbmFsUGlwZWxpbmVUYXJnZXQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIPCgd2aWV3X2lkGAIgASgJIsUCCh1UZXJtaW5hbFBpcGVsaW5lU3RhZ2VTbmFwc2hvdBIuCgVzdGFnZRgBIAEoDjIfLnJvb3N0LnYxLlRlcm1pbmFsUGlwZWxpbmVTdGFnZRIwCgZyZWFzb24YAiABKA4yIC5yb29zdC52MS5UZXJtaW5hbFBpcGVsaW5lUmVhc29uEhIKCmdlbmVyYXRpb24YAyABKAQSEQoJc3RyZWFtX2lkGAQgASgJEhAKCHNlcXVlbmNlGAUgASgEEhQKDHF1ZXVlX2ZyYW1lcxgGIAEoBBITCgtxdWV1ZV9ieXRlcxgHIAEoBBIdChVuYXRpdmVfYnVmZmVyZWRfYnl0ZXMYCCABKAQSFQoNb2xkZXN0X2FnZV9tcxgJIAEoBBINCgVjb3VudBgKIAEoBBIZChFoaXN0b2dyYW1fYnVja2V0cxgLIAMoBCJ/Ch9UZXJtaW5hbFBpcGVsaW5lU2Vzc2lvblNuYXBzaG90EhIKCnNlc3Npb25faWQYASABKAkSDwoHdmlld19pZBgCIAEoCRI3CgZzdGFnZXMYAyADKAsyJy5yb29zdC52MS5UZXJtaW5hbFBpcGVsaW5lU3RhZ2VTbmFwc2hvdCLlAQoQS2VlcGVyQ29udHJhY3RWMRIYChBwcm90b2NvbF92ZXJzaW9uGAEgASgNEhoKEnN1cHBvcnRlZF9mZWF0dXJlcxgCIAMoCRIZChFyZXF1aXJlZF9mZWF0dXJlcxgDIAMoCRIiChVpbXBsZW1lbnRhdGlvbl9kaWdlc3QYBCABKAlIAIgBARIPCgdidW5fYWJpGAUgASgJEhAKCHBsYXRmb3JtGAYgASgJEgwKBGFyY2gYByABKAkSEQoJYnVpbGRfc2hhGAggASgJQhgKFl9pbXBsZW1lbnRhdGlvbl9kaWdlc3Qi3QEKGktlZXBlclJ1bnRpbWVPYnNlcnZhdGlvblYxEhYKDnNjaGVtYV92ZXJzaW9uGAEgASgNEjQKEHJ1bm5pbmdfY29udHJhY3QYAiABKAsyGi5yb29zdC52MS5LZWVwZXJDb250cmFjdFYxEhIKCmtlZXBlcl9waWQYAyABKAQSFAoMa2VlcGVyX2Vwb2NoGAQgASgJEhUKDWNoYW5uZWxfY291bnQYBSABKA0SFgoOYmluZGluZ19kaWdlc3QYBiABKAkSGAoQcmVjb25jaWxlZF9hdF9tcxgHIAEoBCKyBAoVV29ya2VyVXBkYXRlT3BlcmF0aW9uEg4KBmpvYl9pZBgBIAEoCRIRCgl3b3JrZXJfZnAYAiABKAkSDAoEaG9zdBgDIAEoCRIQCghyZXZpc2lvbhgEIAEoBBIWCg50YXJnZXRfZ2l0X3NoYRgFIAEoCRIsCgZzb3VyY2UYBiABKA4yHC5yb29zdC52MS5Xb3JrZXJVcGRhdGVTb3VyY2USLAoGc3RhdHVzGAcgASgOMhwucm9vc3QudjEuV29ya2VyVXBkYXRlU3RhdHVzEioKBXBoYXNlGAggASgOMhsucm9vc3QudjEuV29ya2VyVXBkYXRlUGhhc2USGAoLcmVhc29uX2NvZGUYCSABKAlIAIgBARIUCgdtZXNzYWdlGAogASgJSAGIAQESFQoNY3JlYXRlZF9hdF9tcxgLIAEoBBIVCg11cGRhdGVkX2F0X21zGAwgASgEEhoKDXN0YXJ0ZWRfYXRfbXMYDSABKARIAogBARIcCg9jb21wbGV0ZWRfYXRfbXMYDiABKARIA4gBARIfChJuZXh0X2F0dGVtcHRfYXRfbXMYDyABKARIBIgBARIWCglleGl0X2NvZGUYECABKAVIBYgBAUIOCgxfcmVhc29uX2NvZGVCCgoIX21lc3NhZ2VCEAoOX3N0YXJ0ZWRfYXRfbXNCEgoQX2NvbXBsZXRlZF9hdF9tc0IVChNfbmV4dF9hdHRlbXB0X2F0X21zQgwKCl9leGl0X2NvZGUiZwoZV29ya2VyVXBkYXRlUHJvZ3Jlc3NFdmVudBINCgVhdF9tcxgBIAEoBBIqCgVwaGFzZRgCIAEoDjIbLnJvb3N0LnYxLldvcmtlclVwZGF0ZVBoYXNlEg8KB21lc3NhZ2UYAyABKAki4wEKG1dvcmtlclVwZGF0ZUpvdXJuYWxFdmlkZW5jZRIMCgRwYXRoGAEgASgJEhIKBXBoYXNlGAIgASgJSACIAQESFQoIb3duZXJfaWQYAyABKAlIAYgBARIXCgpyb2xsb3V0X2lkGAQgASgJSAKIAQESFgoJcHJpb3Jfc2hhGAUgASgJSAOIAQESFwoKdGFyZ2V0X3NoYRgGIAEoCUgEiAEBQggKBl9waGFzZUILCglfb3duZXJfaWRCDQoLX3JvbGxvdXRfaWRCDAoKX3ByaW9yX3NoYUINCgtfdGFyZ2V0X3NoYSKnAwoTV29ya2VyVXBkYXRlRmFpbHVyZRIMCgRjb2RlGAEgASgJEioKBXBoYXNlGAIgASgOMhsucm9vc3QudjEuV29ya2VyVXBkYXRlUGhhc2USDwoHbWVzc2FnZRgDIAEoCRI7Cgdqb3VybmFsGAQgASgLMiUucm9vc3QudjEuV29ya2VyVXBkYXRlSm91cm5hbEV2aWRlbmNlSACIAQESQgoPZXhwZWN0ZWRfa2VlcGVyGAUgASgLMiQucm9vc3QudjEuS2VlcGVyUnVudGltZU9ic2VydmF0aW9uVjFIAYgBARJCCg9vYnNlcnZlZF9rZWVwZXIYBiABKAsyJC5yb29zdC52MS5LZWVwZXJSdW50aW1lT2JzZXJ2YXRpb25WMUgCiAEBEjgKD3RhcmdldF9jb250cmFjdBgHIAEoCzIaLnJvb3N0LnYxLktlZXBlckNvbnRyYWN0VjFIA4gBAUIKCghfam91cm5hbEISChBfZXhwZWN0ZWRfa2VlcGVyQhIKEF9vYnNlcnZlZF9rZWVwZXJCEgoQX3RhcmdldF9jb250cmFjdCKmAgoSV29ya2VyVXBkYXRlUmVwb3J0EhYKDnNjaGVtYV92ZXJzaW9uGAEgASgNEjIKCW9wZXJhdGlvbhgCIAEoCzIfLnJvb3N0LnYxLldvcmtlclVwZGF0ZU9wZXJhdGlvbhIdChBvYnNlcnZlZF9naXRfc2hhGAMgASgJSACIAQESGgoSY29vcmRpbmF0b3Jfb3JpZ2luGAQgASgJEjMKB2ZhaWx1cmUYBSABKAsyHS5yb29zdC52MS5Xb3JrZXJVcGRhdGVGYWlsdXJlSAGIAQESMwoGZXZlbnRzGAYgAygLMiMucm9vc3QudjEuV29ya2VyVXBkYXRlUHJvZ3Jlc3NFdmVudEITChFfb2JzZXJ2ZWRfZ2l0X3NoYUIKCghfZmFpbHVyZSLfBAoGV29ya2VyEgoKAmZwGAEgASgJEg0KBWxhYmVsGAIgASgJEgoKAm9zGAMgASgJEhQKB2dpdF9zaGEYBCABKAlIAIgBARIwCgxob3N0X21ldHJpY3MYBSABKAsyFS5yb29zdC52MS5Ib3N0TWV0cmljc0gBiAEBEhgKEHJlZ2lzdGVyZWRfYXRfbXMYBiABKAQSFAoMbGFzdF9zZWVuX21zGAcgASgEEhsKDnJlYWNoYWJsZV9hZGRyGAggASgJSAKIAQESQQoOa2VlcGVyX3J1bnRpbWUYCiABKAsyJC5yb29zdC52MS5LZWVwZXJSdW50aW1lT2JzZXJ2YXRpb25WMUgDiAEBEkkKFnRlcm1pbmFsX2NvcmVfY2FwYWNpdHkYCyABKAsyJC5yb29zdC52MS5UZXJtaW5hbENvcmVDYXBhY2l0eVJlcG9ydEgEiAEBEjIKDWhvc3RfaWRlbnRpdHkYDCABKAsyFi5yb29zdC52MS5Ib3N0SWRlbnRpdHlIBYgBARI+ChB1cGRhdGVfb3BlcmF0aW9uGA0gASgLMh8ucm9vc3QudjEuV29ya2VyVXBkYXRlT3BlcmF0aW9uSAaIAQFCCgoIX2dpdF9zaGFCDwoNX2hvc3RfbWV0cmljc0IRCg9fcmVhY2hhYmxlX2FkZHJCEQoPX2tlZXBlcl9ydW50aW1lQhkKF190ZXJtaW5hbF9jb3JlX2NhcGFjaXR5QhAKDl9ob3N0X2lkZW50aXR5QhMKEV91cGRhdGVfb3BlcmF0aW9uSgQICRAKUgxrZWVwZXJfc3RhbGUiZQocQWdlbnRDb252ZXJzYXRpb25SZWZlcmVuY2VWMRIWCg5zY2hlbWFfdmVyc2lvbhgBIAEoDRIQCghhZ2VudF9pZBgCIAEoCRIMCgRraW5kGAMgASgJEg0KBXZhbHVlGAQgASgJIpEECgdTZXNzaW9uEgoKAmlkGAEgASgJEhEKCXdvcmtlcl9mcBgCIAEoCRIPCgdjaGFubmVsGAMgASgNEgwKBGtpbmQYBCABKAkSCwoDY3dkGAUgASgJEhkKDHdvcmtzcGFjZV9pZBgGIAEoCUgAiAEBEg4KBnN0YXR1cxgHIAEoCRISCgpjcmVhdGVkX2F0GAkgASgEEhYKCWNsb3NlZF9hdBgKIAEoBEgBiAEBEhkKDGN1c3RvbV90aXRsZRgLIAEoCUgCiAEBEhcKCmdpdF9icmFuY2gYDCABKAlIA4gBARIXCgpnaXRfcmVtb3RlGA0gASgJSASIAQESFgoJcHJfbnVtYmVyGA4gASgFSAWIAQESFQoIcHJfc3RhdGUYDyABKAlIBogBARIWCglwcl9jaGVja3MYECABKAlIB4gBARITCgZwcl91cmwYESABKAlICIgBARINCgVwb3J0cxgSIAMoBRIWCglzcGF3bl9jd2QYEyABKAlICYgBAUIPCg1fd29ya3NwYWNlX2lkQgwKCl9jbG9zZWRfYXRCDwoNX2N1c3RvbV90aXRsZUINCgtfZ2l0X2JyYW5jaEINCgtfZ2l0X3JlbW90ZUIMCgpfcHJfbnVtYmVyQgsKCV9wcl9zdGF0ZUIMCgpfcHJfY2hlY2tzQgkKB19wcl91cmxCDAoKX3NwYXduX2N3ZEoECAgQCSLRAQoJV29ya3NwYWNlEgoKAmlkGAEgASgJEhEKCXdvcmtlcl9mcBgCIAEoCRIMCgRuYW1lGAMgASgJEhMKC2ZvbGRlcl9wYXRoGAQgASgJEhIKBWNvbG9yGAUgASgJSACIAQESEAoIcG9zaXRpb24YBiABKA0SDwoHdmVyc2lvbhgHIAEoBBIVCg1jcmVhdGVkX2F0X21zGAggASgEEhUKDXVwZGF0ZWRfYXRfbXMYCSABKAQSEwoLc2Vzc2lvbl9pZHMYCiADKAlCCAoGX2NvbG9yIp0DCgRUYXNrEgoKAmlkGAEgASgJEg0KBXN0YXRlGAIgASgJEhQKDHBheWxvYWRfanNvbhgDIAEoCRIWCg5lbnF1ZXVlZF9hdF9tcxgEIAEoBBIaCg1jbGFpbWVkX2F0X21zGAUgASgESACIAQESFwoKY2xhaW1lZF9ieRgGIAEoCUgBiAEBEhsKDmZpbmlzaGVkX2F0X21zGAcgASgESAKIAQESGAoLcmVzdWx0X2pzb24YCCABKAlIA4gBARIdChBjb21wbGV0aW9uX2NoZWNrGAkgASgJSASIAQESLQogY29tcGxldGlvbl9jaGVja19sYXN0X2F0dGVtcHRfbXMYCiABKARIBYgBARIUCgxjbGFpbV90dGxfbXMYCyABKARCEAoOX2NsYWltZWRfYXRfbXNCDQoLX2NsYWltZWRfYnlCEQoPX2ZpbmlzaGVkX2F0X21zQg4KDF9yZXN1bHRfanNvbkITChFfY29tcGxldGlvbl9jaGVja0IjCiFfY29tcGxldGlvbl9jaGVja19sYXN0X2F0dGVtcHRfbXMiXwoITWNwUmVsYXkSCgoCaWQYASABKAkSDQoFbGFiZWwYAiABKAkSDAoEa2luZBgDIAEoCRITCgtjb25maWdfanNvbhgEIAEoCRIVCg1jcmVhdGVkX2F0X21zGAUgASgEItkCCgtQYWlyUmVxdWVzdBIUCgxlcGhlbWVyYWxfaWQYASABKAkSDQoFbGFiZWwYAiABKAkSFQoNY3JlYXRlZF9hdF9tcxgDIAEoBBISCgp1c2VyX2FnZW50GAQgASgJEhYKDmNsaWVudF9icm93c2VyGAUgASgJEhEKCWNsaWVudF9vcxgGIAEoCRIaChJjbGllbnRfZGV2aWNlX3R5cGUYByABKAkSEQoJc291cmNlX2lwGAggASgJEhQKDGNvdW50cnlfY29kZRgJIAEoCRIOCgZyZWdpb24YCiABKAkSDAoEY2l0eRgLIAEoCRIeChZlZGdlX2lkZW50aXR5X3Byb3ZpZGVyGAwgASgJEhUKDWVkZ2VfaWRlbnRpdHkYDSABKAkSHgoWZWRnZV9pZGVudGl0eV92ZXJpZmllZBgOIAEoCBIVCg1leHBpcmVzX2F0X21zGA8gASgEIsYBCghBdWRpdFJvdxIKCgJpZBgBIAEoBBIKCgJ0cxgCIAEoBBIWCgljYWxsZXJfZnAYAyABKAlIAIgBARIZCgxjYWxsZXJfbGFiZWwYBCABKAlIAYgBARIOCgZtZXRob2QYBSABKAkSDAoEcGF0aBgGIAEoCRIOCgZzdGF0dXMYByABKA0SFQoIdHJhY2VfaWQYCCABKAlIAogBAUIMCgpfY2FsbGVyX2ZwQg8KDV9jYWxsZXJfbGFiZWxCCwoJX3RyYWNlX2lkInsKE1BiVGVybWluYWxWaWV3SW5wdXQSEwoLZmluZ2VycHJpbnQYASABKAkSDwoHdmlld19pZBgCIAEoCRIMCgRjb2xzGAMgASgNEgwKBHJvd3MYBCABKA0SDgoGcGFya2VkGAUgASgIEhIKCmNvbnN0cmFpbnMYBiABKAgqiAUKFVRlcm1pbmFsUGlwZWxpbmVTdGFnZRInCiNURVJNSU5BTF9QSVBFTElORV9TVEFHRV9VTlNQRUNJRklFRBAAEiYKIlRFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX1dPUktFUl9QVFkQARInCiNURVJNSU5BTF9QSVBFTElORV9TVEFHRV9XT1JLRVJfQ09SRRACEiwKKFRFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX1dPUktFUl9TQ0hFRFVMRVIQAxIpCiVURVJNSU5BTF9QSVBFTElORV9TVEFHRV9XT1JLRVJfU1RSRUFNEAQSMQotVEVSTUlOQUxfUElQRUxJTkVfU1RBR0VfV09SS0VSX1NUUkVBTV9DT05UUk9MEAUSKQolVEVSTUlOQUxfUElQRUxJTkVfU1RBR0VfV09SS0VSX0tFRVBFUhAGEi0KKVRFUk1JTkFMX1BJUEVMSU5FX1NUQUdFX1dPUktFUl9DT09SRF9MSU5LEAcSMAosVEVSTUlOQUxfUElQRUxJTkVfU1RBR0VfQ09PUkRfV09SS0VSX0lOR1JFU1MQCBIrCidURVJNSU5BTF9QSVBFTElORV9TVEFHRV9DT09SRF9DQU5PTklDQUwQCRIoCiRURVJNSU5BTF9QSVBFTElORV9TVEFHRV9DT09SRF9FR1JFU1MQChIrCidURVJNSU5BTF9QSVBFTElORV9TVEFHRV9CUk9XU0VSX0lOR1JFU1MQCxIrCidURVJNSU5BTF9QSVBFTElORV9TVEFHRV9CUk9XU0VSX1JFUExJQ0EQDBIsCihURVJNSU5BTF9QSVBFTElORV9TVEFHRV9CUk9XU0VSX1JFTkRFUkVSEA0q/wYKFlRlcm1pbmFsUGlwZWxpbmVSZWFzb24SKAokVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX1VOU1BFQ0lGSUVEEAASIQodVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX05PTkUQARIuCipURVJNSU5BTF9QSVBFTElORV9SRUFTT05fU0VTU0lPTl9OT1RfRk9VTkQQAhItCilURVJNSU5BTF9QSVBFTElORV9SRUFTT05fU1RSRUFNX05PVF9GT1VORBADEiwKKFRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9TVFJFQU1fRElTQUJMRUQQBBItCilURVJNSU5BTF9QSVBFTElORV9SRUFTT05fQkFTRUxJTkVfUEVORElORxAFEikKJVRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9DT1JFX0lOVkFMSUQQBhItCilURVJNSU5BTF9QSVBFTElORV9SRUFTT05fU05BUFNIT1RfUEVORElORxAHEiYKIlRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9DRUxMX0dBVEUQCBIoCiRURVJNSU5BTF9QSVBFTElORV9SRUFTT05fU1lOQ19PVVRQVVQQCRInCiNURVJNSU5BTF9QSVBFTElORV9SRUFTT05fQ0VMTF9ESVJUWRAKEisKJ1RFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9QRU5ESU5HX1JFUEFJUhALEisKJ1RFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9DT05UUk9MX1FVRVVFRBAMEjAKLFRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9LRUVQRVJfRElTQ09OTkVDVEVEEA0SMQotVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX0tFRVBFUl9JTlBVVF9QRU5ESU5HEA4SMgouVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX0tFRVBFUl9SRVNJWkVfUEVORElORxAPEjMKL1RFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9DT09SRF9MSU5LX1VOQVZBSUxBQkxFEBASLAooVEVSTUlOQUxfUElQRUxJTkVfUkVBU09OX05BVElWRV9CVUZGRVJFRBAREjEKLVRFUk1JTkFMX1BJUEVMSU5FX1JFQVNPTl9SQVdfTUVUQURBVEFfUEVORElORxASKpwBChJXb3JrZXJVcGRhdGVTb3VyY2USJAogV09SS0VSX1VQREFURV9TT1VSQ0VfVU5TUEVDSUZJRUQQABIdChlXT1JLRVJfVVBEQVRFX1NPVVJDRV9QVVNIEAESHwobV09SS0VSX1VQREFURV9TT1VSQ0VfTUFOVUFMEAISIAocV09SS0VSX1VQREFURV9TT1VSQ0VfQ0FUQ0hVUBADKqoCChJXb3JrZXJVcGRhdGVTdGF0dXMSJAogV09SS0VSX1VQREFURV9TVEFUVVNfVU5TUEVDSUZJRUQQABIfChtXT1JLRVJfVVBEQVRFX1NUQVRVU19RVUVVRUQQARIgChxXT1JLRVJfVVBEQVRFX1NUQVRVU19SVU5OSU5HEAISIgoeV09SS0VSX1VQREFURV9TVEFUVVNfVkVSSUZZSU5HEAMSIAocV09SS0VSX1VQREFURV9TVEFUVVNfV0FJVElORxAEEiAKHFdPUktFUl9VUERBVEVfU1RBVFVTX0JMT0NLRUQQBRIiCh5XT1JLRVJfVVBEQVRFX1NUQVRVU19TVUNDRUVERUQQBhIfChtXT1JLRVJfVVBEQVRFX1NUQVRVU19GQUlMRUQQByqJAgoRV29ya2VyVXBkYXRlUGhhc2USIwofV09SS0VSX1VQREFURV9QSEFTRV9VTlNQRUNJRklFRBAAEiEKHVdPUktFUl9VUERBVEVfUEhBU0VfUFJFRkxJR0hUEAESIAocV09SS0VSX1VQREFURV9QSEFTRV9SRUNPVkVSWRACEh8KG1dPUktFUl9VUERBVEVfUEhBU0VfU1RBR0lORxADEiIKHldPUktFUl9VUERBVEVfUEhBU0VfQUNUSVZBVElPThAEEiQKIFdPUktFUl9VUERBVEVfUEhBU0VfQ09ORklSTUFUSU9OEAUSHwobV09SS0VSX1VQREFURV9QSEFTRV9TRVRUTEVEEAZiBnByb3RvMw");
 
 /**
  * @generated from message roost.v1.HostMetrics
@@ -380,6 +380,256 @@ export const KeeperRuntimeObservationV1Schema: GenMessage<KeeperRuntimeObservati
   messageDesc(file_roost_v1_wire, 7);
 
 /**
+ * @generated from message roost.v1.WorkerUpdateOperation
+ */
+export type WorkerUpdateOperation = Message<"roost.v1.WorkerUpdateOperation"> & {
+  /**
+   * @generated from field: string job_id = 1;
+   */
+  jobId: string;
+
+  /**
+   * @generated from field: string worker_fp = 2;
+   */
+  workerFp: string;
+
+  /**
+   * @generated from field: string host = 3;
+   */
+  host: string;
+
+  /**
+   * @generated from field: uint64 revision = 4;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: string target_git_sha = 5;
+   */
+  targetGitSha: string;
+
+  /**
+   * @generated from field: roost.v1.WorkerUpdateSource source = 6;
+   */
+  source: WorkerUpdateSource;
+
+  /**
+   * @generated from field: roost.v1.WorkerUpdateStatus status = 7;
+   */
+  status: WorkerUpdateStatus;
+
+  /**
+   * @generated from field: roost.v1.WorkerUpdatePhase phase = 8;
+   */
+  phase: WorkerUpdatePhase;
+
+  /**
+   * @generated from field: optional string reason_code = 9;
+   */
+  reasonCode?: string | undefined;
+
+  /**
+   * @generated from field: optional string message = 10;
+   */
+  message?: string | undefined;
+
+  /**
+   * @generated from field: uint64 created_at_ms = 11;
+   */
+  createdAtMs: bigint;
+
+  /**
+   * @generated from field: uint64 updated_at_ms = 12;
+   */
+  updatedAtMs: bigint;
+
+  /**
+   * @generated from field: optional uint64 started_at_ms = 13;
+   */
+  startedAtMs?: bigint | undefined;
+
+  /**
+   * @generated from field: optional uint64 completed_at_ms = 14;
+   */
+  completedAtMs?: bigint | undefined;
+
+  /**
+   * @generated from field: optional uint64 next_attempt_at_ms = 15;
+   */
+  nextAttemptAtMs?: bigint | undefined;
+
+  /**
+   * @generated from field: optional int32 exit_code = 16;
+   */
+  exitCode?: number | undefined;
+};
+
+/**
+ * Describes the message roost.v1.WorkerUpdateOperation.
+ * Use `create(WorkerUpdateOperationSchema)` to create a new message.
+ */
+export const WorkerUpdateOperationSchema: GenMessage<WorkerUpdateOperation> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 8);
+
+/**
+ * @generated from message roost.v1.WorkerUpdateProgressEvent
+ */
+export type WorkerUpdateProgressEvent = Message<"roost.v1.WorkerUpdateProgressEvent"> & {
+  /**
+   * @generated from field: uint64 at_ms = 1;
+   */
+  atMs: bigint;
+
+  /**
+   * @generated from field: roost.v1.WorkerUpdatePhase phase = 2;
+   */
+  phase: WorkerUpdatePhase;
+
+  /**
+   * @generated from field: string message = 3;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message roost.v1.WorkerUpdateProgressEvent.
+ * Use `create(WorkerUpdateProgressEventSchema)` to create a new message.
+ */
+export const WorkerUpdateProgressEventSchema: GenMessage<WorkerUpdateProgressEvent> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 9);
+
+/**
+ * @generated from message roost.v1.WorkerUpdateJournalEvidence
+ */
+export type WorkerUpdateJournalEvidence = Message<"roost.v1.WorkerUpdateJournalEvidence"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: optional string phase = 2;
+   */
+  phase?: string | undefined;
+
+  /**
+   * @generated from field: optional string owner_id = 3;
+   */
+  ownerId?: string | undefined;
+
+  /**
+   * @generated from field: optional string rollout_id = 4;
+   */
+  rolloutId?: string | undefined;
+
+  /**
+   * @generated from field: optional string prior_sha = 5;
+   */
+  priorSha?: string | undefined;
+
+  /**
+   * @generated from field: optional string target_sha = 6;
+   */
+  targetSha?: string | undefined;
+};
+
+/**
+ * Describes the message roost.v1.WorkerUpdateJournalEvidence.
+ * Use `create(WorkerUpdateJournalEvidenceSchema)` to create a new message.
+ */
+export const WorkerUpdateJournalEvidenceSchema: GenMessage<WorkerUpdateJournalEvidence> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 10);
+
+/**
+ * @generated from message roost.v1.WorkerUpdateFailure
+ */
+export type WorkerUpdateFailure = Message<"roost.v1.WorkerUpdateFailure"> & {
+  /**
+   * @generated from field: string code = 1;
+   */
+  code: string;
+
+  /**
+   * @generated from field: roost.v1.WorkerUpdatePhase phase = 2;
+   */
+  phase: WorkerUpdatePhase;
+
+  /**
+   * @generated from field: string message = 3;
+   */
+  message: string;
+
+  /**
+   * @generated from field: optional roost.v1.WorkerUpdateJournalEvidence journal = 4;
+   */
+  journal?: WorkerUpdateJournalEvidence | undefined;
+
+  /**
+   * @generated from field: optional roost.v1.KeeperRuntimeObservationV1 expected_keeper = 5;
+   */
+  expectedKeeper?: KeeperRuntimeObservationV1 | undefined;
+
+  /**
+   * @generated from field: optional roost.v1.KeeperRuntimeObservationV1 observed_keeper = 6;
+   */
+  observedKeeper?: KeeperRuntimeObservationV1 | undefined;
+
+  /**
+   * @generated from field: optional roost.v1.KeeperContractV1 target_contract = 7;
+   */
+  targetContract?: KeeperContractV1 | undefined;
+};
+
+/**
+ * Describes the message roost.v1.WorkerUpdateFailure.
+ * Use `create(WorkerUpdateFailureSchema)` to create a new message.
+ */
+export const WorkerUpdateFailureSchema: GenMessage<WorkerUpdateFailure> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 11);
+
+/**
+ * @generated from message roost.v1.WorkerUpdateReport
+ */
+export type WorkerUpdateReport = Message<"roost.v1.WorkerUpdateReport"> & {
+  /**
+   * @generated from field: uint32 schema_version = 1;
+   */
+  schemaVersion: number;
+
+  /**
+   * @generated from field: roost.v1.WorkerUpdateOperation operation = 2;
+   */
+  operation?: WorkerUpdateOperation | undefined;
+
+  /**
+   * @generated from field: optional string observed_git_sha = 3;
+   */
+  observedGitSha?: string | undefined;
+
+  /**
+   * @generated from field: string coordinator_origin = 4;
+   */
+  coordinatorOrigin: string;
+
+  /**
+   * @generated from field: optional roost.v1.WorkerUpdateFailure failure = 5;
+   */
+  failure?: WorkerUpdateFailure | undefined;
+
+  /**
+   * @generated from field: repeated roost.v1.WorkerUpdateProgressEvent events = 6;
+   */
+  events: WorkerUpdateProgressEvent[];
+};
+
+/**
+ * Describes the message roost.v1.WorkerUpdateReport.
+ * Use `create(WorkerUpdateReportSchema)` to create a new message.
+ */
+export const WorkerUpdateReportSchema: GenMessage<WorkerUpdateReport> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 12);
+
+/**
  * @generated from message roost.v1.Worker
  */
 export type Worker = Message<"roost.v1.Worker"> & {
@@ -450,6 +700,11 @@ export type Worker = Message<"roost.v1.Worker"> & {
    * @generated from field: optional roost.v1.HostIdentity host_identity = 12;
    */
   hostIdentity?: HostIdentity | undefined;
+
+  /**
+   * @generated from field: optional roost.v1.WorkerUpdateOperation update_operation = 13;
+   */
+  updateOperation?: WorkerUpdateOperation | undefined;
 };
 
 /**
@@ -457,7 +712,7 @@ export type Worker = Message<"roost.v1.Worker"> & {
  * Use `create(WorkerSchema)` to create a new message.
  */
 export const WorkerSchema: GenMessage<Worker> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 8);
+  messageDesc(file_roost_v1_wire, 13);
 
 /**
  * Private opaque continuation metadata. It is carried by durable events and
@@ -492,7 +747,7 @@ export type AgentConversationReferenceV1 = Message<"roost.v1.AgentConversationRe
  * Use `create(AgentConversationReferenceV1Schema)` to create a new message.
  */
 export const AgentConversationReferenceV1Schema: GenMessage<AgentConversationReferenceV1> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 9);
+  messageDesc(file_roost_v1_wire, 14);
 
 /**
  * @generated from message roost.v1.Session
@@ -623,7 +878,7 @@ export type Session = Message<"roost.v1.Session"> & {
  * Use `create(SessionSchema)` to create a new message.
  */
 export const SessionSchema: GenMessage<Session> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 10);
+  messageDesc(file_roost_v1_wire, 15);
 
 /**
  * @generated from message roost.v1.Workspace
@@ -687,7 +942,7 @@ export type Workspace = Message<"roost.v1.Workspace"> & {
  * Use `create(WorkspaceSchema)` to create a new message.
  */
 export const WorkspaceSchema: GenMessage<Workspace> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 11);
+  messageDesc(file_roost_v1_wire, 16);
 
 /**
  * @generated from message roost.v1.Task
@@ -760,7 +1015,7 @@ export type Task = Message<"roost.v1.Task"> & {
  * Use `create(TaskSchema)` to create a new message.
  */
 export const TaskSchema: GenMessage<Task> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 12);
+  messageDesc(file_roost_v1_wire, 17);
 
 /**
  * @generated from message roost.v1.McpRelay
@@ -801,7 +1056,7 @@ export type McpRelay = Message<"roost.v1.McpRelay"> & {
  * Use `create(McpRelaySchema)` to create a new message.
  */
 export const McpRelaySchema: GenMessage<McpRelay> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 13);
+  messageDesc(file_roost_v1_wire, 18);
 
 /**
  * @generated from message roost.v1.PairRequest
@@ -888,7 +1143,7 @@ export type PairRequest = Message<"roost.v1.PairRequest"> & {
  * Use `create(PairRequestSchema)` to create a new message.
  */
 export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 14);
+  messageDesc(file_roost_v1_wire, 19);
 
 /**
  * @generated from message roost.v1.AuditRow
@@ -940,7 +1195,7 @@ export type AuditRow = Message<"roost.v1.AuditRow"> & {
  * Use `create(AuditRowSchema)` to create a new message.
  */
 export const AuditRowSchema: GenMessage<AuditRow> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 15);
+  messageDesc(file_roost_v1_wire, 20);
 
 /**
  * One viewer's contribution to a session's effective terminal geometry, as
@@ -985,7 +1240,7 @@ export type PbTerminalViewInput = Message<"roost.v1.PbTerminalViewInput"> & {
  * Use `create(PbTerminalViewInputSchema)` to create a new message.
  */
 export const PbTerminalViewInputSchema: GenMessage<PbTerminalViewInput> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 16);
+  messageDesc(file_roost_v1_wire, 21);
 
 /**
  * @generated from enum roost.v1.TerminalPipelineStage
@@ -1173,4 +1428,132 @@ export enum TerminalPipelineReason {
  */
 export const TerminalPipelineReasonSchema: GenEnum<TerminalPipelineReason> = /*@__PURE__*/
   enumDesc(file_roost_v1_wire, 1);
+
+/**
+ * @generated from enum roost.v1.WorkerUpdateSource
+ */
+export enum WorkerUpdateSource {
+  /**
+   * @generated from enum value: WORKER_UPDATE_SOURCE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_SOURCE_PUSH = 1;
+   */
+  PUSH = 1,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_SOURCE_MANUAL = 2;
+   */
+  MANUAL = 2,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_SOURCE_CATCHUP = 3;
+   */
+  CATCHUP = 3,
+}
+
+/**
+ * Describes the enum roost.v1.WorkerUpdateSource.
+ */
+export const WorkerUpdateSourceSchema: GenEnum<WorkerUpdateSource> = /*@__PURE__*/
+  enumDesc(file_roost_v1_wire, 2);
+
+/**
+ * @generated from enum roost.v1.WorkerUpdateStatus
+ */
+export enum WorkerUpdateStatus {
+  /**
+   * @generated from enum value: WORKER_UPDATE_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_STATUS_QUEUED = 1;
+   */
+  QUEUED = 1,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_STATUS_RUNNING = 2;
+   */
+  RUNNING = 2,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_STATUS_VERIFYING = 3;
+   */
+  VERIFYING = 3,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_STATUS_WAITING = 4;
+   */
+  WAITING = 4,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_STATUS_BLOCKED = 5;
+   */
+  BLOCKED = 5,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_STATUS_SUCCEEDED = 6;
+   */
+  SUCCEEDED = 6,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_STATUS_FAILED = 7;
+   */
+  FAILED = 7,
+}
+
+/**
+ * Describes the enum roost.v1.WorkerUpdateStatus.
+ */
+export const WorkerUpdateStatusSchema: GenEnum<WorkerUpdateStatus> = /*@__PURE__*/
+  enumDesc(file_roost_v1_wire, 3);
+
+/**
+ * @generated from enum roost.v1.WorkerUpdatePhase
+ */
+export enum WorkerUpdatePhase {
+  /**
+   * @generated from enum value: WORKER_UPDATE_PHASE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_PHASE_PREFLIGHT = 1;
+   */
+  PREFLIGHT = 1,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_PHASE_RECOVERY = 2;
+   */
+  RECOVERY = 2,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_PHASE_STAGING = 3;
+   */
+  STAGING = 3,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_PHASE_ACTIVATION = 4;
+   */
+  ACTIVATION = 4,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_PHASE_CONFIRMATION = 5;
+   */
+  CONFIRMATION = 5,
+
+  /**
+   * @generated from enum value: WORKER_UPDATE_PHASE_SETTLED = 6;
+   */
+  SETTLED = 6,
+}
+
+/**
+ * Describes the enum roost.v1.WorkerUpdatePhase.
+ */
+export const WorkerUpdatePhaseSchema: GenEnum<WorkerUpdatePhase> = /*@__PURE__*/
+  enumDesc(file_roost_v1_wire, 4);
 

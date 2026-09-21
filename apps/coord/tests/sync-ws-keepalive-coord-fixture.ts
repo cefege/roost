@@ -18,6 +18,7 @@ import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
 import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
 import { TerminalPeerNegotiations } from "../src/connect/terminal-peer-negotiations.ts";
+import { workerUpdateTestDeps } from "./worker-update-test-deps.ts";
 
 export interface SyncWsKeepaliveCoordFixture {
   deps: ConnectDeps;
@@ -61,6 +62,7 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     terminalGrants,
   });
   const deps: ConnectDeps = {
+    ...workerUpdateTestDeps(),
     db,
     sqlite,
     writeGate: new CoordinatorWriteGate(),

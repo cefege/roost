@@ -143,6 +143,16 @@ function scrollBoxCanStillMove(element: HTMLElement, direction: Direction): bool
 		: element.scrollTop < element.scrollHeight - element.clientHeight;
 }
 
+/** Directional focus excludes terminal-owned inputs and explicit activation controls. */
+export function _isExcludedSpatialCandidate(
+	element: Pick<HTMLElement, "classList" | "dataset">,
+): boolean {
+	return (
+		element.classList.contains("terminal-input") ||
+		element.dataset.spatialNavigation === "manual"
+	);
+}
+
 function collectCandidates(active: HTMLElement | null): HTMLElement[] {
 	const out: HTMLElement[] = [];
 	for (const element of document.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)) {
@@ -154,7 +164,7 @@ function collectCandidates(active: HTMLElement | null): HTMLElement[] {
 		// tabIndex once in the constructor, so a pad connected after a pane
 		// mounted would leave a tabIndex=0 target behind; excluding it here is
 		// the only place that holds for both modalities.
-		if (element.classList.contains("terminal-input")) continue;
+		if (_isExcludedSpatialCandidate(element)) continue;
 		out.push(element);
 	}
 	return out;

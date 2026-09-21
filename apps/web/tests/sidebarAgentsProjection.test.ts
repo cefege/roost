@@ -45,6 +45,7 @@ function worker(fp: typeof FIRST_FP | typeof SECOND_FP, label: string): Worker {
     reachable_addr: null,
     keeper_runtime: null,
     terminal_core_capacity: null,
+    update_operation: null,
   };
 }
 

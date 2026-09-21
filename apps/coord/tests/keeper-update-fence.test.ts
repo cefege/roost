@@ -26,6 +26,7 @@ import {
   resolvePendingRpc,
 } from "../src/router/pending-rpcs.ts";
 import { resetPendingSpawnsForTest } from "../src/connect/pending-spawns.ts";
+import { workerUpdateTestDeps } from "./worker-update-test-deps.ts";
 
 const WORKER_FP = "ab".repeat(32);
 const FIRST_SESSION_ID = "10000000-0000-4000-8000-000000000001";
@@ -135,7 +136,9 @@ async function openHarness(): Promise<KeeperFenceHarness> {
     terminalPeerEnabled: false,
     terminalPeerStunUrls: [],
   };
+  const workerUpdateDeps = workerUpdateTestDeps();
   const coord = createCoord({
+    ...workerUpdateDeps,
     db: opened.db,
     sqlite: opened.sqlite,
     cfg,

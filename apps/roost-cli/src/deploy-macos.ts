@@ -59,6 +59,7 @@ const REMOTE_DIR = "~/RoostWorkerV2";
 export interface MacosDeployOptions {
   sourceCheckout: string;
   gitSha: string;
+  bunExecutable: string;
   coordinatorUrl?: string;
   workerLabel?: string;
   reachableAddr?: string;
@@ -222,7 +223,9 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
       }
 
       console.log(`>> bun install on ${host}`);
-      const installRes = await deploySsh(`set -eo pipefail; cd ${remoteDir} && bun install --frozen-lockfile 2>&1 | tail -25`);
+      const installRes = await deploySsh(
+        `set -eo pipefail; cd ${remoteDir} && ${posixShellQuote(options.bunExecutable)} install --frozen-lockfile 2>&1 | tail -25`,
+      );
       if (installRes.exit !== 0) {
         await cleanupStage();
         failDeploy(4, `bun install failed\n${installRes.stdout}\n${installRes.stderr}`);
@@ -233,6 +236,7 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
         // The staged release is spelled `~/…`, so it must stay unquoted for the
         // remote shell to expand it.
         releaseDirectory: remoteDir,
+        bunExecutable: options.bunExecutable,
         execute: deploySsh,
         settle: cleanupStageOnSpaFailure(cleanupStage),
       });
@@ -240,6 +244,7 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
         ROOST_COORDINATOR_URL: resolvedCoordinatorUrl,
         ...identityEnv,
         ROOST_BOOTSTRAP_TOKEN: process.env.ROOST_BOOTSTRAP_TOKEN,
+        BUN_BIN: options.bunExecutable,
         // Stamped from the directory just built, never carried over from the
         // installed plist: every release stages its own dist, so a prior value
         // names a release this host has already retired.

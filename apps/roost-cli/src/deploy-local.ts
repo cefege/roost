@@ -31,6 +31,9 @@ import { buildStagedWorkerSpaLocally, cleanupStageOnSpaFailure } from "./deploy-
 import { linuxWorkerResourceEnvironment } from "./linux-deploy-journal-commands.ts";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
 import {
+  resolveLocalWorkerRuntime, type WorkerRuntimeObservation,
+} from "./worker-service-runtime.ts";
+import {
   KEEPER_FORCE_LIVE_RETIRE_ENV,
   workerInstallEnvironmentValues,
 } from "./deploy-worker-environment.ts";
@@ -73,10 +76,10 @@ export async function _deployLocal(
     coordinatorUrl?: string;
     workerLabel?: string;
     reachableAddr?: string;
+    resolveKeeperAdmission?: (runtime: WorkerRuntimeObservation) => Promise<DirectKeeperAdmissionOutcome>;
     forceLiveKeeperRetire?: boolean;
     keeperUpdate?: JournaledKeeperUpdateV1 | null;
     workerFingerprint: string | null;
-    resolveKeeperAdmission?: () => Promise<DirectKeeperAdmissionOutcome>;
     keeperCallbacks: JournaledKeeperUpdateCallbacks;
   },
 ): Promise<void> {
@@ -126,11 +129,8 @@ export async function _deployLocal(
     })) {
       return;
     }
-    const bunBin = Bun.which("bun") ?? process.execPath;
     const releaseId = `${localGitSha}-${crypto.randomUUID()}`;
     const releaseDir = join(releaseRoot, releaseId);
-
-
     console.log(`>> local deploy on ${host}`);
     const { env: hostEnv, filled } = await _backfillEnvFromPlist("self");
     if (filled.length > 0) {
@@ -140,6 +140,8 @@ export async function _deployLocal(
     const priorText = priorService
       ? decodeServiceSnapshot(priorService).toString("utf8")
       : "";
+    const workerRuntime = resolveLocalWorkerRuntime(priorService ? priorText : null, os);
+    const bunBin = workerRuntime.executable;
     const priorWorkingDirectory = priorService
       ? normalizedMetadataPath(serviceWorkingDirectory(priorText, os))
       : null;
@@ -164,7 +166,7 @@ export async function _deployLocal(
       ? keeperAdmissionStaging(
           host,
           "local",
-          await options.resolveKeeperAdmission(),
+          await options.resolveKeeperAdmission(workerRuntime),
         )
       : {
           keeperUpdate: options.keeperUpdate ?? null,

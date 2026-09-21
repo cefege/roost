@@ -1,9 +1,10 @@
-// `roost push` publishes one clean commit and rolls the local POSIX coordinator
-// plus every reachable POSIX worker already on the prior SHA as one journaled
-// fleet, deferring the machines it cannot converge to their own catch-up.
-// No participant drops rollback state before the durable global commit decision.
+// `roost push` publishes one clean commit, commits the coordinator through its
+// participant-free V4 journal, releases coordinator preparation ownership, and
+// submits one durable update job per selected worker. Per-worker failure or
+// deferral never rolls back the coordinator or another worker.
 
 import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import {
   DeployFailure,
   failDeploy,
@@ -19,16 +20,17 @@ import {
 import { loadCoordinatorDeployJournal } from "./coordinator-deploy-journal.ts";
 import {
   acquireFleetPushTransaction,
-  deployLocalCoordinatorHeld,
   prepareCoordinatorDeployLocation,
   type CoordinatorDeployLocation,
 } from "./push-coordinator.ts";
+import { deployLocalCoordinator } from "./push-coordinator-v4.ts";
+import { recoverCoordinatorDeployV4 } from "./coordinator-deploy-recovery-v4.ts";
 import {
-  convergeAtomicFleet,
+  printIndependentWorkerUpdateResults,
+  submitIndependentWorkerUpdates,
+} from "./push-worker-jobs.ts";
+import {
   finishAtomicFleetFinalization,
-  interruptedFleetRecoveryAction,
-  rollbackAtomicFleet,
-  type FleetRolloutPlan,
   type FleetRolloutTarget,
 } from "./push-fleet-rollout.ts";
 import {
@@ -37,21 +39,13 @@ import {
   _resolveAtomicFleetWorkers,
   fleetWorkerIdentityProblems,
   planFromJournal,
-  sameRolloutTarget,
   type DeferredFleetWorker,
 } from "./push-fleet-plan.ts";
 import { fleetRuntime } from "./push-rollout-runtime.ts";
 import {
-  routableWorkerFingerprints,
   statusReport,
   workerInventoryForUpdateAdmission,
 } from "./status.ts";
-import {
-  classifyFleetKeeperUpdates,
-  loadSourceKeeperContract,
-  probeTargetKeeperContract,
-} from "./push-keeper-admission.ts";
-import type { KeeperContractV1 } from "@roost/shared/keeper-update";
 import { POSIX_FULL_GIT_SHA_RE } from "./posix-deploy-journal.ts";
 import { tryCoordinatorSelfUpdate } from "./deploy-windows-channel.ts";
 import { parseWindowsReleaseManifest } from "./windows/windows-update-journal.ts";
@@ -114,32 +108,6 @@ export async function deployCoordinatorForPlatform(
   return "posix";
 }
 
-async function recoverOrResumeCoordinatorRollout(
-  location: CoordinatorDeployLocation,
-  requestedSha: string,
-  requestedWorkers: readonly FleetRolloutTarget[],
-): Promise<boolean> {
-  const journal = loadCoordinatorDeployJournal(location.journalPath, location.context);
-  if (!journal) return false;
-  if (journal.phase === "prepared" || journal.phase === "activating") {
-    await recoverCoordinatorDeploy(location.journalPath, location.context);
-    return false;
-  }
-  const plan = planFromJournal(journal, workerInventoryForUpdateAdmission());
-  const runtime = fleetRuntime(location, plan, _atomicFleetConvergenceProblems);
-  const targetMatches = sameRolloutTarget(plan, requestedSha, requestedWorkers);
-  const recoveryAction = interruptedFleetRecoveryAction(journal.phase, targetMatches);
-  if (recoveryAction === "finish-target") {
-    await finishAtomicFleetFinalization(plan, runtime);
-    return targetMatches;
-  }
-  if (recoveryAction === "converge-target") {
-    await convergeAtomicFleet(plan, runtime);
-    return true;
-  }
-  await rollbackAtomicFleet(plan, runtime);
-  return false;
-}
 
 /** The operator's whole view of a partial fleet: which machines this push left
  *  alone, why, and how each one catches up. A deferred machine is not an error,
@@ -158,159 +126,6 @@ export function _deferredFleetReportLines(
   ];
 }
 
-async function executePushUnderLease(
-  args: readonly string[],
-  configured: string | undefined,
-  expectedSha: string,
-  location: CoordinatorDeployLocation,
-  requestedTargets: readonly FleetRolloutTarget[],
-): Promise<void> {
-  if (await recoverOrResumeCoordinatorRollout(
-    location,
-    expectedSha,
-    requestedTargets,
-  )) {
-    console.log(`\n>> push complete — recovered exact fleet rollout ${expectedSha}`);
-    return;
-  }
-
-  const initial = await statusReport();
-  if (!coordinatorReportIsOperational(initial) || !initial.coord.gitSha) {
-    failDeploy(8, "coordinator must be operational before fleet mutation begins");
-  }
-  const priorSha = initial.coord.gitSha;
-  if (!POSIX_FULL_GIT_SHA_RE.test(priorSha)) {
-    failDeploy(8, "coordinator did not report a full prior Git SHA");
-  }
-  const inventory = workerInventoryForUpdateAdmission();
-  const identityProblems = fleetWorkerIdentityProblems(inventory);
-  if (identityProblems.length > 0) {
-    failDeploy(
-      8,
-      `coordinator worker identity is not provable; zero mutation:\n${
-        identityProblems.join("\n")
-      }`,
-    );
-  }
-  const candidates = _resolveAtomicFleetWorkers(configured, inventory);
-  let routableFingerprints: ReadonlySet<string>;
-  try {
-    routableFingerprints = await routableWorkerFingerprints();
-  } catch (error) {
-    failDeploy(
-      8,
-      `fleet routability proof failed with zero mutation: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-  const { participants, deferred } = _partitionFleetForRollout(
-    candidates,
-    inventory,
-    routableFingerprints,
-    priorSha,
-  );
-  // The coordinator can only move as one journaled transaction with at least one
-  // worker, so a fleet with nobody to converge is a refusal — unless the
-  // coordinator already runs the target, where there is simply nothing to do.
-  if (participants.length === 0 && priorSha !== expectedSha) {
-    failDeploy(
-      8,
-      `no registered worker is reachable and on the prior SHA; zero mutation\n${
-        deferred.map((machine) => `${machine.label}: ${machine.reason}`).join("\n")
-      }`,
-    );
-  }
-  // Probed per host, not as one Promise.all: a machine whose keeper contract
-  // cannot be read is exactly a deferral, and rejecting the batch on the first
-  // unreadable host is the wedge this model removes.
-  const targetContracts = new Map<string, KeeperContractV1>();
-  const probeDeferred: DeferredFleetWorker[] = [];
-  let sourceKeeperContract: KeeperContractV1;
-  try {
-    sourceKeeperContract = await loadSourceKeeperContract(REPO_ROOT);
-  } catch (error) {
-    failDeploy(
-      8,
-      `fleet keeper source proof failed with zero mutation: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-  await Promise.all(participants.map(async (target) => {
-    try {
-      targetContracts.set(
-        target.fingerprint,
-        await probeTargetKeeperContract(target.host, expectedSha, sourceKeeperContract),
-      );
-    } catch (error) {
-      probeDeferred.push({
-        fingerprint: target.fingerprint,
-        label: target.host,
-        reason: `keeper target proof failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    }
-  }));
-  const admission = classifyFleetKeeperUpdates(
-    participants.filter((target) => targetContracts.has(target.fingerprint)),
-    inventory,
-    targetContracts,
-  );
-  const allDeferred = [...deferred, ...probeDeferred, ...admission.deferred];
-  if (admission.workers.length === 0 && priorSha !== expectedSha) {
-    failDeploy(
-      8,
-      `no registered worker can be updated safely; zero mutation\n${
-        allDeferred.map((machine) => `${machine.label}: ${machine.reason}`).join("\n")
-      }`,
-    );
-  }
-
-  // "Already satisfied" must mean every participant is provably on the target
-  // with no keeper work left. A machine that came back behind the fleet is
-  // deferred and reported, never counted as satisfied.
-  const unconverged = admission.workers.filter((worker) =>
-    worker.keeperUpdate.admission.required_action !== "preserve"
-    || inventory.find(
-      registered => registered.fingerprint === worker.fingerprint,
-    )?.gitSha !== expectedSha);
-  if (priorSha === expectedSha && unconverged.length === 0) {
-    console.log(
-      `\n>> push complete — coordinator, ${admission.workers.length} workers, and keepers already satisfy ${expectedSha}`,
-    );
-    for (const line of _deferredFleetReportLines(allDeferred)) console.log(line);
-    return;
-  }
-  const rolloutId = crypto.randomUUID();
-  const held = await deployLocalCoordinatorHeld({
-    targetSha: expectedSha,
-    priorSha,
-    rolloutId,
-    targetWorkerFingerprints: admission.workers.map((worker) => worker.fingerprint),
-    workerKeeperPlans: admission.workers.map((worker) => ({
-      fingerprint: worker.fingerprint,
-      keeperUpdate: worker.keeperUpdate,
-    })),
-    buildWeb: !args.includes("--no-web"),
-  });
-  const plan: FleetRolloutPlan = {
-    rolloutId,
-    admissionRecordedAtMs: held.journal.admissionRecordedAtMs,
-    priorSha,
-    targetSha: expectedSha,
-    workers: admission.workers,
-  };
-  await convergeAtomicFleet(
-    plan,
-    fleetRuntime(held, plan, _atomicFleetConvergenceProblems),
-  );
-  console.log(
-    `\n>> push complete — coordinator and ${admission.workers.length} workers report ${expectedSha}`,
-  );
-  for (const line of _deferredFleetReportLines(allDeferred)) console.log(line);
-}
 
 async function finishMandatoryCoordinatorRecovery(
   location: CoordinatorDeployLocation,
@@ -328,71 +143,91 @@ async function finishMandatoryCoordinatorRecovery(
   }
 }
 
-async function rollbackHeldCoordinatorIfPresent(
-  location: CoordinatorDeployLocation,
-): Promise<void> {
-  const journal = loadCoordinatorDeployJournal(location.journalPath, location.context);
-  if (!journal || journal.phase !== "fleet-converging") return;
-  const plan = planFromJournal(journal, workerInventoryForUpdateAdmission());
-  await rollbackAtomicFleet(
-    plan,
-    fleetRuntime(location, plan, _atomicFleetConvergenceProblems),
-  );
-}
 
 export async function push(args: string[]): Promise<void> {
   if (args.includes("--allow-dirty")) {
     failDeploy(1, "roost push never permits --allow-dirty");
   }
   if (args.includes("--no-coord")) {
-    failDeploy(1, "atomic roost push cannot skip the coordinator transaction");
+    failDeploy(1, "roost push cannot skip the coordinator transaction");
   }
   const targetsArg = args.find((arg) => arg.startsWith("--targets="));
-  const configured = targetsArg?.slice("--targets=".length) ?? process.env.ROOST_PUSH_TARGETS;
-  let targets: FleetRolloutTarget[];
+  const configured = targetsArg?.slice("--targets=".length)
+    ?? process.env.ROOST_PUSH_TARGETS;
   const location = prepareCoordinatorDeployLocation();
-  const fleetTransaction = await acquireFleetPushTransaction(location);
+  const transaction = await acquireFleetPushTransaction(location);
+  let expectedSha: string;
+  let targets: FleetRolloutTarget[];
   try {
-    await finishMandatoryCoordinatorRecovery(location);
-    try {
-      targets = _resolveAtomicFleetWorkers(
-        configured,
-        workerInventoryForUpdateAdmission(),
+    await recoverCoordinatorJournalBeforeForwardPush(location);
+    expectedSha = resolveLocalGitShaOrDie(REPO_ROOT);
+    if (expectedSha.endsWith("-dirty") || !POSIX_FULL_GIT_SHA_RE.test(expectedSha)) {
+      failDeploy(7, "roost push requires a clean full Git commit");
+    }
+    const publishTarget = resolveGitPublishTargetOrDie(REPO_ROOT);
+    if (!args.includes("--no-git")) {
+      console.log(`>> git push ${publishTarget.remote} HEAD:${publishTarget.mergeRef}`);
+      await runOrDie(
+        ["git", "push", "--", publishTarget.remote, `HEAD:${publishTarget.mergeRef}`],
+        "git push",
+        { cwd: REPO_ROOT, echo: true },
       );
-    } catch (error) {
-      await rollbackHeldCoordinatorIfPresent(location);
-      throw error;
     }
-    let expectedSha: string;
-    try {
-      expectedSha = resolveLocalGitShaOrDie(REPO_ROOT);
-      if (expectedSha.endsWith("-dirty") || !POSIX_FULL_GIT_SHA_RE.test(expectedSha)) {
-        failDeploy(7, "roost push requires a clean full Git commit");
+    resolvePublishedGitShaOrDie(REPO_ROOT, expectedSha);
+    const report = await statusReport();
+    if (!coordinatorReportIsOperational(report)) {
+      failDeploy(8, "coordinator must be operational before update");
+    }
+    targets = _resolveAtomicFleetWorkers(
+      configured,
+      workerInventoryForUpdateAdmission(),
+    );
+    if (report.coord.gitSha !== expectedSha) {
+      const windowsUpdated = await tryCoordinatorSelfUpdate(expectedSha);
+      if (windowsUpdated === null) {
+        await deployLocalCoordinator({
+          targetSha: expectedSha,
+          rolloutId: crypto.randomUUID(),
+          buildWeb: !args.includes("--no-web"),
+        });
       }
-    } catch (error) {
-      await rollbackHeldCoordinatorIfPresent(location);
-      throw error;
     }
-
-    try {
-      const publishTarget = resolveGitPublishTargetOrDie(REPO_ROOT);
-      if (!args.includes("--no-git")) {
-        console.log(`>> git push ${publishTarget.remote} HEAD:${publishTarget.mergeRef}`);
-        await runOrDie(
-          ["git", "push", "--", publishTarget.remote, `HEAD:${publishTarget.mergeRef}`],
-          "git push",
-          { cwd: REPO_ROOT, echo: true },
-        );
-      } else {
-        console.log(">> skipping git transmission (--no-git); verifying remote identity");
-      }
-      resolvePublishedGitShaOrDie(REPO_ROOT, expectedSha);
-    } catch (error) {
-      await rollbackHeldCoordinatorIfPresent(location);
-      throw error;
-    }
-    await executePushUnderLease(args, configured, expectedSha, location, targets);
   } finally {
-    await fleetTransaction.release();
+    await transaction.release();
   }
+
+  const results = await submitIndependentWorkerUpdates(targets, expectedSha);
+  printIndependentWorkerUpdateResults(results);
+  const failures = results.filter(result => result.outcome === "failed");
+  if (failures.length > 0) {
+    throw new DeployFailure(
+      8,
+      `${failures.length} worker update${failures.length === 1 ? "" : "s"} failed;`
+        + " successful workers and coordinator remain committed",
+    );
+  }
+}
+
+async function recoverCoordinatorJournalBeforeForwardPush(
+  location: CoordinatorDeployLocation,
+): Promise<void> {
+  if (!existsSync(location.journalPath)) return;
+  let schemaVersion: unknown;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(location.journalPath, "utf8"));
+    schemaVersion = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>).schemaVersion
+      : undefined;
+  } catch (error) {
+    failDeploy(5, `coordinator deploy journal is malformed: ${String(error)}`);
+  }
+  if (schemaVersion === 4) {
+    await recoverCoordinatorDeployV4(location.journalPath, location.context);
+    return;
+  }
+  if (schemaVersion === 3) {
+    await finishMandatoryCoordinatorRecovery(location);
+    return;
+  }
+  failDeploy(5, `unsupported coordinator deploy journal schema ${String(schemaVersion)}`);
 }

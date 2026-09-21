@@ -32,6 +32,7 @@ import {
   getMultiplexedPool,
   type KeeperHistoryRecord,
   type KeeperHistoryRecords,
+  type KeeperTerminalState,
 } from "../src/keeper/multiplexed-client.ts";
 
 afterEach(cleanupStreamHarnesses);
@@ -154,6 +155,102 @@ describe("worker terminal core traps and re-proof", () => {
     expect(frameRowText(painted, 1)).toContain("AFTER-TRAP");
   });
 
+  test("a normal acknowledged resize keeps its live core without rebuilding retained history", async () => {
+    trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
+    const core = await createWtermCore(TEST_COLS, TEST_ROWS);
+    const harness = await makeHarness(core);
+    await enableStream(harness.manager, STREAM_A);
+    harness.manager.emitUpstreamChunk(CHANNEL_ID, Buffer.from("\x1b[1;1HLIVE-BEFORE-RESIZE"));
+
+    const stream = harness.manager.terminalStreams.get(CHANNEL_ID)!;
+    const capture = installLiveResizeCapture(
+      harness.manager,
+      CHANNEL_ID,
+      stream,
+      1,
+      TEST_COLS,
+      TEST_ROWS,
+      TEST_COLS + 3,
+      TEST_ROWS + 2,
+    );
+    const pool = getMultiplexedPool();
+    const priorHistory = pool.getHistoryRecords.bind(pool);
+    let historyCalls = 0;
+    pool.getHistoryRecords = async () => {
+      historyCalls += 1;
+      throw new Error("normal resize must not rebuild from history");
+    };
+    try {
+      applyResizeResultAtBoundary(harness.manager, CHANNEL_ID, capture, {
+        kind: "ack",
+        seq: 1,
+        cols: TEST_COLS + 3,
+        rows: TEST_ROWS + 2,
+      });
+    } finally {
+      pool.getHistoryRecords = priorHistory;
+    }
+
+    expect(historyCalls).toBe(0);
+    expect(harness.record.wtermCore).toBe(core);
+    expect([core.getCols(), core.getRows()]).toEqual([TEST_COLS + 3, TEST_ROWS + 2]);
+    expect(stream.coreValid).toBe(true);
+    expect(stream.resizeCapture).toBeNull();
+    expect(harness.manager.cellEmissionGates.has(CHANNEL_ID)).toBe(false);
+  });
+
+  test("core re-proof replays ordered resize history before its retained live tail exactly once", async () => {
+    trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
+    const harness = await makeHarness();
+    await enableStream(harness.manager, STREAM_A);
+    const beforeResize = "\x1b[1;1HORD-BEFORE";
+    const afterResize = "\x1b[2;1HORD-AFTER";
+    const liveAfterHistory = "\x1b[3;1HORD-LIVE";
+    const beforeBytes = Buffer.from(beforeResize);
+    const afterBytes = Buffer.from(afterResize);
+    const liveBytes = Buffer.from(liveAfterHistory);
+
+    harness.manager.emitUpstreamChunk(CHANNEL_ID, beforeBytes);
+    trapResizeCapture(harness);
+    harness.manager.emitUpstreamChunk(CHANNEL_ID, afterBytes);
+    harness.manager.emitUpstreamChunk(CHANNEL_ID, liveBytes);
+    const historyHeadSeq = beforeBytes.byteLength + afterBytes.byteLength;
+    const restoreHistory = stubOrderedHistoryRecords({
+      headSeq: historyHeadSeq,
+      baseCols: TEST_COLS,
+      baseRows: TEST_ROWS,
+      records: [
+        { kind: "output", bytes: beforeBytes },
+        { kind: "resize", seq: 1, cols: REPROVED_COLS, rows: REPROVED_ROWS },
+        { kind: "output", bytes: afterBytes },
+      ],
+    }, {
+      headSeq: historyHeadSeq,
+      cols: REPROVED_COLS,
+      rows: REPROVED_ROWS,
+      highestResizeSeq: 1,
+      appliedResizeSeq: 1,
+    });
+    try {
+      await expect(enableStream(harness.manager, STREAM_B, REPROVED_COLS, REPROVED_ROWS))
+        .resolves.toMatchObject({ status: "committed" });
+      await flushLeadingCellEmit();
+    } finally {
+      restoreHistory();
+    }
+
+    const painted = harness.frameAttempts.at(-1)!;
+    expect([harness.record.wtermCore.getCols(), harness.record.wtermCore.getRows()])
+      .toEqual([REPROVED_COLS, REPROVED_ROWS]);
+    expect(frameRowText(painted, 0)).toContain("ORD-BEFORE");
+    expect(frameRowText(painted, 1)).toContain("ORD-AFTER");
+    expect(frameRowText(painted, 2)).toContain("ORD-LIVE");
+    const text = [0, 1, 2].map((row) => frameRowText(painted, row)).join("\n");
+    for (const marker of ["ORD-BEFORE", "ORD-AFTER", "ORD-LIVE"]) {
+      expect(text.split(marker).length - 1).toBe(1);
+    }
+    expect(harness.record.head_seq).toBe(historyHeadSeq + liveBytes.byteLength);
+  });
   test("a core the keeper cannot re-prove stays fail-closed", async () => {
     trackKeeper(installAutoKeeper({ cols: TEST_COLS, rows: TEST_ROWS }));
     const harness = await makeHarness();
@@ -245,8 +342,6 @@ function trapResizeCapture(harness: StreamHarness): LiveResizeCapture {
  *  frames, so an ordered-history read is stubbed at the pool — the same seam
  *  terminal-capture-resize.test.ts uses. */
 function stubOrderedHistory(headSeq: number, outputs: readonly string[]): () => void {
-  const pool = getMultiplexedPool();
-  const prior = pool.getHistoryRecords.bind(pool);
   const encoder = new TextEncoder();
   const records: KeeperHistoryRecord[] = outputs.map((text) => ({
     kind: "output",
@@ -258,8 +353,25 @@ function stubOrderedHistory(headSeq: number, outputs: readonly string[]): () => 
     baseRows: TEST_ROWS,
     records,
   };
+  const pool = getMultiplexedPool();
+  const prior = pool.getHistoryRecords.bind(pool);
   pool.getHistoryRecords = async () => history;
   return () => { pool.getHistoryRecords = prior; };
+}
+
+function stubOrderedHistoryRecords(
+  history: KeeperHistoryRecords,
+  terminalState: KeeperTerminalState,
+): () => void {
+  const pool = getMultiplexedPool();
+  const priorHistory = pool.getHistoryRecords.bind(pool);
+  const priorTerminalState = pool.getTerminalState.bind(pool);
+  pool.getHistoryRecords = async () => history;
+  pool.getTerminalState = async () => terminalState;
+  return () => {
+    pool.getHistoryRecords = priorHistory;
+    pool.getTerminalState = priorTerminalState;
+  };
 }
 
 /** A keeper that cannot serve history at all: the re-proof refuses immediately

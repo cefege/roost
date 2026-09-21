@@ -10,7 +10,11 @@ import { setRootStore, rootStore } from "./root.ts";
 import { signal } from "@roost/shared/diag";
 import type { Worker } from "@roost/shared/wire";
 import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
-import { terminalCoreCapacityProtoToWire } from "./sync-proto-adapters.ts";
+import {
+  mergeWorkerUpdateOperation,
+  terminalCoreCapacityProtoToWire,
+  workerUpdateOperationProtoToWire,
+} from "./sync-proto-adapters.ts";
 import { claimTabIdentity } from "../auth/tab-id.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
@@ -65,12 +69,10 @@ export function bootstrapSync(): void {
   installSyncLifecycleWake(() => { void claimTabIdentity().then(() => refreshCoordAndWorkers()); });
 }
 
-/** Re-fetch coord identity + worker list and overwrite the relevant
- *  rootStore slices. Safe to call from focus / post-deploy / after a
- *  reconnect — Promise.allSettled keeps either fetch's failure from
- *  blocking the other. */
-export async function refreshCoordAndWorkers(): Promise<void> {
-  if (rootStore.coord_identity === null) return;
+/** Re-fetch coord identity + worker list and overwrite the relevant rootStore
+ * slices. Returns whether WorkersList refreshed; rejected lists retain rows. */
+export async function refreshCoordAndWorkers(): Promise<boolean> {
+  if (rootStore.coord_identity === null) return false;
   const { classifyAuthFailure, coordClient } = await import("../connect.ts");
   const authToken = captureAuthResourceToken();
   const identity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
@@ -81,7 +83,7 @@ export async function refreshCoordAndWorkers(): Promise<void> {
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
   );
-  if (!isCurrentAuthResourceToken(authToken)) return;
+  if (!isCurrentAuthResourceToken(authToken)) return false;
   if (identity.status === "fulfilled") {
     setRootStore("coord_identity", {
       git_sha: identity.value.gitSha,
@@ -134,6 +136,10 @@ export async function refreshCoordAndWorkers(): Promise<void> {
           w.terminalCoreCapacity,
           "workers_list_refresh",
         ),
+        update_operation: workerUpdateOperationProtoToWire(
+          w.updateOperation,
+          "workers_list_refresh",
+        ),
       };
       rec[wire.fp] = wire;
     }
@@ -142,9 +148,19 @@ export async function refreshCoordAndWorkers(): Promise<void> {
     // refocus). No-delete semantics preserved: fps missing from the list
     // are not removed (same as the prior shallow merge).
     batch(() => {
-      for (const [fp, w] of Object.entries(rec)) setRootStore("workers", fp, reconcile(w));
+      for (const [fp, worker] of Object.entries(rec)) {
+        const current = rootStore.workers[fp];
+        setRootStore("workers", fp, reconcile({
+          ...worker,
+          update_operation: mergeWorkerUpdateOperation(
+            current?.update_operation,
+            worker.update_operation,
+          ),
+        }));
+      }
     });
   }
+  return workers.status === "fulfilled";
 }
 
 // Bootstrap retry on TRANSIENT failure (coord briefly unreachable — e.g. the

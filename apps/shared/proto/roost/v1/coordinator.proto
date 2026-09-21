@@ -72,6 +72,7 @@ message WorkersDeployStartRequest {
   string host = 1;
   optional string expected_git_sha = 2;
   optional string expected_manifest_sha256 = 3;
+  optional WorkerUpdateSource source = 4;
 }
 message WorkersDeployStartResponse {
   bool ok = 1;
@@ -81,11 +82,13 @@ message WorkersDeployStartResponse {
 
 message WorkersDeployOutputRequest { string job_id = 1; }
 message WorkersDeployOutputFrame {
-  // oneof: line text OR done event
-  string kind = 1;   // "line" | "done"
-  string text = 2;   // present on kind="line"
-  int32 exit = 3;    // present on kind="done"; -1 if null
-  string error = 4;  // optional on kind="done"
+  // line, operation, report, or job-terminal done event.
+  string kind = 1;
+  string text = 2;
+  int32 exit = 3;
+  string error = 4;
+  optional WorkerUpdateOperation operation = 5;
+  optional WorkerUpdateReport report = 6;
 }
 
 // Coordinator-owned keeper mutation boundary. The handler drains every
@@ -490,6 +493,8 @@ message AuthCoordIdentityResponse {
   // default when this is false.
   bool saas_mode = 7;
   string instance_id = 8;
+  optional bool update_ready = 9;
+  optional string update_transaction_id = 10;
 }
 
 // The selected dashboard is resolved from the authenticated device and

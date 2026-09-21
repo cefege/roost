@@ -38,6 +38,8 @@ import { createCloudflareAccessGate } from "./cf-access.ts";
 import { TerminalGrantOwner } from "./connect/terminal-grant-owner.ts";
 import { TerminalPeerNegotiations } from "./connect/terminal-peer-negotiations.ts";
 import { TerminalInputRouteResults } from "./connect/terminal-input-route-results.ts";
+import type { WorkerUpdateOwner } from "./worker-update-owner.ts";
+import type { CoordinatorActivationGate } from "./coordinator-update-activation.ts";
 
 export interface CoordHandlerContext {
   origin: CallerOrigin;
@@ -57,6 +59,9 @@ export interface CoordDeps {
   /** Required: every durable mutation path must be able to take a lease, so
    * an absent gate would silently unfence keeper updates. */
   writeGate: CoordinatorWriteGate;
+  updateOwner: WorkerUpdateOwner;
+  updateSourceRoot: string;
+  activationGate: CoordinatorActivationGate;
   /** Required: the single self-hosted account/organization/dashboard resolved
    * once at startup. Every scoped write takes its value from here. */
   selfHostedTenant: SelfHostedTenant;

@@ -8,6 +8,7 @@ import {
   remoteMachineTransactionPath,
   resolveLocalGitShaOrDie,
   resolvePublishedGitShaOrDie,
+  resolvePinnedSourceShaOrDie,
   run,
   SSH_OPTS,
   sshExec,
@@ -17,6 +18,7 @@ import {
   _backfillEnvFromPlist,
   _resolveDeployEnvValue,
   resolveRemoteDeployIdentityEnv,
+  _readWorkerServiceDefinition,
 } from "./deploy-plist-env.ts";
 import { _deployLocal } from "./deploy-local.ts";
 import { deployLinux } from "./deploy-linux.ts";
@@ -39,10 +41,11 @@ import type {
 } from "./keeper-admission-staging.ts";
 import {
   loadSourceKeeperContract,
-  probeTargetKeeperContract,
   targetKeeperContractForWorker,
 } from "./push-keeper-admission.ts";
+import { resolveRemoteWorkerRuntime } from "./worker-service-runtime.ts";
 
+import { validatePinnedDeployJobOrDie } from "./deploy-job-provenance.ts";
 export { sshExec, _isSelfHost };
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
@@ -79,12 +82,32 @@ export async function deploy(
   if (!sourceRootValue || /[\r\n\0]/.test(sourceRootValue)) {
     failDeploy(1, "--source-root must be a local source checkout path");
   }
+  const pinnedSource = args.includes("--pinned-source");
+  const deployJobId = args.find((arg) => arg.startsWith("--deploy-job-id="))
+    ?.slice("--deploy-job-id=".length);
+  if (pinnedSource !== (deployJobId !== undefined)
+    || (deployJobId !== undefined
+      && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(deployJobId))) {
+    failDeploy(1, "--pinned-source requires one valid --deploy-job-id");
+  }
+  if (pinnedSource && expectedGitSha === undefined) {
+    failDeploy(1, "--pinned-source requires --expected-sha");
+  }
   const sourceCheckout = resolve(sourceRootValue);
   if (expectedGitSha !== undefined && !/^[a-f0-9]{40,64}$/i.test(expectedGitSha)) {
     failDeploy(1, "--expected-sha must be a 40-64 hex build identity");
   }
   if (expectedShaArg && rollout && expectedShaArg.toLowerCase() !== rollout.targetSha) {
     failDeploy(1, "--expected-sha does not match the worker rollout target");
+  }
+  if (pinnedSource && deployJobId && expectedGitSha) {
+    validatePinnedDeployJobOrDie({
+      jobId: deployJobId,
+      workerFp: process.env.ROOST_DEPLOY_WORKER_FP,
+      host,
+      sourceRoot: sourceCheckout,
+      targetSha: expectedGitSha,
+    });
   }
   if (expectedManifestSha256 !== undefined && !/^[a-f0-9]{64}$/i.test(expectedManifestSha256)) {
     failDeploy(1, "--expected-manifest-sha256 must be a 64-hex digest");
@@ -116,14 +139,16 @@ export async function deploy(
     console.error("  Every shell, dev server, and test in those PTYs exits.");
     console.error("  It applies to this deploy only; the next deploy clears it.");
   }
-  const sourceGitSha = rollout
-    ? rollout.targetSha
-    : allowUnpublishedLocal
-      ? resolveLocalGitShaOrDie(sourceCheckout)
-      : resolvePublishedGitShaOrDie(sourceCheckout, expectedGitSha);
+  const sourceGitSha = pinnedSource
+    ? resolvePinnedSourceShaOrDie(sourceCheckout, expectedGitSha!)
+    : rollout
+      ? rollout.targetSha
+      : allowUnpublishedLocal
+        ? resolveLocalGitShaOrDie(sourceCheckout)
+        : resolvePublishedGitShaOrDie(sourceCheckout, expectedGitSha);
   const sourceKeeperContract = rollout
     ? null
-    : await loadSourceKeeperContract(sourceCheckout);
+    : await loadSourceKeeperContract(sourceCheckout, process.execPath);
   const bootstrapAllowed = allowUnpublishedLocal
     || process.env.ROOST_BOOTSTRAP_TOKEN !== undefined;
   const keeperCallbacks = createJournaledKeeperUpdateCallbacks();
@@ -146,15 +171,15 @@ export async function deploy(
       workerFingerprint: keeperAdmission?.workerFingerprint ?? null,
       resolveKeeperAdmission: rollout
         ? undefined
-        : async (): Promise<DirectKeeperAdmissionOutcome> => {
+        : async (runtime): Promise<DirectKeeperAdmissionOutcome> => {
             const localWorker = await localUpdateWorkerForAdmission(bootstrapAllowed);
             if (!localWorker) return { outcome: "unregistered" };
             return directKeeperUpdateAdmission(
               localWorker.fingerprint,
               targetKeeperContractForWorker(sourceKeeperContract!, sourceGitSha, {
-                bun_abi: Bun.version,
-                platform: process.platform as "darwin" | "linux",
-                arch: process.arch,
+                bun_abi: runtime.bunAbi,
+                platform: runtime.platform,
+                arch: runtime.arch,
               }),
               false,
             );
@@ -167,26 +192,39 @@ export async function deploy(
   console.log(`>> reachability check ssh ${host}`);
   const ssh = await run(["ssh", ...SSH_OPTS, "-o", "BatchMode=yes", "--", host, "true"]);
   if (ssh.exit !== 0) failDeploy(2, "ssh failed; ensure key-based auth to that host");
-  console.log(`>> verify bun on ${host}`);
-  const bunCheck = await sshExec(host, "command -v bun && bun --version");
-  if (bunCheck.exit !== 0) {
-    failDeploy(3, `bun not found in remote login shell. Install: curl -fsSL https://bun.sh/install | bash\n${bunCheck.stderr}`);
+  const unameOut = await sshExec(host, "uname -s");
+  const remotePlatform = unameOut.stdout.trim() === "Linux"
+    ? "linux"
+    : unameOut.stdout.trim() === "Darwin"
+      ? "darwin"
+      : null;
+  if (unameOut.exit !== 0 || remotePlatform === null) {
+    failDeploy(
+      2,
+      `unsupported deploy target platform from ${host}: ${
+        unameOut.stdout.trim() || unameOut.stderr.trim() || "unknown"
+      }`,
+    );
   }
-  console.log(`   bun: ${bunCheck.stdout.trim().split("\n").slice(-2).join(" @ ")}`);
+  const workerRuntime = await resolveRemoteWorkerRuntime(
+    await _readWorkerServiceDefinition(host),
+    remotePlatform,
+    command => sshExec(host, command),
+  );
+  console.log(`   bun: ${workerRuntime.executable} @ ${workerRuntime.bunAbi}`);
   const resolveRemoteKeeperAdmission = rollout
     ? undefined
     : async (): Promise<DirectKeeperAdmissionOutcome> =>
       directKeeperUpdateAdmission(
         host,
-        await probeTargetKeeperContract(
-          host,
-          sourceGitSha,
-          sourceKeeperContract!,
-        ),
+        targetKeeperContractForWorker(sourceKeeperContract!, sourceGitSha, {
+          bun_abi: workerRuntime.bunAbi,
+          platform: workerRuntime.platform,
+          arch: workerRuntime.arch,
+        }),
         bootstrapAllowed,
       );
-  const unameOut = await sshExec(host, "uname -s");
-  if (unameOut.stdout.trim() === "Linux") {
+  if (remotePlatform === "linux") {
     const { env: hostEnv, filled } = await _backfillEnvFromPlist(host);
     if (filled.length > 0) console.log(`>> reused from the installed unit on ${host}: ${filled.join(", ")}`);
     const coordinatorUrl = _resolveDeployEnvValue(
@@ -210,6 +248,7 @@ export async function deploy(
       gitSha: sourceGitSha,
       passthroughEnv,
       machineTransactionPath: remoteMachineTransactionPath("linux", hostEnv),
+      bunExecutable: workerRuntime.executable,
       rollout: rollout ?? undefined,
       keeperUpdate: keeperAdmission?.keeperUpdate ?? null,
       workerFingerprint: keeperAdmission?.workerFingerprint ?? null,
@@ -239,12 +278,13 @@ export async function deploy(
     });
     return;
   }
-  if (unameOut.exit !== 0 || unameOut.stdout.trim() !== "Darwin") {
-    failDeploy(2, `unsupported deploy target platform from ${host}: ${unameOut.stdout.trim() || unameOut.stderr.trim() || "unknown"}`);
+  if (remotePlatform !== "darwin") {
+    failDeploy(2, `unsupported deploy target platform from ${host}: ${remotePlatform}`);
   }
   await deployMacosWorker(host, {
     sourceCheckout,
     gitSha: sourceGitSha,
+    bunExecutable: workerRuntime.executable,
     forceLiveKeeperRetire,
     coordinatorUrl: options.coordinatorUrl,
     workerLabel,

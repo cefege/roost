@@ -16,8 +16,8 @@ const LEGACY_WORKER_ROW = {
 };
 
 test("worker rows created before host identity decode to a null wire identity", () => {
-  expect(workerRowToWirePresence(LEGACY_WORKER_ROW).host_identity).toBeNull();
-  expect(workerRowToProto(LEGACY_WORKER_ROW).hostIdentity).toBeUndefined();
+  expect(workerRowToWirePresence(LEGACY_WORKER_ROW, null).host_identity).toBeNull();
+  expect(workerRowToProto(LEGACY_WORKER_ROW, null).hostIdentity).toBeUndefined();
 });
 
 test("worker list and registered presence retain static host identity", () => {
@@ -30,12 +30,12 @@ test("worker list and registered presence retain static host identity", () => {
     }),
   };
 
-  expect(workerRowToWirePresence(row).host_identity).toEqual({
+  expect(workerRowToWirePresence(row, null).host_identity).toEqual({
     hardware_model: "MacBookAir10,1",
     chip: "Apple M1",
     linux_distribution: null,
   });
-  expect(workerRowToProto(row).hostIdentity).toMatchObject({
+  expect(workerRowToProto(row, null).hostIdentity).toMatchObject({
     hardwareModel: "MacBookAir10,1",
     chip: "Apple M1",
   });

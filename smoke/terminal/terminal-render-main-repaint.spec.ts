@@ -25,6 +25,7 @@ const MIN_GRID_ROWS = CARD_ROWS + 8;
 const MIN_GRID_COLS = 48;
 const FOREGROUND_GENERATIONS = 3;
 const BACKGROUND_ROUNDS = 3;
+const SMALL_BACKGROUND_STEPS = [1, 2, 3] as const;
 
 type CardState = { generation: number; transcript: number };
 
@@ -35,10 +36,12 @@ type CardTokens = {
   transcriptPrefix: string;
   fillPrefix: string;
 };
-
 function cardBlock(tokens: CardTokens, generation: number): string[] {
+  const status = `status-${generation} spinner-${generation % 4}`;
   const rows = [`+=== ${tokens.header} ===+`];
-  for (let row = 1; row <= CARD_ROWS - 2; row++) rows.push(`| ${tokens.body} step-${row} |`);
+  for (let row = 1; row <= CARD_ROWS - 2; row++) {
+    rows.push(`| ${tokens.body} ${status} step-${row} |`);
+  }
   rows.push(`+-- ${genMarker(tokens, generation)} --+`);
   return rows;
 }
@@ -187,9 +190,24 @@ test("a backgrounded inline TUI repaint never freezes a stale generation into hi
     }
     await waitForStableCellFrames(smokePage, sessionId);
     const heldGeneration = state.generation;
-    const before = await retainedScan(smokePage, sessionId, tokens.transcriptPrefix);
 
     await switchToSmokeSession(smokePage, parkedSessionId);
+    for (const smallBackgroundSteps of SMALL_BACKGROUND_STEPS) {
+      const beforeSmallBurst = await retainedScan(smokePage, sessionId, tokens.transcriptPrefix);
+      let smallBurst = "";
+      for (let step = 0; step < smallBackgroundSteps; step++) smallBurst += paintCard(tokens, state, true);
+      await inputSmokeTerminal(smokePage, sessionId, emit(smallBurst));
+      await expect.poll(
+        async () => (await retainedScan(smokePage, sessionId, tokens.transcriptPrefix)).scrollbackTotal,
+        { timeout: 60_000, intervals: [200, 400] },
+      ).toBeGreaterThanOrEqual(beforeSmallBurst.scrollbackTotal + smallBackgroundSteps);
+      const afterSmallBurst = await retainedScan(smokePage, sessionId, tokens.transcriptPrefix);
+      expect(
+        afterSmallBurst.scrollbackTotal - beforeSmallBurst.scrollbackTotal,
+        `round ${round}: repaint increments must scroll exactly ${smallBackgroundSteps} transcript rows`,
+      ).toBe(smallBackgroundSteps);
+    }
+    const before = await retainedScan(smokePage, sessionId, tokens.transcriptPrefix);
     let burst = "";
     for (let step = 0; step < backgroundSteps; step++) burst += paintCard(tokens, state, true);
     await inputSmokeTerminal(smokePage, sessionId, emit(burst));

@@ -2,8 +2,9 @@
 // Coordinator activation and recovery call this module only after journal path
 // confinement has been validated; worker service ownership protects a shared
 // prior checkout from retirement while a local worker still uses it.
-import { workerServicePath } from "@roost/shared/paths";
+import { coordDataDir, workerServicePath } from "@roost/shared/paths";
 import { flushDurablePath } from "@roost/shared/durability";
+import type { CoordinatorDeployJournalV4 } from "@roost/shared/coordinator-deploy-state";
 import {
   existsSync,
   lstatSync,
@@ -98,7 +99,7 @@ export async function flushCoordinatorReleaseTree(
 
 export async function retirePriorCoordinatorRelease(
   releaseRoot: string,
-  journal: CoordinatorDeployJournalV2,
+  journal: CoordinatorDeployJournalV2 | CoordinatorDeployJournalV4,
   platform: "darwin" | "linux",
 ): Promise<void> {
   const source = journal.sourceReleasePath;
@@ -124,6 +125,7 @@ export async function retirePriorCoordinatorRelease(
     workerRepo = existsSync(resolvedWorkerRepo) ? realpathSync(resolvedWorkerRepo) : resolvedWorkerRepo;
   }
   if (source === workerRepo) return;
+  if (sourceReleaseReferencedByDeployJobs(source)) return;
   // A release staged by rsync is an ordinary directory, and `git worktree
   // remove` refuses it — which would fail settlement AFTER the new
   // coordinator is already live. The confinement, canonical-path and
@@ -135,4 +137,37 @@ export async function retirePriorCoordinatorRelease(
   });
   if (removed.exit !== 0) rmSync(source, { recursive: true, force: true });
   await flushDurablePath(releaseRoot);
+}
+
+function sourceReleaseReferencedByDeployJobs(sourceRoot: string): boolean {
+  const root = join(coordDataDir(), "deploy-jobs");
+  if (!existsSync(root)) return false;
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        pending.push(path);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      try {
+        const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+        const record = value as Record<string, unknown>;
+        const operation = record.operation;
+        if (!operation || typeof operation !== "object" || Array.isArray(operation)) continue;
+        const status = (operation as Record<string, unknown>).status;
+        if (record.sourceRoot === sourceRoot
+          && status !== "blocked"
+          && status !== "succeeded"
+          && status !== "failed") return true;
+      } catch {
+        // Corrupt records are retained by the coordinator owner and fail closed.
+        return true;
+      }
+    }
+  }
+  return false;
 }

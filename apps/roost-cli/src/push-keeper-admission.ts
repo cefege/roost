@@ -37,8 +37,9 @@ export function sourceKeeperContractCommand(
 
 export async function loadSourceKeeperContract(
   sourceRoot: string,
+  bunExecutable: string = process.execPath,
 ): Promise<KeeperContractV1> {
-  const child = Bun.spawn(sourceKeeperContractCommand(sourceRoot), {
+  const child = Bun.spawn(sourceKeeperContractCommand(sourceRoot, () => bunExecutable), {
     cwd: sourceRoot,
     stdin: "ignore",
     stdout: "pipe",
