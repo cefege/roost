@@ -95,7 +95,7 @@ export function createWorkerCatchUpScheduler(
   const pending = new Set<string>();
   const now = deps.now ?? Date.now;
   const coordGitSha = deps.coordGitSha ?? COORD_GIT_SHA;
-  const evaluate = async (workerFp: string): Promise<void> => {
+  const evaluate = async (workerFp: string, workerReady = false): Promise<void> => {
     if (disposed || pending.has(workerFp)) return;
     pending.add(workerFp);
     try {
@@ -106,14 +106,20 @@ export function createWorkerCatchUpScheduler(
         .executeTakeFirst();
       if (!row) return;
       const latest = deps.updateOwner.readSummary(workerFp);
+      const resumeOfflineWaiting = workerReady
+        && latest?.status === "waiting"
+        && latest.reasonCode === "offline";
       const updateInFlight = latest !== null
         && latest.status !== "blocked"
         && latest.status !== "failed"
-        && latest.status !== "succeeded";
-      const retryAfterMs = latest?.nextAttemptAtMs
-        ?? (latest && (latest.status === "failed" || latest.status === "blocked")
-          ? latest.updatedAtMs + CATCH_UP_COOLDOWN_MS
-          : null);
+        && latest.status !== "succeeded"
+        && !resumeOfflineWaiting;
+      const retryAfterMs = resumeOfflineWaiting
+        ? null
+        : latest?.nextAttemptAtMs
+          ?? (latest && (latest.status === "failed" || latest.status === "blocked")
+            ? latest.updatedAtMs + CATCH_UP_COOLDOWN_MS
+            : null);
       const decision = _catchUpDeployDecision({
         worker: {
           fp: row.fp,
@@ -138,10 +144,13 @@ export function createWorkerCatchUpScheduler(
         });
         return;
       }
+      const requestedTargetSha = resumeOfflineWaiting
+        ? latest!.targetGitSha
+        : coordGitSha!;
       const result = await deps.updateOwner.startDeploy({
         workerFp: row.fp,
         host: decision.host,
-        expectedGitSha: coordGitSha!,
+        expectedGitSha: requestedTargetSha,
         source: "catchup",
         sourceRoot: deps.sourceRoot,
         sourceMode: "coordinator-pinned",
@@ -176,7 +185,7 @@ export function createWorkerCatchUpScheduler(
     : (deps.setInterval ?? globalThis.setInterval)(() => void sweep(), CATCH_UP_SWEEP_MS);
   interval?.unref?.();
   return {
-    onWorkerReady: workerFp => { void evaluate(workerFp); },
+    onWorkerReady: workerFp => { void evaluate(workerFp, true); },
     sweep,
     dispose: () => {
       if (disposed) return;

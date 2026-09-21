@@ -2410,6 +2410,26 @@ their platform extension".
 
 ---
 
+### Online workers stay "Update pending — offline" after coordinator activation
+
+**Symptom** — `roost push` commits the coordinator, reports every worker deferred, and fresh workers
+remain `Updating…`; their durable operations are `waiting/offline` with a ten-minute retry even
+though they reconnected immediately after the coordinator restart.
+
+**Wrong** — classify every unresolved `waiting` operation as `deploy_in_flight` when handling the
+worker-ready edge, or make every periodic sweep ignore `nextAttemptAtMs`. The first loses the exact
+edge that proves the worker returned; the second hot-retries genuine busy/recovery waits.
+
+**Right** — only a worker-ready edge may bypass the schedule for the same retained
+`waiting/offline` job. It re-enters the shared owner as `catchup`, which requeues the existing job
+ID and preserves its baseline. Periodic sweeps continue respecting persisted retry times.
+
+**Guard** — `apps/coord/tests/worker-catchup-deploy.test.ts` "worker-ready resumes one retained
+offline job immediately" and `apps/coord/tests/deploy-jobs.test.ts` "catch-up immediately resumes
+the same retained offline job".
+
+---
+
 ## Process rule
 
 When a user-reported symptom matches an entry above, fix at THAT layer first. If the entry describes a

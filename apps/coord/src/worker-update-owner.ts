@@ -102,9 +102,10 @@ export class WorkerUpdateOwner {
         return { ok: false, error: "deploy host is owned by another worker identity" };
       }
       if (existing.record.operation.targetGitSha === request.expectedGitSha) {
-        if (request.source === "manual" && existing.record.operation.status === "waiting") {
-          this.#enqueue(existingJobId);
-        }
+        const resumesWaiting = request.source === "manual"
+          || request.source === "catchup"
+            && existing.record.operation.reasonCode === "offline";
+        if (resumesWaiting && existing.record.operation.status === "waiting") this.#enqueue(existingJobId);
         return { ok: true, jobId: existingJobId };
       }
       return { ok: false, jobId: existingJobId, error: "another target owns this worker update" };

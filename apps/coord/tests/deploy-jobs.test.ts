@@ -124,6 +124,39 @@ describe("WorkerUpdateOwner", () => {
     await owner.dispose();
   });
 
+  test("catch-up immediately resumes the same retained offline job", async () => {
+    const jobId = "11111111-1111-4111-8111-111111111111";
+    const offline = nextDeployJobRecord(waitingRecord(1, jobId), {
+      status: "waiting",
+      phase: "preflight",
+      reasonCode: "offline",
+      message: "Update pending while worker is offline",
+      nextAttemptAtMs: Number.MAX_SAFE_INTEGER,
+    }, "Worker is offline; update deferred", 3);
+    await persistDeployJobRecord(offline);
+    const runtimeResult = Promise.withResolvers<DeployJobRuntimeResult>();
+    const runtimeStarted = Promise.withResolvers<void>();
+    const owner = new WorkerUpdateOwner({
+      coordinatorOrigin: "https://coord.example.test",
+      coordinatorDialUrl: "https://coord.example.test",
+      readBaseline: async () => baseline(),
+      readVerification: async () => null,
+      publishOperation: () => {},
+      workerExists: async () => true,
+      workerRoutable: () => true,
+      startRuntime: () => {
+        runtimeStarted.resolve();
+        return { result: runtimeResult.promise, stop: () => {} };
+      },
+    });
+    await owner.initialize();
+    const resumed = await owner.startDeploy({ ...request(1), source: "catchup" });
+    await runtimeStarted.promise;
+    expect(resumed).toEqual({ ok: true, jobId });
+    runtimeResult.resolve(failedRuntimeResult("fixture stop"));
+    await owner.dispose();
+  });
+
   test("only two host mutations execute concurrently", async () => {
     const pending = new Map<
       string,

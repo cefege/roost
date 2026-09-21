@@ -21,6 +21,7 @@ import type { WorkerUpdateOperation } from "@roost/shared/worker-update-operatio
 
 const FLEET_SHA = "b".repeat(40);
 const BEHIND_SHA = "a".repeat(40);
+const WAITING_TARGET_SHA = "c".repeat(40);
 const WORKER_FP = "f".repeat(64);
 const HOST = "m1-us.tailnet.ts.net";
 const BEHIND_WORKER: CatchUpWorkerRow = {
@@ -124,6 +125,49 @@ describe("worker catch-up scheduler", () => {
       sourceRoot: "/srv/roost-release",
       sourceMode: "coordinator-pinned",
     }]);
+    scheduler.dispose();
+  });
+
+  test("worker-ready resumes one retained offline job immediately", async () => {
+    const started = Promise.withResolvers<unknown>();
+    const waiting: WorkerUpdateOperation = {
+      jobId: "11111111-1111-4111-8111-111111111111",
+      workerFp: WORKER_FP as WorkerUpdateOperation["workerFp"],
+      host: HOST,
+      revision: 2,
+      targetGitSha: WAITING_TARGET_SHA,
+      source: "push",
+      status: "waiting",
+      phase: "preflight",
+      reasonCode: "offline",
+      message: "Update pending while worker is offline",
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      startedAtMs: null,
+      completedAtMs: null,
+      nextAttemptAtMs: CATCH_UP_COOLDOWN_MS,
+      exitCode: null,
+    };
+    const scheduler = createWorkerCatchUpScheduler({
+      db: opened.db,
+      updateOwner: {
+        readSummary: () => waiting,
+        startDeploy: async request => {
+          started.resolve(request);
+          return { ok: true, jobId: waiting.jobId };
+        },
+        sweep: async () => {},
+      },
+      sourceRoot: "/srv/roost-release",
+      coordGitSha: FLEET_SHA,
+      now: () => 3,
+      startTimer: false,
+    });
+    scheduler.onWorkerReady(WORKER_FP);
+    expect(await started.promise).toMatchObject({
+      expectedGitSha: WAITING_TARGET_SHA,
+      source: "catchup",
+    });
     scheduler.dispose();
   });
 });
