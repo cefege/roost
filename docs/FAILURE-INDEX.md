@@ -2392,6 +2392,24 @@ the peer during coordinator loss and a renewed route stays usable".
 
 ---
 
+### Coordinator push says candidate coordinator service definition is invalid
+
+**Symptom** — `roost push` stops coordinator activation with
+`candidate coordinator service definition is invalid`, restores the prior coordinator, and never
+submits worker jobs.
+
+**Wrong** — append `.candidate-<rollout-id>` after a systemd unit's `.service` suffix.
+`systemd-analyze verify` rejects that basename before parsing the otherwise valid unit.
+
+**Right** — insert the candidate discriminator before the platform extension so Linux candidates
+still end in `.service` and macOS candidates still end in `.plist`, then validate before atomically
+installing the definition.
+
+**Guard** — `apps/roost-cli/tests/coordinator-deploy.test.ts` "candidate service definitions retain
+their platform extension".
+
+---
+
 ## Process rule
 
 When a user-reported symptom matches an entry above, fix at THAT layer first. If the entry describes a

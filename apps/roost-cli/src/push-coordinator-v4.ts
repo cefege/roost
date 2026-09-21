@@ -53,6 +53,18 @@ export interface CommittedCoordinatorDeploy extends CoordinatorDeployLocation {
   journal: CoordinatorDeployJournalV4;
 }
 
+export function _coordinatorCandidateDefinitionPath(
+  servicePath: string,
+  rolloutId: string,
+  platform: CoordinatorDeployLocation["context"]["platform"],
+): string {
+  const extension = platform === "linux" ? ".service" : ".plist";
+  const basePath = servicePath.endsWith(extension)
+    ? servicePath.slice(0, -extension.length)
+    : servicePath;
+  return `${basePath}.candidate-${rolloutId}${extension}`;
+}
+
 export async function deployLocalCoordinator(options: {
   targetSha: string;
   rolloutId: string;
@@ -248,7 +260,11 @@ async function installCandidateDefinition(
   journal: CoordinatorDeployJournalV4,
   installedEnvironment: Record<string, string>,
 ): Promise<void> {
-  const candidatePath = `${journal.servicePath}.candidate-${journal.rolloutId}`;
+  const candidatePath = _coordinatorCandidateDefinitionPath(
+    journal.servicePath,
+    journal.rolloutId,
+    location.context.platform,
+  );
   const environment = {
     ...installedEnvironment,
     GIT_SHA: journal.targetSha,

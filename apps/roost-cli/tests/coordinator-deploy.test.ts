@@ -22,6 +22,7 @@ import {
   coordinatorRestartCommand,
   coordinatorStopCommand,
 } from "../src/coordinator-service-definition.ts";
+import { _coordinatorCandidateDefinitionPath } from "../src/push-coordinator-v4.ts";
 import {
   PRIOR_SHA,
   TARGET_SHA,
@@ -32,6 +33,24 @@ import {
   successfulRuntime,
   workerStatus,
 } from "./coordinator-deploy-fixture.ts";
+
+
+test("candidate service definitions retain their platform extension", () => {
+  expect(_coordinatorCandidateDefinitionPath(
+    "/home/you/.config/systemd/user/roost-coord.service",
+    "11111111-1111-4111-8111-111111111111",
+    "linux",
+  )).toBe(
+    "/home/you/.config/systemd/user/roost-coord.candidate-11111111-1111-4111-8111-111111111111.service",
+  );
+  expect(_coordinatorCandidateDefinitionPath(
+    "/Users/you/Library/LaunchAgents/com.roost.coord.plist",
+    "11111111-1111-4111-8111-111111111111",
+    "darwin",
+  )).toBe(
+    "/Users/you/Library/LaunchAgents/com.roost.coord.candidate-11111111-1111-4111-8111-111111111111.plist",
+  );
+});
 
 describe("coordinator deploy journal v2", () => {
   test("parses canonical database, snapshot, rollout, and worker identity", async () => {
