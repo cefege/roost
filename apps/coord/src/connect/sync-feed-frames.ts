@@ -15,6 +15,7 @@ import { hostIdentityToProto } from "@roost/shared/host-identity-proto";
 import {
   terminalCoreCapacityReportToProto,
 } from "@roost/shared/terminal-core-capacity-proto";
+import { workerUpdateOperationToProto } from "@roost/shared/worker-update-operation-proto";
 import {
   WorkspaceDeltaProtoSchema, WorkspaceSessionsSetSchema,
   TaskDeltaProtoSchema, McpStreamMessageProtoSchema,
@@ -267,6 +268,9 @@ export const presenceFrame = (e: WorkerPresenceEvent): FirehoseFrame | null => {
           : undefined,
         terminalCoreCapacity: e.worker.terminal_core_capacity
           ? terminalCoreCapacityReportToProto(e.worker.terminal_core_capacity)
+          : undefined,
+        updateOperation: e.worker.update_operation
+          ? workerUpdateOperationToProto(e.worker.update_operation)
           : undefined,
       }) },
     })}});

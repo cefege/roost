@@ -21,6 +21,7 @@ export const DEPLOY_JOB_MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const JOB_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const WORKER_FP_RE = /^[0-9a-f]{64}$/;
 const SINGLE_LINE_RE = /^[^\r\n]*$/;
+const DURABLE_TEMP_SUFFIX_RE = /^\.json\.tmp-[1-9]\d*-[0-9a-f]{16}$/;
 const SafeTimestamp = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 const WorkerUpdateBaselineSchema = z.object({
@@ -166,7 +167,13 @@ export async function loadAllDeployJobRecords(): Promise<LoadedDeployJobRecords>
       const names = await readdir(directory);
       for (const name of names) {
         const jobId = name.endsWith(".json") ? name.slice(0, -5) : "";
-        if (!isDeployJobId(jobId)) continue;
+        if (isDeployJobTempName(name)) continue;
+        if (!isDeployJobId(jobId)) {
+          const corrupt = corruptWorkerFingerprints.get(workerFp) ?? [];
+          corrupt.push(join(directory, name));
+          corruptWorkerFingerprints.set(workerFp, corrupt);
+          continue;
+        }
         const loaded = await loadDeployJobRecord(workerFp, jobId);
         if (loaded.kind === "record") records.push(loaded.record);
         else if (loaded.kind === "invalid") {
@@ -193,6 +200,13 @@ export function latestDeployOperations(
     }
   }
   return latest;
+}
+
+function isDeployJobTempName(name: string): boolean {
+  const suffixStart = name.indexOf(".json.tmp-");
+  return suffixStart > 0
+    && isDeployJobId(name.slice(0, suffixStart))
+    && DURABLE_TEMP_SUFFIX_RE.test(name.slice(suffixStart));
 }
 
 function isCanonicalAbsolutePath(value: string): boolean {

@@ -65,7 +65,7 @@ function directServerFrame(
   return create(LocalTerminalServerFrameSchema, { frame });
 }
 
-function createDirectConnection(): {
+function createDirectConnection(livenessQualified = true): {
   connection: TerminalDirectConnection;
   published: TerminalViewCommand[];
   unregister: () => void;
@@ -92,6 +92,7 @@ function createDirectConnection(): {
       opaquePeerId: "opaque-peer-91",
       lastProbeAtMs: 0,
       rttMs: 17,
+      livenessQualified,
       candidateType: "host",
       bufferedBytes: 23,
     }),
@@ -130,8 +131,8 @@ function canonicalView(): { view: TerminalViewHandle; sink: RecordingRenderer } 
   return { view, sink };
 }
 
-function stagedCandidate(streamId = STREAM_B) {
-  const direct = createDirectConnection();
+function stagedCandidate(streamId = STREAM_B, livenessQualified = true) {
+  const direct = createDirectConnection(livenessQualified);
   const candidate = terminalStream.createTerminalSessionPromotion({
     sessionId: SESSION_ID,
     attemptId: "promotion-attempt-91",
@@ -176,6 +177,24 @@ describe("terminal direct promotion", () => {
       candidate: null,
       pending_input_count: 0,
     });
+  });
+
+  test("keeps unqualified WebRTC behind ready Sync", async () => {
+    canonicalView();
+    const { candidate, direct } = stagedCandidate(STREAM_B, false);
+    const ready = candidate.awaitReady();
+    terminalStream.dispatchDirectTerminalFrame(
+      DIRECT_TOKEN,
+      directCell(cellFrameToProto(full(STREAM_B, [row(0, "U")]), SESSION_ID)),
+    );
+    expect(await ready).toBe(true);
+    expect(commitCandidate(candidate)).toBe(false);
+    expect(sessionTerminalTransportPresentation(SESSION_ID)).toMatchObject({
+      kind: "sync",
+      label: "Coordinator",
+    });
+    candidate.cancel("unqualified peer test complete");
+    direct.unregister();
   });
 
   test("keeps a candidate isolated and defers canonical notifications until its atomic commit", async () => {

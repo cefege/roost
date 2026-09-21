@@ -54,6 +54,7 @@ import type { startDeployJobRuntime } from "./deploy-job-runtime.ts";
 
 export interface RunCoordOptions {
   startWorkerUpdateRuntime?: typeof startDeployJobRuntime;
+  enableWorkerCatchUp?: boolean;
 }
 
 export async function runCoord(options: RunCoordOptions = {}) {
@@ -176,6 +177,7 @@ export async function runCoord(options: RunCoordOptions = {}) {
     writeGate,
     selfHostedTenant,
     terminalPeerNegotiations: coord.terminalPeerNegotiations,
+    terminalInputRouteResults: coord.terminalInputRouteResults,
     onWorkerConnected: async (workerFp) => {
       coord.terminalInputRouteResults.flushWorkerRetirements(workerFp);
       terminalViews.workerReplacement(workerFp);
@@ -237,12 +239,14 @@ export async function runCoord(options: RunCoordOptions = {}) {
     syncWs,
     spa: spaResponse,
   });
-  catchUpScheduler = createWorkerCatchUpScheduler({
-    db,
-    updateOwner: workerUpdates.owner,
-    sourceRoot: workerUpdates.sourceRoot,
-  });
-  void catchUpScheduler.sweep();
+  if (options.enableWorkerCatchUp !== false) {
+    catchUpScheduler = createWorkerCatchUpScheduler({
+      db,
+      updateOwner: workerUpdates.owner,
+      sourceRoot: workerUpdates.sourceRoot,
+    });
+    void catchUpScheduler.sweep();
+  }
   let closeServiceHealth: (() => Promise<void>) | undefined;
   switch (process.platform) {
     case "win32": {

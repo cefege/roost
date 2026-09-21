@@ -107,6 +107,32 @@ describe("durable POSIX deploy records", () => {
     expect(loaded.corruptWorkerFingerprints.get(WORKER_FP)).toEqual([path]);
   });
 
+  test("blocks recovery when a canonical worker directory has an invalid filename", async () => {
+    const validPath = deployJobRecordPath(
+      WORKER_FP,
+      "44444444-4444-4444-8444-444444444444",
+    );
+    const invalidPath = join(validPath, "..", "not-a-job.tmp");
+    mkdirSync(join(validPath, ".."), { recursive: true });
+    writeFileSync(invalidPath, "{}");
+    const loaded = await loadAllDeployJobRecords();
+    expect(loaded.records).toHaveLength(0);
+    expect(loaded.corruptWorkerFingerprints.get(WORKER_FP)).toEqual([invalidPath]);
+  });
+
+  test("ignores durable writer staging leaves left by an interrupted rename", async () => {
+    const validPath = deployJobRecordPath(
+      WORKER_FP,
+      "55555555-5555-4555-8555-555555555555",
+    );
+    const temporaryPath = `${validPath}.tmp-123-${"a".repeat(16)}`;
+    mkdirSync(join(validPath, ".."), { recursive: true });
+    writeFileSync(temporaryPath, "{}");
+    const loaded = await loadAllDeployJobRecords();
+    expect(loaded.records).toHaveLength(0);
+    expect(loaded.corruptWorkerFingerprints.has(WORKER_FP)).toBe(false);
+  });
+
   test("normalizes and bounds persisted human output independently", () => {
     const line = "x".repeat(DEPLOY_JOB_MAX_LINE_LENGTH + 10);
     const normalized = normalizeDeployOutputLine(line);

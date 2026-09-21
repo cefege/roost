@@ -12,7 +12,6 @@ const grantsByWorker = new Map<string, { workerEpoch: string; peerSupported: boo
 let probeResultHandler: ((result: { workerFp: string; workerEpoch: string }) => void) | null = null;
 const promotionCommitHooks: Array<(connection: unknown) => void> = [];
 const promotionStageCalls: Array<{ sessionId: string; connection: unknown }> = [];
-
 mock.module("../src/ws/local-terminal-grants.ts", () => ({
   LOCAL_TERMINAL_GRANT_RETRY_MS: 30_000,
   currentTerminalGrant: (workerFp: string) => grantsByWorker.get(workerFp) ?? null,
@@ -40,6 +39,7 @@ mock.module("../src/ws/terminal-peer-promotions.ts", () => ({
       promotionCommitHooks.push(hooks.committed);
     }
     stage(sessionId: string, connection: unknown): void { promotionStageCalls.push({ sessionId, connection }); }
+    cancelSession(): void {}
     retireConnection(): void {}
     dispose(): void {}
   },
@@ -84,6 +84,10 @@ class FakeRegistry {
     return this.candidate?.token() === token ? this.candidate : null;
   }
   hasRoutesForConnection(connection: FakeConnection): boolean { return [...this.routes.values()].includes(connection); }
+  register(connection: FakeConnection): () => void {
+    this.candidate = connection;
+    return () => { if (this.candidate === connection) this.candidate = null; };
+  }
 }
 
 class FakeConnection {
@@ -115,6 +119,8 @@ class FakeConnection {
   close(): void { this.closeCalls += 1; this.closed = true; this.onClose?.(); }
 }
 
+interface PeerOwnerStateForTest { connection: FakeConnection | null; controller: AbortController | null; phase: string; }
+interface PeerOwnerInternals { states: Map<string, PeerOwnerStateForTest>; peerReady(state: PeerOwnerStateForTest, connection: FakeConnection, controller: AbortController, authGeneration: number): void; }
 async function settle(): Promise<void> { for (let turn = 0; turn < 8; turn += 1) await Promise.resolve(); }
 
 function resetState(): void {
@@ -164,6 +170,56 @@ describe("TerminalPeerOwner", () => {
     expect(connection.probeCalls).toBe(1);
     owner.dispose("test cleanup");
     expect(connection.closed).toBe(true);
+  });
+
+  test("keeps a candidate qualified while a prior input route drains", async () => {
+    vi.useFakeTimers(); resetState();
+    const registry = new FakeRegistry();
+    const owner = new peer.TerminalPeerOwner({ registry: registry as never, secureContext: () => false, localDoor: () => null });
+    const connection = new FakeConnection("worker-a");
+    try {
+      owner.start();
+      registry.emit({ kind: "demand_changed", workerFp: "worker-a", sessionId: "session-a", viewId: "view-a", active: true });
+      const internals = owner as unknown as PeerOwnerInternals;
+      const state = internals.states.get("worker-a");
+      if (!state) throw new Error("expected peer state");
+      const controller = new AbortController();
+      state.connection = connection;
+      state.controller = controller;
+      internals.peerReady(state, connection, controller, authGeneration);
+      await settle();
+      expect(state.phase).toBe("candidate");
+      expect(connection.probeCalls).toBe(1);
+      vi.advanceTimersByTime(5_000);
+      await settle();
+      expect(connection.probeCalls).toBe(2);
+      expect(promotionStageCalls).toHaveLength(2);
+    } finally {
+      owner.dispose("test cleanup");
+      vi.useRealTimers();
+    }
+  });
+
+  test("closes a failed qualification after its last view disappears", async () => {
+    resetState();
+    const registry = new FakeRegistry();
+    const pendingProbe = Promise.withResolvers<void>();
+    const owner = new peer.TerminalPeerOwner({ registry: registry as never, secureContext: () => false, localDoor: () => null });
+    const connection = new FakeConnection("worker-a", "webrtc", () => pendingProbe.promise);
+    owner.start();
+    registry.emit({ kind: "demand_changed", workerFp: "worker-a", sessionId: "session-a", viewId: "view-a", active: true });
+    const internals = owner as unknown as PeerOwnerInternals;
+    const state = internals.states.get("worker-a");
+    if (!state) throw new Error("expected peer state");
+    const controller = new AbortController();
+    state.connection = connection;
+    state.controller = controller;
+    internals.peerReady(state, connection, controller, authGeneration);
+    registry.emit({ kind: "demand_changed", workerFp: "worker-a", sessionId: "session-a", viewId: "view-a", active: false });
+    pendingProbe.reject(new Error("qualification failed"));
+    await settle();
+    expect(connection.closed).toBe(true);
+    owner.dispose("test cleanup");
   });
 
   test("keeps elected RTC live while an unelected loopback candidate arrives", async () => {

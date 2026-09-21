@@ -105,11 +105,13 @@ async function expectInactivePanelSkippedByTab(page: Page, activeView: SidebarVi
       `[data-testid="${inactivePanelTestId}"]`,
     );
     const focused = document.activeElement;
-    const search = document.querySelector<HTMLElement>('[data-testid="sidebar-search"]');
+    const search = document.querySelector<HTMLElement>(
+      '[data-testid="sidebar-search-wrapper"]',
+    );
     return {
       inActivePanel: !!focused && !!activePanel?.contains(focused),
       inInactivePanel: !!focused && !!inactivePanel?.contains(focused),
-      inSharedSearch: focused === search,
+      inSharedSearch: !!focused && !!search?.contains(focused),
     };
   }, {
     activePanelTestId: sidebarPanelTestId(activeView),

@@ -117,7 +117,7 @@ export const Worker = z.object({
   reachable_addr: z.string().nullable(),
   keeper_runtime: KeeperRuntimeObservationV1Schema.nullable(),
   terminal_core_capacity: TerminalCoreCapacityReportSchema.nullable(),
-  update_operation: WorkerUpdateOperationSchema.nullable(),
+  update_operation: WorkerUpdateOperationSchema.nullable().default(null),
 });
 export type Worker = z.infer<typeof Worker>;
 

@@ -61,6 +61,13 @@ function fakeConnection(
     claimInputRoute: () => Promise.resolve({} as TerminalInputRouteResult),
     requestScrollback: (_query: LocalScrollbackQuery) => Promise.reject(new Error("unused")),
     probe: () => Promise.resolve(),
+    telemetry: () => ({
+      opaquePeerId: connectionId,
+      lastProbeAtMs: 1,
+      rttMs: 1,
+      livenessQualified: true,
+      bufferedBytes: 0,
+    }),
     close: (reason) => { closedReasons.push(reason); },
   };
 }

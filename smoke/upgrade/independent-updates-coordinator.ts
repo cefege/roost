@@ -115,4 +115,7 @@ function readConfig(): RuntimeConfig {
   return RuntimeConfigSchema.parse(JSON.parse(readFileSync(runtimeConfigPath, "utf8")));
 }
 
-await runCoord({ startWorkerUpdateRuntime: startRuntime });
+await runCoord({
+  startWorkerUpdateRuntime: startRuntime,
+  enableWorkerCatchUp: false,
+});

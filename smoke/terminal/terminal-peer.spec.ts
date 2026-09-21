@@ -92,6 +92,57 @@ test("loopback wins before a WebRTC peer is allocated and keeps Sync metadata li
   }
 });
 
+test("one WebRTC viewer and one Sync viewer retain independent routes and input", async ({
+  browser,
+}, testInfo) => {
+  test.setTimeout(240_000);
+  const stack = await startTerminalTestStack(PEER_STACK_OPTIONS);
+  let directPage: EnrolledPage | undefined;
+  let syncPage: EnrolledPage | undefined;
+  try {
+    const fixtureWorker = await stack.startPtyFixtureWorker();
+    directPage = await openPeerSmokePage(browser, stack);
+    syncPage = await openPeerSmokePage(browser, stack, { rtcUnavailable: true });
+    await Promise.all([
+      directPage.page.setViewportSize({ width: 1_600, height: 720 }),
+      syncPage.page.setViewportSize({ width: 800, height: 1_000 }),
+      forceVisible(directPage.page, true),
+      forceVisible(syncPage.page, true),
+    ]);
+    const sessionId = await createPeerFixtureSession(directPage.page, fixtureWorker);
+    await navigateToSmokeSession(syncPage.page, sessionId);
+    await waitForPainted(syncPage.page, sessionId, PTY_FIXTURE_READY);
+    await Promise.all([
+      waitForDirectRoute(directPage.page, sessionId, "webrtc"),
+      waitForSyncRoute(syncPage.page, sessionId),
+    ]);
+    const mixedViews = await waitForTransition(
+      [directPage.page, syncPage.page],
+      sessionId,
+      { activeIndices: [0, 1], activeViewCount: 2 },
+    );
+    expect(coordinatorConstrainedGeometry(mixedViews.probes[0]!)).toEqual({
+      cols: mixedViews.control.cols,
+      rows: mixedViews.control.rows,
+    });
+    const directMarker = await sendTrustedPeerKey(directPage.page, sessionId);
+    const syncMarker = await sendTrustedPeerKey(syncPage.page, sessionId);
+    for (const page of [directPage.page, syncPage.page]) {
+      await expectMarkersOnce(page, sessionId, [directMarker.marker, syncMarker.marker]);
+    }
+    expect(await readPeerRoute(directPage.page, sessionId)).toMatchObject({
+      activeKind: "webrtc",
+      proofKind: "webrtc",
+    });
+    expect(await readPeerRoute(syncPage.page, sessionId)).toMatchObject({
+      activeKind: "sync",
+      proofKind: "sync",
+    });
+  } finally {
+    await stopPeerStack(stack, [directPage, syncPage], testInfo);
+  }
+});
+
 test("host-candidate WebRTC multiplexes each worker and preserves crossed browser geometry", async ({ browser }, testInfo) => {
   test.setTimeout(300_000);
   const stack = await startTerminalTestStack({

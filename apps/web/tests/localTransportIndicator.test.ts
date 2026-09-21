@@ -174,7 +174,7 @@ test("requires a current WebRTC probe before reporting direct outage continuity"
   };
   terminalDirectRegistry.register(connection);
   terminalDirectRegistry.setViewDemand("worker-fp", SESSION, "view-peer", true);
-  expect(terminalDirectRegistry.commitSessionPromotion(SESSION, "attempt-peer", {
+  const prepared = {
     attemptId: "attempt-peer",
     connection,
     token,
@@ -185,10 +185,21 @@ test("requires a current WebRTC probe before reporting direct outage continuity"
     expectedStreamId: "stream-peer",
     prospectiveViews: new Map(),
     applyCanonical: () => true,
-  })).toBe(true);
-  expect(sessionTerminalTransportPresentation(SESSION)).toEqual(WEBRTC_PRESENTATION);
-
+  };
+  expect(terminalDirectRegistry.commitSessionPromotion(
+    SESSION,
+    "attempt-peer",
+    prepared,
+  )).toBe(false);
+  expect(sessionTerminalTransportPresentation(SESSION)).toEqual(WAITING_PRESENTATION);
   expect(hasLivenessQualifiedDirectTerminal()).toBe(false);
+
   probeQualified = true;
+  expect(terminalDirectRegistry.commitSessionPromotion(
+    SESSION,
+    "attempt-peer",
+    prepared,
+  )).toBe(true);
+  expect(sessionTerminalTransportPresentation(SESSION)).toEqual(WEBRTC_PRESENTATION);
   expect(hasLivenessQualifiedDirectTerminal()).toBe(true);
 });

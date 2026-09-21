@@ -1421,6 +1421,28 @@ the PTY.
 `smoke/terminal/terminal-peer-failover.spec.ts` —
 `"a delayed old Sync input is fenced after peer promotion and cannot reach the PTY"`.
 
+### A WebRTC viewer and a Sync viewer fight over one terminal
+
+**Symptom** — "two machines watch one terminal; the WebRTC pane rejects input with `terminal input route
+changed`, the coordinator pane appears to take precedence, or an unproven peer displaces working Sync".
+
+**Wrong** — model carrier choice as one global session winner, omit `TerminalInputRouteResults` from the raw
+worker transport composition, or promote WebRTC as soon as authentication and a baseline finish. Browser carrier
+election is per document; PTY geometry is a separate worker-owned SCD across every live viewer.
+
+**Right** — each browser independently selects loopback → liveness-qualified WebRTC → ready Sync.
+`apps/coord/src/main.ts` injects the process-owned `coord.terminalInputRouteResults` into `WorkerServiceDeps`, so
+the capability is acknowledged and direct/Sync route claims reach the same actor-scoped worker authority.
+`TerminalPeerOwner.peerReady()` proves one authenticated worker probe before registry promotion, and
+`TerminalDirectRegistry.commitSessionPromotion()` rejects an unqualified WebRTC candidate. The worker's one
+`TerminalViewRegistry` still aggregates direct and coordinator-relayed viewer geometry; transport priority never
+chooses which viewer controls PTY size.
+
+**Guard** — `smoke/terminal/terminal-peer.spec.ts` — `"one WebRTC viewer and one Sync viewer retain independent
+routes and input"`; `apps/web/tests/terminalStreamPromotion.test.ts` — `"keeps unqualified WebRTC behind ready
+Sync"`; `smoke/terminal/terminal-peer-failover.spec.ts` — `"missed direct peer probes fall back through one
+repaired baseline while preserving history"`.
+
 ### node-datachannel `sendMessageBinary(false)` is accepted buffered delivery
 
 **Symptom** — "a direct terminal fragment duplicates after WebRTC backpressure / a false native send result

@@ -47,6 +47,10 @@ function rt<T>(schema: { parse: (x: unknown) => T }, value: T): void {
 
 describe("R5.1 schema round-trip", () => {
   test("Worker", () => rt(Worker, FIXTURE_WORKER));
+  test("Worker defaults an absent update operation for old snapshots", () => {
+    const { update_operation: _omitted, ...oldWorker } = FIXTURE_WORKER;
+    expect(Worker.parse(oldWorker).update_operation).toBeNull();
+  });
   test("Session", () => rt(Session, FIXTURE_SESSION));
 
   test("McpRelay", () => {

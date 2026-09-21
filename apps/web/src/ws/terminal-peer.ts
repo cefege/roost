@@ -173,6 +173,7 @@ export class TerminalPeerOwner {
       this.stageCurrentConnection(state, event.sessionId);
       void this.maybeStart(state); return;
     }
+    state.promotions.cancelSession(event.sessionId, "terminal view demand ended");
     if (activeViewCount(state) === 0) this.armInactiveClose(state);
   }
   private stageCurrentConnection(state: WorkerPeerState, sessionId: string): void {
@@ -229,7 +230,19 @@ export class TerminalPeerOwner {
   }
   private peerReady(state: WorkerPeerState, connection: TerminalPeerConnection, controller: AbortController, authGeneration: number): void {
     if (!this.current(state, connection, controller, authGeneration)) return connection.close("terminal peer attempt was superseded");
-    state.controller = null; state.peerUnregister = this.registry.register(connection); this.setPhase(state, "candidate", null); this.stage(connection);
+    void connection.probe(createTerminalDirectRequestId()).then(() => {
+      if (!this.current(state, connection, controller, authGeneration)) {
+        connection.close("terminal peer qualification was superseded");
+        return;
+      }
+      state.controller = null;
+      state.peerUnregister = this.registry.register(connection);
+      this.setPhase(state, "candidate", null);
+      this.stage(connection);
+      this.heartbeat(state, false);
+    }).catch(() => {
+      connection.close("terminal peer liveness qualification failed");
+    });
   }
   private peerClosed(state: WorkerPeerState, connection: TerminalPeerConnection, reason: string): void {
     if (state.connection !== connection || !this.isStateCurrent(state)) return;
@@ -248,11 +261,17 @@ export class TerminalPeerOwner {
   }
   private activate(state: WorkerPeerState): void {
     state.activeSinceMs = now(); state.heartbeatMisses = 0; state.lastFailureDetail = null; this.setPhase(state, "active", null);
-    if (state.connection?.kind === "webrtc") this.heartbeat(state, true, true);
+    if (state.connection?.kind === "webrtc") this.heartbeat(state, true);
   }
   private heartbeat(state: WorkerPeerState, immediate: boolean, requireFresh = false): void {
     const connection = state.connection;
-    if (!this.isStateCurrent(state) || state.phase !== "active" || connection?.kind !== "webrtc" || activeViewCount(state) === 0 || pageHidden()) return;
+    if (
+      !this.isStateCurrent(state)
+      || (state.phase !== "active" && state.phase !== "candidate")
+      || connection?.kind !== "webrtc"
+      || activeViewCount(state) === 0
+      || pageHidden()
+    ) return;
     if (!immediate) {
       if (state.heartbeatTimer !== null) return;
       state.heartbeatTimer = setTimeout(() => { state.heartbeatTimer = null; this.heartbeat(state, true); }, TERMINAL_PEER_HEARTBEAT_INTERVAL_MS); return;
@@ -261,10 +280,15 @@ export class TerminalPeerOwner {
     if (heartbeatEpisode === null) return;
     void connection.probe(createTerminalDirectRequestId()).then(() => {
       if (state.connection !== connection || state.heartbeatEpisode !== heartbeatEpisode) return;
-      state.heartbeatMisses = 0; if (now() - state.activeSinceMs >= PEER_STABLE_MS) state.failureCount = 0;
+      state.heartbeatMisses = 0;
+      for (const sessionId of state.demandedSessions) {
+        this.stageCurrentConnection(state, sessionId);
+      }
+      if (state.phase === "active" && now() - state.activeSinceMs >= PEER_STABLE_MS) state.failureCount = 0;
     }).catch(() => {
       if (state.connection !== connection || state.heartbeatEpisode !== heartbeatEpisode) return;
-      state.heartbeatMisses += 1; if (state.heartbeatMisses >= 2) connection.close("terminal peer heartbeat missed");
+      state.heartbeatMisses += 1;
+      if (state.heartbeatMisses >= 2) connection.close("terminal peer heartbeat missed");
     }).finally(() => {
       if (state.connection !== connection || state.heartbeatEpisode !== heartbeatEpisode) return;
       state.heartbeatPending = false; this.heartbeat(state, false);

@@ -280,6 +280,7 @@ export class TerminalDirectRegistry {
       || !workerConnections
       || (workerConnections.active !== connection && workerConnections.candidate !== connection)
       || (this.#demands.get(connection.workerFp)?.get(sessionId)?.size ?? 0) === 0
+      || !directConnectionQualified(connection)
       || !isConnectionToken(connection, prepared.token)
       || !terminalGenerationTokenEquals(connection.token(), prepared.token)
       || !terminalGenerationTokenEquals(prepared.currentToken, prepared.oldToken)
@@ -374,6 +375,11 @@ export class TerminalDirectRegistry {
   #emit(event: TerminalDirectRegistryEvent): void {
     for (const listener of [...this.#listeners]) listener(event);
   }
+}
+
+function directConnectionQualified(connection: TerminalDirectConnection): boolean {
+  return connection.kind === "loopback"
+    || connection.telemetry?.().livenessQualified === true;
 }
 
 function isConnectionToken(

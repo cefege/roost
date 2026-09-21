@@ -73,6 +73,12 @@ export class TerminalPeerPromotions {
       || !connection.allowsSession(sessionId)
       || this.registry.activeForSession(sessionId) === connection
     ) return;
+    const existing = this.runs.get(sessionId);
+    if (
+      existing?.connection === connection
+      && terminalGenerationTokenEquals(existing.candidateToken, candidateToken)
+      && (existing.promoting || !existing.candidate.isReady())
+    ) return;
     this.cancelPromotion(sessionId, "candidate replaced");
     const attemptId = createTerminalDirectRequestId();
     const candidate = createTerminalSessionPromotion({
@@ -95,10 +101,15 @@ export class TerminalPeerPromotions {
       promoting: false,
       committed: false,
     };
+
     this.runs.set(sessionId, run);
     void candidate.awaitReady().then((ready) => {
       if (ready) void this.promote(sessionId, run);
     }).catch(() => this.cancelPromotion(sessionId, "candidate readiness failed", run));
+  }
+
+  cancelSession(sessionId: string, reason: string): void {
+    this.cancelPromotion(sessionId, reason);
   }
 
   retireConnection(connection: TerminalDirectConnection, reason: string): void {
@@ -136,7 +147,7 @@ export class TerminalPeerPromotions {
       if (run.oldToken) await terminalPeerDeadline(drainTerminalInput(sessionId, run.oldToken), INPUT_HANDOFF_DRAIN_MS);
       if (!this.current(sessionId, run, true)) return;
       if (!this.matchesOldToken(sessionId, run)) return this.restart(sessionId, run);
-      const destination = terminalInputDestinationForDirectConnection(run.connection, true);
+      const destination = terminalInputDestinationForDirectConnection(run.connection);
       if (!destination || !terminalGenerationTokenEquals(destination.token, run.candidateToken)) {
         throw new Error("candidate direct connection lost its token");
       }
@@ -176,6 +187,9 @@ export class TerminalPeerPromotions {
       );
     } finally {
       run.promoting = false;
+      if (!run.committed && this.runs.get(sessionId) === run) {
+        this.cancelPromotion(sessionId, "candidate promotion did not commit", run);
+      }
     }
   }
 

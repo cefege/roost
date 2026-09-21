@@ -163,6 +163,33 @@ beforeEach(() => {
 });
 
 describe("TerminalPeerPromotions", () => {
+  test("coalesces one candidate and replaces it after its demand ends", () => {
+    const { owner, connection } = setup();
+    owner.stage("session-a", connection as never);
+    owner.stage("session-a", connection as never);
+    expect(candidates).toHaveLength(1);
+    owner.cancelSession("session-a", "terminal view demand ended");
+    expect(candidates[0]?.cancelled).toBe("terminal view demand ended");
+    owner.stage("session-a", connection as never);
+    expect(candidates).toHaveLength(2);
+  });
+  test("releases a held promotion when demand disappears during drain", async () => {
+    const draining = Promise.withResolvers<void>();
+    drainOperation = () => draining.promise;
+    const { owner, connection } = setup();
+    owner.stage("session-a", connection as never);
+    candidates[0]!.resolveReady();
+    await settle();
+    demanded = false;
+    draining.resolve();
+    await settle();
+    expect(candidates[0]?.cancelled).toBe("candidate promotion did not commit");
+    expect(holds[0]?.releases).toEqual([oldDestination!]);
+    demanded = true;
+    owner.stage("session-a", connection as never);
+    expect(candidates).toHaveLength(2);
+  });
+
   test("waits for old-route drain and cancels without a claim on a same-connection domain change", async () => {
     const draining = Promise.withResolvers<void>();
     drainOperation = () => draining.promise;
