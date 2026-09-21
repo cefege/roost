@@ -3,7 +3,7 @@
 // and per-worker corrupt evidence without touching platform host journals.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -105,6 +105,26 @@ describe("durable POSIX deploy records", () => {
     const loaded = await loadAllDeployJobRecords();
     expect(loaded.records).toHaveLength(0);
     expect(loaded.corruptWorkerFingerprints.get(WORKER_FP)).toEqual([path]);
+  });
+
+  test("rejects symlinked and non-regular canonical job leaves", async () => {
+    const symlinkJobId = "66666666-6666-4666-8666-666666666666";
+    const symlinkPath = deployJobRecordPath(WORKER_FP, symlinkJobId);
+    const targetPath = join(directory, "valid-record.json");
+    mkdirSync(join(symlinkPath, ".."), { recursive: true });
+    writeFileSync(targetPath, JSON.stringify(record(WORKER_FP, symlinkJobId, 1)));
+    symlinkSync(targetPath, symlinkPath);
+    const directoryJobId = "77777777-7777-4777-8777-777777777777";
+    const directoryPath = deployJobRecordPath(WORKER_FP, directoryJobId);
+    mkdirSync(directoryPath);
+
+    expect((await loadDeployJobRecord(WORKER_FP, symlinkJobId)).kind).toBe("invalid");
+    expect((await loadDeployJobRecord(WORKER_FP, directoryJobId)).kind).toBe("invalid");
+
+    const loaded = await loadAllDeployJobRecords();
+    expect(loaded.records).toHaveLength(0);
+    expect(loaded.corruptWorkerFingerprints.get(WORKER_FP)).toContain(symlinkPath);
+    expect(loaded.corruptWorkerFingerprints.get(WORKER_FP)).toContain(directoryPath);
   });
 
   test("blocks recovery when a canonical worker directory has an invalid filename", async () => {

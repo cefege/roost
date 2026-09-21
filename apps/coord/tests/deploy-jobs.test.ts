@@ -3,16 +3,25 @@
 // behavior remains covered by the existing Linux/macOS recovery suites.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WorkerUpdateOwner } from "../src/worker-update-owner.ts";
-import { loadDeployJobRecord } from "../src/deploy-job-record.ts";
+import {
+  deployJobRecordPath,
+  loadDeployJobRecord,
+  persistDeployJobRecord,
+} from "../src/deploy-job-record.ts";
 import type {
   DeployJobRuntimeCallbacks,
   DeployJobRuntimeHandle,
   DeployJobRuntimeResult,
 } from "../src/deploy-job-runtime.ts";
+import {
+  initialDeployJobRecord,
+  initialWorkerUpdateOperation,
+  nextDeployJobRecord,
+} from "../src/worker-update-owner-types.ts";
 import type { WorkerUpdateStartRequest } from "@roost/shared/worker-update-operation";
 
 const TARGET_SHA = "c".repeat(40);
@@ -62,6 +71,27 @@ function failedRuntimeResult(error: string): DeployJobRuntimeResult {
     error,
     failure: null,
   };
+}
+
+function waitingRecord(index: number, jobId: string) {
+  const operation = initialWorkerUpdateOperation({
+    request: request(index),
+    jobId,
+    revision: 1,
+    atMs: 1,
+  });
+  return nextDeployJobRecord(initialDeployJobRecord({
+    operation,
+    sourceRoot: directory,
+    baseline: baseline(),
+    coordinatorOrigin: "https://coord.example.test",
+  }), {
+    status: "waiting",
+    phase: "recovery",
+    reasonCode: "coordinator_restarting",
+    message: "Waiting for coordinator recovery",
+    nextAttemptAtMs: 0,
+  }, "Coordinator restarted; recovery is pending", 2);
 }
 
 describe("WorkerUpdateOwner", () => {
@@ -145,6 +175,58 @@ describe("WorkerUpdateOwner", () => {
     for (const result of pending.values()) {
       result.resolve(failedRuntimeResult("fixture stop"));
     }
+    await owner.dispose();
+  });
+
+  test("keeps every record for a corrupted worker out of recovery", async () => {
+    const corruptJobId = "11111111-1111-4111-8111-111111111111";
+    const recoverableJobId = "22222222-2222-4222-8222-222222222222";
+    const corruptRecord = waitingRecord(1, corruptJobId);
+    const recoverableRecord = waitingRecord(2, recoverableJobId);
+    await persistDeployJobRecord(corruptRecord);
+    await persistDeployJobRecord(recoverableRecord);
+    const malformedLeaf = join(
+      deployJobRecordPath(corruptRecord.operation.workerFp, corruptJobId),
+      "..",
+      "unexpected-leaf",
+    );
+    writeFileSync(malformedLeaf, "{}");
+
+    const runtimeStarted = Promise.withResolvers<void>();
+    const runtimeResult = Promise.withResolvers<DeployJobRuntimeResult>();
+    const startedWorkerFps: string[] = [];
+    const owner = new WorkerUpdateOwner({
+      coordinatorOrigin: "https://coord.example.test",
+      coordinatorDialUrl: "https://coord.example.test",
+      readBaseline: async () => baseline(),
+      readVerification: async () => null,
+      publishOperation: () => {},
+      workerExists: async () => true,
+      workerRoutable: () => true,
+      now: () => 10,
+      startRuntime: updateRequest => {
+        startedWorkerFps.push(updateRequest.workerFp);
+        runtimeStarted.resolve();
+        return {
+          result: runtimeResult.promise,
+          stop: () => runtimeResult.resolve(failedRuntimeResult("fixture stop")),
+        };
+      },
+    });
+
+    await owner.initialize();
+    expect(owner.ownsJob(corruptJobId)).toBe(false);
+    expect(owner.readSummary(corruptRecord.operation.workerFp)).toBeNull();
+    expect(owner.ownsJob(recoverableJobId)).toBe(true);
+    expect(await owner.startDeploy(request(1))).toEqual({
+      ok: false,
+      error: "worker update record is corrupt; retained for diagnosis",
+    });
+
+    await owner.sweep();
+    await runtimeStarted.promise;
+    expect(startedWorkerFps).toEqual([recoverableRecord.operation.workerFp]);
+    runtimeResult.resolve(failedRuntimeResult("fixture stop"));
     await owner.dispose();
   });
 

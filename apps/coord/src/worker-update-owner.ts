@@ -54,13 +54,12 @@ export class WorkerUpdateOwner {
   }
   async initialize(): Promise<void> {
     const loaded = await loadAllDeployJobRecords();
-    for (const [workerFp, paths] of loaded.corruptWorkerFingerprints) {
-      this.#corruptWorkers.set(workerFp, paths);
-    }
-    for (const [workerFp, operation] of latestDeployOperations(loaded.records)) {
+    for (const [workerFp, paths] of loaded.corruptWorkerFingerprints) this.#corruptWorkers.set(workerFp, paths);
+    const recoverableRecords = loaded.records.filter(record => !this.#corruptWorkers.has(record.operation.workerFp));
+    for (const [workerFp, operation] of latestDeployOperations(recoverableRecords)) {
       this.#latestByWorker.set(workerFp, operation);
     }
-    for (const record of loaded.records) {
+    for (const record of recoverableRecords) {
       const job = this.#installRecord(record);
       if (!workerUpdateStatusIsTerminal(record.operation.status)) {
         this.#claimUnresolved(record.operation);

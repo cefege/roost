@@ -112,9 +112,14 @@ export async function loadDeployJobRecord(
   workerFp: string,
   jobId: string,
 ): Promise<DeployJobRecordLoad> {
+  const path = deployJobRecordPath(workerFp, jobId);
   let raw: string;
   try {
-    raw = await readFile(deployJobRecordPath(workerFp, jobId), "utf8");
+    const metadata = await lstat(path);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      return { kind: "invalid", error: "record leaf is not a regular non-symlink file" };
+    }
+    raw = await readFile(path, "utf8");
   } catch (error) {
     const code = error instanceof Error && "code" in error
       ? (error as NodeJS.ErrnoException).code
