@@ -38,13 +38,15 @@ export function normalizeCellGridFrame(frame: CellGridFrame): CellGridFrame {
 }
 
 
-/** Number of held viewport rows that a delta proves moved into scrollback.
+/** Number of held viewport rows reusable by a global viewport shift.
  *
- * Scrollback can advance without changing the visible grid, so append length
- * alone is not a viewport-shift signal. A shift is reusable only when its first
- * appended row is exactly the former viewport head. Compare that one boundary
- * row directly: this neither hashes nor walks the full held viewport. */
+ * A matching history/head boundary identifies a shift candidate, but a
+ * partial-region scroll can keep held footer rows fixed. Reuse a global shift
+ * only when `delta.viewportRows` supplies the complete final viewport: those
+ * final-coordinate rows overwrite every row after transfer. Compare the
+ * boundary row directly: this neither hashes nor walks the held viewport. */
 export function deltaViewportShift(base: CellGridFrame, delta: CellGridFrame): number {
+	if (delta.viewportRows.length !== base.rows) return 0;
 	const shift = Math.min(delta.scrollbackAppend.length, base.rows);
 	if (shift === 0) return 0;
 	const held = base.viewportRows[0];
@@ -90,7 +92,6 @@ export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridF
 
 	const viewportRows = base.viewportRows;
 	const changedRows = new Set<number>();
-	const scrolled = deltaViewportShift(base, delta);
 	for (const row of delta.viewportRows) {
 		if (
 			!Number.isInteger(row.index)
@@ -102,19 +103,7 @@ export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridF
 		}
 		changedRows.add(row.index);
 	}
-	// A scroll shifts the canonical viewport just as the renderer shifts its DOM
-	// nodes. Every newly exposed tail row must be present in the sparse patch;
-	// otherwise the delta cannot reconstruct an authoritative grid.
-	for (let index = base.rows - scrolled; index < base.rows; index++) {
-		let supplied = false;
-		for (const row of delta.viewportRows) {
-			if (row.index === index) {
-				supplied = true;
-				break;
-			}
-		}
-		if (!supplied) return null;
-	}
+	const scrolled = deltaViewportShift(base, delta);
 	if (scrolled > 0) {
 		viewportRows.copyWithin(0, scrolled);
 		for (let index = 0; index < base.rows - scrolled; index++) {

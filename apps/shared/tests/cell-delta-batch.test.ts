@@ -122,24 +122,24 @@ describe("foldCellDeltaBatch", () => {
     expect(batch.frame.scrollbackAppend).toEqual([]);
   });
 
-  test("translates dirty rows across proven shifts and preserves history order", () => {
+  test("translates complete final rows across proven shifts and preserves history order", () => {
     const base = fullFrame(["a", "b", "c", "d"]);
     const first = nextDelta(
       base,
-      [cellRow(1, "C!"), cellRow(3, "e")],
+      [cellRow(0, "b"), cellRow(1, "C!"), cellRow(2, "d"), cellRow(3, "e")],
       [cellRow(0, "a")],
     );
     const second = nextDelta(
       nextState(base, first),
-      [cellRow(2, "E!"), cellRow(3, "f")],
+      [cellRow(0, "C!"), cellRow(1, "d"), cellRow(2, "E!"), cellRow(3, "f")],
       [cellRow(1, "b")],
     );
 
     const batch = folded(base, [first, second]);
 
     expect(batch.viewportShift).toBe(2);
-    expect(batch.dirtyRows.map((row) => row.index)).toEqual([0, 2, 3]);
-    expect(rowText(batch.dirtyRows)).toEqual(["C!", "E!", "f"]);
+    expect(batch.dirtyRows.map((row) => row.index)).toEqual([0, 1, 2, 3]);
+    expect(rowText(batch.dirtyRows)).toEqual(["C!", "d", "E!", "f"]);
     expect(rowText(batch.frame.viewportRows)).toEqual(["C!", "d", "E!", "f"]);
     expect(batch.frame.scrollbackTotal).toBe(2);
     expect(rowText(batch.frame.scrollbackRows)).toEqual(["a", "b"]);
@@ -150,8 +150,8 @@ describe("foldCellDeltaBatch", () => {
 
   test("marks the complete final viewport when shifts discard every original row", () => {
     const base = fullFrame(["a", "b"]);
-    const first = nextDelta(base, [cellRow(1, "c")], [cellRow(0, "a")]);
-    const second = nextDelta(nextState(base, first), [cellRow(1, "d")], [cellRow(1, "b")]);
+    const first = nextDelta(base, [cellRow(0, "b"), cellRow(1, "c")], [cellRow(0, "a")]);
+    const second = nextDelta(nextState(base, first), [cellRow(0, "c"), cellRow(1, "d")], [cellRow(1, "b")]);
 
     const batch = folded(base, [first, second]);
 
@@ -159,6 +159,50 @@ describe("foldCellDeltaBatch", () => {
     expect(batch.dirtyRows.map((row) => row.index)).toEqual([0, 1]);
     expect(rowText(batch.dirtyRows)).toEqual(["c", "d"]);
     expect(rowText(batch.frame.viewportRows)).toEqual(["c", "d"]);
+  });
+
+  test("preserves an untouched footer through a sparse partial-region batch", () => {
+    const base = fullFrame([
+      "HEAD-0", "GREP-HEAD", "README.md#8C59", "BODY-A", "FIXED-PANEL", "STATUS-000",
+    ]);
+    const first = nextDelta(
+      base,
+      [
+        cellRow(0, "GREP-HEAD"), cellRow(1, "README.md#8C59"), cellRow(2, "BODY-A"),
+        cellRow(3, "NEXT"), cellRow(5, "STATUS-001"),
+      ],
+      [cellRow(0, "HEAD-0")],
+    );
+    const second = nextDelta(nextState(base, first), [cellRow(5, "STATUS-002")]);
+    const baseBefore = cloneCellGridFrame(base);
+    const firstBefore = cloneCellGridFrame(first);
+    const secondBefore = cloneCellGridFrame(second);
+    const baseViewportRows = base.viewportRows;
+    const firstViewportRows = first.viewportRows;
+    const firstHistoryRows = first.scrollbackAppend;
+    const secondViewportRows = second.viewportRows;
+
+    const batch = folded(base, [first, second]);
+
+    expect(batch.viewportShift).toBe(0);
+    expect(rowText(batch.frame.viewportRows)).toEqual([
+      "GREP-HEAD", "README.md#8C59", "BODY-A", "NEXT", "FIXED-PANEL", "STATUS-002",
+    ]);
+    expect(batch.dirtyRows.map((row) => row.index)).toEqual([0, 1, 2, 3, 5]);
+    expect(rowText(batch.dirtyRows)).toEqual([
+      "GREP-HEAD", "README.md#8C59", "BODY-A", "NEXT", "STATUS-002",
+    ]);
+    expect(rowText(batch.frame.scrollbackRows)).toEqual(["HEAD-0"]);
+    expect(batch.scrollbackAppend.map((row) => row.index)).toEqual([0]);
+    expect(rowText(batch.scrollbackAppend)).toEqual(["HEAD-0"]);
+    expect(rowText(batch.frame.viewportRows).filter((value) => value.startsWith("STATUS-"))).toEqual(["STATUS-002"]);
+    expect(base).toEqual(baseBefore);
+    expect(first).toEqual(firstBefore);
+    expect(second).toEqual(secondBefore);
+    expect(base.viewportRows).toBe(baseViewportRows);
+    expect(first.viewportRows).toBe(firstViewportRows);
+    expect(first.scrollbackAppend).toBe(firstHistoryRows);
+    expect(second.viewportRows).toBe(secondViewportRows);
   });
 
   test("rejects empty, full, malformed, and noncontiguous chains without mutation", () => {
@@ -206,21 +250,21 @@ describe("foldCellDeltaBatch", () => {
     const first = nextDelta(base, [cellRow(1, "B")]);
     const second = nextDelta(
       nextState(base, first),
-      [cellRow(2, "d")],
+      [cellRow(0, "B"), cellRow(1, "c"), cellRow(2, "d")],
       [cellRow(0, "a")],
     );
     const baseBefore = cloneCellGridFrame(base);
 
     const batch = folded(base, [first, second]);
 
-    expect(rowText(batch.dirtyRows)).toEqual(["B", "d"]);
-    expect(batch.dirtyRows.map((row) => row.index)).toEqual([0, 2]);
+    expect(rowText(batch.dirtyRows)).toEqual(["B", "c", "d"]);
+    expect(batch.dirtyRows.map((row) => row.index)).toEqual([0, 1, 2]);
     expect(base).toEqual(baseBefore);
     expect(first.viewportRows[0]!.index).toBe(1);
-    expect(batch.frame.viewportRows[0]).not.toBe(first.viewportRows[0]);
-    expect(batch.frame.viewportRows[0]!.spans).toBe(first.viewportRows[0]!.spans);
-    expect(batch.frame.viewportRows[1]).not.toBe(base.viewportRows[2]);
-    expect(batch.frame.viewportRows[1]!.spans).toBe(base.viewportRows[2]!.spans);
+    expect(batch.frame.viewportRows[0]).not.toBe(second.viewportRows[0]);
+    expect(batch.frame.viewportRows[0]!.spans).toBe(second.viewportRows[0]!.spans);
+    expect(batch.frame.viewportRows[1]).not.toBe(second.viewportRows[1]);
+    expect(batch.frame.viewportRows[1]!.spans).toBe(second.viewportRows[1]!.spans);
     expect(batch.scrollbackAppend[0]).not.toBe(second.scrollbackAppend[0]);
     expect(batch.scrollbackAppend[0]!.spans).toBe(second.scrollbackAppend[0]!.spans);
   });

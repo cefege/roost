@@ -13,6 +13,8 @@ import {
   fullFrame,
   deltaFrame,
   seedHeldHistory,
+  sbEl,
+  sbRows,
   vpEl,
 } from "./helpers/cellRendererFakeDom.ts";
 
@@ -160,10 +162,10 @@ describe("CellGridRenderer DOM — viewport diff", () => {
     seedHeldHistory(r, 80, [row(0, "A"), row(1, "B"), row(2, "C")], []);
     const nB = viewportEl.children[1];
     const nC = viewportEl.children[2];
-    // One line scrolled out: A moved to scrollback. Only newly exposed D is
-    // carried as a dirty row; B/C transfer through the canonical model + DOM.
+    // One line scrolled out: A moved to scrollback. The producer supplies every
+    // final coordinate; unchanged B/C still retain their shifted DOM nodes.
     expect(r.applyDeltaFrames([{
-      ...deltaFrame(80, 3, [row(2, "D")], [row(0, "A")], 2),
+      ...deltaFrame(80, 3, [row(0, "B"), row(1, "C"), row(2, "D")], [row(0, "A")], 2),
       scrollbackTotal: 1,
     }])).toBe(true);
     expect(viewportEl.children[0]).toBe(nB); // shifted up, node reused
@@ -188,11 +190,11 @@ describe("CellGridRenderer DOM — viewport diff", () => {
 
     expect(r.applyDeltaFrames([
       {
-        ...deltaFrame(80, 3, [row(2, "D")], [row(0, "A")], 2),
+        ...deltaFrame(80, 3, [row(0, "B"), row(1, "C"), row(2, "D")], [row(0, "A")], 2),
         scrollbackTotal: 1,
       },
       {
-        ...deltaFrame(80, 3, [row(2, "E")], [row(1, "B")], 3),
+        ...deltaFrame(80, 3, [row(0, "C"), row(1, "D"), row(2, "E")], [row(1, "B")], 3),
         scrollbackTotal: 2,
         cursorRow: 2,
         cursorCol: 3,
@@ -245,16 +247,64 @@ describe("CellGridRenderer DOM — viewport diff", () => {
     expect(viewportEl.children[1].children[0].textContent).toBe("B2");
   });
 
-  test("a scrolling delta without every exposed tail row requests repair", () => {
+  test("a partial-region scroll retains the fixed panel and worker history", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    seedHeldHistory(r, 80, [row(0, "A"), row(1, "B"), row(2, "C")], []);
-    const before = r.gridText();
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [
+      row(0, "HEAD-0"), row(1, "GREP-HEAD"), row(2, "README.md#8C59"),
+      row(3, "BODY-A"), row(4, "FIXED-PANEL"), row(5, "STATUS-000"),
+    ], []);
+    const fixedPanel = viewportEl.children[4];
+
     expect(r.applyDeltaFrames([{
-      ...deltaFrame(80, 3, [], [row(0, "A")], 2),
+      ...deltaFrame(80, 6, [
+        row(0, "GREP-HEAD"), row(1, "README.md#8C59"), row(2, "BODY-A"),
+        row(3, "NEXT"), row(5, "STATUS-001"),
+      ], [row(0, "HEAD-0")], 2),
       scrollbackTotal: 1,
-    }])).toBe(false);
-    expect(r.gridText()).toBe(before);
+    }])).toBe(true);
+
+    const viewportText = viewportEl.children.slice(0, 6).map((child: FakeEl) => child.textContent);
+    expect(viewportText).toEqual([
+      "GREP-HEAD", "README.md#8C59", "BODY-A", "NEXT", "FIXED-PANEL", "STATUS-001",
+    ]);
+    expect(viewportEl.children[4]).toBe(fixedPanel);
+    expect(viewportText.filter((text) => text.startsWith("STATUS-"))).toEqual(["STATUS-001"]);
+    expect(sbRows(sbEl(c)).map((child) => child.textContent)).toEqual(["HEAD-0"]);
+  });
+
+  test("a batched partial-region scroll retains the fixed panel and latest status", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [
+      row(0, "HEAD-0"), row(1, "GREP-HEAD"), row(2, "README.md#8C59"),
+      row(3, "BODY-A"), row(4, "FIXED-PANEL"), row(5, "STATUS-000"),
+    ], []);
+    const fixedPanel = viewportEl.children[4];
+
+    expect(r.applyDeltaFrames([
+      {
+        ...deltaFrame(80, 6, [
+          row(0, "GREP-HEAD"), row(1, "README.md#8C59"), row(2, "BODY-A"),
+          row(3, "NEXT"), row(5, "STATUS-001"),
+        ], [row(0, "HEAD-0")], 2),
+        scrollbackTotal: 1,
+      },
+      {
+        ...deltaFrame(80, 6, [row(5, "STATUS-002")], [], 3),
+        scrollbackTotal: 1,
+      },
+    ])).toBe(true);
+
+    const viewportText = viewportEl.children.slice(0, 6).map((child: FakeEl) => child.textContent);
+    expect(viewportText).toEqual([
+      "GREP-HEAD", "README.md#8C59", "BODY-A", "NEXT", "FIXED-PANEL", "STATUS-002",
+    ]);
+    expect(viewportEl.children[4]).toBe(fixedPanel);
+    expect(viewportText.filter((text) => text.startsWith("STATUS-"))).toEqual(["STATUS-002"]);
+    expect(sbRows(sbEl(c)).map((child) => child.textContent)).toEqual(["HEAD-0"]);
   });
 });
 

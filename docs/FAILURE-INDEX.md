@@ -248,17 +248,23 @@ worker-authoritative `SessionsGetScrollbackCells` backfill fill it on demand;
 only a frame's own `scrollbackRows` / `scrollbackAppend` are ever painted.
 Non-contiguous painted history is a first-class state
 (`missingCellHistoryRanges` in `apps/web/src/lib/cellHistoryRanges.ts`), so a
-reserved gap needs no inference to stand in for it. The delta path is NOT the
-same case and keeps its content-PROVED shift: `deltaViewportShift`
-(`apps/shared/src/cell/diff-grid.ts`) byte-matches the appended row against the
-held viewport head, and `applyDelta` accepts a delta only when every newly
-exposed tail row is present. This is the doctrine the emitter already records
-for the scrollback ORIGIN (`apps/shared/src/cell/emitter.ts:74-83`), extended
-from the origin to the content.
+reserved gap needs no inference to stand in for it. A matching history/head
+boundary identifies a content-PROVED shift candidate, but global viewport reuse
+is permitted only when `deltaViewportShift`
+(`apps/shared/src/cell/diff-grid.ts`) receives the complete final viewport.
+`applyDelta` and `foldCellDeltaBatch` then reuse that global shift; sparse
+deltas patch only their worker-authored final coordinates and retain omitted
+held rows, so a fixed footer cannot receive an older status generation.
 
-**Guard** — `apps/web/tests/cellRenderer.history.dom.test.ts` —
-`"a checkpoint leaves the transitioned rows unpainted for authoritative backfill"`,
-`"a checkpoint never paints a stale repaint generation into history"`;
+**Guard** — `apps/shared/tests/cell-realcore.test.ts` —
+`"partial-region scroll with a footer repaint preserves untouched rows"`;
+`apps/shared/tests/cell-delta-batch.test.ts` —
+`"preserves an untouched footer through a sparse partial-region batch"`;
+`apps/web/tests/cellRenderer.reconcile.dom.test.ts` —
+`"a partial-region scroll retains the fixed panel and worker history"`,
+`"a batched partial-region scroll retains the fixed panel and latest status"`;
+`apps/web/tests/cellRenderer.history.dom.test.ts` —
+`"a checkpoint leaves the transitioned rows unpainted for authoritative backfill"`;
 `smoke/terminal/terminal-render-main-repaint.spec.ts` —
 `"a backgrounded inline TUI repaint never freezes a stale generation into history"`.
 

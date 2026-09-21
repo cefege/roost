@@ -7,6 +7,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { WasmBridge } from "@wterm/core";
+import { createWtermCore } from "../src/wterm-core-factory.ts";
 import {
   nextCellFrame, initCellEmitState, gridToCellFrame, applyDelta,
 } from "../src/cell/index.ts";
@@ -35,6 +36,30 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     const reconstructed = applyDelta(full.frame, delta.frame);
     const freshFull = gridToCellFrame(core, delta.frame.seq, "test-grid:0", "00000000-0000-4000-8000-000000000001");
     expect(reconstructed).toEqual(freshFull);
+  });
+
+  test("partial-region scroll with a footer repaint preserves untouched rows", async () => {
+    const core = await createWtermCore(32, 6);
+    const streamId = "00000000-0000-4000-8000-000000000001";
+    core.writeRaw(new TextEncoder().encode(
+      "\x1b[2J\x1b[HHEAD-0\r\nGREP-HEAD\r\nREADME.md#8C59\r\nBODY-A\r\nFIXED-PANEL\r\nSTATUS-000",
+    ));
+
+    const baseline = nextCellFrame(core, initCellEmitState("partial-region", streamId), false);
+    expect(baseline.frame.full).toBe(true);
+    core.clearDirty();
+
+    core.writeRaw(new TextEncoder().encode("\x1b[1;4r\x1b[4;1H\r\nNEXT\x1b[6;1HSTATUS-001"));
+    const delta = nextCellFrame(core, baseline.state, false);
+    expect(delta.frame.full).toBe(false);
+
+    const reconstructed = applyDelta(baseline.frame, delta.frame);
+    const freshFull = gridToCellFrame(core, delta.frame.seq, delta.frame.gridEpoch, delta.frame.streamId);
+    expect(reconstructed).toEqual(freshFull);
+    expect(reconstructed!.viewportRows[4]!.spans.map((span) => span.text).join("")).toBe("FIXED-PANEL");
+    expect(reconstructed!.scrollbackRows.filter(
+      (row) => row.spans.map((span) => span.text).join("") === "HEAD-0",
+    )).toHaveLength(1);
   });
 
   // "Proper" content — a colored box-drawing markdown table + bullets, the
