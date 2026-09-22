@@ -33,10 +33,14 @@ const REPAINT_TIMEOUT_MS = 30_000;
 const REPAINT_INTERVALS_MS = [50, 100, 250];
 
 type RequestedCarrier = "webrtc" | "sync";
+type CarrierFixtures = { supportedProject: boolean };
 type CarrierWorkerFixtures = { requestedCarrier: RequestedCarrier };
 
-const carrierTest = test.extend<{}, CarrierWorkerFixtures>({
+const carrierTest = test.extend<CarrierFixtures, CarrierWorkerFixtures>({
   requestedCarrier: ["webrtc", { option: true, scope: "worker" }],
+  supportedProject: async ({}, use, testInfo) => {
+    await use(SUPPORTED_PROJECTS[testInfo.project.name] === true);
+  },
   stack: [async ({ requestedCarrier }, use) => {
     const stack = await startTerminalTestStack({
       terminalPeer: {
@@ -149,15 +153,17 @@ function registerMobileRepaintScenario(
   scenarioTest: typeof carrierTest,
   requestedCarrier: RequestedCarrier,
 ): void {
-  scenarioTest(`mobile partial-region repaint stays exact over ${requestedCarrier}`, async ({
-    mobileSmokePage,
-    stack,
-  }, testInfo) => {
+  scenarioTest.describe(`${requestedCarrier} mobile repaint`, () => {
     scenarioTest.skip(
-      SUPPORTED_PROJECTS[testInfo.project.name] !== true,
+      ({ supportedProject }) => !supportedProject,
       "mobile repaint runs on Chromium phone geometry and macOS WebKit iPhone",
     );
-    scenarioTest.setTimeout(240_000);
+
+    scenarioTest(`mobile partial-region repaint stays exact over ${requestedCarrier}`, async ({
+      mobileSmokePage,
+      stack,
+    }, testInfo) => {
+      scenarioTest.setTimeout(240_000);
 
     const fixtureWorker = await stack.startPtyFixtureWorker();
     let sessionId: string | null = null;
@@ -319,6 +325,7 @@ function registerMobileRepaintScenario(
         })).catch(() => undefined);
       }
     }
+    });
   });
 }
 
