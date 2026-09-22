@@ -254,11 +254,13 @@ test("a terminal font that loads while hidden keeps the mobile right edge reacha
   }
 });
 
-test("mobile text inflation cannot enlarge a settled terminal grid", async ({
-  mobileSmokePage,
-  stack,
-}, testInfo) => {
-  test.skip(testInfo.project.name !== "webkit-iphone", "iPhone text-inflation contract");
+test.describe("WebKit iPhone text inflation", () => {
+  test.skip(({ browserName }) => browserName !== "webkit", "iPhone text-inflation contract");
+
+  test("mobile text inflation cannot enlarge a settled terminal grid", async ({
+    mobileSmokePage,
+    stack,
+  }) => {
   test.setTimeout(180_000);
   const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(mobileSmokePage, sessionId);
@@ -342,6 +344,7 @@ test("mobile text inflation cannot enlarge a settled terminal grid", async ({
   } finally {
     await removeTextInflationProbe(mobileSmokePage, sessionId).catch(() => undefined);
   }
+  });
 });
 
 test("a revealed narrow viewer converges one shell back onto a visible last column", async ({
