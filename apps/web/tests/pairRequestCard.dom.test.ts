@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
 import type { PairRequest } from "../src/store/root.ts";
+import { pairingPrimitiveStubs } from "./helpers/pairingPrimitiveStubs.ts";
 
 type VNode = {
   tag: unknown;
@@ -49,18 +50,8 @@ mock.module("react/jsx-dev-runtime", () => ({
   },
 }));
 
-function passthrough(props: Record<string, unknown>): unknown {
-  return props.children;
-}
 
-mock.module("../src/components/Settings/md/primitives.tsx", () => ({
-  Button: passthrough,
-  Card: (props: Record<string, unknown>) => [props.title, props.children],
-  Chip: (props: Record<string, unknown>) => props.label,
-  List: passthrough,
-  ListRow: (props: Record<string, unknown>) => [props.headline, props.support, props.trailing],
-  StatusDot: () => null,
-}));
+mock.module("../src/components/Settings/md/primitives.tsx", () => pairingPrimitiveStubs);
 
 const { PairRequestCard } = await import("../src/components/PairRequestCard.tsx");
 
@@ -142,7 +133,8 @@ describe("PairRequestCard", () => {
     expect(text).toContain("IP 203.0.113.7");
     expect(text).toContain("Signed in as owner@example.com");
     expect(text).toContain(baseRequest.userAgent);
-    expect(text).toContain(`Code: ${baseRequest.ephemeral_id}`);
+    expect(text).toContain(`Request ID: ${baseRequest.ephemeral_id}`);
+    expect(text).not.toContain(`Code: ${baseRequest.ephemeral_id}`);
     expect(text).toContain("Expires in");
   });
 

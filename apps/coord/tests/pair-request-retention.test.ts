@@ -37,12 +37,14 @@ function seedPairRequest(
     status: string;
     expiresAtMs: number;
     decidedAtMs: number | null;
+    verificationCodeHash?: string | null;
   },
 ): void {
   sqlite.query(`
     INSERT INTO pair_requests
-      (id, ephemeral_id, public_key, label, status, created_at_ms, decided_at_ms, expires_at_ms)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (id, ephemeral_id, public_key, label, status, created_at_ms, decided_at_ms, expires_at_ms,
+       verification_code_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     row.id,
     row.id,
@@ -52,6 +54,7 @@ function seedPairRequest(
     NOW - 1_000,
     row.decidedAtMs,
     row.expiresAtMs,
+    row.verificationCodeHash ?? null,
   );
 }
 
@@ -101,6 +104,57 @@ describe("pair-request retention sweep", () => {
       { ephemeral_id: "expired-recent", status: "expired", decided_at_ms: NOW - 1 },
       { ephemeral_id: "pending-expired", status: "expired", decided_at_ms: NOW },
       { ephemeral_id: "pending-fresh", status: "pending", decided_at_ms: null },
+    ]);
+  });
+
+  test("expires verification-required rows and retains only fresh terminal tombstones", async () => {
+    const sqlite = await fixture();
+    seedPairRequest(sqlite, {
+      id: "verification-expired",
+      status: "verification_required",
+      expiresAtMs: NOW - 1,
+      decidedAtMs: null,
+      verificationCodeHash: "verification-code-digest",
+    });
+    seedPairRequest(sqlite, {
+      id: "verification-fresh",
+      status: "verification_required",
+      expiresAtMs: NOW + 60_000,
+      decidedAtMs: null,
+    });
+    seedPairRequest(sqlite, {
+      id: "completed-old",
+      status: "completed",
+      expiresAtMs: NOW - 2_000,
+      decidedAtMs: NOW - PAIR_REQUEST_TOMBSTONE_MS - 1,
+    });
+    seedPairRequest(sqlite, {
+      id: "verification-failed-at-cutoff",
+      status: "verification_failed",
+      expiresAtMs: NOW - 2_000,
+      decidedAtMs: NOW - PAIR_REQUEST_TOMBSTONE_MS,
+    });
+
+    const result = sweepPairRequests(sqlite, NOW);
+
+    expect(result).toEqual({ expired: ["verification-expired"], deleted: 2 });
+    expect(sqlite.query(`
+      SELECT ephemeral_id, status, decided_at_ms, verification_code_hash
+      FROM pair_requests
+      ORDER BY ephemeral_id
+    `).all()).toEqual([
+      {
+        ephemeral_id: "verification-expired",
+        status: "expired",
+        decided_at_ms: NOW,
+        verification_code_hash: null,
+      },
+      {
+        ephemeral_id: "verification-fresh",
+        status: "verification_required",
+        decided_at_ms: null,
+        verification_code_hash: null,
+      },
     ]);
   });
 

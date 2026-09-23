@@ -43,6 +43,7 @@
     "./fingerprint": "./src/fingerprint.ts",
     "./fleet-update": "./src/fleet-update.ts",
     "./retry": "./src/retry.ts",
+    "./pairing": "./src/pairing.ts",
     "./jwt-base": "./src/jwt-base.ts",
     "./local-endpoint": "./src/local-endpoint.ts",
     "./build-identity": "./src/build-identity.ts",

@@ -1,11 +1,18 @@
+// Audit policy tests cover pure storage predicates and the Connect interceptor
+// method fence. Pair polling has no durable audit outcome; successful PairConfirm
+// is reserved for the handler's requester-identity audit row.
+
 import { describe, expect, test } from "bun:test";
-import { getMetricsSnapshot } from "../src/telemetry.ts";
+import {
+  _shouldPersistMethodAudit,
+} from "../src/connect/auth-interceptor.ts";
 import {
   recordAuditTelemetry,
   shouldPersistConnectAudit,
   shouldPersistNonConnectAudit,
   SPA_AUDIT_TELEMETRY_PATH,
 } from "../src/middleware/security.ts";
+import { getMetricsSnapshot } from "../src/telemetry.ts";
 
 describe("audit persistence policy", () => {
   test("skips only successful SPA/static reads", () => {
@@ -68,12 +75,28 @@ describe("audit persistence policy", () => {
     const before = getMetricsSnapshot();
     const requestCount = before.requests[SPA_AUDIT_TELEMETRY_PATH] ?? 0;
     const errorCount = before.errors[SPA_AUDIT_TELEMETRY_PATH] ?? 0;
-
     recordAuditTelemetry(SPA_AUDIT_TELEMETRY_PATH, 200);
     recordAuditTelemetry(SPA_AUDIT_TELEMETRY_PATH, 304);
-
     const after = getMetricsSnapshot();
     expect(after.requests[SPA_AUDIT_TELEMETRY_PATH]).toBe(requestCount + 2);
     expect(after.errors[SPA_AUDIT_TELEMETRY_PATH] ?? 0).toBe(errorCount);
+  });
+
+  test("never persists PairPoll and skips only successful PairConfirm", () => {
+    const pollPath = "/roost.v1.CoordinatorService/PairPoll";
+    const before = getMetricsSnapshot();
+    const requestCount = before.requests[pollPath] ?? 0;
+    const errorCount = before.errors[pollPath] ?? 0;
+    recordAuditTelemetry(pollPath, 200);
+    recordAuditTelemetry(pollPath, 404);
+    const after = getMetricsSnapshot();
+    expect(after.requests[pollPath]).toBe(requestCount + 2);
+    expect(after.errors[pollPath]).toBe(errorCount + 1);
+    expect(_shouldPersistMethodAudit("PairPoll", 200)).toBe(false);
+    expect(_shouldPersistMethodAudit("PairPoll", 404)).toBe(false);
+    expect(_shouldPersistMethodAudit("PairPoll", 500)).toBe(false);
+    expect(_shouldPersistMethodAudit("PairConfirm", 200)).toBe(false);
+    expect(_shouldPersistMethodAudit("PairConfirm", 200, true)).toBe(true);
+    expect(_shouldPersistMethodAudit("PairConfirm", 412)).toBe(true);
   });
 });

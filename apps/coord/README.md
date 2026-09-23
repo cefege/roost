@@ -75,7 +75,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | agent-prompt | `src/connect/handlers-agent-prompt.ts` | dashboard-authorized `SessionsPrompt`, exact observed-status admission, and optional post-input status wait |
 | attachments | `src/connect/handlers-attachments.ts` | worker-forwarded read/read-chunk/list/mkdir + attachment upload/probe/list/delete |
 | mcp | `src/connect/handlers-mcp.ts` | MCP relay CRUD and publication, with a bus delta per mutation |
-| auth | `src/connect/handlers-auth.ts` | facade over `src/connect/handlers-auth-bootstrap.ts`, `src/connect/handlers-pairing.ts`, and `src/connect/handlers-devices.ts`: identity/access, bootstrap redemption, pairing, device rotation/revocation, logout |
+| auth | `src/connect/handlers-auth.ts` | facade over `src/connect/handlers-auth-bootstrap.ts`, `src/connect/handlers-pairing.ts`, and `src/connect/handlers-devices.ts`: identity/access, bootstrap redemption, versioned pairing confirmation, device rotation/revocation, logout |
 | worker-update | `src/connect/handlers-workers-update.ts` | the coordinator-held keeper update boundary: drain, reauthorize, canonical open-session snapshot, then the authenticated worker action |
 | system | `src/connect/handlers-system.ts` | health, db-export URL, metrics, the SPA diag-log batch sink, state snapshot, audit-log query, and — when `DiagSnapshot.terminal_capture` is present — the opt-in terminal incident capture step (below) |
 | workspaces | `src/connect/handlers-workspaces.ts` | version-CAS workspace rows, set-sessions, orphan GC |
@@ -93,6 +93,19 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   feed/scheduler, terminal view/screen hubs, terminal stream dispatcher, raw
   terminal input lane, guarded agent-prompt orchestration, worker facade,
   announced-channel barrier, and pending spawns.
+- **Pairing ceremony** — `src/connect/handlers-pairing.ts` validates ceremony
+  version, IDs, tokens, and codes before durable work; invokes the state owners;
+  publishes PairBus deltas only after commit; keeps token-bound polling
+  secret-free; and writes the one successful `PairConfirm` requester audit.
+  `src/connect/pairing-account.ts` owns idempotent create, same-key
+  replacement, and exact-code/approver approval transitions.
+  `src/connect/pairing-confirmation.ts` alone rechecks confirmation facts,
+  inserts `authorized_keys`/`account_devices`, and fences replay.
+  `src/connect/pairing-secrets.ts` imports the shared version and validators
+  and owns only persistence digests plus the attempt bound. `PairApprove`
+  stores only a code digest and grants nothing. Migration
+  `migrations/0033_pair_verification_code.sql` expires legacy pending requests
+  and adds verifier state without rebuilding `pair_requests`.
 - **Direct terminal control** — `src/connect/terminal-grant-owner.ts` is the
   one composition-owned direct-grant lease registry; it binds a lease to its
   authenticated owner/tab/worker and exact live `WorkerHandle`.

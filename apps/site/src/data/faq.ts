@@ -12,7 +12,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What ships in Roost v0.5.0?",
-    a: "v0.5.0 is the accountless self-hosted release for macOS and Linux coordinator and worker machines. It supports automatic Tailscale Serve and operator-managed direct HTTPS. The managed deployment is qualified but not publicly launched: production publishes no managed image, activates no shared dashboard origin, and keeps email signup and Google authentication off.",
+    a: "v0.5.0 is the accountless self-hosted release for macOS and Linux coordinator and worker machines. It starts local-first on loopback, then supports an optional operator-managed HTTPS front door such as a reverse proxy, tunnel, or Tailscale Serve. Roost does not configure that network layer. The managed deployment is qualified but not publicly launched: production publishes no managed image, activates no shared dashboard origin, and keeps email signup and Google authentication off.",
   },
   {
     q: "Does it work with Claude Code?",
@@ -20,11 +20,15 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Do I need Tailscale to self-host?",
-    a: "Not for direct coordinator quickstart. With no endpoint flags, roost quickstart uses Tailscale Serve as the automatic convenience topology. Supply the HTTPS coordinator URL, absolute certificate path and absolute key path together to serve a browser-trusted certificate directly without Tailscale on the first coordinator. In v0.5.0, the extra-worker join script still requires a running Tailscale daemon even when it connects to that direct origin.",
+    a: "No. roost quickstart starts a loopback-only coordinator and local worker with no VPN, proxy, domain, or external URL. To reach Roost beyond that host, choose and operate an HTTPS front door; Tailscale Serve is one option alongside a reverse proxy or tunnel. Roost does not provision any of them.",
   },
   {
     q: "What does Tailscale provide to self-hosted Roost?",
-    a: "Automatic mode uses Tailscale for private coordinator reachability and convenient browser-trusted HTTPS without port forwarding. Direct mode leaves reachability, DNS and certificate issuance to you. A tailnet address is never an enrollment credential; every browser and worker still needs its own scoped one-shot grant or approved pairing.",
+    a: "Tailscale Serve is one optional operator-managed HTTPS front door. It can provide private reachability and browser-trusted HTTPS without port forwarding, but it is not an enrollment credential. Every browser still needs a scoped one-shot grant or approved-and-confirmed pairing, and every worker needs its own scoped grant.",
+  },
+  {
+    q: "How does browser pairing work?",
+    a: "An already-authorized browser approves the request and sees one six-digit code. Approval alone grants nothing: the requesting browser must enter the matching code to authorize itself. The request ID, requester token, and code stay out of URLs; a stale tab reloads and starts a new request.",
   },
   {
     q: "Is my code uploaded to a managed sandbox?",
@@ -52,7 +56,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "How do I add a machine?",
-    a: "In either coordinator mode, use Settings, Machines, Add machine to create a one-shot pull command for a macOS or Linux worker. On an automatic Tailscale coordinator, roost add-machine with --platform macos or linux provides the equivalent CLI flow. The bootstrap token expires after 24 hours. In v0.5.0, join.sh still requires a running Tailscale daemon even when the worker connects to a direct HTTPS origin.",
+    a: "Use Settings, Machines, Add machine to create a one-shot pull command for a macOS or Linux worker. Before enrolling a remote machine, choose and operate an HTTPS front door that both machines can reach; it can be a reverse proxy, tunnel, or Tailscale Serve. The bootstrap token expires after 24 hours.",
   },
   {
     q: "How do I update the fleet?",

@@ -675,17 +675,43 @@ message AuthRedeemCoordinatorRelocationResponse {
 
 // ─── pair ─────────────────────────────────────────────────────────────────
 
-message PairCreateRequest { string ssh_pubkey_b64 = 1; string label = 2; }
-message PairCreateResponse { string ephemeral_id = 1; }
+message PairCreateRequest {
+  string ssh_pubkey_b64 = 1;
+  string label = 2;
+  uint32 ceremony_version = 3;
+  string ephemeral_id = 4;
+  string requester_token = 5;
+}
+message PairCreateResponse {
+  string ephemeral_id = 1;
+}
 
-message PairPollRequest { string ephemeral_id = 1; }
-message PairPollResponse { string status = 1; uint64 expires_at_ms = 2; }  // pending|approved|denied|expired
+message PairPollRequest {
+  string ephemeral_id = 1;
+  string requester_token = 2;
+  uint32 ceremony_version = 3;
+}
+message PairPollResponse { string status = 1; uint64 expires_at_ms = 2; }  // pending|verification_required|denied|expired|verification_failed|completed
 
 message PairListRequest {}
 message PairListResponse { repeated PairRequest requests = 1; }
 
-message PairApproveRequest { string ephemeral_id = 1; }
-message PairApproveResponse { bool ok = 1; }
+message PairApproveRequest {
+  string ephemeral_id = 1;
+  uint32 ceremony_version = 2;
+  string verification_code = 3;
+}
+message PairApproveResponse {
+  bool ok = 1;
+}
+
+message PairConfirmRequest {
+  string ephemeral_id = 1;
+  string requester_token = 2;
+  string verification_code = 3;
+  uint32 ceremony_version = 4;
+}
+message PairConfirmResponse { bool ok = 1; }
 
 message PairDenyRequest { string ephemeral_id = 1; }
 message PairDenyResponse { bool ok = 1; }
@@ -945,6 +971,7 @@ service CoordinatorService {
   rpc PairPoll(PairPollRequest) returns (PairPollResponse);
   rpc PairList(PairListRequest) returns (PairListResponse);
   rpc PairApprove(PairApproveRequest) returns (PairApproveResponse);
+  rpc PairConfirm(PairConfirmRequest) returns (PairConfirmResponse);
   rpc PairDeny(PairDenyRequest) returns (PairDenyResponse);
 
   // misc

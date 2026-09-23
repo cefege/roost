@@ -18,12 +18,13 @@ services, waits for health, and opens an already-authorized browser at
 `ROOST_WEB_PUBLIC_URL=`, `ROOST_COORDINATOR_PUBLIC_URL=`,
 `ROOST_CORS_ALLOWED_ORIGINS=http://127.0.0.1:4103`, and
 `ROOST_SKIP_ENV_LOCAL=1`. No domain, HTTPS proxy, VPN, or external URL is
-needed.
+needed for the first machine. Remote access is optional: when you need it,
+you choose and operate the HTTPS front door.
 
 The browser receives a one-shot bootstrap token in the URL **fragment**
 (`#pair=…`). A fragment is never sent to the server, so the token never lands
-in the coordinator's logs, an access log, or a `Referer` header. Pairing
-authorizes the browser; local network position does not.
+in the coordinator's logs, an access log, or a `Referer` header. Redeeming that
+scoped token authorizes the browser; local network position does not.
 
 Rerun `roost quickstart` to reactivate the installed coordinator and reopen a
 browser pairing flow. It preserves the installed endpoint, worker, keeper, and
@@ -63,9 +64,16 @@ in to the same tailnet.
 Pairing is what authorizes the device. Network reachability, or a login your
 front door performs on its own, does not.
 
-Three other ways to authorize a browser — pasting a bootstrap token, loopback
-self-registration, and tap-to-pair approval — are described in
-[security](/docs/security/).
+### Confirm a browser-pairing request
+
+When the new browser has no bootstrap token, open **I don't have a code** and
+request approval. In an already-authorized browser, approve the request and
+read the displayed six-digit code to the requester. Approval alone grants
+nothing: the requester must enter the matching code before it becomes
+authorized. The request ID, requester token, and approver code stay tab-local
+and never enter a URL. If a tab says `pairing client must reload`, reload and
+start again; the version-1 upgrade expires legacy pending requests rather than
+letting an old ceremony continue.
 
 ## Add another machine
 

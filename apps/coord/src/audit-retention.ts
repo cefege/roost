@@ -20,14 +20,16 @@ const BATCH_SIZE = 10_000;
 
 // The ONLY methods this sweep is allowed to delete. Deliberately an explicit
 // allowlist rather than a predicate or a blanket age cutoff: audit_log also
-// holds the low-volume, high-forensic-value rows — PairApprove,
+// holds the low-volume, high-forensic-value rows — PairApprove, PairConfirm,
 // AuthRedeemBrowser, WorkersDelete, WorkspacesDelete, SessionsKill,
 // SessionsSpawn — and "when was this device authorised, and by whom" is exactly
-// the question someone asks a year later. Those must survive regardless of age;
-// deleting them reclaims kilobytes and costs the whole point of the table.
+// the question someone asks a year later. PairApprove records that an existing
+// authority began verification; PairConfirm records the actual authorization.
+// Both must survive regardless of age; deleting them reclaims kilobytes and
+// costs the whole point of the table.
 //
-// To extend: add a method name here. Never add anything auth-, pair-, delete-
-// or lifecycle-related, and never replace this with a wildcard.
+// To extend: add a method name here. Never add anything authorization, pairing,
+// deletion or lifecycle-related, and never replace this with a wildcard.
 //
 // SessionsInput is the only entry, and the reason this module exists: ~42k rows
 // of "who typed into which session", which is real audit data — it has to age

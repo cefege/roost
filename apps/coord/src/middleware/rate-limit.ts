@@ -1,6 +1,6 @@
-// IP+endpoint sliding-window rate limiter. Exact sensitive mutation routes
-// receive independent 100-request/minute buckets; reads and unrelated Connect
-// procedures never spend those budgets.
+// IP+endpoint fixed-window rate limiter. Pair polling receives its own
+// 600-request/minute route budget so every live requester can share one NAT;
+// all other sensitive routes keep their independent 100-request/minute buckets.
 
 import { log } from "@roost/shared/log";
 
@@ -12,6 +12,7 @@ import { log } from "@roost/shared/log";
 // `/roost.v1.CoordinatorService/Workspaces` which matched WorkspacesList
 // (called on every SPA bootstrap + visibilitychange focus refresh),
 // eating the same 100/min bucket as create/update/delete mutations.
+const PAIR_POLL_ROUTE = "/roost.v1.CoordinatorService/PairPoll";
 const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   // auth mutations — credential issue / consumption surfaces
   "/roost.v1.CoordinatorService/AuthMintBootstrap",
@@ -19,7 +20,10 @@ const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   "/roost.v1.CoordinatorService/AuthRedeemBrowser",
   "/roost.v1.CoordinatorService/AuthLogout",
   "/roost.v1.CoordinatorService/PairCreate",
-  "/roost.v1.CoordinatorService/PairPoll",
+  PAIR_POLL_ROUTE,
+  "/roost.v1.CoordinatorService/PairApprove",
+  "/roost.v1.CoordinatorService/PairConfirm",
+  "/roost.v1.CoordinatorService/PairDeny",
   "/roost.v1.CoordinatorService/DevicesRevoke",
   "/roost.v1.CoordinatorService/DevicesRotateCurrent",
   // workspace mutations (List read excluded — bootstrap + focus refresh)
@@ -59,7 +63,8 @@ const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   "/roost.v1.CoordinatorService/SessionsPrompt",
 ]);
 
-const TOKENS_PER_WINDOW = 100;
+const DEFAULT_TOKENS_PER_WINDOW = 100;
+const PAIR_POLL_TOKENS_PER_WINDOW = 600;
 export const RATE_LIMIT_WINDOW_MS = 60_000;
 export const RATE_LIMIT_MAX_BUCKETS = 10_000;
 
@@ -218,6 +223,12 @@ function routeGroupKey(path: string): string | null {
   return RATE_LIMITED_ROUTES.has(path) ? path : null;
 }
 
+function routeTokensPerWindow(path: string): number {
+  return path === PAIR_POLL_ROUTE
+    ? PAIR_POLL_TOKENS_PER_WINDOW
+    : DEFAULT_TOKENS_PER_WINDOW;
+}
+
 /**
  * Check rate limit for an incoming request. Returns null when the
  * request is allowed; returns a 429 Response when it should be rejected.
@@ -229,5 +240,5 @@ export function checkRateLimit(req: Request, clientIp: string): Response | null 
   const path = new URL(req.url).pathname;
   const group = routeGroupKey(path);
   if (!group) return null;
-  return limiter.response(clientIp, group, TOKENS_PER_WINDOW);
+  return limiter.response(clientIp, group, routeTokensPerWindow(path));
 }

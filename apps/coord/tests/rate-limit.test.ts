@@ -70,4 +70,24 @@ describe("RateLimiter", () => {
       expect(checkRateLimit(request, ip)?.status).toBe(429);
     }
   });
+
+  test("admits 600 PairPoll calls per IP and keeps PairConfirm at 100", () => {
+    const poll = new Request(
+      "https://coord.test/roost.v1.CoordinatorService/PairPoll",
+      { method: "POST" },
+    );
+    for (let count = 0; count < 600; count += 1) {
+      expect(checkRateLimit(poll, "198.51.100.60")).toBeNull();
+    }
+    expect(checkRateLimit(poll, "198.51.100.60")?.status).toBe(429);
+
+    const confirm = new Request(
+      "https://coord.test/roost.v1.CoordinatorService/PairConfirm",
+      { method: "POST" },
+    );
+    for (let count = 0; count < 100; count += 1) {
+      expect(checkRateLimit(confirm, "198.51.100.61")).toBeNull();
+    }
+    expect(checkRateLimit(confirm, "198.51.100.61")?.status).toBe(429);
+  });
 });

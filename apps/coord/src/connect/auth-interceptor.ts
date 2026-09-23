@@ -120,7 +120,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   McpCreate: true, McpDelete: true, McpPublish: true,
   AuthMintBootstrap: true, AuthRedeemWorker: true, AuthRedeemBrowser: true,
   AuthLogout: true,
-  PairCreate: true, PairApprove: true, PairDeny: true,
+  PairCreate: true, PairApprove: true, PairConfirm: true, PairDeny: true,
   DevicesRevoke: true, DevicesRotateCurrent: true,
   FilesMkdir: true, TranscriptionSetConfig: true, AgentConfigSet: true,
   AttachFileChunk: true, DeleteAttachment: true,
@@ -129,29 +129,37 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   UiApplyLayout: true,
 };
 
-// High-frequency methods whose audit rows carry no forensic signal: health
-// pings, heartbeats, polling reads, and cursor chatter. Auditing them
-// buried the rows that matter — DiagDebugLogBatch alone (a *receipt* for the
-// SPA uploading its own debug logs, which go to disk, not this table) was 61%
-// of a 7M-row, 1GB audit_log with no retention. A non-200 still gets written:
-// a failing heartbeat or a rejected health probe is exactly the anomaly worth
-// keeping.
+// Successful methods whose audit rows carry no forensic signal. Failure rows
+// remain durable unless a method is in the explicit all-outcome set below.
 const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
   AuthCoordIdentity: true, DiagDebugLogBatch: true, MiscHealth: true, WorkersHeartbeat: true,
-  PairList: true, SessionsCursorPos: true,
-  // High-frequency SPA state reports, terminal reads, and read cancellation.
-  // These were briefly handled by the retention sweep instead, which meant
-  // paying an INSERT per RPC to delete the row days later. Never writing them
-  // is strictly cheaper and leaves the sweep doing the one job it is actually
-  // needed for: aging out SessionsInput, which IS real audit data and cannot
-  // simply be skipped.
+  PairConfirm: true, PairList: true, SessionsCursorPos: true,
   UiReportState: true, SessionsGetScrollbackCells: true,
   SessionsSearchScrollback: true, SessionsCancelScrollbackSearch: true,
   SessionsSearchGlobal: true, SessionsCancelGlobalSearch: true,
   TranscriptionGetConfig: true,
-  // UiApplyLayout is intentionally audited: unlike heartbeat state reports,
-  // it is an admin-authored mutation with a meaningful applied/rejected result.
 };
+
+// Requester polling is token-bound but anonymous. Its valid and invalid
+// outcomes are high-volume, carry no caller identity, and must never create an
+// unsweepable audit row. recordAuditTelemetry still retains bounded counters.
+const AUDIT_NEVER_PERSIST_METHODS: Record<string, true | undefined> = {
+  PairPoll: true,
+};
+
+/** Test-visible policy seam: PairPoll never persists; PairConfirm failures do. */
+export function _shouldPersistMethodAudit(
+  method: string,
+  status: number,
+  pairConfirmationFailed = false,
+): boolean {
+  return !AUDIT_NEVER_PERSIST_METHODS[method]
+    && (
+      status !== 200
+      || !AUDIT_SKIP_METHODS[method]
+      || (method === "PairConfirm" && pairConfirmationFailed)
+    );
+}
 
 export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
   return (next) => async (req) => {
@@ -188,17 +196,26 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
     req.contextValues.set(listenerTrustKey, listenerTrust);
     req.contextValues.set(tabIdKey, req.header.get(X_ROOST_TAB_ID) ?? undefined);
     let status = 200;
+    let pairConfirmationFailed = false;
     const lease = WRITE_METHODS[method] ? deps.writeGate.acquire() : null;
     try {
-      return await next(req);
-    } catch (e) {
-      status = e instanceof ConnectError ? codeToHttpStatus(e.code) : 500;
-      throw e;
+      const response = await next(req);
+      if (method === "PairConfirm") {
+        const confirmation = response as {
+          message?: { ok?: boolean };
+          ok?: boolean;
+        };
+        pairConfirmationFailed = confirmation.message?.ok === false || confirmation.ok === false;
+      }
+      return response;
+    } catch (error) {
+      status = error instanceof ConnectError ? codeToHttpStatus(error.code) : 500;
+      throw error;
     } finally {
       lease?.release();
       recordAuditTelemetry(path, status);
       if (
-        (status !== 200 || !AUDIT_SKIP_METHODS[method])
+        _shouldPersistMethodAudit(method, status, pairConfirmationFailed)
         && shouldPersistConnectAudit({
           listener: listenerTrust,
           status,

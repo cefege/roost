@@ -44,14 +44,24 @@ cannot land in the coordinator's request log, a proxy or tunnel access log, or a
 **2. Paste a bootstrap token.** Mint a token in an already-authorized browser and
 paste it into the new one.
 
-**3. Tap-to-pair approval.** The new browser posts its public key and polls for a
-decision. An already-authorized browser sees the request under **Pending pair
-requests** and approves or denies it; on approval the waiting browser reloads
-itself with an authorized token. Nothing is typed on either side.
+**3. Tap-to-pair confirmation.** The new browser creates a version-1 request
+and keeps its request ID and requester token only in that tab. An
+already-authorized browser sees the request under **Pending pair requests** and
+approves it. Approval shows that trusted browser one six-digit, one-time
+verification code; it does **not** authorize the new browser. Communicate the
+code to the requester and enter it there. Only the matching
+requester-token-bound confirmation creates browser authority. Closing the code
+dialog, approving again, or merely waiting grants nothing.
+
+The requester token and verification code never appear in a URL, Sync event,
+or durable pairing row. A tab with a missing or old ceremony version fails
+closed with `pairing client must reload` before it changes a request. The
+version-1 migration expires legacy in-flight pending requests, so an old tab
+must start a fresh ceremony after it reloads.
 
 Neither loopback nor a tailnet address authorizes a browser. Those addresses
 are transport metadata only; a fresh device still needs a scoped one-shot grant
-or an explicit pairing approval.
+or the approved-and-confirmed pairing ceremony.
 
 Bootstrap tokens are prefixed `roost_bt_`, single-use, and expire 24 hours after
 minting whether or not they are redeemed. Redemption claims the row atomically —
@@ -91,7 +101,7 @@ exposes no inbound port to attack.
 
 ## The audit log
 
-Every Connect RPC is audited in the authentication interceptor—the only layer
+Connect RPCs normally pass through the authentication interceptor—the only layer
 that has both the verified caller fingerprint and response status. Each row
 records method, path, status, trace id, and caller fingerprint, never request
 payloads. A `SessionsPrompt` row therefore proves that the RPC occurred but
@@ -99,11 +109,12 @@ contains no prompt text. Agent status messages are likewise excluded from
 audit rows and operational logs. Non-Connect paths are audited in the outer
 request wrapper with a null caller, because there is no JWT context there.
 
-High-frequency, zero-signal methods are skipped **only when they succeed**: health
-probes, worker heartbeats, pair-list polling, resize and cursor chatter, the
-non-mutating list reads the app polls, and the receipt for the app uploading its
-own debug logs. A non-200 for any of them is always written, because a failing
-heartbeat or a rejected health probe is exactly the anomaly worth keeping.
+High-frequency, zero-signal methods are skipped from durable audit rows:
+health probes, worker heartbeats, token-bound `PairPoll` status checks, resize
+and cursor chatter, the non-mutating list reads the app polls, and the receipt
+for the app uploading its own debug logs. `PairPoll` still contributes bounded
+request/error telemetry, but it never writes an audit row; every other failed
+RPC remains auditable.
 
 Retention is an explicit allowlist, not a blanket age cutoff. A sweep runs at
 startup and every 24 hours and deletes **only** `SessionsInput` rows — "who typed
@@ -114,9 +125,10 @@ a yield between statements, so a large backlog cannot block live RPCs on the
 coordinator's single write thread.
 
 Everything with forensic value is kept indefinitely: `PairApprove`,
-`AuthRedeemBrowser`, `WorkersDelete`, `WorkspacesDelete`, `SessionsKill`, and
-`SessionsSpawn`. "When was this device authorized, and by whom" is precisely the
-question the log exists to answer.
+`PairConfirm`, `AuthRedeemBrowser`, `WorkersDelete`, `WorkspacesDelete`,
+`SessionsKill`, and `SessionsSpawn`. The approval row names the approving
+device; the successful confirmation row names the newly authorized device, so
+the two records identify both sides of a browser-pairing grant.
 
 ## Backups
 
@@ -138,7 +150,8 @@ on-host. The worker link `/ws/coord-worker/*` passes by default, because
 workers dial the same origin browsers use unless you declare a separate
 `ROOST_COORDINATOR_PUBLIC_URL` for them. Whatever authentication the front door
 performs authenticates a human; a browser still needs a scoped one-shot grant
-or an approved pairing request. Details in [networking](/docs/networking/).
+or an approved-and-confirmed pairing ceremony. Details in
+[networking](/docs/networking/).
 
 ## Telemetry behavior
 

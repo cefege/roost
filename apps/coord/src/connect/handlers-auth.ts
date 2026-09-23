@@ -19,6 +19,7 @@ type AuthMethods =
   | "pairPoll"
   | "pairList"
   | "pairApprove"
+  | "pairConfirm"
   | "pairDeny"
   | "devicesList"
   | "devicesRevoke"

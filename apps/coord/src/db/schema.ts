@@ -153,6 +153,12 @@ export interface PairRequestsTable {
   status: string;
   created_at_ms: number;
   decided_at_ms: number | null;
+  ceremony_version: number;
+  requester_token_hash: string;
+  verification_code_hash: string | null;
+  verification_attempts: number;
+  approved_by_fp: string | null;
+  approved_account_id: string | null;
   user_agent: string | null;
   client_browser: string | null;
   client_os: string | null;

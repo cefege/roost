@@ -54,6 +54,7 @@ import style is now correct instead of two.
 | `@roost/shared/fingerprint` | `fingerprintOf` — the one pubkey fingerprint |
 | `@roost/shared/durability` | `durableWriteFile` atomic write + private DACL |
 | `@roost/shared/retry` | capped exponential-backoff delay + jitter policy |
+| `@roost/shared/pairing` | browser-safe version-1 pairing ceremony constants, entropy, and strict ID/token/code validators |
 | `@roost/shared/jwt-base` | Node-side JWT base64url codec; never browser-imported |
 | `@roost/shared/coordinator-dial-url` | coordinator dial-URL precedence plus `workerCoordinatorUrl`, the strict HTTPS/non-loopback validator for remote enrollment declarations |
 | `@roost/shared/local-endpoint` | UDS / named-pipe prep, securing, capability tokens |
@@ -156,6 +157,10 @@ producers and consumers.
 - **Observability** — `src/log.ts`, `src/diag.ts`, `src/trace.ts`, `src/json.ts`.
 - **Identity + timing** — `src/fingerprint.ts`,
   `src/jwt-base.ts`, `src/viewport.ts`, `src/retry.ts`.
+- **Pairing ceremony** — `src/pairing.ts` owns the browser-safe version-1
+  request-ID, requester-token, and unbiased six-digit-code generators and
+  validators. It contains no digesting or server state: the coordinator alone
+  adapts accepted secrets to persistent hashes.
 - **Native / Windows** — `src/windows-helper.ts`.
 - **WASM** — `src/wterm-core-factory.ts`, `src/wterm-wasm.ts`, `wasm/`.
 - **Generated** — `src/gen/roost/v1/`, `src/install-scripts.generated.ts`,
@@ -272,6 +277,12 @@ producers and consumers.
   `src/viewport.ts`: `minimumTerminalGeometry` was declared here while three
   hand-rolled per-axis minimums decided the real terminal size elsewhere, so
   grepping the primitive made a policy look pinned that nothing enforced.
+- **Pairing ceremony inputs have one browser-safe owner.**
+  `src/pairing.ts` generates 16-random-byte lowercase-hex request IDs,
+  32-random-byte lowercase-hex requester tokens, and unbiased six-ASCII-digit
+  verification codes. Browser and coordinator format checks import that one
+  owner; only the coordinator hashes accepted secrets, and plaintext tokens or
+  codes never belong in Sync, URLs, logs, or durable rows.
 - **`src/native-path.ts` imports zero Node builtins, deliberately.** It is in the
   browser bundle graph (`apps/web/src/lib/nativePath.ts` imports it). Worker-side
   path handling lives separately in `apps/worker/src/util/path.ts` because it

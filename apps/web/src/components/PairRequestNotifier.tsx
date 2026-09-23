@@ -1,74 +1,73 @@
-// Inbound pair-request cards for already-trusted browsers, rendered as
-// notification-dock children (NotificationDock.tsx owns the geometry).
-// Reads rootStore.pair_requests (fed by the Sync firehose pairRequestDelta
-// frames + per-connect snapshot seed — store/sync.ts, perf sweep C2.4).
-// Approval and rendering are delegated to PairRequestCard so every surface
-// presents the same provenance and controls.
+// Notification-dock pair requests for already-trusted browsers.
+// It renders server provenance and delegates generated-code approval to the
+// root provider so no notification surface can own another approver secret.
 
 import { useLocation } from "@solidjs/router";
-import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
-import { rootStore } from "../store/root.ts";
-import { deletePairRequest } from "../store/mutations.ts";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { coordClient } from "../connect.ts";
+import { deletePairRequest } from "../store/mutations.ts";
+import { rootStore } from "../store/root.ts";
 import { addToast } from "../store/toastStore.ts";
+import { usePairApproval } from "./PairApprovalProvider.tsx";
 import { PairRequestCard, isPairRequestExpired } from "./PairRequestCard.tsx";
-
-const canApprovePairRequests = () => !rootStore.browser_unauthorized;
 
 export function PairRequestNotifier() {
   const [now, setNow] = createSignal(Date.now());
-  const [busyRequestId, setBusyRequestId] = createSignal<string | null>(null);
+  const [denyingRequestId, setDenyingRequestId] = createSignal<string | null>(null);
+  const pairApproval = usePairApproval();
   const expiryTimer = setInterval(() => setNow(Date.now()), 1_000);
   onCleanup(() => clearInterval(expiryTimer));
 
   const location = useLocation();
   const isPairRequestNotifierSuppressed = createMemo(() =>
     location.pathname === "/settings/devices"
-    || (location.pathname === "/pair" && canApprovePairRequests())
+    || (location.pathname === "/pair" && !rootStore.browser_unauthorized)
   );
-
   const pending = createMemo(() => {
     const currentNow = now();
     return Object.values(rootStore.pair_requests)
       .filter((request) => !isPairRequestExpired(request, currentNow));
   });
+  const approvalOwnerIsStillPending = createMemo(() => {
+    const busyRequestId = pairApproval.busyRequestId();
+    return busyRequestId === null
+      || pending().some((request) => request.ephemeral_id === busyRequestId);
+  });
 
-  async function approve(id: string): Promise<void> {
-    if (busyRequestId()) return;
-    setBusyRequestId(id);
+  async function deny(ephemeralId: string): Promise<void> {
+    if (denyingRequestId() !== null) return;
+    setDenyingRequestId(ephemeralId);
     try {
-      await coordClient.pairApprove({ ephemeralId: id });
-      deletePairRequest(id);
-      addToast("Browser approved", "ok");
-    } catch (error) {
-      addToast(`Approve failed: ${error instanceof Error ? error.message : String(error)}`, "err");
-    } finally {
-      setBusyRequestId(null);
-    }
-  }
-
-  async function deny(id: string): Promise<void> {
-    if (busyRequestId()) return;
-    setBusyRequestId(id);
-    try {
-      await coordClient.pairDeny({ ephemeralId: id });
-      deletePairRequest(id);
+      await coordClient.pairDeny({ ephemeralId });
+      deletePairRequest(ephemeralId);
       addToast("Pair request dismissed", "ok");
     } catch (error) {
-      addToast(`Dismiss failed: ${error instanceof Error ? error.message : String(error)}`, "err");
+      const message = error instanceof Error ? error.message : String(error);
+      addToast(`Dismiss failed: ${message}`, "err");
     } finally {
-      setBusyRequestId(null);
+      setDenyingRequestId(null);
     }
   }
 
   return (
-    <Show when={canApprovePairRequests() && !isPairRequestNotifierSuppressed()}>
+    <Show when={
+      !rootStore.browser_unauthorized
+      && !isPairRequestNotifierSuppressed()
+      && approvalOwnerIsStillPending()
+    }>
       <For each={pending()}>
         {(request) => (
           <PairRequestCard
             request={request}
-            busy={busyRequestId() === request.ephemeral_id}
-            onApprove={() => void approve(request.ephemeral_id)}
+            busy={
+              denyingRequestId() === request.ephemeral_id
+              || pairApproval.busyRequestId() !== null
+            }
+            onApprove={() => void pairApproval.approve({
+              ephemeralId: request.ephemeral_id,
+              requesterLabel: request.label,
+              expiresAtMs: request.expiresAtMs,
+            })}
             onDeny={() => void deny(request.ephemeral_id)}
           />
         )}

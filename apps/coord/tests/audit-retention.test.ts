@@ -82,6 +82,7 @@ describe("audit retention sweep", () => {
     seed(sqlite, [
       { ts: ancient, path: `${SVC}/SessionsInput` },
       { ts: ancient, path: `${SVC}/PairApprove` },
+      { ts: ancient, path: `${SVC}/PairConfirm` },
       { ts: ancient, path: `${SVC}/AuthRedeemBrowser` },
       { ts: ancient, path: `${SVC}/WorkersDelete` },
       { ts: ancient, path: `${SVC}/WorkspacesDelete` },
@@ -93,6 +94,7 @@ describe("audit retention sweep", () => {
     expect(deleted).toBe(1);
     expect(pathsLeft(sqlite)).toEqual([
       `${SVC}/PairApprove`,
+      `${SVC}/PairConfirm`,
       `${SVC}/AuthRedeemBrowser`,
       `${SVC}/WorkersDelete`,
       `${SVC}/WorkspacesDelete`,

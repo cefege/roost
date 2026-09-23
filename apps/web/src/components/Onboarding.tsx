@@ -1,18 +1,15 @@
-// First-boot component. Shown when coord is reachable but no workers are registered.
-// Two enrollment flows:
-//   1. redeem a one-shot browser grant, pasted or captured from a #pair fragment;
-//   2. tap-to-pair: this browser posts its public key and an already-authorized
-//      browser sees the request in #pair-approval-list and approves it.
-// When already authorized, the pair-approval-list lets this browser approve
-// pending requests from other browsers (rootStore.pair_requests).
-import { createSignal, createMemo, createResource, For, Show, onCleanup } from "solid-js";
-import { coordClient } from "../connect.ts";
-import { getPublicKeyB64, isResetWebKeyEligible, resetWebKey } from "../auth/web-key.ts";
+// First-boot pairing surface for a browser without coordinator authority.
+// It renders requester ceremony state and the authorized approval list, while
+// PairApprovalProvider owns generated approver codes and their only dialog.
+
+import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { isResetWebKeyEligible, resetWebKey } from "../auth/web-key.ts";
 import { redeemPairToken } from "../auth/redeemPairToken.ts";
-import { rootStore } from "../store/root.ts";
+import { coordClient } from "../connect.ts";
+import { animateOverlayPanel } from "../lib/overlayMotion.ts";
 import { deletePairRequest } from "../store/mutations.ts";
+import { rootStore } from "../store/root.ts";
 import { addToast } from "../store/toastStore.ts";
-import { browserSelfLabel } from "../lib/browserSelfLabel.ts";
 import {
   Button,
   Card,
@@ -22,33 +19,26 @@ import {
   Surface,
   TextField,
 } from "./Settings/md/primitives.tsx";
+import { OnboardingRequestCard } from "./OnboardingRequestCard.tsx";
+import { usePairApproval } from "./PairApprovalProvider.tsx";
 import { PairRequestCard, isPairRequestExpired } from "./PairRequestCard.tsx";
-import {
-  OnboardingRequestCard,
-  type PairPollStatus,
-} from "./OnboardingRequestCard.tsx";
-import { animateOverlayPanel } from "../lib/overlayMotion.ts";
+import { createOnboardingPairingCeremony } from "./onboarding-pairing-ceremony.ts";
 
 export function Onboarding(props: { embedded?: boolean } = {}) {
   const [bootstrapToken, setBootstrapToken] = createSignal("");
   const [status, setStatus] = createSignal<"idle" | "loading" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = createSignal("");
-
-  // tap-to-pair local state
-  const [pairEphemeralId, setPairEphemeralId] = createSignal<string | null>(null);
-
-  const [pairPollStatus, setPairPollStatus] = createSignal<PairPollStatus>("idle");
-  let pairPollTimer: ReturnType<typeof setInterval> | null = null;
-  const [busyRequestId, setBusyRequestId] = createSignal<string | null>(null);
-
+  const [denyingRequestId, setDenyingRequestId] = createSignal<string | null>(null);
+  let onboardingTouchClientY: number | null = null;
+  const pairApproval = usePairApproval();
+  const requesterPairing = createOnboardingPairingCeremony({
+    redirectAfterPairing,
+    reportRequestError: (message) => {
+      setStatus("error");
+      setErrorMsg(message);
+    },
+  });
   const workerCount = () => Object.keys(rootStore.workers).length;
-  // authCoordIdentity is a PUBLIC endpoint — coord_identity is populated
-  // even when the browser has not been authorized by the coordinator. Use the
-  // browser_unauthorized flag set by sync.ts (true when authenticated list
-  // calls return Connect Unauthenticated). That is the authoritative signal.
-  // Without this gate, Onboarding renders only the <h2>Welcome</h2> on
-  // an unauthorized second browser (every <Show when={!isAuthorized()}> hides
-  // the tabs / token mode / pair mode → black screen with one heading).
   const isAuthorized = createMemo(() => !rootStore.browser_unauthorized);
   const [resetEligible] = createResource(
     () => rootStore.browser_unauthorized,
@@ -61,25 +51,23 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     return Object.values(rootStore.pair_requests)
       .filter((request) => !isPairRequestExpired(request, currentNow));
   });
-  onCleanup(() => {
-    if (pairPollTimer) clearInterval(pairPollTimer);
-    clearInterval(pairRequestExpiryTimer);
-  });
-  // Pair-request deltas can arrive while this embedded approval list is open; the expiry clock removes stale actions.
+  onCleanup(() => clearInterval(pairRequestExpiryTimer));
+
   function redirectAfterPairing(): void {
     window.location.replace("/");
   }
-  async function redeemToken() {
+
+  async function redeemToken(): Promise<void> {
     setStatus("loading");
-    const res = await redeemPairToken(bootstrapToken());
-    if (res.ok) {
+    const result = await redeemPairToken(bootstrapToken());
+    if (result.ok) {
       setStatus("done");
       redirectAfterPairing();
-    } else {
-      setStatus("error");
-      setErrorMsg(res.error);
-      addToast(`Redeem failed: ${res.error}`, "err");
+      return;
     }
+    setStatus("error");
+    setErrorMsg(result.error);
+    addToast(`Redeem failed: ${result.error}`, "err");
   }
 
   function autoRedeemPastedToken(event: ClipboardEvent): void {
@@ -90,87 +78,24 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     event.preventDefault();
   }
 
-  // tap-to-pair: this browser publishes its pubkey, then polls until
-  // another authorized browser approves. On approval, restart from the home
-  // route so the newly authorized browser cannot remain on the pairing surface.
-  async function startPairFlow() {
-    setStatus("loading");
+  async function denyPairRequest(ephemeralId: string): Promise<void> {
+    if (denyingRequestId() !== null) return;
+    setDenyingRequestId(ephemeralId);
     try {
-      const pubkeyB64 = await getPublicKeyB64();
-      const { ephemeralId: ephemeral_id } = await coordClient.pairCreate({
-        sshPubkeyB64: pubkeyB64,
-        label: browserSelfLabel(),
-      });
-      setPairEphemeralId(ephemeral_id);
-      setPairPollStatus("pending");
-      setStatus("idle");
-      _beginPairPoll(ephemeral_id);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setStatus("error");
-      setErrorMsg(msg);
-      addToast(`Pair create failed: ${msg}`, "err");
-    }
-  }
-
-  function _beginPairPoll(ephemeral_id: string) {
-    if (pairPollTimer) clearInterval(pairPollTimer);
-    pairPollTimer = setInterval(async () => {
-      try {
-        const { status: s } = await coordClient.pairPoll({ ephemeralId: ephemeral_id });
-        setPairPollStatus(s as PairPollStatus);
-        if (s === "approved") {
-          if (pairPollTimer) clearInterval(pairPollTimer);
-          addToast("Browser approved — opening home", "ok");
-          redirectAfterPairing();
-        } else if (s === "denied") {
-          if (pairPollTimer) clearInterval(pairPollTimer);
-          addToast("Pair request denied", "warn");
-        } else if (s === "expired") {
-          if (pairPollTimer) clearInterval(pairPollTimer);
-          addToast("Pair request expired — request again", "warn");
-        }
-      } catch (e) {
-        setPairPollStatus("error");
-        const msg = e instanceof Error ? e.message : String(e);
-        addToast(`Pair poll failed: ${msg}`, "err");
-        if (pairPollTimer) clearInterval(pairPollTimer);
-      }
-    }, 2_000);
-  }
-
-  async function approvePairRequest(ephemeral_id: string): Promise<void> {
-    if (busyRequestId()) return;
-    setBusyRequestId(ephemeral_id);
-    try {
-      await coordClient.pairApprove({ ephemeralId: ephemeral_id });
-      deletePairRequest(ephemeral_id);
-      addToast("Approved", "ok");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addToast(`Approve failed: ${msg}`, "err");
-    } finally {
-      setBusyRequestId(null);
-    }
-  }
-
-  async function denyPairRequest(ephemeral_id: string): Promise<void> {
-    if (busyRequestId()) return;
-    setBusyRequestId(ephemeral_id);
-    try {
-      await coordClient.pairDeny({ ephemeralId: ephemeral_id });
-      deletePairRequest(ephemeral_id);
+      await coordClient.pairDeny({ ephemeralId });
+      deletePairRequest(ephemeralId);
       addToast("Denied", "ok");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      addToast(`Deny failed: ${msg}`, "err");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addToast(`Deny failed: ${message}`, "err");
     } finally {
-      setBusyRequestId(null);
+      setDenyingRequestId(null);
     }
   }
 
   async function resetRejectedKey(): Promise<void> {
     if (!confirm("Reset this device key? This browser will need to pair again.")) return;
+    requesterPairing.clear();
     try {
       await resetWebKey();
     } catch (error) {
@@ -178,12 +103,73 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     }
   }
 
+  function startRequesterPairing(): void {
+    setStatus("idle");
+    setErrorMsg("");
+    void requesterPairing.start();
+  }
+  function scrollOnboardingRoot(element: HTMLDivElement, deltaY: number): boolean {
+    if (props.embedded || deltaY === 0) return false;
+    const nextScrollTop = Math.max(
+      0,
+      Math.min(element.scrollHeight - element.clientHeight, element.scrollTop + deltaY),
+    );
+    if (nextScrollTop === element.scrollTop) return false;
+    element.scrollTop = nextScrollTop;
+    return true;
+  }
+
+  function handleOnboardingWheel(event: WheelEvent): void {
+    if (event.ctrlKey) return;
+    if (scrollOnboardingRoot(event.currentTarget as HTMLDivElement, event.deltaY)) {
+      event.preventDefault();
+    }
+  }
+
+  function handleOnboardingTouchStart(event: TouchEvent): void {
+    onboardingTouchClientY = !props.embedded && event.touches.length === 1
+      ? event.touches[0]!.clientY
+      : null;
+  }
+
+  function handleOnboardingTouchMove(event: TouchEvent): void {
+    if (event.touches.length !== 1) {
+      onboardingTouchClientY = null;
+      return;
+    }
+    const clientY = event.touches[0]!.clientY;
+    if (onboardingTouchClientY === null) return;
+    const moved = scrollOnboardingRoot(
+      event.currentTarget as HTMLDivElement,
+      onboardingTouchClientY - clientY,
+    );
+    onboardingTouchClientY = clientY;
+    if (moved) event.preventDefault();
+  }
+
+  function endOnboardingTouch(): void {
+    onboardingTouchClientY = null;
+  }
+  function mountOnboardingRoot(element: HTMLDivElement): void {
+    animateOverlayPanel(element);
+    element.addEventListener("touchmove", handleOnboardingTouchMove, { passive: false });
+    onCleanup(() => element.removeEventListener("touchmove", handleOnboardingTouchMove));
+  }
+
   return (
     <div
-      ref={animateOverlayPanel}
+      ref={mountOnboardingRoot}
       data-testid="onboarding"
       class="onboarding-root"
       data-embedded={props.embedded ? "true" : "false"}
+      style={{
+        height: props.embedded ? undefined : "100dvh",
+        "overflow-y": props.embedded ? undefined : "auto",
+      }}
+      onWheel={handleOnboardingWheel}
+      onTouchStart={handleOnboardingTouchStart}
+      onTouchEnd={endOnboardingTouch}
+      onTouchCancel={endOnboardingTouch}
     >
       <Show when={!props.embedded}>
         <h2 class="md-headline-s" style={{ margin: 0 }}>Pair this browser</h2>
@@ -240,16 +226,14 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
               label="Pairing code"
               autofocus
               ref={(element) => {
-                if (element instanceof HTMLInputElement) {
-                  element.onpaste = autoRedeemPastedToken;
-                }
+                if (element instanceof HTMLInputElement) element.onpaste = autoRedeemPastedToken;
               }}
             />
             <div>
               <Button
                 variant="default"
                 data-testid="onboarding-token-submit"
-                onClick={redeemToken}
+                onClick={() => void redeemToken()}
                 disabled={!bootstrapToken() || status() === "loading"}
               >
                 {status() === "loading" ? "Pairing…" : "Pair"}
@@ -261,10 +245,14 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
 
       <Show when={!isAuthorized()}>
         <OnboardingRequestCard
-          ephemeralId={pairEphemeralId()}
-          pollStatus={pairPollStatus()}
-          busy={status() === "loading"}
-          onStart={startPairFlow}
+          ephemeralId={requesterPairing.ephemeralId()}
+          pollStatus={requesterPairing.pollStatus()}
+          verificationCode={requesterPairing.verificationCode()}
+          confirmationError={requesterPairing.confirmationError()}
+          busy={requesterPairing.busy()}
+          onStart={startRequesterPairing}
+          onVerificationCodeInput={requesterPairing.updateVerificationCode}
+          onConfirm={() => void requesterPairing.confirm()}
         />
       </Show>
 
@@ -279,8 +267,15 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
               <div data-testid="pair-approval-row" data-ephemeral-id={request.ephemeral_id}>
                 <PairRequestCard
                   request={request}
-                  busy={busyRequestId() === request.ephemeral_id}
-                  onApprove={() => void approvePairRequest(request.ephemeral_id)}
+                  busy={
+                    denyingRequestId() === request.ephemeral_id
+                    || pairApproval.busyRequestId() !== null
+                  }
+                  onApprove={() => void pairApproval.approve({
+                    ephemeralId: request.ephemeral_id,
+                    requesterLabel: request.label,
+                    expiresAtMs: request.expiresAtMs,
+                  })}
                   onDeny={() => void denyPairRequest(request.ephemeral_id)}
                 />
               </div>

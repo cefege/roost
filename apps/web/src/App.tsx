@@ -27,6 +27,7 @@ import { getLastTerminalPath } from "./lib/lastVisited.ts";
 import { shouldBootRestore, consumeBootRestore } from "./lib/bootRestore.ts";
 import { UiBridge } from "./components/UiBridge.tsx";
 import { AgentNotificationBridge } from "./components/AgentNotificationBridge.tsx";
+import { PairApprovalProvider } from "./components/PairApprovalProvider.tsx";
 
 // Code-split boundaries (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism — routes/overlays below load their chunk on first
@@ -132,7 +133,7 @@ export function App() {
     const coordinatorDiscovered = createMemo(() => rootStore.coord_identity !== null);
 
     return (
-      <>
+      <PairApprovalProvider enabled={coordinatorDiscovered()}>
         <SmokeRouterBridge />
         {props.children}
         <Show when={coordinatorDiscovered()}>
@@ -147,7 +148,7 @@ export function App() {
           <NotificationDock />
           <RenameDialogHost />
         </Show>
-      </>
+      </PairApprovalProvider>
     );
   }
 

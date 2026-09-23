@@ -97,10 +97,16 @@ transport.
 ## No network position grants authority
 
 Being on the tailnet, on a VPN, or on loopback is transport reachability, never
-authorization. Every browser redeems a scoped one-shot grant or completes an
-approved pairing request; every worker redeems a scoped worker grant. A login
-your front door performs is authentication of a human, not authorization of a
-device.
+authorization. Every browser redeems a scoped one-shot grant or completes the
+approved-and-confirmed pairing ceremony; every worker redeems a scoped worker
+grant. A login your front door performs is authentication of a human, not
+authorization of a device.
+
+The optional HTTPS front door transports pairing but cannot complete it. A
+trusted browser's approval reveals one six-digit code; only the requesting
+browser's matching token-bound confirmation grants access. Old ceremony tabs
+fail closed with `pairing client must reload`, and the version-1 migration
+expires legacy pending requests.
 
 WireGuard, Headscale, ZeroTier, and other private overlays make the front door
 reachable and change nothing else; Roost neither configures nor exercises them.

@@ -17,7 +17,7 @@ type ExpiredPairRequestRow = {
 };
 
 /**
- * Expires overdue pending requests and removes old terminal tombstones.
+ * Expires overdue live requests and removes old terminal tombstones.
  * Each write is bounded so a backlog cannot become one uninterruptible delete.
  */
 export function sweepPairRequests(
@@ -27,11 +27,13 @@ export function sweepPairRequests(
   const expired: string[] = [];
   const expireStatement = sqlite.prepare(`
     UPDATE pair_requests
-    SET status = 'expired', decided_at_ms = ?
+    SET status = 'expired',
+        decided_at_ms = ?,
+        verification_code_hash = NULL
     WHERE id IN (
       SELECT id
       FROM pair_requests
-      WHERE status = 'pending' AND expires_at_ms <= ?
+      WHERE status IN ('pending', 'verification_required') AND expires_at_ms <= ?
       ORDER BY expires_at_ms
       LIMIT ?
     )
@@ -42,7 +44,7 @@ export function sweepPairRequests(
     WHERE id IN (
       SELECT id
       FROM pair_requests
-      WHERE status <> 'pending'
+      WHERE status NOT IN ('pending', 'verification_required')
         AND decided_at_ms <= ?
       ORDER BY decided_at_ms
       LIMIT ?

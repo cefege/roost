@@ -129,8 +129,8 @@ export function PairRequestCard(props: PairRequestCardProps) {
             />
             <ListRow
               leading="key"
-              testId="pair-request-code"
-              headline={<span class="md-body-m">Code: {props.request.ephemeral_id}</span>}
+              testId="pair-request-id"
+              headline={<span class="md-body-m">Request ID: {props.request.ephemeral_id}</span>}
               support={<span class="md-body-s">{relativeAge()} · {expiryLabel()}</span>}
             />
           </List>
