@@ -7,6 +7,8 @@ import { spawn } from "bun";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import type { CoordClient } from "../../worker/src/coord-client.ts";
+import { buildApiClient } from "./api.ts";
 import { registeredWorkerForGrant } from "./quickstart-bootstrap-tokens.ts";
 import {
   coordinatorEnvironmentForQuickstart,
@@ -119,7 +121,28 @@ export async function waitForCoordHealth(
         body: "{}",
         signal: AbortSignal.timeout(3000),
       });
-      if (res.ok && ((await res.json()) as { ok?: boolean }).ok === true) return true;
+      const body: unknown = await res.json();
+      if (res.ok && typeof body === "object" && body !== null && "ok" in body && body.ok === true) {
+        return true;
+      }
+    } catch { /* not up yet */ }
+    await deps.sleep(750);
+  }
+  return false;
+}
+
+/** A healthy RPC is insufficient if the coordinator lost its SPA assets. */
+export async function waitForCoordSpa(
+  endpoint: QuickstartEndpoint,
+  timeoutMs = 15_000,
+  deps: QuickstartHealthDeps = QUICKSTART_HEALTH_DEPS,
+): Promise<boolean> {
+  const url = `${quickstartLoopbackOrigin(endpoint)}/`;
+  const deadline = deps.now() + timeoutMs;
+  while (deps.now() < deadline) {
+    try {
+      const res = await deps.fetch(url, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return true;
     } catch { /* not up yet */ }
     await deps.sleep(750);
   }
@@ -143,6 +166,30 @@ export async function waitForWorkerRegistration(
     await Bun.sleep(500);
   }
   return null;
+}
+/** Prove the exact enrolled worker is routable through the local coordinator
+ * using the normal CLI device identity, never worker-key browser authority. */
+export async function waitForWorkerRoutability(
+  endpoint: QuickstartEndpoint,
+  fingerprint: string,
+  timeoutMs = 30_000,
+): Promise<boolean> {
+  let client: CoordClient;
+  try {
+    client = await buildApiClient({ coordinatorUrl: quickstartLoopbackOrigin(endpoint) });
+  } catch {
+    return false;
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      if ((await client.workersList({})).routableFps.includes(fingerprint)) return true;
+    } catch {
+      // Coordinator recovery and the worker's post-restart redial can overlap.
+    }
+    await Bun.sleep(500);
+  }
+  return false;
 }
 
 export type QuickstartBrowserLauncher = (command: readonly string[]) => Promise<number>;

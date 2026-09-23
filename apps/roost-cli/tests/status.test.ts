@@ -79,8 +79,8 @@ describe("status front-door reporting", () => {
     const unconfigured = report({ endpoint: { publicUrl: null, answers: false } });
     const lines = renderedStatus(unconfigured);
 
-    expect(lines).toContain("  - public url: not configured");
-    expect(lines.join("\n")).toContain("ROOST_WEB_PUBLIC_URL");
+    expect(lines).toContain("  ✓ public url: local-only access");
+    expect(lines.join("\n")).not.toContain("ROOST_WEB_PUBLIC_URL");
     expect(lines.join("\n")).not.toContain("open:");
     expect(statusReportIsHealthy(unconfigured)).toBe(true);
   });

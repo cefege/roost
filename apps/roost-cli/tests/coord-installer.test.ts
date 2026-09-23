@@ -95,12 +95,11 @@ afterEach(() => {
 });
 
 describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpoint", () => {
-  test("quickstart's endpoint becomes a loopback bind behind a trusted proxy", () => {
+  test("quickstart's explicit front door persists trusted proxy and exact local CORS", () => {
     for (const platform of ["Linux", "Darwin"] as const) {
       const endpointPlatform = platform === "Linux" ? "linux" : "darwin";
       const endpoint = resolveQuickstartEndpoint(
         ["--coordinator-url", "https://dash.example.test"],
-        {},
         endpointPlatform,
       );
       const definition = writeDefinition(
@@ -113,8 +112,24 @@ describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpo
       expect(envValue(definition, platform, "ROOST_TRUST_PROXY")).toBe("1");
       expect(envValue(definition, platform, "ROOST_WEB_PUBLIC_URL"))
         .toBe("https://dash.example.test");
-      // Roost advertises no coordinator identity origin of its own.
+      expect(envValue(definition, platform, "ROOST_CORS_ALLOWED_ORIGINS"))
+        .toBe("http://127.0.0.1:4103");
       expect(envValue(definition, platform, "ROOST_COORDINATOR_PUBLIC_URL")).toBe("");
+    }
+  });
+
+  test("quickstart's bare profile persists direct local trust and clears public URLs", () => {
+    for (const platform of ["Linux", "Darwin"] as const) {
+      const endpointPlatform = platform === "Linux" ? "linux" : "darwin";
+      const definition = writeDefinition(
+        platform,
+        coordinatorEnvironmentForQuickstart(resolveQuickstartEndpoint([], endpointPlatform)),
+      );
+      expect(envValue(definition, platform, "ROOST_TRUST_PROXY")).toBe("0");
+      expect(envValue(definition, platform, "ROOST_WEB_PUBLIC_URL")).toBe("");
+      expect(envValue(definition, platform, "ROOST_COORDINATOR_PUBLIC_URL")).toBe("");
+      expect(envValue(definition, platform, "ROOST_CORS_ALLOWED_ORIGINS"))
+        .toBe("http://127.0.0.1:4103");
     }
   });
 
@@ -127,7 +142,7 @@ describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpo
   });
 
   test("a non-loopback bind is refused rather than exposed", () => {
-    for (const bind of ["0.0.0.0:4103", "10.0.0.4:4103", "[::]:4103"]) {
+    for (const bind of ["0.0.0.0:4103", "10.0.0.4:4103", "[::]:4103", "127.0.0.1:0", "127.0.0.1:65536"]) {
       const { env, definition } = fixture("Linux");
       const result = Bun.spawnSync(["bash", INSTALLER, "write-plist"], {
         cwd: ROOT,
@@ -135,6 +150,23 @@ describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpo
       });
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr.toString()).toContain("must be 127.0.0.1:<port>");
+      expect(existsSync(definition)).toBe(false);
+    }
+  });
+
+  test("an invalid trust profile refuses before a service definition exists", () => {
+    for (const trustProxy of ["", "true", "2", "-1"]) {
+      const { env, definition } = fixture("Linux");
+      const result = Bun.spawnSync(["bash", INSTALLER, "write-plist"], {
+        cwd: ROOT,
+        env: {
+          ...env,
+          ROOST_SKIP_ENV_LOCAL: "1",
+          ROOST_TRUST_PROXY: trustProxy,
+        },
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("ROOST_TRUST_PROXY must be 0 or 1");
       expect(existsSync(definition)).toBe(false);
     }
   });
@@ -154,7 +186,6 @@ describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpo
 
     const endpoint = resolveQuickstartEndpoint(
       ["--coordinator-url", "https://fresh.example.test"],
-      {},
       "linux",
     );
     const result = Bun.spawnSync(["bash", INSTALLER, "install"], {

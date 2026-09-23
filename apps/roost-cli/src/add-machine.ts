@@ -8,6 +8,7 @@ import {
   COORDINATOR_DIAL_URL_ENV_NAMES,
   COORDINATOR_DIAL_URL_REQUIRED_MESSAGE,
   resolveCoordinatorDialUrl,
+  workerCoordinatorUrl,
 } from "@roost/shared/coordinator-dial-url";
 import {
   buildMachineJoinCommand,
@@ -79,7 +80,15 @@ function installedCoordinatorDialEnv(): Record<string, string | undefined> {
   }
 }
 
-export async function addMachine(args: string[]): Promise<void> {
+export function addMachine(args: string[]): Promise<void> {
+  return _addMachine(args, { mintWorkerBootstrap });
+}
+
+/** Test seam keeps token minting at the API boundary without module mocking. */
+export async function _addMachine(
+  args: string[],
+  deps: { mintWorkerBootstrap: typeof mintWorkerBootstrap },
+): Promise<void> {
   const platform = targetPlatform(args);
   const label = strFlag(args, "--label") ?? "";
   const publisher = platform === "win32"
@@ -93,10 +102,11 @@ export async function addMachine(args: string[]): Promise<void> {
   // The running coordinator's own definition is the ground truth for the door
   // it advertises; the environment only answers for a host with no installed
   // definition. Enrolling a machine against the wrong door is silent.
-  const coordUrl = resolveCoordinatorDialUrl(installedCoordinatorDialEnv())
+  const selectedCoordinatorUrl = resolveCoordinatorDialUrl(installedCoordinatorDialEnv())
     ?? resolveCoordinatorDialUrl(Object.fromEntries(
       COORDINATOR_DIAL_URL_ENV_NAMES.map((name) => [name, process.env[name]]),
     ));
+  const coordUrl = workerCoordinatorUrl(selectedCoordinatorUrl, "");
   if (!coordUrl) {
     console.error(`ERROR: ${COORDINATOR_DIAL_URL_REQUIRED_MESSAGE}.`);
     console.error("  Set one on this host's coordinator service, or export it for this command.");
@@ -108,7 +118,7 @@ export async function addMachine(args: string[]): Promise<void> {
   console.log = ((...values: unknown[]) => console.error(...values)) as typeof console.log;
   let token: string;
   try {
-    token = await mintWorkerBootstrap(label, coordUrl);
+    token = await deps.mintWorkerBootstrap(label, coordUrl);
   } finally {
     console.log = realLog;
   }

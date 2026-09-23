@@ -49,8 +49,7 @@ export function printStatusReport(r: StatusReport): void {
   if (!r.coord.reachable) console.log(`      → check logs: bun apps/roost-cli/src/main.ts logs coord`);
 
   if (!r.endpoint.publicUrl) {
-    console.log("  - public url: not configured");
-    console.log("      → set ROOST_WEB_PUBLIC_URL to the HTTPS URL your front door serves");
+    console.log("  ✓ public url: local-only access");
   } else {
     console.log(`  ${mark(r.endpoint.answers)} public url ${r.endpoint.publicUrl}`);
     if (!r.endpoint.answers) {

@@ -68,4 +68,4 @@ case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) say "NOTE: $BIN_DIR is not on your PATH — add it, or run $DEST directly." ;;
 esac
-say "next: roost quickstart --coordinator-url https://<your front door>"
+say "next: roost quickstart"

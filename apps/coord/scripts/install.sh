@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # install / uninstall the v2 coord service. macOS → launchd LaunchAgent;
-# Linux → systemd --user unit. One shape: the coordinator serves PLAINTEXT on
-# loopback and trusts X-Forwarded-For from the operator's own front door, which
-# is told to it as ROOST_WEB_PUBLIC_URL. Runs `bun apps/coord/src/main.ts`.
+# Linux → systemd --user unit. The coordinator serves plaintext on loopback;
+# ROOST_TRUST_PROXY controls X-Forwarded-For trust for an optional
+# ROOST_WEB_PUBLIC_URL front door. Runs `bun apps/coord/src/main.ts`.
 
 set -euo pipefail
 
 REPO_ROOT="${ROOST_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)}"
-# Load repo-root defaults unless the caller supplies an authoritative endpoint.
-# Quickstart and CoordTarget set ROOST_SKIP_ENV_LOCAL=1 so stale checkout-local
-# values cannot replace the selected public URL or bind.
+# Load repo-root defaults unless ROOST_SKIP_ENV_LOCAL protects an authoritative endpoint.
 if [[ -z "${ROOST_SKIP_ENV_LOCAL:-}" ]]; then
   set -a; [ -f "$REPO_ROOT/.env.local" ] && source "$REPO_ROOT/.env.local"; set +a
 fi
@@ -84,6 +82,9 @@ DB_PATH="${ROOST_COORDINATOR_DB:-$DATA_DIR/coordinator_v2.db}"
 AUTH_KEYS="${ROOST_COORDINATOR_AUTHORIZED_KEYS:-$DATA_DIR/authorized_keys.roost}"
 PUBLIC_URL="${ROOST_COORDINATOR_PUBLIC_URL:-}"
 WEB_PUBLIC_URL="${ROOST_WEB_PUBLIC_URL:-}"
+TRUST_PROXY="${ROOST_TRUST_PROXY-1}"
+CORS_ALLOWED_ORIGINS="${ROOST_CORS_ALLOWED_ORIGINS:-}"
+[[ "$TRUST_PROXY" == "0" || "$TRUST_PROXY" == "1" ]] || { echo "ROOST_TRUST_PROXY must be 0 or 1" >&2; exit 1; }
 # Resolve bun the same way the worker installer does: explicit override,
 # `command -v`, then a fallback list including ~/.bun/bin so a tarball install
 # on a box without Homebrew (every Linux box) also works.
@@ -98,7 +99,6 @@ _find_bin() {
   echo "/opt/homebrew/bin/$name"
 }
 BUN_BIN="${BUN_BIN:-$(_find_bin bun /usr/local/bin/bun "$HOME/.bun/bin/bun")}"
-
 # Service definitions are data formats. Escape all dynamic values before
 # interpolation so operator-controlled URLs and paths cannot inject plist keys
 # or systemd directives.
@@ -194,19 +194,23 @@ resolve_web_dist() {
     "stamping $root/apps/web/dist instead" >&2
   printf '%s' "$root/apps/web/dist"
 }
-
-# The coordinator owns no TLS, DNS, or tunnel: it binds loopback in plaintext
-# and the operator's front door terminates TLS and sets X-Forwarded-For. That
+# The coordinator owns no TLS, DNS, or tunnel: it binds loopback in plaintext.
+# An optional operator front door terminates TLS and sets X-Forwarded-For. That
 # also dodges the Bun 1.3.14 segfault in us_internal_ssl_on_close /
 # RequestContext.onAbort, which fired when a browser aborted a long-lived
 # streaming TLS response (the Sync firehose) and left the coord crash-looping.
 COORD_LOOPBACK_PORT="${ROOST_COORD_LOOPBACK_PORT:-4103}"
 BIND_VALUE="${ROOST_COORDINATOR_BIND:-127.0.0.1:${COORD_LOOPBACK_PORT}}"
+BIND_PORT="${BIND_VALUE#127.0.0.1:}"
 if [[ ! "$BIND_VALUE" =~ ^127\.0\.0\.1:[0-9]+$ ]]; then
-  echo "ROOST_COORDINATOR_BIND must be 127.0.0.1:<port>; put your own front door in front of it" >&2
+  echo "ROOST_COORDINATOR_BIND must be 127.0.0.1:<port> with port 1-65535; put your own front door in front of it" >&2
   exit 1
 fi
-
+if [[ "$BIND_PORT" =~ ^0+$ || ${#BIND_PORT} -gt 5 ]] \
+  || [[ ${#BIND_PORT} -eq 5 && "$BIND_PORT" > "65535" ]]; then
+  echo "ROOST_COORDINATOR_BIND must be 127.0.0.1:<port> with port 1-65535; put your own front door in front of it" >&2
+  exit 1
+fi
 # Stamp the current repo HEAD into coord's env so misc.health.git_sha
 # returns a real SHA instead of "dev". SPA's MachineSection compares
 # each worker's last-reported git_sha to this value and flags stale
@@ -216,18 +220,14 @@ GIT_SHA_RESOLVED="${ROOST_GIT_SHA:-$(cd "$REPO_ROOT" && git rev-parse HEAD 2>/de
 if [[ -n "$GIT_SHA_RESOLVED" ]]; then
   GIT_SHA_PLIST=$'\n    <key>ROOST_GIT_SHA</key>\n    <string>'"$(xml_escape "${GIT_SHA_RESOLVED}")"$'</string>'
 fi
-
-ENDPOINT_PLIST=$'\n    <key>ROOST_TRUST_PROXY</key>\n    <string>1</string>'
-[[ -n "$WEB_PUBLIC_URL" ]] && ENDPOINT_PLIST+=$'\n    <key>ROOST_WEB_PUBLIC_URL</key>\n    <string>'"$(xml_escape "${WEB_PUBLIC_URL}")"$'</string>'
-
+# Explicit values, including empty ones, prevent stale manager environment from restoring an endpoint.
+ENDPOINT_PLIST=$'\n    <key>ROOST_TRUST_PROXY</key>\n    <string>'"$(xml_escape "$TRUST_PROXY")"$'</string>'
+ENDPOINT_PLIST+=$'\n    <key>ROOST_WEB_PUBLIC_URL</key>\n    <string>'"$(xml_escape "$WEB_PUBLIC_URL")"$'</string>'
+ENDPOINT_PLIST+=$'\n    <key>ROOST_CORS_ALLOWED_ORIGINS</key>\n    <string>'"$(xml_escape "$CORS_ALLOWED_ORIGINS")"$'</string>'
 cmd="${1:-status}"
-
 write_plist() {
   mkdir -p "$(dirname "$PLIST")" "$DATA_DIR" "$LOG_DIR"
-  # ProgramArguments/workdir/dist switch by execution form: ROOST_EXEC_BIN set
-  # means compiled binary (`roost coord`); unset means from-source
-  # (`bun …/main.ts`). The selected network mode's endpoint environment is
-  # otherwise identical for both forms.
+  # Compiled mode executes `roost coord`; source mode executes coordinator main.ts.
   local prog_bin prog_arg2 workdir web_dist label_xml prog_bin_xml prog_arg2_xml workdir_xml home_xml bind_xml db_xml auth_xml public_url_xml web_dist_xml diag_xml log_dir_xml
   if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
     prog_bin="${ROOST_EXEC_BIN}"; prog_arg2="coord"
@@ -323,9 +323,8 @@ bootstrap() {
   echo "bootstrapped gui/$UID/${LABEL}"
 }
 
-# systemd --user counterpart of write_plist: same env-key set, same computed
-# BIND/TRUST_PROXY/TLS values. No KillMode=process — that exists in the worker
-# unit for the detached keeper, and coord has no such child.
+# systemd --user counterpart of write_plist: same environment and endpoint values.
+# Coord has no detached child, so it needs no KillMode=process.
 #
 # The resource limits were hand-written drop-ins on the first Linux box until
 # they landed here; a reinstall used to silently discard them. Coord owns no
@@ -372,10 +371,11 @@ EOF
     systemd_env "ROOST_COORD_MEMORY_MAX" "$COORD_MEM_MAX"
     systemd_env "ROOST_COORD_TASKS_MAX" "$COORD_TASKS_MAX"
     systemd_env "ROOST_COORD_LOGROTATE_CONF" "$LOGROTATE_CONF"
-    systemd_env "ROOST_TRUST_PROXY" "1"
+    systemd_env "ROOST_TRUST_PROXY" "$TRUST_PROXY"
     [[ -n "$GIT_SHA_RESOLVED" ]] && systemd_env "ROOST_GIT_SHA" "$GIT_SHA_RESOLVED"
     [[ -n "${ROOST_EXEC_BIN:-}" ]] && systemd_env "ROOST_EXEC_BIN" "$ROOST_EXEC_BIN"
-    [[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]] && systemd_env "ROOST_WEB_PUBLIC_URL" "$ROOST_WEB_PUBLIC_URL"
+    systemd_env "ROOST_WEB_PUBLIC_URL" "$WEB_PUBLIC_URL"
+    systemd_env "ROOST_CORS_ALLOWED_ORIGINS" "$CORS_ALLOWED_ORIGINS"
     # RestartSec=1 is the systemd analogue of the plist's ThrottleInterval 1:
     # a Bun crash must not freeze every browser's Sync stream for 10s.
     cat <<EOF

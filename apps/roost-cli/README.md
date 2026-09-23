@@ -21,7 +21,7 @@ self-exec/service entries `keeper`, `__keeper-contract`, and
 
 | Command | Purpose |
 | --- | --- |
-| `quickstart` | One-shot local install: validate the declared `--coordinator-url` origin → build SPA → install the coordinator on its loopback bind → deploy the local worker → health → open an already-authorized browser via a self-minted `#pair` token |
+| `quickstart` | Persistent local-first install: bare invocation installs loopback coordinator and first worker, proves readiness, and opens a paired local browser; reruns preserve the installed runtime, while `--coordinator-url https://…` promotes only the coordinator endpoint profile |
 | `coord` | Run the coordinator in this process (compiled-binary server mode). Lazily `import()`ed so the generated SPA embed never loads into `roost test` |
 | `worker` | Run the worker in this process (compiled-binary worker mode); same entry the LaunchAgent/unit uses |
 | `keeper <sock>` | Run the multiplexed keeper in this process. Internal self-exec target: the worker spawns `roost keeper <sock>` when it is not running under bun |
@@ -38,15 +38,15 @@ self-exec/service entries `keeper`, `__keeper-contract`, and
 | `reset` | Stop both services, wipe the coord DB + pinned keys + lock, re-run `bun install` |
 | `state` | Print a `STATE.md` snapshot to stdout |
 | `cutover` | Migrate `coordinator.db` → `coordinator_v2.db` |
-| `status` | ✓/✗ health readout: both services, coordinator liveness on its loopback bind, the configured public URL and whether it answers, workers; each failing line carries its remedy |
+| `status` | ✓/✗ health readout: local services, coordinator loopback liveness, optional public URL reachability, and workers; absent remote access is intentional local-only state |
 | `doctor [--since 24h]` | Anomaly digest from the low-volume Tier-1 channel (`main.err.log` + rotated `.N.gz`) |
 | `api <verb>` | Dashboard-authorized headless introspection/control over coordinator RPCs: `sessions`, `agent-status`, `agent-wait`, `agent-prompt`, `agents`, `cells`, `input`, `rename`, `assign`, `attach`, `spawn`, `kill`, `workers`, `workspaces`, `ws-*`, `tasks`, `task-*`, `ui`, `ui-state`, `events` |
 | `join` | Install + register this machine's worker from a one-shot bootstrap token (driven by the repo-root `join.sh`; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN`) |
-| `add-machine --platform <macos\|linux\|windows>` | Mint one worker token and print the platform-specific enrollment command. Coordinator-only; the enrollment URL resolves `ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL` from the installed coordinator service definition overlaid by the environment, and refuses naming all three when none is set |
+| `add-machine --platform <macos\|linux\|windows>` | Mint one worker token and print the platform-specific enrollment command only after the installed coordinator declares a strict non-loopback HTTPS origin; the operator runs it manually on the target |
 
 v0.5.0 releases and deploys self-hosted Roost on macOS/Linux. The coordinator
-binds loopback in plaintext and the operator's front door owns TLS, DNS, and
-public reachability. Windows remains paused.
+binds loopback in plaintext; TLS, DNS, and public reachability remain
+operator-managed optional expansion. Windows remains paused.
 
 ### `__windows-updater-broker` is a contract, not an implementation detail
 
@@ -117,10 +117,13 @@ and only then runs the update broker.
   `src/windows/windows-service-manager.ts`.
 - **Install + service control** — `src/service-ctl.ts` is the stable
   POSIX/Windows facade; `src/service-posix.ts` owns POSIX identifiers and
-  launchd/systemd command construction. Install/enrollment owners are
-  `src/install-binary-agents.ts`, `src/machine-transaction.ts`, `src/join.ts`,
-  `src/add-machine.ts`, `src/quickstart.ts`, `src/quickstart-runtime.ts`,
-  `src/quickstart-endpoint.ts`, and `src/quickstart-bootstrap-tokens.ts`.
+  launchd/systemd command construction. `src/quickstart.ts` owns fresh local
+  provisioning, `src/quickstart-existing-install.ts` owns validated reruns and
+  endpoint-only promotion, and `src/quickstart-endpoint.ts` owns selected
+  endpoint profiles. `src/quickstart-runtime.ts`,
+  `src/quickstart-bootstrap-tokens.ts`, `src/add-machine.ts`, `src/join.ts`,
+  `src/install-binary-agents.ts`, and `src/machine-transaction.ts` retain their
+  respective runtime, grant, enrollment, installation, and locking seams.
 - **Release / skill** — `src/update.ts`, `src/version.ts`; `src/skill.ts`
   chooses the generated text embed in compiled binaries and the canonical
   repository file in source mode.

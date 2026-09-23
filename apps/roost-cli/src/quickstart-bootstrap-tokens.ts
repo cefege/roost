@@ -19,6 +19,24 @@ export async function mintBrowserToken(
   })).token;
 }
 
+/** Return whether an enrolled worker remains backed by its authorized key. */
+export function isRegisteredWorker(databasePath: string, fingerprint: string): boolean {
+  const sqlite = new Database(databasePath, { readonly: true, strict: true });
+  try {
+    const row = sqlite.query(`
+      SELECT 1
+      FROM workers AS worker
+      JOIN authorized_keys AS authorized_key
+        ON authorized_key.fingerprint = worker.fp
+      WHERE worker.fp = ?
+      LIMIT 1
+    `).get(fingerprint);
+    return row !== null && row !== undefined;
+  } finally {
+    sqlite.close(false);
+  }
+}
+
 /** Worker grant redeemed by the local worker during quickstart enrollment. */
 export async function mintWorkerToken(
   databasePath: string,

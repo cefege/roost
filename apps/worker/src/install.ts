@@ -3,7 +3,7 @@
 // auto-creates an OpenSSH PEM on missing/unparseable file. main.ts
 // calls loadWorkerKey BEFORE runInstall, so by the time we get here
 // the key exists. Don't duplicate the encoder.
-// Callers: main.ts.
+// Callers: main.ts and quickstart-existing-install.ts.
 
 import { log } from "@roost/shared/log";
 import { hostIdentityToProto } from "@roost/shared/host-identity-proto";
@@ -12,6 +12,7 @@ import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 import type { CoordClient } from "./coord-client.ts";
 import type { WorkerConfig as WorkerConfigType } from "./config.ts";
 import { loadWorkerKey } from "./jwt.ts";
+import type { LoadedKey } from "./jwt.ts";
 import { scrubServiceDefinitionEnv } from "./service-definition-env.ts";
 import { staticHostIdentity } from "./host-identity.ts";
 export { resolveTailnetDnsName } from "@roost/shared/tailnet";
@@ -119,12 +120,20 @@ export interface StrictEnrollmentResult {
 }
 
 /** Installer path. A lost redemption response is resolved by proving the
- * freshly generated key can perform the authenticated registration. Once that
- * proof succeeds the one-shot token is never needed in the SCM definition. */
+ * selected key can perform authenticated registration without retaining its
+ * one-shot token in the SCM definition. */
 export async function runStrictEnrollment(opts: InstallOptions): Promise<StrictEnrollmentResult> {
+  return runStrictEnrollmentWithKey(opts, await loadWorkerKey(opts.cfg.workerKeyPath));
+}
+
+/** Existing-install callers pass a read-only loaded key so a damaged service
+ * key is refused instead of invoking first-boot regeneration during repair. */
+export async function runStrictEnrollmentWithKey(
+  opts: InstallOptions,
+  key: LoadedKey,
+): Promise<StrictEnrollmentResult> {
   const { cfg, client } = opts;
   if (!cfg.bootstrapToken) throw new Error("strict worker enrollment requires a bootstrap token");
-  const key = await loadWorkerKey(cfg.workerKeyPath);
   const fingerprint = key.fingerprint;
   const os = supportedHostPlatform();
   const git_sha = process.env.GIT_SHA;

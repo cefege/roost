@@ -1,7 +1,7 @@
 // Worker JWT minting. Signs EdDSA JWTs (aud=roost-coordinator) using the
 // worker's ed25519 private key at workerKeyPath from config. Uses Bun's
 // native crypto.subtle (WebCrypto Ed25519) — no external crypto lib.
-// Callers: coord-client.ts (Authorization header on every coord RPC).
+// Callers: coord-client.ts and quickstart-existing-install.ts.
 
 import { existsSync, readFileSync } from "node:fs";
 import { log } from "@roost/shared/log";
@@ -83,6 +83,13 @@ function parseOpenSshEd25519(pem: string): { privSeed: Uint8Array; pubKey: Uint8
   return { privSeed: Uint8Array.from(privSeed), pubKey: Uint8Array.from(pubKey) };
 }
 
+/** Read the fingerprint of an existing OpenSSH worker key without mutating it. */
+export async function readWorkerFingerprint(keyPath: string): Promise<string> {
+  const pem = readFileSync(keyPath, "utf8");
+  const { pubKey } = parseOpenSshEd25519(pem);
+  return fingerprintOf(pubKey);
+}
+
 // ─── JWT minting ──────────────────────────────────────────────────────
 
 export interface LoadedKey {
@@ -90,6 +97,18 @@ export interface LoadedKey {
   pubKey: Uint8Array;
   fingerprint: string;
   signingKey: CryptoKey;
+}
+
+/** Read an installed key into signing form without generating, chmodding, or logging. */
+export async function readExistingWorkerKey(keyPath: string): Promise<LoadedKey> {
+  const pem = readFileSync(keyPath, "utf8");
+  const parsed = parseOpenSshEd25519(pem);
+  return {
+    seed: parsed.privSeed,
+    pubKey: parsed.pubKey,
+    fingerprint: await fingerprintOf(parsed.pubKey),
+    signingKey: await importSigningKey(parsed.privSeed),
+  };
 }
 
 const keysByPath = new Map<string, Promise<LoadedKey>>();

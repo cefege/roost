@@ -59,6 +59,17 @@ export function restartWorkerCmd(os: ServiceOs): string {
   );
 }
 
+export function startWorkerCmd(
+  os: PosixServiceOs,
+  servicePath: string,
+  label: string,
+): string {
+  if (os === "linux") {
+    return `${XDG} systemctl --user daemon-reload && systemctl --user start ${posixShellQuote(`${label}.service`)}`;
+  }
+  return launchdBootstrapWithRetryCmd(label, servicePath, { role: "worker start" });
+}
+
 export function verifyWorkerCmd(os: ServiceOs): string {
   return posixServiceCommand(
     os,

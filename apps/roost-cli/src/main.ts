@@ -87,7 +87,7 @@ type Subcommand = keyof typeof SUBCOMMANDS;
 function usage(): never {
   console.error("Usage: bun run roost <subcommand> [args]");
   console.error("Subcommands:");
-  console.error("  quickstart --coordinator-url https://your.host   local coord + worker + browser");
+  console.error("  quickstart [--coordinator-url https://your.host]   local coord + worker + browser");
   console.error("  coord             run the coordinator (server mode; used by the compiled binary)");
   console.error("  worker            run the worker (server-side; compiled binary / LaunchAgent)");
   console.error("  dev               start coord + worker + web dev servers");

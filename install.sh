@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 # Roost one-click installer. Run on macOS or Linux to go from nothing → running:
-#   curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | \
-#     ROOST_WEB_PUBLIC_URL="https://roost.example.com" bash
+#   curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash
 #
-# What it does: install Bun if missing → clone/update the repo →
-# `roost quickstart --coordinator-url "$ROOST_WEB_PUBLIC_URL"` (coord + local
-# worker + opens the browser already-authorized). Other machines are NOT set
-# up here, and no front door (TLS, DNS, tunnel) is installed: you put Caddy,
-# nginx, a Cloudflare tunnel or `tailscale serve` in front of the coordinator's
-# loopback listener yourself, then name it in ROOST_WEB_PUBLIC_URL.
+# What it does: install Bun if missing → clone/update the repo → `roost quickstart`
+# (coord + local worker + opens the browser). Set ROOST_WEB_PUBLIC_URL only when
+# an operator-managed front door should be selected; Roost never provisions TLS,
+# DNS, or a tunnel for that loopback coordinator.
 
 set -euo pipefail
 
@@ -25,18 +22,7 @@ case "$(uname -s)" in
   *) die "Roost installs on macOS or Linux only (found $(uname -s))." ;;
 esac
 
-# 1. Required env — the public URL your front door serves. The coordinator
-#    binds loopback plaintext and never provisions TLS, DNS, or a tunnel.
-if [ -z "${ROOST_WEB_PUBLIC_URL:-}" ]; then
-  die "ROOST_WEB_PUBLIC_URL is required." \
-      "It is the HTTPS origin your own front door serves, e.g.:" \
-      "  curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | \\" \
-      "    ROOST_WEB_PUBLIC_URL=\"https://roost.example.com\" bash" \
-      "Set up that front door first (Caddy, nginx, a Cloudflare tunnel, or" \
-      "\`tailscale serve\`) — see GETTING_STARTED.md for copy-paste recipes."
-fi
-
-# 2. Bun.
+# 1. Bun.
 if ! command -v bun >/dev/null 2>&1; then
   say "installing Bun"
   curl -fsSL https://bun.sh/install | bash
@@ -44,7 +30,7 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 command -v bun >/dev/null 2>&1 || die "Bun install did not land on PATH." "Open a new shell and re-run, or add ~/.bun/bin to PATH."
 
-# 3. Source — clone or update.
+# 2. Source — clone or update.
 if [ -d "$ROOST_DIR/.git" ]; then
   say "updating $ROOST_DIR"
   git -C "$ROOST_DIR" pull --ff-only
@@ -53,9 +39,13 @@ else
   git clone "$REPO_URL" "$ROOST_DIR"
 fi
 
-# 4. Install deps + run quickstart (does the rest + opens the browser).
+# 3. Install deps + run quickstart (does the rest + opens the browser).
 cd "$ROOST_DIR"
 say "bun install"
 bun install
-say "roost quickstart --coordinator-url $ROOST_WEB_PUBLIC_URL"
-exec bun apps/roost-cli/src/main.ts quickstart --coordinator-url "$ROOST_WEB_PUBLIC_URL"
+quickstart_args=()
+if [[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]]; then
+  quickstart_args=(--coordinator-url "$ROOST_WEB_PUBLIC_URL")
+fi
+say "roost quickstart${ROOST_WEB_PUBLIC_URL:+ --coordinator-url $ROOST_WEB_PUBLIC_URL}"
+exec bun apps/roost-cli/src/main.ts quickstart "${quickstart_args[@]}"
