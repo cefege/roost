@@ -44,7 +44,7 @@ import {
 	TERMINAL_INPUT_ROUTE_CAPABILITY,
 	TERMINAL_PEER_WEBRTC_CAPABILITY,
 } from "@roost/shared/terminal-peer";
-
+import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/shared/attachment-transfer";
 import { randomUUID } from "node:crypto";
 
 // hook.sock lives in the same data dir as the worker key.
@@ -181,6 +181,7 @@ export async function runWorker(options: WorkerRunOptions = {}) {
 		additionalCapabilities: new Set([
 			TERMINAL_INPUT_ROUTE_CAPABILITY,
 			...(localDoor.wiring.peerSupported ? [TERMINAL_PEER_WEBRTC_CAPABILITY] : []),
+			...(localDoor.wiring.attachmentPeerSupported ? [ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY] : []),
 		]),
 	}));
 	// Bind the forward ref before yielding: startCoordLink's first dial awaits
@@ -196,8 +197,6 @@ export async function runWorker(options: WorkerRunOptions = {}) {
 	// 1 GB LRU cap on ~/.roost/attachments/.
 	const { startAttachmentReaper } = await import("./attachment-reaper.ts");
 	startAttachmentReaper();
-
-
 	// Session manager emits cells plus negotiated semantic metadata through
 	// CoordLink; WBinary remains only for an old coordinator acknowledgement.
 	const sessionMgr = new SessionManager({

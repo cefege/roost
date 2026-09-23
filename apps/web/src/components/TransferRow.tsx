@@ -2,8 +2,8 @@
 // TransferStack owns the sole popup surface and supplies a reactive job record.
 // State transitions and dismissal remain in src/store/transfers.ts.
 
-import { Show } from "solid-js";
-import { IconButton, ListRow } from "./Settings/md/primitives.tsx";
+import { createSignal, Show } from "solid-js";
+import { Icon, IconButton, ListRow } from "./Settings/md/primitives.tsx";
 import { formatBytes, formatSpeed, formatEta } from "../lib/format.ts";
 import { removeTransfer, type Transfer } from "../store/transfers.ts";
 
@@ -11,6 +11,9 @@ export function TransferRow(props: { t: Transfer }) {
   const t = () => props.t;
   const done = () => t().state === "ok" || t().state === "dedup" || t().state === "err";
   const pct = () => (t().bytes_total > 0 ? Math.round((t().bytes_done / t().bytes_total) * 100) : 0);
+  const [failedPreviewUrl, setFailedPreviewUrl] = createSignal<string>();
+  const previewUrl = () => t().preview_url;
+  const previewVisible = () => previewUrl() !== undefined && failedPreviewUrl() !== previewUrl();
   const progressValue = () => {
     const transfer = t();
     if (
@@ -44,7 +47,22 @@ export function TransferRow(props: { t: Transfer }) {
   return (
     <ListRow
       testId="transfer-row"
-      leading={t().dir === "up" ? "upload" : "download"}
+      leading={
+        <Show when={previewVisible()} fallback={<Icon name={t().dir === "up" ? "upload" : "download"} />}>
+          <img
+            data-testid="transfer-preview"
+            src={previewUrl()!}
+            alt=""
+            onError={() => setFailedPreviewUrl(previewUrl())}
+            style={{
+              width: "100%",
+              height: "100%",
+              "border-radius": "var(--md-shape-sm)",
+              "object-fit": "cover",
+            }}
+          />
+        </Show>
+      }
       headline={<span title={t().name}>{t().name}</span>}
       support={
         <span style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-1)" }}>

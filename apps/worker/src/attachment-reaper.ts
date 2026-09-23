@@ -21,6 +21,8 @@ const SWEEP_INTERVAL_MS = 60 * 60 * 1000;  // 1h
 // The dedup index (hash → filename) lives in each session dir. It must survive
 // the TTL/LRU sweep and never surface in the attachment browser listing.
 export const MANIFEST_NAME = ".roost-manifest.json";
+/** Durable direct-upload state stays private to the attachment operation owner. */
+export const ATTACHMENT_OPERATION_DIR_NAME = ".operations";
 
 export function attachmentBaseDir(): string {
   return normalizeWorkerPath(path.join(os.homedir(), ".roost", "attachments"), HOST_PLATFORM);
@@ -72,6 +74,13 @@ async function sweepAttachments(): Promise<void> {
     for (const fname of files) {
       if (fname === MANIFEST_NAME) continue;
       const fpath = path.join(sidDir, fname);
+      if (fname === ATTACHMENT_OPERATION_DIR_NAME) {
+        for (const operationFile of sweepAttachmentOperations(fpath, now)) {
+          survivors.push(operationFile);
+          totalSize += operationFile.size;
+        }
+        continue;
+      }
       if (fname === ".shortcuts") {
         let shortcuts: string[];
         try { shortcuts = fs.readdirSync(fpath); }
@@ -144,6 +153,33 @@ async function sweepAttachments(): Promise<void> {
       }
     }
   }
+}
+
+function sweepAttachmentOperations(
+  operationDir: string,
+  now: number,
+): Array<{ path: string; size: number; mtime: number }> {
+  const survivors: Array<{ path: string; size: number; mtime: number }> = [];
+  let entries: string[];
+  try { entries = fs.readdirSync(operationDir); } catch { return survivors; }
+  for (const entry of entries) {
+    const filePath = path.join(operationDir, entry);
+    try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) continue;
+      if (now - stat.mtimeMs > TTL_MS) {
+        fs.unlinkSync(filePath);
+      } else if (entry.endsWith(".part")) {
+        survivors.push({ path: filePath, size: stat.size, mtime: stat.mtimeMs });
+      }
+    } catch {
+      // A concurrent upload owns its own next operation state.
+    }
+  }
+  try {
+    if (fs.readdirSync(operationDir).length === 0) fs.rmdirSync(operationDir);
+  } catch { /* concurrent upload may have refilled the directory */ }
+  return survivors;
 }
 
 /** Sanitize an upload filename while preserving its extension. */

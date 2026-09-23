@@ -204,6 +204,23 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   loopback/WebRTC carrier contract; `src/terminal-peer-packet-budget.ts` owns
   peer retained-byte quotas. Loopback and peer ports share these owners rather
   than adding a parallel session, view, input, or packet implementation.
+- **Direct attachment uploads** — `src/attachment-upload.ts` is the facade both
+  the coordinator relay and direct carriers call; `src/attachment-operation-owner.ts`
+  is the single byte destination (idle sweep, durable receipts), with
+  `attachment-operation-journal.ts` (durable per-upload journal),
+  `attachment-operation-receipts.ts`, `attachment-file-store.ts` (final names,
+  manifest, platform-aware directory fsync), and `attachment-file-hash.ts`.
+  `src/attachment-direct-socket.ts` is the one protobuf admission boundary for
+  loopback (`local-ui-attachment-socket.ts`) and WebRTC
+  (`attachment-peer-owner.ts`, `attachment-peer-connection.ts`,
+  `attachment-peer-packet-port.ts`, `attachment-peer-packet-budget.ts`,
+  `attachment-peer-request-validation.ts`) ports behind
+  `attachment-transfer-port.ts`. `attachment-grants.ts`,
+  `attachment-transfer-admission.ts`, `attachment-transfer-lease.ts`, and
+  `attachment-direct-session.ts` own grant, hello, and finite port authority;
+  `attachment-direct-frames.ts` encodes server frames. Unauthenticated loopback
+  sockets and admitted carriers hold separate capacity buckets, and one grant
+  admits one live carrier. None shares terminal grant or packet state.
 - **Session family**, one owner split across `this`-bound modules:
   `src/session-manager.ts` (facade/delegating wrappers),
   `src/session-manager-state.ts` (channel-keyed maps + event sink),
@@ -250,7 +267,7 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/coord-client.ts` (Connect client, boot calls only — events ride CoordLink); `src/event-sink.ts`;
   `src/snapshot.ts`.
 - **Session metadata pushed to the SPA** — `src/git-branch.ts`, `src/pr-status.ts`, `src/listening-ports.ts`.
-  **Files + attachments** — `src/file-rpcs.ts`, `src/attachment-upload.ts`, `src/attachment-reaper.ts` (1 h sweep,
+  **Files + attachments** — `src/file-rpcs.ts`, `src/attachment-upload.ts` (above), `src/attachment-reaper.ts` (1 h sweep,
   24 h TTL, 1 GB LRU). **Terminal byte analysis** — `src/terminal-stream-scan.ts` (alt-screen transitions),
   `src/terminal-query-reply.ts`, `src/shell-spec.ts`, and
   `src/diag/byte-capture.ts` (last 256 KB of PTY output per session, exposed to

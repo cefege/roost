@@ -8,6 +8,7 @@ package roost.v1;
 import "roost/v1/wire.proto";
 import "roost/v1/sync.proto";
 import "roost/v1/cell.proto";
+import "roost/v1/attachment_transfer.proto";
 
 // ─── workers ──────────────────────────────────────────────────────────────
 
@@ -252,6 +253,28 @@ message SessionsGrantLocalTerminalResponse {
   bool input_route_supported = 7;
 }
 
+// A short-lived, exact-descriptor grant for one direct attachment upload.
+// It is intentionally separate from terminal grants and is installed on the
+// worker before the browser receives its secret.
+message AttachmentsGrantDirectRequest {
+  string session_id = 1;
+  string worker_fp = 2;
+  string tab_id = 3;
+  string upload_id = 4;
+  string filename = 5;
+  bool short_path = 6;
+  uint64 total_bytes = 7;
+}
+
+message AttachmentsGrantDirectResponse {
+  string grant_id = 1;
+  string secret = 2;
+  uint32 ttl_ms = 3;
+  string worker_epoch = 4;
+  bool peer_supported = 5;
+  repeated string stun_urls = 6;
+}
+
 message SessionsNegotiateLocalTerminalPeerRequest {
   string worker_fp = 1;
   string grant_id = 2;
@@ -262,6 +285,23 @@ message SessionsNegotiateLocalTerminalPeerRequest {
 }
 
 message SessionsNegotiateLocalTerminalPeerResponse {
+  string peer_id = 1;
+  string answer_sdp = 2;
+  string worker_epoch = 3;
+}
+
+// Bounded offer/answer signaling for the attachment-specific WebRTC peer.
+// The direct carrier itself authenticates the attachment hello before bytes flow.
+message SessionsNegotiateAttachmentPeerRequest {
+  string worker_fp = 1;
+  string grant_id = 2;
+  string tab_id = 3;
+  string peer_id = 4;
+  string offer_sdp = 5;
+  string worker_epoch = 6;
+}
+
+message SessionsNegotiateAttachmentPeerResponse {
   string peer_id = 1;
   string answer_sdp = 2;
   string worker_epoch = 3;
@@ -921,6 +961,7 @@ service CoordinatorService {
   rpc SessionsCancelGlobalSearch(SessionsCancelGlobalSearchRequest) returns (SessionsCancelGlobalSearchResponse);
   rpc SessionsGrantLocalTerminal(SessionsGrantLocalTerminalRequest) returns (SessionsGrantLocalTerminalResponse);
   rpc SessionsNegotiateLocalTerminalPeer(SessionsNegotiateLocalTerminalPeerRequest) returns (SessionsNegotiateLocalTerminalPeerResponse);
+  rpc SessionsNegotiateAttachmentPeer(SessionsNegotiateAttachmentPeerRequest) returns (SessionsNegotiateAttachmentPeerResponse);
 
   // dashboard-authorized observed agent state
   rpc AgentStatusGet(AgentStatusGetRequest) returns (AgentStatusGetResponse);
@@ -1027,6 +1068,11 @@ service CoordinatorService {
   // sync (crpc3) — server-streaming multiplexed firehose
   rpc Sync(SyncRequest) returns (stream FirehoseFrame);
 
+  // Direct attachment control authenticates a short-lived exact-descriptor
+  // grant and resolves durable status; byte relay remains AttachFileChunk.
+  rpc AttachmentsGrantDirect(AttachmentsGrantDirectRequest) returns (AttachmentsGrantDirectResponse);
+  rpc AttachmentsDirectStatus(AttachmentsDirectStatusRequest) returns (AttachmentsDirectStatusResponse);
+
   // att1-stream — chunked file upload, no size ceiling. SPA slices the file
   // with Blob.slice and calls this once per bounded chunk (serial, in order);
   // coord relays each as a DAttachmentChunk to the worker (raw bytes, no
@@ -1055,6 +1101,15 @@ service CoordinatorService {
   rpc DiagSnapshot(DiagSnapshotRequest) returns (DiagSnapshotResponse);
 }
 
+
+message AttachmentsDirectStatusRequest {
+  string session_id = 1;
+  string upload_id = 2;
+}
+
+message AttachmentsDirectStatusResponse {
+  AttachmentTransferStatus status = 1;
+}
 
 // ─── att1: file attachment ─────────────────────────────────────────────────
 

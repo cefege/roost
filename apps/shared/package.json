@@ -12,6 +12,8 @@
     "./wire/sync-ws": "./src/wire/sync-ws.ts",
     "./wire/headers": "./src/wire/headers.ts",
     "./terminal-peer": "./src/terminal-peer.ts",
+    "./attachment-transfer": "./src/attachment-transfer.ts",
+    "./attachment-transfer-packets": "./src/attachment-transfer-packets.ts",
     "./terminal-peer-sdp": "./src/terminal-peer-sdp.ts",
     "./terminal-peer-packets": "./src/terminal-peer-packets.ts",
     "./terminal-search": "./src/terminal-search.ts",

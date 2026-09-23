@@ -133,6 +133,12 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		onLocalTerminalGrantRevoke: (request) => {
 			local?.revokeDevice(request.deviceFingerprint);
 		},
+		onLocalAttachmentGrant: local
+			? (request) => { local.attachmentGrants.install(request); }
+			: undefined,
+		onLocalAttachmentGrantRevoke: (request) => {
+			local?.revokeAttachmentDevice(request.deviceFingerprint);
+		},
 		onOpen: () => {
 			const sessionMgr = refs.sessionMgr;
 			if (!sessionMgr) return;
@@ -147,6 +153,7 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 			// flowing directly.
 			local?.clearCoordinatorGeneration();
 			local?.peerOwner.cancelPendingForCoordinator("coordinator_detached");
+			local?.attachmentPeerOwner.cancelPendingForCoordinator();
 			const sessionMgr = refs.sessionMgr;
 			if (!sessionMgr) return;
 			setTerminalMetadataNegotiated(sessionMgr, false);

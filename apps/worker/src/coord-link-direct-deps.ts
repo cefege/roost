@@ -5,12 +5,18 @@
 
 import { create } from "@bufbuild/protobuf";
 import {
+	WAttachmentDirectStatusSchema,
 	WTerminalTransportProbeResultSchema,
+	type DAttachmentDirectStatusRequest,
+	type DLocalAttachmentPeerCancel,
+	type DLocalAttachmentPeerOffer,
 	type DLocalTerminalPeerCancel,
 	type DLocalTerminalPeerOffer,
 	type DTerminalDirectRetire,
 	type DTerminalInputRouteClaim,
 	type DTerminalTransportProbe,
+	type WAttachmentDirectStatus,
+	type WLocalAttachmentPeerAnswer,
 	type WLocalTerminalPeerAnswer,
 	type WTerminalTransportProbeResult,
 } from "@roost/shared/proto/worker_transport_pb";
@@ -19,8 +25,11 @@ import {
 	TerminalInputRouteResultSchema,
 	type TerminalInputRouteResult,
 } from "@roost/shared/proto/sync_pb";
+import { AttachmentTransferStatusSchema } from "@roost/shared/proto/attachment_transfer_pb";
 import type { SessionManager } from "./session-manager.ts";
 import { TerminalPeerOfferError } from "./terminal-peer-owner.ts";
+import { attachmentOperationStatus } from "./attachment-upload.ts";
+import { AttachmentPeerOfferError } from "./attachment-peer-owner.ts";
 import type { LocalTerminalWiring, TerminalRequestBudget } from "./transport/coord-link-types.ts";
 
 export interface CoordLinkDirectDepsContext {
@@ -31,6 +40,12 @@ export interface CoordLinkDirectDepsContext {
 
 export interface CoordLinkDirectTerminalHandlers {
 	onLocalTerminalPeerOffer(request: DLocalTerminalPeerOffer, budget: TerminalRequestBudget): Promise<WLocalTerminalPeerAnswer>;
+	onLocalAttachmentPeerOffer(
+		request: DLocalAttachmentPeerOffer,
+		budget: TerminalRequestBudget,
+	): Promise<WLocalAttachmentPeerAnswer>;
+	onLocalAttachmentPeerCancel(request: DLocalAttachmentPeerCancel): void;
+	onAttachmentDirectStatusRequest(request: DAttachmentDirectStatusRequest): WAttachmentDirectStatus | null;
 	onLocalTerminalPeerCancel(request: DLocalTerminalPeerCancel): void;
 	onTerminalInputRouteClaim(
 		request: DTerminalInputRouteClaim,
@@ -54,6 +69,33 @@ export function makeCoordLinkDirectTerminalHandlers(
 		onLocalTerminalPeerCancel: (request) => {
 			const local = ctx.localTerminal;
 			if (local?.useCoordinatorGeneration(request.connectionGeneration)) local.peerOwner.cancel(request);
+		},
+		onLocalAttachmentPeerOffer: async (request, budget) => {
+			const local = ctx.localTerminal;
+			if (!local || !local.useCoordinatorGeneration(request.connectionGeneration)) {
+				throw new AttachmentPeerOfferError("connection_superseded");
+			}
+			return await local.attachmentPeerOwner.offer(request, budget);
+		},
+		onLocalAttachmentPeerCancel: (request) => {
+			const local = ctx.localTerminal;
+			if (local?.useCoordinatorGeneration(request.connectionGeneration)) local.attachmentPeerOwner.cancel(request);
+		},
+		onAttachmentDirectStatusRequest: (request) => {
+			if (!ctx.localTerminal) return null;
+			const status = attachmentOperationStatus(request.sessionId, request.uploadId);
+			return create(WAttachmentDirectStatusSchema, {
+				requestId: request.requestId,
+				status: create(AttachmentTransferStatusSchema, {
+					uploadId: status.uploadId,
+					nextSeq: status.nextSeq,
+					bytesReceived: BigInt(status.bytesReceived),
+					lastChunkSha256: status.lastChunkSha256,
+					committed: status.committed,
+					absPath: status.absPath,
+					error: status.error,
+				}),
+			});
 		},
 		onTerminalInputRouteClaim: async (request, budget) => {
 			const local = ctx.localTerminal;

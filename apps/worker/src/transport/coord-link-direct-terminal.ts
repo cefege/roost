@@ -5,7 +5,14 @@
 
 import { create } from "@bufbuild/protobuf";
 import {
+	WAttachmentDirectStatusSchema,
+	WLocalAttachmentPeerErrorSchema,
 	WLocalTerminalPeerErrorSchema,
+	type DAttachmentDirectStatusRequest,
+	type DLocalAttachmentPeerCancel,
+	type DLocalAttachmentPeerOffer,
+	type DLocalAttachmentGrant,
+	type DLocalAttachmentGrantRevoke,
 	type DLocalTerminalPeerCancel,
 	type DLocalTerminalPeerOffer,
 	type DTerminalDirectRetire,
@@ -13,7 +20,9 @@ import {
 	type DTerminalTransportProbe,
 } from "@roost/shared/proto/worker_transport_pb";
 import { TerminalInputRouteResultSchema } from "@roost/shared/proto/sync_pb";
+import { AttachmentTransferStatusSchema } from "@roost/shared/proto/attachment_transfer_pb";
 import { TerminalPeerOfferError, type TerminalPeerOfferFailureReason } from "../terminal-peer-owner.ts";
+import { AttachmentPeerOfferError, type AttachmentPeerOfferFailureReason } from "../attachment-peer-owner.ts";
 import type {
 	CoordLinkDeps,
 	CoordLinkOutbox,
@@ -48,6 +57,39 @@ export function createCoordLinkDirectTerminalDownstream(
 				workerEpoch: deps.processEpoch,
 				peerId: request.peerId,
 				reason,
+			}),
+		});
+	}
+	function sendAttachmentPeerError(
+		request: DLocalAttachmentPeerOffer,
+		reason: AttachmentPeerOfferFailureReason,
+	): void {
+		send({
+			kind: "local-attachment-peer-error",
+			error: create(WLocalAttachmentPeerErrorSchema, {
+				requestId: request.requestId,
+				connectionGeneration: request.connectionGeneration,
+				workerEpoch: deps.processEpoch,
+				peerId: request.peerId,
+				reason,
+			}),
+		});
+	}
+
+	function sendUnavailableAttachmentStatus(request: DAttachmentDirectStatusRequest): void {
+		send({
+			kind: "attachment-direct-status",
+			status: create(WAttachmentDirectStatusSchema, {
+				requestId: request.requestId,
+				status: create(AttachmentTransferStatusSchema, {
+					uploadId: request.uploadId,
+					nextSeq: 0,
+					bytesReceived: 0n,
+					lastChunkSha256: "",
+					committed: false,
+					absPath: "",
+					error: "upload_not_found",
+				}),
 			}),
 		});
 	}
@@ -91,6 +133,65 @@ export function createCoordLinkDirectTerminalDownstream(
 			}
 			case "localTerminalPeerCancel":
 				if (isCurrent(socket)) deps.onLocalTerminalPeerCancel?.(value as DLocalTerminalPeerCancel);
+				return true;
+			case "localAttachmentPeerOffer": {
+				const request = value as DLocalAttachmentPeerOffer;
+				if (!isCurrent(socket)) return true;
+				if (!deps.onLocalAttachmentPeerOffer) {
+					if (isCurrent(socket)) sendAttachmentPeerError(request, "disabled");
+					return true;
+				}
+				void deps.onLocalAttachmentPeerOffer(request, terminalBudget(socket, request.budgetMs))
+					.then((answer) => {
+						if (isCurrent(socket)) send({ kind: "local-attachment-peer-answer", answer });
+					})
+					.catch((error: unknown) => {
+						if (!isCurrent(socket)) return;
+						const reason = error instanceof AttachmentPeerOfferError ? error.reason : "ice_failed";
+						sendAttachmentPeerError(request, reason);
+					});
+				return true;
+			}
+			case "localAttachmentPeerCancel":
+				if (isCurrent(socket)) deps.onLocalAttachmentPeerCancel?.(value as DLocalAttachmentPeerCancel);
+				return true;
+			case "attachmentDirectStatusRequest": {
+				if (!isCurrent(socket)) return true;
+				const request = value as DAttachmentDirectStatusRequest;
+				const status = deps.onAttachmentDirectStatusRequest?.(request);
+				if (status) send({ kind: "attachment-direct-status", status });
+				else sendUnavailableAttachmentStatus(request);
+				return true;
+			}
+			case "localAttachmentGrant": {
+				const request = value as DLocalAttachmentGrant;
+				if (!isCurrent(socket)) return true;
+				if (!deps.onLocalAttachmentGrant) {
+					send({
+						kind: "rpc-error",
+						request_id: request.requestId,
+						message: "local attachment grants unsupported by this worker",
+					});
+					return true;
+				}
+				try {
+					deps.onLocalAttachmentGrant(request);
+					send({
+						kind: "rpc-ok",
+						request_id: request.requestId,
+						data: { grant_id: request.grantId },
+					});
+				} catch (error) {
+					send({
+						kind: "rpc-error",
+						request_id: request.requestId,
+						message: error instanceof Error ? error.message : String(error),
+					});
+				}
+				return true;
+			}
+			case "localAttachmentGrantRevoke":
+				if (isCurrent(socket)) deps.onLocalAttachmentGrantRevoke?.(value as DLocalAttachmentGrantRevoke);
 				return true;
 			case "terminalInputRouteClaim": {
 				const request = value as DTerminalInputRouteClaim;

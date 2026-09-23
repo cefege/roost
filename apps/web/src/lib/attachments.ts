@@ -1,20 +1,11 @@
-// att1d — SPA file upload primitive. Drag/paste/pick a File →
-// stream bytes to coord via chunked Connect AttachFileChunk → return abs_path
-// that the SPA injects into the PTY via Sync v2.
-//
-// att1-stream: NO size ceiling. The file is sliced with Blob.slice into
-// bounded chunks and sent one unary AttachFileChunk per slice (serial, in
-// order). connect-web can't request-stream over fetch, so chunked-unary is
-// the bounded-memory path. coord relays each chunk to the worker raw (no
-// base64); the worker assembles to a temp file and returns abs_path on the
-// final chunk. Memory is O(chunk) on every hop — a multi-GB file never sits
-// in one buffer.
-//
-// Serial queues preserve direct-upload order and serialize each complete
-// hash → probe → upload → sink operation selected through an attachment entry.
+// SPA attachment upload primitive. Enqueued uploads deduplicate before selecting one byte carrier.
+// A direct attachment route is loopback first, then WebRTC; coordinator relay stays fallback.
+// Transfer rows own UI progress while this module preserves serial order and one sink call.
 
 import { coordClient } from "../connect.ts";
 import { log } from "@roost/shared/log";
+import { uploadAttachmentDirect } from "./attachmentDirect.ts";
+import { createAttachmentPreviewUrl } from "./attachmentPreview.ts";
 import { sendUserTerminalInput } from "./userTerminalInput.ts";
 import { safeAttachmentInsertion } from "./attachmentInsertion.ts";
 import { workerPathPlatform } from "./nativePath.ts";
@@ -56,7 +47,7 @@ export function setShortPathPref(v: boolean): void {
 }
 
 async function uploadAttachmentWithPref(
-  session: { id: string },
+  session: { id: string; worker_fp?: string },
   file: File,
   shortPath: boolean,
   onProgress?: (bytesSent: number) => void,
@@ -64,11 +55,20 @@ async function uploadAttachmentWithPref(
   const uploadId = crypto.randomUUID();
   // Chain serially; preserve drop order even when caller awaits concurrently.
   const myTurn = uploadQueue.then(async () => {
+    const direct = await uploadAttachmentDirect({
+      workerFp: session.worker_fp,
+      sessionId: session.id,
+      uploadId,
+      file,
+      shortPath,
+      onProgress,
+    });
+    if (direct) return direct;
     let absPath = "";
     let seq = 0;
     // Always send at least one (possibly empty) chunk so a 0-byte file still
     // creates the file and returns a path. `last` flags the final chunk; `seq`
-    // lets the worker reject gaps/reorders (no truncated files on retry).
+    // lets the worker reject gaps/reorders (no truncated or reordered files).
     for (let offset = 0; offset === 0 || offset < file.size; offset += CHUNK_BYTES) {
       const slice = file.slice(offset, offset + CHUNK_BYTES);
       const data = new Uint8Array(await slice.arrayBuffer());
@@ -92,7 +92,7 @@ async function uploadAttachmentWithPref(
 }
 
 export async function uploadAttachment(
-  session: { id: string },  // only the id string is needed (wire field, unbranded)
+  session: { id: string; worker_fp?: string },
   file: File,
   onProgress?: (bytesSent: number) => void,  // fired after each chunk is acked
 ): Promise<UploadResult> {
@@ -106,7 +106,15 @@ export async function uploadAttachment(
  *  rides along so a sink can read name/mime/size without re-probing disk. */
 export async function enqueueAttachmentTo(session: Session, file: File, sink: (absPath: string, file: File) => void): Promise<void> {
   const id = crypto.randomUUID();
-  addTransfer({ id, name: file.name, dir: "up", bytes_total: file.size, state: "queued" });
+  const previewUrl = createAttachmentPreviewUrl(file);
+  addTransfer({
+    id,
+    name: file.name,
+    dir: "up",
+    bytes_total: file.size,
+    state: "queued",
+    preview_url: previewUrl,
+  });
   const myTurn = attachmentQueue.then(async () => {
     markTransferState(id, "hashing");
     const shortPath = getShortPathPref();

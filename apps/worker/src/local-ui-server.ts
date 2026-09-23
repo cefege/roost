@@ -1,7 +1,7 @@
 // Worker-local loopback door: serves the SPA bundle and upgrades this machine's
-// browser onto a direct terminal socket, so keystrokes and cell frames for local
-// PTYs never traverse the coordinator. Worker boot owns its lifetime and injects
-// the shared SPA responder plus the handlers that own local frame routing.
+// browser onto separate direct terminal and attachment sockets, so local PTY
+// cells and attachment bytes never traverse the coordinator. Worker boot owns
+// its lifetime and injects the handlers that own each protocol's frame routing.
 // Every rule here is fail-closed: a non-loopback bind never listens, a request
 // whose Host is not this door's own is refused unread, and only this door's own
 // loopback origins plus the coordinator's browser front door are admitted as an
@@ -11,25 +11,29 @@ import type { Server, ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { applySecurityHeaders } from "@roost/shared/http-security";
 import { log } from "@roost/shared/log";
-import type { TerminalPacketPort, TerminalPacketSendResult } from "./terminal-packet-port.ts";
-
-export interface LocalTerminalSocket extends TerminalPacketPort {
-	readonly kind: "loopback";
-}
-
-export interface LocalTerminalSocketHandlers {
-	/** A newly upgraded local terminal port. The handler owns capability
-	 * verification and refuses by closing the port. */
-	onOpen(port: TerminalPacketPort): void;
-	onMessage(port: TerminalPacketPort, data: Uint8Array): void;
-	onClose(port: TerminalPacketPort): void;
-}
-
-interface BunLocalTerminalSocket {
-	send(bytes: Uint8Array): number;
-	close(code?: number, reason?: string): void;
-	readonly open: boolean;
-}
+import {
+  ATTACHMENT_TRANSFER_LOOPBACK_MAX_PAYLOAD_BYTES,
+  ATTACHMENT_TRANSFER_LOOPBACK_PATH,
+  ATTACHMENT_TRANSFER_LOOPBACK_SUBPROTOCOL,
+} from "@roost/shared/attachment-transfer";
+import {
+  LoopbackAttachmentTransferPort,
+  type LocalAttachmentSocket,
+  type LocalAttachmentSocketHandlers,
+} from "./local-ui-attachment-socket.ts";
+import {
+  LoopbackTerminalPacketPort,
+  type LocalTerminalSocket,
+  type LocalTerminalSocketHandlers,
+} from "./local-ui-terminal-socket.ts";
+export type {
+  LocalAttachmentSocket,
+  LocalAttachmentSocketHandlers,
+} from "./local-ui-attachment-socket.ts";
+export type {
+  LocalTerminalSocket,
+  LocalTerminalSocketHandlers,
+} from "./local-ui-terminal-socket.ts";
 
 export interface LocalUiServer {
   port: number;
@@ -46,11 +50,17 @@ export interface LocalUiServerDeps {
   readonly allowedBrowserOrigins: readonly string[];
   spa: (url: URL, method: string, acceptEncoding: string) => Promise<Response>;
   terminal: LocalTerminalSocketHandlers;
+  /** Separate attachment protocol handler; absent only in focused legacy door tests. */
+  attachment?: LocalAttachmentSocketHandlers;
 }
 
 export const LOCAL_TERMINAL_SUBPROTOCOL = "roost-local-terminal";
 export const LOCAL_TERMINAL_PATH = "/ws/local-terminal";
 export const LOCAL_BOOTSTRAP_PATH = "/api/local-bootstrap";
+export {
+  ATTACHMENT_TRANSFER_LOOPBACK_PATH as LOCAL_ATTACHMENT_PATH,
+  ATTACHMENT_TRANSFER_LOOPBACK_SUBPROTOCOL as LOCAL_ATTACHMENT_SUBPROTOCOL,
+} from "@roost/shared/attachment-transfer";
 
 /** The largest legitimate client frame is a MAX_INPUT_BYTES (64 KiB) paste
  * inside a protobuf envelope; 1 MiB leaves headroom for view and scrollback
@@ -59,9 +69,12 @@ const LOCAL_TERMINAL_MAX_PAYLOAD_BYTES = 1024 * 1024;
 export const LOCAL_TERMINAL_MAX_BACKPRESSURE_BYTES = 4 * 1024 * 1024;
 const WEBSOCKET_OPEN = 1;
 
-interface LocalTerminalWsData {
+type LocalUiSocket = LocalTerminalSocket | LocalAttachmentSocket;
+
+interface LocalUiWsData {
   socketId: string;
-  socket: LocalTerminalSocket | null;
+  route: "terminal" | "attachment";
+  socket: LocalUiSocket | null;
 }
 
 export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
@@ -120,21 +133,38 @@ export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
     };
   }
 
-  /** A throw out of a frame handler must cost that socket, never the worker
-   * process: a local page is authorized to reach PTYs, not to end them. */
-  function guarded(socket: LocalTerminalSocket, stage: string, run: () => void): void {
+  /** A throw out of a direct frame handler costs that socket, never the worker. */
+  function guarded(socket: LocalUiSocket, stage: string, run: () => void): void {
     try {
       run();
     } catch (error) {
-      log.error("local-ui", "local_terminal_socket_rejected", {
+      log.error("local-ui", "local_direct_socket_rejected", {
         socket_id: socket.socketId,
         reason: stage,
         error: error instanceof Error ? error.message : String(error),
       });
       try {
-        socket.close(1011, "local terminal handler failed");
+        socket.close(1011, "local direct handler failed");
       } catch { /* socket already gone */ }
     }
+  }
+
+  function upgradeDirectSocket(
+    req: Request,
+    listener: Server<LocalUiWsData>,
+    route: LocalUiWsData["route"],
+    subprotocol: string,
+  ): Response | undefined {
+    if (req.method !== "GET") return refused(405, `${route}_method`, req, new URL(req.url));
+    const offered = req.headers.get("sec-websocket-protocol")?.split(",") ?? [];
+    if (!offered.some((value) => value.trim() === subprotocol)) {
+      return refused(400, `${route}_subprotocol`, req, new URL(req.url));
+    }
+    const upgraded = listener.upgrade(req, {
+      data: { socketId: randomUUID(), route, socket: null } satisfies LocalUiWsData,
+      headers: { "Sec-WebSocket-Protocol": subprotocol },
+    });
+    return upgraded ? undefined : refused(400, `${route}_not_upgradable`, req, new URL(req.url));
   }
 
   const server = Bun.serve({
@@ -147,7 +177,7 @@ export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
     idleTimeout: 0,
     fetch: async (
       req: Request,
-      listener: Server<LocalTerminalWsData>,
+      listener: Server<LocalUiWsData>,
     ): Promise<Response | undefined> => {
       const url = new URL(req.url);
       // DNS rebinding: a page on any other name resolves to 127.0.0.1 and then
@@ -183,18 +213,11 @@ export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
       }
 
       if (url.pathname === LOCAL_TERMINAL_PATH) {
-        if (req.method !== "GET") return refused(405, "terminal_method", req, url);
-        const offered = req.headers.get("sec-websocket-protocol")?.split(",") ?? [];
-        if (!offered.some((value) => value.trim() === LOCAL_TERMINAL_SUBPROTOCOL)) {
-          return refused(400, "terminal_subprotocol", req, url);
-        }
-        const socketId = randomUUID();
-        const upgraded = listener.upgrade(req, {
-          data: { socketId, socket: null } satisfies LocalTerminalWsData,
-          headers: { "Sec-WebSocket-Protocol": LOCAL_TERMINAL_SUBPROTOCOL },
-        });
-        if (upgraded) return undefined;
-        return refused(400, "terminal_not_upgradable", req, url);
+        return upgradeDirectSocket(req, listener, "terminal", LOCAL_TERMINAL_SUBPROTOCOL);
+      }
+      if (url.pathname === ATTACHMENT_TRANSFER_LOOPBACK_PATH) {
+        if (!deps.attachment) return refused(404, "attachment_unavailable", req, url);
+        return upgradeDirectSocket(req, listener, "attachment", ATTACHMENT_TRANSFER_LOOPBACK_SUBPROTOCOL);
       }
 
       if (req.method !== "GET" && req.method !== "HEAD") {
@@ -207,46 +230,80 @@ export function startLocalUiServer(deps: LocalUiServerDeps): LocalUiServer {
       // per-message allocation on a loopback hop that is already free.
       perMessageDeflate: false,
       maxPayloadLength: LOCAL_TERMINAL_MAX_PAYLOAD_BYTES,
-      open(ws: ServerWebSocket<LocalTerminalWsData>): void {
-        const socket = new LoopbackTerminalPacketPort(ws.data.socketId, {
-          send: (bytes) => ws.send(bytes),
-          close: (code, reason) => ws.close(code, reason),
+      open(ws: ServerWebSocket<LocalUiWsData>): void {
+        const nativeSocket = {
+          send: (bytes: Uint8Array) => ws.send(bytes),
+          close: (code?: number, reason?: string) => ws.close(code, reason),
           get open(): boolean {
             return ws.readyState === WEBSOCKET_OPEN;
           },
-        });
+        };
+        if (ws.data.route === "terminal") {
+          const socket = new LoopbackTerminalPacketPort(
+            ws.data.socketId,
+            nativeSocket,
+            LOCAL_TERMINAL_MAX_BACKPRESSURE_BYTES,
+          );
+          ws.data.socket = socket;
+          log.info("local-ui", "local_terminal_socket_opened", { socket_id: socket.socketId });
+          guarded(socket, "open", () => deps.terminal.onOpen(socket));
+          return;
+        }
+        const attachment = deps.attachment;
+        if (!attachment) {
+          ws.close(1011, "attachment handler unavailable");
+          return;
+        }
+        const socket = new LoopbackAttachmentTransferPort(ws.data.socketId, nativeSocket);
         ws.data.socket = socket;
-        log.info("local-ui", "local_terminal_socket_opened", { socket_id: socket.socketId });
-        guarded(socket, "open", () => deps.terminal.onOpen(socket));
+        log.info("local-ui", "local_attachment_socket_opened", { socket_id: socket.socketId });
+        guarded(socket, "open", () => attachment.onOpen(socket));
       },
       message(
-        ws: ServerWebSocket<LocalTerminalWsData>,
+        ws: ServerWebSocket<LocalUiWsData>,
         message: string | ArrayBuffer | Uint8Array,
       ): void {
         const socket = ws.data.socket;
         if (!socket) return;
-        // Bun hands binary frames over as Buffer (a Uint8Array) or ArrayBuffer;
-        // a text frame carries no local terminal command at all.
         const bytes = typeof message === "string"
           ? null
           : message instanceof Uint8Array
             ? message
             : new Uint8Array(message);
         if (!bytes) {
-          log.warn("local-ui", "local_terminal_socket_rejected", {
+          log.warn("local-ui", "local_direct_socket_rejected", {
             socket_id: socket.socketId,
             reason: "non_binary_frame",
           });
           return;
         }
-        guarded(socket, "message", () => deps.terminal.onMessage(socket, bytes));
+        if (ws.data.route === "terminal") {
+          guarded(socket, "message", () => deps.terminal.onMessage(socket as LocalTerminalSocket, bytes));
+          return;
+        }
+        if (bytes.byteLength > ATTACHMENT_TRANSFER_LOOPBACK_MAX_PAYLOAD_BYTES) {
+          log.warn("local-ui", "local_direct_socket_rejected", {
+            socket_id: socket.socketId,
+            reason: "attachment_frame_too_large",
+          });
+          socket.close(1009, "attachment frame too large");
+          return;
+        }
+        const attachment = deps.attachment;
+        if (attachment) guarded(socket, "message", () => attachment.onMessage(socket as LocalAttachmentSocket, bytes));
       },
-      close(ws: ServerWebSocket<LocalTerminalWsData>): void {
+      close(ws: ServerWebSocket<LocalUiWsData>): void {
         const socket = ws.data.socket;
         if (!socket) return;
         ws.data.socket = null;
-        log.info("local-ui", "local_terminal_socket_closed", { socket_id: socket.socketId });
-        guarded(socket, "close", () => deps.terminal.onClose(socket));
+        if (ws.data.route === "terminal") {
+          log.info("local-ui", "local_terminal_socket_closed", { socket_id: socket.socketId });
+          guarded(socket, "close", () => deps.terminal.onClose(socket as LocalTerminalSocket));
+          return;
+        }
+        const attachment = deps.attachment;
+        log.info("local-ui", "local_attachment_socket_closed", { socket_id: socket.socketId });
+        if (attachment) guarded(socket, "close", () => attachment.onClose(socket as LocalAttachmentSocket));
       },
     },
   });
@@ -325,46 +382,3 @@ function browserOrigins(coordinatorUrl: string, extra: readonly string[]): strin
   return admitted;
 }
 
-
-/** Maps Bun's raw websocket ownership results into the common direct-port
- * contract. A backpressured frame is already Bun-owned; only refusal loses it. */
-class LoopbackTerminalPacketPort implements LocalTerminalSocket {
-	readonly kind = "loopback" as const;
-	private backpressuredBytes = 0;
-
-	constructor(
-		readonly socketId: string,
-		private readonly socket: BunLocalTerminalSocket,
-	) {}
-
-	get open(): boolean {
-		return this.socket.open;
-	}
-
-	bufferedBytes(): number {
-		return this.backpressuredBytes;
-	}
-
-	send(
-		bytes: Uint8Array,
-		_lane: "control" | "terminal" | "history",
-	): TerminalPacketSendResult {
-		if (!this.socket.open) return "refused";
-		const result = this.socket.send(bytes);
-		if (result > 0) {
-			this.backpressuredBytes = 0;
-			return "accepted";
-		}
-		if (result < 0) {
-			this.backpressuredBytes += bytes.byteLength;
-			return this.backpressuredBytes <= LOCAL_TERMINAL_MAX_BACKPRESSURE_BYTES
-				? "backpressured"
-				: "refused";
-		}
-		return "refused";
-	}
-
-	close(code?: number, reason?: string): void {
-		this.socket.close(code, reason);
-	}
-}

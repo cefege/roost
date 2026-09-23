@@ -15,6 +15,8 @@ import type { JwtCache } from "../jwt.ts";
 import type { SelfHostedTenant } from "../self-hosted-tenant.ts";
 import type { WorkerHandle } from "./worker-registry.ts";
 import type { TerminalPeerNegotiationWorkerResultSink } from "./terminal-peer-negotiation-state.ts";
+import type { AttachmentPeerNegotiationWorkerResultSink } from "./attachment-peer-negotiation-state.ts";
+import type { AttachmentDirectStatusResultSink } from "./attachment-direct-status-results.ts";
 
 export interface WorkerUpdateProgress {
   request_id: string;
@@ -46,6 +48,10 @@ export interface WorkerServiceDeps {
   selfHostedTenant: SelfHostedTenant;
   /** Installed only after the composition owner can correlate typed peer results. */
   terminalPeerNegotiations?: TerminalPeerNegotiationWorkerResultSink;
+  /** Installed only after attachment-peer results have an exact correlation owner. */
+  attachmentPeerNegotiations?: AttachmentPeerNegotiationWorkerResultSink;
+  /** Present only while typed attachment status replies have a correlation owner. */
+  attachmentDirectStatusResults?: AttachmentDirectStatusResultSink;
   /** Present only when a typed route-result owner can correlate current frames. */
   terminalInputRouteResults?: TerminalInputRouteResultSink;
   onWorkerConnected?: (workerFp: string) => Promise<void> | void;

@@ -149,6 +149,8 @@ export async function runCoord() {
     writeGate,
     selfHostedTenant,
     terminalPeerNegotiations: coord.terminalPeerNegotiations,
+    attachmentPeerNegotiations: coord.attachmentPeerNegotiations,
+    attachmentDirectStatusResults: coord.attachmentDirectStatusResults,
     terminalInputRouteResults: coord.terminalInputRouteResults,
     onWorkerConnected: async (workerFp) => {
       coord.terminalInputRouteResults.flushWorkerRetirements(workerFp);
@@ -171,7 +173,10 @@ export async function runCoord() {
     uiLayoutApplies,
     uiStates,
     terminalGrants: coord.terminalGrants,
+    attachmentGrants: coord.attachmentGrants,
     terminalPeerNegotiations: coord.terminalPeerNegotiations,
+    attachmentPeerNegotiations: coord.attachmentPeerNegotiations,
+    attachmentDirectStatusResults: coord.attachmentDirectStatusResults,
     terminalInputRouteResults: coord.terminalInputRouteResults,
   };
   const syncDepsWithAccess = { ...syncDeps, cfAccess: null };
@@ -185,6 +190,8 @@ export async function runCoord() {
     // raw transport can be fenced or closed.
     coord.terminalGrants.retireWorker(fingerprint, "worker_revoked");
     coord.terminalGrants.revokeDevice(fingerprint);
+    coord.attachmentGrants.retireWorker(fingerprint, "worker_revoked");
+    coord.attachmentGrants.revokeDevice(fingerprint);
     terminalViews.removeFingerprint(fingerprint);
     syncWs.closeForFingerprint(fingerprint);
     workerWs.closeForFingerprint(fingerprint);

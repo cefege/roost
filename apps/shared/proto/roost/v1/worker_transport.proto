@@ -12,6 +12,7 @@ import "roost/v1/events.proto";
 import "roost/v1/cell.proto";
 import "roost/v1/wire.proto";
 import "roost/v1/sync.proto";
+import "roost/v1/attachment_transfer.proto";
 
 
 // ── Upstream (worker → coord) ────────────────────────────────────
@@ -203,6 +204,24 @@ message WLocalTerminalPeerError {
   string reason = 5;
 }
 
+message WLocalAttachmentPeerAnswer {
+  string request_id = 1;
+  string connection_generation = 2;
+  string worker_epoch = 3;
+  string peer_id = 4;
+  string answer_sdp = 5;
+}
+
+// `reason` is one of disabled, native_unavailable, invalid_offer,
+// grant_unavailable, capacity, expired, connection_superseded, or ice_failed.
+message WLocalAttachmentPeerError {
+  string request_id = 1;
+  string connection_generation = 2;
+  string worker_epoch = 3;
+  string peer_id = 4;
+  string reason = 5;
+}
+
 message WTerminalInputRouteResult {
   string request_id = 1;
   TerminalInputRouteResult result = 2;
@@ -211,6 +230,11 @@ message WTerminalInputRouteResult {
 message WTerminalTransportProbeResult {
   string request_id = 1;
   string worker_epoch = 2;
+}
+
+message WAttachmentDirectStatus {
+  string request_id = 1;
+  AttachmentTransferStatus status = 2;
 }
 
 message CoordWorkerUp {
@@ -238,6 +262,9 @@ message CoordWorkerUp {
     WLocalTerminalPeerError local_terminal_peer_error = 24;
     WTerminalInputRouteResult terminal_input_route_result = 25;
     WTerminalTransportProbeResult terminal_transport_probe_result = 26;
+    WLocalAttachmentPeerAnswer local_attachment_peer_answer = 27;
+    WLocalAttachmentPeerError local_attachment_peer_error = 28;
+    WAttachmentDirectStatus attachment_direct_status = 29;
   }
 }
 
@@ -438,6 +465,54 @@ message DLocalTerminalPeerCancel {
   string peer_id = 4;
 }
 
+message DLocalAttachmentPeerOffer {
+  string request_id = 1;
+  string connection_generation = 2;
+  string worker_epoch = 3;
+  string grant_id = 4;
+  string peer_id = 5;
+  string device_fingerprint = 6;
+  string tab_id = 7;
+  string offer_sdp = 8;
+  uint32 budget_ms = 9;
+  repeated string stun_urls = 10;
+}
+
+message DLocalAttachmentPeerCancel {
+  string request_id = 1;
+  string connection_generation = 2;
+  string worker_epoch = 3;
+  string peer_id = 4;
+}
+
+// One short-lived grant authorizes exactly one immutable attachment descriptor.
+// The worker stores only the digest and rejects a hello that differs in any field.
+message DLocalAttachmentGrant {
+  string request_id = 1;
+  string grant_id = 2;
+  string secret_sha256 = 3;
+  string session_id = 4;
+  string upload_id = 5;
+  string filename = 6;
+  bool short_path = 7;
+  uint64 total_bytes = 8;
+  string device_fingerprint = 9;
+  string tab_id = 10;
+  uint32 ttl_ms = 11;
+  string worker_epoch = 12;
+}
+
+message DLocalAttachmentGrantRevoke {
+  string device_fingerprint = 1;
+}
+
+message DAttachmentDirectStatusRequest {
+  string request_id = 1;
+  string session_id = 2;
+  string upload_id = 3;
+}
+
+
 message DTerminalInputRouteClaim {
   string request_id = 1;
   string session_id = 2;
@@ -490,6 +565,11 @@ message CoordWorkerDown {
     DTerminalInputRouteClaim terminal_input_route_claim = 24;
     DTerminalTransportProbe terminal_transport_probe = 25;
     DTerminalDirectRetire terminal_direct_retire = 26;
+    DLocalAttachmentPeerOffer local_attachment_peer_offer = 27;
+    DLocalAttachmentPeerCancel local_attachment_peer_cancel = 28;
+    DLocalAttachmentGrant local_attachment_grant = 29;
+    DLocalAttachmentGrantRevoke local_attachment_grant_revoke = 31;
+    DAttachmentDirectStatusRequest attachment_direct_status_request = 32;
   }
 }
 

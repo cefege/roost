@@ -8,6 +8,9 @@ import { WEB_ASSETS } from "@roost/shared/web-embed";
 import type { WorkerFp } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
 import type { CoordLinkRefs, LocalTerminalWiring } from "./coord-link-deps.ts";
+import { AttachmentGrantStore } from "./attachment-grants.ts";
+import { AttachmentDirectSockets } from "./attachment-direct-socket.ts";
+import { AttachmentPeerOwner } from "./attachment-peer-owner.ts";
 import { LocalTerminalGrantStore } from "./local-terminal-grants.ts";
 import {
 	LocalTerminalSockets,
@@ -96,6 +99,26 @@ export async function startLocalTerminalDoor(options: LocalTerminalDoorOptions):
 		expireGrantForTest: (grantId) => { grants.remove(grantId, "expired"); },
 	});
 	terminalPeerTestFaults?.attachPeerOwner(peerOwner);
+	const attachmentGrants = new AttachmentGrantStore({ workerEpoch: options.processEpoch });
+	const attachmentSockets = new AttachmentDirectSockets({
+		grants: attachmentGrants,
+		workerFingerprint: options.workerFp,
+		workerEpoch: options.processEpoch,
+	});
+	const attachmentPeerOwner = new AttachmentPeerOwner({
+		processEpoch: options.processEpoch,
+		enabled: options.terminalPeerEnabled,
+		bindAddress: options.terminalPeerBindAddress,
+		portRange: options.terminalPeerPortRange,
+		isCurrentCoordinator: (generation) => coordinatorGeneration === generation,
+		authorizeGrant: (request) => attachmentGrants.authorizePeer({
+			grantId: request.grantId,
+			deviceFingerprint: request.deviceFingerprint,
+			tabId: request.tabId,
+			workerEpoch: request.workerEpoch,
+		}),
+		openPeerPort: (port, expectedTuple) => attachmentSockets.openPeerPort(port, expectedTuple),
+	});
 	const server = startLocalUiServer({
 		bind: options.bind,
 		coordinatorUrl: options.coordinatorUrl,
@@ -103,8 +126,10 @@ export async function startLocalTerminalDoor(options: LocalTerminalDoorOptions):
 		allowedBrowserOrigins: options.allowedBrowserOrigins,
 		spa: createSpaResponder(options.webDistPath, WEB_ASSETS),
 		terminal: sockets,
+		attachment: attachmentSockets,
 	});
 	const peerBootstrapState = await peerOwner.bootstrap();
+	const attachmentPeerBootstrapState = await attachmentPeerOwner.bootstrap();
 
 	function clearCoordinatorGeneration(): void {
 		coordinatorGeneration = null;
@@ -124,6 +149,9 @@ export async function startLocalTerminalDoor(options: LocalTerminalDoorOptions):
 		inputWorkBudget.dispose();
 		terminalPeerTestFaults?.dispose();
 		inputRouteOwner.dispose();
+		attachmentSockets.dispose();
+		attachmentPeerOwner.dispose();
+		attachmentGrants.dispose();
 		grants.dispose();
 		sockets.dispose();
 		peerOwner.dispose();
@@ -138,14 +166,23 @@ export async function startLocalTerminalDoor(options: LocalTerminalDoorOptions):
 			inputRouteOwner,
 			peerOwner,
 			terminalPeerTestFaults,
+			attachmentGrants,
+			attachmentSockets,
+			attachmentPeerOwner,
 			workerEpoch: options.processEpoch,
 			peerSupported: peerBootstrapState === "ready",
+			attachmentPeerSupported: attachmentPeerBootstrapState === "ready",
 			useCoordinatorGeneration,
 			clearCoordinatorGeneration,
 			revokeDevice: (deviceFingerprint) => {
 				inputRouteOwner.revokeDevice(deviceFingerprint);
 				grants.revokeDevice(deviceFingerprint);
 				peerOwner.revokeDevice(deviceFingerprint);
+			},
+			revokeAttachmentDevice: (deviceFingerprint) => {
+				attachmentSockets.revokeDevice(deviceFingerprint);
+				attachmentGrants.revokeDevice(deviceFingerprint);
+				attachmentPeerOwner.revokeDevice(deviceFingerprint);
 			},
 			retireDirect: (reason) => {
 				log.info("terminal-peer", "direct_retired", { reason });

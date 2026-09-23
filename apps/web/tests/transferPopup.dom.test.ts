@@ -68,6 +68,14 @@ function queryAllByTestId(root: unknown, testId: string): FakeElement[] {
   return matches;
 }
 
+function findVNode(root: unknown, predicate: (vnode: VNode) => boolean): VNode | undefined {
+  let match: VNode | undefined;
+  visitRendered(root, (vnode) => {
+    if (match === undefined && predicate(vnode)) match = vnode;
+  });
+  return match;
+}
+
 const solidClientUrl = new URL("./solid.js", import.meta.resolve("solid-js"));
 const Solid = await import(solidClientUrl.href) as typeof SolidApi;
 
@@ -97,8 +105,16 @@ function createElement(
   props: Record<string, unknown> | null,
   ...children: unknown[]
 ): VNode {
-  const merged = { ...(props ?? {}) };
-  if (children.length > 0) merged.children = children.length === 1 ? children[0] : children;
+  const descriptors = Object.getOwnPropertyDescriptors(props ?? {});
+  if (children.length > 0) {
+    descriptors.children = {
+      configurable: true,
+      enumerable: true,
+      value: children.length === 1 ? children[0] : children,
+      writable: true,
+    };
+  }
+  const merged = Object.defineProperties({}, descriptors) as Record<string, unknown>;
   const vnode = { tag, props: merged };
   invokeComponent(vnode);
   return vnode;
@@ -127,6 +143,7 @@ function listRow(props: Record<string, unknown>): VNode {
   return createElement(
     "div",
     { "data-testid": props.testId },
+    props.leading,
     props.headline,
     props.support,
     props.trailing,
@@ -141,7 +158,12 @@ function iconButton(props: Record<string, unknown>): VNode {
   });
 }
 
+function icon(props: Record<string, unknown>): VNode {
+  return createElement("span", { "data-testid": "transfer-icon", "data-icon": props.name });
+}
+
 mock.module("../src/components/Settings/md/primitives.tsx", () => ({
+  Icon: icon,
   IconButton: iconButton,
   List: list,
   ListRow: listRow,
@@ -151,7 +173,7 @@ mock.module("../src/components/Settings/md/primitives.tsx", () => ({
 // These imports must follow mock registration so the component binds the fake
 // client renderer and primitives instead of browser-only modules.
 const { TransferStack } = await import("../src/components/TransferCard.tsx");
-const { addTransfer, clearTransfersForLogout } = await import("../src/store/transfers.ts");
+const { addTransfer, clearTransfersForLogout, transfers } = await import("../src/store/transfers.ts");
 
 const mountedRoots: Array<() => void> = [];
 
@@ -194,6 +216,7 @@ describe("TransferStack", () => {
 
     expect(queryAllByTestId(tree, "transfer-card")).toHaveLength(1);
 
+    expect(queryAllByTestId(tree, "transfer-icon").map((icon) => icon.getAttribute("data-icon"))).toEqual(["upload", "upload"]);
     const rows = queryAllByTestId(tree, "transfer-row");
     expect(rows).toHaveLength(2);
 
@@ -208,5 +231,25 @@ describe("TransferStack", () => {
     expect(dismissButtons.map((button) => button.getAttribute("aria-label"))).toEqual(
       expect.arrayContaining(["Dismiss awaiting-upload.tar", "Dismiss archive.tar"]),
     );
+  });
+
+  test("renders a decorative preview and retains its URL after image decode errors", () => {
+    addTransfer({
+      id: "preview-upload",
+      name: "photo.png",
+      dir: "up",
+      bytes_total: 4096,
+      state: "active",
+      preview_url: "blob:photo",
+    });
+    const tree = mountTransferStack();
+    const preview = findVNode(tree, (vnode) => vnode.tag === "img" && vnode.props["data-testid"] === "transfer-preview");
+
+    expect(preview?.props.src).toBe("blob:photo");
+    expect(preview?.props.alt).toBe("");
+    expect(preview?.props.onError).toBeFunction();
+
+    (preview?.props.onError as () => void)();
+    expect(transfers["preview-upload"]?.preview_url).toBe("blob:photo");
   });
 });

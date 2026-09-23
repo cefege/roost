@@ -13,6 +13,8 @@ import { makeAgentConfigHandlers } from "./handlers-agent-config.ts";
 import { makeAgentStatusHandlers } from "./handlers-agent-status.ts";
 import { makeAgentPromptHandlers } from "./handlers-agent-prompt.ts";
 import { makeAttachmentHandlers } from "./handlers-attachments.ts";
+import { makeAttachmentDirectHandlers } from "./handlers-attachments-direct.ts";
+import { makeAttachmentPeerHandlers } from "./handlers-attachments-peer.ts";
 import { makeMcpHandlers } from "./handlers-mcp.ts";
 import { makeAuthHandlers } from "./handlers-auth.ts";
 import { makeSystemHandlers } from "./handlers-system.ts";
@@ -37,7 +39,10 @@ import type { UiStateOwner } from "./ui-state-owner.ts";
 import type { SelfHostedTenant } from "../self-hosted-tenant.ts";
 import type { CloudflareAccessGate } from "../cf-access.ts";
 import type { TerminalGrantOwner } from "./terminal-grant-owner.ts";
+import type { AttachmentGrantOwner } from "./attachment-grant-owner.ts";
 import type { TerminalPeerNegotiations } from "./terminal-peer-negotiations.ts";
+import type { AttachmentPeerNegotiations } from "./attachment-peer-negotiations.ts";
+import type { AttachmentDirectStatusResults } from "./attachment-direct-status-results.ts";
 import type { TerminalInputRouteResults } from "./terminal-input-route-results.ts";
 
 // ─── deps + helpers ───────────────────────────────────────────────────────
@@ -60,8 +65,14 @@ export interface ConnectDeps {
   pendingPublications?: PendingEventPublicationStore;
   /** Factory-owned direct-terminal leases; handlers never construct a second registry. */
   terminalGrants: TerminalGrantOwner;
+  /** Factory-owned direct attachment grants; they never share terminal state. */
+  attachmentGrants: AttachmentGrantOwner;
   /** Factory-owned typed peer signaling; worker frames settle only this owner. */
   terminalPeerNegotiations: TerminalPeerNegotiations;
+  /** Factory-owned attachment signaling; worker frames settle only this owner. */
+  attachmentPeerNegotiations: AttachmentPeerNegotiations;
+  /** Factory-owned typed attachment status correlation. */
+  attachmentDirectStatusResults: AttachmentDirectStatusResults;
   /** Factory-owned typed route controls; absent only in isolated legacy fixtures. */
   terminalInputRouteResults?: TerminalInputRouteResults;
   /** Deterministic observation point immediately before the keeper-update
@@ -118,6 +129,8 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeTranscriptionHandlers(deps),
     ...makeAgentConfigHandlers(deps),
     ...makeAttachmentHandlers(deps),
+    ...makeAttachmentDirectHandlers(deps),
+    ...makeAttachmentPeerHandlers(deps),
     ...makeUiHandlers(deps),
     ...makePushHandlers(deps),
     ...makeStreamingHandlers(deps),

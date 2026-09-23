@@ -42,7 +42,10 @@ import { TerminalViewHub } from "../src/connect/terminal-view-hub.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
 import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
+import { AttachmentGrantOwner } from "../src/connect/attachment-grant-owner.ts";
 import { TerminalPeerNegotiations } from "../src/connect/terminal-peer-negotiations.ts";
+import { AttachmentPeerNegotiations } from "../src/connect/attachment-peer-negotiations.ts";
+import { AttachmentDirectStatusResults } from "../src/connect/attachment-direct-status-results.ts";
 
 let workdir: string;
 let coord: CoordHandle;
@@ -87,6 +90,12 @@ beforeAll(async () => {
     cfg,
     terminalGrants,
   });
+  const attachmentGrants = new AttachmentGrantOwner();
+  const attachmentPeerNegotiations = new AttachmentPeerNegotiations({
+    cfg,
+    attachmentGrants,
+  });
+  const attachmentDirectStatusResults = new AttachmentDirectStatusResults();
   const deps: ConnectDeps = {
     db,
     sqlite,
@@ -99,6 +108,9 @@ beforeAll(async () => {
     cfAccess: null,
     terminalGrants,
     terminalPeerNegotiations,
+    attachmentGrants,
+    attachmentPeerNegotiations,
+    attachmentDirectStatusResults,
   };
   coord = createCoord(deps);
   terminalViews = new TerminalViewHub({ db });

@@ -1,0 +1,84 @@
+// Browser ↔ direct worker attachment carrier for one upload at a time.
+// Loopback and WebRTC use these same frames while coordinator relay remains
+// the fallback carrier. The hello binds exact grant, upload, and worker epoch
+// before bytes arrive; worker ACKs only after each synchronous destination write.
+syntax = "proto3";
+package roost.v1;
+
+message AttachmentTransferHello {
+  string grant_id = 1;
+  string secret = 2;
+  string tab_id = 3;
+  string device_fingerprint = 4;
+  string session_id = 5;
+  string upload_id = 6;
+  string filename = 7;
+  bool short_path = 8;
+  uint64 total_bytes = 9;
+  string peer_id = 10;
+  string worker_epoch = 11;
+}
+
+message AttachmentTransferReady {
+  string worker_fingerprint = 1;
+  string worker_epoch = 2;
+  string session_id = 3;
+  string upload_id = 4;
+}
+
+message AttachmentTransferChunk {
+  string upload_id = 1;
+  uint32 seq = 2;
+  bytes data = 3;
+  bool last = 4;
+  uint64 offset = 5;
+  string chunk_sha256 = 6;
+}
+
+// `abs_path` is populated only by the final successful ACK. `error` uses the
+// fixed attachment-transfer error vocabulary and is empty on success.
+message AttachmentTransferAck {
+  string upload_id = 1;
+  uint32 seq = 2;
+  uint64 bytes_received = 3;
+  string abs_path = 4;
+  string error = 5;
+  string chunk_sha256 = 6;
+}
+
+message AttachmentTransferClosed {
+  string reason = 1;
+}
+
+message AttachmentTransferStatusRequest {
+  string upload_id = 1;
+}
+
+// This durable receipt lets an authenticated caller resolve an ambiguous ACK
+// without replaying bytes over another carrier.
+message AttachmentTransferStatus {
+  string upload_id = 1;
+  uint32 next_seq = 2;
+  uint64 bytes_received = 3;
+  string last_chunk_sha256 = 4;
+  bool committed = 5;
+  string abs_path = 6;
+  string error = 7;
+}
+
+message AttachmentTransferClientFrame {
+  oneof frame {
+    AttachmentTransferHello hello = 1;
+    AttachmentTransferChunk chunk = 2;
+    AttachmentTransferStatusRequest status_request = 3;
+  }
+}
+
+message AttachmentTransferServerFrame {
+  oneof frame {
+    AttachmentTransferReady ready = 1;
+    AttachmentTransferAck ack = 2;
+    AttachmentTransferClosed closed = 3;
+    AttachmentTransferStatus status = 4;
+  }
+}

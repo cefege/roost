@@ -5,7 +5,7 @@
 
 import { expect, test, describe, vi } from "bun:test";
 import {
-  transfers, addTransfer, setTransferProgress, markTransferState, removeTransfer,
+  transfers, addTransfer, clearTransfersForLogout, setTransferProgress, markTransferState, removeTransfer,
 } from "../src/store/transfers.ts";
 
 describe("transfers store", () => {
@@ -75,5 +75,47 @@ describe("transfers store", () => {
     removeTransfer(id);
     setTransferProgress(id, 50, 100, 1000);
     expect(transfers[id]).toBeUndefined();
+  });
+
+  test("releases each preview URL once across transfer lifecycles", () => {
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const revokedUrls: string[] = [];
+    URL.revokeObjectURL = (url) => { revokedUrls.push(url); };
+    vi.useFakeTimers();
+    try {
+      addTransfer({ id: "replacement", name: "first.png", dir: "up", bytes_total: 1, state: "queued", preview_url: "blob:first" });
+      addTransfer({ id: "replacement", name: "second.png", dir: "up", bytes_total: 1, state: "queued", preview_url: "blob:second" });
+      removeTransfer("replacement");
+      removeTransfer("replacement");
+
+      addTransfer({ id: "replacement-no-preview", name: "photo.png", dir: "up", bytes_total: 1, state: "queued", preview_url: "blob:no-preview" });
+      addTransfer({ id: "replacement-no-preview", name: "notes.txt", dir: "up", bytes_total: 1, state: "queued" });
+      expect(transfers["replacement-no-preview"]?.preview_url).toBeUndefined();
+      removeTransfer("replacement-no-preview");
+
+      addTransfer({ id: "success", name: "success.png", dir: "up", bytes_total: 1, state: "active", preview_url: "blob:success" });
+      markTransferState("success", "ok");
+      addTransfer({ id: "dedup", name: "dedup.png", dir: "up", bytes_total: 1, state: "hashing", preview_url: "blob:dedup" });
+      markTransferState("dedup", "dedup");
+      vi.advanceTimersByTime(2001);
+
+      addTransfer({ id: "logout-one", name: "one.png", dir: "up", bytes_total: 1, state: "err", preview_url: "blob:logout-one" });
+      addTransfer({ id: "logout-two", name: "two.png", dir: "up", bytes_total: 1, state: "err", preview_url: "blob:logout-two" });
+      clearTransfersForLogout();
+
+      expect(revokedUrls).toEqual([
+        "blob:first",
+        "blob:second",
+        "blob:no-preview",
+        "blob:success",
+        "blob:dedup",
+        "blob:logout-one",
+        "blob:logout-two",
+      ]);
+    } finally {
+      clearTransfersForLogout();
+      vi.useRealTimers();
+      URL.revokeObjectURL = originalRevokeObjectURL;
+    }
   });
 });

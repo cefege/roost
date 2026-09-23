@@ -21,7 +21,7 @@ export function buildCsp(
     `script-src ${scriptSources.join(" ")}`,
     "worker-src 'self' blob:",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
+    "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "base-uri 'self'",
     "form-action 'none'",

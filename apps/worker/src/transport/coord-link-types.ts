@@ -7,6 +7,11 @@ import type {
 	CoordWorkerDown,
 	CoordWorkerUp,
 	DAgentPrompt,
+	DLocalAttachmentGrant,
+	DLocalAttachmentGrantRevoke,
+	DLocalAttachmentPeerCancel,
+	DLocalAttachmentPeerOffer,
+	DAttachmentDirectStatusRequest,
 	DInputRequest,
 	DKeeperUpdatePrepare,
 	DLocalTerminalGrant,
@@ -28,11 +33,17 @@ import type {
 	WLocalTerminalPeerAnswer,
 	WLocalTerminalPeerError,
 	WTerminalPipelineSnapshot,
+	WAttachmentDirectStatus,
+	WLocalAttachmentPeerAnswer,
+	WLocalAttachmentPeerError,
 	WTerminalTransportProbeResult,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { TerminalInputRouteResult, TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
 import type { TerminalViewInput } from "@roost/shared/terminal-view";
 import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
+import type { AttachmentGrantStore } from "../attachment-grants.ts";
+import type { AttachmentDirectSockets } from "../attachment-direct-socket.ts";
+import type { AttachmentPeerOwner } from "../attachment-peer-owner.ts";
 import type { LocalTerminalGrantStore } from "../local-terminal-grants.ts";
 import type { LocalTerminalSockets } from "../local-terminal-socket.ts";
 import type { TerminalInputRouteOwner } from "../terminal-input-route-owner.ts";
@@ -41,7 +52,6 @@ import type { TerminalPeerOwner } from "../terminal-peer-owner.ts";
 import type { TerminalPeerTestFaultState } from "../terminal-peer-test-faults.ts";
 import type { TerminalViewOwner } from "../terminal-view-owner.ts";
 import type { SessionEventStore } from "./session-event-store.ts";
-
 /** Bounded, monotonic budget for one downstream terminal-control request.
  * The coordinator sends a RELATIVE `budget_ms`, never an instant, and the
  * worker measures elapsed time from frame receipt with its own monotonic
@@ -68,13 +78,18 @@ export interface LocalTerminalWiring {
   inputWorkBudget: TerminalInputWorkBudget;
   inputRouteOwner: TerminalInputRouteOwner;
   peerOwner: TerminalPeerOwner;
+  attachmentGrants: AttachmentGrantStore;
+  attachmentSockets: AttachmentDirectSockets;
+  attachmentPeerOwner: AttachmentPeerOwner;
   /** Source-smoke-only direct fault state, omitted by ordinary worker boot. */
   terminalPeerTestFaults?: TerminalPeerTestFaultState;
   workerEpoch: string;
   peerSupported: boolean;
+  attachmentPeerSupported: boolean;
   useCoordinatorGeneration(generation: string): boolean;
   clearCoordinatorGeneration(): void;
   revokeDevice(deviceFingerprint: string): void;
+  revokeAttachmentDevice(deviceFingerprint: string): void;
   retireDirect(reason: "worker_deleted" | "worker_revoked"): void;
   disposeDirect(): void;
 }
@@ -151,6 +166,16 @@ export interface CoordLinkDeps {
     budget: TerminalRequestBudget,
   ) => Promise<WLocalTerminalPeerAnswer>;
   onLocalTerminalPeerCancel?: (request: DLocalTerminalPeerCancel) => void;
+  onLocalAttachmentGrant?: (request: DLocalAttachmentGrant) => void;
+  onLocalAttachmentGrantRevoke?: (request: DLocalAttachmentGrantRevoke) => void;
+  onLocalAttachmentPeerOffer?: (
+    request: DLocalAttachmentPeerOffer,
+    budget: TerminalRequestBudget,
+  ) => Promise<WLocalAttachmentPeerAnswer>;
+  onLocalAttachmentPeerCancel?: (request: DLocalAttachmentPeerCancel) => void;
+  onAttachmentDirectStatusRequest?: (
+    request: DAttachmentDirectStatusRequest,
+  ) => WAttachmentDirectStatus | null;
   onTerminalInputRouteClaim?: (
     request: DTerminalInputRouteClaim,
     budget: TerminalRequestBudget,
@@ -213,8 +238,6 @@ export interface CoordLinkPipelineState {
   nativeBufferedBytes: number;
   attached: boolean;
 }
-
-
 export interface CoordLink {
   send(frame: UpstreamFrame): boolean;
   sendBinary(channelId: number, direction: number, endSeq: number, data: Uint8Array): TransportSendResult;
@@ -282,6 +305,9 @@ export type UpstreamFrame =
   | ({ kind: "update-progress" } & UpdateProgressFrame)
   | { kind: "local-terminal-peer-answer"; answer: WLocalTerminalPeerAnswer }
   | { kind: "local-terminal-peer-error"; error: WLocalTerminalPeerError }
+  | { kind: "local-attachment-peer-answer"; answer: WLocalAttachmentPeerAnswer }
+  | { kind: "local-attachment-peer-error"; error: WLocalAttachmentPeerError }
+  | { kind: "attachment-direct-status"; status: WAttachmentDirectStatus }
   | {
       kind: "terminal-input-route-result";
       request_id: string;

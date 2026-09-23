@@ -22,6 +22,7 @@ export interface Transfer {
   eta_s: number;        // seconds remaining; -1 = unknown
   state: TransferState;
   err?: string;
+  preview_url?: string;
 }
 
 interface RateSample { t: number; bytes: number; speed: number; }
@@ -32,11 +33,26 @@ export { transfers };
 // Non-reactive rate bookkeeping, keyed by transfer id; dropped on removal.
 const samples = new Map<string, RateSample>();
 
+interface ScheduledDismissal { active: boolean; }
+
+// Successful cards own a delayed dismissal, which replacement/removal cancels.
+const dismissals = new Map<string, ScheduledDismissal>();
+
 const EMA_ALPHA = 0.4;     // weight on the newest instantaneous rate
 const MIN_DELTA_S = 0.05;  // ignore sub-50ms ticks (their instantaneous rate is noise)
 
-export function addTransfer(t: { id: string; name: string; dir: TransferDir; bytes_total: number; state: TransferState }): void {
-  setTransfers(t.id, { ...t, bytes_done: 0, speed: 0, eta_s: -1 });
+export function addTransfer(t: {
+  id: string;
+  name: string;
+  dir: TransferDir;
+  bytes_total: number;
+  state: TransferState;
+  preview_url?: string;
+}): void {
+  const existing = transfers[t.id];
+  clearScheduledDismissal(t.id);
+  if (existing?.preview_url && existing.preview_url !== t.preview_url) URL.revokeObjectURL(existing.preview_url);
+  setTransfers(t.id, { ...t, preview_url: t.preview_url, bytes_done: 0, speed: 0, eta_s: -1 });
   samples.delete(t.id);
 }
 
@@ -68,21 +84,38 @@ export function setTransferProgress(id: string, bytesDone: number, bytesTotal?: 
 
 export function markTransferState(id: string, state: TransferState, err?: string): void {
   if (!transfers[id]) return;
+  clearScheduledDismissal(id);
   setTransfers(id, err !== undefined ? { state, err } : { state });
   samples.delete(id);
   // Success/dedup auto-dismiss after 2s; errors persist until the user closes.
-  if (state === "ok" || state === "dedup") setTimeout(() => removeTransfer(id), 2000);
+  if (state === "ok" || state === "dedup") {
+    const dismissal = { active: true };
+    dismissals.set(id, dismissal);
+    setTimeout(() => {
+      if (!dismissal.active) return;
+      dismissals.delete(id);
+      removeTransfer(id);
+    }, 2000);
+  }
 }
 
 export function removeTransfer(id: string): void {
+  const transfer = transfers[id];
+  clearScheduledDismissal(id);
+  if (transfer?.preview_url) URL.revokeObjectURL(transfer.preview_url);
   setTransfers(id, undefined as unknown as Transfer);
   samples.delete(id);
 }
 
 /** Remove file names and progress retained for the signed-out account. */
 export function clearTransfersForLogout(): void {
-  for (const id of Object.keys(transfers)) {
-    setTransfers(id, undefined as unknown as Transfer);
-  }
+  for (const id of Object.keys(transfers)) removeTransfer(id);
   samples.clear();
+}
+
+function clearScheduledDismissal(id: string): void {
+  const dismissal = dismissals.get(id);
+  if (dismissal === undefined) return;
+  dismissal.active = false;
+  dismissals.delete(id);
 }

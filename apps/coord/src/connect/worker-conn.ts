@@ -2,7 +2,6 @@
 // A hello claims an unready registry generation; only its committed exact
 // snapshot activates routing. Generation fences wrap every delegated frame so
 // a superseded socket cannot publish after an awaited database append.
-
 import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import { CoordWorkerDownSchema, DHelloAckSchema } from "@roost/shared/proto/worker_transport_pb";
@@ -29,17 +28,15 @@ import {
   type TerminalViewOwnerRegistration,
 } from "./terminal-view-projection.ts";
 import { respawnMissingForWorker } from "./worker-respawn.ts";
-import {
-  makeWorkerConnKeepalive,
-} from "./worker-conn-keepalive.ts";
+import { makeWorkerConnKeepalive } from "./worker-conn-keepalive.ts";
 import { makeWorkerFrameDispatcher } from "./worker-frame-dispatch.ts";
+import { acknowledgeAttachmentPeerCapability, cancelAttachmentDirectWorkerResults } from "./worker-conn-attachment.ts";
 import type { WorkerConn, WorkerServiceDeps } from "./worker-conn-types.ts";
 export {
   WORKER_PING_DELAY_MS,
   WORKER_PONG_TIMEOUT_MS,
 } from "./worker-conn-keepalive.ts";
 export type { WorkerConn, WorkerServiceDeps } from "./worker-conn-types.ts";
-
 export function makeWorkerConn(
   deps: WorkerServiceDeps,
   caller: { fingerprint: string },
@@ -176,10 +173,10 @@ export function makeWorkerConn(
       respawnTimer = null;
     }
   }
-
   function revoke(): void {
     deps.terminalInputRouteResults?.cancelForWorkerHandle(myHandle, "worker_revoked");
     deps.terminalPeerNegotiations?.cancelForWorkerHandle(myHandle, "worker_revoked");
+    cancelAttachmentDirectWorkerResults(deps, myHandle, "worker_revoked");
     if (revokedCleanupDone) return;
     revokedCleanupDone = true;
     myHandle.revoked = true;
@@ -190,11 +187,11 @@ export function makeWorkerConn(
       rejectPendingSpawnsForWorker(workerFp);
     }
   }
-
   function close(): void {
     if (done) return;
     deps.terminalInputRouteResults?.cancelForWorkerHandle(myHandle, "worker_disconnected");
     deps.terminalPeerNegotiations?.cancelForWorkerHandle(myHandle, "worker_disconnected");
+    cancelAttachmentDirectWorkerResults(deps, myHandle, "worker_disconnected");
     revokedCleanupDone = true;
     done = true;
     myHandle.revoked = true;
@@ -212,7 +209,6 @@ export function makeWorkerConn(
       }
     }
   }
-
   async function handleUpstream(f: CoordWorkerUp): Promise<void> {
     if (done) return;
     if (myHandle.revoked) {
@@ -272,6 +268,7 @@ export function makeWorkerConn(
         if (superseded && superseded !== myHandle) {
           deps.terminalInputRouteResults?.cancelForWorkerHandle(superseded, "connection_superseded");
           deps.terminalPeerNegotiations?.cancelForWorkerHandle(superseded, "connection_superseded");
+          cancelAttachmentDirectWorkerResults(deps, superseded, "connection_superseded");
           rejectPendingRpcsForWorker(fp, "worker connection superseded");
         }
         connectWorkers.set(fp, myHandle);
@@ -321,6 +318,7 @@ export function makeWorkerConn(
         if (terminalPeerNegotiated) {
           acknowledgedCapabilities.push(TERMINAL_PEER_WEBRTC_CAPABILITY);
         }
+        const attachmentPeerNegotiated = acknowledgeAttachmentPeerCapability(deps, advertised, acknowledgedCapabilities);
         myHandle.capabilities = new Set(acknowledgedCapabilities);
         trySend("hello_ack", create(CoordWorkerDownSchema, {
           frame: { case: "helloAck", value: create(DHelloAckSchema, {
@@ -333,6 +331,7 @@ export function makeWorkerConn(
           terminal_view_owner_v1: terminalViewOwnerNegotiated,
           terminal_input_route_v1: terminalInputRouteNegotiated,
           terminal_peer_webrtc_v1: terminalPeerNegotiated,
+          attachment_transfer_peer_webrtc_v1: attachmentPeerNegotiated,
         });
         return;
       }
@@ -388,7 +387,6 @@ export function makeWorkerConn(
       default: return;
     }
   }
-
   return {
     handleUpstream,
     close,

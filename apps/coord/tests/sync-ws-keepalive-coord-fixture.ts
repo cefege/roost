@@ -17,7 +17,10 @@ import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
 import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
+import { AttachmentGrantOwner } from "../src/connect/attachment-grant-owner.ts";
 import { TerminalPeerNegotiations } from "../src/connect/terminal-peer-negotiations.ts";
+import { AttachmentPeerNegotiations } from "../src/connect/attachment-peer-negotiations.ts";
+import { AttachmentDirectStatusResults } from "../src/connect/attachment-direct-status-results.ts";
 
 export interface SyncWsKeepaliveCoordFixture {
   deps: ConnectDeps;
@@ -55,11 +58,17 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     terminalPeerStunUrls: [],
   };
   const terminalGrants = new TerminalGrantOwner();
+  const attachmentGrants = new AttachmentGrantOwner();
   const terminalPeerNegotiations = new TerminalPeerNegotiations({
     db,
     cfg,
     terminalGrants,
   });
+  const attachmentPeerNegotiations = new AttachmentPeerNegotiations({
+    cfg,
+    attachmentGrants,
+  });
+  const attachmentDirectStatusResults = new AttachmentDirectStatusResults();
   const deps: ConnectDeps = {
     db,
     sqlite,
@@ -72,6 +81,9 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
     cfAccess: null,
     terminalGrants,
     terminalPeerNegotiations,
+    attachmentGrants,
+    attachmentPeerNegotiations,
+    attachmentDirectStatusResults,
   };
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -105,6 +117,9 @@ export async function createSyncWsKeepaliveCoordFixture(): Promise<SyncWsKeepali
       deps.uiLayoutApplies.dispose();
       deps.uiStates.dispose();
       terminalPeerNegotiations.dispose();
+      attachmentDirectStatusResults.dispose();
+      attachmentPeerNegotiations.dispose();
+      attachmentGrants.dispose();
       terminalGrants.dispose();
       try {
         await opened.close();

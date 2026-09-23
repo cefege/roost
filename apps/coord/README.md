@@ -73,7 +73,8 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 | agent-config | `src/connect/handlers-agent-config.ts` | default launch-button agent command, `app_settings`-backed, universal across devices |
 | agent-status | `src/connect/handlers-agent-status.ts` | dashboard-authorized volatile status Get/List and occupant-pinned event waits |
 | agent-prompt | `src/connect/handlers-agent-prompt.ts` | dashboard-authorized `SessionsPrompt`, exact observed-status admission, and optional post-input status wait |
-| attachments | `src/connect/handlers-attachments.ts` | worker-forwarded read/read-chunk/list/mkdir + attachment upload/probe/list/delete |
+| attachments | `src/connect/handlers-attachments.ts` | worker-forwarded read/read-chunk/list/mkdir + attachment upload/probe/list/delete; relayed `AttachFileChunk` is the fallback when no direct carrier opens |
+| attachments-direct | `src/connect/handlers-attachments-direct.ts`, `src/connect/handlers-attachments-peer.ts` | direct-upload control only: exact attachment-grant mint, durable receipt status, and WebRTC offer bridge; bytes never enter the coordinator |
 | mcp | `src/connect/handlers-mcp.ts` | MCP relay CRUD and publication, with a bus delta per mutation |
 | auth | `src/connect/handlers-auth.ts` | facade over `src/connect/handlers-auth-bootstrap.ts`, `src/connect/handlers-pairing.ts`, and `src/connect/handlers-devices.ts`: identity/access, bootstrap redemption, versioned pairing confirmation, device rotation/revocation, logout |
 | worker-update | `src/connect/handlers-workers-update.ts` | the coordinator-held keeper update boundary: drain, reauthorize, canonical open-session snapshot, then the authenticated worker action |
@@ -126,6 +127,16 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   route-claim/probe correlation for Sync; `src/connect/worker-send-terminal-route.ts`
   is its exact-worker sender. No handler creates a second grant, signal, or
   route-result registry.
+- **Direct attachment control** — `src/connect/attachment-grant-owner.ts` (with
+  `attachment-grant-owner-state.ts`) owns short-lived per-upload grants, separate
+  from terminal grants, installed on the exact worker via
+  `src/connect/worker-send-attachment-grant.ts`.
+  `src/connect/attachment-peer-negotiations.ts` (with
+  `attachment-peer-negotiation-state.ts`) owns bounded attachment WebRTC
+  signaling; `src/connect/attachment-direct-status-results.ts` correlates typed
+  status replies. `worker-send-attachment-{peer,status}.ts` serialize frames,
+  `worker-frame-dispatch-direct-{attachment,results}.ts` route typed worker
+  results, and `worker-conn-attachment.ts` fences them on worker replacement.
 - SQLite access — `src/db/connection.ts` (Kysely over `kysely-bun-sqlite`, WAL + busy timeout), `src/db/schema.ts` (the `DB`
   interface), `src/db/migrate.ts` (custom runner over `apps/coord/migrations/*.sql`, throws on any failure), `src/db/snapshot.ts`
   (online SQLite copy backing `/api/db-export`).

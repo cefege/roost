@@ -72,6 +72,18 @@ export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
       return create(CoordWorkerUpSchema, {
         frame: { case: "localTerminalPeerError", value: f.error },
       });
+    case "local-attachment-peer-answer":
+      return create(CoordWorkerUpSchema, {
+        frame: { case: "localAttachmentPeerAnswer", value: f.answer },
+      });
+    case "local-attachment-peer-error":
+      return create(CoordWorkerUpSchema, {
+        frame: { case: "localAttachmentPeerError", value: f.error },
+      });
+    case "attachment-direct-status":
+      return create(CoordWorkerUpSchema, {
+        frame: { case: "attachmentDirectStatus", value: f.status },
+      });
     case "terminal-input-route-result":
       return create(CoordWorkerUpSchema, {
         frame: { case: "terminalInputRouteResult", value: create(WTerminalInputRouteResultSchema, {

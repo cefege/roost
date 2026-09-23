@@ -6,16 +6,23 @@ import { create } from "@bufbuild/protobuf";
 import { expect, test } from "bun:test";
 import {
 	CoordWorkerDownSchema,
+	DAttachmentDirectStatusRequestSchema,
+	DLocalAttachmentPeerCancelSchema,
+	DLocalAttachmentPeerOfferSchema,
 	DLocalTerminalPeerCancelSchema,
 	DLocalTerminalPeerOfferSchema,
 	DTerminalDirectRetireSchema,
 	DTerminalInputRouteClaimSchema,
 	DTerminalTransportProbeSchema,
 	WLocalTerminalPeerAnswerSchema,
+	WAttachmentDirectStatusSchema,
+	WLocalAttachmentPeerAnswerSchema,
 	WTerminalTransportProbeResultSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import { TerminalInputRouteResultSchema } from "@roost/shared/proto/sync_pb";
+import { AttachmentTransferStatusSchema } from "@roost/shared/proto/attachment_transfer_pb";
 import { createCoordLinkDownstream } from "../src/transport/coord-link-downstream.ts";
+import { AttachmentPeerOfferError } from "../src/attachment-peer-owner.ts";
 import type {
 	CoordLinkDeps,
 	CoordLinkOutbox,
@@ -122,4 +129,84 @@ test("direct downstream emits typed peer, route, and probe results while routing
 	]));
 	expect(cancelled).toBe(true);
 	expect(retired).toBe("worker_deleted");
+});
+
+test("attachment controls emit typed answer, error, and durable status", async () => {
+	const sent: UpstreamFrame[] = [];
+	const socket = {} as WebSocket;
+	let cancelled = false;
+	const deps: Partial<CoordLinkDeps> = {
+		onLocalAttachmentPeerOffer: async (request) => {
+			if (request.requestId === "attachment-bad") throw new AttachmentPeerOfferError("invalid_offer");
+			return create(WLocalAttachmentPeerAnswerSchema, {
+				requestId: request.requestId,
+				connectionGeneration: request.connectionGeneration,
+				workerEpoch: WORKER_EPOCH,
+				peerId: request.peerId,
+				answerSdp: "answer",
+			});
+		},
+		onLocalAttachmentPeerCancel: () => { cancelled = true; },
+		onAttachmentDirectStatusRequest: (request) => create(WAttachmentDirectStatusSchema, {
+			requestId: request.requestId,
+			status: create(AttachmentTransferStatusSchema, {
+				uploadId: request.uploadId,
+				nextSeq: 1,
+				bytesReceived: 512n,
+				lastChunkSha256: "a".repeat(64),
+				committed: false,
+				absPath: "",
+				error: "",
+			}),
+		}),
+	};
+	const downstream = createCoordLinkDownstream(deps as CoordLinkDeps, {
+		send: (frame: UpstreamFrame) => {
+			sent.push(frame);
+			return true;
+		},
+		activeSocket: () => socket,
+	} as CoordLinkOutbox);
+	const peerId = "11111111-1111-4111-8111-111111111113";
+	const offer = (requestId: string) => create(DLocalAttachmentPeerOfferSchema, {
+		requestId,
+		connectionGeneration: "attachment-generation",
+		workerEpoch: WORKER_EPOCH,
+		grantId: "attachment-grant",
+		peerId,
+		deviceFingerprint: "a".repeat(64),
+		tabId: "attachment-tab",
+		offerSdp: "offer",
+		budgetMs: 8_000,
+		stunUrls: [],
+	});
+	downstream.handleDownstream(create(CoordWorkerDownSchema, {
+		frame: { case: "localAttachmentPeerOffer", value: offer("attachment-ok") },
+	}), false, socket);
+	downstream.handleDownstream(create(CoordWorkerDownSchema, {
+		frame: { case: "localAttachmentPeerOffer", value: offer("attachment-bad") },
+	}), false, socket);
+	downstream.handleDownstream(create(CoordWorkerDownSchema, {
+		frame: { case: "localAttachmentPeerCancel", value: create(DLocalAttachmentPeerCancelSchema, {
+			requestId: "attachment-ok",
+			connectionGeneration: "attachment-generation",
+			workerEpoch: WORKER_EPOCH,
+			peerId,
+		}) },
+	}), false, socket);
+	downstream.handleDownstream(create(CoordWorkerDownSchema, {
+		frame: { case: "attachmentDirectStatusRequest", value: create(DAttachmentDirectStatusRequestSchema, {
+			requestId: "attachment-status",
+			sessionId: "attachment-session",
+			uploadId: "attachment-upload",
+		}) },
+	}), false, socket);
+	await settleControls();
+
+	expect(sent).toEqual(expect.arrayContaining([
+		expect.objectContaining({ kind: "local-attachment-peer-answer" }),
+		expect.objectContaining({ kind: "local-attachment-peer-error" }),
+		expect.objectContaining({ kind: "attachment-direct-status" }),
+	]));
+	expect(cancelled).toBe(true);
 });

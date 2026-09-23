@@ -23,6 +23,7 @@ import {
 import { makeAuthHandlers } from "../src/connect/handlers-auth.ts";
 import { makeWorkerHandlers } from "../src/connect/handlers-workers.ts";
 import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
+import { AttachmentGrantOwner } from "../src/connect/attachment-grant-owner.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
@@ -89,6 +90,7 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
     const workerSyncRemovals: string[] = [];
     const workerLifecycle: string[] = [];
     const terminalGrants = new TerminalGrantOwner();
+    const attachmentGrants = new AttachmentGrantOwner();
     const retireWorker = terminalGrants.retireWorker.bind(terminalGrants);
     terminalGrants.retireWorker = (fingerprint, reason) => {
       workerLifecycle.push(`retire:${fingerprint}:${reason}`);
@@ -101,6 +103,7 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
       jwtCache: newJwtCache(),
       selfHostedTenant: tenant,
       terminalGrants,
+      attachmentGrants,
       onKeyRevoked: (fingerprint: string) => {
         revoked.push(fingerprint);
         const keyCount = sqlite.query("SELECT COUNT(*) AS count FROM authorized_keys WHERE fingerprint = ?")
@@ -129,6 +132,7 @@ export function createDeviceRevocationHarnessOwner(): DeviceRevocationHarnessOwn
     } as unknown as ConnectDeps;
     const close = async () => {
       terminalGrants.dispose();
+      attachmentGrants.dispose();
       try { await opened.close(); } finally { rmSync(dir, { recursive: true, force: true }); }
     };
     cleanups.push(close);

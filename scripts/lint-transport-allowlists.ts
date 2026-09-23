@@ -17,6 +17,8 @@ export const WEB_SOCKET_CLIENT_ALLOW: readonly string[] = [
   // PTY is on this machine — the second intra-Roost transport the SPA owns,
   // and the only one that survives a coordinator outage.
   "apps/web/src/ws/local-terminal.ts",
+  // attachment-loopback owns the browser's one direct attachment socket per upload.
+  "apps/web/src/ws/attachment-loopback.ts",
 ];
 
 /** Files permitted to run `Bun.serve({ websocket })`. */

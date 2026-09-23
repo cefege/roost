@@ -30,6 +30,8 @@ import style is now correct instead of two.
 | `@roost/shared/wire/sync-ws` | Sync WebSocket path, auth subprotocol, negotiation query constants |
 | `@roost/shared/wire/headers` | shared `x-roost-*` header names and listener-trust sentinel values |
 | `@roost/shared/terminal-peer` | browser-safe direct-peer capabilities, fixed data-channel definitions, deadlines/quotas, and operator STUN URL policy |
+| `@roost/shared/attachment-transfer` | browser-safe direct attachment chunks, endpoint, WebRTC channels, timeouts, and fixed error vocabulary |
+| `@roost/shared/attachment-transfer-packets` | attachment-only magic/version framing, ordered reassembly, directional quotas, and accepted-once packet queues |
 | `@roost/shared/terminal-peer-sdp` | bounded UDP/DTLS/SCTP application SDP inspection plus browser UDP-candidate filtering |
 | `@roost/shared/terminal-peer-packets` | mandatory 16-byte outer packet framing, bounded reassembly, and `TerminalPeerPacketQueue` |
 | `@roost/shared/terminal-search` | bounded paging limits, Unicode code-point utilities, stop reasons, worker-result validation |
@@ -77,7 +79,8 @@ reached through `@roost/shared/service-health`, which re-exports it.
 ## Adding a wire field
 
 1. Edit the `.proto` under `proto/roost/v1/` (`wire.proto`, `coordinator.proto`,
-   `sync.proto`, `local_terminal.proto`, `events.proto`, `cell.proto`, `worker_transport.proto`).
+   `sync.proto`, `local_terminal.proto`, `attachment_transfer.proto`, `events.proto`,
+   `cell.proto`, `worker_transport.proto`).
 2. `bun run --filter='@roost/shared' proto:gen` (`buf generate`; config in
    `buf.gen.yaml` + `proto/buf.yaml`). Output lands in `src/gen/roost/v1/`, one
    `_pb.ts` per proto; generated files are never hand-edited and are excluded
@@ -107,6 +110,15 @@ producers and consumers.
   `local_terminal.proto` frames after that header; loopback carries the same
   frames through its existing WebSocket boundary. Neither carrier creates a
   second terminal payload schema or packet implementation.
+- **Attachment transfer contract** — `src/attachment-transfer.ts` owns direct
+  upload capability, one exact-descriptor short-lived grant, active/idle port
+  lease, chunk digest and status bounds, fixed errors, and distinct control/data
+  channels.
+  `src/attachment-transfer-packets.ts` plus its queue own the separate
+  attachment magic/version framing, bounded reassembly, directional quotas, and
+  accepted-once packet commitment. `attachment_transfer.proto` supplies
+  carrier-independent direct frames; its grants and status receipts never share
+  terminal-grant authority.
 - **Terminal input** — `src/terminal-input.ts` is the single encoder and limit
   owner shared by the browser composer and the worker's guarded prompt path.
   It normalizes every newline spelling to CR and, when bracketed paste is

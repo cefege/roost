@@ -36,7 +36,10 @@ import { UiStateOwner } from "./connect/ui-state-owner.ts";
 import type { SelfHostedTenant } from "./self-hosted-tenant.ts";
 import { createCloudflareAccessGate } from "./cf-access.ts";
 import { TerminalGrantOwner } from "./connect/terminal-grant-owner.ts";
+import { AttachmentGrantOwner } from "./connect/attachment-grant-owner.ts";
 import { TerminalPeerNegotiations } from "./connect/terminal-peer-negotiations.ts";
+import { AttachmentPeerNegotiations } from "./connect/attachment-peer-negotiations.ts";
+import { AttachmentDirectStatusResults } from "./connect/attachment-direct-status-results.ts";
 import { TerminalInputRouteResults } from "./connect/terminal-input-route-results.ts";
 
 export interface CoordHandlerContext {
@@ -65,8 +68,14 @@ export interface CoordDeps {
   pendingPublications?: PendingEventPublicationStore;
   /** Test/composition injection; the factory otherwise owns one grant registry. */
   terminalGrants?: TerminalGrantOwner;
+  /** Test/composition injection; the factory otherwise owns attachment grants. */
+  attachmentGrants?: AttachmentGrantOwner;
   /** Test/composition injection; the factory otherwise owns one peer signal owner. */
   terminalPeerNegotiations?: TerminalPeerNegotiations;
+  /** Test/composition injection; the factory otherwise owns attachment signaling. */
+  attachmentPeerNegotiations?: AttachmentPeerNegotiations;
+  /** Test/composition injection; the factory otherwise owns attachment status correlation. */
+  attachmentDirectStatusResults?: AttachmentDirectStatusResults;
   /** Test/composition injection; the factory otherwise owns typed route controls. */
   terminalInputRouteResults?: TerminalInputRouteResults;
   /** Test observation point forwarded to the keeper-update handler. */
@@ -87,8 +96,14 @@ export interface CoordHandle {
   dispose(): void;
   /** Factory-owned direct-terminal leases, used by process composition. */
   terminalGrants: TerminalGrantOwner;
+  /** Factory-owned direct attachment grants, separate from terminal leases. */
+  attachmentGrants: AttachmentGrantOwner;
   /** Factory-owned typed peer signaling, used by raw worker and Sync composition. */
   terminalPeerNegotiations: TerminalPeerNegotiations;
+  /** Factory-owned attachment signaling, used by raw worker composition. */
+  attachmentPeerNegotiations: AttachmentPeerNegotiations;
+  /** Factory-owned typed attachment status correlation. */
+  attachmentDirectStatusResults: AttachmentDirectStatusResults;
   /** Factory-owned typed route controls, shared by Sync and worker raw WebSockets. */
   terminalInputRouteResults: TerminalInputRouteResults;
 }
@@ -99,6 +114,13 @@ export function createCoord(deps: CoordDeps): CoordHandle {
     cfg: deps.cfg,
     terminalGrants,
   });
+  const attachmentGrants = deps.attachmentGrants ?? new AttachmentGrantOwner();
+  const attachmentPeerNegotiations = deps.attachmentPeerNegotiations ?? new AttachmentPeerNegotiations({
+    cfg: deps.cfg,
+    attachmentGrants,
+  });
+  const attachmentDirectStatusResults = deps.attachmentDirectStatusResults
+    ?? new AttachmentDirectStatusResults();
   const terminalInputRouteResults = deps.terminalInputRouteResults ?? new TerminalInputRouteResults();
   const uiLayoutApplies = deps.uiLayoutApplies ?? new UiLayoutApplyOwner();
   const uiStates = deps.uiStates ?? new UiStateOwner();
@@ -109,7 +131,10 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   const connectRouter = buildConnectRouter({
     ...deps,
     terminalGrants,
+    attachmentGrants,
     terminalPeerNegotiations,
+    attachmentPeerNegotiations,
+    attachmentDirectStatusResults,
     terminalInputRouteResults,
     uiLayoutApplies,
     uiStates,
@@ -207,8 +232,11 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   }
 
   function dispose(): void {
+    attachmentDirectStatusResults.dispose();
+    attachmentPeerNegotiations.dispose();
     terminalPeerNegotiations.dispose();
     terminalInputRouteResults.dispose();
+    attachmentGrants.dispose();
     terminalGrants.dispose();
     stopTerminalMetadataAdapter();
     stopTerminalTitleHub();
@@ -221,7 +249,10 @@ export function createCoord(deps: CoordDeps): CoordHandle {
     fetch: fetchHandler,
     dispose,
     terminalGrants,
+    attachmentGrants,
     terminalPeerNegotiations,
+    attachmentPeerNegotiations,
+    attachmentDirectStatusResults,
     terminalInputRouteResults,
   };
 }

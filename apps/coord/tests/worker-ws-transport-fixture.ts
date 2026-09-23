@@ -36,7 +36,10 @@ import { PendingEventPublicationStore } from "../src/pending-event-publications.
 import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
 import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
+import { AttachmentGrantOwner } from "../src/connect/attachment-grant-owner.ts";
 import { TerminalPeerNegotiations } from "../src/connect/terminal-peer-negotiations.ts";
+import { AttachmentPeerNegotiations } from "../src/connect/attachment-peer-negotiations.ts";
+import { AttachmentDirectStatusResults } from "../src/connect/attachment-direct-status-results.ts";
 
 export interface TestWorkerConnection {
   ws: WebSocket;
@@ -85,11 +88,17 @@ export async function startWorkerWsTransportFixture() {
     terminalPeerStunUrls: [],
   };
   const terminalGrants = new TerminalGrantOwner();
+  const attachmentGrants = new AttachmentGrantOwner();
   const terminalPeerNegotiations = new TerminalPeerNegotiations({
     db,
     cfg,
     terminalGrants,
   });
+  const attachmentPeerNegotiations = new AttachmentPeerNegotiations({
+    cfg,
+    attachmentGrants,
+  });
+  const attachmentDirectStatusResults = new AttachmentDirectStatusResults();
   const deps: WorkerServiceDeps = {
     db,
     pendingPublications: new PendingEventPublicationStore(),
@@ -98,6 +107,8 @@ export async function startWorkerWsTransportFixture() {
     writeGate: new CoordinatorWriteGate(),
     selfHostedTenant,
     terminalPeerNegotiations,
+    attachmentPeerNegotiations,
+    attachmentDirectStatusResults,
   };
   const connectDeps: ConnectDeps = {
     ...deps,
@@ -106,8 +117,11 @@ export async function startWorkerWsTransportFixture() {
     uiLayoutApplies: new UiLayoutApplyOwner(),
     uiStates: new UiStateOwner(),
     terminalGrants,
+    attachmentGrants,
     terminalPeerNegotiations,
     cfAccess: null,
+    attachmentPeerNegotiations,
+    attachmentDirectStatusResults,
   };
 
   const workerKeys = await crypto.subtle.generateKey(
@@ -316,6 +330,9 @@ export async function startWorkerWsTransportFixture() {
       connectDeps.uiLayoutApplies.dispose();
       connectDeps.uiStates.dispose();
       terminalPeerNegotiations.dispose();
+      attachmentDirectStatusResults.dispose();
+      attachmentPeerNegotiations.dispose();
+      attachmentGrants.dispose();
       terminalGrants.dispose();
       try {
         await opened.close();

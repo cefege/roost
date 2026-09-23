@@ -98,7 +98,7 @@ test("path-traversal session_id is rejected, no file written", async () => {
       { ok: () => resolve("UNEXPECTED_OK"), err: resolve },
     );
   });
-  expect(err).toBe("invalid session_id");
+  expect(err).toBe("upload is unavailable");
 });
 
 // Silent-truncation guard: a chunk arriving with seq>0 but no in-flight state
@@ -111,7 +111,7 @@ test("continuation chunk (seq>0) with no in-flight state is refused", async () =
       { ok: () => resolve("UNEXPECTED_OK"), err: resolve },
     );
   });
-  expect(err).toContain("not in progress");
+  expect(err).toContain("out of order");
   expect(fs.existsSync(`${dir}/ghost.bin`)).toBe(false);
 });
 
@@ -129,7 +129,7 @@ test("out-of-order chunk aborts the upload (no file, temp cleaned)", async () =>
   });
   expect(err).toContain("out of order");
   expect(fs.existsSync(`${dir}/ooo.bin`)).toBe(false);
-  expect(fs.existsSync(`${dir}/.upload-${id}`)).toBe(false);  // temp reaped
+  expect(fs.existsSync(`${dir}/.operations/${id}.part`)).toBe(false);  // temp reaped
 });
 
 // ─── att3: content-dedup manifest ───────────────────────────────────────────

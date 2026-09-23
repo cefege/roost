@@ -21,7 +21,7 @@ import { appendEvent, dispatchSnapshotOrphanReaps } from "../event-log.ts";
 import { rejectPendingRpc, resolvePendingRpc } from "../router/pending-rpcs.ts";
 import { isTerminalPipelineSnapshotWireShape } from "./worker-terminal-pipeline-snapshot.ts";
 import { resolvePendingSpawnOpened } from "./pending-spawns.ts";
-import { dispatchDirectTerminalWorkerResult } from "./worker-frame-dispatch-direct-terminal.ts";
+import { directWorkerResultKind, dispatchTypedDirectWorkerResult } from "./worker-frame-dispatch-direct-results.ts";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
 import type { WorkerHandle } from "./worker-registry.ts";
 import type { WriteLease } from "../coordinator-write-gate.ts";
@@ -245,10 +245,16 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
     }
     return workerFp;
   }
-
   function handleLiveFrame(frame: CoordWorkerUp): boolean {
     const workerFp = options.getWorkerFp();
     const metadataNegotiated = options.terminalMetadataNegotiated?.() ?? false;
+    const directResult = directWorkerResultKind(frame.frame);
+    if (directResult) {
+      if (pendingResultWorker(directResult)) {
+        dispatchTypedDirectWorkerResult(options.deps, options.getWorkerHandle?.(), frame.frame, directResult);
+      }
+      return true;
+    }
     switch (frame.frame.case) {
       case "binary":
         if (workerFp && !options.fenced("binary")) {
@@ -315,14 +321,6 @@ export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions)
         }
         return true;
       }
-      case "localTerminalPeerAnswer":
-      case "localTerminalPeerError":
-      case "terminalInputRouteResult":
-      case "terminalTransportProbeResult":
-        if (pendingResultWorker("direct_terminal_result")) {
-          dispatchDirectTerminalWorkerResult(options.deps, options.getWorkerHandle?.(), frame.frame);
-        }
-        return true;
       case "terminalPipelineSnapshot": {
         const resultWorkerFp = pendingResultWorker("terminal_pipeline_snapshot");
         if (!resultWorkerFp) return true;
