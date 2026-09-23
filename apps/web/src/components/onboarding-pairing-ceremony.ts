@@ -1,6 +1,6 @@
-// Requester pairing owns tab-scoped capabilities, idempotent creation, polling,
-// and confirmation recovery. Onboarding only renders these signals; no secret
-// reaches rootStore, Sync, cross-tab storage, or a URL.
+// Requester pairing: tab-scoped capabilities, idempotent creation, polling and
+// confirmation recovery. PairingRequesterProvider creates the one instance and
+// Onboarding renders it; no secret reaches rootStore, Sync, cross-tab storage, or a URL.
 
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
@@ -10,7 +10,7 @@ import {
   normalizePairVerificationCode,
 } from "@roost/shared/pairing";
 import { backoffDelayMs } from "@roost/shared/retry";
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, onCleanup, onMount, type Accessor } from "solid-js";
 import { getPublicKeyB64 } from "../auth/web-key.ts";
 import {
   clearPairingCeremony,
@@ -19,6 +19,7 @@ import {
   savePairingCeremony,
 } from "../auth/pairing-ceremony.ts";
 import type { PairingCeremony } from "../auth/pairing-ceremony.ts";
+import { isTransientPairingError } from "../auth/pairing-transient-error.ts";
 import { coordClient } from "../connect.ts";
 import { browserSelfLabel } from "../lib/browserSelfLabel.ts";
 import { addToast } from "../store/toastStore.ts";
@@ -45,10 +46,23 @@ type PairingOperation = {
   requesterLabel: string | null;
 };
 
+/** Requester controller: read-only ceremony signals plus the user actions. */
+export interface OnboardingPairingCeremony {
+  busy: Accessor<boolean>;
+  confirmationError: Accessor<string | null>;
+  ephemeralId: Accessor<string | null>;
+  pollStatus: Accessor<PairPollStatus>;
+  verificationCode: Accessor<string>;
+  clear: () => void;
+  confirm: () => Promise<void>;
+  start: () => Promise<void>;
+  updateVerificationCode: (value: string) => void;
+}
+
 export function createOnboardingPairingCeremony(callbacks: {
   redirectAfterPairing: () => void;
   reportRequestError: (message: string) => void;
-}) {
+}): OnboardingPairingCeremony {
   const restored = loadPairingCeremony();
   const [ephemeralId, setEphemeralId] = createSignal<string | null>(
     restored?.ephemeralId ?? null,
@@ -202,7 +216,7 @@ export function createOnboardingPairingCeremony(callbacks: {
       setPollStatus("pending");
     } catch (error) {
       if (!isCurrent(operation)) return;
-      if (isRetryablePairingError(error)) createRetryDelay = retryDelay(operation, error);
+      if (isTransientPairingError(error)) createRetryDelay = retryDelay(operation, error);
       else if (
         operation.restored
         && error instanceof ConnectError
@@ -261,7 +275,7 @@ export function createOnboardingPairingCeremony(callbacks: {
       }
     } catch (error) {
       if (!isCurrent(operation) || (!confirmationRecovery && operation.confirmationRecoveryPending)) return;
-      if (isRetryablePairingError(error)) pollRetryDelay = retryDelay(operation, error);
+      if (isTransientPairingError(error)) pollRetryDelay = retryDelay(operation, error);
       else terminalFailure(operation, `Pair poll failed: ${pairingErrorMessage(error)}`);
     } finally {
       if (!isCurrent(operation)) return;
@@ -341,7 +355,7 @@ export function createOnboardingPairingCeremony(callbacks: {
       finishCompleted(operation);
     } catch (error) {
       if (!isCurrent(operation)) return;
-      if (isRetryablePairingError(error)) {
+      if (isTransientPairingError(error)) {
         setConfirmationError("Confirmation interrupted. Checking pairing status.");
         pollRetryDelay = retryDelay(operation, error);
         operation.confirmationMayHaveCommitted = true;
@@ -370,24 +384,9 @@ export function createOnboardingPairingCeremony(callbacks: {
     operationGeneration += 1;
   });
   return {
-    busy,
-    clear,
-    confirm,
-    confirmationError,
-    ephemeralId,
-    pollStatus,
-    start,
-    updateVerificationCode,
-    verificationCode,
+    busy, clear, confirm, confirmationError, ephemeralId,
+    pollStatus, start, updateVerificationCode, verificationCode,
   };
-}
-function isRetryablePairingError(error: unknown): boolean {
-  if (!(error instanceof ConnectError)) return true;
-  return error.code === Code.Unknown
-    || error.code === Code.Unavailable
-    || error.code === Code.DeadlineExceeded
-    || error.code === Code.Aborted
-    || error.code === Code.ResourceExhausted;
 }
 function pairingErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

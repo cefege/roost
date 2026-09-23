@@ -19,9 +19,9 @@ export function PairRequestNotifier() {
   onCleanup(() => clearInterval(expiryTimer));
 
   const location = useLocation();
+  // Both routes already render the same pending list inline.
   const isPairRequestNotifierSuppressed = createMemo(() =>
-    location.pathname === "/settings/devices"
-    || (location.pathname === "/pair" && !rootStore.browser_unauthorized)
+    location.pathname === "/settings/devices" || location.pathname === "/pair"
   );
   const pending = createMemo(() => {
     const currentNow = now();
@@ -50,11 +50,7 @@ export function PairRequestNotifier() {
   }
 
   return (
-    <Show when={
-      !rootStore.browser_unauthorized
-      && !isPairRequestNotifierSuppressed()
-      && approvalOwnerIsStillPending()
-    }>
+    <Show when={!isPairRequestNotifierSuppressed() && approvalOwnerIsStillPending()}>
       <For each={pending()}>
         {(request) => (
           <PairRequestCard

@@ -6,15 +6,6 @@
 
 import { createSignal } from "solid-js";
 
-export type TerminalBootstrapStage =
-  | "identity"
-  | "sync"
-  | "sessions"
-  | "ready";
-
-const [terminalBootstrapStage, setTerminalBootstrapStage] =
-  createSignal<TerminalBootstrapStage>("identity");
-
 const [sessionsHydrated, setSessionsHydrated] = createSignal(false);
 const [workersHydrated, setWorkersHydrated] = createSignal(false);
 /** A credential boundary has no valid terminal or worker snapshot until each
@@ -22,7 +13,6 @@ const [workersHydrated, setWorkersHydrated] = createSignal(false);
 export function resetSyncHydration(): void {
   setSessionsHydrated(false);
   setWorkersHydrated(false);
-  setTerminalBootstrapStage("sync");
 }
 
 export {
@@ -30,6 +20,4 @@ export {
   setSessionsHydrated,
   workersHydrated,
   setWorkersHydrated,
-  terminalBootstrapStage,
-  setTerminalBootstrapStage,
 };

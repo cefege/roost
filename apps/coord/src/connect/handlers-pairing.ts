@@ -1,12 +1,14 @@
 // Pairing handlers validate the browser wire ceremony and publish committed
-// request-state deltas. Durable request/approval transitions and confirmation
-// authority remain isolated in their dedicated pairing owners.
+// request-state deltas, including the "new browser paired" notice on a
+// completed confirmation. Durable request/approval transitions, confirmation
+// authority, and the approver status read live in their dedicated owners.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
 import { log } from "@roost/shared/log";
 import {
   CoordinatorService,
+  PairApprovalStatusResponseSchema,
   PairApproveResponseSchema,
   PairConfirmResponseSchema,
   PairCreateResponseSchema,
@@ -23,12 +25,14 @@ import { writeAuditLog } from "../middleware/security.ts";
 import {
   callerOrigin,
   optionalAccountDevice,
+  requireAccountDevice,
 } from "./auth-interceptor.ts";
 import { capturePairRequestProvenance } from "./pair-request-provenance.ts";
 import {
   approvePairRequest,
   createPairRequest,
 } from "./pairing-account.ts";
+import { readPairApprovalStatus } from "./pairing-approval-status.ts";
 import {
   confirmPairRequest,
   PairConfirmationTerminalError,
@@ -53,7 +57,8 @@ type PairingMethods =
   | "pairList"
   | "pairApprove"
   | "pairConfirm"
-  | "pairDeny";
+  | "pairDeny"
+  | "pairApprovalStatus";
 
 export function makePairingHandlers(
   deps: ConnectDeps,
@@ -292,8 +297,23 @@ export function makePairingHandlers(
           status: 200,
           traceId: undefined,
         });
+      }
+      const paired = result.pairedBrowser;
+      if (paired !== null) {
+        pairBus.publish({
+          kind: "completed",
+          ephemeral_id: paired.ephemeralId,
+          label: paired.label,
+          client_browser: paired.clientBrowser,
+          client_os: paired.clientOs,
+          client_device_type: paired.clientDeviceType,
+          country_code: paired.countryCode,
+          region: paired.region,
+          city: paired.city,
+          paired_at_ms: paired.pairedAtMs,
+        });
         log.info("pair.connect", "completed", {
-          ephemeral_id: req.ephemeralId,
+          ephemeral_id: paired.ephemeralId,
           fp: result.newlyAuthorizedFingerprint,
         });
       }
@@ -315,6 +335,27 @@ export function makePairingHandlers(
       pairBus.publish({ kind: "removed", ephemeral_id: ephemeralId });
       log.info("pair.connect", "denied", { ephemeral_id: ephemeralId });
       return create(PairDenyResponseSchema, { ok: true });
+    },
+
+    async pairApprovalStatus(req, ctx) {
+      assertPairingCeremonyVersion(req.ceremonyVersion);
+      const ephemeralId = normalizePairRequestId(req.ephemeralId);
+      if (ephemeralId === null) {
+        throw new ConnectError("invalid pair request id", Code.InvalidArgument);
+      }
+      const origin = callerOrigin(ctx.values);
+      // Remote callers without browser authority get the device-auth marker so
+      // the approver can classify a revoked key; direct on-host stays admitted.
+      const caller = origin.onHost
+        ? optionalAccountDevice(ctx.values)
+        : requireAccountDevice(ctx.values);
+      const status = await readPairApprovalStatus(deps.db, {
+        ephemeralId,
+        callerFingerprint: caller?.fingerprint ?? null,
+        onHost: origin.onHost,
+        now: Date.now(),
+      });
+      return create(PairApprovalStatusResponseSchema, { status });
     },
   };
 }

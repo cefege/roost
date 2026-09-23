@@ -160,12 +160,27 @@ message TaskDeltaProto {
 // or denied), `snapshot` carries the FULL pending set — seeded on every Sync
 // connect so a reconnecting SPA replaces its set wholesale (removals that
 // happened while it was disconnected can't linger; pairBus is volatile, B10).
+// `completed` announces a browser that just became an account device; it is
+// a volatile notice, never replayed, and carries no requester secret.
 message PairRequestDeltaProto {
   oneof kind {
     PairRequest pending = 1;
     string removed_id = 2;
     PairRequestsSnapshot snapshot = 3;
+    PairCompleted completed = 4;
   }
+}
+
+message PairCompleted {
+  string ephemeral_id = 1;
+  string label = 2;
+  string client_browser = 3;
+  string client_os = 4;
+  string client_device_type = 5;
+  string country_code = 6;
+  string region = 7;
+  string city = 8;
+  uint64 paired_at_ms = 9;
 }
 
 message PairRequestsSnapshot {

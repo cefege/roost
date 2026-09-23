@@ -9,6 +9,7 @@ import { signal, diag } from "@roost/shared/diag";
 import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
+import { announcePairedBrowser, formatPairedBrowserLabel } from "../lib/pairedBrowserNotice.ts";
 import { applyAgentStatusFrame } from "./agent-status.ts";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 import { _dispatchPresence } from "./sync-dispatch.ts";
@@ -285,7 +286,8 @@ export function _dispatchSyncFrame(
         // Pair-request delta (perf sweep C2.4 — replaces the 5 s pairList
         // poller). `pending` upserts, `removedId` drops (approve/deny),
         // `snapshot` (seeded per Sync connect) REPLACES the whole set so
-        // removals missed while disconnected can't linger.
+        // removals missed while disconnected can't linger. `completed` is
+        // volatile (never in a snapshot) and announces the new browser once.
         const d = oneof.value;
         const fold = (p: {
           ephemeralId: string;
@@ -330,6 +332,13 @@ export function _dispatchSyncFrame(
           for (const id of Object.keys(rootStore.pair_requests)) {
             if (!keep.has(id)) deleteStoreRecord("pair_requests", id);
           }
+        } else if (d.kind.case === "completed") {
+          const completed = d.kind.value;
+          deleteStoreRecord("pair_requests", completed.ephemeralId);
+          announcePairedBrowser({
+            ephemeralId: completed.ephemeralId,
+            label: formatPairedBrowserLabel(completed),
+          });
         }
         else consumed = false;
         break;

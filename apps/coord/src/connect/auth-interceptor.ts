@@ -131,9 +131,10 @@ const WRITE_METHODS: Record<string, true | undefined> = {
 
 // Successful methods whose audit rows carry no forensic signal. Failure rows
 // remain durable unless a method is in the explicit all-outcome set below.
+// PairApprovalStatus is the approver's 1 Hz dialog poll.
 const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
   AuthCoordIdentity: true, DiagDebugLogBatch: true, MiscHealth: true, WorkersHeartbeat: true,
-  PairConfirm: true, PairList: true, SessionsCursorPos: true,
+  PairConfirm: true, PairList: true, PairApprovalStatus: true, SessionsCursorPos: true,
   UiReportState: true, SessionsGetScrollbackCells: true,
   SessionsSearchScrollback: true, SessionsCancelScrollbackSearch: true,
   SessionsSearchGlobal: true, SessionsCancelGlobalSearch: true,

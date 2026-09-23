@@ -1,8 +1,7 @@
-// The one card shown while a terminal is opening: a constant eyebrow, a single
-// determinate 4→100% meter, one friendly step line, and the technical detail
+// The one card shown while a terminal pane is opening: a constant eyebrow, a
+// single determinate meter, one friendly step line, and the technical detail
 // collapsed until a step is slow or stuck.
-// Mounted by MainPane (bootstrap steps) and CellTerminal (pane steps); the two
-// instances share one band table so their hand-off reads as one journey.
+// Mounted by CellTerminal (pane steps) and the DesignGallery sample.
 // Depends on terminalStartupProgress.ts, pageVisible.ts, and md primitives.
 
 import {
@@ -15,13 +14,11 @@ import {
   onCleanup,
   untrack,
 } from "solid-js";
-import type { JSX } from "solid-js";
 import { Surface } from "./Settings/md/primitives.tsx";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import {
   TERMINAL_STARTUP_STEPS,
   terminalStartupChunkDetail,
-  terminalStartupCompletesJourney,
   terminalStartupPercent,
   type TerminalStartupStage,
 } from "../lib/terminalStartupProgress.ts";
@@ -33,7 +30,6 @@ export interface TerminalStartupNotice {
   /** Screen-reader announcement line; also the collapsed technical detail head. */
   title: string;
   detail: string;
-  actions?: JSX.Element;
   /** Chunked-baseline assembly progress; subdivides the frame band. */
   progress?: { received: number; total: number } | null;
   /** Diagnosis line explaining where a stalled attach is stuck. */
@@ -140,14 +136,7 @@ export function TerminalStartupOverlay(props: { notice: TerminalStartupNotice | 
       });
       return;
     }
-    const previous = untrack(held);
-    if (!previous) return;
-    // A bootstrap step hands off to the pane's own card, so finishing its meter
-    // at 100% would make the journey restart at 46%. Leave silently instead.
-    if (!terminalStartupCompletesJourney(previous.stage)) {
-      setHeld(null);
-      return;
-    }
+    if (!untrack(held)) return;
     if (finishTimer) return;
     finishTimer = setTimeout(() => {
       setFinishing(true);
@@ -285,11 +274,6 @@ export function TerminalStartupOverlay(props: { notice: TerminalStartupNotice | 
                 )}
               </Show>
             </div>
-            {/* Outside the collapsible details: the stuck-terminal escape hatch
-                appears after 600ms and must not wait on the 4s reveal. */}
-            <Show when={notice().actions}>
-              <div class="terminal-startup__actions">{notice().actions}</div>
-            </Show>
           </Surface>
         </div>
       )}

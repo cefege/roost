@@ -5,6 +5,7 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test, vi } from "bun:test";
 import type * as SolidApi from "solid-js";
+import type { OnboardingPairingCeremony } from "../src/components/onboarding-pairing-ceremony.ts";
 
 const REQUEST_ID_A = "0123456789abcdef0123456789abcdef";
 const REQUEST_ID_B = "fedcba9876543210fedcba9876543210";
@@ -38,16 +39,6 @@ type PairPollInput = {
   requesterToken: string;
 };
 type PairConfirmInput = PairPollInput & { verificationCode: string };
-type CeremonyController = {
-  busy: () => boolean;
-  clear: () => void;
-  confirm: () => Promise<void>;
-  confirmationError: () => string | null;
-  ephemeralId: () => string | null;
-  pollStatus: () => string;
-  start: () => Promise<void>;
-  updateVerificationCode: (value: string) => void;
-};
 
 let generatedIds: string[] = [];
 let generatedTokens: string[] = [];
@@ -88,7 +79,7 @@ const { createOnboardingPairingCeremony } = await import(
 );
 
 function mountCeremony(redirects: { count: number }) {
-  let controller: CeremonyController | undefined;
+  let controller: OnboardingPairingCeremony | undefined;
   let dispose: (() => void) | undefined;
   Solid.createRoot((disposeRoot) => {
     dispose = disposeRoot;

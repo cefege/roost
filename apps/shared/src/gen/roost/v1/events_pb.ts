@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/events.proto.
  */
 export const file_roost_v1_events: GenFile = /*@__PURE__*/
-  fileDesc("ChVyb29zdC92MS9ldmVudHMucHJvdG8SCHJvb3N0LnYxInIKCU9wZW5lZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCXdvcmtlcl9mcBgCIAEoCRIPCgdjaGFubmVsGAMgASgNEhQKDHNlc3Npb25fa2luZBgEIAEoCRILCgNjd2QYBSABKAkSCgoCdHMYBiABKAQiUQoJQ2xvc2VkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSFgoJZXhpdF9jb2RlGAIgASgFSACIAQESCgoCdHMYAyABKARCDAoKX2V4aXRfY29kZSItCgtBdHRhY2hlZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEgoKAnRzGAIgASgEIi0KC0RldGFjaGVkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSCgoCdHMYAiABKAQiNQoGQ3dkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSCwoDY3dkGAIgASgJEgoKAnRzGAMgASgEImIKFFdvcmtzcGFjZUFzc2lnbmVkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSGQoMd29ya3NwYWNlX2lkGAIgASgJSACIAQESCgoCdHMYAyABKARCDwoNX3dvcmtzcGFjZV9pZCJRCgtTbmFwc2hvdEV2dBIRCgl3b3JrZXJfZnAYASABKAkSIwoIc2Vzc2lvbnMYAiADKAsyES5yb29zdC52MS5TZXNzaW9uEgoKAnRzGAMgASgEIkMKDFJlc3Bhd25lZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhMKC25ld19jaGFubmVsGAIgASgNEgoKAnRzGAMgASgEIkIKClJlbmFtZWRFdnQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxjdXN0b21fdGl0bGUYAiABKAkSCgoCdHMYAyABKAQiaAoGR2l0RXZ0EhIKCnNlc3Npb25faWQYASABKAkSEwoGYnJhbmNoGAIgASgJSACIAQESCgoCdHMYAyABKAQSEwoGcmVtb3RlGAQgASgJSAGIAQFCCQoHX2JyYW5jaEIJCgdfcmVtb3RlIp8BCgVQckV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhMKBm51bWJlchgCIAEoBUgAiAEBEhIKBXN0YXRlGAMgASgJSAGIAQESEwoGY2hlY2tzGAQgASgJSAKIAQESEAoDdXJsGAUgASgJSAOIAQESCgoCdHMYBiABKARCCQoHX251bWJlckIICgZfc3RhdGVCCQoHX2NoZWNrc0IGCgRfdXJsIjkKCFBvcnRzRXZ0EhIKCnNlc3Npb25faWQYASABKAkSDQoFcG9ydHMYAiADKAUSCgoCdHMYAyABKAQikgEKEUFnZW50UmVmZXJlbmNlRXZ0EhIKCnNlc3Npb25faWQYASABKAkSOQoJcmVmZXJlbmNlGAIgASgLMiYucm9vc3QudjEuQWdlbnRDb252ZXJzYXRpb25SZWZlcmVuY2VWMRIKCgJ0cxgDIAEoBBIVCgh0cmFjZV9pZBgEIAEoCUgAiAEBQgsKCV90cmFjZV9pZCLUBAoRU2Vzc2lvbkV2ZW50UHJvdG8SEAoIZXZlbnRfaWQYASABKAQSJQoGb3BlbmVkGAogASgLMhMucm9vc3QudjEuT3BlbmVkRXZ0SAASJQoGY2xvc2VkGAsgASgLMhMucm9vc3QudjEuQ2xvc2VkRXZ0SAASKQoIYXR0YWNoZWQYDCABKAsyFS5yb29zdC52MS5BdHRhY2hlZEV2dEgAEikKCGRldGFjaGVkGA0gASgLMhUucm9vc3QudjEuRGV0YWNoZWRFdnRIABIfCgNjd2QYDiABKAsyEC5yb29zdC52MS5Dd2RFdnRIABI8ChJ3b3Jrc3BhY2VfYXNzaWduZWQYDyABKAsyHi5yb29zdC52MS5Xb3Jrc3BhY2VBc3NpZ25lZEV2dEgAEikKCHNuYXBzaG90GBEgASgLMhUucm9vc3QudjEuU25hcHNob3RFdnRIABIrCglyZXNwYXduZWQYEiABKAsyFi5yb29zdC52MS5SZXNwYXduZWRFdnRIABInCgdyZW5hbWVkGBMgASgLMhQucm9vc3QudjEuUmVuYW1lZEV2dEgAEh8KA2dpdBgUIAEoCzIQLnJvb3N0LnYxLkdpdEV2dEgAEh0KAnByGBUgASgLMg8ucm9vc3QudjEuUHJFdnRIABIjCgVwb3J0cxgWIAEoCzISLnJvb3N0LnYxLlBvcnRzRXZ0SAASNgoPYWdlbnRfcmVmZXJlbmNlGBcgASgLMhsucm9vc3QudjEuQWdlbnRSZWZlcmVuY2VFdnRIAEIGCgRraW5kSgQIEBARIlIKFFdvcmtzcGFjZVNlc3Npb25zU2V0EhQKDHdvcmtzcGFjZV9pZBgBIAEoCRITCgtzZXNzaW9uX2lkcxgCIAMoCRIPCgd2ZXJzaW9uGAMgASgEIrsBChNXb3Jrc3BhY2VEZWx0YVByb3RvEiYKB2NyZWF0ZWQYASABKAsyEy5yb29zdC52MS5Xb3Jrc3BhY2VIABImCgd1cGRhdGVkGAIgASgLMhMucm9vc3QudjEuV29ya3NwYWNlSAASFAoKZGVsZXRlZF9pZBgDIAEoCUgAEjYKDHNlc3Npb25zX3NldBgEIAEoCzIeLnJvb3N0LnYxLldvcmtzcGFjZVNlc3Npb25zU2V0SABCBgoEa2luZCJcCg5UYXNrRGVsdGFQcm90bxIhCgdjcmVhdGVkGAEgASgLMg4ucm9vc3QudjEuVGFza0gAEh8KBXN0YXRlGAIgASgLMg4ucm9vc3QudjEuVGFza0gAQgYKBGtpbmQikwEKFVBhaXJSZXF1ZXN0RGVsdGFQcm90bxIoCgdwZW5kaW5nGAEgASgLMhUucm9vc3QudjEuUGFpclJlcXVlc3RIABIUCgpyZW1vdmVkX2lkGAIgASgJSAASMgoIc25hcHNob3QYAyABKAsyHi5yb29zdC52MS5QYWlyUmVxdWVzdHNTbmFwc2hvdEgAQgYKBGtpbmQiPgoUUGFpclJlcXVlc3RzU25hcHNob3QSJgoHcGVuZGluZxgBIAMoCzIVLnJvb3N0LnYxLlBhaXJSZXF1ZXN0IkMKDU1jcFJlbGF5RXZlbnQSEAoIcmVsYXlfaWQYASABKAkSFAoMcGF5bG9hZF9qc29uGAIgASgJEgoKAnRzGAMgASgEIq0BChVNY3BTdHJlYW1NZXNzYWdlUHJvdG8SJQoHY3JlYXRlZBgBIAEoCzISLnJvb3N0LnYxLk1jcFJlbGF5SAASJQoHdXBkYXRlZBgCIAEoCzISLnJvb3N0LnYxLk1jcFJlbGF5SAASFAoKZGVsZXRlZF9pZBgDIAEoCUgAEigKBWV2ZW50GAQgASgLMhcucm9vc3QudjEuTWNwUmVsYXlFdmVudEgAQgYKBGtpbmQi4wEKD1dvcmtlckhlYXJ0YmVhdBIRCgl3b3JrZXJfZnAYASABKAkSFAoMbGFzdF9zZWVuX21zGAIgASgEEjAKDGhvc3RfbWV0cmljcxgDIAEoCzIVLnJvb3N0LnYxLkhvc3RNZXRyaWNzSACIAQESSQoWdGVybWluYWxfY29yZV9jYXBhY2l0eRgEIAEoCzIkLnJvb3N0LnYxLlRlcm1pbmFsQ29yZUNhcGFjaXR5UmVwb3J0SAGIAQFCDwoNX2hvc3RfbWV0cmljc0IZChdfdGVybWluYWxfY29yZV9jYXBhY2l0eSKLAQoTV29ya2VyUHJlc2VuY2VQcm90bxImCgpyZWdpc3RlcmVkGAEgASgLMhAucm9vc3QudjEuV29ya2VySAASLgoJaGVhcnRiZWF0GAIgASgLMhkucm9vc3QudjEuV29ya2VySGVhcnRiZWF0SAASFAoKcmVtb3ZlZF9mcBgDIAEoCUgAQgYKBGtpbmRiBnByb3RvMw", [file_roost_v1_wire]);
+  fileDesc("ChVyb29zdC92MS9ldmVudHMucHJvdG8SCHJvb3N0LnYxInIKCU9wZW5lZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCXdvcmtlcl9mcBgCIAEoCRIPCgdjaGFubmVsGAMgASgNEhQKDHNlc3Npb25fa2luZBgEIAEoCRILCgNjd2QYBSABKAkSCgoCdHMYBiABKAQiUQoJQ2xvc2VkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSFgoJZXhpdF9jb2RlGAIgASgFSACIAQESCgoCdHMYAyABKARCDAoKX2V4aXRfY29kZSItCgtBdHRhY2hlZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEgoKAnRzGAIgASgEIi0KC0RldGFjaGVkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSCgoCdHMYAiABKAQiNQoGQ3dkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSCwoDY3dkGAIgASgJEgoKAnRzGAMgASgEImIKFFdvcmtzcGFjZUFzc2lnbmVkRXZ0EhIKCnNlc3Npb25faWQYASABKAkSGQoMd29ya3NwYWNlX2lkGAIgASgJSACIAQESCgoCdHMYAyABKARCDwoNX3dvcmtzcGFjZV9pZCJRCgtTbmFwc2hvdEV2dBIRCgl3b3JrZXJfZnAYASABKAkSIwoIc2Vzc2lvbnMYAiADKAsyES5yb29zdC52MS5TZXNzaW9uEgoKAnRzGAMgASgEIkMKDFJlc3Bhd25lZEV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhMKC25ld19jaGFubmVsGAIgASgNEgoKAnRzGAMgASgEIkIKClJlbmFtZWRFdnQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxjdXN0b21fdGl0bGUYAiABKAkSCgoCdHMYAyABKAQiaAoGR2l0RXZ0EhIKCnNlc3Npb25faWQYASABKAkSEwoGYnJhbmNoGAIgASgJSACIAQESCgoCdHMYAyABKAQSEwoGcmVtb3RlGAQgASgJSAGIAQFCCQoHX2JyYW5jaEIJCgdfcmVtb3RlIp8BCgVQckV2dBISCgpzZXNzaW9uX2lkGAEgASgJEhMKBm51bWJlchgCIAEoBUgAiAEBEhIKBXN0YXRlGAMgASgJSAGIAQESEwoGY2hlY2tzGAQgASgJSAKIAQESEAoDdXJsGAUgASgJSAOIAQESCgoCdHMYBiABKARCCQoHX251bWJlckIICgZfc3RhdGVCCQoHX2NoZWNrc0IGCgRfdXJsIjkKCFBvcnRzRXZ0EhIKCnNlc3Npb25faWQYASABKAkSDQoFcG9ydHMYAiADKAUSCgoCdHMYAyABKAQikgEKEUFnZW50UmVmZXJlbmNlRXZ0EhIKCnNlc3Npb25faWQYASABKAkSOQoJcmVmZXJlbmNlGAIgASgLMiYucm9vc3QudjEuQWdlbnRDb252ZXJzYXRpb25SZWZlcmVuY2VWMRIKCgJ0cxgDIAEoBBIVCgh0cmFjZV9pZBgEIAEoCUgAiAEBQgsKCV90cmFjZV9pZCLUBAoRU2Vzc2lvbkV2ZW50UHJvdG8SEAoIZXZlbnRfaWQYASABKAQSJQoGb3BlbmVkGAogASgLMhMucm9vc3QudjEuT3BlbmVkRXZ0SAASJQoGY2xvc2VkGAsgASgLMhMucm9vc3QudjEuQ2xvc2VkRXZ0SAASKQoIYXR0YWNoZWQYDCABKAsyFS5yb29zdC52MS5BdHRhY2hlZEV2dEgAEikKCGRldGFjaGVkGA0gASgLMhUucm9vc3QudjEuRGV0YWNoZWRFdnRIABIfCgNjd2QYDiABKAsyEC5yb29zdC52MS5Dd2RFdnRIABI8ChJ3b3Jrc3BhY2VfYXNzaWduZWQYDyABKAsyHi5yb29zdC52MS5Xb3Jrc3BhY2VBc3NpZ25lZEV2dEgAEikKCHNuYXBzaG90GBEgASgLMhUucm9vc3QudjEuU25hcHNob3RFdnRIABIrCglyZXNwYXduZWQYEiABKAsyFi5yb29zdC52MS5SZXNwYXduZWRFdnRIABInCgdyZW5hbWVkGBMgASgLMhQucm9vc3QudjEuUmVuYW1lZEV2dEgAEh8KA2dpdBgUIAEoCzIQLnJvb3N0LnYxLkdpdEV2dEgAEh0KAnByGBUgASgLMg8ucm9vc3QudjEuUHJFdnRIABIjCgVwb3J0cxgWIAEoCzISLnJvb3N0LnYxLlBvcnRzRXZ0SAASNgoPYWdlbnRfcmVmZXJlbmNlGBcgASgLMhsucm9vc3QudjEuQWdlbnRSZWZlcmVuY2VFdnRIAEIGCgRraW5kSgQIEBARIlIKFFdvcmtzcGFjZVNlc3Npb25zU2V0EhQKDHdvcmtzcGFjZV9pZBgBIAEoCRITCgtzZXNzaW9uX2lkcxgCIAMoCRIPCgd2ZXJzaW9uGAMgASgEIrsBChNXb3Jrc3BhY2VEZWx0YVByb3RvEiYKB2NyZWF0ZWQYASABKAsyEy5yb29zdC52MS5Xb3Jrc3BhY2VIABImCgd1cGRhdGVkGAIgASgLMhMucm9vc3QudjEuV29ya3NwYWNlSAASFAoKZGVsZXRlZF9pZBgDIAEoCUgAEjYKDHNlc3Npb25zX3NldBgEIAEoCzIeLnJvb3N0LnYxLldvcmtzcGFjZVNlc3Npb25zU2V0SABCBgoEa2luZCJcCg5UYXNrRGVsdGFQcm90bxIhCgdjcmVhdGVkGAEgASgLMg4ucm9vc3QudjEuVGFza0gAEh8KBXN0YXRlGAIgASgLMg4ucm9vc3QudjEuVGFza0gAQgYKBGtpbmQiwQEKFVBhaXJSZXF1ZXN0RGVsdGFQcm90bxIoCgdwZW5kaW5nGAEgASgLMhUucm9vc3QudjEuUGFpclJlcXVlc3RIABIUCgpyZW1vdmVkX2lkGAIgASgJSAASMgoIc25hcHNob3QYAyABKAsyHi5yb29zdC52MS5QYWlyUmVxdWVzdHNTbmFwc2hvdEgAEiwKCWNvbXBsZXRlZBgEIAEoCzIXLnJvb3N0LnYxLlBhaXJDb21wbGV0ZWRIAEIGCgRraW5kIsUBCg1QYWlyQ29tcGxldGVkEhQKDGVwaGVtZXJhbF9pZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIWCg5jbGllbnRfYnJvd3NlchgDIAEoCRIRCgljbGllbnRfb3MYBCABKAkSGgoSY2xpZW50X2RldmljZV90eXBlGAUgASgJEhQKDGNvdW50cnlfY29kZRgGIAEoCRIOCgZyZWdpb24YByABKAkSDAoEY2l0eRgIIAEoCRIUCgxwYWlyZWRfYXRfbXMYCSABKAQiPgoUUGFpclJlcXVlc3RzU25hcHNob3QSJgoHcGVuZGluZxgBIAMoCzIVLnJvb3N0LnYxLlBhaXJSZXF1ZXN0IkMKDU1jcFJlbGF5RXZlbnQSEAoIcmVsYXlfaWQYASABKAkSFAoMcGF5bG9hZF9qc29uGAIgASgJEgoKAnRzGAMgASgEIq0BChVNY3BTdHJlYW1NZXNzYWdlUHJvdG8SJQoHY3JlYXRlZBgBIAEoCzISLnJvb3N0LnYxLk1jcFJlbGF5SAASJQoHdXBkYXRlZBgCIAEoCzISLnJvb3N0LnYxLk1jcFJlbGF5SAASFAoKZGVsZXRlZF9pZBgDIAEoCUgAEigKBWV2ZW50GAQgASgLMhcucm9vc3QudjEuTWNwUmVsYXlFdmVudEgAQgYKBGtpbmQi4wEKD1dvcmtlckhlYXJ0YmVhdBIRCgl3b3JrZXJfZnAYASABKAkSFAoMbGFzdF9zZWVuX21zGAIgASgEEjAKDGhvc3RfbWV0cmljcxgDIAEoCzIVLnJvb3N0LnYxLkhvc3RNZXRyaWNzSACIAQESSQoWdGVybWluYWxfY29yZV9jYXBhY2l0eRgEIAEoCzIkLnJvb3N0LnYxLlRlcm1pbmFsQ29yZUNhcGFjaXR5UmVwb3J0SAGIAQFCDwoNX2hvc3RfbWV0cmljc0IZChdfdGVybWluYWxfY29yZV9jYXBhY2l0eSKLAQoTV29ya2VyUHJlc2VuY2VQcm90bxImCgpyZWdpc3RlcmVkGAEgASgLMhAucm9vc3QudjEuV29ya2VySAASLgoJaGVhcnRiZWF0GAIgASgLMhkucm9vc3QudjEuV29ya2VySGVhcnRiZWF0SAASFAoKcmVtb3ZlZF9mcBgDIAEoCUgAQgYKBGtpbmRiBnByb3RvMw", [file_roost_v1_wire]);
 
 /**
  * @generated from message roost.v1.OpenedEvt
@@ -639,6 +639,8 @@ export const TaskDeltaProtoSchema: GenMessage<TaskDeltaProto> = /*@__PURE__*/
  * or denied), `snapshot` carries the FULL pending set — seeded on every Sync
  * connect so a reconnecting SPA replaces its set wholesale (removals that
  * happened while it was disconnected can't linger; pairBus is volatile, B10).
+ * `completed` announces a browser that just became an account device; it is
+ * a volatile notice, never replayed, and carries no requester secret.
  *
  * @generated from message roost.v1.PairRequestDeltaProto
  */
@@ -664,6 +666,12 @@ export type PairRequestDeltaProto = Message<"roost.v1.PairRequestDeltaProto"> & 
      */
     value: PairRequestsSnapshot;
     case: "snapshot";
+  } | {
+    /**
+     * @generated from field: roost.v1.PairCompleted completed = 4;
+     */
+    value: PairCompleted;
+    case: "completed";
   } | { case: undefined; value?: undefined };
 };
 
@@ -673,6 +681,63 @@ export type PairRequestDeltaProto = Message<"roost.v1.PairRequestDeltaProto"> & 
  */
 export const PairRequestDeltaProtoSchema: GenMessage<PairRequestDeltaProto> = /*@__PURE__*/
   messageDesc(file_roost_v1_events, 17);
+
+/**
+ * @generated from message roost.v1.PairCompleted
+ */
+export type PairCompleted = Message<"roost.v1.PairCompleted"> & {
+  /**
+   * @generated from field: string ephemeral_id = 1;
+   */
+  ephemeralId: string;
+
+  /**
+   * @generated from field: string label = 2;
+   */
+  label: string;
+
+  /**
+   * @generated from field: string client_browser = 3;
+   */
+  clientBrowser: string;
+
+  /**
+   * @generated from field: string client_os = 4;
+   */
+  clientOs: string;
+
+  /**
+   * @generated from field: string client_device_type = 5;
+   */
+  clientDeviceType: string;
+
+  /**
+   * @generated from field: string country_code = 6;
+   */
+  countryCode: string;
+
+  /**
+   * @generated from field: string region = 7;
+   */
+  region: string;
+
+  /**
+   * @generated from field: string city = 8;
+   */
+  city: string;
+
+  /**
+   * @generated from field: uint64 paired_at_ms = 9;
+   */
+  pairedAtMs: bigint;
+};
+
+/**
+ * Describes the message roost.v1.PairCompleted.
+ * Use `create(PairCompletedSchema)` to create a new message.
+ */
+export const PairCompletedSchema: GenMessage<PairCompleted> = /*@__PURE__*/
+  messageDesc(file_roost_v1_events, 18);
 
 /**
  * @generated from message roost.v1.PairRequestsSnapshot
@@ -689,7 +754,7 @@ export type PairRequestsSnapshot = Message<"roost.v1.PairRequestsSnapshot"> & {
  * Use `create(PairRequestsSnapshotSchema)` to create a new message.
  */
 export const PairRequestsSnapshotSchema: GenMessage<PairRequestsSnapshot> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 18);
+  messageDesc(file_roost_v1_events, 19);
 
 /**
  * @generated from message roost.v1.McpRelayEvent
@@ -716,7 +781,7 @@ export type McpRelayEvent = Message<"roost.v1.McpRelayEvent"> & {
  * Use `create(McpRelayEventSchema)` to create a new message.
  */
 export const McpRelayEventSchema: GenMessage<McpRelayEvent> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 19);
+  messageDesc(file_roost_v1_events, 20);
 
 /**
  * @generated from message roost.v1.McpStreamMessageProto
@@ -757,7 +822,7 @@ export type McpStreamMessageProto = Message<"roost.v1.McpStreamMessageProto"> & 
  * Use `create(McpStreamMessageProtoSchema)` to create a new message.
  */
 export const McpStreamMessageProtoSchema: GenMessage<McpStreamMessageProto> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 20);
+  messageDesc(file_roost_v1_events, 21);
 
 /**
  * Worker presence (post-MVP — workers/registered/heartbeat/removed share
@@ -792,7 +857,7 @@ export type WorkerHeartbeat = Message<"roost.v1.WorkerHeartbeat"> & {
  * Use `create(WorkerHeartbeatSchema)` to create a new message.
  */
 export const WorkerHeartbeatSchema: GenMessage<WorkerHeartbeat> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 21);
+  messageDesc(file_roost_v1_events, 22);
 
 /**
  * @generated from message roost.v1.WorkerPresenceProto
@@ -827,5 +892,5 @@ export type WorkerPresenceProto = Message<"roost.v1.WorkerPresenceProto"> & {
  * Use `create(WorkerPresenceProtoSchema)` to create a new message.
  */
 export const WorkerPresenceProtoSchema: GenMessage<WorkerPresenceProto> = /*@__PURE__*/
-  messageDesc(file_roost_v1_events, 22);
+  messageDesc(file_roost_v1_events, 23);
 

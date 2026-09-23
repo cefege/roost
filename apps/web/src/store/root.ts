@@ -36,6 +36,8 @@ export interface PairRequest {
   expiresAtMs: number;
 }
 
+export type BrowserAccessState = "checking" | "authorized" | "unauthorized";
+
 export interface RootState {
   /** Advances whenever this browser's authenticated resources become obsolete. */
   auth_generation: number;
@@ -67,12 +69,13 @@ export interface RootState {
    *  minimumTerminalGeometry (@roost/shared/viewport); lastMs and entry order
    *  never select a size. SessionRow renders one dot per fp. */
   session_viewers: Record<string, Array<{ fp: string; cols: number; rows: number; lastMs?: number; label?: string; viewerKey?: string }>>;
-  /** True when bootstrap saw a Connect `unauthenticated` code on the
-   *  authed list calls (workersList / sessionsList / workspacesList).
-   *  Drives the sidebar's `browser-unpaired` empty-state kind +
-   *  routes the CTA to /pair (Onboarding). Cleared on successful
-   *  refresh once authorization succeeds. See AllView.tsx + SidebarEmptyState. */
-  browser_unauthorized: boolean;
+  /** Whether this browser's device key is trusted by the coordinator.
+   *  `checking` until the protected sessions snapshot publishes
+   *  (`authorized`) or a device-classified rejection lands (`unauthorized`).
+   *  App.tsx's RootShell gates every protected surface on it; transitions are
+   *  owned by store/browser-access.ts and reset to `checking` at a credential
+   *  boundary. */
+  browser_access_state: BrowserAccessState;
 }
 
 const initialState: RootState = {
@@ -88,7 +91,7 @@ const initialState: RootState = {
   terminal_title: {},
   last_activity: {},
   session_viewers: {},
-  browser_unauthorized: false,
+  browser_access_state: "checking",
 };
 
 export const [rootStore, setRootStore] = createStore<RootState>(initialState);
@@ -120,7 +123,7 @@ export function clearAccountRootStateForLogout(): void {
   batch(() => {
     clearAuthScopedRootData();
     invalidateAuthResources();
-    setRootStore("browser_unauthorized", false);
+    setRootStore("browser_access_state", "checking");
   });
 }
 

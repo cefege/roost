@@ -103,7 +103,6 @@ describe("OnboardingRequestCard", () => {
     let starts = 0;
     const text = renderRequestCard("verification_required", () => { starts += 1; });
 
-    expect(text).toContain("Approval received. Enter the code shown on the paired browser.");
     expect(text).toContain("Start over");
     const startOver = buttons.find((button) => button.children === "Start over");
     (startOver?.onClick as (() => void))();
@@ -115,7 +114,6 @@ describe("OnboardingRequestCard", () => {
     let starts = 0;
     const text = renderRequestCard("error", () => { starts += 1; });
 
-    expect(text).toContain("Poll error — try again.");
     expect(text).toContain("Request again");
     const requestAgain = buttons.find((button) => button.children === "Request again");
     (requestAgain?.onClick as (() => void))();

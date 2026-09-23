@@ -22,7 +22,7 @@ export const pairingPrimitiveStubs = {
     captures.button?.(props);
     return props.children;
   },
-  Card: (props: Record<string, unknown>) => [props.title, props.children],
+  Card: (props: Record<string, unknown>) => [props.title, props.trailing, props.children],
   Chip: (props: Record<string, unknown>) => props.label,
   Dialog: (props: Record<string, unknown>) => {
     captures.dialog?.(props);
@@ -30,8 +30,10 @@ export const pairingPrimitiveStubs = {
       ? [props.headline, props.description, props.children, props.actions]
       : null;
   },
+  EmptyState: (props: Record<string, unknown>) => [props.title, props.supporting],
   List: passthrough,
   ListRow: (props: Record<string, unknown>) => [props.headline, props.support, props.trailing],
+  SectionTitle: passthrough,
   StatusDot: () => null,
   Surface: passthrough,
   TextField: () => null,

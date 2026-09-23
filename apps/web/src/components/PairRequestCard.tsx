@@ -2,8 +2,9 @@
 // Onboarding and PairRequestNotifier delegate here so request provenance and
 // approval controls stay identical on every surface. It composes the M3
 // settings primitives and removes expired requests even when a delta is late.
+// Raw user agent and request ID sit under a per-instance Technical details toggle.
 
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 import { Card, Chip, Button, StatusDot, List, ListRow } from "./Settings/md/primitives.tsx";
 import type { PairRequest } from "../store/root.ts";
 
@@ -24,6 +25,10 @@ export function PairRequestCard(props: PairRequestCardProps) {
   const [now, setNow] = createSignal(Date.now());
   const expiryTimer = setInterval(() => setNow(Date.now()), 1_000);
   onCleanup(() => clearInterval(expiryTimer));
+  // The same request can render on the home page and in the notification dock
+  // at once, so the disclosure id must be unique per card instance.
+  const technicalDetailsId = createUniqueId();
+  const [technicalDetailsOpen, setTechnicalDetailsOpen] = createSignal(false);
 
   const deviceLabel = () => {
     const deviceParts = [props.request.clientBrowser, props.request.clientOs]
@@ -107,33 +112,62 @@ export function PairRequestCard(props: PairRequestCardProps) {
               }
             />
             <ListRow
-              leading="language"
-              testId="pair-request-user-agent"
-              headline={<span class="md-label-m">User agent</span>}
-              support={
-                <span
-                  class="md-body-s"
-                  style={{
-                    display: "-webkit-box",
-                    "-webkit-box-orient": "vertical",
-                    "-webkit-line-clamp": "3",
-                    overflow: "hidden",
-                    "overflow-wrap": "anywhere",
-                    "white-space": "pre-wrap",
-                    "user-select": "text",
-                  }}
-                >
-                  {props.request.userAgent || "User agent unavailable"}
-                </span>
-              }
-            />
-            <ListRow
-              leading="key"
-              testId="pair-request-id"
-              headline={<span class="md-body-m">Request ID: {props.request.ephemeral_id}</span>}
-              support={<span class="md-body-s">{relativeAge()} · {expiryLabel()}</span>}
+              leading="schedule"
+              testId="pair-request-expiry"
+              headline={<span class="md-body-m">{expiryLabel()}</span>}
+              support={<span class="md-body-s">{relativeAge()}</span>}
             />
           </List>
+          <div>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={technicalDetailsOpen() ? "expand_less" : "expand_more"}
+              aria-expanded={technicalDetailsOpen()}
+              aria-controls={technicalDetailsId}
+              data-testid="pair-request-technical-details-toggle"
+              onClick={() => setTechnicalDetailsOpen((open) => !open)}
+            >
+              Technical details
+            </Button>
+          </div>
+          <Show when={technicalDetailsOpen()}>
+            <div id={technicalDetailsId}>
+              <List contained>
+                <ListRow
+                  leading="language"
+                  testId="pair-request-user-agent"
+                  headline={<span class="md-label-m">User agent</span>}
+                  support={
+                    <span
+                      class="md-body-s"
+                      style={{
+                        display: "-webkit-box",
+                        "-webkit-box-orient": "vertical",
+                        "-webkit-line-clamp": "3",
+                        overflow: "hidden",
+                        "overflow-wrap": "anywhere",
+                        "white-space": "pre-wrap",
+                        "user-select": "text",
+                      }}
+                    >
+                      {props.request.userAgent || "User agent unavailable"}
+                    </span>
+                  }
+                />
+                <ListRow
+                  leading="key"
+                  testId="pair-request-id"
+                  headline={<span class="md-label-m">Request ID</span>}
+                  support={
+                    <code class="md-body-s" style={{ "overflow-wrap": "anywhere", "user-select": "text" }}>
+                      {props.request.ephemeral_id}
+                    </code>
+                  }
+                />
+              </List>
+            </div>
+          </Show>
           <div
             role="group"
             aria-label="Pair request actions"
@@ -169,12 +203,12 @@ export function PairRequestCard(props: PairRequestCardProps) {
 }
 
 function formatRelativeAge(createdAtMs: number, now: number): string {
-  if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return "Age unavailable";
+  if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return "Request age unavailable";
   const ageMs = Math.max(0, now - createdAtMs);
-  if (ageMs < 60_000) return "just now";
-  if (ageMs < 3_600_000) return `${Math.floor(ageMs / 60_000)}m ago`;
-  if (ageMs < 86_400_000) return `${Math.floor(ageMs / 3_600_000)}h ago`;
-  return `${Math.floor(ageMs / 86_400_000)}d ago`;
+  if (ageMs < 60_000) return "Requested just now";
+  if (ageMs < 3_600_000) return `Requested ${Math.floor(ageMs / 60_000)}m ago`;
+  if (ageMs < 86_400_000) return `Requested ${Math.floor(ageMs / 3_600_000)}h ago`;
+  return `Requested ${Math.floor(ageMs / 86_400_000)}d ago`;
 }
 
 function formatExpiry(expiresAtMs: number, now: number): string {

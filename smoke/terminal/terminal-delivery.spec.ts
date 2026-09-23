@@ -9,7 +9,6 @@ import type { RecoverySmokeApi, TerminalIdentityProbeWindow } from "./terminal-s
 import { spawnSmokeShell, navigateToSmokeSession } from "./terminal-helpers.ts";
 import {
   installTerminalLoadingStageProbe,
-  terminalLoadingStages,
   terminalStartupMeterSamples,
 } from "./terminal-loading-stage-probe.ts";
 
@@ -31,7 +30,7 @@ test("browser smoke flow creates and cleans its resources", async ({ smokePage, 
   expect(result.steps.filter((step) => !step.pass)).toEqual([]);
 });
 
-test("cold document shows loading until an existing terminal paints", async ({
+test("cold document holds the access gate until an existing terminal paints", async ({
   smokePage,
   coldSmokePage,
   stack,
@@ -91,25 +90,11 @@ test("cold document shows loading until an existing terminal paints", async ({
     await sessionsListRequest;
     await expect.poll(() => routeIntercepted).toBe(true);
 
-    const loadingStatus = coldSmokePage.getByTestId("terminal-loading-status");
-    await expect(loadingStatus).toHaveAttribute("data-stage", "sessions");
-    await expect(coldSmokePage.getByTestId("terminal-loading-title"))
-      .toHaveText("Opening terminal");
-    await expect(coldSmokePage.getByTestId("terminal-loading-detail"))
-      .toHaveText("Finding your terminals");
-    // The technical block stays collapsed until a step is slow or stuck.
-    await expect(coldSmokePage.getByTestId("terminal-loading-details")).toBeHidden();
-    await expect.poll(() => terminalLoadingStages(coldSmokePage)).toContain("sessions");
-    await expect.poll(async () => {
-      return loadingStatus.evaluate((status) => {
-        const elapsedSeconds = Number(status.getAttribute("data-elapsed-seconds"));
-        const elapsedCopy = status.querySelector(
-          '[data-testid="terminal-loading-elapsed"]',
-        )?.textContent;
-        return elapsedSeconds >= 1 &&
-          elapsedCopy === `This step has taken ${elapsedSeconds}s`;
-      });
-    }).toBe(true);
+    // The protected sessions snapshot is what authorizes the browser, so while
+    // it is held the gate owns the viewport and no workbench surface mounts.
+    await expect(coldSmokePage.getByTestId("access-checking")).toBeVisible();
+    await expect(coldSmokePage.getByTestId("terminal-loading-status")).toHaveCount(0);
+    await expect(coldSmokePage.getByTestId(`terminal-slot-${sessionId}`)).toHaveCount(0);
     releaseSessionsList();
     await heldRouteFinished;
     await expect(coldSmokePage.getByTestId(`terminal-slot-${sessionId}`))
@@ -124,15 +109,14 @@ test("cold document shows loading until an existing terminal paints", async ({
       marker,
       frames: 2,
     });
+    await expect(coldSmokePage.getByTestId("access-checking")).toHaveCount(0);
     await expect(coldSmokePage.getByTestId("terminal-loading-status")).toHaveCount(0);
     const meter = await terminalStartupMeterSamples(coldSmokePage, true);
     const percents = meter.map((sample) => sample.percent);
     expect(percents).toEqual([...percents].sort((a, b) => a - b));
-    expect(meter.some((sample) =>
-      sample.stage === "sessions" && sample.percent >= 30 && sample.percent < 46)).toBe(true);
-    expect(meter.filter((sample) => sample.stage === "sessions").length)
-      .toBeGreaterThan(1);
-    expect(meter.some((sample) => sample.percent >= 46)).toBe(true);
+    // Only the pane card remains, so the journey starts at its first band.
+    expect(percents.length).toBeGreaterThan(0);
+    expect(percents.every((percent) => percent >= 46)).toBe(true);
     expect(meter.at(-1)).toMatchObject({ phase: "complete", percent: 100 });
     await expect(coldSmokePage).toHaveURL(targetUrl);
     expect(documentRequests).toEqual([targetUrl]);

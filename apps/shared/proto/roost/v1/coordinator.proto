@@ -716,6 +716,14 @@ message PairConfirmResponse { bool ok = 1; }
 message PairDenyRequest { string ephemeral_id = 1; }
 message PairDenyResponse { bool ok = 1; }
 
+// Approver-only, secret-free progress of a request the caller approved.
+// status: verification_required|completed|denied|expired|verification_failed
+message PairApprovalStatusRequest {
+  uint32 ceremony_version = 1;
+  string ephemeral_id = 2;
+}
+message PairApprovalStatusResponse { string status = 1; }
+
 // ─── misc ─────────────────────────────────────────────────────────────────
 
 message MiscFlagsRequest {}
@@ -973,6 +981,7 @@ service CoordinatorService {
   rpc PairApprove(PairApproveRequest) returns (PairApproveResponse);
   rpc PairConfirm(PairConfirmRequest) returns (PairConfirmResponse);
   rpc PairDeny(PairDenyRequest) returns (PairDenyResponse);
+  rpc PairApprovalStatus(PairApprovalStatusRequest) returns (PairApprovalStatusResponse);
 
   // misc
   rpc MiscFlags(MiscFlagsRequest) returns (MiscFlagsResponse);

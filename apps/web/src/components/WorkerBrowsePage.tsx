@@ -68,11 +68,10 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
   const folderServer = () => workerFp;
   const serverLabel = createMemo(() => rootStore.workers[folderServer()]?.label ?? folderServer().slice(0, 8));
   const serverOnline = createMemo(() => { const w = rootStore.workers[folderServer()]; return w ? workerOnline(w) : false; });
-  const scopedWorker = createMemo(() =>
-    !rootStore.browser_unauthorized && rootStore.workers[folderServer()] !== undefined);
+  const scopedWorker = createMemo(() => rootStore.workers[folderServer()] !== undefined);
   const scopeState = createMemo<"loading" | "available" | "unavailable">(() => {
     if (scopedWorker()) return "available";
-    return workersHydrated() || rootStore.browser_unauthorized ? "unavailable" : "loading";
+    return workersHydrated() ? "unavailable" : "loading";
   });
   createEffect(() => {
     if (scopedWorker()) return;

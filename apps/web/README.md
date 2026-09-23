@@ -25,13 +25,18 @@ security boundary. Startup order:
 7. `render(() => <App />, #app)` mounts Solid; leak watch and agent-config load
    follow.
 
-`apps/web/src/App.tsx` is the root: `AppErrorBoundary` outermost, `ConnectionBanner` +
-`VersionBanner` always mounted, `bootstrapSync()` (`apps/web/src/store/sync-bootstrap.ts`) called at
+`apps/web/src/App.tsx` is the root: `AppErrorBoundary` outermost, `ConnectionBanner` always
+mounted, `bootstrapSync()` (`apps/web/src/store/sync-bootstrap.ts`) called at
 component-body time, then `<Router root={RootShell}>` from `@solidjs/router` — no SolidStart, no
-Vinxi. `RootShell` is the always-mounted overlay tier: `PairApprovalProvider` owns the one approver
-ceremony, code dialog, and restore/retry boundary across route children and overlay hosts; command
-palette, help overlay, toasts, dialogs, `apps/web/src/components/UiBridge.tsx`, and the
-smoke/shortcut router bridges live alongside it because they call `useNavigate()`.
+Vinxi. `RootShell` is the access gate. `PairingRequesterProvider` (the one requester ceremony) and
+`PairApprovalProvider` (the one approver ceremony, code dialog, and restore/retry boundary) sit
+above it so no access transition remounts them. Below them it renders on
+`rootStore.browser_access_state`, whose transitions `apps/web/src/store/browser-access.ts` owns:
+`checking` → `AccessCheckingScreen`, `unauthorized` → standalone `Onboarding`, `authorized` → route
+children plus `VersionBanner`, command palette, help overlay, toasts, dialogs,
+`apps/web/src/components/UiBridge.tsx`, and the shortcut router bridge (they call `useNavigate()`).
+Only the protected sessions snapshot authorizes; only a device-classified rejection denies. No
+workbench chrome mounts before authorization.
 
 Routes are declared once in `apps/web/src/routes.ts`; the URL is the source of truth for nav state.
 `ROUTES.SESSION`, `TERMINAL_BY_FOLDER`, `WORKSPACE`, `WORKSPACE_TERMINAL`, `FILE` and `SEARCH` share
@@ -50,8 +55,9 @@ lives in that row's directory; prefixed refs follow the convention above.
 | --- | --- | --- |
 | `apps/web/src/` (root files) | `entry.ts` (credential scrub + deferred graph load), `main.tsx` (post-scrub bootstrap + mount), `App.tsx` (router + overlay shell), `routes.ts` (URL table), `connect.ts` (Connect-RPC client), `css-imports.d.ts` and `md-elements.d.ts` (ambient imports/elements) | feature-shaped UI |
 | `apps/web/src/components/` | screens/dialogs; `NotificationDock.tsx` owns the ONE bottom overlay column (`ToastStack.tsx`/`ToastCard.tsx`, `UndoCloseBanner.tsx`, `TransferCard.tsx`, `PairRequestNotifier.tsx`, `PadHintBar.tsx` render as its children and never position themselves); `DesignGallery.tsx` is the visual reference for theme tokens, shared primitives, and the canonical title/activity/sidebar/editor/status composition; `GlobalSearchPage.tsx` composes metadata/attention with `GlobalSearchContentResults.tsx`; `ArrangeMenu.tsx` exposes pane presets; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `cell-terminal-document-lifecycle.ts` fans one page-lifecycle listener set to mounted terminals; `TerminalStartupOverlay.tsx` is the ONE opening-terminal card, mounted by both `MainPane.tsx` and `CellTerminal.tsx`; `TerminalCard.tsx` is the compact deck's terminal card; `PaneTab.tsx`/`PaneTabList.tsx`/`paneTabRailScroll.ts` own tab-rail measurement and the overflow filter; `WorkerBrowsePage.tsx` composes the folder picker from `BrowseEntryList.tsx`, `BrowsePathBar.tsx`, `BrowseToolbar.tsx`, `NewFolderDialog.tsx`, `browseDirectoryListing.ts`, `browseNewFolder.ts`, `browsePickerKeys.ts`, and `browseBreadcrumbCollapse.ts` | global state, transport, or terminal cell parsing |
-| `apps/web/src/components/onboarding-pairing-ceremony.ts` | requester-owned versioned ceremony: tab-only request ID/token persistence, exact-create recovery, serialized polling, confirmation, and stale-operation fences | approver code ownership, Sync/root-store secrets, or URL state |
-| `apps/web/src/components/PairApprovalProvider.tsx` | the sole trusted-approver RPC/retry owner and `PairVerificationCodeDialog` host shared by Onboarding and notification surfaces | requester secrets, a second approval dialog, or authorization by dismissal |
+| `apps/web/src/components/onboarding-pairing-ceremony.ts` | requester-owned versioned ceremony: tab-only request ID/token persistence, exact-create recovery, serialized polling, confirmation, and stale-operation fences; `PairingRequesterProvider.tsx` creates its one instance above the access gate | approver code ownership, Sync/root-store secrets, or URL state |
+| `apps/web/src/components/Onboarding.tsx` (+ `Onboarding.css`) | the pairing surface: unauthorized → `PairingGatePanel.tsx` (header, `OnboardingRequestCard.tsx` with the one primary Request approval, collapsed `PairingOtherOptions.tsx` for the setup token and rejected-key recovery, inline `PairingStatusNotice.tsx`); authorized → the pending-request approval list of `PairRequestCard.tsx` | a requester controller of its own, the request ID on screen, or workbench chrome |
+| `apps/web/src/components/PairApprovalProvider.tsx` | the sole trusted-approver owner: generated code, `pairing-approval.ts` record, the one `PairVerificationCodeDialog`, and the phase-fenced approve → await confirmation (`PairApprovalStatus` poll) → cancel (`PairDeny`) lifecycle shared by Onboarding and notification surfaces; `auth/pair-approval-lifecycle.ts` gathers and classifies its RPC evidence | requester secrets, a second approval dialog, local-only dismissal, or revoking a paired device to make a cancel look successful |
 | `apps/web/src/components/MachineDeployDialog.tsx`, `MachineLocalAccessGuide.tsx` | active-coordinator enrollment readiness/generation state and local-only expansion guidance | global state ownership or a second coordinator URL policy |
 | `apps/web/src/components/layout/` | `AppShell.tsx` owns the canonical desktop workbench grid and compact/mobile shell; `WorkbenchTitleBar.tsx`, `WorkbenchActivityBar.tsx`, and `WorkbenchStatusBar.tsx` own truthful desktop chrome; `SidebarResizer.tsx` and `MobileSidebarDrawer.tsx` retain sidebar interaction seams; `MobileTopBar.tsx` owns compact route context | route-specific content |
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
@@ -60,10 +66,10 @@ lives in that row's directory; prefixed refs follow the convention above.
 | `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves (`terminal-stream-renewal-scheduler.ts` owns one document renewal timer and `terminal-stream-progress.ts` pushes chunk progress), pane/UI stores; `terminal-stream-transport.ts` owns the one document-scoped `TerminalDirectRegistry` and elected direct-route identity; `terminal-stream-promotion.ts` plus `terminal-stream-frame-fold.ts` stage and validate candidate full baselines without mutating the canonical replica; `terminal-stream-publication.ts` chooses an elected direct target before Sync and `terminal-stream-retarget.ts` owns route-loss fresh-baseline repair; `paneLayoutDocument.ts` is the portable-document adapter over the browser-local pane store; `agent-status.ts` owns epoch/occupant admission and retired-identity fencing; `auth-bootstrap.ts` starts the authenticated snapshot | transport implementation, UI components, or a second terminal replica |
 | `apps/web/src/ws/` | terminal transport adapters: `terminal-input-router.ts` owns the one document input router, bounded batches/holds/route claims, exact token correlation, and settlement; `terminal-input-lanes.ts` supplies its lane mechanics. `sync-outbound.ts` is the Sync adapter; `local-terminal.ts`/`local-terminal-grants.ts` own each per-worker loopback connection and carrier requests after `localWorkerDiscovery.ts` supplies its one-shot discovery result. `terminal-peer.ts` plus `terminal-peer-connection.ts` own demand-driven WebRTC attempts, candidate promotion lifecycle, and liveness. Each carrier stages through `TerminalDirectRegistry`; none elects a canonical route itself. | canonical terminal fold, independent input queues |
 | `apps/web/src/lib/` | pure helpers and browser adapters; `uiStateReport.ts` exports typed portable state, `uiCommandDispatch.ts` owns the eight publication-only commands, and `uiLayoutApply.ts` + `uiLayoutApplyCore.ts` own exact-target acknowledged apply; `terminalCellGeometry.ts` is the ONE pixels→cols/rows measurement, shared by the live view claim and the pre-spawn size hint; agent seen tokens, notification timers, and cross-tab claims pin exact epoch/occupant revisions; `globalContentSearchController.ts`/`globalContentSearchResults.ts`/`globalContentSearchRuntime.ts` own bounded search and `terminalFindIntent.ts`/`terminalFindHandoff.ts` rerun matches against the current grid epoch (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `deckSwipe.ts`, prefs, diag); `localWorkerDiscovery.ts` owns the one-shot probe for a worker door on this browser's machine while `localBootstrap.ts` stays the served-BY-a-worker fact `connect.ts` routes RPCs off; `predictiveEcho.ts` plus `predictiveEchoExpiry.ts`/`predictiveEchoGrid.ts`/`predictiveEchoOverlay.ts`/`predictiveEchoPaint.ts` own local keystroke prediction, its expiry and its paint; `terminalStartupProgress.ts` owns the monotone opening-terminal stage/percent series; `terminalInputStatus.ts` phrases a send's outcome; `browseEntries.ts`, `browseErrorMessage.ts` and `folderNameValidation.ts` back the folder picker; `deckTabBadge.ts` counts the compact deck's terminals | JSX or terminal stream owner |
-| `apps/web/src/auth/` | web-key/IndexedDB, `fragment-credential.ts` (`#pair=<token>`, the only URL credential kind), `pairing-ceremony.ts` (strict requester tab record), `pairing-approval.ts` (strict approver tab record), and tab identity | RPC plumbing (`apps/web/src/connect.ts`), Sync/root-store secrets, or UI |
+| `apps/web/src/auth/` | web-key/IndexedDB, `fragment-credential.ts` (`#pair=<token>`, the only URL credential kind), `pairing-ceremony.ts` (strict requester tab record), `pairing-approval.ts` (strict approver tab record), `pair-approval-lifecycle.ts` (approver status/deny evidence, retry classification, and outcome copy), and tab identity | RPC plumbing (`apps/web/src/connect.ts`), Sync/root-store secrets, or UI |
 | `apps/web/src/styles/` | global stylesheets imported once by `main.tsx`; `theme-vars.css` owns canonical theme tokens and aliases; `components/Settings/md/tokens.css` owns shared settings primitives; `sidebar.css` owns terminal `.wterm` and legacy drawer rules; `workbench-shell.css` owns desktop shell and workbench-mounted Settings presentation; `workbench-sidebar.css` and `workbench-tabs.css` own sidebar and tab/deck presentation respectively | component-local one-offs |
 | `apps/web/tests/` | recursive `*.test.ts` Bun suites, including the root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
-| `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
+| `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts`, `pairingPrimitiveStubs.ts` (pairing primitive mock), `rerenderingSolid.ts`, `pairApprovalProviderFixture.ts` (provider RPC/toast/dialog observation) | test registration |
 | `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
 
 ## Canonical workbench
@@ -243,10 +249,16 @@ Break one of these and you get back the history-corruption class this repo keeps
   `pairing-ceremony.ts` keeps only the requester’s version, ID, and token in
   that tab; `pairing-approval.ts` keeps only the trusted approver’s version,
   ID, code, label, and expiry in that tab. `PairApprovalProvider` is the
-  only plaintext-code/UI owner. Approval and dialog dismissal grant nothing;
-  only the requester’s matching, token-bound confirmation authorizes. A
-  missing or old ceremony version is terminal: the current tab clears its
-  record and surfaces `pairing client must reload`.
+  only plaintext-code/UI owner. Approval grants nothing; only the requester’s
+  matching, token-bound confirmation authorizes. The code dialog retires
+  itself when `PairApprovalStatus` reports the outcome, and every dismissal is
+  a server-side `PairDeny`; a transient or unclassified failure never
+  discards the code, and a stale version keeps it and asks for a reload. Both
+  that status poll and Sync's volatile `PairCompleted` delta announce through
+  `lib/pairedBrowserNotice.ts`, so each authorized browser shows one
+  "New browser paired" toast per pairing. A missing or old requester ceremony
+  version is terminal: that tab clears its record and surfaces
+  `pairing client must reload`.
 - **Only visible panes publish active terminal views.** `sendTerminalInput` in
   `apps/web/src/ws/sync-outbound.ts` remains the public entry but delegates
   admission, transition holds, exact destination tokens, and outcomes to the
@@ -351,7 +363,7 @@ Break one of these and you get back the history-corruption class this repo keeps
   four. Pass 2 uses `--project=chromium-serial --workers=1` for `@serial` perf
   cases, then the runner restores embed stubs
   (`scripts/gen-embed.ts --stub`) in a `finally`.
-- **Fake DOM, not jsdom.** The 23 `apps/web/tests/*.dom.test.ts` suites use a
+- **Fake DOM, not jsdom.** The `apps/web/tests/*.dom.test.ts` suites use a
   hand-rolled fake DOM; this repo runs no jsdom or happy-dom. Solid resolves to
   its SSR build under `bun test`, so a DOM emulator buys nothing and the fake
   asserts exactly what the code touches. Shared renderer fixtures are in

@@ -23,19 +23,12 @@ import {
 } from "./sync.ts";
 import { createSingleSyncLoopStarter } from "./sync-flow.ts";
 import { _dispatchCapturedFragmentCredential } from "./sync-bootstrap.pair.ts";
-import { setTerminalBootstrapStage } from "./sync-hydrated.ts";
 import { markPhase } from "../lib/diag.ts";
 import { _installBootstrapDomainHydrators } from "./sync-bootstrap-hydration.ts";
-import {
-  captureAuthResourceToken,
-  isCurrentAuthResourceToken,
-  suspendAuthenticatedClientState,
-} from "./auth-boundary.ts";
-import { loadAgentConfig } from "../lib/agents.ts";
-import { resumeContentSearchRuntimeAfterAuthBoundary } from "../lib/globalContentSearchRuntime.ts";
+import { captureAuthResourceToken, isCurrentAuthResourceToken } from "./auth-boundary.ts";
+import { markBrowserDeviceRejected, markProtectedSnapshotPublished } from "./browser-access.ts";
 
-
-registerSyncAuthRejectionHandler(() => setBrowserUnauthorized(true));
+registerSyncAuthRejectionHandler(() => markBrowserDeviceRejected("sync_rejection"));
 
 let synced = false;
 
@@ -45,13 +38,7 @@ const SYNC_SUBSCRIBED_WAIT_MS = 3000;
 
 // Route guards consume these leaf signals through the historical sync-bootstrap
 // import path; keeping the state in sync-hydrated avoids the firehose cycle.
-export {
-  sessionsHydrated,
-  workersHydrated,
-  terminalBootstrapStage,
-  type TerminalBootstrapStage,
-} from "./sync-hydrated.ts";
-
+export { sessionsHydrated, workersHydrated } from "./sync-hydrated.ts";
 
 export function bootstrapSync(): void {
   if (synced) return;
@@ -88,17 +75,16 @@ export async function refreshCoordAndWorkers(): Promise<void> {
       public_url: identity.value.publicUrl,
     });
   }
-  // Refresh path mirror of bootstrap's unauth detection: clear or
-  // set browser_unauthorized so the sidebar empty-state kind tracks
-  // current authorization. Runs on visibility regain + post-deploy + after
-  // a pair-approval reload, so the user sees the right empty state.
-  setBrowserUnauthorized(
+  // A device rejection here is the refresh path's mirror of bootstrap's
+  // classification. Success never grants access: only the protected sessions
+  // snapshot releases "checking", and transient failures keep the prior state.
+  if (
     workers.status === "rejected"
-      && classifyAuthFailure(
-        workers.reason,
-        "/roost.v1.CoordinatorService/WorkersList",
-      ) === "device",
-  );
+    && classifyAuthFailure(
+      workers.reason,
+      "/roost.v1.CoordinatorService/WorkersList",
+    ) === "device"
+  ) markBrowserDeviceRejected("workers_refresh");
 
   if (workers.status === "fulfilled") {
     setRoutableFps(new Set(workers.value.routableFps));
@@ -152,31 +138,14 @@ export async function refreshCoordAndWorkers(): Promise<void> {
 // list calls then reject with a NETWORK error ("Failed to fetch"), the store
 // populates NOTHING, and — unlike the sync stream — the bootstrap never retried,
 // leaving the app permanently blank ("can't input") until a manual reload.
-// Retry with backoff until coord answers. Unauthenticated is NOT retried (it's
-// a real auth state → Onboarding).
+// Retry with backoff until coord answers. A device rejection is NOT retried: it
+// is a real auth state and the access gate shows the pairing page.
 let _bootstrapRetries = 0;
 let _bootstrapRetryTimer: Timer | null = null;
 let _hydratorsInstalled = false;
 // `_runConnectSync` owns an infinite reconnect loop. Bootstrap retries share
 // this one starter instead of creating competing socket generations.
 const _startSyncLoop = createSingleSyncLoopStarter(() => { void _runConnectSync(); });
-
-function setBrowserUnauthorized(next: boolean): void {
-  // Signal only the authorization loss edge; a persistently unknown browser
-  // must not emit another relogin event on every visibility refresh.
-  if (next && !rootStore.browser_unauthorized) {
-    signal("auth.relogin_401", {});
-    suspendAuthenticatedClientState();
-  }
-  // The credential teardown latched content search off and dropped agent
-  // config; this recovery edge is the only one that restores them without a
-  // full reload.
-  if (!next && rootStore.browser_unauthorized) {
-    resumeContentSearchRuntimeAfterAuthBoundary();
-    void loadAgentConfig();
-  }
-  setRootStore("browser_unauthorized", next);
-}
 
 function _scheduleBootstrapRetry(): void {
   if (_bootstrapRetryTimer) return;
@@ -192,7 +161,6 @@ function _scheduleBootstrapRetry(): void {
 
 async function _bootstrap(): Promise<void> {
   await claimTabIdentity();
-  setTerminalBootstrapStage("identity");
   try {
     // Fragment credential redemption and identity remain the only serial
     // prerequisites. Every authoritative domain list starts after the v2
@@ -227,7 +195,6 @@ async function _bootstrap(): Promise<void> {
     }
     if (await _dispatchCapturedFragmentCredential()) return;
     _startCoordHealthPoller();
-    setTerminalBootstrapStage("sync");
     _startSyncLoop();
     const subscribed = await waitForSyncSubscribed(SYNC_SUBSCRIBED_WAIT_MS);
     if (!subscribed) {
@@ -244,15 +211,13 @@ async function _bootstrap(): Promise<void> {
           "/roost.v1.CoordinatorService/SessionsList",
         ) === "device"
       ) {
-        setBrowserUnauthorized(true);
+        markBrowserDeviceRejected("bootstrap_probe");
         return;
       }
-      if (probe.status === "fulfilled") setBrowserUnauthorized(false);
       _startCoordHealthPoller();
       _scheduleBootstrapRetry();
       return;
     }
-    setTerminalBootstrapStage("sessions");
     if (_hydratorsInstalled) return;
     _hydratorsInstalled = true;
 
@@ -262,7 +227,7 @@ async function _bootstrap(): Promise<void> {
         "/roost.v1.CoordinatorService/SessionsList",
       );
       if (authFailure === "device") {
-        setBrowserUnauthorized(true);
+        markBrowserDeviceRejected("sessions_hydration");
         return;
       }
       _startCoordHealthPoller();
@@ -276,7 +241,7 @@ async function _bootstrap(): Promise<void> {
       onTerminalFailure: terminalFailure,
       requestReconnect: forceSyncReconnect,
       onTerminalSnapshotApplied: (token, sessionCount) => {
-        setBrowserUnauthorized(false);
+        markProtectedSnapshotPublished();
         markPhase("sessions_list_publish", {
           socketGeneration: token.socketGeneration,
           domainGeneration: token.domainGeneration,

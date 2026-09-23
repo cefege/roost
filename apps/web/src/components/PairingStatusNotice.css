@@ -1,0 +1,18 @@
+/* PairingStatusNotice layout. Imported by PairingStatusNotice.tsx itself, because
+   the approver's PairVerificationCodeDialog renders the notice on authorized
+   pages that may never load the lazy Onboarding chunk (and its Onboarding.css). */
+
+.pairing-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+}
+
+.pairing-notice__message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pairing-notice__message--error {
+  color: var(--md-error);
+}

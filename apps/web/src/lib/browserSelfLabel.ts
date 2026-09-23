@@ -1,5 +1,5 @@
 // Derive a human-readable label for THIS browser, sent to coord at pair
-// time (Onboarding redeemToken + startPairFlow). Stored in
+// time (redeemPairToken + the requester pairing ceremony). Stored in
 // authorized_keys.label and surfaced on viewer chips so other browsers
 // see "Chrome — macOS" instead of an 8-char fp prefix.
 // Browsers can't read OS hostname (no API), so we approximate from

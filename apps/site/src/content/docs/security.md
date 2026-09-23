@@ -41,17 +41,27 @@ rides in the URL **fragment**, which browsers never send to the server — so it
 cannot land in the coordinator's request log, a proxy or tunnel access log, or a
 `Referer` header. Scan it with a phone camera and the device signs itself in.
 
-**2. Paste a bootstrap token.** Mint a token in an already-authorized browser and
-paste it into the new one.
+**2. Paste a setup token.** Mint a one-time setup (bootstrap) token in an
+already-authorized browser and paste it into the new one under **Other pairing
+options**.
 
-**3. Tap-to-pair confirmation.** The new browser creates a version-1 request
+**3. Request approval.** The new browser creates a version-1 request
 and keeps its request ID and requester token only in that tab. An
 already-authorized browser sees the request under **Pending pair requests** and
 approves it. Approval shows that trusted browser one six-digit, one-time
 verification code; it does **not** authorize the new browser. Communicate the
 code to the requester and enter it there. Only the matching
-requester-token-bound confirmation creates browser authority. Closing the code
-dialog, approving again, or merely waiting grants nothing.
+requester-token-bound confirmation creates browser authority. Approving again
+or merely waiting grants nothing. Closing the code window denies the request
+on the server. Once the requester confirms, the approver's window closes on its
+own: the approving browser alone can read the request's progress, and that read
+returns a status word, never a token or code. Every open paired browser then shows a
+**New browser paired** notice naming the device, so an unexpected pairing is
+visible right away and can be revoked in **Settings → Devices**.
+
+An unpaired browser never loads the workspace. Until the coordinator proves
+this browser's key is authorized, it sees a connecting screen and then only the
+pairing page.
 
 The requester token and verification code never appear in a URL, Sync event,
 or durable pairing row. A tab with a missing or old ceremony version fails

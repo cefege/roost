@@ -160,14 +160,17 @@ function collectCandidates(active: HTMLElement | null): HTMLElement[] {
 	return out;
 }
 
-/** With no origin geometry (focus sits on <body> after a route change) the
- *  first press must land somewhere deterministic: the topmost-leftmost control. */
+/** With no origin (focus sits on <body> after a route change or first load)
+ *  the first press must land somewhere deterministic: the topmost-leftmost
+ *  control. <body> is never an origin even when it has layout geometry: every
+ *  control lies inside its box, so no candidate is ever "beyond" it. */
 function pickTarget(
 	active: HTMLElement | null,
 	candidates: readonly HTMLElement[],
 	direction: Direction,
 ): HTMLElement | null {
-	const from = active?.getBoundingClientRect();
+	const origin = active === document.body ? null : active;
+	const from = origin?.getBoundingClientRect();
 	if (from && (from.width > 0 || from.height > 0))
 		return _bestCandidateInDirection(from, candidates, direction);
 	let best: HTMLElement | null = null;

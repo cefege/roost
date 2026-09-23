@@ -1,5 +1,5 @@
 // Credential-boundary teardown and the async guard every authenticated UI
-// flow fences itself with. sync-bootstrap calls the teardown when the
+// flow fences itself with. browser-access.ts calls the teardown when the
 // coordinator rejects this browser's device credential; each reset below stops
 // a timer or callback that can otherwise outlive that credential.
 // Token holders read the root store's auth generation through this owner.

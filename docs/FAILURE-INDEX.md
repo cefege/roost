@@ -1382,6 +1382,24 @@ a capture-phase router must prove it will act before it cancels.
 rows exist"` and `"⏎ stays a focused button's activation when no cursor row is highlighted"`;
 `smoke/terminal/tv-dpad.spec.ts` asserts the `/pair` ArrowDown arrives with `defaultPrevented === false`.
 
+### The first D-pad press does nothing because `<body>` counts as the origin
+
+**Symptom** — a TV remote on a page that fits the screen (the unpaired pairing gate, any short route): ↓ never
+reaches **Request approval** or any other control, focus stays on `<body>`, and no `dpad.nav` line is emitted.
+
+**Wrong** — using `document.activeElement.getBoundingClientRect()` as the travel origin whenever it has size.
+After load or a route change focus sits on `<body>`, whose box contains every control, so no candidate is ever
+"beyond" it in any direction and the search returns nothing. Also wrong: autofocusing a button per page to paper
+over it — every other route keeps the dead first press.
+
+**Right** — `<body>` is never an origin. `apps/web/src/lib/spatialNavigation.ts` `pickTarget` treats
+`active === document.body` as no origin and lands on the topmost-leftmost control, as its doc comment always
+intended.
+
+**Guard** — `smoke/terminal/tv-dpad.spec.ts` `"unpaired TV shows only the pairing gate and requests approval by
+D-pad @tv"` presses ↓ from a fresh load until focus reaches `onboarding-pair-start-btn`, then ⏎ creates the
+request with `defaultPrevented === false`.
+
 ### A terminal domain reset is treated as the input fence
 
 **Symptom** — "Input may have been partially sent; it was not retried" after a terminal domain reset /
@@ -2312,8 +2330,8 @@ multi-pane case such as `smoke/terminal/terminal-switch-perf.spec.ts` "the deck 
 number of panes".
 
 **Wrong** — treating the second element as a leak and hunting for the card that "failed to
-unmount", or suppressing it with `.first()`. The startup card is per session: `MainPane` mounts one
-for the bootstrap steps and every `CellTerminal` mounts its own, and a card that just completed
+unmount", or suppressing it with `.first()`. The startup card is per session: every `CellTerminal`
+mounts its own, and a card that just completed
 stays in the DOM for `FINISH_GRACE_MS + FINISH_HOLD_MS` (300 ms, `TerminalStartupOverlay.tsx`) so
 the meter can land on 100% instead of vanishing mid-band. Two cards during a hand-off is the
 contract, not a defect, and `.first()` silently asserts against whichever pane the DOM happens to

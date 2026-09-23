@@ -1,49 +1,27 @@
-// First-boot pairing surface for a browser without coordinator authority.
-// It renders requester ceremony state and the authorized approval list, while
-// PairApprovalProvider owns generated approver codes and their only dialog.
+// Browser pairing surface. While rootStore.browser_access_state is
+// "unauthorized" it is the full-screen pairing gate App.tsx shows instead of
+// the workbench (PairingGatePanel); for authorized browsers (/pair, the
+// zero-machine home, Settings → Devices) it lists pending requests to approve.
+// PairApprovalProvider owns approver codes; PairingRequesterProvider the requester.
 
-import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
-import { isResetWebKeyEligible, resetWebKey } from "../auth/web-key.ts";
-import { redeemPairToken } from "../auth/redeemPairToken.ts";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { coordClient } from "../connect.ts";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
 import { deletePairRequest } from "../store/mutations.ts";
 import { rootStore } from "../store/root.ts";
 import { addToast } from "../store/toastStore.ts";
-import {
-  Button,
-  Card,
-  EmptyState,
-  SectionTitle,
-  StatusDot,
-  Surface,
-  TextField,
-} from "./Settings/md/primitives.tsx";
-import { OnboardingRequestCard } from "./OnboardingRequestCard.tsx";
+import { EmptyState, SectionTitle } from "./Settings/md/primitives.tsx";
 import { usePairApproval } from "./PairApprovalProvider.tsx";
+import { PairingGatePanel } from "./PairingGatePanel.tsx";
+import { PairingPageHeader } from "./PairingPageHeader.tsx";
 import { PairRequestCard, isPairRequestExpired } from "./PairRequestCard.tsx";
-import { createOnboardingPairingCeremony } from "./onboarding-pairing-ceremony.ts";
+import "./Onboarding.css";
 
 export function Onboarding(props: { embedded?: boolean } = {}) {
-  const [bootstrapToken, setBootstrapToken] = createSignal("");
-  const [status, setStatus] = createSignal<"idle" | "loading" | "done" | "error">("idle");
-  const [errorMsg, setErrorMsg] = createSignal("");
   const [denyingRequestId, setDenyingRequestId] = createSignal<string | null>(null);
   let onboardingTouchClientY: number | null = null;
   const pairApproval = usePairApproval();
-  const requesterPairing = createOnboardingPairingCeremony({
-    redirectAfterPairing,
-    reportRequestError: (message) => {
-      setStatus("error");
-      setErrorMsg(message);
-    },
-  });
   const workerCount = () => Object.keys(rootStore.workers).length;
-  const isAuthorized = createMemo(() => !rootStore.browser_unauthorized);
-  const [resetEligible] = createResource(
-    () => rootStore.browser_unauthorized,
-    async (unauthorized) => unauthorized ? isResetWebKeyEligible() : false,
-  );
   const [pairRequestClock, setPairRequestClock] = createSignal(Date.now());
   const pairRequestExpiryTimer = setInterval(() => setPairRequestClock(Date.now()), 1_000);
   const pendingPairRequests = createMemo(() => {
@@ -52,31 +30,6 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
       .filter((request) => !isPairRequestExpired(request, currentNow));
   });
   onCleanup(() => clearInterval(pairRequestExpiryTimer));
-
-  function redirectAfterPairing(): void {
-    window.location.replace("/");
-  }
-
-  async function redeemToken(): Promise<void> {
-    setStatus("loading");
-    const result = await redeemPairToken(bootstrapToken());
-    if (result.ok) {
-      setStatus("done");
-      redirectAfterPairing();
-      return;
-    }
-    setStatus("error");
-    setErrorMsg(result.error);
-    addToast(`Redeem failed: ${result.error}`, "err");
-  }
-
-  function autoRedeemPastedToken(event: ClipboardEvent): void {
-    const pastedToken = event.clipboardData?.getData("text") ?? "";
-    if (!pastedToken.startsWith("roost_bt_")) return;
-    setBootstrapToken(pastedToken);
-    setTimeout(() => void redeemToken(), 0);
-    event.preventDefault();
-  }
 
   async function denyPairRequest(ephemeralId: string): Promise<void> {
     if (denyingRequestId() !== null) return;
@@ -93,21 +46,6 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     }
   }
 
-  async function resetRejectedKey(): Promise<void> {
-    if (!confirm("Reset this device key? This browser will need to pair again.")) return;
-    requesterPairing.clear();
-    try {
-      await resetWebKey();
-    } catch (error) {
-      addToast(`Key reset failed: ${error instanceof Error ? error.message : String(error)}`, "err");
-    }
-  }
-
-  function startRequesterPairing(): void {
-    setStatus("idle");
-    setErrorMsg("");
-    void requesterPairing.start();
-  }
   function scrollOnboardingRoot(element: HTMLDivElement, deltaY: number): boolean {
     if (props.embedded || deltaY === 0) return false;
     const nextScrollTop = Math.max(
@@ -162,154 +100,59 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
       data-testid="onboarding"
       class="onboarding-root"
       data-embedded={props.embedded ? "true" : "false"}
-      style={{
-        height: props.embedded ? undefined : "100dvh",
-        "overflow-y": props.embedded ? undefined : "auto",
-      }}
       onWheel={handleOnboardingWheel}
       onTouchStart={handleOnboardingTouchStart}
       onTouchEnd={endOnboardingTouch}
       onTouchCancel={endOnboardingTouch}
     >
-      <Show when={!props.embedded}>
-        <h2 class="md-headline-s" style={{ margin: 0 }}>Pair this browser</h2>
-      </Show>
-      <Show when={props.embedded && isAuthorized() && pendingPairRequests().length === 0}>
-        <div data-testid="onboarding-no-pending">
-          <EmptyState
-            icon="devices"
-            title="No browsers are waiting for approval"
-            supporting="When you open Roost in a new browser and request access, it'll show up here to approve."
-          />
-        </div>
-      </Show>
-      <Show when={!isAuthorized()}>
-        <p
-          class="md-body-m"
-          style={{ margin: 0, color: "var(--md-sys-color-on-surface-variant)" }}
-        >
-          This browser isn't authorized by the coordinator yet. Either paste a
-          pairing code below, or request approval from a browser that's
-          already paired.
-        </p>
-      </Show>
-      <Show when={resetEligible()}>
-        <div>
-          <Button variant="secondary" onClick={() => void resetRejectedKey()}>
-            Reset this device key
-          </Button>
-        </div>
-      </Show>
-      <Show when={isAuthorized() && workerCount() === 0}>
-        <p
-          class="md-body-m"
-          style={{ margin: 0, color: "var(--md-sys-color-on-surface-variant)" }}
-        >
-          This browser is authorized, but no machines have registered as workers yet.
-        </p>
-      </Show>
-
-      <Show when={!isAuthorized()}>
-        <Card
-          data-testid="onboarding-token-step"
-          title="I have a pairing code"
-          supporting="Paste the roost_bt_… token you minted on the coordinator host."
-          variant="outlined"
-        >
-          <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}>
-            <TextField
-              type="text"
-              testId="onboarding-token-input"
-              value={bootstrapToken()}
-              onInput={setBootstrapToken}
-              placeholder="roost_bt_..."
-              label="Pairing code"
-              autofocus
-              ref={(element) => {
-                if (element instanceof HTMLInputElement) element.onpaste = autoRedeemPastedToken;
-              }}
-            />
-            <div>
-              <Button
-                variant="default"
-                data-testid="onboarding-token-submit"
-                onClick={() => void redeemToken()}
-                disabled={!bootstrapToken() || status() === "loading"}
-              >
-                {status() === "loading" ? "Pairing…" : "Pair"}
-              </Button>
+      <div class="onboarding-panel">
+        <Show when={rootStore.browser_access_state === "unauthorized"}>
+          <PairingGatePanel />
+        </Show>
+        <Show when={rootStore.browser_access_state !== "unauthorized"}>
+          <Show when={!props.embedded}>
+            <PairingPageHeader title="Browser pairing" />
+          </Show>
+          <Show when={workerCount() === 0}>
+            <p class="md-body-m pairing-header__body">
+              This browser is authorized, but no machines have registered as workers yet.
+            </p>
+          </Show>
+          <Show when={pendingPairRequests().length === 0}>
+            <div data-testid="onboarding-no-pending">
+              <EmptyState
+                icon="devices"
+                title="No browsers are waiting for approval"
+                supporting="When you open Roost in a new browser and request access, it'll show up here to approve."
+              />
             </div>
-          </div>
-        </Card>
-      </Show>
-
-      <Show when={!isAuthorized()}>
-        <OnboardingRequestCard
-          ephemeralId={requesterPairing.ephemeralId()}
-          pollStatus={requesterPairing.pollStatus()}
-          verificationCode={requesterPairing.verificationCode()}
-          confirmationError={requesterPairing.confirmationError()}
-          busy={requesterPairing.busy()}
-          onStart={startRequesterPairing}
-          onVerificationCodeInput={requesterPairing.updateVerificationCode}
-          onConfirm={() => void requesterPairing.confirm()}
-        />
-      </Show>
-
-      <Show when={isAuthorized() && pendingPairRequests().length > 0}>
-        <div
-          data-testid="pair-approval-list"
-          style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}
-        >
-          <SectionTitle>Pending pair requests</SectionTitle>
-          <For each={pendingPairRequests()}>
-            {(request) => (
-              <div data-testid="pair-approval-row" data-ephemeral-id={request.ephemeral_id}>
-                <PairRequestCard
-                  request={request}
-                  busy={
-                    denyingRequestId() === request.ephemeral_id
-                    || pairApproval.busyRequestId() !== null
-                  }
-                  onApprove={() => void pairApproval.approve({
-                    ephemeralId: request.ephemeral_id,
-                    requesterLabel: request.label,
-                    expiresAtMs: request.expiresAtMs,
-                  })}
-                  onDeny={() => void denyPairRequest(request.ephemeral_id)}
-                />
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
-
-      <Show when={status() === "done"}>
-        <Surface
-          level={2}
-          radius="sm"
-          pad={3}
-          border
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
-            <StatusDot status="ok" />
-            <span class="md-body-m">Registered. Reload to connect.</span>
-          </div>
-        </Surface>
-      </Show>
-      <Show when={status() === "error"}>
-        <Surface level={2} radius="sm" pad={3} border role="alert">
-          <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)" }}>
-            <StatusDot status="error" />
-            <span class="md-body-m" style={{ color: "var(--md-sys-color-error)" }}>
-              Error: {errorMsg()}
-            </span>
-          </div>
-        </Surface>
-      </Show>
+          </Show>
+          <Show when={pendingPairRequests().length > 0}>
+            <div data-testid="pair-approval-list" class="pairing-approval-list">
+              <SectionTitle>Pending pair requests</SectionTitle>
+              <For each={pendingPairRequests()}>
+                {(request) => (
+                  <div data-testid="pair-approval-row" data-ephemeral-id={request.ephemeral_id}>
+                    <PairRequestCard
+                      request={request}
+                      busy={
+                        denyingRequestId() === request.ephemeral_id
+                        || pairApproval.busyRequestId() !== null
+                      }
+                      onApprove={() => void pairApproval.approve({
+                        ephemeralId: request.ephemeral_id,
+                        requesterLabel: request.label,
+                        expiresAtMs: request.expiresAtMs,
+                      })}
+                      onDeny={() => void denyPairRequest(request.ephemeral_id)}
+                    />
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+        </Show>
+      </div>
     </div>
   );
 }

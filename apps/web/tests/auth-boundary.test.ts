@@ -65,7 +65,7 @@ test("suspending authenticated client state releases overlays, runtime owners, a
     git_sha: "test",
     public_url: "http://127.0.0.1:65000",
   });
-  root.setRootStore("browser_unauthorized", true);
+  root.setRootStore("browser_access_state", "authorized");
   root.setRootStore("workers", { "worker-a": {} as never });
   root.setRootStore("sessions", { "session-a": {} as never });
   root.setRootStore("workspaces", { "workspace-a": {} as never });
@@ -88,7 +88,6 @@ test("suspending authenticated client state releases overlays, runtime owners, a
   });
   hydrated.setSessionsHydrated(true);
   hydrated.setWorkersHydrated(true);
-  hydrated.setTerminalBootstrapStage("ready");
 
   openRenameDialog({
     currentTitle: "Retired terminal",
@@ -167,11 +166,12 @@ test("suspending authenticated client state releases overlays, runtime owners, a
   expect(Object.keys(root.rootStore.terminal_title)).toEqual([]);
   expect(Object.keys(root.rootStore.last_activity)).toEqual([]);
   expect(Object.keys(root.rootStore.session_viewers)).toEqual([]);
-  expect(root.rootStore.browser_unauthorized).toBe(false);
+  // A credential boundary forgets the verdict: only the next protected
+  // snapshot or device rejection may decide access again.
+  expect(root.rootStore.browser_access_state).toBe("checking");
   expect(terminalState.terminalSessions.size).toBe(0);
   expect(hydrated.sessionsHydrated()).toBe(false);
   expect(hydrated.workersHydrated()).toBe(false);
-  expect(hydrated.terminalBootstrapStage()).toBe("sync");
   expect(frame.lastSeenSyncEventId()).toBe(0);
   expect(local.has("roost.syncLastEventId")).toBe(false);
 

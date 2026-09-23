@@ -19,7 +19,7 @@ import {
   WorkspaceDeltaProtoSchema, WorkspaceSessionsSetSchema,
   TaskDeltaProtoSchema, McpStreamMessageProtoSchema,
   McpRelayEventSchema, WorkerPresenceProtoSchema, WorkerHeartbeatSchema,
-  PairRequestDeltaProtoSchema,
+  PairRequestDeltaProtoSchema, PairCompletedSchema, type PairRequestDeltaProto,
 } from "@roost/shared/proto/events_pb";
 import {
   WorkspaceSchema as WorkspacePbSchema,
@@ -299,32 +299,49 @@ export const auditFrame = (e: AuditRow): FirehoseFrame =>
     traceId: e.trace_id ?? undefined,
   })}});
 
-// Pair-request deltas (perf sweep C2.4 — replaces the SPA pairList
-// poller). Bus payload is the coord-internal PairRequestDelta shape.
+// Pair-request deltas. Bus payload is the coord-internal PairRequestDelta shape.
 export const pairFrame = (e: PairRequestDelta): FirehoseFrame =>
-  e.kind === "pending"
-    ? create(FirehoseFrameSchema, { frame: { case: "pairRequestDelta", value: create(PairRequestDeltaProtoSchema, {
-        kind: { case: "pending", value: create(PairRequestSchema, {
-          ephemeralId: e.ephemeral_id,
-          label: e.label,
-          createdAtMs: BigInt(e.created_at_ms),
-          userAgent: e.user_agent,
-          clientBrowser: e.client_browser,
-          clientOs: e.client_os,
-          clientDeviceType: e.client_device_type,
-          sourceIp: e.source_ip,
-          countryCode: e.country_code,
-          region: e.region,
-          city: e.city,
-          edgeIdentityProvider: e.edge_identity_provider,
-          edgeIdentity: e.edge_identity,
-          edgeIdentityVerified: e.edge_identity_verified,
-          expiresAtMs: BigInt(e.expires_at_ms),
-        }) },
-      })}})
-    : create(FirehoseFrameSchema, { frame: { case: "pairRequestDelta", value: create(PairRequestDeltaProtoSchema, {
-        kind: { case: "removedId", value: e.ephemeral_id },
-      })}});
+  create(FirehoseFrameSchema, { frame: {
+    case: "pairRequestDelta",
+    value: create(PairRequestDeltaProtoSchema, { kind: pairDeltaKind(e) }),
+  } });
+
+function pairDeltaKind(e: PairRequestDelta): PairRequestDeltaProto["kind"] {
+  switch (e.kind) {
+    case "pending":
+      return { case: "pending", value: create(PairRequestSchema, {
+        ephemeralId: e.ephemeral_id,
+        label: e.label,
+        createdAtMs: BigInt(e.created_at_ms),
+        userAgent: e.user_agent,
+        clientBrowser: e.client_browser,
+        clientOs: e.client_os,
+        clientDeviceType: e.client_device_type,
+        sourceIp: e.source_ip,
+        countryCode: e.country_code,
+        region: e.region,
+        city: e.city,
+        edgeIdentityProvider: e.edge_identity_provider,
+        edgeIdentity: e.edge_identity,
+        edgeIdentityVerified: e.edge_identity_verified,
+        expiresAtMs: BigInt(e.expires_at_ms),
+      }) };
+    case "removed":
+      return { case: "removedId", value: e.ephemeral_id };
+    case "completed":
+      return { case: "completed", value: create(PairCompletedSchema, {
+        ephemeralId: e.ephemeral_id,
+        label: e.label,
+        clientBrowser: e.client_browser,
+        clientOs: e.client_os,
+        clientDeviceType: e.client_device_type,
+        countryCode: e.country_code,
+        region: e.region,
+        city: e.city,
+        pairedAtMs: BigInt(e.paired_at_ms),
+      }) };
+  }
+}
 
 export const agentStatusFrame = (status: AgentStatusUpdate): FirehoseFrame =>
   create(FirehoseFrameSchema, {

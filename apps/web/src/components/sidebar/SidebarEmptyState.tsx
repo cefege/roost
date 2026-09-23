@@ -1,5 +1,5 @@
 // Contextual empty-state panel. Picks copy + icon based on kind:
-//   coord-error | browser-unpaired | no-machines | search-empty | view-empty
+//   coord-error | no-machines | search-empty | view-empty
 // Called by AllView, SwarmView, InboxView when their content list is empty.
 // Depends on: useNavigate for the CTA navigation.
 
@@ -9,7 +9,6 @@ import { Button } from "../Settings/md/primitives.tsx";
 
 export type EmptyStateKind =
   | "coord-error"
-  | "browser-unpaired"
   | "no-machines"
   | "search-empty"
   | "view-empty";
@@ -27,19 +26,14 @@ export function SidebarEmptyState(props: SidebarEmptyStateProps) {
 
   const ctaLabel = (): string | null => {
     if (props.kind === "coord-error") return "Open Settings";
-    if (props.kind === "browser-unpaired") return "Pair this browser";
     if (props.kind === "no-machines") return "Add a Machine";
     return null;
   };
 
-  const ctaHref = (): string => {
-    // browser-unpaired → Onboarding (tap-to-pair + bootstrap token).
-    // no-machines     → worker-Mac pairing pane (a different problem:
-    //                   browser IS trusted, but no worker has registered).
-    // coord-error     → settings landing (machines is the default pane).
-    if (props.kind === "browser-unpaired") return "/pair";
-    return "/settings/machines";
-  };
+  // no-machines → worker pairing pane (the browser is trusted, but no worker
+  //               has registered).
+  // coord-error → settings landing (machines is the default pane).
+  const ctaHref = (): string => "/settings/machines";
 
   const iconColor = () =>
     props.kind === "coord-error" ? "var(--color-err)" : "var(--text-lo)";
@@ -69,16 +63,6 @@ export function SidebarEmptyState(props: SidebarEmptyStateProps) {
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
             <line x1="2" y1="2" x2="22" y2="22"/>
-          </svg>
-        </Show>
-        <Show when={props.kind === "browser-unpaired"}>
-          {/* Key glyph — "this browser needs a key to read coord data". */}
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="8" cy="15" r="4"/>
-            <line x1="10.85" y1="12.15" x2="19" y2="4"/>
-            <line x1="18" y1="5" x2="20" y2="7"/>
-            <line x1="15" y1="8" x2="17" y2="10"/>
           </svg>
         </Show>
         <Show when={props.kind === "no-machines"}>
@@ -138,12 +122,6 @@ function pickCopy(
     return {
       title: "Coordinator unreachable",
       body: coordError ?? "Roost can't reach the coordinator. Check the URL in Settings.",
-    };
-  }
-  if (kind === "browser-unpaired") {
-    return {
-      title: "This browser isn't paired",
-      body: "Pair this browser with the coordinator to see your machines, workspaces, and sessions.",
     };
   }
   if (kind === "no-machines") {

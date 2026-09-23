@@ -19,18 +19,13 @@ export const ROUTES = {
   WORKSPACE_TERMINAL: "/w/:workspaceId/t/:channelId",
   // Removed status-specific routes; all sessions render in the single list.
   SETTINGS: "/settings/:pane?",
-  // /pair — always-reachable browser-pairing surface. WorkspaceRedirect
-  // only falls through to Onboarding when URL is "/" + zero workers +
-  // zero open sessions; once any state leaks in (deep-link, stale URL,
-  // 401 with cached projection) that fall-through stops firing and the
-  // user is stranded on the sidebar's no-machines empty state with no
-  // way to reach Onboarding. /pair mounts Onboarding unconditionally
-  // so the SidebarEmptyState CTA + Settings entry can always navigate
-  // here for the cross-browser tap-to-pair / bootstrap-token flow.
+  // /pair — an authorized browser's approval surface: pending pair requests
+  // from other browsers. An unauthorized browser never reaches a route; the
+  // App.tsx access gate shows the pairing page at every URL instead.
   PAIR: "/pair",
   HELP: "/help",
-  // /design — design-system phase 1 gallery. Renders every token + primitive
-  // on one page as the visual reference. No auth, no params.
+  // /design — design-system gallery. Renders every token + primitive on one
+  // page as the visual reference. No params.
   DESIGN: "/design",
   FILE: "/file/:workerFp/*path",
   // /browse/:workerFp — Google-Drive-style file manager opened by the "+"

@@ -14,6 +14,7 @@ import {
 import {
   CoordinatorService,
   PairCreateRequestSchema,
+  type PairApprovalStatusResponse,
   type PairApproveResponse,
   type PairConfirmResponse,
   type PairCreateResponse,
@@ -42,7 +43,8 @@ type PairMethod =
   | "pairApprove"
   | "pairConfirm"
   | "pairDeny"
-  | "pairList";
+  | "pairList"
+  | "pairApprovalStatus";
 type PairResponse = {
   pairCreate: PairCreateResponse;
   pairPoll: PairPollResponse;
@@ -50,6 +52,7 @@ type PairResponse = {
   pairConfirm: PairConfirmResponse;
   pairDeny: PairDenyResponse;
   pairList: PairListResponse;
+  pairApprovalStatus: PairApprovalStatusResponse;
 };
 export type PairHandlers = {
   [Method in PairMethod]: (

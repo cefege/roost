@@ -30,6 +30,7 @@ const DEVICE_AUTH_REQUIRED_PATHS: Record<string, true | undefined> = {
   "/roost.v1.CoordinatorService/DevicesList": true,
   "/roost.v1.CoordinatorService/DevicesRevoke": true,
   "/roost.v1.CoordinatorService/DevicesRotateCurrent": true,
+  "/roost.v1.CoordinatorService/PairApprovalStatus": true,
 };
 
 export type AuthFailureKind = "device" | "retryable";

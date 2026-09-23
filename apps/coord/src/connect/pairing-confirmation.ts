@@ -1,6 +1,8 @@
 // Pair confirmation is the only path that turns a pending browser key into an
 // account device. One transaction binds requester token, code, expiry,
 // revocations, approver continuity, account ownership, and single-use state.
+// The completed transition also returns the descriptive fields the
+// "new browser paired" Sync notice carries (never secrets or provenance).
 
 import { Code, ConnectError } from "@connectrpc/connect";
 import { fingerprintOf } from "@roost/shared/fingerprint";
@@ -30,9 +32,24 @@ export interface PairConfirmationInput {
 
 export type PairConfirmationTerminalStatus = "expired" | "verification_failed";
 
+/** Non-secret description of a browser that this confirmation just paired. */
+export interface PairedBrowserNotice {
+  ephemeralId: string;
+  label: string;
+  clientBrowser: string;
+  clientOs: string;
+  clientDeviceType: string;
+  countryCode: string;
+  region: string;
+  city: string;
+  pairedAtMs: number;
+}
+
 export interface PairConfirmationResult {
   ok: boolean;
   newlyAuthorizedFingerprint: string | null;
+  /** Present only on the call whose transaction transitioned to completed. */
+  pairedBrowser: PairedBrowserNotice | null;
   terminalStatus: PairConfirmationTerminalStatus | null;
 }
 
@@ -44,10 +61,17 @@ export class PairConfirmationTerminalError extends ConnectError {
   ) {
     super(message, code);
   }
+
+  // ConnectError's static hasInstance matches any ConnectError by name, which
+  // subclasses inherit; without this every plain NotFound/FailedPrecondition
+  // would be logged as a terminal transition with an undefined status.
+  static override [Symbol.hasInstance](value: unknown): boolean {
+    return value instanceof ConnectError && "terminalStatus" in value;
+  }
 }
 
 type ConfirmationOutcome =
-  | { kind: "completed"; fingerprint: string }
+  | { kind: "completed"; fingerprint: string; pairedBrowser: PairedBrowserNotice }
   | { kind: "code_mismatch"; transitioned: boolean }
   | { kind: "expired" }
   | { kind: "authority_invalid" }
@@ -199,7 +223,21 @@ export async function confirmPairRequest(
       .where("id", "=", row.id)
       .where("status", "=", "verification_required")
       .executeTakeFirstOrThrow();
-    return { kind: "completed", fingerprint };
+    return {
+      kind: "completed",
+      fingerprint,
+      pairedBrowser: {
+        ephemeralId,
+        label: row.label,
+        clientBrowser: row.client_browser ?? "",
+        clientOs: row.client_os ?? "",
+        clientDeviceType: row.client_device_type ?? "",
+        countryCode: row.country_code ?? "",
+        region: row.region ?? "",
+        city: row.city ?? "",
+        pairedAtMs: now,
+      },
+    };
   });
 
   switch (outcome.kind) {
@@ -207,12 +245,14 @@ export async function confirmPairRequest(
       return {
         ok: true,
         newlyAuthorizedFingerprint: outcome.fingerprint,
+        pairedBrowser: outcome.pairedBrowser,
         terminalStatus: null,
       };
     case "code_mismatch":
       return {
         ok: false,
         newlyAuthorizedFingerprint: null,
+        pairedBrowser: null,
         terminalStatus: outcome.transitioned ? "verification_failed" : null,
       };
     case "expired":

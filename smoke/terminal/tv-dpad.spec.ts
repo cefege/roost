@@ -2,6 +2,7 @@
 // TV mode is applied before paint, the four arrows move DOM focus, a focused
 // .wterm scrolls real scrollback and returns to the live tail, and /pair keeps
 // its own arrow keys. Symptom this pins: "I can't scroll" on a smart-TV remote.
+// An unpaired TV gets only the pairing gate, inside overscan, driven by D-pad.
 
 import { test, expect } from "./fixtures.ts";
 import {
@@ -10,12 +11,19 @@ import {
   waitForStableCellFrames,
   inputSmokeTerminal,
 } from "./terminal-helpers.ts";
+import {
+  openUnpairedRequester,
+  readRequesterCeremony,
+  workbenchChromeMounts,
+} from "./pair-helpers.ts";
 
 declare global {
   interface Window {
     /** Set by this spec's in-page listener: did the app cancel the arrow key?
      *  Only a page-side listener can observe defaultPrevented. */
     __tvArrowCancelled?: boolean;
+    /** Same probe for the activation key on the pairing gate. */
+    __tvEnterCancelled?: boolean;
   }
 }
 
@@ -147,4 +155,66 @@ test("TV mode navigates, scrolls scrollback, and activates with a D-pad @tv", as
   const somethingMoved =
     outcome.scrollY > scrollBefore || (await focusSignature()) !== pairOrigin;
   expect(outcome.cancelled === false || somethingMoved).toBe(true);
+});
+
+test("unpaired TV shows only the pairing gate and requests approval by D-pad @tv", async ({
+  browser,
+  stack,
+}) => {
+  const requester = await openUnpairedRequester(
+    browser,
+    { width: 1920, height: 1080 },
+    { tvMode: true },
+  );
+  const page = requester.page;
+  try {
+    await page.goto(`${stack.baseUrl}/settings/devices?tv=1`, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("html")).toHaveAttribute("data-tv", "true");
+    const primary = page.getByTestId("onboarding-pair-start-btn");
+    await expect(primary).toBeVisible({ timeout: 30_000 });
+
+    const overscan = await page.evaluate(() => {
+      const styles = getComputedStyle(document.documentElement);
+      return {
+        inline: Number.parseFloat(styles.getPropertyValue("--tv-overscan-inline")),
+        block: Number.parseFloat(styles.getPropertyValue("--tv-overscan-block")),
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
+    });
+    expect(overscan.inline).toBeGreaterThan(0);
+    const primaryBox = await primary.boundingBox();
+    expect(primaryBox).not.toBeNull();
+    if (primaryBox) {
+      expect(primaryBox.x).toBeGreaterThanOrEqual(overscan.inline);
+      expect(overscan.width - (primaryBox.x + primaryBox.width)).toBeGreaterThanOrEqual(overscan.inline);
+      expect(primaryBox.y).toBeGreaterThanOrEqual(overscan.block);
+      expect(overscan.height - (primaryBox.y + primaryBox.height)).toBeGreaterThanOrEqual(overscan.block);
+    }
+
+    const focusedTestId = () => page.evaluate(() =>
+      (document.activeElement as HTMLElement | null)?.dataset.testid ?? "",
+    );
+    for (let press = 0; press < 12 && (await focusedTestId()) !== "onboarding-pair-start-btn"; press += 1) {
+      await page.keyboard.press("ArrowDown");
+    }
+    expect(await focusedTestId()).toBe("onboarding-pair-start-btn");
+
+    await page.evaluate(() => {
+      window.__tvEnterCancelled = undefined;
+      window.addEventListener(
+        "keydown",
+        (event) => {
+          if (event.key === "Enter") window.__tvEnterCancelled = event.defaultPrevented;
+        },
+        { once: true },
+      );
+    });
+    await page.keyboard.press("Enter");
+    await expect.poll(() => readRequesterCeremony(page), { timeout: 30_000 }).not.toBeNull();
+    expect(await page.evaluate(() => window.__tvEnterCancelled)).toBe(false);
+    expect(await workbenchChromeMounts(page)).toEqual([]);
+  } finally {
+    await requester.context.close();
+  }
 });

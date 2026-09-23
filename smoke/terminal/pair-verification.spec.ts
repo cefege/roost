@@ -1,10 +1,10 @@
 // Real-browser proof that browser pairing needs requester confirmation.
-// It uses the ordinary trusted smoke page and a separately created unpaired tab.
-// The assertions cover stale protocol rejection, code disclosure, dismissal,
-// lost confirmation responses, secret containment, and final worker hydration.
+// An unpaired tab opened at a protected route sees only the pairing gate; the
+// ordinary trusted smoke page approves it. Covers stale protocol rejection,
+// secret containment, short-height scrolling, a lost confirmation response
+// overtaken by authorization, and automatic retirement of the approver code.
 
 import { Buffer } from "node:buffer";
-import type { Page } from "@playwright/test";
 import {
   PAIRING_CEREMONY_VERSION,
   generatePairRequestId,
@@ -12,23 +12,20 @@ import {
 } from "@roost/shared/pairing";
 import { createUnauthenticatedCoordClient } from "../../apps/worker/src/coord-client.ts";
 import { expect, test } from "./fixtures.ts";
+import {
+  REQUESTER_RECORD_KEY,
+  approveFromTrustedPage,
+  approverRecord,
+  openUnpairedRequester,
+  readRequesterCeremony,
+  requestApproval,
+  unsignedWorkersListStatus,
+  workbenchChromeMounts,
+} from "./pair-helpers.ts";
 
-const WORKERS_LIST_PATH = "/roost.v1.CoordinatorService/WorkersList";
-const PAIR_POLL_PATH = "/roost.v1.CoordinatorService/PairPoll";
-const PAIR_CONFIRM_PATH = "**/roost.v1.CoordinatorService/PairConfirm";
-const REQUESTER_RECORD_KEY = "roost.pairingCeremony.v1";
-const APPROVER_RECORD_KEY = "roost.pairApproval.v1";
-
-async function unsignedWorkersListStatus(page: Page): Promise<number> {
-  return page.evaluate(async (path) => {
-    const response = await fetch(path, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    });
-    return response.status;
-  }, WORKERS_LIST_PATH);
-}
+const PAIR_POLL_ROUTE = "**/roost.v1.CoordinatorService/PairPoll";
+const PAIR_CONFIRM_ROUTE = "**/roost.v1.CoordinatorService/PairConfirm";
+const SHORT_VIEWPORT = { width: 390, height: 360 };
 
 async function generatePublicKeyB64(): Promise<string> {
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -40,25 +37,6 @@ async function expectReloadRequired(operation: Promise<unknown>): Promise<void> 
     code: 9,
     rawMessage: "pairing client must reload",
   });
-}
-
-async function requesterCeremony(page: Page): Promise<{
-  ceremonyVersion: number;
-  requesterToken: string;
-}> {
-  const raw = await page.evaluate((key) => sessionStorage.getItem(key), REQUESTER_RECORD_KEY);
-  if (raw === null) throw new Error("requester ceremony record was not saved");
-  const record = JSON.parse(raw) as {
-    ceremonyVersion?: unknown;
-    requesterToken?: unknown;
-  };
-  if (typeof record.ceremonyVersion !== "number" || typeof record.requesterToken !== "string") {
-    throw new Error("requester ceremony record was malformed");
-  }
-  return {
-    ceremonyVersion: record.ceremonyVersion,
-    requesterToken: record.requesterToken,
-  };
 }
 
 test("browser pairing requires a requester-confirmed verification code", async ({
@@ -80,22 +58,15 @@ test("browser pairing requires a requester-confirmed verification code", async (
   }));
   expect((await stack.client.pairList({})).requests.some((request) => request.label === staleLabel)).toBe(false);
 
-  const requesterContext = await browser.newContext({ viewport: { width: 390, height: 360 } });
-  await requesterContext.addInitScript(() => {
-    localStorage.setItem("roostSmoke", "1");
-    localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
-  });
-  const requesterPage = await requesterContext.newPage();
+  const requester = await openUnpairedRequester(browser, SHORT_VIEWPORT);
+  const requesterPage = requester.page;
   try {
-    await requesterPage.goto(`${stack.baseUrl}/pair`, { waitUntil: "domcontentloaded" });
-    const start = requesterPage.getByTestId("onboarding-pair-start-btn");
-    await expect(start).toBeVisible({ timeout: 30_000 });
-    await start.click();
-
-    const requesterIdSurface = requesterPage.getByTestId("onboarding-pair-ephemeral-id");
-    await expect(requesterIdSurface).toBeVisible({ timeout: 30_000 });
-    const requesterId = (await requesterIdSurface.locator("code").innerText()).trim();
-    expect(requesterId).toMatch(/^[0-9a-f]{32}$/);
+    await requesterPage.goto(`${stack.baseUrl}/settings/devices`, { waitUntil: "domcontentloaded" });
+    await expect(requesterPage.getByTestId("onboarding")).toBeVisible({ timeout: 30_000 });
+    const ceremony = await requestApproval(requesterPage);
+    const requesterId = ceremony.ephemeralId;
+    await expect(requesterPage.getByTestId("onboarding-pair-ephemeral-id")).toHaveCount(0);
+    await expect(requesterPage.getByTestId("onboarding-pair-verification-input")).toHaveCount(0);
     expect(await unsignedWorkersListStatus(requesterPage)).toBe(401);
 
     await expectReloadRequired(stack.client.pairApprove({
@@ -107,44 +78,37 @@ test("browser pairing requires a requester-confirmed verification code", async (
       (await stack.client.pairList({})).requests.some((request) => request.ephemeralId === requesterId)
     )).toBe(true);
 
-    await smokePage.goto(`${stack.baseUrl}/pair`, { waitUntil: "domcontentloaded" });
-    const approvalCard = smokePage.locator(
-      `[data-testid="pair-request-card"][data-ephemeral-id="${requesterId}"]`,
-    );
-    await expect(approvalCard).toBeVisible({ timeout: 30_000 });
-    await approvalCard.getByTestId("pair-card-approve").click();
-
+    const verificationCode = await approveFromTrustedPage(smokePage, stack.baseUrl, requesterId);
     const codeDialog = smokePage.getByTestId("pair-verification-code-dialog");
-    const codeSurface = smokePage.getByTestId("pair-verification-code");
-    await expect(codeDialog).toBeVisible({ timeout: 30_000 });
-    await expect(codeSurface).toHaveCount(1);
-    const verificationCode = (await codeSurface.innerText()).replace(/\s/g, "");
-    expect(verificationCode).toMatch(/^\d{6}$/);
-
-    const savedRequesterCeremony = await requesterCeremony(requesterPage);
-    expect(savedRequesterCeremony.ceremonyVersion).toBe(PAIRING_CEREMONY_VERSION);
-    const savedRequesterToken = savedRequesterCeremony.requesterToken;
     for (const url of [requesterPage.url(), smokePage.url()]) {
-      expect(url).not.toContain(savedRequesterToken);
+      expect(url).not.toContain(ceremony.requesterToken);
       expect(url).not.toContain(verificationCode);
     }
-    await expect.poll(() => smokePage.evaluate((key) => sessionStorage.getItem(key), APPROVER_RECORD_KEY))
-      .not.toBeNull();
+    await expect.poll(() => approverRecord(smokePage)).not.toBeNull();
 
-    await smokePage.getByTestId("pair-verification-code-done").click();
-    await expect(codeDialog).toHaveCount(0);
-    await expect.poll(() => smokePage.evaluate((key) => sessionStorage.getItem(key), APPROVER_RECORD_KEY))
-      .toBeNull();
+    // Approval alone is not authority, and the code stays with the approver
+    // until the requester proves it.
+    const verificationInput = requesterPage.getByTestId("onboarding-pair-verification-input");
+    await expect(verificationInput).toBeVisible({ timeout: 30_000 });
+    expect(await unsignedWorkersListStatus(requesterPage)).toBe(401);
+    await expect(codeDialog).toBeVisible();
 
-    await expect(requesterPage.getByTestId("onboarding-pair-verification-input"))
-      .toBeVisible({ timeout: 30_000 });
+    // Short-height reachability: top reachable, then every control reachable by
+    // scrolling the page's own scroll owner, with no horizontal overflow.
+    await requesterPage.getByTestId("pairing-other-options-toggle").click();
+    await expect(requesterPage.getByTestId("onboarding-setup-token-input")).toBeVisible();
     const onboardingRoot = requesterPage.getByTestId("onboarding");
-    expect(await onboardingRoot.evaluate((element) =>
-      element.scrollHeight > element.clientHeight
-    )).toBe(true);
+    expect(await onboardingRoot.evaluate((element) => ({
+      overflowsVertically: element.scrollHeight > element.clientHeight,
+      overflowsHorizontally: element.scrollWidth > element.clientWidth
+        || document.documentElement.scrollWidth > window.innerWidth,
+    }))).toEqual({ overflowsVertically: true, overflowsHorizontally: false });
     await onboardingRoot.evaluate((element) => {
       element.scrollTop = 0;
     });
+    const heading = requesterPage.getByRole("heading", { name: "Pair this browser" });
+    const headingBox = await heading.boundingBox();
+    expect(headingBox !== null && headingBox.y >= 0).toBe(true);
     const onboardingBox = await onboardingRoot.boundingBox();
     if (onboardingBox === null) throw new Error("requester onboarding scroll owner was unavailable");
     await requesterPage.mouse.move(
@@ -154,32 +118,38 @@ test("browser pairing requires a requester-confirmed verification code", async (
     await requesterPage.mouse.wheel(0, 10_000);
     await expect.poll(() => onboardingRoot.evaluate((element) => element.scrollTop))
       .toBeGreaterThan(0);
-    await expect.poll(async () => {
-      const inputBox = await requesterPage
-        .getByTestId("onboarding-pair-verification-input")
-        .boundingBox();
-      return inputBox !== null && inputBox.y >= 0 && inputBox.y + inputBox.height <= 360;
-    }).toBe(true);
+    for (const testId of ["onboarding-pair-verification-input", "onboarding-pair-confirm", "onboarding-setup-token-input"]) {
+      await requesterPage.getByTestId(testId).scrollIntoViewIfNeeded();
+      await expect.poll(async () => {
+        const box = await requesterPage.getByTestId(testId).boundingBox();
+        return box !== null && box.y >= 0 && box.y + box.height <= SHORT_VIEWPORT.height;
+      }).toBe(true);
+    }
+
     await requesterPage.reload({ waitUntil: "domcontentloaded" });
-    await expect(requesterPage.getByTestId("onboarding-pair-verification-input"))
-      .toBeVisible({ timeout: 30_000 });
-    await expect(requesterPage.getByTestId("folder-list")).toHaveCount(0);
+    await expect(verificationInput).toBeVisible({ timeout: 30_000 });
     expect(await unsignedWorkersListStatus(requesterPage)).toBe(401);
+    expect(await workbenchChromeMounts(requesterPage)).toEqual([]);
 
-    let confirmationCommitted = false;
-    let pollsAfterCommittedConfirmation = 0;
-    requesterPage.on("request", (request) => {
-      if (
-        confirmationCommitted
-        && new URL(request.url()).pathname.endsWith(PAIR_POLL_PATH)
-      ) {
-        pollsAfterCommittedConfirmation += 1;
-      }
+    // Commit the confirmation but lose its response, and hold the requester's
+    // recovery poll until authorization has already hydrated the workbench:
+    // the requester ceremony must still finish after the gate flips.
+    let releaseRecoveryPolls: () => void = () => undefined;
+    const recoveryPollsReleased = new Promise<void>((resolve) => {
+      releaseRecoveryPolls = resolve;
     });
-
+    let confirmationCommitted = false;
+    let heldRecoveryPolls = 0;
+    await requesterPage.route(PAIR_POLL_ROUTE, async (route) => {
+      if (confirmationCommitted) {
+        heldRecoveryPolls += 1;
+        await recoveryPollsReleased;
+      }
+      await route.continue();
+    });
     let confirmationCalls = 0;
     let committedConfirmationStatus: number | undefined;
-    await requesterPage.route(PAIR_CONFIRM_PATH, async (route) => {
+    await requesterPage.route(PAIR_CONFIRM_ROUTE, async (route) => {
       confirmationCalls += 1;
       if (confirmationCalls !== 1) {
         await route.continue();
@@ -191,27 +161,41 @@ test("browser pairing requires a requester-confirmed verification code", async (
       await route.abort("failed");
     });
 
-    await requesterPage.getByTestId("onboarding-pair-verification-input").fill(verificationCode);
+    await verificationInput.fill(verificationCode);
     await requesterPage.getByTestId("onboarding-pair-confirm").click();
-    await expect.poll(() => confirmationCalls).toBe(1);
     await expect.poll(() => committedConfirmationStatus).toBe(200);
-    await expect.poll(() => pollsAfterCommittedConfirmation, { timeout: 30_000 }).toBeGreaterThan(0);
+    await expect.poll(() => heldRecoveryPolls, { timeout: 30_000 }).toBeGreaterThan(0);
 
+    // The approver retires its code without any click once the requester is paired.
+    await expect(codeDialog).toHaveCount(0, { timeout: 30_000 });
+    await expect(smokePage.getByTestId("pair-verification-code")).toHaveCount(0);
+    await expect.poll(() => approverRecord(smokePage)).toBeNull();
+    await expect(smokePage.getByText(/New browser paired/)).toHaveCount(1, { timeout: 30_000 });
+
+    await requesterPage.evaluate(() => window.dispatchEvent(new Event("focus")));
     await requesterPage.waitForFunction(
       (workerFp) => !!window.__smoke?.state().workers[workerFp],
       stack.workerFp,
       { timeout: 90_000 },
     );
+    releaseRecoveryPolls();
+    // The token-bound finalizer clears the record and then redirects to "/";
+    // wait for that document so later reads never race the navigation.
+    await requesterPage.waitForURL((url) => url.pathname === "/", { timeout: 30_000 });
+    await requesterPage.waitForLoadState("domcontentloaded");
+    expect(await readRequesterCeremony(requesterPage)).toBeNull();
+    await requesterPage.waitForFunction(
+      (workerFp) => !!window.__smoke?.state().workers[workerFp],
+      stack.workerFp,
+      { timeout: 90_000 },
+    );
+    await expect(requesterPage.locator(".workbench-shell")).toHaveCount(1, { timeout: 30_000 });
     expect(confirmationCalls).toBe(1);
-    await expect.poll(() => requesterPage.evaluate((key) => sessionStorage.getItem(key), REQUESTER_RECORD_KEY))
-      .toBeNull();
-    await expect.poll(() => smokePage.evaluate((key) => sessionStorage.getItem(key), APPROVER_RECORD_KEY))
-      .toBeNull();
     for (const url of [requesterPage.url(), smokePage.url()]) {
-      expect(url).not.toContain(savedRequesterToken);
+      expect(url).not.toContain(ceremony.requesterToken);
       expect(url).not.toContain(verificationCode);
     }
   } finally {
-    await requesterContext.close();
+    await requester.context.close();
   }
 });

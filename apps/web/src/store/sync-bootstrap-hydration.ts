@@ -30,11 +30,7 @@ import {
   taskProtoToWire,
   terminalCoreCapacityProtoToWire,
 } from "./sync-proto-adapters.ts";
-import {
-  setSessionsHydrated,
-  setTerminalBootstrapStage,
-  setWorkersHydrated,
-} from "./sync-hydrated.ts";
+import { setSessionsHydrated, setWorkersHydrated } from "./sync-hydrated.ts";
 import { registerSyncDomainHydrator } from "./sync-domain-hydration.ts";
 import type { SyncDomainToken } from "./sync-link-state.ts";
 
@@ -85,7 +81,6 @@ export function _installBootstrapDomainHydrators(
         // Rehydration must retain same-id proxies so mounted terminals survive.
         applySessionsSnapshot(sessions);
         setSessionsHydrated(true);
-        setTerminalBootstrapStage("ready");
         deps.onTerminalSnapshotApplied(token, Object.keys(sessions).length);
       },
     };

@@ -160,7 +160,10 @@ producers and consumers.
 - **Pairing ceremony** — `src/pairing.ts` owns the browser-safe version-1
   request-ID, requester-token, and unbiased six-digit-code generators and
   validators. It contains no digesting or server state: the coordinator alone
-  adapts accepted secrets to persistent hashes.
+  adapts accepted secrets to persistent hashes. The approver-side
+  `PairApprovalStatus` RPC (`coordinator.proto`) returns only a status string,
+  and `PairRequestDeltaProto.completed` (`events_pb`) carries the non-secret
+  "new browser paired" notice over Sync.
 - **Native / Windows** — `src/windows-helper.ts`.
 - **WASM** — `src/wterm-core-factory.ts`, `src/wterm-wasm.ts`, `wasm/`.
 - **Generated** — `src/gen/roost/v1/`, `src/install-scripts.generated.ts`,

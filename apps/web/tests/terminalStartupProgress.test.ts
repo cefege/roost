@@ -7,19 +7,18 @@ import { describe, expect, test } from "bun:test";
 import {
   TERMINAL_STARTUP_STEPS,
   terminalStartupChunkDetail,
-  terminalStartupCompletesJourney,
   terminalStartupPercent,
   type TerminalStartupStage,
 } from "../src/lib/terminalStartupProgress.ts";
 
 const ORDERED_STAGES: TerminalStartupStage[] = [
-  "identity", "sync", "sessions", "spawn", "measure", "viewport", "frame", "render",
+  "spawn", "measure", "viewport", "frame", "render",
 ];
 
 describe("terminal startup bands", () => {
-  test("the eight forward stages tile 4→99 with no gap or overlap", () => {
-    let cursor = TERMINAL_STARTUP_STEPS.identity.start;
-    expect(cursor).toBe(4);
+  test("the five forward pane stages tile 46→99 with no gap or overlap", () => {
+    let cursor = TERMINAL_STARTUP_STEPS.spawn.start;
+    expect(cursor).toBe(46);
     for (const stage of ORDERED_STAGES) {
       const step = TERMINAL_STARTUP_STEPS[stage];
       expect(step.start).toBe(cursor);
@@ -38,17 +37,17 @@ describe("terminal startup bands", () => {
 
 describe("terminalStartupPercent", () => {
   test("a waiting step creeps forward but never leaves its own band", () => {
-    expect(terminalStartupPercent({ stage: "sessions", stageElapsedMs: 0, floor: 0 }))
-      .toBe(30);
+    expect(terminalStartupPercent({ stage: "spawn", stageElapsedMs: 0, floor: 0 }))
+      .toBe(46);
     const nearlyOneTimeConstant = terminalStartupPercent({
-      stage: "sessions",
+      stage: "spawn",
       stageElapsedMs: 900,
       floor: 0,
     });
-    expect(nearlyOneTimeConstant).toBeGreaterThan(39);
-    expect(nearlyOneTimeConstant).toBeLessThan(46);
-    expect(terminalStartupPercent({ stage: "sessions", stageElapsedMs: 60_000, floor: 0 }))
-      .toBeLessThan(46);
+    expect(nearlyOneTimeConstant).toBeGreaterThan(55);
+    expect(nearlyOneTimeConstant).toBeLessThan(62);
+    expect(terminalStartupPercent({ stage: "spawn", stageElapsedMs: 60_000, floor: 0 }))
+      .toBeLessThan(62);
   });
 
   test("chunked assembly subdivides the frame band and outruns the creep", () => {
@@ -109,16 +108,5 @@ describe("terminalStartupChunkDetail", () => {
     expect(terminalStartupChunkDetail(null)).toBeNull();
     expect(terminalStartupChunkDetail(undefined)).toBeNull();
     expect(terminalStartupChunkDetail({ received: 0, total: 0 })).toBeNull();
-  });
-});
-
-describe("terminalStartupCompletesJourney", () => {
-  test("only pane stages finish the journey; bootstrap hands off silently", () => {
-    expect(["identity", "sync", "sessions"].map(
-      (stage) => terminalStartupCompletesJourney(stage as TerminalStartupStage),
-    )).toEqual([false, false, false]);
-    expect(["spawn", "measure", "viewport", "frame", "render", "retry"].map(
-      (stage) => terminalStartupCompletesJourney(stage as TerminalStartupStage),
-    )).toEqual([true, true, true, true, true, true]);
   });
 });

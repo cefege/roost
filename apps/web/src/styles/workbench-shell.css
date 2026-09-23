@@ -346,17 +346,20 @@
   }
 }
 
-/* /pair renders outside the workbench shell, so this element is the page's own
-   column and the document is its scroller. Class-driven (not inline style) so
-   styles/tv.css can widen it for a ten-foot viewport. */
-.onboarding-root {
+/* The access gate's "checking" surface replaces the whole app, so it owns the
+   viewport and centers its one status card. */
+.access-checking {
+  box-sizing: border-box;
   display: flex;
-  flex-direction: column;
-  gap: var(--md-space-5);
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
   padding: var(--md-space-6);
-  max-width: var(--roost-dialog-max-inline-size);
 }
 
-.onboarding-root[data-embedded="true"] {
-  padding: 0;
+.access-checking__card {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-3);
+  color: var(--text-hi);
 }

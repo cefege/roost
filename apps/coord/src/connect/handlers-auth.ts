@@ -21,6 +21,7 @@ type AuthMethods =
   | "pairApprove"
   | "pairConfirm"
   | "pairDeny"
+  | "pairApprovalStatus"
   | "devicesList"
   | "devicesRevoke"
   | "devicesRotateCurrent";

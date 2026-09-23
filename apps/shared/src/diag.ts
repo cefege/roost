@@ -102,7 +102,7 @@ function emitDisabled(_evt: string, _kv: DiagKv): void { /* no-op */ }
  *   session.{spawn,close,attach,detach,snapshot}
  *   diag.{snapshot,corruption_signal,byte_dump_written}
  *   app.{freeze,resume,pageshow}
- *   auth.{key_first_boot}
+ *   auth.{key_first_boot,browser_access}
  *   spa.{uncaught}
  *
  * Tier-1 always-on anomalies use `signal()` (below), NOT diag() — see SignalKind.

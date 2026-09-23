@@ -27,11 +27,12 @@ export type TaskBusMsg = {
   kind: "created" | "state";
   task: PbTask;
 };
-// pairBus carries pending-pair-request deltas (perf sweep C2.4 — replaces the
-// SPA's 5 s pairList poller). Coord-internal shape (no cross-boundary
-// validation, so no shared wire schema): published by the pair
-// handlers (create/approve/deny), consumed only by the firehose pairFrame
-// adapter. `pending` upserts; `removed` drops by ephemeral_id.
+// pairBus carries pair-request deltas to install-wide Sync viewers.
+// Coord-internal shape (no cross-boundary validation, so no shared wire
+// schema): published by the pair handlers (create/approve/confirm/deny) and
+// the retention sweep, consumed only by the firehose pairFrame adapter.
+// `pending` upserts; `removed` drops by ephemeral_id; `completed` is a volatile
+// "new browser paired" notice carrying only non-secret descriptors.
 export type PairRequestDelta =
   | {
       kind: "pending";
@@ -51,7 +52,19 @@ export type PairRequestDelta =
       edge_identity_verified: boolean;
       expires_at_ms: number;
     }
-  | { kind: "removed"; ephemeral_id: string };
+  | { kind: "removed"; ephemeral_id: string }
+  | {
+      kind: "completed";
+      ephemeral_id: string;
+      label: string;
+      client_browser: string;
+      client_os: string;
+      client_device_type: string;
+      country_code: string;
+      region: string;
+      city: string;
+      paired_at_ms: number;
+    };
 // AuditRow inline type (router/audit.ts deleted in crpc6).
 export interface AuditRow {
   id: number;

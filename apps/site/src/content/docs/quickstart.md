@@ -66,14 +66,19 @@ front door performs on its own, does not.
 
 ### Confirm a browser-pairing request
 
-When the new browser has no bootstrap token, open **I don't have a code** and
-request approval. In an already-authorized browser, approve the request and
-read the displayed six-digit code to the requester. Approval alone grants
-nothing: the requester must enter the matching code before it becomes
-authorized. The request ID, requester token, and approver code stay tab-local
-and never enter a URL. If a tab says `pairing client must reload`, reload and
-start again; the version-1 upgrade expires legacy pending requests rather than
-letting an old ceremony continue.
+An unpaired browser shows only the **Pair this browser** page, whatever URL it
+opens. Choose **Request approval**. In an already-authorized browser, approve
+the request and read the displayed six-digit code to the requester. Approval
+alone grants nothing: the requester must enter the matching code before it
+becomes authorized. The approver's code window closes by itself once the
+requester confirms, and every open paired browser shows **New browser paired**.
+Closing the code window early cancels the request. The request ID, requester
+token, and approver code stay tab-local and never enter a URL. If a tab says
+`pairing client must reload`, reload and start again; the version-1 upgrade
+expires legacy pending requests rather than letting an old ceremony continue.
+
+A one-time setup token (`roost_bt_…`) and recovery for a revoked browser key
+live under **Other pairing options** on the same page.
 
 ## Add another machine
 

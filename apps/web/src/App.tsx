@@ -1,9 +1,10 @@
-// Root component. Owns the route table and router-scoped protected overlay shell.
+// Root component. Owns the route table and the router-scoped access gate: the
+// protected routes and overlay shell mount only once this browser is authorized.
 // Boots sync on mount (store/sync.ts). No SolidStart Router — plain @solidjs/router.
-// AppErrorBoundary is outermost; connection and version banners stay route-independent.
+// AppErrorBoundary is outermost; the connection banner stays outside the gate.
 
 import { Router, Route, Navigate, useNavigate } from "@solidjs/router";
-import { createMemo, Show, onMount, onCleanup, lazy } from "solid-js";
+import { createMemo, Show, Switch, Match, onMount, onCleanup, lazy } from "solid-js";
 import type { JSX } from "solid-js";
 import { ROUTES, settingsPaneHref } from "./routes.ts";
 import { AppShell } from "./components/layout/AppShell.tsx";
@@ -28,6 +29,8 @@ import { shouldBootRestore, consumeBootRestore } from "./lib/bootRestore.ts";
 import { UiBridge } from "./components/UiBridge.tsx";
 import { AgentNotificationBridge } from "./components/AgentNotificationBridge.tsx";
 import { PairApprovalProvider } from "./components/PairApprovalProvider.tsx";
+import { PairingRequesterProvider } from "./components/PairingRequesterProvider.tsx";
+import { AccessCheckingScreen } from "./components/AccessCheckingScreen.tsx";
 
 // Code-split boundaries (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism — routes/overlays below load their chunk on first
@@ -93,12 +96,11 @@ export function App() {
     document.addEventListener("contextmenu", suppress);
     onCleanup(() => document.removeEventListener("contextmenu", suppress));
   });
-  // RootShell owns the router-scoped route gate and protected overlay/portal
+  // RootShell owns the router-scoped access gate and protected overlay/portal
   // layer. Solid's <Router> requires `useNavigate` etc. to be called INSIDE
   // the router subtree, so these hosts cannot move above it.
   // Solid Router v0.16 passes RouteSectionProps; `children` is optional
-  // there but RootShell always renders it as the slot. Accept the wider
-  // type + fall back to `<></>` when missing.
+  // there but RootShell always renders it as the slot.
   function SmokeRouterBridge() {
     if (import.meta.env.VITE_ROOST_SMOKE !== "1") return null;
     const navigate = useNavigate();
@@ -131,31 +133,47 @@ export function App() {
     // Overlays reach the coordinator the moment they mount, so they wait for
     // identity discovery to settle rather than racing the first RPC.
     const coordinatorDiscovered = createMemo(() => rootStore.coord_identity !== null);
+    const accessState = () => rootStore.browser_access_state;
 
+    // Both providers sit above the gate so an access transition never remounts
+    // them: the requester ceremony must survive checking → unauthorized →
+    // authorized, and the approver code must survive route changes.
     return (
-      <PairApprovalProvider enabled={coordinatorDiscovered()}>
-        <SmokeRouterBridge />
-        {props.children}
-        <Show when={coordinatorDiscovered()}>
-          <ShortcutRouterBridge />
-          <UiBridge />
-          <AgentNotificationBridge />
-          <CommandPalette />
-          <HelpOverlay />
-          <ControllerMap />
-          <WhatsNewDialog />
-          <QueueTaskDialog />
-          <NotificationDock />
-          <RenameDialogHost />
-        </Show>
-      </PairApprovalProvider>
+      <PairingRequesterProvider>
+        <PairApprovalProvider enabled={accessState() === "authorized"}>
+          <SmokeRouterBridge />
+          <Switch>
+            <Match when={accessState() === "checking"}>
+              <AccessCheckingScreen />
+            </Match>
+            <Match when={accessState() === "unauthorized"}>
+              <Onboarding />
+            </Match>
+            <Match when={accessState() === "authorized"}>
+              <VersionBanner />
+              {props.children}
+              <Show when={coordinatorDiscovered()}>
+                <ShortcutRouterBridge />
+                <UiBridge />
+                <AgentNotificationBridge />
+                <CommandPalette />
+                <HelpOverlay />
+                <ControllerMap />
+                <WhatsNewDialog />
+                <QueueTaskDialog />
+                <NotificationDock />
+                <RenameDialogHost />
+              </Show>
+            </Match>
+          </Switch>
+        </PairApprovalProvider>
+      </PairingRequesterProvider>
     );
   }
 
   return (
     <AppErrorBoundary>
       <ConnectionBanner />
-      <VersionBanner />
       <Router root={RootShell}>
         <Route path="/" component={AppShell}>
           {/* Index "/" → HomeLanding INSIDE AppShell so the sidebar (desktop)

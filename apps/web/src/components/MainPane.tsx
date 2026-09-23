@@ -9,26 +9,14 @@ import { rootStore } from "../store/root.ts";
 import { resolveSessionByFolder, resolveSessionByWorkspace, newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { decodeFolderPath } from "../lib/terminalHref.ts";
 import { rememberVisit } from "../lib/lastVisited.ts";
-import {
-  sessionsHydrated,
-  terminalBootstrapStage,
-  type TerminalBootstrapStage,
-} from "../store/sync-bootstrap.ts";
+import { sessionsHydrated } from "../store/sync-bootstrap.ts";
 import { installDeadRouteSafetyNet } from "../lib/deadRouteSafetyNet.ts";
-import { installStuckTerminalWatcher } from "../lib/stuckTerminal.ts";
-import { consumeBootRestore } from "../lib/bootRestore.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { signal } from "@roost/shared/diag";
 import { TerminalDeck } from "./TerminalDeck.tsx";
-import { Button } from "./Settings/md/Button.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import type { Session } from "@roost/shared/wire";
-import {
-  TerminalStartupOverlay,
-  type TerminalStartupNotice,
-} from "./TerminalStartupOverlay.tsx";
-import type { TerminalStartupStage } from "../lib/terminalStartupProgress.ts";
 
 // Code-split boundary (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism. File-viewer and metadata-search dependencies load
@@ -39,39 +27,6 @@ const FileViewerSheet = lazy(() =>
 const GlobalSearchPage = lazy(() =>
   import("./GlobalSearchPage.tsx").then((module) => ({ default: module.GlobalSearchPage })),
 );
-
-interface BootstrapLoadingCopy {
-  stage: Exclude<TerminalBootstrapStage, "ready"> & TerminalStartupStage;
-  title: string;
-  detail: string;
-}
-
-function terminalBootstrapCopy(stage: TerminalBootstrapStage): BootstrapLoadingCopy | null {
-  switch (stage) {
-    case "identity":
-      return {
-        stage,
-        title: "Connecting to coordinator",
-        detail: "Waiting for coordinator identity.",
-      };
-    case "sync":
-      return {
-        stage,
-        title: "Opening terminal connection",
-        detail: "Coordinator reached; waiting for the live terminal channel.",
-      };
-    case "sessions":
-      return {
-        stage,
-        title: "Loading terminal sessions",
-        detail: "Live terminal channel opened; waiting for the session list.",
-      };
-    case "ready":
-      return null;
-  }
-  const unreachable: never = stage;
-  return unreachable;
-}
 
 export function MainPane() {
   const params = useParams<{
@@ -152,46 +107,6 @@ export function MainPane() {
       }),
   });
 
-  // Never leave a terminal route as a blank/black pane the user can't escape.
-  // When the URL resolves to no open session AND bootstrap is genuinely stuck —
-  // coord unreachable (a fresh load mid-restart) or this browser unpaired — the
-  // safety net above can't fire (it waits on hydration that never lands). Flip a
-  // flag so the render shows an actionable card with a Go-home escape instead.
-  // Debounced so a healthy load's fast hydration never flashes it; the
-  // hydrated-but-gone case stays with the safety net's auto-bounce.
-  const stuckKind = installStuckTerminalWatcher({
-    onTerminalRoute,
-    hasOpenSession: () => activeOpenSession() != null,
-    hydrated: sessionsHydrated,
-    unauthorized: () => rootStore.browser_unauthorized,
-  });
-
-  const bootstrapLoading = createMemo(() => {
-    if (
-      !onTerminalRoute()
-      || activeOpenSession() !== null
-      || sessionsHydrated()
-      || stuckKind() === "unpaired"
-    ) return null;
-    return terminalBootstrapCopy(terminalBootstrapStage());
-  });
-
-  const bootstrapNotice = createMemo((): TerminalStartupNotice | null => {
-    const copy = bootstrapLoading();
-    if (!copy) return null;
-    return {
-      ...copy,
-      actions: stuckKind() === "connecting"
-        ? (
-          <Button variant="secondary" data-testid="stuck-terminal-home"
-            onClick={() => { consumeBootRestore(); navigate("/"); }}>
-            Go home
-          </Button>
-        )
-        : undefined,
-    };
-  });
-
   // Remember where you were (browser-local): boot restores into your last
   // terminal, and each folder reopens its last-viewed tab. Only records a LIVE
   // terminal so a dead route never overwrites a good memory.
@@ -265,39 +180,6 @@ export function MainPane() {
           activeSessionId={activeOpenSession()?.id ?? null}
           surfaceVisible={!overlayActive()}
         />
-
-        <TerminalStartupOverlay notice={bootstrapNotice()} />
-
-        {/* An unpaired browser cannot progress through bootstrap without user
-            action, so replace progress immediately with pairing escapes. */}
-        <Show when={stuckKind() === "unpaired"}>
-          <div
-            data-testid="stuck-terminal"
-            data-kind="unpaired"
-            style={{
-              position: "absolute", inset: "0", "z-index": "20",
-              display: "flex", "flex-direction": "column",
-              "align-items": "center", "justify-content": "center",
-              gap: "14px", padding: "32px", "text-align": "center",
-              background: "var(--bg-base)",
-            }}
-          >
-            <div style={{ "font-size": "15px", "font-weight": 600, color: "var(--text-hi)" }}>
-              Browser not paired
-            </div>
-            <div style={{ "font-size": "13px", "line-height": 1.5, color: "var(--text-lo)", "max-width": "340px" }}>
-              This browser isn't trusted by this coordinator yet. Pair it to open terminals.
-            </div>
-            <div style={{ display: "flex", gap: "8px", "margin-top": "4px" }}>
-              <Button variant="default" data-testid="stuck-terminal-pair" onClick={() => navigate("/pair")}>
-                Pair this browser
-              </Button>
-              <Button variant="secondary" data-testid="stuck-terminal-home" onClick={() => { consumeBootRestore(); navigate("/"); }}>
-                Go home
-              </Button>
-            </div>
-          </div>
-        </Show>
       </div>
     </div>
   );

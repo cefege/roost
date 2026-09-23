@@ -1,13 +1,10 @@
 // The single monotone percent model behind the terminal startup card: one
-// contiguous 4→99 band per startup step, shared by the bootstrap surface and
-// the pane surface so their hand-off reads as one journey.
+// contiguous band per pane startup step, ending at 99 (only completion paints
+// 100).
 // Consumed by TerminalStartupOverlay.tsx. Depends on nothing — pure, no Solid
 // and no DOM, because bun test resolves Solid components to their SSR build.
 
 export type TerminalStartupStage =
-  | "identity"
-  | "sync"
-  | "sessions"
   | "spawn"
   | "measure"
   | "viewport"
@@ -23,15 +20,11 @@ export interface TerminalStartupStep {
   label: string;
 }
 
-// Bands are contiguous and ordered across BOTH surfaces on purpose: the
-// bootstrap card owns identity/sync/sessions (4→46) and the pane card owns the
-// rest (46→99), so the hand-off between two component instances still reads as
-// one journey. start: 4 because a zero-width bar reads as broken. retry is a
-// zero-width band: a retrying step must not advance.
+// Bands are contiguous and ordered so the meter only ever moves forward as a
+// pane advances from spawn to render. They begin at 46 because the pane card
+// continues the coordinator connection that ran before the workbench mounted.
+// retry is a zero-width band: a retrying step must not advance.
 export const TERMINAL_STARTUP_STEPS: Record<TerminalStartupStage, TerminalStartupStep> = {
-  identity: { start: 4, end: 14, label: "Reaching your coordinator" },
-  sync: { start: 14, end: 30, label: "Opening the live connection" },
-  sessions: { start: 30, end: 46, label: "Finding your terminals" },
   spawn: { start: 46, end: 62, label: "Starting the shell" },
   measure: { start: 62, end: 70, label: "Fitting the screen" },
   viewport: { start: 70, end: 82, label: "Claiming the screen" },
@@ -85,12 +78,4 @@ export function terminalStartupChunkDetail(
   if (!chunks || !Number.isFinite(chunks.total) || chunks.total <= 0) return null;
   const received = Math.min(Math.max(chunks.received, 0), chunks.total);
   return `part ${received} of ${chunks.total}`;
-}
-
-/** Only a pane step's disappearance means the terminal actually painted, so
- *  only those end the journey at 100%. The three bootstrap steps hand off to
- *  the pane's own card and must unmount silently, or the user would watch the
- *  meter finish at 100% and then restart at 46%. */
-export function terminalStartupCompletesJourney(stage: TerminalStartupStage): boolean {
-  return stage !== "identity" && stage !== "sync" && stage !== "sessions";
 }

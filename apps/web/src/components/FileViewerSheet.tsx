@@ -67,9 +67,9 @@ export function FileViewerSheet() {
   const navigate = useNavigate();
 
   const workerFp = createMemo(() => params.workerFp ?? "");
-  const scopedWorker = createMemo(() => !rootStore.browser_unauthorized && !!rootStore.workers[workerFp()]);
-  const scopePending = createMemo(() => !scopedWorker() && !workersHydrated() && !rootStore.browser_unauthorized);
-  const scopeUnavailable = createMemo(() => !scopedWorker() && (workersHydrated() || rootStore.browser_unauthorized));
+  const scopedWorker = createMemo(() => !!rootStore.workers[workerFp()]);
+  const scopePending = createMemo(() => !scopedWorker() && !workersHydrated());
+  const scopeUnavailable = createMemo(() => !scopedWorker() && workersHydrated());
   const filePath = createMemo(() => {
     const fp = workerFp();
     const encoded = route.pathname.match(/^\/file\/[^/]+\/(.+)$/)?.[1];

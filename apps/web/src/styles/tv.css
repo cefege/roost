@@ -43,12 +43,19 @@ html[data-tv="true"] {
   padding: var(--tv-overscan-block) var(--tv-overscan-inline);
 }
 
-/* Only the standalone /pair column: the embedded copy in Settings → Devices
-   already sits inside the shell's overscan padding and declares padding: 0. */
+[data-tv="true"] .access-checking {
+  padding: var(--tv-overscan-block) var(--tv-overscan-inline);
+}
+
+/* Only the standalone pairing page: the embedded copy in Settings → Devices
+   already sits inside the shell's overscan padding. The root stays the
+   full-width scroll owner; only its padding and the panel width change. */
 [data-tv="true"] .onboarding-root[data-embedded="false"] {
   padding: var(--tv-overscan-block) var(--tv-overscan-inline);
+}
+
+[data-tv="true"] .onboarding-root[data-embedded="false"] > .onboarding-panel {
   max-width: var(--roost-dialog-wide-max-inline-size);
-  margin-inline: auto;
 }
 
 /* A remote has no hover, and many TV browsers still report hover:hover, so the

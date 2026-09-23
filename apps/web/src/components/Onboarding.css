@@ -1,0 +1,91 @@
+/* Onboarding + pairing page layout. Onboarding.tsx imports this file; the
+   unauthorized gate, /pair, and the zero-machine home render it outside the
+   workbench shell. Standalone, the root is the full-width 100dvh scroll owner
+   and the panel is centered while it fits: margin:auto in a flex column
+   resolves to 0 on overflow, so a tall panel stays top-aligned and scrollable.
+   styles/tv.css pads the root for overscan and widens the panel. */
+
+.onboarding-root {
+  display: flex;
+  flex-direction: column;
+}
+
+.onboarding-root[data-embedded="false"] {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--md-space-5) var(--md-space-4);
+}
+
+.onboarding-panel {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-5);
+  width: 100%;
+  min-width: 0;
+  max-width: var(--roost-dialog-max-inline-size);
+}
+
+.onboarding-root[data-embedded="false"] > .onboarding-panel {
+  margin: auto;
+}
+
+@media (min-width: 600px) {
+  .onboarding-root[data-embedded="false"] {
+    padding: var(--md-space-7) var(--md-space-6);
+  }
+}
+
+.pairing-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-2);
+}
+
+.pairing-header__eyebrow {
+  color: var(--text-lo);
+}
+
+.pairing-header__title,
+.pairing-options__heading {
+  margin: 0;
+  color: var(--text-hi);
+}
+
+.pairing-header__body,
+.pairing-request__supporting,
+.pairing-options__supporting {
+  margin: 0;
+  color: var(--text-mid);
+}
+
+.pairing-request,
+.pairing-options__section,
+.pairing-approval-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-3);
+  min-width: 0;
+}
+
+.pairing-request__status {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+}
+
+.pairing-request__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--md-space-2);
+}
+
+.pairing-options__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-5);
+  min-width: 0;
+}

@@ -1,8 +1,10 @@
 // Approver-dialog DOM test pins grouped code disclosure to the local modal and
-// proves dismissal is not a requester confirmation action.
+// proves every dismissal path (close, Escape, backdrop, Cancel request) reaches
+// the one cancel callback, which stays disabled while a denial is in flight.
 
 import { describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
+import type { PairCodeDialogState } from "../src/components/PairVerificationCodeDialog.tsx";
 import {
   pairingPrimitiveStubs,
   setPairingPrimitiveCaptures,
@@ -47,13 +49,9 @@ mock.module("react/jsx-dev-runtime", () => ({
   },
 }));
 
-let dismissButtonProps: Record<string, unknown> | null = null;
+let dialogProps: Record<string, unknown> | null = null;
 setPairingPrimitiveCaptures({
-  button: (props) => {
-    if (props["data-testid"] === "pair-verification-code-done") {
-      dismissButtonProps = props;
-    }
-  },
+  dialog: (props) => { dialogProps = props; },
 });
 mock.module("../src/components/Settings/md/primitives.tsx", () => pairingPrimitiveStubs);
 
@@ -62,42 +60,103 @@ const { PairVerificationCodeDialog } = await import(
   "../src/components/PairVerificationCodeDialog.tsx"
 );
 
-function collectText(node: unknown, output: string[] = []): string[] {
+/** Walks what actually rendered: a component contributes its output, so a
+ *  closed `Show` hides its children exactly as the DOM would. */
+function walkRendered(node: unknown, visit: (item: string | VNode) => void): void {
   let resolved = node;
   while (typeof resolved === "function") resolved = resolved();
   if (typeof resolved === "string" || typeof resolved === "number") {
-    output.push(String(resolved));
-    return output;
+    visit(String(resolved));
+    return;
   }
   if (Array.isArray(resolved)) {
-    for (const child of resolved) collectText(child, output);
-    return output;
+    for (const child of resolved) walkRendered(child, visit);
+    return;
   }
-  if (!resolved || typeof resolved !== "object") return output;
+  if (!resolved || typeof resolved !== "object") return;
   const vnode = resolved as VNode;
-  collectText(typeof vnode.tag === "function" ? vnode.rendered : vnode.props.children, output);
-  return output;
+  visit(vnode);
+  walkRendered(typeof vnode.tag === "function" ? vnode.rendered : vnode.props.children, visit);
 }
-describe("PairVerificationCodeDialog", () => {
-  test("renders the approval code locally and dismissal only closes the dialog", () => {
-    let closes = 0;
-    let rendered: unknown;
-    const dispose = Solid.createRoot((disposeRoot) => {
-      rendered = PairVerificationCodeDialog({
-        open: true,
-        verificationCode: "123456",
-        requesterLabel: "Kitchen tablet",
-        onClose: () => { closes += 1; },
-      });
-      return disposeRoot;
-    });
 
-    const text = collectText(rendered).join(" ").replace(/\s+/g, " ").trim();
-    expect(text).toContain("123 456");
-    expect(text).toContain("Kitchen tablet");
-    expect(text).toContain("Dismissing this dialog does not authorize the browser.");
-    (dismissButtonProps?.onClick as (() => void))();
-    expect(closes).toBe(1);
-    dispose();
+function renderDialog(state: PairCodeDialogState) {
+  const calls = { cancel: 0, reload: 0 };
+  let rendered: unknown;
+  const dispose = Solid.createRoot((disposeRoot) => {
+    rendered = PairVerificationCodeDialog({
+      open: true,
+      verificationCode: "123456",
+      requesterLabel: "Kitchen tablet",
+      state,
+      onCancel: () => { calls.cancel += 1; },
+      onReload: () => { calls.reload += 1; },
+    });
+    return disposeRoot;
+  });
+  const text: string[] = [];
+  const buttons = new Map<string, Record<string, unknown>>();
+  let alerts = 0;
+  walkRendered(rendered, (item) => {
+    if (typeof item === "string") text.push(item);
+    else {
+      if (item.props.role === "alert") alerts += 1;
+      if (typeof item.props["data-testid"] === "string") buttons.set(item.props["data-testid"], item.props);
+    }
+  });
+  return {
+    calls,
+    dispose,
+    text: text.join("").replace(/\s+/g, " ").trim(),
+    alerts,
+    button: (testId: string) => buttons.get(testId),
+  };
+}
+
+describe("PairVerificationCodeDialog", () => {
+  test("renders the code locally and routes every dismissal to the cancel callback", () => {
+    const view = renderDialog("awaiting");
+    try {
+      expect(view.text).toContain("123 456");
+      expect(view.text).toContain("Kitchen tablet");
+      expect(view.text).toContain("closes automatically");
+      const cancel = view.button("pair-verification-code-cancel")!;
+      expect(cancel.disabled).toBe(false);
+      // Kobalte reports the close button, Escape, and backdrop as onClose.
+      (dialogProps?.onClose as () => void)();
+      (cancel.onClick as () => void)();
+      expect(view.calls.cancel).toBe(2);
+      expect(view.button("pair-verification-code-reload")).toBeUndefined();
+      expect(view.alerts).toBe(0);
+    } finally {
+      view.dispose();
+    }
+  });
+
+  test("disables Cancel request while the denial is in flight", () => {
+    const view = renderDialog("cancelling");
+    try {
+      const cancel = view.button("pair-verification-code-cancel")!;
+      expect(cancel.disabled).toBe(true);
+      expect(cancel["aria-busy"]).toBe(true);
+      expect(view.text).toContain("Cancelling…");
+      expect(view.text).not.toContain("Cancel request");
+      expect(view.text).toContain("123 456");
+    } finally {
+      view.dispose();
+    }
+  });
+
+  test("keeps the code but withdraws the progress claim when a reload is required", () => {
+    const view = renderDialog("reload_required");
+    try {
+      expect(view.text).toContain("123 456");
+      expect(view.text).not.toContain("closes automatically");
+      expect(view.alerts).toBe(1);
+      (view.button("pair-verification-code-reload")!.onClick as () => void)();
+      expect(view.calls.reload).toBe(1);
+      expect(view.button("pair-verification-code-cancel")!.disabled).toBe(false);
+    } finally {
+      view.dispose();
+    }
   });
 });

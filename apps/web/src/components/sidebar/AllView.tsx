@@ -19,14 +19,7 @@ export function AllView(props: AllViewProps) {
 
   return (
     <div class="df-all-view workbench-sidebar-content" data-testid="all-view">
-      <Show
-        when={!noMachines()}
-        fallback={(
-          <SidebarEmptyState
-            kind={rootStore.browser_unauthorized ? "browser-unpaired" : "no-machines"}
-          />
-        )}
-      >
+      <Show when={!noMachines()} fallback={<SidebarEmptyState kind="no-machines" />}>
         <div
           class="workbench-sidebar-folder-list"
           data-active={folderListActive() ? "true" : "false"}

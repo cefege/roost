@@ -1,5 +1,5 @@
 // This module owns redemption of one-time browser pairing codes against the coordinator.
-// Onboarding and the startup fragment flow call it before authenticated bootstrap reloads.
+// The pairing page's setup-token field and the startup fragment flow call it before authenticated bootstrap reloads.
 // It depends on the browser public key, the coordinator client, and the browser label.
 
 import { Code, ConnectError } from "@connectrpc/connect";

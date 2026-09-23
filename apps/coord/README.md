@@ -103,7 +103,15 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   inserts `authorized_keys`/`account_devices`, and fences replay.
   `src/connect/pairing-secrets.ts` imports the shared version and validators
   and owns only persistence digests plus the attempt bound. `PairApprove`
-  stores only a code digest and grants nothing. Migration
+  stores only a code digest and grants nothing.
+  `src/connect/pairing-approval-status.ts` answers the approver's
+  `PairApprovalStatus` poll: only the exact approving device (or direct on-host
+  for host approvals) reads a non-pending request's status; everything else is
+  `NotFound`. It is a read — no write-gate lease, no rate bucket, and no
+  durable audit row on success. The completing `PairConfirm` publishes one
+  volatile `completed` PairBus delta (label, browser/OS/device, coarse
+  location, time — never secrets or provenance) so paired browsers can show a
+  "new browser paired" notice. Migration
   `migrations/0033_pair_verification_code.sql` expires legacy pending requests
   and adds verifier state without rebuilding `pair_requests`.
 - **Direct terminal control** — `src/connect/terminal-grant-owner.ts` is the

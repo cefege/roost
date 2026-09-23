@@ -91,14 +91,6 @@
   display: none;
 }
 
-.terminal-startup__actions {
-  display: flex;
-  gap: var(--md-space-2);
-  justify-content: center;
-  margin-top: var(--md-space-1);
-  pointer-events: auto;
-}
-
 @keyframes terminal-startup-in {
   from {
     opacity: 0;

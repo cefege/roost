@@ -6,7 +6,11 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
 import type { PairRequest } from "../src/store/root.ts";
-import { pairingPrimitiveStubs } from "./helpers/pairingPrimitiveStubs.ts";
+import {
+  pairingPrimitiveStubs,
+  setPairingPrimitiveCaptures,
+} from "./helpers/pairingPrimitiveStubs.ts";
+import { createRerenderingSolid } from "./helpers/rerenderingSolid.ts";
 
 type VNode = {
   tag: unknown;
@@ -17,7 +21,8 @@ type VNode = {
 const disposedRoots: Array<() => void> = [];
 const solidClientUrl = new URL("./solid.js", import.meta.resolve("solid-js"));
 const Solid = await import(solidClientUrl.href) as typeof SolidApi;
-mock.module("solid-js", () => Solid);
+const rerendering = createRerenderingSolid(Solid);
+mock.module("solid-js", () => rerendering.runtime);
 mock.module("../src/components/Settings/md/tokens.css", () => ({}));
 
 function invokeComponent(vnode: VNode): void {
@@ -49,8 +54,8 @@ mock.module("react/jsx-dev-runtime", () => ({
     return createElement(tag, props, ...children);
   },
 }));
-
-
+const buttons: Array<Record<string, unknown>> = [];
+setPairingPrimitiveCaptures({ button: (props) => buttons.push(props) });
 mock.module("../src/components/Settings/md/primitives.tsx", () => pairingPrimitiveStubs);
 
 const { PairRequestCard } = await import("../src/components/PairRequestCard.tsx");
@@ -100,22 +105,26 @@ function makeRequest(overrides: Partial<PairRequest>): PairRequest {
   return { ...baseRequest, ...overrides };
 }
 
+function mountCard(request: PairRequest) {
+  const mounted = rerendering.mount(() => PairRequestCard({
+    request,
+    onApprove: () => undefined,
+    onDeny: () => undefined,
+  }));
+  disposedRoots.push(mounted.dispose);
+  return {
+    text: () => collectText(mounted.current()).join(" ").replace(/\s+/g, " ").trim(),
+    toggleTechnicalDetails: () => {
+      const toggle = buttons.findLast(
+        (button) => button["data-testid"] === "pair-request-technical-details-toggle",
+      );
+      (toggle?.onClick as () => void)();
+    },
+  };
+}
+
 function renderCard(request: PairRequest): string {
-  let rendered: unknown;
-  let dispose: (() => void) | undefined;
-  Solid.createRoot((rootDispose) => {
-    dispose = rootDispose;
-    rendered = PairRequestCard({
-      request,
-      onApprove: () => undefined,
-      onDeny: () => undefined,
-    });
-  });
-  try {
-    return collectText(rendered).join(" ").replace(/\s+/g, " ").trim();
-  } finally {
-    dispose?.();
-  }
+  return mountCard(request).text();
 }
 
 afterEach(() => {
@@ -123,7 +132,7 @@ afterEach(() => {
 });
 
 describe("PairRequestCard", () => {
-  test("renders populated device, location, network, identity, and raw UA details", () => {
+  test("renders populated device, location, network, identity, and expiry evidence", () => {
     const text = renderCard(baseRequest);
 
     expect(text).toContain("New browser wants to pair");
@@ -132,10 +141,26 @@ describe("PairRequestCard", () => {
     expect(text).toContain("Berlin, Berlin, DE");
     expect(text).toContain("IP 203.0.113.7");
     expect(text).toContain("Signed in as owner@example.com");
-    expect(text).toContain(baseRequest.userAgent);
-    expect(text).toContain(`Request ID: ${baseRequest.ephemeral_id}`);
-    expect(text).not.toContain(`Code: ${baseRequest.ephemeral_id}`);
     expect(text).toContain("Expires in");
+  });
+
+  test("keeps raw user agent and request ID behind a collapsed Technical details toggle", () => {
+    const card = mountCard(baseRequest);
+    const securityEvidence = ["Safari · iOS", "Berlin, Berlin, DE", "IP 203.0.113.7", "Signed in as owner@example.com", "Expires in"];
+
+    expect(card.text()).not.toContain(baseRequest.userAgent);
+    expect(card.text()).not.toContain(baseRequest.ephemeral_id);
+    for (const evidence of securityEvidence) expect(card.text()).toContain(evidence);
+
+    card.toggleTechnicalDetails();
+    expect(card.text()).toContain(baseRequest.userAgent);
+    expect(card.text()).toContain(baseRequest.ephemeral_id);
+    for (const evidence of securityEvidence) expect(card.text()).toContain(evidence);
+
+    card.toggleTechnicalDetails();
+    expect(card.text()).not.toContain(baseRequest.userAgent);
+    expect(card.text()).not.toContain(baseRequest.ephemeral_id);
+    for (const evidence of securityEvidence) expect(card.text()).toContain(evidence);
   });
 
   test("renders legacy requests with explicit unavailable provenance", () => {

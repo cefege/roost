@@ -99,4 +99,11 @@ describe("audit persistence policy", () => {
     expect(_shouldPersistMethodAudit("PairConfirm", 200, true)).toBe(true);
     expect(_shouldPersistMethodAudit("PairConfirm", 412)).toBe(true);
   });
+
+  test("skips successful approver status polls but keeps their failures", () => {
+    expect(_shouldPersistMethodAudit("PairApprovalStatus", 200)).toBe(false);
+    expect(_shouldPersistMethodAudit("PairApprovalStatus", 401)).toBe(true);
+    expect(_shouldPersistMethodAudit("PairApprovalStatus", 404)).toBe(true);
+    expect(_shouldPersistMethodAudit("PairApprovalStatus", 500)).toBe(true);
+  });
 });
