@@ -209,6 +209,27 @@ describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpo
     );
   });
 
+  test("compiled worker installer does not require Bun on PATH", () => {
+    const { root, definition, env } = fixture("Linux");
+    const compiledEnv = { ...env };
+    delete compiledEnv.BUN_BIN;
+    const result = Bun.spawnSync(["bash", WORKER_INSTALLER, "write-plist"], {
+      cwd: ROOT,
+      env: {
+        ...compiledEnv,
+        ROOST_COORDINATOR_URL: "http://127.0.0.1:4103",
+        ROOST_WORKER_UNIT: definition,
+        ROOST_WORKER_DATA_DIR: join(root, "worker-data"),
+        ROOST_WORKER_LOG_DIR: join(root, "worker-logs"),
+      },
+    });
+
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    const installed = readFileSync(definition, "utf8");
+    expect(envValue(installed, "Linux", "ROOST_EXEC_BIN")).toBe("/usr/bin/true");
+    expect(result.stderr.toString()).not.toContain("bun not found");
+  });
+
   // Both installers canonicalize with `pwd -P`, and macOS resolves
   // mkdtemp's /var/folders to /private/var/folders, so every expectation here
   // compares against the realpath rather than the temp name.

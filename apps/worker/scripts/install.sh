@@ -70,30 +70,34 @@ if [[ "$_ROOST_CALLER_CONVERSATION_RESTORE_SET" != "x" ]]; then
   unset INSTALLED_CONVERSATION_RESTORE
 fi
 unset _ROOST_CALLER_CONVERSATION_RESTORE_SET
-# Resolve a runtime binary by searching in order: explicit env override,
-# `command -v`, then a fallback list including ~/.bun/bin, /usr/local/bin
-# (Intel Homebrew) and /opt/homebrew/bin (Apple Silicon) so a tarball install
-# on a fresh Mac without Homebrew also works. A miss is FATAL: a service
-# definition that names a binary which does not exist installs cleanly and then
-# never starts, so the machine silently never registers.
-_find_bin() {
-  local name="$1"; shift
-  local v
-  v=$(command -v "$name" 2>/dev/null) || true
-  if [ -n "$v" ] && [ -x "$v" ]; then echo "$v"; return 0; fi
-  for p in "$@"; do
-    if [ -x "$p" ]; then echo "$p"; return 0; fi
-  done
-  echo "ERROR: bun not found (searched PATH, /usr/local/bin, ~/.bun/bin, /opt/homebrew/bin)." >&2
-  echo "       Install Bun (curl -fsSL https://bun.sh/install | bash) or set BUN_BIN=/path/to/bun." >&2
-  exit 1
-}
-# `exit 1` inside _find_bin only leaves the command substitution's subshell, so
-# the miss must be re-checked here to actually abort the install.
-BUN_BIN="${BUN_BIN:-$(_find_bin bun /usr/local/bin/bun "$HOME/.bun/bin/bun" /opt/homebrew/bin/bun)}"
-if [ -z "$BUN_BIN" ] || [ ! -x "$BUN_BIN" ]; then
-  echo "ERROR: refusing to install a service that would exec a missing bun (BUN_BIN='${BUN_BIN}')." >&2
-  exit 1
+# Resolve only the runtime the installed service will execute. Compiled releases
+# use `roost worker` and must not require Bun to exist anywhere on the host.
+if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
+  if [[ ! -x "$ROOST_EXEC_BIN" ]]; then
+    echo "ERROR: refusing to install a service that would exec a missing roost binary (ROOST_EXEC_BIN='${ROOST_EXEC_BIN}')." >&2
+    exit 1
+  fi
+  BUN_BIN="${BUN_BIN:-}"
+else
+  _find_bin() {
+    local name="$1"; shift
+    local v
+    v=$(command -v "$name" 2>/dev/null) || true
+    if [ -n "$v" ] && [ -x "$v" ]; then echo "$v"; return 0; fi
+    for p in "$@"; do
+      if [ -x "$p" ]; then echo "$p"; return 0; fi
+    done
+    echo "ERROR: bun not found (searched PATH, /usr/local/bin, ~/.bun/bin, /opt/homebrew/bin)." >&2
+    echo "       Install Bun (curl -fsSL https://bun.sh/install | bash) or set BUN_BIN=/path/to/bun." >&2
+    exit 1
+  }
+  # `exit 1` inside _find_bin only leaves the command substitution's subshell,
+  # so the miss must be re-checked here to actually abort the install.
+  BUN_BIN="${BUN_BIN:-$(_find_bin bun /usr/local/bin/bun "$HOME/.bun/bin/bun" /opt/homebrew/bin/bun)}"
+  if [ -z "$BUN_BIN" ] || [ ! -x "$BUN_BIN" ]; then
+    echo "ERROR: refusing to install a service that would exec a missing bun (BUN_BIN='${BUN_BIN}')." >&2
+    exit 1
+  fi
 fi
 
 # LaunchAgent values are XML text, not shell text. Escape every dynamic value
