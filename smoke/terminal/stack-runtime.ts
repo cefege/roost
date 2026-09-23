@@ -169,6 +169,11 @@ export interface CoordinatorServiceConfig {
    *  from; the harness's worker-served local UI origins are not the 4104
    *  default the product pre-allowlists. */
   corsAllowedOrigins?: readonly string[];
+  /** Explicit CSP profile; false must reach config as the literal string "0". */
+  relaxedCsp?: boolean;
+  /** Explicit public endpoint values; empty strings clear auto-loaded endpoint settings. */
+  webPublicUrl?: string;
+  coordinatorPublicUrl?: string;
   /** Explicit peer enablement for a hermetic stack; absent preserves product defaults. */
   terminalPeerEnabled?: boolean;
   /** Explicitly empty disables STUN discovery without changing coordinator behavior. */
@@ -187,13 +192,17 @@ export function startCoordinatorService(config: CoordinatorServiceConfig): Runni
         // Bun auto-loads the checkout's .env after spawn, so the hermetic
         // loopback auth semantics are pinned explicitly rather than inherited.
         ROOST_TRUST_PROXY: "0",
-        ROOST_RELAXED_CSP: "1",
+        ROOST_RELAXED_CSP: config.relaxedCsp === false ? "0" : "1",
         ROOST_COORDINATOR_DB: config.dbPath,
         ROOST_COORDINATOR_AUTHORIZED_KEYS: join(config.root, "authorized_keys.roost"),
         // The SPA is always the working tree's build: apps/web/dist is not
         // committed, so a prior-release checkout has none to serve.
         ROOST_WEB_DIST_PATH: join(REPOSITORY_ROOT, "apps/web/dist"),
         ROOST_GIT_SHA: config.gitSha,
+        ...(config.webPublicUrl === undefined ? {} : { ROOST_WEB_PUBLIC_URL: config.webPublicUrl }),
+        ...(config.coordinatorPublicUrl === undefined
+          ? {}
+          : { ROOST_COORDINATOR_PUBLIC_URL: config.coordinatorPublicUrl }),
         ...(config.corsAllowedOrigins?.length
           ? { ROOST_CORS_ALLOWED_ORIGINS: config.corsAllowedOrigins.join(",") }
           : {}),

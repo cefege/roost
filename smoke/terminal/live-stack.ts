@@ -5,15 +5,16 @@
 // its test. Same startTerminalTestStack the specs use, so the subject under test
 // is the working tree, never a deployed build.
 //
-//   bun smoke/terminal/live-stack.ts        # prints READY <url>, runs until SIGINT
-//   bun smoke/terminal/live-stack.ts --pair # also prints a one-use browser URL
+//   bun smoke/terminal/live-stack.ts                      # ordinary smoke profile
+//   bun smoke/terminal/live-stack.ts --local-first --pair # production local profile
 //
 // Requires apps/web/dist to be current AND smoke-enabled (the window.__smoke tier):
 // `VITE_ROOST_SMOKE=1 bun run --cwd apps/web build`.
-
+//
 import { startTerminalTestStack } from "./stack.ts";
 
-const stack = await startTerminalTestStack();
+const localFirst = process.argv.includes("--local-first");
+const stack = await startTerminalTestStack(localFirst ? { localFirst: true } : {});
 let stopping = false;
 const stop = async (exitCode = 0): Promise<void> => {
   if (stopping) return;

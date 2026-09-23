@@ -5,29 +5,41 @@ order: 7
 section: "Reference"
 ---
 
-## One listener, one declared origin
+## Start local; declare an HTTPS origin only for expansion
 
-The coordinator binds loopback and speaks plaintext:
+Fresh `roost quickstart` creates a loopback-only coordinator and local worker:
 
 ```text
-your front door  →  127.0.0.1:4103
+browser and local worker  →  http://127.0.0.1:4103
 ```
 
-That is the whole network model. TLS, DNS, tunnels, and public reachability
-belong to whatever you put in front of it, and you tell the coordinator the
-resulting origin:
+The persistent service profile is
+`ROOST_COORDINATOR_BIND=127.0.0.1:4103`, `ROOST_TRUST_PROXY=0`,
+`ROOST_WEB_PUBLIC_URL=`, `ROOST_COORDINATOR_PUBLIC_URL=`,
+`ROOST_CORS_ALLOWED_ORIGINS=http://127.0.0.1:4103`, and
+`ROOST_SKIP_ENV_LOCAL=1`. No domain, HTTPS proxy, VPN, or external address is
+needed for that first machine. `roost status` correctly reports local-only
+access as unconfigured remote access, not a fault.
+
+To make Roost available beyond that machine, choose an operator-managed HTTPS
+origin and run this on the coordinator host **before** exposing the listener:
 
 ```sh
 roost quickstart --coordinator-url https://roost.example.com
 ```
 
-Quickstart installs the coordinator with `ROOST_COORDINATOR_BIND=127.0.0.1:4103`,
-`ROOST_TRUST_PROXY=1`, and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
 `--coordinator-url` must be an absolute `https:` origin with no path, query, or
-fragment; an explicit port is optional. Roost never provisions a certificate,
-never registers DNS, and never invents an origin for you.
+fragment; an explicit port is optional. Promotion changes the coordinator
+endpoint profile and restarts only the coordinator, retaining the local worker,
+keeper, PTYs, and state. Configure the front door afterwards:
 
-`roost status` reports that configured URL and whether it answers.
+```text
+your HTTPS front door  →  installed 127.0.0.1:4103 bind
+```
+
+It must overwrite `X-Forwarded-For`. Roost does not provision certificates,
+DNS, tunnels, VPNs, SSH, or target-machine reachability; a declared origin is
+not a reachability proof.
 
 ## Three front doors
 
@@ -44,10 +56,10 @@ none of them — copy-paste configuration lives in
 | Best reason to choose it | plain public hosting | works behind NAT | no domain, no exposure |
 
 Workers dial the coordinator origin outbound and never listen for inbound
-connections. When workers should use a different door than browsers, set
-`ROOST_COORDINATOR_PUBLIC_URL` to that origin; enrollment resolves
-`ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` →
-`ROOST_WEB_PUBLIC_URL` and refuses when none is set.
+connections. The first local worker dials its loopback coordinator. Remote
+enrollment requires a declared, non-loopback HTTPS origin; use
+`ROOST_COORDINATOR_PUBLIC_URL` only when workers need a different HTTPS door
+from browsers.
 
 ## Overwrite `X-Forwarded-For`, never append
 

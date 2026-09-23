@@ -55,6 +55,8 @@ export type TerminalTestStackOptions = {
   // Coordinator database to boot over. Default is a fresh one under the test
   // root; an upgrade run supplies one a prior release already migrated.
   coordDbPath?: string;
+  /** Bind the coordinator to a reserved local HTTP origin with production CSP. */
+  localFirst?: boolean;
   /** Exact compiled `roost` binary used for worker processes instead of source Bun. */
   workerExecutable?: string;
   terminalPeer?: TerminalPeerSmokeOptions;

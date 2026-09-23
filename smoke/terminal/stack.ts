@@ -61,7 +61,6 @@ const WORKER_LABEL = "roost-terminal-test";
 const SECOND_WORKER_LABEL = "roost-terminal-test-second";
 const PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture";
 const SECOND_PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture-second";
-
 export async function startTerminalTestStack(
   options: TerminalTestStackOptions = {},
 ): Promise<TerminalTestStack> {
@@ -220,6 +219,10 @@ export async function startTerminalTestStack(
     const secondWorkerLocalUi = await localUi.reserve(SECOND_WORKER_LABEL);
     const ptyFixtureLocalUi = await localUi.reserve(PTY_FIXTURE_WORKER_LABEL);
     const secondPtyFixtureLocalUi = await localUi.reserve(SECOND_PTY_FIXTURE_WORKER_LABEL);
+    const coordinatorLocalUi = options.localFirst
+      ? await localUi.reserve("roost-coordinator")
+      : undefined;
+    await coordinatorLocalUi?.release();
     coordinator = await startCoordinatorControl({
       bunExecutable,
       sourceRoot: coordRelease.sourceRoot,
@@ -229,6 +232,10 @@ export async function startTerminalTestStack(
       dbPath: coordDbPath,
       logPath: coordLogPath,
       gitSha: coordRelease.gitSha,
+      initialBind: coordinatorLocalUi?.bind,
+      relaxedCsp: options.localFirst ? false : undefined,
+      webPublicUrl: options.localFirst ? "" : undefined,
+      coordinatorPublicUrl: options.localFirst ? "" : undefined,
       corsAllowedOrigins: localUi.origins(),
       terminalPeerEnabled: terminalPeer?.coordinatorEnabled ?? false,
       terminalPeerStunUrls: terminalPeer?.coordinatorStunUrls,

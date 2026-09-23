@@ -126,13 +126,13 @@ production email signup and Google auth are off.
 ## How it works
 
 ```text
-   Browser  (any device that can reach the selected HTTPS origin)
-      │   unary Connect-RPC over HTTPS
+   Browser  (same host via loopback; elsewhere after HTTPS expansion)
+      │   unary Connect-RPC over loopback HTTP or front-door HTTPS
       │   protobuf Sync WebSocket: events, terminal cells, views, input
       ▼
  ┌─────────────────────────┐
  │ Coordinator  (Bun)      │   event log + transactional projection · auth
- │ one machine · HTTPS     │   dashboard-scoped Sync and terminal fan-out
+ │ one machine · loopback  │   dashboard-scoped Sync and terminal fan-out
  └───────────┬─────────────┘
              │   protobuf WebSocket · worker dials outbound
       ┌──────┴───────────────┐
@@ -151,25 +151,24 @@ the full tour, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Network
 
-Quickstart supports two production coordinator modes:
+The coordinator always listens in plaintext on its installed loopback bind.
+Fresh macOS/Linux quickstart uses `http://127.0.0.1:4103` with
+`ROOST_TRUST_PROXY=0`, no public URL, and a local worker that dials the same
+loopback origin. No domain, proxy, VPN, or Tailscale configuration is needed.
 
-- **Automatic Tailscale Serve (no endpoint flags).** Quickstart discovers the
-  coordinator's MagicDNS name, keeps coordinator HTTP on loopback port 4103,
-  and configures Tailscale Serve HTTPS on port 4102. Browsers and workers using
-  this route join the tailnet.
-- **Direct HTTPS (all three endpoint flags).** Coordinator quickstart does not
-  call Tailscale. Bun listens on the explicitly selected port and terminates
-  HTTPS with the supplied certificate. You provide DNS, routing, firewall
-  policy, and a chain trusted by every client.
+To add remote browser or worker access, an operator chooses an HTTPS address and
+runs `roost quickstart --coordinator-url https://roost.example.com` on the
+coordinator host **before** exposing the listener. That promotion changes only
+the coordinator endpoint profile and restarts only the coordinator; it retains
+the local worker, keeper, PTYs, and state. The operator then configures an HTTPS
+front door to forward to the installed loopback bind and overwrite
+`X-Forwarded-For`.
 
-Direct mode is Tailscale-free for the coordinator, its installed local worker,
-and browser access. The current POSIX extra-worker join script still performs a
-Tailscale preflight, and the CLI enrollment generator is automatic-mode-only.
-
-**[Cloudflare browser access](GETTING_STARTED.md#optional-cloudflare-browser-access-for-automatic-mode)
-is optional.** It layers browser access onto automatic mode: browsers enter
-through Cloudflare Access/Tunnel while coordinator-worker traffic remains on
-Tailscale. Only the coordinator runs `cloudflared`.
+Roost does not configure TLS, DNS, certificates, Tailscale Serve, VPNs, SSH, or
+target reachability. A declared HTTPS origin is not proof that another machine
+can reach it. The front door must deny `/internal/*` and `/api/db-export`; see
+[`GETTING_STARTED.md`](GETTING_STARTED.md) for the recipes and caller-address
+requirements.
 
 ## Install
 
@@ -178,27 +177,22 @@ Linux arm64/x64. POSIX hosts use launchd or `systemd --user`; browsing devices
 need only a modern browser. The installer checks the binary against its GitHub
 Release SHA-256 sidecar.
 
-Choose one quickstart mode. Automatic Tailscale mode needs no endpoint flags:
-
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
 "$HOME/.local/bin/roost" quickstart
 ```
 
-For direct HTTPS, pass the three endpoint flags together:
+Quickstart starts persistent local services, deploys the first worker, and
+opens a paired browser at `http://127.0.0.1:4103`. Rerunning it preserves the
+installed endpoint and state while reactivating the coordinator and opening a
+new browser pairing flow.
+
+For optional expansion, pass a strict HTTPS origin with no credentials, query,
+fragment, or path beyond `/`:
 
 ```sh
-"$HOME/.local/bin/roost" quickstart \
-  --coordinator-url "https://roost.example.com:8443" \
-  --tls-cert "$HOME/.config/roost/tls/fullchain.pem" \
-  --tls-key "$HOME/.config/roost/tls/privkey.pem"
+"$HOME/.local/bin/roost" quickstart --coordinator-url "https://roost.example.com"
 ```
-
-The URL is an HTTPS origin with an explicit numeric port, no credentials,
-query, fragment, or non-root path. Certificate and key paths are absolute,
-readable, non-symlink regular files that resolve to distinct files. The
-certificate must match the hostname and be trusted by every client. See
-[`GETTING_STARTED.md`](GETTING_STARTED.md) for the full contract.
 
 Windows host releases are paused: v0.5.0 publishes no Windows coordinator,
 worker, installer, join script, or update path. Windows remains supported as a
@@ -212,16 +206,13 @@ requests and `Referer` headers. If the opener fails, fix the local opener and
 rerun quickstart, or pair from an already authorized browser; never move an
 enrollment secret through shell history, chat, logs, or screenshots.
 
-Two enrollment surfaces avoid copying long-lived credentials:
-
-- **Add a phone or tablet by QR.** In **Settings → Pair a device**, scan the QR
-  with the device camera. It opens Roost and signs itself in.
-- **Add a macOS/Linux worker.** **Settings → Machines → Add machine** uses the
-  configured coordinator origin in either mode; the `roost add-machine`
-  generators are automatic-mode-only. Paste the one-shot command on the new
-  host. The current POSIX join script still requires a running Tailscale daemon
-  even for a direct origin, so v0.5.0 has no Tailscale-free extra-worker
-  enrollment path.
+To add a phone, first make the promoted HTTPS origin reachable to it, then use
+**Settings → Pair a device**. To add a macOS/Linux worker, use **Settings →
+Machines → Add machine**. A local-only coordinator shows the promotion guidance
+and does not mint a command. After configuring the HTTPS front door, select
+**Check again**, generate the command, and run it manually on the target through
+your normal terminal, SSH session, or cloud console. The target must reach the
+declared origin; Roost does not test that path or log in to configure it.
 
 The full walkthrough is in [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
@@ -247,9 +238,6 @@ Your desktop browser stays perfectly usable for claude.ai. Roost isn't a replace
 - **Headless-server polish.** Linux workers already install as a
   `systemd --user` unit with linger; setup for a box reached only over SSH
   remains.
-- **Tailscale-free direct enrollment.** Direct coordinator quickstart already
-  avoids Tailscale, but the current POSIX worker join front door still requires
-  a Tailscale preflight.
 - **Multi-user self-hosting.** v0.5.0 automatically provisions one local
   tenant; broader self-hosted operator administration remains outside this
   release.
@@ -262,8 +250,9 @@ The v0.5.0 release boundary is explicit:
 
 - **Hosts:** macOS arm64/x64 and Linux arm64/x64. Windows host support is
   paused; Windows remains supported as a browser client.
-- **Networks:** automatic Tailscale Serve or direct HTTPS. The current
-  extra-worker join path is still Tailscale-gated.
+- **Networks:** local-first loopback access, with optional operator-managed
+  HTTPS promotion for remote browsers and workers. Roost does not configure
+  Tailscale or another network.
 - **Deployment:** self-hosted macOS/Linux is released and deployed. Managed
   per-account isolation is qualified, not publicly launched; accounts are
   operator-created and production signup, Google auth, image publication, and

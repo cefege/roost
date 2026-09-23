@@ -23,7 +23,7 @@ standalone release binary (it contains no Git checkout).
 
 | Subcommand | What it does |
 |---|---|
-| `quickstart` | One-shot local install: validate `--coordinator-url`, then coordinator on its loopback bind, local worker, and browser pairing |
+| `quickstart` | Persistent local-first install: bare invocation installs the loopback coordinator and first worker, then opens a paired local browser; reruns preserve the runtime, while `--coordinator-url https://…` promotes only the coordinator endpoint profile |
 | `coord` | Run the coordinator (server mode; used by the compiled binary) |
 | `worker` | Run the worker (server-side; compiled binary or supervised service) |
 | `keeper` | Run the keeper subprocess that hosts this machine's PTYs |
@@ -39,11 +39,11 @@ standalone release binary (it contains no Git checkout).
 | `reset` | Nuke local state — database, keys, lock |
 | `state` | Print the state snapshot |
 | `cutover` | Migrate from the legacy `coordinator.db` to `coordinator_v2.db` |
-| `status` | Health readout: services, coordinator, the configured public URL, workers |
+| `status` | Health readout: local services, coordinator, optional public URL reachability, and workers; absent remote access is healthy local-only state |
 | `doctor [--since]` | Anomaly digest from the error logs (default window 24h) |
 | `api <verb>` | Headless introspection and control (see below) |
 | `join` | Install and register a macOS or Linux worker; needs `ROOST_COORDINATOR_URL` and `ROOST_BOOTSTRAP_TOKEN` |
-| `add-machine` | Print a one-shot macOS or Linux enrollment command — `--platform <macos\|linux> [--label X]`; the URL resolves `ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL` and refuses when none is set |
+| `add-machine` | Print a one-shot macOS or Linux enrollment command only after the coordinator declares a strict non-loopback HTTPS origin; run it manually on the target (`--platform <macos\|linux> [--label X]`) |
 
 `--since` accepts a number plus a unit, so `90m`, `1h`, `24h`, and `7d` are all
 valid. `roost logs` also warns when a log file has grown past 100 MB.

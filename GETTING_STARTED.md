@@ -9,29 +9,62 @@ you browse *from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Androi
 phone, an iPad, an Android tablet, whatever — needs nothing but a modern
 browser (optionally added to the home screen as a PWA).
 
-## One coordinator HTTP/TLS front-door shape
+## Start locally, then add a front door when you need one
 
-There is exactly one coordinator HTTP/TLS front-door contract:
+Roost starts as persistent local services. On a supported macOS or Linux host,
+bare `roost quickstart` installs a coordinator and first worker, then opens and
+pairs a browser at `http://127.0.0.1:4103`. You need no domain, HTTPS proxy,
+VPN, or external URL for this first machine.
 
-- The coordinator listens on loopback, in plaintext:
-  `ROOST_COORDINATOR_BIND=127.0.0.1:4103`.
-- You put a front door in front of it — Caddy, nginx, a Cloudflare tunnel,
-  `tailscale serve`, anything that terminates TLS and proxies HTTP.
-- That front door is a trusted proxy, so the coordinator reads its
-  `X-Forwarded-For`: `ROOST_TRUST_PROXY=1`.
-- You tell the coordinator the resulting public origin:
-  `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
+The fresh local coordinator service uses this profile:
 
-Roost owns no TLS, no DNS, no tunnel, and no certificate renewal, and it never
-invents a hostname for you. The origin you declare seeds the SPA's CSP
-`connect-src` and the Sync WebSocket origin allowlist, so it must be exactly
-the origin a browser addresses — scheme, host, and non-default port included.
+```text
+ROOST_COORDINATOR_BIND=127.0.0.1:4103
+ROOST_TRUST_PROXY=0
+ROOST_WEB_PUBLIC_URL=
+ROOST_COORDINATOR_PUBLIC_URL=
+ROOST_CORS_ALLOWED_ORIGINS=http://127.0.0.1:4103
+ROOST_SKIP_ENV_LOCAL=1
+```
 
-This one-front-door statement applies to coordinator HTTP/TLS only. Peer
-transport does not add a worker HTTP/TLS front door: it can create an
-authenticated worker UDP endpoint only after coordinator admission. The
-coordinator serves the SPA from its own binary, so nothing else has to host the
-dashboard.
+The coordinator listens only on loopback and serves plaintext there. Its local
+worker dials that same loopback origin. Browser pairing still authorizes the
+browser; it is not a network-access grant.
+
+When you want browsers or another worker to connect from elsewhere, choose an
+operator-managed HTTPS address. Before exposing the running local listener, run
+this on the coordinator machine:
+
+```sh
+roost quickstart --coordinator-url "https://roost.example.com"
+```
+
+`--coordinator-url` is an absolute `https:` origin with no userinfo, query, or
+fragment and no path beyond `/`; an explicit port is allowed. This promotion
+changes only the coordinator endpoint profile and restarts only the coordinator.
+It preserves the installed worker, keeper, PTYs, database, and local browser
+route. Configure your front door afterwards to forward to the installed
+loopback bind and to **overwrite**, never append, `X-Forwarded-For`.
+
+Roost owns no TLS, DNS, tunnel, VPN, certificate renewal, SSH session, or
+target reachability. A valid HTTPS address is not proof that another machine
+can reach it. The front door's declared browser origin seeds the SPA's CSP
+`connect-src` and Sync WebSocket allowlist, so it must be exactly the browser
+origin — scheme, host, and non-default port included.
+
+`apps/coord/scripts/install.sh` takes the bind port from
+`ROOST_COORD_LOOPBACK_PORT` (default 4103) and persists the resolved
+`ROOST_COORDINATOR_BIND`, so the service definition states the listener once.
+
+`ROOST_COORDINATOR_PUBLIC_URL` remains optional and separate: use it only when
+workers should dial a different HTTPS door from browsers. The worker URL
+precedence is `ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` →
+`ROOST_WEB_PUBLIC_URL`.
+
+> **Windows host releases are paused.** v0.5.0 publishes no Windows
+> coordinator, worker, installer, join script, or package. Windows remains
+> supported as a browser client, but there is no supported Windows host
+> install, enrollment, or update procedure in this release.
 
 ## Install + run
 
@@ -42,45 +75,18 @@ installer verifies it against the adjacent GitHub Release SHA-256 sidecar:
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
 ```
 
-Then run quickstart. It takes one endpoint flag, and requires it:
+Then start the local installation:
 
 ```sh
-"$HOME/.local/bin/roost" quickstart --coordinator-url "https://roost.example.com"
+"$HOME/.local/bin/roost" quickstart
 ```
 
-`--coordinator-url` is an absolute `https:` origin with no userinfo, query, or
-fragment and no path beyond `/`. An explicit port is optional:
-`https://roost.example.com` and `https://roost.example.com:8443` are both
-accepted. Quickstart builds the SPA, installs the coordinator service bound to
-loopback, deploys a worker on the same machine, waits for health, prints a
-status readout, and opens an already-authorized browser. It proves coordinator
-health on its loopback HTTP bind, not direct-peer connectivity, and points the
-local worker at the origin you declared, so a successful worker registration
-also proves your front door passes worker traffic.
-
-The installed coordinator service carries this endpoint contract:
-
-```text
-ROOST_COORDINATOR_BIND=127.0.0.1:4103
-ROOST_TRUST_PROXY=1
-ROOST_WEB_PUBLIC_URL=https://roost.example.com
-```
-
-`apps/coord/scripts/install.sh` takes the bind port from
-`ROOST_COORD_LOOPBACK_PORT` (default 4103) and persists the resolved
-`ROOST_COORDINATOR_BIND`, so the service definition states the listener once.
-
-`ROOST_COORDINATOR_PUBLIC_URL` is optional and separate: it is the coordinator's
-own identity origin, for installs where workers dial a different door than the
-browsers do. Leave it unset and workers use the browser front door. The URL a
-worker dials resolves as `ROOST_COORDINATOR_URL` →
-`ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL`; with none of the three
-set, enrollment refuses rather than guessing an origin.
-
-> **Windows host releases are paused.** v0.5.0 publishes no Windows
-> coordinator, worker, installer, join script, or package. Windows remains
-> supported as a browser client, but there is no supported Windows host
-> install, enrollment, or update procedure in this release.
+Quickstart builds the SPA, installs the persistent loopback coordinator service,
+deploys the local worker, waits for health and worker registration, prints a
+status readout, and opens an already-authorized local browser. Rerunning it
+preserves the installed endpoint and state, reactivates the coordinator, and
+opens a new browser pairing flow without replacing a healthy worker or its
+keeper.
 
 The source/development path is separate and intended for macOS or Linux:
 
@@ -99,10 +105,10 @@ command to run before quickstart or after an upgrade.
 
 ## Three coordinator HTTP/TLS front-door recipes
 
-Pick one. Roost implements none of them: each is ordinary configuration for
-software you already know how to operate, and each ends with the same two
-coordinator HTTP/TLS facts — the loopback bind and the `ROOST_WEB_PUBLIC_URL`
-it is told.
+After running the promotion command on the coordinator, choose one of these
+operator-managed front doors. Roost implements none of them: each forwards to
+the loopback bind, supplies HTTPS, and must overwrite `X-Forwarded-For`. The
+declared `ROOST_WEB_PUBLIC_URL` is the browser origin it serves.
 
 ### Recipe 1 — Caddy with your own domain
 
@@ -127,8 +133,8 @@ sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
-Workers dial this same origin in the standard install, so `/ws/coord-worker/*`
-passes.
+Workers enrolled through this shared HTTPS door dial it, so
+`/ws/coord-worker/*` passes.
 
 Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4103` plaintext with
 `ROOST_TRUST_PROXY=1`, and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
@@ -174,8 +180,8 @@ http://roost.example.com:8080 {
 }
 ```
 
-Workers dial this same origin in the standard install, so `/ws/coord-worker/*`
-passes.
+Workers enrolled through this shared HTTPS door dial it, so
+`/ws/coord-worker/*` passes.
 
 Install the tunnel as a service with an explicit config path — under `sudo` the
 service's `$HOME` is `/root`, so `cloudflared` would not otherwise find the file
@@ -384,10 +390,11 @@ authorized browser. Later devices should always use that Settings pairing flow.
 
 ## Pair your phone
 
-Make the front door reachable from the phone, open it, then choose **Settings →
-Pair a device** in Roost on an already-authorized browser and scan the QR with
-the phone's camera. On a tailnet front door, install the Tailscale app on the
-phone and sign in to the same tailnet first.
+Phone pairing needs an HTTPS front door that the phone can reach. After
+promotion and front-door configuration, open that HTTPS origin, then choose
+**Settings → Pair a device** in Roost on an already-authorized browser and scan
+the QR with the phone's camera. On a tailnet front door, install the Tailscale
+app on the phone and sign in to the same tailnet first.
 
 Pairing is what authorizes a device. Network reachability, a VPN membership, or
 a login your front door performs on its own does not authorize a phone as a
@@ -417,15 +424,26 @@ notification opens that session.
 ## Add another machine
 
 v0.5.0 enrolls macOS or Linux workers. **Settings → Machines → Add machine**
-creates a one-shot pull command; the CLI equivalents are
-`roost add-machine --platform macos` and `roost add-machine --platform linux`.
-The enrollment URL comes from the installed coordinator service definition,
-overlaid by the ambient environment, in the order `ROOST_COORDINATOR_URL` →
-`ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL`. With none of them set
-the command refuses, naming all three, instead of inventing an origin. No
-coordinator SSH or push is involved.
+first checks whether the coordinator advertises an HTTPS enrollment address. A
+local-only Roost does not mint a command: choose an
+operator-managed HTTPS address, run
+`roost quickstart --coordinator-url https://<your-Roost-address>` on the
+coordinator **before** exposing its listener, configure the front door to
+forward to the installed loopback bind and overwrite `X-Forwarded-For`, then
+select **Check again**.
 
-Paste the generated command on the worker:
+Once the coordinator advertises a valid external origin, generate the one-shot
+pull command and run it manually on the target through your usual terminal,
+SSH session, or cloud console. Roost neither opens an SSH session nor configures
+the target network. The target must reach the declared HTTPS address and trust
+its certificate chain; generation does not prove that reachability. CLI
+equivalents are `roost add-machine --platform macos` and
+`roost add-machine --platform linux`.
+
+The enrollment address uses the installed coordinator declaration:
+`ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` →
+`ROOST_WEB_PUBLIC_URL`. A missing, local, or invalid declaration refuses before
+minting a token rather than selecting another origin.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
@@ -433,11 +451,9 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
   ROOST_BOOTSTRAP_TOKEN="roost_bt_…" bash
 ```
 
-The worker must reach that origin and trust its certificate chain, and the
-origin must accept `/ws/coord-worker/*`. Give workers a private origin
-(`ROOST_COORDINATOR_PUBLIC_URL` on the coordinator, and the matching
-`ROOST_COORDINATOR_URL` here) when you would rather keep the worker link off
-the public front door.
+The public worker path `/ws/coord-worker/*` must pass on a shared front door.
+Give workers a separately declared `ROOST_COORDINATOR_PUBLIC_URL` only when the
+worker link should use a distinct HTTPS door.
 
 The machine appears in **Settings → Machines** within a few seconds. macOS
 uses launchd and Linux uses `systemd --user`. The server-side bootstrap token

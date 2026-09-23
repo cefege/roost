@@ -7,40 +7,58 @@ section: "Start"
 
 ## One command for the first machine
 
-Point the coordinator at the origin your front door serves:
+```sh
+roost quickstart
+```
+
+On macOS or Linux this installs persistent local coordinator and worker
+services, waits for health, and opens an already-authorized browser at
+`http://127.0.0.1:4103`. The local profile is
+`ROOST_COORDINATOR_BIND=127.0.0.1:4103`, `ROOST_TRUST_PROXY=0`,
+`ROOST_WEB_PUBLIC_URL=`, `ROOST_COORDINATOR_PUBLIC_URL=`,
+`ROOST_CORS_ALLOWED_ORIGINS=http://127.0.0.1:4103`, and
+`ROOST_SKIP_ENV_LOCAL=1`. No domain, HTTPS proxy, VPN, or external URL is
+needed.
+
+The browser receives a one-shot bootstrap token in the URL **fragment**
+(`#pair=…`). A fragment is never sent to the server, so the token never lands
+in the coordinator's logs, an access log, or a `Referer` header. Pairing
+authorizes the browser; local network position does not.
+
+Rerun `roost quickstart` to reactivate the installed coordinator and reopen a
+browser pairing flow. It preserves the installed endpoint, worker, keeper, and
+state.
+
+To make Roost available beyond the coordinator host, first choose an
+operator-managed HTTPS address, then run this on the coordinator machine
+**before** exposing its listener:
 
 ```sh
 roost quickstart --coordinator-url "https://roost.example.com"
 ```
 
-That installs the coordinator service on its loopback bind, deploys a worker on
-the same machine, waits for health, prints a status readout, and opens your
-browser already authorized. The flag is required: Roost never guesses a public
-origin. TLS and reachability come from the front door you chose in
-[install](/docs/install/).
+Promotion changes the coordinator endpoint profile and restarts only the
+coordinator. Configure the front door to forward to the installed loopback bind
+and overwrite `X-Forwarded-For`; Roost does not configure TLS, a proxy, VPN,
+SSH, or target reachability. See [networking](/docs/networking/) for the
+private-path and proxy requirements.
 
 Coordinator startup owns the self-hosted tenant setup. Before enrollment, it
 creates or validates one internal `local@roost.invalid` account, one `personal`
 organization, and its `default` dashboard; no separate organization bootstrap
 command is required.
 
-That last step uses a one-shot bootstrap token carried in the URL **fragment**
-(`#pair=…`). A fragment is never sent to the server, so the token never lands in
-the coordinator's logs, in an access log, or in a `Referer` header.
-
 `quickstart` sets up this machine only. Other machines are enrolled separately,
 below.
 
 ## Pair a phone or tablet
 
-On the machine you just set up, open **Settings → Pair a device**. Roost mints a
-one-shot browser token and renders a QR for the current HTTPS origin, again with
-the token in the fragment. Scan it with the phone's camera — the phone opens
-Roost and signs itself in with nothing to type.
-
-Make the front door reachable from the phone first — on a `tailscale serve`
-front door that means installing the Tailscale app on the phone and signing in
-to the same tailnet.
+Phone pairing requires an HTTPS front door the phone can reach. After promotion
+and front-door configuration, open that HTTPS origin, then choose **Settings →
+Pair a device** in Roost on an already-authorized browser. Roost renders a QR
+with a one-shot fragment token; scan it with the phone's camera. On a
+`tailscale serve` front door, install the Tailscale app on the phone and sign
+in to the same tailnet.
 
 Pairing is what authorizes the device. Network reachability, or a login your
 front door performs on its own, does not.
@@ -51,18 +69,40 @@ self-registration, and tap-to-pair approval — are described in
 
 ## Add another machine
 
-`v0.5.0` enrolls macOS and Linux workers. Use **Settings → Machines → Add
-machine** to generate a one-shot pull command, or the CLI generators:
+`v0.5.0` enrolls macOS and Linux workers. Open **Settings → Machines → Add
+machine**. For a local-only coordinator, the dialog explains that the new
+machine needs a reachable HTTPS address and does not mint a token.
+
+1. Choose an HTTPS address from the operator's proxy, tunnel, or
+   private-access setup. No purchased domain is required; Tailscale Serve can
+   supply a `*.ts.net` address, but network membership alone does not expose
+   Roost.
+2. Before exposing the local listener, run
+   `roost quickstart --coordinator-url https://<your-Roost-address>` on the
+   coordinator machine.
+3. Configure the front door to forward to the installed loopback bind and
+   overwrite `X-Forwarded-For`. The default-port Tailscale Serve example is
+   `tailscale serve --bg --https=443 http://127.0.0.1:4103`; substitute an
+   operator-changed loopback port. Both machines need the appropriate route and
+   ACL access; WireGuard alone does not supply HTTPS.
+4. Return to **Add machine** and select **Check again**. Generate a command
+   only after the coordinator advertises a valid external origin.
+
+Run the generated command manually on the intended target using its normal
+terminal, SSH session, or cloud console. Roost does not log in through SSH or
+configure the network, and generation does not prove the target can reach the
+address. The target must reach the declared HTTPS origin and trust its
+certificate chain.
+
+The CLI generators are:
 
 ```sh
 roost add-machine --platform macos
 roost add-machine --platform linux
 ```
 
-`--label` optionally names the machine up front. Each invocation mints a
-single-use bootstrap token (prefixed `roost_bt_`, valid for 24 hours) and prints
-the enrollment command. Paste that command on the macOS or Linux worker; it has
-this shape:
+`--label` optionally names the machine up front. Each generated command has a
+single-use bootstrap token (prefixed `roost_bt_`, valid for 24 hours):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
@@ -70,12 +110,9 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
   ROOST_BOOTSTRAP_TOKEN="roost_bt_…" bash
 ```
 
-Those two environment variables are the enrollment contract. The worker must
-reach that origin and trust its certificate chain; `/ws/coord-worker/*` passes
-on a standard front door. Give workers a separate origin with
-`ROOST_COORDINATOR_PUBLIC_URL` on the coordinator when the worker link should
-stay off the public front door — only then is it safe to deny that path at the
-edge.
+The front door must accept `/ws/coord-worker/*` when workers use the browser
+door. A separate `ROOST_COORDINATOR_PUBLIC_URL` is for a distinct worker HTTPS
+door only.
 
 > **Windows host enrollment is paused.** `v0.5.0` publishes no Windows worker,
 > package, installer, or signed join script, so there is no Windows command to
@@ -132,8 +169,9 @@ roost doctor --since 1h
 ```
 
 `roost status` is the current service, network, and fleet gate: it reports both
-local services, coordinator health and tagged SHA on its loopback bind, the
-configured public URL and whether it answers, and worker freshness.
+local services, coordinator health and tagged SHA on its loopback bind, and
+worker freshness. An absent external URL is the healthy intended local-only
+state; a configured URL that does not answer needs front-door repair.
 `roost doctor --since <window>` is a different question — it summarizes the local
 logs from that window and reports anomaly counts such as uncaught errors,
 sequence gaps, queue overflows, degraded keepers, and failed backups or

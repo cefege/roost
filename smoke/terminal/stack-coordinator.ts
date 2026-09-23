@@ -1,6 +1,6 @@
-// Coordinator lifecycle for the terminal smoke stack: the first launch on an
-// OS-assigned loopback port, and the stop/start pair a spec uses to take the
-// coordinator away while the worker, its keeper and every PTY stay live.
+// Coordinator lifecycle for the terminal smoke stack: its first launch binds an
+// OS-assigned loopback port by default or a reserved local-first port, and the
+// stop/start pair lets a spec take the coordinator away while workers and PTYs stay live.
 // The stack owns everything else; this module owns only the coordinator child,
 // so a stop here can never reach a worker or a keeper.
 
@@ -28,6 +28,13 @@ export interface CoordinatorControlOptions {
    *  from. Only the 4104 default is pre-allowlisted in product code, so the
    *  harness's reserved local UI origins must be named here. */
   corsAllowedOrigins: readonly string[];
+  /** Fixed local bind for a browser-origin smoke flow; omitted keeps port zero. */
+  initialBind?: string;
+  /** Explicit CSP profile; omitted preserves ordinary terminal-smoke behavior. */
+  relaxedCsp?: boolean;
+  /** Explicit endpoint values; empty values clear public URLs for local-only smoke. */
+  webPublicUrl?: string;
+  coordinatorPublicUrl?: string;
   /** Explicit peer settings used by direct-transport smoke stacks. */
   terminalPeerEnabled?: boolean;
   terminalPeerStunUrls?: readonly string[];
@@ -50,9 +57,9 @@ export interface CoordinatorControl {
 export async function startCoordinatorControl(
   options: CoordinatorControlOptions,
 ): Promise<CoordinatorControl> {
-  let child: RunningService | undefined = launch(options, "127.0.0.1:0");
-  // The port is OS-assigned, so the log is the only place it exists; a restart
-  // replays it verbatim, because browsers and clients already dialed it.
+  let child: RunningService | undefined = launch(options, options.initialBind ?? "127.0.0.1:0");
+  // The first launch may use a reserved port; startup logging supplies the resolved
+  // bind, which restarts replay verbatim because browsers and clients already dialed it.
   const baseUrl = await waitFor("coordinator startup", COORD_START_TIMEOUT_MS, () => {
     const match = /"msg":"listening"[^\n]*"bind":"([^"]+)"/.exec(logTail(options.logPath));
     return match ? `http://${match[1]}` : undefined;
@@ -96,5 +103,8 @@ function launch(options: CoordinatorControlOptions, bind: string): RunningServic
     corsAllowedOrigins: options.corsAllowedOrigins,
     terminalPeerEnabled: options.terminalPeerEnabled,
     terminalPeerStunUrls: options.terminalPeerStunUrls,
+    relaxedCsp: options.relaxedCsp,
+    webPublicUrl: options.webPublicUrl,
+    coordinatorPublicUrl: options.coordinatorPublicUrl,
   });
 }

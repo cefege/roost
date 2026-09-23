@@ -12,18 +12,44 @@ those roles run on macOS arm64/x64 and Linux arm64/x64. Everything you *browse
 from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Android phone, an
 iPad, an Android tablet — needs nothing but a modern browser.
 
-## One coordinator shape
+## Start locally
 
-The coordinator binds loopback and speaks plaintext; you put a front door in
-front of it and tell it the resulting origin:
+The coordinator binds loopback and speaks plaintext. Install Roost locally
+first; no domain, HTTPS proxy, VPN, or external URL is required.
+
+```sh
+roost quickstart
+```
+
+That creates persistent services with:
+
+```text
+ROOST_COORDINATOR_BIND=127.0.0.1:4103
+ROOST_TRUST_PROXY=0
+ROOST_WEB_PUBLIC_URL=
+ROOST_COORDINATOR_PUBLIC_URL=
+ROOST_CORS_ALLOWED_ORIGINS=http://127.0.0.1:4103
+ROOST_SKIP_ENV_LOCAL=1
+```
+
+Quickstart deploys the first local worker and opens a paired browser at
+`http://127.0.0.1:4103`. The local worker dials that loopback listener.
+
+## Add a front door when you need remote access
+
+Choose an HTTPS address supplied by the operator's proxy, tunnel, or
+private-access setup. Before exposing the running local listener, run this on
+the coordinator machine:
 
 ```sh
 roost quickstart --coordinator-url https://roost.example.com
 ```
 
-That installs `ROOST_COORDINATOR_BIND=127.0.0.1:4103`, `ROOST_TRUST_PROXY=1`,
-and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`. Roost owns no TLS, no
-DNS, and no tunnel. Pick one front door:
+This promotion changes the coordinator endpoint profile and restarts only the
+coordinator; it preserves the local worker, keeper, PTYs, and state. Then
+configure your front door to forward to the installed loopback bind and
+**overwrite** `X-Forwarded-For`. Roost owns no TLS, DNS, tunnel, VPN, SSH, or
+target reachability.
 
 **Caddy with your own domain** — Caddy obtains and renews the certificate:
 
@@ -43,15 +69,17 @@ box. Point `cloudflared` ingress at a local proxy like the one above;
 `cloudflared` appends rather than replaces `X-Forwarded-For`, so it must not be
 the last hop.
 
-**`tailscale serve`** — no domain at all:
+**`tailscale serve`** — no purchased domain required:
 
 ```sh
 tailscale serve --bg --https=443 http://127.0.0.1:4103
+tailscale serve status
 ```
 
 The public origin is then the host's MagicDNS name. Full copy-paste recipes,
 including the caller-address rule and the private paths, are in
-[networking](/docs/networking/).
+[networking](/docs/networking/). A valid external origin does not prove a
+target machine can reach it.
 
 ## macOS and Linux
 
@@ -59,10 +87,10 @@ including the caller-address rule and the private paths, are in
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
 ```
 
-Then run quickstart with the origin your front door serves:
+Then start the local installation:
 
 ```sh
-"$HOME/.local/bin/roost" quickstart --coordinator-url "https://roost.example.com"
+"$HOME/.local/bin/roost" quickstart
 ```
 
 The installer resolves `uname -s` / `uname -m` to one release asset —
