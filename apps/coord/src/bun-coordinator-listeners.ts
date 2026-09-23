@@ -26,6 +26,10 @@ import type { WorkerServiceDeps } from "./connect/worker-service.ts";
 import type { ConnectDeps } from "./connect/router.ts";
 import type { CoordHandle } from "./coord-factory.ts";
 import { createSqliteSnapshot } from "./db/snapshot.ts";
+import {
+  createCoordinatorRequestAdmission,
+  type CoordinatorRequestAdmission,
+} from "./middleware/coordinator-request-admission.ts";
 import { resolveCallerOrigin, type CallerOrigin, type ListenerTrust } from "./middleware/caller-origin.ts";
 
 const COORDINATOR_HTTP_IDLE_TIMEOUT_SECONDS = 120;
@@ -272,6 +276,10 @@ export function startBunCoordinatorListeners(
   // No download can be in flight before this listener exists, so any snapshot
   // on disk now was leaked by a crash or a kill and owns nothing.
   _sweepExportSnapshots(dirname(cfg.dbPath), 0);
+  // Bun begins accepting immediately; fail closed until its resolved TCP port
+  // lets the loopback admission gate name the one canonical local authority.
+  let requestAdmission: CoordinatorRequestAdmission = () =>
+    new Response("listener unavailable", { status: 503 });
 
   const server = serve({
     hostname: host, port,
@@ -307,6 +315,9 @@ export function startBunCoordinatorListeners(
       req: Request,
       listenerServer: Server<WorkerWsData | SyncWsData>,
     ) => {
+      const admission = requestAdmission(req);
+      if (admission) return admission;
+
       // Worker raw-WS transport (/ws/coord-worker/:fp). If this is that
       // upgrade, authenticate + hijack here (Bun-specific); null = not our
       // path → fall through to the portable coord.fetch.
@@ -354,6 +365,9 @@ export function startBunCoordinatorListeners(
       });
     },
   });
+  // `:0` resolves only after Bun.serve returns, so this must be constructed
+  // after listener creation rather than from cfg.bind's requested port.
+  requestAdmission = createCoordinatorRequestAdmission(cfg, server.port as number);
 
   return { server, host };
 }

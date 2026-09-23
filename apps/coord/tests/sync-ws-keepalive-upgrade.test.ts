@@ -51,7 +51,7 @@ test("rejects missing or malformed auth subprotocols before upgrade", async () =
   }
 });
 
-test("rejects foreign Origin and negotiates roost-auth for an allowed origin", async () => {
+test("rejects foreign Origin and admits local HTTP with relaxed CSP disabled", async () => {
   let upgradeHeaders: HeadersInit | undefined;
   const fakeServer = {
     requestIP: () => ({ address: "127.0.0.1" }),
@@ -81,6 +81,17 @@ test("rejects foreign Origin and negotiates roost-auth for an allowed origin", a
     },
   ), fakeServer, deps);
   expect(allowed).toBeUndefined();
+
+  const local = await handleSyncWsUpgrade(new Request(
+    "http://127.0.0.1:43123/ws/coord-sync",
+    {
+      headers: {
+        origin: "http://127.0.0.1:43123",
+        "sec-websocket-protocol": `roost-auth, ${jwt}`,
+      },
+    },
+  ), fakeServer, deps);
+  expect(local).toBeUndefined();
   expect(new Headers(upgradeHeaders).get("sec-websocket-protocol")).toBe("roost-auth");
 });
 

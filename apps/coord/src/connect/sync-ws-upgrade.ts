@@ -51,8 +51,15 @@ function isAllowedWsOrigin(
     || origin === cfg.publicUrl
     || cfg.corsAllowedOrigins.includes(origin)
     || origin === `https://${host}`
+    // A local-first coordinator serves its canonical browser origin over HTTP.
+    // Production listener admission binds it to the actual loopback port.
+    || (
+      /^127\.0\.0\.1:\d+$/.test(cfg.bind)
+      && /^127\.0\.0\.1:\d+$/.test(host)
+      && origin === `http://${host}`
+    )
     // The worker-served loopback SPA dials this socket cross-origin. Exact
-    // match only: any prefix or regex on 127.0.0.1 would admit an attacker's
+    // match only: a prefix or regex on 127.0.0.1 would admit an attacker's
     // page served from another loopback port.
     || origin === DEFAULT_WORKER_LOCAL_UI_ORIGIN
   ) return true;

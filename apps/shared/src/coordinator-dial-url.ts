@@ -1,8 +1,8 @@
-// Resolves the coordinator origin a worker should dial from an environment map.
-// The coordinator's deploy job composer and the roost-cli enrollment commands both
-// read it, so an operator's declared front door is interpreted identically on both
-// sides. Roost never derives this origin: an empty entry counts as undeclared, and
-// when nothing declares one the caller refuses with COORDINATOR_DIAL_URL_REQUIRED_MESSAGE.
+// Resolves coordinator origins for worker dialing and remote enrollment.
+// The deploy composer and remote enrollment paths share this policy so a declared
+// front door has one precedence and validation rule.
+// Empty entries count as undeclared; a nonblank remote enrollment declaration is
+// authoritative and invalid values refuse instead of falling back.
 
 /** Precedence order: an explicit worker target beats the coordinator identity
  * origin, which beats the browser front door. */
@@ -25,4 +25,32 @@ export function resolveCoordinatorDialUrl(
     if (declared) return declared;
   }
   return null;
+}
+
+export function workerCoordinatorUrl(
+  declaredUrl: string | null | undefined,
+  activeCoordinatorOrigin: string,
+): string | null {
+  const declared = declaredUrl?.trim();
+  if (declared) return validWorkerOrigin(declared);
+  return validWorkerOrigin(activeCoordinatorOrigin);
+}
+
+function validWorkerOrigin(candidate: string): string | null {
+  try {
+    const url = new URL(candidate);
+    if (
+      url.protocol !== "https:"
+      || url.username
+      || url.password
+      || url.pathname !== "/"
+      || url.search
+      || url.hash
+      // A worker on another machine cannot dial a loopback address.
+      || /^(?:localhost|.*\.localhost|127(?:\.\d{1,3}){3}|\[::1\])\.?$/.test(url.hostname)
+    ) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
 }

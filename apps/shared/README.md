@@ -55,7 +55,7 @@ import style is now correct instead of two.
 | `@roost/shared/durability` | `durableWriteFile` atomic write + private DACL |
 | `@roost/shared/retry` | capped exponential-backoff delay + jitter policy |
 | `@roost/shared/jwt-base` | Node-side JWT base64url codec; never browser-imported |
-| `@roost/shared/coordinator-dial-url` | the one precedence rule for the coordinator origin a worker dials: `ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` → `ROOST_WEB_PUBLIC_URL`, else refuse |
+| `@roost/shared/coordinator-dial-url` | coordinator dial-URL precedence plus `workerCoordinatorUrl`, the strict HTTPS/non-loopback validator for remote enrollment declarations |
 | `@roost/shared/local-endpoint` | UDS / named-pipe prep, securing, capability tokens |
 | `@roost/shared/service-health` | local health server + prober (re-exports its protocol schemas) |
 | `@roost/shared/build-identity` | compiled-binary version + git sha |

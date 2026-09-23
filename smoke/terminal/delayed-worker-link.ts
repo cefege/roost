@@ -1,6 +1,6 @@
 // Loopback TCP reverse proxy for delayed terminal smoke worker links.
 // Stack-owned fixture workers use it to exercise only worker↔coordinator wire latency.
-// It tunnels boot HTTP untouched and queues complete WebSocket frames only after a 101 upgrade.
+// It rewrites Host to the target authority, then queues WebSocket frames only after a 101 upgrade.
 // Socket-pair ownership makes stop deterministic and drops an armed input hold on teardown.
 
 import { Buffer } from "node:buffer";
@@ -70,6 +70,7 @@ export async function startDelayedWorkerLink(
     connection = new SocketPair(
       clientSocket,
       targetSocket,
+      parsedTarget.host,
       options.oneWayDelayMs,
       options.workerFrameFilter,
       inputHold,
@@ -124,6 +125,7 @@ class SocketPair {
   readonly #targetToClient: DelayedFrameStream;
   readonly #client: Socket;
   readonly #target: Socket;
+  readonly #targetAuthority: string;
   readonly #onClosed: () => void;
   readonly #onFilterFailure: (error: Error) => void;
   #clientRequestHeaders = EMPTY_BUFFER;
@@ -138,6 +140,7 @@ class SocketPair {
   constructor(
     client: Socket,
     target: Socket,
+    targetAuthority: string,
     oneWayDelayMs: 0 | 25 | 200,
     workerFrameFilter: WorkerFrameFilter | undefined,
     downstreamInputHold: DelayedWorkerInputHold,
@@ -146,6 +149,7 @@ class SocketPair {
   ) {
     this.#client = client;
     this.#target = target;
+    this.#targetAuthority = targetAuthority;
     this.#onClosed = onClosed;
     this.#onFilterFailure = onFilterFailure;
     this.#clientToTarget = new DelayedFrameStream(
@@ -196,8 +200,8 @@ class SocketPair {
   #onClientData(chunk: Buffer): void {
     if (this.#closed) return;
     if (this.#webSocketOpen) return this.#clientToTarget.receive(chunk);
-    this.#trackUpgradeRequest(chunk);
-    this.#forwardImmediately("client", chunk);
+    const forwarded = this.#rewriteClientHttpHeaders(chunk);
+    if (forwarded) this.#forwardImmediately("client", forwarded);
   }
 
   #onTargetData(chunk: Buffer): void {
@@ -214,24 +218,41 @@ class SocketPair {
     if (!stream.finish(() => this.#endPeerWrite(source))) this.close();
   }
 
-  #trackUpgradeRequest(chunk: Buffer): void {
-    if (this.#upgradeRequested || this.#clientRequestInspected) return;
+  #rewriteClientHttpHeaders(chunk: Buffer): Buffer | null {
+    if (this.#clientRequestInspected) return chunk;
     const headers = this.#clientRequestHeaders.byteLength === 0
       ? Buffer.from(chunk)
       : Buffer.concat([this.#clientRequestHeaders, chunk]);
     const headerEnd = headers.indexOf(HTTP_HEADER_END);
     if (headerEnd < 0) {
-      if (headers.byteLength > MAX_HTTP_HEADER_BYTES) return this.close();
-      this.#clientRequestHeaders = headers;
-      return;
+      if (headers.byteLength > MAX_HTTP_HEADER_BYTES) this.close();
+      else this.#clientRequestHeaders = headers;
+      return null;
     }
-    if (headerEnd + HTTP_HEADER_END.byteLength > MAX_HTTP_HEADER_BYTES) return this.close();
+    if (headerEnd + HTTP_HEADER_END.byteLength > MAX_HTTP_HEADER_BYTES) {
+      this.close();
+      return null;
+    }
+    const text = headers.subarray(0, headerEnd).toString("latin1");
+    const hostEntries = text.match(/(?:^|\r\n)host\s*:[^\r\n]*/gi) ?? [];
+    if (hostEntries.length !== 1) {
+      this.close();
+      return null;
+    }
+    const rewritten = text.replace(
+      /(^|\r\n)host\s*:[^\r\n]*/i,
+      `$1Host: ${this.#targetAuthority}`,
+    );
+    this.#upgradeRequested = /(?:^|\r\n)upgrade\s*:\s*websocket\s*(?:\r\n|$)/i.test(rewritten)
+      && /(?:^|\r\n)connection\s*:[^\r\n]*\bupgrade\b/i.test(rewritten)
+      && /(?:^|\r\n)sec-websocket-key\s*:\s*\S/i.test(rewritten);
     this.#clientRequestInspected = true;
     this.#clientRequestHeaders = EMPTY_BUFFER;
-    const text = headers.subarray(0, headerEnd).toString("latin1");
-    this.#upgradeRequested = /(?:^|\r\n)upgrade\s*:\s*websocket\s*(?:\r\n|$)/i.test(text)
-      && /(?:^|\r\n)connection\s*:[^\r\n]*\bupgrade\b/i.test(text)
-      && /(?:^|\r\n)sec-websocket-key\s*:\s*\S/i.test(text);
+    const bodyStart = headerEnd + HTTP_HEADER_END.byteLength;
+    return Buffer.concat([
+      Buffer.from(`${rewritten}\r\n\r\n`, "latin1"),
+      headers.subarray(bodyStart),
+    ]);
   }
 
   #forwardUpgradeResponse(chunk: Buffer): void {

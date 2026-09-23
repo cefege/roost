@@ -218,7 +218,9 @@ describe("db-export response", () => {
     const response = await dispatch(
       fixture.options,
       fixture.server,
-      new Request("https://coord.example/api/db-export"),
+      new Request("https://coord.example/api/db-export", {
+        headers: { host: "127.0.0.1:4104" },
+      }),
     );
 
     expect(response.status).toBe(200);
@@ -254,7 +256,9 @@ describe("db-export response", () => {
     const response = await dispatch(
       fixture.options,
       fixture.server,
-      new Request("https://coord.example/api/db-export"),
+      new Request("https://coord.example/api/db-export", {
+        headers: { host: "127.0.0.1:4104" },
+      }),
     );
 
     expect(response.status).toBe(403);

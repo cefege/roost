@@ -25,12 +25,12 @@ neither a disk dist nor an embedded manifest exists) so a missing browser build
 is a startup line rather than a 404 on every page.
 
 **`src/bun-coordinator-listeners.ts` — the Bun listener boundary.** Owns the
-single `Bun.serve` call, `server.requestIP()` → `resolveCallerOrigin`, the
+single `Bun.serve` call, creates the loopback request-admission gate after the
+actual port is known, `server.requestIP()` → `resolveCallerOrigin`, the
 `/api/db-export` route (its only special non-Connect route), both WebSocket
-upgrades, the ONE multiplexed
-`websocket` object dispatching on `ws.data.kind`, the shared 4 MiB frame cap,
-and `idleTimeout: 120`. The SPA fallback is injected from
-`@roost/shared/spa` + `@roost/shared/web-embed`.
+upgrades, the ONE multiplexed `websocket` object dispatching on `ws.data.kind`,
+the shared 4 MiB frame cap, and `idleTimeout: 120`. The SPA fallback is injected
+from `@roost/shared/spa` + `@roost/shared/web-embed`.
 
 **`src/coord-factory.ts::createCoord(deps)` — the portable protocol layer.** Returns `{ fetch, dispose }`, where
 `fetch` is `(Request, CoordHandlerContext?) => Promise<Response>` and touches no Bun API. Owns OPTIONS
@@ -40,16 +40,20 @@ coord-authoritative hubs `src/terminal-title-hub.ts`, `src/last-activity-hub.ts`
 runtime that cannot read the filesystem injects `ctx.spa`/`ctx.dbExport`.
 
 The listener binds `cfg.bind` (`ROOST_COORDINATOR_BIND`), default
-`127.0.0.1:4103`, and always serves plaintext: TLS, DNS, and public
-reachability belong to the front door the operator puts in front of it. Under
+`127.0.0.1:4103`, and always serves plaintext. Fresh local installs use direct
+loopback trust (`ROOST_TRUST_PROXY=0`) with no public URL. An operator may
+promote the coordinator to a front-door profile; TLS, DNS, and public
+reachability still belong to that operator-managed front door. Under
 `ROOST_TRUST_PROXY=1` the bind must be `127.0.0.1:<port>`, because that proxy is
-then the only trusted source of `X-Forwarded-For`, whose FIRST entry
-`src/middleware/caller-origin.ts` reads as the caller address. The coordinator
-carries no public deny list: the front door owns that policy (see
-`GETTING_STARTED.md`), denying `/internal/*` and `/api/db-export` while
-`/ws/coord-worker/*` stays open for workers that dial the same origin.
-`dbExportResponse` answers 403 `{"error":"on-host only"}` unless the resolved
-caller is on-host, which makes it the one request that proves whether
+then the only trusted source of `X-Forwarded-For`. The caller-origin middleware
+reads its FIRST entry as the caller address. On loopback listeners,
+the request-admission gate admits only the bound local authority and declared
+coordinator authorities, plus their exact allowed Origins, before routes or
+upgrades. The front door still owns public
+path policy (see `GETTING_STARTED.md`): deny `/internal/*` and
+`/api/db-export` while `/ws/coord-worker/*` remains available for workers using
+that door. `dbExportResponse` answers 403 `{"error":"on-host only"}` unless the
+resolved caller is on-host, which makes it the one request that proves whether
 `X-Forwarded-For` reaches the coordinator intact.
 
 ## The 16 handler domains
@@ -104,11 +108,12 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 - SQLite access — `src/db/connection.ts` (Kysely over `kysely-bun-sqlite`, WAL + busy timeout), `src/db/schema.ts` (the `DB`
   interface), `src/db/migrate.ts` (custom runner over `apps/coord/migrations/*.sql`, throws on any failure), `src/db/snapshot.ts`
   (online SQLite copy backing `/api/db-export`).
-- Request middleware — `src/middleware/security.ts` (CSP/CORS/X-Frame-Options + `writeAuditLog`), `src/middleware/caller-origin.ts`
-  (listener trust chosen at boot from config, never sniffed from headers: `direct` or `trusted-proxy`),
-  and `src/middleware/rate-limit.ts`. On-host detection is
-  not a standalone middleware: `src/middleware/caller-origin.ts` owns
-  `CallerOrigin.onHost`.
+- Request middleware — `src/middleware/security.ts` owns CSP/CORS/X-Frame-Options
+  and `writeAuditLog`; `src/middleware/caller-origin.ts` owns boot-selected
+  direct or trusted-proxy caller-address trust and `CallerOrigin.onHost`;
+  `src/middleware/coordinator-request-admission.ts` owns loopback Host/Origin
+  admission before routes and upgrades; `src/middleware/rate-limit.ts` owns
+  rate limiting.
 - `src/coordinator-write-gate.ts` — the keeper-update write fence (below).
 - `src/router/pending-rpcs.ts` — correlation table for browser→worker RPCs needing a reply; a UUID-keyed entry is
   resolved by the worker's upstream `rpc_ok`/`rpc_error` frame, deadline-bounded. `src/connect/global-search-cursors.ts`

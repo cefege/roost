@@ -107,7 +107,7 @@ describe("coordinator Bun request idle timeout", () => {
     const fixture = makeListenerFixture();
     const request = new Request(`https://coord.example${SESSIONS_PROMPT_PATH}`, {
       method: "POST",
-      headers: { authorization: "Bearer test-device" },
+      headers: { authorization: "Bearer test-device", host: "127.0.0.1:4103" },
     });
 
     await dispatch(fixture.options, fixture.server, request);
@@ -120,16 +120,21 @@ describe("coordinator Bun request idle timeout", () => {
   test("unrelated requests inherit the listener's 120-second default", async () => {
     const fixture = makeListenerFixture();
     const unrelatedRequests = [
-      new Request(`https://coord.example${SESSIONS_PROMPT_PATH}`, { method: "GET" }),
+      new Request(`https://coord.example${SESSIONS_PROMPT_PATH}`, {
+        method: "GET",
+        headers: { host: "127.0.0.1:4103" },
+      }),
       new Request("https://coord.example/roost.v1.CoordinatorService/SessionsInput", {
         method: "POST",
-        headers: { authorization: "Bearer test-device" },
+        headers: { authorization: "Bearer test-device", host: "127.0.0.1:4103" },
       }),
       new Request(`https://coord.example${SESSIONS_PROMPT_PATH}Extra`, {
         method: "POST",
-        headers: { authorization: "Bearer test-device" },
+        headers: { authorization: "Bearer test-device", host: "127.0.0.1:4103" },
       }),
-      new Request("https://coord.example/api/health"),
+      new Request("https://coord.example/api/health", {
+        headers: { host: "127.0.0.1:4103" },
+      }),
     ];
 
     for (const request of unrelatedRequests) {

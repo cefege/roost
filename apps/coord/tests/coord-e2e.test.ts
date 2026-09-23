@@ -17,6 +17,7 @@ import type { CoordConfig } from "@roost/shared/config";
 
 let workdir: string;
 let coord: CoordHandle;
+let cfg: CoordConfig;
 let cleanup: () => Promise<void>;
 
 beforeAll(async () => {
@@ -30,7 +31,7 @@ beforeAll(async () => {
   await runMigrations(sqlite);
   const selfHostedTenant = ensureSelfHostedTenant(sqlite, { backfillLegacyScopes: false });
   const jwtCache = newJwtCache();
-  const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
+  cfg = { trustProxy: false, bind: "127.0.0.1:0",
   pushAllowedOrigins: [],
   dbPath, authorizedKeysPath: authPath,
   webDistPath: "",
@@ -79,19 +80,32 @@ describe("coord-factory fetch handler", () => {
     expect(typeof body.gitSha).toBe("string");
   });
 
-  test("AuthCoordIdentity is public and discloses no coordinator key material", async () => {
-    const resp = await coord.fetch(
-      new Request("http://t/roost.v1.CoordinatorService/AuthCoordIdentity", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      }),
-      { origin: { listener: "trusted-proxy", clientIp: "203.0.113.7", onHost: false } },
-    );
-    expect(resp.status).toBe(200);
-    const body = await resp.json();
-    expect("fingerprintHex" in body).toBe(false);
-    expect(typeof body.gitSha).toBe("string");
+  test("AuthCoordIdentity is public, advertises the worker door before the browser front door, and discloses no coordinator key material", async () => {
+    const identity = async () => {
+      const resp = await coord.fetch(
+        new Request("http://t/roost.v1.CoordinatorService/AuthCoordIdentity", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+        { origin: { listener: "trusted-proxy", clientIp: "203.0.113.7", onHost: false } },
+      );
+      expect(resp.status).toBe(200);
+      return resp.json();
+    };
+
+    cfg.webPublicUrl = "https://front-door.example";
+    const browserIdentity = await identity();
+    expect("fingerprintHex" in browserIdentity).toBe(false);
+    expect(typeof browserIdentity.gitSha).toBe("string");
+    expect(browserIdentity.publicUrl).toBe("https://front-door.example");
+
+    cfg.publicUrl = "https://worker-door.example";
+    expect((await identity()).publicUrl).toBe("https://worker-door.example");
+
+    cfg.publicUrl = undefined;
+    cfg.webPublicUrl = undefined;
+    expect((await identity()).publicUrl ?? "").toBe("");
   });
 
   test("WorkersList without JWT → 401 unauthenticated", async () => {

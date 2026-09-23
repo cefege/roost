@@ -55,7 +55,7 @@ export function makeAuthBootstrapHandlers(
       // public
       return create(AuthCoordIdentityResponseSchema, {
         gitSha: COORD_GIT_SHA,
-        publicUrl: deps.cfg.publicUrl ?? "",
+        publicUrl: deps.cfg.publicUrl ?? deps.cfg.webPublicUrl ?? "",
       });
     },
 
