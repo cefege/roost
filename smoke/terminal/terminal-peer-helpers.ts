@@ -238,7 +238,10 @@ export async function waitForTerminalInputReady(page: Page, sessionId: string): 
   try {
     await expect.poll(async () => {
       latest = await readPeerRoute(page, sessionId);
-      return latest.inputPhase === "sending" && latest.pendingInputCount === 0;
+      return latest.baselineReady && (
+        (latest.activeKind === "sync" && latest.syncReady)
+        || (latest.inputPhase === "sending" && latest.pendingInputCount === 0)
+      );
     }, { timeout: PEER_ROUTE_TIMEOUT_MS, intervals: [...PEER_ROUTE_INTERVALS_MS] }).toBe(true);
   } catch (error) {
     throw new Error(`terminal input fallback unavailable: ${JSON.stringify(latest)}`, { cause: error });

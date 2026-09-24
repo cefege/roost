@@ -106,7 +106,7 @@ coordinator origin:
 ROOST_SITE_ORIGIN=https://roosttt.com bun run --cwd apps/site publish
 ```
 
-`apps/site/package.json::publish` builds the site, then
+`apps/site/package.json`'s `publish` script builds the site, then
 `apps/site/scripts/publish.ts` runs
 `rsync -a --delete dist/ /srv/roost-site/www/`. Override the destination with
 `ROOST_SITE_PUBLISH_ROOT`. The edge Caddy container mounts the destination

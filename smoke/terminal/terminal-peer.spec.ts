@@ -15,6 +15,7 @@ import {
   sendTrustedPeerKey,
   waitForDirectRoute,
   waitForSyncRoute,
+  waitForTerminalInputReady,
   waitForPeerFallback,
   waitForHostPeerTelemetry,
 } from "./terminal-peer-helpers.ts";
@@ -285,6 +286,7 @@ test("invalid offers, unavailable grants, expired grants, and identity mismatche
       expect(fallback).toMatchObject({ activeKind: "sync", proofKind: "sync", candidateKind: null });
       await expect(page.page.getByTestId(`tab-${sessionId}`))
         .toHaveAttribute("data-terminal-transport", "sync");
+      await waitForTerminalInputReady(page.page, sessionId);
       const trusted = await sendTrustedPeerKey(page.page, sessionId);
       await expectMarkersOnce(page.page, sessionId, [trusted.marker]);
     } finally {

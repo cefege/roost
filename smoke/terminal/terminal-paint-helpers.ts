@@ -189,7 +189,7 @@ export async function armImmediateTerminalPaintSample(
           ? rect(markerRow.getBoundingClientRect())
           : null,
         composerHeight: (() => {
-          const composer = slot.querySelector('[data-testid="mobile-chat-input"]');
+          const composer = slot.querySelector('[data-testid="chat-box"]');
           return composer instanceof HTMLElement ? composer.getBoundingClientRect().height : null;
         })(),
         cursorRowIdentity: cursorRow === undefined

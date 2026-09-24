@@ -14,6 +14,9 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { collectCounts, runRatchet, walk, type RatchetSpec } from "./lint-ratchet.ts";
+import { HEADER_RATCHET, headerCounts } from "./lint-headers.ts";
+import { runBoundaryCheck } from "./lint-boundaries.ts";
+import { runDocPathCheck } from "./lint-doc-paths.ts";
 import { join } from "node:path";
 import { CHECKS } from "./lint-failure-checks.ts";
 
@@ -31,26 +34,38 @@ interface Violation {
 
 function runPatternChecks(): Violation[] {
   const out: Violation[] = [];
+  const matchedFileCounts = CHECKS.map(() => 0);
   for (const file of walk(REPO)) {
     const rel = file.slice(REPO.length).replace(/^\/+/, "");
     let text: string;
     try { text = readFileSync(file, "utf8"); } catch { continue; }
     const lines = text.split("\n");
-    for (const c of CHECKS) {
-      if (!c.files.test(rel)) continue;
-      if (c.ok) {
-        if (!c.ok(file, 0, lines)) {
-          out.push({ file: rel, line: 1, text: "<missing required pattern>", rule: c.rule, memory: c.memory });
+    for (const [checkIndex, check] of CHECKS.entries()) {
+      if (!check.files.test(rel)) continue;
+      matchedFileCounts[checkIndex]!++;
+      if (check.ok) {
+        if (!check.ok(file, 0, lines)) {
+          out.push({ file: rel, line: 1, text: "<missing required pattern>", rule: check.rule, memory: check.memory });
         }
         continue;
       }
-      lines.forEach((line, i) => {
-        if (c.pattern.test(line)) {
-          out.push({ file: rel, line: i + 1, text: line.trim().slice(0, 140), rule: c.rule, memory: c.memory });
+      lines.forEach((line, lineIndex) => {
+        if (check.pattern!.test(line)) {
+          out.push({ file: rel, line: lineIndex + 1, text: line.trim().slice(0, 140), rule: check.rule, memory: check.memory });
         }
       });
     }
   }
+  CHECKS.forEach((check, checkIndex) => {
+    if (matchedFileCounts[checkIndex] !== 0) return;
+    out.push({
+      file: "scripts/lint-failure-checks.ts",
+      line: 1,
+      text: `check targets no existing file: ${check.rule}`,
+      rule: "lint: every failure check must target ≥1 file",
+      memory: "docs/FAILURE-INDEX.md",
+    });
+  });
   return out;
 }
 
@@ -234,24 +249,36 @@ function rawCounts(): Record<string, number> {
 // recorded count, and a file ABSENT from the baseline may never exceed the
 // cap at all. Splits lower counts → re-snapshot with
 // `bun scripts/lint-roost.ts --update-size-baseline`. Generated protoc
-// output (apps/shared/src/gen) is excluded — nobody hand-splits it.
+// output (`apps/*/src/gen` and `packages/*/src/gen`) is excluded — nobody
+// hand-splits generated protobuf modules.
 // ───────────────────────────────────────────────────────────────────────
 
 const FILE_LINE_CAP = 400;
 const SIZE_BASELINE_FILE = join(REPO, "scripts/file-size-baseline.json");
-const SIZE_EXCLUDE = /^apps\/[^/]+\/src\/gen\//;
+const SIZE_EXCLUDE = /^(apps|packages)\/[^/]+\/src\/gen\//;
 
-// Hand-written source roots the cap governs: every app's src + tests, plus
-// the two tool trees. Enumerated from the filesystem so a new app is covered
-// the day it lands.
+// Hand-written source roots the cap governs: every app/package's src + tests,
+// plus the two tool trees. Enumerated from the filesystem so a new workspace is
+// covered the day it lands; a parent that does not exist yet is skipped.
 function sizeRoots(): string[] {
-  const out: string[] = [];
-  for (const app of readdirSync(join(REPO, "apps"), { withFileTypes: true })) {
-    if (!app.isDirectory()) continue;
-    for (const sub of ["src", "tests"]) out.push(join(REPO, "apps", app.name, sub));
+  const roots: string[] = [];
+  for (const parent of ["apps", "packages"]) {
+    let entries;
+    try { entries = readdirSync(join(REPO, parent), { withFileTypes: true }); }
+    catch { continue; }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      for (const child of ["src", "tests"]) {
+        roots.push(join(REPO, parent, entry.name, child));
+      }
+    }
   }
-  for (const dir of ["scripts", "smoke"]) out.push(join(REPO, dir));
-  return out.filter((p) => { try { return statSync(p).isDirectory(); } catch { return false; } });
+  for (const directory of ["scripts", "smoke"]) {
+    roots.push(join(REPO, directory));
+  }
+  return roots.filter((path) => {
+    try { return statSync(path).isDirectory(); } catch { return false; }
+  });
 }
 
 const SIZE_RATCHET: RatchetSpec = {
@@ -310,81 +337,11 @@ function consoleCounts(): Record<string, number> {
   return collectCounts(CONSOLE_ROOTS.map((root) => join(REPO, root)), (rel) => /\.ts$/.test(rel), consoleLineCount);
 }
 
-// ───────────────────────────────────────────────────────────────────────
-// Header-presence ratchet (CLAUDE.md coding standard #4): every
-// hand-written app source file opens with a WHY header of ≥3 comment
-// lines. Only PRESENCE is gated — length past the minimum stays style.
-// Files already short when the rule landed are frozen in
-// scripts/header-baseline.json keyed by their header-line count: fixing a
-// file drops its entry at the next re-snapshot, and shrinking one further
-// still fails. Generated output and tests are exempt; script-entry
-// runners that violate are simply baselined like any legacy file.
-// Re-snapshot: `bun scripts/lint-roost.ts --update-header-baseline`.
-// ───────────────────────────────────────────────────────────────────────
-
-const HEADER_MIN_LINES = 3;
-const HEADER_BASELINE_FILE = join(REPO, "scripts/header-baseline.json");
-const HEADER_EXCLUDE = [/^apps\/[^/]+\/src\/gen\//, /\.generated\.ts$/, /\.d\.ts$/];
-
-// Length of the leading comment run: consecutive // lines plus one /*…*/
-// block. Blank lines and a shebang before the run count neither way.
-function leadingHeaderLines(text: string): number {
-  const lines = text.split("\n");
-  let i = lines[0]?.startsWith("#!") ? 1 : 0;
-  while (i < lines.length && lines[i].trim() === "") i++;
-  let n = 0;
-  let inBlock = false;
-  for (; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (inBlock) {
-      n++;
-      if (trimmed.includes("*/")) inBlock = false;
-    } else if (trimmed.startsWith("//")) n++;
-    else if (trimmed.startsWith("/*")) {
-      n++;
-      inBlock = !trimmed.includes("*/");
-    } else break;
-  }
-  return n;
-}
-
-function headerRoots(): string[] {
-  return readdirSync(join(REPO, "apps"), { withFileTypes: true })
-    .filter((ent) => ent.isDirectory())
-    .map((ent) => join(REPO, "apps", ent.name, "src"))
-    .filter((path) => { try { return statSync(path).isDirectory(); } catch { return false; } });
-}
-
-function headerCounts(): Record<string, number> {
-  return collectCounts(
-    headerRoots(),
-    (rel) => /\.(ts|tsx)$/.test(rel)
-      && !HEADER_EXCLUDE.some((pattern) => pattern.test(rel))
-      && !rel.includes("/tests/")
-      && !/\.(test|spec)\.(ts|tsx)$/.test(rel),
-    leadingHeaderLines,
-    true,
-  );
-}
-
-const HEADER_RATCHET: RatchetSpec = {
-  baselineFile: HEADER_BASELINE_FILE,
-  updateFlag: "--update-header-baseline",
-  // An unbaselined file may sit no lower than the minimum itself.
-  freshAllowance: HEADER_MIN_LINES,
-  guardFloor: 0,
-  // Compare every counted file; only the snapshot narrows to offenders so
-  // fully-headered files never enter the baseline JSON.
-  snapshot: (n) => n < HEADER_MIN_LINES,
-  regressed: (n, allowed) => n < allowed,
-  text: (n, allowed) =>
-    `file opens with ${n === 0 ? "no WHY header" : `a ${n}-line header`} (need ≥${HEADER_MIN_LINES}; grandfathered at ${allowed}) — add the mandatory file-header comment`,
-  rule: "headers: every source file opens with a WHY-file-header comment (ratcheted)",
-  memory: "CLAUDE.md — coding standards",
-};
 
 const violations = [
   ...runPatternChecks(),
+  ...runBoundaryCheck(),
+  ...runDocPathCheck(),
   ...runColorFallbackCheck(),
   ...runHardcodedFallbackCheck(),
   ...runRatchet(rawCounts(), RAW_RATCHET),

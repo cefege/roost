@@ -358,10 +358,8 @@ switch terminal cores; the bug is one CSS rule.
 the app".
 
 **Wrong** — a JS rubber-band, a `touchmove` `preventDefault()` race, or
-per-component scroll locks. `apps/web/src/lib/overscroll.ts` was exactly that and
-was deleted: a handler that claims the edge after the browser already started
-scrolling always loses, because later `preventDefault()` on a started scroll is
-ignored.
+per-component scroll locks. A deleted component-local handler was exactly that:
+once the browser has started a scroll, later `preventDefault()` is ignored.
 
 **Right** — **declare the policy once in `apps/web/index.html`'s base style:
 `* { overscroll-behavior-y: none; }` plus `html, body { overflow: hidden; }`.**
@@ -1331,14 +1329,14 @@ column's glyph is inside the mobile clip across both orientations.
 
 **Right** — the input textarea is off-screen, so clicks land on row spans, not the textarea; without an explicit
 dance the focus listener never sees the event → the pane never reports focused → keystrokes go nowhere. The fix
-lives in `apps/web/src/lib/terminalInputController.ts::forceFocus()`, and three pieces are load-bearing: (1)
+lives in `apps/web/src/lib/terminalInputController.ts` (`forceFocus()`), and three pieces are load-bearing: (1)
 `if (activeElement === textarea) textarea.blur()` BEFORE focusing — guarantees a fresh native focus event even
 when the textarea was pre-focused; (2) an explicit `dispatchEvent(new FocusEvent("focus", { bubbles: true }))`
 so pane styling is deterministic; (3) the container `mousedown` listener that calls `forceFocus` on every click.
 Never leave the dance's re-focus guard latched on the error path or focus reporting dies for that pane's
 lifetime.
 
-**Guard** — `apps/web/tests/terminalInputController.test.ts`; `apps/web/tests/focusOwners.test.ts`.
+**Guard** — `apps/web/tests/terminalInputController.test.ts`.
 
 ### Borrowed receive-buffer view passed to a PTY write
 
@@ -1447,7 +1445,7 @@ discards the coordinator's late result; and returning silently from coord's term
 **Right** — **the socket is the input fence.** Input results ride the CONTROL lane
 (`apps/coord/src/connect/sync-ws-v2-control.ts` stamps `domain = UNSPECIFIED, domainGeneration = 0`), which no
 domain reset touches, so a started batch keeps its 10 s deadline and settles from the real result;
-`apps/web/src/ws/sync-outbound.ts::handleControl` correlates on `(socketId, sessionId, inputSeq)` plus the
+`apps/web/src/ws/sync-outbound.ts` (`handleControl`) correlates on `(socketId, sessionId, inputSeq)` plus the
 generation coord echoes from the command, and `handleGeneration` only settles pendings when the SOCKET changed
 (an unsent batch under the closing generation is `rejected`, never ambiguous). `resetSequence()` runs only on a
 socket change, because a surviving pending must not share an `inputSeq` with a new batch. Coord's
@@ -1523,15 +1521,15 @@ turns one fat session into a fleet-wide session wipe). Measured on a live host: 
 in `D (disk sleep)`, 6 PTY sessions = 2.9 GB in the SAME cgroup, `SwapFree 172 kB` so reclaim had nowhere to go.
 
 **Right** — **three layers, all required.** (1) `MemoryHigh` must scale with the host:
-`apps/worker/scripts/install.sh::default_worker_mem_high` is 60% of MemTotal, floor 3G, absolute (systemd only
+`apps/worker/scripts/install.sh` (`default_worker_mem_high`) is 60% of MemTotal, floor 3G, absolute (systemd only
 takes % from v240); `TasksMax=4096`, not 512. The live value can sit in a hand-written
 `~/.config/systemd/user/roost-worker.service.d/limits.conf` drop-in that OUTRANKS the deployed unit body — check
 the drop-in before editing the unit. (2) A dial that never fires `ws.onopen` is NOT an auth rejection: coord
 answers a bad JWT with an HTTP 401 upgrade, indistinguishable from a timeout or a proxy 502 in Bun's client
 `WebSocket`, so throttle-induced dials used to arm the auth-reject backoff cap and turn a ~20s stall into ~6 min
-of "down". `apps/worker/src/transport/coord-link-constants.ts::backoffCapMs(streak, hasOpened)` keys escalation
+`apps/worker/src/transport/coord-link-constants.ts` (`backoffCapMs(streak, hasOpened)`) keys escalation
 on `hasOpened`; the log is `reconnect_backoff_escalated`, never `auth_rejection_escalated`. (3)
-`sampleCgroupPressure` + `apps/worker/src/heartbeat.ts::logCgroupPressure` emit
+`sampleCgroupPressure` + `apps/worker/src/heartbeat.ts` (`logCgroupPressure`) emit
 `cgroup_memory_high_exceeded`/`_cleared` so the next occurrence is one grep, not a guess.
 
 **Guard** — `apps/worker/tests/coord-link-backoff-cap.test.ts`.
@@ -1889,7 +1887,7 @@ reintroduces all of it.
 
 **Right** — **raw Bun WebSocket** at `/ws/coord-worker/:fp?token=<jwt>` carrying the SAME proto frames as binary
 (`toBinary`/`fromBinary`) — coord `apps/coord/src/connect/worker-ws-handler.ts` (sharing `makeWorkerConn` + the
-`connectWorkers` registry), worker `apps/worker/src/transport/coord-link.ts::dial()`. Auth is a query-param JWT
+`apps/worker/src/transport/coord-link.ts` (`dial()`). Auth is a query-param JWT
 (Bun's CLIENT `WebSocket` has no custom-header API). NEVER run a Connect/gRPC bidi through Bun.
 
 **Guard** — `apps/coord/tests/worker-ws-transport.test.ts`; `scripts/lint-roost.ts` rule `"phase-24: `new

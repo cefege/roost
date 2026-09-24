@@ -43,14 +43,14 @@ export async function proveComposerRecovery({
   fixtureArmMs,
   fixtureWorkerFp,
 }: ComposerRecoveryOptions): Promise<ComposerRecoveryResult> {
-  // Grow the desktop composer and let its debounced terminal-view resize settle
-  // before creating the changed-epoch frame. The resulting new-stream baseline
-  // is independent canonical state; the interaction contract below starts from
-  // the newest stable geometry and proves Send adopts the later held alt-screen.
+  // Grow the desktop composer without changing terminal geometry. The
+  // interaction contract starts from the current stable replica and proves
+  // Send adopts the later held alt-screen on that same stream.
   const composerDock = slot.getByTestId("mobile-chat-input");
+  const composerBox = composerDock.getByTestId("chat-box");
   const composerInput = composerDock.getByTestId("chat-input");
   const composerSend = composerDock.getByTestId("chat-send");
-  const restingComposer = await composerDock.boundingBox();
+  const restingComposer = await composerBox.boundingBox();
   if (!restingComposer) throw new Error("desktop composer geometry disappeared");
   const pendingSubmitDraft = [
     "accepted submit adopts the changed epoch",
@@ -59,9 +59,9 @@ export async function proveComposerRecovery({
     "and leaves the pane persistently live",
   ].join("\n");
   await composerInput.fill(pendingSubmitDraft);
-  await expect.poll(async () => (await composerDock.boundingBox())?.height ?? 0)
+  await expect.poll(async () => (await composerBox.boundingBox())?.height ?? 0)
     .toBeGreaterThan(restingComposer.height + 1);
-  const grownBeforePendingSubmit = await composerDock.boundingBox();
+  const grownBeforePendingSubmit = await composerBox.boundingBox();
   if (!grownBeforePendingSubmit) throw new Error("grown desktop composer geometry disappeared");
   await waitForStableCellFrames(page, sessionId);
 
@@ -123,12 +123,9 @@ export async function proveComposerRecovery({
   }, { id: sessionId, marker: altMarker });
   expect(altRecoveredProof).toMatchObject({ marker: altMarker, frames: 2 });
   await expect(composerInput).toHaveValue("");
-  await expect.poll(async () => (await composerDock.boundingBox())?.height ?? Number.POSITIVE_INFINITY)
+  await expect.poll(async () => (await composerBox.boundingBox())?.height ?? Number.POSITIVE_INFINITY)
     .toBeLessThanOrEqual(restingComposer.height + 1);
-  await waitForRecoveredLive(page, sessionId, altPending, {
-    streamTransition: "rebaseline",
-    rebaselineEpoch: "changed",
-  });
+  await waitForRecoveredLive(page, sessionId, altPending);
 
   // Reverse the ordering: hold fixture output behind a deterministic delay so
   // accepted admission clears and shrinks the composer before the response.
@@ -147,7 +144,7 @@ export async function proveComposerRecovery({
   }, { id: sessionId, marker: overwriteReady, timeoutMs: fixtureArmMs });
   const delayedDraft = `delayed-response-${suffix}-` + "payload ".repeat(80);
   await composerInput.fill(delayedDraft);
-  await expect.poll(async () => (await composerDock.boundingBox())?.height ?? 0)
+  await expect.poll(async () => (await composerBox.boundingBox())?.height ?? 0)
     .toBeGreaterThan(restingComposer.height + 1);
   await inputSmokeTerminal(
     page,
@@ -160,7 +157,7 @@ export async function proveComposerRecovery({
   );
   await composerSend.click();
   await expect(composerInput).toHaveValue("");
-  await expect.poll(async () => (await composerDock.boundingBox())?.height ?? Number.POSITIVE_INFINITY)
+  await expect.poll(async () => (await composerBox.boundingBox())?.height ?? Number.POSITIVE_INFINITY)
     .toBeLessThanOrEqual(restingComposer.height + 1);
   const beforeDelayedResponse = await attemptPaintedMarker(page, sessionId, overwriteMarker, 250);
   expect(beforeDelayedResponse.proof).toBeNull();
