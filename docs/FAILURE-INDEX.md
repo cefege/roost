@@ -214,7 +214,7 @@ install atomically only after every viewport row occurs exactly once. Renderer
 mount state is not part of the continuity proof.
 
 **Guard** — `packages/protocol/tests/cell-frame-chunks.test.ts`;
-`apps/coord/tests/terminal-screen-hub.test.ts`;
+`apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts`;
 `apps/web/tests/terminalStream.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
@@ -428,8 +428,8 @@ returns, and later bytes parse at the new size. The resize forces a complete
 new-stream baseline but never reconstructs ordinary live state. Worker-history
 replay is reserved for genuine process adoption when no in-memory core exists.
 
-**Guard** — `apps/coord/tests/terminal-view-hub.test.ts`;
-`apps/coord/tests/terminal-view-registry-membership.test.ts`;
+**Guard** — `apps/coord/tests/terminal/view/terminal-view-hub.test.ts`;
+`apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
 `packages/wterm/tests/wterm-resize-in-place.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
@@ -463,9 +463,9 @@ surfaces the same array as `terminal_control.viewer_inputs` — and `constrains`
 is true exactly for the records the live predicate admitted, so "who is
 pinning this session?" is answerable without attaching a debugger.
 
-**Guard** — `apps/coord/tests/terminal-view-registry-membership.test.ts`;
-`apps/coord/tests/diag-snapshot-session-viewers.test.ts`;
-`apps/coord/tests/worker-respawn-geometry.test.ts`;
+**Guard** — `apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
+`apps/coord/tests/diagnostics/diag-snapshot-session-viewers.test.ts`;
+`apps/coord/tests/workers/worker-respawn-geometry.test.ts`;
 `apps/web/tests/cellTerminalViewport.parkGrace.test.ts`;
 `apps/web/tests/wtermSizeEstimate.dom.test.ts`;
 `smoke/terminal/terminal-multiview-geometry.spec.ts`.
@@ -937,7 +937,7 @@ scrollback rows, a base equal to the total, and an opaque `gridEpoch`.
 The renderer installs the current viewport and truthful spacer immediately.
 Only explicit scroll/find demand fetches disjoint
 `SessionsGetScrollbackCells` ranges carrying that epoch
-(`apps/coord/src/connect/handlers-sessions-scrollback.ts` relays it); the worker
+(`apps/coord/src/terminal/screen/handlers-sessions-scrollback.ts` relays it); the worker
 checks the epoch before and after each cooperative slice and returns an error
 rather than splice re-numbered rows. While the reader is off-bottom, every FULL
 frame — including an epoch change — is retained off-DOM as the latest pending
@@ -1013,9 +1013,9 @@ Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 
 **Guard** — `packages/protocol/tests/cell-frame-chunks.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
-`apps/coord/tests/terminal-view-hub.test.ts`;
-`apps/coord/tests/terminal-view-registry-membership.test.ts`;
-`apps/coord/tests/terminal-screen-hub.test.ts`;
+`apps/coord/tests/terminal/view/terminal-view-hub.test.ts`;
+`apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
+`apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts`;
 `apps/web/tests/terminalStream.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
@@ -1030,14 +1030,14 @@ restarts the transfer on every delta: the worker builds another full, the next d
 again, and attach never completes.
 
 **Right** — park ordinary deltas in a per-session bounded hold (`TerminalAssemblyHold` in
-`apps/coord/src/connect/terminal-screen-hub-state.ts`: 512 frames / 4 MiB, mirroring the Sync v2
+`apps/coord/src/terminal/screen/terminal-screen-hub-state.ts`: 512 frames / 4 MiB, mirroring the Sync v2
 delta-tail caps) while chunks assemble. When the assembled full installs, replay only held deltas
 whose base_seq extends the new baseline — earlier ones are already contained in that full — through
 the ordinary delta fold. Overflow, any other interruption, invalidation, or a minted stream clears
 the hold and falls back to the single-resync latch; an ordinary FULL still supersedes the partial
 outright without a resync.
 
-**Guard** — `apps/coord/tests/terminal-screen-hub-chunks.test.ts` —
+**Guard** — `apps/coord/tests/terminal/screen/terminal-screen-hub-chunks.test.ts` —
 `"holds live deltas during chunk assembly and folds them like an uninterrupted run"`,
 `"falls back to the resync latch when the delta hold overflows"`.
 
@@ -1072,7 +1072,7 @@ timer owns the deadline) all cancel it. The transition emits
 `log.warn("terminal-screen", "baseline_timeout", …)`, so a silent worker is readable in `*.err.log` instead
 of being inferred from a blank pane.
 
-**Guard** — `apps/coord/tests/terminal-screen-hub-snapshot.test.ts`, `describe("TerminalScreenHub baseline
+**Guard** — `apps/coord/tests/terminal/screen/terminal-screen-hub-snapshot.test.ts`, `describe("TerminalScreenHub baseline
 watchdog")` — escalation to a fresh stream across both ladder attempts; zero requests when the baseline
 lands in time; a re-mint replacing the superseded deadline while the stale callback stays inert; a chunked
 transfer in flight at the deadline left to the chunk stall timer.
@@ -1232,7 +1232,7 @@ timer and no retry budget: `onWorkerConnected` → `workerReplacement` is the gu
 clearing logs the old and new generation, and every `terminal.stream_invariant_failure` /
 `terminal.stream_result_mismatch` diagnostic is retained.
 
-**Guard** — `apps/coord/tests/terminal-view-hub-worker.test.ts` — the worker-generation recovery case plus
+**Guard** — `apps/coord/tests/terminal/view/terminal-view-hub-worker.test.ts` — the worker-generation recovery case plus
 `"never redrives an invalid worker request from heartbeat or route events"`, which is the control proving a
 protocol violation did not become a retry loop.
 
@@ -1443,7 +1443,7 @@ discards the coordinator's late result; and returning silently from coord's term
 `input` command is refused, which leaves the browser waiting out `INPUT_RESULT_TIMEOUT_MS`.
 
 **Right** — **the socket is the input fence.** Input results ride the CONTROL lane
-(`apps/coord/src/connect/sync-ws-v2-control.ts` stamps `domain = UNSPECIFIED, domainGeneration = 0`), which no
+(`apps/coord/src/sync/sync-ws-v2-control.ts` stamps `domain = UNSPECIFIED, domainGeneration = 0`), which no
 domain reset touches, so a started batch keeps its 10 s deadline and settles from the real result;
 `apps/web/src/ws/sync-outbound.ts` (`handleControl`) correlates on `(socketId, sessionId, inputSeq)` plus the
 generation coord echoes from the command, and `handleGeneration` only settles pendings when the SOCKET changed
@@ -1454,7 +1454,7 @@ socket change, because a surviving pending must not share an `inputSeq` with a n
 classification and the composer restores the draft instead of claiming possible loss.
 
 **Guard** — `apps/web/tests/syncOutbound.test.ts` — `"a terminal domain reset on a live socket keeps an
-in-flight batch and settles it from the late result"`; `apps/coord/tests/sync-ws-v2-terminal-command-gate.test.ts`
+in-flight batch and settles it from the late result"`; `apps/coord/tests/sync/sync-ws-v2-terminal-command-gate.test.ts`
 — `"an input command for a resubscribing terminal domain is rejected, not dropped"`;
 `apps/web/tests/terminalInputStatus.test.ts` — `"an unconfirmed batch with no written bytes never claims a
 partial send"`.
@@ -1549,7 +1549,7 @@ requests only `status=open`, and carries no browser sync-snapshot ID. Boot recon
 channel counter and adopt keeper survivors before the coordinator fallback runs; every other session RPC
 remains account-device-only.
 
-**Guard** — `apps/coord/tests/worker-session-list-auth.test.ts`;
+**Guard** — `apps/coord/tests/workers/worker-session-list-auth.test.ts`;
 `apps/worker/tests/boot-reconcile-admission.test.ts`.
 
 ### A live viewport change rebuilds the terminal core
@@ -1573,7 +1573,7 @@ exists; an unprovable resize boundary fails closed.
 
 **Guard** — `packages/wterm/tests/wterm-resize-in-place.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
-`apps/coord/tests/terminal-view-registry-membership.test.ts`;
+`apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
 ### Quoting a systemd path directive because quoting is "safer"
@@ -1886,11 +1886,11 @@ fill it in ~10-30s) → flap. Re-registering the bidi service or flipping the li
 reintroduces all of it.
 
 **Right** — **raw Bun WebSocket** at `/ws/coord-worker/:fp?token=<jwt>` carrying the SAME proto frames as binary
-(`toBinary`/`fromBinary`) — coord `apps/coord/src/connect/worker-ws-handler.ts` (sharing `makeWorkerConn` + the
+(`toBinary`/`fromBinary`) — coord `apps/coord/src/workers/worker-ws-handler.ts` (sharing `makeWorkerConn` + the
 `apps/worker/src/transport/coord-link.ts` (`dial()`). Auth is a query-param JWT
 (Bun's CLIENT `WebSocket` has no custom-header API). NEVER run a Connect/gRPC bidi through Bun.
 
-**Guard** — `apps/coord/tests/worker-ws-transport.test.ts`; `scripts/lint-roost.ts` rule `"phase-24: `new
+**Guard** — `apps/coord/tests/workers/worker-ws-transport.test.ts`; `scripts/lint-roost.ts` rule `"phase-24: `new
 WebSocket(` outside the canonical client/server links"`.
 
 ### Half-open WS survives a coord restart and never closes
@@ -1901,11 +1901,11 @@ WebSocket(` outside the canonical client/server links"`.
 a TLS-terminating front door keeps the worker-side TCP ESTABLISHED, so `ws.onerror`/`ws.onclose` NEVER fire and `ws.send`
 (including in-band JWT refresh) black-holes forever; the restarted coord's in-memory `connectWorkers` registry
 has no WS for the fingerprint → the hub socket lookup returns null →
-`apps/coord/src/connect/handler-session-spawn.ts` throws failed_precondition on every spawn while heartbeats (a
+`apps/coord/src/sessions/handler-session-spawn.ts` throws failed_precondition on every spawn while heartbeats (a
 separate unary transport) keep the row looking alive.
 
 **Right** — **a stale-link watchdog on the worker side** in `apps/worker/src/transport/coord-link.ts`
-(`dial()`'s open/message handlers): coord pings every 30s (`apps/coord/src/connect/worker-conn.ts`); every
+(`dial()`'s open/message handlers): coord pings every 30s (`apps/coord/src/workers/worker-conn.ts`); every
 downstream frame stamps `lastDownstreamAtMs`; a per-dial interval (`STALE_CHECK_INTERVAL_MS` 15s) force-closes
 and re-dials after `STALE_LINK_TIMEOUT_MS` 90s (3 missed pings) of downstream silence → hello→snapshot replay
 heals the rest. Same half-open-behind-a-proxy class as the boot RPC timeout.
@@ -1964,7 +1964,7 @@ caller_fp on per-RPC contextValues which the outer wrapper can't see; bridging v
 the indirection rots on the next async-layer addition.
 
 **Right** — **writeAuditLog INSIDE the AuthInterceptor's try/finally** at
-`apps/coord/src/connect/auth-interceptor.ts`. The interceptor has the caller (just verified), the path
+`apps/coord/src/auth/auth-interceptor.ts`. The interceptor has the caller (just verified), the path
 (`/${service}/${method}`), the trace id (header) and the status (200 on success; the mapped HTTP status on a
 ConnectError throw). `coord-factory.ts` only audits non-Connect paths (db-export, SPA, 404) where a null caller
 is structurally correct.
@@ -1981,9 +1981,9 @@ never publish, and sync-stream backfill by event id doesn't recover it because i
 the events table.
 
 **Right** — **`publishTaskState(row)` at every UPDATE-returning point** in
-`apps/coord/src/connect/handlers-tasks.ts`. Every mutation handler whose domain has a `*Bus` MUST follow
+`apps/coord/src/sessions/handlers-tasks.ts`. Every mutation handler whose domain has a `*Bus` MUST follow
 `db.updateTable(...).executeTakeFirst/Throw()` with the matching `publish*State(row)` in its own
-`connect/handlers-<domain>.ts`. Bus message shapes live in `apps/coord/src/buses.ts`.
+`connect/handlers-<domain>.ts`. Bus message shapes live in `apps/coord/src/events/buses.ts`.
 
 **Guard** — `apps/coord/tests/task-bus-publish.test.ts`.
 
@@ -2025,17 +2025,17 @@ scope" — the coordinator exits at startup on a database whose `push.vapid` key
 `dashboard_id`.
 
 **Wrong** — relax the guard, or hand-delete the offending row on the live database. Also wrong: the
-drift that causes it — writing `push.vapid` with a `dashboard_id`, when `apps/coord/src/vapid.ts`
+drift that causes it — writing `push.vapid` with a `dashboard_id`, when `apps/coord/src/push/vapid.ts`
 reads and writes that keypair only at the explicit NULL scope, so a scoped copy is unreachable by
 every code path that exists.
 
-**Right** — the guard is correct (`apps/coord/src/self-hosted-tenant.ts` owns it), so repair the data in a
+**Right** — the guard is correct (`apps/coord/src/auth/self-hosted-tenant.ts` owns it), so repair the data in a
 numbered migration: `apps/coord/migrations/0029_global_push_vapid_identity.sql` drops the unreachable
 scoped copies, and promotes the newest one to NULL scope when no global row exists rather than
 discarding the identity that signed the live push subscriptions. A coordinator-global setting belongs
 in the NULL scope; every dashboard-scoped key stays scoped.
 
-**Guard** — `apps/coord/tests/push-vapid-scope-migration.test.ts`: the live shape (a global row plus a
+**Guard** — `apps/coord/tests/push/push-vapid-scope-migration.test.ts`: the live shape (a global row plus a
 scoped duplicate) fails admission before the migration and admits after it, promotion keeps the sole
 scoped identity, and a NULL-scoped ordinary key is still refused by the tenancy guard.
 
@@ -2202,7 +2202,7 @@ survived a rewrite — only that the flow, the deck, and the `scripts/lint-roost
 **Wrong** — delete `shouldPersistConnectAudit` (`apps/coord/src/middleware/security.ts`) because its
 body reduces to a constant once the listener it named is gone, or answer the growth by widening
 `AUDIT_SWEEP_METHODS`. Both read as simplification and both re-open the hole: the sweep in
-`apps/coord/src/audit-retention.ts` is an explicit allowlist (`SessionsInput` only) that must never
+`apps/coord/src/db/audit-retention.ts` is an explicit allowlist (`SessionsInput` only) that must never
 age out auth rows, so an unauthenticated scanner's row is permanent.
 
 **Right** — keep the predicate and skip exactly the anonymous 401 that arrived through a trusted
@@ -2246,7 +2246,7 @@ own tail.
 payload is refused at the envelope naming the missing layer member, and an envelope placed where a
 section belongs fails `validateTerminalIncidentBundle` at `browser.captured_at_ms`. Producer-side,
 `apps/worker/tests/terminal-capture-evidence.test.ts` and
-`apps/coord/tests/terminal-capture-recorder.test.ts` assert a real capture lands non-null
+`apps/coord/tests/terminal/capture/terminal-capture-recorder.test.ts` assert a real capture lands non-null
 `bundle.browser` and `bundle.coordinator` sections with zero `remote:` omissions.
 
 ### One viewer re-attaching costs every coordinator viewer a second baseline
@@ -2269,7 +2269,7 @@ re-creates the double.
 
 **Guard** — `smoke/terminal/perf.spec.ts:302` "delayed worker-link split recovery" pins
 `after.fullFrames === before.fullFrames + 1` across a transport resume, and
-`apps/coord/tests/terminal-view-owner-mode.test.ts` pins exactly one source-full request for a
+`apps/coord/tests/terminal/view/terminal-view-owner-mode.test.ts` pins exactly one source-full request for a
 replica that cannot seed and zero for a new stream id.
 
 ---

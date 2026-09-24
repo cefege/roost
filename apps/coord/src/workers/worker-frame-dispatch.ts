@@ -1,0 +1,397 @@
+// Dispatches worker frames that mutate durable or live coordinator state.
+// makeWorkerConn performs connection admission and generation checks first,
+// then supplies guarded readiness and delayed-respawn capabilities here.
+import { create } from "@bufbuild/protobuf";
+import {
+  CoordWorkerDownSchema,
+  DEventAckSchema,
+  type CoordWorkerDown,
+  type CoordWorkerUp,
+  type WSessionEvent,
+} from "@roost/protocol/proto/worker_transport_pb";
+import { asChannelId, asWorkerFp } from "@roost/protocol/wire";
+import { protoToEvent } from "@roost/protocol/wire/event-proto";
+import { log } from "@roost/observability/log";
+import { diag, signal } from "@roost/observability/diag";
+import { dispatchWorkerAgentStatusFrame } from "../agents/worker-agent-status-frame.ts";
+import { publishCellGrid, publishCellGridChunk } from "../terminal/screen/byte-hub.ts";
+import { dispatchLegacyTerminalMetadataFrame, dispatchTerminalMetadataFrame } from "../terminal/worker-terminal-metadata-frame.ts";
+import { applyWorkerTerminalViewProjection, dispatchWorkerTerminalViewState } from "../terminal/view/terminal-view-hub.ts";
+import { appendEvent, dispatchSnapshotOrphanReaps } from "../events/event-log.ts";
+import { rejectPendingRpc, resolvePendingRpc } from "../router/pending-rpcs.ts";
+import { isTerminalPipelineSnapshotWireShape } from "../terminal/screen/worker-terminal-pipeline-snapshot.ts";
+import { resolvePendingSpawnOpened } from "../sessions/pending-spawns.ts";
+import { directWorkerResultKind, dispatchTypedDirectWorkerResult } from "../terminal/direct/worker-frame-dispatch-direct-results.ts";
+import type { WorkerServiceDeps } from "./worker-conn-types.ts";
+import type { WorkerHandle } from "./worker-registry.ts";
+import type { WriteLease } from "../coordinator-write-gate.ts";
+interface WorkerFrameDispatcherOptions {
+  deps: WorkerServiceDeps;
+  callerFingerprint: string;
+  requestClose(): void;
+  getWorkerFp(): string | null;
+  isSnapshotReady(): boolean;
+  isCurrentGeneration(): boolean;
+  getWorkerHandle?(): WorkerHandle | null;
+  terminalMetadataNegotiated?(): boolean;
+  fenced(what: string): boolean;
+  sendBestEffort(what: string, frame: CoordWorkerDown): boolean;
+  markSnapshotReady(): boolean;
+  scheduleRespawn(workerFp: string): void;
+}
+export function makeWorkerFrameDispatcher(options: WorkerFrameDispatcherOptions) {
+  async function handleEvent(workerEvent: WSessionEvent): Promise<void> {
+    const workerFp = options.getWorkerFp();
+    // Dedup uses (worker_fp, client_seq); a pre-hello row would have no worker
+    // identity and would fall outside the partial uniqueness index.
+    if (!workerFp) {
+      log.warn("worker-service", "event_before_hello", {});
+      diag("worker.frame_dropped", {
+        reason: "event_before_hello",
+        worker_fp: options.callerFingerprint,
+      });
+      signal("worker.protocol_violation", {
+        reason: "event_before_hello",
+        worker_fp: options.callerFingerprint,
+        cooldownKey: options.callerFingerprint,
+      });
+      options.requestClose();
+      return;
+    }
+    if (options.fenced("event")) return;
+    const rawEvent = workerEvent as { event?: unknown; clientSeq?: bigint };
+    const clientSeq = rawEvent.clientSeq === undefined
+      ? 0
+      : Number(rawEvent.clientSeq);
+    if (!Number.isSafeInteger(clientSeq) || clientSeq <= 0) {
+      diag("worker.frame_dropped", {
+        reason: "invalid_event_client_seq",
+        worker_fp: workerFp,
+      });
+      return;
+    }
+    let event;
+    try {
+      event = protoToEvent(rawEvent.event as never);
+    } catch (error) {
+      const isPrivateReference =
+        (rawEvent.event as { kind?: { case?: unknown } } | undefined)
+          ?.kind?.case === "agentReference";
+      log.warn("worker-service", "event_decode_failed", {
+        error: isPrivateReference ? "private event decode failed" : String(error),
+      });
+      diag("worker.frame_dropped", {
+        reason: "event_decode_failed",
+        worker_fp: workerFp,
+      });
+      signal("worker.protocol_violation", {
+        reason: "event_decode_failed",
+        worker_fp: workerFp,
+        cooldownKey: workerFp,
+      });
+      return;
+    }
+    if (!event) {
+      log.warn("worker-service", "event_decode_returned_null", {});
+      diag("worker.frame_dropped", {
+        reason: "event_decode_returned_null",
+        worker_fp: workerFp,
+      });
+      signal("worker.protocol_violation", {
+        reason: "event_decode_returned_null",
+        worker_fp: workerFp,
+        cooldownKey: workerFp,
+      });
+      return;
+    }
+    if (
+      !options.isSnapshotReady()
+      && event.kind !== "opened"
+      && event.kind !== "closed"
+      && event.kind !== "respawned"
+      && event.kind !== "agent_reference"
+      && event.kind !== "snapshot"
+    ) {
+      diag("worker.frame_dropped", {
+        reason: "event_before_snapshot_ready",
+        event_kind: event.kind,
+        worker_fp: workerFp,
+      });
+      return;
+    }
+    if (options.deps.writeGate.exclusiveHeld) {
+      // A held keeper-update fence withholds the ACK so CoordLink replays the
+      // preserved entry after the update. Acking here loses the durable record
+      // of which PTYs are live.
+      return;
+    }
+    const gate = options.deps.writeGate;
+    let lease: WriteLease | undefined;
+    try {
+      lease = gate.acquireCompletion();
+    } catch (error) {
+      if (gate.exclusiveHeld) return;
+      throw error;
+    }
+    let appendResult;
+    try {
+      appendResult = await appendEvent(options.deps.db, event, {
+        worker_fp: workerFp,
+        client_seq: clientSeq,
+        dashboardId: options.deps.selfHostedTenant.dashboardId,
+        canPublish: options.isCurrentGeneration,
+        pendingPublications: options.deps.pendingPublications,
+        deferSnapshotReap: event.kind === "snapshot",
+      });
+    } catch (error) {
+      const safeError = event.kind === "agent_reference"
+        ? "private event append failed"
+        : String(error);
+      log.error("worker-service", "event_append_failed", {
+        worker_fp: workerFp,
+        kind: event.kind,
+        client_seq: clientSeq,
+        error: safeError,
+      });
+      signal("event.append_failed", {
+        error: safeError,
+        worker_fp: workerFp,
+        cooldownKey: "events",
+      });
+      throw error;
+    } finally {
+      lease?.release();
+    }
+    if (!appendResult.admitted) {
+      diag("worker.frame_dropped", {
+        reason: "event_admission_rejected",
+        event_kind: event.kind,
+        worker_fp: workerFp,
+      });
+      return;
+    }
+    if (options.fenced("event_post_commit")) return;
+    if (appendResult.replayRejected) {
+      log.warn("worker-service", "event_dedupe_payload_mismatch", {
+        worker_fp: workerFp,
+        client_seq: clientSeq,
+      });
+      signal("worker.protocol_violation", {
+        reason: "event_dedupe_payload_mismatch",
+        worker_fp: workerFp,
+        cooldownKey: workerFp,
+      });
+      options.requestClose();
+      return;
+    }
+    const committedEvent = appendResult.event;
+    if (committedEvent.kind === "snapshot") {
+      // A dedupe/stale generation did not install this connection's exact live
+      // set. It cannot cross readiness and receives no ACK.
+      if (!appendResult.published) return;
+      const becameReady = options.markSnapshotReady();
+      if (clientSeq > 0) {
+        options.sendBestEffort("event_ack", create(CoordWorkerDownSchema, {
+          frame: {
+            case: "eventAck",
+            value: create(DEventAckSchema, { clientSeq: BigInt(clientSeq) }),
+          },
+        }));
+      }
+      dispatchSnapshotOrphanReaps(
+        asWorkerFp(workerFp),
+        appendResult.snapshotReapIds,
+      );
+      if (becameReady) {
+        void Promise.resolve(options.deps.onWorkerConnected?.(workerFp)).catch((error) => {
+          log.warn("worker-service", "connected_callback_failed", {
+            worker_fp: workerFp,
+            error: String(error),
+          });
+        });
+        options.scheduleRespawn(workerFp);
+      }
+      return;
+    }
+    if (committedEvent.kind === "opened") {
+      resolvePendingSpawnOpened(
+        workerFp,
+        committedEvent.session_id,
+        Number(committedEvent.channel),
+      );
+    }
+    if (clientSeq > 0) {
+      options.sendBestEffort("event_ack", create(CoordWorkerDownSchema, {
+        frame: {
+          case: "eventAck",
+          value: create(DEventAckSchema, { clientSeq: BigInt(clientSeq) }),
+        },
+      }));
+    }
+  }
+  function pendingResultWorker(frameKind: string): string | null {
+    const workerFp = options.getWorkerFp();
+    if (
+      !workerFp
+      || !options.isSnapshotReady()
+      || options.fenced(frameKind)
+    ) {
+      diag("worker.frame_dropped", {
+        reason: "unready_rpc_result",
+        what: frameKind,
+        worker_fp: workerFp ?? options.callerFingerprint,
+      });
+      return null;
+    }
+    return workerFp;
+  }
+  function handleLiveFrame(frame: CoordWorkerUp): boolean {
+    const workerFp = options.getWorkerFp();
+    const metadataNegotiated = options.terminalMetadataNegotiated?.() ?? false;
+    const directResult = directWorkerResultKind(frame.frame);
+    if (directResult) {
+      if (pendingResultWorker(directResult)) {
+        dispatchTypedDirectWorkerResult(options.deps, options.getWorkerHandle?.(), frame.frame, directResult);
+      }
+      return true;
+    }
+    switch (frame.frame.case) {
+      case "binary":
+        if (workerFp && !options.fenced("binary")) {
+          dispatchLegacyTerminalMetadataFrame(workerFp, metadataNegotiated, frame.frame.value);
+        }
+        return true;
+      case "terminalMetadata":
+        if (workerFp && !options.fenced("terminal_metadata")) {
+          dispatchTerminalMetadataFrame(workerFp, metadataNegotiated, frame.frame.value);
+        }
+        return true;
+      case "terminalViewState":
+        if (workerFp && !options.fenced("terminal_view_state")) {
+          dispatchWorkerTerminalViewState(workerFp, frame.frame.value);
+        }
+        return true;
+      case "terminalViewProjection":
+        if (workerFp && !options.fenced("terminal_view_projection")) {
+          applyWorkerTerminalViewProjection(workerFp, frame.frame.value);
+        }
+        return true;
+      case "cellGrid": {
+        const cellGrid = frame.frame.value;
+        if (workerFp && cellGrid.frame && !options.fenced("cell_grid")) {
+          publishCellGrid(
+            asWorkerFp(workerFp),
+            asChannelId(cellGrid.channelId),
+            cellGrid.frame,
+          );
+        }
+        return true;
+      }
+      case "cellGridChunk": {
+        const cellGrid = frame.frame.value;
+        if (workerFp && cellGrid.chunk && !options.fenced("cell_grid_chunk")) {
+          publishCellGridChunk(
+            asWorkerFp(workerFp),
+            asChannelId(cellGrid.channelId),
+            cellGrid.chunk,
+          );
+        }
+        return true;
+      }
+      case "agentStatus": {
+        if (!workerFp) {
+          diag("worker.frame_dropped", {
+            reason: "agent_status_before_hello",
+            worker_fp: options.callerFingerprint,
+          });
+          options.requestClose();
+          return true;
+        }
+        if (options.fenced("agent_status")) return true;
+        dispatchWorkerAgentStatusFrame(workerFp, frame.frame.value);
+        return true;
+      }
+      case "terminalStreamResult":
+      case "inputResult": {
+        const resultWorkerFp = pendingResultWorker(
+          frame.frame.case === "inputResult" ? "input_result" : "terminal_stream_result",
+        );
+        if (resultWorkerFp) {
+          resolvePendingRpc(frame.frame.value.requestId, frame.frame.value, resultWorkerFp);
+        }
+        return true;
+      }
+      case "terminalPipelineSnapshot": {
+        const resultWorkerFp = pendingResultWorker("terminal_pipeline_snapshot");
+        if (!resultWorkerFp) return true;
+        const snapshot = frame.frame.value;
+        if (!isTerminalPipelineSnapshotWireShape(snapshot)) {
+          diag("worker.frame_dropped", {
+            reason: "invalid_terminal_pipeline_snapshot", worker_fp: resultWorkerFp,
+          });
+          return true;
+        }
+        resolvePendingRpc(snapshot.requestId, snapshot, resultWorkerFp);
+        return true;
+      }
+      case "updateProgress": {
+        if (!workerFp) {
+          diag("worker.frame_dropped", {
+            reason: "update_progress_before_hello",
+            worker_fp: options.callerFingerprint,
+          });
+          options.requestClose();
+          return true;
+        }
+        const progress = frame.frame.value;
+        const sequence = Number(progress.sequence);
+        if (!progress.jobId || !Number.isSafeInteger(sequence) || sequence < 0) {
+          diag("worker.frame_dropped", {
+            reason: "invalid_update_progress",
+            worker_fp: workerFp,
+          });
+          return true;
+        }
+        options.deps.onUpdateProgress?.(workerFp, {
+          request_id: progress.requestId,
+          job_id: progress.jobId,
+          sequence,
+          phase: progress.phase,
+          message: progress.message,
+          terminal: progress.terminal,
+          success: progress.success,
+          error: progress.error || undefined,
+        });
+        return true;
+      }
+      case "rpcOk": {
+        const resultWorkerFp = pendingResultWorker("rpc_ok");
+        if (!resultWorkerFp) return true;
+        try {
+          resolvePendingRpc(
+            frame.frame.value.requestId,
+            JSON.parse(frame.frame.value.dataJson),
+            resultWorkerFp,
+          );
+        } catch {
+          // A malformed response cannot satisfy a pending RPC.
+        }
+        return true;
+      }
+      case "rpcError": {
+        const resultWorkerFp = pendingResultWorker("rpc_error");
+        if (resultWorkerFp) {
+          rejectPendingRpc(
+            frame.frame.value.requestId,
+            frame.frame.value.message,
+            resultWorkerFp,
+          );
+        }
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+  return { handleEvent, handleLiveFrame };
+}

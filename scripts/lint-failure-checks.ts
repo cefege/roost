@@ -185,7 +185,7 @@ export const CHECKS: Check[] = [
     // value with safeJsonParse BEFORE publish, publish the variable.
     rule: "L11: raw JSON.parse() inside a *Bus.publish() payload — parse-after-commit 500s the RPC → split-brain; use safeJsonParse",
     memory: "docs/FAILURE-INDEX.md",
-    files: /apps\/coord\/src\/connect\/handlers-.*\.ts$/,
+    files: /apps\/coord\/src\/(.+\/)?handlers-[^/]*\.ts$/,
     ok: (_file, _i, lines) => {
       // Walk each `.publish(` call from its open-paren to the matching close,
       // capturing ONLY that call's span (no cross-function false positives a
@@ -217,7 +217,7 @@ export const CHECKS: Check[] = [
     // where the verified caller is in scope.
     rule: "L11: writeAuditLog must be CALLED inside the AuthInterceptor (else audit_log caller_fp=NULL)",
     memory: "docs/FAILURE-INDEX.md",
-    files: /apps\/coord\/src\/connect\/auth-interceptor\.ts$/,
+    files: /apps\/coord\/src\/auth\/auth-interceptor\.ts$/,
     ok: (_file, _i, lines) => lines.join("\n").includes("writeAuditLog("),
   },
   {

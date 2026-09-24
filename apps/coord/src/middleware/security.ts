@@ -5,8 +5,8 @@ import { DEFAULT_WORKER_LOCAL_UI_ORIGIN, type CoordConfig } from "@roost/host/co
 // Exposed-to-JS header names are part of the SPA↔coord trust contract.
 import { X_ROOST_AUTH_LAYER } from "@roost/protocol/wire/headers";
 import { TRACE_HEADER } from "@roost/observability/trace";
-import { auditBus } from "../buses.ts";
-import { recordRequest, recordError } from "../telemetry.ts";
+import { auditBus } from "../events/buses.ts";
+import { recordRequest, recordError } from "../diagnostics/telemetry.ts";
 import { signal } from "@roost/observability/diag";
 import type { KyselyDB } from "../db/connection.ts";
 import type { ListenerTrust } from "./caller-origin.ts";

@@ -3,19 +3,19 @@
 // The contract depends on event-log publication gating, credential fencing, and route retirement.
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { appendEvent } from "../src/event-log.ts";
+import { appendEvent } from "../src/events/event-log.ts";
 import {
   getCachedSessionWorker,
   lookupSessionId,
   retireWorkerRoutes,
-} from "../src/byte-hub.ts";
-import { sessionBus } from "../src/buses.ts";
+} from "../src/terminal/screen/byte-hub.ts";
+import { sessionBus } from "../src/events/buses.ts";
 import {
   __setConnectWorkerForTest,
   connectWorkers,
   fenceWorkerCredential,
   listRoutableFps,
-} from "../src/connect/worker-registry.ts";
+} from "../src/workers/worker-registry.ts";
 import { asChannelId } from "@roost/protocol/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 

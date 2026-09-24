@@ -17,13 +17,13 @@ import {
   COORD_WEBSOCKET_MAX_PAYLOAD_BYTES,
   handleWorkerWsUpgrade,
   type WorkerWsData,
-} from "./connect/worker-ws-handler.ts";
+} from "./workers/worker-ws-handler.ts";
 import {
   handleSyncWsUpgrade,
   type SyncWsData,
-} from "./connect/sync-ws-handler.ts";
-import type { WorkerServiceDeps } from "./connect/worker-service.ts";
-import type { ConnectDeps } from "./connect/router.ts";
+} from "./sync/sync-ws-handler.ts";
+import type { WorkerServiceDeps } from "./workers/worker-service.ts";
+import type { ConnectDeps } from "./rpc/router.ts";
 import type { CoordHandle } from "./coord-factory.ts";
 import { createSqliteSnapshot } from "./db/snapshot.ts";
 import {

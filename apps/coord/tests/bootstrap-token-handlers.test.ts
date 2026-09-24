@@ -20,8 +20,8 @@ import {
   bootstrapTokenDigest,
   mintBootstrapToken,
   type BootstrapTokenKind,
-} from "../src/bootstrap-tokens.ts";
-import { callerKey } from "../src/connect/auth-interceptor.ts";
+} from "../src/auth/bootstrap-tokens.ts";
+import { callerKey } from "../src/auth/auth-interceptor.ts";
 import {
   authorizeAccountDevice,
   connectFailure,

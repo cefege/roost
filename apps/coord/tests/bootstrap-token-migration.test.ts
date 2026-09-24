@@ -5,7 +5,7 @@
  */
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 import {
   addAccountDevice,
   addDashboardMember,

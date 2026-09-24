@@ -143,9 +143,10 @@ Non-negotiable for every change.
       `@roost/protocol/{wire,viewport,cell,json,...}` from protocol,
       `@roost/observability/{log,diag}`, `@roost/platform/{platform,native-path}`,
       and `@roost/host/{paths,config}` per those packages' `exports`.
-    - **Coord RPC handlers** live by domain in `apps/coord/src/connect/handlers-*.ts`,
+    - **Coord RPC handlers** live by domain under
+      `apps/coord/src/<domain>/handlers-*.ts`,
       each exporting a `make<Domain>Handlers(deps)` spread into the SINGLE
-      `router.service()` literal in `apps/coord/src/connect/router.ts`. A separate
+      `router.service()` literal in `apps/coord/src/rpc/router.ts`. A separate
       `router.service()` call per domain shadows the rest with
       unimplemented-throws.
 

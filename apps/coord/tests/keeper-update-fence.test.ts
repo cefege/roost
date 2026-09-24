@@ -12,20 +12,20 @@ import type { CoordConfig } from "@roost/host/config";
 import { fingerprintOf } from "@roost/protocol/fingerprint";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
-import { newJwtCache, signJwt } from "../src/jwt.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
+import { newJwtCache, signJwt } from "../src/auth/jwt.ts";
 import { createCoord } from "../src/coord-factory.ts";
 import {
   CoordinatorWriteGate,
   type WriteLease,
 } from "../src/coordinator-write-gate.ts";
-import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
+import { __setConnectWorkerForTest } from "../src/workers/worker-registry.ts";
 import {
   rejectPendingRpc,
   rejectPendingRpcsForWorker,
   resolvePendingRpc,
 } from "../src/router/pending-rpcs.ts";
-import { resetPendingSpawnsForTest } from "../src/connect/pending-spawns.ts";
+import { resetPendingSpawnsForTest } from "../src/sessions/pending-spawns.ts";
 
 const WORKER_FP = "ab".repeat(32);
 const FIRST_SESSION_ID = "10000000-0000-4000-8000-000000000001";

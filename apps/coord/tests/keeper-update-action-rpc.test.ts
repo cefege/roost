@@ -17,9 +17,9 @@ import { createCoord } from "../src/coord-factory.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
-import { newJwtCache, signJwt } from "../src/jwt.ts";
-import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
+import { newJwtCache, signJwt } from "../src/auth/jwt.ts";
+import { __setConnectWorkerForTest } from "../src/workers/worker-registry.ts";
 import {
   rejectPendingRpcsForWorker,
   resolvePendingRpc,

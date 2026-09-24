@@ -17,11 +17,11 @@ import {
   createAnnouncedChannelBarrier,
   makeWorkerWsHandler,
   type WorkerWsData,
-} from "../src/connect/worker-ws-handler.ts";
+} from "../src/workers/worker-ws-handler.ts";
 import type {
   WorkerConn,
   WorkerServiceDeps,
-} from "../src/connect/worker-service.ts";
+} from "../src/workers/worker-service.ts";
 
 const WORKER_FP = asWorkerFp("d".repeat(64));
 const DASHBOARD_ID = "resource-caps-dashboard";

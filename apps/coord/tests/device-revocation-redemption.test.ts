@@ -10,7 +10,7 @@ import {
   AuthRedeemBrowserRequestSchema,
   AuthRedeemWorkerRequestSchema,
 } from "@roost/protocol/proto/coordinator_pb";
-import { bootstrapTokenDigest } from "../src/bootstrap-tokens.ts";
+import { bootstrapTokenDigest } from "../src/auth/bootstrap-tokens.ts";
 import {
   type DeviceKey,
   createDeviceRevocationHarnessOwner,

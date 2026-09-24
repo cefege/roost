@@ -3,9 +3,9 @@
 // The contract depends on appendEvent ordering, the session bus, and exact byte-hub bindings.
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { appendEvent } from "../src/event-log.ts";
-import { getCachedSessionWorker, lookupSessionId } from "../src/byte-hub.ts";
-import { sessionBus } from "../src/buses.ts";
+import { appendEvent } from "../src/events/event-log.ts";
+import { getCachedSessionWorker, lookupSessionId } from "../src/terminal/screen/byte-hub.ts";
+import { sessionBus } from "../src/events/buses.ts";
 import { asChannelId } from "@roost/protocol/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 

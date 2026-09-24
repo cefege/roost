@@ -5,8 +5,8 @@
   "version": "2.0.0",
   "exports": {
     "./main": "./src/main.ts",
-    "./bootstrap-tokens": "./src/bootstrap-tokens.ts",
-    "./self-hosted-tenant": "./src/self-hosted-tenant.ts",
+    "./bootstrap-tokens": "./src/auth/bootstrap-tokens.ts",
+    "./self-hosted-tenant": "./src/auth/self-hosted-tenant.ts",
     "./db/migrate": "./src/db/migrate.ts",
     "./db/snapshot": "./src/db/snapshot.ts"
   },

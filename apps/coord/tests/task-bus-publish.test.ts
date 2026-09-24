@@ -25,11 +25,11 @@ import {
 } from "@roost/protocol/proto/coordinator_pb";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { makeTaskHandlers } from "../src/connect/handlers-tasks.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
-import { taskBus, type TaskBusMsg } from "../src/buses.ts";
-import { callerKey } from "../src/connect/auth-interceptor.ts";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import { makeTaskHandlers } from "../src/sessions/handlers-tasks.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
+import { taskBus, type TaskBusMsg } from "../src/events/buses.ts";
+import { callerKey } from "../src/auth/auth-interceptor.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 type TaskHandlers = Pick<
   ServiceImpl<typeof CoordinatorService>,
   "tasksEnqueue" | "tasksNextPending" | "tasksSetState" | "tasksCancel"

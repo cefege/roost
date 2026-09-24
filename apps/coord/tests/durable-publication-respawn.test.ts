@@ -2,7 +2,7 @@
 // The durable route is shared by terminal cells, semantic metadata, and input.
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { getCachedSessionWorker, lookupSessionId } from "../src/byte-hub.ts";
+import { getCachedSessionWorker, lookupSessionId } from "../src/terminal/screen/byte-hub.ts";
 import { SessionEvent, asChannelId } from "@roost/protocol/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 

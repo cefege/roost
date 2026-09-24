@@ -1,0 +1,279 @@
+// Owns worker registry RPCs and publishes every persisted presence transition
+// after its database write. Deletion fences the authoritative connection
+// immediately after commit, then isolates each volatile cleanup so one failed
+// projection cannot leave the remaining worker state live.
+
+import type { ServiceImpl } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
+import { create } from "@bufbuild/protobuf";
+import { isSupportedHostPlatform } from "@roost/platform/platform";
+import {
+	type CoordinatorService,
+	WorkersListResponseSchema,
+	WorkersRegisterResponseSchema,
+	WorkersRenameResponseSchema,
+	WorkersDeleteResponseSchema,
+} from "@roost/protocol/proto/coordinator_pb";
+import {
+	workerRowToProto,
+	workerRowToWirePresence,
+} from "@roost/protocol/wire/row-proto";
+import { presenceBus } from "../events/buses.ts";
+import { listRoutableFps } from "./worker-service.ts";
+import { requireAccountDevice, requireWorker } from "../auth/auth-interceptor.ts";
+import type { ConnectDeps } from "../rpc/router.ts";
+import { invalidateJwtKey } from "../auth/jwt.ts";
+import { asWorkerFp } from "@roost/protocol/wire";
+import { retireWorkerRoutes } from "../terminal/screen/byte-hub.ts";
+import {
+	fenceWorkerCredential,
+	_publishRoutable,
+} from "./worker-registry.ts";
+import { notifyTerminalWorkerRetired } from "../terminal/view/terminal-view-hub.ts";
+import { log } from "@roost/observability/log";
+import { makeWorkerDeployHandlers } from "../deploy/handlers-workers-deploy.ts";
+import { makeWorkerHeartbeatHandler } from "./handlers-workers-heartbeat.ts";
+import { truncatePersistedUtf8 } from "../events/persistence-input.ts";
+import { hostIdentityFromProto } from "@roost/protocol/host-identity-proto";
+export {
+	resolveWorkerDeployTarget,
+	workerDeployHost,
+	type WorkerDeployRecord,
+	type WorkerDeployTargetResolution,
+} from "../deploy/handlers-workers-deploy.ts";
+
+function bestEffortWorkerDeleteCleanup(
+	step: string,
+	work: () => void,
+): void {
+	try {
+		work();
+	} catch (error) {
+		log.warn("workers-delete", "cleanup_failed", {
+			step,
+			error: String(error),
+		});
+	}
+}
+
+type WorkerMethods =
+	| "workersList"
+	| "workersRegister"
+	| "workersHeartbeat"
+	| "workersRename"
+	| "workersDelete"
+	| "workersDeployOutput"
+	| "workersDeployStart";
+
+export function makeWorkerHandlers(
+	deps: ConnectDeps,
+): Pick<ServiceImpl<typeof CoordinatorService>, WorkerMethods> {
+
+	return {
+		async workersList(_req, ctx) {
+			requireAccountDevice(ctx.values);
+			const rows = await deps.db
+				.selectFrom("workers")
+				.selectAll()
+				.where("deleted_at_ms", "is", null)
+				.execute();
+			const workerFps = new Set(rows.map((worker) => worker.fp));
+			return create(WorkersListResponseSchema, {
+				workers: rows.map(workerRowToProto),
+				routableFps: listRoutableFps().filter((fp) => workerFps.has(fp)),
+			});
+		},
+
+		async workersRegister(req, ctx) {
+			if (req.os !== undefined && !isSupportedHostPlatform(req.os)) {
+				throw new ConnectError("unsupported worker os", Code.InvalidArgument);
+			}
+			const caller = requireWorker(ctx.values);
+			const fp = caller.fingerprint;
+			const label = req.label === undefined
+				? undefined
+				: truncatePersistedUtf8(req.label);
+			const gitSha = req.gitSha === undefined
+				? undefined
+				: truncatePersistedUtf8(req.gitSha);
+			const reachableAddr = req.reachableAddr === undefined
+				? undefined
+				: truncatePersistedUtf8(req.reachableAddr);
+			const hostIdentity = req.hostIdentity === undefined
+				? undefined
+				: hostIdentityFromProto(req.hostIdentity);
+			const hostIdentityJson = hostIdentity === undefined
+				? undefined
+				: hostIdentity === null
+					? null
+					: JSON.stringify(hostIdentity);
+			const existing = await deps.db
+				.selectFrom("workers")
+				.selectAll()
+				.where("fp", "=", fp)
+				.where("deleted_at_ms", "is", null)
+				.executeTakeFirst();
+			if (!existing)
+				throw new ConnectError(
+					"worker not registered; redeem bootstrap token first",
+					Code.Unauthenticated,
+				);
+			const now = Date.now();
+			const updated = await deps.db
+				.updateTable("workers")
+				.set({
+					label: label ?? existing.label,
+					os: req.os ?? existing.os,
+					git_sha: gitSha ?? existing.git_sha,
+					reachable_addr: reachableAddr ?? existing.reachable_addr,
+					...(hostIdentityJson !== undefined && {
+						host_identity_json: hostIdentityJson,
+					}),
+					keeper_runtime_json: null,
+					last_seen_ms: now,
+				})
+				.where("fp", "=", fp)
+				.where("deleted_at_ms", "is", null)
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			const w = workerRowToProto(updated);
+			presenceBus.publish({
+				kind: "registered",
+				worker: workerRowToWirePresence(updated) as any,
+			});
+			return create(WorkersRegisterResponseSchema, { worker: w });
+		},
+
+		async workersRename(req, ctx) {
+			requireAccountDevice(ctx.values);
+			const label = truncatePersistedUtf8(req.label);
+			const existing = await deps.db
+				.selectFrom("workers")
+				.selectAll()
+				.where("fp", "=", req.fp)
+				.where("deleted_at_ms", "is", null)
+				.executeTakeFirst();
+			if (!existing) throw new ConnectError("worker not found", Code.NotFound);
+			const updated = await deps.db
+				.updateTable("workers")
+				.set({ label })
+				.where("fp", "=", req.fp)
+				.where("deleted_at_ms", "is", null)
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			presenceBus.publish({
+				kind: "registered",
+				worker: workerRowToWirePresence(updated) as any,
+			});
+			return create(WorkersRenameResponseSchema, {
+				worker: workerRowToProto(updated),
+			});
+		},
+
+		async workersDelete(req, ctx) {
+			const caller = requireAccountDevice(ctx.values);
+			const now = Date.now();
+			const persistedSessionIds = await deps.db.transaction().execute(async (trx) => {
+				const worker = await trx
+					.selectFrom("workers")
+					.select("fp")
+					.where("fp", "=", req.fp)
+					.where("deleted_at_ms", "is", null)
+					.executeTakeFirst();
+				if (!worker) throw new ConnectError("worker not found", Code.NotFound);
+				const sessionRows = await trx.selectFrom("sessions")
+					.select("id")
+					.where("worker_fp", "=", req.fp)
+					.execute();
+				await trx.insertInto("authorized_key_revocations").values({
+					fingerprint: req.fp,
+					revoked_at_ms: now,
+					revoked_by_fp: caller.fingerprint,
+					reason: "worker-deleted",
+				}).execute();
+				const tombstone = await trx.updateTable("workers")
+					.set({ deleted_at_ms: now })
+					.where("fp", "=", req.fp)
+					.where("deleted_at_ms", "is", null)
+					.returning("fp")
+					.executeTakeFirst();
+				if (!tombstone) throw new Error("worker tombstone update lost");
+				await trx.deleteFrom("bootstrap_tokens")
+					.where("used_at_ms", "is", null)
+					.where("minted_by_fp", "=", req.fp)
+					.execute();
+				await trx.deleteFrom("authorized_keys")
+					.where("fingerprint", "=", req.fp)
+					.execute();
+				return sessionRows.map((row) => row.id);
+			});
+			// Retirement owns the direct-grant invalidation and emits its exact-worker
+			// control before this irreversible deletion fences that generation.
+			try {
+				deps.terminalGrants.retireWorker(req.fp, "worker_deleted");
+			} catch (error) {
+				log.warn("workers-delete", "terminal_retirement_failed", {
+					worker_fp: req.fp,
+					error: String(error),
+				});
+			}
+			try {
+				deps.attachmentGrants.retireWorker(req.fp, "worker_deleted");
+			} catch (error) {
+				log.warn("workers-delete", "attachment_retirement_failed", {
+					worker_fp: req.fp,
+					error: String(error),
+				});
+			}
+
+
+			// The commit is irrevocable. Fence synchronously before any
+			// best-effort cleanup can yield, publish, or fail.
+			try {
+				deps.onWorkerDeletedFence?.(req.fp);
+			} catch (error) {
+				log.warn("workers-delete", "fence_callback_failed", {
+					worker_fp: req.fp,
+					error: String(error),
+				});
+			} finally {
+				// Always fence the process-global authoritative handle, including
+				// test/portable runtimes without a Bun WebSocket owner.
+				fenceWorkerCredential(req.fp);
+				deps.pendingPublications?.clearWorker(req.fp);
+			}
+
+			let retiredSessionIds = persistedSessionIds;
+			bestEffortWorkerDeleteCleanup("jwt_cache", () => {
+				invalidateJwtKey(deps.jwtCache, req.fp);
+			});
+			bestEffortWorkerDeleteCleanup("routes", () => {
+				const volatileIds = retireWorkerRoutes(asWorkerFp(req.fp));
+				retiredSessionIds = [...new Set([
+					...persistedSessionIds,
+					...volatileIds,
+				])];
+			});
+			bestEffortWorkerDeleteCleanup("terminal_views", () => {
+				notifyTerminalWorkerRetired(req.fp, retiredSessionIds);
+			});
+			bestEffortWorkerDeleteCleanup("routable_presence", _publishRoutable);
+			bestEffortWorkerDeleteCleanup("sync_scope", () => {
+				deps.onWorkerDeletedSyncScope?.(req.fp);
+			});
+			bestEffortWorkerDeleteCleanup("worker_presence", () => {
+				presenceBus.publish({
+					kind: "removed",
+					fp: asWorkerFp(req.fp),
+				});
+			});
+			bestEffortWorkerDeleteCleanup("socket_close", () => {
+				deps.onWorkerDeletedSocketClose?.(req.fp);
+			});
+			return create(WorkersDeleteResponseSchema, { ok: true });
+		},
+
+		...makeWorkerDeployHandlers(deps),
+		...makeWorkerHeartbeatHandler(deps),
+	};
+}

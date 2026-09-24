@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
 import { PAIRING_CEREMONY_VERSION, generatePairRequestId, generatePairRequesterToken, generatePairVerificationCode } from "@roost/protocol/pairing";
 import { PairApproveRequestSchema, PairConfirmRequestSchema, PairCreateRequestSchema, PairDenyRequestSchema, PairPollRequestSchema } from "@roost/protocol/proto/coordinator_pb";
-import { openPairingHandlerHarness, type CreatedPairRequest, type PairHandlers, type PairingHandlerHarness } from "./pairing-handler-fixture.ts";
+import { openPairingHandlerHarness, type CreatedPairRequest, type PairHandlers, type PairingHandlerHarness } from "./auth/pairing-handler-fixture.ts";
 
 let harness: PairingHandlerHarness;
 let handlers: PairHandlers;

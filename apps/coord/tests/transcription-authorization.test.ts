@@ -6,9 +6,9 @@ import { expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { Code, type HandlerContext } from "@connectrpc/connect";
 import { TranscriptionGrantTokenRequestSchema } from "@roost/protocol/proto/coordinator_pb";
-import { callerKey, type Caller } from "../src/connect/auth-interceptor.ts";
-import { makeTranscriptionHandlers } from "../src/connect/handlers-transcription.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
+import { callerKey, type Caller } from "../src/auth/auth-interceptor.ts";
+import { makeTranscriptionHandlers } from "../src/rpc/handlers-transcription.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
 
 const DEEPGRAM_KEY = "configured-owner-deepgram-key";
 const DEVICE_FP = "owner-device";

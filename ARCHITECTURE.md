@@ -351,7 +351,7 @@ A fresh `Sync` connection gets the hub snapshot, and session close drops its row
 
 `AgentStatusGet`, `AgentStatusList`, and `AgentStatusWait` authorize the dashboard actor before reading or entering the hub; missing and foreign sessions share not-found behavior. Waits register before current-state inspection, pin an exact epoch and occupant, and resolve from that inspection or an accepted hub update, timeout, replacement, or session close—never output scraping or polling. The registry caps waits at 32 per session and 2,048 process-wide.
 `SessionsPrompt` names `session_id`, exact `expected_status_epoch`, `expected_occupant_id`, and safe-`uint64` `expected_revision`, plus nonempty `text` and optional wait configuration. Text is capped at 16,384 UTF-8 bytes. Wait configuration is all absent or a nonempty unique subset of `idle|working|blocked` plus `wait_timeout_ms` in `1..300000`.
-The coordinator's `apps/coord/src/connect/agent-prompt-control.ts` registers `waitForAgentStatus` before enqueueing dedicated `DAgentPrompt` tag 16 with request/session/input sequence, exact identity and revision, original text, and relative budget. `WInputResult` remains the upstream write truth; the coordinator consumes the waiter only after a definite rejection and awaits it after accepted or ambiguous input.
+The coordinator's `apps/coord/src/agents/agent-prompt-control.ts` registers `waitForAgentStatus` before enqueueing dedicated `DAgentPrompt` tag 16 with request/session/input sequence, exact identity and revision, original text, and relative budget. `WInputResult` remains the upstream write truth; the coordinator consumes the waiter only after a definite rejection and awaits it after accepted or ambiguous input.
 `apps/worker/src/agent-prompt-control.ts` refreshes private process proof before admission, then immediately before `beginInput` rechecks the live session/channel, deadline and current connection, integration source, exact epoch/occupant/revision, the same refreshed process, and state `idle|working`.
 All fence failures at the final pre-`beginInput` check are rejections with zero keeper writes; a failure after admission is ambiguous. The worker uses `packages/protocol/src/terminal-input.ts`, matching the browser's newline normalization and, when bracketed paste is active, its ESC-stripping wrapper; it then appends one CR and performs one keeper write. `SessionsInput` remains raw bytes with no fence, transformation, implicit Enter, or semantic change.
 The response keeps exact input outcome (`accepted|rejected|ambiguous`) separate from optional wait outcome (`matched|timed_out|occupant_changed|session_closed`) and exposes only a reason of at most 200 characters and `written_bytes` of at most 16,397. Prompt text and agent status messages are never logged, audited, or stored, and an ambiguous write is never retried.
@@ -442,7 +442,7 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
 ## Tenant isolation
 
 Coordinator startup creates one local tenant and automatically selects its sole
-dashboard: `apps/coord/src/self-hosted-tenant.ts` runs unconditionally at boot
+dashboard: `apps/coord/src/auth/self-hosted-tenant.ts` runs unconditionally at boot
 and is the only tenancy invariant. Every resource query, Sync subscription,
 worker principal, and terminal route carries that persisted dashboard
 boundary.

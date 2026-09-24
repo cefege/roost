@@ -8,9 +8,9 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makePreMigrationBackupHook } from "../src/backup.ts";
+import { makePreMigrationBackupHook } from "../src/db/backup.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 import {
   dashboardIds,
   insertAuthorizedKey,

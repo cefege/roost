@@ -8,9 +8,9 @@ import {
   getCachedSessionWorker,
   isWorkerChannelIndexReconciled,
   lookupSessionId,
-} from "../src/byte-hub.ts";
-import { processInputControl, terminalViewerIdentity } from "../src/connect/session-control.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
+} from "../src/terminal/screen/byte-hub.ts";
+import { processInputControl, terminalViewerIdentity } from "../src/terminal/input/session-control.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { SessionEvent, asChannelId } from "@roost/protocol/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";

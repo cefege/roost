@@ -5,14 +5,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   _shouldPersistMethodAudit,
-} from "../src/connect/auth-interceptor.ts";
+} from "../src/auth/auth-interceptor.ts";
 import {
   recordAuditTelemetry,
   shouldPersistConnectAudit,
   shouldPersistNonConnectAudit,
   SPA_AUDIT_TELEMETRY_PATH,
 } from "../src/middleware/security.ts";
-import { getMetricsSnapshot } from "../src/telemetry.ts";
+import { getMetricsSnapshot } from "../src/diagnostics/telemetry.ts";
 
 describe("audit persistence policy", () => {
   test("skips only successful SPA/static reads", () => {

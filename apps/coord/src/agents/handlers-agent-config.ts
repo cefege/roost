@@ -1,0 +1,34 @@
+// Default-agent (launch-button command) RPC handlers — app_settings-backed,
+// universal across devices. Spread into router.ts's SINGLE router.service()
+// literal — never registered with a router.service() call of its own, which
+// would shadow every other domain with unimplemented-throws. Closes over
+// ConnectDeps only (deps.db); no shared router-local state.
+
+import type { ServiceImpl } from "@connectrpc/connect";
+import { create } from "@bufbuild/protobuf";
+import { CoordinatorService, AgentConfigSchema } from "@roost/protocol/proto/coordinator_pb";
+import { requireAccountDevice } from "../auth/auth-interceptor.ts";
+import { getAgentConfig, setAgentConfig } from "./agent-config.ts";
+import type { ConnectDeps } from "../rpc/router.ts";
+
+type AgentConfigMethods = "agentConfigGet" | "agentConfigSet";
+
+export function makeAgentConfigHandlers(
+  deps: ConnectDeps,
+): Pick<ServiceImpl<typeof CoordinatorService>, AgentConfigMethods> {
+  return {
+    async agentConfigGet(_req, ctx) {
+      requireAccountDevice(ctx.values);
+      return create(AgentConfigSchema, await getAgentConfig(deps.db));
+    },
+    async agentConfigSet(req, ctx) {
+      requireAccountDevice(ctx.values);
+      const config = await setAgentConfig(deps.db, deps.selfHostedTenant.dashboardId, {
+        selected: req.selected,
+        customCommand: req.customCommand,
+        autoLaunch: req.autoLaunch ?? false,
+      });
+      return create(AgentConfigSchema, config);
+    },
+  };
+}

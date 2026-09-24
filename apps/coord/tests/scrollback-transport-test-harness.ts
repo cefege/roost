@@ -16,13 +16,13 @@ import {
 } from "@roost/protocol/proto/worker_transport_pb";
 import type { WorkerSearchScrollbackResult } from "@roost/protocol/terminal-search";
 import { expect } from "bun:test";
-import { makeSessionScrollbackHandlers } from "../src/connect/handlers-sessions-scrollback.ts";
+import { makeSessionScrollbackHandlers } from "../src/terminal/screen/handlers-sessions-scrollback.ts";
 import {
   helloFrame,
   startWorkerWsTransportFixture,
   type TestWorkerConnection,
   type WorkerWsTransportFixture,
-} from "./worker-ws-transport-fixture.ts";
+} from "./workers/worker-ws-transport-fixture.ts";
 
 export type SearchOverrides = Partial<{
   query: string;

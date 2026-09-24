@@ -11,11 +11,11 @@ import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import {
   lookupSessionId,
   primeChannelMap,
-} from "../src/byte-hub.ts";
+} from "../src/terminal/screen/byte-hub.ts";
 import {
   __setConnectWorkerForTest,
   connectWorkers,
-} from "../src/connect/worker-registry.ts";
+} from "../src/workers/worker-registry.ts";
 import {
   authorize,
   browserDeviceCtx,

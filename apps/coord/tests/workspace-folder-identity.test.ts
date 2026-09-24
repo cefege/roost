@@ -16,10 +16,10 @@ import { createContextValues, type HandlerContext } from "@connectrpc/connect";
 import { WorkspacesCreateRequestSchema } from "@roost/protocol/proto/coordinator_pb";
 import { openDb, type DbHandle } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
-import { makeWorkspaceHandlers, type WorkspaceHandlers } from "../src/connect/handlers-workspaces.ts";
-import { callerKey } from "../src/connect/auth-interceptor.ts";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
+import { makeWorkspaceHandlers, type WorkspaceHandlers } from "../src/sessions/handlers-workspaces.ts";
+import { callerKey } from "../src/auth/auth-interceptor.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 
 const DEVICE_FP = "workspace-identity-device";
 const DARWIN_FP = "fp-darwin";

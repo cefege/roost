@@ -13,9 +13,9 @@ import {
   type CoordWorkerDown,
 } from "@roost/protocol/proto/worker_transport_pb";
 import { eventToProto } from "@roost/protocol/wire/event-proto";
-import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
+import { makeWorkerConn, type WorkerServiceDeps } from "../src/workers/worker-conn.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
-import { PendingEventPublicationStore } from "../src/pending-event-publications.ts";
+import { PendingEventPublicationStore } from "../src/events/pending-event-publications.ts";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 
 const fixture = createDurablePublicationFixture({

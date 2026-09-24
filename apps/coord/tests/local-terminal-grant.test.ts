@@ -20,21 +20,21 @@ import {
   TERMINAL_PEER_WEBRTC_CAPABILITY,
 } from "@roost/protocol/terminal-peer";
 import type { CoordWorkerDown, DLocalTerminalGrant } from "@roost/protocol/proto/worker_transport_pb";
-import { callerKey, tabIdKey } from "../src/connect/auth-interceptor.ts";
+import { callerKey, tabIdKey } from "../src/auth/auth-interceptor.ts";
 import {
   makeSessionLocalTerminalGrantHandlers,
   type LocalTerminalGrantHandlers,
-} from "../src/connect/local-terminal-grants.ts";
+} from "../src/terminal/direct/local-terminal-grants.ts";
 import {
   LOCAL_TERMINAL_GRANT_TTL_MS,
   TerminalGrantOwner,
-} from "../src/connect/terminal-grant-owner.ts";
-import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
+} from "../src/terminal/direct/terminal-grant-owner.ts";
+import { __setConnectWorkerForTest } from "../src/workers/worker-registry.ts";
 import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
 import { openDb, type DbHandle } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 
 const LOCAL_WORKER_FP = "a".repeat(64);
 const REMOTE_WORKER_FP = "b".repeat(64);

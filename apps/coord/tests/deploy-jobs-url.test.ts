@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveDeployCoordinatorUrl } from "../src/deploy-jobs.ts";
+import { resolveDeployCoordinatorUrl } from "../src/deploy/deploy-jobs.ts";
 
 describe("worker deploy coordinator URL", () => {
   test("prefers the explicit worker target over the declared front doors", () => {

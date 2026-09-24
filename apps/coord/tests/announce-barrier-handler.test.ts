@@ -25,18 +25,18 @@ import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import {
   primeChannelMap,
   replaceWorkerChannelIndex,
-} from "../src/byte-hub.ts";
+} from "../src/terminal/screen/byte-hub.ts";
 import {
   createAnnouncedChannelBarrier,
   makeWorkerWsHandler,
   type WorkerWsData,
-} from "../src/connect/worker-ws-handler.ts";
-import type { WorkerServiceDeps } from "../src/connect/worker-service.ts";
-import { ANNOUNCED_CHANNEL_MAX_BYTES } from "../src/connect/announced-channel-barrier.ts";
+} from "../src/workers/worker-ws-handler.ts";
+import type { WorkerServiceDeps } from "../src/workers/worker-service.ts";
+import { ANNOUNCED_CHANNEL_MAX_BYTES } from "../src/events/announced-channel-barrier.ts";
 import {
   WORKER_FRAME_QUEUE_MAX_BYTES,
   WORKER_FRAME_QUEUE_MAX_FRAMES,
-} from "../src/connect/worker-frame-queue.ts";
+} from "../src/workers/worker-frame-queue.ts";
 
 const WORKER_FP = "c".repeat(64);
 const SESSION = "33333333-3333-4333-8333-333333333333";

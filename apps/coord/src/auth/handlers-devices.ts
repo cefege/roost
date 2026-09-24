@@ -1,0 +1,238 @@
+// Device lifecycle handlers keep listing, revocation, rotation, and logout under
+// one ownership boundary because each mutation must revoke delegated authority
+// and close that fingerprint's live sockets only after the transaction commits.
+
+import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
+import {
+  AuthLogoutResponseSchema,
+  CoordinatorService,
+  DeviceRowSchema,
+  DevicesListResponseSchema,
+  DevicesRevokeResponseSchema,
+  DevicesRotateCurrentResponseSchema,
+} from "@roost/protocol/proto/coordinator_pb";
+import { decodeEd25519Pubkey, isAuthorizedKeyRevoked } from "./authorized-keys.ts";
+import { invalidateJwtKey, refreshJwtKey } from "./jwt.ts";
+import { assertOnHost } from "../middleware/caller-origin.ts";
+import {
+  callerOrigin,
+  optionalAccountDevice,
+  requireAccountDevice,
+} from "./auth-interceptor.ts";
+import type { ConnectDeps } from "../rpc/router.ts";
+
+type DeviceMethods =
+  | "devicesList"
+  | "devicesRevoke"
+  | "devicesRotateCurrent"
+  | "authLogout";
+
+export function makeDeviceHandlers(
+  deps: ConnectDeps,
+): Pick<ServiceImpl<typeof CoordinatorService>, DeviceMethods> {
+  return {
+    async devicesList(_req, ctx) {
+      const caller = requireAccountDevice(ctx.values);
+      const [keys, workers] = await Promise.all([
+        deps.db.selectFrom("authorized_keys")
+          .select([
+            "fingerprint",
+            "label",
+            "added_at",
+            "paired_from_ip",
+            "paired_country",
+            "paired_user_agent",
+            "paired_edge_identity",
+          ])
+          .orderBy("added_at", "desc")
+          .execute(),
+        deps.db.selectFrom("workers").select("fp").execute(),
+      ]);
+      const workerFps = new Set(workers.map((worker) => worker.fp));
+      return create(DevicesListResponseSchema, {
+        devices: keys
+          .filter((key) => !workerFps.has(key.fingerprint))
+          .map((key) => create(DeviceRowSchema, {
+            fingerprint: key.fingerprint,
+            label: key.label,
+            addedAtMs: BigInt(key.added_at),
+            isSelf: key.fingerprint === caller.fingerprint,
+            pairedFromIp: key.paired_from_ip ?? "",
+            pairedCountry: key.paired_country ?? "",
+            pairedUserAgent: key.paired_user_agent ?? "",
+            pairedEdgeIdentity: key.paired_edge_identity ?? "",
+          })),
+      });
+    },
+
+    async devicesRevoke(req, ctx) {
+      const caller = optionalAccountDevice(ctx.values);
+      if (!caller) assertOnHost(callerOrigin(ctx.values));
+      if (caller?.fingerprint === req.fingerprint) {
+        throw new ConnectError("use key rotation to revoke this device", Code.InvalidArgument);
+      }
+
+      const now = Date.now();
+      await deps.db.transaction().execute(async (trx) => {
+        const target = await trx.selectFrom("authorized_keys")
+          .select("fingerprint")
+          .where("fingerprint", "=", req.fingerprint)
+          .executeTakeFirst();
+        if (!target) throw new ConnectError("device not found", Code.NotFound);
+        const worker = await trx.selectFrom("workers").select("fp")
+          .where("fp", "=", req.fingerprint).executeTakeFirst();
+        if (worker) throw new ConnectError("workers must be deleted through WorkersDelete", Code.InvalidArgument);
+
+        await trx.insertInto("authorized_key_revocations").values({
+          fingerprint: req.fingerprint,
+          revoked_at_ms: now,
+          revoked_by_fp: caller?.fingerprint ?? "on-host-recovery",
+          reason: "device-revoked",
+        }).execute();
+
+        await trx.deleteFrom("bootstrap_tokens")
+          .where("used_at_ms", "is", null)
+          .where((eb) => eb.or([
+            eb("minted_by_fp", "=", req.fingerprint),
+            eb("minted_by_fp", "is", null),
+          ]))
+          .execute();
+        await trx.deleteFrom("push_subscriptions")
+          .where("viewer_fp", "=", req.fingerprint)
+          .execute();
+
+        await trx.deleteFrom("account_devices")
+          .where("fingerprint", "=", req.fingerprint)
+          .execute();
+        await trx.deleteFrom("authorized_keys")
+          .where("fingerprint", "=", req.fingerprint)
+          .execute();
+      });
+
+      invalidateJwtKey(deps.jwtCache, req.fingerprint);
+      deps.onKeyRevoked?.(req.fingerprint);
+      return create(DevicesRevokeResponseSchema, { ok: true });
+    },
+
+    async devicesRotateCurrent(req, ctx) {
+      const caller = requireAccountDevice(ctx.values);
+      const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
+      if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
+      const fingerprint = await fingerprintOf(pubkey);
+      if (fingerprint === caller.fingerprint) {
+        throw new ConnectError("new key matches current key", Code.InvalidArgument);
+      }
+      if (await isAuthorizedKeyRevoked(deps.db, fingerprint)) {
+        throw new ConnectError("new key was previously revoked", Code.PermissionDenied);
+      }
+      const collision = await deps.db.selectFrom("authorized_keys").select("fingerprint")
+        .where("fingerprint", "=", fingerprint).executeTakeFirst();
+      const workerCollision = await deps.db.selectFrom("workers").select("fp")
+        .where("fp", "=", fingerprint).executeTakeFirst();
+      if (collision || workerCollision) {
+        throw new ConnectError("new key is already in use", Code.AlreadyExists);
+      }
+
+      const now = Date.now();
+      await deps.db.transaction().execute(async (trx) => {
+        let accountDeviceQuery = trx.selectFrom("account_devices")
+          .select("account_id")
+          .where("fingerprint", "=", caller.fingerprint);
+        if (caller.kind === "account-device") {
+          accountDeviceQuery = accountDeviceQuery.where("account_id", "=", caller.accountId);
+        }
+        const accountDevice = await accountDeviceQuery.executeTakeFirst();
+        await trx.insertInto("authorized_keys").values({
+          fingerprint, public_key: pubkey, label: req.label, added_at: now,
+        }).execute();
+        if (accountDevice) {
+          await trx.insertInto("account_devices").values({
+            fingerprint,
+            account_id: accountDevice.account_id,
+            added_at_ms: now,
+            last_seen_at_ms: now,
+          }).execute();
+        }
+        await trx.insertInto("authorized_key_revocations").values({
+          fingerprint: caller.fingerprint,
+          revoked_at_ms: now,
+          revoked_by_fp: caller.fingerprint,
+          reason: "device-rotated",
+        }).execute();
+
+        await trx.deleteFrom("bootstrap_tokens")
+          .where("used_at_ms", "is", null)
+          .where((eb) => eb.or([
+            eb("minted_by_fp", "=", caller.fingerprint),
+            eb("minted_by_fp", "is", null),
+          ]))
+          .execute();
+        await trx.deleteFrom("push_subscriptions")
+          .where("viewer_fp", "=", caller.fingerprint)
+          .execute();
+        await trx.deleteFrom("account_devices")
+          .where("fingerprint", "=", caller.fingerprint)
+          .execute();
+        await trx.deleteFrom("authorized_keys")
+          .where("fingerprint", "=", caller.fingerprint)
+          .execute();
+      });
+
+      refreshJwtKey(deps.jwtCache, fingerprint);
+      invalidateJwtKey(deps.jwtCache, caller.fingerprint);
+      deps.onKeyRevoked?.(caller.fingerprint);
+      return create(DevicesRotateCurrentResponseSchema, { fingerprint });
+    },
+
+    async authLogout(_req, ctx) {
+      const caller = requireAccountDevice(ctx.values);
+      const accountId = caller.kind === "account-device" ? caller.accountId : null;
+      const now = Date.now();
+      await deps.db.transaction().execute(async (trx) => {
+        const currentKey = accountId
+          ? await trx
+            .selectFrom("authorized_keys as key")
+            .innerJoin("account_devices as device", "device.fingerprint", "key.fingerprint")
+            .select("key.fingerprint")
+            .where("key.fingerprint", "=", caller.fingerprint)
+            .where("device.account_id", "=", accountId)
+            .executeTakeFirst()
+          : await trx.selectFrom("authorized_keys")
+            .select("fingerprint")
+            .where("fingerprint", "=", caller.fingerprint)
+            .executeTakeFirst();
+        if (!currentKey) {
+          throw new ConnectError("authentication required", Code.Unauthenticated);
+        }
+
+        await trx.insertInto("authorized_key_revocations").values({
+          fingerprint: caller.fingerprint,
+          revoked_at_ms: now,
+          revoked_by_fp: caller.fingerprint,
+          reason: "browser-logout",
+        }).execute();
+        await trx.deleteFrom("bootstrap_tokens")
+          .where("used_at_ms", "is", null)
+          .where("minted_by_fp", "=", caller.fingerprint)
+          .execute();
+        await trx.deleteFrom("push_subscriptions")
+          .where("viewer_fp", "=", caller.fingerprint)
+          .execute();
+
+        let deviceDelete = trx.deleteFrom("account_devices")
+          .where("fingerprint", "=", caller.fingerprint);
+        if (accountId) deviceDelete = deviceDelete.where("account_id", "=", accountId);
+        await deviceDelete.execute();
+        await trx.deleteFrom("authorized_keys")
+          .where("fingerprint", "=", caller.fingerprint)
+          .execute();
+      });
+
+      invalidateJwtKey(deps.jwtCache, caller.fingerprint);
+      deps.onKeyRevoked?.(caller.fingerprint);
+      return create(AuthLogoutResponseSchema, { ok: true });
+    },
+  };
+}

@@ -59,7 +59,7 @@ wins.
 - **event log / projection** — the append-only `events` table is the source of
   truth; the `sessions` table is a projection of it, rebuilt by replaying the
   log. Append + project happen in one SQLite transaction.
-  Source: `apps/coord/src/event-log.ts`.
+  Source: `apps/coord/src/events/event-log.ts`.
 
 - **Sync stream** — one long-lived protobuf WebSocket that multiplexes exactly
   seven generation domains: terminal, workers, workspaces, tasks, MCP, pair, and
@@ -67,7 +67,7 @@ wins.
   protocol mismatch, so a tab from an incompatible deployment must reload. Sync
   remains the authenticated metadata/control plane and terminal fallback even
   while an elected direct carrier transports a session's cells and input.
-  Source: `apps/coord/src/connect/handlers-streaming.ts`,
+  Source: `apps/coord/src/rpc/handlers-streaming.ts`,
   `apps/web/src/store/sync.ts`.
 
 - **direct terminal transport** — the browser-to-worker carrier selected per
@@ -101,7 +101,7 @@ wins.
   generation. Direct grants, SDP answers, `LocalTerminalReady`, probes, and
   input routes carry it so a restarted worker cannot accept stale peer work.
   Source: `apps/worker/src/boot-local-terminal.ts`,
-  `apps/coord/src/connect/terminal-grant-owner.ts`.
+  `apps/coord/src/terminal/direct/terminal-grant-owner.ts`.
 
 - **input route** — worker-acknowledged authority for one
   device/tab/connection/session writer, identified by a monotonically revised
@@ -181,7 +181,7 @@ wins.
   tabs open (a storage/Web-Locks claim); and the coordinator skips Web Push to a
   device that is already viewing the transitioning session.
   Source: `apps/web/src/components/AgentNotificationBridge.tsx`,
-  `apps/coord/src/push-dispatch.ts`.
+  `apps/coord/src/push/push-dispatch.ts`.
 
 - **cell-shipping / authoritative grid** — the terminal-fidelity model: the
   worker holds the one canonical grid for a session and the browser renders it
@@ -191,7 +191,7 @@ wins.
 - **auth (EdDSA-JWT)** — the browser mints an ed25519 JWT in WebCrypto (private
   key in IndexedDB) and stamps every RPC with it; the coordinator verifies it in
   an interceptor. There are no shared passwords or copied tokens for normal use.
-  Source: `apps/web/src/auth/web-key.ts`, `apps/coord/src/jwt.ts`.
+  Source: `apps/web/src/auth/web-key.ts`, `apps/coord/src/auth/jwt.ts`.
 
 - **front door** — whatever the operator puts in front of the coordinator's
   plaintext loopback listener: Caddy, nginx, a Cloudflare tunnel,
@@ -200,7 +200,7 @@ wins.
   `ROOST_WEB_PUBLIC_URL`. That origin seeds the SPA's CSP `connect-src` and the
   Sync WebSocket origin allowlist.
   Source: `apps/coord/src/middleware/security.ts`,
-  `apps/coord/src/connect/sync-ws-upgrade.ts`.
+  `apps/coord/src/sync/sync-ws-upgrade.ts`.
 
 - **tailnet** — your [Tailscale](https://tailscale.com) network, when you run
   one. Roost may resolve its own MagicDNS name to publish a worker's

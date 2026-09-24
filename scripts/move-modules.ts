@@ -218,7 +218,7 @@ function packageSpecifier(context: MoveContext, workspace: string, target: strin
 function preserveRelative(importer: string, target: string, original: string): string {
   let result = relative(posix.dirname(importer), target).replaceAll("\\", "/");
   if (!/\.[A-Za-z0-9]+$/.test(original)) result = result.replace(/\.(?:[cm]?[jt]s|tsx)$/, "");
-  if (original.startsWith("./") && !result.startsWith(".")) result = `./${result}`;
+  if (!result.startsWith(".")) result = `./${result}`;
   if (target.endsWith("/") && !result.endsWith("/")) result += "/";
   return result;
 }

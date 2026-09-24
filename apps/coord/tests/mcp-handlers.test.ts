@@ -17,11 +17,11 @@ import {
 import type { McpStreamMessage } from "@roost/protocol/wire";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { ensureSelfHostedTenant, type SelfHostedTenant } from "../src/self-hosted-tenant.ts";
-import { callerKey } from "../src/connect/auth-interceptor.ts";
-import { makeMcpHandlers } from "../src/connect/handlers-mcp.ts";
-import { mcpBus } from "../src/buses.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
+import { ensureSelfHostedTenant, type SelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
+import { callerKey } from "../src/auth/auth-interceptor.ts";
+import { makeMcpHandlers } from "../src/sessions/handlers-mcp.ts";
+import { mcpBus } from "../src/events/buses.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
 
 const deviceFingerprint = "fp-mcp-device";
 const workerFingerprint = "fp-mcp-worker";

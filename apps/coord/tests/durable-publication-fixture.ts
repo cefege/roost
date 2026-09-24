@@ -7,13 +7,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, type DbHandle } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { ensureSelfHostedTenant, type SelfHostedTenant } from "../src/self-hosted-tenant.ts";
-import { appendEvent, type AppendEventResult } from "../src/event-log.ts";
+import { ensureSelfHostedTenant, type SelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
+import { appendEvent, type AppendEventResult } from "../src/events/event-log.ts";
 import {
   applyDurableChannelIndex,
   resetWorkerChannelIndexReconcile,
-} from "../src/byte-hub.ts";
-import { connectWorkers } from "../src/connect/worker-registry.ts";
+} from "../src/terminal/screen/byte-hub.ts";
+import { connectWorkers } from "../src/workers/worker-registry.ts";
 import {
   SessionEvent,
   asChannelId,

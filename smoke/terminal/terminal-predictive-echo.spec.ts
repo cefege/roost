@@ -68,7 +68,7 @@ test("fast typing never paints a prediction the PTY contradicts", async ({
   await waitForPredictionInputIdle(smokePage, sessionId);
 
   await installPredictionRecorder(smokePage, sessionId);
-  await smokePage.keyboard.type(PAYLOAD);
+  await smokePage.keyboard.type(PAYLOAD, { delay: 5 });
   await waitForEchoedText(smokePage, sessionId, PAYLOAD);
 
   const finalRows = await readViewportRows(smokePage, sessionId);

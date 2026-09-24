@@ -7,15 +7,15 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setSignalSink } from "@roost/observability/diag";
-import { auditBus } from "../src/buses.ts";
-import { processInputControl, type InputControlResult } from "../src/connect/input-control.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
+import { auditBus } from "../src/events/buses.ts";
+import { processInputControl, type InputControlResult } from "../src/terminal/input/input-control.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
 import { openDb, type DbHandle, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import {
   ensureSelfHostedTenant,
   type SelfHostedTenant,
-} from "../src/self-hosted-tenant.ts";
+} from "../src/auth/self-hosted-tenant.ts";
 import {
   writeAuditLog,
   writeAuditLogs,

@@ -17,30 +17,30 @@ import {
   type NonConnectAuditSurface,
 } from "./middleware/security.ts";
 import { checkRateLimit } from "./middleware/rate-limit.ts";
-import { buildConnectRouter } from "./connect/router.ts";
-import { makeConnectBunHandler } from "./connect/bun-handler.ts";
-import { startTerminalTitleHub } from "./terminal-title-hub.ts";
-import { startLastActivityHub } from "./last-activity-hub.ts";
-import { startTerminalMetadataAdapter } from "./terminal-metadata-adapter.ts";
-import { startAgentStatusHub, stopAgentStatusHub } from "./agent-status-hub.ts";
+import { buildConnectRouter } from "./rpc/router.ts";
+import { makeConnectBunHandler } from "./rpc/bun-handler.ts";
+import { startTerminalTitleHub } from "./terminal/terminal-title-hub.ts";
+import { startLastActivityHub } from "./sync/last-activity-hub.ts";
+import { startTerminalMetadataAdapter } from "./terminal/terminal-metadata-adapter.ts";
+import { startAgentStatusHub, stopAgentStatusHub } from "./agents/agent-status-hub.ts";
 import { log } from "@roost/observability/log";
 import type { KyselyDB } from "./db/connection.ts";
 import type { Database } from "bun:sqlite";
 import type { CoordinatorWriteGate } from "./coordinator-write-gate.ts";
 import type { CoordConfig } from "@roost/host/config";
-import type { JwtCache } from "./jwt.ts";
+import type { JwtCache } from "./auth/jwt.ts";
 import type { CallerOrigin } from "./middleware/caller-origin.ts";
-import type { PendingEventPublicationStore } from "./pending-event-publications.ts";
-import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
-import { UiStateOwner } from "./connect/ui-state-owner.ts";
-import type { SelfHostedTenant } from "./self-hosted-tenant.ts";
-import { createCloudflareAccessGate } from "./cf-access.ts";
-import { TerminalGrantOwner } from "./connect/terminal-grant-owner.ts";
-import { AttachmentGrantOwner } from "./connect/attachment-grant-owner.ts";
-import { TerminalPeerNegotiations } from "./connect/terminal-peer-negotiations.ts";
-import { AttachmentPeerNegotiations } from "./connect/attachment-peer-negotiations.ts";
-import { AttachmentDirectStatusResults } from "./connect/attachment-direct-status-results.ts";
-import { TerminalInputRouteResults } from "./connect/terminal-input-route-results.ts";
+import type { PendingEventPublicationStore } from "./events/pending-event-publications.ts";
+import { UiLayoutApplyOwner } from "./ui-state/ui-layout-apply-owner.ts";
+import { UiStateOwner } from "./ui-state/ui-state-owner.ts";
+import type { SelfHostedTenant } from "./auth/self-hosted-tenant.ts";
+import { createCloudflareAccessGate } from "./auth/cf-access.ts";
+import { TerminalGrantOwner } from "./terminal/direct/terminal-grant-owner.ts";
+import { AttachmentGrantOwner } from "./attachments/attachment-grant-owner.ts";
+import { TerminalPeerNegotiations } from "./terminal/direct/terminal-peer-negotiations.ts";
+import { AttachmentPeerNegotiations } from "./attachments/attachment-peer-negotiations.ts";
+import { AttachmentDirectStatusResults } from "./attachments/attachment-direct-status-results.ts";
+import { TerminalInputRouteResults } from "./terminal/input/terminal-input-route-results.ts";
 
 export interface CoordHandlerContext {
   origin: CallerOrigin;

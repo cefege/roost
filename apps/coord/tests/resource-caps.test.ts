@@ -26,12 +26,12 @@ import {
   type KyselyDB,
 } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { appendEvent } from "../src/event-log.ts";
+import { appendEvent } from "../src/events/event-log.ts";
 import {
   MAX_PERSISTED_UTF8_BYTES,
   MAX_WORKER_SNAPSHOT_SESSIONS,
   truncatePersistedUtf8,
-} from "../src/persistence-input.ts";
+} from "../src/events/persistence-input.ts";
 
 const WORKER_FP = asWorkerFp("d".repeat(64));
 const DASHBOARD_ID = "resource-caps-dashboard";

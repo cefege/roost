@@ -14,24 +14,24 @@ import type { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bootstrapTokenDigest } from "../src/bootstrap-tokens.ts";
+import { bootstrapTokenDigest } from "../src/auth/bootstrap-tokens.ts";
 import {
   callerKey,
   onHostKey,
   remoteAddressKey,
-} from "../src/connect/auth-interceptor.ts";
-import { makeAuthHandlers } from "../src/connect/handlers-auth.ts";
-import { makeWorkerHandlers } from "../src/connect/handlers-workers.ts";
-import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
-import { AttachmentGrantOwner } from "../src/connect/attachment-grant-owner.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
+} from "../src/auth/auth-interceptor.ts";
+import { makeAuthHandlers } from "../src/auth/handlers-auth.ts";
+import { makeWorkerHandlers } from "../src/workers/handlers-workers.ts";
+import { TerminalGrantOwner } from "../src/terminal/direct/terminal-grant-owner.ts";
+import { AttachmentGrantOwner } from "../src/attachments/attachment-grant-owner.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { newJwtCache } from "../src/jwt.ts";
+import { newJwtCache } from "../src/auth/jwt.ts";
 import {
   ensureSelfHostedTenant,
   type SelfHostedTenant,
-} from "../src/self-hosted-tenant.ts";
+} from "../src/auth/self-hosted-tenant.ts";
 
 type AuthHandlers = Pick<
   ServiceImpl<typeof CoordinatorService>,

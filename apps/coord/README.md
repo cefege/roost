@@ -292,7 +292,7 @@ Three orderings depend on the fence; breaking any of them loses live PTYs:
   vocabulary/generations; `src/connect/sync-ws-v2-commands.ts` is the only
   browser-frame mutation path.
 - **The v1 ACK-windowed path is supported back-compat, not dead code.**
-  `apps/coord/tests/sync-ws-keepalive-flow-control.test.ts` asserts "legacy
+  `apps/coord/tests/sync/sync-ws-keepalive-flow-control.test.ts` asserts "legacy
   sockets remain unsequenced and unenforced". Do not delete
   `src/connect/sync-ws-v1-delivery.ts` without the deployed-client story.
 - `src/connect/handlers-streaming.ts` keeps **only** the `sync` RPC stub, which

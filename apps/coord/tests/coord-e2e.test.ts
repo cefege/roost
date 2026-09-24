@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
-import { newJwtCache } from "../src/jwt.ts";
+import { newJwtCache } from "../src/auth/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import type { CoordConfig } from "@roost/host/config";
 

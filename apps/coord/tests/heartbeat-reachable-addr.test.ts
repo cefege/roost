@@ -12,12 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { fingerprintOf } from "@roost/protocol/fingerprint";
-import { newJwtCache, signJwt } from "../src/jwt.ts";
+import { newJwtCache, signJwt } from "../src/auth/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
-import { presenceBus } from "../src/buses.ts";
+import { presenceBus } from "../src/events/buses.ts";
 import type { CoordConfig } from "@roost/host/config";
 
 let workdir: string;

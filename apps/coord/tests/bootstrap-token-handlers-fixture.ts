@@ -14,13 +14,13 @@ import type { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeAuthHandlers } from "../src/connect/handlers-auth.ts";
-import type { ConnectDeps } from "../src/connect/router.ts";
+import { makeAuthHandlers } from "../src/auth/handlers-auth.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { fingerprintOf } from "@roost/protocol/fingerprint";
-import { newJwtCache } from "../src/jwt.ts";
-import { ensureSelfHostedTenant, type SelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import { newJwtCache } from "../src/auth/jwt.ts";
+import { ensureSelfHostedTenant, type SelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 
 type AuthHandlers = Pick<ServiceImpl<typeof CoordinatorService>,
   "authMintBootstrap" | "authRedeemBrowser" | "authRedeemWorker">;

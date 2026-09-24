@@ -13,19 +13,19 @@ import {
 import { eventToProto } from "@roost/protocol/wire/event-proto";
 import { SessionEvent, asChannelId } from "@roost/protocol/wire";
 import type { KyselyDB } from "../src/db/connection.ts";
-import type { SelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import type { SelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 import {
   isWorkerChannelIndexReconciled,
   applyDurableChannelIndex,
   lookupSessionId,
-} from "../src/byte-hub.ts";
-import { sessionBus, titleBus, workspaceBus } from "../src/buses.ts";
-import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
-import { connectWorkers, listRoutableFps } from "../src/connect/worker-registry.ts";
-import { getWorkerHubSocket } from "../src/connect/worker-send.ts";
+} from "../src/terminal/screen/byte-hub.ts";
+import { sessionBus, titleBus, workspaceBus } from "../src/events/buses.ts";
+import { makeWorkerConn, type WorkerServiceDeps } from "../src/workers/worker-conn.ts";
+import { connectWorkers, listRoutableFps } from "../src/workers/worker-registry.ts";
+import { getWorkerHubSocket } from "../src/workers/worker-send.ts";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
-import { appendEvent } from "../src/event-log.ts";
-import { PendingEventPublicationStore } from "../src/pending-event-publications.ts";
+import { appendEvent } from "../src/events/event-log.ts";
+import { PendingEventPublicationStore } from "../src/events/pending-event-publications.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 
 const fixture = createDurablePublicationFixture({

@@ -8,25 +8,25 @@ import { loadCoordConfig, type CoordConfig } from "@roost/host/config";
 import { openDb } from "./db/connection.ts";
 import { runMigrations } from "./db/migrate.ts";
 import { CoordinatorWriteGate } from "./coordinator-write-gate.ts";
-import { importAuthorizedKeys } from "./authorized-keys.ts";
-import { newJwtCache } from "./jwt.ts";
-import { makePreMigrationBackupHook, scheduleBackups } from "./backup.ts";
-import { scheduleAuditRetention } from "./audit-retention.ts";
-import { schedulePairRequestRetention } from "./pair-request-retention.ts";
+import { importAuthorizedKeys } from "./auth/authorized-keys.ts";
+import { newJwtCache } from "./auth/jwt.ts";
+import { makePreMigrationBackupHook, scheduleBackups } from "./db/backup.ts";
+import { scheduleAuditRetention } from "./db/audit-retention.ts";
+import { schedulePairRequestRetention } from "./auth/pair-request-retention.ts";
 import { createCoord } from "./coord-factory.ts";
-import { makeWorkerWsHandler } from "./connect/worker-ws-handler.ts";
-import { makeSyncWsHandler } from "./connect/sync-ws-handler.ts";
-import { makeSyncTerminalControlHooks } from "./connect/sync-terminal-controls.ts";
+import { makeWorkerWsHandler } from "./workers/worker-ws-handler.ts";
+import { makeSyncWsHandler } from "./sync/sync-ws-handler.ts";
+import { makeSyncTerminalControlHooks } from "./terminal/input/sync-terminal-controls.ts";
 import {
   syncBackpressureBytes,
   terminalScreenBudgetBytes,
   terminalScreenCaps,
-} from "./connect/terminal-screen-budget.ts";
-import { TerminalViewHub, installTerminalViewHub } from "./connect/terminal-view-hub.ts";
+} from "./terminal/screen/terminal-screen-budget.ts";
+import { TerminalViewHub, installTerminalViewHub } from "./terminal/view/terminal-view-hub.ts";
 import { COORD_GIT_SHA } from "./git-sha.ts";
-import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./windows-update-deploy-jobs.ts";
-import { startCatchUpDeployOnAttach } from "./worker-catchup-deploy.ts";
-import type { WorkerServiceDeps } from "./connect/worker-service.ts";
+import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./deploy/windows-update-deploy-jobs.ts";
+import { startCatchUpDeployOnAttach } from "./deploy/worker-catchup-deploy.ts";
+import type { WorkerServiceDeps } from "./workers/worker-service.ts";
 import { serveServiceHealth } from "@roost/host/service-health";
 import { log } from "@roost/observability/log";
 import { ROOST_ARTIFACT_VERSION } from "@roost/host/build-identity";
@@ -38,11 +38,11 @@ import { WEB_ASSETS } from "@roost/host/web-embed";
 import { createSpaResponder } from "@roost/host/spa";
 import { MIGRATIONS } from "./migrations-embed.generated.ts";
 import { runStartupJanitor } from "./startup-janitor.ts";
-import { ensureSelfHostedTenant } from "./self-hosted-tenant.ts";
+import { ensureSelfHostedTenant } from "./auth/self-hosted-tenant.ts";
 import { startBunCoordinatorListeners } from "./bun-coordinator-listeners.ts";
-import { PendingEventPublicationStore } from "./pending-event-publications.ts";
-import { UiLayoutApplyOwner } from "./connect/ui-layout-apply-owner.ts";
-import { UiStateOwner } from "./connect/ui-state-owner.ts";
+import { PendingEventPublicationStore } from "./events/pending-event-publications.ts";
+import { UiLayoutApplyOwner } from "./ui-state/ui-layout-apply-owner.ts";
+import { UiStateOwner } from "./ui-state/ui-state-owner.ts";
 
 
 export async function runCoord() {

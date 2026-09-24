@@ -20,32 +20,32 @@ import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb"
 import { InputCommandSchema } from "@roost/protocol/proto/sync_pb";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
+import { ensureSelfHostedTenant } from "../src/auth/self-hosted-tenant.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { fingerprintOf } from "@roost/protocol/fingerprint";
-import { newJwtCache, signJwt } from "../src/jwt.ts";
+import { newJwtCache, signJwt } from "../src/auth/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
-import { globalPresenceBus } from "../src/buses.ts";
-import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
-import { primeChannelMap } from "../src/byte-hub.ts";
+import { globalPresenceBus } from "../src/events/buses.ts";
+import { __setConnectWorkerForTest } from "../src/workers/worker-registry.ts";
+import { primeChannelMap } from "../src/terminal/screen/byte-hub.ts";
 import type { CoordConfig } from "@roost/host/config";
-import type { ConnectDeps } from "../src/connect/router.ts";
+import type { ConnectDeps } from "../src/rpc/router.ts";
 import {
   makeSyncTerminalControlHooks,
   type SyncTerminalControlHooks,
-} from "../src/connect/sync-terminal-controls.ts";
+} from "../src/terminal/input/sync-terminal-controls.ts";
 import type {
   SyncV2CommandContext,
   SyncV2ResultControl,
-} from "../src/connect/sync-ws-v2-commands.ts";
-import { TerminalViewHub } from "../src/connect/terminal-view-hub.ts";
-import { UiLayoutApplyOwner } from "../src/connect/ui-layout-apply-owner.ts";
-import { UiStateOwner } from "../src/connect/ui-state-owner.ts";
-import { TerminalGrantOwner } from "../src/connect/terminal-grant-owner.ts";
-import { AttachmentGrantOwner } from "../src/connect/attachment-grant-owner.ts";
-import { TerminalPeerNegotiations } from "../src/connect/terminal-peer-negotiations.ts";
-import { AttachmentPeerNegotiations } from "../src/connect/attachment-peer-negotiations.ts";
-import { AttachmentDirectStatusResults } from "../src/connect/attachment-direct-status-results.ts";
+} from "../src/sync/sync-ws-v2-commands.ts";
+import { TerminalViewHub } from "../src/terminal/view/terminal-view-hub.ts";
+import { UiLayoutApplyOwner } from "../src/ui-state/ui-layout-apply-owner.ts";
+import { UiStateOwner } from "../src/ui-state/ui-state-owner.ts";
+import { TerminalGrantOwner } from "../src/terminal/direct/terminal-grant-owner.ts";
+import { AttachmentGrantOwner } from "../src/attachments/attachment-grant-owner.ts";
+import { TerminalPeerNegotiations } from "../src/terminal/direct/terminal-peer-negotiations.ts";
+import { AttachmentPeerNegotiations } from "../src/attachments/attachment-peer-negotiations.ts";
+import { AttachmentDirectStatusResults } from "../src/attachments/attachment-direct-status-results.ts";
 
 let workdir: string;
 let coord: CoordHandle;

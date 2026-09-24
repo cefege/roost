@@ -9,7 +9,7 @@ import {
   WORKER_FRAME_QUEUE_MAX_BYTES,
   WORKER_FRAME_QUEUE_MAX_FRAMES,
   type WorkerFrameQueueOverflow,
-} from "../src/connect/worker-frame-queue.ts";
+} from "../src/workers/worker-frame-queue.ts";
 
 describe("ordered worker frame queue", () => {
   test("preserves order and accounts an in-flight frame until completion", async () => {
