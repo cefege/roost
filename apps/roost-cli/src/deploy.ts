@@ -13,6 +13,7 @@ import {
   sshExec,
 } from "./deploy-exec.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
+import { resolveCoordinatorReleaseGitShaOrDie } from "./deploy-coordinator-release.ts";
 import {
   _backfillEnvFromPlist,
   _resolveDeployEnvValue,
@@ -106,6 +107,13 @@ export async function deploy(
   if (allowUnpublishedLocal && (!selfHost || rollout)) {
     failDeploy(1, "--allow-unpublished-local is restricted to the localhost quickstart path");
   }
+  const coordinatorRelease = args.includes("--coordinator-release");
+  if (coordinatorRelease && (rollout || allowUnpublishedLocal)) {
+    failDeploy(1, "--coordinator-release cannot combine with a fleet rollout or --allow-unpublished-local");
+  }
+  if (coordinatorRelease && expectedShaArg === undefined) {
+    failDeploy(1, "--coordinator-release requires --expected-sha");
+  }
   const forceLiveKeeperRetire = args.includes("--force-live");
   if (forceLiveKeeperRetire && rollout) {
     failDeploy(1, "--force-live is refused inside an atomic fleet rollout");
@@ -120,7 +128,9 @@ export async function deploy(
     ? rollout.targetSha
     : allowUnpublishedLocal
       ? resolveLocalGitShaOrDie(sourceCheckout)
-      : resolvePublishedGitShaOrDie(sourceCheckout, expectedGitSha);
+      : coordinatorRelease
+        ? resolveCoordinatorReleaseGitShaOrDie(sourceCheckout, expectedShaArg!)
+        : resolvePublishedGitShaOrDie(sourceCheckout, expectedGitSha);
   const sourceKeeperContract = rollout
     ? null
     : await loadSourceKeeperContract(sourceCheckout);

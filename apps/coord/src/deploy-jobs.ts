@@ -7,6 +7,7 @@
 
 import { BoundedBus } from "./buses.ts";
 import { busToAsyncIterable } from "./sse.ts";
+import { COORD_GIT_SHA } from "./git-sha.ts";
 import { signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import type { SignalKind } from "@roost/shared/diag";
@@ -139,11 +140,12 @@ export function startDeploy(
   if (!/^[A-Za-z0-9.-]+$/.test(host)) {
     return { ok: false, error: "invalid host" };
   }
-  // Without this the job deploys whatever the coordinator's checkout HEAD
-  // happens to be, which is not necessarily the release the caller promised:
-  // the Machines badge names a SHA, and a catch-up converges on the
-  // coordinator's own SHA. Pin it so the deploy cannot land a third commit.
-  if (expectedGitSha !== undefined && !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(expectedGitSha)) {
+  // A coordinator-started deploy always ships the coordinator's own installed
+  // release, never whatever its directory's HEAD happens to be.
+  // `--coordinator-release` makes the CLI prove that from the installed service
+  // definition instead of the upstream tip; "dev" fails the full-SHA check.
+  const releaseSha = expectedGitSha ?? COORD_GIT_SHA;
+  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(releaseSha)) {
     return { ok: false, error: "invalid expected git sha" };
   }
   if (IS_COMPILED_ROOST_BUILD) {
@@ -210,9 +212,7 @@ export function startDeploy(
     _gcJob(jobId);
   }
 
-  const deployArgs = expectedGitSha === undefined
-    ? ["deploy", host]
-    : ["deploy", host, `--expected-sha=${expectedGitSha}`];
+  const deployArgs = ["deploy", host, "--coordinator-release", `--expected-sha=${releaseSha}`];
   try {
     const proc = Bun.spawn({
       cmd: IS_COMPILED_ROOST_BUILD

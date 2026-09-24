@@ -2392,6 +2392,25 @@ the bounded retry deadline" plus `smoke/terminal/terminal-peer-failover.spec.ts`
 retires the old peer epoch while its keeper PTY survives" and "active direct grant expiry closes
 the peer during coordinator loss and a renewed route stays usable".
 
+### Coordinator-started worker deploys exit 7 from a detached release worktree
+
+**Symptom** — coordinator logs `catchup_failed … "deploy exit 7"` (and `roost doctor` shows `deploy.failed`);
+a machine stays "Update available" forever; the Settings → Machines "Update" button fails before touching the
+host.
+
+**Wrong** — prove a coordinator-started deploy with `resolvePublishedGitShaOrDie`. It needs HEAD on a branch
+AND at the current upstream tip, but a `roost push`-installed coordinator runs from a `git worktree add
+--detach` release directory, so `git symbolic-ref HEAD` fails ("source HEAD has no publishable branch") — and
+any later `git push` without a `roost push` would move the tip out from under it anyway.
+
+**Right** — `startDeploy` always passes `--coordinator-release --expected-sha=<its own SHA>`, and
+`resolveCoordinatorReleaseGitShaOrDie` proves the source checkout is the installed service's
+`WorkingDirectory`, that the service's `ROOST_GIT_SHA` is the expected build, and that the clean HEAD matches
+it. `roost push` already proved that SHA published before installing it.
+
+**Guard** — `apps/roost-cli/tests/deploy-coordinator-release.test.ts`: "a detached coordinator release at its
+installed SHA is admitted without any upstream", plus the wrong-checkout, wrong-build, and dirty-tree refusals.
+
 ---
 
 ## Process rule
