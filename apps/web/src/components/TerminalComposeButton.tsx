@@ -10,6 +10,7 @@ import { IconButton } from "./Settings/md/primitives.tsx";
 import { createTerminalComposeDictation } from "./TerminalComposeDictation.ts";
 import { createTerminalComposeSelection } from "./TerminalComposeSelection.ts";
 import type { TerminalSelectionGuard } from "./TerminalComposeSelection.ts";
+import { createTerminalComposePaneGeometry, type PaneComposerGrowthListener } from "./TerminalComposePaneGeometry.ts";
 import {
   getComposerDraft,
   saveComposerDraft,
@@ -38,6 +39,8 @@ interface Props {
    * becomes the browser's active selection surface.
    */
   captureTerminalSelection?: () => TerminalSelectionGuard | undefined;
+  /** Pane placement only: how far the pill currently overflows above its resting row. */
+  onPaneGrowth?: PaneComposerGrowthListener;
 }
 
 type ComposeOwner = { sessionId: string; token: number; blurOwnedFocus: () => void };
@@ -69,6 +72,7 @@ export function TerminalComposeButton(props: Props) {
   let inputEl: HTMLTextAreaElement | undefined;
   let ghostEl: HTMLDivElement | undefined;
   let dockEl: HTMLDivElement | undefined;
+  let boxEl: HTMLDivElement | undefined;
   const ownsComposeFocus = () => activeComposeOwner()?.token === ownerToken;
   const claimComposeFocus = () => setActiveComposeOwner({
     sessionId, token: ownerToken, blurOwnedFocus: () => inputEl?.blur(),
@@ -77,7 +81,9 @@ export function TerminalComposeButton(props: Props) {
     if (ownsComposeFocus()) setActiveComposeOwner(null);
   };
   let dockObserver: ResizeObserver | undefined;
-  let dockMutationObserver: MutationObserver | undefined;
+  const paneGeometry = createTerminalComposePaneGeometry({
+    box: () => boxEl, input: () => inputEl, onGrowth: props.onPaneGrowth,
+  });
   const terminalSelection = createTerminalComposeSelection({
     active: () => props.active,
     capture: () => props.captureTerminalSelection?.(),
@@ -97,16 +103,11 @@ export function TerminalComposeButton(props: Props) {
     if (!viewportPlacement || dockEl !== el || activeViewportToken !== ownerToken) return;
     setComposerHeightPx(el.getBoundingClientRect().height);
   };
-  const updatePaneConstraint = (el: HTMLDivElement) => {
-    if (viewportPlacement || dockEl !== el || el.clientWidth === 0 || el.clientHeight === 0) return;
-    const constrained = el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
-    el.toggleAttribute("data-size-constrained", constrained);
-  };
 
   const mountDock = (el: HTMLDivElement) => {
     dockEl = el;
     dockObserver?.disconnect();
-    dockMutationObserver?.disconnect();
+    paneGeometry.detach();
     if (viewportPlacement) {
       dockObserver = new ResizeObserver(() => publishDockHeight(el));
       dockObserver.observe(el);
@@ -115,19 +116,13 @@ export function TerminalComposeButton(props: Props) {
       queueMicrotask(() => publishDockHeight(el));
       return;
     }
-    const updateConstraint = () => updatePaneConstraint(el);
-    dockObserver = new ResizeObserver(updateConstraint);
-    dockObserver.observe(el);
-    dockMutationObserver = new MutationObserver(updateConstraint);
-    dockMutationObserver.observe(el, { childList: true, subtree: true, characterData: true });
-    queueMicrotask(updateConstraint);
+    paneGeometry.attach(el);
   };
 
   const stopObservingDock = () => {
     dockObserver?.disconnect();
-    dockMutationObserver?.disconnect();
+    paneGeometry.detach();
     dockObserver = undefined;
-    dockMutationObserver = undefined;
     dockEl = undefined;
   };
 
@@ -322,7 +317,7 @@ export function TerminalComposeButton(props: Props) {
         onPointerDown={handleDockPointerDown}
         onFocusOut={releasePaneClaimIfUnfocused}
       >
-        <div class="term-chat__box" data-testid="chat-box" data-compact={isCompact() ? "true" : "false"}>
+        <div class="term-chat__box" data-testid="chat-box" data-compact={isCompact() ? "true" : "false"} ref={(el) => { boxEl = el; }}>
           <IconButton
             type="button"
             variant="ghost"

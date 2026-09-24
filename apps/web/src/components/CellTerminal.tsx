@@ -58,6 +58,10 @@ export function CellTerminal(props: CellTerminalProps) {
 	const runtime = createCellTerminalRuntime(sessionId, () => displayRef);
 	const [altScreen, setAltScreen] = createSignal(false);
 	const [mouseTracking, setMouseTracking] = createSignal<MouseTracking>(0);
+	// Pixels the pane composer overflows above its reserved resting row. The
+	// display slides up by that much instead of shrinking, so the grid's rows
+	// (and the PTY size) stay fixed while a draft grows.
+	const [paneComposerGrowth, setPaneComposerGrowth] = createSignal(0);
 	const pending = createMemo(() => isPendingSpawn(sessionId));
 	const viewActive = createMemo(
 		() => props.inLayout === true
@@ -180,6 +184,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				display: "flex",
 				"flex-direction": "column",
 				"min-height": "0",
+				overflow: "hidden",
 			}}
 		>
 			<Show when={presentation.presentationState() === "receiving"}>
@@ -231,6 +236,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					"min-width": "0",
 					"min-height": "0",
 					"touch-action": mouseGesturesForwarded(mouseTracking()) ? "none" : "pan-y",
+					transform: paneComposerGrowth() > 0 ? `translateY(-${paneComposerGrowth()}px)` : undefined,
 				}}
 			/>
 			{/* Mounted only while a multi-line paste is pending. Keeping a closed
@@ -315,6 +321,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					onAttachFiles={input.attachSelectedFiles}
 					readContext={input.readTerminalContext}
 					captureTerminalSelection={presentation.captureTerminalSelection}
+					onPaneGrowth={setPaneComposerGrowth}
 				/>
 			</Show>
 			<TerminalContextMenu

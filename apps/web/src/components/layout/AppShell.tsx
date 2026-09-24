@@ -34,17 +34,24 @@ function shellStyle() {
   };
 }
 
-function editorStyle(isTerminalRoute: boolean) {
+// A compact terminal route always reserves the composer's RESTING row, whether
+// or not the composer is mounted right now (it unmounts under the drawer and
+// non-terminal overlays), and the soft keyboard only translates the region.
+// Neither may change the terminal's rows: every PTY resize makes an inline TUI
+// repaint, and one repainting in place duplicates rows into history.
+// keyboardResize() is the explicit opt-in to resizing instead.
+function editorStyle(isTerminalRoute: boolean, compact: boolean) {
   const base = { "--term-chat-growth": "0" };
   if (!isTerminalRoute || keyboardResize()) return base;
-  if (composerActive()) {
-    return {
-      ...base,
-      "padding-bottom": "calc(var(--term-chat-rest-height) + var(--term-chat-dock-offset))",
-      "--term-chat-growth": `max(0px, calc(${composerHeightPx()}px - var(--term-chat-rest-height)))`,
-    };
-  }
-  return { ...base, transform: "translateY(calc(var(--kb-offset) * -1))" };
+  const keyboardShift = { transform: "translateY(calc(var(--kb-offset) * -1))" };
+  if (!compact) return { ...base, ...keyboardShift };
+  return {
+    ...keyboardShift,
+    "padding-bottom": "calc(var(--term-chat-rest-height) + var(--term-chat-dock-rest-offset))",
+    "--term-chat-growth": composerActive()
+      ? `max(0px, calc(${composerHeightPx()}px - var(--term-chat-rest-height)))`
+      : "0",
+  };
 }
 
 export function AppShell(props: ParentProps) {
@@ -144,7 +151,7 @@ export function AppShell(props: ParentProps) {
       <main
         class="workbench-editor-region"
         data-keyboard-shift={terminalRoute() && !composerActive() && !keyboardResize() ? "true" : undefined}
-        style={editorStyle(terminalRoute())}
+        style={editorStyle(terminalRoute(), compact())}
       >
         <Show when={showMobileTopBar()}>
           <MobileTopBar />

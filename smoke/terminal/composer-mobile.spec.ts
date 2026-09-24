@@ -1,9 +1,11 @@
 import { test, expect } from "./fixtures.ts";
 import {
+  expectSmokeComposer,
   spawnSmokeShell,
   navigateToSmokeSession,
   resetTerminalInputCapture,
   readTerminalInputCapture,
+  waitForStableCellFrames,
 } from "./terminal-helpers.ts";
 import { posixShellQuote } from "@roost/shared/shell-quote";
 
@@ -109,6 +111,50 @@ test("mobile composer starts unfocused and reserves terminal space through rotat
   await expect(input).not.toBeFocused();
   await input.tap();
   await expect(input).toBeFocused();
+});
+
+// Every PTY resize makes an inline agent TUI repaint, and one that repaints in
+// place duplicates the rows a height shrink pushed into history. The soft
+// keyboard only translates the terminal, and the drawer unmounting the composer
+// keeps its resting reserve. docs/FAILURE-INDEX.md: "Transient chrome resizes the PTY".
+test("the soft keyboard and drawer never resize the compact terminal grid", async ({ mobileSmokePage, stack }) => {
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+  await expectSmokeComposer(mobileSmokePage);
+  await waitForStableCellFrames(mobileSmokePage, sessionId);
+  const readGrid = () => mobileSmokePage.evaluate((id) => ({
+    ...window.__smoke.terminalDimensions(id),
+    epoch: window.__smoke.cellGridEpoch(id),
+  }), sessionId);
+  const before = await readGrid();
+  expect(before.rows, "compact pane painted no grid rows").toBeGreaterThan(0);
+  // Publication debounces 50ms; a resize round trip lands well inside this.
+  const expectGridHeld = async (label: string) => {
+    await mobileSmokePage.waitForTimeout(1_000);
+    expect(await readGrid(), `${label}: terminal grid must not resize`).toEqual(before);
+  };
+  const seam = () => mobileSmokePage.evaluate((id) => {
+    const terminal = document.querySelector(`[data-testid="terminal-slot-${id}"]`)!.getBoundingClientRect();
+    const composer = document.querySelector('[data-testid="mobile-chat-input"][data-active="true"]')!
+      .getBoundingClientRect();
+    return Math.round(Math.abs(terminal.bottom - composer.top));
+  }, sessionId);
+
+  // lib/keyboardInset.ts publishes this inset; Playwright has no soft keyboard.
+  await mobileSmokePage.evaluate(() => document.documentElement.style.setProperty("--kb-offset", "300px"));
+  await expect.poll(seam, { message: "the terminal must ride above the raised composer" }).toBeLessThanOrEqual(2);
+  await expectGridHeld("keyboard open");
+  await mobileSmokePage.evaluate(() => document.documentElement.style.setProperty("--kb-offset", "0px"));
+  await expectGridHeld("keyboard closed");
+
+  const drawer = mobileSmokePage.getByTestId("sidebar-drawer");
+  await mobileSmokePage.getByTestId("mobile-deck-bar-menu").tap();
+  await expect(drawer).toHaveAttribute("data-open", "true");
+  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveCount(0);
+  await expectGridHeld("drawer open, composer unmounted");
+  await mobileSmokePage.getByTestId("brand-row-collapse").tap();
+  await expect(drawer).toHaveAttribute("data-open", "false");
+  await expectGridHeld("drawer closed");
 });
 
 // The permanent compact composer keeps its field and all three direct actions

@@ -268,6 +268,40 @@ held rows, so a fixed footer cannot receive an older status generation.
 `smoke/terminal/terminal-render-main-repaint.spec.ts` —
 `"a backgrounded inline TUI repaint never freezes a stale generation into history"`.
 
+### Transient chrome resizes the PTY and an inline TUI duplicates rows into history
+
+**Symptom** — "the same 2-row (or N-row) block repeats down the scrollback while an
+agent streams / a spinner or status line gets pushed up instead of repainting /
+worse on mobile"; the duplicates ARE in the worker's own history
+(`roost api cells <sid>`), and the worker's `terminal-view` `stream_desired` log
+shows `rows` stepping (46→44→42…) at a fixed `cols` while the user types.
+
+**Wrong** — hunt the renderer, the emitter, or history backfill first. Replaying
+the recorded PTY bytes through the wterm core, the emitter, the delta fold and
+`CellGridRenderer` matches xterm.js row for row; the rows are real. Their source
+is the application: every PTY height change makes an inline TUI repaint, and a
+TUI that repaints IN PLACE (omp latches this for the life of the process after a
+height-only change around an alt-screen overlay; tmux-style panes do it always)
+leaves the rows a shrink pushed into history duplicated there. Equally wrong:
+debouncing or hysteresis on the published geometry — each surviving resize still
+duplicates.
+
+**Right** — **transient chrome never changes the terminal grid.** The desktop pane
+composer reserves only the pill's one-line resting height
+(`apps/web/src/components/TerminalComposePaneGeometry.ts`); a longer draft or a
+status overflows upward and `CellTerminal` translates the display instead of
+shrinking it. The compact shell (`editorStyle` in
+`apps/web/src/components/layout/AppShell.tsx`) reserves the composer's resting
+row on every terminal route whether or not the composer is mounted (it unmounts
+under the drawer) and handles the soft keyboard only by translation —
+`--term-chat-dock-rest-offset` excludes `--kb-offset`. Only a real pane/window
+resize (or the explicit `keyboardResize` preference) may resize the PTY.
+
+**Guard** — `smoke/terminal/composer-desktop-send.spec.ts` —
+`"desktop composer submits Enter and grows above a stable terminal grid"`;
+`smoke/terminal/composer-mobile.spec.ts` —
+`"the soft keyboard and drawer never resize the compact terminal grid"`.
+
 ### Alt-screen wallpaper of stale text after a worker restart
 
 **Symptom** — "after worker restart an alternate-screen session shows wallpaper of stale text + overlapping/parallel lines"

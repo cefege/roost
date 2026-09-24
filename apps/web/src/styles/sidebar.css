@@ -293,6 +293,10 @@
   padding: var(--md-space-1) var(--md-space-2);
   background: var(--md-sys-color-surface-container-high);
   border-bottom: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
+  /* The display translates up under a grown pane composer
+     (TerminalComposePaneGeometry); the bar must stay painted above it. */
+  position: relative;
+  z-index: 1;
 }
 .term-find-input {
   flex: 1;

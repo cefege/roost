@@ -104,7 +104,11 @@ test("desktop composer attaches exact files in order without submitting", async 
   }
 });
 
-test("desktop composer submits Enter and grows above a stable terminal deck", async ({ smokePage, stack }, testInfo) => {
+// Every PTY resize makes an inline agent TUI repaint, and one that repaints in
+// place duplicates the rows a height shrink pushed into history — so a growing
+// draft must overlay the terminal (display translated above the pill), never
+// take rows from it. docs/FAILURE-INDEX.md: "Transient chrome resizes the PTY".
+test("desktop composer submits Enter and grows above a stable terminal grid", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop composer keyboard and geometry contract");
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
@@ -126,7 +130,7 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
     const deckEl = document.querySelector('[data-testid="terminal-deck"]');
     const slotEl = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
     const terminalEl = slotEl?.querySelector('[data-testid="terminal-display"]');
-    const composerEl = slotEl?.querySelector('[data-testid="mobile-chat-input"]');
+    const composerEl = slotEl?.querySelector('[data-testid="chat-box"]');
     if (
       !(deckEl instanceof HTMLElement)
       || !(slotEl instanceof HTMLElement)
@@ -184,7 +188,6 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
   if (!baselineView.revision || !baselineView.stream_id) {
     throw new Error("desktop terminal omitted its active baseline view");
   }
-  const baselineRevision = BigInt(baselineView.revision);
 
   const growthDraft = [
     "first composer row",
@@ -215,47 +218,17 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
     Math.abs(grown.slotHeight - baseline.slotHeight),
     "composer growth must not resize the terminal slot",
   ).toBeLessThanOrEqual(1);
-  expect(grown.terminalBottom, "terminal visual bottom must stay at or above the composer").toBeLessThanOrEqual(
-    grown.composerTop,
-  );
   expect(
-    baseline.terminalHeight - grown.terminalHeight,
-    "desktop composer autogrow must resize terminal-display",
-  ).toBeGreaterThan(1);
-  await expect.poll(async () => {
-    const probe = await readTerminalStreamProbe(smokePage, sessionId);
-    const { view, replica } = probe.browser;
-    const coordinator = coordinatorTerminalViewState(probe);
-    const settled = acceptedGeometry(view);
-    const baselineGeometry = acceptedGeometry(baselineView);
-    return view.revision !== null
-      && view.status === "accepted"
-      && view.active
-      && BigInt(view.revision) > baselineRevision
-      && settled !== null && baselineGeometry !== null
-      && settled.cols === baselineGeometry.cols
-      && settled.rows < baselineGeometry.rows
-      && view.stream_id !== baselineView.stream_id
-      && replica.baseline_ready
-      && replica.expected_stream_id === view.stream_id
-      && coordinator?.activeViews === 1
-      && coordinator.streamId === view.stream_id
-      && coordinator.effective?.cols === view.effective_cols
-      && coordinator.effective?.rows === view.effective_rows;
-  }, {
-    message: "desktop terminal-display resize must publish and baseline its settled active view",
-    timeout: 10_000,
-    intervals: [50],
-  }).toBe(true);
+    Math.abs(grown.terminalHeight - baseline.terminalHeight),
+    "composer growth must not resize terminal-display",
+  ).toBeLessThanOrEqual(1);
+  // Publication debounces 50ms; a republished view would land well inside this.
+  await smokePage.waitForTimeout(1_000);
   const grownProbe = await readTerminalStreamProbe(smokePage, sessionId);
   const grownView = grownProbe.browser.view;
-  const grownGeometry = acceptedGeometry(grownView);
-  const baselineGeometry = acceptedGeometry(baselineView);
-  if (!grownView.revision || !grownGeometry || !baselineGeometry) {
-    throw new Error("desktop terminal omitted its resized active view geometry");
-  }
-  expect(BigInt(grownView.revision)).toBeGreaterThan(baselineRevision);
-  expect(grownGeometry.rows).toBeLessThan(baselineGeometry.rows);
+  expect(grownView.revision, "composer growth must not republish the terminal view").toBe(baselineView.revision);
+  expect(grownView.stream_id).toBe(baselineView.stream_id);
+  expect(acceptedGeometry(grownView)).toEqual(acceptedGeometry(baselineView));
   expect(grownProbe.browser.replica.baseline_ready).toBe(true);
 
   const growthOutputMarker = `DESKTOP_GROWTH_LIVE_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;

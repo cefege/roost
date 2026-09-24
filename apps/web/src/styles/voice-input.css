@@ -25,13 +25,11 @@
     + var(--md-space-1)
     + var(--md-space-1)
   );
-  /* Shared viewport offset for the permanent composer and AppShell's matching
-     terminal reserve: safe area + nonnegative keyboard inset + 8px gap. */
-  --term-chat-dock-offset: calc(
-    env(safe-area-inset-bottom, 0px)
-    + max(var(--kb-offset, 0px), 0px)
-    + var(--md-space-2)
-  );
+  /* Shared viewport offset for the permanent composer: safe area + 8px gap at
+     rest, plus the nonnegative keyboard inset while the soft keyboard is open.
+     AppShell reserves only the RESTING part; the keyboard translates content. */
+  --term-chat-dock-rest-offset: calc(env(safe-area-inset-bottom, 0px) + var(--md-space-2));
+  --term-chat-dock-offset: calc(var(--term-chat-dock-rest-offset) + max(var(--kb-offset, 0px), 0px));
 }
 
 /* ── container: fixed bottom-right, safe-area aware ── */
@@ -306,8 +304,14 @@
   pointer-events: none;
   font-family: var(--md-font);
 }
-/* Desktop panes own an inline composer. Keep it in the pane's flex flow so the
-   terminal display yields real rows instead of being covered by a viewport dock. */
+/* Desktop panes own an inline composer. Its dock stays in the pane's flex flow
+   so the terminal display yields real rows instead of being covered by a
+   viewport dock, but it reserves only the pill's one-line resting height
+   (TerminalComposePaneGeometry measures it): a longer draft or a submission
+   status overflows upward over the display, which CellTerminal translates out
+   of the way. Typing must never change the terminal's rows — every PTY resize
+   makes an inline TUI repaint, and one repainting in place duplicates the rows
+   the shrink pushed into history. */
 .term-chat__dock[data-placement="pane"] {
   position: relative;
   left: auto;
@@ -318,14 +322,21 @@
   min-width: 0;
   margin: 0 var(--md-space-2) var(--md-space-2);
   container: term-chat-pane / inline-size;
+  height: var(--term-chat-pane-rest, auto);
+  /* Unsafe end alignment is the point: overflow leaves through the TOP edge. */
+  justify-content: flex-end;
   /* Normal panes keep overflow visible so the absolute mic caption can sit
      above the bar. Runtime measurement enables scrolling only when a genuinely
      shallow/narrow pane cannot contain its reflowed controls. */
   max-height: calc(100% - var(--md-space-2));
   overflow: visible;
 }
+.term-chat__dock[data-placement="pane"] > * {
+  flex-shrink: 0;
+}
 .term-chat__dock[data-placement="pane"][data-size-constrained] {
   overflow: auto;
+  justify-content: flex-start;
 }
 .term-chat__dock[data-placement="pane"][data-size-constrained] .voice-caption {
   position: static;
@@ -571,11 +582,7 @@
   :root {
     /* 40px field + 4px row gap + 44px actions + 8px outer padding. */
     --term-chat-rest-height: 96px;
-    --term-chat-dock-offset: calc(
-      env(safe-area-inset-bottom, 0px)
-      + max(var(--kb-offset, 0px), 0px)
-      + var(--md-space-3)
-    );
+    --term-chat-dock-rest-offset: calc(env(safe-area-inset-bottom, 0px) + var(--md-space-3));
   }
 
   .term-chat__box[data-compact="true"] {
