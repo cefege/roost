@@ -62,8 +62,10 @@ test("fast typing never paints a prediction the PTY contradicts", async ({
   );
   expect(dimensions.cols, "payload must fit one unwrapped row").toBeGreaterThanOrEqual(60);
 
+  await smokePage.evaluate(() => window.__smoke.resetTerminalInputCapture());
   await smokePage.keyboard.type(GATE_PRIMER);
   await waitForEchoedText(smokePage, sessionId, GATE_PRIMER);
+  await waitForPredictionInputIdle(smokePage, sessionId);
 
   await installPredictionRecorder(smokePage, sessionId);
   await smokePage.keyboard.type(PAYLOAD);
@@ -147,6 +149,24 @@ test("sustained fast typing never wipes its own predictions @serial", async ({
       && browser.dom_reconciled.seq === browser.handler_canonical.seq;
   }, { timeout: 10_000, intervals: [50, 100, 250] }).toBe(true);
 });
+
+async function waitForPredictionInputIdle(page: Page, sessionId: string): Promise<void> {
+  await expect.poll(async () => page.evaluate(async (id) => {
+    const capture = window.__smoke.terminalInputCapture();
+    const transport = await window.__smoke.probeTerminalTransport(id);
+    return {
+      accepted: capture.outcomes.accepted > 0,
+      rejected: capture.outcomes.rejected,
+      ambiguous: capture.outcomes.ambiguous,
+      pending: transport.pending_input_count,
+    };
+  }, sessionId), { timeout: 10_000, intervals: [50, 100, 250] }).toEqual({
+    accepted: true,
+    rejected: 0,
+    ambiguous: 0,
+    pending: 0,
+  });
+}
 
 /** A fixture pane whose PTY echoes typed bytes back after `echoDelayMs`, with
  *  the SRTT display gate removed so predictions paint on a loopback link too.

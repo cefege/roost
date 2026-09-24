@@ -33,9 +33,6 @@ Also live, read when relevant:
   open decision gates.
 - **[`docs/LENS.md`](docs/LENS.md)** — the generic operating doctrine
   (`## Reading lens` below). Read once, not per task.
-- **`docs/archive/**`** — quarantined historical snapshots. Skip on
-  onboarding; they describe the repo as it was, and they are allowed to name
-  files that no longer exist.
 
 ---
 

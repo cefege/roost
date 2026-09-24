@@ -35,44 +35,6 @@ record lineage only.
 | **PAUSED** | Automatic OMP conversation restoration | The implementation is present behind strict worker-local `ROOST_AGENT_CONVERSATION_RESTORE=0|1`. It defaults to disabled everywhere; explicit `1` is POSIX-only and Windows rejects it. After failed keeper adoption and durable ordinary-shell respawn, the worker types one fixed `omp --resume=<reference>` command as a single acknowledged CR-terminated batch, with the opaque value canonically quoted into exactly one argv element; duplicate references are skipped, and accepted, rejected, and ambiguous outcomes never retry and retain the reference. Default-on remains blocked until actual official-OMP POSIX real-stack qualification is completed. | `apps/worker/src/agent-conversation-restore.ts`, `ARCHITECTURE.md` |
 | **PAUSED** | Windows coordinator/worker | v0.5.0 publishes and qualifies no Windows host assets or install/update path. | `.github/workflows/release.yml` |
 
-## Historical implementation records — not current architecture
-
-| Feature | Historical scope | Design | Record |
-|---|---|---|---|
-| **phase-24** | worker-outbound WebSocket seam | ../docs/archive/phase-24.md | Old hub superseded; raw protobuf WebSockets still carry long-lived browser Sync and worker links |
-| **phase-25** | scrollback replay, worker restart, schema cleanup | ../docs/archive/phase-25.md | Legacy byte-replay lineage |
-| **phase-26** | smoke backdoor and keeper pool | ../docs/archive/phase-26.md | Keeper pool survives; current Sync transport differs |
-| **phase-ssb** | per-byte sequence splice | ../docs/archive/SEQNO-SPLICE.md | Sequence/ring remains in bounded keeper adoption; browsers receive cells |
-| **phase-pb14/15/16** | parallel mount, priority, binary scrollback | — | Historical browser transport; current delivery is cell full/delta plus history pages |
-| **phase-att1** | file attachment via path injection | ../docs/archive/phase-att1.md | `attachFile` unary RPC plus terminal drop/paste binding |
-| **CONNECT-RPC** | unary RPC and protobuf conversion | ../docs/archive/CONNECT-RPC-MIGRATION.md | Connect owns unary RPC; raw protobuf WebSockets remain for long-lived streams |
-| **T1.1** | drop H3 for `Bun.serve` native fetch | — | `cddc9c2f` |
-| **T1.2** | typed SessionEvent and bus deltas | — | All 12 current SessionEvent kinds use `SessionEventProto`; coordinator JsonEvent emission is retired, while the legacy `FirehoseFrame.sessions` schema arm and coordinator/web receive compatibility remain |
-| **T1.3** | OTEL tracing across coord, worker, web | — | W3C traceparent end to end |
-| **T1.4** | reconnect backfill via event cursor | — | Current implementation adds fixed-cutoff recovery and guarded hydration |
-| **T2.1** | multiplexed keeper foundation | — | Multiplexed pool is the only keeper mode |
-| **T2.2** | in-band worker JWT rotation | — | Shipped |
-| **T3.1** | multi-runtime coordinator factory and Node demo | — | Historical runtime seam |
-| **T3.2** | headless coordinator E2E harness and bidi routing test | — | Shipped test infrastructure |
-
-## Architecture decision archive
-
-- `../docs/archive/SEQNO-SPLICE.md` — byte-sequence/ring design lineage
-- `../docs/archive/PATHB-PARSER-CHOICE.md` — terminal-parser investigation
-- `../docs/archive/PATHB-VT-PARSE.md` — server-side terminal-model notes
-
-These documents are historical. Current authority is the worker-owned
-`@wterm/core` model, generation-addressed cell delivery, and guarded history
-paging described in the release table.
-
-## Deleted plans
-
-- `../docs/archive/MIGRATION-STATUS.md` — superseded by this inventory
-- `att2-image-media-extensions.md` — never created; it assumed nonexistent
-  wterm image APIs
-- `ROADMAP.md` — never created; its transport dependency graph was wrong
-- Neutralino desktop shell — superseded on released hosts by launchd and
-  `systemd --user`; its dormant Windows branch is outside the v0.5.0 release.
 
 ---
 

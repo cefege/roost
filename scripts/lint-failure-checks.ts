@@ -128,7 +128,7 @@ export const CHECKS: Check[] = [
     // worker, so claude / the underlying tool never SEES the typed path.
     // The user would see the path on screen but tools couldn't read it.
     rule: "att1: attachment code must NOT call wterm.write* — paint via PTY",
-    memory: "docs/archive/phase-att1.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/web\/src\/lib\/attachments\.ts$/,
     pattern: /wterm\.(write|writeRaw|writeString)\(/,
   },
@@ -145,7 +145,7 @@ export const CHECKS: Check[] = [
   // from the file. Allowlists shrink as phase-24c/d delete files.
   {
     rule: "phase-24: `new WebSocket(` outside the canonical client/server links",
-    memory: "docs/archive/phase-24.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/(web|worker)\/src\/.*\.(ts|tsx)$/,
     ok: (file, _i, lines) => {
       if (WEB_SOCKET_CLIENT_ALLOW.some((s) => file.endsWith(s))) return true;
@@ -154,7 +154,7 @@ export const CHECKS: Check[] = [
   },
   {
     rule: "phase-24: `Bun.serve({ websocket })` outside coord main and the worker's local UI door",
-    memory: "docs/archive/phase-24.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/(coord|worker)\/src\/.*\.ts$/,
     ok: (file, _i, lines) => {
       if (WEB_SOCKET_LISTENER_ALLOW.some((s) => file.endsWith(s))) return true;
@@ -163,7 +163,7 @@ export const CHECKS: Check[] = [
   },
   {
     rule: "phase-24: module-level `let _ws` / `let _reconnectTimer` in apps/web/src/store",
-    memory: "docs/archive/phase-24.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/web\/src\/store\/.*\.ts$/,
     ok: (_file, _i, lines) => {
       // events-ws.ts deleted in 24c-3; deny-all now.
