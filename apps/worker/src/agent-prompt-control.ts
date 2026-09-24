@@ -3,13 +3,13 @@
 // process proof, the pane's foreground job, and the same terminal-input lane
 // and text encoder as interactive input.
 
-import type { DAgentPrompt } from "@roost/shared/proto/worker_transport_pb";
-import { AgentPromptTextSchema, buildPtyPayload } from "@roost/shared/terminal-input";
+import type { DAgentPrompt } from "@roost/protocol/proto/worker_transport_pb";
+import { AgentPromptTextSchema, buildPtyPayload } from "@roost/protocol/terminal-input";
 import {
   AgentOccupantId,
   SessionId,
   StatusEpoch,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import type { AgentScreenDetector } from "./agent-status/detector.ts";
 import type {
   AgentStatusPrivateProof,

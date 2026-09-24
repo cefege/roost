@@ -12,11 +12,11 @@ import { rememberVisit } from "../lib/lastVisited.ts";
 import { sessionsHydrated } from "../store/sync-bootstrap.ts";
 import { installDeadRouteSafetyNet } from "../lib/deadRouteSafetyNet.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import { TerminalDeck } from "./TerminalDeck.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 
 // Code-split boundary (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism. File-viewer and metadata-search dependencies load

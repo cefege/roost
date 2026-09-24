@@ -5,10 +5,10 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
-import { layoutDocumentFromProto } from "@roost/shared/layout-document-proto";
-import type { LayoutDocumentV1 } from "@roost/shared/layout-document";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { layoutDocumentFromProto } from "@roost/protocol/layout-document-proto";
+import type { LayoutDocumentV1 } from "@roost/protocol/layout-document";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import {
   abortOptimisticSpawn,
   beginOptimisticSpawn,

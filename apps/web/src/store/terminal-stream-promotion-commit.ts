@@ -3,7 +3,7 @@
 // Renderer/status notifications are deliberately returned to the candidate for deferred delivery.
 // This module neither selects routes nor receives direct network frames.
 
-import { TERMINAL_VIEW_LEASE_MS } from "@roost/shared/viewport";
+import { TERMINAL_VIEW_LEASE_MS } from "@roost/protocol/viewport";
 import { resetTerminalChunkTransfer } from "./terminal-stream-chunks.ts";
 import { clearTerminalSessionLiveness } from "./terminal-stream-liveness.ts";
 import {

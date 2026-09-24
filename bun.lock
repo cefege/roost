@@ -20,7 +20,10 @@
       "dependencies": {
         "@bufbuild/protobuf": "2.12.0",
         "@connectrpc/connect": "^2.1.2",
-        "@roost/shared": "workspace:*",
+        "@roost/host": "workspace:*",
+        "@roost/observability": "workspace:*",
+        "@roost/platform": "workspace:*",
+        "@roost/protocol": "workspace:*",
         "kysely": "^0.29.2",
         "kysely-bun-sqlite": "^0.4.0",
         "web-push": "^3.6.7",
@@ -40,22 +43,13 @@
       "dependencies": {
         "@bufbuild/protobuf": "2.12.0",
         "@connectrpc/connect": "^2.1.2",
-        "@roost/shared": "workspace:*",
+        "@roost/coord": "workspace:*",
+        "@roost/host": "workspace:*",
+        "@roost/observability": "workspace:*",
+        "@roost/platform": "workspace:*",
+        "@roost/protocol": "workspace:*",
+        "@roost/worker": "workspace:*",
         "yaml": "^2.9.0",
-      },
-    },
-    "apps/shared": {
-      "name": "@roost/shared",
-      "version": "2.0.0",
-      "dependencies": {
-        "@bufbuild/protobuf": "2.12.0",
-        "@wterm/core": "0.5.0",
-        "zod": "^3.23.8",
-      },
-      "devDependencies": {
-        "@bufbuild/buf": "^1.70.0",
-        "@bufbuild/protoc-gen-es": "^2.12.0",
-        "fast-check": "^3.23.0",
       },
     },
     "apps/site": {
@@ -77,7 +71,9 @@
         "@connectrpc/connect": "^2.1.2",
         "@connectrpc/connect-web": "^2.1.2",
         "@kobalte/core": "0.13.14",
-        "@roost/shared": "workspace:*",
+        "@roost/observability": "workspace:*",
+        "@roost/platform": "workspace:*",
+        "@roost/protocol": "workspace:*",
         "@solidjs/router": "^0.16.0",
         "@types/qrcode": "^1.5.6",
         "dompurify": "3.4.14",
@@ -98,7 +94,11 @@
         "@bufbuild/protobuf": "2.12.0",
         "@connectrpc/connect": "^2.1.2",
         "@connectrpc/connect-node": "^2.1.2",
-        "@roost/shared": "workspace:*",
+        "@roost/host": "workspace:*",
+        "@roost/observability": "workspace:*",
+        "@roost/platform": "workspace:*",
+        "@roost/protocol": "workspace:*",
+        "@roost/wterm": "workspace:*",
         "@wterm/core": "0.5.0",
         "node-datachannel": "0.33.4",
         "re2js": "2.8.5",
@@ -109,11 +109,57 @@
         "fast-check": "^3.23.0",
       },
     },
+    "packages/host": {
+      "name": "@roost/host",
+      "version": "2.0.0",
+      "dependencies": {
+        "@roost/observability": "workspace:*",
+        "@roost/platform": "workspace:*",
+        "@roost/protocol": "workspace:*",
+        "zod": "^3.23.8",
+      },
+    },
+    "packages/observability": {
+      "name": "@roost/observability",
+      "version": "2.0.0",
+      "dependencies": {
+        "zod": "^3.23.8",
+      },
+    },
+    "packages/platform": {
+      "name": "@roost/platform",
+      "version": "2.0.0",
+    },
+    "packages/protocol": {
+      "name": "@roost/protocol",
+      "version": "2.0.0",
+      "dependencies": {
+        "@bufbuild/protobuf": "2.12.0",
+        "@roost/observability": "workspace:*",
+        "zod": "^3.23.8",
+      },
+      "devDependencies": {
+        "@bufbuild/buf": "^1.70.0",
+        "@bufbuild/protoc-gen-es": "^2.12.0",
+        "@wterm/core": "0.5.0",
+        "fast-check": "^3.23.0",
+      },
+    },
+    "packages/wterm": {
+      "name": "@roost/wterm",
+      "version": "2.0.0",
+      "dependencies": {
+        "@roost/observability": "workspace:*",
+        "@roost/protocol": "workspace:*",
+        "@wterm/core": "0.5.0",
+      },
+    },
     "smoke": {
       "name": "smoke",
       "dependencies": {
         "@bufbuild/protobuf": "2.12.0",
-        "@roost/shared": "workspace:*",
+        "@roost/platform": "workspace:*",
+        "@roost/protocol": "workspace:*",
         "@wterm/dom": "0.5.0",
         "fast-check": "^3.23.0",
         "kysely": "^0.29.2",
@@ -567,13 +613,21 @@
 
     "@roost/coord": ["@roost/coord@workspace:apps/coord"],
 
-    "@roost/shared": ["@roost/shared@workspace:apps/shared"],
+    "@roost/host": ["@roost/host@workspace:packages/host"],
+
+    "@roost/observability": ["@roost/observability@workspace:packages/observability"],
+
+    "@roost/platform": ["@roost/platform@workspace:packages/platform"],
+
+    "@roost/protocol": ["@roost/protocol@workspace:packages/protocol"],
 
     "@roost/site": ["@roost/site@workspace:apps/site"],
 
     "@roost/web": ["@roost/web@workspace:apps/web"],
 
     "@roost/worker": ["@roost/worker@workspace:apps/worker"],
+
+    "@roost/wterm": ["@roost/wterm@workspace:packages/wterm"],
 
     "@shikijs/core": ["@shikijs/core@4.4.3", "", { "dependencies": { "@shikijs/primitive": "4.4.3", "@shikijs/types": "4.4.3", "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.5", "hast-util-to-html": "^9.0.5" } }, "sha512-QCR4q2ZO/ILJEuwiBMel4wdcTDb1JGwfjKTxPDF6x8ixOaluPrVqIn06C99AcRPhmYlBR56d/Fb+GN58GzExpg=="],
 

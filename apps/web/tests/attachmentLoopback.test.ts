@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { ATTACHMENT_TRANSFER_DIRECT_CHUNK_BYTES } from "@roost/shared/attachment-transfer";
+import { ATTACHMENT_TRANSFER_DIRECT_CHUNK_BYTES } from "@roost/protocol/attachment-transfer";
 import {
   AttachmentTransferAckSchema,
   AttachmentTransferClientFrameSchema,
@@ -13,7 +13,7 @@ import {
   AttachmentTransferStatusSchema,
   type AttachmentTransferClientFrame,
   type AttachmentTransferServerFrame,
-} from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/attachment_transfer_pb";
 import type { AttachmentDirectGrant } from "../src/lib/attachmentDirectGrant.ts";
 import { openAttachmentLoopbackTransfer } from "../src/ws/attachment-loopback.ts";
 import { sendAttachmentFile } from "../src/lib/attachmentTransfer.ts";

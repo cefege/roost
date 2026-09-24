@@ -3,7 +3,7 @@
 // fields remain absent when an older worker omits them; partial triples fail
 // the hub's shared-schema validation instead of becoming legacy provenance.
 
-import type { WAgentStatus } from "@roost/shared/proto/worker_transport_pb";
+import type { WAgentStatus } from "@roost/protocol/proto/worker_transport_pb";
 import { handleWorkerAgentStatus, type AgentStatusAcceptance } from "../agent-status-hub.ts";
 
 export function dispatchWorkerAgentStatusFrame(

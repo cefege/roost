@@ -9,7 +9,7 @@ import {
   normalizePairRequestId,
   normalizePairRequesterToken,
   normalizePairVerificationCode,
-} from "@roost/shared/pairing";
+} from "@roost/protocol/pairing";
 import { bootstrapTokenDigest } from "../bootstrap-tokens.ts";
 
 export {

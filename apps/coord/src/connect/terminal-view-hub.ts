@@ -10,16 +10,16 @@ import type {
   WTerminalStreamResult,
   WTerminalViewProjection,
   WTerminalViewState,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type {
   TerminalResyncCommand,
   TerminalViewCommand,
   TerminalViewStateFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   TERMINAL_VIEW_SWEEP_MS,
   type TerminalGeometry,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { globalPresenceBus, sessionBus } from "../buses.ts";
 import type { KyselyDB } from "../db/connection.ts";
 import { resolveSessionRoute } from "./terminal-control-lane.ts";
@@ -38,7 +38,7 @@ import {
 import {
   TerminalViewRegistry,
   type TerminalViewInput,
-} from "@roost/shared/terminal-view";
+} from "@roost/protocol/terminal-view";
 import { TerminalViewStreamController } from "./terminal-view-stream-controller.ts";
 import type { TerminalScreenCaps } from "./terminal-screen-budget.ts";
 import type {

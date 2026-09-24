@@ -17,7 +17,7 @@ import {
 	type TerminalCaptureCoverageReport,
 	type TerminalCaptureTrigger,
 	type TerminalWorkerSection,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { TerminalIncidentBundleInput } from "../src/diag/terminal-capture-bundle-writer.ts";
 import type { TerminalCaptureWorkerCommand } from "../src/diag/terminal-capture-write.ts";
 import { SESSION_ID, STREAM_A } from "./terminal-stream-state-harness.ts";

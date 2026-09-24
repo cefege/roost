@@ -18,8 +18,8 @@
 
 import { test, expect, describe, mock } from "bun:test";
 import { ConnectError, Code } from "@connectrpc/connect";
-import { asWorkerFp } from "@roost/shared/wire";
-import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS } from "@roost/shared/viewport";
+import { asWorkerFp } from "@roost/protocol/wire";
+import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS } from "@roost/protocol/viewport";
 import {
   installFakeTerminalDom,
   mountFakeDeck,

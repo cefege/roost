@@ -3,7 +3,7 @@
 // dynamic bindings or source identities with the older preflight snapshot.
 
 import { describe, expect, test } from "bun:test";
-import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/shared/keeper-update";
+import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/protocol/keeper-update";
 import { _atomicFleetConvergenceProblems } from "../src/push.ts";
 import type { FleetRolloutWorker } from "../src/push-fleet-rollout.ts";
 import type { WorkerStatus } from "../src/status.ts";

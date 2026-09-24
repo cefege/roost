@@ -4,9 +4,9 @@
 // (worker-conn.ts) as raw WSs attach/close.
 
 import { randomUUID } from "node:crypto";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb";
 import { workerRoutableBus } from "../buses.ts";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 
 export interface WorkerHandle {
   workerFp: string;

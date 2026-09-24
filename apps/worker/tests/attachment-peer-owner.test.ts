@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import {
   DLocalAttachmentPeerOfferSchema,
   DLocalTerminalPeerOfferSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { AttachmentPeerOwner } from "../src/attachment-peer-owner.ts";
 import { TerminalPeerOwner } from "../src/terminal-peer-owner.ts";
 import {

@@ -4,12 +4,12 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize } from "node:path";
-import { durableRemove, durableWriteFile } from "@roost/shared/durability";
+import { durableRemove, durableWriteFile } from "@roost/host/durability";
 import {
   JournaledKeeperUpdateV1Schema,
   type JournaledKeeperUpdateV1,
-} from "@roost/shared/keeper-update";
-import { roostServiceDir } from "@roost/shared/paths";
+} from "@roost/protocol/keeper-update";
+import { roostServiceDir } from "@roost/host/paths";
 import { posixJournalObjectValue } from "./posix-deploy-journal.ts";
 
 export type PosixSelfUpdatePhase =

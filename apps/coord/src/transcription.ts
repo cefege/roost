@@ -7,7 +7,7 @@
 
 import type { Kysely } from "kysely";
 import type { DB } from "./db/schema.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 
 const K = {
   dgKey: "transcription.deepgram_key",

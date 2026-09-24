@@ -5,8 +5,8 @@
 // the coordinator client and its device-rejection classifier.
 
 import { Code, ConnectError } from "@connectrpc/connect";
-import { PAIRING_CEREMONY_VERSION } from "@roost/shared/pairing";
-import { backoffDelayMs } from "@roost/shared/retry";
+import { PAIRING_CEREMONY_VERSION } from "@roost/protocol/pairing";
+import { backoffDelayMs } from "@roost/protocol/retry";
 import { classifyAuthFailure, coordClient } from "../connect.ts";
 import type { ToastKind } from "../store/toastStore.ts";
 import { isTransientPairingError } from "./pairing-transient-error.ts";

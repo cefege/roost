@@ -2,8 +2,8 @@
 // TerminalViewStreamController owns the mutable session state; TerminalViewHub
 // supplies geometry, route, and browser callbacks. The dispatcher consumes the
 // route shape to verify the same worker route immediately before a send.
-import type { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
-import type { TerminalViewGeometrySet } from "@roost/shared/terminal-view";
+import type { TerminalViewStatus } from "@roost/protocol/proto/sync_pb";
+import type { TerminalViewGeometrySet } from "@roost/protocol/terminal-view";
 import type { HopDeadline } from "./worker-send.ts";
 import type { TerminalStreamDispatcher } from "./terminal-stream-dispatcher.ts";
 import type { TerminalScreenCaps } from "./terminal-screen-budget.ts";

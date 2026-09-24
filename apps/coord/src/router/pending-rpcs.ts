@@ -12,8 +12,8 @@
 
 import { randomUUID } from "node:crypto";
 import { ConnectError, Code } from "@connectrpc/connect";
-import { log } from "@roost/shared/log";
-import { signal, diag } from "@roost/shared/diag";
+import { log } from "@roost/observability/log";
+import { signal, diag } from "@roost/observability/diag";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 

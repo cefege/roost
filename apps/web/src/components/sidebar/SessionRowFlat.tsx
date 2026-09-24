@@ -2,7 +2,7 @@
 // subtitle, server/path, worker-offline state, and viewers.
 
 import { createMemo, Show } from "solid-js";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { shortCwd } from "../../lib/sidebarFormat.ts";
 import { folderHeadline, programSubtitle } from "../../lib/sessionTitle.ts";
 import { ViewersChip } from "./ViewersChip.tsx";

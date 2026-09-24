@@ -12,8 +12,8 @@ import {
   DEventAckSchema,
   DHelloAckSchema,
   type WSessionEvent,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { ChannelId, SessionEvent, SessionId, WorkerFp } from "@roost/shared/wire";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { ChannelId, SessionEvent, SessionId, WorkerFp } from "@roost/protocol/wire";
 import { startCoordLink } from "../src/transport/coord-link.ts";
 import { BACKOFF_INITIAL_MS } from "../src/transport/coord-link-constants.ts";
 import { openSessionEventStore } from "../src/transport/session-event-store.ts";

@@ -17,8 +17,8 @@ import {
   type FirehoseFrame,
   type SyncClientFrame,
   type UiApplyLayoutResult,
-} from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/sync_pb";
+import { log } from "@roost/observability/log";
 import { consumeSyncSessionSnapshot } from "./sync-snapshot-registry.ts";
 import {
   allocateDomainGeneration,

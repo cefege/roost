@@ -5,14 +5,14 @@
 // Installed by terminalIncidentCapture.ts, which supplies the trigger callback;
 // DOM reading and comparison live in terminalIncidentDom.ts.
 
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import {
   type TerminalBrowserApplyMode,
   type TerminalBrowserPaintedState,
   type TerminalBrowserPhase,
   type TerminalCaptureReason,
   type TerminalCaptureStreamIdentity,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { CellGridRenderer } from "./cellRenderer.ts";
 import type {
   RendererIncidentObserver,

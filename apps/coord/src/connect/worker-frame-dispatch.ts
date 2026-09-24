@@ -8,11 +8,11 @@ import {
   type CoordWorkerDown,
   type CoordWorkerUp,
   type WSessionEvent,
-} from "@roost/shared/proto/worker_transport_pb";
-import { asChannelId, asWorkerFp } from "@roost/shared/wire";
-import { protoToEvent } from "@roost/shared/wire/event-proto";
-import { log } from "@roost/shared/log";
-import { diag, signal } from "@roost/shared/diag";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { asChannelId, asWorkerFp } from "@roost/protocol/wire";
+import { protoToEvent } from "@roost/protocol/wire/event-proto";
+import { log } from "@roost/observability/log";
+import { diag, signal } from "@roost/observability/diag";
 import { dispatchWorkerAgentStatusFrame } from "./worker-agent-status-frame.ts";
 import { publishCellGrid, publishCellGridChunk } from "../byte-hub.ts";
 import { dispatchLegacyTerminalMetadataFrame, dispatchTerminalMetadataFrame } from "./worker-terminal-metadata-frame.ts";

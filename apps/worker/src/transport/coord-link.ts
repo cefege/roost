@@ -12,7 +12,7 @@
 // JWT refresh: re-create transport on every dial. If a connection
 // survives past TTL we proactively close + reconnect at exp-T-30s.
 //
-// Frame schemas: `@roost/shared/proto/worker_transport_pb` (proto).
+// Frame schemas: `@roost/protocol/proto/worker_transport_pb` (proto).
 // Old coordinators receive compatibility WBinary; negotiated links send only
 // compact terminal metadata records upstream.
 // This file is the composer. The three engines it wires together are the
@@ -25,11 +25,11 @@
 import { create, fromBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema, WRefreshJwtSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
-import { diag, signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb";
+import { diag, signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import { WORKER_AUTH_SUBPROTOCOL } from "@roost/protocol/wire/coord-worker";
 import { createCoordLinkOutbox } from "./coord-link-outbox.ts";
 import { createCoordLinkReconnect } from "./coord-link-reconnect.ts";
 import { createCoordLinkDownstream } from "./coord-link-downstream.ts";

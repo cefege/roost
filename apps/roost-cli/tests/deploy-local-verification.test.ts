@@ -3,7 +3,7 @@
 // remote lock and platform probes separate from this localhost contract.
 
 import { describe, expect, test } from "bun:test";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import { _activateLocalWorker } from "../src/deploy-local-activation.ts";
 import { localWorkerReleaseMatches } from "../src/local-worker-deploy-journal.ts";
 import {

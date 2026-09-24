@@ -11,7 +11,7 @@ import { copyToClipboard } from "../lib/clipboard.ts";
 import { Show, batch, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate, useLocation } from "@solidjs/router";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import {
   ctxMenuSurfaceStyle, CtxMenuItem, CtxMenuSeparator, focusMenuEdge,
   handleMenuKeyboardNavigation,

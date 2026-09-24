@@ -7,7 +7,7 @@ import {
   TerminalStreamStatus,
   WTerminalStreamResultSchema,
   type WTerminalStreamResult,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { rejectPendingRpcsForWorker } from "../src/router/pending-rpcs.ts";
 import { TerminalStreamDispatcher } from "../src/connect/terminal-stream-dispatcher.ts";
 import type { TerminalStreamRoute } from "../src/connect/terminal-view-stream-controller-types.ts";

@@ -51,10 +51,10 @@ import {
   loadSourceKeeperContract,
   probeTargetKeeperContract,
 } from "./push-keeper-admission.ts";
-import type { KeeperContractV1 } from "@roost/shared/keeper-update";
+import type { KeeperContractV1 } from "@roost/protocol/keeper-update";
 import { POSIX_FULL_GIT_SHA_RE } from "./posix-deploy-journal.ts";
 import { tryCoordinatorSelfUpdate } from "./deploy-windows-channel.ts";
-import { parseWindowsReleaseManifest } from "./windows/windows-update-journal.ts";
+import { parseWindowsReleaseManifest } from "@roost/host/windows/windows-update-journal";
 import { fetchAndVerifyReleaseAsset, WINDOWS_RELEASE_MANIFEST_ASSET } from "./update.ts";
 
 export {

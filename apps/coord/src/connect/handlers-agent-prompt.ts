@@ -13,18 +13,18 @@ import {
   SessionsPromptResponseSchema,
   type SessionsPromptRequest,
   type SessionsPromptResponse,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   AgentPromptTextSchema,
   AgentPromptWaitTimeoutMsSchema,
-} from "@roost/shared/terminal-input";
+} from "@roost/protocol/terminal-input";
 import {
   AgentOccupantId,
   AgentRuntimeState,
   SessionId,
   StatusEpoch,
-} from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
 import { AgentStatusWaitError } from "../agent-status-wait.ts";
 import {
   processAgentPromptControl,

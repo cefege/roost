@@ -5,20 +5,20 @@
 //
 // Header names and the x-roost-auth-layer sentinel are a cross-app contract
 // (coord's middleware classifies on them) — import them from
-// @roost/shared/wire/headers, never re-type the literals.
+// @roost/protocol/wire/headers, never re-type the literals.
 
 import { Code, ConnectError, createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { CoordinatorService, type WorkersListResponse } from "@roost/shared/proto/coordinator_pb";
+import { CoordinatorService, type WorkersListResponse } from "@roost/protocol/proto/coordinator_pb";
 import { signCoordinatorJwt } from "./auth/web-key.ts";
 import { getTabId } from "./auth/tab-id.ts";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import { readLocalBootstrap } from "./lib/localBootstrap.ts";
 import {
   AUTH_LAYER_DEVICE,
   X_ROOST_AUTH_LAYER,
   X_ROOST_TAB_ID,
-} from "@roost/shared/wire/headers";
+} from "@roost/protocol/wire/headers";
 const COORDINATOR_OVERRIDE_KEY = "roost.coordinatorUrl";
 const DEPLOYMENT_MODE_KEY = "roost.deploymentMode";
 const DEVICE_AUTH_REQUIRED_PATHS: Record<string, true | undefined> = {

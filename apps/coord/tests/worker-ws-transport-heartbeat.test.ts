@@ -9,7 +9,7 @@ import {
   WPongSchema,
   WSessionEventSchema,
   type CoordWorkerDown,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   createAnnouncedChannelBarrier,
   makeWorkerWsHandler,

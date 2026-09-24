@@ -3,7 +3,7 @@
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { getCachedSessionWorker, lookupSessionId } from "../src/byte-hub.ts";
-import { SessionEvent, asChannelId } from "@roost/shared/wire";
+import { SessionEvent, asChannelId } from "@roost/protocol/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 
 const fixture = createDurablePublicationFixture({

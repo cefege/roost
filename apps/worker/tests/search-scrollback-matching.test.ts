@@ -6,9 +6,9 @@
 
 import { describe, expect, test } from "bun:test";
 import type { CellData, TerminalCore } from "@wterm/core";
-import { DEFAULT_COLOR } from "@roost/shared/cell";
-import { countUnicodeCodePoints } from "@roost/shared/terminal-search";
-import { ClientControlFrame } from "@roost/shared/wire";
+import { DEFAULT_COLOR } from "@roost/protocol/cell";
+import { countUnicodeCodePoints } from "@roost/protocol/terminal-search";
+import { ClientControlFrame } from "@roost/protocol/wire";
 import { handleSearchScrollback } from "../src/terminal-search.ts";
 import {
 	FIXED_RUNTIME, captureLink, freshManager, injectSession, search, searchFrame,

@@ -9,18 +9,18 @@
 // issued — a relayed command or an installed local grant — so a coordinator too
 // old for either leaves this registry empty and stays the only minimizer.
 
-import type { DTerminalViewRelay } from "@roost/shared/proto/worker_transport_pb";
+import type { DTerminalViewRelay } from "@roost/protocol/proto/worker_transport_pb";
 import type {
 	TerminalResyncCommand,
 	TerminalViewCommand,
 	TerminalViewStateFrame,
-} from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/sync_pb";
+import { log } from "@roost/observability/log";
 import {
 	TerminalViewRegistry,
 	type TerminalViewStateSink,
-} from "@roost/shared/terminal-view";
-import { TERMINAL_VIEW_SWEEP_MS } from "@roost/shared/viewport";
+} from "@roost/protocol/terminal-view";
+import { TERMINAL_VIEW_SWEEP_MS } from "@roost/protocol/viewport";
 import type { SessionManager } from "./session-manager.ts";
 import {
 	TerminalViewOwnerScreen,

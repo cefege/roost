@@ -4,7 +4,7 @@
 //
 // Pure read of rootStore + allSessions(); no setStore. Sort: terminal recency.
 
-import type { Session, WorkerFp } from "@roost/shared/wire";
+import type { Session, WorkerFp } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { isPendingClose } from "./pendingClose.ts";

@@ -5,8 +5,8 @@
 // expensive part of a status scan; this gate keeps chatty sessions from
 // starving PTY parsing and baseline emission.
 import { describe, expect, test, vi } from "bun:test";
-import { DEFAULT_COLOR } from "@roost/shared/cell";
-import type { AgentStatusUpdate } from "@roost/shared/wire";
+import { DEFAULT_COLOR } from "@roost/protocol/cell";
+import type { AgentStatusUpdate } from "@roost/protocol/wire";
 import type { CellData, TerminalCore } from "@wterm/core";
 import type { SessionManager } from "../src/session-manager.ts";
 import { AgentScreenDetector } from "../src/agent-status/detector.ts";

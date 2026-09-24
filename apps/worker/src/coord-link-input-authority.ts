@@ -3,7 +3,7 @@
 // worker-owned and is checked again immediately before SessionManager begins PTY
 // input. Old coordinator frames without actor fields retain empty-epoch behavior.
 
-import type { DInputRequest } from "@roost/shared/proto/worker_transport_pb";
+import type { DInputRequest } from "@roost/protocol/proto/worker_transport_pb";
 import type { SessionManager } from "./session-manager.ts";
 import type { TerminalWriteAuthority } from "./session-terminal-control.ts";
 import type { LocalTerminalWiring, TerminalRequestBudget } from "./transport/coord-link-types.ts";

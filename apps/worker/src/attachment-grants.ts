@@ -3,12 +3,12 @@
 // device, tab, worker epoch, and immutable upload descriptor independently.
 
 import { createHash } from "node:crypto";
-import { verifyLocalEndpointCapability } from "@roost/shared/local-endpoint";
-import { log } from "@roost/shared/log";
-import { ATTACHMENT_TRANSFER_GRANT_TTL_MS } from "@roost/shared/attachment-transfer";
+import { verifyLocalEndpointCapability } from "@roost/host/local-endpoint";
+import { log } from "@roost/observability/log";
+import { ATTACHMENT_TRANSFER_GRANT_TTL_MS } from "@roost/protocol/attachment-transfer";
 import {
   type DLocalAttachmentGrant,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { monoNowMs } from "./util/mono.ts";
 
 const MAX_GRANTS = 256;

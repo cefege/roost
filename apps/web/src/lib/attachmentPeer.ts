@@ -9,7 +9,7 @@ import {
   ATTACHMENT_TRANSFER_PEER_DATA_CHANNELS,
   ATTACHMENT_TRANSFER_STATUS_DEADLINE_MS,
   type AttachmentTransferPeerChannelLane,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   AttachmentTransferChunkSchema,
   AttachmentTransferClientFrameSchema,
@@ -20,7 +20,7 @@ import {
   type AttachmentTransferReady,
   type AttachmentTransferServerFrame,
   type AttachmentTransferStatus as ProtocolAttachmentTransferStatus,
-} from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/attachment_transfer_pb";
 import type { AttachmentDirectGrant } from "./attachmentDirectGrant.ts";
 import { AttachmentPeerPacketLanes } from "./attachmentPeerPackets.ts";
 import {

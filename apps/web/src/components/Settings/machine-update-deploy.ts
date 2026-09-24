@@ -3,10 +3,10 @@
 // MachineCard state, because the job outlives the row that started it (details
 // collapse, list re-sort, pane close) and two rows must never drive two deploys
 // for one host. Callers: components/Settings/MachineCard.tsx.
-// Depends on: connect.ts (coordClient), @roost/shared/diag.
+// Depends on: connect.ts (coordClient), @roost/observability/diag.
 
 import { createSignal } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { coordClient } from "../../connect.ts";
 
 const [deployingFps, setDeployingFps] = createSignal<ReadonlySet<string>>(new Set());

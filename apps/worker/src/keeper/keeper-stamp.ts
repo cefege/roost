@@ -2,15 +2,15 @@
 // admission. Its implementation digest is generated from the transitive keeper
 // bundle; protocol compatibility and exact artifact equality remain separate.
 
-import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+import { ROOST_BUILD_SHA } from "@roost/host/build-identity";
 import {
   KeeperContractV1Schema,
   keeperContractsExactlyEqual,
   keeperContractsProtocolCompatible,
   keeperContractsSameImplementation,
   type KeeperContractV1,
-} from "@roost/shared/keeper-update";
-import { supportedHostPlatform } from "@roost/shared/platform";
+} from "@roost/protocol/keeper-update";
+import { supportedHostPlatform } from "@roost/platform/platform";
 import { GENERATED_KEEPER_IMPLEMENTATION_DIGEST } from "./keeper-contract.generated.ts";
 import {
   KEEPER_PROTOCOL_VERSION,

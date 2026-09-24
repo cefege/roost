@@ -10,14 +10,14 @@ import {
   GlobalSearchPartialReason,
   SessionsCancelGlobalSearchRequestSchema,
   SessionsSearchGlobalRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
   GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
   GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
   type WorkerSearchScrollbackMatch,
   type WorkerSearchScrollbackResult,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import { GlobalSearchCursorOwner } from "../src/connect/global-search-cursors.ts";
 import { GlobalSearchWorkerLaneOwner } from "../src/connect/global-search-worker-lanes.ts";
 import { _pendingRpcStats } from "../src/router/pending-rpcs.ts";

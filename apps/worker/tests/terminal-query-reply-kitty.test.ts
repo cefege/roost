@@ -6,7 +6,7 @@
 // native reply still reaches the pty in probe order.
 
 import { describe, test, expect } from "bun:test";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import { answerQueries, drainCoreReplies, PRIMARY_DA_REPLY, type QueryCarry } from "../src/terminal-query-reply.ts";
 
 const encoder = new TextEncoder();

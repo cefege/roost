@@ -12,7 +12,7 @@ import {
 import { processInputControl, terminalViewerIdentity } from "../src/connect/session-control.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
-import { SessionEvent, asChannelId } from "@roost/shared/wire";
+import { SessionEvent, asChannelId } from "@roost/protocol/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 
 const fixture = createDurablePublicationFixture({

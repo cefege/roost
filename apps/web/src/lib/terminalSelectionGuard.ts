@@ -17,7 +17,7 @@
 // controller, link attachment) and threads them in as accessors, so the guard
 // never holds a stale reference across a remount.
 
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import type {
 	CellGridRenderer,
 	LiveInteractionResult,

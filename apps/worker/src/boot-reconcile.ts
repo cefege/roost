@@ -2,9 +2,9 @@
 // before any keeper or SessionManager mutation. It also serializes later
 // keeper-death reconciliation and owns degraded-keeper remediation wiring.
 
-import { signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import type { WorkerFp } from "@roost/shared/wire";
+import { signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import type { WorkerFp } from "@roost/protocol/wire";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import type { CoordClient } from "./coord-client.ts";
 import type { SessionManager } from "./session-manager.ts";

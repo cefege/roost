@@ -3,7 +3,7 @@
 // triggering paneLayoutStore's page-lifecycle side effects. Acknowledged layout
 // apply is explicitly refused here and owned by uiLayoutApply instead.
 
-import type { UiCommand, UiCommandFrame } from "@roost/shared/proto/sync_pb";
+import type { UiCommand, UiCommandFrame } from "@roost/protocol/proto/sync_pb";
 import {
   selectTab, focusPane, moveTab, splitLeaf, findLeafOfTab,
   type Layout, type PaneDir,

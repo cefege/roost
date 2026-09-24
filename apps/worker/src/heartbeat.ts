@@ -4,21 +4,21 @@
 
 import { createHash } from "node:crypto";
 import type { CoordClient } from "./coord-client.ts";
-import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
-import { signal } from "@roost/shared/diag";
-import { hostIdentityToProto } from "@roost/shared/host-identity-proto";
-import { log } from "@roost/shared/log";
+import { assertNeverPlatform, supportedHostPlatform } from "@roost/platform/platform";
+import { signal } from "@roost/observability/diag";
+import { hostIdentityToProto } from "@roost/protocol/host-identity-proto";
+import { log } from "@roost/observability/log";
 import {
 	keeperBindingDigestInput,
 	KeeperRuntimeObservationV1Schema,
 	type KeeperRuntimeObservationV1,
-} from "@roost/shared/keeper-update";
-import { keeperRuntimeObservationToProto } from "@roost/shared/keeper-update-proto";
+} from "@roost/protocol/keeper-update";
+import { keeperRuntimeObservationToProto } from "@roost/protocol/keeper-update-proto";
 import {
 	terminalCoreCapacityReportToProto,
-} from "@roost/shared/terminal-core-capacity-proto";
-import type { HostMetrics, TerminalCoreCapacityReport } from "@roost/shared/wire";
-import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+} from "@roost/protocol/terminal-core-capacity-proto";
+import type { HostMetrics, TerminalCoreCapacityReport } from "@roost/protocol/wire";
+import { ROOST_BUILD_SHA } from "@roost/host/build-identity";
 import { staticHostIdentity } from "./host-identity.ts";
 import { probeKeeperCompatible } from "./keeper/keeper-probe.ts";
 import { muxLocalEndpoint } from "./keeper/keeper-pool-config.ts";

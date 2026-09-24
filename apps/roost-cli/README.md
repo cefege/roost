@@ -265,7 +265,7 @@ against one lock per machine. Importers are `src/deploy-local.ts`,
   honoured it. The Windows CMS `.p7s` signature check layers on top and is
   preserved separately.
 - **`console.*` is correct here and only here.** stdout is this app's product
-  surface. Coord and worker log through `@roost/shared/log`, and `bun run lint`
+  surface. Coord and worker log through `@roost/observability/log`, and `bun run lint`
   ratchets their `console.*` counts downward. Do not route CLI output through the
   log facade.
 - **Windows brokers cannot be exercised on Linux/macOS.** Their only gate is

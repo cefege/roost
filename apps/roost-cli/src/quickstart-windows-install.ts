@@ -5,13 +5,13 @@
 
 import { lstatSync } from "node:fs";
 import { dirname, join, win32 } from "node:path";
-import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
-import { roostServiceDir } from "@roost/shared/paths";
-import { probeServiceHealth } from "@roost/shared/service-health";
+import { ROOST_BUILD_SHA } from "@roost/host/build-identity";
+import { roostServiceDir } from "@roost/host/paths";
+import { probeServiceHealth } from "@roost/host/service-health";
 import {
   acquireMachineTransaction,
   type MachineTransactionLock,
-} from "./machine-transaction.ts";
+} from "@roost/host/machine-transaction";
 import {
   WINDOWS_SERVICE_ROLES,
   createWindowsServiceManager,

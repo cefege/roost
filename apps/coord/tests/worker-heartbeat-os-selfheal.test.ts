@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { WorkersHeartbeatRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import { WorkersHeartbeatRequestSchema } from "@roost/protocol/proto/coordinator_pb";
 import { presenceBus } from "../src/buses.ts";
 import {
   WORKER_LABEL,

@@ -9,9 +9,9 @@
 // restarting coordinator face the whole fleet's redials in one synchronized
 // wave. jitter:"none" reproduces the legacy deterministic ladder exactly.
 
-import { signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import { backoffDelayMs } from "@roost/shared/retry";
+import { signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import { backoffDelayMs } from "@roost/protocol/retry";
 import {
   BACKOFF_INITIAL_MS,
   AUTH_REJECT_THRESHOLD, AUTH_REJECT_BACKOFF_CAP_MS,

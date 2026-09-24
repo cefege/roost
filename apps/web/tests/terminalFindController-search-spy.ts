@@ -5,7 +5,7 @@
 // depends only on bun:test and the generated coordinator types.
 
 import { mock } from "bun:test";
-import type { ScrollbackHistoryFloor, SearchStopReason } from "@roost/shared/proto/coordinator_pb";
+import type { ScrollbackHistoryFloor, SearchStopReason } from "@roost/protocol/proto/coordinator_pb";
 
 export interface SearchRequest {
   sessionId: string; searchId: string; gridEpoch: string; query: string;

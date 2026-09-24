@@ -5,9 +5,9 @@
 // its own remote replica, so only their view-state frames come back through
 // here. Frame construction stays in session-emit.ts.
 
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
-import type { TerminalViewScreenPort } from "@roost/shared/terminal-view";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
+import type { TerminalViewStateFrame } from "@roost/protocol/proto/sync_pb";
+import type { TerminalViewScreenPort } from "@roost/protocol/terminal-view";
 import {
 	registerCellSink,
 	unregisterCellSink,

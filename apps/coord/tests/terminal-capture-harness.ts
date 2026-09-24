@@ -10,16 +10,16 @@ import { expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CellGridFrame, CellRow, CellSpan } from "@roost/shared/cell";
+import type { CellGridFrame, CellRow, CellSpan } from "@roost/protocol/cell";
 import {
   TerminalCaptureAction,
   TerminalCaptureRequestSchema,
   type TerminalCaptureRequest,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   type TerminalCaptureCommand,
   type TerminalCaptureResult,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { AccountDeviceCaller } from "../src/connect/auth-principal.ts";
 import { recordCoordinatorFrame } from "../src/connect/terminal-capture-recorder.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";

@@ -9,11 +9,11 @@ import {
   TerminalTransportProbeResultSchema,
   type TerminalInputRouteResult,
   type TerminalTransportProbeResult,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   type WTerminalInputRouteResult,
   type WTerminalTransportProbeResult,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   cancelPendingRpc,
   resolvePendingRpc,

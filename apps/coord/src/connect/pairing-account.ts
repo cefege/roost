@@ -3,8 +3,8 @@
 // handlers validate wire inputs and publish only after these transactions commit.
 
 import { Code, ConnectError } from "@connectrpc/connect";
-import { fingerprintOf } from "@roost/shared/fingerprint";
-import { log } from "@roost/shared/log";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
+import { log } from "@roost/observability/log";
 import { sql } from "kysely";
 import type { KyselyDB } from "../db/connection.ts";
 import type { PairRequestProvenance } from "./pair-request-provenance.ts";

@@ -16,11 +16,11 @@
 import { describe, test, expect } from "bun:test";
 import { buildApiClient } from "../apps/roost-cli/src/api.ts";
 import { openSyncWs } from "../apps/roost-cli/src/sync-ws.ts";
-// Relative import, not "@roost/shared/...": the smoke workspace declares no
+// Relative import, not "@roost/protocol/...": the smoke workspace declares no
 // @roost deps, so the bare specifier only resolves from files living under
 // apps/* (their node_modules carry the workspace symlink). Same pattern as
 // roost-cli importing worker modules relatively.
-import { protoToEvent } from "../apps/shared/src/wire/event-proto.ts";
+import { protoToEvent } from "../packages/protocol/src/wire/event-proto.ts";
 
 const coordinatorUrl = process.env.ROOST_COORD_URL;
 if (!coordinatorUrl) {

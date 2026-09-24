@@ -9,9 +9,9 @@ import {
   WTerminalInputRouteResultSchema,
   WTerminalTransportProbeResultSchema,
   type CoordWorkerDown,
-} from "@roost/shared/proto/worker_transport_pb";
-import { TerminalInputRouteResultSchema } from "@roost/shared/proto/sync_pb";
-import { TERMINAL_INPUT_ROUTE_CAPABILITY } from "@roost/shared/terminal-peer";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { TerminalInputRouteResultSchema } from "@roost/protocol/proto/sync_pb";
+import { TERMINAL_INPUT_ROUTE_CAPABILITY } from "@roost/protocol/terminal-peer";
 import { Code } from "@connectrpc/connect";
 import {
   MAX_TERMINAL_ROUTE_CONTROLS_PER_SOCKET,

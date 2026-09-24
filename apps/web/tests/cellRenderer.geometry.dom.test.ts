@@ -6,7 +6,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { CellGridRenderer, RENDERER_HOLD_SELECTION } from "../src/lib/cellRenderer.ts";
-import { spansText } from "@roost/shared/cell";
+import { spansText } from "@roost/protocol/cell";
 import { cellFromPoint } from "../src/lib/terminalMouse.ts";
 import {
   PAD_TOP,

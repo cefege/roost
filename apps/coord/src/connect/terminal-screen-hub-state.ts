@@ -7,12 +7,12 @@ import {
   encodedCellGridFrameSize,
   type CellGridChunkAssembler,
   type CellGridFrame,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import {
   PbCellGridFrameSchema,
   type PbCellGridChunk,
   type PbCellGridFrame,
-} from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/proto/cell_pb";
 import type { TerminalScreenSocketSink } from "./terminal-screen-hub.ts";
 import type { TerminalSnapshotSource } from "./terminal-screen-frames.ts";
 

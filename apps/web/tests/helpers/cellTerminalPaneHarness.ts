@@ -6,7 +6,7 @@
 // the module mocks; the pane's modules load on the first mount, after those.
 
 import type * as SolidApi from "solid-js";
-import type { MouseTracking } from "@roost/shared/cell";
+import type { MouseTracking } from "@roost/protocol/cell";
 import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
 import type { CellTerminalInteractions } from "../../src/components/cell-terminal-interactions.ts";
 import { FakeEl, row, seedHeldHistory, vpEl } from "./cellRendererFakeDom.ts";

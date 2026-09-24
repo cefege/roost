@@ -10,14 +10,14 @@ import {
   AgentConversationReferenceV1Schema,
   isAbsoluteAgentConversationSessionPath,
   type AgentConversationReferenceV1,
-} from "@roost/shared/agent-conversation-reference";
+} from "@roost/protocol/agent-conversation-reference";
 import {
   supportedHostPlatform,
   type SupportedHostPlatform,
-} from "@roost/shared/platform";
-import { posixShellQuote } from "@roost/shared/shell-quote";
-import { log } from "@roost/shared/log";
-import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
+} from "@roost/platform/platform";
+import { posixShellQuote } from "@roost/platform/shell-quote";
+import { log } from "@roost/observability/log";
+import { hasAtMostUtf8Bytes } from "@roost/protocol/ui-state";
 import type { SessionManager } from "./session-manager.ts";
 import {
   writeWorkerOwnedTerminalInput,

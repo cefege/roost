@@ -5,8 +5,8 @@
 
 import { describe, test, expect } from "bun:test";
 import { spanStyle, ansi256ToCss, rowHash } from "../src/lib/cellRow.ts";
-import { DEFAULT_COLOR, CELL_BOLD, CELL_DIM, CELL_ITALIC, CELL_UNDERLINE, CELL_REVERSE, CELL_INVISIBLE, CELL_STRIKE } from "@roost/shared/cell";
-import type { CellSpan, CellRow } from "@roost/shared/cell";
+import { DEFAULT_COLOR, CELL_BOLD, CELL_DIM, CELL_ITALIC, CELL_UNDERLINE, CELL_REVERSE, CELL_INVISIBLE, CELL_STRIKE } from "@roost/protocol/cell";
+import type { CellSpan, CellRow } from "@roost/protocol/cell";
 
 function span(over: Partial<CellSpan>): CellSpan {
   const text = over.text ?? "x";

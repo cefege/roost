@@ -5,7 +5,7 @@
 import type { Stats } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import type { SupportedHostPlatform } from "@roost/shared/platform";
+import type { SupportedHostPlatform } from "@roost/platform/platform";
 
 export interface IntegrationFileSnapshot {
   content: string;

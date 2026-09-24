@@ -3,8 +3,8 @@
 // signals, subscriber work, timers, or browser-local persistence writes.
 
 import { beforeEach, describe, expect, test, vi } from "bun:test";
-import { LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
-import type { LayoutDocumentV1 } from "@roost/shared/layout-document";
+import { LAYOUT_RATIO_MIN } from "@roost/protocol/layout-document";
+import type { LayoutDocumentV1 } from "@roost/protocol/layout-document";
 import type { Layout, PaneNode } from "../src/store/paneLayout.ts";
 
 const STORAGE_KEY = "roost.paneLayout.v1";

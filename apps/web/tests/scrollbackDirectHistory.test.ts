@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { TerminalGenerationToken } from "../src/store/terminal-stream-types.ts";
-import type { PbCellRow } from "@roost/shared/proto/cell_pb";
+import type { PbCellRow } from "@roost/protocol/proto/cell_pb";
 
 type ScrollbackRequest = {
   sessionId: string;

@@ -1,5 +1,5 @@
 // MachineCard's row badge and MachineUpdateDetails' action are both decided by
-// the ONE shared classifier (@roost/shared/fleet-update). Bun has no browser
+// the ONE shared classifier (@roost/protocol/fleet-update). Bun has no browser
 // DOM, so this suite uses the same client-Solid virtual renderer as the other
 // DOM tests and stubs the M3 primitives that register browser custom elements.
 // The renderer evaluates props once, so each state is its own render — which is
@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { Worker } from "@roost/shared/wire";
+import type { Worker } from "@roost/protocol/wire";
 import type { MachineUpdateDetailsProps } from "../src/components/Settings/MachineUpdateDetails.tsx";
 
 type VNode = {

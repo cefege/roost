@@ -12,7 +12,7 @@ import {
   asSessionId,
   asWorkerFp,
   type AgentStatusUpdate as AgentStatusUpdateValue,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import type { KyselyDB } from "../src/db/connection.ts";
 import {
   getAgentStatusSnapshot,

@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadWorkerKey } from "../../worker/src/jwt.ts";
+import { loadWorkerKey } from "@roost/worker/jwt";
 import { coordinatorServiceWithEndpoint } from "../src/coordinator-service-definition.ts";
 import { isRegisteredWorker } from "../src/quickstart-bootstrap-tokens.ts";
 import { resolveQuickstartEndpoint } from "../src/quickstart-endpoint.ts";
@@ -33,7 +33,7 @@ mock.module("../src/deploy-exec.ts", () => ({
     return commandResults.shift() ?? { exit: 0, stdout: "", stderr: "" };
   },
 }));
-mock.module("../src/machine-transaction.ts", () => ({
+mock.module("@roost/host/machine-transaction", () => ({
   acquireMachineTransaction: async () => ({ release: async () => undefined }),
 }));
 mock.module("../src/quickstart-runtime.ts", () => ({

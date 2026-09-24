@@ -6,7 +6,7 @@
 // worker-respawn waits through it, terminal writes lease only inside the FIFO.
 
 import { Code, ConnectError } from "@connectrpc/connect";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 
 export interface WriteLease {
   release(): void;

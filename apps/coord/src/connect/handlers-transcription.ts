@@ -13,7 +13,7 @@ import {
   TranscriptionConfigSchema,
   TranscriptionGrantTokenResponseSchema,
   TranscriptionTestResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { requireAccountDevice } from "./auth-interceptor.ts";
 import {
   getTranscriptionConfig, setTranscriptionConfig, grantDeepgramToken, testDeepgram,

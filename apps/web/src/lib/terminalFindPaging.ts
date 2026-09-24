@@ -2,8 +2,8 @@
 // TerminalFindController uses these pure guards before publishing worker rows.
 // Every row remains fenced to a JSON-safe absolute index and one grid epoch.
 
-import type { SessionsSearchScrollbackResponse } from "@roost/shared/proto/coordinator_pb";
-import { TERMINAL_SEARCH_MAX_ROWS } from "@roost/shared/terminal-search";
+import type { SessionsSearchScrollbackResponse } from "@roost/protocol/proto/coordinator_pb";
+import { TERMINAL_SEARCH_MAX_ROWS } from "@roost/protocol/terminal-search";
 
 const MAX_SAFE_ROW = BigInt(Number.MAX_SAFE_INTEGER);
 const TERMINAL_SEARCH_MAX_ROWS_BIGINT = BigInt(TERMINAL_SEARCH_MAX_ROWS);

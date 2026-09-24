@@ -2,7 +2,7 @@
 // 600-request/minute route budget so every live requester can share one NAT;
 // all other sensitive routes keep their independent 100-request/minute buckets.
 
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 
 // Routes subject to rate limiting. List by exact RPC name (NOT prefix)
 // so read-only operations sharing a prefix don't burn the mutation

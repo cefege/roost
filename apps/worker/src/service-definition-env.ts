@@ -1,19 +1,19 @@
 // Erasure of a one-shot env entry from the installed worker service definition:
 // the LaunchAgent plist on macOS, the systemd --user unit on Linux. Callers are
 // the bootstrap-token redemption (install.ts) and the keeper force-live retire
-// authorization spent at boot (main.ts). Depends on @roost/shared paths and
+// authorization spent at boot (main.ts). Depends on @roost/host paths and
 // platform resolution only, so no boot subsystem is pulled in to erase a key.
 
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   supportedHostPlatform,
   type SupportedHostPlatform,
-} from "@roost/shared/platform";
-import { workerServicePath } from "@roost/shared/paths";
-import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "@roost/shared/worker-service-env";
+} from "@roost/platform/platform";
+import { workerServicePath } from "@roost/host/paths";
+import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "@roost/platform/worker-service-env";
 import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 
-export { KEEPER_FORCE_LIVE_RETIRE_ENV } from "@roost/shared/worker-service-env";
+export { KEEPER_FORCE_LIVE_RETIRE_ENV } from "@roost/platform/worker-service-env";
 
 /** Remove one `KEY=value` env entry from the installed service definition.
  * Returns false when the definition never carried it, which is how a value

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
-import { initCellEmitState } from "@roost/shared/cell";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
+import { initCellEmitState } from "@roost/protocol/cell";
 import { SessionManager } from "../src/session-manager.ts";
 import { COORD_CELL_SINK_ID, registerCellSink } from "../src/session-cell-sinks.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";

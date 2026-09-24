@@ -8,7 +8,7 @@ import {
   CoordWorkerUpSchema,
   WTerminalPipelineSnapshotSchema,
   type WTerminalPipelineSnapshot,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { makeWorkerFrameDispatcher } from "../src/connect/worker-frame-dispatch.ts";
 import type { WorkerServiceDeps } from "../src/connect/worker-conn-types.ts";
 import {

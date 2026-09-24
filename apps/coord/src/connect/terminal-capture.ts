@@ -6,8 +6,8 @@
 // terminal-capture-recorder.ts, the worker call in
 // terminal-capture-worker-call.ts. Called by handlers-system.ts::diagSnapshot.
 
-import { diag, signal } from "@roost/shared/diag";
-import type { TerminalCaptureRequest } from "@roost/shared/proto/coordinator_pb";
+import { diag, signal } from "@roost/observability/diag";
+import type { TerminalCaptureRequest } from "@roost/protocol/proto/coordinator_pb";
 import {
   checkTerminalCaptureEnvelope,
   TERMINAL_CAPTURE_LIMITS,
@@ -15,7 +15,7 @@ import {
   type TerminalCaptureCommand,
   type TerminalCaptureErrorCode,
   type TerminalCaptureResult,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { AccountDeviceCaller } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import {

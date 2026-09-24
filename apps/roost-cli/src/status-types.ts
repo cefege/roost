@@ -2,8 +2,8 @@
 // Keeping these types dependency-free prevents the extracted status concerns
 // from reaching through one another just to describe the same report.
 
-import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
-import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
+import type { KeeperRuntimeObservationV1 } from "@roost/protocol/keeper-update";
+import type { TerminalCoreCapacityReport } from "@roost/protocol/terminal-core-capacity";
 
 export interface WorkerStatus {
   fingerprint: string;

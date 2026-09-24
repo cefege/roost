@@ -5,12 +5,12 @@
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { KeeperCoordinatorOpenSessionIdsSchema } from "@roost/shared/keeper-update";
+import { KeeperCoordinatorOpenSessionIdsSchema } from "@roost/protocol/keeper-update";
 import {
   CoordWorkerDownSchema,
   DUpdateBrokerSchema,
   DKeeperUpdatePrepareSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   createPendingRpc,
   rejectPendingRpcUnavailable,

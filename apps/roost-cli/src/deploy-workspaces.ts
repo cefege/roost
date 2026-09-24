@@ -20,7 +20,11 @@ import { join } from "node:path";
 /** Rsynced whole by the macOS deploy; they need no manifest-only pass. */
 const FULLY_RSYNCED_WORKSPACES: readonly string[] = [
   "apps/worker",
-  "apps/shared",
+  "packages/host",
+  "packages/observability",
+  "packages/platform",
+  "packages/protocol",
+  "packages/wterm",
   "apps/coord",
   "apps/web",
 ];

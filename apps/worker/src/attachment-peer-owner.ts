@@ -3,22 +3,22 @@
 // peers while borrowing only the process-owned native runtime loader.
 
 import { create } from "@bufbuild/protobuf";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   ATTACHMENT_TRANSFER_MAX_ACTIVE_PER_WORKER,
   ATTACHMENT_TRANSFER_PEER_MAX_NEGOTIATIONS_PER_WORKER,
   ATTACHMENT_TRANSFER_PEER_MAX_PENDING_NEGOTIATIONS_PER_DEVICE,
   ATTACHMENT_TRANSFER_PEER_NATIVE_ANSWER_DEADLINE_MS,
   type AttachmentTransferPeerErrorReason,
-} from "@roost/shared/attachment-transfer";
-import { inspectTerminalPeerSdp } from "@roost/shared/terminal-peer-sdp";
-import { parseTerminalPeerStunUrls } from "@roost/shared/terminal-peer";
+} from "@roost/protocol/attachment-transfer";
+import { inspectTerminalPeerSdp } from "@roost/protocol/terminal-peer-sdp";
+import { parseTerminalPeerStunUrls } from "@roost/protocol/terminal-peer";
 import {
   WLocalAttachmentPeerAnswerSchema,
   type DLocalAttachmentPeerCancel,
   type DLocalAttachmentPeerOffer,
   type WLocalAttachmentPeerAnswer,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type { AttachmentPeerGrantAuthorization } from "./attachment-grants.ts";
 import {
   AttachmentPeerConnection,

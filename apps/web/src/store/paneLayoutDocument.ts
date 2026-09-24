@@ -4,11 +4,11 @@
 // and a leaf left holding no session collapses into its sibling before commit.
 // Runtime pane and split UUIDs never enter the document.
 
-import { parseLayoutDocumentV1 } from "@roost/shared/layout-document";
+import { parseLayoutDocumentV1 } from "@roost/protocol/layout-document";
 import type {
   LayoutDocumentNode,
   LayoutDocumentV1,
-} from "@roost/shared/layout-document";
+} from "@roost/protocol/layout-document";
 import { allLeaves, collapseEmpties, findLeaf, fixFocus } from "./paneLayout.ts";
 import type { Layout, PaneNode } from "./paneLayout.ts";
 import { commitLayout, resolveLayout } from "./paneLayoutStore.ts";

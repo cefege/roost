@@ -3,7 +3,7 @@
 // so missing and foreign IDs receive neither an ACK nor a socket-close oracle.
 // Event transactions call this inside their SQLite transaction.
 
-import type { SessionEvent } from "@roost/shared/wire";
+import type { SessionEvent } from "@roost/protocol/wire";
 import type { KyselyDB } from "./db/connection.ts";
 
 export interface EventAdmissionOptions {

@@ -8,8 +8,8 @@ import {
   generatePairRequestId,
   generatePairRequesterToken,
   normalizePairVerificationCode,
-} from "@roost/shared/pairing";
-import { backoffDelayMs } from "@roost/shared/retry";
+} from "@roost/protocol/pairing";
+import { backoffDelayMs } from "@roost/protocol/retry";
 import { createSignal, onCleanup, onMount, type Accessor } from "solid-js";
 import { getPublicKeyB64 } from "../auth/web-key.ts";
 import {

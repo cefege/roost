@@ -7,7 +7,7 @@
 // convention: no jsdom — see attachmentsPicker.dom.test.ts).
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { SessionId } from "@roost/shared/wire";
+import type { SessionId } from "@roost/protocol/wire";
 
 // ── globals the module touches ──────────────────────────────────────────────
 

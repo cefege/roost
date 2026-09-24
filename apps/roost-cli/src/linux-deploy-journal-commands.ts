@@ -7,8 +7,8 @@
 
 import { posix } from "node:path";
 import { verifyWorkerCmd, WORKER_UNIT } from "./service-ctl.ts";
-import { posixShellQuote } from "@roost/shared/shell-quote";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import { posixShellQuote } from "@roost/platform/shell-quote";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import {
   parsePosixServiceEnvironment,
   parseSystemdServiceDirective,

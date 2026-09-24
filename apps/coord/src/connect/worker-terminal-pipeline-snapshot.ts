@@ -10,12 +10,12 @@ import {
   DTerminalPipelineSnapshotRequestSchema,
   WTerminalPipelineSnapshotSchema,
   type WTerminalPipelineSnapshot,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TerminalPipelineReason,
   TerminalPipelineStage,
   TerminalPipelineTargetSchema,
-} from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/wire_pb";
 import {
   createPendingRpc,
   rejectPendingRpcUnavailable,

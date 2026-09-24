@@ -4,11 +4,11 @@
 // UiBridge owns lifecycle triggers and supplies the live router pathname.
 
 import { create } from "@bufbuild/protobuf";
-import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
+import { layoutDocumentToProto } from "@roost/protocol/layout-document-proto";
 import {
   UiReportStateRequestSchema,
   type UiReportStateRequest,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { coordClient } from "../connect.ts";
 import { getTabId } from "../auth/tab-id.ts";
 import { exportLayoutDocument } from "../store/paneLayoutDocument.ts";

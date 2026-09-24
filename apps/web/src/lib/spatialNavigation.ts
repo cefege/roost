@@ -7,9 +7,9 @@
 // strictly the last claimant on an arrow key: anything with its own arrow
 // handling (the shortcut router, a Kobalte listbox, a scrolling .wterm) has
 // already run and either consumed the key or left it alone.
-// Depends on: lib/directionalInput.ts, @roost/shared/diag.
+// Depends on: lib/directionalInput.ts, @roost/observability/diag.
 
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { directionalInputActive } from "./directionalInput.ts";
 
 type Direction = "up" | "down" | "left" | "right";

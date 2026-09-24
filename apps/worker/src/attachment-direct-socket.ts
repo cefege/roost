@@ -10,14 +10,14 @@ import {
   ATTACHMENT_TRANSFER_MAX_ACTIVE_PER_WORKER,
   type AttachmentTransferErrorReason,
   type AttachmentTransferPeerChannelLane,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   AttachmentTransferClientFrameSchema,
   type AttachmentTransferChunk,
   type AttachmentTransferHello,
   type AttachmentTransferStatusRequest,
-} from "@roost/shared/proto/attachment_transfer_pb";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/attachment_transfer_pb";
+import { log } from "@roost/observability/log";
 import type {
   AttachmentGrantChange,
   AttachmentGrantStore,

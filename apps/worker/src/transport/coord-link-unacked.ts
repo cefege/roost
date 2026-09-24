@@ -2,12 +2,12 @@
 // Exactly one SessionEvent is in flight so ACKs cannot skip durable rows or
 // release post-snapshot traffic before the authoritative snapshot commits.
 import { create } from "@bufbuild/protobuf";
-import { CoordWorkerUpSchema, WSessionEventSchema } from "@roost/shared/proto/worker_transport_pb";
-import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import type { SessionEvent } from "@roost/shared/wire";
-import { eventToProto } from "@roost/shared/wire/event-proto";
-import { diag, signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
+import { CoordWorkerUpSchema, WSessionEventSchema } from "@roost/protocol/proto/worker_transport_pb";
+import type { CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
+import type { SessionEvent } from "@roost/protocol/wire";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
+import { diag, signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
 import {
   PENDING_BYTES_CAP,
   UNACKED_CAP,

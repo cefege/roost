@@ -9,7 +9,7 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import {
   SyncClientFrameSchema,
   UiReportStateRequestSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { makeSyncWsHandler, type SyncWsData } from "../src/connect/sync-ws-handler.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import {

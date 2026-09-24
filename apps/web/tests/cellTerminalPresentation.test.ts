@@ -35,7 +35,7 @@ let prepareLiveInteraction = (): void => undefined;
 const offlineUpdates: OfflineUpdate[] = [];
 const stallSignals: Array<Record<string, unknown>> = [];
 
-mock.module("@roost/shared/diag", () => ({
+mock.module("@roost/observability/diag", () => ({
   diag: () => undefined,
   signal: (_kind: string, fields: Record<string, unknown>) => stallSignals.push(fields),
 }));

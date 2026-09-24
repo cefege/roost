@@ -6,13 +6,13 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CoordConfig } from "@roost/shared/config";
-import { fingerprintOf } from "@roost/shared/fingerprint";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import type { CoordConfig } from "@roost/host/config";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import type {
   CoordWorkerDown,
   DKeeperUpdatePrepare,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { createCoord } from "../src/coord-factory.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { openDb } from "../src/db/connection.ts";

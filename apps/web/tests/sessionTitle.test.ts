@@ -5,8 +5,8 @@
 // must never do that, and must still enforce the MAX=80 code-unit cap.
 
 import { expect, test, describe } from "bun:test";
-import { asWorkerFp, asSessionId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asWorkerFp, asSessionId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { folderHeadline, programSubtitle, sessionTitle } from "../src/lib/sessionTitle.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
 

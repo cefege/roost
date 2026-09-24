@@ -11,12 +11,12 @@ import {
   type TerminalPipelineSessionSnapshot,
   type TerminalPipelineStageSnapshot,
   type TerminalPipelineTarget,
-} from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/wire_pb";
 import {
   WTerminalPipelineSnapshotSchema,
   type DTerminalPipelineSnapshotRequest,
   type WTerminalPipelineSnapshot,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type { CoordLinkPipelineState } from "./transport/coord-link-types.ts";
 
 export const TERMINAL_PIPELINE_MAX_TARGETS = 64;

@@ -3,14 +3,14 @@
 // The websocket loop supplies bytes; domain leaves supply hydration and guarded snapshot state.
 // A malformed or unapplied frame closes its generation so reconnect can restore a clean baseline.
 
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
 import type {
   FirehoseFrame,
   SyncDomainResetFrame,
   SyncSubscribedFrame,
   WorkerRoutableFrame,
-} from "@roost/shared/proto/sync_pb";
-import { signal } from "@roost/shared/diag";
+} from "@roost/protocol/proto/sync_pb";
+import { signal } from "@roost/observability/diag";
 import { markPhase } from "../lib/diag.ts";
 import {
   dispatchSyncFrameCausally,

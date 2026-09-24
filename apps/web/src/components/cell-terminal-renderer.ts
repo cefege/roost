@@ -4,8 +4,8 @@
 // teardown can stop inbound work before releasing renderer resources.
 
 import { createEffect, type Accessor, type Setter } from "solid-js";
-import type { MouseTracking } from "@roost/shared/cell";
-import { diag, isDiagEnabled } from "@roost/shared/diag";
+import type { MouseTracking } from "@roost/protocol/cell";
+import { diag, isDiagEnabled } from "@roost/observability/diag";
 import { coordClient } from "../connect.ts";
 import { CellGridRenderer } from "../lib/cellRenderer.ts";
 import { BOTTOM_FOLLOW_SETTLE_MS } from "../lib/cellRendererPresentation.ts";

@@ -49,12 +49,12 @@ wins.
   `detached`, `cwd`, `workspace_assigned`, `snapshot`, `respawned`, `renamed`,
   `git`, `pr`, and `ports`. Workers emit them; the coordinator appends +
   projects them; the browser folds them.
-  Source: `apps/shared/src/wire/event.ts`.
+  Source: `packages/protocol/src/wire/event.ts`.
 
 - **foldEvent** — the pure reducer that applies a `SessionEvent` to state. The
   coordinator's projection and the browser's store both call it, so the two
   agree by construction.
-  Source: `apps/shared/src/wire/event.ts`.
+  Source: `packages/protocol/src/wire/event.ts`.
 
 - **event log / projection** — the append-only `events` table is the source of
   truth; the `sessions` table is a projection of it, rebuilt by replaying the
@@ -120,14 +120,14 @@ wins.
   only bounded `stun:` UDP URLs, not TURN, relay credentials, or browser-supplied
   ICE-server configuration. STUN sees discovery traffic and address mapping,
   not terminal cells, input, or grants.
-  Source: `apps/shared/src/terminal-peer.ts`.
+  Source: `packages/protocol/src/terminal-peer.ts`.
 
 - **ICE candidate** — a bounded UDP endpoint candidate in the authenticated
   WebRTC offer/answer: host, server-reflexive (`srflx`), or peer-reflexive
   (`prflx`), never relay or ICE-TCP. An authenticated direct peer can learn
   the candidate's address/port metadata during connectivity checks; browser
   policy, NAT, or firewalls can still prevent a direct path.
-  Source: `apps/shared/src/terminal-peer-sdp.ts`.
+  Source: `packages/protocol/src/terminal-peer-sdp.ts`.
 
 - **scrollback** — a session's history. Fresh and grid-incompatible full frames
   carry only the visible grid; a compatible same-grid renewal may carry a
@@ -145,7 +145,7 @@ wins.
   `working`, `blocked` (waiting on the user), or `idle`. Volatile metadata on a
   terminal, never a stored session field. Absent = Roost sees no agent, which is
   what a plain shell shows.
-  Source: `apps/shared/src/wire/agent-status.ts`.
+  Source: `packages/protocol/src/wire/agent-status.ts`.
 
 - **lifecycle integration** — a small file Roost owns inside an agent's own
   extension directory (OMP, Pi) that reports that agent's state to the worker.
@@ -209,4 +209,4 @@ wins.
   normal browser/worker ICE policy exposes it and the route works. Roost does
   not install, configure, manage, or require Tailscale, and does not promise
   tailnet direct-terminal reachability.
-  Source: `apps/shared/src/tailnet.ts`.
+  Source: `packages/host/src/tailnet.ts`.

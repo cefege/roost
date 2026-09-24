@@ -11,7 +11,7 @@
 import { Show, For, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate } from "@solidjs/router";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore } from "../../store/root.ts";
 import { sessionWorkerIsOffline } from "../../store/worker-removal.ts";
 import { openRenameDialog } from "../../store/renameDialog.ts";

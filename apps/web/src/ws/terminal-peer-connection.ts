@@ -3,7 +3,7 @@
 // correlation. The peer composer supplies lifecycle/input callbacks; this file
 // imports no worker-native runtime or coordinator implementation.
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import {
   LocalScrollbackRequestSchema,
   LocalTerminalClientFrameSchema,
@@ -12,7 +12,7 @@ import {
   type LocalScrollbackResponse,
   type LocalTerminalClientFrame,
   type LocalTerminalServerFrame,
-} from "@roost/shared/proto/local_terminal_pb";
+} from "@roost/protocol/proto/local_terminal_pb";
 import {
   TerminalTransportProbeSchema,
   type InputCommand,
@@ -21,7 +21,7 @@ import {
   type TerminalResyncCommand,
   type TerminalTransportProbeResult,
   type TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   TERMINAL_PEER_CHANNEL_WATERMARKS,
   TERMINAL_PEER_DATA_CHANNELS,
@@ -31,14 +31,14 @@ import {
   TERMINAL_PEER_NEGOTIATION_DEADLINE_MS,
   TERMINAL_PEER_MAX_FLUSH_BYTES_PER_TURN,
   type TerminalPeerPacketLane,
-} from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer";
 import {
   TerminalPeerPacketAssembler,
   TerminalPeerPacketError,
   TerminalPeerPacketQueue,
   parseTerminalPeerPacket,
-} from "@roost/shared/terminal-peer-packets";
-import { filterBrowserTerminalPeerUdpCandidates, inspectTerminalPeerSdp } from "@roost/shared/terminal-peer-sdp";
+} from "@roost/protocol/terminal-peer-packets";
+import { filterBrowserTerminalPeerUdpCandidates, inspectTerminalPeerSdp } from "@roost/protocol/terminal-peer-sdp";
 import { dispatchDirectTerminalFrame } from "../store/terminal-stream-promotion.ts";
 import type { LocalScrollbackQuery, TerminalDirectConnection } from "../store/terminal-stream-transport.ts";
 import type { TerminalGenerationToken } from "../store/terminal-stream-types.ts";

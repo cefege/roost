@@ -4,7 +4,7 @@
 // cursor demand and the "worker committed a stream and shipped no baseline" net.
 
 import { describe, expect, test } from "bun:test";
-import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
+import type { FirehoseFrame } from "@roost/protocol/proto/sync_pb";
 import type {
   TerminalSnapshotCursor,
   TerminalSnapshotSource,

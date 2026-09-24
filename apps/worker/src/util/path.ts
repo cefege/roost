@@ -9,7 +9,7 @@ import {
   assertNeverPlatform,
   supportedHostPlatform,
   type SupportedHostPlatform,
-} from "@roost/shared/platform";
+} from "@roost/platform/platform";
 
 const WINDOWS_DRIVE_RELATIVE = /^[A-Za-z]:(?![\\/])/;
 const WINDOWS_DRIVE_ABSOLUTE = /^[A-Za-z]:[\\/]/;

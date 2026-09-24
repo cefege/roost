@@ -4,7 +4,7 @@
 // adapters transmit these strings verbatim over ssh, so treat the bodies as
 // byte-stability-sensitive. Validation comes from linux-deploy-journal.ts.
 
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 import {
   assertFixedLinuxJournalPath,
   assertLinuxDeployJournal,

@@ -3,7 +3,7 @@
 // exact WorkerHandle object, so a late frame cannot settle a replacement peer.
 // These controls never enter the generic JSON pending-RPC path.
 
-import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
+import type { CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
 import type { WorkerHandle } from "./worker-registry.ts";
 

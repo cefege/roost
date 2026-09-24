@@ -13,7 +13,7 @@ import {
   type Accessor,
   type Setter,
 } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import type { LiveInteractionResult } from "../lib/cellRenderer.ts";
 import { createTerminalSelectionGuard } from "../lib/terminalSelectionGuard.ts";
 import {

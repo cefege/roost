@@ -2,7 +2,7 @@
 // Deferred routes and RPC results make admission ownership deterministic without
 // wall-clock sleeps or a worker socket.
 import { afterEach, describe, expect, test } from "bun:test";
-import type { WTerminalStreamResult } from "@roost/shared/proto/worker_transport_pb";
+import type { WTerminalStreamResult } from "@roost/protocol/proto/worker_transport_pb";
 import { TerminalStreamDispatcher } from "../src/connect/terminal-stream-dispatcher.ts";
 import type { TerminalStreamRoute } from "../src/connect/terminal-view-stream-controller-types.ts";
 import {

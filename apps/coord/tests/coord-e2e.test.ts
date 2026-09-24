@@ -13,7 +13,7 @@ import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { newJwtCache } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
-import type { CoordConfig } from "@roost/shared/config";
+import type { CoordConfig } from "@roost/host/config";
 
 let workdir: string;
 let coord: CoordHandle;

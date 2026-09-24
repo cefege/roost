@@ -5,8 +5,8 @@
 // "top tab bar shows ALL workspaces" bug (only /s/ used to resolve).
 
 import { expect, test, describe, beforeEach } from "bun:test";
-import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asWorkerFp, asSessionId, asChannelId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore, setRootStore } from "../src/store/root.ts";
 import { activeSessionForPath, resolveSessionByWorkspace } from "../src/store/selectors.ts";
 import { encodeFolderPath } from "../src/lib/terminalHref.ts";

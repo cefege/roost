@@ -6,7 +6,7 @@
 // Callers: WorkerBrowsePage.tsx.
 
 import { createSignal, type Accessor } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { coordClient } from "../connect.ts";
 import {
   captureAuthResourceToken,
@@ -15,7 +15,7 @@ import {
 import { browseErrorMessage } from "../lib/browseErrorMessage.ts";
 import { validateNewFolderName } from "../lib/folderNameValidation.ts";
 import { childPath } from "../lib/folderPalette.ts";
-import type { WorkerFp } from "@roost/shared/wire";
+import type { WorkerFp } from "@roost/protocol/wire";
 
 export interface BrowseNewFolder {
   open: Accessor<boolean>;

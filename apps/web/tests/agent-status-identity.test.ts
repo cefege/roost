@@ -11,11 +11,11 @@ import {
   asSessionId,
   type AgentStatus as AgentStatusValue,
   type AgentStatusIdentity,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   AgentStatusFrameSchema,
   type AgentStatusFrame as SyncAgentStatusFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   applyAgentStatusFrame,
   clearAgentStatusForSession,

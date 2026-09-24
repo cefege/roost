@@ -1,7 +1,7 @@
 // Applies the durable worker-removal boundary to browser replica and direct state.
 // Saved sessions/workspaces remain offline history; browser-held credentials and
 // carriers retire before the machine record disappears.
-import type { Worker } from "@roost/shared/wire";
+import type { Worker } from "@roost/protocol/wire";
 import { terminalDirectRegistry } from "./terminal-stream-transport.ts";
 import { retireTerminalGrantsForWorker } from "../ws/local-terminal-grants.ts";
 import { deleteStoreRecord } from "./root.ts";

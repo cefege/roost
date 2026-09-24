@@ -7,19 +7,19 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import type {
   SessionsNegotiateAttachmentPeerRequest,
   SessionsNegotiateAttachmentPeerResponse,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import type {
   WLocalAttachmentPeerAnswer,
   WLocalAttachmentPeerError,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   ATTACHMENT_TRANSFER_PEER_MAX_NEGOTIATIONS_PER_WORKER,
   ATTACHMENT_TRANSFER_PEER_MAX_PENDING_NEGOTIATIONS,
   ATTACHMENT_TRANSFER_PEER_MAX_PENDING_NEGOTIATIONS_PER_DEVICE,
-} from "@roost/shared/attachment-transfer";
-import { TERMINAL_PEER_SDP_MAX_UTF8_BYTES } from "@roost/shared/terminal-peer";
-import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
-import type { CoordConfig } from "@roost/shared/config";
+} from "@roost/protocol/attachment-transfer";
+import { TERMINAL_PEER_SDP_MAX_UTF8_BYTES } from "@roost/protocol/terminal-peer";
+import { hasAtMostUtf8Bytes } from "@roost/protocol/ui-state";
+import type { CoordConfig } from "@roost/host/config";
 import type {
   AttachmentGrantInvalidation,
   AttachmentGrantPort,

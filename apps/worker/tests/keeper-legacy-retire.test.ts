@@ -9,7 +9,7 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cleanupLocalEndpoint } from "@roost/shared/local-endpoint";
+import { cleanupLocalEndpoint } from "@roost/host/local-endpoint";
 import {
   KEEPER_IDENTITY_UNPROVEN_ERROR,
   KEEPER_REPLACEMENT_BLOCKED_ERROR,

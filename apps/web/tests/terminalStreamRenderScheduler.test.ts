@@ -4,7 +4,7 @@
 // The shared fixture supplies a generation-matched terminal stream and fake renderer.
 
 import { describe, expect, test } from "bun:test";
-import type { CellGridFrame } from "@roost/shared/cell";
+import type { CellGridFrame } from "@roost/protocol/cell";
 import {
   RecordingRenderer,
   SESSION_ID,

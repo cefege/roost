@@ -3,13 +3,13 @@
 // window onto older rows; the chain holds no state past its own return.
 // Guards and decoding come from terminalFindPaging.
 
-import type { SessionsSearchScrollbackResponse } from "@roost/shared/proto/coordinator_pb";
-import { SearchStopReason } from "@roost/shared/proto/coordinator_pb";
+import type { SessionsSearchScrollbackResponse } from "@roost/protocol/proto/coordinator_pb";
+import { SearchStopReason } from "@roost/protocol/proto/coordinator_pb";
 import {
   TERMINAL_SEARCH_MAX_MATCHES,
   TERMINAL_SEARCH_MAX_PAGES,
   TERMINAL_SEARCH_MAX_ROWS,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import { coordClient } from "../connect.ts";
 import {
   decodePageMatches,

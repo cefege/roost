@@ -4,19 +4,19 @@
 
 import { describe, expect, test } from "bun:test";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { initCellEmitState } from "@roost/shared/cell";
+import { initCellEmitState } from "@roost/protocol/cell";
 import {
   CoordWorkerUpSchema,
   DTerminalPipelineSnapshotRequestSchema,
   WTerminalPipelineSnapshotSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TerminalPipelineReason,
   TerminalPipelineStage,
   TerminalPipelineTargetSchema,
-} from "@roost/shared/proto/wire_pb";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
-import type { ChannelId, SessionId } from "@roost/shared/wire";
+} from "@roost/protocol/proto/wire_pb";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
+import type { ChannelId, SessionId } from "@roost/protocol/wire";
 import {
   TERMINAL_PIPELINE_MAX_RESPONSE_BYTES,
   terminalPipelineSnapshot,

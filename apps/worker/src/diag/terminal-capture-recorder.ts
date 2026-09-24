@@ -6,8 +6,8 @@
 // Every bound comes from TERMINAL_CAPTURE_LIMITS.
 
 import { randomUUID } from "node:crypto";
-import type { CellGridFrame } from "@roost/shared/cell";
-import type { TerminalGeometry } from "@roost/shared/viewport";
+import type { CellGridFrame } from "@roost/protocol/cell";
+import type { TerminalGeometry } from "@roost/protocol/viewport";
 import {
 	TERMINAL_CAPTURE_LIMITS,
 	type TerminalCaptureFileRef,
@@ -17,7 +17,7 @@ import {
 	type TerminalWorkerRawRecord,
 	type TerminalWorkerResizeOutcome,
 	type TerminalWorkerSegment,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { TerminalCaptureWorkerAck } from "./terminal-capture-ack.ts";
 import {
 	noteWorkerOmission,

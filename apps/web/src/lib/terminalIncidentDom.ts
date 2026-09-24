@@ -3,7 +3,7 @@
 // the renderer, the DOM, the selection or the scroll position.
 // Called by terminalIncidentCapture.ts through CellGridRenderer's guarded
 // observer hooks; depends on cellRendererPresentation.ts, cellRow.ts and
-// @roost/shared/terminal-capture.
+// @roost/protocol/terminal-capture.
 
 import {
   TERMINAL_CAPTURE_LIMITS,
@@ -17,8 +17,8 @@ import {
   type TerminalCaptureReason,
   type TerminalCaptureStreamIdentity,
   type TerminalDomRow,
-} from "@roost/shared/terminal-capture";
-import type { CellGridFrame, CellRow } from "@roost/shared/cell";
+} from "@roost/protocol/terminal-capture";
+import type { CellGridFrame, CellRow } from "@roost/protocol/cell";
 import { ROW_COLUMNS_ATTR } from "./cellRow.ts";
 import type { RendererProjection } from "./cellRendererPresentation.ts";
 

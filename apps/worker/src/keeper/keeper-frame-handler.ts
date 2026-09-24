@@ -28,10 +28,10 @@ import { reapChannelTree } from "./keeper-process-reap.ts";
 import type { Channel, ClientState } from "./keeper-types.ts";
 import { cacheResizeResult, sendResizeResult } from "./keeper-resize-result.ts";
 import { createSbRing, appendToRing, readRing } from "../session-scrollback-ring.ts";
-import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
-import { nativePathToFsPath } from "@roost/shared/native-path";
-import { spawnWindowsJobHost } from "@roost/shared/windows-helper";
-import type { WindowsJobHostHandle } from "@roost/shared/windows-helper";
+import { assertNeverPlatform, supportedHostPlatform } from "@roost/platform/platform";
+import { nativePathToFsPath } from "@roost/platform/native-path";
+import { spawnWindowsJobHost } from "@roost/host/windows-helper";
+import type { WindowsJobHostHandle } from "@roost/host/windows-helper";
 
 // RC2: per-channel output ring kept on the keeper so head_seq + history
 // survive a worker restart (the keeper outlives the worker). Matches the

@@ -2,8 +2,8 @@
 // Fleet convergence/finalization, database snapshot mechanics, and immutable
 // release cleanup live in focused siblings and are re-exported as one deploy API.
 
-import { coordServiceLabel } from "@roost/shared/paths";
-import { durableRemove, durableWriteFile } from "@roost/shared/durability";
+import { coordServiceLabel } from "@roost/host/paths";
+import { durableRemove, durableWriteFile } from "@roost/host/durability";
 import { DeployFailure } from "./deploy-exec.ts";
 import {
   coordinatorDeployRecoveryAction,

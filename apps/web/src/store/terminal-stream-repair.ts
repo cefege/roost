@@ -3,16 +3,16 @@
 // terminal-stream-liveness.ts supplies generation identity and timer retirement.
 // Replica and view-command owners call this module through their existing APIs.
 
-import type { CellGridFrame } from "@roost/shared/cell";
-import type { PbCellGridChunk } from "@roost/shared/proto/cell_pb";
+import type { CellGridFrame } from "@roost/protocol/cell";
+import type { PbCellGridChunk } from "@roost/protocol/proto/cell_pb";
 import { create } from "@bufbuild/protobuf";
-import { signal } from "@roost/shared/diag";
-import { TerminalResyncCommandSchema } from "@roost/shared/proto/sync_pb";
+import { signal } from "@roost/observability/diag";
+import { TerminalResyncCommandSchema } from "@roost/protocol/proto/sync_pb";
 import {
   TERMINAL_FOREGROUND_IDLE_PROBE_MS,
   TERMINAL_FOREGROUND_PROBE_DEADLINE_MS,
   TERMINAL_VIEW_HEARTBEAT_MS,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import {
   currentTerminalGenerationToken,

@@ -9,8 +9,8 @@ import {
   realpathSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { durableRemove } from "@roost/shared/durability";
-import { acquireMachineTransaction } from "./machine-transaction.ts";
+import { durableRemove } from "@roost/host/durability";
+import { acquireMachineTransaction } from "@roost/host/machine-transaction";
 import {
   DeployFailure,
   failDeploy,

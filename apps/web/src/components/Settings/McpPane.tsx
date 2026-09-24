@@ -8,7 +8,7 @@
 // McpRelayEditor, toastStore, md/primitives.
 
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import type { McpRelay, McpRelayId } from "@roost/shared/wire";
+import type { McpRelay, McpRelayId } from "@roost/protocol/wire";
 import { rootStore } from "../../store/root.ts";
 import { replaceMcpRelays, deleteMcpRelay, upsertMcpRelay } from "../../store/mutations.ts";
 import { coordClient } from "../../connect.ts";

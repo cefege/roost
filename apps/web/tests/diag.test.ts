@@ -2,7 +2,7 @@
 // it to coord, and terminal input emits a diagnostic on every keystroke — so a
 // kv field JSON cannot express natively (proto uint64 arrives as bigint) or at
 // all (a cycle, a hostile getter) must degrade the DIAGNOSTIC, never the
-// product path that emitted it. Drives the real @roost/shared/diag facade
+// product path that emitted it. Drives the real @roost/observability/diag facade
 // through the real batcher; only the coord transport is substituted.
 
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test, vi } from "bun:test";
@@ -21,7 +21,7 @@ mock.module("../src/connect.ts", () => ({
     },
   },
 }));
-const { diag, setDiagSink } = await import("@roost/shared/diag");
+const { diag, setDiagSink } = await import("@roost/observability/diag");
 const spaDiag = await import("../src/lib/diag.ts");
 spaDiag.installSpaDiag();
 // The gate and the sink are process-global; the module-load gate has already

@@ -9,7 +9,7 @@ import {
   type CoordinatorService,
   WorkersDeployOutputFrameSchema,
   WorkersDeployStartResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { deployOutput, startDeploy } from "../deploy-jobs.ts";
 import { SseQueueOverflowError } from "../sse.ts";
 import { startWindowsDeploy } from "../windows-update-manifest.ts";

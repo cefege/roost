@@ -1,4 +1,4 @@
-import { diag, signal } from "@roost/shared/diag";
+import { diag, signal } from "@roost/observability/diag";
 import { sendTerminalInput } from "../ws/sync-outbound.ts";
 import type { InputAdmission } from "../ws/terminal-input-lanes.ts";
 

@@ -8,9 +8,9 @@
 // closeSessionOp deliberately CAPTURES layout/folderKey before its async undo
 // window — both behaviors are byte-for-byte the pre-extraction deck closures.
 
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { batch } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { rootStore } from "../store/root.ts";
 import { commitLayout, resolveLayout } from "../store/paneLayoutStore.ts";
 import {

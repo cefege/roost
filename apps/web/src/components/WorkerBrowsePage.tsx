@@ -4,7 +4,7 @@
 
 import { createMemo, createSignal, createEffect, For, Show, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
@@ -26,7 +26,7 @@ import { createBrowseDirectoryListing } from "./browseDirectoryListing.ts";
 import { createBrowseNewFolder } from "./browseNewFolder.ts";
 import { createBrowsePickerKeys } from "./browsePickerKeys.ts";
 import { launchWorkerBrowseTerminal } from "./workerBrowseActions.ts";
-import type { WorkerFp } from "@roost/shared/wire";
+import type { WorkerFp } from "@roost/protocol/wire";
 import { Button } from "./Settings/md/Button.tsx";
 import { Chip } from "./Settings/md/Chip.tsx";
 import { EmptyState } from "./Settings/md/EmptyState.tsx";

@@ -2,11 +2,11 @@
 // POSIX deploys. Installed explicit settings seed each host independently;
 // target-release fields are replaced so no prior worktree or token leaks.
 
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 import {
   AGENT_CONVERSATION_RESTORE_ENV as CONVERSATION_RESTORE_ENV,
   KEEPER_FORCE_LIVE_RETIRE_ENV,
-} from "@roost/shared/worker-service-env";
+} from "@roost/platform/worker-service-env";
 import { DEPLOY_HOST_LOCAL_ENV_KEYS } from "./deploy-plist-env.ts";
 
 export { KEEPER_FORCE_LIVE_RETIRE_ENV };

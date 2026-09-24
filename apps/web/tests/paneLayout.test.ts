@@ -3,7 +3,7 @@
 // exactly one leaf) guard the SCD-self-clamp rule from the plan.
 
 import { describe, test, expect } from "bun:test";
-import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/protocol/layout-document";
 import {
   defaultLayout,
   splitLeaf,

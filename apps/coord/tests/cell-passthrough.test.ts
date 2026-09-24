@@ -4,8 +4,8 @@
 
 import { describe, test, expect } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
-import { asWorkerFp, asChannelId } from "@roost/shared/wire";
+import { PbCellGridFrameSchema } from "@roost/protocol/proto/cell_pb";
+import { asWorkerFp, asChannelId } from "@roost/protocol/wire";
 import { publishCellGrid, primeChannelMap } from "../src/byte-hub.ts";
 import { installTerminalViewHub, TerminalViewHub } from "../src/connect/terminal-view-hub.ts";
 import type { KyselyDB } from "../src/db/connection.ts";

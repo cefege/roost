@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import {
   AgentStatusGetRequestSchema,
   AgentStatusListRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { evictSessionWorker } from "../src/byte-hub.ts";
 import { makeConnectBunHandler } from "../src/connect/bun-handler.ts";
 import type { AgentStatusHandlers } from "../src/connect/handlers-agent-status.ts";

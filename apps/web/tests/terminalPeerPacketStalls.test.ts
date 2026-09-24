@@ -2,7 +2,7 @@
 // This protects retained control/terminal buffers while history continues flowing.
 
 import { afterEach, expect, test, vi } from "bun:test";
-import type { TerminalPeerPacketLane } from "@roost/shared/terminal-peer";
+import type { TerminalPeerPacketLane } from "@roost/protocol/terminal-peer";
 import { TerminalPeerPacketStalls } from "../src/ws/terminal-peer-packet-stalls.ts";
 
 afterEach(() => vi.useRealTimers());

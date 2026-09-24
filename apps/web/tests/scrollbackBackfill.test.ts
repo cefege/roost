@@ -5,7 +5,7 @@
 // ownership remain covered by the renderer DOM tests.
 
 import { afterEach, beforeEach, describe, expect, mock, test, vi } from "bun:test";
-import { ScrollbackHistoryFloor } from "@roost/shared/proto/coordinator_pb";
+import { ScrollbackHistoryFloor } from "@roost/protocol/proto/coordinator_pb";
 import {
   createBackfillHarness, flushWork, GRID_EPOCH, installScrollbackFrameLifecycle, INTERIOR_PAINTED,
   response, type BackfillHarnessOptions, type ScrollRequest, type ScrollResponse,
@@ -25,8 +25,8 @@ mock.module("../src/connect.ts", () => ({
 const diagEvents: Array<Record<string, unknown>> = [];
 // Read before mock.module replaces the specifier, so the override can spread
 // the real module's other exports.
-const realDiag = await import("@roost/shared/diag");
-mock.module("@roost/shared/diag", () => ({
+const realDiag = await import("@roost/observability/diag");
+mock.module("@roost/observability/diag", () => ({
   ...realDiag,
   diag(evt: string, kv: Record<string, unknown>) { diagEvents.push({ evt, ...kv }); },
 }));

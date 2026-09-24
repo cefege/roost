@@ -2,14 +2,14 @@
 // The scanner calls this boundary for diagnostics and coordinator replies.
 // Pre-scan deadlines derive their empty range from the current terminal grid.
 
-import { cellGridEpoch, scrollbackOrigin } from "@roost/shared/cell";
-import { diag } from "@roost/shared/diag";
+import { cellGridEpoch, scrollbackOrigin } from "@roost/protocol/cell";
+import { diag } from "@roost/observability/diag";
 import {
   WorkerSearchScrollbackResultSchema,
   countUnicodeCodePoints,
   type WorkerSearchScrollbackResult,
-} from "@roost/shared/terminal-search";
-import type { ClientControlFrame } from "@roost/shared/wire";
+} from "@roost/protocol/terminal-search";
+import type { ClientControlFrame } from "@roost/protocol/wire";
 import { historyFloorReason } from "./session-scrollback.ts";
 import type { SessionShellRecord } from "./session-record.ts";
 import type { CoordLink } from "./transport/coord-link.ts";

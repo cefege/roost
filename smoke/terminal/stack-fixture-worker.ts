@@ -3,7 +3,7 @@
 // It reuses the ordinary worker starter so fixture workers retain the real auth and keeper lifecycle.
 
 import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import type { CoordWorkerUp } from "../../apps/shared/src/gen/roost/v1/worker_transport_pb.ts";
+import type { CoordWorkerUp } from "../../packages/protocol/src/gen/roost/v1/worker_transport_pb.ts";
 import { startDelayedWorkerLink, type DelayedWorkerLink } from "./delayed-worker-link.ts";
 import {
   createTerminalWorkerStarter,

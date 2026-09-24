@@ -9,9 +9,9 @@ import {
   WHelloSchema,
   WSessionEventSchema,
   type CoordWorkerDown,
-} from "@roost/shared/proto/worker_transport_pb";
-import { eventToProto } from "@roost/shared/wire/event-proto";
-import type { SessionEvent } from "@roost/shared/wire";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
+import type { SessionEvent } from "@roost/protocol/wire";
 import {
   makeWorkerConn,
   type WorkerConn,

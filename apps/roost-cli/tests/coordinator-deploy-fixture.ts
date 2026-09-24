@@ -5,7 +5,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/shared/keeper-update";
+import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/protocol/keeper-update";
 import {
   coordinatorDatabaseSnapshotPath,
   writeCoordinatorDeployJournal,

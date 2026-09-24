@@ -13,7 +13,7 @@ import {
   type CellGridFrame,
   type CellRow,
   type CellSpan,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 
 export const QUALIFICATION_COLS = 80;
 export const QUALIFICATION_ROWS = 24;

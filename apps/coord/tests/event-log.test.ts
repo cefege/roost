@@ -3,9 +3,9 @@
 
 import { describe, test, expect } from "bun:test";
 import fc from "fast-check";
-import { foldAll, foldEvent } from "@roost/shared/wire";
-import type { SessionEvent, Session } from "@roost/shared/wire";
-import { asSessionId, asWorkerFp, asChannelId, asWorkspaceId } from "@roost/shared/wire";
+import { foldAll, foldEvent } from "@roost/protocol/wire";
+import type { SessionEvent, Session } from "@roost/protocol/wire";
+import { asSessionId, asWorkerFp, asChannelId, asWorkspaceId } from "@roost/protocol/wire";
 
 const FP = asWorkerFp("a".repeat(64));
 const SID = asSessionId("00000000-0000-4000-8000-000000000001");

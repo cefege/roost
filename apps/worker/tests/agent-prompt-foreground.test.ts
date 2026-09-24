@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   DAgentPromptSchema,
   type DAgentPrompt,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   AgentProcessScanner,
   parsePsSnapshot,

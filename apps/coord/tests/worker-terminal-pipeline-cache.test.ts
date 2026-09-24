@@ -9,13 +9,13 @@ import {
   type CoordWorkerDown,
   type DTerminalPipelineSnapshotRequest,
   type WTerminalPipelineSnapshot,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TerminalPipelineReason,
   TerminalPipelineSessionSnapshotSchema,
   TerminalPipelineStage,
   TerminalPipelineStageSnapshotSchema,
-} from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/wire_pb";
 import {
   WORKER_TERMINAL_PIPELINE_CACHE_MS,
   createWorkerTerminalPipelineSnapshotCache,

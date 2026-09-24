@@ -11,7 +11,7 @@ import {
   PushGetConfigResponseSchema,
   PushSubscribeResponseSchema,
   PushUnsubscribeResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { requireAccountDevice } from "./auth-interceptor.ts";
 import { getVapidKeys } from "../vapid.ts";
 import { hasUrlUserInfo } from "../url-user-info.ts";

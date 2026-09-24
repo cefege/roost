@@ -7,17 +7,17 @@ import type { ServerWebSocket } from "bun";
 import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, CoordWorkerDownSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type {
   CoordWorkerDown,
   CoordWorkerUp,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { jwtKeyGeneration, type Caller as VerifiedJwtCaller } from "../jwt.ts";
-import { log } from "@roost/shared/log";
-import { diag, signal } from "@roost/shared/diag";
+import { log } from "@roost/observability/log";
+import { diag, signal } from "@roost/observability/diag";
 import { makeWorkerConn, type WorkerConn, type WorkerServiceDeps } from "./worker-service.ts";
-import { protoToEvent } from "@roost/shared/wire/event-proto";
-import { asChannelId, asWorkerFp } from "@roost/shared/wire";
+import { protoToEvent } from "@roost/protocol/wire/event-proto";
+import { asChannelId, asWorkerFp } from "@roost/protocol/wire";
 import { lookupSessionId } from "../byte-hub.ts";
 import { realWsDeadlineClock, type WsDeadlineClock } from "./ws-auth-deadline.ts";
 import { OrderedWorkerFrameQueue } from "./worker-frame-queue.ts";

@@ -13,8 +13,8 @@ import {
 	Show,
 } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import type { MouseTracking } from "@roost/shared/cell";
-import { signal } from "@roost/shared/diag";
+import type { MouseTracking } from "@roost/protocol/cell";
+import { signal } from "@roost/observability/diag";
 import { getSessionTraceId } from "../lib/diag.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { mouseGesturesForwarded } from "../lib/mouseForwardPref.ts";

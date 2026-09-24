@@ -9,9 +9,9 @@ import {
   DTerminalPipelineSnapshotRequestSchema,
   WTerminalPipelineSnapshotSchema,
   type DTerminalPipelineSnapshotRequest,
-} from "@roost/shared/proto/worker_transport_pb";
-import { TerminalPipelineTargetSchema } from "@roost/shared/proto/wire_pb";
-import { asWorkerFp } from "@roost/shared/wire";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { TerminalPipelineTargetSchema } from "@roost/protocol/proto/wire_pb";
+import { asWorkerFp } from "@roost/protocol/wire";
 import { frameToProto } from "../src/transport/coord-link-codec.ts";
 import { createCoordLinkDownstream } from "../src/transport/coord-link-downstream.ts";
 import { buildCoordLinkDeps, type CoordLinkRefs } from "../src/coord-link-deps.ts";

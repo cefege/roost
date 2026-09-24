@@ -5,7 +5,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   CoordWorkerDownSchema,
   DBrowserCommandSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { createPendingRpc, rejectPendingRpcUnavailable } from "../router/pending-rpcs.ts";
 import { connectWorkers } from "./worker-registry.ts";
 

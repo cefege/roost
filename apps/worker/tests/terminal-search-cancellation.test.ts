@@ -3,8 +3,8 @@
 // unbounded browser-provided identities in the worker session manager.
 
 import { describe, expect, test } from "bun:test";
-import { asSessionId, asWorkerFp } from "@roost/shared/wire";
-import type { ClientControlFrame } from "@roost/shared/wire";
+import { asSessionId, asWorkerFp } from "@roost/protocol/wire";
+import type { ClientControlFrame } from "@roost/protocol/wire";
 import { SessionManager } from "../src/session-manager.ts";
 import {
   cancelSearchScrollback,

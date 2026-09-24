@@ -3,7 +3,7 @@
 // delegates paging and session navigation to its controller-owning parent.
 
 import { createMemo, For, Show } from "solid-js";
-import type { SessionsSearchGlobalMatch } from "@roost/shared/proto/coordinator_pb";
+import type { SessionsSearchGlobalMatch } from "@roost/protocol/proto/coordinator_pb";
 import type { GlobalContentSearchController } from "../lib/globalContentSearchController.ts";
 import {
   globalContentSearchPartialLabel,

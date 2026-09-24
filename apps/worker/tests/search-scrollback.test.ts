@@ -7,10 +7,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	cellGridEpoch, readScrollbackRangeCells, scrollbackOrigin, spansText, viewportRowSpans,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import {
 	TERMINAL_SEARCH_MAX_MATCHES, type WorkerSearchScrollbackResult,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import {
 	FIXED_RUNTIME, freshManager, injectSession, search, searchFrame,

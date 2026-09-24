@@ -4,7 +4,7 @@
 // retired, an explicit `active: false` withdrawal stays a withdrawal, and a
 // dead occupant backs no prompt proof.
 import { describe, expect, test } from "bun:test";
-import type { AgentStatusUpdate } from "@roost/shared/wire";
+import type { AgentStatusUpdate } from "@roost/protocol/wire";
 import { AgentStatusRegistry } from "../src/agent-status/registry.ts";
 
 const SESSION_ID = "33333333-3333-4333-8333-333333333333";

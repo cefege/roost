@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { ServerWebSocket } from "bun";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
+import { layoutDocumentToProto } from "@roost/protocol/layout-document-proto";
 import {
   SyncClientFrameSchema,
   SyncDomain,
@@ -15,7 +15,7 @@ import {
   UiApplyLayoutSchema,
   UiCommandSchema,
   UiReportStateRequestSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { uiBus } from "../src/buses.ts";
 import { makeSyncWsHandler, type SyncWsData } from "../src/connect/sync-ws-handler.ts";
 import { createSyncV2SocketState } from "../src/connect/sync-ws-v2-state.ts";

@@ -5,7 +5,7 @@
 
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { roostServiceDir } from "@roost/shared/paths";
+import { roostServiceDir } from "@roost/host/paths";
 import {
   acquireRemoteDeployLock,
   releaseRemoteDeployLock,
@@ -19,7 +19,7 @@ import {
   prepareKeeperMaintenance,
   workerForDirectKeeperTarget,
 } from "./direct-keeper-update.ts";
-import { acquireMachineTransaction } from "./machine-transaction.ts";
+import { acquireMachineTransaction } from "@roost/host/machine-transaction";
 import type { WorkerStatus } from "./status.ts";
 
 function keeperRefreshJournalPath(platform: "darwin" | "linux"): string {

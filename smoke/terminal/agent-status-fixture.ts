@@ -8,7 +8,7 @@
 import { constants, existsSync } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import { expect, type Page } from "@playwright/test";
-import type { AgentStatusView } from "@roost/shared/proto/coordinator_pb";
+import type { AgentStatusView } from "@roost/protocol/proto/coordinator_pb";
 
 export interface AgentStatusSmoke {
   spawnShell(worker: string, folder: string): Promise<{ session_id: string }>;

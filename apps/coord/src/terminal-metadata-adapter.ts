@@ -3,10 +3,10 @@
 // through the same incremental title parser, never exposing PTY bytes to Sync.
 // Session close and route loss release every compatibility parser state.
 
-import type { WTerminalMetadata } from "@roost/shared/proto/worker_transport_pb";
-import { TerminalTitleParser } from "@roost/shared/terminal-metadata";
-import { diag } from "@roost/shared/diag";
-import type { ChannelId, WorkerFp } from "@roost/shared/wire";
+import type { WTerminalMetadata } from "@roost/protocol/proto/worker_transport_pb";
+import { TerminalTitleParser } from "@roost/protocol/terminal-metadata";
+import { diag } from "@roost/observability/diag";
+import type { ChannelId, WorkerFp } from "@roost/protocol/wire";
 import { lookupSessionId } from "./byte-hub.ts";
 import { sessionBus } from "./buses.ts";
 import { observeTerminalActivity } from "./last-activity-hub.ts";

@@ -19,8 +19,8 @@
 //     the browser changes the scrolling root
 
 import { onCleanup, type Accessor } from "solid-js";
-import { diag } from "@roost/shared/diag";
-import type { MouseTracking } from "@roost/shared/cell";
+import { diag } from "@roost/observability/diag";
+import type { MouseTracking } from "@roost/protocol/cell";
 import { mouseGesturesForwarded } from "./mouseForwardPref.ts";
 import {
 	cellFromPoint,

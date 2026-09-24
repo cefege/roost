@@ -7,7 +7,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import type { AgentStatusUpdate } from "@roost/shared/wire";
+import type { AgentStatusUpdate } from "@roost/protocol/wire";
 import { evaluateManifest } from "../src/agent-status/manifest-engine.ts";
 import { AGENT_MANIFESTS } from "../src/agent-status/manifests.ts";
 import {

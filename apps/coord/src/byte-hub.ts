@@ -7,13 +7,13 @@
 // durable-publication step (event-log.ts → applyDurableChannelIndex), never
 // from a sessionBus subscription. This keeps route publication atomic with
 // the durable event before browser Sync observes it.
-import type { SessionEvent, SessionId, WorkerFp, ChannelId } from "@roost/shared/wire";
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { SessionEvent, SessionId, WorkerFp, ChannelId } from "@roost/protocol/wire";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 import {
   currentTerminalScreenHub,
   notifyTerminalRouteReconciled,
 } from "./connect/terminal-view-hub.ts";
-import { signal, diag } from "@roost/shared/diag";
+import { signal, diag } from "@roost/observability/diag";
 import { publishTerminalRouteRetirement } from "./terminal-route-retirement.ts";
 
 // (workerFp, channelId) → SessionId. Built from durable session events.

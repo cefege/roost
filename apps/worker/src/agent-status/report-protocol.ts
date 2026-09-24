@@ -6,12 +6,12 @@
 // `active: false` already withdraws a status — see REPORTED_STATE_UNKNOWN_REASON.
 
 import { z } from "zod";
-import { AgentConversationReferenceV1Schema } from "@roost/shared/agent-conversation-reference";
+import { AgentConversationReferenceV1Schema } from "@roost/protocol/agent-conversation-reference";
 import {
   AGENT_STATUS_MESSAGE_MAX_LENGTH,
   AgentRuntimeState,
   SessionId,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 
 export const AGENT_REPORT_MAX_LINE_BYTES = 32 * 1024;
 

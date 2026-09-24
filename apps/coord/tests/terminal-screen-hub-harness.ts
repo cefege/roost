@@ -12,8 +12,8 @@ import {
   type PbCellGridChunk,
   type PbCellGridFrame,
   type PbCellRow,
-} from "@roost/shared/proto/cell_pb";
-import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/cell_pb";
+import type { FirehoseFrame } from "@roost/protocol/proto/sync_pb";
 import {
   TerminalScreenHub,
   type TerminalScreenHubOptions,

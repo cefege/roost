@@ -6,12 +6,12 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, WCellGridSchema, WCellGridChunkSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { AgentStatusUpdate } from "@roost/shared/wire";
-import { diag } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
+import type { AgentStatusUpdate } from "@roost/protocol/wire";
+import { diag } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
 import {
   frameToProto,
   binaryFrameToProto,

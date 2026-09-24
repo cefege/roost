@@ -24,8 +24,8 @@ import {
 } from "../../apps/roost-cli/src/push-keeper-admission.ts";
 import { workerInventoryForUpdateAdmission } from "../../apps/roost-cli/src/status-report.ts";
 import type { WorkerStatus } from "../../apps/roost-cli/src/status-types.ts";
-import type { KeeperContractV1 } from "../../apps/shared/src/keeper-update.ts";
-import { supportedHostPlatform } from "../../apps/shared/src/platform.ts";
+import type { KeeperContractV1 } from "../../packages/protocol/src/keeper-update.ts";
+import { supportedHostPlatform } from "../../packages/platform/src/platform.ts";
 import { createTerminalWorkerStarter } from "../terminal/stack-worker-runtime.ts";
 
 const KEEPER_RPC_ATTEMPTS = 30;

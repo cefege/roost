@@ -4,13 +4,13 @@
 // Duplicate delivery and route-before-bus ordering are invariants.
 
 import type { KyselyDB } from "./db/connection.ts";
-import { foldEvent, SessionEvent as SessionEventSchema } from "@roost/shared/wire";
-import type { Session, SessionEvent, WorkerFp } from "@roost/shared/wire";
+import { foldEvent, SessionEvent as SessionEventSchema } from "@roost/protocol/wire";
+import type { Session, SessionEvent, WorkerFp } from "@roost/protocol/wire";
 import {
   MAX_WORKER_SNAPSHOT_SESSIONS,
   normalizePersistedWorkerEvent,
 } from "./persistence-input.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { resolveEventAdmission } from "./event-admission.ts";
 import {
   _cascadeClosedSession,

@@ -4,7 +4,7 @@
 
 import { readFileSync } from "node:fs";
 import type { Channel } from "./keeper-types.ts";
-import { assertNeverPlatform, supportedHostPlatform, type SupportedHostPlatform } from "@roost/shared/platform";
+import { assertNeverPlatform, supportedHostPlatform, type SupportedHostPlatform } from "@roost/platform/platform";
 
 const HOST_PLATFORM = supportedHostPlatform() as SupportedHostPlatform;
 

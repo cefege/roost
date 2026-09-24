@@ -3,20 +3,20 @@
 // registry; it reserves bounded peers, answers one offer, and retires only that peer.
 
 import { create } from "@bufbuild/protobuf";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
 	TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER,
 	TERMINAL_PEER_MAX_NEGOTIATIONS_PER_WORKER,
 	TERMINAL_PEER_NATIVE_ANSWER_DEADLINE_MS,
 	parseTerminalPeerStunUrls,
-} from "@roost/shared/terminal-peer";
-import { inspectTerminalPeerSdp } from "@roost/shared/terminal-peer-sdp";
+} from "@roost/protocol/terminal-peer";
+import { inspectTerminalPeerSdp } from "@roost/protocol/terminal-peer-sdp";
 import {
 	WLocalTerminalPeerAnswerSchema,
 	type DLocalTerminalPeerCancel,
 	type DLocalTerminalPeerOffer,
 	type WLocalTerminalPeerAnswer,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 import {
 	TerminalPeerConnection,

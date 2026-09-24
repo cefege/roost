@@ -4,23 +4,23 @@
 
 import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { AgentConversationReferenceV1Schema } from "@roost/shared/agent-conversation-reference";
+import { AgentConversationReferenceV1Schema } from "@roost/protocol/agent-conversation-reference";
 import {
   CoordWorkerUpSchema,
   WHelloSchema,
   WSessionEventSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   AgentReferenceEvtSchema,
   SessionEventProtoSchema,
-} from "@roost/shared/proto/events_pb";
+} from "@roost/protocol/proto/events_pb";
 import {
   AgentConversationReferenceV1Schema as AgentConversationReferenceV1ProtoSchema,
-} from "@roost/shared/proto/wire_pb";
-import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { eventToProto } from "@roost/shared/wire/event-proto";
-import { SessionEvent, type SessionEvent as SessionEventValue } from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/wire_pb";
+import type { FirehoseFrame } from "@roost/protocol/proto/sync_pb";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
+import { SessionEvent, type SessionEvent as SessionEventValue } from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
 import { sessionBus } from "../src/buses.ts";
 import {
   appendEvent,

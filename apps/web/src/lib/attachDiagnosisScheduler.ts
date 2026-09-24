@@ -3,7 +3,7 @@
 // The supplied transport returns one bounded snapshot for every admitted session.
 // Canceled registrations never receive a stale response or keep a timer alive.
 
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import {
   attachDiagnosisReasonFromSnapshot,
 } from "./attachDiagnosisReason.ts";

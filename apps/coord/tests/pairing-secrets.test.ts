@@ -1,5 +1,5 @@
 // Pairing coordinator adapters must share browser ceremony validation exactly.
-// This suite leaves entropy coverage with @roost/shared and pins digest-only
+// This suite leaves entropy coverage with @roost/protocol and pins digest-only
 // coordinator ownership plus strict pre-hash wire values.
 
 import { describe, expect, test } from "bun:test";
@@ -11,7 +11,7 @@ import {
   normalizePairRequestId,
   normalizePairRequesterToken,
   normalizePairVerificationCode,
-} from "@roost/shared/pairing";
+} from "@roost/protocol/pairing";
 import {
   assertPairingCeremonyVersion,
   pairingSecretDigest,

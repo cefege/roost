@@ -5,7 +5,7 @@
 import { createMemo, createRoot } from "solid-js";
 import { rootStore } from "./root.ts";
 import { decodeFolderPath } from "../lib/terminalHref.ts";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { isPendingClose } from "../lib/pendingClose.ts";
 import { sameWorkerPath } from "../lib/nativePath.ts";

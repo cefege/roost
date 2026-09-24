@@ -6,8 +6,8 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CoordConfig } from "@roost/shared/config";
-import { fingerprintOf } from "@roost/shared/fingerprint";
+import type { CoordConfig } from "@roost/host/config";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { createCoord } from "../src/coord-factory.ts";
 import {

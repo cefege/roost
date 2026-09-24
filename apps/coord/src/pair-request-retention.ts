@@ -3,7 +3,7 @@
 // The scheduler publishes expired IDs to pairBus and records non-empty runs.
 
 import type { Database } from "bun:sqlite";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { DAY_MS } from "./audit-retention.ts";
 import { pairBus } from "./buses.ts";
 

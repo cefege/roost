@@ -2,7 +2,7 @@
 // AttachmentOperationOwner answers carriers with these shapes; the upload facade
 // and direct sockets consume them. Pure functions: no fd, disk, or clock access.
 
-import type { AttachmentTransferErrorReason } from "@roost/shared/attachment-transfer";
+import type { AttachmentTransferErrorReason } from "@roost/protocol/attachment-transfer";
 import type { AttachmentOperationJournal } from "./attachment-operation-journal.ts";
 
 export type AttachmentOperationError = Extract<

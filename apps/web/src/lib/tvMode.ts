@@ -6,10 +6,10 @@
 //
 // Callers: main.tsx (before first paint), Settings/ThemePane, keyboardShortcuts,
 // spatialNavigation, CellTerminal + its interaction/renderer helpers.
-// Depends on: solid-js createSignal, @roost/shared/diag, localStorage, location.
+// Depends on: solid-js createSignal, @roost/observability/diag, localStorage, location.
 
 import { createSignal } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 
 export type TvModeChoice = "auto" | "on" | "off";
 

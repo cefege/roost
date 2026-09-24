@@ -2,8 +2,8 @@
 // Browser command dispatch records explicit cancels here before scan admission.
 // Bounded tombstones reject cancel-before-start reordering without lasting state.
 
-import { TERMINAL_SEARCH_RPC_DEADLINE_MS } from "@roost/shared/terminal-search";
-import type { ClientControlFrame } from "@roost/shared/wire";
+import { TERMINAL_SEARCH_RPC_DEADLINE_MS } from "@roost/protocol/terminal-search";
+import type { ClientControlFrame } from "@roost/protocol/wire";
 import type { SessionManager } from "./session-manager.ts";
 
 const SEARCH_CANCEL_TOMBSTONE_MAX = 128;

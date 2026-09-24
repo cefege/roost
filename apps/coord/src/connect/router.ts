@@ -7,7 +7,7 @@
 import { createConnectRouter } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
 
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
 import { makeTranscriptionHandlers } from "./handlers-transcription.ts";
 import { makeAgentConfigHandlers } from "./handlers-agent-config.ts";
 import { makeAgentStatusHandlers } from "./handlers-agent-status.ts";
@@ -30,7 +30,7 @@ import { makePushHandlers } from "./handlers-push.ts";
 import type { KyselyDB } from "../db/connection.ts";
 import type { Database } from "bun:sqlite";
 import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
-import type { CoordConfig } from "@roost/shared/config";
+import type { CoordConfig } from "@roost/host/config";
 import type { JwtCache } from "../jwt.ts";
 import { makeAuthInterceptor } from "./auth-interceptor.ts";
 import type { PendingEventPublicationStore } from "../pending-event-publications.ts";

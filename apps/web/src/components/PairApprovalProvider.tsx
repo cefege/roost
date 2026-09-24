@@ -5,12 +5,12 @@
 // Evidence gathering, failure classification, and outcome copy live in
 // auth/pair-approval-lifecycle.ts; this component owns timers, fences, and UI.
 
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import {
   PAIRING_CEREMONY_VERSION,
   generatePairVerificationCode,
   normalizePairRequestId,
-} from "@roost/shared/pairing";
+} from "@roost/protocol/pairing";
 import {
   createContext,
   createEffect,

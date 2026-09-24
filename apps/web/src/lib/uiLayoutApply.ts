@@ -5,9 +5,9 @@
 // Direct Sync leaf imports keep this inbound path from cycling through sync.ts.
 
 import { create } from "@bufbuild/protobuf";
-import { diag } from "@roost/shared/diag";
-import { layoutDocumentFromProto } from "@roost/shared/layout-document-proto";
-import { UiApplyLayoutResultSchema, type UiCommandFrame } from "@roost/shared/proto/sync_pb";
+import { diag } from "@roost/observability/diag";
+import { layoutDocumentFromProto } from "@roost/protocol/layout-document-proto";
+import { UiApplyLayoutResultSchema, type UiCommandFrame } from "@roost/protocol/proto/sync_pb";
 import { getTabId } from "../auth/tab-id.ts";
 import { sessionHref } from "../routes.ts";
 import { applyLayoutDocument } from "../store/paneLayoutDocument.ts";

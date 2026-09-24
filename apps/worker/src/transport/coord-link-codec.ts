@@ -10,10 +10,10 @@ import {
   WInputResultSchema, WTerminalStreamResultSchema, WUpdateProgressSchema,
   WTerminalViewProjectionSchema, WTerminalViewStateSchema,
   WTerminalInputRouteResultSchema, WTerminalTransportProbeResultSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import type { TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
-import { PbTerminalViewInputSchema } from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
+import type { TerminalViewStateFrame } from "@roost/protocol/proto/sync_pb";
+import { PbTerminalViewInputSchema } from "@roost/protocol/proto/wire_pb";
 import type {
   TerminalMetadataFrame, TerminalViewProjectionFrame, UpstreamFrame,
 } from "./coord-link-types.ts";

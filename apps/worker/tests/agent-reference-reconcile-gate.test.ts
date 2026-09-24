@@ -3,7 +3,7 @@
 // state only after adoption, respawn, and optional restore have settled.
 
 import { afterEach, expect, test, vi } from "bun:test";
-import { asWorkerFp } from "@roost/shared/wire";
+import { asWorkerFp } from "@roost/protocol/wire";
 import type { CoordClient } from "../src/coord-client.ts";
 import { AgentReferenceAdmissionGate } from "../src/agent-status/reference-admission.ts";
 import { setupReconcile } from "../src/boot-reconcile.ts";

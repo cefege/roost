@@ -8,7 +8,7 @@ import {
   LocalTerminalClientFrameSchema,
   LocalTerminalServerFrameSchema,
   type LocalTerminalServerFrame,
-} from "@roost/shared/proto/local_terminal_pb";
+} from "@roost/protocol/proto/local_terminal_pb";
 
 const retired: unknown[] = [];
 mock.module("../src/store/terminal-stream-promotion.ts", () => ({ dispatchDirectTerminalFrame: () => undefined }));

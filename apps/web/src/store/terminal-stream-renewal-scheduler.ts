@@ -3,7 +3,7 @@
 // The queue gates visibility and never creates one interval per terminal pane.
 // terminal-stream-view.ts installs the command callback and owns view semantics.
 
-import { TERMINAL_VIEW_HEARTBEAT_MS } from "@roost/shared/viewport";
+import { TERMINAL_VIEW_HEARTBEAT_MS } from "@roost/protocol/viewport";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import type {
   TerminalViewIntent,

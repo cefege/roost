@@ -1,16 +1,16 @@
 // Security headers + CORS + audit log writes. Plain fetch-handler
 // helpers — no H3 dependency.
 
-import { DEFAULT_WORKER_LOCAL_UI_ORIGIN, type CoordConfig } from "@roost/shared/config";
+import { DEFAULT_WORKER_LOCAL_UI_ORIGIN, type CoordConfig } from "@roost/host/config";
 // Exposed-to-JS header names are part of the SPA↔coord trust contract.
-import { X_ROOST_AUTH_LAYER } from "@roost/shared/wire/headers";
-import { TRACE_HEADER } from "@roost/shared/trace";
+import { X_ROOST_AUTH_LAYER } from "@roost/protocol/wire/headers";
+import { TRACE_HEADER } from "@roost/observability/trace";
 import { auditBus } from "../buses.ts";
 import { recordRequest, recordError } from "../telemetry.ts";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import type { KyselyDB } from "../db/connection.ts";
 import type { ListenerTrust } from "./caller-origin.ts";
-import { applySecurityHeaders } from "@roost/shared/http-security";
+import { applySecurityHeaders } from "@roost/host/http-security";
 
 export interface SecurityOptions {
   relaxedCsp: boolean;

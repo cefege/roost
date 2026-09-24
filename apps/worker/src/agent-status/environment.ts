@@ -10,13 +10,13 @@ import {
   resolveLocalEndpoint,
   verifyLocalEndpointCapability,
   type LocalEndpoint,
-} from "@roost/shared/local-endpoint";
+} from "@roost/host/local-endpoint";
 import {
   assertNeverPlatform,
   supportedHostPlatform,
   type SupportedHostPlatform,
-} from "@roost/shared/platform";
-import { workerDataDir } from "@roost/shared/paths";
+} from "@roost/platform/platform";
+import { workerDataDir } from "@roost/host/paths";
 
 const sessionCapabilities = new Map<string, string>();
 

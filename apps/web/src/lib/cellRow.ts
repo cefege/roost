@@ -6,12 +6,12 @@
 // CellGridRenderer composes these and owns everything stateful. Unit-tested in
 // apps/web/tests/cellRenderer.test.ts.
 
-import type { CellRow, CellSpan } from "@roost/shared/cell";
+import type { CellRow, CellSpan } from "@roost/protocol/cell";
 import {
   CELL_BOLD, CELL_DIM, CELL_ITALIC, CELL_UNDERLINE, CELL_BLINK,
   CELL_REVERSE, CELL_INVISIBLE, CELL_STRIKE, DEFAULT_COLOR,
   rowColumns, spanIsAtomic, spansText,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import {
   classifyTerminalLinkTarget,
   type TerminalLinkTarget,

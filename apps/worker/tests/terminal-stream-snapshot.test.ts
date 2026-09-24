@@ -6,7 +6,7 @@ import {
   PbCellRowSchema,
   type PbCellGridChunk,
   type PbCellGridFrame,
-} from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/proto/cell_pb";
 import {
 	installStreamBaseline,
 	prepareCellRenewalEpoch,
@@ -22,7 +22,7 @@ import {
   CELL_GRID_PART_MAX_BYTES,
   encodedCellGridChunkSize,
   initCellEmitState,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import type { SessionManager } from "../src/session-manager.ts";
 import type { TerminalStreamState } from "../src/session-terminal-state.ts";
 import type { TerminalCellSendResult } from "../src/transport/coord-link-types.ts";

@@ -67,7 +67,7 @@ Coordinator-origin controls, including direct grants/signaling and Sync-relayed
 terminal commands, arrive downstream on this socket. Direct loopback/WebRTC
 `LocalTerminal` frames do not traverse it. Frames are proto-typed
 `CoordWorkerUp` / `CoordWorkerDown` oneofs
-(`@roost/shared/proto/worker_transport_pb`), serialized binary — no JSON on
+(`@roost/protocol/proto/worker_transport_pb`), serialized binary — no JSON on
 the hot path. The JWT rotates **in band** via the `refreshJwt` frame 30 s before
 its 300 s TTL, so one stream stays open for hours.
 
@@ -116,7 +116,7 @@ its 300 s TTL, so one stream stays open for hours.
   `ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS` entry — by exact match, so a
   coordinator-served page can discover the door (answered with CORS and a
   local-network preflight) and dial its socket. `src/local-terminal-socket.ts`
-  owns the frames on that socket (`@roost/shared/proto/local_terminal_pb`),
+owns the frames on that socket (`@roost/protocol/proto/local_terminal_pb`),
   `src/local-terminal-scrollback.ts` wraps the shared history reader into its
   reply, and `src/local-terminal-grants.ts` is the in-memory grant store the
   hello is verified against — digests only, never persisted, so a worker restart
@@ -153,7 +153,7 @@ All filenames are kebab-case; do not add a parallel PascalCase entry.
 ## Keeper
 
 **One** multiplexed Bun subprocess per worker hosts **all** PTYs over one local endpoint (UDS on POSIX, named pipe
-on Windows — `@roost/shared/local-endpoint`). It is spawned `detached`, so PTYs survive a worker restart or deploy:
+on Windows — `@roost/host/local-endpoint`). It is spawned `detached`, so PTYs survive a worker restart or deploy:
 boot re-probes the endpoint, adopts a protocol-compatible survivor after a generated
 `KeeperContractV1` probe (`src/boot-keeper.ts`, `src/keeper/keeper-probe.ts`,
 `src/keeper/keeper-stamp.ts`) and resumes its channels (`src/session-resume.ts`). A
@@ -191,7 +191,7 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   semantic metadata relay, and replay barrier (above). **`src/keeper/`** — the PTY
   host (above).
 - **Terminal view ownership** — `src/terminal-view-owner.ts` is the facade over
-  the shared `TerminalViewRegistry` (`@roost/shared/terminal-view`);
+  the shared `TerminalViewRegistry` (`@roost/protocol/terminal-view`);
   `src/terminal-view-owner-streams.ts` minimizes live viewer geometry and mints
   each stream; `src/terminal-view-owner-screen.ts` is the `TerminalViewScreenPort`
   that owns one `CellSink` per local socket. The loopback door
@@ -385,7 +385,7 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   an interactive child that took the foreground (pager, `$EDITOR`, `sudo`,
   nested shell) would otherwise receive the prompt. Every mismatch is a
   rejected pre-write result with zero keeper writes. Accepted text is encoded
-  once through `@roost/shared/terminal-input` and written, then the submitting
+  once through `@roost/protocol/terminal-input` and written, then the submitting
   CR follows as its own write 300 ms later, so an agent that debounces
   bracketed-paste assembly cannot read the pair as an unsubmitted draft;
   `accepted` requires both acknowledgements and an ambiguous boundary is never
@@ -485,10 +485,10 @@ PTY. Status code lives under `src/agent-status/`; prompt admission lives in
   load-dependent failures unrelated to your change. That is a property of the command, not of the code — never
   "fix" a test because of it. To iterate on one file, reproduce the isolation by hand, other `ROOST_*` unset:
   `TMPDIR=$(mktemp -d) ROOST_WORKER_DATA_DIR="$TMPDIR/worker-data" bun test --timeout 30000 apps/worker/tests/fsm.test.ts`
-- **Wire changes** — add the variant in `apps/shared/src/wire/event.ts` (or the proto under
-  `apps/shared/proto/roost/v1/`, then `bun --filter @roost/shared run proto:gen`) *first*, then implement here.
-  Import shared code by subpath (`@roost/shared/wire`, `@roost/shared/log`, `@roost/shared/diag`,
-  `@roost/shared/viewport`) — there is no barrel.
+- **Wire changes** — add the variant in `packages/protocol/src/wire/event.ts` (or the proto under
+  `protocol/proto/roost/v1/`, then `bun --filter @roost/protocol run proto:gen`) *first*, then implement here.
+  Import package code by subpath (`@roost/protocol/wire`, `@roost/observability/log`, `@roost/observability/diag`,
+  `@roost/protocol/viewport`) — there is no barrel.
 - **Install as a service** — `bash apps/worker/scripts/install.sh install` (macOS launchd LaunchAgent, Linux
   systemd `--user` unit). **Deploy to a fleet host** — `bun apps/roost-cli/src/main.ts deploy <host>`.
 - **Conversation restore configuration** —

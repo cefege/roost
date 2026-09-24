@@ -9,7 +9,7 @@ import {
   ATTACHMENT_TRANSFER_LOOPBACK_PATH,
   ATTACHMENT_TRANSFER_LOOPBACK_SUBPROTOCOL,
   ATTACHMENT_TRANSFER_STATUS_DEADLINE_MS,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   AttachmentTransferChunkSchema,
   AttachmentTransferClientFrameSchema,
@@ -19,7 +19,7 @@ import {
   type AttachmentTransferClientFrame,
   type AttachmentTransferReady,
   type AttachmentTransferStatus as ProtocolAttachmentTransferStatus,
-} from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/attachment_transfer_pb";
 import type { LocalWorkerDoor } from "../lib/localWorkerDiscovery.ts";
 import type { AttachmentDirectGrant } from "../lib/attachmentDirectGrant.ts";
 import {

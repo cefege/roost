@@ -12,9 +12,9 @@ import { openDb, type DbHandle, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { appendEvent, type AppendEventResult } from "../src/event-log.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-service.ts";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
-import { SessionEvent, asSessionId, asWorkerFp, asChannelId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb";
+import { SessionEvent, asSessionId, asWorkerFp, asChannelId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { sessionBus } from "../src/buses.ts";
 import { lookupSessionId } from "../src/byte-hub.ts";
 

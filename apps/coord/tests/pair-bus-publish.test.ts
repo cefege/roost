@@ -5,8 +5,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
-import { PAIRING_CEREMONY_VERSION, generatePairRequestId, generatePairRequesterToken, generatePairVerificationCode } from "@roost/shared/pairing";
-import { PairApproveRequestSchema, PairConfirmRequestSchema, PairCreateRequestSchema, PairDenyRequestSchema, PairPollRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import { PAIRING_CEREMONY_VERSION, generatePairRequestId, generatePairRequesterToken, generatePairVerificationCode } from "@roost/protocol/pairing";
+import { PairApproveRequestSchema, PairConfirmRequestSchema, PairCreateRequestSchema, PairDenyRequestSchema, PairPollRequestSchema } from "@roost/protocol/proto/coordinator_pb";
 import { openPairingHandlerHarness, type CreatedPairRequest, type PairHandlers, type PairingHandlerHarness } from "./pairing-handler-fixture.ts";
 
 let harness: PairingHandlerHarness;

@@ -2,7 +2,7 @@
 // It keeps attachment bytes on the separate subprotocol while direct socket
 // admission owns protobuf authentication, acknowledgements, and close semantics.
 
-import { ATTACHMENT_TRANSFER_LOOPBACK_MAX_PAYLOAD_BYTES } from "@roost/shared/attachment-transfer";
+import { ATTACHMENT_TRANSFER_LOOPBACK_MAX_PAYLOAD_BYTES } from "@roost/protocol/attachment-transfer";
 import type {
   AttachmentTransferPort,
   AttachmentTransferSendResult,

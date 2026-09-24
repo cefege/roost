@@ -6,7 +6,7 @@
 // DOM-free and store-free: the helper takes a plain FolderGroup list.
 
 import { describe, expect, test } from "bun:test";
-import { asWorkerFp } from "@roost/shared/wire";
+import { asWorkerFp } from "@roost/protocol/wire";
 import type { FolderGroup } from "../src/lib/folderGroups.ts";
 import { nextFolderSessionId } from "../src/lib/padFolders.ts";
 

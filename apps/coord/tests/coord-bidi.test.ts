@@ -16,19 +16,19 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
-import { InputCommandSchema } from "@roost/shared/proto/sync_pb";
+import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb";
+import { InputCommandSchema } from "@roost/protocol/proto/sync_pb";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
-import { fingerprintOf } from "@roost/shared/fingerprint";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
 import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import { globalPresenceBus } from "../src/buses.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { primeChannelMap } from "../src/byte-hub.ts";
-import type { CoordConfig } from "@roost/shared/config";
+import type { CoordConfig } from "@roost/host/config";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import {
   makeSyncTerminalControlHooks,

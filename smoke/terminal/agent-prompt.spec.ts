@@ -8,7 +8,7 @@ import {
   AgentPromptRejection,
   AgentPromptWaitOutcome,
   type AgentStatusView,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
 import {

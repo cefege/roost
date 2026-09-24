@@ -13,9 +13,9 @@ import {
   SyncSubscribedFrameSchema,
   SyncDomain,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { jwtKeyGeneration } from "../jwt.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   startSyncFeed,
   type SyncFeed,

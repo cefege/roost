@@ -10,8 +10,8 @@ import {
   AgentPromptWaitOutcome,
   AgentStatusViewSchema,
   type AgentStatusView,
-} from "@roost/shared/proto/coordinator_pb";
-import { AGENT_PROMPT_MAX_WRITE_BYTES } from "@roost/shared/terminal-input";
+} from "@roost/protocol/proto/coordinator_pb";
+import { AGENT_PROMPT_MAX_WRITE_BYTES } from "@roost/protocol/terminal-input";
 import {
   AGENT_PROMPT_API_COMMAND,
   dispatchAgentPromptApi,

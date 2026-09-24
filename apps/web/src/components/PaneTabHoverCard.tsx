@@ -6,7 +6,7 @@
 
 import { Show, createMemo, createSignal, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { programSubtitle, sessionTitle } from "../lib/sessionTitle.ts";
 import { shortCwd } from "../lib/sidebarFormat.ts";
 import { renderPreview } from "../lib/terminalPreview.ts";

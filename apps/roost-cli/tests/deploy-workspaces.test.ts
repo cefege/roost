@@ -22,9 +22,10 @@ function fixture(workspaces: readonly string[], dirs: readonly string[]): string
 
 describe("manifestOnlyWorkspaces", () => {
   test("expands globs and drops the workspaces rsynced whole", () => {
-    const root = fixture(["apps/*", "smoke"], [
-      "apps/worker", "apps/shared", "apps/coord", "apps/web",
+    const root = fixture(["apps/*", "packages/*", "smoke"], [
+      "apps/worker", "apps/coord", "apps/web",
       "apps/roost-cli", "apps/site", "smoke",
+      "packages/host", "packages/observability", "packages/platform", "packages/protocol", "packages/wterm",
     ]);
     expect(manifestOnlyWorkspaces(root)).toEqual(["apps/roost-cli", "apps/site", "smoke"]);
   });

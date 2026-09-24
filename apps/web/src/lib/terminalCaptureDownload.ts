@@ -10,8 +10,8 @@ import {
   terminalCaptureFileName,
   type TerminalCaptureActionName,
   type TerminalCaptureResult,
-} from "@roost/shared/terminal-capture";
-import { diag } from "@roost/shared/diag";
+} from "@roost/protocol/terminal-capture";
+import { diag } from "@roost/observability/diag";
 import { addToast } from "../store/toastStore.ts";
 import { downloadWorkerFileByHref } from "./downloadWorkerFile.ts";
 import { workerFileHref } from "./nativePath.ts";

@@ -4,8 +4,8 @@
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { WBinarySchema, WTerminalMetadataSchema } from "@roost/shared/proto/worker_transport_pb";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
+import { WBinarySchema, WTerminalMetadataSchema } from "@roost/protocol/proto/worker_transport_pb";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import { primeChannelMap, replaceWorkerChannelIndex } from "../src/byte-hub.ts";
 import { lastActivityBus, titleBus } from "../src/buses.ts";
 import {

@@ -5,8 +5,8 @@
 
 import { afterEach, expect, test, vi } from "bun:test";
 import { tmpdir } from "node:os";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
-import type { AgentConversationReferenceV1 } from "@roost/shared/agent-conversation-reference";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
+import type { AgentConversationReferenceV1 } from "@roost/protocol/agent-conversation-reference";
 import type { CoordClient } from "../src/coord-client.ts";
 import { reconcileCoordinatorSessions } from "../src/boot-session-reconcile.ts";
 import {

@@ -10,9 +10,9 @@ import {
   AttachmentsGrantDirectRequestSchema,
   AttachmentsDirectStatusRequestSchema,
   CoordinatorService,
-} from "@roost/shared/proto/coordinator_pb";
-import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/shared/attachment-transfer";
-import { AttachmentTransferStatusSchema } from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/coordinator_pb";
+import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/protocol/attachment-transfer";
+import { AttachmentTransferStatusSchema } from "@roost/protocol/proto/attachment_transfer_pb";
 import { makeConnectBunHandler } from "../src/connect/bun-handler.ts";
 import { makeAttachmentDirectHandlers } from "../src/connect/handlers-attachments-direct.ts";
 import { callerKey, tabIdKey } from "../src/connect/auth-interceptor.ts";

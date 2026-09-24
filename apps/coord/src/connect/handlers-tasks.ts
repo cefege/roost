@@ -12,12 +12,12 @@ import {
   CoordinatorService,
   TasksListResponseSchema, TasksEnqueueResponseSchema,
   TasksNextPendingResponseSchema, TasksSetStateResponseSchema, TasksCancelResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { taskRowToProto } from "@roost/shared/wire/row-proto";
+} from "@roost/protocol/proto/coordinator_pb";
+import { taskRowToProto } from "@roost/protocol/wire/row-proto";
 import { taskBus } from "../buses.ts";
 import { requireAccountDevice } from "./auth-interceptor.ts";
-import { TaskState } from "@roost/shared/wire";
-import type { TaskState as TaskStateValue } from "@roost/shared/wire";
+import { TaskState } from "@roost/protocol/wire";
+import type { TaskState as TaskStateValue } from "@roost/protocol/wire";
 import type { ConnectDeps } from "./router.ts";
 
 // Proto arrives as a bare string; the row, the queue and every SPA consumer

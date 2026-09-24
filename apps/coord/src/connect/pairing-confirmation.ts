@@ -5,7 +5,7 @@
 // "new browser paired" Sync notice carries (never secrets or provenance).
 
 import { Code, ConnectError } from "@connectrpc/connect";
-import { fingerprintOf } from "@roost/shared/fingerprint";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
 import type { KyselyDB } from "../db/connection.ts";
 import {
   associatePairedBrowser,

@@ -2,7 +2,7 @@
 // LocalTerminalSockets owns frame serialization and chooses the lane; carriers
 // own packet admission, backpressure, and their own close lifecycle.
 
-import type { TerminalPeerPacketLane } from "@roost/shared/terminal-peer";
+import type { TerminalPeerPacketLane } from "@roost/protocol/terminal-peer";
 
 export type TerminalPacketSendResult = "accepted" | "backpressured" | "refused";
 

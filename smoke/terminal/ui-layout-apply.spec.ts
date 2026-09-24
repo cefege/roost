@@ -4,12 +4,12 @@
 
 import type { Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import type { LayoutDocumentV1 } from "@roost/shared/layout-document";
+import type { LayoutDocumentV1 } from "@roost/protocol/layout-document";
 import {
   layoutDocumentFromProto,
   layoutDocumentToProto,
-} from "@roost/shared/layout-document-proto";
-import { UiApplyLayoutOutcome } from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/layout-document-proto";
+import { UiApplyLayoutOutcome } from "@roost/protocol/proto/sync_pb";
 import { test, expect } from "./fixtures.ts";
 import {
   LAYOUT_STORAGE_KEY,

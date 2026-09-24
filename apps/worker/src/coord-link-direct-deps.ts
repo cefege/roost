@@ -19,13 +19,13 @@ import {
 	type WLocalAttachmentPeerAnswer,
 	type WLocalTerminalPeerAnswer,
 	type WTerminalTransportProbeResult,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
 	TerminalInputRouteClaimSchema,
 	TerminalInputRouteResultSchema,
 	type TerminalInputRouteResult,
-} from "@roost/shared/proto/sync_pb";
-import { AttachmentTransferStatusSchema } from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/sync_pb";
+import { AttachmentTransferStatusSchema } from "@roost/protocol/proto/attachment_transfer_pb";
 import type { SessionManager } from "./session-manager.ts";
 import { TerminalPeerOfferError } from "./terminal-peer-owner.ts";
 import { attachmentOperationStatus } from "./attachment-upload.ts";

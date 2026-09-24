@@ -10,14 +10,14 @@ import {
   CoordinatorService,
   McpListResponseSchema, McpCreateResponseSchema,
   McpDeleteResponseSchema, McpPublishResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { McpRelaySchema } from "@roost/shared/proto/wire_pb";
-import { mcpRelayRowToProto } from "@roost/shared/wire/row-proto";
+} from "@roost/protocol/proto/coordinator_pb";
+import { McpRelaySchema } from "@roost/protocol/proto/wire_pb";
+import { mcpRelayRowToProto } from "@roost/protocol/wire/row-proto";
 import { mcpBus } from "../buses.ts";
 import { requireAccountDevice } from "./auth-interceptor.ts";
 import { requireNonEmpty } from "./router-helpers.ts";
-import { McpRelayKind, McpRelayId } from "@roost/shared/wire";
-import type { McpRelayKind as McpRelayKindValue } from "@roost/shared/wire";
+import { McpRelayKind, McpRelayId } from "@roost/protocol/wire";
+import type { McpRelayKind as McpRelayKindValue } from "@roost/protocol/wire";
 import type { ConnectDeps } from "./router.ts";
 
 function mcpRelayKindOf(raw: string): McpRelayKindValue {

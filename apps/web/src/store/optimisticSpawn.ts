@@ -4,11 +4,11 @@
 // release it and schedule authoritative UI reporting.
 
 import { createSignal } from "solid-js";
-import { asSessionId, asChannelId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asSessionId, asChannelId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 import { addToast } from "./toastStore.ts";
-import { clampTerminalGeometry } from "@roost/shared/viewport";
+import { clampTerminalGeometry } from "@roost/protocol/viewport";
 
 // Reactive so CellTerminal's `pending` memo re-runs when a placeholder resolves.
 // `aborted` needs no reactivity — it is read imperatively in doNewTab's resolve.

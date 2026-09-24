@@ -7,8 +7,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { Session } from "@roost/shared/wire";
-import type { TerminalCaptureReason } from "@roost/shared/terminal-capture";
+import type { Session } from "@roost/protocol/wire";
+import type { TerminalCaptureReason } from "@roost/protocol/terminal-capture";
 
 interface VNode {
   tag: unknown;

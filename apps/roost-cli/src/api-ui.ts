@@ -7,17 +7,17 @@ import { readFile } from "node:fs/promises";
 import {
   layoutDocumentFromProto,
   layoutDocumentToProto,
-} from "@roost/shared/layout-document-proto";
+} from "@roost/protocol/layout-document-proto";
 import {
   parseLayoutDocumentV1,
   type LayoutDocumentNode,
   type LayoutDocumentV1,
-} from "@roost/shared/layout-document";
-import type { UiTabState } from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/layout-document";
+import type { UiTabState } from "@roost/protocol/proto/coordinator_pb";
 import {
   UiApplyLayoutOutcome,
   type LayoutDocumentV1 as ProtoLayoutDocumentV1,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { parseLegacyUiArgs, type LegacyUiCommand } from "./api-ui-legacy.ts";
 import { formatTerminalSafeText } from "./terminal-safe-text.ts";
 

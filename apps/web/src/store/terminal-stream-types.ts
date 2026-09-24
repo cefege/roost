@@ -2,9 +2,9 @@
 // and diagnostics use these identities to fence one canonical stream per
 // session without coupling adapter implementation to renderer state.
 
-import type { CellGridChunkAssembler, CellGridFrame } from "@roost/shared/cell";
-import type { SyncClientFrame } from "@roost/shared/proto/sync_pb";
-import type { TerminalGeometry } from "@roost/shared/viewport";
+import type { CellGridChunkAssembler, CellGridFrame } from "@roost/protocol/cell";
+import type { SyncClientFrame } from "@roost/protocol/proto/sync_pb";
+import type { TerminalGeometry } from "@roost/protocol/viewport";
 import type { CellGridRenderer } from "../lib/cellRenderer.ts";
 import type { TerminalRenderScheduler } from "../lib/terminal-render-scheduler.ts";
 

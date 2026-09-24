@@ -6,8 +6,8 @@
 // failure is a FIXED TerminalCaptureErrorCode: an exception message can quote
 // the terminal text it failed on.
 
-import type { ClientControlFrame } from "@roost/shared/wire";
-import type { TerminalCaptureCommand } from "@roost/shared/terminal-capture";
+import type { ClientControlFrame } from "@roost/protocol/wire";
+import type { TerminalCaptureCommand } from "@roost/protocol/terminal-capture";
 import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
 import {

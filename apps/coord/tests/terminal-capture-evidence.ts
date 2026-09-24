@@ -13,7 +13,7 @@ import {
   type TerminalCaptureCoordinatorPayload,
   type TerminalCaptureProcessIdentity,
   type TerminalCaptureTrigger,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import { EPOCH, STREAM } from "./terminal-screen-hub-harness.ts";
 import { CAPTURE_1, EVIDENCE_MARKER, RECORDING_A, SESSION_A } from "./terminal-capture-harness.ts";
 

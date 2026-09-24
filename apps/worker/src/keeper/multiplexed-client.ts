@@ -11,7 +11,7 @@
 // Callers: session-manager.ts when MUX mode is on.
 
 import { type Socket } from "node:net";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import { ensureConnection } from "./keeper-pool-lifecycle.ts";
 import {
   spawnChannel,

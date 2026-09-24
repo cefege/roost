@@ -15,7 +15,7 @@
 // both writes when the stored values are already identical.
 
 import { createSignal } from "solid-js";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { terminalHref } from "./terminalHref.ts";
 
 const PATH_KEY = "roost.lastTerminalPath";

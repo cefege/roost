@@ -3,7 +3,7 @@
 // Packet construction and verification stay in the driver-owned qualification helper.
 
 import type { TerminalPeerNative } from "../../apps/worker/src/terminal-peer-native.ts";
-import type { TerminalPeerPacketLane } from "@roost/shared/terminal-peer";
+import type { TerminalPeerPacketLane } from "@roost/protocol/terminal-peer";
 import {
   CLOSE_TIMEOUT_MS,
   CONNECTION_TIMEOUT_MS,

@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   TerminalInputRouteClaimSchema,
   type TerminalInputRouteResult,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import type { TerminalGenerationToken } from "../store/terminal-stream-types.ts";
 import type { TerminalInputDestination } from "./terminal-input-router.ts";
 

@@ -8,11 +8,11 @@ import { Code } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import {
   AttachmentTransferStatusSchema,
-} from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/attachment_transfer_pb";
 import {
   WAttachmentDirectStatusSchema,
   type CoordWorkerDown,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   AttachmentDirectStatusResults,
   type AttachmentDirectStatusClock,

@@ -3,7 +3,7 @@
 // It never aliases the retired local-transport singleton or bypasses route election.
 // release unregisters this exact connection so one test cannot retain another's route.
 
-import type { TerminalViewCommand } from "@roost/shared/proto/sync_pb";
+import type { TerminalViewCommand } from "@roost/protocol/proto/sync_pb";
 import {
   terminalDirectRegistry,
   type TerminalDirectConnection,

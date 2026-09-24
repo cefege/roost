@@ -10,7 +10,7 @@ import {
   FirehoseFrameSchema,
   SyncDomain,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import type { SyncFeedLane } from "./sync-feed.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 import {

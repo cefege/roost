@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   TerminalInputRouteClaimSchema,
   TerminalTransportProbeSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import {
   makeSyncTerminalControlHooks,

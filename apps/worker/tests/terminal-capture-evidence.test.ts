@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import type {
 	TerminalIncidentBundle,
 	TerminalWorkerSection,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { SessionManager } from "../src/session-manager.ts";
 import { _resetCaptureStorageForTest } from "../src/diag/capture-storage.ts";
 import {

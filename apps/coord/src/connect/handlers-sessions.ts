@@ -13,11 +13,11 @@ import {
   SessionsKillResponseSchema, SessionsRenameResponseSchema,
   SessionsInputResponseSchema, SessionsCursorPosResponseSchema,
   SessionsAssignWorkspaceResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { asSessionId, asWorkspaceId, SessionStatus } from "@roost/shared/wire";
-import type { SessionStatus as SessionStatusValue } from "@roost/shared/wire";
-import type { ClientControlFrame } from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/coordinator_pb";
+import { asSessionId, asWorkspaceId, SessionStatus } from "@roost/protocol/wire";
+import type { SessionStatus as SessionStatusValue } from "@roost/protocol/wire";
+import type { ClientControlFrame } from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
 import { appendEvent } from "../event-log.ts";
 import { workspaceBus } from "../buses.ts";
 import { publishPresence } from "../presence-hub.ts";

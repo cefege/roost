@@ -4,8 +4,8 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { TerminalCore } from "@wterm/core";
-import { asWorkerFp } from "@roost/shared/wire";
-import { effectiveLinuxMemoryCeilingBytes } from "@roost/shared/host-memory";
+import { asWorkerFp } from "@roost/protocol/wire";
+import { effectiveLinuxMemoryCeilingBytes } from "@roost/host/host-memory";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionManager } from "../src/session-manager.ts";
 import {

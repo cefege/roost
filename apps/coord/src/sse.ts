@@ -9,7 +9,7 @@
 // whether to surface that as a stream error or a terminal frame.
 
 import type { BoundedBus } from "./buses.ts";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 
 /** Magnitudes mirror sync-ws-v1-delivery APPLICATION_MAX_UNACKED_*. */
 const DEFAULT_MAX_FRAMES = 512;

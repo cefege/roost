@@ -3,7 +3,7 @@
 // Root-store sessions and existing title, routability, status, and seen owners remain authoritative.
 
 import { createMemo, createRoot, type Accessor } from "solid-js";
-import type { AgentStatus, Session } from "@roost/shared/wire";
+import type { AgentStatus, Session } from "@roost/protocol/wire";
 import { seenAgentRevision } from "../lib/agentSeen.ts";
 import {
   deriveAgentStatusLevel,

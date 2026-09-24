@@ -7,7 +7,7 @@
 // Key shape: roost.lastWorkspaceId.<workerFp> = <workspaceId>
 // Written by SessionRow on click + by spawn handlers.
 
-import type { WorkerFp, WorkspaceId } from "@roost/shared/wire";
+import type { WorkerFp, WorkspaceId } from "@roost/protocol/wire";
 
 const KEY_PREFIX = "roost.lastWorkspaceId.";
 

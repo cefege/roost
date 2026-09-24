@@ -3,14 +3,14 @@
 // Cohesive leaves own domain hydration, inbound framing, link state, and redial policy.
 // Existing callers keep importing this module rather than its private collaboration seams.
 
-import { SyncDomain, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { diag, signal } from "@roost/shared/diag";
+import { SyncDomain, type FirehoseFrame } from "@roost/protocol/proto/sync_pb";
+import { diag, signal } from "@roost/observability/diag";
 import {
   SYNC_AUTH_SUBPROTOCOL,
   SYNC_QUERY_FLOW_V1,
   SYNC_QUERY_V2,
   SYNC_WS_PATH,
-} from "@roost/shared/wire/sync-ws";
+} from "@roost/protocol/wire/sync-ws";
 import { signCoordinatorJwt } from "../auth/web-key.ts";
 import { getTabId } from "../auth/tab-id.ts";
 import { coordinatorBaseUrl } from "../connect.ts";

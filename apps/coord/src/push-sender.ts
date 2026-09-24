@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import type { Kysely } from "kysely";
 import webpush, { WebPushError } from "web-push";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import type { DB, PushSubscriptionsTable } from "./db/schema.ts";
 import { getVapidKeys } from "./vapid.ts";
 

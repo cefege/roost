@@ -18,8 +18,8 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { COORD_CELL_SINK_ID, registerCellSink } from "../src/session-cell-sinks.ts";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
-import type { SessionEvent } from "@roost/shared/wire";
+import { asSessionId, asChannelId, asWorkerFp } from "@roost/protocol/wire";
+import type { SessionEvent } from "@roost/protocol/wire";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import type {

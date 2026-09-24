@@ -4,9 +4,9 @@
 
 import { mkdirSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { JournaledKeeperUpdateV1Schema } from "@roost/shared/keeper-update";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
-import { roostServiceDir, workerServicePath } from "@roost/shared/paths";
+import { JournaledKeeperUpdateV1Schema } from "@roost/protocol/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
+import { roostServiceDir, workerServicePath } from "@roost/host/paths";
 import {
   checkpointLocalWorkerDeployJournal,
   createLocalWorkerDeployRecoveryDeps,
@@ -51,7 +51,7 @@ import type {
   LocalWorkerDeployConfinement,
   LocalWorkerDeployJournal,
 } from "./local-worker-deploy-journal.ts";
-import { acquireMachineTransaction } from "./machine-transaction.ts";
+import { acquireMachineTransaction } from "@roost/host/machine-transaction";
 import { verifyWorkerCmd, WORKER_AGENT, WORKER_UNIT } from "./service-ctl.ts";
 import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";

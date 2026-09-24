@@ -21,7 +21,7 @@
 //     a reload would restore — not vnode props, which snapshot once.
 
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import type * as SolidApi from "solid-js";
 import type * as SolidWebApi from "solid-js/web";
 import { releaseMic, micIdle, captureQuirks } from "../src/lib/audioPcmCapture.ts";

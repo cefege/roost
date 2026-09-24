@@ -15,9 +15,9 @@ import {
   DiagSnapshotRequestSchema,
   type DiagSnapshotRequest,
   type TerminalCaptureRequest,
-} from "@roost/shared/proto/coordinator_pb";
-import { WTerminalPipelineSnapshotSchema } from "@roost/shared/proto/worker_transport_pb";
-import { TerminalPipelineSessionSnapshotSchema } from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/coordinator_pb";
+import { WTerminalPipelineSnapshotSchema } from "@roost/protocol/proto/worker_transport_pb";
+import { TerminalPipelineSessionSnapshotSchema } from "@roost/protocol/proto/wire_pb";
 import { callerKey } from "../src/connect/auth-interceptor.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";

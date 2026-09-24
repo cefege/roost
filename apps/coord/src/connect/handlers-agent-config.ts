@@ -6,7 +6,7 @@
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
-import { CoordinatorService, AgentConfigSchema } from "@roost/shared/proto/coordinator_pb";
+import { CoordinatorService, AgentConfigSchema } from "@roost/protocol/proto/coordinator_pb";
 import { requireAccountDevice } from "./auth-interceptor.ts";
 import { getAgentConfig, setAgentConfig } from "../agent-config.ts";
 import type { ConnectDeps } from "./router.ts";

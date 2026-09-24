@@ -3,11 +3,11 @@
 // fed by two narrow hooks at TerminalScreenHub's accepted full/delta fold
 // boundary; frozen into the bundle's `coordinator` section before the bridge
 // dispatches CAPTURE to a worker.
-// Bundle shapes and every bound come from @roost/shared/terminal-capture.
+// Bundle shapes and every bound come from @roost/protocol/terminal-capture.
 
 import { randomUUID } from "node:crypto";
-import type { CellGridFrame } from "@roost/shared/cell";
-import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
+import type { CellGridFrame } from "@roost/protocol/cell";
+import { ROOST_ARTIFACT_VERSION } from "@roost/host/build-identity";
 import {
   TERMINAL_CAPTURE_LIMITS,
   TERMINAL_INCIDENT_SCHEMA,
@@ -17,7 +17,7 @@ import {
   type TerminalCaptureOmission,
   type TerminalCoordinatorRecord,
   type TerminalCoordinatorSection,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import { COORD_GIT_SHA } from "../git-sha.ts";
 
 /** Just enough of the admitted wire frame to name what the hub accepted. The

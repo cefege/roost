@@ -6,8 +6,8 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { CellGridRenderer, MAX_HELD_SCROLLBACK_ROWS } from "../src/lib/cellRenderer.ts";
-import type { CellGridFrame, CellRow } from "@roost/shared/cell";
-import type { TerminalBrowserPaintedState } from "@roost/shared/terminal-capture";
+import type { CellGridFrame, CellRow } from "@roost/protocol/cell";
+import type { TerminalBrowserPaintedState } from "@roost/protocol/terminal-capture";
 import { createIncidentObserver } from "../src/lib/terminalIncidentCaptureObserver.ts";
 import {
   _resetTerminalIncidentRecorders,

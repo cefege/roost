@@ -3,6 +3,13 @@
   "private": true,
   "type": "module",
   "version": "2.0.0",
+  "exports": {
+    "./main": "./src/main.ts",
+    "./bootstrap-tokens": "./src/bootstrap-tokens.ts",
+    "./self-hosted-tenant": "./src/self-hosted-tenant.ts",
+    "./db/migrate": "./src/db/migrate.ts",
+    "./db/snapshot": "./src/db/snapshot.ts"
+  },
   "scripts": {
     "dev": "bun --watch src/main.ts",
     "start": "bun src/main.ts",
@@ -12,7 +19,10 @@
   "dependencies": {
     "@bufbuild/protobuf": "2.12.0",
     "@connectrpc/connect": "^2.1.2",
-    "@roost/shared": "workspace:*",
+    "@roost/host": "workspace:*",
+    "@roost/observability": "workspace:*",
+    "@roost/platform": "workspace:*",
+    "@roost/protocol": "workspace:*",
     "kysely": "^0.29.2",
     "kysely-bun-sqlite": "^0.4.0",
     "web-push": "^3.6.7",

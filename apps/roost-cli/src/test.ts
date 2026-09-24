@@ -42,7 +42,7 @@ async function runUnit(): Promise<void> {
     "--isolate",
     "--timeout",
     "30000",
-    "apps/shared/tests/",
+    "packages/",
     "apps/coord/tests/",
     "apps/web/tests/",
     "apps/web/src/",

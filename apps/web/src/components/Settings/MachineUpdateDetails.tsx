@@ -6,7 +6,7 @@
 // Depends on: machine-update-deploy.ts, md primitives, store/toastStore.ts.
 
 import { createSignal, Show } from "solid-js";
-import { WORKER_UPDATE_LABELS, type WorkerUpdateState } from "@roost/shared/fleet-update";
+import { WORKER_UPDATE_LABELS, type WorkerUpdateState } from "@roost/protocol/fleet-update";
 import { addToast } from "../../store/toastStore.ts";
 import { Button } from "./md/primitives.tsx";
 import { startMachineUpdateDeploy } from "./machine-update-deploy.ts";

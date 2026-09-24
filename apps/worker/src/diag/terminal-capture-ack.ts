@@ -8,7 +8,7 @@ import type {
 	TerminalCaptureErrorCode,
 	TerminalCaptureFileRef,
 	TerminalCaptureStatus,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 
 export interface TerminalCaptureWorkerAck {
 	readonly status: TerminalCaptureStatus;

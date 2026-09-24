@@ -18,12 +18,12 @@ import {
 import {
   AgentPromptInputOutcome,
   AgentPromptWaitOutcome,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   TerminalInputStatus,
   TerminalWritePhase,
   WInputResultSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { _agentStatusWaiterStats } from "../src/agent-status-wait.ts";
 import { AGENT_PROMPT_EFFECT_TIMEOUT_MS } from "../src/connect/agent-prompt-control.ts";
 import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";

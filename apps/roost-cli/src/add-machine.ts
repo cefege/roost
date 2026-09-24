@@ -9,13 +9,13 @@ import {
   COORDINATOR_DIAL_URL_REQUIRED_MESSAGE,
   resolveCoordinatorDialUrl,
   workerCoordinatorUrl,
-} from "@roost/shared/coordinator-dial-url";
+} from "@roost/protocol/coordinator-dial-url";
 import {
   buildMachineJoinCommand,
   machinePlatformLabel,
-} from "@roost/shared/machine-join-command";
-import { coordServicePath } from "@roost/shared/paths";
-import type { SupportedHostPlatform } from "@roost/shared/platform";
+} from "@roost/platform/machine-join-command";
+import { coordServicePath } from "@roost/host/paths";
+import type { SupportedHostPlatform } from "@roost/platform/platform";
 import { mintWorkerBootstrap } from "./api.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";

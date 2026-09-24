@@ -6,8 +6,8 @@
 // reconcile. Generation identity is the routable handle the stream dispatcher
 // already fences on, so a seam that exposes no handle keeps every verdict
 // fail-closed rather than guessing that the worker changed.
-import { log } from "@roost/shared/log";
-import type { TerminalStreamState } from "@roost/shared/terminal-view";
+import { log } from "@roost/observability/log";
+import type { TerminalStreamState } from "@roost/protocol/terminal-view";
 
 /** One session's stream state plus the worker generation its current
  * unavailable verdict was formed under. */

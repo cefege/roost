@@ -16,7 +16,7 @@ import {
   asSessionId,
   asWorkerFp,
   type Session,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

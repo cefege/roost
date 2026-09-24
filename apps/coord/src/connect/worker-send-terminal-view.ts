@@ -9,11 +9,11 @@ import {
   CoordWorkerDownSchema,
   DTerminalViewRelaySchema,
   DTerminalViewSocketClosedSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type {
   TerminalResyncCommand,
   TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { TERMINAL_STREAM_CONTROL_TIMEOUT_MS } from "./worker-send.ts";
 import { currentRoutableWorker } from "./worker-send-target.ts";
 

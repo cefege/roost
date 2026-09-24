@@ -6,7 +6,7 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { WorkerHandle } from "./worker-registry.ts";
 import { currentRoutableWorker } from "./worker-send-target.ts";
-import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
+import { hasAtMostUtf8Bytes } from "@roost/protocol/ui-state";
 
 export const ATTACHMENT_GRANT_MAX_IDENTIFIER_UTF8_BYTES = 128;
 export const ATTACHMENT_GRANT_MAX_FILENAME_UTF8_BYTES = 1024;

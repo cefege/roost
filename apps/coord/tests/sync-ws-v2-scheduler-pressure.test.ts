@@ -3,7 +3,7 @@
 // Nonterminal overflow still resets its domain; terminal cell pressure does not.
 
 import { expect, test } from "bun:test";
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
 import {
   V2_NONTERMINAL_MAX_RETAINED_FRAMES,
   V2_TERMINAL_CELL_MAX_RETAINED_FRAMES,

@@ -4,8 +4,8 @@
 
 import { link, lstat, mkdir, mkdtemp, rename, rm, rmdir } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { durableRemove, durableWriteFile } from "@roost/shared/durability";
-import type { SupportedHostPlatform } from "@roost/shared/platform";
+import { durableRemove, durableWriteFile } from "@roost/host/durability";
+import type { SupportedHostPlatform } from "@roost/platform/platform";
 import type { AgentIntegrationAssetId, AgentIntegrationRuntime } from "./integration-assets.ts";
 import {
   assertIntegrationDirectorySnapshot,

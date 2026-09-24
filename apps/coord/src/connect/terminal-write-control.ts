@@ -3,12 +3,12 @@
 // Raw terminal input and status-fenced prompts supply only their worker sender
 // and acceptance policy, keeping retries and ambiguity semantics identical.
 
-import { AGENT_PROMPT_MAX_REASON_LENGTH } from "@roost/shared/terminal-input";
+import { AGENT_PROMPT_MAX_REASON_LENGTH } from "@roost/protocol/terminal-input";
 import {
   TerminalInputStatus,
   TerminalWritePhase,
   type WInputResult,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type { WriteLease } from "../coordinator-write-gate.ts";
 import type { ConnectDeps } from "./router.ts";
 import {

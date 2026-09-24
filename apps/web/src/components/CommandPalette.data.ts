@@ -4,7 +4,7 @@
 // The identity cache keeps unchanged Solid <For> rows mounted.
 
 import type { Navigator } from "@solidjs/router";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { spawnSessionSibling } from "../lib/sessionSiblingAction.ts";
 import { rootStore } from "../store/root.ts";
 import {

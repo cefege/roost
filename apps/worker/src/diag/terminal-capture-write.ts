@@ -7,7 +7,7 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import {
 	TERMINAL_CAPTURE_LIMITS,
 	type TerminalCaptureCommand,
@@ -16,7 +16,7 @@ import {
 	type TerminalCaptureStatus,
 	type TerminalCaptureTrigger,
 	type TerminalCoordinatorSection,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { SessionManager } from "../session-manager.ts";
 import type { SessionRecord } from "../session-record.ts";
 import type { TerminalStreamState } from "../session-terminal-state.ts";

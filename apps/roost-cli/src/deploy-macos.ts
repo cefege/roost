@@ -5,8 +5,8 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
-import { posixShellQuote } from "@roost/shared/shell-quote";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import { posixShellQuote } from "@roost/platform/shell-quote";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import {
   acquireRemoteDeployLock,
   DeployFailure,
@@ -203,10 +203,10 @@ export async function deployMacosWorker(host: string, options: MacosDeployOption
       if (stage.exit !== 0) failDeploy(stage.exit || 4, `cannot create macOS release stage\n${stage.stdout}\n${stage.stderr}`);
       const cleanupStage = async (): Promise<void> => { await deploySsh(`rm -rf ${remoteDir}`); };
 
-      console.log(`>> rsync canonical workspace + apps/{worker,shared,coord,web}/ + vendor/ → ${host}:${remoteDir}/`);
+      console.log(`>> rsync canonical workspace + apps/{worker,coord,web}/ + packages/ + vendor/ → ${host}:${remoteDir}/`);
       const rsyncs = await Promise.allSettled([
         runOrDie(["rsync", "-az", "-e", RSYNC_RSH, "--delete", "--exclude", "node_modules", "--exclude", "tests", "--exclude", "test-results", `${sourceRoot}/apps/worker/`, `${host}:${remoteDir}/apps/worker/`], "rsync apps/worker", deployLease.signal),
-        runOrDie(["rsync", "-az", "-e", RSYNC_RSH, "--delete", "--exclude", "node_modules", `${sourceRoot}/apps/shared/`, `${host}:${remoteDir}/apps/shared/`], "rsync apps/shared", deployLease.signal),
+        runOrDie(["rsync", "-az", "-e", RSYNC_RSH, "--delete", "--exclude", "node_modules", `${sourceRoot}/packages/`, `${host}:${remoteDir}/packages/`], "rsync packages", deployLease.signal),
         runOrDie(["rsync", "-az", "-e", RSYNC_RSH, "--delete", "--exclude", "node_modules", "--exclude", "tests", "--exclude", "test-results", `${sourceRoot}/apps/coord/`, `${host}:${remoteDir}/apps/coord/`], "rsync apps/coord", deployLease.signal),
         runOrDie(["rsync", "-az", "-e", RSYNC_RSH, "--delete", "--exclude", "node_modules", "--exclude", "dist", "--exclude", "tests", `${sourceRoot}/apps/web/`, `${host}:${remoteDir}/apps/web/`], "rsync apps/web", deployLease.signal),
         ...(existsSync(join(sourceRoot, "vendor"))

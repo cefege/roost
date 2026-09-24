@@ -3,11 +3,11 @@
 // Sync dispatch calls it for full frames and chunks, while subscribers enqueue DOM work.
 // Liveness repair is separate but consumes the same stream, epoch, sequence, and viewport facts.
 
-import type { CellGridFrame } from "@roost/shared/cell";
+import type { CellGridFrame } from "@roost/protocol/cell";
 import type {
   PbCellGridChunk,
   PbCellGridFrame,
-} from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/proto/cell_pb";
 import { markPhaseOnce, recordCellLag } from "../lib/diag.ts";
 import { noteTerminalReplicaTransition } from "../lib/terminalIncidentCaptureState.ts";
 import {

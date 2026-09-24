@@ -2,9 +2,9 @@
 // combining a process scan with manifest evaluation over terminal screen text
 // (spans/viewport rows), so a pane showing Claude/Codex activity maps to a
 // concrete BuiltinAgentId even when no extension reported in.
-import { log } from "@roost/shared/log";
-import { spansText, viewportRowSpans } from "@roost/shared/cell";
-import type { SessionId } from "@roost/shared/wire";
+import { log } from "@roost/observability/log";
+import { spansText, viewportRowSpans } from "@roost/protocol/cell";
+import type { SessionId } from "@roost/protocol/wire";
 import type { TerminalCore } from "@wterm/core";
 import type { SessionManager } from "../session-manager.ts";
 import { evaluateManifest } from "./manifest-engine.ts";

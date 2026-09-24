@@ -11,7 +11,7 @@ import {
   spanIsAtomic,
   type CellGridFrame,
   type CellSpan,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 
 export interface Pred {
   row: number;

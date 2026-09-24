@@ -10,12 +10,12 @@ import {
 	TERMINAL_PEER_PACKET_STALL_MS,
 	TERMINAL_PEER_UNAUTHENTICATED_CONTROL_MAX_BYTES,
 	type TerminalPeerPacketLane,
-} from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer";
 import {
 	parseTerminalPeerPacket,
 	TerminalPeerPacketAssembler,
 	TerminalPeerPacketQueue,
-} from "@roost/shared/terminal-peer-packets";
+} from "@roost/protocol/terminal-peer-packets";
 import type { TerminalPacketPort, TerminalPacketSendResult } from "./terminal-packet-port.ts";
 import {
 	TerminalPeerHistoryReservationOwner,

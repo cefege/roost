@@ -4,7 +4,7 @@
 
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, For, onCleanup, Show } from "solid-js";
-import type { SessionsSearchGlobalMatch } from "@roost/shared/proto/coordinator_pb";
+import type { SessionsSearchGlobalMatch } from "@roost/protocol/proto/coordinator_pb";
 import { AGENT_STATUS_PRESENTATION } from "../lib/agentStatus.ts";
 import { relTimeSince } from "../lib/relTime.ts";
 import { createGlobalContentSearchController } from "../lib/globalContentSearchController.ts";

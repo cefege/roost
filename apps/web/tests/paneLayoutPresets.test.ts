@@ -3,7 +3,7 @@
 // shared portable-document ratio bounds for highly skewed runtime trees.
 
 import { describe, test, expect } from "bun:test";
-import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/protocol/layout-document";
 import { presetLayout, balanceLayout } from "../src/store/paneLayoutPresets.ts";
 import { allLeaves, layoutRects, type Layout, type PaneNode, type PaneSplit } from "../src/store/paneLayout.ts";
 

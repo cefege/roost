@@ -12,7 +12,7 @@ import {
   type AgentStatus as AgentStatusValue,
   type AgentStatusIdentity,
   type SessionEvent,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   applyAgentStatusFrame,
   resetAgentStatusProjection,

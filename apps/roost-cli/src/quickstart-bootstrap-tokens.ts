@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import {
   bootstrapTokenDigest,
   mintHostBootstrapToken,
-} from "../../coord/src/bootstrap-tokens.ts";
+} from "@roost/coord/bootstrap-tokens";
 
 /** Browser grant redeemed by the host browser from the #pair fragment. */
 export async function mintBrowserToken(

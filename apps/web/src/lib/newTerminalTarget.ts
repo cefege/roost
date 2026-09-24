@@ -3,7 +3,7 @@
 // it, so the online filter and the active-route preference stay one value.
 // Reads the reactive worker/session stores: call inside a memo or JSX.
 
-import type { Worker } from "@roost/shared/wire";
+import type { Worker } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import { activeSessionForPath, allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";

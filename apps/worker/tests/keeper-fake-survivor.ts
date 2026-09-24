@@ -4,9 +4,9 @@
 // proof. Callers pass their own endpoint so each suite keeps its own data dir.
 
 import { createServer, type Server, type Socket } from "node:net";
-import type { LocalEndpoint } from "@roost/shared/local-endpoint";
-import { prepareLocalEndpoint } from "@roost/shared/local-endpoint";
-import type { KeeperContractV1 } from "@roost/shared/keeper-update";
+import type { LocalEndpoint } from "@roost/host/local-endpoint";
+import { prepareLocalEndpoint } from "@roost/host/local-endpoint";
+import type { KeeperContractV1 } from "@roost/protocol/keeper-update";
 import { KEEPER_TARGET_CONTRACT } from "../src/keeper/keeper-stamp.ts";
 import {
   KEEPER_PROTOCOL_VERSION,

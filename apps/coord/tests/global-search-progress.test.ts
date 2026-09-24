@@ -10,12 +10,12 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   GlobalSearchPartialReason,
   SessionsSearchGlobalRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
   GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
   GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import {
   GlobalSearchCursorOwner,
   type GlobalSearchCursorBinding,

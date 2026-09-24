@@ -222,7 +222,7 @@ jobs:
       - name: Windows invariant gate
         run: |
           bun x tsgo -p tsconfig.base.json --noEmit
-          bun test --isolate apps/shared/tests/ apps/coord/tests/ apps/web/tests/ apps/roost-cli/tests/ smoke/bun_smoke.test.ts
+          bun test --isolate packages/ apps/coord/tests/ apps/web/tests/ apps/roost-cli/tests/ smoke/bun_smoke.test.ts
       - name: Stock Windows PowerShell 5.1 bootstrap gate
         shell: powershell
         run: .\scripts\windows\verify-powershell51-bootstrap.ps1

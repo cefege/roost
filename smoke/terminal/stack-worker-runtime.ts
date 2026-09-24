@@ -7,7 +7,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { join } from "node:path";
 import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "../../apps/shared/src/worker-service-env.ts";
+import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "../../packages/platform/src/worker-service-env.ts";
 import {
   REPOSITORY_ROOT,
   childEnvironment,

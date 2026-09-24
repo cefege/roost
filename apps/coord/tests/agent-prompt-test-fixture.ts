@@ -16,12 +16,12 @@ import {
   asSessionId,
   asWorkerFp,
   type AgentRuntimeState,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   SessionsPromptRequestSchema,
   type SessionsPromptRequest,
-} from "@roost/shared/proto/coordinator_pb";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/coordinator_pb";
+import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb";
 import {
   handleWorkerAgentStatus,
   startAgentStatusHub,

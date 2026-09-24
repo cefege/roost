@@ -7,14 +7,14 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import {
 	LocalTerminalServerFrameSchema,
 	type LocalTerminalServerFrame,
-} from "@roost/shared/proto/local_terminal_pb";
+} from "@roost/protocol/proto/local_terminal_pb";
 import {
 	InputAcceptedSchema,
 	InputAmbiguousSchema,
 	InputRejectedSchema,
 	type InputCommand,
-} from "@roost/shared/proto/sync_pb";
-import type { TerminalPeerPacketLane } from "@roost/shared/terminal-peer";
+} from "@roost/protocol/proto/sync_pb";
+import type { TerminalPeerPacketLane } from "@roost/protocol/terminal-peer";
 import type { WorkerInputResult } from "./session-terminal-control.ts";
 import type { TerminalPacketPort, TerminalPacketSendResult } from "./terminal-packet-port.ts";
 

@@ -7,8 +7,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   DAgentPromptSchema,
   type DAgentPrompt,
-} from "@roost/shared/proto/worker_transport_pb";
-import { AGENT_PROMPT_MAX_TEXT_BYTES } from "@roost/shared/terminal-input";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { AGENT_PROMPT_MAX_TEXT_BYTES } from "@roost/protocol/terminal-input";
 import type { AgentProcessIdentity } from "../src/agent-status/process-scan.ts";
 import {
   AgentStatusRegistry,

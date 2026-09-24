@@ -6,7 +6,7 @@
 
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import {
   anchoredMenuSurfaceStyle,

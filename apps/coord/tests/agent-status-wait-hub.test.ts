@@ -12,7 +12,7 @@ import {
   asWorkerFp,
   type AgentStatusUpdate as AgentStatusUpdateValue,
   type SessionId,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   handleWorkerAgentStatus,
   startAgentStatusHub,

@@ -2,7 +2,7 @@
 // pane and encodes keys directly from worker-reported terminal modes; there is no
 // browser-side VT core, WASM instance, mirrored grid, or shared focus singleton.
 
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import {
 	terminalKeySequence,
 	type TerminalKeyEvent,

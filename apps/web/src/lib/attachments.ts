@@ -3,14 +3,14 @@
 // Transfer rows own UI progress while this module preserves serial order and one sink call.
 
 import { coordClient } from "../connect.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { uploadAttachmentDirect } from "./attachmentDirect.ts";
 import { createAttachmentPreviewUrl } from "./attachmentPreview.ts";
 import { sendUserTerminalInput } from "./userTerminalInput.ts";
 import { safeAttachmentInsertion } from "./attachmentInsertion.ts";
 import { workerPathPlatform } from "./nativePath.ts";
 import { addTransfer, markTransferState, setTransferProgress } from "../store/transfers.ts";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 
 // 4 MiB per chunk — well under any Connect message limit, still O(chunk)
 // memory, but 4x fewer ordered round-trips (and 4x fewer coord session→worker

@@ -11,7 +11,7 @@
 // arrangeLayout is the single dispatcher the UI (ArrangeMenu.tsx) and
 // TerminalDeck's ⌘⌥ keymap call.
 
-import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/protocol/layout-document";
 import { type Layout, type PaneNode, type PaneDir, defaultLayout, allLeaves } from "./paneLayout.ts";
 
 export type PresetKind = "even" | "rows" | "tiled" | "main-vertical";

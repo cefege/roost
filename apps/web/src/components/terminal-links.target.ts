@@ -3,7 +3,7 @@
 // producer-painted links receive the same protocol and worker-route checks.
 // Worker-aware callers supply the only path-to-route resolver.
 
-import { linkUriWithinCap } from "@roost/shared/cell";
+import { linkUriWithinCap } from "@roost/protocol/cell";
 
 /** Resolve a raw file path (+ optional 1-based line) from terminal output into
  * an internal `/file/<workerFp>/…#L<line>` href, or null to skip linkifying it.

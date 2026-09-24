@@ -75,12 +75,13 @@ Windows remains usable as a browser client.
 The `roost` binary installs the local coordinator/worker pair, reports
 `status` and `doctor`, and performs journaled fleet rollout.
 
-### `apps/shared` — the protocol contract
+### `protocol/` + `packages/` — the portable contract
 
-Wire schemas, generated protobuf types, event folding, terminal cells,
-direct-peer limits, SDP inspection, packet framing, configuration, logging, and
-platform rules live here. The package is subpath-only: consumers import the
-exported concern rather than a barrel.
+Language-neutral proto sources live in `protocol/proto`; wire schemas,
+generated bindings, event folding, terminal cells, direct-peer limits, platform
+rules, observability, and host configuration live in explicitly layered
+packages under `packages/`. Consumers import the package and subpath that own
+the concern rather than a barrel.
 
 ## Event sourcing
 
@@ -281,7 +282,7 @@ Windows shape — otherwise the official `session_id` offered in the same call i
 stored as kind `id`. Values are well-formed Unicode free of control characters,
 bounded at 512 UTF-8 bytes for an id and 4,096 for a path, and are never
 opened, normalized, indexed, rendered, or logged.
-`apps/shared/src/agent-conversation-reference.ts` owns every one of those
+`packages/protocol/src/agent-conversation-reference.ts` owns every one of those
 rules, so a reference that could not be resumed is never stored.
 
 Set, replacement, and explicit clear are private durable `SessionEvent`s
@@ -352,7 +353,7 @@ A fresh `Sync` connection gets the hub snapshot, and session close drops its row
 `SessionsPrompt` names `session_id`, exact `expected_status_epoch`, `expected_occupant_id`, and safe-`uint64` `expected_revision`, plus nonempty `text` and optional wait configuration. Text is capped at 16,384 UTF-8 bytes. Wait configuration is all absent or a nonempty unique subset of `idle|working|blocked` plus `wait_timeout_ms` in `1..300000`.
 The coordinator's `apps/coord/src/connect/agent-prompt-control.ts` registers `waitForAgentStatus` before enqueueing dedicated `DAgentPrompt` tag 16 with request/session/input sequence, exact identity and revision, original text, and relative budget. `WInputResult` remains the upstream write truth; the coordinator consumes the waiter only after a definite rejection and awaits it after accepted or ambiguous input.
 `apps/worker/src/agent-prompt-control.ts` refreshes private process proof before admission, then immediately before `beginInput` rechecks the live session/channel, deadline and current connection, integration source, exact epoch/occupant/revision, the same refreshed process, and state `idle|working`.
-All fence failures at the final pre-`beginInput` check are rejections with zero keeper writes; a failure after admission is ambiguous. The worker uses `apps/shared/src/terminal-input.ts`, matching the browser's newline normalization and, when bracketed paste is active, its ESC-stripping wrapper; it then appends one CR and performs one keeper write. `SessionsInput` remains raw bytes with no fence, transformation, implicit Enter, or semantic change.
+All fence failures at the final pre-`beginInput` check are rejections with zero keeper writes; a failure after admission is ambiguous. The worker uses `packages/protocol/src/terminal-input.ts`, matching the browser's newline normalization and, when bracketed paste is active, its ESC-stripping wrapper; it then appends one CR and performs one keeper write. `SessionsInput` remains raw bytes with no fence, transformation, implicit Enter, or semantic change.
 The response keeps exact input outcome (`accepted|rejected|ambiguous`) separate from optional wait outcome (`matched|timed_out|occupant_changed|session_closed`) and exposes only a reason of at most 200 characters and `written_bytes` of at most 16,397. Prompt text and agent status messages are never logged, audited, or stored, and an ambiguous write is never retried.
 `roost api agent-status <session> [--json]`, `roost api agents [--json]`, `roost api agent-wait <session> --until <states> --timeout <duration>`, and `roost api agent-prompt <session> <text> [--wait --until <states> --timeout <duration>]` expose this PID-free surface.
 
@@ -383,7 +384,7 @@ multiplexers use:
   views that are actually looking, so no present viewer is clipped. One
   `TerminalViewRegistry` owner—worker `TerminalViewOwner` when available,
   otherwise coordinator `TerminalViewHub`—owns membership, and
-  `minimumTerminalGeometry` (`@roost/shared/viewport`) is the one per-axis
+  `minimumTerminalGeometry` (`@roost/protocol/viewport`) is the one per-axis
   minimum. Leases absorb reconnect wobble while the park grace bounds how long
   a dead viewer's dimensions keep binding, and letterboxing absorbs pixel
   differences without competing resize owners.
@@ -391,7 +392,7 @@ multiplexers use:
   there is nothing to corrupt. The frame states it (`CellGridFrame.altScreen`);
   the renderer hides the history sheet and locks scrolling while it is set, and
   restores both on leaving.
-- The cell payload has **one source of truth**, `apps/shared/src/cell/`:
+- The cell payload has **one source of truth**, `packages/protocol/src/cell/`:
   `CellSpan` (a run of cells sharing one style, whose style fields mirror the
   core's own `CellData`), `CellRow` (index plus right-trimmed spans), and
   `CellGridFrame` (cols, rows, cursor, alt-screen, viewport rows, scrollback
@@ -421,9 +422,9 @@ multiplexers use:
   the pane settle before it starts — `runRenderStress` captures one marker
   baseline up front and flags any later change of range.
 - The **core** is `@wterm/core` 0.5.0, loaded through
-  `apps/shared/src/wterm-core-factory.ts` from a locally patched WASM build
-  committed at `apps/shared/wasm/wterm-roost.wasm`. Its sha256 sits beside it
-  in `apps/shared/wasm/wterm-roost.wasm.sha256`, and `scripts/rebuild-wterm-wasm.sh` reproduces
+  `packages/wterm/src/wterm-core-factory.ts` from a locally patched WASM build
+  committed at `packages/wterm/wasm/wterm-roost.wasm`. Its sha256 sits beside it
+  in `packages/wterm/wasm/wterm-roost.wasm.sha256`, and `scripts/rebuild-wterm-wasm.sh` reproduces
   the build. Loading is fail-fast: `verifyRoostWasm` rehashes the bytes against
   that digest and checks every 0.5.0 bridge export by name, throwing instead of
   returning a degraded core.

@@ -6,8 +6,8 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import {
   AgentConversationReferenceV1Schema,
   type AgentConversationReferenceV1,
-} from "@roost/shared/agent-conversation-reference";
-import { SessionEvent, type SessionEvent as SessionEventValue } from "@roost/shared/wire";
+} from "@roost/protocol/agent-conversation-reference";
+import { SessionEvent, type SessionEvent as SessionEventValue } from "@roost/protocol/wire";
 import { sessionBus } from "../src/buses.ts";
 import { appendEvent } from "../src/event-log.ts";
 import { readSessionsListProjection } from "../src/connect/session-list-projection.ts";

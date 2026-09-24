@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 
 // Tiny structured logger so keeper stderr is grep-able JSON instead of
-// plain text. Same shape as `@roost/shared/log` (target, msg, fields)
+// plain text. Same shape as `@roost/observability/log` (target, msg, fields)
 // but kept inline because the keeper is its own subprocess and we
 // don't want to pull the shared package down through its own module
 // resolution chain — keeper has to boot fast and stay portable across

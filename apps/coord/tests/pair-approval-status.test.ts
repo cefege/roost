@@ -6,14 +6,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, createContextValues, type HandlerContext } from "@connectrpc/connect";
-import { PAIRING_CEREMONY_VERSION, generatePairVerificationCode } from "@roost/shared/pairing";
+import { PAIRING_CEREMONY_VERSION, generatePairVerificationCode } from "@roost/protocol/pairing";
 import {
   PairApprovalStatusRequestSchema,
   PairApproveRequestSchema,
   PairConfirmRequestSchema,
   PairDenyRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { AUTH_LAYER_DEVICE, X_ROOST_AUTH_LAYER } from "@roost/shared/wire/headers";
+} from "@roost/protocol/proto/coordinator_pb";
+import { AUTH_LAYER_DEVICE, X_ROOST_AUTH_LAYER } from "@roost/protocol/wire/headers";
 import { callerKey, onHostKey } from "../src/connect/auth-interceptor.ts";
 import { pairFrame } from "../src/connect/sync-feed-frames.ts";
 import { openPairingHandlerHarness, type CreatedPairRequest, type PairHandlers, type PairingHandlerHarness } from "./pairing-handler-fixture.ts";

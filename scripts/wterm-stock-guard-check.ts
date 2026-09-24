@@ -68,7 +68,7 @@ if (rowText(1) === "ROW1") {
     "Good news, and an instruction: stock upstream no longer executes `ESC[<0;10;5M`\n"
     + "as deleteLines, so the mouse-report hunk in the patch is redundant. Drop that hunk\n"
     + "(the `<`/`=` guard in src/terminal.zig handleCsi), re-run this script, and delete the\n"
-    + "press/release cases in apps/shared/tests/wterm-mouse-report-inert.test.ts.\n"
+    + "press/release cases in packages/wterm/tests/wterm-mouse-report-inert.test.ts.\n"
     + "Nothing is broken — the build is fine and this is the only thing to change.",
   );
   process.exit(1);

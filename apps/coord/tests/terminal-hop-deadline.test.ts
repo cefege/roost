@@ -24,8 +24,8 @@ import {
   TerminalWritePhase,
   WInputResultSchema,
   type CoordWorkerDown,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { CoordConfig } from "@roost/shared/config";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { CoordConfig } from "@roost/host/config";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { ensureSelfHostedTenant } from "../src/self-hosted-tenant.ts";

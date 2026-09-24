@@ -14,8 +14,8 @@ import {
   type AgentRuntimeState as AgentRuntimeStateValue,
   type AgentStatus as AgentStatusValue,
   type StatusEpoch as StatusEpochValue,
-} from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
 
 export type AgentStatusWaitOutcome =
   | "matched"

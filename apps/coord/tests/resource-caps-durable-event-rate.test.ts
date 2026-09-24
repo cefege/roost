@@ -9,9 +9,9 @@ import {
   CoordWorkerUpSchema,
   WSessionEventSchema,
   type CoordWorkerUp,
-} from "@roost/shared/proto/worker_transport_pb";
-import { asSessionId, asWorkerFp } from "@roost/shared/wire";
-import { eventToProto } from "@roost/shared/wire/event-proto";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { asSessionId, asWorkerFp } from "@roost/protocol/wire";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
 import {
   WORKER_DURABLE_EVENT_LIMIT,
   createAnnouncedChannelBarrier,

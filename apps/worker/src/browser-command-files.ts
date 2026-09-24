@@ -1,7 +1,7 @@
 // Browser-command handlers: filesystem RPCs (read-file / list-dir / mkdir /
 // get-home). Extracted from browser-command-handler.ts (CLAUDE.md 400-line cap).
 
-import type { ClientControlFrame } from "@roost/shared/wire";
+import type { ClientControlFrame } from "@roost/protocol/wire";
 import type { CoordLink } from "./transport/coord-link.ts";
 
 export function handleReadFile(

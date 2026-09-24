@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { asSessionId, asWorkerFp } from "@roost/shared/wire";
+import { asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import { handleKill } from "../src/browser-command-spawn.ts";
 import { SessionManager } from "../src/session-manager.ts";
 import { SessionEventTestSink } from "./session-event-test-sink.ts";

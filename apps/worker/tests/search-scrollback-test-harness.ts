@@ -6,13 +6,13 @@
 // depends on ../src/session-manager.ts and ../src/terminal-search.ts.
 
 import { expect } from "bun:test";
-import { initCellEmitState } from "@roost/shared/cell";
+import { initCellEmitState } from "@roost/protocol/cell";
 import {
 	TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_ROWS,
 	type WorkerSearchScrollbackResult,
-} from "@roost/shared/terminal-search";
-import { ClientControlFrame, asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+} from "@roost/protocol/terminal-search";
+import { ClientControlFrame, asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import { SessionManager } from "../src/session-manager.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import type { FsmChannel } from "../src/fsm.ts";

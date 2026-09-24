@@ -4,8 +4,8 @@
 // same hover installs.
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "bun:test";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { deleteStoreRecord, rootStore, setRootStore } from "../src/store/root.ts";
 import { folderKeyOf } from "../src/lib/folderKey.ts";
 import {

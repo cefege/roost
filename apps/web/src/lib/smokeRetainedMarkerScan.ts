@@ -3,7 +3,7 @@
 // The smoke backdoor uses the reported grid epoch and history floor to distinguish loss causes.
 // Strict page validation keeps a moving or malformed snapshot from producing a false pass.
 
-import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
+import type { ScrollbackHistoryFloor } from "@roost/protocol/wire";
 import { coordClient } from "../connect.ts";
 import { cellGridEpoch as cellGridEpochImpl } from "../store/sync.ts";
 import {

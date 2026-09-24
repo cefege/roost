@@ -3,7 +3,7 @@
 // latest-batch retirement across sessions owned by one stable viewer.
 
 import { describe, expect, test } from "bun:test";
-import { initCellEmitState } from "@roost/shared/cell";
+import { initCellEmitState } from "@roost/protocol/cell";
 import {
 	GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS,
 	GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
@@ -11,15 +11,15 @@ import {
 	WorkerGlobalSearchResultSchema,
 	type WorkerGlobalSearchResult,
 	type WorkerSearchScrollbackResult,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import {
 	asChannelId,
 	asSessionId,
 	asWorkerFp,
 	type ClientControlFrame,
 	type SessionId,
-} from "@roost/shared/wire";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+} from "@roost/protocol/wire";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import { handleBrowserCommand } from "../src/browser-command-handler.ts";
 import type { FsmChannel } from "../src/fsm.ts";
 import { SessionManager } from "../src/session-manager.ts";

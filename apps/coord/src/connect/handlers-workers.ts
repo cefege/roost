@@ -6,35 +6,35 @@
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
-import { isSupportedHostPlatform } from "@roost/shared/platform";
+import { isSupportedHostPlatform } from "@roost/platform/platform";
 import {
 	type CoordinatorService,
 	WorkersListResponseSchema,
 	WorkersRegisterResponseSchema,
 	WorkersRenameResponseSchema,
 	WorkersDeleteResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
 	workerRowToProto,
 	workerRowToWirePresence,
-} from "@roost/shared/wire/row-proto";
+} from "@roost/protocol/wire/row-proto";
 import { presenceBus } from "../buses.ts";
 import { listRoutableFps } from "./worker-service.ts";
 import { requireAccountDevice, requireWorker } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import { invalidateJwtKey } from "../jwt.ts";
-import { asWorkerFp } from "@roost/shared/wire";
+import { asWorkerFp } from "@roost/protocol/wire";
 import { retireWorkerRoutes } from "../byte-hub.ts";
 import {
 	fenceWorkerCredential,
 	_publishRoutable,
 } from "./worker-registry.ts";
 import { notifyTerminalWorkerRetired } from "./terminal-view-hub.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { makeWorkerDeployHandlers } from "./handlers-workers-deploy.ts";
 import { makeWorkerHeartbeatHandler } from "./handlers-workers-heartbeat.ts";
 import { truncatePersistedUtf8 } from "../persistence-input.ts";
-import { hostIdentityFromProto } from "@roost/shared/host-identity-proto";
+import { hostIdentityFromProto } from "@roost/protocol/host-identity-proto";
 export {
 	resolveWorkerDeployTarget,
 	workerDeployHost,

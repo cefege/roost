@@ -19,7 +19,7 @@ import {
   X_ROOST_REMOTE_ADDR,
   X_ROOST_ON_HOST,
   X_ROOST_LISTENER_TRUST,
-} from "@roost/shared/wire/headers";
+} from "@roost/protocol/wire/headers";
 
 export interface ConnectBunHandler {
   /** True if the path matches a registered Connect RPC. */

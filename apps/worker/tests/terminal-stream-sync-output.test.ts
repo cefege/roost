@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "bun:test";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import {
   SYNC_OUTPUT_MAX_MS,
   SYNC_OUTPUT_MAX_PENDING_ROWS,

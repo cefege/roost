@@ -3,8 +3,8 @@
 // SessionsPrompt is the only route allowed to override the 120-second default.
 
 import { describe, expect, test } from "bun:test";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
-import { AGENT_PROMPT_WAIT_TIMEOUT_MAX_MS } from "@roost/shared/terminal-input";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
+import { AGENT_PROMPT_WAIT_TIMEOUT_MAX_MS } from "@roost/protocol/terminal-input";
 import { startBunCoordinatorListeners } from "../src/bun-coordinator-listeners.ts";
 
 const PRIOR_IDLE_BOUNDARY_MS = 120_000;

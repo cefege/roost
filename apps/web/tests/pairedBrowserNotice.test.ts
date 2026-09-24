@@ -3,8 +3,8 @@
 // delta that drops the approved card and announces through the same notice.
 
 import { create } from "@bufbuild/protobuf";
-import { PairCompletedSchema, PairRequestDeltaProtoSchema } from "@roost/shared/proto/events_pb";
-import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
+import { PairCompletedSchema, PairRequestDeltaProtoSchema } from "@roost/protocol/proto/events_pb";
+import { FirehoseFrameSchema } from "@roost/protocol/proto/sync_pb";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const toasts: string[] = [];

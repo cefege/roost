@@ -4,8 +4,8 @@
 
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
-import { JournaledKeeperUpdateV1Schema } from "@roost/shared/keeper-update";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import { JournaledKeeperUpdateV1Schema } from "@roost/protocol/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import { DeployFailure } from "./deploy-exec.ts";
 import {
   coordinatorInstallEnvironment,

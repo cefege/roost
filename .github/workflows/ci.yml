@@ -72,7 +72,7 @@ jobs:
     # ubuntu only: the artifact digest is toolchain-exact and this is the host
     # the pinned build was verified on. The checksum half of the gate (committed
     # artifact vs committed .sha256) also runs in `unit`, on every OS, through
-    # apps/shared/tests/wterm-core-load.test.ts — this job adds the half that
+    # packages/wterm/tests/wterm-core-load.test.ts — this job adds the half that
     # needs a Zig toolchain: that the bytes really are upstream + our patch, and
     # that stock still exhibits the defect the mouse-report hunk guards.
     runs-on: ubuntu-latest
@@ -147,7 +147,7 @@ jobs:
       - name: Windows invariants
         run: |
           bun x tsgo -p tsconfig.base.json --noEmit
-          bun test --isolate apps/shared/tests/ apps/coord/tests/ apps/web/tests/ apps/roost-cli/tests/ smoke/bun_smoke.test.ts
+          bun test --isolate packages/ apps/coord/tests/ apps/web/tests/ apps/roost-cli/tests/ smoke/bun_smoke.test.ts
       - name: Windows PowerShell 5.1 bootstrap compatibility
         shell: powershell
         run: .\scripts\windows\verify-powershell51-bootstrap.ps1

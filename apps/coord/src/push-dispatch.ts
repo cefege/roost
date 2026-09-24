@@ -3,13 +3,13 @@
 // transport, and each payload carries its identity-derived deduplication token.
 
 import { createHash } from "node:crypto";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { sql } from "kysely";
 import type { KyselyDB } from "./db/connection.ts";
 import { activeTerminalViewerFingerprints } from "./connect/terminal-view-hub.ts";
 import { sendPushToSubscriptions } from "./push-sender.ts";
 import { hasUrlUserInfo } from "./url-user-info.ts";
-import type { AgentOccupantId, StatusEpoch } from "@roost/shared/wire";
+import type { AgentOccupantId, StatusEpoch } from "@roost/protocol/wire";
 
 export type PushTransition = "blocked" | "done";
 export interface AgentPushTransition {

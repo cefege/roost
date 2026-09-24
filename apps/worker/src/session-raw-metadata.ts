@@ -4,9 +4,9 @@
 // New links clear this state and use session-terminal-metadata instead.
 
 import type { SessionManager } from "./session-manager.ts";
-import { diag, signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import { DIR_FROM_PTY } from "@roost/shared/wire";
+import { diag, signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import { DIR_FROM_PTY } from "@roost/protocol/wire";
 import {
 	CELL_EMIT_COALESCE_MS,
 	RAW_METADATA_AGGREGATE_CAP_BYTES,

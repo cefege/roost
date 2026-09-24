@@ -11,7 +11,7 @@ import {
   keeperUpdateAdmission,
   type KeeperContractV1,
   type KeeperUpdateClassification,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import { sshExec } from "./deploy-exec.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
 import type { FleetRolloutWorker } from "./push-fleet-rollout.ts";

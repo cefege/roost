@@ -4,8 +4,8 @@
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { ConnectError, Code } from "@connectrpc/connect";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
-import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
+import type { FirehoseFrame } from "@roost/protocol/proto/sync_pb";
 import { requireAccountDevice } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 

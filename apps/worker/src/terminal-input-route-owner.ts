@@ -7,8 +7,8 @@ import {
 	TerminalInputRouteResultSchema,
 	type TerminalInputRouteClaim,
 	type TerminalInputRouteResult,
-} from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/sync_pb";
+import { log } from "@roost/observability/log";
 import { randomUUID } from "node:crypto";
 import { acquireKeeperAdmission, type KeeperAdmissionTicket } from "./session-control-lanes.ts";
 import type { SessionManager } from "./session-manager.ts";

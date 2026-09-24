@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   TERMINAL_CAPTURE_LIMITS,
   type TerminalCaptureResult,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 
 interface DiagSnapshotCall {
   sessionFilterIds?: string[];

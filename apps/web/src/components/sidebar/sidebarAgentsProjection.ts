@@ -3,7 +3,7 @@
 // sessions, statuses, and acknowledgement reader; this module filters, groups, and orders rows.
 // Folder identity stays worker-inclusive through folderKeyOf and FolderGroup.key.
 
-import type { AgentStatus, Session } from "@roost/shared/wire";
+import type { AgentStatus, Session } from "@roost/protocol/wire";
 import type { AgentStatusLevel } from "../../lib/agentStatus.ts";
 import { AGENT_STATUS_PRESENTATION, deriveAgentStatusLevel } from "../../lib/agentStatus.ts";
 import type { FolderGroup } from "../../lib/folderGroups.ts";

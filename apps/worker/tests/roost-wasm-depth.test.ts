@@ -6,7 +6,7 @@
 
 import { test, expect } from "bun:test";
 import { WasmBridge } from "@wterm/core";
-import { WTERM_ROOST_WASM_PATH } from "@roost/shared/wterm-wasm";
+import { WTERM_ROOST_WASM_PATH } from "@roost/wterm/wterm-wasm";
 
 const FIVE_K_LINES =
   Array.from({ length: 5000 }, (_, i) => `line ${i}`).join("\r\n") + "\r\n";

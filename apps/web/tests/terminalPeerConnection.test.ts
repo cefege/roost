@@ -8,12 +8,12 @@ import {
   LocalTerminalClientFrameSchema,
   LocalScrollbackResponseSchema,
   LocalTerminalServerFrameSchema,
-} from "@roost/shared/proto/local_terminal_pb";
+} from "@roost/protocol/proto/local_terminal_pb";
 import {
   InputCommandSchema,
   TerminalViewCommandSchema,
-} from "@roost/shared/proto/sync_pb";
-import { encodeTerminalPeerPacket, parseTerminalPeerPacket } from "@roost/shared/terminal-peer-packets";
+} from "@roost/protocol/proto/sync_pb";
+import { encodeTerminalPeerPacket, parseTerminalPeerPacket } from "@roost/protocol/terminal-peer-packets";
 
 const dispatched: unknown[] = [];
 const retired: unknown[] = [];

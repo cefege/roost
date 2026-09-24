@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Session, Worker, Workspace } from "@roost/shared/wire";
+import type { Session, Worker, Workspace } from "@roost/protocol/wire";
 import {
   applyWorkerDeleteResponse,
   sessionWorkerIsOffline,

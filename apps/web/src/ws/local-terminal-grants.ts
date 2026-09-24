@@ -3,8 +3,8 @@
 // each other's credentials. Consumers subscribe to worker-scoped updates; this
 // owner fences every asynchronous mint against the current auth generation.
 
-import { diag } from "@roost/shared/diag";
-import { TERMINAL_PEER_MAX_SESSIONS_PER_GRANT } from "@roost/shared/terminal-peer";
+import { diag } from "@roost/observability/diag";
+import { TERMINAL_PEER_MAX_SESSIONS_PER_GRANT } from "@roost/protocol/terminal-peer";
 import { getCurrentWebKeyInfo } from "../auth/web-key.ts";
 import { getTabId } from "../auth/tab-id.ts";
 import { coordClient } from "../connect.ts";

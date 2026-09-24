@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { Server, ServerWebSocket } from "bun";
 import { fromBinary } from "@bufbuild/protobuf";
-import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
+import { FirehoseFrameSchema } from "@roost/protocol/proto/sync_pb";
 import {
   handleSyncWsUpgrade,
   makeSyncWsHandler,

@@ -1,7 +1,7 @@
 // Public contracts for coordinator terminal stream-state dispatch. TerminalViewHub
 // wires the production worker sender and route resolver; tests can inject both
 // without admitting terminal input or snapshot traffic into this scheduler.
-import type { WTerminalStreamResult } from "@roost/shared/proto/worker_transport_pb";
+import type { WTerminalStreamResult } from "@roost/protocol/proto/worker_transport_pb";
 import type { HopDeadline, TerminalWorkerRequest } from "./worker-send.ts";
 import type { TerminalStreamRoute } from "./terminal-view-stream-controller-types.ts";
 

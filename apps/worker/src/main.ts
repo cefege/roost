@@ -33,18 +33,18 @@ import { AgentReferenceAdmissionGate } from "./agent-status/reference-admission.
 import {
 	restoreAgentConversationAfterRespawn,
 } from "./agent-conversation-restore.ts";
-import { serveServiceHealth } from "@roost/shared/service-health";
-import { asWorkerFp } from "@roost/shared/wire";
-import { diag, signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import { ROOST_ARTIFACT_VERSION, ROOST_BUILD_SHA } from "@roost/shared/build-identity";
-import { workerDataDir } from "@roost/shared/paths";
-import { prepareWtermCoreModule } from "@roost/shared/wterm-core-factory";
+import { serveServiceHealth } from "@roost/host/service-health";
+import { asWorkerFp } from "@roost/protocol/wire";
+import { diag, signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import { ROOST_ARTIFACT_VERSION, ROOST_BUILD_SHA } from "@roost/host/build-identity";
+import { workerDataDir } from "@roost/host/paths";
+import { prepareWtermCoreModule } from "@roost/wterm/wterm-core-factory";
 import {
 	TERMINAL_INPUT_ROUTE_CAPABILITY,
 	TERMINAL_PEER_WEBRTC_CAPABILITY,
-} from "@roost/shared/terminal-peer";
-import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/terminal-peer";
+import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/protocol/attachment-transfer";
 import { randomUUID } from "node:crypto";
 
 // hook.sock lives in the same data dir as the worker key.

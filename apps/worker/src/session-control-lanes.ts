@@ -10,7 +10,7 @@
 //     input therefore waits for the ordered boundary, never for the resize ACK
 //     or snapshot transfer.
 
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import type { SessionManager } from "./session-manager.ts";
 import { monoNowMs } from "./util/mono.ts";
 

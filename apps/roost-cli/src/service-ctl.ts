@@ -9,6 +9,6 @@
 // extracted modules must import siblings directly, never this file.
 
 export * from "./service-posix.ts";
-export * from "./windows/windows-service-types.ts";
-export * from "./windows/windows-service-definitions.ts";
-export * from "./windows/windows-service-manager.ts";
+export * from "@roost/host/windows/windows-service-types";
+export * from "@roost/host/windows/windows-service-definitions";
+export * from "@roost/host/windows/windows-service-manager";

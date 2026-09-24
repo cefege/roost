@@ -219,6 +219,7 @@ function preserveRelative(importer: string, target: string, original: string): s
   let result = relative(posix.dirname(importer), target).replaceAll("\\", "/");
   if (!/\.[A-Za-z0-9]+$/.test(original)) result = result.replace(/\.(?:[cm]?[jt]s|tsx)$/, "");
   if (original.startsWith("./") && !result.startsWith(".")) result = `./${result}`;
+  if (target.endsWith("/") && !result.endsWith("/")) result += "/";
   return result;
 }
 
@@ -243,7 +244,9 @@ function rewriteSpecifier(context: MoveContext, importer: string, specifier: str
   const targetWorkspace = workspaceFor(newTarget);
   const exempt = newImporter === "scripts" || newImporter.startsWith("scripts/")
     || newImporter === "smoke" || newImporter.startsWith("smoke/");
-  if (importerWorkspace && targetWorkspace && importerWorkspace !== targetWorkspace && !exempt) {
+  const packageTest = newImporter.startsWith("packages/") && newImporter.includes("/tests/");
+  const generatedBuildInput = /\.generated\.ts$/.test(newImporter);
+  if (importerWorkspace && targetWorkspace && importerWorkspace !== targetWorkspace && !exempt && !packageTest && !generatedBuildInput) {
     return packageSpecifier(context, targetWorkspace, newTarget);
   }
   return preserveRelative(newImporter, newTarget, specifier);

@@ -8,8 +8,8 @@
 
 import { globalPresenceBus } from "./buses.ts";
 import { lookupSessionId } from "./byte-hub.ts";
-import { asWorkerFp, asChannelId } from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
+import { asWorkerFp, asChannelId } from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
 
 export function publishPresence(workerFp: string, channelId: number, payload: unknown): void {
   // phase-26 firehose: publish keyed by session_id so the SPA's single

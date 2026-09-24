@@ -5,12 +5,12 @@
 import { join } from "node:path";
 import {
   AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES,
-} from "@roost/shared/agent-conversation-reference";
-import { workerDataDir } from "@roost/shared/paths";
+} from "@roost/protocol/agent-conversation-reference";
+import { workerDataDir } from "@roost/host/paths";
 import {
   SessionEvent,
   type SessionEvent as SessionEventValue,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import { SessionEventStoreDatabase } from "./session-event-store-database.ts";
 import {
   SessionEventOutboxFullError,

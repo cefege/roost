@@ -4,11 +4,11 @@
 
 import { create } from "@bufbuild/protobuf";
 import { describe, expect, test } from "bun:test";
-import type { LayoutDocumentV1 } from "@roost/shared/layout-document";
-import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
-import { UiTabStateSchema } from "@roost/shared/proto/coordinator_pb";
-import { UiReportStateRequestSchema } from "@roost/shared/proto/sync_pb";
-import { utf8ByteLength } from "@roost/shared/ui-state";
+import type { LayoutDocumentV1 } from "@roost/protocol/layout-document";
+import { layoutDocumentToProto } from "@roost/protocol/layout-document-proto";
+import { UiTabStateSchema } from "@roost/protocol/proto/coordinator_pb";
+import { UiReportStateRequestSchema } from "@roost/protocol/proto/sync_pb";
+import { utf8ByteLength } from "@roost/protocol/ui-state";
 import {
   dispatchUiApi,
   type UiApiClient,

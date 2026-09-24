@@ -5,9 +5,9 @@
 // geometry for the whole process. Constructs TerminalViewRegistry directly
 // because the hub wires recompute to its own controller, which cannot fail.
 import { afterEach, describe, expect, test } from "bun:test";
-import { TERMINAL_VIEW_LEASE_MS } from "@roost/shared/viewport";
+import { TERMINAL_VIEW_LEASE_MS } from "@roost/protocol/viewport";
 import { TerminalScreenHub } from "../src/connect/terminal-screen-hub.ts";
-import { TerminalViewRegistry } from "@roost/shared/terminal-view";
+import { TerminalViewRegistry } from "@roost/protocol/terminal-view";
 import {
   OTHER_SESSION,
   SESSION,

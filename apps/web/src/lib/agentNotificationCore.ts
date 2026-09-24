@@ -2,7 +2,7 @@
 // Store transitions feed this owner; delayed deliveries recheck the exact
 // epoch, occupant, and revision before producing browser effects.
 
-import { isIdentifiedAgentStatus, type AgentStatus } from "@roost/shared/wire";
+import { isIdentifiedAgentStatus, type AgentStatus } from "@roost/protocol/wire";
 import type { AgentStatusChange } from "../store/agent-status.ts";
 import {
   agentStatusRevisionToken,

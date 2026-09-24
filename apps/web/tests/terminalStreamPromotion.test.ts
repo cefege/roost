@@ -7,16 +7,16 @@ import { create } from "@bufbuild/protobuf";
 import { describe, expect, test } from "bun:test";
 import type {
   PbCellGridFrame,
-} from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/proto/cell_pb";
 import {
   LocalTerminalServerFrameSchema,
   type LocalTerminalServerFrame,
-} from "@roost/shared/proto/local_terminal_pb";
+} from "@roost/protocol/proto/local_terminal_pb";
 import {
   TerminalViewStateFrameSchema,
   TerminalViewStatus,
   type TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { terminalGenerationToken } from "../src/store/terminal-stream-liveness.ts";
 import { sessionTerminalTransportPresentation } from "../src/store/local-transport-indicator.ts";
 import {

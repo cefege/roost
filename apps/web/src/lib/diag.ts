@@ -1,18 +1,18 @@
 // SPA-side diag batcher. Sits in front of the shared `diag()` facade
-// from @roost/shared/diag. Buffers events in an in-memory ring, flushes
+// from @roost/observability/diag. Buffers events in an in-memory ring, flushes
 // every 100ms or 64 entries (whichever first) via coordClient.diagDebugLogBatch.
 // On pagehide / beforeunload, uses navigator.sendBeacon to flush the
 // tail synchronously so the last events before close still ship.
 //
 // Gated by localStorage.roostDiag === "1" (module-load gate inside
-// @roost/shared/diag). When disabled this whole file is a no-op since
+// @roost/observability/diag). When disabled this whole file is a no-op since
 // the upstream diag() never invokes our sink.
 //
 // Owners: apps/web/src/main.tsx (installer), CellTerminal.tsx + sync.ts +
 // ws/sync-outbound.ts (callers via the global `diag` export).
 
-import { setDiagSink, setSignalSink, isDiagEnabled, signal } from "@roost/shared/diag";
-import { safeJsonStringify } from "@roost/shared/json";
+import { setDiagSink, setSignalSink, isDiagEnabled, signal } from "@roost/observability/diag";
+import { safeJsonStringify } from "@roost/protocol/json";
 import { coordinatorRpcUrl, coordClient } from "../connect.ts";
 
 // Fixed-size, always-on SPA phase recorder. Unlike the diagnostic firehose,

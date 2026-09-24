@@ -7,7 +7,7 @@
 // Callers: WorkerBrowsePage.tsx.
 
 import { For, Show, createSignal } from "solid-js";
-import type { Worker } from "@roost/shared/wire";
+import type { Worker } from "@roost/protocol/wire";
 import { Button } from "./Settings/md/Button.tsx";
 import { Icon } from "./Settings/md/Icon.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";

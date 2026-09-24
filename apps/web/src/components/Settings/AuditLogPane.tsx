@@ -9,8 +9,8 @@
 import { createSignal, For, Show, onMount, onCleanup, createMemo } from "solid-js";
 import { coordClient } from "../../connect.ts";
 import { registerAuditDelta, registerLazySyncDomain } from "../../store/sync.ts";
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
-import type { AuditRow as PbAuditRow } from "@roost/shared/proto/wire_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
+import type { AuditRow as PbAuditRow } from "@roost/protocol/proto/wire_pb";
 import { Card, Button, EmptyState, Icon, TextField } from "./md/primitives.tsx";
 
 interface AuditRow {

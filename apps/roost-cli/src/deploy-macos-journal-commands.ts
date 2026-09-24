@@ -2,9 +2,9 @@
 // deploy-macos-journal-controller.ts executes these byte-stable commands.
 // The transmitted Bun program and shared shell quoting define the boundary.
 
-import { JournaledKeeperUpdateV1Schema } from "@roost/shared/keeper-update";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { JournaledKeeperUpdateV1Schema } from "@roost/protocol/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 import {
   MACOS_WORKER_LABEL,
   _parseMacosDeployJournal,

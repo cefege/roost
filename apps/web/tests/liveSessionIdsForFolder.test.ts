@@ -7,8 +7,8 @@ import {
   asChannelId,
   asSessionId,
   asWorkerFp,
-} from "@roost/shared/wire";
-import type { Session, WorkerFp } from "@roost/shared/wire";
+} from "@roost/protocol/wire";
+import type { Session, WorkerFp } from "@roost/protocol/wire";
 import {
   deleteStoreRecord,
   rootStore,

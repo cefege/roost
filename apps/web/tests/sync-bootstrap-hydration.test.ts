@@ -12,11 +12,11 @@ import {
   SyncClientFrameSchema,
   SyncDomain,
   SyncDomainResetFrameSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   type WorkersListResponse,
   WorkersListResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { reconcile } from "solid-js/store";
 import { _installBootstrapDomainHydrators } from "../src/store/sync-bootstrap-hydration.ts";
 import { _consumeSyncFrame } from "../src/store/sync-inbound.ts";

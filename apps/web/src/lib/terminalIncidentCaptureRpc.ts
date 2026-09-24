@@ -3,18 +3,18 @@
 // error vocabulary a failure maps to. No validator or parser text ever reaches
 // a result, because those can quote the terminal content being validated.
 // Called only by terminalIncidentCapture.ts; the request shape comes from the
-// generated coordinator proto and @roost/shared/terminal-capture.
+// generated coordinator proto and @roost/protocol/terminal-capture.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { TerminalCaptureRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import { TerminalCaptureRequestSchema } from "@roost/protocol/proto/coordinator_pb";
 import {
   terminalCaptureActionValue,
   type TerminalCaptureActionName,
   type TerminalCaptureErrorCode,
   type TerminalCaptureReason,
   type TerminalCaptureResult,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import { coordClient } from "../connect.ts";
 import { terminalBrowserStreamSnapshot } from "./terminalDiagSnapshot.ts";
 
@@ -117,7 +117,7 @@ export function stoppedCaptureResult(
 /** The bridge reports caller faults as `"<code>: <field>"`, so the exact code
  *  survives the status mapping (evidence_too_large and invalid_argument share
  *  one gRPC code). The table is keyed by the shared union, so a new code in
- *  @roost/shared fails this file's typecheck instead of silently degrading. */
+ *  @roost/protocol fails this file's typecheck instead of silently degrading. */
 function captureErrorCode(error: unknown): TerminalCaptureErrorCode {
   if (!(error instanceof ConnectError)) return "internal";
   const declared = error.rawMessage.split(": ", 1)[0] ?? "";

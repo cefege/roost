@@ -13,7 +13,7 @@
 // is on AND the frame reports a nonzero tracking mode.
 
 import { createSignal } from "solid-js";
-import type { MouseTracking } from "@roost/shared/cell";
+import type { MouseTracking } from "@roost/protocol/cell";
 
 const KEY = "roostMouseForward";
 const read = (): boolean => {

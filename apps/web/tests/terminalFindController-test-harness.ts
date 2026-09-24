@@ -8,7 +8,7 @@
 // body is still suspended, so the controller import belongs to the suite.
 
 import { afterEach, beforeEach } from "bun:test";
-import { ScrollbackHistoryFloor, SearchStopReason } from "@roost/shared/proto/coordinator_pb";
+import { ScrollbackHistoryFloor, SearchStopReason } from "@roost/protocol/proto/coordinator_pb";
 import {
   cancellationRequests,
   requests,

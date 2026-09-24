@@ -2,7 +2,7 @@
 // Source and target differ only by build provenance, so preserve is the required
 // action; individual tests override fields to exercise fail-closed validation.
 
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 
 const IMPLEMENTATION_DIGEST = "d".repeat(64);
 export const MACOS_WORKER_FINGERPRINT = "f".repeat(64);

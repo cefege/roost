@@ -5,9 +5,9 @@
 
 import { create } from "@bufbuild/protobuf";
 import { createHash } from "node:crypto";
-import { verifyLocalEndpointCapability } from "@roost/shared/local-endpoint";
-import { log } from "@roost/shared/log";
-import { DLocalTerminalGrantSchema, type DLocalTerminalGrant } from "@roost/shared/proto/worker_transport_pb";
+import { verifyLocalEndpointCapability } from "@roost/host/local-endpoint";
+import { log } from "@roost/observability/log";
+import { DLocalTerminalGrantSchema, type DLocalTerminalGrant } from "@roost/protocol/proto/worker_transport_pb";
 import { monoNowMs } from "./util/mono.ts";
 
 const MAX_GRANTS = 256;

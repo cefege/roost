@@ -2,7 +2,7 @@
 // Grant expiry gates a fresh hello only; an admitted port uses its finite active
 // lease while explicit grant replacement or revocation remains an immediate fence.
 
-import type { AttachmentTransferHello } from "@roost/shared/proto/attachment_transfer_pb";
+import type { AttachmentTransferHello } from "@roost/protocol/proto/attachment_transfer_pb";
 import type { AttachmentGrant, AttachmentGrantStore } from "./attachment-grants.ts";
 import type { AttachmentPeerExpectedTuple } from "./attachment-peer-connection.ts";
 

@@ -4,10 +4,10 @@
 // a superseded socket cannot publish after an awaited database append.
 import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
-import { CoordWorkerDownSchema, DHelloAckSchema } from "@roost/shared/proto/worker_transport_pb";
-import type { CoordWorkerDown, CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import { TERMINAL_INPUT_ROUTE_CAPABILITY, TERMINAL_PEER_WEBRTC_CAPABILITY } from "@roost/shared/terminal-peer";
-import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
+import { CoordWorkerDownSchema, DHelloAckSchema } from "@roost/protocol/proto/worker_transport_pb";
+import type { CoordWorkerDown, CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
+import { TERMINAL_INPUT_ROUTE_CAPABILITY, TERMINAL_PEER_WEBRTC_CAPABILITY } from "@roost/protocol/terminal-peer";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/protocol/terminal-metadata";
 import {
   jwtKeyGeneration,
   verifyJwt,
@@ -16,9 +16,9 @@ import {
 import { resolveCallerPrincipal } from "./auth-interceptor.ts";
 import { replaceWorkerChannelIndex } from "../byte-hub.ts";
 import { rejectPendingRpcsForWorker } from "../router/pending-rpcs.ts";
-import { asWorkerFp } from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
-import { signal, diag } from "@roost/shared/diag";
+import { asWorkerFp } from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
+import { signal, diag } from "@roost/observability/diag";
 import { connectWorkers, _publishRoutable, type WorkerHandle } from "./worker-registry.ts";
 import { rejectPendingSpawnsForWorker } from "./pending-spawns.ts";
 import {

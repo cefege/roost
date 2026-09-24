@@ -11,7 +11,7 @@ import type {
 } from "../auth/fragment-credential.ts";
 import { redeemPairToken } from "../auth/redeemPairToken.ts";
 import type { RedeemResult } from "../auth/redeemPairToken.ts";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 
 export interface FragmentDispatcherDependencies {
   peek(): CapturedFragmentCredential | null;

@@ -13,7 +13,7 @@ import {
 	type TerminalCaptureErrorCode,
 	type TerminalCaptureLayer,
 	type TerminalCaptureTrigger,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { WorkerHistoryRequest } from "./terminal-capture-worker-section.ts";
 
 /** Painted states a browser section carries; each names DOM history rows and

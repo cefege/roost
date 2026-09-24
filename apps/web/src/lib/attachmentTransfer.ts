@@ -6,7 +6,7 @@ import {
   ATTACHMENT_TRANSFER_COMPLETE_REASON,
   ATTACHMENT_TRANSFER_DIRECT_CHUNK_BYTES,
   isAttachmentTransferChunkSha256,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 
 export interface AttachmentTransferChunk {
   readonly uploadId: string;

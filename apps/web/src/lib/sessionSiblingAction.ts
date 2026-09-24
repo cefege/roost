@@ -3,8 +3,8 @@
 // and navigation sequence remains guarded at every asynchronous boundary.
 
 import type { Navigator } from "@solidjs/router";
-import { diag } from "@roost/shared/diag";
-import type { Session } from "@roost/shared/wire";
+import { diag } from "@roost/observability/diag";
+import type { Session } from "@roost/protocol/wire";
 import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "./spawnSession.ts";
 import {
   captureAuthResourceToken,

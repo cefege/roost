@@ -6,15 +6,15 @@
 // intermediate width. Membership itself lives in the registry, never here.
 
 import { randomUUID } from "node:crypto";
-import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
+import { TerminalViewStatus } from "@roost/protocol/proto/sync_pb";
+import { log } from "@roost/observability/log";
 import {
 	truncateTerminalReason,
 	type TerminalStreamState,
 	type TerminalUnavailablePolicy,
 	type TerminalViewGeometrySet,
-} from "@roost/shared/terminal-view";
-import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/shared/viewport";
+} from "@roost/protocol/terminal-view";
+import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/protocol/viewport";
 import type { SessionManager } from "./session-manager.ts";
 import type { WorkerTerminalStreamResult } from "./session-terminal-state.ts";
 import { TERMINAL_REQUEST_BUDGET_CAP_MS } from "./transport/coord-link-constants.ts";

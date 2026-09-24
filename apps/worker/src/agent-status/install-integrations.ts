@@ -4,11 +4,11 @@
 
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   supportedHostPlatform,
   type SupportedHostPlatform,
-} from "@roost/shared/platform";
+} from "@roost/platform/platform";
 import { AGENT_INTEGRATION_ASSETS } from "./integration-assets.generated.ts";
 import {
   AGENT_INTEGRATION_ASSET_SPECS,

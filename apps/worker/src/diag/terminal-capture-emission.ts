@@ -13,7 +13,7 @@ import {
 	compareCanonicalViews,
 	type TerminalCanonicalDifference,
 	type TerminalWorkerComparison,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import {
 	cellGridEpoch,
 	cloneCellGridFrame,
@@ -22,7 +22,7 @@ import {
 	normalizeCellGridFrame,
 	scrollbackOrigin,
 	type CellGridFrame,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import type { SessionRecord } from "../session-record.ts";
 import type { TerminalStreamState } from "../session-terminal-state.ts";
 import { monoNowMs } from "../util/mono.ts";

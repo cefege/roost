@@ -3,7 +3,7 @@
 // shows a prompt waiting on a human; a visible blocker corrects it. Reporters
 // for runtimes whose integration covers the whole lifecycle keep their state.
 import { describe, expect, test } from "bun:test";
-import type { AgentStatusUpdate } from "@roost/shared/wire";
+import type { AgentStatusUpdate } from "@roost/protocol/wire";
 import type { BuiltinAgentId } from "../src/agent-status/process-scan.ts";
 import { AgentStatusRegistry } from "../src/agent-status/registry.ts";
 

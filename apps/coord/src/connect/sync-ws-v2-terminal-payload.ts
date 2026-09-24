@@ -4,12 +4,12 @@
 // Snapshot cursors provide a stable stamp so every chunk keeps identical metadata.
 
 import { toBinary } from "@bufbuild/protobuf";
-import { CELL_GRID_COORD_FANOUT_STAMP_MAX } from "@roost/shared/cell";
+import { CELL_GRID_COORD_FANOUT_STAMP_MAX } from "@roost/protocol/cell";
 import {
   FirehoseFrameSchema,
   SyncDomain,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import type {
   SyncV2QueuedFrame,
   SyncV2SocketState,

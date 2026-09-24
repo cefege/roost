@@ -3,7 +3,7 @@
 // without constructing a terminal core or retaining a raw PTY buffer.
 
 import { afterEach, expect, setSystemTime, test, vi } from "bun:test";
-import { asWorkerFp } from "@roost/shared/wire";
+import { asWorkerFp } from "@roost/protocol/wire";
 import { SessionManager } from "../src/session-manager.ts";
 import {
   TERMINAL_METADATA_DISPATCH_FRAME_BUDGET,

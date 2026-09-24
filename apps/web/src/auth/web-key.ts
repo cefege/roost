@@ -3,8 +3,8 @@
 // It delegates atomic IndexedDB transactions so staged keys survive interrupted rotation.
 // WebCrypto supplies non-extractable keys, while coordinator probes decide safe recovery.
 
-import { diag, signal } from "@roost/shared/diag";
-import { fingerprintOf } from "@roost/shared/fingerprint";
+import { diag, signal } from "@roost/observability/diag";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
 import type { WebKeyRotationStage } from "./web-key-storage.ts";
 import {
   addCurrentWebKey,

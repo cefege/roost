@@ -5,17 +5,17 @@
 // the key exists. Don't duplicate the encoder.
 // Callers: main.ts and quickstart-existing-install.ts.
 
-import { log } from "@roost/shared/log";
-import { hostIdentityToProto } from "@roost/shared/host-identity-proto";
-import { supportedHostPlatform } from "@roost/shared/platform";
-import { resolveTailnetDnsName } from "@roost/shared/tailnet";
+import { log } from "@roost/observability/log";
+import { hostIdentityToProto } from "@roost/protocol/host-identity-proto";
+import { supportedHostPlatform } from "@roost/platform/platform";
+import { resolveTailnetDnsName } from "@roost/host/tailnet";
 import type { CoordClient } from "./coord-client.ts";
 import type { WorkerConfig as WorkerConfigType } from "./config.ts";
 import { loadWorkerKey } from "./jwt.ts";
 import type { LoadedKey } from "./jwt.ts";
 import { scrubServiceDefinitionEnv } from "./service-definition-env.ts";
 import { staticHostIdentity } from "./host-identity.ts";
-export { resolveTailnetDnsName } from "@roost/shared/tailnet";
+export { resolveTailnetDnsName } from "@roost/host/tailnet";
 
 // Boot-time coord RPCs MUST time out. runInstall runs BEFORE heartbeat +
 // CoordLink start, so a hang here stalls the whole worker boot. A coord

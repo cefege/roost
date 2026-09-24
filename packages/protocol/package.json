@@ -1,0 +1,63 @@
+{
+  "name": "@roost/protocol",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "exports": {
+    "./agent-conversation-reference": "./src/agent-conversation-reference.ts",
+    "./agent-conversation-reference-proto": "./src/agent-conversation-reference-proto.ts",
+    "./attachment-transfer": "./src/attachment-transfer.ts",
+    "./attachment-transfer-packets": "./src/attachment-transfer-packets.ts",
+    "./cell": "./src/cell/index.ts",
+    "./cell/cell-proto": "./src/cell/cell-proto.ts",
+    "./cell/wterm-row-reader": "./src/cell/wterm-row-reader.ts",
+    "./coordinator-dial-url": "./src/coordinator-dial-url.ts",
+    "./fingerprint": "./src/fingerprint.ts",
+    "./fleet-update": "./src/fleet-update.ts",
+    "./host-identity-proto": "./src/host-identity-proto.ts",
+    "./json": "./src/json.ts",
+    "./keeper-update": "./src/keeper-update.ts",
+    "./keeper-update-proto": "./src/keeper-update-proto.ts",
+    "./layout-document": "./src/layout-document.ts",
+    "./layout-document-proto": "./src/layout-document-proto.ts",
+    "./local-ui-door": "./src/local-ui-door.ts",
+    "./pairing": "./src/pairing.ts",
+    "./proto/*": "./src/gen/roost/v1/*.ts",
+    "./retry": "./src/retry.ts",
+    "./terminal-capture": "./src/terminal-capture.ts",
+    "./terminal-capture-validate": "./src/terminal-capture-validate.ts",
+    "./terminal-core-capacity": "./src/terminal-core-capacity.ts",
+    "./terminal-core-capacity-proto": "./src/terminal-core-capacity-proto.ts",
+    "./terminal-input": "./src/terminal-input.ts",
+    "./terminal-metadata": "./src/terminal-metadata.ts",
+    "./terminal-peer": "./src/terminal-peer.ts",
+    "./terminal-peer-packets": "./src/terminal-peer-packets.ts",
+    "./terminal-peer-sdp": "./src/terminal-peer-sdp.ts",
+    "./terminal-search": "./src/terminal-search.ts",
+    "./terminal-view": "./src/terminal-view/index.ts",
+    "./ui-state": "./src/ui-state.ts",
+    "./viewport": "./src/viewport.ts",
+    "./wire": "./src/wire/index.ts",
+    "./wire/coord-worker": "./src/wire/coord-worker.ts",
+    "./wire/event-proto": "./src/wire/event-proto.ts",
+    "./wire/headers": "./src/wire/headers.ts",
+    "./wire/row-proto": "./src/wire/row-proto.ts",
+    "./wire/session-proto": "./src/wire/session-proto.ts",
+    "./wire/sync-ws": "./src/wire/sync-ws.ts"
+  },
+  "scripts": {
+    "typecheck": "bun x tsgo -p tsconfig.json --noEmit",
+    "proto:gen": "buf generate"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.12.0",
+    "@roost/observability": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.70.0",
+    "@bufbuild/protoc-gen-es": "^2.12.0",
+    "@wterm/core": "0.5.0",
+    "fast-check": "^3.23.0"
+  }
+}

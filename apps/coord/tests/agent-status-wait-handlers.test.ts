@@ -13,14 +13,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentStatusWaitRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import { AgentStatusWaitRequestSchema } from "@roost/protocol/proto/coordinator_pb";
 import {
   AgentOccupantId,
   AgentStatusUpdate,
   StatusEpoch,
   asSessionId,
   asWorkerFp,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   handleWorkerAgentStatus,
   startAgentStatusHub,

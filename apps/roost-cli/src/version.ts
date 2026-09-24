@@ -1,6 +1,6 @@
 // Version/build identity baked into compiled binaries. Source mode remains
 // "dev" for release comparisons while service health uses the source SHA.
-import { ROOST_ARTIFACT_VERSION, ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+import { ROOST_ARTIFACT_VERSION, ROOST_BUILD_SHA } from "@roost/host/build-identity";
 
 export const ROOST_VERSION = ROOST_ARTIFACT_VERSION;
 

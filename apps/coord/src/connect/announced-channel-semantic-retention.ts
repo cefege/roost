@@ -7,7 +7,7 @@ import {
   CoordWorkerUpSchema,
   WTerminalMetadataSchema,
   type CoordWorkerUp,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type { WorkerRetainedWorkBudget } from "./worker-frame-queue.ts";
 
 export const ANNOUNCED_SEMANTIC_METADATA_MAX_CHANNELS = 64;

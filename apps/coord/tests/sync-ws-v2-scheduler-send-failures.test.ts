@@ -3,7 +3,7 @@
 // It depends on guarded delivery behavior and v2 terminal queue limits.
 
 import { expect, test } from "bun:test";
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
 import { V2_TERMINAL_CELL_MAX_RETAINED_FRAMES } from "../src/connect/sync-ws-v2-state.ts";
 import {
   TARGET_SESSION,

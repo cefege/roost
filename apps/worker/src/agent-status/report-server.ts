@@ -10,9 +10,9 @@ import {
   prepareLocalEndpoint,
   secureLocalEndpoint,
   type LocalEndpoint,
-} from "@roost/shared/local-endpoint";
-import { log } from "@roost/shared/log";
-import { supportedHostPlatform } from "@roost/shared/platform";
+} from "@roost/host/local-endpoint";
+import { log } from "@roost/observability/log";
+import { supportedHostPlatform } from "@roost/platform/platform";
 import type { AgentScreenDetector } from "./detector.ts";
 import type { AgentStatusRegistry } from "./registry.ts";
 import {

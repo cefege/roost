@@ -6,17 +6,17 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import type {
   SessionsNegotiateLocalTerminalPeerRequest,
   SessionsNegotiateLocalTerminalPeerResponse,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import type {
   WLocalTerminalPeerAnswer,
   WLocalTerminalPeerError,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TERMINAL_PEER_MAX_SESSIONS_PER_GRANT,
   TERMINAL_PEER_SDP_MAX_UTF8_BYTES,
-} from "@roost/shared/terminal-peer";
-import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
-import type { CoordConfig } from "@roost/shared/config";
+} from "@roost/protocol/terminal-peer";
+import { hasAtMostUtf8Bytes } from "@roost/protocol/ui-state";
+import type { CoordConfig } from "@roost/host/config";
 import type { KyselyDB } from "../db/connection.ts";
 import type {
   TerminalGrantInvalidation,

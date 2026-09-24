@@ -14,7 +14,7 @@ import {
   type TerminalCaptureCommand,
   type TerminalCaptureCoordinatorPayload,
   type TerminalCoordinatorSection,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import {
   armCoordinatorRecorder,
   coordinatorRecorderArmed,

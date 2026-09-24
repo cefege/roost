@@ -9,15 +9,15 @@ import {
   type HandlerContext,
   type ServiceImpl,
 } from "@connectrpc/connect";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
 import type {
   CoordWorkerDown,
   DBrowserCommand,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type {
   WorkerGlobalSearchEntry,
   WorkerSearchScrollbackResult,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -2,7 +2,7 @@
 // Push supplies concrete deploy/proof and coordinator journal operations; this
 // module owns the irreversible decision boundary and exhaustive fan-out rules.
 
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import { DeployFailure } from "./deploy-exec.ts";
 import type { WorkerRolloutAction, WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 

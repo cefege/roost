@@ -4,10 +4,10 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
-import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
+import type { ScrollbackHistoryFloor } from "@roost/protocol/wire";
 import { answerQueries, QUERY_CARRY_MAX } from "./terminal-query-reply.ts";
-import { diag, isDiagEnabled } from "@roost/shared/diag";
-import { supportedHostPlatform } from "@roost/shared/platform";
+import { diag, isDiagEnabled } from "@roost/observability/diag";
+import { supportedHostPlatform } from "@roost/platform/platform";
 import * as byteCapture from "./diag/byte-capture.ts";
 import { noteRetainedRawChunk } from "./diag/terminal-capture.ts";
 import { _scanAgentOsc, _scanAltModeTransitions, _scanOsc7 } from "./terminal-stream-scan.ts";

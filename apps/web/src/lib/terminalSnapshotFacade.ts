@@ -5,7 +5,7 @@
 // the automatic recorder hooks call the three capture APIs re-exported below, and
 // nothing capture-related is installed on `window` — no generic command evaluator exists.
 
-import { isTerminalUuid } from "@roost/shared/viewport";
+import { isTerminalUuid } from "@roost/protocol/viewport";
 import { coordClient } from "../connect.ts";
 import {
   terminalBrowserStreamSnapshot,

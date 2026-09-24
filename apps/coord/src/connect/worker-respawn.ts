@@ -9,9 +9,9 @@ import { randomUUID } from "node:crypto";
 import {
   CoordWorkerDownSchema,
   DBrowserCommandSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { asSessionId, SessionKind, type ClientControlFrame } from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { asSessionId, SessionKind, type ClientControlFrame } from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
 import type { KyselyDB } from "../db/connection.ts";
 import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import { connectWorkers, type WorkerHandle } from "./worker-registry.ts";

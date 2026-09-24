@@ -5,9 +5,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_WORKER_LOCAL_UI_ORIGIN, type CoordConfig } from "@roost/shared/config";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
-import { SYNC_WS_PATH } from "@roost/shared/wire/sync-ws";
+import { DEFAULT_WORKER_LOCAL_UI_ORIGIN, type CoordConfig } from "@roost/host/config";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
+import { SYNC_WS_PATH } from "@roost/protocol/wire/sync-ws";
 import { startBunCoordinatorListeners } from "../src/bun-coordinator-listeners.ts";
 import {
   createCoordinatorRequestAdmission,

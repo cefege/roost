@@ -3,7 +3,7 @@
 // explicit Sync carrier fields rather than relying on a process-epoch sentinel.
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { TerminalViewCommand } from "@roost/shared/proto/sync_pb";
+import type { TerminalViewCommand } from "@roost/protocol/proto/sync_pb";
 import { terminalDirectRegistry } from "../src/store/terminal-stream-transport.ts";
 
 interface TestSyncState {

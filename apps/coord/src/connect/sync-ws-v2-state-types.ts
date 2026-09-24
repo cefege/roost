@@ -2,7 +2,7 @@
 // The mutable state owner imports these shapes while scheduler and queue modules share them.
 // This module has no socket lifecycle behavior or application-frame ownership.
 
-import type { FirehoseFrame, SyncDomain } from "@roost/shared/proto/sync_pb";
+import type { FirehoseFrame, SyncDomain } from "@roost/protocol/proto/sync_pb";
 import type { SyncFeedFrameMeta } from "./sync-feed.ts";
 import type {
   TerminalSnapshotCursor as TerminalSnapshotPartsCursor,

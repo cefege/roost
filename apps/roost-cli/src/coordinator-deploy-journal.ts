@@ -2,7 +2,7 @@
 // Schema validation and loading live in the focused schema module.
 // Recovery and finalization consume this stable public journal surface.
 
-import { durableWriteFile } from "@roost/shared/durability";
+import { durableWriteFile } from "@roost/host/durability";
 import type {
   CoordinatorDeployJournalV2,
   CoordinatorDeployPhase,

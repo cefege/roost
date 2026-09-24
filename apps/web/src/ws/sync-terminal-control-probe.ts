@@ -5,7 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   TerminalTransportProbeSchema,
   type TerminalTransportProbeResult,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   currentSyncV2TerminalState,
   registerSyncV2GenerationHandler,

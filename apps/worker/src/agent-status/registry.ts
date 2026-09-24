@@ -13,8 +13,8 @@ import {
   type AgentRuntimeState,
   type AgentStatusSource,
   type AgentStatusUpdate as AgentStatusUpdateType,
-} from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
 import type { AgentProcessIdentity, BuiltinAgentId } from "./process-scan.ts";
 import {
   processKey,

@@ -18,7 +18,7 @@ const spawnShellDetailed = mock(async () => {
 });
 const addToast = mock((_message: string, _kind: string) => {});
 
-mock.module("@roost/shared/diag", () => ({ diag: () => undefined }));
+mock.module("@roost/observability/diag", () => ({ diag: () => undefined }));
 mock.module("../src/store/root.ts", () => ({ rootStore }));
 mock.module("../src/components/TerminalComposeButton.tsx", () => ({
   releaseActiveComposeFocus: () => undefined,

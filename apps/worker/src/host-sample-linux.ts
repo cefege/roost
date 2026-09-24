@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import {
 	cgroupV2Base,
 	readLinuxMemoryFile,
-} from "@roost/shared/host-memory";
+} from "@roost/host/host-memory";
 import type { HostSample } from "./host-sample-types.ts";
 
 // CPU% needs two /proc/stat readings: the file holds cumulative jiffies

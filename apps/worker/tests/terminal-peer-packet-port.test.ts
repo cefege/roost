@@ -10,8 +10,8 @@ import {
 	TERMINAL_PEER_MAX_FLUSH_BYTES_PER_TURN,
 	TERMINAL_PEER_PACKET_MAX_PAYLOAD_BYTES,
 	type TerminalPeerPacketLane,
-} from "@roost/shared/terminal-peer";
-import { encodeTerminalPeerPacket, parseTerminalPeerPacket } from "@roost/shared/terminal-peer-packets";
+} from "@roost/protocol/terminal-peer";
+import { encodeTerminalPeerPacket, parseTerminalPeerPacket } from "@roost/protocol/terminal-peer-packets";
 import { TerminalPeerPacketBudget } from "../src/terminal-peer-packet-budget.ts";
 import {
 	TerminalPeerPacketPort,

@@ -6,7 +6,7 @@ import { describe, expect, mock, test } from "bun:test";
 import {
   ATTACHMENT_TRANSFER_DIRECT_CHUNK_BYTES,
   isAttachmentTransferChunkSha256,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   AttachmentTransferCarrierError,
   sendAttachmentFile,

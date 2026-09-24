@@ -11,12 +11,12 @@ import { create } from "@bufbuild/protobuf";
 import { ConnectError, Code, createContextValues, type HandlerContext } from "@connectrpc/connect";
 import {
   UiListStatesRequestSchema, UiDispatchRequestSchema, UiApplyLayoutRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   UiReportStateRequestSchema, UiCommandSchema, UiSelectTabSchema,
   UiApplyLayoutSchema, UiApplyLayoutOutcome, UiApplyLayoutResultSchema,
-} from "@roost/shared/proto/sync_pb";
-import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
+} from "@roost/protocol/proto/sync_pb";
+import { layoutDocumentToProto } from "@roost/protocol/layout-document-proto";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";

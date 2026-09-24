@@ -5,16 +5,16 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   KeeperRuntimeObservationV1Schema,
   type KeeperRuntimeObservationV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import {
   TerminalCoreCapacityReportSchema,
   type TerminalCoreCapacityReport,
-} from "@roost/shared/terminal-core-capacity";
-import { coordDataDir, coordServicePath } from "@roost/shared/paths";
+} from "@roost/protocol/terminal-core-capacity";
+import { coordDataDir, coordServicePath } from "@roost/host/paths";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 import { serviceEnvironmentValue } from "./status-service-env.ts";
 import { resolveSpaStatus } from "./status-spa.ts";

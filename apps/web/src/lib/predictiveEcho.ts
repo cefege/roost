@@ -8,8 +8,8 @@
 // A pure client overlay: it never touches the byte/cell stream or the worker,
 // and the epoch/ack/grace gates below are what keep a wrong guess off screen.
 
-import { diag } from "@roost/shared/diag";
-import { columnText, type CellGridFrame, type CellSpan } from "@roost/shared/cell";
+import { diag } from "@roost/observability/diag";
+import { columnText, type CellGridFrame, type CellSpan } from "@roost/protocol/cell";
 import type { PredictMode } from "./predictPref.ts";
 import { PredictionExpiryTimer } from "./predictiveEchoExpiry.ts";
 import {

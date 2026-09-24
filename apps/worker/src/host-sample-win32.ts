@@ -5,7 +5,7 @@
 import { statfsSync } from "node:fs";
 import { cpus, freemem, totalmem } from "node:os";
 import { win32 } from "node:path";
-import { windowsHostSample } from "@roost/shared/windows-helper";
+import { windowsHostSample } from "@roost/host/windows-helper";
 import type { HostSample } from "./host-sample-types.ts";
 
 type CpuTimes = { idle: number; total: number };

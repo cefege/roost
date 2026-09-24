@@ -10,7 +10,7 @@ import {
   createMemo,
   createSignal,
 } from "solid-js";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import { CellTerminal } from "./CellTerminal.tsx";
 import { PaneStrip } from "./PaneStrip.tsx";

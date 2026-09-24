@@ -7,24 +7,24 @@
 import { create } from "@bufbuild/protobuf";
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { log } from "@roost/shared/log";
-import { isSupportedHostPlatform } from "@roost/shared/platform";
-import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
+import { log } from "@roost/observability/log";
+import { isSupportedHostPlatform } from "@roost/platform/platform";
+import { keeperRuntimeObservationFromProto } from "@roost/protocol/keeper-update-proto";
 import {
 	terminalCoreCapacityReportFromProto,
-} from "@roost/shared/terminal-core-capacity-proto";
-import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
+} from "@roost/protocol/terminal-core-capacity-proto";
+import type { TerminalCoreCapacityReport } from "@roost/protocol/terminal-core-capacity";
 import {
 	type CoordinatorService,
 	WorkersHeartbeatResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { workerRowToWirePresence } from "@roost/shared/wire/row-proto";
-import { asWorkerFp, type Worker as WireWorker } from "@roost/shared/wire";
+} from "@roost/protocol/proto/coordinator_pb";
+import { workerRowToWirePresence } from "@roost/protocol/wire/row-proto";
+import { asWorkerFp, type Worker as WireWorker } from "@roost/protocol/wire";
 import { presenceBus } from "../buses.ts";
 import { truncatePersistedUtf8 } from "../persistence-input.ts";
 import { requireWorker } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
-import { hostIdentityFromProto } from "@roost/shared/host-identity-proto";
+import { hostIdentityFromProto } from "@roost/protocol/host-identity-proto";
 
 export function makeWorkerHeartbeatHandler(
 	deps: ConnectDeps,

@@ -5,11 +5,11 @@
 import type { Database } from "bun:sqlite";
 import {
   AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES,
-} from "@roost/shared/agent-conversation-reference";
+} from "@roost/protocol/agent-conversation-reference";
 import {
   SessionEvent,
   type SessionEvent as SessionEventValue,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import { sessionEventStoreFatal } from "./session-event-store-errors.ts";
 
 export const SESSION_EVENT_STORE_SCHEMA_VERSION = 2;

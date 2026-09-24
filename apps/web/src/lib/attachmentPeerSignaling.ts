@@ -6,11 +6,11 @@ import {
   ATTACHMENT_TRANSFER_PEER_ICE_GATHERING_DEADLINE_MS,
   ATTACHMENT_TRANSFER_PEER_NATIVE_ANSWER_DEADLINE_MS,
   ATTACHMENT_TRANSFER_PEER_NEGOTIATION_DEADLINE_MS,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   filterBrowserTerminalPeerUdpCandidates,
   inspectTerminalPeerSdp,
-} from "@roost/shared/terminal-peer-sdp";
+} from "@roost/protocol/terminal-peer-sdp";
 import { coordClient } from "../connect.ts";
 import type { AttachmentDirectGrant } from "./attachmentDirectGrant.ts";
 

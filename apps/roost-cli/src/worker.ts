@@ -7,6 +7,6 @@ export async function worker(_args: string[]): Promise<void> {
   // A static import cannot work here: worker config is module-scoped and this
   // module is reachable from every CLI command, so loading the worker runtime
   // eagerly would read config for commands that never run one.
-  const { runWorker } = await import("../../worker/src/main.ts");
+  const { runWorker } = await import("@roost/worker/main");
   await runWorker();
 }

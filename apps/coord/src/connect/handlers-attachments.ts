@@ -14,8 +14,8 @@ import {
   AttachFileChunkResponseSchema, AttachmentProbeResponseSchema,
   ListAttachmentsResponseSchema, AttachmentEntrySchema,
   DeleteAttachmentResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { asSessionId } from "@roost/shared/wire";
+} from "@roost/protocol/proto/coordinator_pb";
+import { asSessionId } from "@roost/protocol/wire";
 import { requireAccountDevice } from "./auth-interceptor.ts";
 import { getWorkerHubSocket, sendAttachmentChunk } from "./worker-service.ts";
 import {

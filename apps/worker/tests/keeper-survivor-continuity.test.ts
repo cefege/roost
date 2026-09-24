@@ -12,7 +12,7 @@ import {
   cleanupLocalEndpoint,
   localEndpointEnv,
   prepareLocalEndpoint,
-} from "@roost/shared/local-endpoint";
+} from "@roost/host/local-endpoint";
 import {
   KEEPER_IDENTITY_UNPROVEN_ERROR,
   KEEPER_REPLACEMENT_BLOCKED_ERROR,

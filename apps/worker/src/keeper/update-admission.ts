@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   JournaledKeeperUpdateV1Schema,
   KEEPER_EMPTY_BINDING_DIGEST,
@@ -15,7 +15,7 @@ import {
   keeperContractsSameImplementation,
   type JournaledKeeperUpdateV1,
   type KeeperUpdateOutcome,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import { muxLocalEndpoint } from "./keeper-pool-config.ts";
 import {
   probeKeeperCompatible,

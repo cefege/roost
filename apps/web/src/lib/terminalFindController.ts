@@ -3,7 +3,7 @@
 // one grid epoch; deep matches backfill before reveal. CellTerminal owns it.
 
 import { createSignal } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { coordClient } from "../connect.ts";
 import type { CellGridRenderer } from "./cellRenderer.ts";
 import type { FindHit } from "./cellRow.ts";

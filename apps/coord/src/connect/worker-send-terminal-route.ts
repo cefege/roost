@@ -11,8 +11,8 @@ import {
   DTerminalViewSocketClosedSchema,
   type WTerminalInputRouteResult,
   type WTerminalTransportProbeResult,
-} from "@roost/shared/proto/worker_transport_pb";
-import { TERMINAL_INPUT_ROUTE_CAPABILITY } from "@roost/shared/terminal-peer";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { TERMINAL_INPUT_ROUTE_CAPABILITY } from "@roost/protocol/terminal-peer";
 import {
   createPendingRpc,
   rejectPendingRpcUnavailable,

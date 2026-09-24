@@ -8,7 +8,7 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { BoundedBus } from "./buses.ts";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import { sendWindowsUpdateBroker } from "./connect/worker-send.ts";
 import { _deployJobs, _gcJob, type DeployJob, type DeployStreamMsg } from "./deploy-jobs.ts";
 import {

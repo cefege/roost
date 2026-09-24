@@ -3,8 +3,8 @@
 // backpressure, then drops its bounded state on reconnect for manager replay.
 // PTY byte buffers never enter this lane.
 
-import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import { diag } from "@roost/shared/diag";
+import type { CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
+import { diag } from "@roost/observability/diag";
 import { WORKER_SNAPSHOT_MAX_SESSIONS } from "./coord-link-constants.ts";
 import type { TerminalMetadataFrame, TransportSendResult } from "./coord-link-types.ts";
 

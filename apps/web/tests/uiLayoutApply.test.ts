@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import {
   UiApplyLayoutOutcome,
   type UiCommandFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   UI_LAYOUT_APPLY_REJECTION,
   executeTargetedUiLayoutApply,

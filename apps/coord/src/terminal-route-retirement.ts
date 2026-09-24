@@ -2,7 +2,7 @@
 // byte-hub publishes only after removing an exact route key; compatibility
 // adapters subscribe so state tied to that channel cannot outlive its route.
 // Listener failures never weaken durable route publication.
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 
 type TerminalRouteRetirementListener = (routeKey: string) => void;
 

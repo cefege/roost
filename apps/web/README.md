@@ -112,7 +112,7 @@ transfer store revokes it.
 
 Browser-local layouts remain in `paneLayoutStore`, which keeps the active
 runtime tree and private pane/split UUIDs under `roost.paneLayout.v1`.
-`@roost/shared/layout-document` is the strict versioned boundary for
+`@roost/protocol/layout-document` is the strict versioned boundary for
 folder-scoped `UiReportState`; reports replace runtime IDs with deterministic
 preorder leaf/slot keys and send typed protobuf rather than embedded runtime
 JSON. The acknowledged remote exception targets one page's current Sync
@@ -197,7 +197,7 @@ Break one of these and you get back the history-corruption class this repo keeps
   subscribe to `createMemo` selectors in `apps/web/src/store/selectors.ts` and write only through the
   named functions in `apps/web/src/store/mutations.ts`. New UI adds a selector and a JSX line; it does
   not add a store. `apps/web/src/store/projector.ts` folds `SessionEvent` with the same `foldEvent`
-  coord uses (`@roost/shared/wire`), so SPA and coord projections agree by construction.
+  coord uses (`@roost/protocol/wire`), so SPA and coord projections agree by construction.
 - **Portable layout apply is one validated browser-local commit.** The shared
   V1 parser rejects unknown keys/versions, invalid graph references, and
   excessive identifiers, depth, nodes, slots, or bindings before recursion.
@@ -326,7 +326,7 @@ Break one of these and you get back the history-corruption class this repo keeps
   generic command evaluator is installed on `window`.
 - **Text composition and raw input are distinct contracts.** The browser
   composer imports `buildPtyPayload`, newline normalization, bracketed-paste
-  framing, and CR from `@roost/shared/terminal-input`; when bracketed paste is
+  framing, and CR from `@roost/protocol/terminal-input`; when bracketed paste is
   active, that owner strips ESC from the text before wrapping it. The worker's
   guarded prompt uses the same owner. Sync input and public `SessionsInput`
   still carry caller-encoded raw bytes and never acquire a status fence,

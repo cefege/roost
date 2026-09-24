@@ -2,8 +2,8 @@
 // submits one semantic stream state at a time; this owner coalesces unsent work,
 // verifies the current route immediately before a socket write, and limits each
 // worker against its 32-request physical stream-control window. Input and snapshots bypass it.
-import type { WTerminalStreamResult } from "@roost/shared/proto/worker_transport_pb";
-import { log } from "@roost/shared/log";
+import type { WTerminalStreamResult } from "@roost/protocol/proto/worker_transport_pb";
+import { log } from "@roost/observability/log";
 import {
   unsentTerminalWorkerRequest,
   type TerminalWorkerRequest,

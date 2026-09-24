@@ -7,14 +7,14 @@ import { ConnectError } from "@connectrpc/connect";
 import {
   SessionsSearchScrollbackRequestSchema,
   type SessionsSearchScrollbackResponse,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   CoordWorkerUpSchema,
   type DBrowserCommand,
   WRpcErrorSchema,
   WRpcOkSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { WorkerSearchScrollbackResult } from "@roost/shared/terminal-search";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { WorkerSearchScrollbackResult } from "@roost/protocol/terminal-search";
 import { expect } from "bun:test";
 import { makeSessionScrollbackHandlers } from "../src/connect/handlers-sessions-scrollback.ts";
 import {

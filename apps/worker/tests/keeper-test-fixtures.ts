@@ -1,4 +1,4 @@
-import { supportedHostPlatform } from "@roost/shared/platform";
+import { supportedHostPlatform } from "@roost/platform/platform";
 import type { ShellSpec } from "../src/shell-spec.ts";
 
 interface KeeperTestShellSpecOptions {

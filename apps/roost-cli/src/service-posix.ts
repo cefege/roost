@@ -13,8 +13,8 @@ import {
   COORD_LABEL_LINUX,
   WORKER_LABEL_DARWIN,
   WORKER_LABEL_LINUX,
-} from "@roost/shared/paths";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+} from "@roost/host/paths";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 
 /** The command-string helpers below are retained for POSIX deploy callers. */
 export type PosixServiceOs = "darwin" | "linux";

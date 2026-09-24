@@ -7,7 +7,7 @@ import type {
   AgentOccupantId,
   AgentRuntimeState,
   AgentStatusSource,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import type { BuiltinAgentId } from "./process-scan.ts";
 
 export interface ProcessCandidate {

@@ -3,7 +3,7 @@
 // snapshot cursor, live resize capture, core validity) and the closed set of
 // failure kinds a control request can fail with. Types only — behavior lives
 // in session-terminal-txn / -control / -cell-sinks.
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 
 export type TerminalStreamFailure =
 	| "retryable_pre_write"

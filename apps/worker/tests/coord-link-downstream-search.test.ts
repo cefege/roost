@@ -3,7 +3,7 @@
 // instead of dispatching or waiting for the coordinator timeout.
 
 import { expect, test } from "bun:test";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb";
 import { createCoordLinkDownstream } from "../src/transport/coord-link-downstream.ts";
 import type {
 	CoordLinkDeps,

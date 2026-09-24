@@ -11,13 +11,13 @@ import {
   realpathSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { coordServicePath, roostServiceDir } from "@roost/shared/paths";
-import { resolveDiskSpaRoot } from "@roost/shared/spa";
+import { coordServicePath, roostServiceDir } from "@roost/host/paths";
+import { resolveDiskSpaRoot } from "@roost/host/spa";
 import {
   acquireMachineTransaction,
   type AcquireMachineTransactionOptions,
   type MachineTransactionLock,
-} from "./machine-transaction.ts";
+} from "@roost/host/machine-transaction";
 import {
   DeployFailure,
   failDeploy,

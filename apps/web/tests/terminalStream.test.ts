@@ -7,7 +7,7 @@ import {
   TERMINAL_FOREGROUND_IDLE_PROBE_MS,
   TERMINAL_FOREGROUND_PROBE_DEADLINE_MS,
   TERMINAL_VIEW_HEARTBEAT_MS,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import {
   CELL_GRID_CHUNK_STALL_MS,
   CURRENT_SYNC_OWNER,

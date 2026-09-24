@@ -11,7 +11,7 @@ import {
   AttachmentTransferServerFrameSchema,
   AttachmentTransferStatusSchema,
   type AttachmentTransferServerFrame,
-} from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/attachment_transfer_pb";
 import type { AttachmentOperationStatus } from "./attachment-operation-receipts.ts";
 import type { AttachmentTransferPort } from "./attachment-transfer-port.ts";
 

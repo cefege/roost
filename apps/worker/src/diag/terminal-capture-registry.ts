@@ -5,8 +5,8 @@
 // Lease expiry is decided on SERVER time and disarms the recorder the moment it
 // is observed — an expired lease is never silently renewed.
 
-import { signal } from "@roost/shared/diag";
-import { TERMINAL_CAPTURE_LIMITS } from "@roost/shared/terminal-capture";
+import { signal } from "@roost/observability/diag";
+import { TERMINAL_CAPTURE_LIMITS } from "@roost/protocol/terminal-capture";
 import {
 	createCaptureLedger,
 	type CaptureLedger,

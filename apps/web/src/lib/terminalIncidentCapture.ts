@@ -7,15 +7,15 @@
 // terminalIncidentCaptureRpc.ts, result bookkeeping in
 // terminalIncidentCaptureResult.ts, DOM reading in terminalIncidentDom.ts.
 
-import { diag, signal } from "@roost/shared/diag";
-import { isTerminalUuid } from "@roost/shared/viewport";
+import { diag, signal } from "@roost/observability/diag";
+import { isTerminalUuid } from "@roost/protocol/viewport";
 import {
   TERMINAL_CAPTURE_LIMITS,
   type TerminalCaptureActionName,
   type TerminalCaptureErrorCode,
   type TerminalCaptureReason,
   type TerminalCaptureResult,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import {
   canonicalTerminalFrame,
   hasTerminalSessionReplica,

@@ -9,8 +9,8 @@
 // is what authorizes the socket, and a hardened deployment legitimately has the
 // worker dialing a different URL than the browser's front door.
 
-import { diag } from "@roost/shared/diag";
-import { DEFAULT_WORKER_LOCAL_UI_ORIGIN } from "@roost/shared/local-ui-door";
+import { diag } from "@roost/observability/diag";
+import { DEFAULT_WORKER_LOCAL_UI_ORIGIN } from "@roost/protocol/local-ui-door";
 import {
   LOCAL_BOOTSTRAP_PATH,
   parseLocalBootstrapPayload,

@@ -10,9 +10,9 @@ import {
   type AgentRuntimeState as AgentRuntimeStateValue,
   type AgentStatus as AgentStatusValue,
   type AgentStatusUpdate as AgentStatusUpdateValue,
-} from "@roost/shared/wire";
-import { diag, signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/wire";
+import { diag, signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
 import { agentStatusBus, sessionBus } from "./buses.ts";
 import { getCachedSessionWorker } from "./byte-hub.ts";
 import {

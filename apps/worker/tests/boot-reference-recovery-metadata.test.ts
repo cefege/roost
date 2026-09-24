@@ -7,13 +7,13 @@ import { expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import {
   AgentConversationReferenceV1Schema as AgentConversationReferenceProtoSchema,
-} from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/wire_pb";
 import {
   SessionRecoveryMetadataSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   agentConversationReferenceToProto,
-} from "@roost/shared/agent-conversation-reference-proto";
+} from "@roost/protocol/agent-conversation-reference-proto";
 import { _assertExactRecoveryMetadata } from "../src/boot-session-reconcile.ts";
 
 const first = "00000000-0000-4000-8000-000000000001";

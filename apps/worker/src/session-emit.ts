@@ -4,10 +4,10 @@
 // Synchronized-output holds remain owned by session-sync-output.ts.
 
 import type { SessionManager } from "./session-manager.ts";
-import type { ChannelId } from "@roost/shared/wire";
-import { diag, isDiagEnabled, signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import { asChannelId, DIR_FROM_PTY } from "@roost/shared/wire";
+import type { ChannelId } from "@roost/protocol/wire";
+import { diag, isDiagEnabled, signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import { asChannelId, DIR_FROM_PTY } from "@roost/protocol/wire";
 import type { TerminalCore } from "@wterm/core";
 import {
 	CELL_GRID_PART_MAX_BYTES,
@@ -15,8 +15,8 @@ import {
 	nextCellFrame,
 	scrollbackOrigin,
 	type CellEmitState,
-} from "@roost/shared/cell";
-import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
+} from "@roost/protocol/cell";
+import { cellFrameToProto } from "@roost/protocol/cell/cell-proto";
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import {
 	RECENTLY_CLOSED_TTL_MS,

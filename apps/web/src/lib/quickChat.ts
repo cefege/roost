@@ -2,7 +2,7 @@
 // sidebar classifies those folders by path; no RPC session kind is involved.
 
 import type { Navigator } from "@solidjs/router";
-import type { WorkerFp } from "@roost/shared/wire";
+import type { WorkerFp } from "@roost/protocol/wire";
 import { coordClient } from "../connect.ts";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";

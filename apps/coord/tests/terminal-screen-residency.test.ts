@@ -3,7 +3,7 @@
 // slow cursors cannot become invisible to the shared resident-version limit.
 
 import { expect, test } from "bun:test";
-import { CellGridChunkAssembler, type CellGridFrame } from "@roost/shared/cell";
+import { CellGridChunkAssembler, type CellGridFrame } from "@roost/protocol/cell";
 import {
   TerminalAssemblyHold,
   type ResidentCache,

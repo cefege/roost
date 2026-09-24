@@ -10,7 +10,7 @@ import {
   type AgentStatus,
   type Session,
   type Worker,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import { reconcile } from "solid-js/store";
 import { markAgentSeen, resetAgentSeenForTest, seenAgentRevision } from "../src/lib/agentSeen.ts";
 import { buildFolderGroups } from "../src/lib/folderGroups.ts";

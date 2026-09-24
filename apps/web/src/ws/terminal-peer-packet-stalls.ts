@@ -6,7 +6,7 @@ import {
   TERMINAL_PEER_LANE_PRIORITY,
   TERMINAL_PEER_PACKET_STALL_MS,
   type TerminalPeerPacketLane,
-} from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer";
 
 export class TerminalPeerPacketStalls {
   private readonly timers: Record<TerminalPeerPacketLane, Timer | null> = {

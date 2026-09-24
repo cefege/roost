@@ -8,10 +8,10 @@
 // (CLI/test) equivalent of the browser's inline WS.
 
 import { fromBinary } from "@bufbuild/protobuf";
-import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
-import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { SYNC_WS_PATH } from "@roost/shared/wire/sync-ws";
-import { mintJwt } from "../../worker/src/jwt.ts";
+import { FirehoseFrameSchema } from "@roost/protocol/proto/sync_pb";
+import type { FirehoseFrame } from "@roost/protocol/proto/sync_pb";
+import { SYNC_WS_PATH } from "@roost/protocol/wire/sync-ws";
+import { mintJwt } from "@roost/worker/jwt";
 import { buildCliContext, CLI_DASHBOARD_HEADER } from "./cli-auth.ts";
 
 export interface SyncWsOptions {

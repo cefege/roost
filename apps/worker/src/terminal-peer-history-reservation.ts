@@ -2,7 +2,7 @@
 // One read owns the worst-case retained-byte reservation; only that read's
 // explicitly transferred final response may replace it with exact queue bytes.
 
-import type { TerminalPeerPacketQuota } from "@roost/shared/terminal-peer-packets";
+import type { TerminalPeerPacketQuota } from "@roost/protocol/terminal-peer-packets";
 
 export interface TerminalPeerHistoryReadReservation {
 	transfer(): void;

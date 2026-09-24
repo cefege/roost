@@ -2,8 +2,8 @@
 // Durable event transactions call this after inserting an agent_reference row.
 // Worker client sequence, not event time or volatile agent status, orders updates.
 
-import { AgentConversationReferenceV1Schema } from "@roost/shared/agent-conversation-reference";
-import type { SessionEvent } from "@roost/shared/wire";
+import { AgentConversationReferenceV1Schema } from "@roost/protocol/agent-conversation-reference";
+import type { SessionEvent } from "@roost/protocol/wire";
 import type { KyselyDB } from "./db/connection.ts";
 
 export async function projectAgentConversationReference(

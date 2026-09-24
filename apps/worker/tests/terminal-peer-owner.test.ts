@@ -9,8 +9,8 @@ import {
 	DLocalTerminalPeerCancelSchema,
 	DLocalTerminalPeerOfferSchema,
 	type DLocalTerminalPeerOffer,
-} from "@roost/shared/proto/worker_transport_pb";
-import { TERMINAL_PEER_DATA_CHANNELS } from "@roost/shared/terminal-peer";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { TERMINAL_PEER_DATA_CHANNELS } from "@roost/protocol/terminal-peer";
 import type { TerminalPeerNative } from "../src/terminal-peer-native.ts";
 import { TerminalPeerOfferError, TerminalPeerOwner } from "../src/terminal-peer-owner.ts";
 import {

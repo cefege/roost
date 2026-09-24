@@ -4,7 +4,7 @@
 // credential-boundary reset back to "checking" lives in root.ts.
 // Depends on auth-boundary for teardown and on the runtimes the recovery edge restores.
 
-import { diag, signal } from "@roost/shared/diag";
+import { diag, signal } from "@roost/observability/diag";
 import { rootStore, setRootStore, type BrowserAccessState } from "./root.ts";
 import { suspendAuthenticatedClientState } from "./auth-boundary.ts";
 import { loadAgentConfig } from "../lib/agents.ts";

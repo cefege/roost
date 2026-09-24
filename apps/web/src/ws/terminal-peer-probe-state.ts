@@ -2,11 +2,11 @@
 // WebRTC and loopback adapters supply their control sends; this owner fences replies.
 // It clears proof on timeout/resume and exposes only safe monotonic telemetry.
 
-import type { TerminalTransportProbeResult } from "@roost/shared/proto/sync_pb";
+import type { TerminalTransportProbeResult } from "@roost/protocol/proto/sync_pb";
 import {
   TERMINAL_PEER_PROBE_DEADLINE_MS,
   TERMINAL_PEER_PROBE_QUALIFICATION_MS,
-} from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer";
 import { terminalDirectMonotonicNow } from "./terminal-direct-browser.ts";
 
 interface PendingProbe {

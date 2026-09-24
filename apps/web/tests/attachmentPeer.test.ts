@@ -7,19 +7,19 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   ATTACHMENT_TRANSFER_DIRECT_CHUNK_BYTES,
   ATTACHMENT_TRANSFER_PACKET_MAX_BYTES,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   AttachmentTransferPacketAssembler,
   encodeAttachmentTransferPacket,
   type AttachmentTransferPacketQuota,
-} from "@roost/shared/attachment-transfer-packets";
+} from "@roost/protocol/attachment-transfer-packets";
 import {
   AttachmentTransferAckSchema,
   AttachmentTransferClientFrameSchema,
   AttachmentTransferReadySchema,
   AttachmentTransferServerFrameSchema,
   type AttachmentTransferServerFrame,
-} from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/attachment_transfer_pb";
 import type { AttachmentDirectGrant } from "../src/lib/attachmentDirectGrant.ts";
 import { openAttachmentPeerTransfer } from "../src/lib/attachmentPeer.ts";
 import { sendAttachmentFile } from "../src/lib/attachmentTransfer.ts";

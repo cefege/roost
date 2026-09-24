@@ -3,8 +3,8 @@
 // selects its carrier. Coordinator history remains normal without an elected
 // direct route and is attempted once after a direct read error or overlimit.
 
-import type { SessionsGetScrollbackCellsResponse } from "@roost/shared/proto/coordinator_pb";
-import type { LocalScrollbackResponse } from "@roost/shared/proto/local_terminal_pb";
+import type { SessionsGetScrollbackCellsResponse } from "@roost/protocol/proto/coordinator_pb";
+import type { LocalScrollbackResponse } from "@roost/protocol/proto/local_terminal_pb";
 import { coordClient } from "../connect.ts";
 import { currentTerminalGenerationToken } from "../store/terminal-stream-publication.ts";
 import {

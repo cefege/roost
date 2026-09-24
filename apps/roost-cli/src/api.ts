@@ -4,16 +4,16 @@
 // Called by main.ts; every request uses the enrolled CLI device identity.
 
 import { basename } from "node:path";
-import { loadWorkerConfig } from "../../worker/src/config.ts";
-import { loadWorkerKey, mintJwt } from "../../worker/src/jwt.ts";
+import { loadWorkerConfig } from "@roost/worker/config";
+import { loadWorkerKey, mintJwt } from "@roost/worker/jwt";
 import {
   createCoordClient,
   createUnauthenticatedCoordClient,
-} from "../../worker/src/coord-client.ts";
-import type { CoordClient } from "../../worker/src/coord-client.ts";
-import { protoToEvent } from "@roost/shared/wire/event-proto";
-import { diag } from "@roost/shared/diag";
-import { DEFAULT_COORDINATOR_BIND } from "@roost/shared/config";
+} from "@roost/worker/coord-client";
+import type { CoordClient } from "@roost/worker/coord-client";
+import { protoToEvent } from "@roost/protocol/wire/event-proto";
+import { diag } from "@roost/observability/diag";
+import { DEFAULT_COORDINATOR_BIND } from "@roost/host/config";
 import { buildCliContext } from "./cli-auth.ts";
 import { dispatchAgentStatusApi } from "./api-agent-status.ts";
 import { dispatchAgentPromptApi } from "./api-agent-prompt.ts";

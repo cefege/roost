@@ -4,7 +4,7 @@
 import { posix } from "node:path";
 import { spawn } from "bun";
 import { REMOTE_DEPLOY_LOCK_PROGRAM } from "./remote-deploy-lock-program.ts";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 
 export interface RunOptions {
   quiet?: boolean;

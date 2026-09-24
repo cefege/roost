@@ -4,9 +4,9 @@
 
 import { describe, it, expect } from "bun:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { CoordWorkerUpSchema, WSessionEventSchema, type CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import { eventToProto, protoToEvent } from "@roost/shared/wire/event-proto";
-import { SessionEvent, asSessionId, asWorkerFp, asChannelId } from "@roost/shared/wire";
+import { CoordWorkerUpSchema, WSessionEventSchema, type CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
+import { eventToProto, protoToEvent } from "@roost/protocol/wire/event-proto";
+import { SessionEvent, asSessionId, asWorkerFp, asChannelId } from "@roost/protocol/wire";
 
 function roundTripFrame(frame: CoordWorkerUp): CoordWorkerUp {
   const bytes = toBinary(CoordWorkerUpSchema, frame);

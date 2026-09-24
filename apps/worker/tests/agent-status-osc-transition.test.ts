@@ -4,8 +4,8 @@
 // AgentScreenDetector against a scripted process scanner, the real manifests
 // and a recording registry.
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_COLOR } from "@roost/shared/cell";
-import type { AgentStatusUpdate } from "@roost/shared/wire";
+import { DEFAULT_COLOR } from "@roost/protocol/cell";
+import type { AgentStatusUpdate } from "@roost/protocol/wire";
 import type { CellData, TerminalCore } from "@wterm/core";
 import type { SessionManager } from "../src/session-manager.ts";
 import { AgentScreenDetector } from "../src/agent-status/detector.ts";

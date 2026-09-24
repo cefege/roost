@@ -249,25 +249,24 @@ export async function waitForTerminalInputReady(page: Page, sessionId: string): 
 }
 
 /** Waits for a real peer attempt to fail while the existing Sync view remains usable. */
-export async function waitForPeerFallback(
-  page: Page,
-  sessionId: string,
-  reason: string,
-): Promise<PeerRouteReading> {
-  let latest: PeerRouteReading | null = null;
+export async function waitForPeerFallback(page: Page, sessionId: string, reason: string): Promise<PeerRouteReading> {
   try {
-    await expect.poll(async () => {
-      latest = await readPeerRoute(page, sessionId);
-      return latest.activeKind === "sync"
-        && latest.proofKind === "sync"
-        && latest.baselineReady
-        && latest.syncReady
-        && latest.fallbackReason === reason;
-    }, { timeout: PEER_ROUTE_TIMEOUT_MS, intervals: [...PEER_ROUTE_INTERVALS_MS] }).toBe(true);
+    await page.waitForFunction(({ id, expectedReason }) => {
+      const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+      const snapshot = smokeWindow.__smoke.terminalBrowserSnapshot(id);
+      const active = snapshot.route.active;
+      const proof = snapshot.replica.last_terminal_proof_generation;
+      return active?.kind === "sync"
+        && proof?.transportKind === "sync"
+        && snapshot.replica.baseline_ready
+        && snapshot.sync.ready
+        && snapshot.route.fallback_reason === expectedReason;
+    }, { id: sessionId, expectedReason: reason }, { timeout: PEER_ROUTE_TIMEOUT_MS, polling: 50 });
   } catch (error) {
+    const latest = await readPeerRoute(page, sessionId);
     throw new Error(`peer fallback unavailable: ${JSON.stringify(latest)}`, { cause: error });
   }
-  return latest!;
+  return readPeerRoute(page, sessionId);
 }
 
 /** Captures the exact elected direct identity so a later assertion can reject route churn. */

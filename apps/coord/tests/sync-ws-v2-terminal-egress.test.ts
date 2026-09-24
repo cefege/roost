@@ -9,12 +9,12 @@ import {
   PbCellGridFrameSchema,
   PbCellRowSchema,
   PbCellSpanSchema,
-} from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/proto/cell_pb";
 import {
   FirehoseFrameSchema,
   SyncDomain,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { ownV2ApplicationFrame } from "../src/connect/sync-ws-v2-state.ts";
 import { APPLICATION_MAX_UNACKED_FRAMES } from "../src/connect/sync-ws-v1-delivery.ts";
 import {

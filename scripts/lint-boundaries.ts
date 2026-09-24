@@ -16,7 +16,7 @@ const RULES = {
 } as const;
 type BoundaryId = keyof typeof RULES;
 
-export const BOUNDARY_ENFORCED = new Set<BoundaryId>();
+export const BOUNDARY_ENFORCED = new Set<BoundaryId>(["B1", "B2"]);
 
 interface Violation {
   file: string;
@@ -58,8 +58,41 @@ function lineAt(text: string, index: number): number {
   return text.slice(0, index).split("\n").length;
 }
 
+function codeMask(source: string): Uint8Array {
+  const mask = new Uint8Array(source.length).fill(1);
+  let index = 0;
+  while (index < source.length) {
+    const character = source[index]!;
+    const next = source[index + 1];
+    let end = index;
+    if (character === "/" && next === "/") {
+      end = source.indexOf("\n", index + 2);
+      if (end < 0) end = source.length;
+    } else if (character === "/" && next === "*") {
+      end = source.indexOf("*/", index + 2);
+      end = end < 0 ? source.length : end + 2;
+    } else if (character === "\"" || character === "'" || character === "`") {
+      end = index + 1;
+      while (end < source.length) {
+        if (source[end] === "\\") end += 2;
+        else if (source[end] === character) {
+          end += 1;
+          break;
+        } else end += 1;
+      }
+    } else {
+      index += 1;
+      continue;
+    }
+    mask.fill(0, index, end);
+    index = end;
+  }
+  return mask;
+}
+
 function specifiers(text: string): Specifier[] {
-  const scannable = text.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, (comment) => comment.replace(/[^\n]/g, " "));
+  const mask = codeMask(text);
+  const scannable = text.replace(/[^\n]/g, (character, offset) => mask[offset] ? character : " ");
   const found: Specifier[] = [];
   const forms: RegExp[] = [
     /\bfrom\s*(["'])([^"']+)\1/g,
@@ -70,8 +103,9 @@ function specifiers(text: string): Specifier[] {
     /\bnew\s+URL\s*\(\s*(["'])([^"']+)\1/g,
   ];
   for (const form of forms) {
-    for (const match of scannable.matchAll(form)) {
+    for (const match of text.matchAll(form)) {
       const index = match.index ?? 0;
+      if (!mask[index]) continue;
       const value = match[2]!;
       const line = lineAt(text, index);
       const before = scannable.slice(0, index);
@@ -106,7 +140,7 @@ function resolveRelative(importer: string, specifier: string): string {
 function packageAllowed(workspaceName: string, specifier: string, isType: boolean): boolean {
   if (specifier.startsWith("@roost/")) {
     if (workspaceName === "packages/observability") return false;
-    if (workspaceName === "packages/protocol") return specifier.startsWith("@roost/observability/") || specifier === "@wterm/core" && isType;
+    if (workspaceName === "packages/protocol") return specifier.startsWith("@roost/observability/");
     if (workspaceName === "packages/platform") return false;
     if (workspaceName === "packages/wterm") return specifier.startsWith("@roost/protocol/") || specifier.startsWith("@roost/observability/") || specifier === "@wterm/core";
     if (workspaceName === "packages/host") return specifier.startsWith("@roost/protocol/") || specifier.startsWith("@roost/platform/") || specifier.startsWith("@roost/observability/");
@@ -117,7 +151,7 @@ function packageAllowed(workspaceName: string, specifier: string, isType: boolea
     return false;
   }
   if (workspaceName === "packages/observability") return specifier === "zod";
-  if (workspaceName === "packages/protocol") return specifier === "@bufbuild/protobuf" || specifier.startsWith("@bufbuild/protobuf/") || specifier === "zod";
+  if (workspaceName === "packages/protocol") return specifier === "@bufbuild/protobuf" || specifier.startsWith("@bufbuild/protobuf/") || specifier === "zod" || specifier === "@wterm/core" && isType;
   if (workspaceName === "packages/platform") return false;
   if (workspaceName === "packages/wterm") return specifier === "bun" || specifier.startsWith("bun:") || specifier.startsWith("node:") || specifier === "@wterm/core";
   if (workspaceName === "packages/host") return specifier === "bun" || specifier.startsWith("bun:") || specifier.startsWith("node:") || specifier === "zod";
@@ -144,7 +178,7 @@ export function runBoundaryCheck(): Violation[] {
     for (const specifier of specifiers(text)) {
       if (specifier.value.startsWith(".")) {
         const target = resolveRelative(file, specifier.value);
-        if (!inside(target, resolve(REPO, owner.root))) add(all, file, specifier, "B1", specifier.value);
+        if (!file.endsWith(".generated.ts") && /\.(?:[cm]?[jt]s|json)$/.test(target) && !inside(target, resolve(REPO, owner.root))) add(all, file, specifier, "B1", specifier.value);
         if (file.startsWith("apps/web/src/client/") && !inside(target, resolve(REPO, "apps/web/src/client"))) add(all, file, specifier, "B3", specifier.value);
         if (file.startsWith("apps/web/src/") && !file.startsWith("apps/web/src/components/") && !["App.tsx", "main.tsx", "entry.ts", "routes.ts"].includes(file.slice("apps/web/src/".length)) && inside(target, resolve(REPO, "apps/web/src/components"))) add(all, file, specifier, "B4", specifier.value);
       } else if (!packageAllowed(owner.name, specifier.value, specifier.isType)) {

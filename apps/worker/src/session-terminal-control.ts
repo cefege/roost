@@ -2,10 +2,10 @@
 // input. Both input origins share one acknowledged keeper truth model, while
 // stream state validates geometry and delegates mutation to terminal-txn.
 // Every downstream request budget is enforced before queued keeper work.
-import { initCellEmitState } from "@roost/shared/cell";
-import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS } from "@roost/shared/viewport";
-import { newTraceId } from "@roost/shared/trace";
-import { log } from "@roost/shared/log";
+import { initCellEmitState } from "@roost/protocol/cell";
+import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS } from "@roost/protocol/viewport";
+import { newTraceId } from "@roost/observability/trace";
+import { log } from "@roost/observability/log";
 import type { SessionManager } from "./session-manager.ts";
 import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";

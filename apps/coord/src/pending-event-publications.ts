@@ -3,7 +3,7 @@
 // entries before commit; exact dedupe replay consumes the retained effect.
 // Worker credential deletion clears every reservation for that fingerprint.
 
-import { asWorkspaceId, type SessionEvent, type WorkerFp } from "@roost/shared/wire";
+import { asWorkspaceId, type SessionEvent, type WorkerFp } from "@roost/protocol/wire";
 import { sessionBus, workspaceBus, type SessionBusMessage } from "./buses.ts";
 import { applyDurableChannelIndex } from "./byte-hub.ts";
 import { isPublicSessionEvent } from "./session-event-visibility.ts";

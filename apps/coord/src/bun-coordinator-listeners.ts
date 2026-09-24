@@ -4,10 +4,10 @@
 // The coordinator serves plaintext on its loopback bind; the operator's front
 // door owns TLS.
 
-import type { CoordConfig } from "@roost/shared/config";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
-import { AGENT_PROMPT_WAIT_TIMEOUT_MAX_MS } from "@roost/shared/terminal-input";
-import { log } from "@roost/shared/log";
+import type { CoordConfig } from "@roost/host/config";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
+import { AGENT_PROMPT_WAIT_TIMEOUT_MAX_MS } from "@roost/protocol/terminal-input";
+import { log } from "@roost/observability/log";
 import type { Server, ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";

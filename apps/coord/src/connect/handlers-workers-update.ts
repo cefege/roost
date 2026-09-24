@@ -10,12 +10,12 @@ import {
   KeeperCoordinatorOpenSessionIdsSchema,
   keeperUpdateOutcomeMatchesAction,
   type JournaledKeeperUpdateV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import {
   CoordinatorService,
   WorkersPrepareKeeperUpdateResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/coordinator_pb";
+import { log } from "@roost/observability/log";
 import { requireAccountDevice, resolveCallerPrincipal } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import { sendKeeperUpdatePreparation } from "./worker-service.ts";

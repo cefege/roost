@@ -10,7 +10,7 @@ import {
   type Setter,
 } from "solid-js";
 import type { Layout } from "../store/paneLayout.ts";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import {
   NEW_BLOOM_MS,
   endMode,

@@ -10,9 +10,9 @@ import {
   InputRejectedSchema,
   TerminalInputRouteResultSchema,
   TerminalTransportProbeResultSchema,
-} from "@roost/shared/proto/sync_pb";
-import { isTerminalUuid } from "@roost/shared/viewport";
-import { TERMINAL_INPUT_ROUTE_CAPABILITY } from "@roost/shared/terminal-peer";
+} from "@roost/protocol/proto/sync_pb";
+import { isTerminalUuid } from "@roost/protocol/viewport";
+import { TERMINAL_INPUT_ROUTE_CAPABILITY } from "@roost/protocol/terminal-peer";
 import { processInputControl } from "./input-control.ts";
 import type { ConnectDeps } from "./router.ts";
 import {

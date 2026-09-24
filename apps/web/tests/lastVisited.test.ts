@@ -4,8 +4,8 @@
 // (worker_fp, spawn_cwd); a session with no spawn_cwd falls back to /s/.
 
 import { expect, test, describe, beforeEach } from "bun:test";
-import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asWorkerFp, asSessionId, asChannelId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 
 // bun test has no localStorage — stub before importing the module under test.
 const _ls: Record<string, string> = {};

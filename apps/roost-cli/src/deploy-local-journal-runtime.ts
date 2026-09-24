@@ -11,8 +11,8 @@ import {
 } from "node:fs";
 import type { Stats } from "node:fs";
 import { join } from "node:path";
-import { durableRemove, durableWriteFile, flushDurablePath } from "@roost/shared/durability";
-import { coordServicePath } from "@roost/shared/paths";
+import { durableRemove, durableWriteFile, flushDurablePath } from "@roost/host/durability";
+import { coordServicePath } from "@roost/host/paths";
 import {
   DeployFailure,
   POSIX_WORKER_DEPLOY_JOURNAL_PATHS,

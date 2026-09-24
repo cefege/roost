@@ -6,8 +6,8 @@ import {
   TerminalPeerPacketAssembler,
   TerminalPeerPacketQueue,
   type TerminalPeerPacketQuota,
-} from "@roost/shared/terminal-peer-packets";
-import { TERMINAL_PEER_LANE_PRIORITY, type TerminalPeerPacketLane } from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer-packets";
+import { TERMINAL_PEER_LANE_PRIORITY, type TerminalPeerPacketLane } from "@roost/protocol/terminal-peer";
 import {
   asQualificationFailure,
   checksumHex,

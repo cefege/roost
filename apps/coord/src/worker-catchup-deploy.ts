@@ -3,14 +3,14 @@
 // POSIX `roost deploy <host>` job the SPA button drives, so a laptop that slept
 // through `roost push` catches up by itself instead of staying behind forever.
 // Called by main.ts's onWorkerConnected hook. Depends on deploy-jobs.ts for the
-// job registry and @roost/shared/fleet-update for the one SHA comparison.
+// job registry and @roost/protocol/fleet-update for the one SHA comparison.
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { signal } from "@roost/shared/diag";
-import { workerUpdateState } from "@roost/shared/fleet-update";
-import { log } from "@roost/shared/log";
-import { roostServiceDir } from "@roost/shared/paths";
+import { signal } from "@roost/observability/diag";
+import { workerUpdateState } from "@roost/protocol/fleet-update";
+import { log } from "@roost/observability/log";
+import { roostServiceDir } from "@roost/host/paths";
 import { workerDeployHost } from "./connect/handlers-workers-deploy.ts";
 import type { KyselyDB } from "./db/connection.ts";
 import {

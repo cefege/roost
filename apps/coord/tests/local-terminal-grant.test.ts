@@ -14,12 +14,12 @@ import {
   SessionsGrantLocalTerminalRequestSchema,
   SessionsGrantLocalTerminalResponseSchema,
   type SessionsGrantLocalTerminalResponse,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   TERMINAL_INPUT_ROUTE_CAPABILITY,
   TERMINAL_PEER_WEBRTC_CAPABILITY,
-} from "@roost/shared/terminal-peer";
-import type { CoordWorkerDown, DLocalTerminalGrant } from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/terminal-peer";
+import type { CoordWorkerDown, DLocalTerminalGrant } from "@roost/protocol/proto/worker_transport_pb";
 import { callerKey, tabIdKey } from "../src/connect/auth-interceptor.ts";
 import {
   makeSessionLocalTerminalGrantHandlers,

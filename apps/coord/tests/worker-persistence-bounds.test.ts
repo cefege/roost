@@ -6,7 +6,7 @@ import {
   WorkersHeartbeatResponseSchema,
   WorkersRegisterRequestSchema,
   WorkersRenameRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { callerKey } from "../src/connect/auth-interceptor.ts";
 import { makeWorkerHandlers } from "../src/connect/handlers-workers.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";

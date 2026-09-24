@@ -3,7 +3,7 @@
 // bootstrap, pairing, then device-method ordering in the router service object.
 
 import type { ServiceImpl } from "@connectrpc/connect";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
 import { makeAuthBootstrapHandlers } from "./handlers-auth-bootstrap.ts";
 import { makeDeviceHandlers } from "./handlers-devices.ts";
 import { makePairingHandlers } from "./handlers-pairing.ts";

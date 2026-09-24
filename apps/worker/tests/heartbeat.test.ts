@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, setSystemTime, test, vi } from "bun:test";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { setSignalSink } from "@roost/shared/diag";
-import type { KeeperRuntimeObservationV1 } from "@roost/shared/keeper-update";
-import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
+import { setSignalSink } from "@roost/observability/diag";
+import type { KeeperRuntimeObservationV1 } from "@roost/protocol/keeper-update";
+import { keeperRuntimeObservationFromProto } from "@roost/protocol/keeper-update-proto";
 import type {
 	KeeperRuntimeObservationV1 as KeeperRuntimeObservationProto,
 	TerminalCoreCapacityReport as TerminalCoreCapacityReportProto,
-} from "@roost/shared/proto/wire_pb";
-import { terminalCoreCapacityReportFromProto } from "@roost/shared/terminal-core-capacity-proto";
-import type { HostMetrics, TerminalCoreCapacityReport } from "@roost/shared/wire";
+} from "@roost/protocol/proto/wire_pb";
+import { terminalCoreCapacityReportFromProto } from "@roost/protocol/terminal-core-capacity-proto";
+import type { HostMetrics, TerminalCoreCapacityReport } from "@roost/protocol/wire";
 import type { CoordClient } from "../src/coord-client.ts";
 import {
 	HEARTBEAT_INTERVAL_MS,

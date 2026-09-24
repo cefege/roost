@@ -12,7 +12,7 @@
 // so the fake cannot quietly grow a `capture` property and retire the tripwire.
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import type { PickOptions } from "../src/lib/attachments.ts";
 import { setRootStore } from "../src/store/root.ts";
 

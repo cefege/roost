@@ -11,10 +11,10 @@ import {
   keeperUpdateAdmission,
   type KeeperContractV1,
   type KeeperRuntimeObservationV1,
-} from "@roost/shared/keeper-update";
-import { keeperRuntimeObservationToProto } from "@roost/shared/keeper-update-proto";
-import { WorkersHeartbeatRequestSchema } from "@roost/shared/proto/coordinator_pb";
-import { KeeperRuntimeObservationV1Schema as KeeperRuntimeProtoSchema } from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/keeper-update";
+import { keeperRuntimeObservationToProto } from "@roost/protocol/keeper-update-proto";
+import { WorkersHeartbeatRequestSchema } from "@roost/protocol/proto/coordinator_pb";
+import { KeeperRuntimeObservationV1Schema as KeeperRuntimeProtoSchema } from "@roost/protocol/proto/wire_pb";
 import { presenceBus } from "../src/buses.ts";
 import {
   workerHeartbeatContext,

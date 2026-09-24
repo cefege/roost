@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+import type { PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import { installAutoKeeper } from "./keeper-fake-pool.ts";
 import {
   attachExtraCellSink,

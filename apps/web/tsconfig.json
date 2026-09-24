@@ -2,9 +2,6 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsxImportSource": "solid-js",
-    "paths": {
-      "@roost/shared/*": ["../shared/src/*.ts"]
-    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "vite.config.ts"]
 }

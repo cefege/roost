@@ -4,7 +4,7 @@
 // it — whether the acknowledgement arrives before or after the exit frame.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import type { AgentStatus as AgentStatusValue } from "@roost/shared/wire";
+import type { AgentStatus as AgentStatusValue } from "@roost/protocol/wire";
 import {
   applyAgentStatusFrame,
   resetAgentStatusProjection,

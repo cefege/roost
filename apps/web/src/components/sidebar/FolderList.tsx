@@ -7,7 +7,7 @@
 import { createComputed, createEffect, createMemo, createSignal, For, Show, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { A, useNavigate, useLocation } from "@solidjs/router";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore } from "../../store/root.ts";
 import { closeSidebar } from "../../store/uiStore.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";

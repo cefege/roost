@@ -14,9 +14,9 @@
 
 import type { ServerWebSocket } from "bun";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { FirehoseFrameSchema, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
-import { signal } from "@roost/shared/diag";
+import { FirehoseFrameSchema, type FirehoseFrame } from "@roost/protocol/proto/sync_pb";
+import { log } from "@roost/observability/log";
+import { signal } from "@roost/observability/diag";
 import type { WsDeadlineClock } from "./ws-auth-deadline.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 

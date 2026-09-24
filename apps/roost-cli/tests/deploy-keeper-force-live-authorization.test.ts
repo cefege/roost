@@ -22,8 +22,8 @@ import {
   KEEPER_FORCE_LIVE_RETIRE_ENV,
   workerInstallEnvironment,
 } from "../src/deploy-worker-environment.ts";
-import { loadWorkerConfig } from "../../worker/src/config.ts";
-import { scrubServiceDefinitionEnv } from "../../worker/src/service-definition-env.ts";
+import { loadWorkerConfig } from "@roost/worker/config";
+import { scrubServiceDefinitionEnv } from "@roost/worker/service-definition-env";
 
 type DefinitionKind = "darwin" | "linux";
 

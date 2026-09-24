@@ -6,8 +6,8 @@ import {
   localEndpointFromEnv,
   resolveLocalEndpoint,
   type LocalEndpoint,
-} from "@roost/shared/local-endpoint";
-import { workerDataDir } from "@roost/shared/paths";
+} from "@roost/host/local-endpoint";
+import { workerDataDir } from "@roost/host/paths";
 
 export const MUX_KEEPER_ENDPOINT_NAME = "mux-keeper";
 

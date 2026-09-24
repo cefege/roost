@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { createContextValues, type HandlerContext } from "@connectrpc/connect";
-import { WorkspacesCreateRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import { WorkspacesCreateRequestSchema } from "@roost/protocol/proto/coordinator_pb";
 import { openDb, type DbHandle } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";

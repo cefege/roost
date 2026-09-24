@@ -4,8 +4,8 @@
 // it. terminalStream.test.ts keeps the repair and proof-deadline cases.
 
 import { describe, expect, test, vi } from "bun:test";
-import { setSignalSink } from "@roost/shared/diag";
-import { TERMINAL_FOREGROUND_IDLE_PROBE_MS } from "@roost/shared/viewport";
+import { setSignalSink } from "@roost/observability/diag";
+import { TERMINAL_FOREGROUND_IDLE_PROBE_MS } from "@roost/protocol/viewport";
 import {
   CURRENT_SYNC_OWNER,
   SESSION_ID,

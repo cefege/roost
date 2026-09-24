@@ -2,7 +2,7 @@
 // The helper must preserve group order and require every normalized query term.
 
 import { describe, expect, test } from "bun:test";
-import { asWorkerFp } from "@roost/shared/wire";
+import { asWorkerFp } from "@roost/protocol/wire";
 import {
   filterFolderGroups,
   type FolderGroup,

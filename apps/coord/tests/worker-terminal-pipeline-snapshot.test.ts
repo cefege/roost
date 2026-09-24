@@ -8,13 +8,13 @@ import {
   WTerminalPipelineSnapshotSchema,
   type CoordWorkerDown,
   type WTerminalPipelineSnapshot,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TerminalPipelineReason,
   TerminalPipelineSessionSnapshotSchema,
   TerminalPipelineStage,
   TerminalPipelineStageSnapshotSchema,
-} from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/wire_pb";
 import {
   TERMINAL_PIPELINE_DIAG_MAX_TARGETS,
   collectWorkerTerminalPipelineSnapshots,

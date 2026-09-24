@@ -3,8 +3,8 @@
 // this hub deduplicates spinner animation and fans the latest value to Sync.
 // Session close events release retained state.
 
-import { diag } from "@roost/shared/diag";
-import { normalizeTerminalTitle } from "@roost/shared/terminal-metadata";
+import { diag } from "@roost/observability/diag";
+import { normalizeTerminalTitle } from "@roost/protocol/terminal-metadata";
 import { sessionBus, titleBus } from "./buses.ts";
 
 

@@ -5,8 +5,8 @@
 // debounce clock are terminalFindController-test-harness.ts.
 
 import { describe, expect, test } from "bun:test";
-import { SearchStopReason } from "@roost/shared/proto/coordinator_pb";
-import { TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_PAGES, TERMINAL_SEARCH_MAX_ROWS } from "@roost/shared/terminal-search";
+import { SearchStopReason } from "@roost/protocol/proto/coordinator_pb";
+import { TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_PAGES, TERMINAL_SEARCH_MAX_ROWS } from "@roost/protocol/terminal-search";
 import {
   EPOCH_A, cancellationRequests, fireDebounce, createFindHarness, installTerminalFindTestLifecycle,
   reply, requests, setSearchRpc, settle, signals, type SearchResponse,

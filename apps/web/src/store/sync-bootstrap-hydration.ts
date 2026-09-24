@@ -6,21 +6,21 @@
 import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import type { Client } from "@connectrpc/connect";
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
 import type {
   CoordinatorService,
   SessionsListResponse,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import type {
   McpRelay,
   Session,
   Task,
   Worker,
   Workspace,
-} from "@roost/shared/wire";
-import { sessionFromProto } from "@roost/shared/wire/session-proto";
-import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
-import { diag } from "@roost/shared/diag";
+} from "@roost/protocol/wire";
+import { sessionFromProto } from "@roost/protocol/wire/session-proto";
+import { keeperRuntimeObservationFromProto } from "@roost/protocol/keeper-update-proto";
+import { diag } from "@roost/observability/diag";
 import { setRootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
 import { setRoutableFps } from "./sync-routable.ts";

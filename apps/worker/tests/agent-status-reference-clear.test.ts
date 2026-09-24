@@ -4,8 +4,8 @@
 // the user already ended. Exercises AgentScreenDetector against a scripted
 // process scanner and a recording event sink.
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_COLOR } from "@roost/shared/cell";
-import { asSessionId, type SessionEvent } from "@roost/shared/wire";
+import { DEFAULT_COLOR } from "@roost/protocol/cell";
+import { asSessionId, type SessionEvent } from "@roost/protocol/wire";
 import type { CellData, TerminalCore } from "@wterm/core";
 import type { SessionManager } from "../src/session-manager.ts";
 import {

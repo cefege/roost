@@ -6,7 +6,7 @@ import {
   PAIRING_CEREMONY_VERSION,
   normalizePairRequestId,
   normalizePairRequesterToken,
-} from "@roost/shared/pairing";
+} from "@roost/protocol/pairing";
 
 export const PAIRING_CEREMONY_STORAGE_KEY = "roost.pairingCeremony.v1";
 

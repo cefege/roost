@@ -46,7 +46,7 @@ export async function cutover(args: string[]): Promise<void> {
   console.log(`>> writing v2 ${V2}`);
   console.log(">> running coord migrations against v2 db");
   const { runMigrations } = await import(
-    new URL("../../coord/src/db/migrate.ts", import.meta.url).href
+    new URL("@roost/coord/db/migrate", import.meta.url).href
   );
   const v2 = new Database(V2);
   await runMigrations(v2);

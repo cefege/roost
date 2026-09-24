@@ -3,7 +3,7 @@
 // worker generation rather than replacing the RPC boundary with event stubs.
 
 import { describe, expect, test } from "bun:test";
-import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/shared/keeper-update";
+import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/protocol/keeper-update";
 import { createJournaledKeeperUpdateCallbacks } from "../src/direct-keeper-update.ts";
 import {
   _recoverLocalWorkerDeployJournal,

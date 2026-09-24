@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "bun:test";
-import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
+import { TerminalViewStatus } from "@roost/protocol/proto/sync_pb";
 import {
   TerminalStreamFailureKind,
   TerminalStreamStatus,
   type WTerminalStreamResult,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   SESSION,
   VIEW_A,

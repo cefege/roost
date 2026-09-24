@@ -1,7 +1,7 @@
 // Observables the upgrade specs assert on: PTYs opened and marked through a
 // real browser, the coordinator's keeper runtime row, the classification the
 // product's own admission assigns to this release, and the deploy invocation.
-// Every keeper judgement here comes from apps/roost-cli and apps/shared code,
+// Every keeper judgement here comes from apps/roost-cli and apps/worker code,
 // so the gate cannot drift from what a real deploy would decide.
 
 import { spawn } from "node:child_process";
@@ -17,8 +17,8 @@ import {
   classifyKeeperUpdate,
   type KeeperRuntimeObservationV1,
   type KeeperUpdateClassification,
-} from "../../apps/shared/src/keeper-update.ts";
-import { supportedHostPlatform } from "../../apps/shared/src/platform.ts";
+} from "../../packages/protocol/src/keeper-update.ts";
+import { supportedHostPlatform } from "../../packages/platform/src/platform.ts";
 import { enrollSmokeBrowser } from "../terminal/fixtures.ts";
 import { REPOSITORY_ROOT, waitFor } from "../terminal/stack-runtime.ts";
 import type { TerminalReleaseCheckout, TerminalTestStack } from "../terminal/stack.ts";

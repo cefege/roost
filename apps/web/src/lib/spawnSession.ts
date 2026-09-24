@@ -10,14 +10,14 @@
 
 import { ConnectError, Code } from "@connectrpc/connect";
 import { coordClient } from "../connect.ts";
-import { log } from "@roost/shared/log";
-import { signal } from "@roost/shared/diag";
+import { log } from "@roost/observability/log";
+import { signal } from "@roost/observability/diag";
 import { estimateWtermSize } from "./wtermSizeEstimate.ts";
 import { rootStore } from "../store/root.ts";
-import type { WorkerFp, Session } from "@roost/shared/wire";
+import type { WorkerFp, Session } from "@roost/protocol/wire";
 import { sendTerminalInput } from "../ws/sync-outbound.ts";
 import { resolveAgent, autoLaunchEnabled } from "./agents.ts";
-import { clampTerminalGeometry } from "@roost/shared/viewport";
+import { clampTerminalGeometry } from "@roost/protocol/viewport";
 
 export interface SpawnInitialViewport {
   cols: number;

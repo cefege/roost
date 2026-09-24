@@ -5,7 +5,7 @@
 // No jsdom (by design, per cellRenderer.test.ts). A ~40-line fake DOM covers
 // exactly what CellGridRenderer touches — node identity is all we assert.
 
-import { DEFAULT_COLOR, type CellGridFrame, type CellRow } from "@roost/shared/cell";
+import { DEFAULT_COLOR, type CellGridFrame, type CellRow } from "@roost/protocol/cell";
 import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────

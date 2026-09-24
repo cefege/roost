@@ -9,8 +9,8 @@ import {
   SessionsSpawnResponseSchema,
   type SessionsSpawnRequest,
   type SessionsSpawnResponse,
-} from "@roost/shared/proto/coordinator_pb";
-import { asSessionId, type ClientControlFrame } from "@roost/shared/wire";
+} from "@roost/protocol/proto/coordinator_pb";
+import { asSessionId, type ClientControlFrame } from "@roost/protocol/wire";
 import { createPendingRpc, rejectPendingRpc } from "../router/pending-rpcs.ts";
 import type { ConnectDeps } from "./router.ts";
 import type { AccountDeviceCaller } from "./auth-interceptor.ts";

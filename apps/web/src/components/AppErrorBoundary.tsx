@@ -1,11 +1,11 @@
 // AppErrorBoundary — outermost error fence wrapping the Router tree.
 // On render-time crash: shows error message + "Copy diagnostic" + "Reload".
 // Callers: App.tsx (outermost wrapper).
-// Depends on: @roost/shared/log for warn on clipboard failure.
+// Depends on: @roost/observability/log for warn on clipboard failure.
 
 import { ErrorBoundary, onCleanup } from "solid-js";
 import type { Component, JSX } from "solid-js";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import { credentialFreeUrl } from "../auth/fragment-credential.ts";
 import { Button, Icon, Surface } from "./Settings/md/primitives.tsx";

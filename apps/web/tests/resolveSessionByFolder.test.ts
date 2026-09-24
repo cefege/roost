@@ -4,8 +4,8 @@
 // cwd for pre-migration rows with no spawn_cwd.
 
 import { expect, test, describe, beforeEach } from "bun:test";
-import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asWorkerFp, asSessionId, asChannelId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore, setRootStore } from "../src/store/root.ts";
 import { resolveSessionByFolder } from "../src/store/selectors.ts";
 

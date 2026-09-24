@@ -10,7 +10,7 @@ import {
   DevicesListRequestSchema,
   DevicesRevokeRequestSchema,
   DevicesRotateCurrentRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   authCtx,
   authorize,

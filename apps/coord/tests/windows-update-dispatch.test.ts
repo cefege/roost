@@ -10,7 +10,7 @@ import {
 } from "../src/windows-update-deploy-jobs.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { rejectPendingRpcsForWorker } from "../src/router/pending-rpcs.ts";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb";
 
 const workerFp = "a".repeat(64);
 const previousCoordDataDir = process.env.ROOST_COORD_DATA_DIR;

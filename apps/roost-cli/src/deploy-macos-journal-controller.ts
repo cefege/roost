@@ -2,7 +2,7 @@
 // Command construction and envelope parsing live in the byte-stable command module.
 // deploy.ts supplies the SSH executor; deploy-macos-journal.ts owns decisions.
 
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import {
   MACOS_PRIOR_LIFECYCLE_PROOF_COMMAND,
   MACOS_WORKER_PLIST_RELATIVE,

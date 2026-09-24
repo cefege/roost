@@ -28,7 +28,7 @@ import {
 import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { TERMINAL_CAPTURE_LIMITS, terminalCaptureFileName } from "@roost/shared/terminal-capture";
+import { TERMINAL_CAPTURE_LIMITS, terminalCaptureFileName } from "@roost/protocol/terminal-capture";
 import * as bc from "../src/diag/byte-capture.ts";
 import {
 	sweepCaptureRetention,

@@ -3,9 +3,9 @@
 // and delegates per-session handoff sequencing to terminal-peer-promotions.
 // Adapters own packets and registration; this owner owns attempt state and liveness.
 
-import { diag } from "@roost/shared/diag";
-import { TERMINAL_PEER_HEARTBEAT_INTERVAL_MS, TERMINAL_PEER_MAX_CONNECTIONS_PER_BROWSER_DOCUMENT, TERMINAL_PEER_NATIVE_ANSWER_DEADLINE_MS, TERMINAL_PEER_NEGOTIATION_DEADLINE_MS } from "@roost/shared/terminal-peer";
-import { backoffDelayMs } from "@roost/shared/retry";
+import { diag } from "@roost/observability/diag";
+import { TERMINAL_PEER_HEARTBEAT_INTERVAL_MS, TERMINAL_PEER_MAX_CONNECTIONS_PER_BROWSER_DOCUMENT, TERMINAL_PEER_NATIVE_ANSWER_DEADLINE_MS, TERMINAL_PEER_NEGOTIATION_DEADLINE_MS } from "@roost/protocol/terminal-peer";
+import { backoffDelayMs } from "@roost/protocol/retry";
 import { coordClient } from "../connect.ts";
 import { readLocalWorkerDoor, type LocalWorkerDoor } from "../lib/localWorkerDiscovery.ts";
 import { terminalDirectRegistry, type TerminalDirectConnection, type TerminalDirectRegistry, type TerminalDirectRegistryEvent } from "../store/terminal-stream-transport.ts";

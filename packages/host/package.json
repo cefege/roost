@@ -1,0 +1,33 @@
+{
+  "name": "@roost/host",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "exports": {
+    "./build-identity": "./src/build-identity.ts",
+    "./config": "./src/config.ts",
+    "./durability": "./src/durability.ts",
+    "./host-memory": "./src/host-memory.ts",
+    "./http-security": "./src/http-security.ts",
+    "./install-scripts": "./src/install-scripts.generated.ts",
+    "./jwt-base": "./src/jwt-base.ts",
+    "./local-endpoint": "./src/local-endpoint.ts",
+    "./machine-transaction": "./src/machine-transaction.ts",
+    "./paths": "./src/paths.ts",
+    "./service-health": "./src/service-health.ts",
+    "./spa": "./src/spa.ts",
+    "./tailnet": "./src/tailnet.ts",
+    "./web-embed": "./src/web-embed.generated.ts",
+    "./windows-helper": "./src/windows-helper.ts",
+    "./windows/*": "./src/windows/*.ts"
+  },
+  "scripts": {
+    "typecheck": "bun x tsgo -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@roost/observability": "workspace:*",
+    "@roost/platform": "workspace:*",
+    "@roost/protocol": "workspace:*",
+    "zod": "^3.23.8"
+  }
+}

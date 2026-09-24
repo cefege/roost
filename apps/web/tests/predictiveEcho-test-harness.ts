@@ -6,7 +6,7 @@
 
 import { PredictiveEcho } from "../src/lib/predictiveEcho.ts";
 import type { PredictMode } from "../src/lib/predictPref.ts";
-import type { CellGridFrame, CellSpan } from "@roost/shared/cell";
+import type { CellGridFrame, CellSpan } from "@roost/protocol/cell";
 
 export interface PaintedCell {
   ch: string;

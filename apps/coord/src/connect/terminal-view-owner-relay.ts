@@ -12,14 +12,14 @@ import {
   type TerminalResyncCommand,
   type TerminalViewCommand,
   type TerminalViewStateFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   enqueueTerminalViewState,
   validateTerminalViewCommand,
   type TerminalViewStateSink,
-} from "@roost/shared/terminal-view";
-import { isTerminalUuid } from "@roost/shared/viewport";
-import { diag } from "@roost/shared/diag";
+} from "@roost/protocol/terminal-view";
+import { isTerminalUuid } from "@roost/protocol/viewport";
+import { diag } from "@roost/observability/diag";
 import type { TerminalScreenHub } from "./terminal-screen-hub.ts";
 import type {
   TerminalViewRelayCommand,

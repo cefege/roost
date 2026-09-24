@@ -6,7 +6,7 @@
 import {
   TERMINAL_VIEW_HEARTBEAT_MS,
   clampTerminalGeometry,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { markPhaseOnce } from "../lib/diag.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { TerminalRenderScheduler } from "../lib/terminal-render-scheduler.ts";

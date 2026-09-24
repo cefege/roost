@@ -7,13 +7,13 @@ import {
   CoordWorkerUpSchema,
   WAgentStatusSchema,
   type CoordWorkerUp,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   isIdentifiedAgentStatus,
   type AgentStatusUpdate,
-} from "@roost/shared/wire";
-import { diag } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/wire";
+import { diag } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
 import { WORKER_SNAPSHOT_MAX_SESSIONS } from "./coord-link-constants.ts";
 
 interface EncodedAgentStatus {

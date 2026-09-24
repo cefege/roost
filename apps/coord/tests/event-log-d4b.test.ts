@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { openDb, type DbHandle, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { appendEvent } from "../src/event-log.ts";
-import { SessionEvent, asSessionId, asWorkerFp, asChannelId } from "@roost/shared/wire";
+import { SessionEvent, asSessionId, asWorkerFp, asChannelId } from "@roost/protocol/wire";
 
 const ORGANIZATION_ID = "event-log-d4b-organization";
 const DASHBOARD_ID = "event-log-d4b-dashboard";

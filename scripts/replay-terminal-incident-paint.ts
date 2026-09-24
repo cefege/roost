@@ -10,7 +10,7 @@ import {
   paintedTextFingerprint,
   type TerminalBrowserPaintedState,
   type TerminalDomRow,
-} from "../apps/shared/src/terminal-capture.ts";
+} from "../packages/protocol/src/terminal-capture.ts";
 
 export type RendererFindingKind =
   | "duplicate_history_index"

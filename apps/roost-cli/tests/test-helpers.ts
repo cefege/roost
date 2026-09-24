@@ -1,4 +1,4 @@
-import type { ServiceHealthRole, ServiceHealthStatusFor } from "@roost/shared/service-health";
+import type { ServiceHealthRole, ServiceHealthStatusFor } from "@roost/host/service-health";
 
 /** `ServiceHealthProver.read` and `WindowsLocalEndpointHealth.read` are generic
  *  over the role requested: the caller narrows the descriptor by the role it

@@ -2,7 +2,7 @@
 // TerminalRenderScheduler tests use this harness to assert queue admission without a DOM.
 // It restores global requestAnimationFrame hooks after every isolated Bun test.
 
-import type { CellGridFrame } from "@roost/shared/cell";
+import type { CellGridFrame } from "@roost/protocol/cell";
 import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
 
 const frameHost = globalThis as typeof globalThis & {

@@ -7,6 +7,6 @@ export async function coord(_args: string[]): Promise<void> {
   // A static import cannot work here: coordinator module initialization
   // resolves data paths and pulls in the SPA embed, and `roost test` builds
   // that bundle — this command is the only caller that may load it.
-  const { runCoord } = await import("../../coord/src/main.ts");
+  const { runCoord } = await import("@roost/coord/main");
   await runCoord();
 }

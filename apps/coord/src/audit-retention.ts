@@ -9,7 +9,7 @@
 // not skipped.
 
 import type { Database } from "bun:sqlite";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 
 /** One day. The retention window is counted in these, this sweep runs once per
  *  one, and backup.ts schedules on the same value — one definition so the three

@@ -3,9 +3,9 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bootstrapTokenDigest } from "../../coord/src/bootstrap-tokens.ts";
-import { runMigrations } from "../../coord/src/db/migrate.ts";
-import { ensureSelfHostedTenant } from "../../coord/src/self-hosted-tenant.ts";
+import { bootstrapTokenDigest } from "@roost/coord/bootstrap-tokens";
+import { runMigrations } from "@roost/coord/db/migrate";
+import { ensureSelfHostedTenant } from "@roost/coord/self-hosted-tenant";
 import {
   mintBrowserToken,
   mintWorkerToken,

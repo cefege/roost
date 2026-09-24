@@ -7,9 +7,9 @@
 import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import { setRootStore, rootStore } from "./root.ts";
-import { signal } from "@roost/shared/diag";
-import type { Worker } from "@roost/shared/wire";
-import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
+import { signal } from "@roost/observability/diag";
+import type { Worker } from "@roost/protocol/wire";
+import { keeperRuntimeObservationFromProto } from "@roost/protocol/keeper-update-proto";
 import { terminalCoreCapacityProtoToWire } from "./sync-proto-adapters.ts";
 import { claimTabIdentity } from "../auth/tab-id.ts";
 import { setRoutableFps } from "./sync-routable.ts";

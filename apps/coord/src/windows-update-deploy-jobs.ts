@@ -11,9 +11,9 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { BoundedBus } from "./buses.ts";
-import { log } from "@roost/shared/log";
-import { signal } from "@roost/shared/diag";
-import { coordDataDir } from "@roost/shared/paths";
+import { log } from "@roost/observability/log";
+import { signal } from "@roost/observability/diag";
+import { coordDataDir } from "@roost/host/paths";
 import {
   _deployJobs,
   type DeployJob,
@@ -59,7 +59,7 @@ async function recoverWindowsUpdateJobFromJournal(jobId: string): Promise<Deploy
   const {
     DurableWindowsUpdateJournalStore,
     readWindowsUpdateProgressFromJournal,
-  } = await import("../../roost-cli/src/windows/windows-update-journal.ts");
+  } = await import("@roost/host/windows/windows-update-journal");
   const journal = await new DurableWindowsUpdateJournalStore().load();
   if (!journal || journal.jobId !== jobId) return null;
   const job = createTransientRecoveredWindowsUpdateJob(jobId);

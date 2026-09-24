@@ -10,7 +10,7 @@ export async function replayDurableWindowsUpdateProgress(coordLink: CoordLink): 
 	const {
 		DurableWindowsUpdateJournalStore,
 		readWindowsUpdateProgressFromJournal,
-	} = await import("../../roost-cli/src/windows/windows-update-journal.ts");
+	} = await import("@roost/host/windows/windows-update-journal");
 	const journal = await new DurableWindowsUpdateJournalStore().load();
 	if (!journal) return;
 	const requestId = randomUUID();

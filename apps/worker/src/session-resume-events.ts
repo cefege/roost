@@ -8,7 +8,7 @@
 
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import { RESUME_STAGE_CAP_BYTES } from "./session-constants.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 
 export type PendingResumeEvent =
 	| { readonly kind: "output"; readonly chunk: Buffer }

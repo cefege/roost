@@ -12,7 +12,7 @@ import {
 } from "@connectrpc/connect";
 import type { KyselyDB } from "../db/connection.ts";
 import type { JwtCache } from "../jwt.ts";
-import type { CoordConfig } from "@roost/shared/config";
+import type { CoordConfig } from "@roost/host/config";
 import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import type { CallerOrigin, ListenerTrust } from "../middleware/caller-origin.ts";
 import type { SelfHostedTenant } from "../self-hosted-tenant.ts";
@@ -22,7 +22,7 @@ import {
   shouldPersistConnectAudit,
   writeAuditLog,
 } from "../middleware/security.ts";
-import { signal, diag } from "@roost/shared/diag";
+import { signal, diag } from "@roost/observability/diag";
 // Header names + auth-layer sentinels are the SPA↔coord trust contract; both
 // ends must import them, never retype them.
 import {
@@ -34,7 +34,7 @@ import {
   X_ROOST_AUTH_LAYER,
   AUTH_LAYER_DEVICE,
   AUTH_LAYER_TRUSTED_PROXY,
-} from "@roost/shared/wire/headers";
+} from "@roost/protocol/wire/headers";
 import {
   resolveCallerPrincipal,
   type AccountDeviceCaller,

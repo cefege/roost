@@ -9,14 +9,14 @@ import {
   type HandlerContext,
 } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
-import { LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES } from "@roost/shared/layout-document";
-import { UiDispatchRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import { LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES } from "@roost/protocol/layout-document";
+import { UiDispatchRequestSchema } from "@roost/protocol/proto/coordinator_pb";
 import {
   UiCommandSchema,
   UiMoveTabSchema,
   UiPlaceSplitSchema,
   UiSelectTabSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { uiBus, type UiBusMsg } from "../src/buses.ts";
 import { callerKey } from "../src/connect/auth-interceptor.ts";
 import { makeUiHandlers } from "../src/connect/handlers-ui.ts";

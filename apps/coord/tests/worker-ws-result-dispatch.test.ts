@@ -17,9 +17,9 @@ import {
   type CoordWorkerUp,
   type WInputResult,
   type WTerminalStreamResult,
-} from "@roost/shared/proto/worker_transport_pb";
-import { asSessionId } from "@roost/shared/wire";
-import { eventToProto } from "@roost/shared/wire/event-proto";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { asSessionId } from "@roost/protocol/wire";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
 import { makeWorkerFrameDispatcher } from "../src/connect/worker-frame-dispatch.ts";
 import {
   createAnnouncedChannelBarrier,

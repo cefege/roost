@@ -4,8 +4,8 @@
 // assembles the session map from this; it reads the terminal-view hub
 // accessors and the byte-hub route cache, and owns no state of its own.
 
-import type { TerminalGeometry } from "@roost/shared/viewport";
-import type { TerminalViewInput } from "@roost/shared/terminal-view";
+import type { TerminalGeometry } from "@roost/protocol/viewport";
+import type { TerminalViewInput } from "@roost/protocol/terminal-view";
 import {
   currentTerminalScreenHub,
   terminalViewInputs,

@@ -58,7 +58,7 @@ export function resetPairApprovalFixture(): void {
   rpc.status = async () => ({ status: "verification_required" });
 }
 
-mock.module("@roost/shared/pairing", () => ({
+mock.module("@roost/protocol/pairing", () => ({
   PAIRING_CEREMONY_VERSION: 1,
   PAIR_VERIFICATION_CODE_LENGTH: 6,
   generatePairRequestId: () => REQUEST_ID,
@@ -68,7 +68,7 @@ mock.module("@roost/shared/pairing", () => ({
   normalizePairRequesterToken: (value: string) => /^[0-9a-f]{64}$/.test(value) ? value : null,
   normalizePairVerificationCode: (value: string) => /^\d{6}$/.test(value) ? value : null,
 }));
-mock.module("@roost/shared/retry", () => ({ backoffDelayMs: () => 10 }));
+mock.module("@roost/protocol/retry", () => ({ backoffDelayMs: () => 10 }));
 mock.module("../../src/store/mutations.ts", () => ({ deletePairRequest }));
 mock.module("../../src/store/toastStore.ts", () => ({
   addToast: (message: string, kind = "ok") => {

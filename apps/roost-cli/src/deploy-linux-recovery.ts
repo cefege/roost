@@ -2,7 +2,7 @@
 // plus the ssh helpers that load, clear, and prove the TARGET release.
 // Prior-release proof and retirement live in linux-prior-service-recovery.ts;
 // production command adapters live in deploy-linux-recovery-runtime.ts.
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import {
   DeployFailure, failDeploy, finishWorkerDeploy, workerServiceIsRunning,

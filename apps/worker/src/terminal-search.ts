@@ -10,15 +10,15 @@ import {
 	textRangeToColumns,
 	viewportRowSpans,
 	type CellSpan,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import {
 	TERMINAL_SEARCH_PREVIEW_MAX_CODE_POINTS,
 	TERMINAL_SEARCH_RPC_DEADLINE_MS,
 	truncateUnicodeCodePoints,
 	type SearchStopReason,
 	type WorkerSearchScrollbackMatch,
-} from "@roost/shared/terminal-search";
-import type { ClientControlFrame } from "@roost/shared/wire";
+} from "@roost/protocol/terminal-search";
+import type { ClientControlFrame } from "@roost/protocol/wire";
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionShellRecord } from "./session-record.ts";
 import { terminalControlSettled } from "./session-control-lanes.ts";

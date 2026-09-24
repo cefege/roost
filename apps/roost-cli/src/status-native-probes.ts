@@ -2,8 +2,8 @@
 // Report assembly uses the service-manager probe from here so a wedged
 // launchctl, systemctl, or Windows helper cannot hang the one-shot readout.
 
-import { runWindowsHelperSync, type WindowsServiceSnapshot } from "@roost/shared/windows-helper";
-import { coordServiceLabel, workerServiceLabel } from "@roost/shared/paths";
+import { runWindowsHelperSync, type WindowsServiceSnapshot } from "@roost/host/windows-helper";
+import { coordServiceLabel, workerServiceLabel } from "@roost/host/paths";
 import {
   COORD_UNIT,
   WINDOWS_SERVICE_NAMES,

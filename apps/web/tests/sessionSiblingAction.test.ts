@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Navigator } from "@solidjs/router";
-import type { Session, WorkerFp } from "@roost/shared/wire";
+import type { Session, WorkerFp } from "@roost/protocol/wire";
 import { spawnSessionSibling } from "../src/lib/sessionSiblingAction.ts";
 
 let authGeneration = 1;

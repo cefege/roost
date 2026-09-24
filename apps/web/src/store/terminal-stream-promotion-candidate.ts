@@ -4,12 +4,12 @@
 import { create } from "@bufbuild/protobuf";
 import {
   CellGridChunkAssembler, encodedCellGridChunkSize, encodedCellGridFrameSize, type CellGridFrame,
-} from "@roost/shared/cell";
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/cell";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 import {
   TerminalViewCommandSchema, TerminalViewStatus, type TerminalViewStateFrame,
-} from "@roost/shared/proto/sync_pb";
-import { isTerminalGeometry, isTerminalUuid } from "@roost/shared/viewport";
+} from "@roost/protocol/proto/sync_pb";
+import { isTerminalGeometry, isTerminalUuid } from "@roost/protocol/viewport";
 import { pushTerminalChunkTransfer, resetTerminalChunkTransfer, type TerminalChunkTransfer } from "./terminal-stream-chunks.ts";
 import { decodeTerminalWireFrame, foldTerminalFrame, type TerminalFrameFoldTarget } from "./terminal-stream-frame-fold.ts";
 import { terminalGenerationMatches } from "./terminal-stream-liveness.ts";

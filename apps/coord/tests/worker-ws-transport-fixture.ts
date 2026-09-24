@@ -14,12 +14,12 @@ import {
   WSessionEventSchema,
   type CoordWorkerDown,
   type CoordWorkerUp,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { CoordConfig } from "@roost/shared/config";
-import { fingerprintOf } from "@roost/shared/fingerprint";
-import { eventToProto } from "@roost/shared/wire/event-proto";
-import { SessionEvent, asWorkerFp } from "@roost/shared/wire";
-import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { CoordConfig } from "@roost/host/config";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
+import { SessionEvent, asWorkerFp } from "@roost/protocol/wire";
+import { WORKER_AUTH_SUBPROTOCOL } from "@roost/protocol/wire/coord-worker";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";

@@ -4,8 +4,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { log } from "@roost/shared/log";
-import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
+import { log } from "@roost/observability/log";
+import { assertNeverPlatform, supportedHostPlatform } from "@roost/platform/platform";
 import { MANIFEST_NAME, resolveSessionDirWithinBase, sanitizeAttachmentName } from "./attachment-reaper.ts";
 import { normalizeWorkerPath } from "./util/path.ts";
 import { sha256AttachmentFile } from "./attachment-file-hash.ts";

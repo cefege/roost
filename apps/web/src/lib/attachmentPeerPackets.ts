@@ -8,14 +8,14 @@ import {
   ATTACHMENT_TRANSFER_PEER_DATA_CHANNELS,
   ATTACHMENT_TRANSFER_PEER_DATA_QUEUE_MAX_BYTES,
   type AttachmentTransferPeerChannelLane,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   AttachmentTransferPacketAssembler,
   AttachmentTransferPacketQueue,
   type AttachmentTransferPacketDirection,
   type AttachmentTransferPacketQueueFragment,
   type AttachmentTransferPacketQuota,
-} from "@roost/shared/attachment-transfer-packets";
+} from "@roost/protocol/attachment-transfer-packets";
 
 type PacketQueueByLane = Record<AttachmentTransferPeerChannelLane, AttachmentTransferPacketQueue>;
 type PacketAssemblerByLane = Record<AttachmentTransferPeerChannelLane, AttachmentTransferPacketAssembler>;

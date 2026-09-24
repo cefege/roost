@@ -5,9 +5,9 @@
 
 import { describe, test, expect, afterEach, setSystemTime } from "bun:test";
 import { WasmBridge } from "@wterm/core";
-import { setSignalSink } from "@roost/shared/diag";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
-import { initCellEmitState } from "@roost/shared/cell";
+import { setSignalSink } from "@roost/observability/diag";
+import { asSessionId, asChannelId, asWorkerFp } from "@roost/protocol/wire";
+import { initCellEmitState } from "@roost/protocol/cell";
 import { SessionManager } from "../src/session-manager.ts";
 import { COORD_CELL_SINK_ID, registerCellSink } from "../src/session-cell-sinks.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";

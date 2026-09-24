@@ -4,7 +4,7 @@
 // Listeners must start before maintenance and signal shutdown wiring, and the
 // single write gate constructed here must reach every mutation path.
 
-import { loadCoordConfig, type CoordConfig } from "@roost/shared/config";
+import { loadCoordConfig, type CoordConfig } from "@roost/host/config";
 import { openDb } from "./db/connection.ts";
 import { runMigrations } from "./db/migrate.ts";
 import { CoordinatorWriteGate } from "./coordinator-write-gate.ts";
@@ -27,15 +27,15 @@ import { COORD_GIT_SHA } from "./git-sha.ts";
 import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./windows-update-deploy-jobs.ts";
 import { startCatchUpDeployOnAttach } from "./worker-catchup-deploy.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
-import { serveServiceHealth } from "@roost/shared/service-health";
-import { log } from "@roost/shared/log";
-import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
-import { coordDataDir } from "@roost/shared/paths";
-import { effectiveMemoryCeilingBytes } from "@roost/shared/host-memory";
+import { serveServiceHealth } from "@roost/host/service-health";
+import { log } from "@roost/observability/log";
+import { ROOST_ARTIFACT_VERSION } from "@roost/host/build-identity";
+import { coordDataDir } from "@roost/host/paths";
+import { effectiveMemoryCeilingBytes } from "@roost/host/host-memory";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { WEB_ASSETS } from "@roost/shared/web-embed";
-import { createSpaResponder } from "@roost/shared/spa";
+import { WEB_ASSETS } from "@roost/host/web-embed";
+import { createSpaResponder } from "@roost/host/spa";
 import { MIGRATIONS } from "./migrations-embed.generated.ts";
 import { runStartupJanitor } from "./startup-janitor.ts";
 import { ensureSelfHostedTenant } from "./self-hosted-tenant.ts";

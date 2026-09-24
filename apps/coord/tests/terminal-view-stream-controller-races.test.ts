@@ -2,8 +2,8 @@
 // The hub harness keeps route changes and deadline exhaustion deterministic through
 // deferred results while retaining its MessageChannel settlement boundary.
 import { afterEach, describe, expect, test } from "bun:test";
-import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
-import type { WTerminalStreamResult } from "@roost/shared/proto/worker_transport_pb";
+import { TerminalViewStatus } from "@roost/protocol/proto/sync_pb";
+import type { WTerminalStreamResult } from "@roost/protocol/proto/worker_transport_pb";
 import type { HopDeadline } from "../src/connect/worker-send.ts";
 import {
   SESSION,

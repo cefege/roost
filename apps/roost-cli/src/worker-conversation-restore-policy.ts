@@ -4,7 +4,7 @@
 
 import { homedir } from "node:os";
 
-import { AGENT_CONVERSATION_RESTORE_ENV as CONVERSATION_RESTORE_ENV } from "@roost/shared/worker-service-env";
+import { AGENT_CONVERSATION_RESTORE_ENV as CONVERSATION_RESTORE_ENV } from "@roost/platform/worker-service-env";
 
 function posixConversationRestoreEnvironment(
   environment: Readonly<Record<string, string>> | undefined,

@@ -3,7 +3,7 @@
 // The browser and native adapters share them without exposing SDP or endpoints.
 
 import { createHash, randomBytes } from "node:crypto";
-import type { TerminalPeerPacketLane } from "@roost/shared/terminal-peer";
+import type { TerminalPeerPacketLane } from "@roost/protocol/terminal-peer";
 
 export const QUALIFICATION_GENERATIONS = 20;
 export const QUALIFICATION_MESSAGE_SIZES = [1, 1_024, 16_384] as const;

@@ -4,14 +4,14 @@
 // TerminalPeerPacketPort owns WebRTC framing; this file owns LocalTerminal protobufs.
 
 import { create, fromBinary } from "@bufbuild/protobuf";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
 	LocalTerminalClientFrameSchema,
 	LocalTerminalClosedSchema,
 	LocalTerminalReadySchema,
 	type LocalTerminalHello,
 	type LocalTerminalServerFrame,
-} from "@roost/shared/proto/local_terminal_pb";
+} from "@roost/protocol/proto/local_terminal_pb";
 import type { LocalTerminalGrantChange, LocalTerminalGrantStore } from "./local-terminal-grants.ts";
 import {
 	LocalTerminalPortControls,

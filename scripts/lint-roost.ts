@@ -299,8 +299,8 @@ function fileSizes(): Record<string, number> {
 
 // ───────────────────────────────────────────────────────────────────────
 // Log-facade ratchet: coord and worker are long-lived services whose output
-// is machine-read, so they log through `log` from @roost/shared/log — the one
-// facade that stamps ev/level and owns the console sink (apps/shared/src/log.ts,
+// is machine-read, so they log through `log` from @roost/observability/log — the one
+// facade that stamps ev/level and owns the console sink (packages/observability/src/log.ts,
 // outside the roots scanned here). A raw console.* in a service bypasses it.
 // The surviving callsites are pre-logger bootstrap and fatal-exit paths; the
 // baseline (scripts/console-baseline.json) freezes them so the rule blocks NEW
@@ -327,8 +327,8 @@ const CONSOLE_RATCHET: RatchetSpec = {
   baselineFile: CONSOLE_BASELINE_FILE,
   updateFlag: "--update-console-baseline",
   freshAllowance: 0,
-  text: (n, allowed) => `${n} console.* call lines (baseline ${allowed}) — log through the @roost/shared/log facade`,
-  rule: "logging: use the log facade from @roost/shared/log, not console.* (ratcheted)",
+  text: (n, allowed) => `${n} console.* call lines (baseline ${allowed}) — log through the @roost/observability/log facade`,
+  rule: "logging: use the log facade from @roost/observability/log, not console.* (ratcheted)",
   memory: "CLAUDE.md — coding standards",
   unit: "console.* lines",
 };

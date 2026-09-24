@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import {
   GLOBAL_TERMINAL_SEARCH_CURSOR_TTL_MS,
   GLOBAL_TERMINAL_SEARCH_MAX_CURSORS_PER_DEVICE,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 
 export const _GLOBAL_SEARCH_MAX_CANCEL_TOMBSTONES_PER_DEVICE = 128;
 const GLOBAL_SEARCH_MAX_CANCEL_TOMBSTONES = 4_096;

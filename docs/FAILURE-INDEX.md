@@ -29,7 +29,7 @@ but this page.
 **Symptom** — "SPA store doesn't reflect a SessionEvent variant / coord and SPA projections disagree (stale channel)"
 
 **Wrong** — re-implementing the event switch in `store/projector.ts` as a hand-mirror of `foldEvent` from
-`@roost/shared/wire` (drifts — dropped `respawned`).
+`@roost/protocol/wire` (drifts — dropped `respawned`).
 
 **Right** — `foldEventIntoStore` DELEGATES to shared `foldEvent` over the affected map slice, then diffs per-key
 into the Solid store. No projector switch.
@@ -213,7 +213,7 @@ per-session browser replica. A gap latches one snapshot request. Chunked fulls
 install atomically only after every viewport row occurs exactly once. Renderer
 mount state is not part of the continuity proof.
 
-**Guard** — `apps/shared/tests/cell-frame-chunks.test.ts`;
+**Guard** — `packages/protocol/tests/cell-frame-chunks.test.ts`;
 `apps/coord/tests/terminal-screen-hub.test.ts`;
 `apps/web/tests/terminalStream.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
@@ -234,7 +234,7 @@ rewrite) before the grid scrolls gets whichever generation the browser happened
 to hold frozen into the next absolute index — one stale spinner glyph, one stale
 elapsed time, per checkpoint, and checkpoints are frequent for a chatty pane.
 Nothing ever contradicts the guess: canonical frames are normalized
-viewport-only (`normalizeCellGridFrame` in `apps/shared/src/cell/diff-grid.ts`),
+viewport-only (`normalizeCellGridFrame` in `packages/protocol/src/cell/diff-grid.ts`),
 so no authoritative history disagrees, and
 `splicePage` in `apps/web/src/lib/scrollbackBackfill.ts` deliberately tolerates
 a refused re-insert, so demand backfill never repairs those rows either.
@@ -251,14 +251,14 @@ Non-contiguous painted history is a first-class state
 reserved gap needs no inference to stand in for it. A matching history/head
 boundary identifies a content-PROVED shift candidate, but global viewport reuse
 is permitted only when `deltaViewportShift`
-(`apps/shared/src/cell/diff-grid.ts`) receives the complete final viewport.
+(`packages/protocol/src/cell/diff-grid.ts`) receives the complete final viewport.
 `applyDelta` and `foldCellDeltaBatch` then reuse that global shift; sparse
 deltas patch only their worker-authored final coordinates and retain omitted
 held rows, so a fixed footer cannot receive an older status generation.
 
-**Guard** — `apps/shared/tests/cell-realcore.test.ts` —
+**Guard** — `packages/protocol/tests/cell-realcore.test.ts` —
 `"partial-region scroll with a footer repaint preserves untouched rows"`;
-`apps/shared/tests/cell-delta-batch.test.ts` —
+`packages/protocol/tests/cell-delta-batch.test.ts` —
 `"preserves an untouched footer through a sparse partial-region batch"`;
 `apps/web/tests/cellRenderer.reconcile.dom.test.ts` —
 `"a partial-region scroll retains the fixed panel and worker history"`,
@@ -431,7 +431,7 @@ replay is reserved for genuine process adoption when no in-memory core exists.
 **Guard** — `apps/coord/tests/terminal-view-hub.test.ts`;
 `apps/coord/tests/terminal-view-registry-membership.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
-`apps/shared/tests/wterm-resize-in-place.test.ts`;
+`packages/wterm/tests/wterm-resize-in-place.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
 ### A session stays clipped to a viewer that is no longer looking
@@ -450,7 +450,7 @@ primitive, so grepping `minimumTerminalGeometry` made the policy look pinned
 while the decider used its own copy.
 
 **Right** — **ONE predicate decides geometry membership and ONE primitive
-computes the minimum.** `minimumTerminalGeometry` (`@roost/shared/viewport`) is
+computes the minimum.** `minimumTerminalGeometry` (`@roost/protocol/viewport`) is
 the only per-axis aggregation anywhere. A parked view keeps its lease,
 membership and tombstone for reclaim, but stops constraining geometry once
 `TERMINAL_VIEW_PARK_GRACE_MS` lapses — reclaim and geometry are different
@@ -482,7 +482,7 @@ forbidden).
 **Right** — **history is PULLED on demand and never shipped wholesale.**
 `apps/web/src/lib/scrollbackBackfill.ts` pulls ranges in chunks via `SessionsGetScrollbackCells` (coord relay →
 worker `handleGetScrollbackCells` in `apps/worker/src/browser-command-terminal.ts`, serving
-`readScrollbackRangeCells` from `apps/shared/src/cell/grid-to-cells.ts`) and `prependScrollback` in
+`readScrollbackRangeCells` from `packages/protocol/src/cell/grid-to-cells.ts`) and `prependScrollback` in
 `apps/web/src/lib/cellRenderer.ts` splices above the reader. At a literal bottom the renderer pins the new
 bottom; otherwise it leaves `scrollTop` untouched. History ALWAYS arrives — only its timing is lazy. The
 intermediate form (a fixed 250-row tail in every full frame plus a `mergeFullFrame` tail merge) is RETIRED: full
@@ -980,7 +980,7 @@ cells — each one leaves the canonical model ahead of the DOM with nothing that
 
 - (c) `TerminalViewHub` is the only membership/SCD owner, and membership is not
   geometry. It independently minimizes columns and rows across the views that
-  are actually looking (`minimumTerminalGeometry`, `@roost/shared/viewport`).
+  are actually looking (`minimumTerminalGeometry`, `@roost/protocol/viewport`).
   Park retains MEMBERSHIP for reclaim until the lease expires, but a parked
   view stops constraining GEOMETRY once `TERMINAL_VIEW_PARK_GRACE_MS` lapses;
   with no live viewer left the last effective geometry is HELD rather than
@@ -1011,7 +1011,7 @@ Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 `dom_reconciled` plus `reconcile_block_reason`
 (`apps/web/src/lib/terminalDiagSnapshot.ts`), never a screenshot.
 
-**Guard** — `apps/shared/tests/cell-frame-chunks.test.ts`;
+**Guard** — `packages/protocol/tests/cell-frame-chunks.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
 `apps/coord/tests/terminal-view-hub.test.ts`;
 `apps/coord/tests/terminal-view-registry-membership.test.ts`;
@@ -1571,7 +1571,7 @@ alternate grids, modes, links and representable scrollback stay in memory.
 Keeper-history replay is reserved for genuine worker adoption when no live core
 exists; an unprovable resize boundary fails closed.
 
-**Guard** — `apps/shared/tests/wterm-resize-in-place.test.ts`;
+**Guard** — `packages/wterm/tests/wterm-resize-in-place.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
 `apps/coord/tests/terminal-view-registry-membership.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
@@ -1837,7 +1837,7 @@ These three make the state visible; what stops the commonest way INTO it is the 
 inherits a sibling service's dist path from the shell that ran it".
 
 **Guard** — `apps/coord/tests/spa-source-startup.test.ts` "a retired web dist is reported once at startup,
-not only as a page 404", `apps/shared/tests/spa.test.ts` "names the build it serves, so an empty pick is
+not only as a page 404", `packages/host/tests/spa.test.ts` "names the build it serves, so an empty pick is
 reportable instead of a bare 404", and `apps/roost-cli/tests/status-spa.test.ts`, including "a compiled
 install serving its embedded build is not called missing".
 
@@ -2011,7 +2011,7 @@ rename/delete/deploy-start. `*List`, identity and health probes are NOT in the s
 mutation committed — a partial-write or hand-edited row throws SyntaxError, the RPC 500s, the bus subscriber
 never fires, and sync-stream backfill does not recover in-memory bus deltas.
 
-**Right** — **`safeJsonParse` from `@roost/shared/json`** with a fallback matching the consumer schema (`{}` for
+**Right** — **`safeJsonParse` from `@roost/protocol/json`** with a fallback matching the consumer schema (`{}` for
 non-nullable record fields, `null` for nullable ones). Request-time validation (reject upfront with a
 ConnectError) is the OTHER pattern — it applies BEFORE the DB write, not after.
 
@@ -2113,15 +2113,15 @@ thrown from a `diag()` call inside the send path.
 stringification leaves every future call site armed with the same trap.
 
 **Right** — **observability can never propagate a failure into a product path.** `safeJsonStringify` in
-`apps/shared/src/json.ts` (the repo's canonical JSON boundary, which already owned the parse direction) maps
+`packages/protocol/src/json.ts` (the repo's canonical JSON boundary, which already owned the parse direction) maps
 `bigint` to its exact decimal string at every depth — `Number()` is forbidden, it rounds past 2^53 — and
 returns the caller's fallback instead of throwing; `apps/web/src/lib/diag.ts` ships
 `{"kv_unserializable":true}` so the event still reaches the operator with the loss flagged. `emitEnabled()`
-and `signal()` in `apps/shared/src/diag.ts` wrap record construction (the `...kv` spread runs getters) AND
+and `signal()` in `packages/observability/src/diag.ts` wrap record construction (the `...kv` spread runs getters) AND
 sink dispatch in one guard per function that reports through `log.warn` with strings only, so a hostile value
 cannot re-throw on the reporting line. One guard at the facade covers every sink.
 
-**Guard** — `apps/web/tests/diag.test.ts`; `apps/shared/tests/json.test.ts`.
+**Guard** — `apps/web/tests/diag.test.ts`; `packages/protocol/tests/json.test.ts`.
 
 ### env(safe-area-inset-*) is 0px on a television, and a portal escapes the shell's padding
 
@@ -2242,7 +2242,7 @@ compile. The same rule is why `historyRangesFromBrowserEvidence` reads through
 `envelope.browser`: against the envelope it silently found no rows and fell back to the worker's
 own tail.
 
-**Guard** — `apps/shared/tests/terminal-capture-envelope.test.ts` pins both halves: a flattened
+**Guard** — `packages/protocol/tests/terminal-capture-envelope.test.ts` pins both halves: a flattened
 payload is refused at the envelope naming the missing layer member, and an envelope placed where a
 section belongs fails `validateTerminalIncidentBundle` at `browser.captured_at_ms`. Producer-side,
 `apps/worker/tests/terminal-capture-evidence.test.ts` and

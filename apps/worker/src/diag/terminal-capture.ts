@@ -6,14 +6,14 @@
 // Registry state lives in terminal-capture-registry.ts, bundle assembly in
 // terminal-capture-write.ts; every bound comes from TERMINAL_CAPTURE_LIMITS.
 
-import { cellGridEpoch, type CellGridFrame } from "@roost/shared/cell";
-import { signal } from "@roost/shared/diag";
+import { cellGridEpoch, type CellGridFrame } from "@roost/protocol/cell";
+import { signal } from "@roost/observability/diag";
 import {
 	TERMINAL_CAPTURE_LIMITS,
 	type TerminalCaptureCommand,
 	type TerminalCoverageReason,
 	type TerminalWorkerResizeOutcome,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { SessionManager } from "../session-manager.ts";
 import type { SessionRecord } from "../session-record.ts";
 import type { LiveResizeCapture, TerminalStreamState } from "../session-terminal-state.ts";

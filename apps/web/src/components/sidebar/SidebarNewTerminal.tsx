@@ -4,7 +4,7 @@
 
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { browseHref } from "../../routes.ts";
 import { defaultNewTerminalWorkerFp, onlineWorkersByLabel } from "../../lib/newTerminalTarget.ts";
 import { Button } from "../Settings/md/Button.tsx";

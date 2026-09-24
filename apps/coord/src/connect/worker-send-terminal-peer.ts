@@ -8,7 +8,7 @@ import {
   CoordWorkerDownSchema,
   DLocalTerminalPeerCancelSchema,
   DLocalTerminalPeerOfferSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { connectWorkers, type WorkerHandle } from "./worker-registry.ts";
 
 export const TERMINAL_PEER_WORKER_ERROR_REASONS = [

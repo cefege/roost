@@ -12,13 +12,13 @@ import {
   asSessionId,
   asWorkerFp,
   type AgentStatusUpdate as AgentStatusUpdateValue,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   CoordWorkerUpSchema,
   WAgentStatusSchema,
   WHelloSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

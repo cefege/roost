@@ -4,9 +4,9 @@
 // truth model. No integration text becomes executable syntax.
 
 import { afterEach, describe, expect, test, vi } from "bun:test";
-import type { AgentConversationReferenceV1 } from "@roost/shared/agent-conversation-reference";
-import { log } from "@roost/shared/log";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import type { AgentConversationReferenceV1 } from "@roost/protocol/agent-conversation-reference";
+import { log } from "@roost/observability/log";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 import {
   OMP_CONVERSATION_RESUME_DESCRIPTOR_V1,
   conversationRestoreDedupeKey,

@@ -4,7 +4,7 @@
 // It is spread through the existing sessions service literal.
 
 import type { ServiceImpl } from "@connectrpc/connect";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
 import { requireAccountDevice, tabIdKey } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 

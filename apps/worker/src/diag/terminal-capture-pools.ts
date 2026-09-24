@@ -5,12 +5,12 @@
 // diag/terminal-capture-recorder.ts (imported as types only, so this stays a
 // leaf at runtime). Every ceiling comes from TERMINAL_CAPTURE_LIMITS.
 
-import type { CellGridFrame, CellRow } from "@roost/shared/cell";
+import type { CellGridFrame, CellRow } from "@roost/protocol/cell";
 import {
 	TERMINAL_CAPTURE_LIMITS,
 	type TerminalCaptureOmission,
 	type TerminalCoverageReason,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type {
 	MutableWorkerResizeRecord,
 	WorkerCaptureRecorder,

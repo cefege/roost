@@ -14,7 +14,7 @@
 
 import type { CellGridRenderer, RendererEpochSeq } from "./cellRenderer.ts";
 import { spanStyle } from "./cellRow.ts";
-import { spansText } from "@roost/shared/cell";
+import { spansText } from "@roost/protocol/cell";
 // Type-only back-reference: terminalDiagSnapshot.ts owns the geometry-proof
 // shape; this registry only retains the latest one per mounted owner, so the
 // proof lifetime stays tied to the renderer entry it was measured against.

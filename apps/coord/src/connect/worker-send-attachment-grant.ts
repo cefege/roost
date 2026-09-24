@@ -9,8 +9,8 @@ import {
   CoordWorkerDownSchema,
   DLocalAttachmentGrantRevokeSchema,
   DLocalAttachmentGrantSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { ATTACHMENT_TRANSFER_GRANT_ACK_DEADLINE_MS } from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { ATTACHMENT_TRANSFER_GRANT_ACK_DEADLINE_MS } from "@roost/protocol/attachment-transfer";
 import {
   createPendingRpc,
   rejectPendingRpcUnavailable,

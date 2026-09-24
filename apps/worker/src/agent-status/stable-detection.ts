@@ -2,7 +2,7 @@
 // identity is part of the key so PID replacement cannot inherit pending idle
 // confirmation or disappear behind an unchanged agent kind and state.
 
-import type { AgentRuntimeState } from "@roost/shared/wire";
+import type { AgentRuntimeState } from "@roost/protocol/wire";
 import type { AgentProcessIdentity, BuiltinAgentId } from "./process-scan.ts";
 import type { ManifestDetection } from "./manifest-engine.ts";
 

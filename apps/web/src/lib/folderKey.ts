@@ -1,7 +1,7 @@
 // Folder identity for the sidebar and terminal pane deck. Terminal tabs follow
 // their live cwd after `cd`.
 
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import { sameWorkerPath, workerPathBasename, workerPathIdentity } from "./nativePath.ts";
 

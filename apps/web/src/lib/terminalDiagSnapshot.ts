@@ -18,7 +18,7 @@ import {
   type TerminalStreamDiagnosticsSnapshot,
 } from "../store/terminal-stream-diagnostics.ts";
 import { isPageVisible } from "./pageVisible.ts";
-import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
+import type { ScrollbackHistoryFloor } from "@roost/protocol/wire";
 import { scrollbackHistoryFloor } from "./scrollbackBackfill.ts";
 import { rendererRegistryEntry, type TerminalRendererOwnerSnapshot } from "./terminalPreview.ts";
 

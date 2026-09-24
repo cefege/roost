@@ -4,7 +4,7 @@
 // way, and an exit that takes real work still counts as a completed shutdown.
 
 import { describe, expect, test } from "bun:test";
-import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/shared/keeper-update";
+import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/protocol/keeper-update";
 import { shutdownKeeperForMaintenance } from "../src/keeper/update-admission.ts";
 import type { KeeperProbeResult } from "../src/keeper/keeper-probe.ts";
 

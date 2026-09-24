@@ -3,14 +3,14 @@
 // agent registry; focused handlers own stateful downstream protocols.
 
 import { createHash } from "node:crypto";
-import { diag, isDiagEnabled } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import type { WorkerFp } from "@roost/shared/wire";
-import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
+import { diag, isDiagEnabled } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import type { WorkerFp } from "@roost/protocol/wire";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/protocol/terminal-metadata";
 import {
 	TerminalStreamStatus,
 	TerminalWritePhase,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { writeAgentPrompt } from "./agent-prompt-control.ts";
 import {
 	COORD_CELL_SINK_ID,
@@ -355,7 +355,7 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		onUpdateBroker: async (command) => {
 			switch (process.platform) {
 				case "win32": {
-					const { handleUpdateBrokerCommand } = await import("../../roost-cli/src/windows/windows-update-control.ts");
+					const { handleUpdateBrokerCommand } = await import("@roost/host/windows/windows-update-control");
 					const progress = await handleUpdateBrokerCommand({
 						requestId: command.request_id,
 						jobId: command.job_id,

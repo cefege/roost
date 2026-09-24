@@ -6,7 +6,7 @@
 
 import { deleteStoreRecord, setRootStore } from "./root.ts";
 import { foldEventIntoStore } from "./projector.ts";
-import type { Worker, Workspace, Task, McpRelay } from "@roost/shared/wire";
+import type { Worker, Workspace, Task, McpRelay } from "@roost/protocol/wire";
 import { applyWorkerRemoval } from "./worker-removal.ts";
 
 // Keeper-death awareness toast. A burst of `respawned` events while the SPA

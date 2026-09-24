@@ -8,15 +8,15 @@ import {
   CELL_GRID_PART_MAX_BYTES, CELL_GRID_SNAPSHOT_MAX_SPANS, cloneCellGridFrame,
   encodedCellGridFrameSize, normalizeCellGridFrame,
   type CellGridFrame,
-} from "@roost/shared/cell";
-import { cellFrameToProto, protoToCellFrame } from "@roost/shared/cell/cell-proto";
+} from "@roost/protocol/cell";
+import { cellFrameToProto, protoToCellFrame } from "@roost/protocol/cell/cell-proto";
 import {
   PbCellGridFrameSchema,
   type PbCellGridChunk,
   type PbCellGridFrame,
-} from "@roost/shared/proto/cell_pb";
-import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { diag, signal } from "@roost/shared/diag";
+} from "@roost/protocol/proto/cell_pb";
+import type { FirehoseFrame } from "@roost/protocol/proto/sync_pb";
+import { diag, signal } from "@roost/observability/diag";
 import {
   cellGridEnvelope,
   countTerminalScreenCacheSpans,

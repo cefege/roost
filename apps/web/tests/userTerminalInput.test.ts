@@ -12,7 +12,7 @@ const diag = mock((_event: string, _facts: Record<string, unknown>) => {});
 const signal = mock((_event: string, _facts: Record<string, unknown>) => {});
 
 mock.module("../src/ws/sync-outbound.ts", () => ({ sendTerminalInput }));
-mock.module("@roost/shared/diag", () => ({ diag, signal }));
+mock.module("@roost/observability/diag", () => ({ diag, signal }));
 
 // Dynamic import is required so Bun installs the transport and diagnostic
 // module mocks before evaluating the router's static dependencies.

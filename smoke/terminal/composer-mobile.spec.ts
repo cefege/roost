@@ -7,7 +7,7 @@ import {
   readTerminalInputCapture,
   waitForStableCellFrames,
 } from "./terminal-helpers.ts";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 
 test("mobile composer starts unfocused and reserves terminal space through rotation", async ({ mobileSmokePage, stack }) => {
   const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;

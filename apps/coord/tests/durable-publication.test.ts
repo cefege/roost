@@ -6,7 +6,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { appendEvent } from "../src/event-log.ts";
 import { getCachedSessionWorker, lookupSessionId } from "../src/byte-hub.ts";
 import { sessionBus } from "../src/buses.ts";
-import { asChannelId } from "@roost/shared/wire";
+import { asChannelId } from "@roost/protocol/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 
 const fixture = createDurablePublicationFixture({

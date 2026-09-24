@@ -6,7 +6,7 @@
 import {
 	JournaledKeeperUpdateV1Schema,
 	KeeperCoordinatorOpenSessionIdsSchema,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import {
 	applyJournaledKeeperUpdateAction,
 	shutdownKeeperForMaintenance,

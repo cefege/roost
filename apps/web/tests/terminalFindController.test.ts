@@ -5,7 +5,7 @@
 // the mocked RPC and debounce clock are terminalFindController-test-harness.ts.
 
 import { describe, expect, test } from "bun:test";
-import { SearchStopReason } from "@roost/shared/proto/coordinator_pb";
+import { SearchStopReason } from "@roost/protocol/proto/coordinator_pb";
 import {
   EPOCH_A, EPOCH_B, fireDebounce, createFindHarness, installTerminalFindTestLifecycle,
   reply, requests, setSearchRpc, settle,

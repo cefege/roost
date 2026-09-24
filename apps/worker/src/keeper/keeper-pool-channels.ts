@@ -3,7 +3,7 @@
 // each takes the pool instance as its first argument. Behavior is unchanged —
 // the class methods now delegate here.
 
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import { KeeperFeature, MuxFrameType, encodeMuxFrame, encodeSpawnRequest } from "./protocol.ts";
 import { SPAWN_ACK_TIMEOUT_MS } from "./keeper-pool-config.ts";
 import type { MultiplexedKeeperPool, MuxChannelCallbacks } from "./multiplexed-client.ts";

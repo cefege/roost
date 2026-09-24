@@ -49,7 +49,7 @@ const pairCreate = mock((request: PairCreateInput) => pairCreateImplementation(r
 const pairPoll = mock((request: PairPollInput) => pairPollImplementation(request));
 const pairConfirm = mock((request: PairConfirmInput) => pairConfirmImplementation(request));
 
-mock.module("@roost/shared/pairing", () => ({
+mock.module("@roost/protocol/pairing", () => ({
   PAIRING_CEREMONY_VERSION: 1,
   PAIR_VERIFICATION_CODE_LENGTH: 6,
   generatePairRequestId: () => generatedIds.shift() ?? REQUEST_ID_A,
@@ -59,7 +59,7 @@ mock.module("@roost/shared/pairing", () => ({
   normalizePairRequesterToken: (value: string) => /^[0-9a-f]{64}$/.test(value) ? value : null,
   normalizePairVerificationCode: (value: string) => /^\d{6}$/.test(value) ? value : null,
 }));
-mock.module("@roost/shared/retry", () => ({ backoffDelayMs: () => 10 }));
+mock.module("@roost/protocol/retry", () => ({ backoffDelayMs: () => 10 }));
 mock.module("../src/connect.ts", () => ({
   coordClient: { pairCreate, pairPoll, pairConfirm },
 }));

@@ -4,10 +4,10 @@
 // a standard pad is connected and the modality is not off, so a desktop without
 // one pays nothing. The mapper is pure and exported (`_` prefix) for the tests.
 // Callers: App.tsx (installGamepadSource(runPadActions)), ControllerMap.tsx.
-// Depends on: lib/padBindings, lib/padMode, @roost/shared/diag.
+// Depends on: lib/padBindings, lib/padMode, @roost/observability/diag.
 
 import { createEffect, createSignal } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import {
 	PAD_BUTTON_ACTIONS,
 	PAD_REPEATING_ACTIONS,

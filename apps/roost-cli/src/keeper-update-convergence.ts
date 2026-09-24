@@ -7,7 +7,7 @@ import {
   keeperContractsExactlyEqual,
   keeperContractsSameImplementation,
   type JournaledKeeperUpdateV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import type { WorkerStatus } from "./status-types.ts";
 
 export type KeeperUpdateConvergencePlan = JournaledKeeperUpdateV1;

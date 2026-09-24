@@ -22,7 +22,7 @@ import {
   LINK_KEY_ATTR, ROW_COLUMNS_ATTR, ROW_HAS_LINKS_ATTR, TERMINAL_LINK_CLASS,
 } from "../src/lib/cellRow.ts";
 import type { FindHit } from "../src/lib/cellRow.ts";
-import { DEFAULT_COLOR, type CellRow, type CellSpan } from "@roost/shared/cell";
+import { DEFAULT_COLOR, type CellRow, type CellSpan } from "@roost/protocol/cell";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────
 class FakeEl {

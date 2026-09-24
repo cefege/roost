@@ -4,8 +4,8 @@
  * It depends on the real upgrade handler, persisted device identities, and signed JWTs.
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { fingerprintOf } from "@roost/shared/fingerprint";
-import { UI_TAB_ID_MAX_UTF8_BYTES } from "@roost/shared/ui-state";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
+import { UI_TAB_ID_MAX_UTF8_BYTES } from "@roost/protocol/ui-state";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import {
   handleSyncWsUpgrade,

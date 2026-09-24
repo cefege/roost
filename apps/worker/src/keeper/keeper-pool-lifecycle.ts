@@ -4,9 +4,9 @@
 
 import { existsSync, mkdirSync, openSync, closeSync } from "node:fs";
 import { join, basename } from "node:path";
-import { signal, diag } from "@roost/shared/diag";
-import { localEndpointEnv, prepareLocalEndpoint } from "@roost/shared/local-endpoint";
-import { workerLogDir } from "@roost/shared/paths";
+import { signal, diag } from "@roost/observability/diag";
+import { localEndpointEnv, prepareLocalEndpoint } from "@roost/host/local-endpoint";
+import { workerLogDir } from "@roost/host/paths";
 import {
   MuxFrameType,
   decodeKeeperHistoryRecords,

@@ -3,7 +3,7 @@
 // Candidate folding and atomic canonical application live in focused adjacent owners.
 // The direct registry consumes the prepared object returned by each candidate.
 
-import type { LocalTerminalServerFrame } from "@roost/shared/proto/local_terminal_pb";
+import type { LocalTerminalServerFrame } from "@roost/protocol/proto/local_terminal_pb";
 import {
   dispatchTerminalCellChunk,
   dispatchTerminalCellFrame,

@@ -6,8 +6,8 @@
 // path; the WASM identity stamped here is a boot constant, not evidence.
 
 import { gzipSync } from "node:zlib";
-import { diag } from "@roost/shared/diag";
-import { expectedRoostWasmSha256 } from "@roost/shared/wterm-wasm";
+import { diag } from "@roost/observability/diag";
+import { expectedRoostWasmSha256 } from "@roost/wterm/wterm-wasm";
 import {
 	TERMINAL_CAPTURE_LIMITS,
 	TERMINAL_INCIDENT_SCHEMA,
@@ -20,8 +20,8 @@ import {
 	type TerminalCoverageReason,
 	type TerminalIncidentBundle,
 	type TerminalWorkerSection,
-} from "@roost/shared/terminal-capture";
-import { validateTerminalIncidentBundle } from "@roost/shared/terminal-capture-validate";
+} from "@roost/protocol/terminal-capture";
+import { validateTerminalIncidentBundle } from "@roost/protocol/terminal-capture-validate";
 import { writeTerminalIncidentFile } from "./capture-storage.ts";
 
 export interface TerminalIncidentBundleInput {

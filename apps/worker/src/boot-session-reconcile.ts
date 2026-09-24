@@ -4,15 +4,15 @@
 
 import type {
 	SessionRecoveryMetadata as SessionRecoveryMetadataProto,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
 	sessionRecoveryMetadataFromProto,
-} from "@roost/shared/agent-conversation-reference-proto";
+} from "@roost/protocol/agent-conversation-reference-proto";
 import type {
 	AgentConversationReferenceV1,
-} from "@roost/shared/agent-conversation-reference";
-import { log } from "@roost/shared/log";
-import type { WorkerFp } from "@roost/shared/wire";
+} from "@roost/protocol/agent-conversation-reference";
+import { log } from "@roost/observability/log";
+import type { WorkerFp } from "@roost/protocol/wire";
 import type { CoordClient } from "./coord-client.ts";
 import type { SessionEventReservation } from "./event-sink.ts";
 import {

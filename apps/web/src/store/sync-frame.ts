@@ -5,9 +5,9 @@
 
 import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
-import { signal, diag } from "@roost/shared/diag";
-import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { protoToEvent } from "@roost/shared/wire/event-proto";
+import { signal, diag } from "@roost/observability/diag";
+import type { FirehoseFrame } from "@roost/protocol/proto/sync_pb";
+import { protoToEvent } from "@roost/protocol/wire/event-proto";
 import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
 import { announcePairedBrowser, formatPairedBrowserLabel } from "../lib/pairedBrowserNotice.ts";
 import { applyAgentStatusFrame } from "./agent-status.ts";

@@ -2,8 +2,8 @@
 // settings, and builds lifecycle commands. The deploy journal validates persisted
 // identity through these parsers; rollback uses the commands to stop the target
 // fully before replacing SQLite and restart the exact configured service.
-import { coordServiceLabel } from "@roost/shared/paths";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { coordServiceLabel } from "@roost/host/paths";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 import type { QuickstartEndpoint } from "./quickstart-endpoint.ts";
 import {
   parsePosixServiceEnvironment,

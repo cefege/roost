@@ -7,7 +7,7 @@ import { spawn } from "bun";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CoordClient } from "../../worker/src/coord-client.ts";
+import type { CoordClient } from "@roost/worker/coord-client";
 import { buildApiClient } from "./api.ts";
 import { registeredWorkerForGrant } from "./quickstart-bootstrap-tokens.ts";
 import {

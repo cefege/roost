@@ -6,11 +6,11 @@ import {
   ATTACHMENT_TRANSFER_PEER_CONTROL_QUEUE_MAX_BYTES,
   ATTACHMENT_TRANSFER_PEER_DATA_QUEUE_MAX_BYTES,
   ATTACHMENT_TRANSFER_PEER_WORKER_DATA_QUEUE_MAX_BYTES,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import type {
   AttachmentTransferPacketDirection,
   AttachmentTransferPacketQuota,
-} from "@roost/shared/attachment-transfer-packets";
+} from "@roost/protocol/attachment-transfer-packets";
 
 export interface AttachmentPeerPacketPeerBudget {
   readonly control: AttachmentTransferPacketQuota;

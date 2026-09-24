@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import {
   AgentStatusViewSchema,
   type AgentStatusView,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   dispatchAgentStatusApi,
   type AgentStatusApiClient,

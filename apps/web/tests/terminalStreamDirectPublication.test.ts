@@ -8,12 +8,12 @@ import { describe, expect, test, vi } from "bun:test";
 import {
   TERMINAL_VIEW_HEARTBEAT_MS,
   TERMINAL_VIEW_LEASE_MS,
-} from "@roost/shared/viewport";
-import { LocalTerminalServerFrameSchema } from "@roost/shared/proto/local_terminal_pb";
+} from "@roost/protocol/viewport";
+import { LocalTerminalServerFrameSchema } from "@roost/protocol/proto/local_terminal_pb";
 import {
   TerminalViewStateFrameSchema,
   TerminalViewStatus,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { terminalGenerationToken } from "../src/store/terminal-stream-liveness.ts";
 import { _terminalViewRenewalSchedulerSnapshotForTest } from "../src/store/terminal-stream-renewal-scheduler.ts";
 import { terminalDirectRegistry } from "../src/store/terminal-stream-transport.ts";

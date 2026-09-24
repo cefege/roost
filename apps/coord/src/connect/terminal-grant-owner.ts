@@ -5,8 +5,8 @@
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { log } from "@roost/shared/log";
-import { TERMINAL_PEER_MAX_SESSIONS_PER_GRANT } from "@roost/shared/terminal-peer";
+import { log } from "@roost/observability/log";
+import { TERMINAL_PEER_MAX_SESSIONS_PER_GRANT } from "@roost/protocol/terminal-peer";
 import type { WorkerHandle } from "./worker-registry.ts";
 import { connectWorkers } from "./worker-registry.ts";
 import { currentRoutableWorker } from "./worker-send-target.ts";

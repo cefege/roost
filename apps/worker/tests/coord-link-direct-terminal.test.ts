@@ -18,9 +18,9 @@ import {
 	WAttachmentDirectStatusSchema,
 	WLocalAttachmentPeerAnswerSchema,
 	WTerminalTransportProbeResultSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { TerminalInputRouteResultSchema } from "@roost/shared/proto/sync_pb";
-import { AttachmentTransferStatusSchema } from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { TerminalInputRouteResultSchema } from "@roost/protocol/proto/sync_pb";
+import { AttachmentTransferStatusSchema } from "@roost/protocol/proto/attachment_transfer_pb";
 import { createCoordLinkDownstream } from "../src/transport/coord-link-downstream.ts";
 import { AttachmentPeerOfferError } from "../src/attachment-peer-owner.ts";
 import type {

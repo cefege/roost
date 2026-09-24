@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, expect, test, vi } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { PbCellGridChunkSchema, PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
+import { PbCellGridChunkSchema, PbCellGridFrameSchema } from "@roost/protocol/proto/cell_pb";
 import {
   CoordWorkerUpSchema,
   WBinarySchema,
@@ -12,7 +12,7 @@ import {
   WCellGridChunkSchema,
   WCellGridSchema,
   type CoordWorkerUp,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   ANNOUNCED_CHANNEL_MAX_BYTES,
   ANNOUNCED_CHANNEL_MAX_FRAMES,

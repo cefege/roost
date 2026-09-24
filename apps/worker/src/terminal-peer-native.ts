@@ -3,7 +3,7 @@
 // literal N-API addon. No other process imports native peer code eagerly.
 // Logger output is fixed and rate-bounded because native text can contain SDP.
 
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import type * as NodeDataChannel from "node-datachannel";
 import { loadEmbeddedTerminalPeerNative } from "./terminal-peer-native.generated.ts";
 

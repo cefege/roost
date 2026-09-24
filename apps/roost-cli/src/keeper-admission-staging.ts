@@ -5,9 +5,9 @@
 // outcome refuses only while the target still runs something a staged release
 // could destroy, so a worker that is down stays repairable by deploy.
 
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
-import { posixShellQuote } from "@roost/shared/shell-quote";
-import { MUX_KEEPER_ENDPOINT_NAME } from "../../worker/src/keeper/keeper-pool-config.ts";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
+import { posixShellQuote } from "@roost/platform/shell-quote";
+import { MUX_KEEPER_ENDPOINT_NAME } from "@roost/worker/keeper/keeper-pool-config";
 import { workerServiceIsRunning, type DeployWorkerOs } from "./deploy-exec.ts";
 import { verifyWorkerCmd } from "./service-ctl.ts";
 

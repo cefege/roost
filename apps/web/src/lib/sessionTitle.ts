@@ -1,7 +1,7 @@
 // Shared terminal-session naming for sidebar and tab surfaces. Prefer the
 // terminal's OSC title, then a stable cwd fallback.
 
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import { shortCwd } from "./sidebarFormat.ts";
 import { pathBasename } from "./pathBasename.ts";

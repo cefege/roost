@@ -4,7 +4,7 @@ import {
   TerminalResyncCommandSchema,
   TerminalViewStatus,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS,
   type TerminalScreenSocketSink,

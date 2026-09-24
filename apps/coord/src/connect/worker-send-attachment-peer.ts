@@ -8,12 +8,12 @@ import {
   CoordWorkerDownSchema,
   DLocalAttachmentPeerCancelSchema,
   DLocalAttachmentPeerOfferSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { connectWorkers, type WorkerHandle } from "./worker-registry.ts";
 import {
   ATTACHMENT_TRANSFER_PEER_ERROR_REASONS,
   type AttachmentTransferPeerErrorReason,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 
 export type AttachmentPeerWorkerErrorReason = AttachmentTransferPeerErrorReason;
 

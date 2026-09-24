@@ -9,7 +9,7 @@ import { posix } from "node:path";
 import {
   JournaledKeeperUpdateV1Schema,
   type JournaledKeeperUpdateV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import {
   POSIX_FULL_GIT_SHA_RE,
   posixDeployJournalDecision,

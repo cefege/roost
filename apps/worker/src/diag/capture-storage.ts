@@ -2,8 +2,8 @@
 // owner-only log directory, exclusive 0600 writes named by capture UUID, and
 // the COMBINED retention sweep over legacy byte-ring dumps and incident
 // bundles. Called by diag/terminal-capture-bundle-writer.ts (write) and
-// session-lifecycle.ts (shutdown). Directory comes from @roost/shared/paths;
-// every bound and every filename comes from @roost/shared/terminal-capture.
+// session-lifecycle.ts (shutdown). Directory comes from @roost/host/paths;
+// every bound and every filename comes from @roost/protocol/terminal-capture.
 
 import {
 	chmodSync,
@@ -14,14 +14,14 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { diag } from "@roost/shared/diag";
-import { workerLogDir } from "@roost/shared/paths";
+import { diag } from "@roost/observability/diag";
+import { workerLogDir } from "@roost/host/paths";
 import {
 	isTerminalCaptureFileName,
 	TERMINAL_CAPTURE_LIMITS,
 	terminalCaptureFileName,
 	type TerminalCaptureErrorCode,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 
 const CAPTURE_DIR_MODE = 0o700;
 const CAPTURE_FILE_MODE = 0o600;

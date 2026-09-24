@@ -4,8 +4,8 @@
 // retaining the latest canonical frame and raw delivery metadata. Renderer-owned
 // full application supplies the sole full-frame clone.
 
-import { type CellGridFrame } from "@roost/shared/cell";
-import { diag, isDiagEnabled } from "@roost/shared/diag";
+import { type CellGridFrame } from "@roost/protocol/cell";
+import { diag, isDiagEnabled } from "@roost/observability/diag";
 import type { CellGridRenderer } from "./cellRenderer.ts";
 import {
   noteTerminalRenderApplied,

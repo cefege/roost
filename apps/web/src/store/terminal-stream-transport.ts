@@ -3,15 +3,15 @@
 // the elected per-session route without importing transport implementation.
 // A candidate has no canonical effect until its synchronous promotion commits.
 
-import type { CellGridFrame } from "@roost/shared/cell";
-import type { LocalScrollbackResponse } from "@roost/shared/proto/local_terminal_pb";
+import type { CellGridFrame } from "@roost/protocol/cell";
+import type { LocalScrollbackResponse } from "@roost/protocol/proto/local_terminal_pb";
 import type {
   InputCommand,
   TerminalInputRouteClaim,
   TerminalInputRouteResult,
   TerminalResyncCommand,
   TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   terminalGenerationTokenEquals,
   type TerminalGenerationToken,

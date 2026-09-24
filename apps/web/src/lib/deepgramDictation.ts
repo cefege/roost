@@ -18,7 +18,7 @@ import {
 	repairCapture,
 	type CaptureStats,
 } from "./audioPcmCapture.ts";
-import { diag, signal } from "@roost/shared/diag";
+import { diag, signal } from "@roost/observability/diag";
 import { buildUrl } from "./deepgramDictation.url.ts";
 import {
 	keytermHitRate,

@@ -4,7 +4,7 @@
 // not recognise (`DebugLogEntry`/`DEBUG_LOG_MAX`, terminal.zig). Roost never
 // read it, so "the core silently ignored this sequence" — the failure class
 // behind "my TUI renders wrong in Roost but fine in iTerm" — had no telemetry
-// anywhere. The corrected reader lives in @roost/shared's core factory
+// anywhere. The corrected reader lives in @roost/wterm's core factory
 // (the core's own bridge decodes the ring at the wrong offsets); this module
 // is the per-session accounting on top of it.
 //
@@ -22,8 +22,8 @@
 // does not implement, WITHOUT logging them. An empty list is not proof that the
 // core understood everything the application sent.
 
-import { signal } from "@roost/shared/diag";
-import { unhandledSequenceRing } from "@roost/shared/wterm-core-factory";
+import { signal } from "@roost/observability/diag";
+import { unhandledSequenceRing } from "@roost/wterm/wterm-core-factory";
 import type { TerminalCore, UnhandledSequence } from "@wterm/core";
 import type { SessionRecord, UnhandledSequenceLog } from "./session-record.ts";
 import { monoNowMs } from "./util/mono.ts";

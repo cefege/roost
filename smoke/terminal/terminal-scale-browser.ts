@@ -5,9 +5,9 @@
 
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { setTimeout as delay } from "node:timers/promises";
-import type { LayoutDocumentV1 } from "@roost/shared/layout-document";
-import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
-import { UiApplyLayoutOutcome } from "@roost/shared/proto/sync_pb";
+import type { LayoutDocumentV1 } from "@roost/protocol/layout-document";
+import { layoutDocumentToProto } from "@roost/protocol/layout-document-proto";
+import { UiApplyLayoutOutcome } from "@roost/protocol/proto/sync_pb";
 import type { SmokeApi } from "../../apps/web/src/lib/smokeTypes.ts";
 import { enrollSmokeBrowser } from "./fixtures.ts";
 import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";

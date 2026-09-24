@@ -3,7 +3,7 @@
 // reporter fencing, and reconnect snapshots without exposing a PID on wire
 // status values.
 import { describe, expect, test } from "bun:test";
-import type { AgentStatusUpdate } from "@roost/shared/wire";
+import type { AgentStatusUpdate } from "@roost/protocol/wire";
 import { AgentStatusRegistry } from "../src/agent-status/registry.ts";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";

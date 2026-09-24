@@ -4,16 +4,16 @@
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
-import { fingerprintOf } from "@roost/shared/fingerprint";
-import { log } from "@roost/shared/log";
-import { isSupportedHostPlatform } from "@roost/shared/platform";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
+import { log } from "@roost/observability/log";
+import { isSupportedHostPlatform } from "@roost/platform/platform";
 import {
   AuthCoordIdentityResponseSchema,
   AuthMintBootstrapResponseSchema,
   AuthRedeemBrowserResponseSchema,
   AuthRedeemWorkerResponseSchema,
   CoordinatorService,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { decodeEd25519Pubkey } from "../authorized-keys.ts";
 import {
   bootstrapTokenDigest,

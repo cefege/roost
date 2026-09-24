@@ -10,7 +10,7 @@ import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import { resolveLocalEndpoint } from "../../apps/shared/src/local-endpoint.ts";
+import { resolveLocalEndpoint } from "../../packages/host/src/local-endpoint.ts";
 import { shutdownKeeperAuthenticated } from "../../apps/worker/src/keeper/keeper-probe.ts";
 
 export const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

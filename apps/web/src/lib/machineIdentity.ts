@@ -3,7 +3,7 @@
 // session metadata, or volatile presence fields.
 // Linux marks remain browser-local so the sidebar has no runtime asset dependency.
 
-import type { SupportedHostPlatform } from "@roost/shared/platform";
+import type { SupportedHostPlatform } from "@roost/platform/platform";
 
 export type LinuxDistributionBrand =
   | "alpine"

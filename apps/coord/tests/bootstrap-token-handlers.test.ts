@@ -15,7 +15,7 @@ import {
   AuthRedeemBrowserRequestSchema,
   AuthRedeemBrowserResponseSchema,
   AuthRedeemWorkerRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   bootstrapTokenDigest,
   mintBootstrapToken,

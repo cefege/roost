@@ -10,7 +10,7 @@ import {
   TerminalStreamFailureKind,
   TerminalStreamStatus,
   TerminalWritePhase,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type {
   DAgentPrompt,
   DHelloAck,
@@ -24,11 +24,11 @@ import type {
   DTerminalViewRelay,
   DTerminalViewSocketClosed,
   DKeeperUpdatePrepare,
-} from "@roost/shared/proto/worker_transport_pb";
-import { ClientControlFrame } from "@roost/shared/wire";
-import { diag } from "@roost/shared/diag";
-import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { ClientControlFrame } from "@roost/protocol/wire";
+import { diag } from "@roost/observability/diag";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/protocol/terminal-metadata";
+import { log } from "@roost/observability/log";
 import {
   TERMINAL_STREAM_REQUEST_INFLIGHT_CAP,
   TERMINAL_REQUEST_BUDGET_CAP_MS,

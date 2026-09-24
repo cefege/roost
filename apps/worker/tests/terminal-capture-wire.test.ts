@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { ClientControlFrame, CoordWorkerUpstream } from "@roost/shared/wire";
+import type { ClientControlFrame, CoordWorkerUpstream } from "@roost/protocol/wire";
 import { handleDiagTerminalCapture } from "../src/browser-command-terminal-capture.ts";
 import type { CoordLink } from "../src/transport/coord-link.ts";
 import { _resetCaptureStorageForTest } from "../src/diag/capture-storage.ts";

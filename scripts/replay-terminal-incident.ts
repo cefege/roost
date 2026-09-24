@@ -2,7 +2,7 @@
 // scripts/replay-terminal-incident.ts — replay ONE terminal incident bundle and
 // attribute a duplicated/mis-painted terminal to the first layer whose evidence
 // actually diverges. Reads a local `.json.gz` written by a worker's capture
-// storage; validates it with @roost/shared/terminal-capture-validate before
+// storage; validates it with @roost/protocol/terminal-capture-validate before
 // touching it; compares layers with the production canonical view and folds
 // with the production cell pipeline (scripts/replay-terminal-incident-layers.ts).
 //
@@ -20,10 +20,10 @@ import {
   type TerminalCanonicalDifference,
   type TerminalCaptureCoverageReport,
   type TerminalIncidentBundle,
-} from "../apps/shared/src/terminal-capture.ts";
+} from "../packages/protocol/src/terminal-capture.ts";
 import {
   validateTerminalIncidentBundle,
-} from "../apps/shared/src/terminal-capture-validate.ts";
+} from "../packages/protocol/src/terminal-capture-validate.ts";
 import {
   browserCheckpoints,
   coordinatorCheckpoints,

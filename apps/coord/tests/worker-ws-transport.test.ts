@@ -8,8 +8,8 @@ import {
   CoordWorkerUpSchema,
   DHelloAckSchema,
   WRpcOkSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { WORKER_AUTH_SUBPROTOCOL } from "@roost/protocol/wire/coord-worker";
 import { handleWorkerWsUpgrade } from "../src/connect/worker-ws-handler.ts";
 import { getWorkerHubSocket } from "../src/connect/worker-service.ts";
 import { listRoutableFps } from "../src/connect/worker-registry.ts";

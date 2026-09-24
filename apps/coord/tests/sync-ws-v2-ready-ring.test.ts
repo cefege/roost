@@ -9,8 +9,8 @@ import {
   PbCellRowSchema,
   PbCellSpanSchema,
   type PbCellGridFrame,
-} from "@roost/shared/proto/cell_pb";
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/cell_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
 import { terminalSnapshotSource } from "../src/connect/terminal-screen-frames.ts";
 import {
   V2_TERMINAL_CELL_MAX_RETAINED_FRAMES,

@@ -7,8 +7,8 @@ import type { ServerWebSocket } from "bun";
 import {
   SyncDomain,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/sync_pb";
+import { log } from "@roost/observability/log";
 import type { SyncFeedFrameMeta } from "./sync-feed.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 import type { TerminalSnapshotSource } from "./terminal-screen-frames.ts";

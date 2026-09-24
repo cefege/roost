@@ -3,8 +3,8 @@
 // A completed frame is returned only after the shared assembler has validated every chunk.
 // Neither this owner nor a candidate establishes a baseline by receiving partial bytes.
 
-import { CELL_GRID_CHUNK_STALL_MS, CellGridChunkAssembler } from "@roost/shared/cell";
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import { CELL_GRID_CHUNK_STALL_MS, CellGridChunkAssembler } from "@roost/protocol/cell";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 import { notifyTerminalBaselineProgress } from "./terminal-stream-progress.ts";
 import type { TerminalSessionReplica } from "./terminal-stream-types.ts";
 

@@ -7,11 +7,11 @@ import {
 	TERMINAL_PEER_DATA_CHANNELS,
 	TERMINAL_PEER_ICE_GATHERING_DEADLINE_MS,
 	TERMINAL_PEER_MAX_MESSAGE_SIZE,
-} from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer";
 import {
 	inspectTerminalPeerSdp,
 	normalizeTerminalPeerSha256Fingerprint,
-} from "@roost/shared/terminal-peer-sdp";
+} from "@roost/protocol/terminal-peer-sdp";
 import type { TerminalPeerNative } from "./terminal-peer-native.ts";
 import type { TerminalPeerPacketPeerBudget } from "./terminal-peer-packet-budget.ts";
 import type { TerminalPeerMalformedPacketKind } from "./terminal-peer-packet-test-fault.ts";

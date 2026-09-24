@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "bun:test";
 import {
   TERMINAL_PEER_HELLO_DEADLINE_MS,
   TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER,
-} from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer";
 import { LocalTerminalPreHelloOwner } from "../src/local-terminal-prehello.ts";
 
 afterEach(() => vi.useRealTimers());

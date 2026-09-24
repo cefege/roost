@@ -1,7 +1,7 @@
 // Browser-command handlers: attachment dir ops (list-attachments /
 // delete-attachment). Extracted from browser-command-handler.ts (CLAUDE.md 400-line cap).
 
-import type { ClientControlFrame } from "@roost/shared/wire";
+import type { ClientControlFrame } from "@roost/protocol/wire";
 import type { CoordLink } from "./transport/coord-link.ts";
 import { normalizeWorkerPath } from "./util/path.ts";
 

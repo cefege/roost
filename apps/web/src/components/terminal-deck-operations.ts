@@ -4,8 +4,8 @@
 // The deck model supplies reactive geometry without exposing its implementation.
 
 import type { Accessor, Setter } from "solid-js";
-import type { Session } from "@roost/shared/wire";
-import { diag } from "@roost/shared/diag";
+import type { Session } from "@roost/protocol/wire";
+import { diag } from "@roost/observability/diag";
 import { rootStore } from "../store/root.ts";
 import { releaseActiveComposeFocus } from "./TerminalComposeButton.tsx";
 import {

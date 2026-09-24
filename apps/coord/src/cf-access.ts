@@ -2,10 +2,10 @@
 // The fetch handler and pairing RPC share one gate built from CoordConfig.
 // JWKS material is cached here; malformed or unverifiable assertions fail closed.
 
-import { signal } from "@roost/shared/diag";
-import type { CoordConfig } from "@roost/shared/config";
-import { b64urlDecode } from "@roost/shared/jwt-base";
-import { log } from "@roost/shared/log";
+import { signal } from "@roost/observability/diag";
+import type { CoordConfig } from "@roost/host/config";
+import { b64urlDecode } from "@roost/host/jwt-base";
+import { log } from "@roost/observability/log";
 
 export interface CloudflareAccessIdentity {
   readonly email: string;

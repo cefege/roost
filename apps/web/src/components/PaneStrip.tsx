@@ -7,7 +7,7 @@
  */
 
 import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { dragArmed } from "../lib/dragThreshold.ts";
 import { animateSpring, SPRING_SNAP } from "../lib/spring.ts";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";

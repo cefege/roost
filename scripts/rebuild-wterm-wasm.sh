@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reproducibly rebuild apps/shared/wasm/wterm-roost.wasm from upstream wterm
+# Reproducibly rebuild packages/wterm/wasm/wterm-roost.wasm from upstream wterm
 # sources plus Roost's checked-in scrollback, resize and CSI-dispatch changes.
 #
 # Roost runs a PATCHED @wterm/core WASM: upstream caps alt-screen scrollback at
@@ -41,8 +41,8 @@ readonly ZIG_VERSION="0.16.0"
 readonly UPSTREAM_WASM_PATH="packages/@wterm/core/wasm/wterm.wasm"
 readonly UPSTREAM_WASM_SHA256="47f881cfb81fdc77e1d1d5f49caa19e90877ff8822f4406a602189867698d6b5"
 readonly PATCH_REL="scripts/wterm-0.5.0-roost.patch"
-readonly ARTIFACT_REL="apps/shared/wasm/wterm-roost.wasm"
-readonly DIGEST_REL="apps/shared/wasm/wterm-roost.wasm.sha256"
+readonly ARTIFACT_REL="packages/wterm/wasm/wterm-roost.wasm"
+readonly DIGEST_REL="packages/wterm/wasm/wterm-roost.wasm.sha256"
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

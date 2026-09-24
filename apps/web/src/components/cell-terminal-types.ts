@@ -2,7 +2,7 @@
 // CellTerminal and its controller leaves share this single props contract.
 // Imperative pane resources live separately in cell-terminal-runtime.ts.
 
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 
 export interface CellTerminalProps {
 	session: Session;

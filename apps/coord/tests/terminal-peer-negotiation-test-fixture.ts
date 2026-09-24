@@ -21,13 +21,13 @@ import type {
   CoordWorkerDown,
   DLocalTerminalPeerOffer,
   WLocalTerminalPeerAnswer,
-} from "@roost/shared/proto/worker_transport_pb";
-import { WLocalTerminalPeerAnswerSchema } from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { WLocalTerminalPeerAnswerSchema } from "@roost/protocol/proto/worker_transport_pb";
 import {
   SessionsNegotiateLocalTerminalPeerRequestSchema,
   type SessionsNegotiateLocalTerminalPeerRequest,
-} from "@roost/shared/proto/coordinator_pb";
-import { TERMINAL_PEER_WEBRTC_CAPABILITY } from "@roost/shared/terminal-peer";
+} from "@roost/protocol/proto/coordinator_pb";
+import { TERMINAL_PEER_WEBRTC_CAPABILITY } from "@roost/protocol/terminal-peer";
 import type {
   TerminalPeerGrantPort,
   TerminalPeerNegotiationClock,

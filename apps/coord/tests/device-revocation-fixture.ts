@@ -8,8 +8,8 @@ import {
   type HandlerContext,
   type ServiceImpl,
 } from "@connectrpc/connect";
-import { fingerprintOf } from "@roost/shared/fingerprint";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
 import type { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

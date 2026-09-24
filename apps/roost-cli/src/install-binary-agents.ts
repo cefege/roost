@@ -1,14 +1,14 @@
 // Install coord/worker services for the compiled binary. POSIX reuses the
 // embedded launchd/systemd installers byte-for-byte. Windows uses the native
 // allowlisted SCM manager and never invokes bash or a command-string shell.
-import { COORD_INSTALL_SH, WORKER_INSTALL_SH } from "@roost/shared/install-scripts";
-import { roostServiceDir } from "@roost/shared/paths";
+import { COORD_INSTALL_SH, WORKER_INSTALL_SH } from "@roost/host/install-scripts";
+import { roostServiceDir } from "@roost/host/paths";
 import {
   runWindowsHelper,
   windowsProtectUpdaterArtifact,
-} from "@roost/shared/windows-helper";
-import { durableWriteFile } from "@roost/shared/durability";
-import { normalizedWindowsAccount } from "./windows/windows-identity.ts";
+} from "@roost/host/windows-helper";
+import { durableWriteFile } from "@roost/host/durability";
+import { normalizedWindowsAccount } from "@roost/host/windows/windows-identity";
 import {
   existsSync,
   mkdirSync,
@@ -19,10 +19,10 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, win32 } from "node:path";
-import { loadWorkerConfig } from "../../worker/src/config.ts";
-import { createCoordClient } from "../../worker/src/coord-client.ts";
-import { runStrictEnrollment } from "../../worker/src/install.ts";
-import { loadWorkerKey, mintJwt } from "../../worker/src/jwt.ts";
+import { loadWorkerConfig } from "@roost/worker/config";
+import { createCoordClient } from "@roost/worker/coord-client";
+import { runStrictEnrollment } from "@roost/worker/install";
+import { loadWorkerKey, mintJwt } from "@roost/worker/jwt";
 import {
   WINDOWS_SERVICE_ROLES,
   buildWindowsServiceDefinitions,

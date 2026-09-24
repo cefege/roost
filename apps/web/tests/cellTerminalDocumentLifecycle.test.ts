@@ -70,7 +70,7 @@ let visible = true;
 const solidClientUrl = new URL("./solid.js", import.meta.resolve("solid-js"));
 const Solid = await import(solidClientUrl.href) as typeof SolidApi;
 mock.module("solid-js", () => ({ ...Solid }));
-mock.module("@roost/shared/diag", () => ({ diag: () => undefined }));
+mock.module("@roost/observability/diag", () => ({ diag: () => undefined }));
 mock.module("../src/lib/focusOwners.ts", () => ({
   FOCUS_OWNERS: "[data-focus-owner]",
 }));

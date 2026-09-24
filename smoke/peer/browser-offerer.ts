@@ -3,7 +3,7 @@
 // The Node driver owns packet queueing, reassembly, and payload verification.
 
 import type { Page } from "@playwright/test";
-import type { TerminalPeerPacketLane } from "@roost/shared/terminal-peer";
+import type { TerminalPeerPacketLane } from "@roost/protocol/terminal-peer";
 import {
   CLOSE_TIMEOUT_MS,
   CONNECTION_TIMEOUT_MS,

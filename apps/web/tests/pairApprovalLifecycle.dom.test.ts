@@ -4,7 +4,7 @@
 // Shares the provider fixture so RPCs, toasts, and the tab record are observed.
 
 import { Code, ConnectError } from "@connectrpc/connect";
-import { AUTH_LAYER_DEVICE, X_ROOST_AUTH_LAYER } from "@roost/shared/wire/headers";
+import { AUTH_LAYER_DEVICE, X_ROOST_AUTH_LAYER } from "@roost/protocol/wire/headers";
 import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "bun:test";
 import {
   REQUEST_CODE,

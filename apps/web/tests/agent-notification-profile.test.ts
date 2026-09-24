@@ -9,7 +9,7 @@ import {
   StatusEpoch,
   asSessionId,
   type AgentStatusIdentity,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import { claimAgentNotification } from "../src/lib/agentNotificationClaim.ts";
 import type { AgentNotificationDelivery } from "../src/lib/agentNotificationCore.ts";
 import { agentStatusRevisionToken } from "../src/lib/agentStatus.ts";

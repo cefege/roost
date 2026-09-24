@@ -4,7 +4,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { describe, expect, test } from "bun:test";
-import { AgentStatusViewSchema } from "@roost/shared/proto/coordinator_pb";
+import { AgentStatusViewSchema } from "@roost/protocol/proto/coordinator_pb";
 import {
   dispatchAgentStatusApi,
   type AgentStatusApiClient,

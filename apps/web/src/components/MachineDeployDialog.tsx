@@ -4,8 +4,8 @@
 // so a closed dialog cannot receive late coordinator or clipboard results.
 
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { workerCoordinatorUrl } from "@roost/shared/coordinator-dial-url";
-import { buildMachineJoinCommand } from "@roost/shared/machine-join-command";
+import { workerCoordinatorUrl } from "@roost/protocol/coordinator-dial-url";
+import { buildMachineJoinCommand } from "@roost/platform/machine-join-command";
 import { coordClient, coordinatorBaseUrl } from "../connect.ts";
 import { browserPlatform } from "../lib/browserPlatform.ts";
 import { copyToClipboard } from "../lib/clipboard.ts";

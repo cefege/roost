@@ -7,7 +7,7 @@ import {
 	TerminalInputStatus,
 	TerminalStreamFailureKind,
 	TerminalWritePhase,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type { TerminalStreamFailure } from "./session-terminal-state.ts";
 import type { WorkerInputResult } from "./session-terminal-control.ts";
 import type { UpstreamFrame } from "./transport/coord-link-types.ts";

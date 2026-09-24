@@ -19,7 +19,7 @@ import {
   SyncDomain,
   SyncDomainGenerationSchema,
   SyncSubscribedFrameSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 
 // ─── fake browser host ────────────────────────────────────────────────────────
 // No jsdom/happy-dom (repo convention): a small fake covers exactly what the

@@ -10,7 +10,7 @@
 // Persistence: localStorage (sync, tiny map — IndexedDB would be overkill).
 // The merge/rank logic is pure + unit-tested; only read/write touch storage.
 
-import { safeJsonParse } from "@roost/shared/json";
+import { safeJsonParse } from "@roost/protocol/json";
 
 export type Lexicon = Record<string, number>;
 

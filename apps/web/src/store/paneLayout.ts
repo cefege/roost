@@ -6,7 +6,7 @@
 // layoutRects/visibleBySession derive pixel rects (ratios are the truth).
 // Persistence + reactivity live in store/paneLayoutStore.ts. Geometry is
 // consumed by MainPane.tsx's TerminalDeck.
-import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/protocol/layout-document";
 
 export type PaneDir = "row" | "col"; // row = left|right; col = top|bottom
 

@@ -2,8 +2,8 @@
 // Terminal history controllers update it while credential boundaries clear it.
 // Wire floor enums remain the authority for the recorded reason.
 
-import { ScrollbackHistoryFloor as PbScrollbackHistoryFloor } from "@roost/shared/proto/coordinator_pb";
-import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
+import { ScrollbackHistoryFloor as PbScrollbackHistoryFloor } from "@roost/protocol/proto/coordinator_pb";
+import type { ScrollbackHistoryFloor } from "@roost/protocol/wire";
 
 /** Per-session observability the diagnostic surfaces read without holding a
  * controller. One entry per session this document has backfilled — the same

@@ -4,7 +4,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES } from "@roost/shared/layout-document";
+import { LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES } from "@roost/protocol/layout-document";
 import {
   UiArrangeSchema,
   UiCloseTabSchema,
@@ -16,8 +16,8 @@ import {
   UiSelectTabSchema,
   UiSpotlightSchema,
   type UiCommand,
-} from "@roost/shared/proto/sync_pb";
-import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
+} from "@roost/protocol/proto/sync_pb";
+import { hasAtMostUtf8Bytes } from "@roost/protocol/ui-state";
 
 export function legacyUiCommandSessionIds(command: UiCommand): readonly string[] {
   const variant = command.command;

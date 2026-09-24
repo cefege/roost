@@ -8,7 +8,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   UiReportStateRequestSchema,
   type UiReportStateRequest,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { uiBus } from "../src/buses.ts";
 import {
   UI_STATE_TTL_MS,

@@ -4,11 +4,11 @@
 // owns a second traversal of the cell codec or a second set of grid-epoch and
 // terminal-control fences.
 
-import type { ClientControlFrame, ScrollbackHistoryFloor } from "@roost/shared/wire";
-import { diag } from "@roost/shared/diag";
+import type { ClientControlFrame, ScrollbackHistoryFloor } from "@roost/protocol/wire";
+import { diag } from "@roost/observability/diag";
 import {
 	cellGridEpoch, readScrollbackRangeCells, scrollbackOrigin, type CellRow,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
 import { terminalControlSettled } from "./session-control-lanes.ts";

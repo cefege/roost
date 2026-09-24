@@ -5,12 +5,12 @@
 import { create } from "@bufbuild/protobuf";
 import { createContextValues } from "@connectrpc/connect";
 import type { HandlerContext, ServiceImpl } from "@connectrpc/connect";
-import { fingerprintOf } from "@roost/shared/fingerprint";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
 import {
   PAIRING_CEREMONY_VERSION,
   generatePairRequestId,
   generatePairRequesterToken,
-} from "@roost/shared/pairing";
+} from "@roost/protocol/pairing";
 import {
   CoordinatorService,
   PairCreateRequestSchema,
@@ -21,7 +21,7 @@ import {
   type PairDenyResponse,
   type PairListResponse,
   type PairPollResponse,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

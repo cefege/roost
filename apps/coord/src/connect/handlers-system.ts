@@ -5,23 +5,23 @@
 
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
-import { log } from "@roost/shared/log";
-import { isDiagEnabled } from "@roost/shared/diag";
+import { log } from "@roost/observability/log";
+import { isDiagEnabled } from "@roost/observability/diag";
 import {
   CoordinatorService,
   MiscHealthResponseSchema,
   MiscDbExportUrlResponseSchema, MiscMetricsResponseSchema,
   DiagDebugLogBatchResponseSchema, DiagSnapshotResponseSchema,
   AuditListResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { AuditRowSchema } from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/coordinator_pb";
+import { AuditRowSchema } from "@roost/protocol/proto/wire_pb";
 import {
   callerOrigin,
   requireAccountDevice,
 } from "./auth-interceptor.ts";
 import { assertOnHost } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
-import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
+import { ROOST_ARTIFACT_VERSION } from "@roost/host/build-identity";
 import { getMetricsSnapshot } from "../telemetry.ts";
 import {
   coordSessionDiagnostic,

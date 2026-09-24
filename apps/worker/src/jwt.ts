@@ -4,10 +4,10 @@
 // Callers: coord-client.ts and quickstart-existing-install.ts.
 
 import { existsSync, readFileSync } from "node:fs";
-import { log } from "@roost/shared/log";
-import { durableWriteFile } from "@roost/shared/durability";
-import { fingerprintOf } from "@roost/shared/fingerprint";
-import { windowsApplyAccountDacl } from "@roost/shared/windows-helper";
+import { log } from "@roost/observability/log";
+import { durableWriteFile } from "@roost/host/durability";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
+import { windowsApplyAccountDacl } from "@roost/host/windows-helper";
 import { resolve } from "node:path";
 
 // PKCS8 DER prefix for a raw 32-byte Ed25519 seed. crypto.subtle.importKey

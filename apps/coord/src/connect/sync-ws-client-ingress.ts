@@ -5,7 +5,7 @@ import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   SyncClientFrameSchema,
   type SyncClientFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 
 interface SyncWsClientIngressDeps {

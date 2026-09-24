@@ -5,13 +5,13 @@
 
 import { create } from "@bufbuild/protobuf";
 import { describe, expect, test } from "bun:test";
-import { layoutDocumentFromProto, layoutDocumentToProto } from "@roost/shared/layout-document-proto";
-import type { LayoutDocumentV1 } from "@roost/shared/layout-document";
-import { UiTabStateSchema } from "@roost/shared/proto/coordinator_pb";
+import { layoutDocumentFromProto, layoutDocumentToProto } from "@roost/protocol/layout-document-proto";
+import type { LayoutDocumentV1 } from "@roost/protocol/layout-document";
+import { UiTabStateSchema } from "@roost/protocol/proto/coordinator_pb";
 import {
   UiApplyLayoutOutcome,
   UiReportStateRequestSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   dispatchUiApi,
   parseUiApplyLayoutArgs,

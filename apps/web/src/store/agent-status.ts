@@ -15,9 +15,9 @@ import {
   type AgentStatusIdentity,
   type AgentStatusUpdate as AgentStatusUpdateValue,
   type StatusEpoch,
-} from "@roost/shared/wire";
-import type { AgentStatusFrame } from "@roost/shared/proto/sync_pb";
-import { signal } from "@roost/shared/diag";
+} from "@roost/protocol/wire";
+import type { AgentStatusFrame } from "@roost/protocol/proto/sync_pb";
+import { signal } from "@roost/observability/diag";
 import { seenAgentRevision } from "../lib/agentSeen.ts";
 import { deriveAgentStatusLevel, sameAgentStatusOccupant } from "../lib/agentStatus.ts";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";

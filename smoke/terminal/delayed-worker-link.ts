@@ -5,7 +5,7 @@
 
 import { Buffer } from "node:buffer";
 import { createConnection, createServer, type Socket } from "node:net";
-import type { CoordWorkerUp } from "../../apps/shared/src/gen/roost/v1/worker_transport_pb.ts";
+import type { CoordWorkerUp } from "../../packages/protocol/src/gen/roost/v1/worker_transport_pb.ts";
 import {
   DelayedFrameStream,
   type WorkerFrameFilter,

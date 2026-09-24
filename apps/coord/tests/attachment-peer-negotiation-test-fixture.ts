@@ -21,13 +21,13 @@ import type {
   CoordWorkerDown,
   DLocalAttachmentPeerOffer,
   WLocalAttachmentPeerAnswer,
-} from "@roost/shared/proto/worker_transport_pb";
-import { WLocalAttachmentPeerAnswerSchema } from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { WLocalAttachmentPeerAnswerSchema } from "@roost/protocol/proto/worker_transport_pb";
 import {
   SessionsNegotiateAttachmentPeerRequestSchema,
   type SessionsNegotiateAttachmentPeerRequest,
-} from "@roost/shared/proto/coordinator_pb";
-import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/proto/coordinator_pb";
+import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/protocol/attachment-transfer";
 import type {
   AttachmentPeerNegotiationClock,
   AttachmentPeerNegotiationTimer,

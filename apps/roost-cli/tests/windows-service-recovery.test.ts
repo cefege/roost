@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { buildWindowsServiceDefinitions } from "../src/service-ctl.ts";
-import { runWindowsUpdateBroker } from "../src/windows/windows-update-broker.ts";
+import { runWindowsUpdateBroker } from "@roost/host/windows/windows-update-broker";
 import {
   createServiceHealthProver,
   type WindowsLocalEndpointHealth,
-} from "../src/windows/windows-update-runtime.ts";
-import type { WindowsUpdateJournalV1 } from "../src/windows/windows-update-journal.ts";
-import type { WorkerServiceHealth } from "@roost/shared/service-health";
+} from "@roost/host/windows/windows-update-runtime";
+import type { WindowsUpdateJournalV1 } from "@roost/host/windows/windows-update-journal";
+import type { WorkerServiceHealth } from "@roost/host/service-health";
 import { readHealthByRole } from "./test-helpers.ts";
 
 const WINDOWS_SUBPROCESS_ENV = {

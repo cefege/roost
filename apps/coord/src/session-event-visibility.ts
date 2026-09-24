@@ -2,7 +2,7 @@
 // private worker-recovery events. Durable queries, live publication, and frame
 // construction all depend on this predicate so browser lanes cannot diverge.
 
-import type { SessionEvent } from "@roost/shared/wire";
+import type { SessionEvent } from "@roost/protocol/wire";
 
 export const PRIVATE_SESSION_EVENT_KIND = "agent_reference" as const;
 export type PublicSessionEvent = Exclude<

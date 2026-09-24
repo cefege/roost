@@ -6,7 +6,7 @@
 //
 // Called by: BrowsePage.tsx (the "+" folder browser).
 
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { workerPathIdentity } from "./nativePath.ts";
 
 export interface FolderActivity {

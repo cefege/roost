@@ -5,7 +5,7 @@
 
 import { stat, readFile, readdir, mkdir, open } from "node:fs/promises";
 import { join } from "node:path";
-import { supportedHostPlatform } from "@roost/shared/platform";
+import { supportedHostPlatform } from "@roost/platform/platform";
 import {
   canonicalExistingWorkerPath,
   expandTilde,

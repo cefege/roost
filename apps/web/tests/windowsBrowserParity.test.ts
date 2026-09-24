@@ -6,7 +6,7 @@ import {
   remoteDesktopFile,
   windowsSharePath,
 } from "../src/lib/machineActions.ts";
-import { buildMachineJoinCommand } from "@roost/shared/machine-join-command";
+import { buildMachineJoinCommand } from "@roost/platform/machine-join-command";
 
 describe("Windows browser machine surfaces", () => {
   test("uses Windows icon and exposes only native RDP/share actions", () => {

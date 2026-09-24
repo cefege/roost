@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
-import { TERMINAL_VIEW_LEASE_MS } from "@roost/shared/viewport";
+import { TerminalViewStatus } from "@roost/protocol/proto/sync_pb";
+import { TERMINAL_VIEW_LEASE_MS } from "@roost/protocol/viewport";
 import { deltaFrame, fullFrame } from "./terminal-screen-hub-harness.ts";
 import {
   MAX_U64,

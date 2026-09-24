@@ -2,12 +2,12 @@
 // the WebSocket facade on one dependency vocabulary. This type-only module
 // avoids runtime cycles while preserving both established facade import paths.
 
-import type { CoordConfig } from "@roost/shared/config";
+import type { CoordConfig } from "@roost/host/config";
 import type {
   CoordWorkerUp,
   WTerminalInputRouteResult,
   WTerminalTransportProbeResult,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type { CoordinatorWriteGate } from "../coordinator-write-gate.ts";
 import type { KyselyDB } from "../db/connection.ts";
 import type { PendingEventPublicationStore } from "../pending-event-publications.ts";

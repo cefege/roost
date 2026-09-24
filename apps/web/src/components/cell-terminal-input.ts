@@ -4,13 +4,13 @@
 // Renderer constructs TerminalInputController and calls sendControllerData.
 
 import { createSignal, type Accessor, type Setter } from "solid-js";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import {
 	buildPtyPayload,
 	countLineBreaks,
 	CR_BYTES,
 	MULTILINE_PASTE_MIN_NEWLINES,
-} from "@roost/shared/terminal-input";
+} from "@roost/protocol/terminal-input";
 import { enqueueAttachment, pickAndAttachFiles } from "../lib/attachments.ts";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import type { TerminalContext } from "../lib/keytermContext.ts";

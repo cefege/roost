@@ -2,8 +2,8 @@
 // Coordinator activation and recovery call this module only after journal path
 // confinement has been validated; worker service ownership protects a shared
 // prior checkout from retirement while a local worker still uses it.
-import { workerServicePath } from "@roost/shared/paths";
-import { flushDurablePath } from "@roost/shared/durability";
+import { workerServicePath } from "@roost/host/paths";
+import { flushDurablePath } from "@roost/host/durability";
 import {
   existsSync,
   lstatSync,

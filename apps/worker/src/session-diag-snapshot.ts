@@ -7,11 +7,11 @@
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
-import { cellGridEpoch, scrollbackOrigin } from "@roost/shared/cell";
+import { cellGridEpoch, scrollbackOrigin } from "@roost/protocol/cell";
 import {
 	ROOST_ARTIFACT_VERSION,
 	ROOST_BUILD_SHA,
-} from "@roost/shared/build-identity";
+} from "@roost/host/build-identity";
 import {
 	SYNC_OUTPUT_MAX_MS,
 	SYNC_OUTPUT_MAX_PENDING_ROWS,

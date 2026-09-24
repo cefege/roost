@@ -9,7 +9,7 @@ import {
   type AgentStatusIdentity,
   type AgentStatusSource,
   type StatusEpoch,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 
 type AgentStatusIdentityLike = {
   status_epoch?: StatusEpoch;

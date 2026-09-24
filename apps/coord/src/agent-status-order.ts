@@ -13,7 +13,7 @@ import {
   type AgentStatusIdentity,
   type AgentStatusUpdate,
   type StatusEpoch,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 
 export function sameAgentStatusOccupant(
   left: AgentStatus | AgentStatusUpdate,

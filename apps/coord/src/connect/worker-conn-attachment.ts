@@ -3,7 +3,7 @@
 // same exact-handle fences used for every worker replacement and revocation.
 // Attachment grant authority remains in AttachmentGrantOwner, not this module.
 
-import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/shared/attachment-transfer";
+import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/protocol/attachment-transfer";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
 import type { WorkerHandle } from "./worker-registry.ts";
 

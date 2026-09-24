@@ -5,10 +5,10 @@
 // flight: a scroll raised mid-wave is coalesced, every settle re-derives the
 // reader's gap, and an unchanged derivation backs off to the retry cadence.
 
-import { diag, type DiagKv } from "@roost/shared/diag";
-import type { CellRow } from "@roost/shared/cell";
-import { cellRowFromProto } from "@roost/shared/cell/cell-proto";
-import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
+import { diag, type DiagKv } from "@roost/observability/diag";
+import type { CellRow } from "@roost/protocol/cell";
+import { cellRowFromProto } from "@roost/protocol/cell/cell-proto";
+import type { ScrollbackHistoryFloor } from "@roost/protocol/wire";
 import type { CellGridRenderer } from "./cellRenderer.ts";
 import {
   requestScrollbackPage,

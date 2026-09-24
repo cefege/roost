@@ -4,11 +4,11 @@
 
 import { Socket } from "node:net";
 import { createHash } from "node:crypto";
-import type { LocalEndpoint } from "@roost/shared/local-endpoint";
+import type { LocalEndpoint } from "@roost/host/local-endpoint";
 import {
   keeperBindingDigestInput,
   type KeeperContractV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import {
   MuxFrameType,
   KEEPER_PROTOCOL_VERSION,

@@ -7,7 +7,7 @@
 // an import cycle.
 
 import { createSignal } from "solid-js";
-import type { Worker } from "@roost/shared/wire";
+import type { Worker } from "@roost/protocol/wire";
 
 // null until the first list (then fall back to freshness so a pre-bootstrap
 // render isn't all-offline). Custom equals: callers pass a FRESH Set per

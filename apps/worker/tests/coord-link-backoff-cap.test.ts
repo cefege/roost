@@ -25,7 +25,7 @@ import {
 } from "../src/transport/coord-link-constants.ts";
 import { startCoordLink } from "../src/transport/coord-link.ts";
 import { openSessionEventStore } from "../src/transport/session-event-store.ts";
-import type { WorkerFp } from "@roost/shared/wire";
+import type { WorkerFp } from "@roost/protocol/wire";
 
 // This is the regression proper: it fails on the pre-fix code, which read every
 // non-open dial as an auth rejection and returned the 5-minute cap for

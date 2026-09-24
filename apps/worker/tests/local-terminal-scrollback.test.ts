@@ -4,7 +4,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { afterEach, expect, test } from "bun:test";
-import { LocalScrollbackRequestSchema } from "@roost/shared/proto/local_terminal_pb";
+import { LocalScrollbackRequestSchema } from "@roost/protocol/proto/local_terminal_pb";
 import { readLocalScrollback } from "../src/local-terminal-scrollback.ts";
 import { installAutoKeeper } from "./keeper-fake-pool.ts";
 import {

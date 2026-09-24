@@ -2,7 +2,7 @@
 // Event-log callers normalize through this module so replay and projections receive
 // the same whole-code-point UTF-8 values without input-sized temporary buffers.
 
-import type { Session, SessionEvent } from "@roost/shared/wire";
+import type { Session, SessionEvent } from "@roost/protocol/wire";
 
 export const MAX_PERSISTED_UTF8_BYTES = 4_096;
 export const MAX_WORKER_SNAPSHOT_SESSIONS = 1_024;

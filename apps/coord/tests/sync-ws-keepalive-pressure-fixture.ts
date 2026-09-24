@@ -11,7 +11,7 @@ import {
   SyncClientFrameSchema,
   TerminalTitleFrameSchema,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { titleBus } from "../src/buses.ts";
 import {
   makeSyncWsHandler,

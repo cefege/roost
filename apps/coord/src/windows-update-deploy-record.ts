@@ -8,9 +8,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
-import { coordDataDir } from "@roost/shared/paths";
+import { coordDataDir } from "@roost/host/paths";
 import { hasUrlUserInfo } from "./url-user-info.ts";
-import { durableRemove, durableWriteFile } from "@roost/shared/durability";
+import { durableRemove, durableWriteFile } from "@roost/host/durability";
 import { DEPLOY_JOB_TTL_MS, type DeployJob } from "./deploy-jobs.ts";
 
 export const WINDOWS_UPDATE_TIMEOUT_MS = 15 * 60 * 1000;

@@ -6,7 +6,7 @@
  */
 
 import { createEffect, createSignal, on, onCleanup, onMount, type Accessor } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 
 export interface PaneTabRailScrollOptions {
   paneId: Accessor<string>;

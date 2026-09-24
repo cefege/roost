@@ -1,0 +1,17 @@
+{
+  "name": "@roost/observability",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "exports": {
+    "./diag": "./src/diag.ts",
+    "./log": "./src/log.ts",
+    "./trace": "./src/trace.ts"
+  },
+  "scripts": {
+    "typecheck": "bun x tsgo -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  }
+}

@@ -4,13 +4,13 @@
 // without coupling request-only state to the long-lived delivery closure.
 
 import { verifyJwt, type Caller as VerifiedJwtCaller } from "../jwt.ts";
-import { log } from "@roost/shared/log";
-import { DEFAULT_WORKER_LOCAL_UI_ORIGIN } from "@roost/shared/config";
-import { signal } from "@roost/shared/diag";
+import { log } from "@roost/observability/log";
+import { DEFAULT_WORKER_LOCAL_UI_ORIGIN } from "@roost/host/config";
+import { signal } from "@roost/observability/diag";
 import {
   UI_TAB_ID_MAX_UTF8_BYTES,
   hasAtMostUtf8Bytes,
-} from "@roost/shared/ui-state";
+} from "@roost/protocol/ui-state";
 import {
   loadSyncResourceIndex,
   type SyncResourceIndex,
@@ -28,7 +28,7 @@ import {
   SYNC_AUTH_SUBPROTOCOL,
   SYNC_QUERY_FLOW_V1,
   SYNC_QUERY_V2,
-} from "@roost/shared/wire/sync-ws";
+} from "@roost/protocol/wire/sync-ws";
 
 export const SYNC_CONNECTION_REJECTION_CLOSE_CODE = 1013;
 export const SYNC_CONNECTION_REJECTION_REASON = "connection rejected";

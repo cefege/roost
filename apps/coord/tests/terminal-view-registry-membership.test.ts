@@ -4,12 +4,12 @@
 // viewer's blip from re-minting the stream, lease-expired-but-unswept records,
 // and the re-entrant sweep where one socket's expiry parks its other sessions.
 import { afterEach, describe, expect, test } from "bun:test";
-import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
+import { TerminalViewStatus } from "@roost/protocol/proto/sync_pb";
 import {
   TERMINAL_VIEW_LEASE_MS,
   TERMINAL_VIEW_PARK_GRACE_MS,
   TERMINAL_VIEW_SWEEP_MS,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { globalPresenceBus } from "../src/buses.ts";
 import {
   OTHER_SESSION,

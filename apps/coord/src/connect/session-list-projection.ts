@@ -2,16 +2,16 @@
 // Private columns are selected only for the authenticated owning-worker branch.
 // Persisted opaque JSON is strictly reparsed and failures never echo its value.
 
-import { sessionToProto } from "@roost/shared/wire/session-proto";
-import { Session, type SessionStatus as SessionStatusValue } from "@roost/shared/wire";
+import { sessionToProto } from "@roost/protocol/wire/session-proto";
+import { Session, type SessionStatus as SessionStatusValue } from "@roost/protocol/wire";
 import {
   AgentConversationReferenceV1Schema,
   AgentConversationRecoveryMetadataSchema,
-} from "@roost/shared/agent-conversation-reference";
-import { sessionRecoveryMetadataToProto } from "@roost/shared/agent-conversation-reference-proto";
-import { safeJsonParse } from "@roost/shared/json";
-import type { SessionRecoveryMetadata } from "@roost/shared/proto/coordinator_pb";
-import type { Session as ProtoSession } from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/agent-conversation-reference";
+import { sessionRecoveryMetadataToProto } from "@roost/protocol/agent-conversation-reference-proto";
+import { safeJsonParse } from "@roost/protocol/json";
+import type { SessionRecoveryMetadata } from "@roost/protocol/proto/coordinator_pb";
+import type { Session as ProtoSession } from "@roost/protocol/proto/wire_pb";
 import type { Selectable } from "kysely";
 import type { SessionsTable } from "../db/schema.ts";
 import { SESSION_COLUMNS } from "../event-projection.ts";

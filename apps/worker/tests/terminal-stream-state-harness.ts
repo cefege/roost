@@ -2,17 +2,17 @@ import type { CellData, TerminalCore } from "@wterm/core";
 import {
   DEFAULT_COLOR,
   initCellEmitState,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import type {
   PbCellGridChunk,
   PbCellGridFrame,
-} from "@roost/shared/proto/cell_pb";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+} from "@roost/protocol/proto/cell_pb";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import {
   asChannelId,
   asSessionId,
   asWorkerFp,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import type { FsmChannel } from "../src/fsm.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionManager } from "../src/session-manager.ts";

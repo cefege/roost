@@ -5,7 +5,7 @@
 // It shares the raw-input lane, move gate, deadline, and WInputResult classifier;
 // cancellation always removes and consumes the provisional status waiter.
 
-import { AGENT_PROMPT_MAX_WRITE_BYTES } from "@roost/shared/terminal-input";
+import { AGENT_PROMPT_MAX_WRITE_BYTES } from "@roost/protocol/terminal-input";
 import {
   retainedAgentOccupantState,
   waitForAgentStatus,

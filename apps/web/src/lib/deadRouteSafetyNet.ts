@@ -14,7 +14,7 @@
 // no-op. In the app, the effect calls `evaluate` on every dep change.
 
 import { createEffect, onCleanup } from "solid-js";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 
 export interface DeadRouteSafetyNetDeps {
   onTerminalRoute: () => boolean; // are we on a terminal route?

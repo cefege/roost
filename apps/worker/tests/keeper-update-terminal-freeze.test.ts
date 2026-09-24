@@ -5,7 +5,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { afterEach, describe, expect, test } from "bun:test";
-import { DKeeperUpdatePrepareSchema } from "@roost/shared/proto/worker_transport_pb";
+import { DKeeperUpdatePrepareSchema } from "@roost/protocol/proto/worker_transport_pb";
 import { createKeeperUpdatePrepareHandler } from "../src/coord-link-keeper-update.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
 import { KEEPER_UPDATE_WRITE_REFUSAL } from "../src/session-control-lanes.ts";

@@ -11,7 +11,7 @@ import {
   statSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import type { Database } from "bun:sqlite";
 import { createSqliteSnapshot } from "./db/snapshot.ts";
 import { gzipFileToPath } from "./gzip-file.ts";

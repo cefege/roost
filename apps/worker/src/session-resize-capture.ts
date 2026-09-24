@@ -4,9 +4,9 @@
 // from mid-repaint geometry flips. Owns the per-channel emission gate a capture
 // installs and its release on EVERY boundary outcome — resolved or trapped —
 // plus the capture gate budget that flags gates overstaying their ceiling.
-import { diag, signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import { newTraceId } from "@roost/shared/trace";
+import { diag, signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import { newTraceId } from "@roost/observability/trace";
 import type { SessionManager } from "./session-manager.ts";
 import { retireStreamDelivery } from "./session-snapshot-cursor.ts";
 import { markStreamDeliveryDirty } from "./session-cell-sinks.ts";
@@ -17,7 +17,7 @@ import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { answerQueries } from "./terminal-query-reply.ts";
 import { readRing } from "./session-scrollback-ring.ts";
 import { noteResizeInstall, noteResizeResult } from "./diag/terminal-capture.ts";
-import type { TerminalWorkerResizeOutcome } from "@roost/shared/terminal-capture";
+import type { TerminalWorkerResizeOutcome } from "@roost/protocol/terminal-capture";
 
 export const CELL_GATE_BUDGET_MS = 2_500;
 

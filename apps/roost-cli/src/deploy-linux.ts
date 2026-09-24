@@ -5,7 +5,7 @@ import { posix } from "node:path";
 import {
   JournaledKeeperUpdateV1Schema,
   type JournaledKeeperUpdateV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import {
   acquireRemoteDeployLock,
   DeployFailure,
@@ -17,7 +17,7 @@ import {
 } from "./deploy-exec.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import { WORKER_UNIT } from "./service-ctl.ts";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 import {
   isManagedLinuxWorkerReleasePath,
   linuxDeployJournalPath,

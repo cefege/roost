@@ -3,7 +3,7 @@
 // promotion has already atomically installed its baseline before notification.
 
 import { create } from "@bufbuild/protobuf";
-import { TerminalViewCommandSchema } from "@roost/shared/proto/sync_pb";
+import { TerminalViewCommandSchema } from "@roost/protocol/proto/sync_pb";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import {
   currentSyncV2TerminalState,

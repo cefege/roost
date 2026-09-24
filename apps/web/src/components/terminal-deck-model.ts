@@ -14,7 +14,7 @@ import {
   type Setter,
 } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import {
   activeComposeSessionId,

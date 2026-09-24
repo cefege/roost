@@ -5,7 +5,7 @@
 import {
 	TERMINAL_PEER_HELLO_DEADLINE_MS,
 	TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER,
-} from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer";
 
 export interface LocalTerminalAuthenticatedAdmission {
 	readonly admitted: boolean;

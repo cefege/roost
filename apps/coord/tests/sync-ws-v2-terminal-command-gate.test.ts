@@ -9,7 +9,7 @@ import {
   SyncClientFrameSchema,
   type SyncClientFrame,
   TerminalInputRouteClaimSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { makeSyncV2CommandHandler } from "../src/connect/sync-ws-v2-commands.ts";
 import {
   decodedFrames,

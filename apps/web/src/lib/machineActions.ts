@@ -2,7 +2,7 @@
 // advertises what it can serve: macOS exposes Finder/VNC, Windows exposes an
 // RDP connection file plus a native UNC share path, and Linux exposes neither.
 
-import type { SupportedHostPlatform } from "@roost/shared/platform";
+import type { SupportedHostPlatform } from "@roost/platform/platform";
 
 export type MachineActionId = "finder" | "screen-share" | "remote-desktop" | "network-share";
 export type MachineActionOperation = "navigate" | "download-rdp" | "copy-unc";

@@ -3,13 +3,13 @@
 // localStorage["roost.whatsNew.lastSeenVersion"]. When different, fetches
 // /whatsnew.json and renders the dialog for the matching version entry.
 // Callers: App.tsx (mounted inside the protected overlay shell; internal Show gate).
-// Depends on: @roost/shared/log (warn on fetch failure).
+// Depends on: @roost/observability/log (warn on fetch failure).
 //
 // whatsnew.json shape: array of { version, date, title, items[] }.
 // Dialog shows the entry whose version === current app version.
 
 import { type Component, createSignal, onMount, For, Show } from "solid-js";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { Dialog, Button } from "./Settings/md/primitives.tsx";
 
 const STORAGE_KEY = "roost.whatsNew.lastSeenVersion";

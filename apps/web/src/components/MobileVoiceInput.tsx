@@ -16,7 +16,7 @@ import {
 	onCleanup,
 	onMount,
 } from "solid-js";
-import type { SessionId } from "@roost/shared/wire";
+import type { SessionId } from "@roost/protocol/wire";
 import { createDeepgramDictation } from "../lib/deepgramDictation.ts";
 import {
 	getDeepgramKey,

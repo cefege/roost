@@ -5,7 +5,7 @@
  */
 
 import { Show, type JSX } from "solid-js";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import { sessionTerminalTransportKind, sessionTerminalTransportLabel } from "../store/local-transport-indicator.ts";
 import { notifyTargetSessionId } from "../store/notifyTarget.ts";

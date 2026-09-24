@@ -3,7 +3,7 @@
 // worker deploys remain blocked by the normal foreign-journal guard.
 
 import { join, resolve } from "node:path";
-import { coordServicePath } from "@roost/shared/paths";
+import { coordServicePath } from "@roost/host/paths";
 import {
   coordinatorDeployJournalPath,
   loadCoordinatorDeployJournal,

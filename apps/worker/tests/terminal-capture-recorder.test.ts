@@ -19,11 +19,11 @@ import {
 	gridToCellFrame,
 	scrollbackOrigin,
 	type CellGridFrame,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import {
 	isTerminalCaptureFileName,
 	TERMINAL_CAPTURE_LIMITS,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import { _resetCaptureStorageForTest } from "../src/diag/capture-storage.ts";
 import {
 	captureTerminalIncident,

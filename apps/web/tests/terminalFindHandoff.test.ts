@@ -3,7 +3,7 @@
 // coordinate only when that fresh result contains the exact epoch/row/column.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { ScrollbackHistoryFloor, SearchStopReason } from "@roost/shared/proto/coordinator_pb";
+import { ScrollbackHistoryFloor, SearchStopReason } from "@roost/protocol/proto/coordinator_pb";
 import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
 import type { FindHit } from "../src/lib/cellRow.ts";
 import type { ScrollbackBackfill } from "../src/lib/scrollbackBackfill.ts";

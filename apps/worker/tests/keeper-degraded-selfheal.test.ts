@@ -7,8 +7,8 @@
 
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
-import { asWorkerFp } from "@roost/shared/wire";
-import { initCellEmitState } from "@roost/shared/cell";
+import { asWorkerFp } from "@roost/protocol/wire";
+import { initCellEmitState } from "@roost/protocol/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import { SessionEventTestSink } from "./session-event-test-sink.ts";

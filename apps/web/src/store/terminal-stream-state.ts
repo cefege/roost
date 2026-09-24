@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { CellGridChunkAssembler } from "@roost/shared/cell";
+import { CellGridChunkAssembler } from "@roost/protocol/cell";
 import { clearTerminalChunkTransfer } from "./terminal-stream-chunks.ts";
 import {
   cancelTerminalViewRenewals,

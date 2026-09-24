@@ -2,7 +2,7 @@
 // SessionManager's shared channel-creation gate fences every delegated respawn
 // against keeper replacement before this module can reach an asynchronous step.
 
-import type { SessionId } from "@roost/shared/wire";
+import type { SessionId } from "@roost/protocol/wire";
 import type { SessionEventReservation } from "./event-sink.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";

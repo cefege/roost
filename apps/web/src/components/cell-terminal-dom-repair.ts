@@ -6,7 +6,7 @@
 // pane's runtime plus its hold and visibility predicates; nothing here reads
 // Solid state, so the whole escalation path is drivable from a plain test.
 
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import type { RendererEpochSeq } from "../lib/cellRenderer.ts";
 import type { TerminalPresentationState } from "../store/terminal-stream-types.ts";
 import { terminalStreamDiagnosticSnapshot } from "../store/terminal-stream.ts";

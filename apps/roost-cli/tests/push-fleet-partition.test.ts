@@ -15,7 +15,7 @@ import {
   KeeperRuntimeObservationV1Schema,
   type KeeperContractV1,
   type KeeperRuntimeObservationV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import type { WorkerStatus } from "../src/status.ts";
 
 const PRIOR_SHA = "a".repeat(40);

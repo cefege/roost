@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   KeeperContractV1Schema,
   type KeeperContractV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import {
   allocateMuxFrame, isSafeSequence, KEEPER_MAX_INPUT_BYTES, MuxFrameType,
   readSequence, writeSequence,

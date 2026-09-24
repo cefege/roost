@@ -11,7 +11,7 @@ import {
   on,
   type Accessor,
 } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { termFontSize } from "../lib/terminalFontPref.ts";
 import { arrangeEpoch, isResizeDragging } from "../lib/resizeDrag.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";

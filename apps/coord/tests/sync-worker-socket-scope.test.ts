@@ -8,7 +8,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
+import type { FirehoseFrame } from "@roost/protocol/proto/sync_pb";
 import { sessionBus, titleBus } from "../src/buses.ts";
 import { loadSyncResourceIndex, startSyncFeed } from "../src/connect/sync-feed.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";

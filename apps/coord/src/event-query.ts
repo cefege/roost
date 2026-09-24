@@ -3,7 +3,7 @@
 // It depends only on Kysely and the shared SessionEvent wire shape.
 // Ascending IDs and stable cursor cutoffs are recovery invariants.
 
-import type { SessionEvent } from "@roost/shared/wire";
+import type { SessionEvent } from "@roost/protocol/wire";
 import type { KyselyDB } from "./db/connection.ts";
 import { PRIVATE_SESSION_EVENT_KIND } from "./session-event-visibility.ts";
 

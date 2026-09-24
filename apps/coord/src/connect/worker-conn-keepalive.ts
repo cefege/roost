@@ -8,8 +8,8 @@ import {
   CoordWorkerDownSchema,
   DPingSchema,
   type CoordWorkerDown,
-} from "@roost/shared/proto/worker_transport_pb";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { log } from "@roost/observability/log";
 
 export const WORKER_PING_DELAY_MS = 30_000;
 export const WORKER_PONG_TIMEOUT_MS = 90_000;

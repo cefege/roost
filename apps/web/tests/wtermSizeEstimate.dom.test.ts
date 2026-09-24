@@ -19,7 +19,7 @@ let dom: InstalledFakeDom;
 let fakeDocument: FakeDocument;
 
 mock.module("../src/lib/pageVisible.ts", () => ({ isPageVisible: () => true }));
-mock.module("@roost/shared/diag", () => ({ diag: () => undefined }));
+mock.module("@roost/observability/diag", () => ({ diag: () => undefined }));
 
 // Module-loading boundary: the units below bind the mocked visibility facade
 // at import time, so they load after the mocks above. Browser globals are

@@ -5,16 +5,16 @@
 // session set is checked here because this transport authorizes per grant.
 
 import { create, toBinary } from "@bufbuild/protobuf";
-import { cellRowToProto } from "@roost/shared/cell/cell-proto";
-import { ScrollbackHistoryFloor as PbScrollbackHistoryFloor } from "@roost/shared/proto/coordinator_pb";
+import { cellRowToProto } from "@roost/protocol/cell/cell-proto";
+import { ScrollbackHistoryFloor as PbScrollbackHistoryFloor } from "@roost/protocol/proto/coordinator_pb";
 import {
 	LocalScrollbackResponseSchema,
 	type LocalScrollbackRequest,
 	type LocalScrollbackResponse,
-} from "@roost/shared/proto/local_terminal_pb";
-import { PbCellRowSchema, type PbCellRow } from "@roost/shared/proto/cell_pb";
-import { TERMINAL_PEER_LOGICAL_FRAME_MAX_BYTES } from "@roost/shared/terminal-peer";
-import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
+} from "@roost/protocol/proto/local_terminal_pb";
+import { PbCellRowSchema, type PbCellRow } from "@roost/protocol/proto/cell_pb";
+import { TERMINAL_PEER_LOGICAL_FRAME_MAX_BYTES } from "@roost/protocol/terminal-peer";
+import type { ScrollbackHistoryFloor } from "@roost/protocol/wire";
 import { readScrollbackCells } from "./browser-command-terminal.ts";
 import type { SessionManager } from "./session-manager.ts";
 

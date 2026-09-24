@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
 import {
   V2_DOMAINS,
   createSyncV2SocketState,

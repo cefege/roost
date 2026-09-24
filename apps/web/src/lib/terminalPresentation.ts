@@ -9,7 +9,7 @@ import {
   onCleanup,
   type Accessor,
 } from "solid-js";
-import type { CellGridFrame } from "@roost/shared/cell";
+import type { CellGridFrame } from "@roost/protocol/cell";
 import type { CellGridRenderer } from "./cellRenderer.ts";
 import { isPageVisible, pageVisible } from "./pageVisible.ts";
 import type { TerminalViewHandleStatus } from "../store/terminal-stream-types.ts";

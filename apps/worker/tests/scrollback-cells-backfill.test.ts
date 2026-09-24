@@ -2,15 +2,15 @@
 
 import { describe, expect, test } from "bun:test";
 import { WasmBridge } from "@wterm/core";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import {
   gridToCellFrame,
   initCellEmitState,
   LIVE_DELTA_SCROLLBACK_ROWS_CAP,
   nextCellFrame,
   type CellRow,
-} from "@roost/shared/cell";
-import type { ClientControlFrame } from "@roost/shared/wire";
+} from "@roost/protocol/cell";
+import type { ClientControlFrame } from "@roost/protocol/wire";
 import { handleGetScrollbackCells } from "../src/browser-command-terminal.ts";
 import type { FsmChannel } from "../src/fsm.ts";
 import { SessionManager } from "../src/session-manager.ts";

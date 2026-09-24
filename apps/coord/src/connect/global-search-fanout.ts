@@ -3,16 +3,16 @@
 // request lifecycle and cursors; this module keeps the bounded worker page seam
 // small enough to audit independently.
 
-import { GlobalSearchPartialReason } from "@roost/shared/proto/coordinator_pb";
+import { GlobalSearchPartialReason } from "@roost/protocol/proto/coordinator_pb";
 import {
   allocateGlobalSearchMatchLimits,
   GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
   WorkerGlobalSearchResultSchema,
   type WorkerGlobalSearchEntry,
   type WorkerSearchScrollbackResult,
-} from "@roost/shared/terminal-search";
-import { log } from "@roost/shared/log";
-import { asSessionId } from "@roost/shared/wire";
+} from "@roost/protocol/terminal-search";
+import { log } from "@roost/observability/log";
+import { asSessionId } from "@roost/protocol/wire";
 import type { KyselyDB } from "../db/connection.ts";
 import type { AccountDeviceCaller } from "./auth-interceptor.ts";
 import { getWorkerHubSocket } from "./worker-service.ts";

@@ -12,11 +12,11 @@ import {
   AgentStatusWaitResponseSchema,
   CoordinatorService,
   type AgentStatusView,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   isIdentifiedAgentStatus,
   type AgentStatus,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   getAgentStatusSnapshot,
   waitForAgentStatus,

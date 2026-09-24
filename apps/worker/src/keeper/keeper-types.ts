@@ -5,7 +5,7 @@
 import type * as net from "node:net";
 import type { SbRing } from "../session-scrollback-ring.ts";
 import type { ResizeWireResult } from "./protocol.ts";
-import type { WindowsJobHostHandle } from "@roost/shared/windows-helper";
+import type { WindowsJobHostHandle } from "@roost/host/windows-helper";
 
 export interface KeeperHistoryResize {
   /** Raw-output sequence at which the new dimensions became effective. */

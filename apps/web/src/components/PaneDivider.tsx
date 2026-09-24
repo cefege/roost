@@ -2,7 +2,7 @@
 // TerminalDeck supplies geometry and receives frame-coalesced ratio updates;
 // the shared document bounds keep interactive and imported ratios identical.
 
-import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/shared/layout-document";
+import { LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN } from "@roost/protocol/layout-document";
 import type { Accessor } from "solid-js";
 import { createSignal, onCleanup } from "solid-js";
 import type { DividerRect } from "../store/paneLayout.ts";

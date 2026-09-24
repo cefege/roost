@@ -6,8 +6,8 @@
 import { create } from "@bufbuild/protobuf";
 import {
   WTerminalPipelineSnapshotSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { TerminalPipelineSessionSnapshot } from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { TerminalPipelineSessionSnapshot } from "@roost/protocol/proto/wire_pb";
 import type { WorkerHandle } from "./worker-registry.ts";
 import { currentRoutableWorker } from "./worker-send-target.ts";
 import {

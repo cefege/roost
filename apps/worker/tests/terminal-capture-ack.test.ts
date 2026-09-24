@@ -17,8 +17,8 @@ import {
 	gridToCellFrame,
 	scrollbackOrigin,
 	type CellGridFrame,
-} from "@roost/shared/cell";
-import { isTerminalCaptureFileName } from "@roost/shared/terminal-capture";
+} from "@roost/protocol/cell";
+import { isTerminalCaptureFileName } from "@roost/protocol/terminal-capture";
 import { _resetCaptureStorageForTest } from "../src/diag/capture-storage.ts";
 import {
 	captureTerminalIncident,

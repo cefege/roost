@@ -3,7 +3,7 @@
 // recovery verifies an occupied final name before it can change the manifest.
 
 import fs from "node:fs";
-import { ATTACHMENT_TRANSFER_DIRECT_CHUNK_BYTES } from "@roost/shared/attachment-transfer";
+import { ATTACHMENT_TRANSFER_DIRECT_CHUNK_BYTES } from "@roost/protocol/attachment-transfer";
 
 export function hashAttachmentFile(filePath: string): Bun.CryptoHasher {
   const hasher = new Bun.CryptoHasher("sha256");

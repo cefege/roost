@@ -3,7 +3,7 @@ import {
   FirehoseFrameSchema,
   SyncClientFrameSchema,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 
 export interface SyncFlowSocket {
   readyState: number;

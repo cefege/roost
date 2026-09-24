@@ -9,7 +9,7 @@ import { Code } from "@connectrpc/connect";
 import {
   AuthRedeemBrowserRequestSchema,
   AuthRedeemWorkerRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { bootstrapTokenDigest } from "../src/bootstrap-tokens.ts";
 import {
   type DeviceKey,

@@ -521,7 +521,7 @@ commit is structurally a deferral for as long as the fleet has moved on.
 The fleet is therefore NOT guaranteed to be one version between a push and a
 deferred machine's return. What that window costs is wire compatibility between
 a new coordinator and an old worker — the cell-frame and `SessionEvent` shapes
-in `apps/shared/src/wire/` — so a change to those shapes must stay backward
+in `packages/protocol/src/wire/` — so a change to those shapes must stay backward
 compatible for one release, or the deferred machine must be updated before the
 shape change ships.
 

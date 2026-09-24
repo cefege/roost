@@ -10,7 +10,7 @@ import {
   untrack,
   type Accessor,
 } from "solid-js";
-import type { MouseTracking } from "@roost/shared/cell";
+import type { MouseTracking } from "@roost/protocol/cell";
 import { attachTerminalLinks } from "./terminal-links.ts";
 import { attachTerminalMouseForwarding } from "../lib/terminalMouseForwarding.ts";
 import { sendUserTerminalInput } from "../lib/userTerminalInput.ts";

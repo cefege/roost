@@ -2,8 +2,8 @@
 // TerminalStreamDispatcher owns route resolution and worker lanes; this owner
 // removes task state, releases physical admission slots, and resolves the
 // controller-facing completion without retaining terminal payloads.
-import type { WTerminalStreamResult } from "@roost/shared/proto/worker_transport_pb";
-import { log } from "@roost/shared/log";
+import type { WTerminalStreamResult } from "@roost/protocol/proto/worker_transport_pb";
+import { log } from "@roost/observability/log";
 import {
   unsentTerminalWorkerRequest,
   type TerminalWorkerRequest,

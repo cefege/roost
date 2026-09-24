@@ -17,10 +17,10 @@ import type {
 	TransportSendResult,
 } from "./transport/coord-link-types.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import type { TerminalCore } from "@wterm/core";
 import type { SessionEventSink } from "./event-sink.ts";
-import type { SessionId, WorkerFp } from "@roost/shared/wire";
+import type { SessionId, WorkerFp } from "@roost/protocol/wire";
 import {
 	_createWtermCore,
 	STRAY_REAP_INTERVAL_MS,

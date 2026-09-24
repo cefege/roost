@@ -4,7 +4,7 @@
  * Sender transport and active-view suppression behavior live in the sibling sender suite.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import type { CoordConfig } from "@roost/shared/config";
+import type { CoordConfig } from "@roost/host/config";
 import type { KyselyDB } from "../src/db/connection.ts";
 import { getVapidKeys, resetVapidKeysForTest } from "../src/vapid.ts";
 import {

@@ -14,7 +14,7 @@ import {
   coordinatorTerminalViewState,
   readTerminalStreamProbe,
 } from "./terminal-probe-helpers.ts";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 
 test("desktop composer attaches exact files in order without submitting", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop native attachment contract");

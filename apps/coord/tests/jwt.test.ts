@@ -5,7 +5,7 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import { Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite/dist/index.js";
-import { fingerprintOf } from "@roost/shared/fingerprint";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
 import {
   importEd25519PrivkeyPkcs8,
   signJwt,

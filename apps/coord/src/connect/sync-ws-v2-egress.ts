@@ -5,13 +5,13 @@
 
 import type { ServerWebSocket } from "bun";
 import { clone, create, toBinary } from "@bufbuild/protobuf";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import {
   FirehoseFrameSchema,
   SyncDomainResetFrameSchema,
   SyncDomain,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import type { SyncFeedFrameMeta } from "./sync-feed.ts";
 import type { WsDeadlineClock } from "./ws-auth-deadline.ts";
 import {

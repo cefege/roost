@@ -3,7 +3,7 @@
 // boundaries independent from boot reconciliation.
 
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_COORDINATOR_BIND } from "@roost/shared/config";
+import { DEFAULT_COORDINATOR_BIND } from "@roost/host/config";
 import { loadWorkerConfig } from "../src/config.ts";
 
 const BASE_ENV = {

@@ -2,7 +2,7 @@
 // incident bundle. Called only by scripts/replay-terminal-incident.ts.
 // Everything here is content-free in its OUTPUT: it reads terminal rows to
 // compare them and reports identities, coordinates and field names only.
-// Comparison is @roost/shared/terminal-capture's canonical view, folding is the
+// Comparison is @roost/protocol/terminal-capture's canonical view, folding is the
 // production cell pipeline, and the core replay uses the pinned WASM factory —
 // nothing is reimplemented here, so a drift in production shows up as a
 // divergence rather than being masked by a second implementation.
@@ -13,11 +13,11 @@ import {
   gridToCellFrame,
   normalizeCellGridFrame,
   type CellGridFrame,
-} from "../apps/shared/src/cell/index.ts";
+} from "../packages/protocol/src/cell/index.ts";
 import {
   createWtermCore,
   resizeWtermCore,
-} from "../apps/shared/src/wterm-core-factory.ts";
+} from "../packages/wterm/src/wterm-core-factory.ts";
 import {
   canonicalViewOfFrame,
   compareCanonicalViews,
@@ -28,7 +28,7 @@ import {
   type TerminalCoordinatorSection,
   type TerminalCoverageReason,
   type TerminalWorkerSection,
-} from "../apps/shared/src/terminal-capture.ts";
+} from "../packages/protocol/src/terminal-capture.ts";
 
 export interface LayerCheckpoint {
   readonly stream: TerminalCaptureStreamIdentity;

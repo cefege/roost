@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures.ts";
-import { TERMINAL_MAX_ROWS } from "../../apps/shared/src/viewport.ts";
+import { TERMINAL_MAX_ROWS } from "../../packages/protocol/src/viewport.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { RecoveryMarkerScan, RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import { mkdir, writeFile } from "node:fs/promises";

@@ -7,7 +7,7 @@ import {
 	PbCellGridFrameSchema,
 	PbCellRowSchema,
 	PbCellSpanSchema,
-} from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/proto/cell_pb";
 import { randomUUID } from "node:crypto";
 
 export function oversizedLocalTerminalDelta(sessionId: string) {

@@ -7,7 +7,7 @@ import {
   ATTACHMENT_TRANSFER_LOOPBACK_PATH,
   ATTACHMENT_TRANSFER_LOOPBACK_MAX_PAYLOAD_BYTES,
   ATTACHMENT_TRANSFER_LOOPBACK_SUBPROTOCOL,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import { startLocalUiServer, type LocalUiServer } from "../src/local-ui-server.ts";
 import type { AttachmentTransferPort } from "../src/attachment-transfer-port.ts";
 

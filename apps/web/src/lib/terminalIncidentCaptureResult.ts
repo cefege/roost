@@ -6,12 +6,12 @@
 // terminalIncidentCaptureRpc.ts, recorder state from
 // terminalIncidentCaptureState.ts.
 
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import type {
   TerminalCaptureActionName,
   TerminalCaptureErrorCode,
   TerminalCaptureResult,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import { localCaptureResult } from "./terminalIncidentCaptureRpc.ts";
 import {
   emitTerminalCaptureUiState,

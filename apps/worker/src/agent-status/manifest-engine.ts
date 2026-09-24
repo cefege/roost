@@ -5,7 +5,7 @@
 // Adapted from Herdr src/detect/manifest.rs at commit
 // c7b79294e28fe7c835691a25597fabf226ecfc20 (Apache-2.0).
 
-import type { AgentRuntimeState } from "@roost/shared/wire";
+import type { AgentRuntimeState } from "@roost/protocol/wire";
 
 export interface ManifestGate {
   contains?: readonly string[];

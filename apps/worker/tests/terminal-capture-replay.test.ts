@@ -14,11 +14,11 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { spansText } from "@roost/shared/cell";
+import { spansText } from "@roost/protocol/cell";
 import {
 	TERMINAL_CAPTURE_LIMITS,
 	type TerminalIncidentBundle,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import {
 	matchLayers,
 	replayRawToCore,

@@ -1,10 +1,10 @@
 // Decides whether `roost deploy <host>` / `roost keeper-refresh <host>` names
 // this box. deploy.ts, direct-keeper-update.ts and keeper-refresh.ts route on
 // the answer, choosing the local driver over ssh. Host identity only — it uses
-// @roost/shared/tailnet's single MagicDNS reader and nothing else.
+// @roost/host/tailnet's single MagicDNS reader and nothing else.
 
 import * as os from "node:os";
-import { resolveTailnetDnsName } from "@roost/shared/tailnet";
+import { resolveTailnetDnsName } from "@roost/host/tailnet";
 
 /** True when `host` resolves to the box we're running on. Three signals:
  *  (1) literal localhost/127.0.0.1/::1

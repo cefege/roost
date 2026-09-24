@@ -4,35 +4,35 @@
 // seeds them is sync-feed.ts.
 
 import { create } from "@bufbuild/protobuf";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   FirehoseFrameSchema, type FirehoseFrame,
   AgentStatusFrameSchema, SyncDomain,
-} from "@roost/shared/proto/sync_pb";
-import { eventToProto } from "@roost/shared/wire/event-proto";
-import { keeperRuntimeObservationToProto } from "@roost/shared/keeper-update-proto";
-import { hostIdentityToProto } from "@roost/shared/host-identity-proto";
+} from "@roost/protocol/proto/sync_pb";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
+import { keeperRuntimeObservationToProto } from "@roost/protocol/keeper-update-proto";
+import { hostIdentityToProto } from "@roost/protocol/host-identity-proto";
 import {
   terminalCoreCapacityReportToProto,
-} from "@roost/shared/terminal-core-capacity-proto";
+} from "@roost/protocol/terminal-core-capacity-proto";
 import {
   WorkspaceDeltaProtoSchema, WorkspaceSessionsSetSchema,
   TaskDeltaProtoSchema, McpStreamMessageProtoSchema,
   McpRelayEventSchema, WorkerPresenceProtoSchema, WorkerHeartbeatSchema,
   PairRequestDeltaProtoSchema, PairCompletedSchema, type PairRequestDeltaProto,
-} from "@roost/shared/proto/events_pb";
+} from "@roost/protocol/proto/events_pb";
 import {
   WorkspaceSchema as WorkspacePbSchema,
   McpRelaySchema as McpRelayPbSchema,
   WorkerSchema as WorkerPbSchema,
   HostMetricsSchema as HostMetricsPbSchema,
   AuditRowSchema, PairRequestSchema,
-} from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/wire_pb";
 import type { TaskBusMsg, PairRequestDelta, AuditRow } from "../buses.ts";
 import type {
   SessionEvent, WorkspaceDelta, McpStreamMessage, WorkerPresenceEvent,
   HostMetrics, AgentStatusUpdate,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import { isPublicSessionEvent } from "../session-event-visibility.ts";
 
 export type SyncFeedLane = "cell" | "session" | "retained" | "nonterminal" | "control";

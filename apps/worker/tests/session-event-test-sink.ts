@@ -1,7 +1,7 @@
 // In-memory SessionEventSink used by focused worker tests.
 // It preserves the production reservation ownership rules without opening
 // SQLite or connecting to the coordinator.
-import type { SessionEvent } from "@roost/shared/wire";
+import type { SessionEvent } from "@roost/protocol/wire";
 import {
   SessionEventStoreFatalError,
   SessionEventOutboxFullError,

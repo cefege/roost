@@ -4,8 +4,8 @@
 // rejection the acknowledged `roost api ui apply-layout` command still returns.
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { LayoutDocumentNode, LayoutDocumentV1 } from "@roost/shared/layout-document";
-import { UiApplyLayoutOutcome, type UiCommandFrame } from "@roost/shared/proto/sync_pb";
+import type { LayoutDocumentNode, LayoutDocumentV1 } from "@roost/protocol/layout-document";
+import { UiApplyLayoutOutcome, type UiCommandFrame } from "@roost/protocol/proto/sync_pb";
 import {
   UI_LAYOUT_APPLY_REJECTION,
   executeTargetedUiLayoutApply,

@@ -3,7 +3,7 @@
 // rejection closes that peer generation without touching PTYs or other ports.
 // No browser, environment variable, or production command can construct this fault.
 
-import { TERMINAL_PEER_PACKET_MAGIC } from "@roost/shared/terminal-peer-packets";
+import { TERMINAL_PEER_PACKET_MAGIC } from "@roost/protocol/terminal-peer-packets";
 
 export type TerminalPeerMalformedPacketKind = "offset" | "total" | "id";
 

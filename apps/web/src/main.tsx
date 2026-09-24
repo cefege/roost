@@ -17,7 +17,7 @@ import { applyTermFontSize } from "./lib/terminalFontPref.ts";
 import { claimTabIdentity } from "./auth/tab-id.ts";
 import { startLocalTerminalFastPath } from "./ws/local-terminal.ts";
 import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
-import { diag, signal } from "@roost/shared/diag";
+import { diag, signal } from "@roost/observability/diag";
 import { effectiveAttempts, shouldReloadForChunkError } from "./lib/chunkError.ts";
 import "./styles/theme-vars.css";
 import "./components/Settings/md/tokens.css";

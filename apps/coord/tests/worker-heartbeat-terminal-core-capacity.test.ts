@@ -5,9 +5,9 @@
 import { expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { terminalCoreCapacityReportToProto } from "@roost/shared/terminal-core-capacity-proto";
-import { WorkersHeartbeatRequestSchema } from "@roost/shared/proto/coordinator_pb";
-import { TerminalCoreCapacityReportSchema } from "@roost/shared/proto/wire_pb";
+import { terminalCoreCapacityReportToProto } from "@roost/protocol/terminal-core-capacity-proto";
+import { WorkersHeartbeatRequestSchema } from "@roost/protocol/proto/coordinator_pb";
+import { TerminalCoreCapacityReportSchema } from "@roost/protocol/proto/wire_pb";
 import { presenceBus } from "../src/buses.ts";
 import {
   workerHeartbeatContext,

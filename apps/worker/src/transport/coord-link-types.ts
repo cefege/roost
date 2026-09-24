@@ -2,7 +2,7 @@
 // Extracted to keep coord-link.ts under the 400-line cap; re-exported
 // from coord-link.ts so external import paths stay unchanged.
 
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 import type {
 	CoordWorkerDown,
 	CoordWorkerUp,
@@ -37,10 +37,10 @@ import type {
 	WLocalAttachmentPeerAnswer,
 	WLocalAttachmentPeerError,
 	WTerminalTransportProbeResult,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { TerminalInputRouteResult, TerminalViewStateFrame } from "@roost/shared/proto/sync_pb";
-import type { TerminalViewInput } from "@roost/shared/terminal-view";
-import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { TerminalInputRouteResult, TerminalViewStateFrame } from "@roost/protocol/proto/sync_pb";
+import type { TerminalViewInput } from "@roost/protocol/terminal-view";
+import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/protocol/wire";
 import type { AttachmentGrantStore } from "../attachment-grants.ts";
 import type { AttachmentDirectSockets } from "../attachment-direct-socket.ts";
 import type { AttachmentPeerOwner } from "../attachment-peer-owner.ts";

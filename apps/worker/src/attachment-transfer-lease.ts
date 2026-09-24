@@ -5,7 +5,7 @@
 import {
   ATTACHMENT_TRANSFER_ACTIVE_MAX_MS,
   ATTACHMENT_TRANSFER_IDLE_MS,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 
 export interface AttachmentTransferLeaseOptions {
   readonly onExpired: () => void;

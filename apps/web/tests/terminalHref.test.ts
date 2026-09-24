@@ -3,8 +3,8 @@
 // builds /t/<fp>/<folder>; falls back to /s/<id> when spawn_cwd is absent.
 
 import { expect, test, describe } from "bun:test";
-import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asWorkerFp, asSessionId, asChannelId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { terminalHref, encodeFolderPath, decodeFolderPath } from "../src/lib/terminalHref.ts";
 
 const FP = asWorkerFp("aa".repeat(32));

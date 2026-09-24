@@ -6,7 +6,7 @@
 // Callers: Onboarding.tsx, PairRequestNotifier.tsx (pair_requests);
 // Settings/McpPane.tsx (mcp_relays).
 
-import type { McpRelay } from "@roost/shared/wire";
+import type { McpRelay } from "@roost/protocol/wire";
 import { deleteStoreRecord, setRootStore } from "./root.ts";
 
 export function deletePairRequest(ephemeralId: string): void {

@@ -15,7 +15,7 @@ import {
   SessionsGetScrollbackCellsResponseSchema,
   SessionsSearchScrollbackMatchSchema,
   SessionsSearchScrollbackResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   TERMINAL_SEARCH_MAX_MATCHES,
   TERMINAL_SEARCH_MAX_ROWS,
@@ -28,11 +28,11 @@ import {
   TerminalSearchQuerySchema,
   WorkerSearchScrollbackResultSchema,
   type SearchStopReason,
-} from "@roost/shared/terminal-search";
-import { log } from "@roost/shared/log";
-import { cellRowToProto } from "@roost/shared/cell/cell-proto";
-import type { CellRow } from "@roost/shared/cell";
-import { asSessionId, type ScrollbackHistoryFloor } from "@roost/shared/wire";
+} from "@roost/protocol/terminal-search";
+import { log } from "@roost/observability/log";
+import { cellRowToProto } from "@roost/protocol/cell/cell-proto";
+import type { CellRow } from "@roost/protocol/cell";
+import { asSessionId, type ScrollbackHistoryFloor } from "@roost/protocol/wire";
 import {
   requireAccountDevice,
   requireSearchTabId,

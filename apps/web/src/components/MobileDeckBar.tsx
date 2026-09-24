@@ -12,7 +12,7 @@ import { sessionTerminalTransportLabel } from "../store/local-transport-indicato
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { TerminalTransportIndicator } from "./TerminalTransportIndicator.tsx";
 import { openSidebar } from "../store/uiStore.ts";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { WorkspaceTabsMenu } from "./WorkspaceTabsMenu.tsx";
 import { flipGrid } from "../lib/gridFlip.ts";
 import { TerminalCard } from "./TerminalCard.tsx";

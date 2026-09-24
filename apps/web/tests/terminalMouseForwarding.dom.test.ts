@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { MouseTracking } from "@roost/shared/cell";
+import type { MouseTracking } from "@roost/protocol/cell";
 import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
 import type { TerminalMouseForwarding } from "../src/lib/terminalMouseForwarding.ts";
 import { terminalLinkModifierKey } from "../src/lib/browserPlatform.ts";

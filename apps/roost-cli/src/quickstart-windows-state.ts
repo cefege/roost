@@ -17,9 +17,9 @@ import {
   durableReplace,
   durableWriteFile,
   flushDurablePath,
-} from "@roost/shared/durability";
-import { coordDataDir } from "@roost/shared/paths";
-import { windowsApplyArtifactDacl } from "@roost/shared/windows-helper";
+} from "@roost/host/durability";
+import { coordDataDir } from "@roost/host/paths";
+import { windowsApplyArtifactDacl } from "@roost/host/windows-helper";
 import {
   protectWindowsRoleStateTree,
   restoreWindowsFileSecurityTree,

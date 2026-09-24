@@ -3,8 +3,8 @@
 // deploy-local.ts supplies durable IO and concrete service lifecycle actions.
 
 import { join, resolve } from "node:path";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
-import { roostServiceDir } from "@roost/shared/paths";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
+import { roostServiceDir } from "@roost/host/paths";
 import {
   decodeServiceSnapshot,
   LOCAL_WORKER_DEPLOY_JOURNAL_SCHEMA_VERSION,

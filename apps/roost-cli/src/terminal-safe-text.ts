@@ -2,7 +2,7 @@
 // Human renderers call this before interpolation; lossless JSON paths bypass it.
 // Controls become visible escapes and oversized rendered values carry a marker.
 
-import { utf8ByteLength } from "@roost/shared/ui-state";
+import { utf8ByteLength } from "@roost/protocol/ui-state";
 
 export const TERMINAL_SAFE_TEXT_MAX_CODE_POINTS = 256;
 export const TERMINAL_SAFE_TEXT_MAX_UTF8_BYTES = 512;

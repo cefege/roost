@@ -9,7 +9,7 @@ import {
   ConnectError,
   type ServiceImpl,
 } from "@connectrpc/connect";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
+import { CoordinatorService } from "@roost/protocol/proto/coordinator_pb";
 import type { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +18,7 @@ import { makeAuthHandlers } from "../src/connect/handlers-auth.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { fingerprintOf } from "@roost/shared/fingerprint";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
 import { newJwtCache } from "../src/jwt.ts";
 import { ensureSelfHostedTenant, type SelfHostedTenant } from "../src/self-hosted-tenant.ts";
 

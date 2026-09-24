@@ -11,8 +11,8 @@ import {
   KeeperContractV1Schema,
   keeperUpdateAdmission,
   type KeeperContractV1,
-} from "@roost/shared/keeper-update";
-import { coordServicePath, workerServicePath } from "@roost/shared/paths";
+} from "@roost/protocol/keeper-update";
+import { coordServicePath, workerServicePath } from "@roost/host/paths";
 import {
   createJournaledKeeperUpdateCallbacks,
   localUpdateWorker,

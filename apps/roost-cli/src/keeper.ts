@@ -2,7 +2,7 @@
 // the compiled binary's self-exec target: the worker spawns `roost keeper
 // <sock>` instead of `bun run multiplexed-main.ts <sock>` when it isn't
 // running under bun (see keeper-pool-lifecycle.ts). Internal, not user-facing.
-import { runKeeper } from "../../worker/src/keeper/multiplexed-main.ts";
+import { runKeeper } from "@roost/worker/keeper/multiplexed-main";
 
 export function keeper(args: string[]): void {
   const sock = args[0];

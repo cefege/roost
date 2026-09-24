@@ -7,7 +7,7 @@ import {
   spansText,
   type CellGridFrame,
   type CellRow,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import { renderRow, rowHash, type FindHit } from "./cellRow.ts";
 import {
   cellHistoryInsertionIndex,

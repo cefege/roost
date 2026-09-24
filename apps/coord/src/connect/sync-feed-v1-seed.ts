@@ -3,8 +3,8 @@
 // live queue, exact byte accounting, and FIFO handoff to paced delivery.
 
 import { toBinary } from "@bufbuild/protobuf";
-import { FirehoseFrameSchema, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
+import { FirehoseFrameSchema, type FirehoseFrame } from "@roost/protocol/proto/sync_pb";
+import { log } from "@roost/observability/log";
 import type { SyncFeedFrameMeta } from "./sync-feed-frames.ts";
 
 export interface SyncFeedSeedOptions {

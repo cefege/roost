@@ -22,7 +22,7 @@
 //     and silently double each one. Release carries no button identity in X10:
 //     it reports 3.
 
-import type { MouseTracking } from "@roost/shared/cell";
+import type { MouseTracking } from "@roost/protocol/cell";
 
 /** Cb bits. Shift and Alt are deliberately absent: they are Roost's per-gesture
  *  bypass to native selection, so they never reach the application at all. */

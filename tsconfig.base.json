@@ -18,6 +18,7 @@
   "include": [
     "apps/**/*.ts",
     "apps/**/*.tsx",
+    "packages/**/*.ts",
     "smoke/**/*.ts"
   ],
   "exclude": [

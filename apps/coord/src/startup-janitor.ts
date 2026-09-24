@@ -4,7 +4,7 @@
 // workspaceBus deltas are published here — reconnecting SPAs learn about the
 // pruning only from their sync-feed seed snapshot. Never touches 'open'
 // sessions; dead open ones are ghost-closed by worker snapshot reconcile.
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import type { KyselyDB } from "./db/connection.ts";
 
 /** Purge durable rows that cannot represent live coordinator state after boot. */

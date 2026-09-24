@@ -3,7 +3,7 @@
 // peer, and attachment receipt controls keep their own protocol handlers; this
 // bridge only preserves one bounded dispatch seam for their current worker.
 
-import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
+import type { CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
 import { dispatchDirectAttachmentWorkerResult } from "./worker-frame-dispatch-direct-attachment.ts";
 import { dispatchDirectTerminalWorkerResult } from "./worker-frame-dispatch-direct-terminal.ts";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";

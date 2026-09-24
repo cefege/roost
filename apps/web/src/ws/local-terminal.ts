@@ -4,7 +4,7 @@
 // Grants remain worker-scoped in local-terminal-grants.ts.
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import {
   LocalScrollbackRequestSchema,
   LocalTerminalClientFrameSchema,
@@ -13,7 +13,7 @@ import {
   type LocalScrollbackResponse,
   type LocalTerminalClientFrame,
   type LocalTerminalServerFrame,
-} from "@roost/shared/proto/local_terminal_pb";
+} from "@roost/protocol/proto/local_terminal_pb";
 import {
   TerminalTransportProbeSchema,
   type InputCommand,
@@ -22,8 +22,8 @@ import {
   type TerminalResyncCommand,
   type TerminalTransportProbeResult,
   type TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
-import { backoffDelayMs } from "@roost/shared/retry";
+} from "@roost/protocol/proto/sync_pb";
+import { backoffDelayMs } from "@roost/protocol/retry";
 import {
   discoverLocalWorkerDoor,
   readLocalWorkerDoor,

@@ -26,7 +26,7 @@ import {
   type ServiceHealthProver,
   type WindowsUpdateBrokerDeps,
   type WindowsUpdateNative,
-} from "../src/windows/windows-update-broker.ts";
+} from "@roost/host/windows/windows-update-broker";
 import { fixtureHealthTable, readHealthByRole, stubFetch } from "./test-helpers.ts";
 import {
   handleUpdateBrokerCommand,
@@ -35,7 +35,7 @@ import {
   type WindowsUpdateControlDeps,
   readPublishedWindowsUpdateProgress,
   windowsUpdateRequestDirectory,
-} from "../src/windows/windows-update-control.ts";
+} from "@roost/host/windows/windows-update-control";
 import {
   DurableWindowsUpdateJournalStore,
   appendWindowsUpdateProgress,
@@ -50,7 +50,7 @@ import {
   type WindowsUpdateJournalStore,
   type WindowsUpdateJournalV1,
   type WindowsUpdateJournalV2,
-} from "../src/windows/windows-update-journal.ts";
+} from "@roost/host/windows/windows-update-journal";
 
 const ROLES = ["keeper", "worker", "coordinator", "updater"] as const satisfies readonly RoostServiceRole[];
 const PUBLISHER_SHA256 = "a".repeat(64);

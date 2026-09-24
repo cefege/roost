@@ -6,7 +6,7 @@ import {
   PAIRING_CEREMONY_VERSION,
   normalizePairRequestId,
   normalizePairVerificationCode,
-} from "@roost/shared/pairing";
+} from "@roost/protocol/pairing";
 
 export const PAIR_APPROVAL_STORAGE_KEY = "roost.pairApproval.v1";
 

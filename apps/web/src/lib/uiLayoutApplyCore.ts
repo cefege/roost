@@ -7,7 +7,7 @@ import {
   UiApplyLayoutOutcome,
   type LayoutDocumentV1 as ProtoLayoutDocumentV1,
   type UiCommandFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 
 export const UI_LAYOUT_APPLY_REJECTION = {
   bridgeUnavailable: "The target tab UI bridge is unavailable.",

@@ -8,7 +8,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   UiApplyLayoutOutcome,
   UiApplyLayoutResultSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   UI_LAYOUT_REJECTED_REASON_MAX_LENGTH,
   UI_LAYOUT_TARGET_GONE_REASON,

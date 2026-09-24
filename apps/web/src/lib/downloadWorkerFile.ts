@@ -11,7 +11,7 @@ import { addToast } from "../store/toastStore.ts";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { addTransfer, markTransferState, setTransferProgress } from "../store/transfers.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { parseWorkerFileHref, workerPathBasename } from "./nativePath.ts";
 
 // 4 MiB per chunk — matches the upload chunk size; bounded memory per hop.

@@ -10,8 +10,8 @@ import {
   TERMINAL_CAPTURE_LIMITS,
   type TerminalCaptureActionName,
   type TerminalCaptureResult,
-} from "@roost/shared/terminal-capture";
-import { diag } from "@roost/shared/diag";
+} from "@roost/protocol/terminal-capture";
+import { diag } from "@roost/observability/diag";
 import {
   announceTerminalCaptureException,
   announceTerminalCaptureResult,

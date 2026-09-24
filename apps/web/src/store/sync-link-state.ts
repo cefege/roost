@@ -3,7 +3,7 @@
 // Domain and redial leaves use these operations instead of keeping rival globals.
 // Terminal generation listeners are notified whenever the live link changes state.
 
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
 import type {
   StaleWatchdog,
   SyncLinkLiveness,

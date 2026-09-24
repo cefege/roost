@@ -19,7 +19,7 @@ import { _enqueueRawMetadata } from "./session-raw-metadata.ts";
 import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 import { WORKER_SNAPSHOT_MAX_SESSIONS } from "./transport/coord-link-constants.ts";
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
-import { asChannelId } from "@roost/shared/wire";
+import { asChannelId } from "@roost/protocol/wire";
 import {
 	isFatalSessionEventError,
 	SessionEventOutboxFullError,
@@ -27,7 +27,7 @@ import {
 	type SessionEventReservation,
 } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
-import type { SessionId, ChannelId, SessionEvent } from "@roost/shared/wire";
+import type { SessionId, ChannelId, SessionEvent } from "@roost/protocol/wire";
 import type { SessionRecord, SessionShellRecord } from "./session-record.ts";
 import type { ShellSpec } from "./shell-spec.ts";
 export type { SessionRecord, SessionShellRecord } from "./session-record.ts";

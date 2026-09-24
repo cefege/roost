@@ -4,7 +4,7 @@
 // Drives the real listener over loopback HTTP/WS; no worker boot, no sessions.
 
 import { afterEach, expect, test } from "bun:test";
-import { DEFAULT_WORKER_LOCAL_UI_BIND } from "@roost/shared/config";
+import { DEFAULT_WORKER_LOCAL_UI_BIND } from "@roost/host/config";
 import { loadWorkerConfig } from "../src/config.ts";
 import {
   LOCAL_BOOTSTRAP_PATH,

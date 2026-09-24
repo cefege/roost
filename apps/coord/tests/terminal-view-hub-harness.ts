@@ -3,13 +3,13 @@ import {
   TerminalViewCommandSchema,
   type FirehoseFrame,
   type TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   TerminalStreamFailureKind,
   TerminalStreamStatus,
   WTerminalStreamResultSchema,
   type WTerminalStreamResult,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TerminalViewHub,
   type TerminalViewHubOptions,

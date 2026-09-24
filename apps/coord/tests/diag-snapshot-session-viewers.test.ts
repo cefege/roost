@@ -8,7 +8,7 @@ import { afterEach, expect, test } from "bun:test";
 import {
   TERMINAL_VIEW_PARK_GRACE_MS,
   minimumTerminalGeometry,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { coordSessionDiagnostic } from "../src/connect/diag-snapshot-session-state.ts";
 import { installTerminalViewHub } from "../src/connect/terminal-view-hub.ts";
 import {

@@ -4,8 +4,8 @@
 // resolves via workspaceForFolder while cwd == the workspace's folder_path.
 
 import { expect, test, describe, beforeEach } from "bun:test";
-import { asWorkerFp, asSessionId, asChannelId, asWorkspaceId } from "@roost/shared/wire";
-import type { Session, Workspace } from "@roost/shared/wire";
+import { asWorkerFp, asSessionId, asChannelId, asWorkspaceId } from "@roost/protocol/wire";
+import type { Session, Workspace } from "@roost/protocol/wire";
 import { setRootStore } from "../src/store/root.ts";
 import { folderPathOf, folderKeyOf, folderDisplayName } from "../src/lib/folderKey.ts";
 

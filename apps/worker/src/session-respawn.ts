@@ -6,12 +6,12 @@
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
 import type { SessionEventReservation } from "./event-sink.ts";
-import type { SessionId, ChannelId } from "@roost/shared/wire";
-import { diag } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import { newTraceId } from "@roost/shared/trace";
-import { initCellEmitState } from "@roost/shared/cell";
-import { isTerminalGeometry } from "@roost/shared/viewport";
+import type { SessionId, ChannelId } from "@roost/protocol/wire";
+import { diag } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import { newTraceId } from "@roost/observability/trace";
+import { initCellEmitState } from "@roost/protocol/cell";
+import { isTerminalGeometry } from "@roost/protocol/viewport";
 import { randomUUID } from "node:crypto";
 import { FsmChannel } from "./fsm.ts";
 import { canonicalSessionCwd } from "./util/path.ts";

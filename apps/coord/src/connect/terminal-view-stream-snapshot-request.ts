@@ -4,8 +4,8 @@
 // current route or publishes that session unavailable, and each resumed await
 // re-checks stream identity, so a snapshot belonging to a superseded stream can
 // neither send nor mark the live one down.
-import type { TerminalUnavailablePolicy } from "@roost/shared/terminal-view";
-import type { TerminalGeometry } from "@roost/shared/viewport";
+import type { TerminalUnavailablePolicy } from "@roost/protocol/terminal-view";
+import type { TerminalGeometry } from "@roost/protocol/viewport";
 import type {
   TerminalStreamRoute,
   TerminalViewStreamControllerOptions,

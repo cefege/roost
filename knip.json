@@ -2,7 +2,11 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignoreExportsUsedInFile": true,
   "workspaces": {
-    "apps/shared":   { "ignoreDependencies": ["@bufbuild/protoc-gen-es"], "entry": ["tests/**/*.test.ts"] },
+    "packages/protocol":   { "ignoreDependencies": ["@bufbuild/protoc-gen-es"], "entry": ["tests/**/*.test.ts"] },
+    "packages/observability": { "entry": ["tests/**/*.test.ts"] },
+    "packages/platform":   { "entry": ["tests/**/*.test.ts"] },
+    "packages/wterm":      { "entry": ["tests/**/*.test.ts"] },
+    "packages/host":       { "entry": ["tests/**/*.test.ts"] },
     "apps/coord":    { "entry": ["tests/**/*.test.ts"] },
     "apps/worker":   { "entry": ["src/keeper/multiplexed-main.ts!", "tests/**/*.test.ts"], "ignoreBinaries": ["ip"] },
     "apps/web":      { "entry": ["index.html", "public/sw-push.js", "tests/**/*.test.ts"] },

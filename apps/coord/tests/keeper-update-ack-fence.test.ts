@@ -11,8 +11,8 @@ import {
   WHelloSchema,
   WSessionEventSchema,
   type CoordWorkerDown,
-} from "@roost/shared/proto/worker_transport_pb";
-import { eventToProto } from "@roost/shared/wire/event-proto";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
 import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
 import { CoordinatorWriteGate } from "../src/coordinator-write-gate.ts";
 import { PendingEventPublicationStore } from "../src/pending-event-publications.ts";

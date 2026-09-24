@@ -5,7 +5,7 @@
 // to recruit the pane's settle window — once, and only for the band.
 import { expect, test } from "bun:test";
 import { CellGridRenderer } from "../src/lib/cellRenderer.ts";
-import type { CellGridFrame, CellRow } from "@roost/shared/cell";
+import type { CellGridFrame, CellRow } from "@roost/protocol/cell";
 import {
   ROW_PX,
   deltaFrame,

@@ -9,7 +9,7 @@
 // wrong size is worse than the keeper default. Re-measures per call — a cached
 // value survives a window resize or zoom change and lies.
 
-import type { TerminalGeometry } from "@roost/shared/viewport";
+import type { TerminalGeometry } from "@roost/protocol/viewport";
 import {
   measureTerminalCellBox,
   terminalGeometryForBox,

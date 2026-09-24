@@ -10,11 +10,11 @@ import {
   TerminalPipelineStage,
   type TerminalPipelineSessionSnapshot,
   type TerminalPipelineTarget,
-} from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/wire_pb";
 import type {
   DTerminalPipelineSnapshotRequest,
   WTerminalPipelineSnapshot,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TERMINAL_PIPELINE_MAX_HISTOGRAM_BUCKETS,
   TERMINAL_PIPELINE_MAX_RESPONSE_BYTES,

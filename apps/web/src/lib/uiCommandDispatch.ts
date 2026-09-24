@@ -3,12 +3,12 @@
 // applyLayout delegates to the exact-tab/socket acknowledged adapter.
 // UiBridge supplies router navigation while this shell owns store resolution.
 
-import type { UiCommand, UiCommandFrame } from "@roost/shared/proto/sync_pb";
-import { diag, signal } from "@roost/shared/diag";
+import type { UiCommand, UiCommandFrame } from "@roost/protocol/proto/sync_pb";
+import { diag, signal } from "@roost/observability/diag";
 import { findLeafOfTab } from "../store/paneLayout.ts";
 import { commitLayout, resolveLayout } from "../store/paneLayoutStore.ts";
 import { rootStore } from "../store/root.ts";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";
 import { setSpotlightSessionId, clearSpotlight } from "../store/spotlight.ts";
 import { getTabId } from "../auth/tab-id.ts";

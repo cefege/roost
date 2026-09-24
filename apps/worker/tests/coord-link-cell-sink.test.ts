@@ -4,11 +4,11 @@
 // would resume it), and a link bounce must cost exactly one forced full
 // without touching the stream generation a viewer is watching.
 import { afterEach, expect, test } from "bun:test";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import { buildCoordLinkDeps, type CoordLinkRefs } from "../src/coord-link-deps.ts";
 import type { CoordLink } from "../src/transport/coord-link.ts";
 import type { SessionEventStore } from "../src/transport/session-event-store.ts";
-import { asWorkerFp } from "@roost/shared/wire";
+import { asWorkerFp } from "@roost/protocol/wire";
 import { installAutoKeeper } from "./keeper-fake-pool.ts";
 import {
   CHANNEL_ID,

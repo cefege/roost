@@ -10,14 +10,14 @@ import {
   ATTACHMENT_TRANSFER_GRANT_TTL_MS,
   ATTACHMENT_TRANSFER_MAX_ACTIVE_PER_WORKER,
   type AttachmentTransferPeerChannelLane,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   AttachmentTransferClientFrameSchema,
   AttachmentTransferServerFrameSchema,
   type AttachmentTransferAck,
   type AttachmentTransferServerFrame,
-} from "@roost/shared/proto/attachment_transfer_pb";
-import { DLocalAttachmentGrantSchema } from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/attachment_transfer_pb";
+import { DLocalAttachmentGrantSchema } from "@roost/protocol/proto/worker_transport_pb";
 import { AttachmentDirectSockets } from "../src/attachment-direct-socket.ts";
 import { AttachmentGrantStore } from "../src/attachment-grants.ts";
 import { attachmentOperationStatus } from "../src/attachment-upload.ts";

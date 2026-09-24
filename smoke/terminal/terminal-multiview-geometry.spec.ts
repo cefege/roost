@@ -3,7 +3,7 @@
 // crossed axes drive one fixture PTY; every geometry claim is checked against
 // the PTY child's own winsize and against the coordinator's published per-view
 // inputs. Helpers live in terminal-multiview-geometry-helpers.ts; the SCD
-// policy itself is only ever @roost/shared/viewport's minimumTerminalGeometry.
+// policy itself is only ever @roost/protocol/viewport's minimumTerminalGeometry.
 
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -11,7 +11,7 @@ import {
   TERMINAL_VIEW_LEASE_MS,
   TERMINAL_VIEW_PARK_GRACE_MS,
   TERMINAL_VIEW_SWEEP_MS,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { test, expect } from "./fixtures.ts";
 import {
   RESIZED_NARROW_VIEWPORT, WIDE_SHORT_VIEWPORT, forceVisible,

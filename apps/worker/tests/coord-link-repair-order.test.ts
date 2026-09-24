@@ -11,14 +11,14 @@ process.env.ROOST_WORKER_DATA_DIR = mkdtempSync(join(tmpdir(), "coordlink-repair
 
 import { expect, test, vi } from "bun:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
+import { PbCellGridFrameSchema } from "@roost/protocol/proto/cell_pb";
 import {
   CoordWorkerDownSchema,
   CoordWorkerUpSchema,
   DEventAckSchema,
   DHelloAckSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { WORKER_AUTH_SUBPROTOCOL, type WorkerFp } from "@roost/shared/wire";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { WORKER_AUTH_SUBPROTOCOL, type WorkerFp } from "@roost/protocol/wire";
 import {
   startCoordLink,
   type CoordLink,

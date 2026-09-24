@@ -6,7 +6,7 @@
 // semantics live in lib/nativePath; these route-named wrappers preserve the
 // established public helper names used by smoke/tests.
 
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { decodeWorkerPathRoute, encodeWorkerPathRoute } from "./nativePath.ts";
 
 // Absolute folder path → splat segment. POSIX bytes remain unchanged; Windows

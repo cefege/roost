@@ -9,7 +9,7 @@ import {
   keeperBindingDigestInput,
   type JournaledKeeperUpdateV1,
   type KeeperContractV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import {
   applyJournaledKeeperUpdateAction,
   type JournaledKeeperUpdateActionV1,

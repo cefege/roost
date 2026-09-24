@@ -20,10 +20,10 @@ process.env.ROOST_KEEPER_QUIET = "1";
 
 import { expect, test } from "bun:test";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { CoordWorkerDownSchema, DHelloAckSchema, DPingSchema } from "@roost/shared/proto/worker_transport_pb";
+import { CoordWorkerDownSchema, DHelloAckSchema, DPingSchema } from "@roost/protocol/proto/worker_transport_pb";
 import { startCoordLink } from "../src/transport/coord-link.ts";
 import { openSessionEventStore } from "../src/transport/session-event-store.ts";
-import type { WorkerFp } from "@roost/shared/wire";
+import type { WorkerFp } from "@roost/protocol/wire";
 
 function pingBytes(): Uint8Array {
   return toBinary(

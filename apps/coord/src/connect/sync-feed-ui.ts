@@ -9,7 +9,7 @@ import {
   UiCommandFrameSchema,
   UiStateFrameSchema,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { uiBus } from "../buses.ts";
 import type { UiStateOwner } from "./ui-state-owner.ts";
 

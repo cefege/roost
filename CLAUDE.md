@@ -19,8 +19,7 @@ Landing cold, read in this order. Stop as soon as you have what you need.
    agent-status, session/channel/tab, scrollback.
 3. **The `apps/<x>/README.md` for the app you are touching** —
    [`web`](apps/web/README.md), [`coord`](apps/coord/README.md),
-   [`worker`](apps/worker/README.md), [`shared`](apps/shared/README.md),
-   [`roost-cli`](apps/roost-cli/README.md). Entry point, module map,
+   [`worker`](apps/worker/README.md), [`roost-cli`](apps/roost-cli/README.md). Entry point, module map,
    app-specific invariants, and how to test that app.
 4. **[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md)** — grep it BEFORE
    writing code that matches a listed symptom. See `## Failure index` below.
@@ -115,8 +114,8 @@ Non-negotiable for every change.
    lineage.
 
 7. **Structured logging at every state transition.** Use `log` from
-   `@roost/shared/log` in coord and worker; `diag()` / `signal()` from
-   `@roost/shared/diag` in web; `console.*` ONLY in `apps/roost-cli`, whose
+   `@roost/observability/log` in coord and worker; `diag()` / `signal()` from
+   `@roost/observability/diag` in web; `console.*` ONLY in `apps/roost-cli`, whose
    stdout is its product surface. Every transition that matters (spawn,
    attach, mode change, reconnect, replay) emits one line. No silent state
    changes. Ratcheted: `bun run lint` fails a NEW `console.*` in
@@ -134,16 +133,16 @@ Non-negotiable for every change.
 10. **Reuse existing utilities — don't fork.** Check the relevant
     `apps/*/README.md` module map first; it names the owner of each concern.
     The three seams that get forked most often:
-    - **Wire shapes** live once in `apps/shared`. Add an event variant in
-      `apps/shared/src/wire/event.ts` first, then fold, emit, and project.
+    - **Wire shapes** live once in `packages/protocol`. Add an event variant in
+      `packages/protocol/src/wire/event.ts` first, then fold, emit, and project.
       Procedure signatures come from the generated proto types under
-      `@roost/shared/proto/*` (regenerate with
-      `bun run --filter='@roost/shared' proto:gen`).
-    - **`apps/shared` is subpath-only.** `import { X } from "@roost/shared"`
+      `@roost/protocol/proto/*` (regenerate with
+      `bun run --filter='@roost/protocol' proto:gen`).
+    - **Package imports are subpath-only.** `import { X } from "@roost/protocol"`
       does not resolve — there is no barrel. Import
-      `@roost/shared/{wire,log,diag,paths,platform,native-path,config,fingerprint,viewport,cell,json,...}`
-      per `apps/shared/package.json`'s `exports`. `@roost/shared` remains the
-      valid *package* name, so the `--filter` command above is correct.
+      `@roost/protocol/{wire,viewport,cell,json,...}` from protocol,
+      `@roost/observability/{log,diag}`, `@roost/platform/{platform,native-path}`,
+      and `@roost/host/{paths,config}` per those packages' `exports`.
     - **Coord RPC handlers** live by domain in `apps/coord/src/connect/handlers-*.ts`,
       each exporting a `make<Domain>Handlers(deps)` spread into the SINGLE
       `router.service()` literal in `apps/coord/src/connect/router.ts`. A separate
@@ -152,7 +151,7 @@ Non-negotiable for every change.
 
     If you find yourself writing a parallel utility, stop and reuse. Two
     hand-maintained implementations of one value is the defect this repo pays
-    for most — see the fingerprint entry in `apps/shared/README.md`.
+    for most — see the fingerprint entry in `packages/protocol/src/fingerprint.ts`.
 
 11. **No clever / hidden / magic.** No metaprogramming, no top-level mutable
     globals. All state has an owner you can grep for. All side effects are

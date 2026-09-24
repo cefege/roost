@@ -2,7 +2,7 @@
 // The scheduler owns one identity-fenced record per channel so replaced streams
 // cannot consume, cancel, or re-arm another generation's work. Frame construction
 // stays in session-emit; resize, snapshots, and synchronized output own their wakes.
-import { asChannelId } from "@roost/shared/wire";
+import { asChannelId } from "@roost/protocol/wire";
 import type { SessionManager } from "./session-manager.ts";
 import {
 	aggregateStreamDelivery,

@@ -13,29 +13,29 @@
 // treats any dispatch throw as fatal protocol damage that tears down the v2
 // socket, which one bad DB row must never cause.
 
-import { signal } from "@roost/shared/diag";
-import { keeperRuntimeObservationFromProto } from "@roost/shared/keeper-update-proto";
+import { signal } from "@roost/observability/diag";
+import { keeperRuntimeObservationFromProto } from "@roost/protocol/keeper-update-proto";
 import {
   terminalCoreCapacityReportFromProto,
-} from "@roost/shared/terminal-core-capacity-proto";
-import type { TerminalCoreCapacityReport } from "@roost/shared/terminal-core-capacity";
+} from "@roost/protocol/terminal-core-capacity-proto";
+import type { TerminalCoreCapacityReport } from "@roost/protocol/terminal-core-capacity";
 import type {
   McpRelay as McpRelayWire,
   Task as TaskWire,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import type {
   McpStreamMessageProto,
   TaskDeltaProto,
   WorkerPresenceProto,
   WorkspaceDeltaProto,
-} from "@roost/shared/proto/events_pb";
+} from "@roost/protocol/proto/events_pb";
 import type {
   HostMetrics,
   McpRelay,
   Task,
   TerminalCoreCapacityReport as TerminalCoreCapacityReportProto,
   Workspace,
-} from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/wire_pb";
 
 /**
  * Decode one *_json column riding a proto delta or hydration list. Returns

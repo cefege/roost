@@ -4,7 +4,7 @@
 // corners (12px top / 20px bottom). Swiping past CARD_DISMISS_PX, or a fast
 // flick, closes the terminal. Rendered by WorkspaceTabsSheet in MobileDeckBar.
 import { Show, createMemo, createSignal, onMount } from "solid-js";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { sessionTitle, programSubtitle } from "../lib/sessionTitle.ts";
 import { renderPreview } from "../lib/terminalPreview.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";

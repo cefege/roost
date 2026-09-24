@@ -1,7 +1,7 @@
 // Classifies worker session events at their durability boundary.
 // Durable session events enter the crash-safe store; replaceable metadata
 // coalesces in memory. Snapshot publication belongs to the CoordLink barrier.
-import type { SessionEvent } from "@roost/shared/wire";
+import type { SessionEvent } from "@roost/protocol/wire";
 import type { CoordLink } from "./transport/coord-link.ts";
 import {
   SessionEventStoreFatalError,

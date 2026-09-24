@@ -6,16 +6,16 @@
 //
 // POSIX tools run under service managers with minimal PATHs. Windows never
 // invokes ps/ss/lsof; process and socket ownership comes from the typed helper.
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   assertNeverPlatform,
   supportedHostPlatform,
-} from "@roost/shared/platform";
+} from "@roost/platform/platform";
 import {
   windowsListeningPorts,
   windowsProcessSnapshot,
   type WindowsListeningPort,
-} from "@roost/shared/windows-helper";
+} from "@roost/host/windows-helper";
 
 const HOST_PLATFORM = supportedHostPlatform();
 let TOOL_PATH: string;

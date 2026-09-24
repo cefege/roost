@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SessionEvent } from "@roost/shared/wire";
+import type { SessionEvent } from "@roost/protocol/wire";
 import {
   SESSION_EVENT_SEQUENCE_BLOCK_SIZE,
   SESSION_EVENT_STORE_MAX_PAYLOAD_BYTES,

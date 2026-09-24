@@ -7,14 +7,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "bun:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/protocol/terminal-metadata";
 import {
   CoordWorkerDownSchema,
   CoordWorkerUpSchema,
   DEventAckSchema,
   DHelloAckSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import type { WorkerFp } from "@roost/shared/wire";
+} from "@roost/protocol/proto/worker_transport_pb";
+import type { WorkerFp } from "@roost/protocol/wire";
 import {
   buildCoordLinkDeps,
   type CoordLinkRefs,

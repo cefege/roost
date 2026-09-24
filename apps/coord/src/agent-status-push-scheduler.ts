@@ -2,14 +2,14 @@
 // The status hub supplies current occupant lookup so this module never owns
 // live status; coordinator startup provides persistence and delivery deps.
 
-import { isIdentifiedAgentStatus } from "@roost/shared/wire";
+import { isIdentifiedAgentStatus } from "@roost/protocol/wire";
 import type {
   AgentOccupantId,
   AgentStatus,
   AgentStatusUpdate,
   StatusEpoch,
-} from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
 import type { KyselyDB } from "./db/connection.ts";
 import {
   firePushForTransition,

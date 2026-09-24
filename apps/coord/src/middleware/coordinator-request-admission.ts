@@ -3,8 +3,8 @@
 // It rejects DNS-rebinding requests before WebSocket upgrades or coordinator routes.
 // Caller-address trust remains owned by caller-origin.ts and is intentionally separate.
 
-import { DEFAULT_WORKER_LOCAL_UI_ORIGIN, type CoordConfig } from "@roost/shared/config";
-import { log } from "@roost/shared/log";
+import { DEFAULT_WORKER_LOCAL_UI_ORIGIN, type CoordConfig } from "@roost/host/config";
+import { log } from "@roost/observability/log";
 
 export type CoordinatorRequestAdmission = (request: Request) => Response | null;
 

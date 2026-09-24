@@ -8,11 +8,11 @@ import { create } from "@bufbuild/protobuf";
 import {
   CoordinatorService,
   SessionsCancelGlobalSearchResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
   TerminalSearchIdSchema,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import {
   requireAccountDevice,
   tabIdKey,

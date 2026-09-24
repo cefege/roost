@@ -3,7 +3,7 @@
 // The websocket loop asks it when to dial while link state supplies the current socket.
 // Keeping every wake flag here prevents reconnect paths from racing socket generations.
 
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import {
   nextRedialDelayMs,

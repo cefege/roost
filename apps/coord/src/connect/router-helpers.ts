@@ -5,8 +5,8 @@
 
 import { randomUUID } from "node:crypto";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { log } from "@roost/shared/log";
-import type { ClientControlFrame } from "@roost/shared/wire";
+import { log } from "@roost/observability/log";
+import type { ClientControlFrame } from "@roost/protocol/wire";
 import type { KyselyDB } from "../db/connection.ts";
 import type { AccountDeviceCaller } from "./auth-interceptor.ts";
 import { getWorkerHubSocket } from "./worker-service.ts";

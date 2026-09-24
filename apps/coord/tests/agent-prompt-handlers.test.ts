@@ -19,14 +19,14 @@ import {
 import {
   AgentPromptInputOutcome,
   AgentPromptRejection,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   TerminalInputStatus,
   TerminalWritePhase,
   WInputResultSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { AGENT_PROMPT_MAX_WRITE_BYTES } from "@roost/shared/terminal-input";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { AGENT_PROMPT_MAX_WRITE_BYTES } from "@roost/protocol/terminal-input";
+import { log } from "@roost/observability/log";
 import { _agentStatusWaiterStats } from "../src/agent-status-wait.ts";
 import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
 import {

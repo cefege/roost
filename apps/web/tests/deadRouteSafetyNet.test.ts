@@ -12,8 +12,8 @@
 // timers drive the grace window deterministically (no wall-clock waits).
 
 import { expect, test, describe, beforeEach, afterEach, vi } from "bun:test";
-import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asWorkerFp, asSessionId, asChannelId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { createDeadRouteSafetyNet } from "../src/lib/deadRouteSafetyNet.ts";
 
 const FP = asWorkerFp("aa".repeat(32));

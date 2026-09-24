@@ -3,7 +3,7 @@ import type {
   InputCommand,
   TerminalInputRouteClaim,
   TerminalInputRouteResult,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import type { TerminalGenerationToken } from "../src/store/terminal-stream-types.ts";
 import {
   HELD_INPUT_ADMISSION_TIMEOUT_MS,

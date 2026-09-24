@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Code } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
-import { WLocalAttachmentPeerErrorSchema } from "@roost/shared/proto/worker_transport_pb";
+import { WLocalAttachmentPeerErrorSchema } from "@roost/protocol/proto/worker_transport_pb";
 import type { AttachmentPeerNegotiations } from "../src/connect/attachment-peer-negotiations.ts";
 import type {
   AttachmentPeerNegotiationClock,

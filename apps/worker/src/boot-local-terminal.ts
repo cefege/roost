@@ -3,10 +3,10 @@
 // capabilities. SessionManager stays a lazy forward reference so local carriers
 // can start before keeper/session construction without inventing a second owner.
 
-import { createSpaResponder } from "@roost/shared/spa";
-import { WEB_ASSETS } from "@roost/shared/web-embed";
-import type { WorkerFp } from "@roost/shared/wire";
-import { log } from "@roost/shared/log";
+import { createSpaResponder } from "@roost/host/spa";
+import { WEB_ASSETS } from "@roost/host/web-embed";
+import type { WorkerFp } from "@roost/protocol/wire";
+import { log } from "@roost/observability/log";
 import type { CoordLinkRefs, LocalTerminalWiring } from "./coord-link-deps.ts";
 import { AttachmentGrantStore } from "./attachment-grants.ts";
 import { AttachmentDirectSockets } from "./attachment-direct-socket.ts";

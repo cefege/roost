@@ -7,14 +7,14 @@ import {
   AgentPromptRejection,
   AgentPromptWaitOutcome,
   type AgentStatusView,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   AGENT_PROMPT_MAX_REASON_LENGTH,
   AGENT_PROMPT_MAX_TEXT_BYTES,
   AGENT_PROMPT_MAX_WRITE_BYTES,
   AgentPromptTextSchema,
-} from "@roost/shared/terminal-input";
-import { AgentOccupantId, StatusEpoch } from "@roost/shared/wire";
+} from "@roost/protocol/terminal-input";
+import { AgentOccupantId, StatusEpoch } from "@roost/protocol/wire";
 import {
   parseAgentWaitDuration,
   parseAgentWaitStates,

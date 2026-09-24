@@ -5,7 +5,7 @@
 import {
   JournaledKeeperUpdateV1Schema,
   type JournaledKeeperUpdateV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import { POSIX_FULL_GIT_SHA_RE } from "./posix-deploy-journal.ts";
 
 const WORKER_ROLLOUT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

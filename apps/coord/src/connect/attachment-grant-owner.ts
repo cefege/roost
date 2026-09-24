@@ -4,14 +4,14 @@
 // Peer signaling reads only a live exact lease, while workers receive digests.
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   ATTACHMENT_TRANSFER_GRANT_TTL_MS,
   ATTACHMENT_TRANSFER_MAX_ACTIVE_PER_BROWSER_DOCUMENT,
   ATTACHMENT_TRANSFER_MAX_ACTIVE_PER_WORKER,
   ATTACHMENT_TRANSFER_MAX_PENDING_GRANTS,
   ATTACHMENT_TRANSFER_MAX_PENDING_GRANTS_PER_DEVICE,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import { connectWorkers } from "./worker-registry.ts";
 import { currentRoutableWorker } from "./worker-send-target.ts";
 import {

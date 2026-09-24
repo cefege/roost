@@ -4,8 +4,8 @@
 // The integration report path and the worker's own agent-exit clear both append
 // through emitDurableAgentReference, so the reservation rules exist once.
 
-import type { AgentConversationReferenceV1 } from "@roost/shared/agent-conversation-reference";
-import type { SessionId } from "@roost/shared/wire";
+import type { AgentConversationReferenceV1 } from "@roost/protocol/agent-conversation-reference";
+import type { SessionId } from "@roost/protocol/wire";
 import type { SessionEventSink } from "../event-sink.ts";
 
 export type AgentReferenceEventSink = Pick<

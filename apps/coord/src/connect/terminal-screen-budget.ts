@@ -2,10 +2,10 @@
 // send-buffer slice from a declared byte budget. main.ts calls it once at boot and
 // hands the result to TerminalViewHub and makeSyncWsHandler; nothing here does I/O,
 // so the arithmetic is directly testable. Depends only on the wire-level maxima in
-// @roost/shared plus TerminalScreenHub's hard ceilings.
+// @roost/protocol plus TerminalScreenHub's hard ceilings.
 
-import { CELL_GRID_PART_MAX_BYTES, CELL_GRID_SNAPSHOT_MAX_SPANS } from "@roost/shared/cell";
-import { TERMINAL_MAX_ROWS } from "@roost/shared/viewport";
+import { CELL_GRID_PART_MAX_BYTES, CELL_GRID_SNAPSHOT_MAX_SPANS } from "@roost/protocol/cell";
+import { TERMINAL_MAX_ROWS } from "@roost/protocol/viewport";
 import {
   TERMINAL_SCREEN_MAX_RESIDENT_ROWS,
   TERMINAL_SCREEN_MAX_RESIDENT_SPANS,

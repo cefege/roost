@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Navigator } from "@solidjs/router";
-import type { WorkerFp } from "@roost/shared/wire";
+import type { WorkerFp } from "@roost/protocol/wire";
 import {
   CORE_ACTION_DEFINITIONS,
   buildDefaultItems,

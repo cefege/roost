@@ -6,12 +6,12 @@
 // because that cooldown is exactly what a persistent violation defeats.
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { CellGridFrame, CellRow } from "@roost/shared/cell";
+import type { CellGridFrame, CellRow } from "@roost/protocol/cell";
 import {
   checkTerminalCaptureEnvelope,
   TERMINAL_INCIDENT_SCHEMA,
   type TerminalCaptureCommand,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import {
   makeContainer,
   row,
@@ -30,11 +30,11 @@ interface SignalLine {
 }
 
 const signals: SignalLine[] = [];
-const realDiag = await import("@roost/shared/diag");
+const realDiag = await import("@roost/observability/diag");
 
 // The real per-kind cooldown would coalesce repeats on its own, which is the
 // behaviour under test; this sink records every call the recorder makes.
-mock.module("@roost/shared/diag", () => ({
+mock.module("@roost/observability/diag", () => ({
   ...realDiag,
   signal(kind: string, kv: Record<string, unknown>) {
     signals.push({ evt: kind, ...kv } as SignalLine);

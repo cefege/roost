@@ -9,11 +9,11 @@ import {
   TerminalStreamFailureKind,
   TerminalStreamStatus,
   type WTerminalStreamResult,
-} from "@roost/shared/proto/worker_transport_pb";
-import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
-import { signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/shared/viewport";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { TerminalViewStatus } from "@roost/protocol/proto/sync_pb";
+import { signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/protocol/viewport";
 import { TerminalScreenHub } from "./terminal-screen-hub.ts";
 import {
   TERMINAL_STREAM_CONTROL_TIMEOUT_MS,
@@ -24,7 +24,7 @@ import {
   truncateTerminalReason,
   type TerminalStreamState,
   type TerminalUnavailablePolicy,
-} from "@roost/shared/terminal-view";
+} from "@roost/protocol/terminal-view";
 import type {
   TerminalStreamDesired,
   TerminalViewStreamControllerOptions,

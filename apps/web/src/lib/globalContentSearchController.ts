@@ -3,20 +3,20 @@
 // generation-fenced publication. GlobalSearchPage owns and disposes each instance.
 
 import { createSignal, type Accessor } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import {
   GlobalSearchPartialReason,
   type SessionsSearchGlobalMatch,
   type SessionsSearchGlobalPartial,
   type SessionsSearchGlobalResponse,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
   GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
   GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
   TERMINAL_SEARCH_ID_MAX_LENGTH,
   TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import { coordClient } from "../connect.ts";
 import {
   captureAuthResourceToken,

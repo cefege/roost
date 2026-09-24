@@ -3,7 +3,7 @@
 // shaped data the SSE projector folds.
 // sidebarOpen: mobile drawer state; on desktop the sidebar is always visible.
 
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { createStore } from "solid-js/store";
 
 export type SidebarView = "folders" | "agents";

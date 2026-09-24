@@ -4,8 +4,8 @@
 
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, onCleanup, onMount } from "solid-js";
-import type { AgentStatus } from "@roost/shared/wire";
-import { SessionId } from "@roost/shared/wire";
+import type { AgentStatus } from "@roost/protocol/wire";
+import { SessionId } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import { retireSpentReleasedAgentStatuses, subscribeAgentStatus } from "../store/agent-status.ts";
 import { activeSessionForPath } from "../store/selectors.ts";

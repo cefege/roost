@@ -6,8 +6,8 @@ import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CoordWorkerUpSchema } from "@roost/shared/proto/worker_transport_pb";
-import type { SessionEvent } from "@roost/shared/wire";
+import { CoordWorkerUpSchema } from "@roost/protocol/proto/worker_transport_pb";
+import type { SessionEvent } from "@roost/protocol/wire";
 import {
   classifySessionEvent,
   coordLinkSink,

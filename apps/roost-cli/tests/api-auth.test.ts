@@ -4,11 +4,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runMigrations } from "../../coord/src/db/migrate.ts";
-import { ensureSelfHostedTenant } from "../../coord/src/self-hosted-tenant.ts";
-import type { WorkerConfig } from "../../worker/src/config.ts";
-import type { CoordClient, CoordClientOptions } from "../../worker/src/coord-client.ts";
-import { loadWorkerKey } from "../../worker/src/jwt.ts";
+import { runMigrations } from "@roost/coord/db/migrate";
+import { ensureSelfHostedTenant } from "@roost/coord/self-hosted-tenant";
+import type { WorkerConfig } from "@roost/worker/config";
+import type { CoordClient, CoordClientOptions } from "@roost/worker/coord-client";
+import { loadWorkerKey } from "@roost/worker/jwt";
 import {
   _buildCliContextForCredentials,
   CLI_DASHBOARD_HEADER,

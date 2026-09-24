@@ -1,0 +1,293 @@
+// Core wire message types — mirror of Zod schemas at packages/protocol/src/wire/*.ts.
+// Used by RPCs in coordinator.proto and worker_transport.proto.
+// crpc2 expanded from crpc1's minimal Worker-only set.
+
+syntax = "proto3";
+package roost.v1;
+
+// ─── HostMetrics + Worker ───────────────────────────────────────────────
+
+message HostMetrics {
+  double cpu_pct = 1;
+  uint64 mem_used_bytes = 2;
+  uint64 mem_total_bytes = 3;
+  uint64 disk_used_bytes = 4;
+  uint64 disk_total_bytes = 5;
+  uint64 net_rx_bps = 6;
+  uint64 net_tx_bps = 7;
+  uint64 sampled_at_ms = 8;
+}
+
+// Static, local machine identity. The worker never reports a serial number or
+// other hardware identifier; each optional value is safe for direct display.
+message HostIdentity {
+  optional string hardware_model = 1;
+  optional string chip = 2;
+  optional string linux_distribution = 3;
+}
+// Worker-owned terminal-core admission state. `overcommit_count` is the
+// currently reserved replacement slot, while `refusal_count` is cumulative.
+message TerminalCoreCapacityReport {
+  uint32 used = 1;
+  uint32 pending = 2;
+  uint32 capacity = 3;
+  uint64 estimated_reserved_bytes = 4;
+  uint64 effective_memory_ceiling_bytes = 5;
+  uint64 boot_rss_bytes = 6;
+  uint32 overcommit_count = 7;
+  uint64 refusal_count = 8;
+}
+
+// Content-free, bounded evidence shared by worker, coordinator, and browser
+// pipeline owners. IDs correlate a sampled path; terminal content never crosses
+// this diagnostic contract.
+message TerminalPipelineTarget {
+  string session_id = 1;
+  string view_id = 2;
+}
+
+enum TerminalPipelineStage {
+  TERMINAL_PIPELINE_STAGE_UNSPECIFIED = 0;
+  TERMINAL_PIPELINE_STAGE_WORKER_PTY = 1;
+  TERMINAL_PIPELINE_STAGE_WORKER_CORE = 2;
+  TERMINAL_PIPELINE_STAGE_WORKER_SCHEDULER = 3;
+  TERMINAL_PIPELINE_STAGE_WORKER_STREAM = 4;
+  TERMINAL_PIPELINE_STAGE_WORKER_STREAM_CONTROL = 5;
+  TERMINAL_PIPELINE_STAGE_WORKER_KEEPER = 6;
+  TERMINAL_PIPELINE_STAGE_WORKER_COORD_LINK = 7;
+  TERMINAL_PIPELINE_STAGE_COORD_WORKER_INGRESS = 8;
+  TERMINAL_PIPELINE_STAGE_COORD_CANONICAL = 9;
+  TERMINAL_PIPELINE_STAGE_COORD_EGRESS = 10;
+  TERMINAL_PIPELINE_STAGE_BROWSER_INGRESS = 11;
+  TERMINAL_PIPELINE_STAGE_BROWSER_REPLICA = 12;
+  TERMINAL_PIPELINE_STAGE_BROWSER_RENDERER = 13;
+}
+
+enum TerminalPipelineReason {
+  TERMINAL_PIPELINE_REASON_UNSPECIFIED = 0;
+  TERMINAL_PIPELINE_REASON_NONE = 1;
+  TERMINAL_PIPELINE_REASON_SESSION_NOT_FOUND = 2;
+  TERMINAL_PIPELINE_REASON_STREAM_NOT_FOUND = 3;
+  TERMINAL_PIPELINE_REASON_STREAM_DISABLED = 4;
+  TERMINAL_PIPELINE_REASON_BASELINE_PENDING = 5;
+  TERMINAL_PIPELINE_REASON_CORE_INVALID = 6;
+  TERMINAL_PIPELINE_REASON_SNAPSHOT_PENDING = 7;
+  TERMINAL_PIPELINE_REASON_CELL_GATE = 8;
+  TERMINAL_PIPELINE_REASON_SYNC_OUTPUT = 9;
+  TERMINAL_PIPELINE_REASON_CELL_DIRTY = 10;
+  TERMINAL_PIPELINE_REASON_PENDING_REPAIR = 11;
+  TERMINAL_PIPELINE_REASON_CONTROL_QUEUED = 12;
+  TERMINAL_PIPELINE_REASON_KEEPER_DISCONNECTED = 13;
+  TERMINAL_PIPELINE_REASON_KEEPER_INPUT_PENDING = 14;
+  TERMINAL_PIPELINE_REASON_KEEPER_RESIZE_PENDING = 15;
+  TERMINAL_PIPELINE_REASON_COORD_LINK_UNAVAILABLE = 16;
+  TERMINAL_PIPELINE_REASON_NATIVE_BUFFERED = 17;
+  TERMINAL_PIPELINE_REASON_RAW_METADATA_PENDING = 18;
+}
+
+message TerminalPipelineStageSnapshot {
+  TerminalPipelineStage stage = 1;
+  TerminalPipelineReason reason = 2;
+  uint64 generation = 3;
+  string stream_id = 4;
+  uint64 sequence = 5;
+  uint64 queue_frames = 6;
+  uint64 queue_bytes = 7;
+  uint64 native_buffered_bytes = 8;
+  uint64 oldest_age_ms = 9;
+  uint64 count = 10;
+  // Buckets count ages at <= 1, 2, 4, 8, 16, 32, 64, 128, 256, 512,
+  // 1000, 2000, 5000, 10000, 30000, and +Inf milliseconds, respectively.
+  // A stage carries at most sixteen counts, never duration samples or content.
+  repeated uint64 histogram_buckets = 11;
+}
+
+message TerminalPipelineSessionSnapshot {
+  string session_id = 1;
+  string view_id = 2;
+  repeated TerminalPipelineStageSnapshot stages = 3;
+}
+
+
+// Keeper artifact identity and post-reconciliation runtime proof. build_sha is
+// provenance only; update admission compares every other contract field.
+message KeeperContractV1 {
+  uint32 protocol_version = 1;
+  repeated string supported_features = 2;
+  repeated string required_features = 3;
+  optional string implementation_digest = 4;
+  string bun_abi = 5;
+  string platform = 6;
+  string arch = 7;
+  string build_sha = 8;
+}
+
+message KeeperRuntimeObservationV1 {
+  uint32 schema_version = 1;
+  KeeperContractV1 running_contract = 2;
+  uint64 keeper_pid = 3;
+  string keeper_epoch = 4;
+  uint32 channel_count = 5;
+  string binding_digest = 6;
+  uint64 reconciled_at_ms = 7;
+}
+
+message Worker {
+  string fp = 1;
+  string label = 2;
+  string os = 3;  // "darwin" | "linux" | "win32"
+  optional string git_sha = 4;
+  optional HostMetrics host_metrics = 5;
+  uint64 registered_at_ms = 6;
+  uint64 last_seen_ms = 7;
+  // Tailnet-reachable FQDN (or other resolvable hostname) set by the
+  // deploy script via ROOST_REACHABLE_ADDR. Used by the SPA's
+  // right-click "Screen Share" / "SSH" menu to compose vnc:// / ssh://
+  // URLs. Not used for the worker's outbound coord link (the worker
+  // dials coord, not the other way around).
+  optional string reachable_addr = 8;
+  reserved 9;
+  reserved "keeper_stale";
+  // Authenticated keeper identity emitted only after boot reconciliation.
+  optional KeeperRuntimeObservationV1 keeper_runtime = 10;
+  // The latest worker-owned admission report. It is informational only; live
+  // allocation remains local to the worker that owns its terminal cores.
+  optional TerminalCoreCapacityReport terminal_core_capacity = 11;
+  optional HostIdentity host_identity = 12;
+}
+
+// Private opaque continuation metadata. It is carried by durable events and
+// worker-only recovery rows, never by the public Session message below.
+message AgentConversationReferenceV1 {
+  uint32 schema_version = 1;
+  string agent_id = 2;
+  string kind = 3;
+  string value = 4;
+}
+
+// ─── Session ────────────────────────────────────────────────────────────
+
+
+message Session {
+  string id = 1;
+  string worker_fp = 2;
+  uint32 channel = 3;
+  string kind = 4;  // shell
+  string cwd = 5;
+  optional string workspace_id = 6;
+  string status = 7;  // open|closed
+  reserved 8;  // retired field
+  uint64 created_at = 9;
+  optional uint64 closed_at = 10;
+  // User-set rename. Overrides the auto-derived title (OSC/tool/cwd) in
+  // sessionTitle.ts. absent/empty = no override → auto title shows.
+  optional string custom_title = 11;
+  // Local git branch of the session's cwd, computed on the worker host.
+  // absent = folder isn't a git repo (or not yet resolved). Feeds the
+  // cell-grid folder-row subtitle. Updated via the `git` SessionEvent.
+  optional string git_branch = 12;
+  // GitHub "owner/repo" of the session's origin remote (github.com only).
+  // Feeds bare #123 / commit-SHA terminal links. Updated via `git` event.
+  optional string git_remote = 13;
+  // GitHub PR status for git_branch, resolved on the worker via `gh pr list`.
+  // pr_number absent = no open PR. Feeds the #123 ✓ folder-row badge
+  // (FolderList.tsx). Updated via the `pr` SessionEvent.
+  optional int32 pr_number = 14;
+  optional string pr_state = 15;   // open|merged|closed|draft
+  optional string pr_checks = 16;  // passing|failing|pending|none
+  optional string pr_url = 17;
+  // TCP ports the session's process tree is LISTENing on (worker lsof).
+  // Feeds :5174 folder-row chips. Updated via the `ports` SessionEvent.
+  repeated int32 ports = 18;
+  // Immutable folder the session was spawned in (set once at `opened`, never
+  // updated by `cwd` drift). Backs the stable /t/:workerFp/*folderPath URL.
+  // absent = pre-migration row → callers fall back to /s/:sessionId.
+  optional string spawn_cwd = 19;
+}
+
+// ─── Workspace ────────────────────────────────────────────────────────────
+
+message Workspace {
+  string id = 1;
+  string worker_fp = 2;
+  string name = 3;
+  string folder_path = 4;
+  optional string color = 5;
+  uint32 position = 6;
+  uint64 version = 7;  // CAS
+  uint64 created_at_ms = 8;
+  uint64 updated_at_ms = 9;
+  repeated string session_ids = 10;
+}
+
+// ─── Task ──────────────────────────────────────────────────────────────────
+
+message Task {
+  string id = 1;
+  string state = 2;  // pending|claimed|running|done|failed|cancelled
+  string payload_json = 3;  // raw JSON; coord stores as text
+  uint64 enqueued_at_ms = 4;
+  optional uint64 claimed_at_ms = 5;
+  optional string claimed_by = 6;
+  optional uint64 finished_at_ms = 7;
+  optional string result_json = 8;  // raw JSON or absent
+  optional string completion_check = 9;
+  optional uint64 completion_check_last_attempt_ms = 10;
+  uint64 claim_ttl_ms = 11;
+}
+
+// ─── McpRelay ─────────────────────────────────────────────────────────────
+
+message McpRelay {
+  string id = 1;
+  string label = 2;
+  string kind = 3;  // stdio|sse
+  string config_json = 4;  // raw JSON for free-form config
+  uint64 created_at_ms = 5;
+}
+
+// ─── PairRequest ──────────────────────────────────────────────────────────
+
+message PairRequest {
+  string ephemeral_id = 1;
+  string label = 2;
+  uint64 created_at_ms = 3;
+  string user_agent = 4;
+  string client_browser = 5;
+  string client_os = 6;
+  string client_device_type = 7;
+  string source_ip = 8;
+  string country_code = 9;
+  string region = 10;
+  string city = 11;
+  string edge_identity_provider = 12;
+  string edge_identity = 13;
+  bool edge_identity_verified = 14;
+  uint64 expires_at_ms = 15;
+}
+
+// ─── Audit ────────────────────────────────────────────────────────────────
+
+message AuditRow {
+  uint64 id = 1;
+  uint64 ts = 2;
+  optional string caller_fp = 3;
+  optional string caller_label = 4;
+  string method = 5;
+  string path = 6;
+  uint32 status = 7;
+  optional string trace_id = 8;
+}
+
+// ─── Terminal view membership projection ──────────────────────────────────
+
+// One viewer's contribution to a session's effective terminal geometry, as
+// published by the authority that owns membership for that session.
+message PbTerminalViewInput {
+  string fingerprint = 1;
+  string view_id = 2;
+  uint32 cols = 3;
+  uint32 rows = 4;
+  bool parked = 5;
+  bool constrains = 6;
+}

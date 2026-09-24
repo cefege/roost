@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "bun:test";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb";
 import {
   __setConnectWorkerForTest,
   type WorkerHandle,

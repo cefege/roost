@@ -2,8 +2,8 @@
 // respawn-if-missing). Extracted from browser-command-handler.ts (CLAUDE.md
 // 400-line cap).
 
-import { log } from "@roost/shared/log";
-import type { ClientControlFrame } from "@roost/shared/wire";
+import { log } from "@roost/observability/log";
+import type { ClientControlFrame } from "@roost/protocol/wire";
 import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
 import {

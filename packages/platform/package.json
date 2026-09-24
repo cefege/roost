@@ -1,0 +1,16 @@
+{
+  "name": "@roost/platform",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "exports": {
+    "./machine-join-command": "./src/machine-join-command.ts",
+    "./native-path": "./src/native-path.ts",
+    "./platform": "./src/platform.ts",
+    "./shell-quote": "./src/shell-quote.ts",
+    "./worker-service-env": "./src/worker-service-env.ts"
+  },
+  "scripts": {
+    "typecheck": "bun x tsgo -p tsconfig.json --noEmit"
+  }
+}

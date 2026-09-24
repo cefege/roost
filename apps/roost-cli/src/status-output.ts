@@ -2,7 +2,7 @@
 // The command entry and quickstart share it so remedies and health gating
 // stay aligned with the report fields without duplicating output decisions.
 
-import { WORKER_UPDATE_LABELS, workerUpdateState } from "@roost/shared/fleet-update";
+import { WORKER_UPDATE_LABELS, workerUpdateState } from "@roost/protocol/fleet-update";
 import { STATUS_COORD_LABEL, STATUS_WORKER_LABEL } from "./status-native-probes.ts";
 import type { SpaStatus, StatusReport, WorkerStatus } from "./status-types.ts";
 

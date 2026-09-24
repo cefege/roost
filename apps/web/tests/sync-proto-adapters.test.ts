@@ -4,11 +4,11 @@
 
 import { expect, mock, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { TerminalCoreCapacityReportSchema } from "@roost/shared/proto/wire_pb";
+import { TerminalCoreCapacityReportSchema } from "@roost/protocol/proto/wire_pb";
 
 const signal = mock((_kind: string, _facts: Record<string, unknown>) => {});
 
-mock.module("@roost/shared/diag", () => ({ signal }));
+mock.module("@roost/observability/diag", () => ({ signal }));
 
 // Install the diagnostic mock before the adapter evaluates its static import.
 const { terminalCoreCapacityProtoToWire } = await import(

@@ -18,9 +18,9 @@ import {
 	type DTerminalDirectRetire,
 	type DTerminalInputRouteClaim,
 	type DTerminalTransportProbe,
-} from "@roost/shared/proto/worker_transport_pb";
-import { TerminalInputRouteResultSchema } from "@roost/shared/proto/sync_pb";
-import { AttachmentTransferStatusSchema } from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { TerminalInputRouteResultSchema } from "@roost/protocol/proto/sync_pb";
+import { AttachmentTransferStatusSchema } from "@roost/protocol/proto/attachment_transfer_pb";
 import { TerminalPeerOfferError, type TerminalPeerOfferFailureReason } from "../terminal-peer-owner.ts";
 import { AttachmentPeerOfferError, type AttachmentPeerOfferFailureReason } from "../attachment-peer-owner.ts";
 import type {

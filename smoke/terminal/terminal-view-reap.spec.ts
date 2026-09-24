@@ -3,13 +3,13 @@
 // pairs its takeViewerOffline with a restore inside the lease, so the
 // reaped-then-rejoined path — the phone tab closed for a day, then the same
 // session opened on a desktop — is unpinned there. Helpers are shared with that
-// file; the SCD policy itself is only ever @roost/shared/viewport's
+// file; the SCD policy itself is only ever @roost/protocol/viewport's
 // minimumTerminalGeometry.
 
 import {
   TERMINAL_VIEW_LEASE_MS,
   TERMINAL_VIEW_SWEEP_MS,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { test, expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import {

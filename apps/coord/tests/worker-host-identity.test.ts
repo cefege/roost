@@ -3,8 +3,8 @@ import { create } from "@bufbuild/protobuf";
 import {
   WorkersHeartbeatRequestSchema,
   WorkersRegisterRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { HostIdentitySchema } from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/coordinator_pb";
+import { HostIdentitySchema } from "@roost/protocol/proto/wire_pb";
 import { presenceBus } from "../src/buses.ts";
 import {
   workerHeartbeatContext,

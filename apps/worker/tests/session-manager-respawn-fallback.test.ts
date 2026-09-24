@@ -4,7 +4,7 @@
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { asSessionId, asWorkerFp } from "@roost/shared/wire";
+import { asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import type { DurableSessionEventKind } from "../src/event-sink.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionManager } from "../src/session-manager.ts";

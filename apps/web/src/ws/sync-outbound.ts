@@ -7,7 +7,7 @@
 import type {
   TerminalInputRouteClaim,
   TerminalInputRouteResult,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   terminalDirectRegistry,
   type TerminalDirectConnection,

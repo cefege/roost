@@ -9,13 +9,13 @@
 
 import type { Server, ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
-import { applySecurityHeaders } from "@roost/shared/http-security";
-import { log } from "@roost/shared/log";
+import { applySecurityHeaders } from "@roost/host/http-security";
+import { log } from "@roost/observability/log";
 import {
   ATTACHMENT_TRANSFER_LOOPBACK_MAX_PAYLOAD_BYTES,
   ATTACHMENT_TRANSFER_LOOPBACK_PATH,
   ATTACHMENT_TRANSFER_LOOPBACK_SUBPROTOCOL,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   LoopbackAttachmentTransferPort,
   type LocalAttachmentSocket,
@@ -60,7 +60,7 @@ export const LOCAL_BOOTSTRAP_PATH = "/api/local-bootstrap";
 export {
   ATTACHMENT_TRANSFER_LOOPBACK_PATH as LOCAL_ATTACHMENT_PATH,
   ATTACHMENT_TRANSFER_LOOPBACK_SUBPROTOCOL as LOCAL_ATTACHMENT_SUBPROTOCOL,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 
 /** The largest legitimate client frame is a MAX_INPUT_BYTES (64 KiB) paste
  * inside a protobuf envelope; 1 MiB leaves headroom for view and scrollback

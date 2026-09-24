@@ -11,8 +11,8 @@ import {
   WHelloSchema,
   WTerminalViewProjectionSchema,
   type CoordWorkerDown,
-} from "@roost/shared/proto/worker_transport_pb";
-import { PbTerminalViewInputSchema } from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { PbTerminalViewInputSchema } from "@roost/protocol/proto/wire_pb";
 import {
   activeTerminalViewerFingerprints,
   applyWorkerTerminalViewProjection,

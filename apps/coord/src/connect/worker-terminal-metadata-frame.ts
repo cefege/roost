@@ -3,9 +3,9 @@
 // only by the compatibility adapter and is rejected after capability cutover.
 // This module never retains or projects PTY byte payloads to a browser path.
 
-import type { WBinary, WTerminalMetadata } from "@roost/shared/proto/worker_transport_pb";
-import { asChannelId, asWorkerFp, DIR_FROM_PTY } from "@roost/shared/wire";
-import { diag } from "@roost/shared/diag";
+import type { WBinary, WTerminalMetadata } from "@roost/protocol/proto/worker_transport_pb";
+import { asChannelId, asWorkerFp, DIR_FROM_PTY } from "@roost/protocol/wire";
+import { diag } from "@roost/observability/diag";
 import {
   acceptLegacyTerminalMetadata,
   acceptTerminalMetadata,

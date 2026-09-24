@@ -9,8 +9,8 @@ import {
   DAgentPromptSchema,
   TerminalInputStatus,
   TerminalWritePhase,
-} from "@roost/shared/proto/worker_transport_pb";
-import { asWorkerFp } from "@roost/shared/wire";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { asWorkerFp } from "@roost/protocol/wire";
 import { AgentStatusRegistry } from "../src/agent-status/registry.ts";
 import {
   buildCoordLinkDeps,

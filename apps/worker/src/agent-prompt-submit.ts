@@ -3,7 +3,7 @@
 // admission ticket agent-prompt-control.ts already holds. The keeper's
 // acknowledgements are the only truth about what landed.
 
-import { CR_BYTES } from "@roost/shared/terminal-input";
+import { CR_BYTES } from "@roost/protocol/terminal-input";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import type { WorkerInputResult } from "./session-terminal-control.ts";
 

@@ -3,10 +3,10 @@
 // Every session owns terminal state: scrollback ring, wterm core, and cell
 // emitter.
 
-import type { SessionId, ChannelId } from "@roost/shared/wire";
+import type { SessionId, ChannelId } from "@roost/protocol/wire";
 import type { FsmChannel } from "./fsm.ts";
 import type { TerminalCore } from "@wterm/core";
-import type { CellEmitState } from "@roost/shared/cell";
+import type { CellEmitState } from "@roost/protocol/cell";
 import type { PrStatus } from "./pr-status.ts";
 import type { SbRing } from "./session-scrollback-ring.ts";
 import type { AgentOscState } from "./terminal-stream-scan.ts";
@@ -174,7 +174,7 @@ export interface SessionShellRecord extends SessionRecordCommon, AgentOscState {
 	// Present for every production record from allocation until teardown.
 	terminalCoreLease?: TerminalCoreLease;
 	// R11 cell-grid cell-shipping emitter state. Full/delta decision + seq live in
-	// @roost/shared/cell::nextCellFrame.
+	// @roost/protocol/cell::nextCellFrame.
 	cell_emit: CellEmitState;
 	// Arrival wall-clock of the OLDEST PTY byte not yet shipped in a cell frame.
 	// 0 = nothing pending. emitCellFrame stamps PbCellFrame.ptyOutMs from it and

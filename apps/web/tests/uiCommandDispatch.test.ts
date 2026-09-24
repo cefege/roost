@@ -4,7 +4,7 @@
 // Acknowledged layout apply is pinned as outside this legacy mapper.
 
 import { describe, test, expect } from "bun:test";
-import type { UiCommand, UiCommandFrame } from "@roost/shared/proto/sync_pb";
+import type { UiCommand, UiCommandFrame } from "@roost/protocol/proto/sync_pb";
 import { applyUiCommandToLayout, frameAccepted } from "../src/lib/uiCommandCore.ts";
 import {
   defaultLayout, splitLeaf, allLeaves, findLeaf, findLeafOfTab, type Layout,

@@ -9,9 +9,9 @@ import {
   WTerminalMetadataSchema,
   WHelloSchema,
   WSessionEventSchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { eventToProto } from "@roost/shared/wire/event-proto";
-import { SessionEvent, asChannelId } from "@roost/shared/wire";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
+import { SessionEvent, asChannelId } from "@roost/protocol/wire";
 import type { KyselyDB } from "../src/db/connection.ts";
 import type { SelfHostedTenant } from "../src/self-hosted-tenant.ts";
 import {

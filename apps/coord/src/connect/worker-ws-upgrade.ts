@@ -5,9 +5,9 @@
 
 import type { Server } from "bun";
 import { jwtKeyGeneration, verifyJwt, type Caller as VerifiedJwtCaller } from "../jwt.ts";
-import { log } from "@roost/shared/log";
-import { signal } from "@roost/shared/diag";
-import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
+import { log } from "@roost/observability/log";
+import { signal } from "@roost/observability/diag";
+import { WORKER_AUTH_SUBPROTOCOL } from "@roost/protocol/wire/coord-worker";
 import { resolveCallerPrincipal } from "./auth-interceptor.ts";
 import { currentTerminalScreenHub } from "./terminal-view-hub.ts";
 import { AnnouncedChannelBarrier } from "./announced-channel-barrier.ts";

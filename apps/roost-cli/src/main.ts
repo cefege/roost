@@ -51,10 +51,10 @@ const SUBCOMMANDS = {
       { admitPendingWindowsUpdateRequest },
     ] = await Promise.all([
       import("./service-ctl.ts"),
-      import("./windows/windows-update-broker.ts"),
-      import("./windows/windows-update-journal.ts"),
-      import("./windows/windows-update-runtime.ts"),
-      import("./windows/windows-update-control.ts"),
+      import("@roost/host/windows/windows-update-broker"),
+      import("@roost/host/windows/windows-update-journal"),
+      import("@roost/host/windows/windows-update-runtime"),
+      import("@roost/host/windows/windows-update-control"),
     ]);
     await admitPendingWindowsUpdateRequest();
     await runWindowsUpdateBroker({

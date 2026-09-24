@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 
 // Hex8 of sha256(bytes). Cheap content-fingerprint for the diagnostic stream.
 export function _sha8(bytes: Uint8Array | Buffer): string {
@@ -15,7 +15,7 @@ export function _sha8(bytes: Uint8Array | Buffer): string {
 // roost-patched wasm the SPA does — MAX_SCROLLBACK_LINES 1k→10k, phase-pb9b
 // — so a serialized alt-screen snapshot carries full 10k-line depth). Coord
 // reuses the same factory for its status-scrape grid; see
-// @roost/shared/wterm-core-factory.
+// @roost/wterm/wterm-core-factory.
 export const _createWtermCore = createWtermCore;
 
 // phase-ssb-altmode: DEC private mode escape sequences for alt-screen.

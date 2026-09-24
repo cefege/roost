@@ -2,8 +2,8 @@
 // Composer insertion calls this boundary after an upload returns its worker-side path.
 // Host platform rules and the shared shell quoter determine whether that path is insertable.
 
-import type { SupportedHostPlatform } from "@roost/shared/platform";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import type { SupportedHostPlatform } from "@roost/platform/platform";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 
 const CONTROL_CHARACTER_RE = /[\u0000-\u001f\u007f-\u009f]/u;
 

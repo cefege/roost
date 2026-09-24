@@ -12,10 +12,10 @@ import {
 	encodedCellGridFrameSize,
 	scrollbackOrigin,
 	type CellEmitState,
-} from "@roost/shared/cell";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/cell";
+import type { PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 import type { TerminalCore } from "@wterm/core";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import { randomUUID } from "node:crypto";
 import {
 	activeCellSinks,

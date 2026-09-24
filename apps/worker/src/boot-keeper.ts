@@ -8,9 +8,9 @@
 import {
   cleanupLocalEndpoint,
   type LocalEndpoint,
-} from "@roost/shared/local-endpoint";
-import { log } from "@roost/shared/log";
-import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/shared/keeper-update";
+} from "@roost/host/local-endpoint";
+import { log } from "@roost/observability/log";
+import { KEEPER_EMPTY_BINDING_DIGEST } from "@roost/protocol/keeper-update";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import {
   probeKeeperCompatible,

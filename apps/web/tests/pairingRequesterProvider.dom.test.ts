@@ -37,7 +37,7 @@ let pairPollImplementation: () => Promise<{ status: string }>;
 const pairCreate = mock((request: PairCreateInput) => pairCreateImplementation(request));
 const pairPoll = mock(() => pairPollImplementation());
 
-mock.module("@roost/shared/retry", () => ({ backoffDelayMs: () => 10 }));
+mock.module("@roost/protocol/retry", () => ({ backoffDelayMs: () => 10 }));
 mock.module("../src/connect.ts", () => ({ coordClient: { pairCreate, pairPoll } }));
 mock.module("../src/auth/web-key.ts", () => ({ getPublicKeyB64: async () => "requester-public-key" }));
 mock.module("../src/lib/browserSelfLabel.ts", () => ({ browserSelfLabel: () => "Requester browser" }));

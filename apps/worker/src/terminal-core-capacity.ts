@@ -3,9 +3,9 @@
 // Boot keeper admission uses the same owner to reject an over-cap survivor before mutation.
 // Heartbeat callers snapshot this content-free operational state.
 
-import { signal } from "@roost/shared/diag";
-import { effectiveMemoryCeilingBytes } from "@roost/shared/host-memory";
-import { log } from "@roost/shared/log";
+import { signal } from "@roost/observability/diag";
+import { effectiveMemoryCeilingBytes } from "@roost/host/host-memory";
+import { log } from "@roost/observability/log";
 import { totalmem } from "node:os";
 
 export const TERMINAL_CORE_CAPACITY_HARD_MAX = 500;

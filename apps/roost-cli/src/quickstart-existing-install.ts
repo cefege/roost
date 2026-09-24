@@ -4,13 +4,13 @@
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { durableWriteFile } from "@roost/shared/durability";
-import { coordServicePath, workerServicePath } from "@roost/shared/paths";
-import { loadCoordConfig } from "@roost/shared/config";
-import { loadWorkerConfig } from "../../worker/src/config.ts";
-import { createCoordClient } from "../../worker/src/coord-client.ts";
-import { runStrictEnrollmentWithKey } from "../../worker/src/install.ts";
-import { mintJwt, readExistingWorkerKey, readWorkerFingerprint } from "../../worker/src/jwt.ts";
+import { durableWriteFile } from "@roost/host/durability";
+import { coordServicePath, workerServicePath } from "@roost/host/paths";
+import { loadCoordConfig } from "@roost/host/config";
+import { loadWorkerConfig } from "@roost/worker/config";
+import { createCoordClient } from "@roost/worker/coord-client";
+import { runStrictEnrollmentWithKey } from "@roost/worker/install";
+import { mintJwt, readExistingWorkerKey, readWorkerFingerprint } from "@roost/worker/jwt";
 import {
   coordinatorInstallEnvironment,
   coordinatorRestartCommand,
@@ -18,7 +18,7 @@ import {
 } from "./coordinator-service-definition.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import { run } from "./deploy-exec.ts";
-import { acquireMachineTransaction } from "./machine-transaction.ts";
+import { acquireMachineTransaction } from "@roost/host/machine-transaction";
 import {
   isRegisteredWorker,
   mintWorkerToken,

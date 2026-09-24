@@ -6,19 +6,19 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { coordDataDir, coordServicePath } from "@roost/shared/paths";
-import { supportedHostPlatform } from "@roost/shared/platform";
-import type { SupportedHostPlatform } from "@roost/shared/platform";
-import { loadWorkerConfig } from "../../worker/src/config.ts";
-import type { WorkerConfig } from "../../worker/src/config.ts";
-import { loadWorkerKey, mintJwt } from "../../worker/src/jwt.ts";
-import type { LoadedKey } from "../../worker/src/jwt.ts";
+import { coordDataDir, coordServicePath } from "@roost/host/paths";
+import { supportedHostPlatform } from "@roost/platform/platform";
+import type { SupportedHostPlatform } from "@roost/platform/platform";
+import { loadWorkerConfig } from "@roost/worker/config";
+import type { WorkerConfig } from "@roost/worker/config";
+import { loadWorkerKey, mintJwt } from "@roost/worker/jwt";
+import type { LoadedKey } from "@roost/worker/jwt";
 import {
   createCoordClient,
   createUnauthenticatedCoordClient,
-} from "../../worker/src/coord-client.ts";
-import type { CoordClient, CoordClientOptions } from "../../worker/src/coord-client.ts";
-import { mintHostBootstrapToken } from "../../coord/src/bootstrap-tokens.ts";
+} from "@roost/worker/coord-client";
+import type { CoordClient, CoordClientOptions } from "@roost/worker/coord-client";
+import { mintHostBootstrapToken } from "@roost/coord/bootstrap-tokens";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import { windowsServiceDefinitionsPath } from "./service-ctl.ts";
 

@@ -8,11 +8,11 @@ import {
   ATTACHMENT_TRANSFER_PEER_DATA_CHANNELS,
   ATTACHMENT_TRANSFER_PEER_ICE_GATHERING_DEADLINE_MS,
   type AttachmentTransferPeerChannelLane,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   inspectTerminalPeerSdp,
   normalizeTerminalPeerSha256Fingerprint,
-} from "@roost/shared/terminal-peer-sdp";
+} from "@roost/protocol/terminal-peer-sdp";
 import type { TerminalPeerNative } from "./terminal-peer-native.ts";
 import type { AttachmentPeerPacketPeerBudget } from "./attachment-peer-packet-budget.ts";
 import {

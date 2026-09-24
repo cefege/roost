@@ -9,9 +9,9 @@ import {
 	WorkerSearchScrollbackResultSchema,
 	type WorkerGlobalSearchEntry,
 	type WorkerGlobalSearchError,
-} from "@roost/shared/terminal-search";
-import { log } from "@roost/shared/log";
-import type { ClientControlFrame, SessionId } from "@roost/shared/wire";
+} from "@roost/protocol/terminal-search";
+import { log } from "@roost/observability/log";
+import type { ClientControlFrame, SessionId } from "@roost/protocol/wire";
 import type { SessionManager } from "./session-manager.ts";
 import {
 	cancelSearchScrollback,

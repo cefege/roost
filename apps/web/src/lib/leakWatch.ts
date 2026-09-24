@@ -9,7 +9,7 @@
 // for easy copy from a live console. Emit-and-drop — the watcher retains nothing
 // itself (no arrays, no growth), so it can never be its own leak.
 
-import { diag, signal } from "@roost/shared/diag";
+import { diag, signal } from "@roost/observability/diag";
 import { rootStore } from "../store/root.ts";
 import { cellFrameCountSize } from "../store/terminal-stream.ts";
 import { inputMapSizes } from "../ws/terminal-input-lanes.ts";

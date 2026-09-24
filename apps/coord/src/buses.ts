@@ -3,14 +3,14 @@
 // Ring capacity: last N events replayed on subscribe (default 64).
 // R1.1 broadcast pattern ported from legacy lib/broadcast.ts.
 
-import type { SessionEvent } from "@roost/shared/wire";
-import { diag } from "@roost/shared/diag";
-import type { WorkerPresenceEvent } from "@roost/shared/wire";
-import type { WorkspaceDelta } from "@roost/shared/wire";
-import type { McpStreamMessage } from "@roost/shared/wire";
-import type { AgentStatusUpdate } from "@roost/shared/wire";
-import type { Task as PbTask } from "@roost/shared/proto/wire_pb";
-import type { UiReportStateRequest, UiCommand } from "@roost/shared/proto/sync_pb";
+import type { SessionEvent } from "@roost/protocol/wire";
+import { diag } from "@roost/observability/diag";
+import type { WorkerPresenceEvent } from "@roost/protocol/wire";
+import type { WorkspaceDelta } from "@roost/protocol/wire";
+import type { McpStreamMessage } from "@roost/protocol/wire";
+import type { AgentStatusUpdate } from "@roost/protocol/wire";
+import type { Task as PbTask } from "@roost/protocol/proto/wire_pb";
+import type { UiReportStateRequest, UiCommand } from "@roost/protocol/proto/sync_pb";
 
 /** Durable session fan-out carries an internal replay-order stamp only;
  * `_event_id` is never a wire field. */

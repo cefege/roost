@@ -11,8 +11,8 @@ import {
   asSessionId,
   type AgentStatus as AgentStatusValue,
   type AgentStatusIdentity,
-} from "@roost/shared/wire";
-import { AgentStatusFrameSchema } from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/wire";
+import { AgentStatusFrameSchema } from "@roost/protocol/proto/sync_pb";
 
 export const SESSION_ID = asSessionId("11111111-1111-4111-8111-111111111111");
 export const OTHER_ID = asSessionId("22222222-2222-4222-8222-222222222222");

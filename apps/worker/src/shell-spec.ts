@@ -11,8 +11,8 @@ import {
 	isSupportedHostPlatform,
 	supportedHostPlatform,
 	type SupportedHostPlatform,
-} from "@roost/shared/platform";
-import { normalizeNativePath } from "@roost/shared/native-path";
+} from "@roost/platform/platform";
+import { normalizeNativePath } from "@roost/platform/native-path";
 import { psReadLineHistoryPath, withHistfile } from "./keeper/histfile.ts";
 
 /**

@@ -26,7 +26,7 @@ let savedGlobals: Record<string, unknown>;
 let animationFrameCallbacks: Map<number, () => void>;
 let nextAnimationFrameHandle: number;
 
-mock.module("@roost/shared/diag", () => ({ diag: () => undefined }));
+mock.module("@roost/observability/diag", () => ({ diag: () => undefined }));
 mock.module("../src/lib/pageVisible.ts", () => ({ isPageVisible: () => true }));
 
 function createViewportFixture(): ViewportFixture {

@@ -10,12 +10,12 @@ import {
   AttachmentsGrantDirectResponseSchema,
   CoordinatorService,
   type AttachmentsGrantDirectRequest,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   ATTACHMENT_TRANSFER_GRANT_TTL_MS,
   ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY,
-} from "@roost/shared/attachment-transfer";
-import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
+} from "@roost/protocol/attachment-transfer";
+import { hasAtMostUtf8Bytes } from "@roost/protocol/ui-state";
 import type { KyselyDB } from "../db/connection.ts";
 import { requireAccountDevice, tabIdKey } from "./auth-interceptor.ts";
 import {

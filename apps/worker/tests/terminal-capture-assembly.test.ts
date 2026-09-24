@@ -12,18 +12,18 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import {
 	cellGridEpoch,
 	gridToCellFrame,
 	scrollbackOrigin,
 	type CellGridFrame,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import {
 	TERMINAL_CAPTURE_LIMITS,
 	type TerminalIncidentBundle,
 	type TerminalWorkerSection,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import { _resetCaptureStorageForTest } from "../src/diag/capture-storage.ts";
 import {
 	captureTerminalIncident,

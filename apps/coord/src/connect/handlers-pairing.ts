@@ -5,7 +5,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   CoordinatorService,
   PairApprovalStatusResponseSchema,
@@ -15,8 +15,8 @@ import {
   PairDenyResponseSchema,
   PairListResponseSchema,
   PairPollResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { PairRequestSchema } from "@roost/shared/proto/wire_pb";
+} from "@roost/protocol/proto/coordinator_pb";
+import { PairRequestSchema } from "@roost/protocol/proto/wire_pb";
 import { decodeEd25519Pubkey } from "../authorized-keys.ts";
 import { pairBus } from "../buses.ts";
 import { refreshJwtKey } from "../jwt.ts";

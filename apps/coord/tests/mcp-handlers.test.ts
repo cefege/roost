@@ -13,8 +13,8 @@ import {
   McpDeleteRequestSchema,
   McpListRequestSchema,
   McpPublishRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import type { McpStreamMessage } from "@roost/shared/wire";
+} from "@roost/protocol/proto/coordinator_pb";
+import type { McpStreamMessage } from "@roost/protocol/wire";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { ensureSelfHostedTenant, type SelfHostedTenant } from "../src/self-hosted-tenant.ts";

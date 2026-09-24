@@ -1,13 +1,13 @@
 // Owns rename, removal confirmation, and live metrics for one registered
 // machine, plus the update state badge on its row. MachinesPane supplies the
 // worker record and keeps enrollment state at list scope. The update state
-// comes from the ONE fleet classifier in @roost/shared/fleet-update — this file
+// comes from the ONE fleet classifier in @roost/protocol/fleet-update — this file
 // never compares SHAs itself — and MachineUpdateDetails owns the action.
 // Shared M3 primitives preserve the settings surface's interaction states.
 
 import { createSignal, onCleanup, Show } from "solid-js";
-import type { Worker } from "@roost/shared/wire";
-import { WORKER_UPDATE_LABELS, workerUpdateState } from "@roost/shared/fleet-update";
+import type { Worker } from "@roost/protocol/wire";
+import { WORKER_UPDATE_LABELS, workerUpdateState } from "@roost/protocol/fleet-update";
 import { rootStore } from "../../store/root.ts";
 import { workerOnline } from "../../store/sync.ts";
 import { applyWorkerDeleteResponse } from "../../store/worker-removal.ts";

@@ -9,7 +9,7 @@ import {
   SessionId,
   StatusEpoch,
   type AgentStatus,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   agentStatusOccupantKey,
   agentStatusRevisionToken,

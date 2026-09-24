@@ -10,7 +10,7 @@ import {
   DLocalTerminalGrantSchema,
   DLocalTerminalGrantRevokeSchema,
   DTerminalDirectRetireSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   createPendingRpc,
   rejectPendingRpcUnavailable,

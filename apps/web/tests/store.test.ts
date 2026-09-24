@@ -2,9 +2,9 @@
 // visible spawned rows, and agreement with the SPA projector.
 
 import { expect, test, describe } from "bun:test";
-import { foldEvent, foldAll, asWorkerFp, asSessionId, asChannelId, asWorkspaceId, SessionEvent as SessionEventSchema } from "@roost/shared/wire";
-import type { SessionEvent, Session } from "@roost/shared/wire";
-import { eventToProto, protoToEvent } from "@roost/shared/wire/event-proto";
+import { foldEvent, foldAll, asWorkerFp, asSessionId, asChannelId, asWorkspaceId, SessionEvent as SessionEventSchema } from "@roost/protocol/wire";
+import type { SessionEvent, Session } from "@roost/protocol/wire";
+import { eventToProto, protoToEvent } from "@roost/protocol/wire/event-proto";
 import { applySessionsSnapshot, foldEventIntoStore } from "../src/store/projector.ts";
 import { beginOptimisticSpawn, endOptimisticSpawn } from "../src/store/optimisticSpawn.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";

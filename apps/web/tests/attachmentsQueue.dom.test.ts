@@ -3,7 +3,7 @@
 // Transfer calls are mocked so the test observes only queue state transitions.
 
 import { describe, expect, mock, test } from "bun:test";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import type { Transfer } from "../src/store/transfers.ts";
 
 interface FakeInput {

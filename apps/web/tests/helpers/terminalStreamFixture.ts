@@ -6,12 +6,12 @@ import {
   cloneCellGridFrame,
   type CellGridFrame,
   type CellRow,
-} from "@roost/shared/cell";
-import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
+} from "@roost/protocol/cell";
+import { cellFrameToProto } from "@roost/protocol/cell/cell-proto";
 import {
   TerminalViewStateFrameSchema,
   TerminalViewStatus,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
 
 import type * as TerminalStreamModule from "../../src/store/terminal-stream.ts";

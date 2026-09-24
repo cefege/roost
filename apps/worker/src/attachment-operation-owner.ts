@@ -5,8 +5,8 @@
 // worker event loop; an idle sweep releases operations whose carrier went silent.
 
 import fs from "node:fs";
-import { log } from "@roost/shared/log";
-import { isAttachmentTransferChunkSha256 } from "@roost/shared/attachment-transfer";
+import { log } from "@roost/observability/log";
+import { isAttachmentTransferChunkSha256 } from "@roost/protocol/attachment-transfer";
 import {
   attachmentReplyPath,
   commitAttachmentDestination,

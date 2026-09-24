@@ -6,11 +6,11 @@
 // resize path docs/FAILURE-INDEX.md condemns: a provable resize still resizes
 // the core it already owns, and nothing here runs while coreValid holds.
 
-import { initCellEmitState } from "@roost/shared/cell";
-import { signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import { newTraceId } from "@roost/shared/trace";
-import { isTerminalGeometry } from "@roost/shared/viewport";
+import { initCellEmitState } from "@roost/protocol/cell";
+import { signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import { newTraceId } from "@roost/observability/trace";
+import { isTerminalGeometry } from "@roost/protocol/viewport";
 import type { TerminalCore } from "@wterm/core";
 import {
 	getMultiplexedPool,

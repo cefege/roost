@@ -4,7 +4,7 @@
 // renderer can fold.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import {
   COORD_CELL_SINK_ID,
   resumeCellSink,

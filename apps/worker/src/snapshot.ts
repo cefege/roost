@@ -1,7 +1,7 @@
 // Builds the exact reconnect snapshot from one SessionManager membership copy.
 // Immutable launch fields come from admitted records while current terminal
 // metadata repairs replaceable events after reconnect.
-import type { WorkerFp, SessionEvent } from "@roost/shared/wire";
+import type { WorkerFp, SessionEvent } from "@roost/protocol/wire";
 import type { SessionManager } from "./session-manager.ts";
 
 export type WorkerSnapshotEvent = Extract<SessionEvent, { kind: "snapshot" }>;

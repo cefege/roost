@@ -3,8 +3,8 @@
 // It depends on shared wire shapes and tolerant persisted JSON parsing.
 // Snapshot upserts must never overwrite coordinator-owned session fields.
 
-import { safeJsonParse } from "@roost/shared/json";
-import type { Session, SessionEvent } from "@roost/shared/wire";
+import { safeJsonParse } from "@roost/protocol/json";
+import type { Session, SessionEvent } from "@roost/protocol/wire";
 import type { KyselyDB } from "./db/connection.ts";
 import type { SessionsTable } from "./db/schema.ts";
 

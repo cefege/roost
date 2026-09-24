@@ -3,7 +3,7 @@
 // Mirrors legacy lib/authorizedKeys.ts but uses Kysely + Bun's WebCrypto.
 
 import { readFileSync } from "node:fs";
-import { fingerprintOf } from "@roost/shared/fingerprint";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
 import type { KyselyDB } from "./db/connection.ts";
 
 export interface ParsedKey {

@@ -15,13 +15,13 @@ import {
   WSessionEventSchema,
   WTerminalMetadataSchema,
   type CoordWorkerUp,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   PbCellGridChunkSchema,
   PbCellGridFrameSchema,
-} from "@roost/shared/proto/cell_pb";
-import { eventToProto } from "@roost/shared/wire/event-proto";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
+} from "@roost/protocol/proto/cell_pb";
+import { eventToProto } from "@roost/protocol/wire/event-proto";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import {
   primeChannelMap,
   replaceWorkerChannelIndex,

@@ -6,7 +6,7 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { cleanupLocalEndpoint } from "@roost/shared/local-endpoint";
+import { cleanupLocalEndpoint } from "@roost/host/local-endpoint";
 import { shutdownKeeperForMaintenance } from "../src/keeper/update-admission.ts";
 import { probeKeeperCompatible } from "../src/keeper/keeper-probe.ts";
 import {

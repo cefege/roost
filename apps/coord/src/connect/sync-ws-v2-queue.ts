@@ -4,7 +4,7 @@
 // fenced terminal cells without coupling policy to socket writes.
 
 import type { ServerWebSocket } from "bun";
-import { SyncDomain, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
+import { SyncDomain, type FirehoseFrame } from "@roost/protocol/proto/sync_pb";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 import type { WsDeadlineClock } from "./ws-auth-deadline.ts";
 import { retainedFrameSupersedesBuffered } from "./sync-feed-frames.ts";

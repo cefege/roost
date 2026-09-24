@@ -9,14 +9,14 @@ import { create } from "@bufbuild/protobuf";
 import {
   GlobalSearchPartialReason,
   SessionsSearchGlobalRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
   GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
   GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS,
   GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
   type WorkerGlobalSearchEntry,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import { _pendingRpcStats } from "../src/router/pending-rpcs.ts";
 import {
   GLOBAL_TEST_WORKER_A1,

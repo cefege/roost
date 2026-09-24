@@ -7,10 +7,10 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema,
   WBinarySchema,
-} from "@roost/shared/proto/worker_transport_pb";
-import { WorkersDeleteRequestSchema } from "@roost/shared/proto/coordinator_pb";
-import { WORKER_AUTH_SUBPROTOCOL } from "@roost/shared/wire/coord-worker";
-import { TERMINAL_METADATA_CAPABILITY } from "@roost/shared/terminal-metadata";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { WorkersDeleteRequestSchema } from "@roost/protocol/proto/coordinator_pb";
+import { WORKER_AUTH_SUBPROTOCOL } from "@roost/protocol/wire/coord-worker";
+import { TERMINAL_METADATA_CAPABILITY } from "@roost/protocol/terminal-metadata";
 import { invalidateJwtKey, verifyJwt } from "../src/jwt.ts";
 import {
   createAnnouncedChannelBarrier,

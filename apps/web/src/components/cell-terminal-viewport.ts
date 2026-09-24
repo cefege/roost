@@ -5,8 +5,8 @@
 // Runtime supplies the mounted display, view lease, and shared cell dimensions.
 
 import type { Accessor } from "solid-js";
-import { diag } from "@roost/shared/diag";
-import type { TerminalGeometry } from "@roost/shared/viewport";
+import { diag } from "@roost/observability/diag";
+import type { TerminalGeometry } from "@roost/protocol/viewport";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import {
 	measureTerminalCellBox,

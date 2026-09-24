@@ -16,7 +16,7 @@ import {
   prepareLocalEndpoint,
   secureLocalEndpoint,
   verifyLocalEndpointCapability,
-} from "@roost/shared/local-endpoint";
+} from "@roost/host/local-endpoint";
 import {
   KEEPER_PROTOCOL_VERSION,
   MuxFrameType,

@@ -5,7 +5,7 @@
 import type {
   TerminalResyncCommand,
   TerminalViewCommand,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   currentSyncV2TerminalState,
   requestSyncGenerationRecovery,

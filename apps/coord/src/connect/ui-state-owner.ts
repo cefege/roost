@@ -3,14 +3,14 @@
 // New identities are rate/cardinality limited while existing tab heartbeats bypass
 // those admission budgets and remain updatable until the owner is disposed.
 
-import type { UiReportStateRequest } from "@roost/shared/proto/sync_pb";
+import type { UiReportStateRequest } from "@roost/protocol/proto/sync_pb";
 import {
   UI_STATE_IDENTITY_WINDOW_MS,
   UI_STATE_MAX_TABS_TOTAL,
   UI_STATE_MAX_TABS_PER_FINGERPRINT,
   UI_STATE_NEW_IDENTITIES_PER_WINDOW,
-} from "@roost/shared/ui-state";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/ui-state";
+import { log } from "@roost/observability/log";
 import { RateLimiter } from "../middleware/rate-limit.ts";
 
 export const UI_STATE_TTL_MS = 5 * 60_000;

@@ -10,11 +10,11 @@ import { composeStandaloneIntegration } from "../apps/worker/src/agent-status/st
 import { AGENT_INTEGRATION_ASSET_SPECS } from "../apps/worker/src/agent-status/integration-assets.ts";
 import { buildKeeperImplementationDigest } from "./keeper-bundle-digest.ts";
 
-const WEB_OUT = "apps/shared/src/web-embed.generated.ts";
-const WEB_GZIP_OUT = "apps/shared/src/web-embed.generated-assets";
+const WEB_OUT = "packages/host/src/web-embed.generated.ts";
+const WEB_GZIP_OUT = "packages/host/src/web-embed.generated-assets";
 const MIGR_OUT = "apps/coord/src/migrations-embed.generated.ts";
-const WASM_OUT = "apps/shared/src/wterm-wasm-embed.generated.ts";
-const SCRIPTS_OUT = "apps/shared/src/install-scripts.generated.ts";
+const WASM_OUT = "packages/wterm/src/wterm-wasm-embed.generated.ts";
+const SCRIPTS_OUT = "packages/host/src/install-scripts.generated.ts";
 const AGENT_INTEGRATIONS_OUT = "apps/worker/src/agent-status/integration-assets.generated.ts";
 const KEEPER_CONTRACT_OUT = "apps/worker/src/keeper/keeper-contract.generated.ts";
 const SKILL_OUT = "apps/roost-cli/src/skill-embed.generated.ts";
@@ -83,7 +83,7 @@ async function generate(): Promise<void> {
   mkdirSync(WEB_GZIP_OUT, { recursive: true });
   webFiles.forEach((abs, i) => {
     const rel = normalizeManifestUrlKey(relative(DIST, abs));
-    webLines.push(`import w${i} from ${JSON.stringify(`../../web/dist/${rel}`)} with { type: "file" };`);
+    webLines.push(`import w${i} from ${JSON.stringify(`../../../apps/web/dist/${rel}`)} with { type: "file" };`);
     if (COMPRESSIBLE_WEB_EXTENSIONS[extname(rel).toLowerCase()]) {
       const gzipName = `${i}.gz`;
       writeFileSync(join(WEB_GZIP_OUT, gzipName), Bun.gzipSync(readFileSync(abs)));
@@ -115,7 +115,7 @@ async function generate(): Promise<void> {
   writeFileSync(WASM_OUT, `${HDR}import wasm from "../wasm/wterm-roost.wasm" with { type: "file" };\nimport wasmSha256 from "../wasm/wterm-roost.wasm.sha256" with { type: "text" };\nexport const WTERM_WASM_EMBED: string | null = wasm;\nexport const WTERM_WASM_SHA256_EMBED: string | null = wasmSha256;\n`);
 
   // ── LaunchAgent install scripts: type "text" → run in binary-mode quickstart.
-  writeFileSync(SCRIPTS_OUT, `${HDR}import coord from "../../coord/scripts/install.sh" with { type: "text" };\nimport worker from "../../worker/scripts/install.sh" with { type: "text" };\nexport const COORD_INSTALL_SH = coord;\nexport const WORKER_INSTALL_SH = worker;\n`);
+  writeFileSync(SCRIPTS_OUT, `${HDR}import coord from "../../../apps/coord/scripts/install.sh" with { type: "text" };\nimport worker from "../../../apps/worker/scripts/install.sh" with { type: "text" };\nexport const COORD_INSTALL_SH = coord;\nexport const WORKER_INSTALL_SH = worker;\n`);
 
   // ── Canonical skill: type "text" preserves the release-matched UTF-8 bytes.
   writeFileSync(SKILL_OUT, `${HDR}import roostSkill from "../../../skills/roost/SKILL.md" with { type: "text" };\nexport const ROOST_SKILL_EMBED: string | null = roostSkill;\n`);

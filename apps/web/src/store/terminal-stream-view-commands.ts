@@ -5,18 +5,18 @@
 // recovery, and a write the transport refused stays on the renewal heartbeat.
 
 import { create } from "@bufbuild/protobuf";
-import { diag, signal } from "@roost/shared/diag";
+import { diag, signal } from "@roost/observability/diag";
 import {
   TerminalViewCommandSchema,
   TerminalViewStatus,
   type TerminalViewStateFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   TERMINAL_VIEW_HEARTBEAT_MS,
   TERMINAL_VIEW_LEASE_MS,
   isTerminalGeometry,
   isTerminalUuid,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { markPhase } from "../lib/diag.ts";
 import { currentSyncV2TerminalState } from "./sync.ts";

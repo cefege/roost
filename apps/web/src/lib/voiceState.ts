@@ -7,7 +7,7 @@
 // (warm-pipeline evidence), connect (coordinator config).
 
 import { createSignal } from "solid-js";
-import type { SessionId } from "@roost/shared/wire";
+import type { SessionId } from "@roost/protocol/wire";
 import { isMicWarm } from "./audioPcmCapture.ts";
 import { coordClient } from "../connect.ts";
 

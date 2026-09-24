@@ -6,9 +6,9 @@
 // unregistered here and told once through onOverflow() to close its transport,
 // so no local delivery queue can grow without bound.
 
-import { log } from "@roost/shared/log";
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import { asChannelId } from "@roost/shared/wire";
+import { log } from "@roost/observability/log";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
+import { asChannelId } from "@roost/protocol/wire";
 import type { SessionManager } from "./session-manager.ts";
 import type {
 	TerminalSnapshotPart,

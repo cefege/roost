@@ -9,7 +9,7 @@
 // store/{paneLayout*,selectors,uiStore,toastStore}.
 
 import { createSignal } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { allLeaves, type Layout, type PaneLeaf } from "../store/paneLayout.ts";
 import { resolveLayout } from "../store/paneLayoutStore.ts";
 import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";

@@ -1,5 +1,5 @@
 import { createMemo, Show } from "solid-js";
-import type { AgentStatus } from "@roost/shared/wire";
+import type { AgentStatus } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import { seenAgentRevision } from "../lib/agentSeen.ts";
 import {

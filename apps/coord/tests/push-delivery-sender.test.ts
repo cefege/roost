@@ -5,8 +5,8 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { TerminalViewCommandSchema } from "@roost/shared/proto/sync_pb";
-import { AgentOccupantId, StatusEpoch } from "@roost/shared/wire";
+import { TerminalViewCommandSchema } from "@roost/protocol/proto/sync_pb";
+import { AgentOccupantId, StatusEpoch } from "@roost/protocol/wire";
 import type { KyselyDB } from "../src/db/connection.ts";
 import { firePushForTransition } from "../src/push-dispatch.ts";
 import {

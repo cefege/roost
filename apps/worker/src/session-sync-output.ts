@@ -6,11 +6,11 @@
 // Called from session-emit's streaming path; state lives on SessionManager's
 // per-channel maps.
 
-import { scrollbackOrigin } from "@roost/shared/cell";
+import { scrollbackOrigin } from "@roost/protocol/cell";
 import type { TerminalCore } from "@wterm/core";
-import { signal } from "@roost/shared/diag";
-import { asChannelId } from "@roost/shared/wire";
-import type { CellEmitState } from "@roost/shared/cell";
+import { signal } from "@roost/observability/diag";
+import { asChannelId } from "@roost/protocol/wire";
+import type { CellEmitState } from "@roost/protocol/cell";
 import type { SessionManager } from "./session-manager.ts";
 import { SYNC_OUTPUT_MAX_MS, SYNC_OUTPUT_MAX_PENDING_ROWS } from "./session-constants.ts";
 import { monoNowMs } from "./util/mono.ts";

@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { SessionsSearchGlobalMatch } from "@roost/shared/proto/coordinator_pb";
+import type { SessionsSearchGlobalMatch } from "@roost/protocol/proto/coordinator_pb";
 import type { GlobalContentSearchController } from "../src/lib/globalContentSearchController.ts";
 import type { NavigationSearchDocument } from "../src/store/navigation-search.ts";
 

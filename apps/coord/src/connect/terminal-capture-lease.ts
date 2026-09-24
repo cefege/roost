@@ -6,7 +6,7 @@
 // terminal-capture-recorder.ts so no lease transition can leave one behind.
 
 import { Code, ConnectError } from "@connectrpc/connect";
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import {
   TERMINAL_CAPTURE_LIMITS,
   type TerminalCaptureCommand,
@@ -14,7 +14,7 @@ import {
   type TerminalCaptureFileRef,
   type TerminalCaptureResult,
   type TerminalCaptureStatus,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { AccountDeviceCaller } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
 import {

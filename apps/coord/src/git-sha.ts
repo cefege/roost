@@ -17,7 +17,7 @@
 //      user notices something is off.
 //
 // Captured once at module load; coord restart picks up new commits.
-import { IS_COMPILED_ROOST_BUILD, ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+import { IS_COMPILED_ROOST_BUILD, ROOST_BUILD_SHA } from "@roost/host/build-identity";
 
 
 function _resolve(): string {

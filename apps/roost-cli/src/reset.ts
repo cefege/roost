@@ -5,7 +5,7 @@
 import { spawn } from "bun";
 import { rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { coordDataDir } from "@roost/shared/paths";
+import { coordDataDir } from "@roost/host/paths";
 import { currentServiceOs, stopServicesCmd } from "./service-ctl.ts";
 
 export async function reset(_args: string[]): Promise<void> {

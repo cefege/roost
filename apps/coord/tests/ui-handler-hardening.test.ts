@@ -13,7 +13,7 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   UiApplyLayoutRequestSchema,
   UiDispatchRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   UiArrangeSchema,
   LayoutDocumentLeafSchema,
@@ -25,17 +25,17 @@ import {
   UiReportStateRequestSchema,
   type LayoutDocumentV1 as ProtoLayoutDocumentV1,
   type UiReportStateRequest,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   LAYOUT_DOCUMENT_MAX_KEY_UTF8_BYTES,
   type LayoutDocumentV1,
-} from "@roost/shared/layout-document";
-import { layoutDocumentToProto } from "@roost/shared/layout-document-proto";
+} from "@roost/protocol/layout-document";
+import { layoutDocumentToProto } from "@roost/protocol/layout-document-proto";
 import {
   UI_ACTIVE_PATH_MAX_UTF8_BYTES,
   UI_FOLDER_KEY_MAX_UTF8_BYTES,
   UI_TAB_ID_MAX_UTF8_BYTES,
-} from "@roost/shared/ui-state";
+} from "@roost/protocol/ui-state";
 import { uiBus, type UiBusMsg } from "../src/buses.ts";
 import { callerKey } from "../src/connect/auth-interceptor.ts";
 import { UiStateOwner } from "../src/connect/ui-state-owner.ts";

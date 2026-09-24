@@ -3,12 +3,12 @@
 // limits so a Sync admission cannot disagree with typed-result correlation.
 // No worker frame is sent from this pure contract module.
 
-import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
-import { TERMINAL_PEER_ROUTE_CLAIM_MAX_OUTSTANDING } from "@roost/shared/terminal-peer";
+import { hasAtMostUtf8Bytes } from "@roost/protocol/ui-state";
+import { TERMINAL_PEER_ROUTE_CLAIM_MAX_OUTSTANDING } from "@roost/protocol/terminal-peer";
 import type {
   WTerminalInputRouteResult,
   WTerminalTransportProbeResult,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import type { WorkerHandle } from "./worker-registry.ts";
 import type { HopDeadline } from "./worker-send.ts";
 import type { PendingTerminalRouteControl } from "./terminal-input-route-result-state.ts";

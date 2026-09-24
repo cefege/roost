@@ -22,7 +22,7 @@ import {
   TasksEnqueueRequestSchema,
   TasksNextPendingRequestSchema,
   TasksSetStateRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { makeTaskHandlers } from "../src/connect/handlers-tasks.ts";

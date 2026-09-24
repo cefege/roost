@@ -3,7 +3,7 @@
 // proving stale continuations cannot publish recents, agent input, navigation, or errors.
 
 import { describe, expect, test } from "bun:test";
-import type { Session, WorkerFp } from "@roost/shared/wire";
+import type { Session, WorkerFp } from "@roost/protocol/wire";
 import {
   launchWorkerBrowseTerminal,
   type _WorkerBrowseLaunchDependencies,

@@ -8,15 +8,15 @@
 import { BoundedBus } from "./buses.ts";
 import { busToAsyncIterable } from "./sse.ts";
 import { COORD_GIT_SHA } from "./git-sha.ts";
-import { signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
-import type { SignalKind } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
+import type { SignalKind } from "@roost/observability/diag";
 import {
   COORDINATOR_DIAL_URL_REQUIRED_MESSAGE,
   resolveCoordinatorDialUrl,
-} from "@roost/shared/coordinator-dial-url";
-import { IS_COMPILED_ROOST_BUILD } from "@roost/shared/build-identity";
-import { durableRemove } from "@roost/shared/durability";
+} from "@roost/protocol/coordinator-dial-url";
+import { IS_COMPILED_ROOST_BUILD } from "@roost/host/build-identity";
+import { durableRemove } from "@roost/host/durability";
 import {
   WINDOWS_UPDATE_POLL_MS,
   isDeployJobId,

@@ -4,7 +4,7 @@
 // Called by main boot, coordinator clients, and Windows enrollment.
 
 import { z } from "zod";
-import { workerDataDir, workerLogDir } from "@roost/shared/paths";
+import { workerDataDir, workerLogDir } from "@roost/host/paths";
 import { isIP } from "node:net";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,7 @@ import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "./service-definition-env.ts";
 import {
   DEFAULT_COORDINATOR_BIND,
   DEFAULT_WORKER_LOCAL_UI_BIND,
-} from "@roost/shared/config";
+} from "@roost/host/config";
 
 export const WorkerConfig = z.object({
   coordinatorUrl: z.string().url(),

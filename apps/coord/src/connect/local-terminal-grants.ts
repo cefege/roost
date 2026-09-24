@@ -8,13 +8,13 @@ import { create } from "@bufbuild/protobuf";
 import {
   CoordinatorService,
   SessionsGrantLocalTerminalResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   TERMINAL_INPUT_ROUTE_CAPABILITY,
   TERMINAL_PEER_MAX_SESSIONS_PER_GRANT,
   TERMINAL_PEER_WEBRTC_CAPABILITY,
-} from "@roost/shared/terminal-peer";
-import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
+} from "@roost/protocol/terminal-peer";
+import { hasAtMostUtf8Bytes } from "@roost/protocol/ui-state";
 import type { KyselyDB } from "../db/connection.ts";
 import { requireAccountDevice, tabIdKey } from "./auth-interceptor.ts";
 import { captureFailure, captureOwnerKey } from "./terminal-capture-lease.ts";

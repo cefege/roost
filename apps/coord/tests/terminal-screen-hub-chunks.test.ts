@@ -4,12 +4,12 @@ import {
   CELL_GRID_CHUNK_STALL_MS,
   CELL_GRID_PART_MAX_BYTES,
   CELL_GRID_SNAPSHOT_MAX_CHUNKS,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import {
   PbCellGridChunkSchema,
   PbCellGridFrameSchema,
   PbCellRowSchema,
-} from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/proto/cell_pb";
 import {
   SESSION,
   SNAPSHOT_A,
@@ -27,7 +27,7 @@ import {
 } from "./terminal-screen-hub-harness.ts";
 import { TERMINAL_SCREEN_ASSEMBLY_HOLD_MAX_FRAMES } from "../src/connect/terminal-screen-hub-state.ts";
 import { TERMINAL_SNAPSHOT_FIRST_BYTE_TIMEOUT_MS } from "../src/connect/terminal-screen-hub.ts";
-import type { FirehoseFrame } from "@roost/shared/proto/sync_pb";
+import type { FirehoseFrame } from "@roost/protocol/proto/sync_pb";
 
 describe("TerminalScreenHub bounded chunk assembly", () => {
   test("latches out-of-order, missing-row, and chunk-count failures once", () => {

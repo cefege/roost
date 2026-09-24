@@ -5,16 +5,16 @@
 
 import { Code, ConnectError } from "@connectrpc/connect";
 import { randomUUID } from "node:crypto";
-import type { AttachmentTransferStatus } from "@roost/shared/proto/attachment_transfer_pb";
-import type { WAttachmentDirectStatus } from "@roost/shared/proto/worker_transport_pb";
+import type { AttachmentTransferStatus } from "@roost/protocol/proto/attachment_transfer_pb";
+import type { WAttachmentDirectStatus } from "@roost/protocol/proto/worker_transport_pb";
 import {
   ATTACHMENT_TRANSFER_ERROR_REASONS,
   ATTACHMENT_TRANSFER_MAX_PENDING_STATUS_REQUESTS,
   ATTACHMENT_TRANSFER_STATUS_DEADLINE_MS,
   isAttachmentTransferChunkSha256,
-} from "@roost/shared/attachment-transfer";
-import { hasAtMostUtf8Bytes } from "@roost/shared/ui-state";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/attachment-transfer";
+import { hasAtMostUtf8Bytes } from "@roost/protocol/ui-state";
+import { log } from "@roost/observability/log";
 import { currentRoutableWorker } from "./worker-send-target.ts";
 import type { WorkerHandle } from "./worker-registry.ts";
 import { sendAttachmentDirectStatusRequest } from "./worker-send-attachment-status.ts";

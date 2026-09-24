@@ -7,7 +7,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { normalizePredictMode, type PredictMode } from "../src/lib/predictPref.ts";
-import type { CellGridFrame } from "@roost/shared/cell";
+import type { CellGridFrame } from "@roost/protocol/cell";
 import {
   clock, enc, frame, mk, mkWithHost, type,
 } from "./predictiveEcho-test-harness.ts";

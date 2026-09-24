@@ -10,16 +10,16 @@ import {
   FirehoseFrameSchema, type FirehoseFrame, SessionPresenceSchema,
   WorkerRoutableFrameSchema, TerminalTitleFrameSchema, LastActivityFrameSchema,
   SyncDomain,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   sessionBus, presenceBus, workspaceBus, taskBus, mcpBus, globalPresenceBus,
   auditBus, titleBus, lastActivityBus, workerRoutableBus, agentStatusBus,
   pairBus,
 } from "../buses.ts";
 import { getEventMaxId, getEventsSince, getEventsThrough } from "../event-log.ts";
-import { log } from "@roost/shared/log";
-import { signal } from "@roost/shared/diag";
-import type { SessionEvent } from "@roost/shared/wire";
+import { log } from "@roost/observability/log";
+import { signal } from "@roost/observability/diag";
+import type { SessionEvent } from "@roost/protocol/wire";
 import type { ConnectDeps } from "./router.ts";
 import {
   agentStatusFrame, auditFrame, frameMeta, mcpFrame, pairFrame, presenceFrame,

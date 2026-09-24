@@ -6,7 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setSignalSink } from "@roost/shared/diag";
+import { setSignalSink } from "@roost/observability/diag";
 import { auditBus } from "../src/buses.ts";
 import { processInputControl, type InputControlResult } from "../src/connect/input-control.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";

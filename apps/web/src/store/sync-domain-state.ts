@@ -10,7 +10,7 @@ import {
   SyncDomain,
   type FirehoseFrame,
   type SyncClientFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { markPhase } from "../lib/diag.ts";
 import {
   _currentLiveSyncLink,

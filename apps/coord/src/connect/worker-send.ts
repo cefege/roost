@@ -9,10 +9,10 @@ import {
   CoordWorkerDownSchema, DBrowserCommandSchema, DBinarySchema, DAttachmentChunkSchema,
   DAgentPromptSchema, DInputRequestSchema, DTerminalStreamStateSchema,
   DTerminalSnapshotRequestSchema, type WInputResult, type WTerminalStreamResult,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { connectWorkers } from "./worker-registry.ts";
 import { createPendingRpc, rejectPendingRpcUnavailable } from "../router/pending-rpcs.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { currentRoutableWorker } from "./worker-send-target.ts";
 export {
   sendKeeperUpdatePreparation,

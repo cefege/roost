@@ -5,9 +5,9 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { WorkersDeleteRequestSchema } from "@roost/shared/proto/coordinator_pb";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
+import { WorkersDeleteRequestSchema } from "@roost/protocol/proto/coordinator_pb";
+import type { CoordWorkerDown } from "@roost/protocol/proto/worker_transport_pb";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import {
   lookupSessionId,
   primeChannelMap,

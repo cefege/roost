@@ -14,15 +14,15 @@ import {
   WorkspacesListResponseSchema, WorkspacesCreateResponseSchema,
   WorkspacesUpdateResponseSchema, WorkspacesDeleteResponseSchema,
   WorkspacesSetSessionsResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
-import { WorkspaceSchema } from "@roost/shared/proto/wire_pb";
-import { sameWorkerFolder } from "@roost/shared/native-path";
+} from "@roost/protocol/proto/coordinator_pb";
+import { WorkspaceSchema } from "@roost/protocol/proto/wire_pb";
+import { sameWorkerFolder } from "@roost/platform/native-path";
 import type { KyselyDB } from "../db/connection.ts";
 import type { WorkspacesTable } from "../db/schema.ts";
 import { workspaceBus } from "../buses.ts";
 import { requireAccountDevice } from "./auth-interceptor.ts";
-import { asSessionId, asWorkspaceId } from "@roost/shared/wire";
-import type { SessionId, Workspace } from "@roost/shared/wire";
+import { asSessionId, asWorkspaceId } from "@roost/protocol/wire";
+import type { SessionId, Workspace } from "@roost/protocol/wire";
 import type { ConnectDeps } from "./router.ts";
 
 // A workspace's session ids from the junction table. The one query every

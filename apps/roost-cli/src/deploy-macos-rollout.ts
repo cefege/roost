@@ -2,7 +2,7 @@
 // rollout. It reacquires the host lease, binds every action to the journaled
 // rollout, and proves an already-cleared action by exact running Git SHA.
 
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 import {
   acquireRemoteDeployLock,
   DeployFailure,

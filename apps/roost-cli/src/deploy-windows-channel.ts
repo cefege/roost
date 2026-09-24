@@ -10,14 +10,14 @@
 // Callers: deploy.ts (worker twin), push.ts + main/update flows (self-update).
 
 import { randomUUID } from "node:crypto";
-import type { CoordClient } from "../../worker/src/coord-client.ts";
-import { loadWorkerConfig } from "../../worker/src/config.ts";
+import type { CoordClient } from "@roost/worker/coord-client";
+import { loadWorkerConfig } from "@roost/worker/config";
 import { buildApiClient, buildSelfAuthorizedApiClient } from "./api.ts";
 import { DeployFailure, failDeploy } from "./deploy-exec.ts";
 import { loadWindowsServiceDefinitions } from "./service-ctl.ts";
 import { statusReport } from "./status.ts";
 import { fetchAndVerifyReleaseAsset, WINDOWS_RELEASE_MANIFEST_ASSET } from "./update.ts";
-import { parseWindowsReleaseManifest } from "./windows/windows-update-journal.ts";
+import { parseWindowsReleaseManifest } from "@roost/host/windows/windows-update-journal";
 import { coordinatorReportIsHealthy } from "./coordinator-deploy-recovery.ts";
 
 type WindowsDeployClient = Pick<CoordClient, "workersList" | "workersDeployStart" | "workersDeployOutput">;
@@ -217,7 +217,7 @@ export async function tryCoordinatorSelfUpdate(
       // Dynamic import boundary: windows-update-control binds the Windows-only
       // SCM/native broker surface and must never be loaded on a POSIX host
       // taking the source-deployment path.
-      const { handleUpdateBrokerCommand } = await import("./windows/windows-update-control.ts");
+      const { handleUpdateBrokerCommand } = await import("@roost/host/windows/windows-update-control");
       const jobId = randomUUID();
       const command = {
         requestId: randomUUID(),

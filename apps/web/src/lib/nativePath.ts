@@ -4,7 +4,7 @@
 // supplies the worker OS and preserves historical POSIX routes while workers
 // hydrate independently from the terminal domain.
 
-import type { SupportedHostPlatform } from "@roost/shared/platform";
+import type { SupportedHostPlatform } from "@roost/platform/platform";
 import {
   decodeNativePathRoute,
   encodeNativePathRoute,
@@ -14,7 +14,7 @@ import {
   nativePathIdentityKey,
   nativePathJoin,
   normalizeNativePath,
-} from "@roost/shared/native-path";
+} from "@roost/platform/native-path";
 import { rootStore } from "../store/root.ts";
 
 const WINDOWS_ROUTE_RE = /^~(?:drive|unc)(?:\/|$)/;

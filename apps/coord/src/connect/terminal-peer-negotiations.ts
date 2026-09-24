@@ -8,21 +8,21 @@ import { createHash, randomUUID } from "node:crypto";
 import type {
   SessionsNegotiateLocalTerminalPeerRequest,
   SessionsNegotiateLocalTerminalPeerResponse,
-} from "@roost/shared/proto/coordinator_pb";
-import { SessionsNegotiateLocalTerminalPeerResponseSchema } from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
+import { SessionsNegotiateLocalTerminalPeerResponseSchema } from "@roost/protocol/proto/coordinator_pb";
 import type {
   WLocalTerminalPeerAnswer,
   WLocalTerminalPeerError,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TERMINAL_PEER_MAX_NEGOTIATIONS_PER_WORKER,
   TERMINAL_PEER_MAX_PENDING_NEGOTIATIONS,
   TERMINAL_PEER_MAX_PENDING_NEGOTIATIONS_PER_DEVICE,
   TERMINAL_PEER_NATIVE_ANSWER_DEADLINE_MS,
   TERMINAL_PEER_WEBRTC_CAPABILITY,
-} from "@roost/shared/terminal-peer";
-import { inspectTerminalPeerSdp } from "@roost/shared/terminal-peer-sdp";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/terminal-peer";
+import { inspectTerminalPeerSdp } from "@roost/protocol/terminal-peer-sdp";
+import { log } from "@roost/observability/log";
 import type { AccountDeviceCaller } from "./auth-interceptor.ts";
 import type { WorkerHandle } from "./worker-registry.ts";
 import { currentRoutableWorker } from "./worker-send-target.ts";

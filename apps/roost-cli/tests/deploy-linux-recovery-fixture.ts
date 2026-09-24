@@ -6,7 +6,7 @@ import {
   KEEPER_EMPTY_BINDING_DIGEST,
   type JournaledKeeperUpdateV1,
   type KeeperContractV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import {
   serializeLinuxKeeperUpdate,
   type LinuxDeployJournal,

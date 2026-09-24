@@ -9,7 +9,7 @@ import {
   WBinarySchema,
   WTerminalMetadataSchema,
   type CoordWorkerUp,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   ANNOUNCED_CHANNEL_MAX_BYTES,
   AnnouncedChannelBarrier,

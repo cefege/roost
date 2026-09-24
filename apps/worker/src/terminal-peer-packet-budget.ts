@@ -9,8 +9,8 @@ import {
 	TERMINAL_PEER_WORKER_CONTROL_QUEUE_MAX_BYTES,
 	TERMINAL_PEER_WORKER_QUEUE_MAX_BYTES,
 	type TerminalPeerPacketLane,
-} from "@roost/shared/terminal-peer";
-import type { TerminalPeerPacketQuota } from "@roost/shared/terminal-peer-packets";
+} from "@roost/protocol/terminal-peer";
+import type { TerminalPeerPacketQuota } from "@roost/protocol/terminal-peer-packets";
 
 export type TerminalPeerPacketDirection = "incoming" | "outgoing";
 

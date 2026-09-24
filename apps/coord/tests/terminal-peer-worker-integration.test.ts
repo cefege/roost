@@ -13,11 +13,11 @@ import {
   type CoordWorkerDown,
   type WLocalTerminalPeerAnswer,
   type WLocalTerminalPeerError,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TERMINAL_INPUT_ROUTE_CAPABILITY,
   TERMINAL_PEER_WEBRTC_CAPABILITY,
-} from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer";
 import { makeWorkerConn, type WorkerConn } from "../src/connect/worker-conn.ts";
 import { makeWorkerFrameDispatcher } from "../src/connect/worker-frame-dispatch.ts";
 import type { WorkerServiceDeps } from "../src/connect/worker-conn-types.ts";

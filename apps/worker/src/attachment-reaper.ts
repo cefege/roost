@@ -8,8 +8,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { assertNeverPlatform, supportedHostPlatform, type SupportedHostPlatform } from "@roost/shared/platform";
-import { log } from "@roost/shared/log";
+import { assertNeverPlatform, supportedHostPlatform, type SupportedHostPlatform } from "@roost/platform/platform";
+import { log } from "@roost/observability/log";
 import { isWorkerPathWithin, normalizeWorkerPath } from "./util/path.ts";
 
 const HOST_PLATFORM = supportedHostPlatform();

@@ -4,15 +4,15 @@
 // Explicit count maps bound distinct live targets globally and per fingerprint.
 
 import { randomUUID } from "node:crypto";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   UI_STATE_MAX_TABS_TOTAL,
   UI_STATE_MAX_TABS_PER_FINGERPRINT,
-} from "@roost/shared/ui-state";
+} from "@roost/protocol/ui-state";
 import {
   UiApplyLayoutOutcome,
   type UiApplyLayoutResult,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 
 export const UI_LAYOUT_APPLY_TIMEOUT_MS = 15_000;
 export const UI_LAYOUT_APPLY_MAX_PENDING = 256;

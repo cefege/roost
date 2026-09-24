@@ -9,12 +9,12 @@ import {
   assertNeverPlatform,
   supportedHostPlatform,
   type SupportedHostPlatform,
-} from "@roost/shared/platform";
+} from "@roost/platform/platform";
 import {
   normalizeHostIdentity,
   normalizeHostIdentityText,
   type HostIdentity,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 
 const HOST_IDENTITY_SOURCE_MAX_BYTES = 8 * 1024;
 const SYSCTL_TIMEOUT_MS = 1_000;

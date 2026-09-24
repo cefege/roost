@@ -5,7 +5,7 @@
 // Depends on shared terminal-capture limits and the M3 Dialog/Button primitives.
 
 import { type Component } from "solid-js";
-import { TERMINAL_CAPTURE_LIMITS } from "@roost/shared/terminal-capture";
+import { TERMINAL_CAPTURE_LIMITS } from "@roost/protocol/terminal-capture";
 // Per-file primitive imports, not the barrel: the barrel drags Kobalte and
 // router-linked rows into the terminal pane's module graph.
 import { Button } from "./Settings/md/Button.tsx";

@@ -2,7 +2,7 @@ import {
   spansText,
   type CellGridFrame,
   type CellRow,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import type { TerminalCellGeometry } from "./terminalMouse.ts";
 
 export const SCROLLBACK_BLOCK_ROWS = 250;

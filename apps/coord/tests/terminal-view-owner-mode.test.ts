@@ -6,7 +6,7 @@
 // needs from a new coordinator during an in-place upgrade.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { TerminalViewStatus } from "@roost/shared/proto/sync_pb";
+import { TerminalViewStatus } from "@roost/protocol/proto/sync_pb";
 import {
   OWNER_FP,
   SOCKET,

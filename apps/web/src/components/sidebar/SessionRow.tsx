@@ -3,7 +3,7 @@
 
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { batch, createMemo, createSignal, Show } from "solid-js";
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore } from "../../store/root.ts";
 import { workerOnline } from "../../store/sync.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";

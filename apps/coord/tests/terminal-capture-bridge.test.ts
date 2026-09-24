@@ -6,14 +6,14 @@
 
 import { Code } from "@connectrpc/connect";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { TerminalCaptureAction } from "@roost/shared/proto/coordinator_pb";
+import { TerminalCaptureAction } from "@roost/protocol/proto/coordinator_pb";
 import {
   TERMINAL_CAPTURE_LIMITS,
   TERMINAL_INCIDENT_SCHEMA,
   checkTerminalCaptureEnvelope,
   type TerminalCaptureCoordinatorPayload,
   type TerminalCaptureResult,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { AccountDeviceCaller } from "../src/connect/auth-principal.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import {

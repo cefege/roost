@@ -7,7 +7,7 @@ import { afterEach, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import {
   AttachmentTransferStatusSchema,
-} from "@roost/shared/proto/attachment_transfer_pb";
+} from "@roost/protocol/proto/attachment_transfer_pb";
 import {
   CoordWorkerUpSchema,
   WHelloSchema,
@@ -18,8 +18,8 @@ import {
   type WAttachmentDirectStatus,
   type WLocalAttachmentPeerAnswer,
   type WLocalAttachmentPeerError,
-} from "@roost/shared/proto/worker_transport_pb";
-import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/proto/worker_transport_pb";
+import { ATTACHMENT_TRANSFER_PEER_WEBRTC_CAPABILITY } from "@roost/protocol/attachment-transfer";
 import { makeWorkerConn, type WorkerConn } from "../src/connect/worker-conn.ts";
 import { makeWorkerFrameDispatcher } from "../src/connect/worker-frame-dispatch.ts";
 import type { WorkerServiceDeps } from "../src/connect/worker-conn-types.ts";

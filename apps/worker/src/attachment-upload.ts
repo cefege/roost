@@ -2,7 +2,7 @@
 // AttachmentOperationOwner is the sole byte destination and durable receipt owner;
 // this module preserves the coordinator reply shape while exposing direct status.
 
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { AttachmentOperationOwner, type AttachmentOperationResult } from "./attachment-operation-owner.ts";
 import type {
   AttachmentOperationError,

@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   CoordWorkerDownSchema,
   DAttachmentDirectStatusRequestSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import { currentRoutableWorker } from "./worker-send-target.ts";
 import type { WorkerHandle } from "./worker-registry.ts";
 

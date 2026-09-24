@@ -15,7 +15,7 @@ import {
   type Session,
   type Worker,
   type Workspace,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import { reconcile } from "solid-js/store";
 import { markAgentSeen, resetAgentSeenForTest } from "../src/lib/agentSeen.ts";
 import {

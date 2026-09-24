@@ -20,7 +20,7 @@
 import { describe, test, expect } from "bun:test";
 import { renderRow, rowHash, spanStyle } from "../src/lib/cellRow.ts";
 import type { FindHit } from "../src/lib/cellRow.ts";
-import { DEFAULT_COLOR, rowColumns, spansText, type CellRow, type CellSpan } from "@roost/shared/cell";
+import { DEFAULT_COLOR, rowColumns, spansText, type CellRow, type CellSpan } from "@roost/protocol/cell";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────
 class FakeEl {

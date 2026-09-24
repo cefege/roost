@@ -3,7 +3,7 @@
 // Covers ordering, wake ownership, bounds, drop isolation, and teardown.
 
 import { afterEach, describe, expect, test, vi } from "bun:test";
-import { asWorkerFp, DIR_FROM_PTY } from "@roost/shared/wire";
+import { asWorkerFp, DIR_FROM_PTY } from "@roost/protocol/wire";
 import {
   CELL_EMIT_COALESCE_MS,
   RAW_METADATA_AGGREGATE_CAP_BYTES,

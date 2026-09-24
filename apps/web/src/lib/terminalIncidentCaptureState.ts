@@ -15,8 +15,8 @@ import {
   type TerminalCaptureReason,
   type TerminalCaptureResult,
   type TerminalCaptureTrigger,
-} from "@roost/shared/terminal-capture";
-import type { CellGridFrame } from "@roost/shared/cell";
+} from "@roost/protocol/terminal-capture";
+import type { CellGridFrame } from "@roost/protocol/cell";
 import type { CellGridRenderer } from "./cellRenderer.ts";
 import type { RendererIncidentObserver } from "./cellRendererPresentation.ts";
 import { streamIdentityOfFrame, type CommittedPaintedModel } from "./terminalIncidentDom.ts";

@@ -13,7 +13,7 @@ import { For, Show, createMemo } from "solid-js";
 import {
   isTerminalGeometry,
   minimumTerminalGeometry,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { rootStore } from "../../store/root.ts";
 import { colorForFp } from "../../lib/fpColor.ts";
 

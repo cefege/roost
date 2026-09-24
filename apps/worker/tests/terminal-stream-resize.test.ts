@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
 import { installAutoKeeper } from "./keeper-fake-pool.ts";
 import {

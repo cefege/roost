@@ -20,7 +20,7 @@ import {
   asSessionId,
   asWorkerFp,
   type Session,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 
 interface DurablePublicationFixtureOptions {
   slug: string;

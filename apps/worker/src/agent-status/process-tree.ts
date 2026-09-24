@@ -3,7 +3,7 @@
 // agent-status/process-scan.ts supplies the rows and attaches the foreground
 // job to a proved agent identity; agent-prompt-control.ts fences on it.
 
-import { supportedHostPlatform } from "@roost/shared/platform";
+import { supportedHostPlatform } from "@roost/platform/platform";
 
 const HOST_PLATFORM = supportedHostPlatform();
 

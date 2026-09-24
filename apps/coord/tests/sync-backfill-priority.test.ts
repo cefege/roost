@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionEvent, asSessionId } from "@roost/shared/wire";
+import { SessionEvent, asSessionId } from "@roost/protocol/wire";
 import { sessionBus } from "../src/buses.ts";
 import { startSyncFeed, type SyncResourceIndex } from "../src/connect/sync-feed.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";

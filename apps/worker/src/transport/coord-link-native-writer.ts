@@ -1,8 +1,8 @@
 // Native WebSocket byte admission for the coordinator link. The outbox owns
 // ordering and pending queues; this owner exposes capacity-aware writes and the
 // one forced hello write while keeping socket-generation state in one place.
-import { diag } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
+import { diag } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
 import {
   PENDING_BYTES_CAP,
   WS_BUFFERED_HIGH_WATER_BYTES,

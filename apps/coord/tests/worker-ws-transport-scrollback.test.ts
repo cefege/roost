@@ -11,7 +11,7 @@ import {
   SessionsCancelScrollbackSearchRequestSchema,
   SessionsGetScrollbackCellsRequestSchema,
   SessionsSearchScrollbackRequestSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   TERMINAL_SEARCH_GRID_EPOCH_MAX_LENGTH,
   TERMINAL_SEARCH_ID_MAX_LENGTH,
@@ -19,7 +19,7 @@ import {
   TERMINAL_SEARCH_MAX_ROWS,
   TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS,
   TERMINAL_SEARCH_RPC_DEADLINE_MS,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 import { tabIdKey } from "../src/connect/auth-interceptor.ts";
 import { makeSessionScrollbackHandlers } from "../src/connect/handlers-sessions-scrollback.ts";
 import { _pendingRpcStats } from "../src/router/pending-rpcs.ts";

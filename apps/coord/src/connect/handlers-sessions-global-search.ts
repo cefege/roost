@@ -12,14 +12,14 @@ import {
   SessionsSearchGlobalMatchSchema,
   SessionsSearchGlobalPartialSchema,
   SessionsSearchGlobalResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS,
   GLOBAL_TERMINAL_SEARCH_WORK_DEADLINE_MS,
   TerminalSearchIdSchema,
   TerminalSearchQuerySchema,
-} from "@roost/shared/terminal-search";
-import { asSessionId } from "@roost/shared/wire";
+} from "@roost/protocol/terminal-search";
+import { asSessionId } from "@roost/protocol/wire";
 import {
   cancelPendingRpc,
   createPendingRpc,

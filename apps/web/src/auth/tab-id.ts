@@ -3,7 +3,7 @@
 // It depends on session storage, Web Locks, and a bounded BroadcastChannel fallback.
 // Holding the claim for the document lifetime preserves reload identity without duplicate-tab races.
 
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 
 const KEY = "roost.tabId";
 const LOCK_PREFIX = "roost.tab-id:";

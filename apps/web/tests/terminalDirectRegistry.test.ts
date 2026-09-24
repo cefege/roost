@@ -4,8 +4,8 @@
 // state or websocket lifecycle leaks across these behavioral boundaries.
 
 import { describe, expect, test } from "bun:test";
-import type { CellGridFrame } from "@roost/shared/cell";
-import type { TerminalInputRouteResult } from "@roost/shared/proto/sync_pb";
+import type { CellGridFrame } from "@roost/protocol/cell";
+import type { TerminalInputRouteResult } from "@roost/protocol/proto/sync_pb";
 import {
   terminalGenerationKey,
   terminalGenerationMatches,

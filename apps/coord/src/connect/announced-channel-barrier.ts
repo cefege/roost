@@ -1,7 +1,7 @@
 // Bridges worker-open frames until their durable channel route publishes.
 // Cell loss invalidates the stream; one compact semantic record survives until
 // the exact route commits. Every retained frame consumes the socket work budget.
-import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
+import type { CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
 import {
   AnnouncedChannelSemanticRetention,
   isCompactTerminalMetadataFrame,

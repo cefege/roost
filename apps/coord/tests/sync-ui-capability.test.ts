@@ -10,7 +10,7 @@ import {
   UiCommandSchema,
   UiReportStateRequestSchema,
   UiSelectTabSchema,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { uiBus } from "../src/buses.ts";
 import { makeSyncWsHandler, type SyncWsData } from "../src/connect/sync-ws-handler.ts";
 import { createSyncV2SocketState } from "../src/connect/sync-ws-v2-state.ts";

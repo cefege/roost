@@ -2,7 +2,7 @@
 // It mints a separate exact attachment grant, then tries matching loopback before WebRTC.
 // After bytes leave either direct route, only that route's status control may settle it.
 
-import { ATTACHMENT_TRANSFER_STATUS_DEADLINE_MS } from "@roost/shared/attachment-transfer";
+import { ATTACHMENT_TRANSFER_STATUS_DEADLINE_MS } from "@roost/protocol/attachment-transfer";
 import { coordClient } from "../connect.ts";
 import { readLocalWorkerDoor, type LocalWorkerDoor } from "./localWorkerDiscovery.ts";
 import {

@@ -3,8 +3,8 @@
 // POSIX service parsers and keeper-update schemas provide fail-closed proof.
 
 import { dirname } from "node:path";
-import { JournaledKeeperUpdateV1Schema } from "@roost/shared/keeper-update";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import { JournaledKeeperUpdateV1Schema } from "@roost/protocol/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import {
   isResolvedCanonicalAbsolutePath,

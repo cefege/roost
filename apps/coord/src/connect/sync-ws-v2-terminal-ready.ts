@@ -4,7 +4,7 @@
 // It depends on terminal-lane state and the shared cross-domain queue admission seam.
 
 import type { ServerWebSocket } from "bun";
-import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import { SyncDomain } from "@roost/protocol/proto/sync_pb";
 import type { SyncFeedFrameMeta } from "./sync-feed.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 import {

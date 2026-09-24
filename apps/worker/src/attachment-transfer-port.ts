@@ -2,7 +2,7 @@
 // AttachmentDirectSockets owns protobuf admission and destination writes;
 // carriers own bytes, backpressure, and their independent close lifecycle.
 
-import type { AttachmentTransferPeerChannelLane } from "@roost/shared/attachment-transfer";
+import type { AttachmentTransferPeerChannelLane } from "@roost/protocol/attachment-transfer";
 
 export type AttachmentTransferSendResult = "accepted" | "backpressured" | "refused";
 

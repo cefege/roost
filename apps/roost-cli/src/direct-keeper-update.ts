@@ -8,7 +8,7 @@ import {
   keeperUpdateOutcomeMatchesAction,
   type JournaledKeeperUpdateV1,
   type KeeperContractV1,
-} from "@roost/shared/keeper-update";
+} from "@roost/protocol/keeper-update";
 import { buildCliContext } from "./cli-auth.ts";
 import { normalizedHost } from "./deploy-windows-channel.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";

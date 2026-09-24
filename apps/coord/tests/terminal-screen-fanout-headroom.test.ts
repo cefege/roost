@@ -8,8 +8,8 @@ import {
   CELL_GRID_PART_MAX_BYTES,
   encodedCellGridChunkSize,
   encodedCellGridFrameSize,
-} from "@roost/shared/cell";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/cell";
+import type { PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 import { terminalSnapshotSource } from "../src/connect/terminal-screen-frames.ts";
 import {
   SESSION,

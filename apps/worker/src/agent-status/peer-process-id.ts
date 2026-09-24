@@ -8,7 +8,7 @@ import {
   assertNeverPlatform,
   supportedHostPlatform,
   type SupportedHostPlatform,
-} from "@roost/shared/platform";
+} from "@roost/platform/platform";
 
 export interface NativePeerProcessIdQuery {
   read(nativeHandle: number): number | null;

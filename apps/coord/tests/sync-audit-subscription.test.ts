@@ -12,7 +12,7 @@ import {
   SyncDomainSubscriptionCommandSchema,
   type FirehoseFrame,
   type SyncClientFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { auditBus } from "../src/buses.ts";
 import {
   startSyncFeed,

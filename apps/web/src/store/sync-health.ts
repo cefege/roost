@@ -7,7 +7,7 @@
 
 import type { CoordHealthSnapshot } from "../components/ConnectionBanner.tsx";
 import { isPageVisible } from "../lib/pageVisible.ts";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 
 const HEALTH_POLL_INTERVAL_MS = 5_000;
 const HEALTH_POLL_TIMEOUT_MS = 4_000;

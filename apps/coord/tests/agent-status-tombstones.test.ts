@@ -13,7 +13,7 @@ import {
   asSessionId,
   asWorkerFp,
   type AgentStatusUpdate as AgentStatusUpdateValue,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   _backdateAgentStatusTombstone,
   handleWorkerAgentStatus,

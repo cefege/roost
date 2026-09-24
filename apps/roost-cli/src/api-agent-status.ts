@@ -2,8 +2,8 @@
 // Read JSON remains an explicit stable projection; waits pin the exact current
 // occupant and print only their terminal outcome.
 
-import type { AgentStatusView } from "@roost/shared/proto/coordinator_pb";
-import { AgentPromptWaitTimeoutMsSchema } from "@roost/shared/terminal-input";
+import type { AgentStatusView } from "@roost/protocol/proto/coordinator_pb";
+import { AgentPromptWaitTimeoutMsSchema } from "@roost/protocol/terminal-input";
 
 export interface AgentStatusApiClient {
   agentStatusGet(request: { sessionId: string }): Promise<{ status?: AgentStatusView }>;

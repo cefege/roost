@@ -2,11 +2,11 @@
 // Push marks fleet-converging only after target health, then calls begin finalization
 // before any worker drops rollback state. Final cleanup requires an idempotent fleet
 // finalizer so interrupted finalization cannot become a coordinator-only commit.
-import { coordServiceLabel } from "@roost/shared/paths";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+import { coordServiceLabel } from "@roost/host/paths";
+import { posixShellQuote } from "@roost/platform/shell-quote";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { durableRemove, flushDurablePath } from "@roost/shared/durability";
+import { durableRemove, flushDurablePath } from "@roost/host/durability";
 import { DeployFailure, run, type RunOptions } from "./deploy-exec.ts";
 import {
   routableWorkerFingerprints,

@@ -9,7 +9,7 @@ import { createWriteStream, renameSync } from "node:fs";
 import { chmod, rm } from "node:fs/promises";
 import { basename } from "node:path";
 import { finished } from "node:stream/promises";
-import { acquireMachineTransaction } from "./machine-transaction.ts";
+import { acquireMachineTransaction } from "@roost/host/machine-transaction";
 import {
   checkpointPosixSelfUpdate,
   loadPosixSelfUpdateJournal,
@@ -248,7 +248,7 @@ export async function update(_args: string[]): Promise<void> {
     const jobId = randomUUID();
     // This Windows-only graph imports native service/durability helpers; keep
     // it out of the POSIX self-replace path, whose load behavior stays intact.
-    const { handleUpdateBrokerCommand } = await import("./windows/windows-update-control.ts");
+    const { handleUpdateBrokerCommand } = await import("@roost/host/windows/windows-update-control");
     const progress = await handleUpdateBrokerCommand({
       requestId: randomUUID(),
       jobId,

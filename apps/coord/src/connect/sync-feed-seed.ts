@@ -10,13 +10,13 @@ import {
   FirehoseFrameSchema, type FirehoseFrame, SessionPresenceSchema,
   WorkerRoutableFrameSchema, TerminalTitleFrameSchema, LastActivityFrameSchema,
   SyncDomain,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import { listRoutableFps } from "./worker-service.ts";
 import { getTitleSnapshot } from "../terminal-title-hub.ts";
 import { getLastActivitySnapshot } from "../last-activity-hub.ts";
 import { getAgentStatusSnapshot } from "../agent-status-hub.ts";
 import { terminalViewerProjection } from "./terminal-view-hub.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import { agentStatusFrame, type SyncFeedFrameMeta } from "./sync-feed-frames.ts";
 import type { UiStateOwner } from "./ui-state-owner.ts";
 import type { KyselyDB } from "../db/connection.ts";

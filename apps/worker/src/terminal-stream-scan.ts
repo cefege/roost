@@ -5,7 +5,7 @@
 // _scanOsc7 extracts cwd-change (OSC 7) sequences for cwd tracking.
 // _scanAgentOsc extracts title/progress metadata for agent-state fallback.
 // Sole caller: session-scrollback.ts. Split out of session-manager.ts.
-import { supportedHostPlatform, type SupportedHostPlatform } from "@roost/shared/platform";
+import { supportedHostPlatform, type SupportedHostPlatform } from "@roost/platform/platform";
 import { parseOsc7WorkerPath } from "./util/path.ts";
 
 const HOST_PLATFORM = supportedHostPlatform();

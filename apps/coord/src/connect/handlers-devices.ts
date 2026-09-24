@@ -4,7 +4,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
-import { fingerprintOf } from "@roost/shared/fingerprint";
+import { fingerprintOf } from "@roost/protocol/fingerprint";
 import {
   AuthLogoutResponseSchema,
   CoordinatorService,
@@ -12,7 +12,7 @@ import {
   DevicesListResponseSchema,
   DevicesRevokeResponseSchema,
   DevicesRotateCurrentResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import { decodeEd25519Pubkey, isAuthorizedKeyRevoked } from "../authorized-keys.ts";
 import { invalidateJwtKey, refreshJwtKey } from "../jwt.ts";
 import { assertOnHost } from "../middleware/caller-origin.ts";

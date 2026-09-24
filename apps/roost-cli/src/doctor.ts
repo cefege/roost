@@ -17,7 +17,7 @@
 import { existsSync, readdirSync, createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { createGunzip } from "node:zlib";
-import { coordLogDir, workerLogDir } from "@roost/shared/paths";
+import { coordLogDir, workerLogDir } from "@roost/host/paths";
 
 const COORD_LOGS = coordLogDir();
 const WORKER_LOGS = workerLogDir();

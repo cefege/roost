@@ -3,7 +3,7 @@
 // fallback repair without involving Sync transport or a real DOM.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { CellGridFrame } from "@roost/shared/cell";
+import type { CellGridFrame } from "@roost/protocol/cell";
 import { TerminalRenderScheduler } from "../src/lib/terminal-render-scheduler.ts";
 import {
   RecordingRenderer,

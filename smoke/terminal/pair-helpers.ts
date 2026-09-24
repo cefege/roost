@@ -5,7 +5,7 @@
 
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { createUnauthenticatedCoordClient } from "../../apps/worker/src/coord-client.ts";
-import { PAIRING_CEREMONY_VERSION } from "@roost/shared/pairing";
+import { PAIRING_CEREMONY_VERSION } from "@roost/protocol/pairing";
 import { expect } from "./fixtures.ts";
 
 export const REQUESTER_RECORD_KEY = "roost.pairingCeremony.v1";

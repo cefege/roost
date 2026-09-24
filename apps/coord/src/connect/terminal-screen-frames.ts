@@ -9,12 +9,12 @@ import {
   type CellGridFrame,
   type CellGridSnapshotCursor,
   type CellGridSnapshotSource,
-} from "@roost/shared/cell";
-import { type PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/cell";
+import { type PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 import {
   FirehoseFrameSchema,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 
 export function cellGridEnvelope(frame: PbCellGridFrame): FirehoseFrame {
   return create(FirehoseFrameSchema, {

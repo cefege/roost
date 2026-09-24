@@ -1,7 +1,7 @@
 // Projection layer: folds a SessionEvent into the root store.sessions record.
 //
 // SINGLE SOURCE OF TRUTH: this delegates the fold DECISION to the SAME
-// `foldEvent` coord uses (@roost/shared/wire). There is NO hand-mirrored
+// `foldEvent` coord uses (@roost/protocol/wire). There is NO hand-mirrored
 // switch here anymore — the prior parallel copy drifted (it silently
 // dropped the `respawned` variant), which is the whole projection-drift
 // bug class. By construction now, coord's DB projection and the SPA's
@@ -16,9 +16,9 @@
 
 import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
-import type { SessionEvent, Session } from "@roost/shared/wire";
-import { foldEvent, SessionEvent as SessionEventSchema } from "@roost/shared/wire";
-import { signal } from "@roost/shared/diag";
+import type { SessionEvent, Session } from "@roost/protocol/wire";
+import { foldEvent, SessionEvent as SessionEventSchema } from "@roost/protocol/wire";
+import { signal } from "@roost/observability/diag";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 import { isPendingSpawn } from "./optimisticSpawn.ts";
 import { pruneTerminalSession } from "./terminal-stream.ts";

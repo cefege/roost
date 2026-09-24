@@ -6,7 +6,7 @@ import {
   GLOBAL_TERMINAL_SEARCH_MAX_MATCHES,
   GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS,
   GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
-} from "@roost/shared/terminal-search";
+} from "@roost/protocol/terminal-search";
 
 export interface GlobalSearchPageLimits {
   readonly maxSessions: number;

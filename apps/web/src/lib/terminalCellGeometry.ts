@@ -5,7 +5,7 @@
 // their source box; this module owns the cell probe, the padding subtraction,
 // and the refusal rule: a non-positive result is NO measurement, never 1×1.
 
-import type { TerminalGeometry } from "@roost/shared/viewport";
+import type { TerminalGeometry } from "@roost/protocol/viewport";
 
 /** Per-cell advance in CSS px. Fractional on purpose: rounding the advance
  *  before the division loses a column across a full pane width. */

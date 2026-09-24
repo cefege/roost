@@ -5,7 +5,7 @@
 import { spawn } from "bun";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { coordLogDir, workerLogDir } from "@roost/shared/paths";
+import { coordLogDir, workerLogDir } from "@roost/host/paths";
 
 const LOG_ROTATE_WARN_BYTES = 100 * 1024 * 1024; // 100 MB
 

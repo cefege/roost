@@ -8,12 +8,12 @@ import {
   ATTACHMENT_TRANSFER_PACKET_MAX_BYTES,
   ATTACHMENT_TRANSFER_PACKET_STALL_MS,
   type AttachmentTransferPeerChannelLane,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import {
   AttachmentTransferPacketAssembler,
   AttachmentTransferPacketQueue,
   parseAttachmentTransferPacket,
-} from "@roost/shared/attachment-transfer-packets";
+} from "@roost/protocol/attachment-transfer-packets";
 import type {
   AttachmentTransferPort,
   AttachmentTransferSendResult,

@@ -10,14 +10,14 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   CoordWorkerDownSchema,
   DBrowserCommandSchema,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   TERMINAL_CAPTURE_LIMITS,
   type TerminalCaptureCommand,
   type TerminalCaptureErrorCode,
   type TerminalCaptureFileRef,
   type TerminalCaptureStatus,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import { createPendingRpc, rejectPendingRpcUnavailable } from "../router/pending-rpcs.ts";
 import { connectWorkers } from "./worker-registry.ts";
 

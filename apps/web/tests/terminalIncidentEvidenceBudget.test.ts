@@ -11,7 +11,7 @@ import {
   utf8ByteLength,
   type TerminalBrowserPaintedState,
   type TerminalDomRow,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import {
   fitBrowserEvidence,
   type TerminalIncidentBrowserPayload,

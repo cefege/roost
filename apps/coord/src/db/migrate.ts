@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Database } from "bun:sqlite";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   assertNoOpenTransaction,
   enableAndVerifyForeignKeys,

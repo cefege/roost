@@ -3,7 +3,7 @@
 // so a stale connection cannot settle an attachment peer for its replacement.
 // Attachment controls never pass through generic JSON pending RPCs.
 
-import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
+import type { CoordWorkerUp } from "@roost/protocol/proto/worker_transport_pb";
 import type { WorkerServiceDeps } from "./worker-conn-types.ts";
 import type { WorkerHandle } from "./worker-registry.ts";
 

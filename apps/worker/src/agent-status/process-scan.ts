@@ -2,13 +2,13 @@
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
 // Forced proof refreshes abort the snapshot and terminate a spawned ps process.
 
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 import {
   assertNeverPlatform,
   supportedHostPlatform,
   type SupportedHostPlatform,
-} from "@roost/shared/platform";
-import { windowsProcessSnapshot } from "@roost/shared/windows-helper";
+} from "@roost/platform/platform";
+import { windowsProcessSnapshot } from "@roost/host/windows-helper";
 import {
   agentForegroundJob,
   processSubtree,

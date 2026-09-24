@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test, vi } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { TerminalGeometry } from "@roost/shared/viewport";
+import type { TerminalGeometry } from "@roost/protocol/viewport";
 
 const DISPLAY_WIDTH = 320;
 const DISPLAY_HEIGHT = 160;
@@ -102,7 +102,7 @@ browserGlobals.cancelAnimationFrame = () => undefined;
 const solidClientUrl = new URL("./solid.js", import.meta.resolve("solid-js"));
 const Solid = await import(solidClientUrl.href) as typeof SolidApi;
 mock.module("solid-js", () => ({ ...Solid }));
-mock.module("@roost/shared/diag", () => ({ diag: () => undefined }));
+mock.module("@roost/observability/diag", () => ({ diag: () => undefined }));
 mock.module("../src/lib/focusOwners.ts", () => ({
   FOCUS_OWNERS: "[data-focus-owner]",
 }));

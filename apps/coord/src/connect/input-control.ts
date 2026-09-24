@@ -2,7 +2,7 @@
 // with the audit-log queue that persists its outcome. Terminal view membership
 // and SCD are intentionally absent; input admission remains session-scoped.
 
-import { signal } from "@roost/shared/diag";
+import { signal } from "@roost/observability/diag";
 import type { ConnectDeps } from "./router.ts";
 import {
   sendTerminalInputRequest,

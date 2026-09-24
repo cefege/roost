@@ -9,7 +9,7 @@ import type {
   Session,
   Worker,
   Workspace,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import type { RendererPaintPresentation } from "./cellRenderer.ts";
 import type { SpaPhaseTimeline } from "./diag.ts";
 import type {

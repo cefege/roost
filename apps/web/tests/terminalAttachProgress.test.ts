@@ -19,7 +19,7 @@ import type {
   BaselineProgress,
   TerminalViewHandle,
 } from "../src/store/terminal-stream-types.ts";
-import type { PbCellGridChunk } from "@roost/shared/proto/cell_pb";
+import type { PbCellGridChunk } from "@roost/protocol/proto/cell_pb";
 
 let cachedChunks: PbCellGridChunk[] | null = null;
 

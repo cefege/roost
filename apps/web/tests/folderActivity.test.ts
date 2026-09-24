@@ -2,8 +2,8 @@
 // Tests terminal aggregation including subtree descendants.
 
 import { expect, test, describe } from "bun:test";
-import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asWorkerFp, asSessionId, asChannelId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { computeFolderActivity } from "../src/lib/folderActivity.ts";
 
 const FP = asWorkerFp("aa".repeat(32));

@@ -12,12 +12,11 @@ import type {
   Task,
   McpRelay,
   AgentStatus,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 // Keyed by string id for plain-object Solid reactivity.
 // Solid createStore + Map<K,V> has limited granularity; keyed records work better.
-// Pending tap-to-pair requests. Shape mirrors pair.list output in
-// apps/shared/src/router.ts (no dedicated wire type — pair domain has
-// only inline output shapes). key = ephemeral_id.
+// Pending tap-to-pair requests mirror the inline Connect-RPC response shape.
+// key = ephemeral_id.
 export interface PairRequest {
   ephemeral_id: string;
   label: string;
@@ -66,7 +65,7 @@ export interface RootState {
    *  The PTY runs at the per-axis MINIMUM over these entries — cols and rows
    *  are clamped independently, so the smallest live viewer on each axis binds
    *  and no viewer is ever sent a grid it cannot paint. Aggregate only through
-   *  minimumTerminalGeometry (@roost/shared/viewport); lastMs and entry order
+   *  minimumTerminalGeometry (@roost/protocol/viewport); lastMs and entry order
    *  never select a size. SessionRow renders one dot per fp. */
   session_viewers: Record<string, Array<{ fp: string; cols: number; rows: number; lastMs?: number; label?: string; viewerKey?: string }>>;
   /** Whether this browser's device key is trusted by the coordinator.

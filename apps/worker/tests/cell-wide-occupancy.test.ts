@@ -16,9 +16,9 @@ import { describe, test, expect } from "bun:test";
 import {
   gridToCellFrame, rowColumns, spanIsAtomic, spansText, viewportRowSpans,
   type CellSpan,
-} from "@roost/shared/cell";
-import { cellFrameToProto, protoToCellFrame } from "@roost/shared/cell/cell-proto";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+} from "@roost/protocol/cell";
+import { cellFrameToProto, protoToCellFrame } from "@roost/protocol/cell/cell-proto";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import type { TerminalCore } from "@wterm/core";
 
 const encoder = new TextEncoder();

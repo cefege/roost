@@ -9,16 +9,16 @@ import {
 	type LocalScrollbackRequest,
 	type LocalScrollbackResponse,
 	type LocalTerminalServerFrame,
-} from "@roost/shared/proto/local_terminal_pb";
+} from "@roost/protocol/proto/local_terminal_pb";
 import {
 	TerminalTransportProbeResultSchema,
 	type TerminalInputRouteClaim,
 	type TerminalTransportProbe,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
 	TERMINAL_PEER_LOGICAL_FRAME_MAX_BYTES,
 	TERMINAL_PEER_WORKER_APPLICATION_QUEUE_MAX_BYTES,
-} from "@roost/shared/terminal-peer";
+} from "@roost/protocol/terminal-peer";
 import { readLocalScrollback } from "./local-terminal-scrollback.ts";
 import type { LocalTerminalPortSession } from "./local-terminal-socket-authority.ts";
 import type { SessionManager } from "./session-manager.ts";

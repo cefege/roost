@@ -6,8 +6,8 @@
 import {
   TERMINAL_METADATA_ACTIVITY_THROTTLE_MS,
   TerminalTitleParser,
-} from "@roost/shared/terminal-metadata";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/terminal-metadata";
+import { log } from "@roost/observability/log";
 import type { SessionManager } from "./session-manager.ts";
 import { disposeRawMetadataState } from "./session-raw-metadata.ts";
 import type { TransportSendResult } from "./transport/coord-link-types.ts";

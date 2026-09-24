@@ -10,23 +10,23 @@ import {
   CoordinatorService,
   UiReportStateResponseSchema, UiListStatesResponseSchema,
   UiTabStateSchema, UiDispatchResponseSchema, UiApplyLayoutResponseSchema,
-} from "@roost/shared/proto/coordinator_pb";
+} from "@roost/protocol/proto/coordinator_pb";
 import {
   UiApplyLayoutSchema,
   UiCommandSchema,
   UiReportStateRequestSchema,
   type LayoutDocumentV1,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   UI_ACTIVE_PATH_MAX_UTF8_BYTES,
   UI_FOLDER_KEY_MAX_UTF8_BYTES,
   UI_TAB_ID_MAX_UTF8_BYTES,
   hasAtMostUtf8Bytes,
-} from "@roost/shared/ui-state";
+} from "@roost/protocol/ui-state";
 import {
   layoutDocumentFromProto,
   layoutDocumentToProto,
-} from "@roost/shared/layout-document-proto";
+} from "@roost/protocol/layout-document-proto";
 import { uiBus } from "../buses.ts";
 import { requireAccountDevice } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";

@@ -3,7 +3,7 @@
 // The injected I/O boundary keeps stdin byte handling and RPC cardinality testable.
 // SessionsInput remains one-shot: transport errors propagate without retries.
 
-import type { CoordClient } from "../../worker/src/coord-client.ts";
+import type { CoordClient } from "@roost/worker/coord-client";
 
 export const TERMINAL_BRIDGE_MAX_INPUT_BYTES = 65_536;
 

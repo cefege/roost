@@ -9,9 +9,9 @@ import {
   encodedCellGridFrameSize,
   normalizeCellGridFrame,
   type CellGridFrame,
-} from "@roost/shared/cell";
-import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+} from "@roost/protocol/cell";
+import { protoToCellFrame } from "@roost/protocol/cell/cell-proto";
+import type { PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 
 export interface TerminalFrameFoldTarget {
   expectedStreamId: string | null;

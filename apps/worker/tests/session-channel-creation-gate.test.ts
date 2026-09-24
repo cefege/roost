@@ -7,10 +7,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
 	KEEPER_EMPTY_BINDING_DIGEST,
 	type JournaledKeeperUpdateV1,
-} from "@roost/shared/keeper-update";
-import { DKeeperUpdatePrepareSchema } from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/keeper-update";
+import { DKeeperUpdatePrepareSchema } from "@roost/protocol/proto/worker_transport_pb";
 import type { TerminalCore } from "@wterm/core";
-import { asSessionId, asWorkerFp } from "@roost/shared/wire";
+import { asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import { createKeeperUpdatePrepareHandler } from "../src/coord-link-keeper-update.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { SessionManager } from "../src/session-manager.ts";

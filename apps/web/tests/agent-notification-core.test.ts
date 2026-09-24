@@ -10,7 +10,7 @@ import {
   asSessionId,
   type AgentStatus as AgentStatusValue,
   type AgentStatusIdentity,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   AgentNotificationScheduler,
   type AgentNotificationDelivery,

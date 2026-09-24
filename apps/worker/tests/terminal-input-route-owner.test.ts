@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
 	TerminalInputRouteClaimSchema,
 	type TerminalInputRouteResult,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
 	TERMINAL_INPUT_ROUTE_TOMBSTONE_MS,
 	TerminalInputRouteOwner,

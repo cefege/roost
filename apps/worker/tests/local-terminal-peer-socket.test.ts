@@ -9,9 +9,9 @@ import {
 	LocalTerminalClientFrameSchema,
 	LocalTerminalServerFrameSchema,
 	type LocalTerminalServerFrame,
-} from "@roost/shared/proto/local_terminal_pb";
-import { DLocalTerminalGrantSchema } from "@roost/shared/proto/worker_transport_pb";
-import { InputCommandSchema } from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/local_terminal_pb";
+import { DLocalTerminalGrantSchema } from "@roost/protocol/proto/worker_transport_pb";
+import { InputCommandSchema } from "@roost/protocol/proto/sync_pb";
 import { LocalTerminalGrantStore } from "../src/local-terminal-grants.ts";
 import { LocalTerminalSockets } from "../src/local-terminal-socket.ts";
 import { TerminalInputRouteOwner } from "../src/terminal-input-route-owner.ts";

@@ -8,7 +8,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import type {
   CoordWorkerDown,
   DLocalAttachmentGrant,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   AttachmentGrantOwner,
   type AttachmentGrantRequest,

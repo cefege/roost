@@ -6,9 +6,9 @@
 import {
   CellGridChunkAssembler,
   CELL_GRID_CHUNK_STALL_MS,
-} from "@roost/shared/cell";
-import { diag, signal } from "@roost/shared/diag";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/cell";
+import { diag, signal } from "@roost/observability/diag";
+import { log } from "@roost/observability/log";
 import type { TerminalSnapshotSource } from "./terminal-screen-frames.ts";
 import {
   TerminalAssemblyHold,

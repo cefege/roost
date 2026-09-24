@@ -2,7 +2,7 @@ import {
   spansText,
   type CellGridFrame,
   type CellRow,
-} from "@roost/shared/cell";
+} from "@roost/protocol/cell";
 import { DEFAULT_CELL_ROW_PX } from "./cellRendererDom.ts";
 
 const PAINT_PRESENTATION_ROW_LIMIT = 512;

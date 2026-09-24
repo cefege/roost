@@ -3,9 +3,9 @@
 // from MultiplexedKeeperPool (multiplexed-client.ts); each takes the pool
 // instance as its first argument. Behavior is unchanged.
 
-import { signal } from "@roost/shared/diag";
-import { cleanupLocalEndpoint } from "@roost/shared/local-endpoint";
-import { log } from "@roost/shared/log";
+import { signal } from "@roost/observability/diag";
+import { cleanupLocalEndpoint } from "@roost/host/local-endpoint";
+import { log } from "@roost/observability/log";
 import {
   KeeperFeature,
   KEEPER_MAX_INPUT_BYTES,

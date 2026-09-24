@@ -6,8 +6,8 @@ import {
   FirehoseFrameSchema,
   SyncDomain,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
-import { log } from "@roost/shared/log";
+} from "@roost/protocol/proto/sync_pb";
+import { log } from "@roost/observability/log";
 import type { WsDeadlineClock } from "./ws-auth-deadline.ts";
 import type { SyncBackpressureReason } from "./sync-ws-v1-delivery.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";

@@ -8,17 +8,17 @@
 import { create } from "@bufbuild/protobuf";
 import { afterEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/protocol/proto/cell_pb";
 import {
   TerminalViewCommandSchema,
   TerminalViewStatus,
   type TerminalViewStateFrame,
-} from "@roost/shared/proto/sync_pb";
-import { DTerminalViewRelaySchema } from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/sync_pb";
+import { DTerminalViewRelaySchema } from "@roost/protocol/proto/worker_transport_pb";
 import {
   TERMINAL_VIEW_LEASE_MS,
   TERMINAL_VIEW_PARK_GRACE_MS,
-} from "@roost/shared/viewport";
+} from "@roost/protocol/viewport";
 import { TerminalViewOwner } from "../src/terminal-view-owner.ts";
 import type { LocalViewTransport } from "../src/terminal-view-owner-screen.ts";
 import type { TerminalViewProjectionFrame } from "../src/transport/coord-link-types.ts";

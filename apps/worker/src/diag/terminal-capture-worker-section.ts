@@ -2,13 +2,13 @@
 // TerminalWorkerSection plus its coverage report. Called synchronously by
 // diag/terminal-capture.ts before any await, so the state it records is the
 // state at the trigger rather than the state after the repair.
-// Reads the authoritative grid through @roost/shared/cell's existing readers;
+// Reads the authoritative grid through @roost/protocol/cell's existing readers;
 // it never calls a keeper history RPC, and a display-cell snapshot is never
 // treated as a parser checkpoint, because it is not parser state.
 
 import { randomUUID } from "node:crypto";
-import { readScrollbackRangeCells, scrollbackOrigin, type CellRow } from "@roost/shared/cell";
-import { ROOST_ARTIFACT_VERSION, ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+import { readScrollbackRangeCells, scrollbackOrigin, type CellRow } from "@roost/protocol/cell";
+import { ROOST_ARTIFACT_VERSION, ROOST_BUILD_SHA } from "@roost/host/build-identity";
 import {
 	TERMINAL_CAPTURE_LIMITS,
 	type TerminalCaptureCoverage,
@@ -18,7 +18,7 @@ import {
 	type TerminalCaptureStreamIdentity,
 	type TerminalCoverageReason,
 	type TerminalWorkerSection,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import type { SessionRecord } from "../session-record.ts";
 import type { TerminalStreamState } from "../session-terminal-state.ts";
 import { snapshotByteCapture } from "./byte-capture.ts";

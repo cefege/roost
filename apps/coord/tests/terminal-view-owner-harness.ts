@@ -10,7 +10,7 @@ import {
   TerminalViewStateFrameSchema,
   TerminalViewStatus,
   type TerminalViewStateFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import {
   TerminalViewHub,
   installTerminalViewHub,

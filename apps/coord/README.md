@@ -30,7 +30,7 @@ actual port is known, `server.requestIP()` → `resolveCallerOrigin`, the
 `/api/db-export` route (its only special non-Connect route), both WebSocket
 upgrades, the ONE multiplexed `websocket` object dispatching on `ws.data.kind`,
 the shared 4 MiB frame cap, and `idleTimeout: 120`. The SPA fallback is injected
-from `@roost/shared/spa` + `@roost/shared/web-embed`.
+from `@roost/host/spa` + `@roost/host/web-embed`.
 
 **`src/coord-factory.ts::createCoord(deps)` — the portable protocol layer.** Returns `{ fetch, dispose }`, where
 `fetch` is `(Request, CoordHandlerContext?) => Promise<Response>` and touches no Bun API. Owns OPTIONS
@@ -181,7 +181,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   `src/connect/terminal-capture-worker-call.ts` owns the dedicated 10-second
   worker call and rebuilds the worker's acknowledgement from recognized fields
   only. Every bound comes from `TERMINAL_CAPTURE_LIMITS`
-  (`@roost/shared/terminal-capture`); no capture response or log line carries
+  (`@roost/protocol/terminal-capture`); no capture response or log line carries
   terminal content.
 - Top level: `src/event-log.ts` (stable event facade),
   `src/event-transaction.ts` (durable append/projection transaction),
@@ -194,7 +194,7 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
   public/private event boundary), `src/connect/session-list-projection.ts`
   (separate public and owning-worker recovery queries),
   `src/connect/terminal-view-hub.ts` (browser membership and SCD geometry over
-  the shared `@roost/shared/terminal-view` registry, whose
+  the shared `@roost/protocol/terminal-view` registry, whose
   `terminal-view-registry-commands.ts` owns the admit/update/reclaim/remove
   state machine one client declaration drives; it is also the ONE gate that
   decides coordinator membership vs relay per session),
@@ -239,7 +239,7 @@ pending. Worker replacement, grant invalidation, browser abort, or coordinator
 dispose cancels the captured operation rather than allowing a late typed answer
 to establish a peer on a replacement connection.
 
-`CoordConfig` (`@roost/shared/config`) owns
+`CoordConfig` (`@roost/host/config`) owns
 `ROOST_TERMINAL_PEER_ENABLED=0|1` (enabled by default) and
 `ROOST_TERMINAL_PEER_STUN_URLS`. An unset STUN value defaults to
 `stun:stun.cloudflare.com:3478`; an explicit empty value disables external
@@ -407,7 +407,7 @@ its byte-for-byte semantics.
 - **`events` is append-only; public `sessions` is a projection of public
   events.** Never edit an event row. Public session state changes by appending
   an event and letting `foldEvent` (shared with the SPA through
-  `@roost/shared/wire`) recompute the row, so browser and coordinator
+  `@roost/protocol/wire`) recompute the row, so browser and coordinator
   projections agree by construction. Private `agent_reference` uses its
   focused recovery projection above. Closed sessions are deleted, not parked;
   live `open` rows are never reaped on a wall-clock cutoff.
@@ -456,5 +456,5 @@ its byte-for-byte semantics.
   `smoke/terminal/*.spec.ts` (`bun run test:terminal`).
 - `bun run test:unit` runs the fast tier across all apps; `bun run lint` enforces the 400-line file cap and the
   `console.*` ratchet.
-- Run it with `bun apps/coord/src/main.ts` (env parsed by `CoordConfig` in `apps/shared/src/config.ts`); install as
+- Run it with `bun apps/coord/src/main.ts` (env parsed by `CoordConfig` in `packages/host/src/config.ts`); install as
   a service with `bash apps/coord/scripts/install.sh install` (launchd on macOS, systemd --user on Linux).

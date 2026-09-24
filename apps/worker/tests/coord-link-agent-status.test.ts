@@ -6,13 +6,13 @@ import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema,
   type WAgentStatus,
-} from "@roost/shared/proto/worker_transport_pb";
+} from "@roost/protocol/proto/worker_transport_pb";
 import {
   AgentStatusUpdate,
   type AgentStatusSource,
   type AgentStatusUpdate as AgentStatusUpdateType,
   type WorkerFp,
-} from "@roost/shared/wire";
+} from "@roost/protocol/wire";
 import {
   WS_BUFFERED_HIGH_WATER_BYTES,
 } from "../src/transport/coord-link-constants.ts";

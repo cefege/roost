@@ -4,8 +4,8 @@
 // See src/store/optimisticSpawn.ts.
 
 import { expect, test, describe, beforeEach, afterEach, mock, vi } from "bun:test";
-import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
-import type { Session } from "@roost/shared/wire";
+import { asWorkerFp, asSessionId, asChannelId } from "@roost/protocol/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore, setRootStore } from "../src/store/root.ts";
 import {
   beginOptimisticSpawn,

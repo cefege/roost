@@ -5,7 +5,7 @@
 // R0.2, R1.1 security baseline preserved.
 
 import type { KyselyDB } from "./db/connection.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 
 const CACHE_TTL_MS = 60_000;
 const AUDIENCE = "roost-coordinator";

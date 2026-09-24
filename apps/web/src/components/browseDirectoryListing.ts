@@ -6,7 +6,7 @@
 // Callers: WorkerBrowsePage.tsx.
 
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
-import { diag } from "@roost/shared/diag";
+import { diag } from "@roost/observability/diag";
 import { coordClient } from "../connect.ts";
 import {
   captureAuthResourceToken,
@@ -14,7 +14,7 @@ import {
 } from "../store/auth-boundary.ts";
 import { browseErrorMessage } from "../lib/browseErrorMessage.ts";
 import type { BrowseEntry } from "../lib/browseEntries.ts";
-import type { WorkerFp } from "@roost/shared/wire";
+import type { WorkerFp } from "@roost/protocol/wire";
 
 export interface BrowseDirectoryListing {
   entries: Accessor<BrowseEntry[]>;

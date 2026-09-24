@@ -5,9 +5,9 @@
 // coordinator can still answer presence and diagnostics for those sessions.
 // worker-conn.ts owns the registration lifetime; terminal-view-hub.ts reads it.
 
-import type { WTerminalViewProjection } from "@roost/shared/proto/worker_transport_pb";
-import type { TerminalViewInput } from "@roost/shared/terminal-view";
-import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/shared/viewport";
+import type { WTerminalViewProjection } from "@roost/protocol/proto/worker_transport_pb";
+import type { TerminalViewInput } from "@roost/protocol/terminal-view";
+import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/protocol/viewport";
 import { getCachedSessionWorker } from "../byte-hub.ts";
 
 /** Advertised in WHello.capabilities and echoed in DHelloAck.capabilities.

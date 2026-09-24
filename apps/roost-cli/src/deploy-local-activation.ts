@@ -2,7 +2,7 @@
 // restart, and proof. deploy-local.ts injects the journaled keeper callback;
 // every failure restores the prior worker before its target stage is removed.
 
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import {
   DeployFailure,
   run,

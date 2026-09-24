@@ -5,12 +5,12 @@
 
 import { Code } from "@connectrpc/connect";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { setSignalSink } from "@roost/shared/diag";
-import { TerminalCaptureAction } from "@roost/shared/proto/coordinator_pb";
+import { setSignalSink } from "@roost/observability/diag";
+import { TerminalCaptureAction } from "@roost/protocol/proto/coordinator_pb";
 import {
   TERMINAL_CAPTURE_LIMITS,
   TERMINAL_INCIDENT_SCHEMA,
-} from "@roost/shared/terminal-capture";
+} from "@roost/protocol/terminal-capture";
 import { makeSystemHandlers } from "../src/connect/handlers-system.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";

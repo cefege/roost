@@ -5,7 +5,7 @@
 import { expect } from "bun:test";
 import type { ServerWebSocket } from "bun";
 import { clone, create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { PbCellGridChunkSchema, PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
+import { PbCellGridChunkSchema, PbCellGridFrameSchema } from "@roost/protocol/proto/cell_pb";
 import {
   FirehoseFrameSchema,
   SyncDomain,
@@ -13,7 +13,7 @@ import {
   TerminalViewStateFrameSchema,
   TerminalViewStatus,
   type FirehoseFrame,
-} from "@roost/shared/proto/sync_pb";
+} from "@roost/protocol/proto/sync_pb";
 import type { WsDeadlineClock } from "../src/connect/ws-auth-deadline.ts";
 import type { SyncWsData } from "../src/connect/sync-ws-handler.ts";
 import type { SyncResourceIndex } from "../src/connect/sync-feed.ts";

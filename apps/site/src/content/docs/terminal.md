@@ -141,7 +141,7 @@ that contract, and guarded prompts do not change it.
 occupant. After the worker re-proves the same process, epoch, occupant,
 revision, live channel, connection, deadline, `idle|working` state, and that
 the pane's terminal foreground job still belongs to that agent's own process
-subtree, it uses `apps/shared/src/terminal-input.ts`—the browser composer's
+subtree, it uses `packages/protocol/src/terminal-input.ts`—the browser composer's
 encoder—to normalize newlines and, when bracketed paste is active, strip ESC
 from the text and wrap it. The text and the submitting CR are two separate
 keeper writes 300 ms apart, because an agent that debounces bracketed-paste

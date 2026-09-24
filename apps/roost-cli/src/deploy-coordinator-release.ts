@@ -5,7 +5,7 @@
 // coordinator service definition (systemd unit or launchd plist).
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { coordServicePath } from "@roost/shared/paths";
+import { coordServicePath } from "@roost/host/paths";
 import { failDeploy, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
 import {
   coordinatorInstallEnvironment,

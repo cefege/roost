@@ -5,7 +5,7 @@
 // coordinator and CLI clocks may be arbitrarily skewed.
 
 import { expect, test } from "bun:test";
-import type { JournaledKeeperUpdateV1 } from "@roost/shared/keeper-update";
+import type { JournaledKeeperUpdateV1 } from "@roost/protocol/keeper-update";
 import {
   createJournaledKeeperUpdateCallbacks,
   directKeeperUpdateAdmission,

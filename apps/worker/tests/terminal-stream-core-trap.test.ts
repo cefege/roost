@@ -6,7 +6,7 @@
 // drive the same harness and fake keeper socket.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { createWtermCore } from "@roost/shared/wterm-core-factory";
+import { createWtermCore } from "@roost/wterm/wterm-core-factory";
 import { installAutoKeeper } from "./keeper-fake-pool.ts";
 import {
   CHANNEL_ID,

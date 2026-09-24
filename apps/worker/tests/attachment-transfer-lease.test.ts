@@ -6,7 +6,7 @@ import { expect, test } from "bun:test";
 import {
   ATTACHMENT_TRANSFER_ACTIVE_MAX_MS,
   ATTACHMENT_TRANSFER_IDLE_MS,
-} from "@roost/shared/attachment-transfer";
+} from "@roost/protocol/attachment-transfer";
 import { AttachmentTransferLease } from "../src/attachment-transfer-lease.ts";
 
 interface Timer {

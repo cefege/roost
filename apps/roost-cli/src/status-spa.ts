@@ -1,10 +1,10 @@
 // Owns what `roost status` can say about the browser build: the dist the
 // installed service stamped, whether that path still holds one, and whether the
 // coordinator's own listener actually answers a page request. Reads the unit
-// through status-service-env.ts and the disk check through @roost/shared/spa,
+// through status-service-env.ts and the disk check through @roost/host/spa,
 // so nothing here re-derives an existence rule the server already owns.
 
-import { resolveDiskSpaRoot } from "@roost/shared/spa";
+import { resolveDiskSpaRoot } from "@roost/host/spa";
 import { serviceEnvironmentValue } from "./status-service-env.ts";
 import type { SpaStatus } from "./status-types.ts";
 

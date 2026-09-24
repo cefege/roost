@@ -7,7 +7,7 @@ import { rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanupLocalEndpoint, localEndpointEnv } from "@roost/shared/local-endpoint";
+import { cleanupLocalEndpoint, localEndpointEnv } from "@roost/host/local-endpoint";
 import { connectKeeperAuthenticated, probeKeeperCompatible } from "../src/keeper/keeper-probe.ts";
 import { muxLocalEndpoint } from "../src/keeper/keeper-pool-config.ts";
 import {

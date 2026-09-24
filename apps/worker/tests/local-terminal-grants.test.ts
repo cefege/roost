@@ -5,7 +5,7 @@
 import { create } from "@bufbuild/protobuf";
 import { expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
-import { DLocalTerminalGrantSchema } from "@roost/shared/proto/worker_transport_pb";
+import { DLocalTerminalGrantSchema } from "@roost/protocol/proto/worker_transport_pb";
 import {
 	LocalTerminalGrantStore,
 	type LocalTerminalGrantChange,

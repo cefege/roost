@@ -6,7 +6,7 @@
 // build the inputs to scheduleClose(). The kill RPC fires in the background
 // AFTER the undo window; failure surfaces a toast + force-tombstones the row.
 
-import type { Session } from "@roost/shared/wire";
+import type { Session } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import { newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { sessionHref } from "../routes.ts";
@@ -15,7 +15,7 @@ import { sessionTitle } from "./sessionTitle.ts";
 import { folderDisplayName, folderKeyOf } from "./folderKey.ts";
 import { shortServerLabel } from "./sidebarFormat.ts";
 import { addToast } from "../store/toastStore.ts";
-import { log } from "@roost/shared/log";
+import { log } from "@roost/observability/log";
 
 /** The three snackbar labels for a closing session — byte-identical to the
  *  triple TerminalDeck.doClose and SessionRow.serverLabel produced inline. */

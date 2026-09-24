@@ -12,7 +12,7 @@
 // diag/capture-storage.ts, and the only thing that reads the tail is
 // diag/terminal-capture-worker-section.ts.
 
-import type { TerminalWorkerByteCaptureTail } from "@roost/shared/terminal-capture";
+import type { TerminalWorkerByteCaptureTail } from "@roost/protocol/terminal-capture";
 import {
 	createSbRing,
 	appendToRing,

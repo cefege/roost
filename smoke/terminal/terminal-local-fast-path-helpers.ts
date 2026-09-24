@@ -7,7 +7,7 @@
 
 import type { Browser, BrowserContext, Page, TestInfo } from "@playwright/test";
 import { workerInventoryForUpdateAdmission } from "../../apps/roost-cli/src/status-report.ts";
-import type { KeeperRuntimeObservationV1 } from "../../apps/shared/src/keeper-update.ts";
+import type { KeeperRuntimeObservationV1 } from "../../packages/protocol/src/keeper-update.ts";
 import { installDisabledLoopbackProbe } from "./stack-browser-faults.ts";
 import { enrollSmokeBrowser } from "./fixtures.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";

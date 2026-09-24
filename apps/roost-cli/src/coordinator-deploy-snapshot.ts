@@ -19,9 +19,9 @@ import { dirname, resolve } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip } from "node:zlib";
-import { durableRemove, durableReplace } from "@roost/shared/durability";
+import { durableRemove, durableReplace } from "@roost/host/durability";
 import { Database } from "bun:sqlite";
-import { createSqliteSnapshot } from "../../coord/src/db/snapshot.ts";
+import { createSqliteSnapshot } from "@roost/coord/db/snapshot";
 
 export interface CoordinatorRollbackSnapshot {
   sha256: string;

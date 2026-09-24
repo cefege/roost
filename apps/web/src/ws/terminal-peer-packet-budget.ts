@@ -5,7 +5,7 @@
 import type {
   TerminalPeerPacketLane,
   TerminalPeerPacketQuota,
-} from "@roost/shared/terminal-peer-packets";
+} from "@roost/protocol/terminal-peer-packets";
 
 export class BrowserTerminalPeerPacketBudget {
   private controlBytes = 0;

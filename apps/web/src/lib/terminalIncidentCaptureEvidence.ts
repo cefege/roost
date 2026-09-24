@@ -3,7 +3,7 @@
 // snapshots first, and names everything it had to drop. Also owns the local
 // JSON export offered when a bundle never reached its worker.
 // Called by terminalIncidentCapture.ts; reads the painted state through
-// terminalIncidentCaptureObserver.ts and the bounds from @roost/shared.
+// terminalIncidentCaptureObserver.ts and the bounds from @roost/protocol.
 
 import {
   TERMINAL_CAPTURE_LIMITS,
@@ -16,9 +16,9 @@ import {
   type TerminalCaptureStreamIdentity,
   type TerminalCaptureTrigger,
   type TerminalDomRow,
-} from "@roost/shared/terminal-capture";
-import type { TerminalGeometry } from "@roost/shared/viewport";
-import type { CellRow } from "@roost/shared/cell";
+} from "@roost/protocol/terminal-capture";
+import type { TerminalGeometry } from "@roost/protocol/viewport";
+import type { CellRow } from "@roost/protocol/cell";
 import { getTabId } from "../auth/tab-id.ts";
 import { terminalStreamDiagnosticSnapshot } from "../store/terminal-stream-diagnostics.ts";
 import { canonicalTerminalFrame } from "../store/terminal-stream-replica.ts";

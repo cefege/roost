@@ -2,7 +2,7 @@
 // WorkerBrowsePage supplies navigation while this module fences every asynchronous
 // boundary against a credential cutover before publishing authenticated UI state.
 
-import type { Session, WorkerFp } from "@roost/shared/wire";
+import type { Session, WorkerFp } from "@roost/protocol/wire";
 import {
   captureAuthResourceToken,
   isCurrentAuthResourceToken,

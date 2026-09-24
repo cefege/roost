@@ -3,7 +3,7 @@
 // A source-smoke-only peer hook pauses after authentication and before any write.
 // The ordinary worker omits that hook, so this adds no public input control.
 
-import type { InputCommand } from "@roost/shared/proto/sync_pb";
+import type { InputCommand } from "@roost/protocol/proto/sync_pb";
 import { KEEPER_MAX_INPUT_BYTES } from "./keeper/protocol.ts";
 import {
   directPortInputAuthority,

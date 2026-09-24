@@ -16,7 +16,7 @@ import {
   fenceWorkerCredential,
   listRoutableFps,
 } from "../src/connect/worker-registry.ts";
-import { asChannelId } from "@roost/shared/wire";
+import { asChannelId } from "@roost/protocol/wire";
 import { createDurablePublicationFixture } from "./durable-publication-fixture.ts";
 
 const fixture = createDurablePublicationFixture({

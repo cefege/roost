@@ -5,7 +5,7 @@
 
 import { vi } from "bun:test";
 import { tmpdir } from "node:os";
-import { asSessionId, asWorkerFp } from "@roost/shared/wire";
+import { asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import type { CoordClient } from "../src/coord-client.ts";
 import {
   completeWorkerBootAdmission,

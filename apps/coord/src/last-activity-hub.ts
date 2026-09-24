@@ -3,8 +3,8 @@
 // hub preserves first-publication and local 60-second fan-out throttling.
 // Session close events release retained state.
 
-import { diag } from "@roost/shared/diag";
-import { TERMINAL_METADATA_ACTIVITY_THROTTLE_MS } from "@roost/shared/terminal-metadata";
+import { diag } from "@roost/observability/diag";
+import { TERMINAL_METADATA_ACTIVITY_THROTTLE_MS } from "@roost/protocol/terminal-metadata";
 import { sessionBus, lastActivityBus } from "./buses.ts";
 
 // Do not fan a frame on every semantic activity observation. Local receipt
