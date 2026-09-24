@@ -13,7 +13,7 @@ import {
   type CommandPaletteContext,
   type CommandPaletteDataDeps,
   type PaletteItem,
-} from "../src/components/CommandPalette.data.ts";
+} from "../src/store/command-palette-data.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
 import {
   clearQueueTaskDialogForLogout,

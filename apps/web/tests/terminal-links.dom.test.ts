@@ -10,7 +10,7 @@
 // early-returns (segments.length===0) and the Range/TreeWalker API is untouched.
 
 import { describe, test, expect, afterEach } from "bun:test";
-import { attachTerminalLinks, isTerminalLinkActivationGesture } from "../src/components/terminal-links.ts";
+import { attachTerminalLinks, isTerminalLinkActivationGesture } from "../src/renderer/terminal-links.ts";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────
 class FakeEl {

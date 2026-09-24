@@ -81,7 +81,7 @@ mock.module("../src/components/Settings/md/primitives.tsx", () => ({
   Button: captureSave,
   Switch: captureSwitch,
 }));
-mock.module("../src/components/AgentGlyph.tsx", () => ({ AgentTile: () => null }));
+mock.module("../src/components/agents/AgentGlyph.tsx", () => ({ AgentTile: () => null }));
 mock.module("../src/store/toastStore.ts", () => ({
   addToast: mock((message: string, kind?: string) => {
     toasts.push({ message, kind });
@@ -90,7 +90,7 @@ mock.module("../src/store/toastStore.ts", () => ({
 }));
 
 const agentConfigSet = mock((_request: unknown) => Promise.resolve({}));
-mock.module("../src/connect.ts", () => ({ coordClient: { agentConfigSet } }));
+mock.module("../src/client/rpc/connect.ts", () => ({ coordClient: { agentConfigSet } }));
 
 // These imports must follow the mock registration because the pane and its
 // agent persistence helper bind their dependencies at module evaluation time.

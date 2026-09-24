@@ -80,7 +80,7 @@ Non-negotiable for every change.
    that baseline may never exceed 400. After a split lowers counts,
    re-snapshot with `bun scripts/lint-roost.ts --update-size-baseline`.
    A handful of files are deliberately over the cap and baselined — the reason
-   is recorded in each one's header. `apps/web/src/lib/cellRenderer.ts` is the
+   is recorded in each one's header. `apps/web/src/renderer/cellRenderer.ts` is the
    one to understand: it is a single class whose methods share private
    per-frame state, and that encapsulation is what prevents the
    history-corruption class. Do not "fix" it by splitting.
@@ -196,7 +196,7 @@ mechanically enforced so drift can't return:
    `<div style>` / `<button>`. `StatusDot` is THE status indicator (no
    hand-rolled colored spans). `Surface` is THE panel.
 3. **One visual reference.** The `/design` route
-   (`apps/web/src/components/DesignGallery.tsx`) renders every token and
+   (`apps/web/src/components/design/DesignGallery.tsx`) renders every token and
    primitive. New surfaces match it.
 
 Process: run the **`design-reviewer`** subagent
@@ -246,7 +246,7 @@ tier: each Playwright worker starts a real coord, worker, keeper and PTYs
 (`smoke/terminal/stack.ts`) and drives a real browser against the built
 `apps/web/dist` (`playwright.config.ts`). Coverage, by path and test name:
 
-- `runFlow` (`apps/web/src/lib/smokeHarness.ts`) — workspace create → terminal
+- `runFlow` (`apps/web/src/smoke/smokeHarness.ts`) — workspace create → terminal
   open → PTY marker round-trip → pane close → workspace cascade-delete — in
   `smoke/terminal/terminal-delivery.spec.ts` `"browser smoke flow creates and
   cleans its resources"`.

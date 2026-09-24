@@ -24,20 +24,20 @@ mock.module("../src/store/root.ts", () => ({
     get workers() { return workers; },
   },
 }));
-mock.module("../src/auth/tab-id.ts", () => ({ getTabId: () => "tab-test" }));
-mock.module("../src/auth/web-key.ts", () => ({
+mock.module("../src/client/auth/tab-id.ts", () => ({ getTabId: () => "tab-test" }));
+mock.module("../src/client/auth/web-key.ts", () => ({
   getCurrentWebKeyInfo: () => Promise.resolve({ fingerprint: "device-test", extractable: false }),
   getPublicKeyB64: () => Promise.resolve("test-key"),
   signCoordinatorJwt: () => Promise.resolve("test-jwt"),
 }));
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordinatorBaseUrl: () => "http://coord.test",
   coordinatorRpcUrl: (path: string) => `http://coord.test${path}`,
   coordClient: { sessionsGrantLocalTerminal: (request: GrantRequest) => { requests.push(request); return mint(request); } },
 }));
 
 // Module mocks must install before this owner creates its document singleton.
-const grants = await import("../src/ws/local-terminal-grants.ts");
+const grants = await import("../src/store/transport/local-terminal-grants.ts");
 
 async function settle(): Promise<void> {
   for (let turn = 0; turn < 12; turn += 1) await Promise.resolve();

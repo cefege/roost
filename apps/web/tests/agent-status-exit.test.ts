@@ -16,7 +16,7 @@ import {
   resetAgentSeenForTest,
   seenAgentRevision,
 } from "../src/lib/agentSeen.ts";
-import { deriveAgentStatusLevel } from "../src/lib/agentStatus.ts";
+import { deriveAgentStatusLevel } from "../src/client/agents/agentStatus.ts";
 import {
   IDENTITY_A,
   SESSION_ID,

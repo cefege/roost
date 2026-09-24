@@ -2,7 +2,7 @@
 // and incident readers. The replica owns frame truth; the direct registry owns
 // route election, so a staged candidate is reported separately from the carrier.
 
-import { terminalPeerAttemptSnapshot, type TerminalPeerAttemptSnapshot } from "../ws/terminal-peer.ts";
+import { terminalPeerAttemptSnapshot, type TerminalPeerAttemptSnapshot } from "./transport/terminal-peer.ts";
 import { currentSyncV2TerminalState, type SyncV2TerminalState } from "./sync.ts";
 import {
   activeTerminalResyncView,
@@ -17,8 +17,8 @@ import {
   type TerminalDirectConnectionTelemetry,
   type TerminalPeerCandidateType,
 } from "./terminal-stream-transport.ts";
-import { terminalInputPendingSnapshot, terminalInputPhase } from "../ws/terminal-input-router.ts";
-import { syncTerminalWorkerControlTelemetry } from "../ws/sync-terminal-control-probe.ts";
+import { terminalInputPendingSnapshot, terminalInputPhase } from "./transport/terminal-input-router.ts";
+import { syncTerminalWorkerControlTelemetry } from "./transport/sync-terminal-control-probe.ts";
 import {
   pruneTerminalSessionState,
   persistTerminalRendererDrop,
@@ -66,7 +66,7 @@ export interface TerminalRouteDiagnosticSnapshot {
   peer_phase: TerminalPeerPhase | null;
   fallback_reason: TerminalPeerFallbackReason;
   failure_detail: string | null;
-  input_phase: import("../ws/terminal-input-route-claim.ts").TerminalInputPhase | null;
+  input_phase: import("./transport/terminal-input-route-claim.ts").TerminalInputPhase | null;
   pending_input_count: number;
 }
 

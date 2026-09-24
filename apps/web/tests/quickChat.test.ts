@@ -24,7 +24,7 @@ const isCurrentAuthResourceToken = mock(
   (token: { generation: number }) => token.generation === authGeneration,
 );
 
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordClient: { filesMkdir },
 }));
 mock.module("../src/store/root.ts", () => ({

@@ -7,8 +7,8 @@
 
 import type * as SolidApi from "solid-js";
 import type { MouseTracking } from "@roost/protocol/cell";
-import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
-import type { CellTerminalInteractions } from "../../src/components/cell-terminal-interactions.ts";
+import type { CellGridRenderer } from "../../src/renderer/cellRenderer.ts";
+import type { CellTerminalInteractions } from "../../src/components/terminal/cell-terminal-interactions.ts";
 import { FakeEl, row, seedHeldHistory, vpEl } from "./cellRendererFakeDom.ts";
 
 type Listener = (event: unknown) => void;
@@ -38,12 +38,12 @@ export async function mountCellTerminalPane(
   // caller's module mocks when they evaluate, so they must not load with this
   // helper's own static imports.
   const Solid = await import("solid-js") as unknown as typeof SolidApi;
-  const { CellGridRenderer } = await import("../../src/lib/cellRenderer.ts");
+  const { CellGridRenderer } = await import("../../src/renderer/cellRenderer.ts");
   const { createTerminalSelectionGuard } = await import(
-    "../../src/lib/terminalSelectionGuard.ts"
+    "../../src/renderer/terminalSelectionGuard.ts"
   );
   const { mountCellTerminalInteractions } = await import(
-    "../../src/components/cell-terminal-interactions.ts"
+    "../../src/components/terminal/cell-terminal-interactions.ts"
   );
 
   const listeners = new Map<string, Set<Listener>>();

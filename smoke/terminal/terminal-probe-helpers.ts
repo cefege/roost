@@ -4,7 +4,7 @@
 
 import { expect } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
-import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
+import type { TerminalStreamProbe } from "../../apps/web/src/smoke/smoke.ts";
 import type {
   PaintedScrollbackProbe,
   RecoverySmokeApi,

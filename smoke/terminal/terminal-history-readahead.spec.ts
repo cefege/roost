@@ -13,7 +13,7 @@ import type { Page, TestInfo } from "@playwright/test";
 import {
   BACKFILL_AHEAD_ROWS,
   BACKFILL_FETCH_ROWS,
-} from "../../apps/web/src/lib/scrollbackDemandBounds.ts";
+} from "../../apps/web/src/client/terminal-stream/scrollbackDemandBounds.ts";
 import { expect, test } from "./fixtures.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import {
@@ -30,7 +30,7 @@ const FLOOD_ROWS = 5_000;
 /** Pages one wave fetches before it rests: the page covering the rows this
  *  wheel exposed, plus enough pages to cover the trigger band that reaches
  *  BACKFILL_AHEAD_ROWS above the reader — the rearm loop in
- *  apps/web/src/lib/scrollbackBackfill.ts relaunches until the band holds no
+ *  apps/web/src/renderer/scrollbackBackfill.ts relaunches until the band holds no
  *  missing row. */
 const PAGER_WAVE_PAGES = 1 + Math.ceil(BACKFILL_AHEAD_ROWS / BACKFILL_FETCH_ROWS);
 /** Bounds the walk's runtime — each step costs a wheel and a settle poll. A
@@ -41,7 +41,7 @@ const MAX_PREPAID_STEPS_WALKED = 6;
 const REPORTED_TAIL_STEPS = 1;
 /** The pager is at rest once its request count holds still for longer than the
  *  BACKFILL_RETRY_MS cadence a stalled page retries on (2s in
- *  apps/web/src/lib/scrollbackBackfill.ts), so no rearm hides in the window. */
+ *  apps/web/src/renderer/scrollbackBackfill.ts), so no rearm hides in the window. */
 const PAGER_SETTLE_SAMPLE_MS = 250;
 const PAGER_SETTLE_STABLE_POLLS = 10;
 const PAGER_SETTLE_TIMEOUT_MS = 90_000;

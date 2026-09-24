@@ -13,19 +13,19 @@ import { sessionsHydrated } from "../store/sync-bootstrap.ts";
 import { installDeadRouteSafetyNet } from "../lib/deadRouteSafetyNet.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { signal } from "@roost/observability/diag";
-import { TerminalDeck } from "./TerminalDeck.tsx";
+import { TerminalDeck } from "./deck/TerminalDeck.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
-import { isCompact } from "../lib/windowSizeClass.ts";
+import { isCompact } from "../browser/windowSizeClass.ts";
 import type { Session } from "@roost/protocol/wire";
 
 // Code-split boundary (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism. File-viewer and metadata-search dependencies load
 // only when their overlays are first visited.
 const FileViewerSheet = lazy(() =>
-  import("./FileViewerSheet.tsx").then((m) => ({ default: m.FileViewerSheet })),
+  import("./browse/FileViewerSheet.tsx").then((m) => ({ default: m.FileViewerSheet })),
 );
 const GlobalSearchPage = lazy(() =>
-  import("./GlobalSearchPage.tsx").then((module) => ({ default: module.GlobalSearchPage })),
+  import("./search/GlobalSearchPage.tsx").then((module) => ({ default: module.GlobalSearchPage })),
 );
 
 export function MainPane() {

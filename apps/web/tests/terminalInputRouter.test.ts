@@ -10,8 +10,8 @@ import {
   MAX_TERMINAL_INPUT_ROUTE_REVISION,
   createTerminalInputRouter,
   type TerminalInputDestination,
-} from "../src/ws/terminal-input-router.ts";
-import { createTerminalInputLanes, inputMapSizes } from "../src/ws/terminal-input-lanes.ts";
+} from "../src/store/transport/terminal-input-router.ts";
+import { createTerminalInputLanes, inputMapSizes } from "../src/client/carriers/terminal-input-lanes.ts";
 
 function token(socketId: string, domainGeneration = 1n): TerminalGenerationToken {
   return {

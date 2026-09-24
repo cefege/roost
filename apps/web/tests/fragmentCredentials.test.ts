@@ -9,12 +9,12 @@ import {
   credentialFreeUrl,
   parseFragmentCredential,
   peekCapturedFragmentCredential,
-} from "../src/auth/fragment-credential.ts";
+} from "../src/client/auth/fragment-credential.ts";
 import type {
   CapturedFragmentCredential,
   CapturedFragmentCredentialKind,
-} from "../src/auth/fragment-credential.ts";
-import { coordBase } from "../src/connect.ts";
+} from "../src/client/auth/fragment-credential.ts";
+import { coordBase } from "../src/client/rpc/connect.ts";
 import { dispatchCapturedFragmentCredential } from "../src/store/sync-bootstrap.pair.ts";
 
 class MemoryStorage implements Storage {
@@ -228,7 +228,7 @@ describe("synchronous entry capture", () => {
 
       // A cache-distinct import models a document reload: module memory starts
       // empty, while the tab-scoped sessionStorage survives.
-      const reloadUrl = new URL("../src/auth/fragment-credential.ts", import.meta.url);
+      const reloadUrl = new URL("../src/client/auth/fragment-credential.ts", import.meta.url);
       reloadUrl.search = "session-reload";
       const reloaded = await import(reloadUrl.href) as {
         peekCapturedFragmentCredential(): CapturedFragmentCredential | null;

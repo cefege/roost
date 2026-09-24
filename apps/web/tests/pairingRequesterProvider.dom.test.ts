@@ -6,7 +6,7 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test, vi } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { PairingRequester } from "../src/components/PairingRequesterProvider.tsx";
+import type { PairingRequester } from "../src/components/pairing/PairingRequesterProvider.tsx";
 
 const REQUEST_ID = "0123456789abcdef0123456789abcdef";
 const REQUESTER_TOKEN = "ab".repeat(32);
@@ -38,9 +38,9 @@ const pairCreate = mock((request: PairCreateInput) => pairCreateImplementation(r
 const pairPoll = mock(() => pairPollImplementation());
 
 mock.module("@roost/protocol/retry", () => ({ backoffDelayMs: () => 10 }));
-mock.module("../src/connect.ts", () => ({ coordClient: { pairCreate, pairPoll } }));
-mock.module("../src/auth/web-key.ts", () => ({ getPublicKeyB64: async () => "requester-public-key" }));
-mock.module("../src/lib/browserSelfLabel.ts", () => ({ browserSelfLabel: () => "Requester browser" }));
+mock.module("../src/client/rpc/connect.ts", () => ({ coordClient: { pairCreate, pairPoll } }));
+mock.module("../src/client/auth/web-key.ts", () => ({ getPublicKeyB64: async () => "requester-public-key" }));
+mock.module("../src/browser/browserSelfLabel.ts", () => ({ browserSelfLabel: () => "Requester browser" }));
 mock.module("../src/store/toastStore.ts", () => ({ addToast: () => undefined }));
 
 // Load client Solid after the module mocks select the browser-safe runtime.
@@ -59,8 +59,8 @@ mock.module("react/jsx-dev-runtime", () => ({
 }));
 
 // Dynamic imports follow the mocked protocol, storage, and renderer boundaries.
-const { PAIRING_CEREMONY_STORAGE_KEY, savePairingCeremony } = await import("../src/auth/pairing-ceremony.ts");
-const { PairingRequesterProvider } = await import("../src/components/PairingRequesterProvider.tsx");
+const { PAIRING_CEREMONY_STORAGE_KEY, savePairingCeremony } = await import("../src/client/auth/pairing-ceremony.ts");
+const { PairingRequesterProvider } = await import("../src/components/pairing/PairingRequesterProvider.tsx");
 
 const disposers: Array<() => void> = [];
 

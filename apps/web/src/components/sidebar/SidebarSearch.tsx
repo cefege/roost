@@ -8,7 +8,7 @@
 // canonical pattern.
 
 import type { JSX } from "solid-js";
-import { platformShortcutLabel } from "../../lib/browserPlatform.ts";
+import { platformShortcutLabel } from "../../browser/browserPlatform.ts";
 import { Icon } from "../Settings/md/Icon.tsx";
 import { IconButton } from "../Settings/md/IconButton.tsx";
 

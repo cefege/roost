@@ -13,7 +13,7 @@ import {
   TERMINAL_FOREGROUND_PROBE_DEADLINE_MS,
   TERMINAL_VIEW_HEARTBEAT_MS,
 } from "@roost/protocol/viewport";
-import { isPageVisible } from "../lib/pageVisible.ts";
+import { isPageVisible } from "../browser/pageVisible.ts";
 import {
   currentTerminalGenerationToken,
   requestTerminalGenerationRecovery,

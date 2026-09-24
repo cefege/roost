@@ -20,7 +20,7 @@ Check each new/changed component against:
 
 2. **Token role misuse** — even when values are tokenized: picking a random alias spelling instead of the canonical role, or the wrong surface tier / status color. Canonical roles live in `apps/web/src/styles/theme-vars.css`. Selected state = `--md-sys-color-secondary-container` only. Status colors = `--status-*` (via `StatusDot`). Prefer `--md-*` roles + `--surface-*`/`--text-*` + the `--md-space-*`/type ramp; avoid legacy aliases (`--peach`, `--mantle`, `--color-*`, `--bg-elev-*`, Catppuccin names) in NEW code.
 
-3. **Gallery divergence** — does the new surface match the patterns shown at the `/design` gallery (`apps/web/src/components/DesignGallery.tsx`)? A card/row/dialog that looks unlike its gallery counterpart is drift.
+3. **Gallery divergence** — does the new surface match the patterns shown at the `/design` gallery (`apps/web/src/components/design/DesignGallery.tsx`)? A card/row/dialog that looks unlike its gallery counterpart is drift.
 
 4. **Run the linter** — `bun scripts/lint-roost.ts` from repo root; report any raw-value ratchet or token violations it prints (a decreased count is fine; an INCREASE fails).
 

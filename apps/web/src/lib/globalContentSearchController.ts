@@ -17,7 +17,7 @@ import {
   TERMINAL_SEARCH_ID_MAX_LENGTH,
   TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS,
 } from "@roost/protocol/terminal-search";
-import { coordClient } from "../connect.ts";
+import { coordClient } from "../client/rpc/connect.ts";
 import {
   captureAuthResourceToken,
   isCurrentAuthResourceToken,

@@ -3,7 +3,7 @@
 // The store supplies one active rename request and routes mutation outcomes.
 
 import { createSignal, createEffect, Show } from "solid-js";
-import { coordClient } from "../connect.ts";
+import { coordClient } from "../client/rpc/connect.ts";
 import { Dialog, Button, TextField } from "./Settings/md/primitives.tsx";
 import { activeRenameDialog, closeRenameDialog } from "../store/renameDialog.ts";
 import { addToast } from "../store/toastStore.ts";

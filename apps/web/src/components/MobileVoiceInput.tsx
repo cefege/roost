@@ -17,22 +17,22 @@ import {
 	onMount,
 } from "solid-js";
 import type { SessionId } from "@roost/protocol/wire";
-import { createDeepgramDictation } from "../lib/deepgramDictation.ts";
+import { createDeepgramDictation } from "../voice/deepgramDictation.ts";
 import {
 	getDeepgramKey,
 	invalidateDeepgramKey,
 	prefetchDeepgramKey,
-} from "../lib/deepgramKey.ts";
-import { micIdle, warmMic } from "../lib/audioPcmCapture.ts";
+} from "../voice/deepgramKey.ts";
+import { micIdle, warmMic } from "../voice/audioPcmCapture.ts";
 import {
 	buildAccum,
 	finalizeKeyterms,
 	type TerminalContext,
-} from "../lib/keytermContext.ts";
-import { learnTerms, lexiconTopTerms } from "../lib/keytermLexicon.ts";
-import { keytermBiasing } from "../lib/keytermBiasingPref.ts";
-import { isTouchDevice } from "../lib/windowSizeClass.ts";
-import { activeVoiceOwner, ensureTranscriptionConfig, noteMicPermissionGranted, registerVoiceControls, setActiveVoiceOwner, transcriptionConfig, voiceControls, voiceControlsFor } from "../lib/voiceState.ts";
+} from "../voice/keytermContext.ts";
+import { learnTerms, lexiconTopTerms } from "../voice/keytermLexicon.ts";
+import { keytermBiasing } from "../store/prefs/keytermBiasingPref.ts";
+import { isTouchDevice } from "../browser/windowSizeClass.ts";
+import { activeVoiceOwner, ensureTranscriptionConfig, noteMicPermissionGranted, registerVoiceControls, setActiveVoiceOwner, transcriptionConfig, voiceControls, voiceControlsFor } from "../voice/voiceState.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import { IconButton } from "./Settings/md/primitives.tsx";
 // The capture pipeline stays warm after a recording so the next tap skips a

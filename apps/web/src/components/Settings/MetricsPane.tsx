@@ -7,9 +7,9 @@
 // md/primitives.
 
 import { createSignal, onCleanup, onMount, For, Index, Show } from "solid-js";
-import { coordClient } from "../../connect.ts";
+import { coordClient } from "../../client/rpc/connect.ts";
 import { Card, MetricTile, EmptyState, Icon } from "./md/primitives.tsx";
-import { isPageVisible } from "../../lib/pageVisible.ts";
+import { isPageVisible } from "../../browser/pageVisible.ts";
 
 interface MetricsSnapshot {
   uptime_ms: number;

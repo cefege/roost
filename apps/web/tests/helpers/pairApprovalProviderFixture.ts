@@ -6,7 +6,7 @@
 
 import { mock } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { PairApprovalContextValue } from "../../src/components/PairApprovalProvider.tsx";
+import type { PairApprovalContextValue } from "../../src/components/pairing/PairApprovalProvider.tsx";
 
 export const REQUEST_ID = "0123456789abcdef0123456789abcdef";
 export const REQUEST_CODE = "654321";
@@ -96,7 +96,7 @@ function CodeDialogStandIn(props: CodeDialogProps): null {
   });
   return null;
 }
-mock.module("../../src/components/PairVerificationCodeDialog.tsx", () => ({
+mock.module("../../src/components/pairing/PairVerificationCodeDialog.tsx", () => ({
   PairVerificationCodeDialog: CodeDialogStandIn,
 }));
 
@@ -142,8 +142,8 @@ export interface PairApprovalProviderFixture {
 export async function loadPairApprovalProviderFixture(): Promise<PairApprovalProviderFixture> {
   // The real module supplies the device-rejection classifier the lifecycle
   // rules depend on; only the network client is replaced.
-  const realConnect = await import("../../src/connect.ts");
-  mock.module("../../src/connect.ts", () => ({
+  const realConnect = await import("../../src/client/rpc/connect.ts");
+  mock.module("../../src/client/rpc/connect.ts", () => ({
     ...realConnect,
     coordClient: { pairApprove, pairDeny, pairApprovalStatus },
   }));
@@ -153,9 +153,9 @@ export async function loadPairApprovalProviderFixture(): Promise<PairApprovalPro
   ) as typeof SolidApi;
   mock.module("solid-js", () => Solid);
   registerDialogCleanup = Solid.onCleanup;
-  const { PAIR_APPROVAL_STORAGE_KEY } = await import("../../src/auth/pairing-approval.ts");
+  const { PAIR_APPROVAL_STORAGE_KEY } = await import("../../src/client/auth/pairing-approval.ts");
   const { announcePairedBrowser } = await import("../../src/lib/pairedBrowserNotice.ts");
-  const { PairApprovalProvider } = await import("../../src/components/PairApprovalProvider.tsx");
+  const { PairApprovalProvider } = await import("../../src/components/pairing/PairApprovalProvider.tsx");
 
   function mount(initiallyEnabled = true): MountedPairApprovalProvider {
     let context: PairApprovalContextValue | undefined;

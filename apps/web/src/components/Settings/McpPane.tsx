@@ -11,8 +11,8 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 import type { McpRelay, McpRelayId } from "@roost/protocol/wire";
 import { rootStore } from "../../store/root.ts";
 import { replaceMcpRelays, deleteMcpRelay, upsertMcpRelay } from "../../store/mutations.ts";
-import { coordClient } from "../../connect.ts";
-import { McpRelayEditor } from "../McpRelayEditor.tsx";
+import { coordClient } from "../../client/rpc/connect.ts";
+import { McpRelayEditor } from "../agents/McpRelayEditor.tsx";
 import { addToast } from "../../store/toastStore.ts";
 import { Card, Button, EmptyState, List, ListRow, Icon } from "./md/primitives.tsx";
 

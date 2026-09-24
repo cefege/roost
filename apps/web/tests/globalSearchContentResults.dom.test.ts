@@ -68,7 +68,7 @@ mock.module("../src/components/Settings/md/primitives.tsx", () => ({
 // Static imports would bind the real primitive barrel — and its browser custom
 // element registrations — before the stubs above are installed.
 const { GlobalSearchContentResults } = await import(
-  "../src/components/GlobalSearchContentResults.tsx"
+  "../src/components/search/GlobalSearchContentResults.tsx"
 );
 
 function resolvedNode(node: unknown): unknown {

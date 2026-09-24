@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, test, vi } from "bun:test";
 import { createRoot, createSignal } from "solid-js";
-import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
+import type { CellGridRenderer } from "../src/renderer/cellRenderer.ts";
 import {
   ATTACH_DIAGNOSIS_BATCH_INTERVAL_MS,
   ATTACH_DIAGNOSIS_BATCH_MAX_SESSIONS,
@@ -14,7 +14,7 @@ import {
 import {
   createTerminalPresentationController,
   FOREGROUND_DOM_STALL_MS,
-} from "../src/lib/terminalPresentation.ts";
+} from "../src/renderer/terminalPresentation.ts";
 import type { TerminalViewHandleStatus } from "../src/store/terminal-stream-types.ts";
 
 const acceptedView: TerminalViewHandleStatus = {

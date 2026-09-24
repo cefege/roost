@@ -4,8 +4,8 @@
 // for link RTT, the input-sequence bookkeeping the engine's ack gate needs, and
 // a reader for the cells the overlay actually painted.
 
-import { PredictiveEcho } from "../src/lib/predictiveEcho.ts";
-import type { PredictMode } from "../src/lib/predictPref.ts";
+import { PredictiveEcho } from "../src/renderer/predictiveEcho.ts";
+import type { PredictMode } from "../src/store/prefs/predictPref.ts";
 import type { CellGridFrame, CellSpan } from "@roost/protocol/cell";
 
 export interface PaintedCell {

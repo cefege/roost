@@ -19,12 +19,12 @@ import {
   SESSION_ID,
   terminalCaptureSeamModule,
 } from "./helpers/terminalCaptureSeam.ts";
-import type { TerminalCaptureMenuController } from "../src/components/terminalCaptureMenuController.ts";
+import type { TerminalCaptureMenuController } from "../src/components/terminal/terminalCaptureMenuController.ts";
 
 const seam = createCaptureSeamState();
 const seamLog = createCaptureSeamLog();
-mock.module("../src/lib/terminalIncidentCapture.ts", () => terminalCaptureSeamModule(seam, seamLog));
-mock.module("../src/lib/downloadWorkerFile.ts", () => downloadWorkerFileModule(seamLog));
+mock.module("../src/renderer/terminalIncidentCapture.ts", () => terminalCaptureSeamModule(seam, seamLog));
+mock.module("../src/browser/downloadWorkerFile.ts", () => downloadWorkerFileModule(seamLog));
 mock.module("../src/components/Settings/md/Button.tsx", () => ({
   Button: (props: Record<string, unknown>) => props.children,
 }));
@@ -46,10 +46,10 @@ mock.module("react/jsx-dev-runtime", () => ({
 }));
 
 const { createTerminalCaptureMenuController } = await import(
-  "../src/components/terminalCaptureMenuController.ts"
+  "../src/components/terminal/terminalCaptureMenuController.ts"
 );
 const { toasts, clearToastsForAccountBoundary } = await import("../src/store/toastStore.ts");
-const { _resetAnnouncedWorkerCaptures } = await import("../src/lib/terminalCaptureDownload.ts");
+const { _resetAnnouncedWorkerCaptures } = await import("../src/renderer/terminalCaptureDownload.ts");
 
 /** The body runs after createRoot returns, so the controller's lease-subscription
  *  effect has already flushed and `emitLeaseState` is live. */

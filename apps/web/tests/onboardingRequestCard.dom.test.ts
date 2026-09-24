@@ -55,7 +55,7 @@ setPairingPrimitiveCaptures({
 mock.module("../src/components/Settings/md/primitives.tsx", () => pairingPrimitiveStubs);
 
 // The primitive mock must precede this component's import.
-const { OnboardingRequestCard } = await import("../src/components/OnboardingRequestCard.tsx");
+const { OnboardingRequestCard } = await import("../src/components/pairing/OnboardingRequestCard.tsx");
 
 function renderRequestCard(pollStatus: "verification_required" | "error", onStart: () => void): string {
   let rendered: unknown;

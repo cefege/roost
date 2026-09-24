@@ -39,19 +39,19 @@ mock.module("../src/store/terminal-stream-types.ts", () => ({
     && left.domainGeneration === right.domainGeneration
   ),
 }));
-mock.module("../src/ws/terminal-input-router.ts", () => ({
+mock.module("../src/store/transport/terminal-input-router.ts", () => ({
   holdTerminalInput: () => { const hold = new FakeHold(); holds.push(hold); return hold; },
   claimTerminalInputRoute: (_sessionId: string, destination: Destination) => { claims.push(destination); return claimOperation(); },
   terminalInputConnectionKey: (token: Token) => JSON.stringify([token.socketGeneration, token.socketId, token.processEpoch, token.transportKind]),
   terminalInputRequiresRouteClaim: () => requiresRouteClaim,
 }));
-mock.module("../src/ws/sync-outbound.ts", () => ({
+mock.module("../src/store/transport/sync-outbound.ts", () => ({
   readySyncTerminalInputDestinationForSession: () => currentDestination,
   terminalInputDestinationForSession: () => currentDestination,
 }));
 
 // Module mocks must precede the fallback owner import.
-const fallback = await import("../src/ws/terminal-peer-fallback.ts");
+const fallback = await import("../src/store/transport/terminal-peer-fallback.ts");
 
 function token(domainGeneration = 1n): Token {
   return { socketGeneration: 1, socketId: "sync", processEpoch: "epoch", domainGeneration, transportKind: "sync", workerFp: null };

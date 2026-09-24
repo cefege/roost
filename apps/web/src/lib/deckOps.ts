@@ -21,7 +21,7 @@ import { isPendingSpawn, abortOptimisticSpawn } from "../store/optimisticSpawn.t
 import { scheduleClose } from "./pendingClose.ts";
 import { closeLabelsFor, siblingOrHomeHref, killAfterUndo } from "./closeSession.ts";
 import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";
-import { isCompact } from "./windowSizeClass.ts";
+import { isCompact } from "../browser/windowSizeClass.ts";
 
 export interface DeckOpsCtx {
   /** Folder bucket the ops commit into (null = no active folder → no-op). */

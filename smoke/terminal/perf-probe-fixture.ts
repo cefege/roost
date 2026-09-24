@@ -3,8 +3,8 @@
 // Fresh-context enrollment stays coupled to navigation measurement so authorization is never bypassed.
 
 import type { Browser, BrowserContext, Page } from "@playwright/test";
-import type { SpaPhaseTimeline } from "../../apps/web/src/lib/diag.ts";
-import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
+import type { SpaPhaseTimeline } from "../../apps/web/src/browser/diag.ts";
+import type { SmokeApi } from "../../apps/web/src/smoke/smoke.ts";
 import { enrollSmokeBrowser } from "./fixtures.ts";
 import { PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";

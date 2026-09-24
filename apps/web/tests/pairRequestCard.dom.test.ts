@@ -58,7 +58,7 @@ const buttons: Array<Record<string, unknown>> = [];
 setPairingPrimitiveCaptures({ button: (props) => buttons.push(props) });
 mock.module("../src/components/Settings/md/primitives.tsx", () => pairingPrimitiveStubs);
 
-const { PairRequestCard } = await import("../src/components/PairRequestCard.tsx");
+const { PairRequestCard } = await import("../src/components/pairing/PairRequestCard.tsx");
 
 function resolvedNode(node: unknown): unknown {
   let resolved = node;

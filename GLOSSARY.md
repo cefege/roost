@@ -93,7 +93,7 @@ wins.
   tuple and verifies the expected direct hello. It is opportunistic: a failed
   or unavailable peer falls back to Sync. It is not a worker HTTP endpoint,
   TURN relay, or a promise that NAT traversal will succeed.
-  Source: `apps/web/src/ws/terminal-peer-connection.ts`,
+  Source: `apps/web/src/store/transport/terminal-peer-connection.ts`,
   `apps/worker/src/terminal-peer-owner.ts`.
 
 - **worker epoch** — a fresh worker-process identity, distinct from terminal
@@ -112,7 +112,7 @@ wins.
   behavior without an unsupported claim. This is not a global PTY lock:
   worker-owned CLI and agent-prompt writers remain separate.
   Source: `apps/worker/src/terminal-input-route-owner.ts`,
-  `apps/web/src/ws/terminal-input-router.ts`.
+  `apps/web/src/store/transport/terminal-input-router.ts`.
 
 - **STUN** — operator-configured UDP address discovery for WebRTC. The default
   is `stun:stun.cloudflare.com:3478`; an explicitly empty
@@ -180,7 +180,7 @@ wins.
   the revision; one browser profile delivers one notification even with many
   tabs open (a storage/Web-Locks claim); and the coordinator skips Web Push to a
   device that is already viewing the transitioning session.
-  Source: `apps/web/src/components/AgentNotificationBridge.tsx`,
+  Source: `apps/web/src/components/notifications/AgentNotificationBridge.tsx`,
   `apps/coord/src/push/push-dispatch.ts`.
 
 - **cell-shipping / authoritative grid** — the terminal-fidelity model: the
@@ -191,7 +191,7 @@ wins.
 - **auth (EdDSA-JWT)** — the browser mints an ed25519 JWT in WebCrypto (private
   key in IndexedDB) and stamps every RPC with it; the coordinator verifies it in
   an interceptor. There are no shared passwords or copied tokens for normal use.
-  Source: `apps/web/src/auth/web-key.ts`, `apps/coord/src/auth/jwt.ts`.
+  Source: `apps/web/src/client/auth/web-key.ts`, `apps/coord/src/auth/jwt.ts`.
 
 - **front door** — whatever the operator puts in front of the coordinator's
   plaintext loopback listener: Caddy, nginx, a Cloudflare tunnel,

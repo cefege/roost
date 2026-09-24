@@ -43,18 +43,18 @@ mock.module("@roost/observability/diag", () => ({
 
 // Deferred so the diagnostic mock is installed before the renderer and the
 // recorder evaluate their static imports.
-const { CellGridRenderer } = await import("../src/lib/cellRenderer.ts");
+const { CellGridRenderer } = await import("../src/renderer/cellRenderer.ts");
 const { createIncidentObserver } = await import(
-  "../src/lib/terminalIncidentCaptureObserver.ts"
+  "../src/renderer/terminalIncidentCaptureObserver.ts"
 );
 const { freezeRecorderEvidence } = await import(
-  "../src/lib/terminalIncidentCaptureEvidence.ts"
+  "../src/renderer/terminalIncidentCaptureEvidence.ts"
 );
 const {
   _resetTerminalIncidentRecorders,
   armTerminalRecorder,
   ensureTerminalRecorder,
-} = await import("../src/lib/terminalIncidentCaptureState.ts");
+} = await import("../src/renderer/terminalIncidentCaptureState.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const RECORDING = "33333333-3333-4333-8333-333333333333";

@@ -12,7 +12,7 @@ import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
 import { announcePairedBrowser, formatPairedBrowserLabel } from "../lib/pairedBrowserNotice.ts";
 import { applyAgentStatusFrame } from "./agent-status.ts";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
-import { _dispatchPresence } from "./sync-dispatch.ts";
+import { _dispatchPresence } from "../client/sync/sync-dispatch.ts";
 import {
   consumeTerminalSmokeFrameFault,
   dispatchTerminalCellChunk,
@@ -26,7 +26,7 @@ import {
 } from "./sync-handlers.ts";
 import {
   _workspaceProtoToWire, _taskProtoToWire, _mcpProtoToWire, _presenceProtoToWire,
-} from "./sync-proto-adapters.ts";
+} from "../client/sync/sync-proto-adapters.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 
 // T1.4 — last-seen event id (persisted to IndexedDB on a debounce). On

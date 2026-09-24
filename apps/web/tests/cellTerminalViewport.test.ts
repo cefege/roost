@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, mock, test, vi } from "bun:tes
 import {
   createCellTerminalViewport,
   type CellTerminalViewport,
-} from "../src/components/cell-terminal-viewport.ts";
+} from "../src/components/terminal/cell-terminal-viewport.ts";
 
 interface FakeDisplay {
   clientWidth: number;
@@ -27,7 +27,7 @@ let animationFrameCallbacks: Map<number, () => void>;
 let nextAnimationFrameHandle: number;
 
 mock.module("@roost/observability/diag", () => ({ diag: () => undefined }));
-mock.module("../src/lib/pageVisible.ts", () => ({ isPageVisible: () => true }));
+mock.module("../src/browser/pageVisible.ts", () => ({ isPageVisible: () => true }));
 
 function createViewportFixture(): ViewportFixture {
   const display: FakeDisplay = { clientWidth: 800, clientHeight: 400 };

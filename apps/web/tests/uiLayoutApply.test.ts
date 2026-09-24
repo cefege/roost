@@ -16,7 +16,7 @@ import {
   type UiLayoutApplyFolder,
   type UiLayoutApplyResult,
   type UiLayoutApplySettlementDiagnostic,
-} from "../src/lib/uiLayoutApplyCore.ts";
+} from "../src/client/ui-state/uiLayoutApplyCore.ts";
 import { applyLayoutDocument } from "../src/store/paneLayoutDocument.ts";
 import { _paneLayoutStoreDebugSnapshot } from "../src/store/paneLayoutStore.ts";
 

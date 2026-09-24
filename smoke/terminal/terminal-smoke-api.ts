@@ -8,11 +8,11 @@ import type {
   SmokePaintedScrollbackProbe,
   SmokeTerminalInputCapture,
   TerminalStreamProbe,
-} from "../../apps/web/src/lib/smokeTypes.ts";
+} from "../../apps/web/src/smoke/smokeTypes.ts";
 import type {
   PaintedCursorProof,
   PaintedMarkerProof,
-} from "../../apps/web/src/lib/smokeHarness.ts";
+} from "../../apps/web/src/smoke/smokeHarness.ts";
 
 export type RecoveryMarkerScan = SmokeMarkerScan;
 

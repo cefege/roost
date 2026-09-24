@@ -11,10 +11,10 @@ import type {
   WorkerRoutableFrame,
 } from "@roost/protocol/proto/sync_pb";
 import { signal } from "@roost/observability/diag";
-import { markPhase } from "../lib/diag.ts";
+import { markPhase } from "../browser/diag.ts";
 import {
   dispatchSyncFrameCausally,
-} from "./sync-flow.ts";
+} from "../client/sync/sync-flow.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { _noteSyncConnect } from "./sync-handlers.ts";
 import { _dispatchSyncFrame } from "./sync-frame.ts";

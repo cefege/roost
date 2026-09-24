@@ -16,7 +16,7 @@ const RULES = {
 } as const;
 type BoundaryId = keyof typeof RULES;
 
-export const BOUNDARY_ENFORCED = new Set<BoundaryId>(["B1", "B2"]);
+export const BOUNDARY_ENFORCED = new Set<BoundaryId>(["B1", "B2", "B3", "B4"]);
 
 interface Violation {
   file: string;

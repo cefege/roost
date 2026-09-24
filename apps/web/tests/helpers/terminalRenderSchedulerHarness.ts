@@ -3,7 +3,7 @@
 // It restores global requestAnimationFrame hooks after every isolated Bun test.
 
 import type { CellGridFrame } from "@roost/protocol/cell";
-import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
+import type { CellGridRenderer } from "../../src/renderer/cellRenderer.ts";
 
 const frameHost = globalThis as typeof globalThis & {
   cancelAnimationFrame?: (id: number) => void;

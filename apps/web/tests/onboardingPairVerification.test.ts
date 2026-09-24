@@ -5,7 +5,7 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test, vi } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { OnboardingPairingCeremony } from "../src/components/onboarding-pairing-ceremony.ts";
+import type { OnboardingPairingCeremony } from "../src/components/pairing/onboarding-pairing-ceremony.ts";
 
 const REQUEST_ID_A = "0123456789abcdef0123456789abcdef";
 const REQUEST_ID_B = "fedcba9876543210fedcba9876543210";
@@ -60,22 +60,22 @@ mock.module("@roost/protocol/pairing", () => ({
   normalizePairVerificationCode: (value: string) => /^\d{6}$/.test(value) ? value : null,
 }));
 mock.module("@roost/protocol/retry", () => ({ backoffDelayMs: () => 10 }));
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordClient: { pairCreate, pairPoll, pairConfirm },
 }));
-mock.module("../src/auth/web-key.ts", () => ({
+mock.module("../src/client/auth/web-key.ts", () => ({
   getPublicKeyB64: async () => "requester-public-key",
 }));
-mock.module("../src/lib/browserSelfLabel.ts", () => ({ browserSelfLabel: () => "Requester browser" }));
+mock.module("../src/browser/browserSelfLabel.ts", () => ({ browserSelfLabel: () => "Requester browser" }));
 mock.module("../src/store/toastStore.ts", () => ({ addToast: () => undefined }));
 
 // Load client Solid after the module mocks select the browser-safe runtime.
 const Solid = await import(new URL("./solid.js", import.meta.resolve("solid-js")).href) as typeof SolidApi;
 mock.module("solid-js", () => Solid);
 // Dynamic imports follow the mocked protocol, timer, and browser boundaries.
-const { PAIRING_CEREMONY_STORAGE_KEY } = await import("../src/auth/pairing-ceremony.ts");
+const { PAIRING_CEREMONY_STORAGE_KEY } = await import("../src/client/auth/pairing-ceremony.ts");
 const { createOnboardingPairingCeremony } = await import(
-  "../src/components/onboarding-pairing-ceremony.ts"
+  "../src/components/pairing/onboarding-pairing-ceremony.ts"
 );
 
 function mountCeremony(redirects: { count: number }) {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { classifyAuthFailure } from "../src/connect.ts";
+import { classifyAuthFailure } from "../src/client/rpc/connect.ts";
 
 const WORKERS_LIST = "/roost.v1.CoordinatorService/WorkersList";
 

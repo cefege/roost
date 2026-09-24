@@ -4,8 +4,8 @@
 
 import { afterEach, describe, expect, mock, test, vi } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { RendererEpochSeq } from "../src/lib/cellRendererPresentation.ts";
-import type { CellTerminalPresentation } from "../src/components/cell-terminal-presentation.ts";
+import type { RendererEpochSeq } from "../src/renderer/cellRendererPresentation.ts";
+import type { CellTerminalPresentation } from "../src/components/terminal/cell-terminal-presentation.ts";
 import type { TerminalViewHandleStatus } from "../src/store/terminal-stream-types.ts";
 
 interface PresentationOptions {
@@ -39,7 +39,7 @@ mock.module("@roost/observability/diag", () => ({
   diag: () => undefined,
   signal: (_kind: string, fields: Record<string, unknown>) => stallSignals.push(fields),
 }));
-mock.module("../src/lib/terminalPresentation.ts", () => ({
+mock.module("../src/renderer/terminalPresentation.ts", () => ({
   FOREGROUND_DOM_STALL_MS: 1_000,
   preservesForegroundReaderHold: (reason: string | null) => (
     reason === "native_scroll"
@@ -60,7 +60,7 @@ mock.module("../src/lib/terminalPresentation.ts", () => ({
     };
   },
 }));
-mock.module("../src/lib/terminalSelectionGuard.ts", () => ({
+mock.module("../src/renderer/terminalSelectionGuard.ts", () => ({
   createTerminalSelectionGuard: () => ({
     captureTerminalSelection: () => undefined,
     notifyBackfill: () => undefined,
@@ -69,13 +69,13 @@ mock.module("../src/lib/terminalSelectionGuard.ts", () => ({
     releasePaintHolds: () => undefined,
   }),
 }));
-mock.module("../src/lib/offlineWatch.ts", () => ({
+mock.module("../src/browser/offlineWatch.ts", () => ({
   createOfflineWatch: () => ({
     update: (viewed: boolean, hasFrame: boolean) => offlineUpdates.push({ viewed, hasFrame }),
     dispose: () => undefined,
   }),
 }));
-mock.module("../src/lib/pageVisible.ts", () => ({
+mock.module("../src/browser/pageVisible.ts", () => ({
   isPageVisible: pageVisible,
   pageVisible,
 }));
@@ -87,7 +87,7 @@ mock.module("../src/lib/attachDiagnosis.ts", () => ({
   attachDiagnosisWaitKey: () => null,
   startAttachDiagnosis: () => ({ dispose: () => undefined }),
 }));
-mock.module("../src/components/TerminalStartupOverlay.tsx", () => ({
+mock.module("../src/components/terminal/TerminalStartupOverlay.tsx", () => ({
   terminalViewportLoadingNotice: () => null,
 }));
 mock.module("../src/store/terminal-stream.ts", () => ({
@@ -100,7 +100,7 @@ mock.module("../src/store/terminal-stream.ts", () => ({
 
 // Browser-Solid and module mocks must settle before this controller evaluates.
 const { createCellTerminalPresentation } = await import(
-  "../src/components/cell-terminal-presentation.ts"
+  "../src/components/terminal/cell-terminal-presentation.ts"
 );
 
 const accepted: TerminalViewHandleStatus = {

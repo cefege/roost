@@ -7,7 +7,7 @@
 
 import { createSignal } from "solid-js";
 import { diag } from "@roost/observability/diag";
-import { coordClient } from "../../connect.ts";
+import { coordClient } from "../../client/rpc/connect.ts";
 
 const [deployingFps, setDeployingFps] = createSignal<ReadonlySet<string>>(new Set());
 

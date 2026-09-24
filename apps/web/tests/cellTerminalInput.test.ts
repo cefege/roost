@@ -4,14 +4,14 @@
 // Transport is mocked so accepted and ambiguous outcomes are deterministic.
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
-import type { PredictiveEcho } from "../src/lib/predictiveEcho.ts";
-import type { InputAdmission, InputOutcome } from "../src/ws/terminal-input-lanes.ts";
+import type { CellGridRenderer } from "../src/renderer/cellRenderer.ts";
+import type { PredictiveEcho } from "../src/renderer/predictiveEcho.ts";
+import type { InputAdmission, InputOutcome } from "../src/client/carriers/terminal-input-lanes.ts";
 import {
   _resetTerminalFindIntentsForTest,
   requestTerminalFind,
-} from "../src/lib/terminalFindIntent.ts";
-import type { CellTerminalProps } from "../src/components/cell-terminal-types.ts";
+} from "../src/renderer/terminalFindIntent.ts";
+import type { CellTerminalProps } from "../src/components/terminal/cell-terminal-types.ts";
 
 let outcome = Promise.withResolvers<InputOutcome>();
 const sendUserTerminalInput = mock((): InputAdmission => ({
@@ -26,10 +26,10 @@ mock.module("../src/lib/userTerminalInput.ts", () => ({
 }));
 
 const { createCellTerminalInput } = await import(
-  "../src/components/cell-terminal-input.ts"
+  "../src/components/terminal/cell-terminal-input.ts"
 );
 const { createCellTerminalRuntime } = await import(
-  "../src/components/cell-terminal-runtime.ts"
+  "../src/components/terminal/cell-terminal-runtime.ts"
 );
 
 const props = {

@@ -8,7 +8,7 @@ import {
   agentStatusRevisionToken,
   sameAgentStatusOccupant,
   type AgentStatusRevisionToken,
-} from "./agentStatus.ts";
+} from "../client/agents/agentStatus.ts";
 
 export type AgentNotificationKind = "blocked" | "done";
 

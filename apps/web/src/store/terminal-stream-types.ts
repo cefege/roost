@@ -5,8 +5,8 @@
 import type { CellGridChunkAssembler, CellGridFrame } from "@roost/protocol/cell";
 import type { SyncClientFrame } from "@roost/protocol/proto/sync_pb";
 import type { TerminalGeometry } from "@roost/protocol/viewport";
-import type { CellGridRenderer } from "../lib/cellRenderer.ts";
-import type { TerminalRenderScheduler } from "../lib/terminal-render-scheduler.ts";
+import type { CellGridRenderer } from "../renderer/cellRenderer.ts";
+import type { TerminalRenderScheduler } from "../renderer/terminal-render-scheduler.ts";
 
 export type TerminalViewHandleStatus =
   | {

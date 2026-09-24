@@ -172,7 +172,7 @@ mock.module("../src/components/Settings/md/primitives.tsx", () => ({
 
 // These imports must follow mock registration so the component binds the fake
 // client renderer and primitives instead of browser-only modules.
-const { TransferStack } = await import("../src/components/TransferCard.tsx");
+const { TransferStack } = await import("../src/components/notifications/TransferCard.tsx");
 const { addTransfer, clearTransfersForLogout, transfers } = await import("../src/store/transfers.ts");
 
 const mountedRoots: Array<() => void> = [];

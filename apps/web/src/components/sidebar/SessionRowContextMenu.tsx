@@ -74,7 +74,7 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 		props.onClose();
 		const { addToast } = await import("../../store/toastStore.ts");
 		try {
-			const { coordClient } = await import("../../connect.ts");
+			const { coordClient } = await import("../../client/rpc/connect.ts");
 			const s = session();
 			const res = await coordClient.sessionsSpawn({
 				workerFp: s.worker_fp,
@@ -98,7 +98,7 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 		props.onClose();
 		const { addToast } = await import("../../store/toastStore.ts");
 		try {
-			const { coordClient } = await import("../../connect.ts");
+			const { coordClient } = await import("../../client/rpc/connect.ts");
 			const s = session();
 			const res = await coordClient.sessionsSpawn({
 				workerFp: s.worker_fp,
@@ -124,7 +124,7 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 		props.onClose();
 		const { addToast } = await import("../../store/toastStore.ts");
 		try {
-			const { coordClient } = await import("../../connect.ts");
+			const { coordClient } = await import("../../client/rpc/connect.ts");
 			const res = await coordClient.sessionsKill({
 				sessionId: session().id,
 				force: true,

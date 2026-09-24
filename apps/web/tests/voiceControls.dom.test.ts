@@ -72,7 +72,7 @@ interface FakeEngine {
 const engines: FakeEngine[] = [];
 let engineFinalText = "hello pad";
 
-mock.module("../src/lib/deepgramDictation.ts", () => ({
+mock.module("../src/voice/deepgramDictation.ts", () => ({
 	createDeepgramDictation: (options: FakeEngineOptions) => {
 		const engine: FakeEngine = { options, starts: 0, stops: 0, aborts: 0, resets: 0 };
 		engines.push(engine);
@@ -90,21 +90,21 @@ mock.module("../src/lib/deepgramDictation.ts", () => ({
 }));
 
 let micWarm = false;
-mock.module("../src/lib/audioPcmCapture.ts", () => ({
+mock.module("../src/voice/audioPcmCapture.ts", () => ({
 	isMicWarm: () => micWarm,
 	micIdle: { releaseMs: 0 },
 	warmMic: async () => {},
 }));
-mock.module("../src/lib/deepgramKey.ts", () => ({
+mock.module("../src/voice/deepgramKey.ts", () => ({
 	getDeepgramKey: async () => "test-key",
 	invalidateDeepgramKey: () => {},
 	prefetchDeepgramKey: () => {},
 }));
-mock.module("../src/lib/windowSizeClass.ts", () => ({ isTouchDevice: () => false }));
+mock.module("../src/browser/windowSizeClass.ts", () => ({ isTouchDevice: () => false }));
 mock.module("../src/components/Settings/md/primitives.tsx", () => ({
 	IconButton: (props: Record<string, unknown>) => props,
 }));
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
 	coordClient: {
 		transcriptionGetConfig: async () => ({ deepgramConfigured: true, deepgramLanguage: "en" }),
 	},
@@ -121,7 +121,7 @@ const {
 	transcriptionConfig,
 	voiceControls,
 	voiceDictating,
-} = await import("../src/lib/voiceState.ts");
+} = await import("../src/voice/voiceState.ts");
 
 // ── harness ─────────────────────────────────────────────────────────────────
 

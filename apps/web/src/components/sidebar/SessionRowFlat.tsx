@@ -6,8 +6,8 @@ import type { Session } from "@roost/protocol/wire";
 import { shortCwd } from "../../lib/sidebarFormat.ts";
 import { folderHeadline, programSubtitle } from "../../lib/sessionTitle.ts";
 import { ViewersChip } from "./ViewersChip.tsx";
-import { FolderGlyph } from "../FolderGlyph.tsx";
-import { AgentStatusIndicator } from "../AgentStatusIndicator.tsx";
+import { FolderGlyph } from "../browse/FolderGlyph.tsx";
+import { AgentStatusIndicator } from "../agents/AgentStatusIndicator.tsx";
 
 interface SessionRowFlatProps {
   session: Session;

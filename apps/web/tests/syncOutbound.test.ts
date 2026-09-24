@@ -16,7 +16,7 @@ mock.module("../src/store/sync.ts", () => ({
   registerSyncV2GenerationHandler: (handler: (state: TestState | null) => void) => { generationHandler = handler; handler(state); return () => { if (generationHandler === handler) generationHandler = null; }; },
 }));
 mock.module("../src/store/root.ts", () => ({ rootStore: { get sessions() { return sessions; } } }));
-mock.module("../src/ws/local-terminal-grants.ts", () => ({
+mock.module("../src/store/transport/local-terminal-grants.ts", () => ({
   currentTerminalGrant: (workerFp: string) => grant?.workerFp === workerFp ? grant : null,
   resetTerminalGrants: () => { grant = null; },
 }));
@@ -24,9 +24,9 @@ mock.module("../src/store/terminal-stream-transport.ts", () => ({
   terminalDirectRegistry: { activeForSession: () => activeDirect, reset: () => { activeDirect = null; } },
 }));
 // Mocks must precede singleton registration; this intentionally tests that load boundary.
-const outbound = await import("../src/ws/sync-outbound.ts");
+const outbound = await import("../src/store/transport/sync-outbound.ts");
 await Promise.resolve();
-const inputRouter = await import("../src/ws/terminal-input-router.ts");
+const inputRouter = await import("../src/store/transport/terminal-input-router.ts");
 function emit(control: TestOneof): void { if (!state || !controlHandler) throw new Error("input control handler unavailable"); controlHandler(control, state); }
 beforeEach(() => {
   vi.useFakeTimers(); outbound._resetTerminalOutboundForTest(); sent.length = 0;

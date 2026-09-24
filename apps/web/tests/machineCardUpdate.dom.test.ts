@@ -81,7 +81,7 @@ const startRequests: DeployStartRequest[] = [];
 let startResponse: (request: DeployStartRequest) => Promise<DeployStartResponse> = () =>
   new Promise<DeployStartResponse>(() => undefined);
 
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordClient: {
     workersDeployStart: (request: DeployStartRequest) => {
       startRequests.push(request);

@@ -6,8 +6,8 @@
 // bytes), independent of how pathological the input is.
 
 import { describe, test, expect } from "bun:test";
-import { buildUrl } from "../src/lib/deepgramDictation.ts";
-import { extractKeyterms } from "../src/lib/keytermContext.ts";
+import { buildUrl } from "../src/voice/deepgramDictation.ts";
+import { extractKeyterms } from "../src/voice/keytermContext.ts";
 
 const MAX_WS_URL_LEN = 8000;
 const MAX_KEYTERM_COUNT = 50;
@@ -49,7 +49,7 @@ describe("buildUrl connect-reliability invariant", () => {
 			"│ ⠋ thinking…  coordFactory │",
 			"╰──────────────────────────╯",
 			Array.from({ length: 500 }, (_, i) => `jargonToken${i}`).join(" "),
-			"读取文件 apps/web/src/lib/deepgramDictation.ts",
+			"读取文件 apps/web/src/voice/deepgramDictation.ts",
 		].join("\n");
 		const keyterms = extractKeyterms({ grid: piScreen, scrollback: "" });
 		const url = buildUrl("en", keyterms);

@@ -4,7 +4,7 @@
 // unit-tested, mirroring deckSwipe.ts / edgeSwipeDrawer.ts.
 // Physics runs in SECONDS; position in px, velocity in px/s.
 
-import { prefersReducedMotion } from "./prefersReducedMotion.ts";
+import { prefersReducedMotion } from "../browser/prefersReducedMotion.ts";
 
 export interface SpringConfig {
   stiffness: number; // k — pull toward target

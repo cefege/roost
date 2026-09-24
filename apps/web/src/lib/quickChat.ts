@@ -3,7 +3,7 @@
 
 import type { Navigator } from "@solidjs/router";
 import type { WorkerFp } from "@roost/protocol/wire";
-import { coordClient } from "../connect.ts";
+import { coordClient } from "../client/rpc/connect.ts";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";

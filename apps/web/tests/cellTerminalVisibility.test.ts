@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { CellTerminalInteractions } from "../src/components/cell-terminal-interactions.ts";
+import type { CellTerminalInteractions } from "../src/components/terminal/cell-terminal-interactions.ts";
 import { FakeEl, deltaFrame, row, seedHeldHistory, vpEl } from "./helpers/cellRendererFakeDom.ts";
 import { mountCellTerminalPane } from "./helpers/cellTerminalPaneHarness.ts";
 
@@ -51,10 +51,10 @@ Object.assign(globalThis, {
 const solidClientUrl = new URL("./solid.js", import.meta.resolve("solid-js"));
 const Solid = await import(solidClientUrl.href) as typeof SolidApi;
 mock.module("solid-js", () => ({ ...Solid }));
-mock.module("../src/components/TerminalComposeButton.tsx", () => ({
+mock.module("../src/components/terminal/TerminalComposeButton.tsx", () => ({
   activeComposeSessionId: () => null,
 }));
-mock.module("../src/components/terminal-links.ts", () => ({
+mock.module("../src/renderer/terminal-links.ts", () => ({
   attachTerminalLinks: (
     _display: unknown,
     options: { initialActive?: boolean } = {},
@@ -68,11 +68,11 @@ mock.module("../src/components/terminal-links.ts", () => ({
   },
   isTerminalLinkActivationGesture: () => false,
 }));
-mock.module("../src/lib/windowSizeClass.ts", () => ({
+mock.module("../src/browser/windowSizeClass.ts", () => ({
   isCompact: () => false,
   isTouchDevice: () => false,
 }));
-mock.module("../src/lib/copyOnSelectPref.ts", () => ({
+mock.module("../src/store/prefs/copyOnSelectPref.ts", () => ({
   copyOnSelect: () => false,
 }));
 mock.module("../src/lib/userTerminalInput.ts", () => ({
@@ -88,16 +88,16 @@ mock.module("../src/lib/sessionTitle.ts", () => ({
 const {
   _terminalFocusAllowed,
   mountCellTerminalInteractions,
-} = await import("../src/components/cell-terminal-interactions.ts");
+} = await import("../src/components/terminal/cell-terminal-interactions.ts");
 const { _terminalForegroundWorkAllowed } = await import(
-  "../src/components/cell-terminal-renderer.ts"
+  "../src/components/terminal/cell-terminal-renderer.ts"
 );
 const {
   setForceHidden,
   setForceVisible,
-} = await import("../src/lib/pageVisible.ts");
-const { CellGridRenderer } = await import("../src/lib/cellRenderer.ts");
-const { createTerminalSelectionGuard } = await import("../src/lib/terminalSelectionGuard.ts");
+} = await import("../src/browser/pageVisible.ts");
+const { CellGridRenderer } = await import("../src/renderer/cellRenderer.ts");
+const { createTerminalSelectionGuard } = await import("../src/renderer/terminalSelectionGuard.ts");
 
 afterEach(() => {
   setForceHidden(false);

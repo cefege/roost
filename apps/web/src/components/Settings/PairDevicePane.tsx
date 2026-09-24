@@ -7,7 +7,7 @@
 
 import { createSignal, onMount, Show } from "solid-js";
 import QRCode from "qrcode";
-import { coordClient } from "../../connect.ts";
+import { coordClient } from "../../client/rpc/connect.ts";
 import { addToast } from "../../store/toastStore.ts";
 import { Button } from "./md/primitives.tsx";
 

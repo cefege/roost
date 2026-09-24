@@ -5,9 +5,14 @@
 // self-contained — coordClient (dynamic import) + window/document only, no
 // sync.ts state. Started once by sync.ts bootstrap via _startCoordHealthPoller.
 
-import type { CoordHealthSnapshot } from "../components/ConnectionBanner.tsx";
-import { isPageVisible } from "../lib/pageVisible.ts";
+import { isPageVisible } from "../browser/pageVisible.ts";
 import { diag } from "@roost/observability/diag";
+
+export interface CoordHealthSnapshot {
+  lastSuccessMs: number | null;
+  lastErrorMs: number | null;
+  lastResult: { kind: string; error?: string } | null;
+}
 
 const HEALTH_POLL_INTERVAL_MS = 5_000;
 const HEALTH_POLL_TIMEOUT_MS = 4_000;
@@ -34,7 +39,7 @@ async function _pollCoordHealth(): Promise<void> {
   if (_healthPollInFlight) return;
   _healthPollInFlight = true;
   try {
-    const { coordClient } = await import("../connect.ts");
+    const { coordClient } = await import("../client/rpc/connect.ts");
     await Promise.race([
       coordClient.miscHealth({}),
       new Promise((_, reject) =>

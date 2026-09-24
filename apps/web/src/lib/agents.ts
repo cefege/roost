@@ -3,7 +3,7 @@
 // A credential boundary resets defaults and fences late responses from the old credential.
 
 import { createSignal } from "solid-js";
-import { coordClient } from "../connect.ts";
+import { coordClient } from "../client/rpc/connect.ts";
 
 export interface AgentDef {
   id: string;

@@ -1,0 +1,133 @@
+// Always-on leak watchdog. A days-long browser session can't be reproduced
+// synthetically, so instead the tab self-reports: a periodic accumulator sample
+// plus a correlated snapshot on every long main-thread task. Feed the collected
+// lines back to a deep-dive and the trajectory names what grows and when the
+// UI starts stalling — the freeze-hunt evidence (per-session map sizes, DOM
+// node count, heap) we otherwise only get by catching the aged tab live.
+//
+// Tier-1 signal() so it ships even with the diag firehose off; also console.info
+// for easy copy from a live console. Emit-and-drop — the watcher retains nothing
+// itself (no arrays, no growth), so it can never be its own leak.
+
+import { diag, signal } from "@roost/observability/diag";
+import { rootStore } from "../store/root.ts";
+import { cellFrameCountSize } from "../store/terminal-stream.ts";
+import { inputMapSizes } from "../client/carriers/terminal-input-lanes.ts";
+import { sessionTraceSize } from "./diag.ts";
+
+// Always-on input→echo RTT ring. Fed by recordInputRtt() from the CellTerminal
+// echo path (one push per echoed cell frame), independent of the diag firehose
+// so the felt-lag trajectory reports even on a natural un-instrumented run.
+// Bounded ring (push/shift), so the watcher itself can never leak.
+const RTT_CAP = 500;
+const _inputRtt: number[] = [];
+export function recordInputRtt(ms: number): void {
+  if (!(ms > 0 && ms < 5000)) return;
+  _inputRtt.push(ms);
+  if (_inputRtt.length > RTT_CAP) _inputRtt.shift();
+}
+function p(arr: number[], q: number): number {
+  if (arr.length === 0) return -1;
+  const s = [...arr].sort((a, b) => a - b);
+  return Math.round(s[Math.min(s.length - 1, Math.floor(q * s.length))] ?? -1);
+}
+
+// Running long-task totals. The observer below already sees every longtask entry
+// (>50ms by spec); these accumulate them so a test can bound "how much of the
+// wall clock was main-thread jank" over an explicit window instead of only
+// hearing about the ≥STALL_MS outliers.
+let _longTaskCount = 0;
+let _longTaskMs = 0;
+let _longTaskState: "available" | "unavailable" = "unavailable";
+
+export function resetPerfCounters(): void {
+  _longTaskCount = 0;
+  _longTaskMs = 0;
+}
+
+export function perfCounters(): {
+  longTaskState: "available" | "unavailable";
+  longTaskCount: number;
+  longTaskMs: number;
+} {
+  return {
+    longTaskState: _longTaskState,
+    longTaskCount: _longTaskCount,
+    longTaskMs: Math.round(_longTaskMs),
+  };
+}
+
+// Accumulators to watch: anything keyed per-session (the leak class) + the
+// gross DOM/heap totals. A climbing per-session count over a flat session count
+// is a reaper miss; climbing dom_nodes/heap_mb with flat sessions is elsewhere.
+export function leakSample(): Record<string, number> {
+  const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+  return {
+    uptime_s: Math.round(performance.now() / 1000),
+    heap_mb: mem ? Math.round(mem.usedJSHeapSize / 1e6) : -1,
+    dom_nodes: document.getElementsByTagName("*").length,
+    cell_grids: document.querySelectorAll(".cell-grid").length,
+    cell_rows: document.querySelectorAll(".cell-row").length,
+    held_sb_rows: document.querySelectorAll(".cell-scrollback .cell-row").length,
+    sessions: Object.keys(rootStore.sessions).length,
+    last_activity: Object.keys(rootStore.last_activity).length,
+    session_viewers: Object.keys(rootStore.session_viewers).length,
+    cell_frame_counts: cellFrameCountSize(),
+    input_rtt_p50: p(_inputRtt, 0.5),
+    input_rtt_p95: p(_inputRtt, 0.95),
+    input_maps: inputMapSizes(),
+    session_trace: sessionTraceSize(),
+  };
+}
+
+const SAMPLE_MS = 60_000;
+const STALL_MS = 200;            // a task this long is a perceptible whole-UI freeze
+const STALL_THROTTLE_MS = 10_000; // one Tier-1 stall signal per burst (also cooldown-gated)
+
+/** Wire once from main.tsx (unconditional — the whole point is the natural,
+ *  un-instrumented multi-day run). Best-effort: unsupported APIs no-op.
+ *
+ *  Periodic sample → diag() + console (verbose trajectory; gated firehose +
+ *  always-visible in a live console for copy). A real freeze (main-thread task
+ *  ≥ STALL_MS) → Tier-1 signal() carrying the accumulator snapshot AT stall
+ *  time, so it ships to coord *.err.log the moment the tab stalls over days —
+ *  the state at that instant names the growth (per-session map sizes vs
+ *  dom_nodes vs heap). Kept rare (≥200ms + throttle + cooldown) to respect the
+ *  Tier-1 daily-review channel. */
+export function installLeakWatch(): void {
+  if (typeof window === "undefined") return;
+  // Manual inspection hook: run window.__leakSample() in any live console to
+  // read the current accumulators on demand (no wait for the periodic tick).
+  (window as Window & { __leakSample?: () => Record<string, number> }).__leakSample = leakSample;
+  const periodic = (extra?: Record<string, number>): void => {
+    const s = extra ? { ...leakSample(), ...extra } : leakSample();
+    diag("diag.leak_sample", s);
+    console.info("[leakwatch] sample", s);
+  };
+  periodic({ boot: 1 });
+  setInterval(() => periodic(), SAMPLE_MS);
+  if (typeof PerformanceObserver === "undefined") return;
+  const supportedTypes = PerformanceObserver.supportedEntryTypes;
+  if (Array.isArray(supportedTypes) && !supportedTypes.includes("longtask")) return;
+  try {
+    let lastStall = -STALL_THROTTLE_MS; // so the first stall is never throttled
+    const observer = new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        _longTaskCount++;
+        _longTaskMs += e.duration;
+        if (e.duration < STALL_MS) continue;
+        const now = performance.now();
+        if (now - lastStall < STALL_THROTTLE_MS) continue;
+        lastStall = now;
+        const s = { ...leakSample(), dur_ms: Math.round(e.duration), cooldownKey: 0 };
+        signal("perf.longtask_stall", s);
+        console.info("[leakwatch] STALL", s);
+      }
+    });
+    observer.observe({ type: "longtask", buffered: false });
+    _longTaskState = "available";
+  } catch {
+    // Unsupported means unavailable, never a passing zero-duration sample.
+    _longTaskState = "unavailable";
+  }
+}

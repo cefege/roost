@@ -1,9 +1,9 @@
 {
-  "apps/web/src/components/HelpOverlay.tsx": 1,
+  "apps/web/src/components/palette/HelpOverlay.tsx": 1,
   "apps/web/src/components/Settings/PairDevicePane.tsx": 1,
-  "apps/web/src/components/terminal-links.ts": 1,
-  "apps/web/src/components/TerminalContextMenu.tsx": 1,
-  "apps/web/src/lib/cellRow.ts": 2,
+  "apps/web/src/renderer/terminal-links.ts": 1,
+  "apps/web/src/components/terminal/TerminalContextMenu.tsx": 1,
+  "apps/web/src/renderer/cellRow.ts": 2,
   "apps/web/src/styles/settings-dense.css": 1,
   "apps/web/src/styles/sidebar.css": 35
 }

@@ -16,10 +16,10 @@ import {
   signals,
   type SearchResponse,
 } from "./terminalFindController-search-spy.ts";
-import type { createTerminalFind } from "../src/lib/terminalFindController.ts";
-import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
-import type { FindHit } from "../src/lib/cellRow.ts";
-import type { ScrollbackBackfill } from "../src/lib/scrollbackBackfill.ts";
+import type { createTerminalFind } from "../src/renderer/terminalFindController.ts";
+import type { CellGridRenderer } from "../src/renderer/cellRenderer.ts";
+import type { FindHit } from "../src/renderer/cellRow.ts";
+import type { ScrollbackBackfill } from "../src/renderer/scrollbackBackfill.ts";
 
 export {
   cancellationRequests,

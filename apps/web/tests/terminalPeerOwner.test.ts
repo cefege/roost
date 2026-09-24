@@ -13,7 +13,7 @@ let probeResultHandler: ((result: { workerFp: string; workerEpoch: string }) => 
 const promotionCommitHooks: Array<(connection: unknown) => void> = [];
 const promotionStageCalls: Array<{ sessionId: string; connection: unknown }> = [];
 
-mock.module("../src/ws/local-terminal-grants.ts", () => ({
+mock.module("../src/store/transport/local-terminal-grants.ts", () => ({
   LOCAL_TERMINAL_GRANT_RETRY_MS: 30_000,
   currentTerminalGrant: (workerFp: string) => grantsByWorker.get(workerFp) ?? null,
   dropTerminalGrant: (workerFp: string) => { grantsByWorker.delete(workerFp); droppedGrant?.(workerFp); },
@@ -22,19 +22,19 @@ mock.module("../src/ws/local-terminal-grants.ts", () => ({
   setTerminalGrantDemand: () => undefined,
   subscribeTerminalGrant: () => () => undefined,
 }));
-mock.module("../src/ws/terminal-input-router.ts", () => ({
+mock.module("../src/store/transport/terminal-input-router.ts", () => ({
   retireTerminalInput: () => undefined,
   settleTerminalInput: () => undefined,
   terminalInputPhase: () => null,
 }));
-mock.module("../src/ws/terminal-peer-fallback.ts", () => ({
+mock.module("../src/store/transport/terminal-peer-fallback.ts", () => ({
   TerminalPeerFallbackClaims: class {
     claim(): void {}
     retire(): void {}
     dispose(): void {}
   },
 }));
-mock.module("../src/ws/terminal-peer-promotions.ts", () => ({
+mock.module("../src/store/transport/terminal-peer-promotions.ts", () => ({
   TerminalPeerPromotions: class {
     constructor(_workerFp: unknown, _registry: unknown, _recovery: unknown, hooks: { committed(connection: unknown): void }) {
       promotionCommitHooks.push(hooks.committed);
@@ -44,18 +44,18 @@ mock.module("../src/ws/terminal-peer-promotions.ts", () => ({
     dispose(): void {}
   },
 }));
-mock.module("../src/ws/terminal-peer-connection.ts", () => ({ TerminalPeerConnection: class {} }));
+mock.module("../src/store/transport/terminal-peer-connection.ts", () => ({ TerminalPeerConnection: class {} }));
 mock.module("../src/store/sync.ts", () => ({
   registerSyncV2ProbeResultHandler: (handler: (result: { workerFp: string; workerEpoch: string }) => void) => {
     probeResultHandler = handler;
     return () => { if (probeResultHandler === handler) probeResultHandler = null; };
   },
 }));
-mock.module("../src/connect.ts", () => ({ coordClient: {} }));
+mock.module("../src/client/rpc/connect.ts", () => ({ coordClient: {} }));
 mock.module("../src/store/root.ts", () => ({ rootStore: { get auth_generation() { return authGeneration; } } }));
 
 // The mocks above must install before the owner imports its direct dependencies.
-const peer = await import("../src/ws/terminal-peer.ts");
+const peer = await import("../src/store/transport/terminal-peer.ts");
 
 interface Token {
   socketGeneration: number; socketId: string; processEpoch: string; domainGeneration: bigint; transportKind: "loopback" | "webrtc"; workerFp: string;

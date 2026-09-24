@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import type { InputAdmission } from "../src/ws/terminal-input-lanes.ts";
+import type { InputAdmission } from "../src/client/carriers/terminal-input-lanes.ts";
 
 let events: string[] = [];
 let nextAdmission: InputAdmission = { accepted: false, reason: "not ready" };
@@ -11,7 +11,7 @@ const sendTerminalInput = mock((_sessionId: string, _bytes: Uint8Array): InputAd
 const diag = mock((_event: string, _facts: Record<string, unknown>) => {});
 const signal = mock((_event: string, _facts: Record<string, unknown>) => {});
 
-mock.module("../src/ws/sync-outbound.ts", () => ({ sendTerminalInput }));
+mock.module("../src/store/transport/sync-outbound.ts", () => ({ sendTerminalInput }));
 mock.module("@roost/observability/diag", () => ({ diag, signal }));
 
 // Dynamic import is required so Bun installs the transport and diagnostic

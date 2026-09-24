@@ -103,7 +103,7 @@ Object.assign(globalThis, {
   },
 });
 
-mock.module("../src/auth/web-key.ts", () => ({
+mock.module("../src/client/auth/web-key.ts", () => ({
   signCoordinatorJwt: async () => "test-jwt",
   getPublicKeyB64: async () => "test-key",
   getCurrentWebKeyInfo: async () => ({ fingerprint: "test-browser", extractable: false }),
@@ -116,7 +116,7 @@ const {
   SYNC_REDIAL_MAX_MS,
   SYNC_REFOCUS_STALE_MS,
 } = await import("../src/store/sync-watchdog.ts");
-const { setForceHidden, setForceVisible } = await import("../src/lib/pageVisible.ts");
+const { setForceHidden, setForceVisible } = await import("../src/browser/pageVisible.ts");
 
 // ─── drivers ─────────────────────────────────────────────────────────────────
 

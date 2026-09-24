@@ -41,7 +41,7 @@ mock.module("../src/lib/agents.ts", () => ({
   autoLaunchEnabled: () => enabled,
   resolveAgent: () => ({ command: "omp" }),
 }));
-mock.module("../src/ws/sync-outbound.ts", () => ({
+mock.module("../src/store/transport/sync-outbound.ts", () => ({
   sendTerminalInput,
 }));
 // NOT mocked: ../src/lib/wtermSizeEstimate.ts is another suite's unit under

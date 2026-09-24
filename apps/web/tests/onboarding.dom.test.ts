@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { PairPollStatus } from "../src/components/OnboardingRequestCard.tsx";
+import type { PairPollStatus } from "../src/components/pairing/OnboardingRequestCard.tsx";
 import type { PairRequest } from "../src/store/root.ts";
 import { pairingPrimitiveStubs } from "./helpers/pairingPrimitiveStubs.ts";
 import { createRerenderingSolid } from "./helpers/rerenderingSolid.ts";
@@ -40,8 +40,8 @@ mock.module("react/jsx-dev-runtime", () => ({
 }));
 
 mock.module("../src/components/Settings/md/primitives.tsx", () => pairingPrimitiveStubs);
-mock.module("../src/components/Onboarding.css", () => ({}));
-mock.module("../src/components/PairingStatusNotice.css", () => ({}));
+mock.module("../src/components/pairing/Onboarding.css", () => ({}));
+mock.module("../src/components/pairing/PairingStatusNotice.css", () => ({}));
 
 const rootStore = {
   browser_access_state: "unauthorized" as "checking" | "authorized" | "unauthorized",
@@ -51,15 +51,15 @@ const rootStore = {
 mock.module("../src/store/root.ts", () => ({ rootStore }));
 mock.module("../src/store/mutations.ts", () => ({ deletePairRequest: () => undefined }));
 mock.module("../src/store/toastStore.ts", () => ({ addToast: () => undefined }));
-mock.module("../src/connect.ts", () => ({ coordClient: {} }));
+mock.module("../src/client/rpc/connect.ts", () => ({ coordClient: {} }));
 mock.module("../src/lib/overlayMotion.ts", () => ({ animateOverlayPanel: () => undefined }));
-mock.module("../src/auth/redeemPairToken.ts", () => ({
+mock.module("../src/store/auth/redeemPairToken.ts", () => ({
   redeemPairToken: async () => ({ ok: false, error: "unused" }),
 }));
 
 let resetEligibilityProbes = 0;
 let deviceRejected = false;
-mock.module("../src/auth/web-key.ts", () => ({
+mock.module("../src/client/auth/web-key.ts", () => ({
   isResetWebKeyEligible: async () => {
     resetEligibilityProbes += 1;
     return deviceRejected;
@@ -67,7 +67,7 @@ mock.module("../src/auth/web-key.ts", () => ({
   resetWebKey: async () => undefined,
 }));
 
-mock.module("../src/components/PairApprovalProvider.tsx", () => ({
+mock.module("../src/components/pairing/PairApprovalProvider.tsx", () => ({
   usePairApproval: () => ({ busyRequestId: () => null, approve: async () => undefined }),
 }));
 
@@ -76,7 +76,7 @@ const requesterState = {
   pollStatus: "idle" as PairPollStatus,
   requestError: null as string | null,
 };
-mock.module("../src/components/PairingRequesterProvider.tsx", () => ({
+mock.module("../src/components/pairing/PairingRequesterProvider.tsx", () => ({
   usePairingRequester: () => ({
     busy: () => false,
     confirmationError: () => null,
@@ -93,7 +93,7 @@ mock.module("../src/components/PairingRequesterProvider.tsx", () => ({
 }));
 
 // The component imports follow every module mock above.
-const { Onboarding } = await import("../src/components/Onboarding.tsx");
+const { Onboarding } = await import("../src/components/pairing/Onboarding.tsx");
 
 const disposers: Array<() => void> = [];
 

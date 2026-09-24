@@ -12,11 +12,11 @@ import {
 
 const retired: unknown[] = [];
 mock.module("../src/store/terminal-stream-promotion.ts", () => ({ dispatchDirectTerminalFrame: () => undefined }));
-mock.module("../src/ws/terminal-input-router.ts", () => ({
+mock.module("../src/store/transport/terminal-input-router.ts", () => ({
   retireTerminalInput: (token: unknown) => { retired.push(token); },
   settleTerminalInput: () => undefined,
 }));
-mock.module("../src/ws/terminal-peer.ts", () => ({
+mock.module("../src/store/transport/terminal-peer.ts", () => ({
   resetTerminalPeerState: () => undefined,
   retireTerminalDirectConnection: () => undefined,
   stageTerminalDirectConnection: () => undefined,
@@ -25,7 +25,7 @@ mock.module("../src/ws/terminal-peer.ts", () => ({
 mock.module("../src/store/sync.ts", () => ({ registerSyncV2GenerationHandler: () => undefined }));
 
 // Module evaluation follows mocks because the production module owns lifecycle imports.
-const local = await import("../src/ws/local-terminal.ts");
+const local = await import("../src/store/transport/local-terminal.ts");
 
 class FakeWebSocket {
   static readonly OPEN = 1;

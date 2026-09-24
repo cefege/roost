@@ -6,7 +6,7 @@
 // line cap.
 
 import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/protocol/viewport";
-import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
+import type { TerminalStreamProbe } from "../../apps/web/src/smoke/smoke.ts";
 import { nonNegativeInteger, unknownRecord } from "./terminal-probe-helpers.ts";
 
 export interface CoordinatorTerminalViewerInput {

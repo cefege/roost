@@ -15,7 +15,7 @@ import {
   AgentNotificationScheduler,
   type AgentNotificationDelivery,
 } from "../src/lib/agentNotificationCore.ts";
-import { agentStatusRevisionToken } from "../src/lib/agentStatus.ts";
+import { agentStatusRevisionToken } from "../src/client/agents/agentStatus.ts";
 
 const SESSION_ID = asSessionId("11111111-1111-4111-8111-111111111111");
 const STATUS_EPOCH = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");

@@ -5,7 +5,7 @@
 import { A, useLocation } from "@solidjs/router";
 import { createMemo, Show } from "solid-js";
 import { workbenchTitle } from "../../lib/workbenchTitle.ts";
-import { BrandMark } from "../BrandMark.tsx";
+import { BrandMark } from "../machines/BrandMark.tsx";
 
 export function WorkbenchTitleBar() {
   const location = useLocation();

@@ -192,7 +192,7 @@ const {
   isResetWebKeyEligible,
   resetWebKey,
   signCoordinatorJwt,
-} = await import("../src/auth/web-key.ts");
+} = await import("../src/client/auth/web-key.ts");
 
 describe("roost-auth IndexedDB migration", () => {
   test("v1 key material survives trust-store removal and a fresh database creates keys", async () => {

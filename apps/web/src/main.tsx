@@ -9,16 +9,16 @@ import { loadTheme, applyTheme } from "./lib/theme.ts";
 import { applyTvMode } from "./lib/tvMode.ts";
 import { applyPadMode } from "./lib/padMode.ts";
 import { loadAgentConfig } from "./lib/agents.ts";
-import { installSpaDiag, installSignalShip, markPhase } from "./lib/diag.ts";
+import { installSpaDiag, installSignalShip, markPhase } from "./browser/diag.ts";
 import { installTerminalTransportIndicator } from "./store/local-transport-indicator.ts";
-import { installTerminalSnapshotFacade } from "./lib/terminalSnapshotFacade.ts";
-import { installLeakWatch } from "./lib/leakWatch.ts";
-import { applyTermFontSize } from "./lib/terminalFontPref.ts";
-import { claimTabIdentity } from "./auth/tab-id.ts";
-import { startLocalTerminalFastPath } from "./ws/local-terminal.ts";
-import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
+import { installTerminalSnapshotFacade } from "./renderer/terminalSnapshotFacade.ts";
+import { installLeakWatch } from "./browser/leakWatch.ts";
+import { applyTermFontSize } from "./store/prefs/terminalFontPref.ts";
+import { claimTabIdentity } from "./client/auth/tab-id.ts";
+import { startLocalTerminalFastPath } from "./store/transport/local-terminal.ts";
+import "./browser/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
 import { diag, signal } from "@roost/observability/diag";
-import { effectiveAttempts, shouldReloadForChunkError } from "./lib/chunkError.ts";
+import { effectiveAttempts, shouldReloadForChunkError } from "./browser/chunkError.ts";
 import "./styles/theme-vars.css";
 import "./components/Settings/md/tokens.css";
 import "./styles/sidebar.css";

@@ -11,7 +11,7 @@ import { WORKER_UPDATE_LABELS, workerUpdateState } from "@roost/protocol/fleet-u
 import { rootStore } from "../../store/root.ts";
 import { workerOnline } from "../../store/sync.ts";
 import { applyWorkerDeleteResponse } from "../../store/worker-removal.ts";
-import { coordClient } from "../../connect.ts";
+import { coordClient } from "../../client/rpc/connect.ts";
 import { addToast } from "../../store/toastStore.ts";
 import { Button, Chip, Icon, ListRow, MetricTile, StatusDot, TextField } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";

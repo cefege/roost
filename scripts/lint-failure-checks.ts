@@ -89,7 +89,7 @@ export const CHECKS: Check[] = [
     memory: "docs/FAILURE-INDEX.md",
     // Terminal.tsx deleted in the cell-shipping cutover; the byte handler
     // (now feeding the hidden input/mode-oracle wterm) lives in CellTerminal.
-    files: /apps\/web\/src\/components\/CellTerminal\.tsx$/,
+    files: /apps\/web\/src\/components\/terminal\/CellTerminal\.tsx$/,
     ok: (_file, _i, lines) => {
       const txt = lines.join("\n");
       // Find the registerBytesHandler closure body. Any _doRender
@@ -162,9 +162,9 @@ export const CHECKS: Check[] = [
     },
   },
   {
-    rule: "phase-24: module-level `let _ws` / `let _reconnectTimer` in apps/web/src/store",
+    rule: "phase-24: module-level `let _ws` / `let _reconnectTimer` in apps/web/src/store or client",
     memory: "docs/FAILURE-INDEX.md",
-    files: /apps\/web\/src\/store\/.*\.ts$/,
+    files: /apps\/web\/src\/(?:store|client)\/.*\.ts$/,
     ok: (_file, _i, lines) => {
       // events-ws.ts deleted in 24c-3; deny-all now.
       return !/^\s*let\s+_(?:ws|reconnectTimer|backoffMs)\b/m.test(lines.join("\n"));

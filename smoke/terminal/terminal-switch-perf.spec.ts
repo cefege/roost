@@ -17,7 +17,7 @@
 // Sibling file to perf.spec.ts on purpose — that file sits at its recorded size
 // baseline and may only shrink.
 
-import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
+import type { SmokeApi } from "../../apps/web/src/smoke/smoke.ts";
 import { DECK_WARM_LIMIT } from "../../apps/web/src/lib/deckWarmSet.ts";
 import { test, expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";

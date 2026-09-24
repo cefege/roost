@@ -6,7 +6,7 @@ import { useNavigate } from "@solidjs/router";
 import { IconButton } from "./md/primitives.tsx";
 import { SettingsPane } from "./SettingsPane.tsx";
 import type { SettingsPaneSpec } from "./settingsNavigation.ts";
-import { withViewTransition } from "../../lib/viewTransition.ts";
+import { withViewTransition } from "../../browser/viewTransition.ts";
 
 export function MobileSettingsDetail(props: { spec: SettingsPaneSpec }) {
   const navigate = useNavigate();

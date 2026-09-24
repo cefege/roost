@@ -19,7 +19,7 @@ import {
 import type { AgentStatusFrame } from "@roost/protocol/proto/sync_pb";
 import { signal } from "@roost/observability/diag";
 import { seenAgentRevision } from "../lib/agentSeen.ts";
-import { deriveAgentStatusLevel, sameAgentStatusOccupant } from "../lib/agentStatus.ts";
+import { deriveAgentStatusLevel, sameAgentStatusOccupant } from "../client/agents/agentStatus.ts";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 
 export interface AgentStatusChange {

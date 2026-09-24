@@ -15,7 +15,7 @@ import {
   deriveAgentStatusLevel,
   foldAgentStatusLevels,
   type AgentStatusRollup,
-} from "./agentStatus.ts";
+} from "../client/agents/agentStatus.ts";
 import { seenAgentRevision } from "./agentSeen.ts";
 import { normalizeNavigationSearchQuery } from "../store/navigation-search.ts";
 

@@ -90,7 +90,7 @@ class FakeKeyboardEvent {
 // ── seams ───────────────────────────────────────────────────────────────────
 
 const keypad = { open: false, toggles: 0, closes: 0, focusFirst: 0, cancels: 0 };
-mock.module("../src/components/TerminalNavButtons.tsx", () => ({
+mock.module("../src/store/terminalNavPad.ts", () => ({
 	terminalNavPadOpen: () => keypad.open,
 	toggleTerminalNavPad: () => {
 		keypad.toggles++;
@@ -122,7 +122,7 @@ const { closeControllerMap, cmdPaletteOpen, controllerMapOpen } = await import(
 	"../src/lib/keyboardShortcuts.ts"
 );
 const { registerVoiceControls, setActiveVoiceOwner } = await import(
-	"../src/lib/voiceState.ts"
+	"../src/voice/voiceState.ts"
 );
 const { toasts } = await import("../src/store/toastStore.ts");
 

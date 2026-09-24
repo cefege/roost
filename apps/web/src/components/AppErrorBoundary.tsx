@@ -6,8 +6,8 @@
 import { ErrorBoundary, onCleanup } from "solid-js";
 import type { Component, JSX } from "solid-js";
 import { log } from "@roost/observability/log";
-import { copyToClipboard } from "../lib/clipboard.ts";
-import { credentialFreeUrl } from "../auth/fragment-credential.ts";
+import { copyToClipboard } from "../browser/clipboard.ts";
+import { credentialFreeUrl } from "../client/auth/fragment-credential.ts";
 import { Button, Icon, Surface } from "./Settings/md/primitives.tsx";
 interface Props {
   children: JSX.Element;

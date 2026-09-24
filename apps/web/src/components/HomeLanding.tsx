@@ -6,12 +6,12 @@
 import { Show } from "solid-js";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { openSidebar } from "../store/uiStore.ts";
-import { isCompact } from "../lib/windowSizeClass.ts";
+import { isCompact } from "../browser/windowSizeClass.ts";
 import { defaultNewTerminalWorkerFp } from "../lib/newTerminalTarget.ts";
 import { browseHref } from "../routes.ts";
-import { BrandMark } from "./BrandMark.tsx";
+import { BrandMark } from "./machines/BrandMark.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
-import { platformShortcutLabel } from "../lib/browserPlatform.ts";
+import { platformShortcutLabel } from "../browser/browserPlatform.ts";
 
 export function HomeLanding() {
   const navigate = useNavigate();

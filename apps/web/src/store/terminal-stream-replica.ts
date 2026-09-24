@@ -8,8 +8,8 @@ import type {
   PbCellGridChunk,
   PbCellGridFrame,
 } from "@roost/protocol/proto/cell_pb";
-import { markPhaseOnce, recordCellLag } from "../lib/diag.ts";
-import { noteTerminalReplicaTransition } from "../lib/terminalIncidentCaptureState.ts";
+import { markPhaseOnce, recordCellLag } from "../browser/diag.ts";
+import { noteTerminalReplicaTransition } from "../renderer/terminalIncidentCaptureState.ts";
 import {
   clearTerminalChunkTransfer,
   pushTerminalCellChunk,
@@ -17,7 +17,7 @@ import {
 import {
   decodeTerminalWireFrame,
   foldTerminalFrame,
-} from "./terminal-stream-frame-fold.ts";
+} from "../client/terminal-stream/terminal-stream-frame-fold.ts";
 import {
   clearTerminalSessionLiveness,
   terminalGenerationMatches,

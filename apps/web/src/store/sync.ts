@@ -11,15 +11,15 @@ import {
   SYNC_QUERY_V2,
   SYNC_WS_PATH,
 } from "@roost/protocol/wire/sync-ws";
-import { signCoordinatorJwt } from "../auth/web-key.ts";
-import { getTabId } from "../auth/tab-id.ts";
-import { coordinatorBaseUrl } from "../connect.ts";
+import { signCoordinatorJwt } from "../client/auth/web-key.ts";
+import { getTabId } from "../client/auth/tab-id.ts";
+import { coordinatorBaseUrl } from "../client/rpc/connect.ts";
 import {
   canAcceptSyncLink,
   canOpenSyncLink,
   decodeFirehoseFrame,
   isSyncBackpressureClose,
-} from "./sync-flow.ts";
+} from "../client/sync/sync-flow.ts";
 import { lastSeenSyncEventId } from "./sync-frame.ts";
 import { _consumeSyncFrame } from "./sync-inbound.ts";
 import {
@@ -49,7 +49,7 @@ import {
 import type { TerminalGenerationToken } from "./terminal-stream-types.ts";
 
 export { workerOnline } from "./sync-routable.ts";
-export { registerPresenceHandler } from "./sync-dispatch.ts";
+export { registerPresenceHandler } from "../client/sync/sync-dispatch.ts";
 export {
   cellFrameCount,
   cellFullFrameCount,

@@ -226,7 +226,7 @@ describe("startAttachDiagnosis", () => {
     _resetAttachDiagnosisSchedulerForTest();
     diagSnapshots = [];
     requestedSessionIds = [];
-    mock.module("../src/connect.ts", () => ({
+    mock.module("../src/client/rpc/connect.ts", () => ({
       coordClient: {
         diagSnapshot(request: { sessionFilterIds: string[] }) {
           requestedSessionIds.push([...request.sessionFilterIds]);

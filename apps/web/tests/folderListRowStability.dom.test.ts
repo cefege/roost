@@ -12,7 +12,7 @@ import { asWorkerFp, asSessionId, asChannelId } from "@roost/protocol/wire";
 import type { SessionEvent } from "@roost/protocol/wire";
 import { foldEventIntoStore } from "../src/store/projector.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
-import { getSessionTraceId, sessionTraceSize } from "../src/lib/diag.ts";
+import { getSessionTraceId, sessionTraceSize } from "../src/browser/diag.ts";
 
 const FP = asWorkerFp("c".repeat(64));
 const SID_A = asSessionId("00000000-0000-4000-8000-00000000c001");

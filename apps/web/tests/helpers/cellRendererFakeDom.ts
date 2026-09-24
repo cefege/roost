@@ -6,7 +6,7 @@
 // exactly what CellGridRenderer touches — node identity is all we assert.
 
 import { DEFAULT_COLOR, type CellGridFrame, type CellRow } from "@roost/protocol/cell";
-import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
+import type { CellGridRenderer } from "../../src/renderer/cellRenderer.ts";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────
 class FakeStyle {

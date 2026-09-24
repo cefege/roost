@@ -89,7 +89,7 @@ mock.module("react/jsx-dev-runtime", () => ({
 mock.module("solid-js/web", () => ({
 	Portal: (props: Record<string, unknown>) => props.children,
 }));
-mock.module("../src/lib/mouseForwardPref.ts", () => ({
+mock.module("../src/store/prefs/mouseForwardPref.ts", () => ({
 	mouseForwardEnabled: () => false,
 	toggleMouseForward: () => {},
 }));
@@ -102,12 +102,12 @@ mock.module("../src/components/Settings/md/primitives.tsx", () => ({
 // Dynamic by necessity: a static import hoists above the mock.module calls the
 // module's own imports (Portal, the M3 primitives) need in place first.
 const {
-	TerminalNavButtons,
 	closeTerminalNavPad,
 	focusTerminalNavPadFirstKey,
 	terminalNavPadOpen,
 	toggleTerminalNavPad,
-} = await import("../src/components/TerminalNavButtons.tsx");
+} = await import("../src/store/terminalNavPad.ts");
+const { TerminalNavButtons } = await import("../src/components/terminal/TerminalNavButtons.tsx");
 
 /** Mount one sheet so its disarm registration is live, as a focused pane does. */
 function mountSheet(): { ctrl: number; link: number; dispose: () => void } {

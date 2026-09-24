@@ -20,7 +20,7 @@ const addToast = mock((_message: string, _kind: string) => {});
 
 mock.module("@roost/observability/diag", () => ({ diag: () => undefined }));
 mock.module("../src/store/root.ts", () => ({ rootStore }));
-mock.module("../src/components/TerminalComposeButton.tsx", () => ({
+mock.module("../src/components/terminal/TerminalComposeButton.tsx", () => ({
   releaseActiveComposeFocus: () => undefined,
 }));
 mock.module("../src/lib/spawnSession.ts", () => ({
@@ -41,7 +41,7 @@ mock.module("../src/store/auth-boundary.ts", () => ({
   captureAuthResourceToken: () => "current-auth",
   isCurrentAuthResourceToken: () => true,
 }));
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordClient: { sessionsKill: async () => undefined },
 }));
 mock.module("../src/store/paneLayout.ts", () => ({
@@ -71,19 +71,19 @@ mock.module("../src/lib/resizeDrag.ts", () => ({ pulseArrange: () => undefined }
 mock.module("../src/store/paneLayoutPresets.ts", () => ({
   arrangeLayout: <T>(_kind: unknown, layout: T) => layout,
 }));
-mock.module("../src/lib/windowSizeClass.ts", () => ({ isCompact: () => false }));
+mock.module("../src/browser/windowSizeClass.ts", () => ({ isCompact: () => false }));
 mock.module("../src/lib/deckRouteSelection.ts", () => ({
   syncDeckPaneFocus: (_layout: unknown, _paneId: string, _compact: boolean, commit: () => void) => commit(),
 }));
 mock.module("../src/lib/folderKey.ts", () => ({ folderPathOf: () => "/workspace" }));
 mock.module("../src/lib/uiStateReport.ts", () => ({ scheduleUiStateReport: () => undefined }));
 mock.module("../src/store/toastStore.ts", () => ({ addToast }));
-mock.module("../src/components/terminal-deck-shortcuts.ts", () => ({
+mock.module("../src/components/deck/terminal-deck-shortcuts.ts", () => ({
   bindTerminalDeckShortcuts: () => undefined,
 }));
 
 // Dynamic import keeps all operation dependencies behind their Bun module mocks.
-const { createTerminalDeckOperations } = await import("../src/components/terminal-deck-operations.ts");
+const { createTerminalDeckOperations } = await import("../src/components/deck/terminal-deck-operations.ts");
 
 
 function focusedLayout(): Layout {

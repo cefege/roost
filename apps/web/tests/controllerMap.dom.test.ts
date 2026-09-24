@@ -78,7 +78,7 @@ mock.module("../src/lib/keyboardShortcuts.ts", () => ({
   closeControllerMap: () => setMapOpen(false),
 }));
 mock.module("../src/lib/padMode.ts", () => ({ padInputSeen: inputSeen }));
-mock.module("../src/lib/gamepadSource.ts", () => ({
+mock.module("../src/browser/gamepadSource.ts", () => ({
   padHeldButtons: heldButtons,
   padHeldActions: heldActions,
 }));
@@ -86,7 +86,7 @@ mock.module("../src/lib/gamepadSource.ts", () => ({
 // Awaited imports, not static ones: every mock.module above has to be
 // registered before the component's own imports resolve.
 const { PAD_CONTROL_GUIDE } = await import("../src/lib/padBindings.ts");
-const { ControllerMap } = await import("../src/components/ControllerMap.tsx");
+const { ControllerMap } = await import("../src/components/palette/ControllerMap.tsx");
 
 /** Every physical control the v2 button map binds — the map is useless to a
  *  keyboard-free user if any one of them has no labelled entry. */

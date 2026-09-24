@@ -56,7 +56,7 @@ const coordClient = {
   },
 };
 
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordClient,
   publicCoordClient: coordClient,
   makeCoordinatorClientForSigner: () => coordClient,

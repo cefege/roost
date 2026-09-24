@@ -7,16 +7,16 @@
 // Sync v2 terminal outbound, attachments lib, md/primitives.
 
 import { createResource, createSignal, For, Show, onCleanup } from "solid-js";
-import { copyToClipboard } from "../../lib/clipboard.ts";
+import { copyToClipboard } from "../../browser/clipboard.ts";
 import { createTrackedTimeouts } from "../trackedTimeout.ts";
-import { coordClient } from "../../connect.ts";
+import { coordClient } from "../../client/rpc/connect.ts";
 import { rootStore } from "../../store/root.ts";
 import { sendUserTerminalInput } from "../../lib/userTerminalInput.ts";
 import { getShortPathPref, setShortPathPref } from "../../lib/attachments.ts";
-import { safeAttachmentInsertion } from "../../lib/attachmentInsertion.ts";
+import { safeAttachmentInsertion } from "../../client/attachments/attachmentInsertion.ts";
 import { Card, Button, EmptyState, List, ListRow, Icon, Switch, Select } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
-import { isPageVisible } from "../../lib/pageVisible.ts";
+import { isPageVisible } from "../../browser/pageVisible.ts";
 import { supportedWorkerPlatform, workerPathBasename, workerPathPlatform } from "../../lib/nativePath.ts";
 
 function formatAge(mtimeMs: number): string {

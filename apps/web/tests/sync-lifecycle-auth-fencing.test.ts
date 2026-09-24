@@ -70,7 +70,7 @@ Object.assign(globalThis, {
   },
 });
 
-mock.module("../src/auth/web-key.ts", () => ({
+mock.module("../src/client/auth/web-key.ts", () => ({
   signCoordinatorJwt: signTestJwt,
   getPublicKeyB64: async () => "test-key",
   getCurrentWebKeyInfo: async () => ({ fingerprint: "test-browser", extractable: false }),
@@ -79,7 +79,7 @@ mock.module("../src/auth/web-key.ts", () => ({
 // The browser fakes and JWT mock must exist before the Sync singleton evaluates.
 const sync = await import("../src/store/sync.ts");
 const { SYNC_OPEN_TIMEOUT_MS } = await import("../src/store/sync-watchdog.ts");
-const { setForceHidden, setForceVisible } = await import("../src/lib/pageVisible.ts");
+const { setForceHidden, setForceVisible } = await import("../src/browser/pageVisible.ts");
 
 async function flush(turns = 24): Promise<void> {
   for (let turn = 0; turn < turns; turn++) await Promise.resolve();

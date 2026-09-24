@@ -5,7 +5,7 @@
 
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { rootStore } from "../../store/root.ts";
-import { MachineDeployDialog } from "../MachineDeployDialog.tsx";
+import { MachineDeployDialog } from "../machines/MachineDeployDialog.tsx";
 import { Card, Button, EmptyState, List } from "./md/primitives.tsx";
 import { MachineCard } from "./MachineCard.tsx";
 export function MachinesPane() {

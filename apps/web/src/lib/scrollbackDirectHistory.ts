@@ -5,7 +5,7 @@
 
 import type { SessionsGetScrollbackCellsResponse } from "@roost/protocol/proto/coordinator_pb";
 import type { LocalScrollbackResponse } from "@roost/protocol/proto/local_terminal_pb";
-import { coordClient } from "../connect.ts";
+import { coordClient } from "../client/rpc/connect.ts";
 import { currentTerminalGenerationToken } from "../store/terminal-stream-publication.ts";
 import {
   terminalDirectRegistry,

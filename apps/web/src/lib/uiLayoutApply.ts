@@ -8,7 +8,7 @@ import { create } from "@bufbuild/protobuf";
 import { diag } from "@roost/observability/diag";
 import { layoutDocumentFromProto } from "@roost/protocol/layout-document-proto";
 import { UiApplyLayoutResultSchema, type UiCommandFrame } from "@roost/protocol/proto/sync_pb";
-import { getTabId } from "../auth/tab-id.ts";
+import { getTabId } from "../client/auth/tab-id.ts";
 import { sessionHref } from "../routes.ts";
 import { applyLayoutDocument } from "../store/paneLayoutDocument.ts";
 import { projectOptimisticSpawnMembership } from "../store/optimisticSpawn.ts";
@@ -22,7 +22,7 @@ import {
   rejectTargetedUiLayoutApplyWithoutBridge,
   type UiLayoutApplyResult,
   type UiLayoutApplyTargetDependencies,
-} from "./uiLayoutApplyCore.ts";
+} from "../client/ui-state/uiLayoutApplyCore.ts";
 
 export interface UiLayoutApplyIo {
   readonly getPath: () => string;

@@ -2,7 +2,7 @@
 // Controllers register a reset callback; the auth-boundary teardown invokes this owner
 // before old sessions and transport state are released.
 
-import { resetTerminalFindIntentsForAuthBoundary } from "./terminalFindIntent.ts";
+import { resetTerminalFindIntentsForAuthBoundary } from "../renderer/terminalFindIntent.ts";
 
 export interface AuthBoundContentSearch {
   resetForAuthBoundary(): void;

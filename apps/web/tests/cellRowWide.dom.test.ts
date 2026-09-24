@@ -18,8 +18,8 @@
 // is the painted width of the row.
 
 import { describe, test, expect } from "bun:test";
-import { renderRow, rowHash, spanStyle } from "../src/lib/cellRow.ts";
-import type { FindHit } from "../src/lib/cellRow.ts";
+import { renderRow, rowHash, spanStyle } from "../src/renderer/cellRow.ts";
+import type { FindHit } from "../src/renderer/cellRow.ts";
 import { DEFAULT_COLOR, rowColumns, spansText, type CellRow, type CellSpan } from "@roost/protocol/cell";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────

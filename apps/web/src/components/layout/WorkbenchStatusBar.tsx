@@ -3,15 +3,15 @@
 // Coordinator reachability follows the same health snapshot and stale-window semantics as ConnectionBanner.
 
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
-import type { CoordHealthSnapshot } from "../ConnectionBanner.tsx";
+import type { CoordHealthSnapshot } from "../../store/sync-health.ts";
 import { StatusDot } from "../Settings/md/primitives.tsx";
 import { rootStore } from "../../store/root.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";
 import { workerOnline } from "../../store/sync-routable.ts";
 import { seenAgentRevision } from "../../lib/agentSeen.ts";
-import { AGENT_STATUS_PRESENTATION, deriveAgentStatusLevel } from "../../lib/agentStatus.ts";
+import { AGENT_STATUS_PRESENTATION, deriveAgentStatusLevel } from "../../client/agents/agentStatus.ts";
 import { workbenchTitle } from "../../lib/workbenchTitle.ts";
-import { isPageVisible } from "../../lib/pageVisible.ts";
+import { isPageVisible } from "../../browser/pageVisible.ts";
 import { useLocation } from "@solidjs/router";
 
 type StatusDotKind = "ok" | "idle" | "offline" | "warn" | "info";

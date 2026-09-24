@@ -10,7 +10,7 @@ import type { Session } from "@roost/protocol/wire";
 import { rootStore } from "../store/root.ts";
 import { newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { sessionHref } from "../routes.ts";
-import { coordClient } from "../connect.ts";
+import { coordClient } from "../client/rpc/connect.ts";
 import { sessionTitle } from "./sessionTitle.ts";
 import { folderDisplayName, folderKeyOf } from "./folderKey.ts";
 import { shortServerLabel } from "./sidebarFormat.ts";

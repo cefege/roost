@@ -31,7 +31,7 @@ import {
   deriveAgentStatusLevel,
   foldAgentStatusLevels,
   formatAgentStatusCounts,
-} from "../src/lib/agentStatus.ts";
+} from "../src/client/agents/agentStatus.ts";
 import {
   AgentNotificationScheduler,
   classifyAgentTransition,

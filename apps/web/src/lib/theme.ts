@@ -11,7 +11,7 @@
 import { createSignal } from "solid-js";
 import { CANONICAL_TOKENS } from "./themeTokens.ts";
 import { THEMES_BY_ID, SYSTEM_DARK_ID, SYSTEM_LIGHT_ID, DEFAULT_THEME_ID } from "./themes.ts";
-import { withViewTransition } from "./viewTransition.ts";
+import { withViewTransition } from "../browser/viewTransition.ts";
 
 const THEME_STORAGE_KEY = "roost.theme";
 

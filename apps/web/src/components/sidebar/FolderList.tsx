@@ -27,17 +27,17 @@ import {
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { isChatFolder } from "../../lib/quickChat.ts";
 import { isPendingClose } from "../../lib/pendingClose.ts";
-import { isCompact } from "../../lib/windowSizeClass.ts";
+import { isCompact } from "../../browser/windowSizeClass.ts";
 import { SessionRow, relTimeTickMs } from "./SessionRow.tsx";
 import { FolderRowContextMenu } from "./FolderRowContextMenu.tsx";
-import { FolderGlyph } from "../FolderGlyph.tsx";
-import { MachineIdentityMark } from "../MachineIdentityMark.tsx";
+import { FolderGlyph } from "../browse/FolderGlyph.tsx";
+import { MachineIdentityMark } from "../machines/MachineIdentityMark.tsx";
 import { IconButton } from "../Settings/md/IconButton.tsx";
 import { StatusDot } from "../Settings/md/StatusDot.tsx";
 import {
   AGENT_STATUS_PRESENTATION,
   formatAgentStatusCounts,
-} from "../../lib/agentStatus.ts";
+} from "../../client/agents/agentStatus.ts";
 import { normalizeNavigationSearchQuery } from "../../store/navigation-search.ts";
 import { EmptyState } from "../Settings/md/primitives.tsx";
 

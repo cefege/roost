@@ -9,7 +9,7 @@ import {
   SyncDomainSubscriptionCommandSchema,
 } from "@roost/protocol/proto/sync_pb";
 import { diag, signal } from "@roost/observability/diag";
-import { markPhase } from "../lib/diag.ts";
+import { markPhase } from "../browser/diag.ts";
 import {
   _currentLiveSyncLink,
   currentSyncDomainToken,

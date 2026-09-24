@@ -7,7 +7,7 @@
 import { type Component, createEffect, createSignal, Show } from "solid-js";
 import { Select, TextField, Button, Switch } from "./md/primitives.tsx";
 import { addToast } from "../../store/toastStore.ts";
-import { AgentTile } from "../AgentGlyph.tsx";
+import { AgentTile } from "../agents/AgentGlyph.tsx";
 import {
   BUILTIN_AGENTS, resolveAgentFrom, currentSelected, currentCustomCommand, saveAgentConfig,
   autoLaunchEnabled, saveAutoLaunch,

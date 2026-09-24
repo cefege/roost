@@ -5,10 +5,10 @@
 
 import { createMemo, For, Show, type JSX } from "solid-js";
 import { useLocation } from "@solidjs/router";
-import { AgentStatusIndicator } from "../AgentStatusIndicator.tsx";
+import { AgentStatusIndicator } from "../agents/AgentStatusIndicator.tsx";
 import { EmptyState, List, ListRow, StatusDot } from "../Settings/md/primitives.tsx";
 import { seenAgentRevision } from "../../lib/agentSeen.ts";
-import { AGENT_STATUS_PRESENTATION } from "../../lib/agentStatus.ts";
+import { AGENT_STATUS_PRESENTATION } from "../../client/agents/agentStatus.ts";
 import { buildFolderGroups } from "../../lib/folderGroups.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";

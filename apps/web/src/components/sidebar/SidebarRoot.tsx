@@ -5,9 +5,9 @@
 
 import { Show, createSignal, onCleanup, onMount } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { matchesPlatformShortcut } from "../../lib/browserPlatform.ts";
+import { matchesPlatformShortcut } from "../../browser/browserPlatform.ts";
 import { terminalOwnsKeyboard } from "../../lib/keyboardShortcuts.ts";
-import { isCompact } from "../../lib/windowSizeClass.ts";
+import { isCompact } from "../../browser/windowSizeClass.ts";
 import { settingsPaneHref } from "../../routes.ts";
 import {
   closeSidebar,

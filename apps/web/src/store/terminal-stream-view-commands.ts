@@ -17,8 +17,8 @@ import {
   isTerminalGeometry,
   isTerminalUuid,
 } from "@roost/protocol/viewport";
-import { isPageVisible } from "../lib/pageVisible.ts";
-import { markPhase } from "../lib/diag.ts";
+import { isPageVisible } from "../browser/pageVisible.ts";
+import { markPhase } from "../browser/diag.ts";
 import { currentSyncV2TerminalState } from "./sync.ts";
 import { notifyTerminalBaselineProgress } from "./terminal-stream-progress.ts";
 import {

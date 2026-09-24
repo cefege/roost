@@ -14,8 +14,8 @@ const attachFileChunk = mock(async (request: {
   seq: number;
 }) => ({ absPath: request.last ? `/worker/${request.filename}` : "" }));
 
-mock.module("../src/connect.ts", () => ({ coordClient: { attachFileChunk } }));
-mock.module("../src/lib/attachmentDirect.ts", () => ({ uploadAttachmentDirect: async () => null }));
+mock.module("../src/client/rpc/connect.ts", () => ({ coordClient: { attachFileChunk } }));
+mock.module("../src/client/attachments/attachmentDirect.ts", () => ({ uploadAttachmentDirect: async () => null }));
 mock.module("../src/lib/userTerminalInput.ts", () => ({ sendUserTerminalInput: () => undefined }));
 mock.module("../src/store/transfers.ts", () => ({
   addTransfer: () => undefined,

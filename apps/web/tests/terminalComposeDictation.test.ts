@@ -4,7 +4,7 @@
 // what the mirror exists to distinguish. Pure — no DOM, no Solid rendering.
 
 import { describe, test, expect } from "bun:test";
-import { paintDictation } from "../src/components/TerminalComposeDictation.ts";
+import { paintDictation } from "../src/components/terminal/TerminalComposeDictation.ts";
 
 describe("paintDictation", () => {
 	test("a hypothesis with no settled words starts after the typed base", () => {

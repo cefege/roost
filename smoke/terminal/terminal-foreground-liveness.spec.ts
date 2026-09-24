@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.ts";
-import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
+import type { TerminalStreamProbe } from "../../apps/web/src/smoke/smoke.ts";
 import type {
   RecoverySmokeApi,
   TerminalIdentityProbeWindow,

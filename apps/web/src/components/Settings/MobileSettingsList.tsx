@@ -6,7 +6,7 @@ import { For } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { Icon, IconButton, List, ListRow } from "./md/primitives.tsx";
 import { SETTINGS_GROUPS } from "./settingsNavigation.ts";
-import { withViewTransition } from "../../lib/viewTransition.ts";
+import { withViewTransition } from "../../browser/viewTransition.ts";
 import { settingsPaneHref } from "../../routes.ts";
 
 export function MobileSettingsList() {

@@ -14,7 +14,7 @@ import {
   agentStatusOccupantKey,
   agentStatusRevisionToken,
   type AgentStatusRevisionToken,
-} from "./agentStatus.ts";
+} from "../client/agents/agentStatus.ts";
 
 const STORAGE_KEY = "roost.agentSeen.v2";
 const LEGACY_STORAGE_KEY = "roost.agentSeen.v1";

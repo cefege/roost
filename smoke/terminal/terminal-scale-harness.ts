@@ -11,7 +11,7 @@ import { activateSlots } from "./terminal-scale-activation.ts";
 import type { TerminalTestStack } from "./stack.ts";
 import { waitForStableCellFrames } from "./terminal-helpers.ts";
 import type { TerminalGeometry } from "@roost/protocol/viewport";
-import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
+import type { TerminalStreamProbe } from "../../apps/web/src/smoke/smoke.ts";
 import { coordinatorTerminalViewState, readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
 import {
   coordinatorConstrainedGeometry, coordinatorTerminalViewerInputs,

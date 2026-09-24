@@ -5,7 +5,7 @@
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, For, Show } from "solid-js";
 import { Icon, IconButton, ListRow } from "./md/primitives.tsx";
-import { isCompact } from "../../lib/windowSizeClass.ts";
+import { isCompact } from "../../browser/windowSizeClass.ts";
 import { SETTINGS_GROUPS, type SettingsPaneSpec } from "./settingsNavigation.ts";
 import { SettingsPane } from "./SettingsPane.tsx";
 import { MobileSettingsList } from "./MobileSettingsList.tsx";

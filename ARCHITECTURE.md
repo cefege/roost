@@ -235,7 +235,7 @@ so late old-route input is rejected rather than replayed. Older loopback keeps
 its established no-replay behavior without an unsupported route claim.
 
 **Canonical model vs painted DOM.** These remain different clocks and
-`apps/web/src/lib/terminalDiagSnapshot.ts` reports both: view ID/revision/lease
+`apps/web/src/renderer/terminalDiagSnapshot.ts` reports both: view ID/revision/lease
 state, coordinator stream ID, browser replica epoch/sequence, and renderer
 reconciled epoch/sequence. `apps/web/src/store/terminal-stream-diagnostics.ts`
 adds the elected/candidate transport, worker epoch, opaque peer ID, phase,
@@ -378,7 +378,7 @@ multiplexers use:
 - The **browser** paints that grid as-is. It parses no VT and never re-reflows;
   surplus pane space is **letterboxed** — rows stay `cols` characters wide and
   the container centres them instead of stretching
-  (`apps/web/src/lib/cellRenderer.ts`). The accepted tradeoff: plain shell
+  (`apps/web/src/renderer/cellRenderer.ts`). The accepted tradeoff: plain shell
   history no longer rewraps to a narrower device, it scrolls sideways.
 - The agreed width is the **SCD** (smallest common denominator) across the
   views that are actually looking, so no present viewer is clipped. One

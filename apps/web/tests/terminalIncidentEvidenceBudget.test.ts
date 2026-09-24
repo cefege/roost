@@ -15,7 +15,7 @@ import {
 import {
   fitBrowserEvidence,
   type TerminalIncidentBrowserPayload,
-} from "../src/lib/terminalIncidentCaptureEvidence.ts";
+} from "../src/renderer/terminalIncidentCaptureEvidence.ts";
 
 const SESSION = "22222222-2222-4222-8222-222222222222";
 describe("terminal incident capture — evidence budget", () => {

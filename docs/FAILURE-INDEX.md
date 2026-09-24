@@ -187,7 +187,7 @@ fit helper and again in `expectWorkbenchTabStripAtFloor`.
 
 **Wrong** — `<Show when={activeSession()}>{(s) => <CellTerminal .../>}</Show>` (remount per nav).
 
-**Right** — `<For each={openSessions()}>` deck in `apps/web/src/components/TerminalDeck.tsx` +
+**Right** — `<For each={openSessions()}>` deck in `apps/web/src/components/deck/TerminalDeck.tsx` +
 `visibility: visible↔hidden`. The deck host stays mounted for every MainPane screen so a `/file` or `/search`
 visit never tears it down.
 
@@ -236,18 +236,18 @@ elapsed time, per checkpoint, and checkpoints are frequent for a chatty pane.
 Nothing ever contradicts the guess: canonical frames are normalized
 viewport-only (`normalizeCellGridFrame` in `packages/protocol/src/cell/diff-grid.ts`),
 so no authoritative history disagrees, and
-`splicePage` in `apps/web/src/lib/scrollbackBackfill.ts` deliberately tolerates
+`splicePage` in `apps/web/src/renderer/scrollbackBackfill.ts` deliberately tolerates
 a refused re-insert, so demand backfill never repairs those rows either.
 
 **Right** — **painted history content is only ever the worker's own rows.** A
 canonical viewport-only checkpoint reserves
 `[previous.scrollbackTotal, frame.scrollbackTotal)` as an UNPAINTED gap
-(`_extendScrollbackGap` in `apps/web/src/lib/cellRenderer.ts`, which already
+(`_extendScrollbackGap` in `apps/web/src/renderer/cellRenderer.ts`, which already
 holds that interval's exact pixel height) and lets the epoch-addressed,
 worker-authoritative `SessionsGetScrollbackCells` backfill fill it on demand;
 only a frame's own `scrollbackRows` / `scrollbackAppend` are ever painted.
 Non-contiguous painted history is a first-class state
-(`missingCellHistoryRanges` in `apps/web/src/lib/cellHistoryRanges.ts`), so a
+(`missingCellHistoryRanges` in `apps/web/src/client/terminal-stream/cellHistoryRanges.ts`), so a
 reserved gap needs no inference to stand in for it. A matching history/head
 boundary identifies a content-PROVED shift candidate, but global viewport reuse
 is permitted only when `deltaViewportShift`
@@ -260,10 +260,10 @@ held rows, so a fixed footer cannot receive an older status generation.
 `"partial-region scroll with a footer repaint preserves untouched rows"`;
 `packages/protocol/tests/cell-delta-batch.test.ts` —
 `"preserves an untouched footer through a sparse partial-region batch"`;
-`apps/web/tests/cellRenderer.reconcile.dom.test.ts` —
+`apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts` —
 `"a partial-region scroll retains the fixed panel and worker history"`,
 `"a batched partial-region scroll retains the fixed panel and latest status"`;
-`apps/web/tests/cellRenderer.history.dom.test.ts` —
+`apps/web/tests/renderer/cellRenderer.history.dom.test.ts` —
 `"a checkpoint leaves the transitioned rows unpainted for authoritative backfill"`;
 `smoke/terminal/terminal-render-main-repaint.spec.ts` —
 `"a backgrounded inline TUI repaint never freezes a stale generation into history"`.
@@ -288,7 +288,7 @@ duplicates.
 
 **Right** — **transient chrome never changes the terminal grid.** The desktop pane
 composer reserves only the pill's one-line resting height
-(`apps/web/src/components/TerminalComposePaneGeometry.ts`); a longer draft or a
+(`apps/web/src/components/terminal/TerminalComposePaneGeometry.ts`); a longer draft or a
 status overflows upward and `CellTerminal` translates the display instead of
 shrinking it. The compact shell (`editorStyle` in
 `apps/web/src/components/layout/AppShell.tsx`) reserves the composer's resting
@@ -480,15 +480,15 @@ SPA before first paint; or "fix" it by racing/timeouting the history away (tradi
 forbidden).
 
 **Right** — **history is PULLED on demand and never shipped wholesale.**
-`apps/web/src/lib/scrollbackBackfill.ts` pulls ranges in chunks via `SessionsGetScrollbackCells` (coord relay →
+`apps/web/src/renderer/scrollbackBackfill.ts` pulls ranges in chunks via `SessionsGetScrollbackCells` (coord relay →
 worker `handleGetScrollbackCells` in `apps/worker/src/browser-command-terminal.ts`, serving
 `readScrollbackRangeCells` from `packages/protocol/src/cell/grid-to-cells.ts`) and `prependScrollback` in
-`apps/web/src/lib/cellRenderer.ts` splices above the reader. At a literal bottom the renderer pins the new
+`apps/web/src/renderer/cellRenderer.ts` splices above the reader. At a literal bottom the renderer pins the new
 bottom; otherwise it leaves `scrollTop` untouched. History ALWAYS arrives — only its timing is lazy. The
 intermediate form (a fixed 250-row tail in every full frame plus a `mergeFullFrame` tail merge) is RETIRED: full
 frames are now viewport-only, see the epoch-addressed entry below.
 
-**Guard** — `apps/worker/tests/scrollback-cells-backfill.test.ts`; `apps/web/tests/scrollbackBackfill.test.ts`;
+**Guard** — `apps/worker/tests/scrollback-cells-backfill.test.ts`; `apps/web/tests/renderer/scrollbackBackfill.test.ts`;
 `apps/web/tests/` renderer DOM suite — `"CellGridRenderer DOM — viewport-only frames + backfill"`.
 
 ### A demand page is only issued once the rows are already blank
@@ -506,7 +506,7 @@ or by widening the page while leaving the trigger and the anchor alone — a big
 edge is still one sliver per screen.
 
 **Right** — **pre-pay the rows the reader is scrolling TOWARD, one wave at a time.** Three rules in
-`apps/web/src/lib/scrollbackBackfill.ts`, and they only work together: (1) the trigger window is widened upward
+`apps/web/src/renderer/scrollbackBackfill.ts`, and they only work together: (1) the trigger window is widened upward
 by `BACKFILL_AHEAD_ROWS`, so a demand is raised before the rows are visible — the bottom-most missing interval
 still wins, which is what keeps a visible gap ahead of a read-ahead gap; (2) a `scroll` page is anchored at the
 NEWEST missing row of that interval and extends `BACKFILL_FETCH_ROWS` (250 = one `SB_BLOCK`) OLDER, so one
@@ -524,7 +524,7 @@ wave owes — a page spanning the head spacer and the gap above it is refused by
 and a reader dragged to the top of history is exactly where that page shape arises.
 Same measurement after: ONE demand wave, then every step until the pre-paid lead is consumed crossing
 already-painted rows at zero RPCs, and the next one re-arming the pager exactly where the band predicts. The
-page geometry itself is pure and lives apart in `apps/web/src/lib/scrollbackDemandBounds.ts`; each new pager
+page geometry itself is pure and lives apart in `apps/web/src/client/terminal-stream/scrollbackDemandBounds.ts`; each new pager
 state (`scrollback.demand_coalesced`, `demand_rearmed`, `demand_retry_deferred`, `demand_retry_woke`) emits one
 `diag()` line, the deferred pair naming the state that used to leave a visible gap unpainted. Unpainted
 placeholders also stop reading as empty — `.cell-grid .cell-sb-gap` / `.cell-sb-spacer` in
@@ -538,8 +538,8 @@ that are still pageable.
 **Guard** — `smoke/terminal/terminal-history-readahead.spec.ts` (real stack: the first wheel step crosses
 unpainted history and costs exactly the chain depth the pager's own constants predict, and every step inside a
 pre-paid count DERIVED from the measured row height and pane size is painted at zero demand RPCs);
-`apps/web/tests/scrollbackBackfill.bounds.test.ts` — the page never collapses to the sliver the window exposed,
-whatever the interval's shape; `apps/web/tests/scrollbackBackfill.test.ts` —
+`apps/web/tests/renderer/scrollbackBackfill.bounds.test.ts` — the page never collapses to the sliver the window exposed,
+whatever the interval's shape; `apps/web/tests/renderer/scrollbackBackfill.test.ts` —
 `"a wheel step pre-pays the rows above the viewport and the next step is free"`,
 `"scrolls during a wave add no request, one coalesce line, and one demand after"`,
 `"a page that cannot splice retries bounded and stays armed for the reader"`,
@@ -555,7 +555,7 @@ whatever the interval's shape; `apps/web/tests/scrollbackBackfill.test.ts` —
 classification, resize/reveal correction, or a jump-to-bottom control.
 
 **Right** — **one pre-mutation capture plus ONE conditional writer.** `CellGridRenderer`
-(`apps/web/src/lib/cellRenderer.ts`) captures `_atBottomOrOwnedPlacement()` before a painted-height
+(`apps/web/src/renderer/cellRenderer.ts`) captures `_atBottomOrOwnedPlacement()` before a painted-height
 mutation; only `_pinToBottom(shouldPin)` may assign `scrollTop`, and only when that captured value was
 true. The capture is the FOLLOW BAND (`followsScrollBottom`, two rows of slack — see the follow-band
 entry below), never a widened `atBottom()`: `atBottom()` itself stays exact and is what the clamp and
@@ -584,7 +584,7 @@ DIFFERENT box size (the old fixed 800×600 park) so its scroll maximum moves und
 
 **Right** — **a pane that keeps painting off-screen must have TRUTHFUL geometry, not a corrected scroll
 position.** Three invariants, all measured live: (1) the deck parks a pane at its own leaf's rect
-(`parkSizeBySession` in `apps/web/src/components/TerminalDeck.tsx`) so `clientHeight` is identical parked vs
+(`parkSizeBySession` in `apps/web/src/components/deck/TerminalDeck.tsx`) so `clientHeight` is identical parked vs
 revealed; (2) block placeholders are a BARE length, never `contain-intrinsic-size: auto <len>` — `auto` makes
 the browser reuse a block's LAST RENDERED size, so a block that grows while skipped understates `scrollHeight`
 until it materializes; (3) the OPEN tail block opts out of `content-visibility` until it seals — a skipped
@@ -606,7 +606,7 @@ back to the bottom does not restart it / only a reload fixes it", with `at_botto
 `reconcile_block_reason=reader_pending_frame` while the canonical seq keeps climbing.
 
 **Wrong** — resume a parked reader from `ResizeObserver` only when `_readerReason === "native_scroll"`. Real
-wheel and touch gestures park as `"wheel"` / `"touch"` (`apps/web/src/lib/terminalMouseForwarding.ts`), so that
+wheel and touch gestures park as `"wheel"` / `"touch"` (`apps/web/src/renderer/terminalMouseForwarding.ts`), so that
 gate was dead for every real gesture. Equally wrong here: an `atBottom()` tolerance or any reveal/resize scroll
 correction — the geometry was measured INTEGRAL in 184 real layouts at four device-pixel ratios (the true clamp
 equals `scrollHeight - clientHeight` exactly), so the clamp predicate was never the defect (what a reader near
@@ -621,7 +621,7 @@ pane's only resume while the later hold release refused too, because release res
 
 **Right** — **a park must be exitable by an event the pane can still deliver.** A parked reader freezes the
 DOM, so a grow past the frozen content leaves `scrollHeight === clientHeight`: the box can never fire another
-scroll event, `handleScroll()`'s bottom resume (`apps/web/src/lib/cellRenderer.ts`) is unreachable, and
+scroll event, `handleScroll()`'s bottom resume (`apps/web/src/renderer/cellRenderer.ts`) is unreachable, and
 `noteBoxResize()` is the only observer left — it also consumes `_lastBoxH` before every early return, so a
 refusal is permanent. `noteBoxResize()` therefore resumes when the reader sat at the old box's bottom AND the
 park is position-only (`isPositionOnlyReaderReason` — `native_scroll`/`wheel`/`touch`), and resumes ANY park,
@@ -639,12 +639,12 @@ return, and no further event follows), explicitly, so a `find` park is released 
 off-band park that still has range keeps its interval, because the exact-bottom scroll, the next frame's
 bottom-clamp settle and the scroll-idle band settle own that case.
 
-**Guard** — `apps/web/tests/cellRenderer.geometry.dom.test.ts` —
+**Guard** — `apps/web/tests/renderer/cellRenderer.geometry.dom.test.ts` —
 `"a wheel-parked reader resumes when a box grow leaves no scroll range"` and its three siblings;
 `smoke/terminal/terminal-render-box-grow-resume.spec.ts` (real wheel park + viewport grow must repaint);
-`apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
+`apps/web/tests/renderer/cellRenderer.nativeScrollSettle.dom.test.ts` —
 `"a wheel park clamped to the bottom settles without a second scroll event"`;
-`apps/web/tests/cellRenderer.append.dom.test.ts` —
+`apps/web/tests/renderer/cellRenderer.append.dom.test.ts` —
 `"a hold release resumes a wheel park whose box lost its scroll range"`, with
 `"a hold release leaves a find park that can still reach its anchor"` as the refusal control.
 
@@ -661,25 +661,25 @@ live.
 
 **Right** — **a named follow band gates the POLICY decisions; the exact predicates stay exact.**
 `BOTTOM_FOLLOW_SLACK_ROWS` (2) and `followsScrollBottom` in
-`apps/web/src/lib/cellRendererPresentation.ts` define one band around the clamp, and only four call sites
+`apps/web/src/renderer/cellRendererPresentation.ts` define one band around the clamp, and only four call sites
 use it: `handleScroll()`'s park decision, the pin capture `_atBottomOrOwnedPlacement()`, the backfill
 demand gate (`scrollbackBackfill.onUserScroll`, a band follower must not start paging history), and the
 band settle. A reader inside the band is riding the tail, so the pane keeps painting and keeps pinning;
 one wheel notch (~100px) is outside it and still parks. A park that comes to REST inside the band resumes
 through `CellGridRenderer.settleFollowBand()`, armed `BOTTOM_FOLLOW_SETTLE_MS` (180ms) after the last
-scroll event by the pane's own scroll listener (`apps/web/src/components/cell-terminal-renderer.ts`) and
+scroll event by the pane's own scroll listener (`apps/web/src/components/terminal/cell-terminal-renderer.ts`) and
 also by frame arrival (see the entry below), so the resume never runs mid-gesture. A hold release also
 resumes a band-following
 position-only park, because the hold swallowed the only scroll event that could. `at_bottom` in the
 presentation snapshot keeps its exact meaning; `follows_bottom` is the band value beside it.
 
-**Guard** — `apps/web/tests/cellRenderer.readerIntent.dom.test.ts` —
+**Guard** — `apps/web/tests/renderer/cellRenderer.readerIntent.dom.test.ts` —
 `"a live reader inside the follow band keeps following the tail"`;
-`apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
+`apps/web/tests/renderer/cellRenderer.nativeScrollSettle.dom.test.ts` —
 `"a wheel park resting inside the follow band resumes on the settle"`, with
 `"a park beyond the follow band survives the settle"` and
 `"a find park inside the follow band keeps its anchor through the settle"` as the refusal controls;
-`apps/web/tests/cellRenderer.append.dom.test.ts` —
+`apps/web/tests/renderer/cellRenderer.append.dom.test.ts` —
 `"a hold release resumes a bottom-following wheel park that kept its range"`;
 `smoke/terminal/terminal-follow-band.spec.ts` —
 `"a follow-band reader keeps streaming, self-resumes, and still parks past the band"` (real trusted wheel:
@@ -692,7 +692,7 @@ only thing that brings it back" — `reconcile_block_reason=reader_pending_frame
 `at_bottom` FALSE, `reader_reason` `wheel` or `touch`, and canonical climbing away from the DOM forever.
 
 **Wrong** — arming the band settle from the pane's scroll listener ALONE. `enterReadingForNativeScroll`
-(`apps/web/src/lib/terminalMouseForwarding.ts`) parks from a capture-phase, non-passive wheel/touchmove
+(`apps/web/src/renderer/terminalMouseForwarding.ts`) parks from a capture-phase, non-passive wheel/touchmove
 listener whose `canMove` gate excludes only the EXACT clamp, never the band — so a park can be created
 AFTER the gesture's last scroll event, and the listener that would have armed its settle has already run
 for the final time. The frame-arrival settle could not rescue it either: `_settleBottomPark()` demands
@@ -714,7 +714,7 @@ that re-arms — a busy PTY delivering a frame every few milliseconds would othe
 for as long as output continued. The rAF clamp settle keeps demanding `atBottom()` exactly and owns the
 clamped case, so an in-band frame never routes a clamped follower through the 180ms window.
 
-**Guard** — `apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
+**Guard** — `apps/web/tests/renderer/cellRenderer.nativeScrollSettle.dom.test.ts` —
 `"a band rest parked with no scroll event recruits the settle on a frame"` (and asserts zero `scrollTop`
 writes at frame arrival),
 `"a stream of frames over a band rest keeps exactly one settle window"`, with
@@ -729,7 +729,7 @@ type"
 
 **Wrong** — treating EVERY scroll event as sacred to the find anchor: `handleScroll()` capturing the anchor and
 returning before the at-bottom resume whenever the reason is `find`. `closeFind()`
-(`apps/web/src/lib/terminalFindController.ts`) only clears highlights and query state — it never resumes the
+(`apps/web/src/renderer/terminalFindController.ts`) only clears highlights and query state — it never resumes the
 reader — so before this change no gesture at any position could un-park the pane after a dismissal, and a box
 change with scroll range remaining refused it too. Equally wrong: resuming on any at-bottom event regardless
 of origin, which lets `scrollToScrollbackRow()`'s own write to a TAIL hit clamp onto the bottom and instantly
@@ -757,7 +757,7 @@ shrinks the maximum over consecutive frames (divider drag, mobile keyboard) ther
 once per frame; the position still moves, zero range removes the suppression outright, and the cost is bounded
 to one event of latency for an anchor park whose last gesture event coincided with the final shrink frame.
 
-**Guard** — `apps/web/tests/cellRenderer.findPark.dom.test.ts` —
+**Guard** — `apps/web/tests/renderer/cellRenderer.findPark.dom.test.ts` —
 `"a user scroll to the exact bottom resumes a find park"`,
 `"a renderer-owned write that lands at the bottom keeps the find park"`,
 `"a find park survives a scroll that does not reach the bottom"`,
@@ -765,7 +765,7 @@ to one event of latency for an anchor park whose last gesture event coincided wi
 `"a clamp that leaves no scroll range resumes a find park"`, and
 `"a gesture after a clamp still resumes a find park"`, which pins the one-shot property — making the record
 conditional on `clamped` turns it red;
-`apps/web/tests/cellRenderer.nativeScrollSettle.dom.test.ts` —
+`apps/web/tests/renderer/cellRenderer.nativeScrollSettle.dom.test.ts` —
 `"a wheel park clamped onto the bottom by a box grow resumes"` for the position-only side.
 
 ### A dismissed find bar leaves the pane parked on a dead find anchor
@@ -783,7 +783,7 @@ touches nothing else: no scroll write, no pin, no frame applied, position preser
 last. After dismissal the park is an ordinary scroll park, so an exact-bottom scroll, a zero-range grow, a hold
 release or the bottom-clamp settle all resume it, while an OPEN bar keeps anchor semantics.
 
-**Guard** — `apps/web/tests/cellRenderer.findPark.dom.test.ts` —
+**Guard** — `apps/web/tests/renderer/cellRenderer.findPark.dom.test.ts` —
 `"closing the find bar ends the park without moving or painting"` and
 `"a dismissed find park follows a box grow its anchor would have refused"`, both driving the real
 `createTerminalFind` against a real renderer.
@@ -797,7 +797,7 @@ bottom returning `{reconciled:false, anchorChanged:false}`.
 
 **Wrong** — arm `RENDERER_HOLD_SELECTION` edge-only from the document `selectionchange` listener and re-attach
 that listener without re-deriving the hold. The pane detaches its global listeners for the whole of a withdraw
-(`apps/web/src/components/cell-terminal-interactions.ts`), and a transient layout gap routes through
+(`apps/web/src/components/terminal/cell-terminal-interactions.ts`), and a transient layout gap routes through
 `parkViewAfterLayoutGap()`, which deliberately does NOT `releasePaintHolds()` — so a selection dropped inside
 that window pins a hold no selection justifies. Equally wrong: dropping holds in the layout-gap park (it exists
 so jitter does not re-mint every other viewer's geometry, and it would discard a real reader's selection), or
@@ -814,7 +814,7 @@ eventual hold release pin the bottom (`pinOnResume`) as its `selection` reason i
 is a total paint kill: frames are accepted and swallowed, so no scroll can heal it.
 The link hold is level-derived the same way: every container pointer event carries the LIVE modifier state, so
 `mouseover`, `mouseenter`, `mousemove` and `mousedown` each re-derive `armed` in BOTH directions
-(`apps/web/src/components/terminal-links.ts`), and that predicate must be TOTAL — an event with no modifier
+(`apps/web/src/renderer/terminal-links.ts`), and that predicate must be TOTAL — an event with no modifier
 fields must read as "not held", never `undefined`, or the hold ends up neither armed nor disarmed. Re-entering
 a pane with nothing held can no longer revive a hold from a dead edge.
 
@@ -894,7 +894,7 @@ same-epoch/same-width repair updates the live tail without deleting already
 painted immutable history or the reader's global anchor.
 
 **Guard** — `apps/web/tests/terminalStream.test.ts`;
-`apps/web/tests/cellRenderer.reconcile.dom.test.ts`;
+`apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`;
 `smoke/terminal/terminal-render-resume.spec.ts`.
 
@@ -951,7 +951,7 @@ replay yields periodically so live cells preempt it.
 
 **Guard** — `smoke/terminal/` — `"deep-history attach/reveal paints the live tail until history is requested"`,
 `"long hidden deep-history resume paints the current viewport before history"`;
-`apps/web/tests/scrollbackBackfill.test.ts`; `apps/web/tests/` renderer DOM suite —
+`apps/web/tests/renderer/scrollbackBackfill.test.ts`; `apps/web/tests/` renderer DOM suite —
 `"viewport-only full reserves depth; explicit pages fill the seam"`.
 
 ### The painted grid never converges until a reload
@@ -968,7 +968,7 @@ cells — each one leaves the canonical model ahead of the DOM with nothing that
 **Right** — **six layered contracts, each with one owner and a typed outcome.**
 
 - (a) Reader intent is explicit: `CellGridRenderer` holds `ReaderIntent` "live"/"reading" plus a composed
-  selection+link hold mask (`apps/web/src/lib/cellRenderer.ts`); passive output and composer drafting never
+  selection+link hold mask (`apps/web/src/renderer/cellRenderer.ts`); passive output and composer drafting never
   cancel a reader, one admitted local keystroke calls `prepareLiveInteraction()` (clear holds + adopt
   reader-pending frame + re-pin bottom as ONE transition), and park/`pagehide`/unmount ENDS the reading interval
   so a revealed pane presents the newest canonical frame.
@@ -1009,7 +1009,7 @@ cells — each one leaves the canonical model ahead of the DOM with nothing that
 
 Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 `dom_reconciled` plus `reconcile_block_reason`
-(`apps/web/src/lib/terminalDiagSnapshot.ts`), never a screenshot.
+(`apps/web/src/renderer/terminalDiagSnapshot.ts`), never a screenshot.
 
 **Guard** — `packages/protocol/tests/cell-frame-chunks.test.ts`;
 `apps/worker/tests/terminal-stream-state.test.ts`;
@@ -1153,7 +1153,7 @@ existing `detached` determination rather than inventing a second notion of "brok
 `FRAME_ACTIVITY_WINDOW_MS` (500ms) is deliberately shorter than `DETACHED_GRACE_MS` (1000ms) so freshness
 cannot still be true at the edge that arms the re-claim and mask it.
 
-**Guard** — `apps/web/tests/offlineWatch.test.ts` —
+**Guard** — `apps/web/tests/browser/offlineWatch.test.ts` —
 `"a pane that painted, then lost its view, is re-claimed then accused"`, with
 `"a quiet pane with a healthy view is never re-claimed, however long"` as the false-positive control and
 `"a frame clears offline immediately even while the view reads detached"` for self-correction.
@@ -1298,7 +1298,7 @@ Also wrong: reaching for horizontal scrolling, automatic font shrinking, a secon
 calculator, or a snapshot retry — those hide an overclaim the pane never had the right to make.
 
 **Right** — `mountCellTerminalLifecycle`'s `onTerminalFontsSettled`
-(`apps/web/src/components/cell-terminal-lifecycle.ts`) returns only for `lifecycleDisposed ||
+(`apps/web/src/components/terminal/cell-terminal-lifecycle.ts`) returns only for `lifecycleDisposed ||
 runtime.unmounted`; it zeroes the cached cell box and calls `renderer.invalidateRowHeight()`
 unconditionally, and gates ONLY `publishViewportNow()` on `shouldPublishActive()`. A background pane
 therefore claims nothing while its font settles and measures the loaded face on its next claim. The
@@ -1329,14 +1329,14 @@ column's glyph is inside the mobile clip across both orientations.
 
 **Right** — the input textarea is off-screen, so clicks land on row spans, not the textarea; without an explicit
 dance the focus listener never sees the event → the pane never reports focused → keystrokes go nowhere. The fix
-lives in `apps/web/src/lib/terminalInputController.ts` (`forceFocus()`), and three pieces are load-bearing: (1)
+lives in `apps/web/src/renderer/terminalInputController.ts` (`forceFocus()`), and three pieces are load-bearing: (1)
 `if (activeElement === textarea) textarea.blur()` BEFORE focusing — guarantees a fresh native focus event even
 when the textarea was pre-focused; (2) an explicit `dispatchEvent(new FocusEvent("focus", { bubbles: true }))`
 so pane styling is deterministic; (3) the container `mousedown` listener that calls `forceFocus` on every click.
 Never leave the dance's re-focus guard latched on the error path or focus reporting dies for that pane's
 lifetime.
 
-**Guard** — `apps/web/tests/terminalInputController.test.ts`.
+**Guard** — `apps/web/tests/renderer/terminalInputController.test.ts`.
 
 ### Borrowed receive-buffer view passed to a PTY write
 
@@ -1386,7 +1386,7 @@ same SSH-bootstrapped env doesn't surface a locale bug next. Generalizable rule:
 claim a bare Ctrl+letter.** The terminal's own textarea handler is what `preventDefault`s a consumed control
 byte, and every document-level BUBBLE listener already respects that — capture-phase bypasses it entirely.
 Terminal-scoped chords use ⌘+key (macOS, never a PTY byte) or Ctrl+SHIFT+key (the gnome-terminal shape); find is
-`⌘F / Ctrl+⇧F` for exactly this reason, resolved centrally in `apps/web/src/lib/browserPlatform.ts`. Before
+`⌘F / Ctrl+⇧F` for exactly this reason, resolved centrally in `apps/web/src/browser/browserPlatform.ts`. Before
 adding one, check it is not a readline/TUI binding.
 
 **Guard** — `smoke/terminal/` — `"terminal replay and Ctrl keys stay owned by the PTY"` asserts `^B^F^K`
@@ -1445,7 +1445,7 @@ discards the coordinator's late result; and returning silently from coord's term
 **Right** — **the socket is the input fence.** Input results ride the CONTROL lane
 (`apps/coord/src/sync/sync-ws-v2-control.ts` stamps `domain = UNSPECIFIED, domainGeneration = 0`), which no
 domain reset touches, so a started batch keeps its 10 s deadline and settles from the real result;
-`apps/web/src/ws/sync-outbound.ts` (`handleControl`) correlates on `(socketId, sessionId, inputSeq)` plus the
+`apps/web/src/store/transport/sync-outbound.ts` (`handleControl`) correlates on `(socketId, sessionId, inputSeq)` plus the
 generation coord echoes from the command, and `handleGeneration` only settles pendings when the SOCKET changed
 (an unsent batch under the closing generation is `rejected`, never ambiguous). `resetSequence()` runs only on a
 socket change, because a surviving pending must not share an `inputSeq` with a new batch. Coord's
@@ -1456,7 +1456,7 @@ classification and the composer restores the draft instead of claiming possible 
 **Guard** — `apps/web/tests/syncOutbound.test.ts` — `"a terminal domain reset on a live socket keeps an
 in-flight batch and settles it from the late result"`; `apps/coord/tests/sync/sync-ws-v2-terminal-command-gate.test.ts`
 — `"an input command for a resubscribing terminal domain is rejected, not dropped"`;
-`apps/web/tests/terminalInputStatus.test.ts` — `"an unconfirmed batch with no written bytes never claims a
+`apps/web/tests/client/input/terminalInputStatus.test.ts` — `"an unconfirmed batch with no written bytes never claims a
 partial send"`.
 
 ### Delayed old-route input crosses a direct-promotion fence
@@ -1932,7 +1932,7 @@ pipeline proceeds; an unknown key remains in onboarding and is not silently
 enrolled or retried as a transport failure.
 
 **Guard** — `smoke/terminal/` — `"browser smoke flow creates and cleans its resources"` on a FRESH context;
-`apps/web/tests/sync-flow.test.ts` — `"repeated bootstrap retries retain one infinite-loop owner"`.
+`apps/web/tests/client/sync/sync-flow.test.ts` — `"repeated bootstrap retries retain one infinite-loop owner"`.
 
 ---
 
@@ -2087,18 +2087,18 @@ nothing watching it; equally wrong: lengthen the mobile idle window so tap #2 re
 hides the cold re-open that re-rolls the WebKit dice.
 
 **Right** — **every await in the device-open path is bounded and a failed open disposes what it built.**
-`micTimeouts` (open/resume/module) in `apps/web/src/lib/audioPcmCapture.ts` wraps `getUserMedia`,
+`micTimeouts` (open/resume/module) in `apps/web/src/voice/audioPcmCapture.ts` wraps `getUserMedia`,
 `AudioContext.resume()` and `audioWorklet.addModule()` — WebKit returns promises that NEVER settle while the OS
 audio session is mid-transition, and an unbounded await left the warming slot non-null for the page's lifetime
 (every LATER tap awaited the same dead promise) and the starting-captures count above zero forever (so
 `releaseMicIfIdle` never released the device). `openPipeline` builds into LOCALS and publishes the singleton in
 one step, so a stalled open that settles late cannot clobber the pipeline a later tap already built. Every async
-continuation in a recording carries a run token (`apps/web/src/lib/deepgramDictation.ts`, bumped in teardown),
+continuation in a recording carries a run token (`apps/web/src/voice/deepgramDictation.ts`, bumped in teardown),
 because completing a send resets the end-intent to null and null ALSO means "a recording is live" — that is how
 a stopped recording's grant opened a socket onto the shared connection and killed the NEXT recording. Finalizing
 has a watchdog and stays tappable.
 
-**Guard** — `apps/web/tests/deepgramDictation.test.ts`; `apps/web/tests/audioPcmCapture.test.ts`;
+**Guard** — `apps/web/tests/voice/deepgramDictation.test.ts`; `apps/web/tests/voice/audioPcmCapture.test.ts`;
 `smoke/terminal/` — `"a second recording works exactly like the first"`.
 
 ### A diagnostic sink throws into the path it was observing
@@ -2115,13 +2115,13 @@ stringification leaves every future call site armed with the same trap.
 **Right** — **observability can never propagate a failure into a product path.** `safeJsonStringify` in
 `packages/protocol/src/json.ts` (the repo's canonical JSON boundary, which already owned the parse direction) maps
 `bigint` to its exact decimal string at every depth — `Number()` is forbidden, it rounds past 2^53 — and
-returns the caller's fallback instead of throwing; `apps/web/src/lib/diag.ts` ships
+returns the caller's fallback instead of throwing; `apps/web/src/browser/diag.ts` ships
 `{"kv_unserializable":true}` so the event still reaches the operator with the loss flagged. `emitEnabled()`
 and `signal()` in `packages/observability/src/diag.ts` wrap record construction (the `...kv` spread runs getters) AND
 sink dispatch in one guard per function that reports through `log.warn` with strings only, so a hostile value
 cannot re-throw on the reporting line. One guard at the facade covers every sink.
 
-**Guard** — `apps/web/tests/diag.test.ts`; `packages/protocol/tests/json.test.ts`.
+**Guard** — `apps/web/tests/browser/diag.test.ts`; `packages/protocol/tests/json.test.ts`.
 
 ### env(safe-area-inset-*) is 0px on a television, and a portal escapes the shell's padding
 
@@ -2131,7 +2131,7 @@ the TV"
 **Wrong** — rely on `env(safe-area-inset-*)` to keep chrome off a bezel-cropped edge. TV browsers report all
 four as `0px`, so the padding that protects an iPhone notch protects nothing here. Equally wrong: add the
 overscan gutter only to `.workbench-shell` — a `position: fixed` surface portaled to `<body>`
-(`TerminalNavButtons`, `apps/web/src/components/TerminalNavButtons.tsx`) is not inside that box and keeps its
+(`TerminalNavButtons`, `apps/web/src/components/terminal/TerminalNavButtons.tsx`) is not inside that box and keeps its
 own viewport-relative offsets.
 
 **Right** — **explicit overscan tokens, applied to the shell AND to every portaled fixed surface.**
@@ -2348,7 +2348,7 @@ conditions (reader-pending frame, holds, pending render, row/col count, alt-scre
 visibility) do. `ReconcileBlockReason` has no `predicted_cursor` member — a predicted caret is not
 a block.
 
-**Guard** — `apps/web/tests/cellRenderer.reconcile.dom.test.ts` "a leading predicted caret does not
+**Guard** — `apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts` "a leading predicted caret does not
 freeze reconciliation" and the real-flow `smoke/terminal/terminal-predictive-echo.spec.ts`
 "sustained fast typing never wipes its own predictions" (asserts a `resetCount` delta of 0 across a
 1.6 s burst).

@@ -12,11 +12,11 @@ import { WorkbenchActivityBar } from "./WorkbenchActivityBar.tsx";
 import { WorkbenchStatusBar } from "./WorkbenchStatusBar.tsx";
 import { WorkbenchTitleBar } from "./WorkbenchTitleBar.tsx";
 import { uiStore, closeSidebar, toggleSidebarCollapsed } from "../../store/uiStore.ts";
-import { isCompact } from "../../lib/windowSizeClass.ts";
-import { keyboardResize } from "../../lib/keyboardResizePref.ts";
+import { isCompact } from "../../browser/windowSizeClass.ts";
+import { keyboardResize } from "../../store/prefs/keyboardResizePref.ts";
 import { resetResizeDrags } from "../../lib/resizeDrag.ts";
-import { composerActive, composerHeightPx } from "../TerminalComposeButton.tsx";
-import { matchesPlatformShortcut } from "../../lib/browserPlatform.ts";
+import { composerActive, composerHeightPx } from "../terminal/TerminalComposeButton.tsx";
+import { matchesPlatformShortcut } from "../../browser/browserPlatform.ts";
 import { ROUTES } from "../../routes.ts";
 
 function shellStyle() {

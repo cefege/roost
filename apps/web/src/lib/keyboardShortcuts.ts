@@ -14,8 +14,8 @@ import {
 	hasCursorTargets,
 } from "./sidebarCursor.ts";
 import { directionalInputActive } from "./directionalInput.ts";
-import { stepTermFontSize, resetTermFontSize } from "./terminalFontPref.ts";
-import { browserPlatform, matchesPlatformShortcut } from "./browserPlatform.ts";
+import { stepTermFontSize, resetTermFontSize } from "../store/prefs/terminalFontPref.ts";
+import { browserPlatform, matchesPlatformShortcut } from "../browser/browserPlatform.ts";
 
 /** True when the event target is a text-editable surface (input/textarea/
  *  contentEditable). xterm's PTY uses an off-screen textarea, so this guard

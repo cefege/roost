@@ -2,7 +2,7 @@
 // One lazy document scheduler batches bounded coordinator diagnostics.
 // The reason mapper remains exported for focused wire-shape tests.
 
-import { coordClient } from "../connect.ts";
+import { coordClient } from "../client/rpc/connect.ts";
 import type { BaselineProgress } from "../store/terminal-stream-types.ts";
 import {
   ATTACH_DIAGNOSIS_BATCH_INTERVAL_MS,

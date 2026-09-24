@@ -8,12 +8,12 @@ import {
   enableDesktopNotifications,
   notifyPrefs,
   setNotifyPref,
-} from "../../lib/notifyPrefs.ts";
+} from "../../store/prefs/notifyPrefs.ts";
 import {
   pushAvailable,
   subscribeToPush,
   unsubscribeFromPush,
-} from "../../lib/push-client.ts";
+} from "../../browser/push-client.ts";
 
 
 export function NotificationsPane() {

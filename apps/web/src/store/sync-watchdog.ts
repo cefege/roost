@@ -17,7 +17,7 @@
 // freeze/suspend often comes back to a corrected wall clock, and a Date.now()
 // jump would either hide a dead socket or fake a stale one.
 
-import { isPageVisible } from "../lib/pageVisible.ts";
+import { isPageVisible } from "../browser/pageVisible.ts";
 
 export const SYNC_STALE_TIMEOUT_MS = 90_000;   // 3 missed 30s keepalives
 export const SYNC_STALE_CHECK_MS = 15_000;

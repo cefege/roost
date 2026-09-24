@@ -3,7 +3,7 @@
 // Shared fixture operations preserve identical PTY setup and qualification thresholds.
 
 import type { Page, TestInfo } from "@playwright/test";
-import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
+import type { SmokeApi } from "../../apps/web/src/smoke/smoke.ts";
 import { test, expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { TerminalTestStack } from "./stack.ts";

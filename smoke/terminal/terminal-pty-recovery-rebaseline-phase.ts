@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
+import type { TerminalStreamProbe } from "../../apps/web/src/smoke/smoke.ts";
 import { expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";

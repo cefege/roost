@@ -7,9 +7,9 @@ import {
   TERMINAL_VIEW_HEARTBEAT_MS,
   clampTerminalGeometry,
 } from "@roost/protocol/viewport";
-import { markPhaseOnce } from "../lib/diag.ts";
-import { isPageVisible } from "../lib/pageVisible.ts";
-import { TerminalRenderScheduler } from "../lib/terminal-render-scheduler.ts";
+import { markPhaseOnce } from "../browser/diag.ts";
+import { isPageVisible } from "../browser/pageVisible.ts";
+import { TerminalRenderScheduler } from "../renderer/terminal-render-scheduler.ts";
 import { subscribeTerminalBaselineProgress } from "./terminal-stream-progress.ts";
 import { installTerminalTransportRetarget } from "./terminal-stream-retarget.ts";
 import {

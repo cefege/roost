@@ -8,7 +8,7 @@
 import { afterAll, beforeAll } from "bun:test";
 import type { CellRow } from "@roost/protocol/cell";
 import { ScrollbackHistoryFloor } from "@roost/protocol/proto/coordinator_pb";
-import type { createScrollbackBackfill } from "../src/lib/scrollbackBackfill.ts";
+import type { createScrollbackBackfill } from "../src/renderer/scrollbackBackfill.ts";
 
 export type ScrollRequest = {
   sessionId: string;

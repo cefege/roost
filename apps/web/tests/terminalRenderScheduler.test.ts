@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { CellGridFrame } from "@roost/protocol/cell";
-import { TerminalRenderScheduler } from "../src/lib/terminal-render-scheduler.ts";
+import { TerminalRenderScheduler } from "../src/renderer/terminal-render-scheduler.ts";
 import {
   RecordingRenderer,
   asCellGridRenderer,

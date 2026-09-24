@@ -11,7 +11,7 @@ import {
   executeTargetedUiLayoutApply,
   type UiLayoutApplyDependencies,
   type UiLayoutApplyResult,
-} from "../src/lib/uiLayoutApplyCore.ts";
+} from "../src/client/ui-state/uiLayoutApplyCore.ts";
 
 const PANE_COUNT = 10;
 const DEAD_PANE = 4;

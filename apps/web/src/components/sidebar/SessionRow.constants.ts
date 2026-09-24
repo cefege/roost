@@ -2,7 +2,7 @@
 // Split out of SessionRow.tsx so all rows share one page-lifetime ticker.
 
 import { createSignal } from "solid-js";
-import { isPageVisible } from "../../lib/pageVisible.ts";
+import { isPageVisible } from "../../browser/pageVisible.ts";
 
 export const ROW_BASE = { "padding-left": "28px" } as const;
 

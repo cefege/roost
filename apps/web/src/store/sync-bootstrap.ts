@@ -10,8 +10,8 @@ import { setRootStore, rootStore } from "./root.ts";
 import { signal } from "@roost/observability/diag";
 import type { Worker } from "@roost/protocol/wire";
 import { keeperRuntimeObservationFromProto } from "@roost/protocol/keeper-update-proto";
-import { terminalCoreCapacityProtoToWire } from "./sync-proto-adapters.ts";
-import { claimTabIdentity } from "../auth/tab-id.ts";
+import { terminalCoreCapacityProtoToWire } from "../client/sync/sync-proto-adapters.ts";
+import { claimTabIdentity } from "../client/auth/tab-id.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
 import {
@@ -21,9 +21,9 @@ import {
   registerSyncAuthRejectionHandler,
   waitForSyncSubscribed,
 } from "./sync.ts";
-import { createSingleSyncLoopStarter } from "./sync-flow.ts";
+import { createSingleSyncLoopStarter } from "../client/sync/sync-flow.ts";
 import { _dispatchCapturedFragmentCredential } from "./sync-bootstrap.pair.ts";
-import { markPhase } from "../lib/diag.ts";
+import { markPhase } from "../browser/diag.ts";
 import { _installBootstrapDomainHydrators } from "./sync-bootstrap-hydration.ts";
 import { captureAuthResourceToken, isCurrentAuthResourceToken } from "./auth-boundary.ts";
 import { markBrowserDeviceRejected, markProtectedSnapshotPublished } from "./browser-access.ts";
@@ -58,7 +58,7 @@ export function bootstrapSync(): void {
  *  blocking the other. */
 export async function refreshCoordAndWorkers(): Promise<void> {
   if (rootStore.coord_identity === null) return;
-  const { classifyAuthFailure, coordClient } = await import("../connect.ts");
+  const { classifyAuthFailure, coordClient } = await import("../client/rpc/connect.ts");
   const authToken = captureAuthResourceToken();
   const identity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
     (value) => ({ status: "fulfilled" as const, value }),
@@ -173,7 +173,7 @@ async function _bootstrap(): Promise<void> {
       coordClient,
       publicCoordClient,
       reconcileCoordinatorOverrideAfterDiscovery,
-    } = await import("../connect.ts");
+    } = await import("../client/rpc/connect.ts");
     const initialIdentity = await Promise.resolve(publicCoordClient.authCoordIdentity({})).then(
       (value) => ({ status: "fulfilled" as const, value }),
       (reason) => ({ status: "rejected" as const, reason }),

@@ -18,7 +18,7 @@ import { closeSidebar, uiStore } from "../store/uiStore.ts";
 import {
 	closeTerminalNavPad, focusTerminalNavPadFirstKey, terminalNavPadOpen,
 	toggleTerminalNavPad,
-} from "../components/TerminalNavButtons.tsx";
+} from "../store/terminalNavPad.ts";
 import {
 	deckOpsCtxForFolder, focusPaneOp, selectTabOp, spotlitPaneIdIn,
 	type DeckOpsCtx,
@@ -32,8 +32,8 @@ import {
 import type { PadAction, PadHintContext } from "./padBindings.ts";
 import { nextFolderSessionId } from "./padFolders.ts";
 import { padModeActive } from "./padMode.ts";
-import { PAD_SCROLL_STEP_PX, scrollTerminalReaderBox } from "./terminalReaderScroll.ts";
-import { voiceControls, voiceDictating } from "./voiceState.ts";
+import { PAD_SCROLL_STEP_PX, scrollTerminalReaderBox } from "../renderer/terminalReaderScroll.ts";
+import { voiceControls, voiceDictating } from "../voice/voiceState.ts";
 
 export interface PadRouterIo {
 	navigate: (href: string) => void;

@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
-import type { RetainedMarkerScan } from "../../apps/web/src/lib/smokeTypes.ts";
+import type { RetainedMarkerScan } from "../../apps/web/src/smoke/smokeTypes.ts";
 import {
   spawnPtyFixtureSession,
   navigateToSmokeSession,

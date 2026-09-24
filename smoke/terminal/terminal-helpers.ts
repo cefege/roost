@@ -8,7 +8,7 @@ import {
   matchesPlatformShortcut,
   type BrowserPlatform,
   type PlatformShortcutId,
-} from "../../apps/web/src/lib/browserPlatform.ts";
+} from "../../apps/web/src/browser/browserPlatform.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import { sendFixtureCommand } from "./terminal-scale-browser.ts";
 import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";

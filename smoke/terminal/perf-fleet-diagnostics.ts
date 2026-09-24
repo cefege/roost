@@ -1,7 +1,7 @@
 // Fleet reader diagnostics capture the browser event ordering around a held paint.
 // Fleet performance probes install this test-only observer before workload dispatch.
 // It reads the existing smoke probe and native grid geometry without affecting renderer state.
-import type { SmokeApi, TerminalStreamProbe } from "../../apps/web/src/lib/smokeTypes.ts";
+import type { SmokeApi, TerminalStreamProbe } from "../../apps/web/src/smoke/smokeTypes.ts";
 import { test } from "./fixtures.ts";
 import type { FleetPeer } from "./perf-fleet-peer-flood.ts";
 import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";

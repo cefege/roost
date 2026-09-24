@@ -10,41 +10,41 @@ import { ROUTES, settingsPaneHref } from "./routes.ts";
 import { AppShell } from "./components/layout/AppShell.tsx";
 import { HomeLanding } from "./components/HomeLanding.tsx";
 import { MainPane } from "./components/MainPane.tsx";
-import { CommandPalette } from "./components/CommandPalette.tsx";
+import { CommandPalette } from "./components/palette/CommandPalette.tsx";
 import { installKeyboardShortcuts, setSettingsOpener } from "./lib/keyboardShortcuts.ts";
 import { installSpatialNavigation } from "./lib/spatialNavigation.ts";
-import { installGamepadSource } from "./lib/gamepadSource.ts";
+import { installGamepadSource } from "./browser/gamepadSource.ts";
 import { runPadActions } from "./lib/padActions.ts";
 import { rootStore } from "./store/root.ts";
 import { bootstrapSync } from "./store/sync-bootstrap.ts";
 import { AppErrorBoundary } from "./components/AppErrorBoundary.tsx";
-import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
-import { VersionBanner } from "./components/VersionBanner.tsx";
-import { WhatsNewDialog } from "./components/WhatsNewDialog.tsx";
-import { QueueTaskDialog } from "./components/QueueTaskDialog.tsx";
-import { NotificationDock } from "./components/NotificationDock.tsx";
+import { ConnectionBanner } from "./components/notifications/ConnectionBanner.tsx";
+import { VersionBanner } from "./components/notifications/VersionBanner.tsx";
+import { WhatsNewDialog } from "./components/notifications/WhatsNewDialog.tsx";
+import { QueueTaskDialog } from "./components/agents/QueueTaskDialog.tsx";
+import { NotificationDock } from "./components/notifications/NotificationDock.tsx";
 import { RenameDialogHost } from "./components/RenameDialog.tsx";
 import { getLastTerminalPath } from "./lib/lastVisited.ts";
-import { shouldBootRestore, consumeBootRestore } from "./lib/bootRestore.ts";
+import { shouldBootRestore, consumeBootRestore } from "./browser/bootRestore.ts";
 import { UiBridge } from "./components/UiBridge.tsx";
-import { AgentNotificationBridge } from "./components/AgentNotificationBridge.tsx";
-import { PairApprovalProvider } from "./components/PairApprovalProvider.tsx";
-import { PairingRequesterProvider } from "./components/PairingRequesterProvider.tsx";
-import { AccessCheckingScreen } from "./components/AccessCheckingScreen.tsx";
+import { AgentNotificationBridge } from "./components/notifications/AgentNotificationBridge.tsx";
+import { PairApprovalProvider } from "./components/pairing/PairApprovalProvider.tsx";
+import { PairingRequesterProvider } from "./components/pairing/PairingRequesterProvider.tsx";
+import { AccessCheckingScreen } from "./components/pairing/AccessCheckingScreen.tsx";
 
 // Code-split boundaries (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism — routes/overlays below load their chunk on first
 // visit/open instead of riding the eager entry chunk (perf sweep C2.1). Solid
 // lazy renders nothing until resolved; a one-frame blank on first open is the
 // accepted trade (no Suspense wrapper needed).
-const Onboarding = lazy(() => import("./components/Onboarding.tsx").then((m) => ({ default: m.Onboarding })));
+const Onboarding = lazy(() => import("./components/pairing/Onboarding.tsx").then((m) => ({ default: m.Onboarding })));
 const SettingsRoot = lazy(() => import("./components/Settings/SettingsRoot.tsx").then((m) => ({ default: m.SettingsRoot })));
-const Help = lazy(() => import("./components/Help.tsx").then((m) => ({ default: m.Help })));
-const DesignGallery = lazy(() => import("./components/DesignGallery.tsx").then((m) => ({ default: m.DesignGallery })));
-const HelpOverlay = lazy(() => import("./components/HelpOverlay.tsx").then((m) => ({ default: m.HelpOverlay })));
-const ControllerMap = lazy(() => import("./components/ControllerMap.tsx").then((m) => ({ default: m.ControllerMap })));
-const BrowsePage = lazy(() => import("./components/BrowsePage.tsx").then((m) => ({ default: m.BrowsePage })));
-const BrowseRedirect = lazy(() => import("./components/BrowsePage.tsx").then((m) => ({ default: m.BrowseRedirect })));
+const Help = lazy(() => import("./components/palette/Help.tsx").then((m) => ({ default: m.Help })));
+const DesignGallery = lazy(() => import("./components/design/DesignGallery.tsx").then((m) => ({ default: m.DesignGallery })));
+const HelpOverlay = lazy(() => import("./components/palette/HelpOverlay.tsx").then((m) => ({ default: m.HelpOverlay })));
+const ControllerMap = lazy(() => import("./components/palette/ControllerMap.tsx").then((m) => ({ default: m.ControllerMap })));
+const BrowsePage = lazy(() => import("./components/browse/BrowsePage.tsx").then((m) => ({ default: m.BrowsePage })));
+const BrowseRedirect = lazy(() => import("./components/browse/BrowsePage.tsx").then((m) => ({ default: m.BrowseRedirect })));
 
 function WorkspaceRedirect() {
   // Boot restore (Author 2026-07-06, reverses the 2026-06-23 hello-page default):
@@ -72,7 +72,7 @@ export function App() {
   // invisible to run.js step1's window.__smoke check.
   if (import.meta.env.VITE_ROOST_SMOKE === "1"
     && typeof localStorage !== "undefined" && localStorage.getItem("roostSmoke") === "1") {
-    void import("./lib/smoke.ts").then((m) => m.maybeInstallSmokeBackdoor());
+    void import("./smoke/smoke.ts").then((m) => m.maybeInstallSmokeBackdoor());
   }
   onMount(() => {
     const cleanup = installKeyboardShortcuts();

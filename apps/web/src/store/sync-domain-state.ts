@@ -11,7 +11,7 @@ import {
   type FirehoseFrame,
   type SyncClientFrame,
 } from "@roost/protocol/proto/sync_pb";
-import { markPhase } from "../lib/diag.ts";
+import { markPhase } from "../browser/diag.ts";
 import {
   _currentLiveSyncLink,
   _notifySyncV2Generation,

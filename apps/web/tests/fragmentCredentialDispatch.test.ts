@@ -3,7 +3,7 @@
 // The dispatcher is exercised without a browser runtime.
 
 import { describe, expect, test } from "bun:test";
-import type { CapturedFragmentCredential } from "../src/auth/fragment-credential.ts";
+import type { CapturedFragmentCredential } from "../src/client/auth/fragment-credential.ts";
 import { dispatchCapturedFragmentCredential } from "../src/store/sync-bootstrap.pair.ts";
 import type { FragmentDispatcherDependencies } from "../src/store/sync-bootstrap.pair.ts";
 

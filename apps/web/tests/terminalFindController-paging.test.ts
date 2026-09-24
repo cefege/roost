@@ -12,7 +12,7 @@ import {
   reply, requests, setSearchRpc, settle, signals, type SearchResponse,
 } from "./terminalFindController-test-harness.ts";
 
-const { createTerminalFind } = await import("../src/lib/terminalFindController.ts");
+const { createTerminalFind } = await import("../src/renderer/terminalFindController.ts");
 
 function harness() {
   return createFindHarness(createTerminalFind);

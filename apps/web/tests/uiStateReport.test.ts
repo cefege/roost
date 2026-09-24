@@ -67,10 +67,10 @@ const document = documentFor([SESSION_ID]);
 const exportCalls: Array<{ folderKey: string; liveSessionIds: readonly string[] }> = [];
 let visibleSessionIds: string[] = [SESSION_ID];
 
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordClient: { uiReportState: async () => ({}) },
 }));
-mock.module("../src/auth/tab-id.ts", () => ({
+mock.module("../src/client/auth/tab-id.ts", () => ({
   getTabId: () => "tab-current",
 }));
 mock.module("../src/store/paneLayoutStore.ts", () => ({

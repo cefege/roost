@@ -1,0 +1,288 @@
+// Predictive-echo state machine (lib/predictiveEcho.ts) — the epoch/
+// confidence logic. The fake DOM, injectable clock (to simulate link RTT) and
+// keystroke helpers live in predictiveEcho-test-harness.ts; assertions read the
+// _debug() seam, not the DOM. Covers: SRTT gate (no-op on fast link), the
+// two-epoch confidence gate (first keystroke of a burst hidden until
+// confirmed), hard-reset on a shown wrong guess, and alt-screen suppression.
+
+import { describe, test, expect } from "bun:test";
+import { normalizePredictMode, type PredictMode } from "../../src/store/prefs/predictPref.ts";
+import type { CellGridFrame } from "@roost/protocol/cell";
+import {
+  clock, enc, frame, mk, mkWithHost, type,
+} from "../predictiveEcho-test-harness.ts";
+
+describe("predictive echo SM", () => {
+  test("slow link: first keystroke hidden, confirmed → next keystroke shown", () => {
+    const pe = mk();
+    clock.t = 0;
+    type(pe, "a");
+    expect(pe._debug().total).toBe(1);
+    expect(pe._debug().visible).toBe(0); // tentative (epoch unconfirmed) AND srtt unmeasured
+
+    clock.t = 200; // 200ms RTT → slow link
+    pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] })); // server echoed "a"
+    const d = pe._debug();
+    expect(d.confirmedEpoch).toBe(1);
+    expect(d.srtt).toBeGreaterThan(100);
+
+    clock.t = 210;
+    type(pe, "b"); // same epoch, now confirmed → visible on the slow link
+    expect(pe._debug().visible).toBe(1);
+  });
+
+  test("fast link: predictions made but never shown (SRTT gate)", () => {
+    const pe = mk();
+    type(pe, "a");
+    clock.t = 5; // 5ms RTT → fast link
+    pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] }));
+    clock.t = 6;
+    type(pe, "b");
+    expect(pe._debug().total).toBe(1);
+    expect(pe._debug().visible).toBe(0); // srtt/2 ≈ 2.5ms ≤ 30 → no-op
+  });
+
+  test("shown wrong guess → hard reset (fall back to authoritative)", () => {
+    const pe = mk();
+    type(pe, "a");
+    clock.t = 200; pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] })); // confirm epoch
+    clock.t = 210; type(pe, "b");
+    expect(pe._debug().visible).toBe(1); // "b" is shown
+    // Next frame contradicts the SHOWN "b" (col 1 is "x") → nuke all predictions.
+    clock.t = 410; pe.onFrame(frame({ seq: 3, cc: 1, rows: ["ax"] }));
+    expect(pe._debug().total).toBe(0);
+  });
+
+  test("alt-screen suppresses + clears predictions", () => {
+    const pe = mk();
+    type(pe, "a");
+    expect(pe._debug().total).toBe(1);
+    pe.onFrame(frame({ seq: 2, alt: true })); // entered a TUI
+    expect(pe._debug().total).toBe(0);
+    type(pe, "xyz"); // no-op while alt
+    expect(pe._debug().total).toBe(0);
+  });
+
+  test("ESC / control byte refuses (bumps epoch → stays hidden)", () => {
+    const pe = mk();
+    type(pe, new Uint8Array([0x1b])); // ESC → becomeTentative, no prediction
+    expect(pe._debug().total).toBe(0);
+    expect(pe._debug().predictionEpoch).toBe(2);
+    type(pe, "a"); // epoch 2, confirmedEpoch 0 → tentative → hidden
+    expect(pe._debug().visible).toBe(0);
+  });
+
+  test("injected never mode disables prediction", () => {
+    const pe = mk("never");
+    type(pe, "a");
+    expect(pe._debug().total).toBe(0);
+  });
+});
+
+// Display preference aliases normalize at the settings boundary; the engine
+// receives a typed getter and never reads storage on key/frame paths.
+describe("display_preference modes", () => {
+  test("mode resolution + back-compat aliases", () => {
+    const cases: [string | null, PredictMode][] = [
+      [null, "adaptive"], ["adaptive", "adaptive"],
+      ["0", "never"], ["never", "never"],
+      ["force", "always"], ["always", "always"],
+      ["experimental", "experimental"],
+    ];
+    for (const [value, expected] of cases) {
+      expect(normalizePredictMode(value)).toBe(expected);
+      expect(mk(expected)._debug().mode).toBe(expected);
+    }
+  });
+
+  test("Experimental: first keystroke shown IMMEDIATELY (no confidence gate, no RTT)", () => {
+    const pe = mk("experimental");
+    type(pe, "a"); // no prior confirm, srtt=0 → still visible (epoch == confirmedEpoch)
+    const d = pe._debug();
+    expect(d.mode).toBe("experimental");
+    expect(d.visible).toBe(1);
+  });
+
+  test("Always: shown after the epoch confirms even on a fast link", () => {
+    const pe = mk("always");
+    type(pe, "a");
+    expect(pe._debug().visible).toBe(0); // first char tentative until confirmed
+    clock.t = 5; pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] })); // confirm (fast 5ms)
+    clock.t = 6; type(pe, "b");
+    expect(pe._debug().visible).toBe(1); // always-mode shows despite srtt≈5ms
+  });
+
+  test("right/left arrow predicts a cursor move (CSI C/D)", () => {
+    const pe = mk("always"); // initial frame cursor at col 0
+    type(pe, new Uint8Array([0x1b, 0x5b, 0x43])); // ESC[C — right
+    expect(pe._debug().predCursorCol).toBe(1);
+    type(pe, new Uint8Array([0x1b, 0x5b, 0x43])); // right again
+    expect(pe._debug().predCursorCol).toBe(2);
+    type(pe, new Uint8Array([0x1b, 0x5b, 0x44])); // ESC[D — left
+    expect(pe._debug().predCursorCol).toBe(1);
+    expect(pe._debug().total).toBe(0); // arrows move the caret, predict no glyph
+  });
+
+  test("predicted cursor (onCursor) leads the echoed chars when shown", () => {
+    const cursorCalls: (number | null)[] = [];
+    const { pe } = mkWithHost("experimental", {
+      onCursor: (col) => cursorCalls.push(col),
+    });
+    type(pe, "ab"); // a@0, b@1 → caret should lead to col 2
+    expect(cursorCalls[cursorCalls.length - 1]).toBe(2);
+  });
+
+  test("Experimental wrong guess resets only that cell (no hard reset)", () => {
+    const pe = mk("experimental"); // initial frame seq=1
+    type(pe, "ab"); // a@0, b@1 — both shown immediately
+    expect(pe._debug().visible).toBe(2);
+    // Frame echoes "a" correctly but col1 is "x" (b was wrong). Past ack+grace,
+    // so the contradiction is judgeable rather than pending.
+    clock.t = 100; pe.onFrame(frame({ seq: 2, cc: 1, rows: ["ax"] }));
+    // a confirmed+retired, b dropped (its own cell) — engine still in experimental, no throw.
+    expect(pe._debug().mode).toBe("experimental");
+    expect(pe._debug().total).toBe(0);
+  });
+});
+
+// Step 3/4/5 hardening: full-frame reconciliation, resize wipe, SRTT
+// hysteresis through the 20–30 ms dead-band, and the paste guard. All use the
+// existing harness (frame(), mk(), the shared clock.t, the _debug() seam).
+describe("prediction-engine hardening", () => {
+  test("non-resize full frame reconciles instead of wiping", () => {
+    const pe = mk();                  // seq 1 full → anchors cols 80, viewportRows 1
+    type(pe, "a");                    // a@0
+    expect(pe._debug().total).toBe(1);
+    clock.t = 200;
+    // SAME dimensions, full frame → RECONCILE (cull), NOT wipe.
+    pe.onFrame(frame({ seq: 2, full: true, cc: 1, rows: ["a"] }));
+    const d = pe._debug();
+    expect(d.total).toBe(0);          // confirmed + retired, not wiped-unjudged
+    expect(d.srtt).toBeGreaterThan(0);// judged → SRTT sampled (old ||frame.full wiped → srtt stayed 0)
+  });
+
+  test("resize full frame still wipes (coords invalidated)", () => {
+    const pe = mk();                  // cols 80
+    type(pe, "a");                    // a@0
+    clock.t = 200;
+    // cols changed → resize → wipe BEFORE reconcile (SRTT never sampled).
+    pe.onFrame(frame({ seq: 2, full: true, cols: 100, cc: 1, rows: ["a"] }));
+    const d = pe._debug();
+    expect(d.total).toBe(0);          // wiped
+    expect(d.srtt).toBe(0);           // never judged
+  });
+
+  test("a batch history signal clears predictions from an earlier delta", () => {
+    const pe = mk("always");
+    type(pe, "a");
+    expect(pe._debug().total).toBe(1);
+
+    pe.onFrame(frame({ seq: 2, full: true, cc: 0, rows: [null] }), true);
+
+    expect(pe._debug().total).toBe(0);
+  });
+
+  test("hysteresis: shows through the 20–30 ms dead-band once armed", () => {
+    const pe = mk();
+    // Arm: a high-RTT confirmation (SRTT/2 > SHOW_ON arms srttTrigger).
+    type(pe, "a");
+    clock.t = 200;
+    pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] })); // srtt=200, half 100 > 30 → armed
+    // Drive the EWMA down into the 40–60 ms band (half 20–30, the old dead-band
+    // where the stateless gate returned false) with ~50 ms confirmations.
+    // srtt = 50 + (200-50)*0.875^n → ≈53 after 29 steps (codes 98..126, < DEL).
+    let row = "a", seq = 3;
+    for (let i = 0; i < 29; i++) {
+      const ch = String.fromCharCode(98 + i); // b, c, … ~
+      type(pe, ch);
+      clock.t += 50;
+      row += ch;
+      pe.onFrame(frame({ seq: seq++, cc: row.length, rows: [row] }));
+    }
+    const mid = pe._debug();
+    expect(mid.srtt).toBeGreaterThan(40);      // genuinely in the dead-band…
+    expect(mid.srtt).toBeLessThanOrEqual(60);  // …where OLD code hid everything
+    // A fresh prediction in the band is still visible — armed persists through it.
+    type(pe, "0");
+    expect(pe._debug().visible).toBe(1);
+  });
+
+  test("paste guard: >100 bytes reset, never predicted", () => {
+    const pe = mk();
+    type(pe, "a");                        // a real keystroke
+    expect(pe._debug().total).toBe(1);
+    type(pe, new Uint8Array(101));        // a paste → reset + drop
+    expect(pe._debug().total).toBe(0);
+  });
+  test("delta frame (partial viewportRows) reconciles, not wiped by dirty-count drift", () => {
+    // A DELTA frame's viewportRows holds only the CHANGED rows (types.ts:58-61,
+    // grid-to-cells.ts:112-114), so viewportRows.length is the dirty-row COUNT,
+    // not the viewport height. Resize must be detected via frame.rows (the
+    // stable height), else consecutive deltas with differing dirty counts wipe
+    // every prediction and SRTT never gets sampled. A single delta reaches the
+    // predictor as sparse input; a coalesced batch supplies its final canonical
+    // viewport so every changed row is judgeable.
+    // First FULL frame: 2 viewport rows → seeds the height tracker.
+    const { pe } = mkWithHost("adaptive", {
+      anchor: frame({ seq: 1, full: true, cc: 0, rows: [null, null] }),
+    });
+    type(pe, "a");                           // a@0, bornMs 0
+    clock.t = 200;
+    // DELTA: full:false, only ONE changed row (the echoed "a"). Same height
+    // (frame.rows=24) but viewportRows.length=1 ≠ the full frame's 2.
+    pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] }));
+    const d = pe._debug();
+    expect(d.total).toBe(0);                  // reconciled + retired, NOT wiped
+    expect(d.srtt).toBeGreaterThan(0);        // judged → SRTT sampled (the bug wiped → srtt stayed 0)
+  });
+  test("delta confirm reads the right row by .index (cursor off row 0)", () => {
+    // Production deltas carry only DIRTY rows; cellCharAt must look up by the
+    // row's .index, not array position. A char typed on a NON-zero row (the
+    // common bottom-prompt case) otherwise reads the wrong cell → no confirm →
+    // srtt stays 0 and Adaptive never arms. confirmedEpoch>0 is the
+    // RTT-independent discriminator (wipe→0, reconcile→advances).
+    const { pe } = mkWithHost("adaptive", {
+      anchor: frame({ seq: 1, full: true, cr: 5, cc: 0, rows: [null] }), // cursor on row 5
+    });
+    type(pe, "a"); // a@(5,0)
+    clock.t = 200;
+    // DELTA: only row 5 changed, at viewportRows ARRAY POSITION 0 (.index=5).
+    const delta = {
+      streamId: "test-stream:0",
+      gridEpoch: "test-grid:0",
+      cols: 80, rows: 24, cursorRow: 5, cursorCol: 1, cursorVisible: true,
+      altScreen: false, cursorKeysApp: false, bracketedPaste: false, full: false,
+      viewportRows: [{ index: 5, spans: [{ text: "a", columns: 1, fg: 256, bg: 256, flags: 0 }] }],
+      mouseTracking: 0, mouseSgr: false, focusEvents: false,
+      scrollbackRows: [], scrollbackAppend: [], scrollbackTotal: 0, sbBase: 0,
+      baseSeq: 1, seq: 2,
+    } as CellGridFrame;
+    pe.onFrame(delta);
+    const d = pe._debug();
+    expect(d.confirmedEpoch).toBeGreaterThan(0); // reconcile confirmed (buggy array-index → 0)
+    expect(d.srtt).toBeGreaterThan(0);           // round-trip sampled
+  });
+  test("unrelated sparse delta does not judge a pending prediction", () => {
+    const pe = mk("always");
+    type(pe, "a");
+    clock.t = 20;
+    pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] }));
+    type(pe, "b");
+    expect(pe._debug().visible).toBe(1);
+
+    const unrelatedDelta = {
+      streamId: "test-stream:0",
+      gridEpoch: "test-grid:0",
+      cols: 80, rows: 24, cursorRow: 4, cursorCol: 1, cursorVisible: true,
+      altScreen: false, cursorKeysApp: false, bracketedPaste: false, full: false,
+      viewportRows: [{ index: 4, spans: [{ text: "x", columns: 1, fg: 256, bg: 256, flags: 0 }] }],
+      mouseTracking: 0, mouseSgr: false, focusEvents: false,
+      scrollbackRows: [], scrollbackAppend: [], scrollbackTotal: 0, sbBase: 0,
+      baseSeq: 2, seq: 3,
+    } as CellGridFrame;
+    pe.onFrame(unrelatedDelta);
+
+    expect(pe._debug().total).toBe(1);
+    expect(pe._debug().visible).toBe(1);
+  });
+});

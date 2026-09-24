@@ -28,6 +28,11 @@ type MoveContext = {
   packageData: Map<string, { name: string; exports: Record<string, unknown> }>;
 };
 
+
+function rewritesModuleSpecifier(source: string, offset: number, matchLength: number, prefix: string): boolean {
+  return !prefix.includes("URL") || /^\s*,\s*import\.meta\.url\s*\)/.test(source.slice(offset + matchLength));
+}
+
 function parseCli(argv: string[]): CliOptions {
   let manifest: string | undefined;
   let dryRun = false;
@@ -258,6 +263,7 @@ function rewriteImports(context: MoveContext, file: string, source: string): { t
   let count = 0;
   const text = source.replace(MODULE_SPECIFIER, (match, prefix: string, quote: string, specifier: string, offset: number) => {
     if (!mask[offset]) return match;
+    if (!rewritesModuleSpecifier(source, offset, match.length, prefix)) return match;
     const replacement = rewriteSpecifier(context, file, specifier, prefix.includes("URL"));
     if (replacement === specifier) return match;
     count += 1;

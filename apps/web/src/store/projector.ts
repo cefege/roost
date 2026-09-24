@@ -22,8 +22,8 @@ import { signal } from "@roost/observability/diag";
 import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 import { isPendingSpawn } from "./optimisticSpawn.ts";
 import { pruneTerminalSession } from "./terminal-stream.ts";
-import { pruneTerminalInputRoute } from "../ws/terminal-input-router.ts";
-import { pruneSessionTrace } from "../lib/diag.ts";
+import { pruneTerminalInputRoute } from "./transport/terminal-input-router.ts";
+import { pruneSessionTrace } from "../browser/diag.ts";
 import {
   clearAgentStatusForSession,
   markAgentStatusSessionOpen,

@@ -14,9 +14,9 @@ import {
   type AttachmentTransferClientFrame,
   type AttachmentTransferServerFrame,
 } from "@roost/protocol/proto/attachment_transfer_pb";
-import type { AttachmentDirectGrant } from "../src/lib/attachmentDirectGrant.ts";
-import { openAttachmentLoopbackTransfer } from "../src/ws/attachment-loopback.ts";
-import { sendAttachmentFile } from "../src/lib/attachmentTransfer.ts";
+import type { AttachmentDirectGrant } from "../src/client/attachments/attachmentDirectGrant.ts";
+import { openAttachmentLoopbackTransfer } from "../src/client/carriers/attachment-loopback.ts";
+import { sendAttachmentFile } from "../src/client/attachments/attachmentTransfer.ts";
 
 class FakeSocket {
   binaryType = "blob";

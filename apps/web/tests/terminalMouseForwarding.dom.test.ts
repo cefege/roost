@@ -5,9 +5,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
 import type { MouseTracking } from "@roost/protocol/cell";
-import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
-import type { TerminalMouseForwarding } from "../src/lib/terminalMouseForwarding.ts";
-import { terminalLinkModifierKey } from "../src/lib/browserPlatform.ts";
+import type { CellGridRenderer } from "../src/renderer/cellRenderer.ts";
+import type { TerminalMouseForwarding } from "../src/renderer/terminalMouseForwarding.ts";
+import { terminalLinkModifierKey } from "../src/browser/browserPlatform.ts";
 
 // Bun resolves solid-js to its SSR build, where effects do not run. Use the real
 // client implementation so bindWheelAndTouchMove owns listeners as it does in
@@ -16,7 +16,7 @@ import { terminalLinkModifierKey } from "../src/lib/browserPlatform.ts";
 const S = await import("solid-js/dist/solid.js") as unknown as typeof SolidApi;
 mock.module("solid-js", () => ({ ...S }));
 const { attachTerminalMouseForwarding } = await import(
-	"../src/lib/terminalMouseForwarding.ts"
+	"../src/renderer/terminalMouseForwarding.ts"
 );
 
 type Listener = (event: unknown) => void;

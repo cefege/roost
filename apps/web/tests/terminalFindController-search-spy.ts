@@ -40,7 +40,7 @@ export function setSearchRpc(impl: SearchRpc): void {
   rpcImpl = impl;
 }
 
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordClient: {
     sessionsSearchScrollback(request: SearchRequest, options?: SearchCallOptions) {
       requests.push(request);

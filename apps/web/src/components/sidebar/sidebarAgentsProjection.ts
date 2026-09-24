@@ -4,8 +4,8 @@
 // Folder identity stays worker-inclusive through folderKeyOf and FolderGroup.key.
 
 import type { AgentStatus, Session } from "@roost/protocol/wire";
-import type { AgentStatusLevel } from "../../lib/agentStatus.ts";
-import { AGENT_STATUS_PRESENTATION, deriveAgentStatusLevel } from "../../lib/agentStatus.ts";
+import type { AgentStatusLevel } from "../../client/agents/agentStatus.ts";
+import { AGENT_STATUS_PRESENTATION, deriveAgentStatusLevel } from "../../client/agents/agentStatus.ts";
 import type { FolderGroup } from "../../lib/folderGroups.ts";
 import { folderKeyOf } from "../../lib/folderKey.ts";
 import { filterNavigationSearchDocuments, type NavigationSearchDocument } from "../../store/navigation-search.ts";

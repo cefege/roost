@@ -4,8 +4,8 @@
 // credentials, and only after the serving origin's local bootstrap has been
 // resolved — connect.ts picks its coordinator at module scope, so a bootstrap
 // that landed later would be ignored.
-import { captureAndScrubFragmentCredential } from "./auth/fragment-credential.ts";
-import { loadLocalBootstrap } from "./lib/localBootstrap.ts";
+import { captureAndScrubFragmentCredential } from "./client/auth/fragment-credential.ts";
+import { loadLocalBootstrap } from "./client/carriers/localBootstrap.ts";
 
 captureAndScrubFragmentCredential();
 

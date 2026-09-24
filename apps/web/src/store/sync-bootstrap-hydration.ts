@@ -29,7 +29,7 @@ import {
   mcpRelayProtoToWire,
   taskProtoToWire,
   terminalCoreCapacityProtoToWire,
-} from "./sync-proto-adapters.ts";
+} from "../client/sync/sync-proto-adapters.ts";
 import { setSessionsHydrated, setWorkersHydrated } from "./sync-hydrated.ts";
 import { registerSyncDomainHydrator } from "./sync-domain-hydration.ts";
 import type { SyncDomainToken } from "./sync-link-state.ts";

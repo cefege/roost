@@ -18,15 +18,15 @@ import {
 let dom: InstalledFakeDom;
 let fakeDocument: FakeDocument;
 
-mock.module("../src/lib/pageVisible.ts", () => ({ isPageVisible: () => true }));
+mock.module("../src/browser/pageVisible.ts", () => ({ isPageVisible: () => true }));
 mock.module("@roost/observability/diag", () => ({ diag: () => undefined }));
 
 // Module-loading boundary: the units below bind the mocked visibility facade
 // at import time, so they load after the mocks above. Browser globals are
 // installed per test — nothing here reads them at import.
-const { estimateWtermSize } = await import("../src/lib/wtermSizeEstimate.ts");
+const { estimateWtermSize } = await import("../src/client/terminal-stream/wtermSizeEstimate.ts");
 const { createCellTerminalViewport } = await import(
-  "../src/components/cell-terminal-viewport.ts"
+  "../src/components/terminal/cell-terminal-viewport.ts"
 );
 
 /** The live claim for one mounted display box, measured the way a mounted pane

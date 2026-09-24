@@ -4,8 +4,8 @@
 // a carrier from an epoch sentinel or a mocked forwarding callback.
 
 import type { Browser, Page } from "@playwright/test";
-import type { TerminalBrowserStreamSnapshot } from "../../apps/web/src/lib/terminalDiagSnapshot.ts";
-import type { TerminalTimingResult } from "../../apps/web/src/lib/smokeHarness.ts";
+import type { TerminalBrowserStreamSnapshot } from "../../apps/web/src/renderer/terminalDiagSnapshot.ts";
+import type { TerminalTimingResult } from "../../apps/web/src/smoke/smokeHarness.ts";
 import { enrollSmokeBrowser, expect } from "./fixtures.ts";
 import {
   type EnrolledPage,

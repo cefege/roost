@@ -3,7 +3,7 @@
 // invariants; pinned qualification machines opt into the absolute budgets with
 // ROOST_PERF_QUALIFY=1.
 
-import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
+import type { SmokeApi } from "../../apps/web/src/smoke/smoke.ts";
 import { test, expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import { navigateAndProve, spawnFixtureSession } from "./perf-probe-fixture.ts";

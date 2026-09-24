@@ -3,7 +3,7 @@
 
 import { afterEach, expect, test, vi } from "bun:test";
 import type { TerminalPeerPacketLane } from "@roost/protocol/terminal-peer";
-import { TerminalPeerPacketStalls } from "../src/ws/terminal-peer-packet-stalls.ts";
+import { TerminalPeerPacketStalls } from "../src/client/carriers/terminal-peer-packet-stalls.ts";
 
 afterEach(() => vi.useRealTimers());
 

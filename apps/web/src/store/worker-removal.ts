@@ -3,7 +3,7 @@
 // carriers retire before the machine record disappears.
 import type { Worker } from "@roost/protocol/wire";
 import { terminalDirectRegistry } from "./terminal-stream-transport.ts";
-import { retireTerminalGrantsForWorker } from "../ws/local-terminal-grants.ts";
+import { retireTerminalGrantsForWorker } from "./transport/local-terminal-grants.ts";
 import { deleteStoreRecord } from "./root.ts";
 import { workerOnline } from "./sync-routable.ts";
 

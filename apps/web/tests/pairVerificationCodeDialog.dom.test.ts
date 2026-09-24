@@ -4,7 +4,7 @@
 
 import { describe, expect, mock, test } from "bun:test";
 import type * as SolidApi from "solid-js";
-import type { PairCodeDialogState } from "../src/components/PairVerificationCodeDialog.tsx";
+import type { PairCodeDialogState } from "../src/components/pairing/PairVerificationCodeDialog.tsx";
 import {
   pairingPrimitiveStubs,
   setPairingPrimitiveCaptures,
@@ -57,7 +57,7 @@ mock.module("../src/components/Settings/md/primitives.tsx", () => pairingPrimiti
 
 // The component must load after its primitive mock is installed.
 const { PairVerificationCodeDialog } = await import(
-  "../src/components/PairVerificationCodeDialog.tsx"
+  "../src/components/pairing/PairVerificationCodeDialog.tsx"
 );
 
 /** Walks what actually rendered: a component contributes its output, so a

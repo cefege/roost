@@ -11,7 +11,7 @@ import {
 } from "@roost/protocol/proto/sync_pb";
 import { isTerminalGeometry, isTerminalUuid } from "@roost/protocol/viewport";
 import { pushTerminalChunkTransfer, resetTerminalChunkTransfer, type TerminalChunkTransfer } from "./terminal-stream-chunks.ts";
-import { decodeTerminalWireFrame, foldTerminalFrame, type TerminalFrameFoldTarget } from "./terminal-stream-frame-fold.ts";
+import { decodeTerminalWireFrame, foldTerminalFrame, type TerminalFrameFoldTarget } from "../client/terminal-stream/terminal-stream-frame-fold.ts";
 import { terminalGenerationMatches } from "./terminal-stream-liveness.ts";
 import { terminalTransportTargetForToken } from "./terminal-stream-publication.ts";
 import { applyTerminalPromotionCanonical } from "./terminal-stream-promotion-commit.ts";

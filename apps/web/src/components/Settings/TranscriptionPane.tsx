@@ -7,8 +7,8 @@
 // lib/deepgramKey (cache dropped on save).
 
 import { createEffect, createResource, createSignal, Show } from "solid-js";
-import { coordClient } from "../../connect.ts";
-import { invalidateDeepgramKey } from "../../lib/deepgramKey.ts";
+import { coordClient } from "../../client/rpc/connect.ts";
+import { invalidateDeepgramKey } from "../../voice/deepgramKey.ts";
 import { Card, Button, Icon, StatusDot, SwitchRow, TextField, Select } from "./md/primitives.tsx";
 
 // Deepgram nova-3 languages, verbatim from the official support matrix:
@@ -109,7 +109,7 @@ const LANGUAGES: { value: string; label: string }[] = [
   { value: "multi", label: "Multilingual (code-switching)" },
   { value: "__auto__", label: "Auto-detect" },
 ];
-import { keytermBiasing, setKeytermBiasing } from "../../lib/keytermBiasingPref.ts";
+import { keytermBiasing, setKeytermBiasing } from "../../store/prefs/keytermBiasingPref.ts";
 
 
 

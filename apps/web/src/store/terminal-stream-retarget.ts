@@ -4,7 +4,7 @@
 
 import { create } from "@bufbuild/protobuf";
 import { TerminalViewCommandSchema } from "@roost/protocol/proto/sync_pb";
-import { isPageVisible } from "../lib/pageVisible.ts";
+import { isPageVisible } from "../browser/pageVisible.ts";
 import {
   currentSyncV2TerminalState,
   registerSyncV2GenerationHandler,

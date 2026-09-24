@@ -88,22 +88,22 @@ mock.module("../src/store/terminal-stream-types.ts", () => ({
     && left.workerFp === right.workerFp
   ),
 }));
-mock.module("../src/ws/terminal-direct-browser.ts", () => ({ createTerminalDirectRequestId: () => `attempt-${candidates.length + 1}` }));
-mock.module("../src/ws/terminal-input-router.ts", () => ({
+mock.module("../src/client/carriers/terminal-direct-browser.ts", () => ({ createTerminalDirectRequestId: () => `attempt-${candidates.length + 1}` }));
+mock.module("../src/store/transport/terminal-input-router.ts", () => ({
   holdTerminalInput: () => { const hold = new FakeHold(); holds.push(hold); return hold; },
   drainTerminalInput: (_sessionId: string, token: Token) => { drainCalls.push(token); return drainOperation(token); },
   claimTerminalInputRoute: (sessionId: string, destination: Destination) => { claimCalls.push(destination); return claimOperation(sessionId, destination); },
   terminalInputConnectionKey: (token: Token) => JSON.stringify([token.socketGeneration, token.socketId, token.processEpoch, token.transportKind, token.workerFp]),
   terminalInputRequiresRouteClaim: () => requiresRouteClaim,
 }));
-mock.module("../src/ws/sync-outbound.ts", () => ({
+mock.module("../src/store/transport/sync-outbound.ts", () => ({
   terminalInputDestinationForDirectConnection: () => directDestination,
   terminalInputDestinationForSession: () => oldDestination,
 }));
-mock.module("../src/ws/terminal-peer-runtime.ts", () => ({ terminalPeerDeadline: <T>(promise: Promise<T>) => promise }));
+mock.module("../src/client/carriers/terminal-peer-runtime.ts", () => ({ terminalPeerDeadline: <T>(promise: Promise<T>) => promise }));
 
 // Module mocks must install before importing the promotion owner.
-const promotions = await import("../src/ws/terminal-peer-promotions.ts");
+const promotions = await import("../src/store/transport/terminal-peer-promotions.ts");
 
 class FakeRegistry {
   committed = 0;

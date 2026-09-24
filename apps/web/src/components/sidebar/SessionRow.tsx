@@ -21,7 +21,7 @@ import { colorForFp } from "../../lib/fpColor.ts";
 import { IconButton } from "../Settings/md/IconButton.tsx";
 import { SessionRowFlat } from "./SessionRowFlat.tsx";
 import { ROW_BASE, relTimeTickMs } from "./SessionRow.constants.ts";
-import { AgentStatusIndicator } from "../AgentStatusIndicator.tsx";
+import { AgentStatusIndicator } from "../agents/AgentStatusIndicator.tsx";
 
 interface SessionRowProps {
   session: Session;

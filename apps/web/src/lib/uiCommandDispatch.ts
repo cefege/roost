@@ -11,7 +11,7 @@ import { rootStore } from "../store/root.ts";
 import type { Session } from "@roost/protocol/wire";
 import { activeSessionForPath, liveSessionIdsForFolder } from "../store/selectors.ts";
 import { setSpotlightSessionId, clearSpotlight } from "../store/spotlight.ts";
-import { getTabId } from "../auth/tab-id.ts";
+import { getTabId } from "../client/auth/tab-id.ts";
 import { folderKeyOf } from "./folderKey.ts";
 import { applyUiCommandToLayout, frameAccepted } from "./uiCommandCore.ts";
 import {

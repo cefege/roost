@@ -55,7 +55,7 @@ mock.module("@solidjs/router", () => ({
   useLocation: () => ({ pathname: "/" }),
 }));
 
-mock.module("../src/lib/windowSizeClass.ts", () => ({
+mock.module("../src/browser/windowSizeClass.ts", () => ({
   isCompact: () => false,
 }));
 
@@ -77,7 +77,7 @@ mock.module("../src/components/Settings/md/Dialog.tsx", () => ({
     : null),
 }));
 
-mock.module("../src/lib/terminalIncidentCapture.ts", () => ({
+mock.module("../src/renderer/terminalIncidentCapture.ts", () => ({
   terminalCaptureUiState: () => ({
     sessionId: SESSION_ID,
     phase: uiPhase,
@@ -105,16 +105,16 @@ mock.module("../src/lib/terminalIncidentCapture.ts", () => ({
   noteTerminalRenderApplied: () => {},
   noteTerminalRendererDisposed: () => {},
 }));
-mock.module("../src/lib/terminalCaptureDownload.ts", () => ({
+mock.module("../src/renderer/terminalCaptureDownload.ts", () => ({
   announceTerminalCaptureResult: () => announced.push("announced"),
   announceTerminalCaptureException: () => announced.push("exception"),
 }));
 
 // Mock registration must precede these imports: both bind the seam and the JSX
 // runtime at evaluation time.
-const { TerminalContextMenu } = await import("../src/components/TerminalContextMenu.tsx");
+const { TerminalContextMenu } = await import("../src/components/terminal/TerminalContextMenu.tsx");
 const { TerminalCaptureConsentDialog } = await import(
-  "../src/components/TerminalCaptureConsentDialog.tsx"
+  "../src/components/terminal/TerminalCaptureConsentDialog.tsx"
 );
 
 const documentStub = {

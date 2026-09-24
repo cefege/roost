@@ -45,10 +45,10 @@ const attachmentProbe = mock(async (request: { filename: string }) => ({
   absPath: `/tmp/${request.filename}`,
 }));
 
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordClient: { attachmentProbe, attachFileChunk: mock(() => undefined) },
 }));
-mock.module("../src/lib/attachmentDirect.ts", () => ({ uploadAttachmentDirect: async () => null }));
+mock.module("../src/client/attachments/attachmentDirect.ts", () => ({ uploadAttachmentDirect: async () => null }));
 mock.module("../src/lib/userTerminalInput.ts", () => ({ sendUserTerminalInput: mock(() => undefined) }));
 mock.module("../src/store/transfers.ts", () => ({
   addTransfer,

@@ -9,13 +9,13 @@
 // FailedPrecondition while the target worker is still re-dialing.
 
 import { ConnectError, Code } from "@connectrpc/connect";
-import { coordClient } from "../connect.ts";
+import { coordClient } from "../client/rpc/connect.ts";
 import { log } from "@roost/observability/log";
 import { signal } from "@roost/observability/diag";
-import { estimateWtermSize } from "./wtermSizeEstimate.ts";
+import { estimateWtermSize } from "../client/terminal-stream/wtermSizeEstimate.ts";
 import { rootStore } from "../store/root.ts";
 import type { WorkerFp, Session } from "@roost/protocol/wire";
-import { sendTerminalInput } from "../ws/sync-outbound.ts";
+import { sendTerminalInput } from "../store/transport/sync-outbound.ts";
 import { resolveAgent, autoLaunchEnabled } from "./agents.ts";
 import { clampTerminalGeometry } from "@roost/protocol/viewport";
 

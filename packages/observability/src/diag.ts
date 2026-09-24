@@ -58,7 +58,7 @@ function readEnabled(): boolean {
 const DIAG_ENABLED = readEnabled();
 
 // Optional sink override. SPA installs a batched coord-shipping sink
-// in apps/web/src/lib/diag.ts so events leave the browser. Coord +
+// in apps/web/src/browser/diag.ts so events leave the browser. Coord +
 // worker leave this null and emit via `log.info` → stdout → launchd.
 type DiagSink = (record: Record<string, unknown>) => void;
 let _sink: DiagSink | null = null;
@@ -115,7 +115,7 @@ export function isDiagEnabled(): boolean { return DIAG_ENABLED; }
 // ─── Tier-1 signal channel ─────────────────────────────────────────────────
 // ALWAYS on (independent of ROOST_DIAG), low-volume, genuine anomalies only.
 // Bun → log.warn("signal", kind, kv) → stderr → *.err.log. SPA → an
-// always-installed signal sink (apps/web/src/lib/diag.ts) that ships to coord.
+// always-installed signal sink (apps/web/src/browser/diag.ts) that ships to coord.
 // This is the daily-review channel `roost doctor` reads; keep callsites rare or
 // rely on the per-kind cooldown below. Context-level detail stays on diag().
 export type SignalKind =

@@ -50,7 +50,7 @@ let coordinatorRead: (query: ScrollbackRequest) => Promise<DirectPage>;
 let directConnection: DirectHistoryConnection | null = null;
 let currentToken: TerminalGenerationToken | null = null;
 
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
   coordClient: {
     sessionsGetScrollbackCells(query: ScrollbackRequest) {
       coordinatorCalls.push(query);

@@ -20,7 +20,7 @@ const {
   _terminalActionSheetStyle,
   _terminalContextMenuUsesActionSheet,
 } = await import(
-  "../src/components/TerminalContextMenu.tsx"
+  "../src/components/terminal/TerminalContextMenu.tsx"
 );
 
 test("mobile action sheet stays inside the keyboard-safe viewport", () => {

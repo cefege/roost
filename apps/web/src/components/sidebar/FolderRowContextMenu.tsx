@@ -88,7 +88,7 @@ export function FolderRowContextMenu(props: FolderRowContextMenuProps) {
 			hasCustom: false,
 			onCommit: async (name) => {
 				if (!name) return; // workspace name is min-1; empty = no-op
-				const { coordClient } = await import("../../connect.ts");
+				const { coordClient } = await import("../../client/rpc/connect.ts");
 				const ws = workspaceForFolder(workerFp, folderPath);
 				if (ws) {
 					await coordClient.workspacesUpdate({

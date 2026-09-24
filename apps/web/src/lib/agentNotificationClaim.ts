@@ -3,7 +3,7 @@
 // cannot suppress a fresh notification. Web Locks provide atomic election.
 
 import type { AgentNotificationDelivery } from "./agentNotificationCore.ts";
-import { agentStatusOccupantKey } from "./agentStatus.ts";
+import { agentStatusOccupantKey } from "../client/agents/agentStatus.ts";
 
 const CLAIM_PREFIX = "roost.agentNotificationClaim.";
 const CLAIM_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;

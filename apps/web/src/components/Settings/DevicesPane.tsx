@@ -4,16 +4,16 @@
 // auth/web-key.ts; PairDevicePane and Onboarding own the two pairing surfaces.
 
 import { For, Show, createResource, createSignal } from "solid-js";
-import { coordClient } from "../../connect.ts";
+import { coordClient } from "../../client/rpc/connect.ts";
 import {
   getCurrentWebKeyInfo,
   rotateCurrentWebKey,
-} from "../../auth/web-key.ts";
-import { browserSelfLabel } from "../../lib/browserSelfLabel.ts";
+} from "../../client/auth/web-key.ts";
+import { browserSelfLabel } from "../../browser/browserSelfLabel.ts";
 import { addToast } from "../../store/toastStore.ts";
 import { Card, Button, EmptyState, List, ListRow } from "./md/primitives.tsx";
 import { PairDevicePane } from "./PairDevicePane.tsx";
-import { Onboarding } from "../Onboarding.tsx";
+import { Onboarding } from "../pairing/Onboarding.tsx";
 
 function pairingProvenanceLabel(device: {
   pairedFromIp?: string;

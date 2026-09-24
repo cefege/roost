@@ -11,22 +11,22 @@ import {
   rootStore,
 } from "./root.ts";
 import { resetTerminalStream } from "./terminal-stream.ts";
-import { resetTerminalOutboundState } from "../ws/sync-outbound.ts";
-import { resetLocalTerminalState } from "../ws/local-terminal.ts";
+import { resetTerminalOutboundState } from "./transport/sync-outbound.ts";
+import { resetLocalTerminalState } from "./transport/local-terminal.ts";
 import { resetLastSeenSyncEventId } from "./sync.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { resetSyncHydration } from "./sync-hydrated.ts";
 import { resetOptimisticSpawnState } from "./optimisticSpawn.ts";
 import { resetPendingCloses } from "../lib/pendingClose.ts";
-import { resetCursorPollTicker } from "../lib/cursorPollTicker.ts";
+import { resetCursorPollTicker } from "../renderer/cursorPollTicker.ts";
 import { resetUserTerminalInput } from "../lib/userTerminalInput.ts";
 import { resetContentSearchRuntimeForAuthBoundary } from "../lib/globalContentSearchRuntime.ts";
 import { clearAgentConfigForAuthBoundary } from "../lib/agents.ts";
 import { resetSpawnSessionRuntime } from "../lib/spawnSession.ts";
 import { resetResizeDrags } from "../lib/resizeDrag.ts";
-import { resetScrollbackBackfillState } from "../lib/scrollbackBackfillState.ts";
+import { resetScrollbackBackfillState } from "../client/terminal-stream/scrollbackBackfillState.ts";
 import { closeCmdPalette, closeHelp } from "../lib/keyboardShortcuts.ts";
-import { clearCommandPaletteCacheForAccountBoundary } from "../components/CommandPalette.data.ts";
+import { clearCommandPaletteCacheForAccountBoundary } from "./command-palette-data.ts";
 import { resetAgentStatusProjection } from "./agent-status.ts";
 import { resetSyncHandlerRuntimeForAuthBoundary } from "./sync-handlers.ts";
 import { clearToastsForAccountBoundary } from "./toastStore.ts";

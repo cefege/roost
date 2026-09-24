@@ -8,7 +8,7 @@ import { seenAgentRevision } from "../lib/agentSeen.ts";
 import {
   deriveAgentStatusLevel,
   type AgentStatusLevel,
-} from "../lib/agentStatus.ts";
+} from "../client/agents/agentStatus.ts";
 import { workspaceForFolder } from "../lib/folderKey.ts";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import { sessionHref } from "../routes.ts";

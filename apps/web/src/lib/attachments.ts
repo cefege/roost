@@ -2,12 +2,12 @@
 // A direct attachment route is loopback first, then WebRTC; coordinator relay stays fallback.
 // Transfer rows own UI progress while this module preserves serial order and one sink call.
 
-import { coordClient } from "../connect.ts";
+import { coordClient } from "../client/rpc/connect.ts";
 import { log } from "@roost/observability/log";
-import { uploadAttachmentDirect } from "./attachmentDirect.ts";
+import { uploadAttachmentDirect } from "../client/attachments/attachmentDirect.ts";
 import { createAttachmentPreviewUrl } from "./attachmentPreview.ts";
 import { sendUserTerminalInput } from "./userTerminalInput.ts";
-import { safeAttachmentInsertion } from "./attachmentInsertion.ts";
+import { safeAttachmentInsertion } from "../client/attachments/attachmentInsertion.ts";
 import { workerPathPlatform } from "./nativePath.ts";
 import { addTransfer, markTransferState, setTransferProgress } from "../store/transfers.ts";
 import type { Session } from "@roost/protocol/wire";

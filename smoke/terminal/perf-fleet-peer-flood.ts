@@ -1,8 +1,8 @@
 // Fleet peer floods start only after visible panes have geometric marker proof.
 // Each trusted sample proves its active target is live at the rendered bottom before input.
 // perf-fleet-probes supplies topology while scale-browser owns browser dispatch.
-import type { PaintedMarkerProof } from "../../apps/web/src/lib/smokeHarness.ts";
-import type { RetainedMarkerScan } from "../../apps/web/src/lib/smokeTypes.ts";
+import type { PaintedMarkerProof } from "../../apps/web/src/smoke/smokeHarness.ts";
+import type { RetainedMarkerScan } from "../../apps/web/src/smoke/smokeTypes.ts";
 import {
   attachFleetFailure,
   captureFleetPresentation,

@@ -13,7 +13,7 @@ import {
   _resetTerminalFindIntentsForTest,
   registerTerminalFind,
   requestTerminalFind,
-} from "../src/lib/terminalFindIntent.ts";
+} from "../src/renderer/terminalFindIntent.ts";
 import { terminalDirectRegistry } from "../src/store/terminal-stream-transport.ts";
 
 const local = new Map<string, string>([
@@ -56,7 +56,7 @@ const stream = await import("../src/store/terminal-stream.ts");
 const terminalState = await import("../src/store/terminal-stream-state.ts");
 const hydrated = await import("../src/store/sync-hydrated.ts");
 const frame = await import("../src/store/sync-frame.ts");
-const inputRouter = await import("../src/ws/terminal-input-router.ts");
+const inputRouter = await import("../src/store/transport/terminal-input-router.ts");
 
 test("suspending authenticated client state releases overlays, runtime owners, and root replicas", async () => {
   // The persisted cursor is intentionally present before the boundary runs.

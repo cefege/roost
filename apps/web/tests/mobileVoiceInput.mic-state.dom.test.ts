@@ -24,7 +24,7 @@ import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { Session } from "@roost/protocol/wire";
 import type * as SolidApi from "solid-js";
 import type * as SolidWebApi from "solid-js/web";
-import { releaseMic, micIdle, captureQuirks } from "../src/lib/audioPcmCapture.ts";
+import { releaseMic, micIdle, captureQuirks } from "../src/voice/audioPcmCapture.ts";
 
 // ── globals the components/engine touch ─────────────────────────────────────
 
@@ -171,7 +171,7 @@ mock.module("react/jsx-dev-runtime", () => ({
 
 // ── transport mocks ─────────────────────────────────────────────────────────
 
-mock.module("../src/connect.ts", () => ({
+mock.module("../src/client/rpc/connect.ts", () => ({
 	coordClient: {
 		transcriptionGetConfig: async () => ({ deepgramConfigured: true, deepgramLanguage: "en" }),
 		transcriptionGrantToken: async () => ({ accessToken: "test-key" }),
@@ -180,7 +180,7 @@ mock.module("../src/connect.ts", () => ({
 
 // Dynamic import is REQUIRED here: the mocks above must be installed before
 // the component modules (and their solid bindings) evaluate.
-const { TerminalComposeButton } = await import("../src/components/TerminalComposeButton.tsx");
+const { TerminalComposeButton } = await import("../src/components/terminal/TerminalComposeButton.tsx");
 const { saveComposerDraft } = await import("../src/lib/composerDrafts.ts");
 
 // ── harness ─────────────────────────────────────────────────────────────────

@@ -8,15 +8,15 @@
 
 import { Card, SwitchRow, IconButton, Button } from "./md/primitives.tsx";
 import { Select } from "./md/Select.tsx";
-import { keyboardResize, setKeyboardResize } from "../../lib/keyboardResizePref.ts";
-import { mouseForwardEnabled, toggleMouseForward } from "../../lib/mouseForwardPref.ts";
-import { predictMode, setPredictMode } from "../../lib/predictPref.ts";
+import { keyboardResize, setKeyboardResize } from "../../store/prefs/keyboardResizePref.ts";
+import { mouseForwardEnabled, toggleMouseForward } from "../../store/prefs/mouseForwardPref.ts";
+import { predictMode, setPredictMode } from "../../store/prefs/predictPref.ts";
 import {
   termFontSize, stepTermFontSize, resetTermFontSize,
   TERM_FONT_MIN_PX, TERM_FONT_MAX_PX,
-} from "../../lib/terminalFontPref.ts";
-import { copyOnSelect, setCopyOnSelect } from "../../lib/copyOnSelectPref.ts";
-import { platformShortcutLabel } from "../../lib/browserPlatform.ts";
+} from "../../store/prefs/terminalFontPref.ts";
+import { copyOnSelect, setCopyOnSelect } from "../../store/prefs/copyOnSelectPref.ts";
+import { platformShortcutLabel } from "../../browser/browserPlatform.ts";
 
 
 export function TerminalPane() {

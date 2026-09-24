@@ -1,0 +1,370 @@
+// CellGridRenderer DOM tripwire — viewport reconciliation restraint.
+//
+// A delta inspects only rows the worker marked dirty. Reconstructing or
+// re-hashing the full viewport changes untouched node identity and loses the
+// row-diff engine's sparse-update guarantee.
+
+import { describe, test, expect } from "bun:test";
+import { CellGridRenderer } from "../../src/renderer/cellRenderer.ts";
+import {
+  FakeEl,
+  makeContainer,
+  row,
+  fullFrame,
+  deltaFrame,
+  seedHeldHistory,
+  sbEl,
+  sbRows,
+  vpEl,
+} from "../helpers/cellRendererFakeDom.ts";
+
+// ── viewport patching — only final dirty rows reach the DOM ───────────────
+// A regression to full reconstruction/re-hashing changes untouched node identity.
+describe("CellGridRenderer DOM — viewport diff", () => {
+  test("a content-identical delta advances reconciliation without replacing rows", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
+    const n0 = viewportEl.children[0];
+    const n1 = viewportEl.children[1];
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 1 });
+
+    // Same row hashes, mode, and cursor: reconciliation is proven by the
+    // completed diff/cursor/mode path even though it performs zero row writes.
+    r.apply(deltaFrame(80, 2, [row(0, "v0"), row(1, "v1")], [], 2));
+    expect(viewportEl.children[0]).toBe(n0);
+    expect(viewportEl.children[1]).toBe(n1);
+    expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+    expect(r.reconcileBlockReason()).toBeNull();
+  });
+
+  test("an empty-row cursor-only delta moves the cursor and preserves every row node", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
+    const n0 = viewportEl.children[0];
+    const n1 = viewportEl.children[1];
+    const cursor = viewportEl.children.find((child: FakeEl) => child.className === "cell-cursor") as FakeEl;
+
+    expect(r.applyDeltaFrames([{
+      ...deltaFrame(80, 2, [], [], 2),
+      cursorRow: 1,
+      cursorCol: 3,
+    }])).toBe(true);
+
+    expect(viewportEl.children[0]).toBe(n0);
+    expect(viewportEl.children[1]).toBe(n1);
+    expect(cursor.style.top).toBe("1lh");
+    expect(cursor.style.left).toBe("3ch");
+    expect(cursor.dataset).toMatchObject({ row: "1", column: "3", visible: "true" });
+    expect(r.presentationSnapshot().cursor).toEqual({
+      canonical: { visible: true, row: 1, column: 3 },
+      dom: { visible: true, row: 1, column: 3, connected: true },
+    });
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+  });
+
+  test("a leading predicted caret does not freeze reconciliation", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
+    r.setPredictedCursor(7);                              // caret ahead of the echo
+
+    expect(r.applyDeltaFrames([{
+      ...deltaFrame(80, 2, [], [], 2),
+      cursorRow: 1,
+      cursorCol: 3,
+    }])).toBe(true);
+
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+    expect(r.reconcileBlockReason()).toBeNull();
+  });
+
+  test("cursor-only pending state resumes cleanly without replacing row nodes", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
+    const n0 = viewportEl.children[0];
+    const n1 = viewportEl.children[1];
+
+    r.enterReading("wheel");
+    expect(r.applyDeltaFrames([{
+      ...deltaFrame(80, 2, [], [], 2),
+      cursorRow: 1,
+      cursorCol: 4,
+    }])).toBe(true);
+    expect(r.presentationSnapshot().cursor).toEqual({
+      canonical: { visible: true, row: 1, column: 4 },
+      dom: { visible: true, row: 0, column: 0, connected: true },
+    });
+
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: false });
+    expect(viewportEl.children[0]).toBe(n0);
+    expect(viewportEl.children[1]).toBe(n1);
+    expect(r.presentationSnapshot().cursor).toEqual({
+      canonical: { visible: true, row: 1, column: 4 },
+      dom: { visible: true, row: 1, column: 4, connected: true },
+    });
+  });
+
+  test("a one-row delta replaces ONLY that row's node, positionally", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
+    const n0 = viewportEl.children[0];
+    const n1 = viewportEl.children[1];
+    r.apply(deltaFrame(80, 2, [row(1, "v1-changed")], [], 2));
+    expect(viewportEl.children[0]).toBe(n0); // untouched → zero DOM writes
+    expect(viewportEl.children[1]).not.toBe(n1); // replaced in place
+    expect(viewportEl.children[1].children[0].textContent).toBe("v1-changed");
+  });
+
+
+  test("a viewport-only full frame rebuild prunes surplus viewport rows", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1"), row(2, "v2")], []);
+    const n0 = viewportEl.children[0];
+    expect(viewportEl.children.length).toBe(5);
+    seedHeldHistory(r, 80, [row(0, "v0")], []);
+    expect(viewportEl.children.length).toBe(3);
+    expect(viewportEl.children[0]).not.toBe(n0);
+  });
+
+  test("a compatible full repairs only changed viewport rows", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "stable"), row(1, "old")], []);
+    const stable = viewportEl.children[0];
+    const old = viewportEl.children[1];
+
+    expect(r.applyFullFrame({
+      ...fullFrame(80, [row(0, "stable"), row(1, "new")]),
+      seq: 2,
+    })).toBe(true);
+
+    expect(viewportEl.children[0]).toBe(stable);
+    expect(viewportEl.children[1]).not.toBe(old);
+    expect(viewportEl.children[1].children[0].textContent).toBe("new");
+  });
+
+  test("a scrolling delta REUSES shifted row nodes; only the new tail renders", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "A"), row(1, "B"), row(2, "C")], []);
+    const nB = viewportEl.children[1];
+    const nC = viewportEl.children[2];
+    // One line scrolled out: A moved to scrollback. The producer supplies every
+    // final coordinate; unchanged B/C still retain their shifted DOM nodes.
+    expect(r.applyDeltaFrames([{
+      ...deltaFrame(80, 3, [row(0, "B"), row(1, "C"), row(2, "D")], [row(0, "A")], 2),
+      scrollbackTotal: 1,
+    }])).toBe(true);
+    expect(viewportEl.children[0]).toBe(nB); // shifted up, node reused
+    expect(viewportEl.children[1]).toBe(nC); // shifted up, node reused
+    expect(viewportEl.children[2]).not.toBe(nC); // the only newly rendered row
+    expect(viewportEl.children[2].children[0].textContent).toBe("D");
+    expect(r.gridText()).toBe("B\nC\nD");
+  });
+
+  test("a contiguous scrolling batch shifts once and reconciles final modes", () => {
+    const c = makeContainer();
+    let reconciliations = 0;
+    const r = new CellGridRenderer(
+      c as unknown as HTMLElement,
+      undefined,
+      () => { reconciliations += 1; },
+    );
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "A"), row(1, "B"), row(2, "C")], []);
+    const nodeC = viewportEl.children[2];
+    reconciliations = 0;
+
+    expect(r.applyDeltaFrames([
+      {
+        ...deltaFrame(80, 3, [row(0, "B"), row(1, "C"), row(2, "D")], [row(0, "A")], 2),
+        scrollbackTotal: 1,
+      },
+      {
+        ...deltaFrame(80, 3, [row(0, "C"), row(1, "D"), row(2, "E")], [row(1, "B")], 3),
+        scrollbackTotal: 2,
+        cursorRow: 2,
+        cursorCol: 3,
+        cursorKeysApp: true,
+        bracketedPaste: true,
+      },
+    ])).toBe(true);
+
+    expect(reconciliations).toBe(1);
+    expect(viewportEl.children[0]).toBe(nodeC);
+    expect(viewportEl.children[1].children[0].textContent).toBe("D");
+    expect(viewportEl.children[2].children[0].textContent).toBe("E");
+    expect(r.gridText()).toBe("C\nD\nE");
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 3 });
+    expect(r.presentationSnapshot().mode).toEqual({
+      canonical: {
+        alt_screen: false,
+        cursor_keys_app: true,
+        bracketed_paste: true,
+      },
+      reconciled: {
+        alt_screen: false,
+        cursor_keys_app: true,
+        bracketed_paste: true,
+      },
+    });
+  });
+
+  test("a held batch preserves DOM until explicit release", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "A"), row(1, "B")], []);
+    const nodeA = viewportEl.children[0];
+    const nodeB = viewportEl.children[1];
+    r.enterReading("wheel");
+
+    expect(r.applyDeltaFrames([
+      deltaFrame(80, 2, [row(1, "B1")], [], 2),
+      deltaFrame(80, 2, [row(1, "B2")], [], 3),
+    ])).toBe(true);
+
+    expect(viewportEl.children[0]).toBe(nodeA);
+    expect(viewportEl.children[1]).toBe(nodeB);
+    expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 3 });
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 1 });
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: false });
+    expect(viewportEl.children[0]).toBe(nodeA);
+    expect(viewportEl.children[1]).not.toBe(nodeB);
+    expect(viewportEl.children[1].children[0].textContent).toBe("B2");
+  });
+
+  test("a partial-region scroll retains the fixed panel and worker history", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [
+      row(0, "HEAD-0"), row(1, "GREP-HEAD"), row(2, "README.md#8C59"),
+      row(3, "BODY-A"), row(4, "FIXED-PANEL"), row(5, "STATUS-000"),
+    ], []);
+    const fixedPanel = viewportEl.children[4];
+
+    expect(r.applyDeltaFrames([{
+      ...deltaFrame(80, 6, [
+        row(0, "GREP-HEAD"), row(1, "README.md#8C59"), row(2, "BODY-A"),
+        row(3, "NEXT"), row(5, "STATUS-001"),
+      ], [row(0, "HEAD-0")], 2),
+      scrollbackTotal: 1,
+    }])).toBe(true);
+
+    const viewportText = viewportEl.children.slice(0, 6).map((child: FakeEl) => child.textContent);
+    expect(viewportText).toEqual([
+      "GREP-HEAD", "README.md#8C59", "BODY-A", "NEXT", "FIXED-PANEL", "STATUS-001",
+    ]);
+    expect(viewportEl.children[4]).toBe(fixedPanel);
+    expect(viewportText.filter((text) => text.startsWith("STATUS-"))).toEqual(["STATUS-001"]);
+    expect(sbRows(sbEl(c)).map((child) => child.textContent)).toEqual(["HEAD-0"]);
+  });
+
+  test("a batched partial-region scroll retains the fixed panel and latest status", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [
+      row(0, "HEAD-0"), row(1, "GREP-HEAD"), row(2, "README.md#8C59"),
+      row(3, "BODY-A"), row(4, "FIXED-PANEL"), row(5, "STATUS-000"),
+    ], []);
+    const fixedPanel = viewportEl.children[4];
+
+    expect(r.applyDeltaFrames([
+      {
+        ...deltaFrame(80, 6, [
+          row(0, "GREP-HEAD"), row(1, "README.md#8C59"), row(2, "BODY-A"),
+          row(3, "NEXT"), row(5, "STATUS-001"),
+        ], [row(0, "HEAD-0")], 2),
+        scrollbackTotal: 1,
+      },
+      {
+        ...deltaFrame(80, 6, [row(5, "STATUS-002")], [], 3),
+        scrollbackTotal: 1,
+      },
+    ])).toBe(true);
+
+    const viewportText = viewportEl.children.slice(0, 6).map((child: FakeEl) => child.textContent);
+    expect(viewportText).toEqual([
+      "GREP-HEAD", "README.md#8C59", "BODY-A", "NEXT", "FIXED-PANEL", "STATUS-002",
+    ]);
+    expect(viewportEl.children[4]).toBe(fixedPanel);
+    expect(viewportText.filter((text) => text.startsWith("STATUS-"))).toEqual(["STATUS-002"]);
+    expect(sbRows(sbEl(c)).map((child) => child.textContent)).toEqual(["HEAD-0"]);
+  });
+});
+
+describe("CellGridRenderer DOM — reconciliation notification", () => {
+  test("fires first and subsequent reconciliation callbacks only after completed DOM reconciliation", () => {
+    const c = makeContainer();
+    let firstNotifications = 0;
+    let reconciliations = 0;
+    const r = new CellGridRenderer(
+      c as unknown as HTMLElement,
+      () => { firstNotifications += 1; },
+      () => { reconciliations += 1; },
+    );
+
+    const rejected = { ...fullFrame(80, [row(0, "rejected")]), rows: 2 };
+    expect(r.applyFullFrame(rejected)).toBe(false);
+    expect(firstNotifications).toBe(0);
+    expect(reconciliations).toBe(0);
+
+    r.setSelectionHold(true);
+    expect(r.applyFullFrame(fullFrame(80, [row(0, "held")]))).toBe(true);
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: null, seq: null });
+    expect(firstNotifications).toBe(0);
+    expect(reconciliations).toBe(0);
+
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 1 });
+    expect(firstNotifications).toBe(1);
+    expect(reconciliations).toBe(1);
+
+    expect(r.applyDeltaFrames([deltaFrame(80, 1, [row(0, "delta")], [], 2)])).toBe(true);
+    expect(r.applyFullFrame({
+      ...fullFrame(80, [row(0, "later-full")]),
+      seq: 3,
+    })).toBe(true);
+    expect(firstNotifications).toBe(1);
+    expect(reconciliations).toBe(3);
+  });
+
+  test("defaults the cursor to solid and changes only the explicit blink attribute", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    expect(r.applyFullFrame(fullFrame(80, [row(0, "visible")]))).toBe(true);
+    const cursor = vpEl(c).children.find(
+      (child: FakeEl) => child.className === "cell-cursor",
+    ) as FakeEl;
+
+    expect(cursor.dataset.blink).toBe("false");
+    r.setCursorBlinkEnabled(false);
+    expect(cursor.dataset.blink).toBe("false");
+    r.setCursorBlinkEnabled(true);
+    expect(cursor.dataset.blink).toBe("true");
+    r.setCursorBlinkEnabled(true);
+    expect(cursor.dataset.blink).toBe("true");
+
+    expect(cursor.dataset.visible).toBe("true");
+    expect(cursor.style.display).toBe("block");
+    r.setCursorBlinkEnabled(false);
+    expect(cursor.dataset.blink).toBe("false");
+    expect(cursor.dataset.visible).toBe("true");
+    expect(cursor.style.display).toBe("block");
+  });
+});

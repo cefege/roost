@@ -1,5 +1,5 @@
 import type { Page, TestInfo } from "@playwright/test";
-import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
+import type { SmokeApi } from "../../apps/web/src/smoke/smoke.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import type { TerminalTestWorker } from "./stack.ts";
 

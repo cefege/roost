@@ -20,12 +20,12 @@ const retired: unknown[] = [];
 mock.module("../src/store/terminal-stream-promotion.ts", () => ({
   dispatchDirectTerminalFrame: (_token: unknown, frame: unknown) => { dispatched.push(frame); },
 }));
-mock.module("../src/ws/terminal-input-router.ts", () => ({
+mock.module("../src/store/transport/terminal-input-router.ts", () => ({
   retireTerminalInput: (token: unknown) => { retired.push(token); },
 }));
 
 // The adapter has browser-only dependencies, so mocks must load before it.
-const peer = await import("../src/ws/terminal-peer-connection.ts");
+const peer = await import("../src/store/transport/terminal-peer-connection.ts");
 
 const FINGERPRINT = Array.from({ length: 32 }, () => "AA").join(":");
 const SDP = [

@@ -12,7 +12,7 @@ import {
   TerminalViewStateFrameSchema,
   TerminalViewStatus,
 } from "@roost/protocol/proto/sync_pb";
-import type { CellGridRenderer } from "../../src/lib/cellRenderer.ts";
+import type { CellGridRenderer } from "../../src/renderer/cellRenderer.ts";
 
 import type * as TerminalStreamModule from "../../src/store/terminal-stream.ts";
 import type { TerminalViewHandleStatus } from "../../src/store/terminal-stream-types.ts";
@@ -97,13 +97,13 @@ mock.module("../../src/store/sync.ts", () => ({
   },
 }));
 
-mock.module("../../src/lib/diag.ts", () => ({
+mock.module("../../src/browser/diag.ts", () => ({
   markPhase: () => undefined,
   markPhaseOnce: () => undefined,
   recordCellLag: () => undefined,
 }));
 
-mock.module("../../src/lib/pageVisible.ts", () => ({
+mock.module("../../src/browser/pageVisible.ts", () => ({
   isPageVisible: () => visible,
   pageVisible: () => visible,
   isPageFocused: () => focused,

@@ -106,23 +106,23 @@ mock.module("@roost/observability/diag", () => ({ diag: () => undefined }));
 mock.module("../src/lib/focusOwners.ts", () => ({
   FOCUS_OWNERS: "[data-focus-owner]",
 }));
-mock.module("../src/lib/pageVisible.ts", () => ({
+mock.module("../src/browser/pageVisible.ts", () => ({
   isPageVisible: () => terminalPageVisible,
 }));
 mock.module("../src/lib/resizeDrag.ts", () => ({
   arrangeEpoch: () => 0,
   isResizeDragging: () => false,
 }));
-mock.module("../src/lib/terminalFontPref.ts", () => ({ termFontSize: () => 14 }));
-mock.module("../src/lib/terminalInput.ts", () => ({ isAltGraphKey: () => false }));
-mock.module("../src/lib/windowSizeClass.ts", () => ({ isTouchDevice: () => false }));
+mock.module("../src/store/prefs/terminalFontPref.ts", () => ({ termFontSize: () => 14 }));
+mock.module("../src/client/input/terminalInput.ts", () => ({ isAltGraphKey: () => false }));
+mock.module("../src/browser/windowSizeClass.ts", () => ({ isTouchDevice: () => false }));
 
 // Viewport and lifecycle import after their Solid and browser-adapter mocks bind.
 const { createCellTerminalViewport } = await import(
-  "../src/components/cell-terminal-viewport.ts"
+  "../src/components/terminal/cell-terminal-viewport.ts"
 );
 const { mountCellTerminalLifecycle } = await import(
-  "../src/components/cell-terminal-lifecycle.ts"
+  "../src/components/terminal/cell-terminal-lifecycle.ts"
 );
 
 function mountTerminalFontsFixture(): TerminalFontsFixture {

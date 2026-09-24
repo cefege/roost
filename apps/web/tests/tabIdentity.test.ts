@@ -73,7 +73,7 @@ const originalBroadcastChannel = Object.getOwnPropertyDescriptor(globalThis, "Br
 Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: storage });
 
 // This module must initialize after the fake sessionStorage boundary exists.
-const tabIdentity = await import("../src/auth/tab-id.ts");
+const tabIdentity = await import("../src/client/auth/tab-id.ts");
 
 function setBrowserPrimitives(
   locks?: TestLockManager,

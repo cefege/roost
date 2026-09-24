@@ -8,7 +8,7 @@
 export const WEB_SOCKET_CLIENT_ALLOW: readonly string[] = [
   // deepgramDictation dials Deepgram's live STT endpoint — a genuine external
   // WS, not an intra-Roost transport.
-  "apps/web/src/lib/deepgramDictation.ts",
+  "apps/web/src/voice/deepgramDictation.ts",
   "apps/worker/src/transport/coord-link.ts",
   // sync.ts holds the canonical web↔coord Sync-stream client (the only
   // web-side sync WebSocket; the SPA analog of CoordLink on the worker).
@@ -16,9 +16,9 @@ export const WEB_SOCKET_CLIENT_ALLOW: readonly string[] = [
   // local-terminal.ts dials the worker's own loopback door for sessions whose
   // PTY is on this machine — the second intra-Roost transport the SPA owns,
   // and the only one that survives a coordinator outage.
-  "apps/web/src/ws/local-terminal.ts",
+  "apps/web/src/store/transport/local-terminal.ts",
   // attachment-loopback owns the browser's one direct attachment socket per upload.
-  "apps/web/src/ws/attachment-loopback.ts",
+  "apps/web/src/client/carriers/attachment-loopback.ts",
 ];
 
 /** Files permitted to run `Bun.serve({ websocket })`. */

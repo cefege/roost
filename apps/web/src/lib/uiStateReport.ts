@@ -9,8 +9,8 @@ import {
   UiReportStateRequestSchema,
   type UiReportStateRequest,
 } from "@roost/protocol/proto/sync_pb";
-import { coordClient } from "../connect.ts";
-import { getTabId } from "../auth/tab-id.ts";
+import { coordClient } from "../client/rpc/connect.ts";
+import { getTabId } from "../client/auth/tab-id.ts";
 import { exportLayoutDocument } from "../store/paneLayoutDocument.ts";
 import { onLayoutCommit } from "../store/paneLayoutStore.ts";
 import {

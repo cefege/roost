@@ -4,7 +4,7 @@
 // Keeping every wake flag here prevents reconnect paths from racing socket generations.
 
 import { signal } from "@roost/observability/diag";
-import { isPageVisible } from "../lib/pageVisible.ts";
+import { isPageVisible } from "../browser/pageVisible.ts";
 import {
   nextRedialDelayMs,
   shouldCloseStaleLinkOnResume,
@@ -13,7 +13,7 @@ import {
   SYNC_REDIAL_BASE_MS,
   type SyncLinkLiveness,
 } from "./sync-watchdog.ts";
-import { isImmediateSyncRedial } from "./sync-flow.ts";
+import { isImmediateSyncRedial } from "../client/sync/sync-flow.ts";
 import {
   _closeFailedSyncLink,
   _currentLiveSyncLink,

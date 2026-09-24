@@ -10,7 +10,7 @@ import { describe, test, expect } from "bun:test";
 import {
 	PAD_SCROLL_STEP_PX,
 	scrollTerminalReaderBox,
-} from "../src/lib/terminalReaderScroll.ts";
+} from "../src/renderer/terminalReaderScroll.ts";
 
 function fakeBox(scrollTop: number, scrollHeight: number, clientHeight: number) {
 	return { scrollTop, scrollHeight, clientHeight } as unknown as HTMLElement;

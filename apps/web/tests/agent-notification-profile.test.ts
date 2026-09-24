@@ -12,13 +12,13 @@ import {
 } from "@roost/protocol/wire";
 import { claimAgentNotification } from "../src/lib/agentNotificationClaim.ts";
 import type { AgentNotificationDelivery } from "../src/lib/agentNotificationCore.ts";
-import { agentStatusRevisionToken } from "../src/lib/agentStatus.ts";
+import { agentStatusRevisionToken } from "../src/client/agents/agentStatus.ts";
 import {
   disableDesktopNotifications,
   enableDesktopNotifications,
   notifyPrefs,
   resetNotifyPrefsForTest,
-} from "../src/lib/notifyPrefs.ts";
+} from "../src/store/prefs/notifyPrefs.ts";
 
 const SESSION_ID = asSessionId("11111111-1111-4111-8111-111111111111");
 const STATUS_EPOCH = StatusEpoch.parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
