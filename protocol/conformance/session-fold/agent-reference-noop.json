@@ -1,0 +1,42 @@
+{
+  "name": "agent-reference-noop",
+  "events": [
+    {
+      "kind": "opened",
+      "session_id": "00000000-0000-4000-8000-000000000101",
+      "worker_fp": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "channel": 1,
+      "session_kind": "shell",
+      "cwd": "/repo",
+      "ts": 1
+    },
+    {
+      "kind": "agent_reference",
+      "session_id": "00000000-0000-4000-8000-000000000101",
+      "reference": {
+        "schema_version": 1,
+        "agent_id": "omp",
+        "kind": "id",
+        "value": "agent-1"
+      },
+      "ts": 2
+    }
+  ],
+  "expect": {
+    "sessions": [
+      {
+        "id": "00000000-0000-4000-8000-000000000101",
+        "worker_fp": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "channel": 1,
+        "kind": "shell",
+        "cwd": "/repo",
+        "spawn_cwd": "/repo",
+        "workspace_id": null,
+        "status": "open",
+        "created_at": 1,
+        "closed_at": null,
+        "custom_title": null
+      }
+    ]
+  }
+}

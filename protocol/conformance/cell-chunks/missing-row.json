@@ -1,0 +1,61 @@
+{
+  "name": "missing-row",
+  "chunks": [
+    {
+      "snapshotId": "00000000-0000-4000-8000-000000000011",
+      "chunkCount": 2,
+      "part": {
+        "sessionId": "session",
+        "cols": 8,
+        "rows": 4,
+        "full": true,
+        "viewportRows": [
+          {
+            "spans": [
+              {
+                "text": "r0",
+                "fg": 256,
+                "bg": 256,
+                "columns": 1
+              }
+            ]
+          }
+        ],
+        "seq": "1",
+        "gridEpoch": "g",
+        "streamId": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "snapshotId": "00000000-0000-4000-8000-000000000011",
+      "chunkIndex": 1,
+      "chunkCount": 2,
+      "part": {
+        "sessionId": "session",
+        "cols": 8,
+        "rows": 4,
+        "full": true,
+        "viewportRows": [
+          {
+            "index": 2,
+            "spans": [
+              {
+                "text": "r2",
+                "fg": 256,
+                "bg": 256,
+                "columns": 1
+              }
+            ]
+          }
+        ],
+        "seq": "1",
+        "gridEpoch": "g",
+        "streamId": "00000000-0000-4000-8000-000000000001"
+      }
+    }
+  ],
+  "expect": [
+    "pending",
+    "error:missing-row"
+  ]
+}

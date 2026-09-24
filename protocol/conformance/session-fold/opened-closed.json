@@ -1,0 +1,23 @@
+{
+  "name": "opened-closed",
+  "events": [
+    {
+      "kind": "opened",
+      "session_id": "00000000-0000-4000-8000-000000000101",
+      "worker_fp": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "channel": 1,
+      "session_kind": "shell",
+      "cwd": "/repo",
+      "ts": 1
+    },
+    {
+      "kind": "closed",
+      "session_id": "00000000-0000-4000-8000-000000000101",
+      "exit_code": 0,
+      "ts": 2
+    }
+  ],
+  "expect": {
+    "sessions": []
+  }
+}

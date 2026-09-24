@@ -100,15 +100,10 @@ session href and asks that pane's find controller to rerun the literal query
 against its current grid epoch before revealing anything. `scope=attention`
 retains current blocked rows and unseen completions without issuing content
 search RPCs; opening a completed session acknowledges it. Search never inspects
-agent transcripts. Attachment upload/download through `TransferStack` remains
-supported. `lib/attachments.ts` queues each upload; `lib/attachmentDirect.ts`
-mints a per-upload grant (`attachmentDirectGrant.ts`) and, before chunk zero,
-picks matching loopback (`ws/attachment-loopback.ts`) then WebRTC
-(`attachmentPeer.ts`, `attachmentPeerPackets.ts`, `attachmentPeerSignaling.ts`),
-else the coordinator `AttachFileChunk` relay; `attachmentTransfer.ts` sends,
-validates ACKs, and recovers lost ACKs through status. `attachmentPreview.ts`
-creates the browser-local `blob:` image thumbnail `TransferRow` shows; the
-transfer store revokes it.
+agent transcripts.
+Attachment upload/download through `TransferStack` remains supported. The upload contract, carrier order (worker loopback → attachment WebRTC → coordinator `AttachFileChunk` relay), and ACK/status recovery are normative in [`protocol/spec/attachments.md`](../../protocol/spec/attachments.md).
+`apps/web/src/lib/attachments.ts` queues uploads; browser-safe carrier modules under `apps/web/src/client/attachments/` and `apps/web/src/client/carriers/attachment-loopback.ts` own selection, framing, and transfer state.
+`attachmentPreview.ts` creates the browser-local `blob:` image thumbnail `TransferRow` shows; the transfer store revokes it.
 
 Browser-local layouts remain in `paneLayoutStore`, which keeps the active
 runtime tree and private pane/split UUIDs under `roost.paneLayout.v1`.

@@ -1,0 +1,37 @@
+{
+  "name": "opened-respawned",
+  "events": [
+    {
+      "kind": "opened",
+      "session_id": "00000000-0000-4000-8000-000000000101",
+      "worker_fp": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "channel": 1,
+      "session_kind": "shell",
+      "cwd": "/repo",
+      "ts": 1
+    },
+    {
+      "kind": "respawned",
+      "session_id": "00000000-0000-4000-8000-000000000101",
+      "new_channel": 2,
+      "ts": 2
+    }
+  ],
+  "expect": {
+    "sessions": [
+      {
+        "id": "00000000-0000-4000-8000-000000000101",
+        "worker_fp": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "channel": 2,
+        "kind": "shell",
+        "cwd": "/repo",
+        "spawn_cwd": "/repo",
+        "workspace_id": null,
+        "status": "open",
+        "created_at": 1,
+        "closed_at": null,
+        "custom_title": null
+      }
+    ]
+  }
+}

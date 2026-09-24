@@ -85,154 +85,39 @@ the concern rather than a barrel.
 
 ## Event sourcing
 
-Durable session state is an ordered event log, not a replaceable standalone
-snapshot.
-
-1. The **worker** emits typed lifecycle and metadata events.
-2. `opened`, `closed`, `respawned`, and private `agent_reference` updates enter
-   the worker's bounded, fully synchronized SQLite `SessionEventStore`.
-   Lifecycle capacity is reserved before keeper mutation; a locally
-   acknowledged reference report returns success only after its append.
-3. The coordinator link performs one ordered barrier on every connection:
-   protocol hello → durable session-event replay, one exact ACK at a time →
-   authoritative worker snapshot → live traffic. Ordinary replaceable metadata
-   remains bounded and coalescible rather than entering the durable outbox.
-4. The **coordinator** validates sequence/identity and appends each event in one
-   SQLite transaction. Public events also update the public `sessions`
-   projection and publish after commit; `agent_reference` updates only a
-   sequence-aware private recovery projection.
-5. The **browser** receives and folds public events into the Solid store using
-   the same `foldEvent()` function as the coordinator projection. Private
-   reference events are excluded from live delivery, backfill, and its cutoff.
-6. On cold start or a recovery reset, the browser hydrates a socket-bound
-   current-state snapshot. Reconnect backfill then replays ordered public events
-   above its last persisted folded event id before switching to live delivery.
-
-The snapshot in the worker barrier is itself a sequenced reconciliation event.
-It repairs coordinator drift after downtime; it is not an out-of-band database
-replacement and cannot erase private conversation recovery state.
-
+Durable session state is an ordered, ACK-paced event log reconciled by a sequenced worker snapshot before live traffic.
+The normative worker/coordinator/browser fold and private-reference boundary are in [`protocol/spec/session-events.md`](protocol/spec/session-events.md).
 ## The terminal data plane
 
-**Carrier selection.** The browser starts and retains Sync as the authenticated
-metadata, authorization/control, and fallback plane. Per session it selects,
-in order: same-worker loopback, a qualified authenticated WebRTC peer, then
-ready Sync. A direct candidate has no canonical effect until it has a current
-grant and a validated full baseline. Where `terminal-input-route-v1` is
-available, its input-route handoff is acknowledged before promotion; older
-loopback retains its established no-replay behavior. Direct carriers use the
-bounded `LocalTerminal` protobuf frames and the same authoritative cell model;
-raw PTY bytes never enter the browser.
+**Carrier selection.** Sync remains the control/fallback plane; direct terminal uses a current grant and validated full before promotion.
+The normative carrier, security, STUN, and outage rules are in [`protocol/spec/direct-terminal.md`](protocol/spec/direct-terminal.md).
 
-**Direct security boundary.** The coordinator authenticates the device and
-tab, authorizes its live worker/session scope, installs a time-bounded worker
-grant, mediates bounded offer/answer signaling, and fences the exact worker
-connection and process epoch. The worker validates the live grant and expected
-tuple again at `LocalTerminalHello`; it allocates a WebRTC UDP peer only for
-that admitted offer. WebRTC uses DTLS/SCTP data channels, with the authenticated
-signaling path binding the ephemeral DTLS fingerprint to the current worker
-identity. A direct peer is not a worker HTTP front door, TURN service, firewall
-manager, or tailnet manager.
+**Direct security boundary.** Grants and signaling bind the exact device, tab, worker connection, process epoch, and live worker-side recheck.
+The normative boundary is in [`protocol/spec/direct-terminal.md`](protocol/spec/direct-terminal.md).
 
-**STUN and ICE are opportunistic discovery.** The coordinator supplies one
-operator-configured bounded `stun:` UDP list to both endpoints; the default is
-`stun:stun.cloudflare.com:3478`, and an explicitly empty list disables external
-discovery. STUN sees address-discovery traffic, not terminal cells, input, or
-grants. ICE may reveal candidate address/port metadata to the authenticated
-peer and may fail because of browser policy, NAT, or firewalls; Roost provides
-no TURN/relay, credentials, automatic network changes, or universal direct-path
-guarantee.
+**STUN and ICE are opportunistic discovery.** STUN discovers addresses only; Roost supplies no TURN relay or universal direct-path guarantee.
+The exact bounded configuration is in [`protocol/spec/direct-terminal.md`](protocol/spec/direct-terminal.md).
 
-**Three explicit replicas.** The worker's wterm core is the authoritative
-terminal. `TerminalScreenHub` holds the coordinator's viewport-only **Sync**
-replica per watched session. `apps/web/src/store/terminal-stream.ts` holds one
-canonical browser replica per session and fans owned frame shells to mounted
-`CellGridRenderer` subscribers; a direct candidate folds separately until
-promotion. `CellTerminal` only measures, publishes view activity, forwards
-input and attaches a renderer; component mount or visibility is never the
-continuity authority. Renderer detach, route changes, and Sync reconnects
-therefore cannot discard the browser's current baseline.
+**Three explicit replicas.** The worker core is authoritative; coordinator and browser each retain one session replica, while direct candidates fold separately.
+The replica boundary is normative in [`protocol/spec/terminal-stream.md`](protocol/spec/terminal-stream.md).
 
-**One membership and geometry authority per session.** A worker advertising
-terminal-view ownership uses `TerminalViewOwner` for both local direct and
-coordinator-relayed views; otherwise coordinator `TerminalViewHub` owns that
-session. Exactly one `TerminalViewRegistry` computes membership and the
-per-axis smallest common denominator. Explicit hide, authorization loss and
-durable session close remove a view immediately. A broken transport parks its
-views: the park keeps lease, membership and reclaim rights for fifteen seconds,
-but the parked dimensions stop binding the PTY after a two-second grace, so a
-dead viewer cannot hold the session at its size. Five-second heartbeats and a
-one-second sweep let the normal one-second reconnect replace the parked socket
-inside that grace without resizing. With every viewer parked the last effective
-geometry is held, not re-minted, so a flapping link cannot become a stream
-re-mint storm. The first view, an effective-size change, the last-view disable,
-re-enable, worker replacement or unavailable-state retry mints a UUID stream
-ID. With no active views, the worker keeps the last PTY geometry and core but
-gates cell emission.
+**One membership and geometry authority per session.** Worker-owned or coordinator-owned views compute the per-axis smallest common denominator with bounded leases and park grace.
+The membership and geometry contract is normative in [`protocol/spec/terminal-stream.md`](protocol/spec/terminal-stream.md).
 
-**Full before delta.** Every stream generation begins with one complete
-authoritative full. A delta is accepted only when its stream ID, grid epoch,
-dimensions and `base_seq` match the current replica and its `seq` is the exact
-successor. Any gap invalidates that cache and latches one snapshot request.
-Status frames and partial chunks never establish a baseline. Full repair
-replaces the canonical replica atomically while each renderer keeps its last
-complete DOM until the replacement is ready.
+**Full before delta.** Each stream generation requires one complete full; only exact stream/epoch/geometry/sequence successors extend a replica.
+Chunk assembly and stream limits are normative in [`protocol/spec/terminal-stream.md`](protocol/spec/terminal-stream.md).
 
-**Route liveness and direct outage.** The browser republishes each desired
-terminal view every 5 seconds and requires its generation-matched view-state
-ACK within 15 seconds. A visible active WebRTC peer also sends content-free
-worker probes; two missed probe replies retire that peer. Direct probe and
-route diagnostics record only route state, probe age/RTT, candidate class,
-buffered bytes, worker epoch, and an opaque peer ID—never SDP, candidate
-addresses, credentials, or terminal content.
+**Route liveness and direct outage.** Views renew and direct peers probe on bounded schedules; exact route loss starts fresh-baseline fallback without input replay.
+See [`protocol/spec/direct-terminal.md`](protocol/spec/direct-terminal.md).
 
-An already-authorized direct route may continue to paint and accept input while
-the coordinator is unavailable, provided its grant remains live and liveness
-continues to prove the route. It cannot negotiate a replacement or mint/renew a
-grant; Sync metadata and fleet controls remain unavailable. On exact direct
-route loss, the browser stages a fresh Sync baseline and worker input-route
-claim before releasing unsent input. It never replays sent or ambiguous input.
-If neither route is available, the last valid DOM remains visible and new input
-is rejected until a route is repaired.
+**Bounded resumable delivery.** Oversized fulls use contiguous whole-row chunks with one snapshot identity and independent per-carrier queues.
+See [`protocol/spec/terminal-stream.md`](protocol/spec/terminal-stream.md).
 
-**Bounded resumable delivery.** Full frames larger than 1 MiB are split on whole
-row boundaries. Every chunk shares one snapshot ID and identical scalar
-metadata; indices are contiguous, and each viewport row `0..rows-1` must occur
-exactly once. Duplicate rows are invalid even when byte-identical. Assemblers
-also enforce the 256-row, 65,536-span, 1,024-link, 1-MiB-part and 64-MiB-total
-limits plus a ten-second inter-chunk timeout. For Sync delivery, the coordinator
-installs a separate snapshot cursor per socket, materializing only the next
-chunk when the existing queue and ACK windows have room. Direct ports admit
-whole bounded frames into their own queues, so a slow peer closes only that
-peer and cannot block another viewer. View-state and cell frames share the
-per-session terminal lane, so new-stream cells cannot overtake their state
-predecessor.
+**Resize at the keeper's ordered boundary.** The acknowledged keeper resize is the parse boundary; the existing core resizes synchronously and forces a new full.
+See [`protocol/spec/terminal-stream.md`](protocol/spec/terminal-stream.md).
 
-**Resize at the keeper's ordered boundary.** The one membership owner supplies
-already-aggregated geometry to the worker stream state: coordinator-owned
-sessions use `DTerminalStreamState`; worker-owned sessions apply it through
-`TerminalViewOwner`. The keeper's acknowledged resize result is the
-synchronization point: bytes before it parse at the old size, the callback
-synchronously calls `wtermCore.resize(cols, rows)` on the existing core, and
-later `PtyOut` parses at the new size. The resize invalidates only the cell
-emission epoch and forces a full baseline; ordinary live resize never rebuilds
-a core from the raw ring. Keeper-history replay is reserved for genuine worker
-adoption when no in-memory core exists. An unprovable boundary fails closed
-rather than parsing bytes at guessed geometry.
-
-**Proven outcomes and independent input.** Worker stream results retain the
-keeper's committed/rejected/ambiguous write proof and a classified failure
-kind. Proven pre-write rejection may retry once under a new stream ID;
-session/core/boundary failures become unavailable or enter explicit adoption
-without rolling back healthy view membership. Input never queues behind a
-resize result. Browser `input_seq` and worker request IDs correlate results at
-their own hops; the worker allocates the keeper's monotonically increasing
-per-channel key, so two devices may both send local sequence 1 without
-collision or loss of FIFO ordering. For route-capable carriers, handoff holds
-unsent input and requires a worker-acknowledged input route before new bytes can
-reach the keeper; the worker rechecks that route immediately before the write,
-so late old-route input is rejected rather than replayed. Older loopback keeps
-its established no-replay behavior without an unsupported route claim.
+**Proven outcomes and independent input.** Worker results distinguish accepted, rejected, and ambiguous writes; only proven pre-write rejection is retry-safe.
+Input-route handoff is normative in [`protocol/spec/direct-terminal.md`](protocol/spec/direct-terminal.md).
 
 **Canonical model vs painted DOM.** These remain different clocks and
 `apps/web/src/renderer/terminalDiagSnapshot.ts` reports both: view ID/revision/lease
@@ -259,13 +144,8 @@ core's `mouse_tracking`, `mouse_sgr`, `focus_events`, `cursor_keys_app` and
 requested, using SGR-1006 or bounded legacy X10 as appropriate. Alternate
 screen occupancy alone never captures mouse input.
 
-**Publication remains durable and ordered.** Session events commit before their
-authenticated worker/channel binding is installed and before `sessionBus`
-publication. The announced-channel barrier still preserves first-frame order.
-Sync loss or overflow invalidates `TerminalScreenHub` and requests one full
-after the route is announced; direct framing loss retires only its exact direct
-connection. Browser flow control still uses cumulative delivery ACKs, bounded
-queues and reconnect without page reload.
+**Publication remains durable and ordered.** Session events commit before channel publication, and the announced-channel barrier preserves first-frame order.
+Sync/direct repair and ACK flow control are normative in [`protocol/spec/terminal-stream.md`](protocol/spec/terminal-stream.md) and [`protocol/spec/sync.md`](protocol/spec/sync.md).
 
 Every session remains a shell PTY; agent CLIs such as `omp`, Claude Code, or Codex run inside it manually or through terminal launcher configuration.
 Roost never spawns, supervises, or owns an agent process, conversation, transcript, tool call, or approval model.
@@ -273,93 +153,13 @@ It may expose volatile worker-observed state, accept occupant-fenced text for th
 
 ## Agent conversation references (private recovery metadata)
 
-The official OMP integration reports a versioned opaque reference through a
-separate acknowledged local method. The worker revalidates the session
-capability, kernel peer PID, and fresh agent-process ancestry before accepting
-it; the report cannot choose a provider or executable. An official
-`session_file` is stored as kind `path` only while it is absolute — POSIX or
-Windows shape — otherwise the official `session_id` offered in the same call is
-stored as kind `id`. Values are well-formed Unicode free of control characters,
-bounded at 512 UTF-8 bytes for an id and 4,096 for a path, and are never
-opened, normalized, indexed, rendered, or logged.
-`packages/protocol/src/agent-conversation-reference.ts` owns every one of those
-rules, so a reference that could not be resumed is never stored.
-
-Set, replacement, and explicit clear are private durable `SessionEvent`s
-ordered by the worker outbox `client_seq`, independently of volatile agent
-status. The worker authors one clear itself: when the reporting agent process
-leaves a still-live session, the status detector emits exactly one durable
-`agent_reference: null` for that session, so a later restore cannot resume a
-conversation the user already ended.
-The coordinator persists the newest reference and sequence in private
-session recovery columns. Snapshots cannot erase them, lower or duplicate
-sequences cannot change them, and closing the session deletes them. The exact
-owning worker receives one recovery row for each open session; browsers,
-device/CLI session listings, Sync live/backfill lanes, search, logs, and audit
-never receive the opaque value.
-
-An involuntary-loss restore is worker-local and OMP-specific. Keeper adoption
-always runs first, and successful adoption sends zero resume input. Only after
-adoption fails, the ordinary replacement shell exists, and its `respawned`
-event is durably admitted may `apps/worker/src/agent-conversation-restore.ts`
-resolve the stored reference through its versioned, fixed OMP descriptor. The
-descriptor supplies the `omp` executable and the `--resume=` option form
-(OMP has no `--session` flag); the stored opaque value only ever completes
-that one argv element, quoted with the canonical POSIX shell quoting utility.
-The worker submits the rendered command plus one CR as exactly one
-acknowledged input batch to the replacement shell. A reference already claimed
-by an earlier session in the same reconciliation pass is skipped, so two panes
-cannot resume one conversation; a claim is released again when that session's
-write is rejected before any keeper byte, so the next session holding the same
-reference still resumes it. Neither the opaque value nor the rendered command
-enters structured logs.
-
-Integration data cannot choose executable or template text. Accepted,
-rejected, and ambiguous input results are terminal for that boot attempt and
-are never retried or routed back through respawn/tombstone handling. A
-non-accepted result that reports written bytes is followed by exactly one
-worker-owned line-discard byte (`0x03`), because `--resume=` matches an id by
-prefix and a truncated command left on the prompt would attach one Enter to a
-different conversation; that cancel never re-sends the resume command and
-never affects session lifecycle. Every outcome retains the reference until the
-integration later replaces or clears it.
-
-`ROOST_AGENT_CONVERSATION_RESTORE` is a strict worker-local `0|1` setting.
-Absent and `0` mean disabled on every platform. `1` enables the path only on
-POSIX; Windows rejects it as unsupported. The default remains disabled pending
-actual official-OMP POSIX real-stack qualification—implementation and unit
-coverage are not that qualification and do not justify a default-on claim.
+Official OMP references are validated, durable, worker-private equality metadata used only for one fenced recovery input after keeper adoption fails.
+The schema, sequence fold, restore ordering, and feature gate are normative in [`protocol/spec/agent-metadata.md`](protocol/spec/agent-metadata.md).
 
 ## Agent status (volatile, metadata only)
 
-Roost labels a shell PTY `working`, `blocked` (needs input), or `idle`. This is terminal metadata, not a structured agent session or execution model.
-Dashboard-authorized RPCs can read it, await an observed state transition, or use it as the exact fence for one PTY input; they never control an agent through a separate channel.
-
-Detection lives entirely on the **worker**:
-
-- A periodic `ps` scan identifies known agent binaries in the session process tree (`apps/worker/src/agent-status/process-scan.ts`).
-- OMP and Pi report lifecycle, including "needs input" and retry grace, over a per-worker local endpoint. The server kernel-attests the accepted socket's peer PID, then a fresh process-tree scan must prove that exact process is the current known agent under the capability's session; process identity and ordering never come from report fields (`apps/worker/src/agent-status/report-server.ts`).
-- Sessions without an integration fall back to their own screen and OSC title/progress against pinned manifests (`apps/worker/src/agent-status/manifests.ts`).
-
-An integration report beats the screen; a silent integration's lease expires after 30 s and the session falls back automatically.
-The worker publishes one effective row per session. `status_epoch` identifies a registry lifetime, `occupant_id` a verified process incarnation, and `source` an integration or screen observation; revisions are monotonic within that identity.
-PID stays worker-private. Identity fields are volatile observation and fencing state, not process handles, credentials, or conversation identifiers.
-Only a fully identified integration row is `promptable`; screen and identityless legacy rows remain readable with `promptable=false`.
-
-Nothing about status is persisted. Frames travel worker → coordinator (`WAgentStatus`) → an in-memory hub ordered by epoch, occupant, and revision → `Sync` (`AgentStatusFrame`) → browser.
-A fresh `Sync` connection gets the hub snapshot, and session close drops its row, so worker, coordinator, and browser restarts converge without stale badges.
-
-`AgentStatusGet`, `AgentStatusList`, and `AgentStatusWait` authorize the dashboard actor before reading or entering the hub; missing and foreign sessions share not-found behavior. Waits register before current-state inspection, pin an exact epoch and occupant, and resolve from that inspection or an accepted hub update, timeout, replacement, or session close—never output scraping or polling. The registry caps waits at 32 per session and 2,048 process-wide.
-`SessionsPrompt` names `session_id`, exact `expected_status_epoch`, `expected_occupant_id`, and safe-`uint64` `expected_revision`, plus nonempty `text` and optional wait configuration. Text is capped at 16,384 UTF-8 bytes. Wait configuration is all absent or a nonempty unique subset of `idle|working|blocked` plus `wait_timeout_ms` in `1..300000`.
-The coordinator's `apps/coord/src/agents/agent-prompt-control.ts` registers `waitForAgentStatus` before enqueueing dedicated `DAgentPrompt` tag 16 with request/session/input sequence, exact identity and revision, original text, and relative budget. `WInputResult` remains the upstream write truth; the coordinator consumes the waiter only after a definite rejection and awaits it after accepted or ambiguous input.
-`apps/worker/src/agent-prompt-control.ts` refreshes private process proof before admission, then immediately before `beginInput` rechecks the live session/channel, deadline and current connection, integration source, exact epoch/occupant/revision, the same refreshed process, and state `idle|working`.
-All fence failures at the final pre-`beginInput` check are rejections with zero keeper writes; a failure after admission is ambiguous. The worker uses `packages/protocol/src/terminal-input.ts`, matching the browser's newline normalization and, when bracketed paste is active, its ESC-stripping wrapper; it then appends one CR and performs one keeper write. `SessionsInput` remains raw bytes with no fence, transformation, implicit Enter, or semantic change.
-The response keeps exact input outcome (`accepted|rejected|ambiguous`) separate from optional wait outcome (`matched|timed_out|occupant_changed|session_closed`) and exposes only a reason of at most 200 characters and `written_bytes` of at most 16,397. Prompt text and agent status messages are never logged, audited, or stored, and an ambiguous write is never retried.
-`roost api agent-status <session> [--json]`, `roost api agents [--json]`, `roost api agent-wait <session> --until <states> --timeout <duration>`, and `roost api agent-prompt <session> <text> [--wait --until <states> --timeout <duration>]` expose this PID-free surface.
-
-**Notification boundary.** The coordinator classifies background `working → blocked` and `working|blocked → idle` transitions and, after a 1 s cancellable delay, sends Web Push to subscribed devices not viewing that session.
-Push subscriptions are the one persisted piece (`push_subscriptions`); in-app toast, unseen title badge, optional sound, and per-browser-profile claim remain browser-local.
-Opening the session cancels a pending notification and acknowledges its revision.
+Worker-observed `idle|working|blocked` status is PID-free volatile metadata with occupant/revision fencing, bounded waits, and one optional PTY input.
+The wire contract and prompt boundary are normative in [`protocol/spec/agent-metadata.md`](protocol/spec/agent-metadata.md).
 
 ## Terminal fidelity (the hard part)
 
