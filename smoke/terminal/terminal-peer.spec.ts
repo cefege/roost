@@ -260,7 +260,7 @@ test("disabled peer capability retains usable Sync terminal input without a blan
   }
 });
 
-test("invalid offers, unavailable grants, expired grants, and identity mismatches fall back without recreating the PTY", async ({ browser }, testInfo) => {
+test("invalid offers, unavailable grants, expired grants, and identity mismatches fall back without recreating the PTY @serial", async ({ browser }, testInfo) => {
   test.setTimeout(480_000);
   const faults = ["invalid_sdp", "missing_grant", "expired_grant", "identity_mismatch"] as const;
   for (const fault of faults) {

@@ -1,292 +1,46 @@
-# @roost/cli — the one CLI
+<!-- AUDIENCE: claude -->
+<!-- CLI map: src/ owns operator workflows; src/windows/ is the paused Windows adapter. -->
+<!-- Protocol meaning is authoritative under protocol/spec; this README records operator ownership and CLI-only policy. -->
 
-`roost` is the single operator surface: install, deploy, update, inspect, test.
-It replaced 7+ scattered shell scripts. Run it as `bun run roost <sub> [args]`
-(root script), `bun apps/roost-cli/src/main.ts <sub>`, or as the compiled
-`roost` binary — the compiled binary also uses this CLI for its *server* modes
-(`roost coord`, `roost worker`, `roost keeper`).
+# @roost/cli — operator command surface
 
-Path references are relative to `apps/roost-cli/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
+`roost` is the single install, deploy, update, inspect, and test surface. Run source mode with `bun run roost <sub> [args]` or `bun apps/roost-cli/src/main.ts <sub>`; compiled binaries use the same CLI for `roost coord`, `roost worker`, and `roost keeper` server modes. `src/main.ts::SUBCOMMANDS` is the command registry: a command exists exactly when it has a registry key.
+
+The CLI reaches coord/worker through their package exports and uses `@roost/host` for host runtime seams. It does not import application internals by relative path. Protocol contract index: [`protocol/README.md`](../../protocol/README.md). RPC and transport limits/state machines are normative in [`protocol/spec/coordinator-rpc.md`](../../protocol/spec/coordinator-rpc.md), [`protocol/spec/sync.md`](../../protocol/spec/sync.md), [`protocol/spec/worker-link.md`](../../protocol/spec/worker-link.md), [`protocol/spec/direct-terminal.md`](../../protocol/spec/direct-terminal.md), [`protocol/spec/attachments.md`](../../protocol/spec/attachments.md), and [`protocol/spec/auth-and-pairing.md`](../../protocol/spec/auth-and-pairing.md).
 
 ## Entry point
 
-`src/main.ts` holds the `SUBCOMMANDS` dispatch object. It is the source of truth
-for the command surface: `src/main.ts` looks the argv up in that object, so a command
-exists exactly when it has a key there. `--version` / `-v` alias to `version`; an
-unknown key prints `usage()` and exits 1.
-
-`SUBCOMMANDS` has **23 keys**: `usage()` prints 20; the three internal
-self-exec/service entries `keeper`, `__keeper-contract`, and
-`__windows-updater-broker` are omitted.
-
-| Command | Purpose |
-| --- | --- |
-| `quickstart` | Persistent local-first install: bare invocation installs loopback coordinator and first worker, proves readiness, and opens a paired local browser; reruns preserve the installed runtime, while `--coordinator-url https://…` promotes only the coordinator endpoint profile |
-| `coord` | Run the coordinator in this process (compiled-binary server mode). Lazily `import()`ed so the generated SPA embed never loads into `roost test` |
-| `worker` | Run the worker in this process (compiled-binary worker mode); same entry the LaunchAgent/unit uses |
-| `keeper <sock>` | Run the multiplexed keeper in this process. Internal self-exec target: the worker spawns `roost keeper <sock>` when it is not running under bun |
-| `update` | Self-update the binary from the latest GitHub release |
-| `__windows-updater-broker` | **Internal, win32-only.** See below — its name and argv are a contract |
-| `version` | Print the version / build identity (`--version`, `-v`) |
-| `skill` | Write the canonical release-matched `skills/roost/SKILL.md` bytes to stdout; accepts no arguments and never installs or edits agent configuration |
-| `dev` | Boot coord (:4102) + outbound-only worker + web dev server (:5174) in parallel |
-| `test [profile]` | Canonical entry point: `unit`, `worker`, `terminal`, `upgrade`, `live-api` optional monitor, or `all` |
-| `deploy <host> [--label=<name>] [--reachable-addr=<fqdn>] [--force-live]` | Refresh the worker on a remote host (macOS rsync + LaunchAgent, Linux in-place checkout). Staging requires keeper update admission from the coordinator registry, except for a worker that reports no keeper runtime at all — that one bootstraps without a journaled keeper update and says so. A remote target's `ROOST_WORKER_LABEL` / `ROOST_REACHABLE_ADDR` resolve only from `--label` / `--reachable-addr` or the target's own installed service definition; exporting either variable in the deploying shell refuses a first install on that host instead of registering it under this machine's identity. `--force-live` additionally authorizes the deployed worker to DESTROY every PTY held by a keeper it can neither adopt nor prove empty (a keeper predating binding proof); every shell, dev server, and test in those PTYs exits. It applies to that one deploy and the next deploy clears it |
-| `push` | Publish one clean commit, update the coordinator's own checkout, and deploy every registered worker it can reach, proving each one reports that commit before returning success. A worker that is unreachable, stale, off the prior SHA, or holding a keeper the release cannot adopt is reported as deferred instead of refusing the rollout. A deferred machine is converged by the coordinator's catch-up deploy on its next attach or by `roost deploy <host>` — NOT by re-running `push`, whose per-host rollout only admits a worker already on the prior SHA |
-| `keeper-refresh <host> --yes [--force-live]` | Re-spawn a host's keeper on current code through the coordinator-fenced maintenance RPC. Destructive, explicitly confirmed, and the only workflow authorized to stop a keeper while the worker is live; `--force-live` ends every PTY that keeper hosts. A keeper the worker cannot identify is refused here — retire it with `roost deploy <host> --force-live` instead |
-| `logs <coord\|worker> [--tail N]` | Tail an app's log files; warns past 100 MB |
-| `reset` | Stop both services, wipe the coord DB + pinned keys + lock, re-run `bun install` |
-| `state` | Print a `STATE.md` snapshot to stdout |
-| `cutover` | Migrate `coordinator.db` → `coordinator_v2.db` |
-| `status` | ✓/✗ health readout: local services, coordinator loopback liveness, optional public URL reachability, and workers; absent remote access is intentional local-only state |
-| `doctor [--since 24h]` | Anomaly digest from the low-volume Tier-1 channel (`main.err.log` + rotated `.N.gz`) |
-| `api <verb>` | Dashboard-authorized headless introspection/control over coordinator RPCs: `sessions`, `agent-status`, `agent-wait`, `agent-prompt`, `agents`, `cells`, `input`, `rename`, `assign`, `attach`, `spawn`, `kill`, `workers`, `workspaces`, `ws-*`, `tasks`, `task-*`, `ui`, `ui-state`, `events` |
-| `join` | Install + register this machine's worker from a one-shot bootstrap token (driven by the repo-root `join.sh`; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN`) |
-| `add-machine --platform <macos\|linux\|windows>` | Mint one worker token and print the platform-specific enrollment command only after the installed coordinator declares a strict non-loopback HTTPS origin; the operator runs it manually on the target |
-
-v0.5.0 releases and deploys self-hosted Roost on macOS/Linux. The coordinator
-binds loopback in plaintext; TLS, DNS, and public reachability remain
-operator-managed optional expansion. Windows remains paused.
-
-### `__windows-updater-broker` is a contract, not an implementation detail
-
-Its argv is pinned in `assets/windows/service-templates.json` and
-identity-checked in `native/windows/roost-win-helper.cpp`, so renaming the key or
-changing its argv shape breaks the native helper's admission check. The handler
-refuses to run unless `process.platform === "win32"` and `args.length === 0`. It
-loads every Windows module by dynamic `import()` so the native-helper-dependent
-code never enters a POSIX command path. It admits any pending update request
-and only then runs the update broker.
+`src/main.ts` dispatches `SUBCOMMANDS`; `--version` aliases `version`, and an unknown command prints usage and exits nonzero. Internal self-exec keys `keeper`, `__keeper-contract`, and `__windows-updater-broker` are omitted from public usage. `src/coord.ts`, `src/worker.ts`, and `src/keeper.ts` are compiled-binary server modes. `src/skill.ts` writes the release-matched skill bytes to stdout and never edits an agent profile.
 
 ## Module map
 
-- **Dispatch** — `src/main.ts`.
-- **Deploy / push** — `src/deploy.ts` routes first through
-  `src/deploy-windows-channel.ts`, then self-host, Linux, or macOS.
-  `src/deploy-exec.ts` owns ssh/spawn; `src/deploy-worker-environment.ts` and
-  `src/worker-deploy-rollout.ts` own worker contracts;
-  `src/deploy-workspaces.ts` expands slim macOS staging and
-  `src/deploy-plist-env.ts` parses launchd environment. Platform activation and
-  recovery live in `src/deploy-macos-rollout.ts`,
-  `src/deploy-linux-recovery.ts`, and `src/deploy-local-activation.ts`.
-  `src/push.ts` is the operator entry; `src/push-fleet-rollout.ts` owns
-  participant convergence and `src/push-fleet-plan.ts` owns the
-  participant/deferred partition, `src/push-coordinator.ts` owns the held local
-  target, and
-  `src/local-worker-rollout-coordinator.ts` validates intentional journal
-  overlap. POSIX journals are `src/posix-deploy-journal.ts`,
-  `src/deploy-macos-journal.ts`, `src/deploy-macos-journal-controller.ts`,
-  `src/macos-deploy-journal-program.ts` (with its
-  `-environment` and `-validation` halves), `src/linux-deploy-journal.ts`,
-  `src/linux-deploy-journal-commands.ts`,
-  `src/linux-prior-service-commands.ts`,
-  `src/linux-prior-service-recovery.ts`, and
-  `src/local-worker-deploy-journal.ts`. `src/durable-worker-state.ts` owns the
-  durable session-event store's schema version — both remote probes plus the
-  rule that a forward migration makes a rollback impossible, which is what
-  turns a wedged journal into a roll-forward. Coordinator rollout is split across
-  `src/coordinator-deploy-journal.ts`, `src/coordinator-deploy-recovery.ts`,
-  `src/coordinator-deploy-finalization.ts`,
-  `src/coordinator-deploy-snapshot.ts`,
-  `src/coordinator-deploy-release.ts`, and
-  `src/coordinator-service-definition.ts`.
-  `src/remote-deploy-lock-program.ts` owns remote leases;
-  `src/deploy-self-host.ts` is detection only;
-  `src/keeper-refresh.ts` owns the explicit destructive workflow.
-  `src/direct-keeper-update.ts` resolves keeper update admission from the
-  installed coordinator database and `src/keeper-admission-staging.ts` collapses
-  its outcome into what a platform driver may stage: a proven update, a
-  first-install target, a stale row that still defers to the installed-service
-  probe, or the bootstrap allowance for a worker that predates keeper-runtime
-  reporting.
-- **Windows-only, paused for v0.5.0** —
-  `src/windows/windows-update-broker.ts`,
-  `src/windows/windows-update-journal.ts`,
-  `src/windows/windows-update-control.ts`,
-  `src/windows/windows-update-runtime.ts`, plus
-  `src/windows/windows-identity.ts`, `src/windows/windows-path-safety.ts`,
-  `src/windows/windows-journal-validate.ts`,
-  `src/windows/windows-release-manifest.ts`,
-  `src/windows/windows-update-assets.ts`,
-  `src/windows/windows-update-stable-artifacts.ts`, and
-  `src/windows/windows-update-rollback.ts`. Service splits are
-  `src/windows/windows-service-types.ts`,
-  `src/windows/windows-service-definitions.ts`,
-  `src/windows/windows-service-scm.ts`,
-  `src/windows/windows-service-security.ts`, and
-  `src/windows/windows-service-manager.ts`.
-- **Install + service control** — `src/service-ctl.ts` is the stable
-  POSIX/Windows facade; `src/service-posix.ts` owns POSIX identifiers and
-  launchd/systemd command construction. `src/quickstart.ts` owns fresh local
-  provisioning, `src/quickstart-existing-install.ts` owns validated reruns and
-  endpoint-only promotion, and `src/quickstart-endpoint.ts` owns selected
-  endpoint profiles. `src/quickstart-runtime.ts`,
-  `src/quickstart-bootstrap-tokens.ts`, `src/add-machine.ts`, `src/join.ts`,
-  `src/install-binary-agents.ts`, and `src/machine-transaction.ts` retain their
-  respective runtime, grant, enrollment, installation, and locking seams.
-- **Release / skill** — `src/update.ts`, `src/version.ts`; `src/skill.ts`
-  chooses the generated text embed in compiled binaries and the canonical
-  repository file in source mode.
-- **Diagnostics** — `src/status.ts` is the facade over
-  `src/status-native-probes.ts`, `src/status-report.ts`,
-  `src/status-output.ts`, `src/status-spa.ts` (the served-build probe),
-  `src/status-service-env.ts` (the one installed-unit environment reader), and
-  `src/status-types.ts`; `src/doctor.ts`,
-  `src/logs.ts`, `src/sync-ws.ts` (headless firehose), and `src/state.ts`.
-- **Headless API** — `src/api.ts` owns authenticated API dispatch;
-  `src/api-ui.ts` owns typed `ui-state`, strict layout-file parsing, and
-  acknowledged apply outcome formatting. `src/api-ui-legacy.ts` owns exact
-  argv parsing for the eight publication-only UI commands, while
-  `src/terminal-safe-text.ts` bounds and escapes untrusted human output.
-  `src/api-agent-status.ts` owns stable agent-status reads and exact-occupant
-  waits, while `src/api-agent-prompt.ts` owns guarded prompt parsing, status
-  pinning, and outcome formatting.
-  `src/api-command-registry.ts` composes the canonical metadata used to
-  validate the API examples in the bundled skill.
-- **Local loop** — `src/dev.ts`, `src/test.ts`, `src/reset.ts`, `src/cutover.ts`.
-- **Server modes** — `src/coord.ts`, `src/worker.ts`, `src/keeper.ts`.
+One row per current owned source or test directory.
 
-### `roost skill`
+| Directory | Owns | Must not own |
+| --- | --- | --- |
+| `apps/roost-cli/src/` | Command dispatch, coordinator/worker/keeper server modes, install/quickstart/join, deploy/push/release/update, service control, status/doctor/logs, headless API, UI-state CLI adapters, reset/cutover, machine transaction, and local test/dev loops. | Protocol schema definitions, coordinator/worker runtime internals, or browser UI state. |
+| `apps/roost-cli/src/windows/` | Paused Windows update broker/runtime/journal/rollback/assets, Windows service definitions/S/security/manager/SCM, path/identity safety, and release manifest. | POSIX service policy, worker PTY implementation, or a claim that Windows is currently supported. |
+| `apps/roost-cli/tests/` | Bun suites and fixtures for command dispatch, API output, deploy/push/admission, installation, status, and Windows adapter seams. | Production operator state or coordinator/worker process implementation. |
 
-`roost skill` accepts no arguments and writes only the canonical
-`skills/roost/SKILL.md` bytes to stdout. Source mode reads that file directly;
-release binaries carry the same text through the generated Bun embed. The
-command never installs the skill or changes agent configuration.
+## Command ownership
 
-Installation is an explicit user action. For OMP's default user profile:
-
-```sh
-mkdir -p "$HOME/.omp/agent/skills/roost"
-roost skill > "$HOME/.omp/agent/skills/roost/SKILL.md"
-```
-
-Restart OMP after installing or replacing the file. A project-local OMP
-installation uses `.omp/skills/roost/SKILL.md` instead. Rerun the same manual
-redirection after updating Roost when you want the installed instructions to
-match the new binary.
-
-### `roost api agent-prompt`
-
-`roost api agent-prompt <session> <text> [--wait --until <states> --timeout
-<duration>]` reads the current promptable status, pins its exact epoch,
-occupant, and revision, then asks `SessionsPrompt` for one fenced input to that
-same shell PTY. `<text>` is the exact single argv value—unlike `api input`, the
-CLI does not expand `\n`, `\t`, or `\r` spellings—and must be nonempty and at
-most 16,384 UTF-8 bytes.
-
-The wait flags are all-or-none. `<states>` is a unique comma-list drawn from
-`idle,working,blocked`; duration is an integral `ms`, `s`, or `m` value from
-1 ms through 5 minutes. Output begins
-`input<TAB><accepted|rejected|ambiguous><TAB><written_bytes><TAB><reason-or->`;
-the reason is at most 200 characters and `written_bytes` at most 16,397. When
-`--wait` is set and input is accepted or ambiguous, a second line is
-`wait<TAB><matched|timed_out|occupant_changed|session_closed>`; definite
-rejection prints only the input line. Rejected or ambiguous input and every
-non-matched wait set a nonzero exit code. Neither component retries ambiguous
-input or prints/logs the prompt text.
-
-`roost api input <session> (<escaped-text> | --stdin) [--enter]` remains the unfenced raw-input surface. `--stdin` reads one raw byte sequence; `--enter` appends exactly one CR. Neither accepted, rejected, nor ambiguous transport outcomes retry a terminal write.
-
-### `roost api ui`
-
-`roost api ui-state [--json]` reads each reporting browser tab's ephemeral
-active path. While that path resolves to an open folder session, the report
-also carries a nonempty browser-owned folder key and typed portable
-`layout_document`. Human output prints a pane tree only when that document is
-present; JSON uses the strict snake_case `LayoutDocumentV1` or `null` off
-folder routes, never runtime pane/split IDs or an embedded layout string.
-Human output visibly escapes terminal controls and Unicode bidi/format controls
-in every remote text field, truncating each at 256 rendered code points or 512
-UTF-8 bytes with an explicit marker. `--json` leaves string values lossless and
-untruncated.
-Reports remain discoverable for a five-minute TTL, so an entry is not proof
-that its tab still owns a live writable Sync socket.
-
-The eight interactive commands (`navigate`, `place-split`, `select-tab`,
-`focus-pane`, `move-tab`, `arrange`, `close-tab`, and `spotlight`) remain
-fire-and-forget. Each prints exactly `delivered=N`, where `N` is the selected
-dashboard's Sync-subscriber count when the coordinator publishes—not the
-number of tabs that execute or acknowledge it. `--tab <id>` may appear anywhere
-after the command name; it filters execution in browsers but does not change
-that count, and omitting it broadcasts. Duplicate or unknown options and the
-wrong positional arity are errors.
-
-Acknowledged replacement of one live tab's layout is:
-
-```sh
-roost api ui apply-layout <file> --tab <id>
-```
-
-The file must be strict V1 layout JSON and `--tab` is mandatory and nonempty.
-The CLI first reads the retained UI-state projection. No matching tab prints
-`target_gone`; the same tab ID under multiple fingerprints prints `rejected`;
-neither path publishes an apply. One match pins its fingerprint/tab tuple into
-at most one apply RPC, so a browser that later reuses the tab ID cannot take
-over the request.
-
-Stdout is exactly one of `applied`, `rejected`, or `target_gone`. `rejected`
-and `target_gone` set a nonzero exit code. A stable sanitized reason, when
-present, is written to stderr. `applied` proves a commit after the browser's
-navigation attempt, not successful navigation completion. The apply RPC is
-never retried. `target_gone` means the exact fingerprint/tab/socket
-acknowledgement became unavailable through absence, close, replacement, or
-timeout; it is not proof that the browser did not commit the layout.
-
-`src/machine-transaction.ts` serializes install/update/keeper-refresh/deploy
-against one lock per machine. Importers are `src/deploy-local.ts`,
-`src/keeper-refresh.ts`, `src/push-coordinator.ts`,
-`src/quickstart-windows-install.ts`, and
-`src/windows/windows-update-broker.ts`.
+- **Install and service control:** `src/quickstart*.ts`, `src/join.ts`, `src/add-machine.ts`, `src/install-binary-agents.ts`, `src/service-ctl.ts`, and `src/service-posix.ts` own local provisioning, enrollment, service identifiers, and launchd/systemd command construction.
+- **Deploy, push, and keeper refresh:** `src/deploy*.ts`, `src/push*.ts`, `src/direct-keeper-update.ts`, `src/keeper-admission-staging.ts`, and `src/keeper-refresh.ts` own authenticated rollout, journal/recovery, convergence, and explicit destructive keeper maintenance. The CLI obtains keeper admission from the coordinator; it does not own the coordinator link transport.
+- **Release and skill:** `src/update.ts`, `src/version.ts`, `src/skill.ts`, and generated skill embed assets own self-update verification and release-matched operator text. `fetchAndVerifyReleaseAsset()` is the one release download verification path.
+- **Diagnostics:** `src/status*.ts`, `src/doctor.ts`, `src/logs.ts`, `src/sync-ws.ts`, and `src/state.ts` own health probing, anomaly digest, log output, optional Sync firehose, and state snapshots.
+- **Headless API:** `src/api.ts`, `src/api-agent-status.ts`, `src/api-agent-prompt.ts`, `src/api-ui.ts`, `src/api-ui-legacy.ts`, `src/api-terminal-bridge.ts`, and `src/api-command-registry.ts` own authenticated CLI dispatch, exact occupant/prompt fencing, strict UI layout input, bounded terminal-safe output, and command metadata.
+- **Local loop:** `src/dev.ts`, `src/test.ts`, `src/reset.ts`, and `src/cutover.ts` own the repository development/test/reset/migration loops. `src/machine-transaction.ts` is the one machine lock used by install/update/deploy/keeper workflows.
 
 ## Invariants
 
-- **`src/service-posix.ts` is the single POSIX service-definition owner.**
-  `WORKER_UNIT`, `WORKER_AGENT`, `COORD_UNIT`, `COORD_AGENT`, the XDG preamble,
-  and `launchdBootstrapWithRetryCmd` live there; `src/service-ctl.ts` re-exports
-  the stable POSIX and Windows service surface. The launchd retry helper reaches
-  `src/coordinator-service-definition.ts`, `src/deploy-local.ts`, and
-  `src/deploy-macos-journal-controller.ts` through that facade. Do not fork
-  identifiers or bootout → bootstrap → enable → kickstart ordering by OS/caller.
-- **Keeper update admission is fail closed.** `push`, direct POSIX `deploy`,
-  and self-update require authenticated runtime proof before they mutate a
-  registered worker. A release that predates keeper-runtime reporting cannot
-  be live-upgraded through the new orchestrator: drain its PTYs and install the
-  reporting release with that release's updater first. Missing legacy database
-  columns project as unproven rows so the attempt reports the blocked worker
-  with zero coordinator, repository, worker, or keeper mutation.
-- **Release assets are verified in exactly one place.**
-  `fetchAndVerifyReleaseAsset` in `src/update.ts` is the only download path — self
-  update, Windows fleet preflight, and Windows coordinator update all resolve
-  through it, so none can keep a weaker check than its siblings. A published
-  `.sha256` sidecar is **required**: it is fetched first, so a 404 or tampered
-  sidecar costs no body transfer and nothing is written to `destPath` unverified.
-  `ROOST_RELEASE_BASE_URL` is read in exactly one function (`releaseBaseUrl`), so
-  the self-updater can be pointed at a mirror; previously only the deploy paths
-  honoured it. The Windows CMS `.p7s` signature check layers on top and is
-  preserved separately.
-- **`console.*` is correct here and only here.** stdout is this app's product
-  surface. Coord and worker log through `@roost/observability/log`, and `bun run lint`
-  ratchets their `console.*` counts downward. Do not route CLI output through the
-  log facade.
-- **Windows brokers cannot be exercised on Linux/macOS.** Their only gate is
-  the conditional `windows-2022` CI job, disabled by default while
-  `ROOST_WINDOWS_GATE` is off. v0.5.0 makes no Windows-support claim.
+- `src/service-posix.ts` is the single POSIX service-definition owner. `src/service-ctl.ts` is the stable facade; identifiers and launchd/systemd ordering must not be forked by OS or caller.
+- Keeper update admission is fail closed. A registered worker without current runtime proof cannot be mutated by `push`, deploy, or self-update. Forward-migration state is not treated as rollback-safe.
+- Release assets are verified in exactly one place, with a required SHA-256 sidecar fetched before body transfer. Mirror URL policy is centralized.
+- `console.*` is allowed here because stdout is the CLI product surface. Coord and worker use `@roost/observability/log` instead.
+- A single `machine-transaction` lock serializes install, update, keeper refresh, and deploy. Never add an unlocked second deployment path.
+- The paused Windows broker's argv and native helper identity check are a contract. It dynamically imports Windows-only modules and refuses non-Windows execution; Linux/macOS CI cannot prove it.
+- The CLI may issue authenticated requests and report outcomes, but terminal input, direct carrier bytes, worker control, and coordinator authorization remain owned by their protocol implementations.
 
 ## Test
 
-`bun test apps/roost-cli/tests/` runs the `*.test.ts` files with platform
-operations driven through injected fakes. `tests/api-agent-status.test.ts`
-pins the public JSON and TSV status contracts; `tests/api-agent-wait.test.ts`
-pins wait parsing, occupant pinning, outcomes, and exit behavior;
-`tests/coordinator-deploy.test.ts` pins participant-scoped fleet rollback; `tests/update.test.ts`
-pins release verification; `tests/machine-transaction.test.ts` pins the machine lock.
-
-The repo's test scripts run through this CLI: `bun run test:unit`,
-`bun run test:terminal`, `bun run test:upgrade`, and
-`bun run test:live-api` shell into `roost test <profile>` (`src/test.ts`).
-`unit`, `worker`, `terminal`, and `upgrade` are release gates; `live-api`
-requires `ROOST_COORD_URL` and remains an optional production monitor.
-`bun run test:worker` calls
-`scripts/test-worker.ts` directly—the same runner used by `roost test worker`
-and `unit`—because each worker test file needs its own process, keeper, and
-temporary root.
+`bun test apps/roost-cli/tests/` runs the suites with injected platform fakes. The repository gates call this CLI through `roost test unit|worker|terminal|upgrade`; `live-api` is an optional monitor requiring `ROOST_COORD_URL`.

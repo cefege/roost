@@ -13,16 +13,31 @@ operating rules only, so it cannot rot into a stale copy of the filesystem.
 Landing cold, read in this order. Stop as soon as you have what you need.
 
 1. **[`ARCHITECTURE.md`](ARCHITECTURE.md)** — the system tour: the apps, the
-   transport spine, session/event data flow, and the terminal-fidelity model
-   (the hard part).
-2. **[`GLOSSARY.md`](GLOSSARY.md)** — the vocabulary: cell-shipping, keeper,
+   transport spine, session/event data flow, and the terminal-fidelity model.
+2. **[`protocol/README.md`](protocol/README.md)** — the client contract index,
+   endpoint manifest, versioning, and package dependency rules.
+3. **[`GLOSSARY.md`](GLOSSARY.md)** — the vocabulary: cell-shipping, keeper,
    agent-status, session/channel/tab, scrollback.
-3. **The `apps/<x>/README.md` for the app you are touching** —
+4. **The `apps/<x>/README.md` for the app you are touching** —
    [`web`](apps/web/README.md), [`coord`](apps/coord/README.md),
-   [`worker`](apps/worker/README.md), [`roost-cli`](apps/roost-cli/README.md). Entry point, module map,
-   app-specific invariants, and how to test that app.
-4. **[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md)** — grep it BEFORE
+   [`worker`](apps/worker/README.md), [`roost-cli`](apps/roost-cli/README.md).
+5. **[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md)** — grep it BEFORE
    writing code that matches a listed symptom. See `## Failure index` below.
+
+## Repository layout and layers
+
+```text
+protocol/  packages/{observability,protocol,platform,wterm,host}/
+apps/      web, coord, worker, roost-cli, site
+```
+
+Dependencies point one way: protocol → observability; wterm → protocol/observability;
+host → protocol/platform/observability; web → protocol/platform/observability;
+coord → host/protocol/platform/observability; worker → host/wterm/protocol/platform/observability;
+roost-cli → coord/worker/host/protocol/platform/observability.
+No package imports an app, and apps do not import sibling apps by relative path.
+Future native clients live under `apps/<platform>` and depend only on `protocol/`.
+Enforced by `scripts/lint-boundaries.ts` (B1–B4).
 
 Also live, read when relevant:
 
@@ -42,30 +57,15 @@ The generic doctrine lives in [`docs/LENS.md`](docs/LENS.md) as anchors
 `LENS-SELFTEST` and the `L9.1`–`L9.5` sub-anchors. Grep `'^ *[0-9]*\. \*\*L'`
 in that file for the map. It is not re-inlined here; one copy is the point.
 
-**L0-SCOPE — what the lens governs.** Everything you emit inside this
-repository's working tree: sub-agent prompts, plan files, chat replies,
-tool-call parameter values (command descriptions, edit rationales, commit
-messages, PR bodies), and generated docs, comments, logs, and error strings.
-If you wrote it or are about to write it, the lens applies. Per-turn override
-only when the user explicitly asks for human-style framing
-(`L5-OVERRIDE-PRIORITY`).
+**L0-SCOPE — what the lens governs.** It applies to every artifact emitted in
+this repository's working tree, including prompts, docs, comments, logs, and
+errors. A per-turn override requires an explicit human-style request.
 
 ### Lens amendments
 
-`L9.5-LENS-SELF-AMENDMENT` makes the lens append-only, so removals are
-recorded rather than silently dropped:
-
-- **Removed `L0-SCOPE-NEGATIVE`, `L0-FORBIDDEN-PATHS`, and
-  `L0-FORBIDDEN-PATHS-PLAN-OVERRIDE`.** All three were written against an
-  absolute checkout path on one macOS machine and named a second absolute
-  path to forbid. Read literally, they scoped the entire lens to a directory
-  this repository is not in, which made the lens inapplicable to any other
-  clone and made the deny rules guard nothing. Scope is now expressed as this
-  repository's working tree (`L0-SCOPE`), which is true in every clone. The
-  standing rule they were reaching for survives without the absolute paths:
-  **an approved plan does not grant authority outside this working tree** —
-  crossing a repository boundary is a stop-and-ask, and plan detail is never
-  a substitute for standing you do not have.
+`L9.5-LENS-SELF-AMENDMENT` records removals. The removed scope/path rules named
+one machine's absolute checkout; `L0-SCOPE` now covers this repository's tree,
+and crossing a repository boundary is a stop-and-ask.
 
 ---
 
@@ -228,6 +228,8 @@ down → that machine's PTYs are unavailable; other machines keep working.
 ---
 
 ## Process
+Move files only with `bun scripts/move-modules.ts --manifest …`; update callers and
+path-bound docs in the same change.
 
 ### Per-phase execution loop
 

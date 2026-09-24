@@ -173,7 +173,7 @@ wins.
 - **done (derived)** — an `idle` agent whose completion revision the user has
   not acknowledged yet. Purely a browser-side presentation level: viewing the
   session acknowledges it and `done` decays to plain `idle`.
-  Source: `apps/web/src/lib/{agentStatus,agentSeen}.ts`.
+  Source: `apps/web/src/client/agents/agentStatus.ts`, `apps/web/src/lib/agentSeen.ts`.
 
 - **notification suppression** — the three rules that stop duplicate or unwanted
   alerts: viewing a session cancels its pending notification and acknowledges
