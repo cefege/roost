@@ -7,4 +7,6 @@
 
 pub mod codec;
 pub mod history;
+pub mod output_ring;
 pub mod payloads;
+pub mod pty_channel;

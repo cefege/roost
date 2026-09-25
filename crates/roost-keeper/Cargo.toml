@@ -8,6 +8,7 @@ repository.workspace = true
 description = "The keeper daemon: PTY ownership, per-channel byte rings, and the framed keeper socket protocol. Shipped as a separate binary so a coordinator deploy never disturbs a live PTY."
 
 [dependencies]
+portable-pty.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
