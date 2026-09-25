@@ -7,7 +7,8 @@
 
 use std::time::{Duration, Instant};
 
-use roost_keeper::payloads::{PtyInRejectReason, ShellSpec};
+use roost_keeper::frames::ShellSpec;
+use roost_keeper::payloads::PtyInRejectReason;
 use roost_keeper::pty_channel::{PtyChannel, SpawnError, WriteOutcome};
 
 const DEADLINE: Duration = Duration::from_secs(10);

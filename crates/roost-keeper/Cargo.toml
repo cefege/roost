@@ -12,6 +12,7 @@ portable-pty.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 # Cargo will not let a crate inherit `lints.workspace` AND add its own table,
 # so this crate restates the workspace lints and overrides the one value it

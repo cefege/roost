@@ -49,6 +49,14 @@ impl KeeperFeature {
         KeeperFeature::AcknowledgedResize,
     ];
 
+    /// The feature this wire name denotes, or `None` when this build has never
+    /// heard of it.
+    pub fn from_wire_name(name: &str) -> Option<Self> {
+        KeeperFeature::SUPPORTED
+            .into_iter()
+            .find(|feature| feature.wire_name() == name)
+    }
+
     pub fn wire_name(self) -> &'static str {
         match self {
             KeeperFeature::OrderedHistory => "ordered_history_v1",
@@ -76,10 +84,16 @@ pub struct KeeperContractV1 {
 }
 
 /// The client's `Hello`.
+///
+/// `requested_features` is raw names, not the enum: a worker that asks for a
+/// feature this build has never heard of must still be answered with the ones
+/// it does. Typing it as the enum would fail the whole handshake on one
+/// unrecognised name, which is exactly the additive negotiation the feature
+/// list exists to support.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeeperHelloRequest {
     pub protocol_version: u32,
-    pub requested_features: Vec<KeeperFeature>,
+    pub requested_features: Vec<String>,
 }
 
 /// What the keeper observed about itself, so the worker can prove a binding
@@ -100,83 +114,20 @@ pub struct KeeperHelloResponse {
 
 /// Negotiate the capability set: what the client asked for that the keeper
 /// also supports. Order follows the client, so both sides agree on the list.
-pub fn negotiate_features(
-    requested: &[KeeperFeature],
-    supported: &[KeeperFeature],
-) -> Vec<KeeperFeature> {
-    requested
-        .iter()
-        .copied()
-        .filter(|feature| supported.contains(feature))
-        .collect()
-}
-
-/// The command and environment a spawned PTY runs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShellSpec {
-    pub program: String,
-    #[serde(default)]
-    pub args: Vec<String>,
-    #[serde(default)]
-    pub env: Vec<(String, String)>,
-    #[serde(default)]
-    pub cwd: Option<String>,
-}
-
-impl ShellSpec {
-    /// The spec as a login shell of the current user, which is what a channel
-    /// with no recorded command opens.
-    pub fn default_login(shell: impl Into<String>) -> Self {
-        let shell = shell.into();
-        Self {
-            program: shell.clone(),
-            args: vec!["-l".to_string()],
-            env: vec![("SHELL".to_string(), shell)],
-            cwd: None,
+pub fn negotiate_features(requested: &[String]) -> Vec<KeeperFeature> {
+    // Order follows the client, so both sides agree on the negotiated list, and
+    // a name this build has never heard of is skipped rather than failing the
+    // handshake — which is the whole point of negotiating additively.
+    let mut negotiated = Vec::new();
+    for name in requested {
+        let Some(feature) = KeeperFeature::from_wire_name(name) else {
+            continue;
+        };
+        if !negotiated.contains(&feature) {
+            negotiated.push(feature);
         }
     }
-}
-
-/// `Spawn`: open a PTY with this geometry running this command.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SpawnRequest {
-    pub channel_id: u16,
-    pub cols: u16,
-    pub rows: u16,
-    pub shell_spec: ShellSpec,
-}
-
-/// `SpawnAck`: the PTY exists and this is its process.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SpawnAck {
-    pub channel_id: u16,
-    pub pid: u32,
-}
-
-/// `SpawnErr`: the PTY could not be opened.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SpawnErr {
-    pub channel_id: u16,
-    pub error: String,
-}
-
-/// `Exit`: the child ended. `exit_code` is `None` when it was killed by a
-/// signal, which is not the same as a nonzero exit and a client may care.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ExitFrame {
-    pub exit_code: Option<i32>,
-}
-
-/// `ListChannelsResp`: the channels this keeper still owns.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ListChannelsResp {
-    pub channels: Vec<ChannelBinding>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChannelBinding {
-    pub channel_id: u16,
-    pub pid: u32,
+    negotiated
 }
 
 /// Sequenced input, so a write that is lost is distinguishable from one that

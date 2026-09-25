@@ -9,9 +9,9 @@ use roost_keeper::codec::{
     CodecError, FrameDecoder, KEEPER_MAX_INPUT_BYTES, KEEPER_MAX_MUX_FRAME_BYTES, MuxFrame,
     MuxFrameType, StreamEvent, read_sequence, read_u32, write_sequence,
 };
+use roost_keeper::frames::{SpawnAck, SpawnRequest};
 use roost_keeper::payloads::{
-    PtyInRejectReason, PtyInRequest, PtyInResult, ResizeRequest, SpawnAck, SpawnRequest,
-    TerminalState,
+    PtyInRejectReason, PtyInRequest, PtyInResult, ResizeRequest, TerminalState,
 };
 
 fn frame_events(bytes: &[u8]) -> Vec<StreamEvent> {
@@ -365,7 +365,7 @@ fn spawn_frames_round_trip_through_json() {
         channel_id: 12,
         cols: 100,
         rows: 30,
-        shell_spec: roost_keeper::payloads::ShellSpec::default_login("/bin/bash"),
+        shell_spec: roost_keeper::frames::ShellSpec::default_login("/bin/bash"),
     };
     let frame = MuxFrame::json(MuxFrameType::Spawn, 12, &request).unwrap();
     assert_eq!(frame.parse_json::<SpawnRequest>(), Some(request));

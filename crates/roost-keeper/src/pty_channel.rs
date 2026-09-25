@@ -12,8 +12,9 @@ use std::io::Write;
 
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize};
 
+use crate::frames::ShellSpec;
 use crate::output_ring::{OutputRing, spawn_reader};
-use crate::payloads::{PtyInRejectReason, ShellSpec, TerminalState};
+use crate::payloads::{PtyInRejectReason, TerminalState};
 
 /// Why a PTY could not be opened. Each variant is something the worker can act
 /// on differently, so they are not collapsed into one opaque error.
