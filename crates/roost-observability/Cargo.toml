@@ -9,3 +9,12 @@ description = "tracing JSON-lines initialization and the structured event vocabu
 
 [lints]
 workspace = true
+
+[dependencies]
+# No internal crate depends on this one, so the facade builds for every target
+# (native and wasm32) without dragging an I/O stack along.
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

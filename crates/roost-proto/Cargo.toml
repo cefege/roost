@@ -5,7 +5,26 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Generated protobuf messages and Connect service stubs, built from protocol/proto/roost/v1 by connectrpc-build. Owned by nobody — every crate that speaks the wire depends on it. Reads the .proto tree at build time and nothing else does."
+description = "Generated protobuf messages and Connect service stubs for the Roost wire contract"
+build = "build.rs"
 
 [lints]
 workspace = true
+
+[build-dependencies]
+connectrpc-build = { workspace = true }
+protox = "0.9.1"
+# Build-only: the descriptor types the json-name pass walks. Never a
+# runtime dependency — the shipped tree contains buffa alone.
+prost-types = "0.14"
+
+[dependencies]
+# The generated code names these three at the crate root (`::serde::Serialize`,
+# `::buffa::...`, `::connectrpc::...`), so all three must be direct dependencies
+# of THIS crate even though the generator is the only thing that emits it.
+connectrpc = { workspace = true }
+buffa = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -35,7 +35,14 @@ but this page.
 into the Solid store. No projector switch.
 
 **Guard** — `apps/web/tests/store.test.ts` — `"projection agreement — foldEventIntoStore === shared foldAll"`
-drives the REAL rootStore against `foldAll`.
+drives the REAL rootStore against `foldAll`. The fold itself is ported to
+`crates/roost-protocol/src/wire/event.rs` as the single `fold_event` /
+`all`, and `crates/roost-protocol/tests/session_fold_properties.rs` pins both
+halves of the property the TypeScript property test checked —
+`folding_incrementally_is_the_same_projection_as_folding_in_one_pass` for
+determinism and incremental-equals-batch, and
+`a_mutating_event_never_touches_the_map_it_was_handed` for the caller-must-not-
+cache-a-stale-reference half.
 
 ### Reading props inside onCleanup throws on a torn-down node
 
@@ -213,7 +220,10 @@ per-session browser replica. A gap latches one snapshot request. Chunked fulls
 install atomically only after every viewport row occurs exactly once. Renderer
 mount state is not part of the continuity proof.
 
-**Guard** — `packages/protocol/tests/cell-frame-chunks.test.ts`;
+**Guard** — `crates/roost-protocol/tests/cell_grid_chunk_planning.rs` —
+`a_forced_small_full_reassembles_to_the_original_frame` and
+`a_frame_over_one_mib_is_split_on_whole_row_boundaries`
+(was `packages/protocol/tests/cell-frame-chunks.test.ts`);
 `apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts`;
 `apps/web/tests/terminalStream.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
@@ -257,9 +267,15 @@ deltas patch only their worker-authored final coordinates and retain omitted
 held rows, so a fixed footer cannot receive an older status generation.
 
 **Guard** — `packages/protocol/tests/cell-realcore.test.ts` —
-`"partial-region scroll with a footer repaint preserves untouched rows"`;
-`packages/protocol/tests/cell-delta-batch.test.ts` —
-`"preserves an untouched footer through a sparse partial-region batch"`;
+`"partial-region scroll with a footer repaint preserves untouched rows"`
+(waiting on the `roost-term` terminal-core vectors, Phase 2);
+`crates/roost-protocol/tests/cell_delta_batch.rs` —
+`a_sparse_partial_region_batch_preserves_the_untouched_footer`;
+`crates/roost-protocol/tests/cell_delta_admission.rs` —
+`a_shift_is_only_reused_when_the_boundary_row_actually_matched`, and
+`a_link_difference_defeats_the_shift`
+(was `packages/protocol/tests/cell-delta-batch.test.ts` —
+`"preserves an untouched footer through a sparse partial-region batch"`);
 `apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts` —
 `"a partial-region scroll retains the fixed panel and worker history"`,
 `"a batched partial-region scroll retains the fixed panel and latest status"`;
@@ -481,7 +497,11 @@ surfaces the same array as `terminal_control.viewer_inputs` — and `constrains`
 is true exactly for the records the live predicate admitted, so "who is
 pinning this session?" is answerable without attaching a debugger.
 
-**Guard** — `apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
+**Guard** — `crates/roost-protocol/src/viewport.rs` —
+`the_minimum_is_taken_on_each_axis_independently` and
+`the_minimum_refuses_an_input_it_could_not_aggregate` (the single per-axis
+aggregation primitive this entry is about);
+`apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
 `apps/coord/tests/diagnostics/diag-snapshot-session-viewers.test.ts`;
 `apps/coord/tests/workers/worker-respawn-geometry.test.ts`;
 `apps/web/tests/cellTerminalViewport.parkGrace.test.ts`;
@@ -1029,7 +1049,10 @@ Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 `dom_reconciled` plus `reconcile_block_reason`
 (`apps/web/src/renderer/terminalDiagSnapshot.ts`), never a screenshot.
 
-**Guard** — `packages/protocol/tests/cell-frame-chunks.test.ts`;
+**Guard** — `crates/roost-protocol/tests/cell_grid_chunks.rs` —
+`a_rejected_part_leaves_the_assembler_with_no_partial` and
+`a_replacement_snapshot_must_start_at_zero_inside_the_same_stream`
+(was `packages/protocol/tests/cell-frame-chunks.test.ts`);
 `apps/worker/tests/terminal/terminal-stream-state.test.ts`;
 `apps/coord/tests/terminal/view/terminal-view-hub.test.ts`;
 `apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
@@ -2149,7 +2172,11 @@ and `signal()` in `packages/observability/src/diag.ts` wrap record construction 
 sink dispatch in one guard per function that reports through `log.warn` with strings only, so a hostile value
 cannot re-throw on the reporting line. One guard at the facade covers every sink.
 
-**Guard** — `apps/web/tests/browser/diag.test.ts`; `packages/protocol/tests/json.test.ts`.
+**Guard** — `apps/web/tests/browser/diag.test.ts`;
+`crates/roost-observability/src/fields.rs` and
+`crates/roost-observability/src/diag.rs` — a value `serde_json` refuses is
+stored as a flagged string and a throwing sink is reported through the facade
+rather than raised (was `packages/protocol/tests/json.test.ts`).
 
 ### env(safe-area-inset-*) is 0px on a television, and a portal escapes the shell's padding
 

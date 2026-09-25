@@ -5,7 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+build = "build.rs"
 description = "ROOST_* configuration, service names, durable atomic writes, and service health probes for both long-lived services. Depends on roost-protocol, roost-platform and roost-observability, and on nothing above them."
+
+[dependencies]
+base64.workspace = true
+roost-observability.workspace = true
+roost-platform.workspace = true
+roost-protocol.workspace = true
 
 [lints]
 workspace = true

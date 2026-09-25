@@ -1,15 +1,18 @@
 //! The stdout rule: `println!`, `eprintln!` and `dbg!` are allowed only in
-//! roost-cli, whose stdout is its product surface, and in xtask, which is a
-//! build tool. Every other crate must emit a `tracing` event, because
-//! coordinator and worker logs are machine-read by `roost status` and
-//! `roost doctor` and an unstructured line there is invisible to both.
+//! roost-cli, whose stdout is its product surface; in xtask, which is a build
+//! tool; and in a crate's `build.rs`, whose entire interface is
+//! `println!("cargo:rustc-env=…")` on stdout with no alternative spelling.
+//! Every other crate must emit a `tracing` event, because coordinator and
+//! worker logs are machine-read by `roost status` and `roost doctor` and an
+//! unstructured line there is invisible to both.
 
 use crate::source_tree;
 use crate::violation::Violation;
 
-const RULE: &str = "logging: no direct stdout outside roost-cli and xtask — use tracing";
+const RULE: &str = "logging: no direct stdout outside roost-cli, xtask and build.rs — use tracing";
 const MEMORY: &str = "CLAUDE.md — coding standards";
 const EXEMPT_CRATES: [&str; 2] = ["roost-cli", "xtask"];
+const BUILD_SCRIPT: &str = "build.rs";
 const BANNED_MACROS: [&str; 3] = ["println", "eprintln", "dbg"];
 
 pub fn run() -> Vec<Violation> {
@@ -20,10 +23,7 @@ pub fn run() -> Vec<Violation> {
             continue;
         }
         let relative = source_tree::repo_relative(&path);
-        if EXEMPT_CRATES
-            .iter()
-            .any(|exempt| relative.starts_with(&format!("crates/{exempt}/")))
-        {
+        if is_exempt(&relative) {
             continue;
         }
         let Some(text) = source_tree::read_text(&path) else {
@@ -42,6 +42,31 @@ pub fn run() -> Vec<Violation> {
         }
     }
     violations
+}
+
+fn is_exempt(relative: &str) -> bool {
+    is_build_script(relative)
+        || is_integration_test(relative)
+        || EXEMPT_CRATES
+            .iter()
+            .any(|exempt| relative.starts_with(&format!("crates/{exempt}/")))
+}
+
+/// Exactly the path Cargo runs as a crate's build script: `crates/<crate>/build.rs`
+/// and nothing else, so a module that happens to be named `build` inside `src/`
+/// is still held to the rule.
+fn is_build_script(relative: &str) -> bool {
+    relative
+        .strip_prefix("crates/")
+        .and_then(|rest| rest.split_once('/'))
+        .is_some_and(|(crate_name, tail)| crate_name != "*" && tail == BUILD_SCRIPT)
+}
+
+/// A test binary's stdout is its report, not a log: the conformance runner
+/// prints the name of every vector it admits, and a reader runs the test to
+/// see that list. The rule is about product logs, which a test does not emit.
+fn is_integration_test(relative: &str) -> bool {
+    relative.contains("/tests/") || relative.ends_with("/tests.rs")
 }
 
 /// The banned macro invoked on this line, or `None`. A mention in a comment or
@@ -69,7 +94,7 @@ fn invokes_macro(line: &str, macro_name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::direct_stdout_macro;
+    use super::{direct_stdout_macro, is_exempt};
 
     #[test]
     fn flags_a_direct_call_at_any_indent() {
@@ -101,5 +126,18 @@ mod tests {
             direct_stdout_macro("let message = \"call println! later\";"),
             None
         );
+    }
+
+    #[test]
+    fn a_build_script_is_exempt_but_its_neighbours_are_not() {
+        assert!(is_exempt("crates/roost-host/build.rs"));
+        assert!(is_exempt("crates/roost-cli/src/main.rs"));
+        assert!(!is_exempt("crates/roost-host/src/paths.rs"));
+        // Only the exact file name is exempt, not a directory that contains
+        // one, and not a module that happens to be called build.
+        assert!(!is_exempt("crates/roost-host/src/build.rs"));
+        // A test binary's stdout is its report, not a log.
+        assert!(is_exempt("crates/roost-protocol/tests/conformance.rs"));
+        assert!(!is_exempt("crates/roost-protocol/src/terminal_input.rs"));
     }
 }

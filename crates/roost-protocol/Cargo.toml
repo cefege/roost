@@ -5,7 +5,18 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Pure I/O-free wire and terminal logic: event variants and the canonical fold, cell and grid models, viewport geometry, peer packet framing, the keeper-update contract, and layout documents. Builds for wasm32 so browser, native, coordinator and worker share one implementation."
+description = "Pure wire and terminal contract logic shared by every Roost v3 component"
 
 [lints]
 workspace = true
+
+[dependencies]
+roost-proto = { workspace = true }
+# The cell snapshot limits are defined in CANONICAL PROTOBUF ENCODED BYTES, so
+# the size estimator and the chunk codec have to be buffa's own encoder rather
+# than a hand-derived arithmetic — a second size derivation is exactly how a
+# 1 MiB part becomes 1 MiB + 3 on one side of the fleet and nothing else. The
+# runtime is reached as `roost_proto::buffa`, because `roost-proto` owns the
+# protobuf runtime and this crate's DAG allowlist names roost-proto, not buffa.
+serde = { workspace = true }
+serde_json = { workspace = true }
