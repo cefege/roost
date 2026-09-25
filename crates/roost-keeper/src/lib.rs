@@ -14,3 +14,4 @@ pub mod keeper_ops;
 pub mod output_ring;
 pub mod payloads;
 pub mod pty_channel;
+pub mod server;
