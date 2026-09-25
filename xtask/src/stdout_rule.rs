@@ -67,8 +67,12 @@ fn is_exempt(relative: &str) -> bool {
 /// exempting the directory cannot shelter a library module — which is the
 /// failure mode the rule exists to prevent.
 fn is_binary_entry_point(relative: &str) -> bool {
-    let Some(rest) = relative.strip_prefix("crates/") else { return false };
-    let Some((_crate_name, tail)) = rest.split_once('/') else { return false };
+    let Some(rest) = relative.strip_prefix("crates/") else {
+        return false;
+    };
+    let Some((_crate_name, tail)) = rest.split_once('/') else {
+        return false;
+    };
     tail == "src/main.rs" || tail.starts_with("src/bin/") && tail.ends_with(".rs")
 }
 
