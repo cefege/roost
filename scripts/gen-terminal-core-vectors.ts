@@ -140,19 +140,21 @@ const CASES: Case[] = [
   },
   {
     name: "clear-and-erase",
-    about: "ED and EL leave the rest of the row and the rest of the screen alone.",
+    about:
+      "ED clears the viewport IN PLACE. alacritty optimises this by scrolling " +
+      "trailing blank rows away instead of writing blanks over cells that are " +
+      "already blank, and on the primary grid that scroll reaches history - so " +
+      "a plain CSI 2J pushes a line into scrollback that the reference never " +
+      "created, and every client indexing history by monotonic count shifts. " +
+      "The v2 Zig core clears in place; the Rust side is roost patch P4.",
     cols: 10,
     rows: 3,
     chunks: ["abcdefghij", CSI + "2J", CSI + "1;3H", CSI + "K"],
-    oracle: "known-divergence",
-    diverges_from_v2:
-      "A write into the last column leaves the wrap PENDING, and this core "
-      + "resolves it before dispatching a CSI. ED therefore scrolls the filled row "
-      + "into history, where the reference clears it in place. The history a "
-      + "client sees is shifted by a line the reference never created.",
+    oracle: "patch",
+    patch: "ED on the primary screen clears the visible cells without scrolling",
     expect: {
       viewport: ["", "", ""],
-      scrollback: ["abcdefghij"],
+      scrollback: [],
       cursor: { row: 0, col: 2 },
       alt_screen: false,
       modes: {
@@ -208,8 +210,13 @@ const CASES: Case[] = [
   {
     name: "modes-reach-the-frame",
     about:
-      "DECCKM, bracketed paste, mouse reporting and focus reporting each read " +
-      "back as the mode the emitter puts on the wire.",
+      "ED clears the viewport IN PLACE. alacritty optimises this by scrolling " +
+      "trailing blank rows away instead of writing blanks over cells that are " +
+      "already blank, and on the primary grid that scroll reaches history — so " +
+      "a plain CSI 2J pushes a line into scrollback that the reference never " +
+      "created, and every client indexing history by monotonic count shifts. " +
+      "scripts/wterm-0.5.0-roost.patch is the v2 behaviour this matches; the " +
+      "Rust side is third_party/alacritty_terminal P4.",
     cols: 12,
     rows: 3,
     chunks: [`${CSI}?1h`, `${CSI}?2004h`, `${CSI}?1000h`, `${CSI}?1006h`, `${CSI}?1004h`],

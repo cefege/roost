@@ -1822,7 +1822,23 @@ impl<T: EventListener> Handler for Term<T> {
             ansi::ClearMode::All => {
                 if self.mode.contains(TermMode::ALT_SCREEN) {
                     self.grid.reset_region(..);
+                } else if self.grid.display_offset() == 0 {
+                    // Roost addition: clear IN PLACE when the viewport is pinned
+                    // to the active area. `clear_viewport` is an optimisation —
+                    // it walks back from the last cell and SCROLLS the trailing
+                    // blank rows away rather than writing blanks into cells that
+                    // are already blank. On the primary grid that scroll reaches
+                    // history, so a plain `CSI 2J` pushes a line the reference
+                    // never created, and every client that indexes history by
+                    // monotonic count shifts. See
+                    // `third_party/alacritty_terminal/ROOST-PATCHES.md`.
+                    self.grid.reset_region(..);
+
+                    self.vi_mode_cursor.point.line =
+                        self.vi_mode_cursor.point.line.grid_clamp(self, Boundary::Grid);
                 } else {
+                    // Scrolled back from the active area: scrolling to the active
+                    // area is the right answer, and upstream's path is kept.
                     let old_offset = self.grid.display_offset();
 
                     self.grid.clear_viewport();

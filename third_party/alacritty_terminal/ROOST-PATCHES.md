@@ -164,3 +164,28 @@ records the behaviour as a known divergence even though the vector passes:
 the margins it uses make the two rules agree, so the cursor is right by
 accident. `blocked_on: "v3"` says which release is meant to close it, and
 closing it means splitting the dispatch in a vendored `vte`.
+
+## P4 — ED clears the viewport in place
+
+`src/term/mod.rs`, `Handler::clear_screen`, the `ClearMode::All` arm.
+
+Upstream's `Grid::clear_viewport` is an optimisation: it walks back from the
+last cell and SCROLLS the trailing blank rows away rather than writing blanks
+into cells that are already blank. On the primary grid that scroll reaches
+history, so a plain `CSI 2J` pushes a line into scrollback that the
+reference never created. `protocol/conformance/terminal-core/
+clear-and-erase.json` pins the reference behaviour.
+
+This is not an exotic case. Clearing the screen is one of the most common
+sequences a program emits, and a client indexing history by monotonic count
+would see that index shift on every clear.
+
+The patch keeps upstream's path for the case it was written for — a viewport
+scrolled back from the active area, where scrolling to the active area IS the
+answer — and only changes the pinned-to-active case to `reset_region(..)`.
+
+My first diagnosis of this divergence was wrong: I recorded it as a pending
+wrap being resolved before the CSI dispatch. It is not; alacritty defers the
+wrap correctly, and the wrap has nothing to do with it. The vector was right
+and the explanation was not, which is why the note now names
+`clear_viewport` instead.
