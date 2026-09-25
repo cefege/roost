@@ -1066,6 +1066,7 @@ dependencies = [
 name = "roost-keeper"
 version = "3.0.0"
 dependencies = [
+ "libc",
  "portable-pty",
  "serde",
  "serde_json",

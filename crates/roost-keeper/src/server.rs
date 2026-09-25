@@ -149,6 +149,33 @@ pub enum Shutdown {
     StopIfEmpty,
 }
 
+/// Why a connection stopped being served.
+///
+/// The daemon's exit decision reads this, which is why it is a value and not a
+/// bare `return`: "the worker asked me to stop" and "the worker went away" are
+/// the same event from the loop's point of view and completely different from
+/// the process's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionEnd {
+    /// The worker sent `Shutdown`, and every PTY is still live.
+    ShutdownRequested,
+    /// The worker sent `ShutdownIfEmpty` and the keeper was empty.
+    ShutdownIfEmptyAccepted,
+    /// The worker sent `ShutdownIfEmpty` while a channel was live. The keeper
+    /// stays up, which is the entire reason this frame is separate.
+    ShutdownIfEmptyRefused,
+    /// The worker sent `Shutdown`, and the decision is the daemon's.
+    ShutdownRequestedWithChannels,
+    /// The socket closed. The keeper stays up so a reconnecting worker finds
+    /// its PTYs — a worker restart must not cost a terminal.
+    ClientDisconnected,
+    /// The stream violated the protocol. There is no resynchronisation point,
+    /// so the connection ends and the keeper stays up.
+    ProtocolViolation,
+    /// A write to the worker failed, which is the same thing from here.
+    WorkerUnreachable,
+}
+
 /// A running keeper, once it is listening.
 pub struct Server {
     endpoint: Endpoint,
@@ -219,8 +246,8 @@ impl Server {
         self.listener.accept().ok().map(|(stream, _)| stream)
     }
 
-    /// Serve a single connection to completion.
-    pub fn serve_one(&mut self, mut stream: UnixStream) {
+    /// Serve a single connection to completion, reporting why it ended.
+    pub fn serve_one(&mut self, mut stream: UnixStream) -> ConnectionEnd {
         let _ = stream.set_read_timeout(Some(READ_POLL));
         let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(5)));
         let mut decoder = FrameDecoder::new();
@@ -231,17 +258,17 @@ impl Server {
             // The tick first, so output flows even while nothing is arriving.
             // A request-driven loop would show nothing until the user typed.
             let output = self.keeper.drain_output(DRAIN_LIMIT_BYTES);
-            if !write_frames(&mut stream, &output).is_ok() {
-                return;
+            if write_frames(&mut stream, &output).is_err() {
+                return ConnectionEnd::WorkerUnreachable;
             }
             for exit in self.keeper.reap_exited() {
                 if write_frames(&mut stream, &[exit]).is_err() {
-                    return;
+                    return ConnectionEnd::WorkerUnreachable;
                 }
             }
 
             let read = match stream.read(&mut buffer) {
-                Ok(0) => return,
+                Ok(0) => return ConnectionEnd::ClientDisconnected,
                 Ok(read) => read,
                 Err(err)
                     if matches!(
@@ -252,7 +279,7 @@ impl Server {
                     std::thread::sleep(OUTPUT_TICK);
                     continue;
                 }
-                Err(_) => return,
+                Err(_) => return ConnectionEnd::ClientDisconnected,
             };
 
             for event in decoder.push(&buffer[..read]) {
@@ -277,23 +304,37 @@ impl Server {
                         };
                         let replies = self.keeper.handle(&frame);
                         if write_frames(&mut stream, &replies).is_err() {
-                            return;
+                            return ConnectionEnd::WorkerUnreachable;
                         }
-                        if matches!(
-                            frame.frame_type,
-                            crate::codec::MuxFrameType::Shutdown
-                                | crate::codec::MuxFrameType::ShutdownIfEmpty
-                        ) {
-                            stopping = true;
+                        match frame.frame_type {
+                            crate::codec::MuxFrameType::Shutdown => {
+                                stopping = true;
+                            }
+                            crate::codec::MuxFrameType::ShutdownIfEmpty => {
+                                // The answer is what decides, not the request:
+                                // a refusal means the keeper stays up, and
+                                // acting on the request instead would retire a
+                                // keeper that is holding live PTYs.
+                                let refused = replies.iter().any(|reply| {
+                                    reply.frame_type
+                                        == crate::codec::MuxFrameType::ShutdownIfEmptyReject
+                                });
+                                return if refused {
+                                    ConnectionEnd::ShutdownIfEmptyRefused
+                                } else {
+                                    ConnectionEnd::ShutdownIfEmptyAccepted
+                                };
+                            }
+                            _ => {}
                         }
                     }
                     // The stream violated the protocol. There is no safe
                     // resynchronisation point, so the connection ends.
-                    StreamEvent::Failed(_) => return,
+                    StreamEvent::Failed(_) => return ConnectionEnd::ProtocolViolation,
                 }
             }
             if stopping {
-                return;
+                return ConnectionEnd::ShutdownRequestedWithChannels;
             }
         }
     }

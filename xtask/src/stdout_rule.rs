@@ -1,10 +1,17 @@
-//! The stdout rule: `println!`, `eprintln!` and `dbg!` are allowed only in
-//! roost-cli, whose stdout is its product surface; in xtask, which is a build
-//! tool; and in a crate's `build.rs`, whose entire interface is
-//! `println!("cargo:rustc-env=…")` on stdout with no alternative spelling.
+//! The stdout rule: `println!`, `eprintln!` and `dbg!` are allowed only where
+//! stdout is the program's INTERFACE rather than its log — roost-cli, a
+//! crate's binary entry point, xtask, and a crate's `build.rs`.
+//!
 //! Every other crate must emit a `tracing` event, because coordinator and
 //! worker logs are machine-read by `roost status` and `roost doctor` and an
 //! unstructured line there is invisible to both.
+//!
+//! A binary entry point is exempt for the same reason roost-cli is: `--help`,
+//! `--version` and a usage error ARE the program's interface to whoever
+//! invoked it, and routing them through a log subscriber would make them
+//! invisible to the person who typed them. The exemption is on the ENTRY POINT
+//! only, so a module the entry point calls is still held to the rule — the
+//! daemon's own logging still has to be `tracing`.
 
 use crate::source_tree;
 use crate::violation::Violation;
@@ -47,9 +54,22 @@ pub fn run() -> Vec<Violation> {
 fn is_exempt(relative: &str) -> bool {
     is_build_script(relative)
         || is_integration_test(relative)
+        || is_binary_entry_point(relative)
         || EXEMPT_CRATES
             .iter()
             .any(|exempt| relative.starts_with(&format!("crates/{exempt}/")))
+}
+
+/// A crate's binary entry point: `crates/<crate>/src/bin/<name>.rs`, and the
+/// conventional `crates/<crate>/src/main.rs`.
+///
+/// Deliberately narrow. `src/bin/` holds entry points and nothing else, so
+/// exempting the directory cannot shelter a library module — which is the
+/// failure mode the rule exists to prevent.
+fn is_binary_entry_point(relative: &str) -> bool {
+    let Some(rest) = relative.strip_prefix("crates/") else { return false };
+    let Some((_crate_name, tail)) = rest.split_once('/') else { return false };
+    tail == "src/main.rs" || tail.starts_with("src/bin/") && tail.ends_with(".rs")
 }
 
 /// Exactly the path Cargo runs as a crate's build script: `crates/<crate>/build.rs`
