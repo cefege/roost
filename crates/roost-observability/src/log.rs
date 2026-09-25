@@ -106,9 +106,16 @@ mod tests {
         // silently see three events instead of four. Rebuilding the cache under
         // this subscriber is the documented way out, and it is what makes the
         // test independent of the order the suite happens to run in.
-        tracing::callsite::rebuild_interest_cache();
-        tracing::subscriber::with_default(subscriber, emit_events);
-        tracing::callsite::rebuild_interest_cache();
+        tracing::subscriber::with_default(subscriber, || {
+            // INSIDE the scope, because that is the only moment a subscriber is
+            // current: `rebuild_interest_cache` re-decides each callsite against
+            // whatever is dispatched, and run before or after `with_default`
+            // it re-decides against nothing. Without this a callsite another
+            // test already saw decline stays un-interesting forever, and this
+            // test sees three events instead of four.
+            tracing::callsite::rebuild_interest_cache();
+            emit_events();
+        });
         let events = match capture.events.lock() {
             Ok(events) => events,
             Err(_) => return Vec::new(),
