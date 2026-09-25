@@ -1,0 +1,36 @@
+{
+  "name": "cursor-positioning",
+  "about": "CUP and relative motion land the cursor where they are told to.",
+  "oracle": "xterm",
+  "cols": 12,
+  "rows": 4,
+  "chunks": [
+    "G1szOzVI",
+    "WA==",
+    "G1tB",
+    "WQ==",
+    "G1syQg==",
+    "Wg=="
+  ],
+  "expected": {
+    "viewport": [
+      "",
+      "     Y",
+      "    X",
+      "      Z"
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 3,
+      "col": 7
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

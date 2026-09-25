@@ -1,0 +1,40 @@
+{
+  "name": "insert-and-delete-lines",
+  "about": "IL and DL move whole lines within the screen and scroll when they run out.",
+  "oracle": "known-divergence",
+  "diverges_from_v2": "An insert-lines at the top of the screen pushes the scrolled-off row into history here. The reference scrolls the viewport without creating history, so the two disagree about where a client's history begins.",
+  "cols": 10,
+  "rows": 4,
+  "chunks": [
+    "YQ==",
+    "G1syOzFI",
+    "Yg==",
+    "G1sxOzFI",
+    "G1tM",
+    "G1syTQ=="
+  ],
+  "expected": {
+    "viewport": [
+      "b",
+      "",
+      "",
+      ""
+    ],
+    "scrollback": [
+      "",
+      "a"
+    ],
+    "cursor": {
+      "row": 0,
+      "col": 0
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

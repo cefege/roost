@@ -1,0 +1,36 @@
+{
+  "name": "clear-and-erase",
+  "about": "ED and EL leave the rest of the row and the rest of the screen alone.",
+  "oracle": "known-divergence",
+  "diverges_from_v2": "A write into the last column leaves the wrap PENDING, and this core resolves it before dispatching a CSI. ED therefore scrolls the filled row into history, where the reference clears it in place. The history a client sees is shifted by a line the reference never created.",
+  "cols": 10,
+  "rows": 3,
+  "chunks": [
+    "YWJjZGVmZ2hpag==",
+    "G1sySg==",
+    "G1sxOzNI",
+    "G1tL"
+  ],
+  "expected": {
+    "viewport": [
+      "",
+      "",
+      ""
+    ],
+    "scrollback": [
+      "abcdefghij"
+    ],
+    "cursor": {
+      "row": 0,
+      "col": 2
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

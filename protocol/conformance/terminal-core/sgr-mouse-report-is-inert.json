@@ -1,0 +1,32 @@
+{
+  "name": "sgr-mouse-report-is-inert",
+  "about": "An SGR-1006 mouse report shares private-mode markers with the Kitty keyboard protocol. Without the patch it falls through and runs as delete-lines or SGR, corrupting the screen; the patch makes anything after CSI < or CSI = inert. scripts/wterm-0.5.0-roost.patch, csi private-marker guard.",
+  "oracle": "patch",
+  "patch": "csi: return early for a '<' or '=' private marker so a mouse report is never run as another sequence",
+  "cols": 12,
+  "rows": 3,
+  "chunks": [
+    "a2VlcG1l",
+    "G1s8MDs1OzVN"
+  ],
+  "expected": {
+    "viewport": [
+      "keepme",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 0,
+      "col": 6
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

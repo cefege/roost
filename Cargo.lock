@@ -1049,8 +1049,11 @@ name = "roost-term"
 version = "3.0.0"
 dependencies = [
  "alacritty_terminal",
+ "base64 0.23.1",
  "roost-observability",
  "roost-protocol",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

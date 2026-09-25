@@ -1,0 +1,30 @@
+{
+  "name": "combining-cluster",
+  "about": "A base character and its combining mark are one cell of two code points, and occupy one terminal column.",
+  "oracle": "xterm",
+  "cols": 10,
+  "rows": 3,
+  "chunks": [
+    "w6l4"
+  ],
+  "expected": {
+    "viewport": [
+      "éx",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 0,
+      "col": 2
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

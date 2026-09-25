@@ -1,0 +1,32 @@
+{
+  "name": "erase-characters",
+  "about": "ECH blanks characters without moving anything else on the row.",
+  "oracle": "xterm",
+  "cols": 12,
+  "rows": 3,
+  "chunks": [
+    "YWJjZGVmZ2hpamts",
+    "G1sxOzRI",
+    "G1szWA=="
+  ],
+  "expected": {
+    "viewport": [
+      "abc   ghijkl",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 0,
+      "col": 3
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

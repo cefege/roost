@@ -1,0 +1,40 @@
+{
+  "name": "cursor-margins-clamp",
+  "about": "With DECSTBM set to rows 2..4, CUU stops at the top margin and CUD stops at the bottom margin instead of at the screen edges. scripts/wterm-0.5.0-roost.patch, cursorUp/cursorDown.",
+  "oracle": "known-divergence",
+  "patch": "cursorUp clamps to scroll_top and cursorDown to scroll_bottom - 1",
+  "diverges_from_v2": "The v2 patch clamps cursorUp/cursorDown to the DECSTBM margins. alacritty_terminal stops at the screen edges, ignoring the scroll region for relative motion.",
+  "cols": 10,
+  "rows": 6,
+  "chunks": [
+    "G1syOzRy",
+    "G1szOzFI",
+    "G1s5QQ==",
+    "dG9w",
+    "G1szOzFI",
+    "G1s5Qg=="
+  ],
+  "expected": {
+    "viewport": [
+      "top",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 5,
+      "col": 0
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

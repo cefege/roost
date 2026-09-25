@@ -1,0 +1,30 @@
+{
+  "name": "osc-8-link",
+  "about": "An OSC 8 link is a run of cells carrying one destination; the run ends at the closing OSC 8 and the text after it carries no link.",
+  "oracle": "xterm",
+  "cols": 20,
+  "rows": 3,
+  "chunks": [
+    "G104OztodHRwczovL2V4YW1wbGUudGVzdC9kb2MbXGxpbmtlZBtdODs7G1wgcGxhaW4="
+  ],
+  "expected": {
+    "viewport": [
+      "linked plain",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 0,
+      "col": 12
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

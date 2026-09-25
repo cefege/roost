@@ -1,0 +1,34 @@
+{
+  "name": "alt-screen-entry",
+  "about": "Entering the alternate screen reports it and paints the alternate grid.",
+  "oracle": "xterm",
+  "cols": 12,
+  "rows": 3,
+  "chunks": [
+    "cHJpbWFyeQ==",
+    "G1s/MTA0OWg=",
+    "G1sySg==",
+    "G1tI",
+    "YWx0"
+  ],
+  "expected": {
+    "viewport": [
+      "alt",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 0,
+      "col": 3
+    },
+    "alt_screen": true,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

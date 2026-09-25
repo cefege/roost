@@ -1,0 +1,32 @@
+{
+  "name": "deferred-wrap",
+  "about": "A character written into the last column leaves the wrap PENDING: a control character must not also wrap. The v2 Zig core clears the pending wrap and pins the cursor to the last column before the line feed, so the cursor ends the row in the last column and not in the first. xterm wraps to the next row at column 0, which is the difference this patch exists to close — scripts/wterm-0.5.0-roost.patch, processByte LF branch.",
+  "oracle": "patch",
+  "patch": "processByte: clear wrap_pending and pin cursor_col to cols-1 before the line feed",
+  "cols": 6,
+  "rows": 3,
+  "chunks": [
+    "YWJjZGVm",
+    "Cg=="
+  ],
+  "expected": {
+    "viewport": [
+      "abcdef",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 1,
+      "col": 5
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "vpa-ignores-margins",
+  "about": "VPA is absolute on the SCREEN, not relative to the margins, so with margins 2..4 a VPA to row 4 lands on screen row 3 where a CUD of the same distance stops at the bottom margin. scripts/wterm-0.5.0-roost.patch, CSI 'e' is routed to cursorDownToScreen rather than cursorDown.",
+  "oracle": "known-divergence",
+  "patch": "CSI e routes to cursorDownToScreen, which is bounded by the screen and not by the margins",
+  "diverges_from_v2": "The v2 patch routes CSI e to cursorDownToScreen, bounded by the SCREEN. alacritty_terminal makes VPA margin-relative, so it lands on the bottom margin.",
+  "cols": 10,
+  "rows": 6,
+  "chunks": [
+    "G1syOzRy",
+    "G1sxOzFI",
+    "G1s0ZQ=="
+  ],
+  "expected": {
+    "viewport": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 4,
+      "col": 0
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

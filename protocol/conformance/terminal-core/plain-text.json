@@ -1,0 +1,31 @@
+{
+  "name": "plain-text",
+  "about": "Text lands where it was written, and a short row keeps the columns it used.",
+  "oracle": "xterm",
+  "cols": 20,
+  "rows": 4,
+  "chunks": [
+    "aGVsbG8="
+  ],
+  "expected": {
+    "viewport": [
+      "hello",
+      "",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 0,
+      "col": 5
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

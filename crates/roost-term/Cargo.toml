@@ -7,6 +7,11 @@ license.workspace = true
 repository.workspace = true
 description = "The TerminalCore trait, its Alacritty-backed implementation, and the emitter that turns terminal state into a CellGridFrame wire message. Owns the subject side of the terminal-core conformance vectors."
 
+[dev-dependencies]
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
 [lints]
 workspace = true
 

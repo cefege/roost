@@ -1,0 +1,30 @@
+{
+  "name": "wide-glyph-columns",
+  "about": "A double-width glyph occupies two terminal columns, so a row of three glyphs spans six columns and a narrow character after it is at column six.",
+  "oracle": "xterm",
+  "cols": 12,
+  "rows": 3,
+  "chunks": [
+    "5Lit5paH5paH5Lit"
+  ],
+  "expected": {
+    "viewport": [
+      "中文文中",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 0,
+      "col": 8
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

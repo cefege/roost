@@ -1,0 +1,30 @@
+{
+  "name": "wide-glyph-at-the-margin",
+  "about": "A wide glyph whose lead lands in the last column is not split across the margin, which is what leaves the row one column longer than the text.",
+  "oracle": "xterm",
+  "cols": 7,
+  "rows": 3,
+  "chunks": [
+    "YWLkuK1jZA=="
+  ],
+  "expected": {
+    "viewport": [
+      "ab中cd",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 0,
+      "col": 6
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

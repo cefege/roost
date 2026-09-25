@@ -1,0 +1,33 @@
+{
+  "name": "scrolled-into-history",
+  "about": "Lines pushed off the top of a full viewport become history, oldest first, and the viewport keeps the newest rows.",
+  "oracle": "xterm",
+  "cols": 10,
+  "rows": 3,
+  "chunks": [
+    "b25lDQp0d28NCnRocmVlDQpmb3VyDQo="
+  ],
+  "expected": {
+    "viewport": [
+      "three",
+      "four",
+      ""
+    ],
+    "scrollback": [
+      "one",
+      "two"
+    ],
+    "cursor": {
+      "row": 2,
+      "col": 0
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

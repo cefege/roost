@@ -1,0 +1,41 @@
+{
+  "name": "alt-grid-survives-a-shrink",
+  "about": "The alternate screen is TOP-ANCHORED: shrinking its height discards from the bottom and leaves the content where it was, where a primary viewport would scroll to keep the cursor visible. scripts/wterm-0.5.0-roost.patch, resizeGrid's top_anchored argument.",
+  "oracle": "known-divergence",
+  "patch": "resizeGrid passes top_anchored for the alternate grid, clamping the cursor after discarding the bottom",
+  "diverges_from_v2": "The v2 patch is TOP-ANCHORED on the alternate screen: a shrink discards from the bottom and leaves the content where it was. alacritty_terminal keeps the LAST rows.",
+  "cols": 10,
+  "rows": 4,
+  "resize": {
+    "cols": 10,
+    "rows": 2
+  },
+  "chunks": [
+    "G1s/MTA0OWg=",
+    "G1sySg==",
+    "G1tI",
+    "YWFh",
+    "DQpiYmI=",
+    "DQpjY2M=",
+    "DQpkZGQ="
+  ],
+  "expected": {
+    "viewport": [
+      "ccc",
+      "ddd"
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 1,
+      "col": 3
+    },
+    "alt_screen": true,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

@@ -186,14 +186,11 @@ impl TerminalCore for AlacrittyCore {
 impl AlacrittyCore {
     /// The grid line for a newest-first scrollback offset.
     ///
-    /// Alacritty's scrollback runs oldest at `Line(-history_size())` and
-    /// newest at `Line(-1)`, so the trait's newest-first offset is the
-    /// negation. A caller can only reach this through the two `scrollback_*`
-    /// methods, which is the point: the conversion exists in exactly one place.
+    /// Alacritty's scrollback runs newest at `Line(-1)` and oldest at
+    /// `Line(-history_size())`, so the trait's newest-first offset is simply
+    /// the negation with no dependence on how much is retained.
     fn scrollback_line(&self, offset: usize) -> Line {
-        let newest = self.term.grid().history_size();
-        let position = newest.saturating_sub(offset + 1);
-        Line(-(position as i32) - 1)
+        Line(-((offset as i32).saturating_add(1)))
     }
 
     fn cell_at(&self, point: alacritty_terminal::index::Point) -> crate::core::CellData {

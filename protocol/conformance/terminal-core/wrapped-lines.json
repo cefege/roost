@@ -1,0 +1,30 @@
+{
+  "name": "wrapped-lines",
+  "about": "A line that exceeds the width wraps to the next row rather than being truncated.",
+  "oracle": "xterm",
+  "cols": 10,
+  "rows": 3,
+  "chunks": [
+    "YWJjZGVmZ2hpamtsbW5v"
+  ],
+  "expected": {
+    "viewport": [
+      "abcdefghij",
+      "klmno",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 1,
+      "col": 5
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": false,
+      "bracketed_paste": false,
+      "mouse_tracking": 0,
+      "mouse_sgr": false,
+      "focus_events": false
+    }
+  }
+}

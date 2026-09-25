@@ -1,0 +1,34 @@
+{
+  "name": "modes-reach-the-frame",
+  "about": "DECCKM, bracketed paste, mouse reporting and focus reporting each read back as the mode the emitter puts on the wire.",
+  "oracle": "patch",
+  "cols": 12,
+  "rows": 3,
+  "chunks": [
+    "G1s/MWg=",
+    "G1s/MjAwNGg=",
+    "G1s/MTAwMGg=",
+    "G1s/MTAwNmg=",
+    "G1s/MTAwNGg="
+  ],
+  "expected": {
+    "viewport": [
+      "",
+      "",
+      ""
+    ],
+    "scrollback": [],
+    "cursor": {
+      "row": 0,
+      "col": 0
+    },
+    "alt_screen": false,
+    "modes": {
+      "cursor_keys_app": true,
+      "bracketed_paste": true,
+      "mouse_tracking": 1000,
+      "mouse_sgr": true,
+      "focus_events": true
+    }
+  }
+}
