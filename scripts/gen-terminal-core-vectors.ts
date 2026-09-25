@@ -290,15 +290,12 @@ const CASES: Case[] = [
     cols: 10,
     rows: 6,
     chunks: [`${CSI}2;4r`, `${CSI}3;1H`, `${CSI}9A`, "top", `${CSI}3;1H`, `${CSI}9B`],
-    oracle: "known-divergence",
+    oracle: "patch",
     patch: "cursorUp clamps to scroll_top and cursorDown to scroll_bottom - 1",
     expect: {
-      // What alacritty_terminal does today: the margins are not honoured by
-      // relative motion, so "top" lands on the screen's first row and the
-      // cursor runs past the bottom margin.
-      viewport: ["top", "", "", "", "", ""],
+      viewport: ["", "top", "", "", "", ""],
       scrollback: [],
-      cursor: { row: 5, col: 0 },
+      cursor: { row: 3, col: 0 },
       alt_screen: false,
       modes: {
         cursor_keys_app: false,
@@ -308,9 +305,6 @@ const CASES: Case[] = [
         focus_events: false,
       },
     },
-    diverges_from_v2:
-      "The v2 patch clamps cursorUp/cursorDown to the DECSTBM margins. alacritty_terminal "
-      + "stops at the screen edges, ignoring the scroll region for relative motion.",
   },
   {
     name: "vpa-ignores-margins",
@@ -324,11 +318,14 @@ const CASES: Case[] = [
     chunks: [`${CSI}2;4r`, `${CSI}1;1H`, `${CSI}4e`],
     oracle: "known-divergence",
     patch: "CSI e routes to cursorDownToScreen, which is bounded by the screen and not by the margins",
+    blocked_on: "v3",
     expect: {
-      // What alacritty_terminal does today: VPA stops at the bottom margin.
+      // The bottom margin is row 3 and `CSI 4e` is screen row 3, so the two
+      // rules agree HERE. That is why this vector passes while the behaviour
+      // is still unimplemented; see `diverges_from_v2`.
       viewport: ["", "", "", "", "", ""],
       scrollback: [],
-      cursor: { row: 4, col: 0 },
+      cursor: { row: 3, col: 0 },
       alt_screen: false,
       modes: {
         cursor_keys_app: false,
@@ -339,25 +336,32 @@ const CASES: Case[] = [
       },
     },
     diverges_from_v2:
-      "The v2 patch routes CSI e to cursorDownToScreen, bounded by the SCREEN. "
-      + "alacritty_terminal makes VPA margin-relative, so it lands on the bottom margin.",
+      "The v2 patch gives VPA and CUD DIFFERENT rules - VPA is absolute on the " +
+      "screen, CUD is bounded by the bottom margin - and vte dispatches CSI B " +
+      "and CSI e to the SAME Handler method, so only one of the two can be " +
+      "implemented at that boundary. They coincide at these margins, which is " +
+      "why the cursor is right by accident, and they would not at others. " +
+      "Closing this needs vte split so the two have separate methods; see " +
+      "third_party/alacritty_terminal/ROOST-PATCHES.md.",
   },
   {
     name: "alt-grid-survives-a-shrink",
     about:
       "The alternate screen is TOP-ANCHORED: shrinking its height discards from " +
       "the bottom and leaves the content where it was, where a primary " +
-      "viewport would scroll to keep the cursor visible. " +
+      "viewport would scroll to keep the cursor visible. The cursor agrees " +
+      "with xterm: resizeGrid clamps the row to the new last row and only " +
+      "clamps the column when it is past the last COLUMN, which it is not " +
+      "here. " +
       "scripts/wterm-0.5.0-roost.patch, resizeGrid's top_anchored argument.",
     cols: 10,
     rows: 4,
     chunks: [`${CSI}?1049h`, `${CSI}2J`, `${CSI}H`, "aaa", "\r\nbbb", "\r\nccc", "\r\nddd"],
     resize: { cols: 10, rows: 2 },
-    oracle: "known-divergence",
+    oracle: "patch",
     patch: "resizeGrid passes top_anchored for the alternate grid, clamping the cursor after discarding the bottom",
     expect: {
-      // What alacritty_terminal does today: the bottom rows survive.
-      viewport: ["ccc", "ddd"],
+      viewport: ["aaa", "bbb"],
       scrollback: [],
       cursor: { row: 1, col: 3 },
       alt_screen: true,
@@ -369,9 +373,6 @@ const CASES: Case[] = [
         focus_events: false,
       },
     },
-    diverges_from_v2:
-      "The v2 patch is TOP-ANCHORED on the alternate screen: a shrink discards from the "
-      + "bottom and leaves the content where it was. alacritty_terminal keeps the LAST rows.",
   },
   {
     name: "sgr-mouse-report-is-inert",
@@ -491,6 +492,7 @@ async function main(): Promise<void> {
       oracle: entry.oracle,
       ...(entry.patch ? { patch: entry.patch } : {}),
       ...(entry.diverges_from_v2 ? { diverges_from_v2: entry.diverges_from_v2 } : {}),
+      ...(entry.blocked_on ? { blocked_on: entry.blocked_on } : {}),
       cols: entry.cols,
       rows: entry.rows,
       ...(entry.resize ? { resize: entry.resize } : {}),

@@ -113,3 +113,54 @@ The expectations are derived from the terminal's own reported baseline rather
 than hand-counted, because a line feed only scrolls once the cursor is on the
 last row — a literal constant in that file would encode an off-by-one that
 says nothing about the counter.
+
+## P2 — relative cursor motion is bounded by the DECSTBM margins
+
+`src/term/mod.rs`, `Handler::move_up` and `Handler::move_down`.
+
+Upstream subtracts the count and lets `goto` clamp, and `goto` bounds by the
+screen unless origin mode is set. A program that sets margins and then moves
+the cursor relative therefore escapes the region it asked for. The Zig core
+v2 shipped was patched to the margin rule, and `protocol/conformance/
+terminal-core/cursor-margins-clamp.json` pins it — that vector now agrees
+with xterm, which it did not before this patch.
+
+The margin logic is transcribed from the two Zig hunks rather than written
+fresh, including the `min_row`/`max_row` guards that fall back to the screen
+when the cursor is already outside the region.
+
+## P3 — the alternate grid is top-anchored on a shrink
+
+`src/grid/resize.rs`, `Grid::resize` and `Grid::shrink_lines`, plus the two
+call sites in `Term::resize`.
+
+Upstream scrolls to keep the cursor visible, which is right for the primary
+grid (a viewport onto history) and wrong for the alternate screen: shrinking
+an alt grid moves the content the user is looking at. The Zig core was
+patched to top-anchor the alt grid, and
+`protocol/conformance/terminal-core/alt-grid-survives-a-shrink.json` pins
+it.
+
+The anchor follows the ACTIVE grid, not the mode: `grid` is whichever grid
+is in use, so it is the alt one exactly when `is_alt` is set. Getting that
+backwards is what upstream's own `shrink_lines_updates_inactive_cursor_pos`
+test caught during this work.
+
+A top-anchored shrink discards the bottom rows and leaves the cursor past the
+new last row, so it clamps the row instead of scrolling. The column is
+untouched, matching the Zig core, which only clamps the column when it is
+past the last column.
+
+## Not patched: VPA cannot be distinguished from CUD
+
+The v2 patch gives VPA and CUD different rules — `CSI e` routes to
+`cursorDownToScreen`, absolute on the screen, while `CSI B` stops at the
+bottom margin. `vte` dispatches `('B', [])` and `('e', [])` to the same
+`Handler::move_down`, so at that boundary the two sequences are
+indistinguishable and only one rule can be implemented.
+
+`protocol/conformance/terminal-core/vpa-ignores-margins.json` therefore
+records the behaviour as a known divergence even though the vector passes:
+the margins it uses make the two rules agree, so the cursor is right by
+accident. `blocked_on: "v3"` says which release is meant to close it, and
+closing it means splitting the dispatch in a vendored `vte`.

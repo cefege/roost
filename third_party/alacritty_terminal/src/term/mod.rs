@@ -673,9 +673,14 @@ impl<T> Term<T> {
         delta = cmp::min(cmp::max(delta, min_delta), history_size as i32);
         self.vi_mode_cursor.point.line += delta;
 
+        // Roost addition: the alternate grid is TOP-ANCHORED on a shrink, while
+        // the primary is a window onto history and scrolls to keep its cursor
+        // visible. `grid` is whichever is ACTIVE, so the anchor follows the
+        // active grid and not the mode alone. See
+        // `third_party/alacritty_terminal/ROOST-PATCHES.md`.
         let is_alt = self.mode.contains(TermMode::ALT_SCREEN);
-        self.grid.resize(!is_alt, num_lines, num_cols);
-        self.inactive_grid.resize(is_alt, num_lines, num_cols);
+        self.grid.resize(!is_alt, num_lines, num_cols, is_alt);
+        self.inactive_grid.resize(is_alt, num_lines, num_cols, false);
 
         // Invalidate selection and tabs only when necessary.
         if old_cols != num_cols {
@@ -1222,22 +1227,40 @@ impl<T: EventListener> Handler for Term<T> {
         }
     }
 
+    /// Roost addition — CUU is bounded by the BOTTOM of the top margin, not by
+    /// the top of the screen. Upstream subtracts and lets `goto` clamp to the
+    /// screen, so a program that sets margins and then moves the cursor
+    /// relative escapes the region it asked for. The Zig core this replaces
+    /// was patched to the same rule; see
+    /// `third_party/alacritty_terminal/ROOST-PATCHES.md`.
     #[inline]
     fn move_up(&mut self, lines: usize) {
         trace!("Moving up: {lines}");
 
-        let line = self.grid.cursor.point.line - lines;
-        let column = self.grid.cursor.point.column;
-        self.goto(line.0, column.0)
+        let point = self.grid.cursor.point;
+        let min_row = if point.line >= self.scroll_region.start {
+            self.scroll_region.start.0
+        } else {
+            0
+        };
+        let amount = cmp::min(lines, (point.line.0 - min_row).max(0) as usize);
+        self.goto(point.line.0 - amount as i32, point.column.0)
     }
 
+    /// Roost addition — the mirror of `move_up`: CUD is bounded by the TOP of
+    /// the bottom margin.
     #[inline]
     fn move_down(&mut self, lines: usize) {
         trace!("Moving down: {lines}");
 
-        let line = self.grid.cursor.point.line + lines;
-        let column = self.grid.cursor.point.column;
-        self.goto(line.0, column.0)
+        let point = self.grid.cursor.point;
+        let max_row = if point.line < self.scroll_region.end {
+            self.scroll_region.end.0 - 1
+        } else {
+            self.bottommost_line().0
+        };
+        let amount = cmp::min(lines, (max_row - point.line.0).max(0) as usize);
+        self.goto(point.line.0 + amount as i32, point.column.0)
     }
 
     #[inline]

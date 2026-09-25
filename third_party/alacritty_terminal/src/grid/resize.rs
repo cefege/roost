@@ -11,7 +11,13 @@ use crate::grid::{Dimensions, Grid, GridCell};
 
 impl<T: GridCell + Default + PartialEq> Grid<T> {
     /// Resize the grid's width and/or height.
-    pub fn resize<D>(&mut self, reflow: bool, lines: usize, columns: usize)
+    /// `top_anchored` keeps the content at the TOP when the grid shrinks,
+    /// discarding from the bottom and clamping the cursor; without it the grid
+    /// scrolls to keep the cursor visible, which is right for a viewport onto
+    /// history and wrong for the alternate screen.
+    ///
+    /// Roost addition — see `third_party/alacritty_terminal/ROOST-PATCHES.md`.
+    pub fn resize<D>(&mut self, reflow: bool, lines: usize, columns: usize, top_anchored: bool)
     where
         T: ResetDiscriminant<D>,
         D: PartialEq,
@@ -21,7 +27,7 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
 
         match self.lines.cmp(&lines) {
             Ordering::Less => self.grow_lines(lines),
-            Ordering::Greater => self.shrink_lines(lines),
+            Ordering::Greater => self.shrink_lines(lines, top_anchored),
             Ordering::Equal => (),
         }
 
@@ -75,18 +81,31 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
     /// of the terminal window.
     ///
     /// Alacritty takes the same approach.
-    fn shrink_lines<D>(&mut self, target: usize)
+    /// `top_anchored` — Roost addition. A top-anchored grid (the alternate
+    /// screen) discards from the bottom on a shrink and leaves what is left
+    /// where it was, instead of scrolling to keep the cursor visible.
+    fn shrink_lines<D>(&mut self, target: usize, top_anchored: bool)
     where
         T: ResetDiscriminant<D>,
         D: PartialEq,
     {
         // Scroll up to keep content inside the window.
-        let required_scrolling = (self.cursor.point.line.0 as usize + 1).saturating_sub(target);
-        if required_scrolling > 0 {
-            self.scroll_up(&(Line(0)..Line(self.lines as i32)), required_scrolling);
-
-            // Clamp cursors to the new viewport size.
+        if top_anchored {
+            // Roost addition: the content stays where it was and the bottom is
+            // discarded, so the cursor can be left past the new last row. Clamp
+            // it instead of scrolling — scrolling is what this anchor exists to
+            // avoid, because on the alternate screen it moves the content the
+            // user is looking at.
             self.cursor.point.line = min(self.cursor.point.line, Line(target as i32 - 1));
+        } else {
+            let required_scrolling =
+                (self.cursor.point.line.0 as usize + 1).saturating_sub(target);
+            if required_scrolling > 0 {
+                self.scroll_up(&(Line(0)..Line(self.lines as i32)), required_scrolling);
+
+                // Clamp cursors to the new viewport size.
+                self.cursor.point.line = min(self.cursor.point.line, Line(target as i32 - 1));
+            }
         }
 
         // Clamp saved cursor, since only primary cursor is scrolled into viewport.

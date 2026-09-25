@@ -170,7 +170,7 @@ fn shrink_reflow() {
     grid[Line(0)][Column(3)] = cell('4');
     grid[Line(0)][Column(4)] = cell('5');
 
-    grid.resize(true, 1, 2);
+    grid.resize(true, 1, 2, false);
 
     assert_eq!(grid.total_lines(), 3);
 
@@ -196,8 +196,8 @@ fn shrink_reflow_twice() {
     grid[Line(0)][Column(3)] = cell('4');
     grid[Line(0)][Column(4)] = cell('5');
 
-    grid.resize(true, 1, 4);
-    grid.resize(true, 1, 2);
+    grid.resize(true, 1, 4, false);
+    grid.resize(true, 1, 2, false);
 
     assert_eq!(grid.total_lines(), 3);
 
@@ -223,7 +223,7 @@ fn shrink_reflow_empty_cell_inside_line() {
     grid[Line(0)][Column(3)] = cell('4');
     grid[Line(0)][Column(4)] = Cell::default();
 
-    grid.resize(true, 1, 2);
+    grid.resize(true, 1, 2, false);
 
     assert_eq!(grid.total_lines(), 2);
 
@@ -235,7 +235,7 @@ fn shrink_reflow_empty_cell_inside_line() {
     assert_eq!(grid[Line(0)][Column(0)], cell('3'));
     assert_eq!(grid[Line(0)][Column(1)], cell('4'));
 
-    grid.resize(true, 1, 1);
+    grid.resize(true, 1, 1, false);
 
     assert_eq!(grid.total_lines(), 4);
 
@@ -260,7 +260,7 @@ fn grow_reflow() {
     grid[Line(1)][Column(0)] = cell('3');
     grid[Line(1)][Column(1)] = Cell::default();
 
-    grid.resize(true, 2, 3);
+    grid.resize(true, 2, 3, false);
 
     assert_eq!(grid.total_lines(), 2);
 
@@ -286,7 +286,7 @@ fn grow_reflow_multiline() {
     grid[Line(2)][Column(0)] = cell('5');
     grid[Line(2)][Column(1)] = cell('6');
 
-    grid.resize(true, 3, 6);
+    grid.resize(true, 3, 6, false);
 
     assert_eq!(grid.total_lines(), 3);
 
@@ -315,7 +315,7 @@ fn grow_reflow_disabled() {
     grid[Line(1)][Column(0)] = cell('3');
     grid[Line(1)][Column(1)] = Cell::default();
 
-    grid.resize(false, 2, 3);
+    grid.resize(false, 2, 3, false);
 
     assert_eq!(grid.total_lines(), 2);
 
@@ -339,7 +339,7 @@ fn shrink_reflow_disabled() {
     grid[Line(0)][Column(3)] = cell('4');
     grid[Line(0)][Column(4)] = cell('5');
 
-    grid.resize(false, 1, 2);
+    grid.resize(false, 1, 2, false);
 
     assert_eq!(grid.total_lines(), 1);
 
