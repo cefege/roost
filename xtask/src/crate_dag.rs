@@ -27,7 +27,16 @@ const ALLOWED: &[(&str, &[&str])] = &[
         "roost-host",
         &["roost-protocol", "roost-platform", "roost-observability"],
     ),
-    ("roost-term", &["roost-protocol", "roost-observability"]),
+    // `alacritty_terminal` is the vendored terminal core, patched through
+    // `[patch.crates-io]`; see third_party/alacritty_terminal/ROOST-PATCHES.md.
+    (
+        "roost-term",
+        &[
+            "roost-protocol",
+            "roost-observability",
+            "alacritty_terminal",
+        ],
+    ),
     (
         "roost-keeper",
         &["roost-protocol", "roost-host", "roost-observability"],

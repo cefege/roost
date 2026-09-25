@@ -386,12 +386,17 @@ only — OPTIONAL, outside the definition of done, never a merge blocker.
 Per-change gates, run in `~/repos/roost-v3`:
 
 ```
-cargo fmt --all -- --check
+cargo xtask fmt          # cargo fmt --check, over the crates we author
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace      # unit + conformance vectors + terminal-core
                             #   vectors + the headless client
 cargo xtask lint            # 400-line cap, crate DAG, stdout rule, design
                             #   raw-value ratchet
+# The vendored terminal core is not a workspace member — `cargo fmt` walks
+# local path dependencies regardless of `exclude`, and reformatting vendored
+# code would make the diff against upstream unreviewable. Its own suite is a
+# required gate and runs by manifest path.
+cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
 cargo build -p roost-protocol -p roost-client-core --target wasm32-unknown-unknown
 cargo build --release -p roost-cli -p roost-keeper
 ```

@@ -6,6 +6,10 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
+# Vendored third-party code is a path dependency of the workspace, not a
+# member: `cargo fmt` and `cargo clippy` must not reformat it, because a
+# reformat makes the diff against upstream unreviewable.
+exclude = ["third_party"]
 
 [workspace.package]
 version = "3.0.0"
@@ -45,6 +49,12 @@ reqwest = { version = "0.13.5", default-features = false }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 web-push = "0.11.0"
 portable-pty = "0.9.0"
+# Patched: see third_party/alacritty_terminal/ROOST-PATCHES.md. Upstream 0.26.0
+# reports how much history it RETAINS but not how much it has DISCARDED, and
+# every path that shrinks history is private, so the count cannot be derived
+# from outside the crate. Without it every absolute history index re-aliases at
+# the scrollback cap.
+alacritty_terminal = { version = "0.26.0", path = "third_party/alacritty_terminal" }
 str0m = "0.23.1"
 qrcode = "0.14.1"
 idb = "0.6.5"
@@ -103,6 +113,11 @@ unimplemented = "deny"
 # Release binaries must be byte-reproducible: the keeper admission gate compares
 # `implementation_digest` (SHA-256 of the roost-keeper binary) across releases,
 # and a drifting digest is a "keeper binary changed" verdict, not a no-op.
+# The vendored terminal core. One patch, one purpose:
+# third_party/alacritty_terminal/ROOST-PATCHES.md.
+[patch.crates-io]
+alacritty_terminal = { path = "third_party/alacritty_terminal" }
+
 [profile.release]
 lto = true
 codegen-units = 1

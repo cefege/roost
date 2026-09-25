@@ -9,3 +9,9 @@ description = "The TerminalCore trait, its Alacritty-backed implementation, and 
 
 [lints]
 workspace = true
+
+[dependencies]
+alacritty_terminal = { workspace = true }
+roost-observability = { workspace = true }
+roost-protocol = { workspace = true }
+thiserror = { workspace = true }

@@ -21,13 +21,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: fmt
-        run: cargo fmt --all -- --check
+        run: cargo xtask fmt
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
       - name: repo invariants
         run: cargo xtask lint
+      # The vendored terminal core is not a workspace member, so its own suite
+      # runs by manifest path. It is a required gate: the patch in
+      # third_party/alacritty_terminal has to keep upstream green.
+      - name: vendored terminal core
+        run: cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
       # roost-client-core and roost-protocol are the two crates every future
       # front end links, and both must stay free of host-only dependencies.
       - name: wasm32 build

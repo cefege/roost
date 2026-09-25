@@ -5,6 +5,7 @@
 mod crate_dag;
 mod design_raw;
 mod file_size;
+mod fmt;
 mod ratchet;
 mod source_tree;
 mod stdout_rule;
@@ -25,9 +26,14 @@ struct Xtask {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run every gate: file-size cap, crate dependency DAG, stdout rule, and
-    /// the design raw-value ratchet.
+    /// Run every gate: the file-size cap, the crate dependency DAG, the
+    /// stdout rule, and the design raw-value ratchet.
     Lint(LintArgs),
+    /// The formatting gate. Separate from `lint` because it shells out to
+    /// cargo, and separate because `cargo fmt --all` would reformat the
+    /// vendored terminal core — see `fmt` for why that is not a matter of
+    /// taste.
+    Fmt,
 }
 
 #[derive(Args)]
@@ -41,9 +47,20 @@ struct LintArgs {
     update_design_baseline: bool,
 }
 
+/// `cargo fmt --check` over the crates this repository authors.
+fn fmt() -> ExitCode {
+    if fmt::check() {
+        println!("xtask fmt: formatted");
+        return ExitCode::SUCCESS;
+    }
+    println!("xtask fmt: run `cargo fmt -p <crate>` over the workspace and commit");
+    ExitCode::FAILURE
+}
+
 fn main() -> ExitCode {
     match Xtask::parse().command {
         Command::Lint(arguments) => lint(&arguments),
+        Command::Fmt => fmt(),
     }
 }
 
