@@ -30,6 +30,7 @@
     "@types/bun": "latest",
     "@types/node": "22",
     "@typescript/native-preview": "^7.0.0-dev.20260621.1",
+    "@xterm/headless": "^6.0.0",
     "knip": "^6.26.0",
     "solid-js": "^1.9.4"
   },

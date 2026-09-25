@@ -60,6 +60,11 @@ function emit(text: string): string {
   return encodePtyFixtureCommand({ op: "EMIT", text, newline: false });
 }
 
+function exactAsciiRow(text: string, cols: number): string {
+  if (text.length > cols) throw new Error(`${text} exceeds the ${cols}-column terminal`);
+  return text.padEnd(cols, " ");
+}
+
 /** Written by the emitter and matched by the assertions, so the padding both
  *  sides agree on has exactly one owner. */
 function genMarker(tokens: CardTokens, generation: number): string {
@@ -253,4 +258,65 @@ test("a backgrounded inline TUI repaint never freezes a stale generation into hi
       max: state.generation,
     });
   expect.soft(survey.transcript).toMatchObject({ duplicated: [], outOfOrder: 0 });
+});
+
+test("a fast in-place status rewrite never duplicates rows into history", async ({
+  smokePage,
+  stack,
+}, testInfo) => {
+  test.skip(
+    !testInfo.project.name.startsWith("chromium"),
+    "desktop terminal geometry + main-screen fast-row repaint contract",
+  );
+  test.setTimeout(240_000);
+  test.skip(
+    process.platform === "win32",
+    "ConPTY has no OPOST; bare LF cannot be termios-translated",
+  );
+
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const sessionId = await spawnPtyFixtureSession(smokePage, fixtureWorker);
+  await navigateToSmokeSession(smokePage, sessionId);
+  await waitForViewportMarker(smokePage, sessionId, PTY_FIXTURE_READY);
+  await inputSmokeTerminal(smokePage, sessionId, encodePtyFixtureCommand({ op: "DISABLE_OPOST" }));
+  await waitForViewportMarker(smokePage, sessionId, "OPOST_DISABLED");
+
+  const geometry = await smokePage.evaluate(
+    (id) => window.__smoke.terminalDimensions(id),
+    sessionId,
+  );
+  expect(geometry.cols).toBeGreaterThan("FASTFOOT-300".length);
+
+  const fill = Array.from(
+    { length: geometry.rows },
+    (_, index) => emit(`EMIT-${String(index + 1).padStart(3, "0")}\r\n`),
+  ).join("");
+  await inputSmokeTerminal(smokePage, sessionId, fill);
+  await waitForViewportMarker(smokePage, sessionId, `EMIT-${String(geometry.rows).padStart(3, "0")}`);
+
+  const repaintCommands = Array.from({ length: 300 }, (_, index) => {
+    const generation = index + 1;
+    const marker = `FASTROW-${generation}`;
+    const status = exactAsciiRow(marker, geometry.cols);
+    const footer = exactAsciiRow(`FASTFOOT-${generation}`, geometry.cols);
+    // xterm LF leaves the cursor in the final cell. Consume that cell before CR
+    // so the exact-width footer itself cannot force a legitimate scroll.
+    return emit(`\x1b[2K\x1b[1A\x1b[2K\x1b[G${status}\nX\r${footer}`);
+  });
+  const repaintBatchSize = 50;
+  for (let start = 0; start < repaintCommands.length; start += repaintBatchSize) {
+    const batch = repaintCommands.slice(start, start + repaintBatchSize).join("");
+    await inputSmokeTerminal(smokePage, sessionId, batch);
+  }
+  await waitForViewportMarker(smokePage, sessionId, "FASTROW-300");
+  await waitForStableCellFrames(smokePage, sessionId);
+
+  const retained = await retainedScan(smokePage, sessionId, "FASTROW-");
+  expect.soft(retained.markerIds.length, "the worker retained phantom fast-row generations").toBeLessThanOrEqual(1);
+  expect.soft(retained.markerDuplicated, "a fast-row generation appears more than once in history").toEqual([]);
+
+  const finalRows = await smokePage.evaluate((id) => (
+    window.__smoke.viewportText(id).split("\n").filter((row) => row.includes("FASTROW-300"))
+  ), sessionId);
+  expect(finalRows, "the final fast-row generation is not painted exactly once").toHaveLength(1);
 });

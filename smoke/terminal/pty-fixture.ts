@@ -166,6 +166,18 @@ if (treeChildArg >= 0) {
         if (chunk.length > 0) await writeOutput(chunk.join(""));
         return;
       }
+      case "DISABLE_OPOST": {
+        const result = Bun.spawnSync(["stty", "-opost"], {
+          stdin: "inherit",
+          stdout: "ignore",
+          stderr: "pipe",
+        });
+        if (result.exitCode !== 0) {
+          throw new Error(`stty -opost failed: ${result.stderr.toString().trim()}`);
+        }
+        await writeOutput("OPOST_DISABLED\r\n");
+        return;
+      }
       case "REPORT_SIZE": {
         const nonce = requiredString(command.nonce, "nonce");
         // Bun's process.stdout dimensions remain at their spawn values after

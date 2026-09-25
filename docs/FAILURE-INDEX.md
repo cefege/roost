@@ -276,15 +276,15 @@ worse on mobile"; the duplicates ARE in the worker's own history
 (`roost api cells <sid>`), and the worker's `terminal-view` `stream_desired` log
 shows `rows` stepping (46→44→42…) at a fixed `cols` while the user types.
 
-**Wrong** — hunt the renderer, the emitter, or history backfill first. Replaying
-the recorded PTY bytes through the wterm core, the emitter, the delta fold and
-`CellGridRenderer` matches xterm.js row for row; the rows are real. Their source
-is the application: every PTY height change makes an inline TUI repaint, and a
-TUI that repaints IN PLACE (omp latches this for the life of the process after a
-height-only change around an alt-screen overlay; tmux-style panes do it always)
-leaves the rows a shrink pushed into history duplicated there. Equally wrong:
-debouncing or hysteresis on the published geometry — each surviving resize still
-duplicates.
+**Wrong** — hunt the renderer, the emitter, or history backfill without first
+checking core parity. `packages/wterm/tests/xterm-differential.test.ts` is the
+xterm.js row oracle for fast raw-mode streams; the real-stack smoke suite then
+proves what the worker retained. In the height-step incident the rows are real:
+every PTY height change makes an inline TUI repaint, and a TUI that repaints IN
+PLACE (omp latches this for the life of the process after a height-only change
+around an alt-screen overlay; tmux-style panes do it always) leaves the rows a
+shrink pushed into history duplicated there. Equally wrong: debouncing or
+hysteresis on the published geometry — each surviving resize still duplicates.
 
 **Right** — **transient chrome never changes the terminal grid.** The desktop pane
 composer reserves only the pill's one-line resting height
@@ -301,6 +301,24 @@ resize (or the explicit `keyboardResize` preference) may resize the PTY.
 `"desktop composer submits Enter and grows above a stable terminal grid"`;
 `smoke/terminal/composer-mobile.spec.ts` —
 `"the soft keyboard and drawer never resize the compact terminal grid"`.
+
+### A fast in-place row rewrite duplicates rows into history
+
+**Symptom** — "a spinner/status row rewritten rapidly stacks copies into
+scrollback in Roost but not in other terminals; the copies are in `roost api
+cells`".
+
+**Wrong** — fix the renderer or fold, which only paint worker-authored rows, or
+blame the application without first proving terminal-core parity.
+
+**Right** — the wterm core must match xterm deferred-wrap and margin semantics:
+LF clears pending wrap at `cols - 1`; CUU/CUD (and therefore CPL/CNL) clamp to
+DECSTBM; VPR remains screen-clamped; RI clears pending wrap. Prove every core
+change with `diffAgainstXterm` in `packages/wterm/tests/xterm-differential.ts`.
+
+**Guard** — `packages/wterm/tests/xterm-differential.test.ts`;
+`smoke/terminal/terminal-render-main-repaint.spec.ts` —
+`"a fast in-place status rewrite never duplicates rows into history"`.
 
 ### Alt-screen wallpaper of stale text after a worker restart
 

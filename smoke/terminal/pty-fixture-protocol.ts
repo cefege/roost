@@ -9,6 +9,7 @@ export type PtyFixtureCommand =
   | { op: "EMIT"; text: string; newline?: boolean; delayMs?: number }
   | { op: "FLOOD"; prefix: string; count: number; start?: number }
   | { op: "REPORT_SIZE"; nonce: string }
+  | { op: "DISABLE_OPOST" }
   | { op: "ALT_SCREEN"; active: boolean; prefix?: string; count?: number; nonce?: string }
   | { op: "SPAWN_TREE"; nonce: string; depth?: number }
   /** Echo every subsequent stdin byte back after `delayMs` (default 0). Arming

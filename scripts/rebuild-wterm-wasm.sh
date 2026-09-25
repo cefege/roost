@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Reproducibly rebuild packages/wterm/wasm/wterm-roost.wasm from upstream wterm
-# sources plus Roost's checked-in scrollback, resize and CSI-dispatch changes.
+# sources plus Roost's checked-in scrollback, resize and CSI-dispatch changes,
+# including xterm-compatible LF/CUU/CUD/RI deferred-wrap and margin semantics.
 #
 # Roost runs a PATCHED @wterm/core WASM: upstream caps alt-screen scrollback at
 # 1,000 lines while the SPA renders 10,000, upstream resize updates only

@@ -12,7 +12,7 @@ index f74e989..2959e9a 100644
  pub const ScrollbackLine = struct {
      cells: [grid_mod.MAX_COLS]Cell = undefined,
 diff --git a/src/terminal.zig b/src/terminal.zig
-index ea3a149..f5cae30 100644
+index ea3a149..2cf6d04 100644
 --- a/src/terminal.zig
 +++ b/src/terminal.zig
 @@ -204,9 +204,9 @@ pub const Terminal = struct {
@@ -286,7 +286,26 @@ index ea3a149..f5cae30 100644
      // -- Byte processing --
  
      fn processByte(self: *Terminal, byte: u8) void {
-@@ -696,6 +735,13 @@ pub const Terminal = struct {
+@@ -556,6 +595,10 @@ pub const Terminal = struct {
+             0x08, 0x7F => self.backspace(),
+             0x09 => self.horizontalTab(),
+             0x0A, 0x0B, 0x0C => {
++                if (self.wrap_pending) {
++                    self.wrap_pending = false;
++                    self.cursor_col = self.cols - 1;
++                }
+                 self.doLinefeed();
+                 if (self.linefeed_mode) self.carriageReturn();
+             },
+@@ -661,6 +704,7 @@ pub const Terminal = struct {
+     }
+ 
+     fn reverseIndex(self: *Terminal) void {
++        self.wrap_pending = false;
+         if (self.cursor_row == self.scroll_top) {
+             self.grid.scrollDown(self.scroll_top, self.scroll_bottom, 1, self.blankCell());
+         } else if (self.cursor_row > 0) {
+@@ -696,6 +740,13 @@ pub const Terminal = struct {
              self.logUnhandled(final, '>');
              return;
          }
@@ -300,7 +319,16 @@ index ea3a149..f5cae30 100644
  
          switch (final) {
              'A' => self.cursorUp(self.parser.getParam(0, 1)),
-@@ -841,7 +887,14 @@ pub const Terminal = struct {
+@@ -722,7 +773,7 @@ pub const Terminal = struct {
+             'X' => self.eraseChars(self.parser.getParam(0, 1)),
+             'a' => self.cursorForward(self.parser.getParam(0, 1)),
+             'd' => self.cursorToRow(self.parser.getParam(0, 1)),
+-            'e' => self.cursorDown(self.parser.getParam(0, 1)),
++            'e' => self.cursorDownToScreen(self.parser.getParam(0, 1)),
+             'g' => self.clearTabStop(self.parser.getParam(0, 0)),
+             'm' => self.handleSgr(),
+             'n' => self.handleDeviceStatus(),
+@@ -841,7 +892,14 @@ pub const Terminal = struct {
          if (alt) {
              self.alt_saved_link = self.current_link;
              self.current_link = 0;
@@ -316,7 +344,32 @@ index ea3a149..f5cae30 100644
              ag.* = self.grid;
              self.grid.reset(self.cols, self.rows);
              self.using_alt_screen = true;
-@@ -1034,7 +1087,7 @@ pub const Terminal = struct {
+@@ -917,14 +975,22 @@ pub const Terminal = struct {
+ 
+     fn cursorUp(self: *Terminal, n: u16) void {
+         const amount = if (n == 0) 1 else n;
+-        self.cursor_row = if (amount > self.cursor_row) 0 else self.cursor_row - amount;
++        const min_row = if (self.cursor_row >= self.scroll_top) self.scroll_top else 0;
++        self.cursor_row = if (amount > self.cursor_row - min_row) min_row else self.cursor_row - amount;
+         self.wrap_pending = false;
+     }
+ 
+     fn cursorDown(self: *Terminal, n: u16) void {
++        const amount = if (n == 0) 1 else n;
++        const max = if (self.cursor_row < self.scroll_bottom) self.scroll_bottom - 1 else self.rows - 1;
++        self.cursor_row = if (amount > max - self.cursor_row) max else self.cursor_row + amount;
++        self.wrap_pending = false;
++    }
++
++    fn cursorDownToScreen(self: *Terminal, n: u16) void {
+         const amount = if (n == 0) 1 else n;
+         const max = self.rows - 1;
+-        self.cursor_row = if (self.cursor_row + amount > max) max else self.cursor_row + amount;
++        self.cursor_row = if (amount > max - self.cursor_row) max else self.cursor_row + amount;
+         self.wrap_pending = false;
+     }
+ 
+@@ -1034,7 +1100,7 @@ pub const Terminal = struct {
              self.grid.cells[self.cursor_row][col] = blank;
          }
          self.grid.dirty[self.cursor_row] = 1;
@@ -325,7 +378,7 @@ index ea3a149..f5cae30 100644
      }
  
      fn insertBlanks(self: *Terminal, n: u16) void {
-@@ -1059,7 +1112,7 @@ pub const Terminal = struct {
+@@ -1059,7 +1125,7 @@ pub const Terminal = struct {
              self.grid.cells[self.cursor_row][c] = blank;
          }
          self.grid.dirty[self.cursor_row] = 1;
