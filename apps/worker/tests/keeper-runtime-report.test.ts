@@ -13,7 +13,7 @@ import {
   keeperUpdateAdmission,
 } from "@roost/protocol/keeper-update";
 import { keeperRuntimeObservationFromProto, keeperRuntimeObservationToProto } from "@roost/protocol/keeper-update-proto";
-import { observeKeeperRuntime } from "../src/heartbeat.ts";
+import { observeKeeperRuntime } from "../src/transport/heartbeat.ts";
 import { probeKeeperCompatible } from "../src/keeper/keeper-probe.ts";
 import {
   MultiplexedKeeperPool,

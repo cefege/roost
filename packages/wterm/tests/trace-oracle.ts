@@ -61,7 +61,7 @@ import {
   answerQueries, drainCoreReplies,
   PRIMARY_DA_REPLY, XTVERSION_REPLY,
   type QueryCarry,
-} from "../../../apps/worker/src/terminal-query-reply.ts";
+} from "../../../apps/worker/src/terminal/terminal-query-reply.ts";
 
 // ---------------------------------------------------------------------------
 // Trace program

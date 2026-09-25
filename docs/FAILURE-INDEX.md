@@ -310,12 +310,12 @@ resize (or the explicit `keyboardResize` preference) may resize the PTY.
 that rebuilt core reads `core.usingAltScreen()` (false on an empty core) → the fresh snapshot reports
 main-screen → live alt redraws land in main-screen.
 
-**Right** — **prime the rebuilt core's alt state** in `resume()` (`apps/worker/src/session-resume.ts`) whenever
+**Right** — **prime the rebuilt core's alt state** in `resume()` (`apps/worker/src/session/session-resume.ts`) whenever
 the retained session state says it was using the alternate screen: `wtermCore.writeRaw(ALT_ENTER_SEQS[0])` after
 the core is created so `core.usingAltScreen()` matches the retained state. NOT a forced SIGWINCH (TUIs repaint
 alt but do not necessarily re-send `?1049h`).
 
-**Guard** — `apps/worker/tests/session-manager-altmode.test.ts`.
+**Guard** — `apps/worker/tests/session/session-manager-altmode.test.ts`.
 
 ### History gone after a worker restart because the keeper retained none
 
@@ -430,7 +430,7 @@ replay is reserved for genuine process adoption when no in-memory core exists.
 
 **Guard** — `apps/coord/tests/terminal/view/terminal-view-hub.test.ts`;
 `apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
-`apps/worker/tests/terminal-stream-state.test.ts`;
+`apps/worker/tests/terminal/terminal-stream-state.test.ts`;
 `packages/wterm/tests/wterm-resize-in-place.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
@@ -481,7 +481,7 @@ forbidden).
 
 **Right** — **history is PULLED on demand and never shipped wholesale.**
 `apps/web/src/renderer/scrollbackBackfill.ts` pulls ranges in chunks via `SessionsGetScrollbackCells` (coord relay →
-worker `handleGetScrollbackCells` in `apps/worker/src/browser-command-terminal.ts`, serving
+worker `handleGetScrollbackCells` in `apps/worker/src/browser-commands/browser-command-terminal.ts`, serving
 `readScrollbackRangeCells` from `packages/protocol/src/cell/grid-to-cells.ts`) and `prependScrollback` in
 `apps/web/src/renderer/cellRenderer.ts` splices above the reader. At a literal bottom the renderer pins the new
 bottom; otherwise it leaves `scrollTop` untouched. History ALWAYS arrives — only its timing is lazy. The
@@ -1012,7 +1012,7 @@ Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 (`apps/web/src/renderer/terminalDiagSnapshot.ts`), never a screenshot.
 
 **Guard** — `packages/protocol/tests/cell-frame-chunks.test.ts`;
-`apps/worker/tests/terminal-stream-state.test.ts`;
+`apps/worker/tests/terminal/terminal-stream-state.test.ts`;
 `apps/coord/tests/terminal/view/terminal-view-hub.test.ts`;
 `apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
 `apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts`;
@@ -1206,7 +1206,7 @@ another LIVE one, whose boundary is still unproven. Fail-closed is unchanged: `c
 emission, so a trapped core refuses to build frames for the generation it trapped, and the release and the
 invalid-core mint both log instead of passing silently.
 
-**Guard** — `apps/worker/tests/terminal-stream-core-trap.test.ts` —
+**Guard** — `apps/worker/tests/terminal/terminal-stream-core-trap.test.ts` —
 `"a trapped resize releases the emission gate it can never lift"`,
 `"a generation minted after a core trap inherits no dead capture"`, with
 `"a trapped core still refuses frames for the generation it trapped"` as the fail-closed control.
@@ -1256,7 +1256,7 @@ false for the session's life — no publication target, no view command, no ACCE
 of any newer stream silently dropped against a stale `expectedStreamId`.
 
 **Right** — (a) an unprovable core is RE-PROVED in place from the keeper's ordered history whenever a
-stream desire reaches it (`apps/worker/src/session-core-reprove.ts`, spliced into the `!state.coreValid`
+stream desire reaches it (`apps/worker/src/session/session-core-reprove.ts`, spliced into the `!state.coreValid`
 rung of `applyTerminalStreamNow`), so the resize lands and a fresh full baseline paints. The rebuilt window
 mints a NEW `gridEpochBase`, because re-derived history must make browsers renumber instead of merging into
 retained rows. A fresh trap spends exactly ONE re-proof attempt on itself — the trap is the attributable
@@ -1271,10 +1271,10 @@ attempt: the rebuild resets `sentFull` and the emitter state, and a second failu
 request, and converts the silence into the ordinary rejected-snapshot retry; every hydrator threads the
 `AbortSignal` into its RPC so the abandoned call is actually cancelled.
 
-**Guard** — `apps/worker/tests/terminal-stream-core-trap.test.ts` —
+**Guard** — `apps/worker/tests/terminal/terminal-stream-core-trap.test.ts` —
 `"a fail-closed core is re-proved from keeper history on the next stream desire"` with
 `"a core the keeper cannot re-prove stays fail-closed"` as the refusal control;
-`apps/worker/tests/terminal-view-owner.test.ts` —
+`apps/worker/tests/terminal/view/terminal-view-owner.test.ts` —
 `"a trapped core re-proves itself on the desire the trap triggers"` (the desire COUNT is what proves it is
 not a loop) with `"a trap the keeper cannot re-prove stays fail-closed and desires nothing more"`;
 `apps/web/tests/sync-bootstrap-hydration.test.ts` —
@@ -1468,11 +1468,11 @@ direct promotion".
 coordinator→worker `DInputRequest` already in flight can arrive after the browser has promoted a direct route.
 
 **Right** — the worker owns the fence: `TerminalInputRouteOwner` issues the actor/session route epoch, and
-`writeTerminalInput` in `apps/worker/src/session-terminal-control.ts` rechecks live route authority after keeper
+`writeTerminalInput` in `apps/worker/src/session/session-terminal-control.ts` rechecks live route authority after keeper
 admission immediately before `beginInput`. A stale epoch returns `terminal input route changed`; it never writes
 the PTY.
 
-**Guard** — `apps/worker/tests/terminal-stream-input.test.ts` —
+**Guard** — `apps/worker/tests/terminal/terminal-stream-input.test.ts` —
 `"rechecks a live route after keeper admission before writing PTY input"`; real stack
 `smoke/terminal/terminal-peer-failover.spec.ts` —
 `"a delayed old Sync input is fenced after peer promotion and cannot reach the PTY"`.
@@ -1489,7 +1489,7 @@ The native channel accepted it into its buffer, so retry duplicates protocol byt
 `backpressured` and waits for its low-water callback. Queue refusal happens before the native call; a native
 throw retires the peer.
 
-**Guard** — `apps/worker/tests/terminal-peer-packet-port.test.ts` —
+**Guard** — `apps/worker/tests/terminal/peer/terminal-peer-packet-port.test.ts` —
 `"commits a native false return once without retrying its accepted fragment"`.
 
 ---
@@ -1503,7 +1503,7 @@ throw retires the peer.
 **Wrong** — send kill + immediately `conn.close()` (the browser close frame races the worker reading kill).
 
 **Right** — the worker's kill path synchronously acks with a `closed` control message
-(`apps/worker/src/session-lifecycle.ts`); the browser waits for that ack before tearing down.
+(`apps/worker/src/session/session-lifecycle.ts`); the browser waits for that ack before tearing down.
 
 **Guard** — `smoke/terminal/` — `"browser smoke flow creates and cleans its resources"` (drives pane close end
 to end).
@@ -1513,7 +1513,7 @@ to end).
 **Symptom** — "a worker shows offline/down in the SPA while `systemctl --user status roost-worker` says active (running) and the host has GBs free / worker log silent for minutes then `link_stale_no_downstream` + `listChannels timed out` + `heartbeat beat failed [unavailable] HTTP 502` / coord `worker-ws close`→`open` gap of ~361s"
 
 **Wrong** — chase the 502 into the front-door proxy, restart the worker, or read the SPA's host metrics and conclude
-the box is healthy — `apps/worker/src/host-sample-linux.ts` reads host-wide `/proc/meminfo`, so a unit strangled
+the box is healthy — `apps/worker/src/host/host-sample-linux.ts` reads host-wide `/proc/meminfo`, so a unit strangled
 by its own `MemoryHigh` publishes "8.7 GB of 33.6 GB used" while every allocation in its cgroup is throttled;
 equally wrong: adding `MemoryMax` (every PTY session shares this cgroup, so a hard cap plus `Restart=always`
 turns one fat session into a fleet-wide session wipe). Measured on a live host: cgroup
@@ -1529,10 +1529,10 @@ answers a bad JWT with an HTTP 401 upgrade, indistinguishable from a timeout or 
 `WebSocket`, so throttle-induced dials used to arm the auth-reject backoff cap and turn a ~20s stall into ~6 min
 `apps/worker/src/transport/coord-link-constants.ts` (`backoffCapMs(streak, hasOpened)`) keys escalation
 on `hasOpened`; the log is `reconnect_backoff_escalated`, never `auth_rejection_escalated`. (3)
-`sampleCgroupPressure` + `apps/worker/src/heartbeat.ts` (`logCgroupPressure`) emit
+`sampleCgroupPressure` + `apps/worker/src/transport/heartbeat.ts` (`logCgroupPressure`) emit
 `cgroup_memory_high_exceeded`/`_cleared` so the next occurrence is one grep, not a guess.
 
-**Guard** — `apps/worker/tests/coord-link-backoff-cap.test.ts`.
+**Guard** — `apps/worker/tests/transport/coord-link-backoff-cap.test.ts`.
 
 ### A worker reconnects but respawns every terminal
 
@@ -1550,7 +1550,7 @@ channel counter and adopt keeper survivors before the coordinator fallback runs;
 remains account-device-only.
 
 **Guard** — `apps/coord/tests/workers/worker-session-list-auth.test.ts`;
-`apps/worker/tests/boot-reconcile-admission.test.ts`.
+`apps/worker/tests/boot/boot-reconcile-admission.test.ts`.
 
 ### A live viewport change rebuilds the terminal core
 
@@ -1572,7 +1572,7 @@ Keeper-history replay is reserved for genuine worker adoption when no live core
 exists; an unprovable resize boundary fails closed.
 
 **Guard** — `packages/wterm/tests/wterm-resize-in-place.test.ts`;
-`apps/worker/tests/terminal-stream-state.test.ts`;
+`apps/worker/tests/terminal/terminal-stream-state.test.ts`;
 `apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
@@ -1688,9 +1688,9 @@ target is then planned through `capturePlanFailure`, which turns one target's re
 over every candidate, so a dropped target cannot relax it. Transactional failures (directory alias, commit-time
 change) still abort the whole pass with zero mutation — only per-target refusals are isolated.
 
-**Guard** — `apps/worker/tests/agent-status-integration-ownership.test.ts` — an asset marked on line 106 is
+**Guard** — `apps/worker/tests/agents/agent-status-integration-ownership.test.ts` — an asset marked on line 106 is
 adopted, overwritten byte-for-byte and accepted by the commit guard, while a code-line mention, a near-miss
-token and an unmarked file stay refused; `apps/worker/tests/agent-status-installer.test.ts` pins that a
+token and an unmarked file stay refused; `apps/worker/tests/agents/agent-status-installer.test.ts` pins that a
 user-owned pi target and a symlinked omp target each fail alone while every other asset installs.
 
 ### A one-shot deploy flag stops at the installer process
@@ -1718,7 +1718,7 @@ never reads it back off an installed definition (unlike `ROOST_AGENT_CONVERSATIO
 choice is deliberately preserved) — an invocation not given the flag simply omits the key. Writing a
 destructive authorization into a definition then creates the opposite hazard, a flag that re-authorizes
 discarding live PTYs on every later restart, so it is one-shot on BOTH sides: the activation that reads it
-spends it (`spendKeeperForceLiveRetireAuthorization` in `apps/worker/src/service-definition-env.ts`, the same
+spends it (`spendKeeperForceLiveRetireAuthorization` in `apps/worker/src/host/service-definition-env.ts`, the same
 keyed erasure the redeemed bootstrap token uses, called from `main.ts` before any keeper work), and the next
 deploy strips an installed value anyway (`workerInstallEnvironmentValues`). The force branch also names what it
 destroys BEFORE requesting the shutdown — `keeper_binding_channel_ids` / `spawning_channels`, `null` when the
@@ -1870,6 +1870,16 @@ install — a compiled install serves its embedded build regardless.
 refused, not stamped" (runs BOTH installers, on the Linux and Darwin writers) and "a dist inside this
 install's own root is stamped as given".
 
+### Moving a keeper-imported file makes every live keeper unadoptable
+
+**Symptom** — `Expected: "worker-only-safe" Received: "incompatible-with-live-sessions"`.
+
+**Wrong** — move `session-scrollback-ring.ts` (or change the digest algorithm). Bun's minified identifier assignment includes import-specifier text, so a path-only move of a closure file changes the implementation digest even when its code is byte-identical.
+
+**Right** — keep every file in the keeper bundle closure at its existing path and import specifier, then check `buildKeeperImplementationDigest()` after any move. Changing the digest algorithm would reject the implementation identity already embedded in every live keeper.
+
+**Guard** — `smoke/upgrade/upgrade-continuity.spec.ts` "an existing install survives the working tree with its keeper and PTYs intact".
+
 ---
 
 ## Transport and connection lifecycle
@@ -1910,7 +1920,7 @@ downstream frame stamps `lastDownstreamAtMs`; a per-dial interval (`STALE_CHECK_
 and re-dials after `STALE_LINK_TIMEOUT_MS` 90s (3 missed pings) of downstream silence → hello→snapshot replay
 heals the rest. Same half-open-behind-a-proxy class as the boot RPC timeout.
 
-**Guard** — `apps/worker/tests/coord-link-stale-watchdog.test.ts`.
+**Guard** — `apps/worker/tests/transport/coord-link-stale-watchdog.test.ts`.
 
 ### Cold start loses the event published between snapshot and socket
 
@@ -2245,7 +2255,7 @@ own tail.
 **Guard** — `packages/protocol/tests/terminal-capture-envelope.test.ts` pins both halves: a flattened
 payload is refused at the envelope naming the missing layer member, and an envelope placed where a
 section belongs fails `validateTerminalIncidentBundle` at `browser.captured_at_ms`. Producer-side,
-`apps/worker/tests/terminal-capture-evidence.test.ts` and
+`apps/worker/tests/terminal/terminal-capture-evidence.test.ts` and
 `apps/coord/tests/terminal/capture/terminal-capture-recorder.test.ts` assert a real capture lands non-null
 `bundle.browser` and `bundle.coordinator` sections with zero `remote:` omissions.
 

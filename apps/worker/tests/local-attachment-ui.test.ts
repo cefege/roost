@@ -8,8 +8,8 @@ import {
   ATTACHMENT_TRANSFER_LOOPBACK_MAX_PAYLOAD_BYTES,
   ATTACHMENT_TRANSFER_LOOPBACK_SUBPROTOCOL,
 } from "@roost/protocol/attachment-transfer";
-import { startLocalUiServer, type LocalUiServer } from "../src/local-ui-server.ts";
-import type { AttachmentTransferPort } from "../src/attachment-transfer-port.ts";
+import { startLocalUiServer, type LocalUiServer } from "../src/local-door/local-ui-server.ts";
+import type { AttachmentTransferPort } from "../src/attachments/attachment-transfer-port.ts";
 
 const started: LocalUiServer[] = [];
 

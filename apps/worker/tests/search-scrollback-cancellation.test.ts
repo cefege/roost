@@ -5,7 +5,7 @@
 // SessionManager fixture is search-scrollback-test-harness.ts.
 
 import { describe, expect, test } from "bun:test";
-import { cancelSearchScrollback, handleSearchScrollback } from "../src/terminal-search.ts";
+import { cancelSearchScrollback, handleSearchScrollback } from "../src/terminal/search/terminal-search.ts";
 import {
 	CHANNEL_ID, FIXED_RUNTIME, SESSION_ID, captureLink, freshManager, injectSession, searchFrame,
 	type RpcError, type RpcOk,

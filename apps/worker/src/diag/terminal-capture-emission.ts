@@ -23,8 +23,8 @@ import {
 	scrollbackOrigin,
 	type CellGridFrame,
 } from "@roost/protocol/cell";
-import type { SessionRecord } from "../session-record.ts";
-import type { TerminalStreamState } from "../session-terminal-state.ts";
+import type { SessionRecord } from "../session/session-record.ts";
+import type { TerminalStreamState } from "../session/session-terminal-state.ts";
 import { monoNowMs } from "../util/mono.ts";
 import {
 	approximateCellFrameBytes,

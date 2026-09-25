@@ -116,7 +116,7 @@ export const CHECKS: Check[] = [
     // retargeted, or the in-place resize was dropped.
     rule: "L11: worker stream resize must update the existing terminal core",
     memory: "docs/FAILURE-INDEX.md",
-    files: /apps\/worker\/src\/session-resize-capture\.ts$/,
+    files: /apps\/worker\/src\/session\/session-resize-capture\.ts$/,
     ok: (_file, _i, lines) => {
       const txt = lines.join("\n");
       return /rec\.wtermCore\.resize\(capture\.toCols,\s*capture\.toRows\)/.test(txt);

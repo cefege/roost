@@ -1,0 +1,315 @@
+// Process recognition, manifest evaluation, and baseline registry arbitration
+// tests for worker-observed agent status. Screen-state stabilization lives in
+// agent-status-stable-transitions.test.ts and durable occupant identity edge
+// cases in agent-status-registry-identity.test.ts.
+
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
+import type { AgentStatusUpdate } from "@roost/protocol/wire";
+import { evaluateManifest } from "../../src/agents/manifest-engine.ts";
+import { AGENT_MANIFESTS } from "../../src/agents/manifests.ts";
+import {
+  AgentProcessScanner,
+  _readProcessSnapshot,
+  BUILTIN_AGENT_COMMANDS,
+  findAgentProcessIdentity,
+  identifyAgentProcess,
+  type AgentProcessIdentity,
+  type BuiltinAgentId,
+} from "../../src/agents/process-scan.ts";
+import type { ProcessRecord } from "../../src/agents/process-tree.ts";
+import { AgentStatusRegistry } from "../../src/agents/registry.ts";
+import { _scanAgentOsc } from "../../src/terminal/terminal-stream-scan.ts";
+
+const sessionId = "11111111-1111-4111-8111-111111111111";
+
+function processRecord(patch: Partial<ProcessRecord> = {}): ProcessRecord {
+  return { pid: 20, ppid: 10, pgid: 20, tpgid: 20, comm: "bash", args: "/bin/bash", ...patch };
+}
+
+describe("agent process identity", () => {
+  test("identifies every built-in from a live descendant command", () => {
+    const root = processRecord({ pid: 10, ppid: 1 });
+    for (const [agentId, commands] of Object.entries(BUILTIN_AGENT_COMMANDS) as Array<
+      [BuiltinAgentId, readonly string[]]
+    >) {
+      const child = processRecord({ comm: commands[0], args: commands[0] });
+      expect(findAgentProcessIdentity([root, child], 10)).toEqual({ agentId, pid: 20 });
+    }
+  });
+
+  test("recognizes runtime package launchers without reading shell command text", () => {
+    expect(identifyAgentProcess(processRecord({
+      comm: "bun",
+      args: "bun /home/me/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js",
+    }))).toBe("omp");
+    expect(identifyAgentProcess(processRecord({
+      comm: "bash",
+      args: "/bin/bash -c echo codex gemini omp",
+    }))).toBeNull();
+  });
+
+  test("requires two consecutive misses before releasing identity", async () => {
+    const root = processRecord({ pid: 10, ppid: 1 });
+    let records: ProcessRecord[] = [root, processRecord({ comm: "codex", args: "codex" })];
+    const scanner = new AgentProcessScanner(async () => records, 0);
+    const roots = [{ sessionId, childPid: 10 }];
+    expect((await scanner.scanAgents(roots)).get(sessionId)?.agentId).toBe("codex");
+    records = [root];
+    expect((await scanner.scanAgents(roots)).get(sessionId)?.agentId).toBe("codex");
+    expect((await scanner.scanAgents(roots)).has(sessionId)).toBe(false);
+  });
+
+  test("requires a pre-observed incumbent before admitting a reporter", async () => {
+    const root = processRecord({ pid: 10, ppid: 1 });
+    const records = [
+      root,
+      processRecord({ pid: 20, ppid: 10, comm: "pi", args: "pi" }),
+      processRecord({ pid: 30, ppid: 20, comm: "omp", args: "omp" }),
+    ];
+    const scanner = new AgentProcessScanner(async () => records, 0);
+    const sessionRoot = { sessionId, childPid: 10 };
+    expect(await scanner.scanReportingAgent(sessionRoot, 30)).toBeNull();
+    expect((await scanner.scanAgents([sessionRoot])).get(sessionId))
+      .toEqual({ agentId: "omp", pid: 30 });
+    expect(await scanner.scanReportingAgent(sessionRoot, 30))
+      .toMatchObject({ agentId: "omp", pid: 30 });
+    expect(await scanner.scanReportingAgent(sessionRoot, 20)).toBeNull();
+  });
+
+  test("keeps a live incumbent ahead of a newly named descendant reporter", async () => {
+    const root = processRecord({ pid: 10, ppid: 1 });
+    const incumbent = processRecord({
+      pid: 20,
+      ppid: 10,
+      comm: "bun",
+      args: "bun /home/me/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js",
+    });
+    let records = [root, incumbent];
+    const scanner = new AgentProcessScanner(async () => records, 0);
+    const sessionRoot = { sessionId, childPid: 10 };
+    expect((await scanner.scanAgents([sessionRoot])).get(sessionId))
+      .toEqual({ agentId: "omp", pid: 20 });
+
+    records = [
+      root,
+      incumbent,
+      processRecord({ pid: 30, ppid: 20, comm: "omp", args: "omp" }),
+    ];
+    expect((await scanner.scanAgents([sessionRoot])).get(sessionId))
+      .toMatchObject({ agentId: "omp", pid: 20 });
+    expect(await scanner.scanReportingAgent(sessionRoot, 30)).toBeNull();
+    expect(await scanner.scanReportingAgent(sessionRoot, 20))
+      .toMatchObject({ agentId: "omp", pid: 20 });
+  });
+
+  test("forces a fresh snapshot instead of admitting a held screen identity", async () => {
+    const root = processRecord({ pid: 10, ppid: 1 });
+    let records: ProcessRecord[] = [
+      root,
+      processRecord({ pid: 30, ppid: 10, comm: "omp", args: "omp" }),
+    ];
+    let snapshots = 0;
+    const scanner = new AgentProcessScanner(async () => {
+      snapshots++;
+      return records;
+    }, 10_000);
+    const roots = [{ sessionId, childPid: 10 }];
+    expect((await scanner.scanAgents(roots)).get(sessionId)).toEqual({
+      agentId: "omp",
+      pid: 30,
+    });
+    records = [root];
+
+    expect(await scanner.scanReportingAgent(roots[0]!, 30)).toBeNull();
+    expect(snapshots).toBe(2);
+  });
+
+  test("cancels and detaches a stalled forced snapshot", async () => {
+    const root = processRecord({ pid: 10, ppid: 1 });
+    const records = [root, processRecord({ pid: 30, ppid: 10, comm: "omp", args: "omp" })];
+    const stalled = Promise.withResolvers<void>();
+    let reads = 0;
+    let scanAborted = false;
+    const scanner = new AgentProcessScanner((signal) => {
+      reads++;
+      if (reads !== 2) return Promise.resolve(records);
+      signal?.addEventListener("abort", () => { scanAborted = true; }, { once: true });
+      stalled.resolve();
+      return new Promise<ProcessRecord[]>(() => {});
+    }, 0);
+    const sessionRoot = { sessionId, childPid: 10 };
+    await scanner.scanAgents([sessionRoot]);
+    const controller = new AbortController();
+    const forced = scanner.scanReportingAgent(sessionRoot, 30, controller.signal);
+    await stalled.promise;
+    controller.abort();
+
+    expect(await forced).toBeNull();
+    expect(scanAborted).toBe(true);
+    expect(await scanner.scanReportingAgent(sessionRoot, 30))
+      .toMatchObject({ agentId: "omp", pid: 30 });
+  });
+
+  test("terminates the spawned ps process when its snapshot is aborted", async () => {
+    if (process.platform === "win32") return;
+    const dir = await mkdtemp(join(tmpdir(), "roost-process-scan-"));
+    const fakePs = join(dir, "ps");
+    const originalPath = process.env.PATH;
+    await writeFile(fakePs, "#!/bin/sh\nexec /bin/sleep 60\n", { mode: 0o700 });
+    process.env.PATH = `${dir}:${originalPath ?? ""}`;
+    try {
+      const controller = new AbortController();
+      const snapshot = _readProcessSnapshot(controller.signal);
+      controller.abort();
+      await expect(snapshot).rejects.toThrow("process snapshot aborted");
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("pinned manifest engine", () => {
+  const workingFixtures: Record<BuiltinAgentId, { screen?: string; oscTitle?: string; oscProgress?: string }> = {
+    codex: { oscTitle: "codex ⠋ task" },
+    gemini: { screen: "esc to cancel" },
+    opencode: { screen: "press esc to interrupt" },
+    cursor: { screen: "ctrl+c to stop" },
+    amp: { oscTitle: "⠋ task" },
+    copilot: { screen: "esc again to cancel" },
+    droid: { screen: "⠋ Running\nesc to stop" },
+    grok: { oscProgress: "4;1;-1" },
+    pi: { screen: "Working..." },
+    omp: { oscTitle: "π ⠋ task" },
+  };
+
+  test("detects working fixtures for all ten built-ins", () => {
+    for (const [agentId, fixture] of Object.entries(workingFixtures) as Array<
+      [BuiltinAgentId, (typeof workingFixtures)[BuiltinAgentId]]
+    >) {
+      expect(evaluateManifest(AGENT_MANIFESTS[agentId], {
+        screen: fixture.screen ?? "",
+        oscTitle: fixture.oscTitle,
+        oscProgress: fixture.oscProgress,
+      }).state).toBe("working");
+    }
+  });
+
+  test("honors blocker priority, visible idle, and skip-state screens", () => {
+    expect(evaluateManifest(AGENT_MANIFESTS.codex, {
+      screen: "• Working (esc to interrupt)", oscTitle: "Action Required",
+    }).state).toBe("blocked");
+    const idle = evaluateManifest(AGENT_MANIFESTS.omp, { screen: "", oscTitle: "π > repo" });
+    expect(idle).toMatchObject({ state: "idle", visibleIdle: true });
+    const skipped = evaluateManifest(AGENT_MANIFESTS.codex, {
+      screen: "› prompt\n↑/↓ to scroll pgup/pgdn to move home/end to jump q to quit esc to edit prev",
+    });
+    expect(skipped).toMatchObject({ state: "unknown", skipStateUpdate: true });
+  });
+
+  test("defaults a known process to idle rather than matching transcript identity", () => {
+    expect(evaluateManifest(AGENT_MANIFESTS.gemini, {
+      screen: "old output: codex esc to interrupt",
+    }).state).toBe("idle");
+  });
+});
+
+describe("integration and screen arbitration", () => {
+  test("live integration wins, expires to screen, and derives completion revisions", () => {
+    let now = 1_000;
+    const published: AgentStatusUpdate[] = [];
+    const registry = new AgentStatusRegistry({
+      publish: (status) => published.push(status), now: () => now,
+      leaseMs: 100, startLeaseTimer: false,
+    });
+    registry.reportScreen(sessionId, { agentId: "omp", processId: 20, state: "working", visibleBlocker: false });
+    expect(registry.reportIntegration({
+      sessionId, agentId: "omp", processId: 20, state: "blocked", seq: 1, active: true,
+    })).toBe(true);
+    registry.reportScreen(sessionId, { agentId: "omp", processId: 20, state: "idle", visibleBlocker: false });
+    expect(published.at(-1)?.state).toBe("blocked");
+    expect(registry.reportIntegration({
+      sessionId, agentId: "omp", processId: 20, state: "working", seq: 1, active: true,
+    })).toBe(false);
+    now += 101;
+    registry.expireLeases();
+    const completed = published.at(-1)!;
+    expect(completed.state).toBe("idle");
+    expect(completed.completed_revision).toBe(completed.revision);
+    registry.dispose();
+  });
+
+  test("heartbeats do not fan out; reconnect resend preserves revision", () => {
+    let now = 2_000;
+    const published: AgentStatusUpdate[] = [];
+    const registry = new AgentStatusRegistry({
+      publish: (status) => published.push(status), now: () => now,
+      startLeaseTimer: false,
+    });
+    registry.reportIntegration({
+      sessionId, agentId: "pi", processId: 20, state: "working", seq: 1, active: true,
+    });
+    const revision = published[0]!.revision;
+    now++;
+    registry.reportIntegration({
+      sessionId, agentId: "pi", processId: 20, state: "working", seq: 2, active: true,
+    });
+    expect(published).toHaveLength(1);
+    registry.resend();
+    expect(published).toHaveLength(2);
+    expect(published[1]!.revision).toBe(revision);
+    registry.closeSession(sessionId);
+    expect(published.at(-1)).toMatchObject({ active: false });
+    registry.dispose();
+  });
+});
+
+describe("agent OSC scanner", () => {
+  test("bridges split title and progress sequences", () => {
+    const first = _scanAgentOsc("text\x1b]0;π ⠋ bu");
+    expect(first.title).toBeNull();
+    const second = _scanAgentOsc(first.carry + "ild\x07\x1b]9;4;1;-1\x1b\\");
+    expect(second).toMatchObject({ title: "π ⠋ build", progress: "4;1;-1", carry: "" });
+  });
+
+  test("truncates an oversized title without splitting a surrogate pair", () => {
+    const rocket = "\u{1F680}"; // astral emoji, 2 UTF-16 code units
+    const body = "x".repeat(255) + rocket + "y".repeat(10);
+    const scan = _scanAgentOsc(`\x1b]0;${body}\x07`);
+    expect(scan.title).not.toBeNull();
+    const title = scan.title!;
+    expect(title.length).toBeLessThanOrEqual(256);
+    // No lone surrogate anywhere in the result.
+    for (let i = 0; i < title.length; i++) {
+      const code = title.charCodeAt(i);
+      const isHighSurrogate = code >= 0xd800 && code <= 0xdbff;
+      const isLowSurrogate = code >= 0xdc00 && code <= 0xdfff;
+      if (isHighSurrogate) expect(title.charCodeAt(i + 1)).toBeGreaterThanOrEqual(0xdc00);
+      if (isLowSurrogate) expect(title.charCodeAt(i - 1)).toBeGreaterThanOrEqual(0xd800);
+    }
+    // The astral emoji sits exactly at the 255/256 boundary — a naive
+    // `.slice(0, 256)` would cut it in half; the codepoint-safe truncation
+    // must drop it whole instead of emitting a lone surrogate.
+    expect(title).toBe("x".repeat(255));
+  });
+
+  test("truncates an oversized progress payload without splitting a surrogate pair", () => {
+    const rocket = "\u{1F680}";
+    const body = "4;" + "1".repeat(61) + rocket + "9";
+    const scan = _scanAgentOsc(`\x1b]9;${body}\x07`);
+    expect(scan.progress).not.toBeNull();
+    const progress = scan.progress!;
+    expect(progress.length).toBeLessThanOrEqual(64);
+    expect(progress).toBe("4;" + "1".repeat(61));
+  });
+
+  test("short title/progress pass through unchanged", () => {
+    const scan = _scanAgentOsc("\x1b]0;hi\x07\x1b]9;4;50;-1\x07");
+    expect(scan.title).toBe("hi");
+    expect(scan.progress).toBe("4;50;-1");
+  });
+});

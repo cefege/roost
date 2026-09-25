@@ -6,9 +6,9 @@
 import { create } from "@bufbuild/protobuf";
 import { afterEach, describe, expect, test } from "bun:test";
 import { DKeeperUpdatePrepareSchema } from "@roost/protocol/proto/worker_transport_pb";
-import { createKeeperUpdatePrepareHandler } from "../src/coord-link-keeper-update.ts";
+import { createKeeperUpdatePrepareHandler } from "../src/transport/coord-link-keeper-update.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
-import { KEEPER_UPDATE_WRITE_REFUSAL } from "../src/session-control-lanes.ts";
+import { KEEPER_UPDATE_WRITE_REFUSAL } from "../src/session/session-control-lanes.ts";
 import { installFakeKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import {
   CHANNEL_ID,
@@ -17,7 +17,7 @@ import {
   SESSION_ID,
   STREAM_A,
   trackKeeper,
-} from "./terminal-stream-state-harness.ts";
+} from "./terminal/terminal-stream-state-harness.ts";
 
 const INPUT = new TextEncoder().encode("frozen-input");
 

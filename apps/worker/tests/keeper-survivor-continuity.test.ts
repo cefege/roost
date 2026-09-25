@@ -17,7 +17,7 @@ import {
   KEEPER_IDENTITY_UNPROVEN_ERROR,
   KEEPER_REPLACEMENT_BLOCKED_ERROR,
   handleKeeperSurvivor,
-} from "../src/boot-keeper.ts";
+} from "../src/boot/boot-keeper.ts";
 import {
   MultiplexedKeeperPool,
   getMultiplexedPool,

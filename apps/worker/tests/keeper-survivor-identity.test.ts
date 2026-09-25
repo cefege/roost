@@ -12,7 +12,7 @@ import {
   KEEPER_IDENTITY_UNPROVEN_ERROR,
   KEEPER_REPLACEMENT_BLOCKED_ERROR,
   handleKeeperSurvivor,
-} from "../src/boot-keeper.ts";
+} from "../src/boot/boot-keeper.ts";
 import { probeKeeperCompatible } from "../src/keeper/keeper-probe.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { muxLocalEndpoint } from "../src/keeper/keeper-pool-config.ts";
@@ -22,7 +22,7 @@ import {
   TERMINAL_CORE_CAPACITY_ERROR_CODE,
   TERMINAL_CORE_CAPACITY_ERROR_MESSAGE,
   TerminalCoreCapacity,
-} from "../src/terminal-core-capacity.ts";
+} from "../src/terminal/terminal-core-capacity.ts";
 import {
   FAKE_KEEPER_EPOCH,
   FAKE_KEEPER_PID,

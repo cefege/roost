@@ -11,15 +11,15 @@ import {
   type CellRow,
 } from "@roost/protocol/cell";
 import type { ClientControlFrame } from "@roost/protocol/wire";
-import { handleGetScrollbackCells } from "../src/browser-command-terminal.ts";
+import { handleGetScrollbackCells } from "../src/browser-commands/browser-command-terminal.ts";
 import type { FsmChannel } from "../src/fsm.ts";
-import { SessionManager } from "../src/session-manager.ts";
-import type { SessionShellRecord } from "../src/session-record.ts";
+import { SessionManager } from "../src/session/session-manager.ts";
+import type { SessionShellRecord } from "../src/session/session-record.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
-import { initAgentOscState } from "../src/terminal-stream-scan.ts";
+import { initAgentOscState } from "../src/terminal/terminal-stream-scan.ts";
 import type { CoordLink } from "../src/transport/coord-link.ts";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
-import { SessionEventTestSink } from "./session-event-test-sink.ts";
+import { SessionEventTestSink } from "./session/session-event-test-sink.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000001");
 const CID = 1;

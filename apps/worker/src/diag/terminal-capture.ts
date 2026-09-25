@@ -14,9 +14,9 @@ import {
 	type TerminalCoverageReason,
 	type TerminalWorkerResizeOutcome,
 } from "@roost/protocol/terminal-capture";
-import type { SessionManager } from "../session-manager.ts";
-import type { SessionRecord } from "../session-record.ts";
-import type { LiveResizeCapture, TerminalStreamState } from "../session-terminal-state.ts";
+import type { SessionManager } from "../session/session-manager.ts";
+import type { SessionRecord } from "../session/session-record.ts";
+import type { LiveResizeCapture, TerminalStreamState } from "../session/session-terminal-state.ts";
 import { ensureCaptureRetention, stopCaptureRetention } from "./capture-storage.ts";
 import {
 	recentWorkerCaptureFor,

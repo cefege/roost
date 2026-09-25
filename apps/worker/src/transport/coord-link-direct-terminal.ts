@@ -21,8 +21,8 @@ import {
 } from "@roost/protocol/proto/worker_transport_pb";
 import { TerminalInputRouteResultSchema } from "@roost/protocol/proto/sync_pb";
 import { AttachmentTransferStatusSchema } from "@roost/protocol/proto/attachment_transfer_pb";
-import { TerminalPeerOfferError, type TerminalPeerOfferFailureReason } from "../terminal-peer-owner.ts";
-import { AttachmentPeerOfferError, type AttachmentPeerOfferFailureReason } from "../attachment-peer-owner.ts";
+import { TerminalPeerOfferError, type TerminalPeerOfferFailureReason } from "../terminal/peer/terminal-peer-owner.ts";
+import { AttachmentPeerOfferError, type AttachmentPeerOfferFailureReason } from "../attachments/attachment-peer-owner.ts";
 import type {
 	CoordLinkDeps,
 	CoordLinkOutbox,

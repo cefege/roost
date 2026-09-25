@@ -17,9 +17,9 @@ import {
 	type TerminalCaptureTrigger,
 	type TerminalCoordinatorSection,
 } from "@roost/protocol/terminal-capture";
-import type { SessionManager } from "../session-manager.ts";
-import type { SessionRecord } from "../session-record.ts";
-import type { TerminalStreamState } from "../session-terminal-state.ts";
+import type { SessionManager } from "../session/session-manager.ts";
+import type { SessionRecord } from "../session/session-record.ts";
+import type { TerminalStreamState } from "../session/session-terminal-state.ts";
 import {
 	recentWorkerCaptureFor,
 	terminalCaptureFailureAck,

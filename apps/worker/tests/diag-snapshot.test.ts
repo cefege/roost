@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { asChannelId, asSessionId, asWorkerFp } from "@roost/protocol/wire";
 import { initCellEmitState } from "@roost/protocol/cell";
-import { SessionManager } from "../src/session-manager.ts";
-import { COORD_CELL_SINK_ID, registerCellSink } from "../src/session-cell-sinks.ts";
+import { SessionManager } from "../src/session/session-manager.ts";
+import { COORD_CELL_SINK_ID, registerCellSink } from "../src/session/session-cell-sinks.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import {
   appendToRing,
   createSbRing,
 } from "../src/session-scrollback-ring.ts";
 import { monoNowMs } from "../src/util/mono.ts";
-import { SessionEventTestSink } from "./session-event-test-sink.ts";
+import { SessionEventTestSink } from "./session/session-event-test-sink.ts";
 
 const WORKER_FP = asWorkerFp("d".repeat(64));
 const SESSION_ID = asSessionId("11111111-2222-4333-8444-555555555555");

@@ -11,7 +11,7 @@ import {
 import {
 	TERMINAL_SEARCH_MAX_MATCHES, type WorkerSearchScrollbackResult,
 } from "@roost/protocol/terminal-search";
-import type { SessionShellRecord } from "../src/session-record.ts";
+import type { SessionShellRecord } from "../src/session/session-record.ts";
 import {
 	FIXED_RUNTIME, freshManager, injectSession, search, searchFrame,
 } from "./search-scrollback-test-harness.ts";

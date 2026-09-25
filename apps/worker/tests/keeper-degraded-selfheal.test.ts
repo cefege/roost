@@ -6,12 +6,12 @@
 // This test pins: sustained emit_no_session → onKeeperDegraded callback fires.
 
 import { describe, test, expect } from "bun:test";
-import { SessionManager } from "../src/session-manager.ts";
+import { SessionManager } from "../src/session/session-manager.ts";
 import { asWorkerFp } from "@roost/protocol/wire";
 import { initCellEmitState } from "@roost/protocol/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
-import { initAgentOscState } from "../src/terminal-stream-scan.ts";
-import { SessionEventTestSink } from "./session-event-test-sink.ts";
+import { initAgentOscState } from "../src/terminal/terminal-stream-scan.ts";
+import { SessionEventTestSink } from "./session/session-event-test-sink.ts";
 
 function mgr(): { mgr: SessionManager; degradedCalls: number } {
   const state = { degradedCalls: 0 };

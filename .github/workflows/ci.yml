@@ -157,7 +157,7 @@ jobs:
           apps/worker/tests/keeper-history-resume.test.ts
           apps/worker/tests/keeper-input-stress.test.ts
           apps/worker/tests/keeper-child-reap.test.ts
-          apps/worker/tests/listening-ports.test.ts
+          apps/worker/tests/host/listening-ports.test.ts
       - name: Install and update invariants
         run: bun test --isolate apps/roost-cli/tests/
       - name: Build embedded Windows binary

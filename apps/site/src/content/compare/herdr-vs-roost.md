@@ -31,7 +31,7 @@ useInsteadIf: "You live in one terminal emulator over SSH and want agent-state a
 
 - **Notification reach.** herdr tells you an agent is blocked on the screen you are looking at. Roost carries the same three states — working, needs input, done — to the sidebar row, the tab, the mobile card, and a folder rollup, and can deliver Web Push to a phone once that device grants permission. Nothing about the status is persisted; a restart re-derives it.
 
-- **Roost's detection is downstream of herdr's.** Roost's first-party OMP and Pi agent-lifecycle integrations, and its screen and OSC-title detection manifests, were adapted from herdr at commit `eacea2da` under Apache-2.0. The attribution sits in the source headers of `apps/worker/src/agent-status/`: herdr solved agent-state detection well, and Roost's detection is not an independent invention.
+- **Roost's detection is downstream of herdr's.** Roost's first-party OMP and Pi agent-lifecycle integrations, and its screen and OSC-title detection manifests, were adapted from herdr at commit `eacea2da` under Apache-2.0. The attribution sits in the source headers of `apps/worker/src/agents/`: herdr solved agent-state detection well, and Roost's detection is not an independent invention.
 
 ## What you give up either way
 

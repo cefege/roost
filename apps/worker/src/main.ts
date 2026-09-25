@@ -5,34 +5,34 @@
 // snapshot. Remote browser commands arrive through CoordLink; a browser on
 // this machine reaches its own PTYs through the local door instead.
 
-import { loadWorkerConfig } from "./config.ts";
-import { loadWorkerKey, mintJwt } from "./jwt.ts";
-import { createCoordClient } from "./coord-client.ts";
-import { runInstall } from "./install.ts";
-import { startHeartbeat, type HeartbeatDisposer } from "./heartbeat.ts";
-import { SessionManager } from "./session-manager.ts";
-import { COORD_CELL_SINK_ID, registerCellSink } from "./session-cell-sinks.ts";
+import { loadWorkerConfig } from "./host/config.ts";
+import { loadWorkerKey, mintJwt } from "./host/jwt.ts";
+import { createCoordClient } from "./transport/coord-client.ts";
+import { runInstall } from "./host/install.ts";
+import { startHeartbeat, type HeartbeatDisposer } from "./transport/heartbeat.ts";
+import { SessionManager } from "./session/session-manager.ts";
+import { COORD_CELL_SINK_ID, registerCellSink } from "./session/session-cell-sinks.ts";
 import { buildSnapshot } from "./snapshot.ts";
 import { startCoordLink } from "./transport/coord-link.ts";
-import { buildCoordLinkDeps, type CoordLinkRefs } from "./coord-link-deps.ts";
-import { handleKeeperSurvivor } from "./boot-keeper.ts";
-import { createWorkerTerminalCoreCapacity } from "./terminal-core-capacity.ts";
-import { spendKeeperForceLiveRetireAuthorization } from "./service-definition-env.ts";
-import { startLocalTerminalDoor } from "./boot-local-terminal.ts";
-import { setupReconcile } from "./boot-reconcile.ts";
-import { completeWorkerBootAdmission } from "./worker-boot-admission.ts";
-import type { LocalTerminalSocketTestFaults } from "./local-terminal-socket.ts";
-import type { TerminalPeerTestFaultState } from "./terminal-peer-test-faults.ts";
-import { coordLinkSink, isFatalSessionEventError } from "./event-sink.ts";
+import { buildCoordLinkDeps, type CoordLinkRefs } from "./transport/coord-link-deps.ts";
+import { handleKeeperSurvivor } from "./boot/boot-keeper.ts";
+import { createWorkerTerminalCoreCapacity } from "./terminal/terminal-core-capacity.ts";
+import { spendKeeperForceLiveRetireAuthorization } from "./host/service-definition-env.ts";
+import { startLocalTerminalDoor } from "./boot/boot-local-terminal.ts";
+import { setupReconcile } from "./boot/boot-reconcile.ts";
+import { completeWorkerBootAdmission } from "./boot/worker-boot-admission.ts";
+import type { LocalTerminalSocketTestFaults } from "./local-door/local-terminal-socket.ts";
+import type { TerminalPeerTestFaultState } from "./terminal/peer/terminal-peer-test-faults.ts";
+import { coordLinkSink, isFatalSessionEventError } from "./transport/event-sink.ts";
 import { openSessionEventStore } from "./transport/session-event-store.ts";
-import { AgentScreenDetector } from "./agent-status/detector.ts";
-import { AgentStatusRegistry } from "./agent-status/registry.ts";
-import { installAgentIntegrations } from "./agent-status/install-integrations.ts";
-import { startAgentReportServer, type AgentReportServer } from "./agent-status/report-server.ts";
-import { AgentReferenceAdmissionGate } from "./agent-status/reference-admission.ts";
+import { AgentScreenDetector } from "./agents/detector.ts";
+import { AgentStatusRegistry } from "./agents/registry.ts";
+import { installAgentIntegrations } from "./agents/install-integrations.ts";
+import { startAgentReportServer, type AgentReportServer } from "./agents/report-server.ts";
+import { AgentReferenceAdmissionGate } from "./agents/reference-admission.ts";
 import {
 	restoreAgentConversationAfterRespawn,
-} from "./agent-conversation-restore.ts";
+} from "./agents/agent-conversation-restore.ts";
 import { serveServiceHealth } from "@roost/host/service-health";
 import { asWorkerFp } from "@roost/protocol/wire";
 import { diag, signal } from "@roost/observability/diag";
@@ -51,7 +51,7 @@ import { randomUUID } from "node:crypto";
 // install.sh always sets ROOST_WORKER_DATA_DIR; default is v2-isolated.
 const SUPPORT = workerDataDir();
 
-export { completeWorkerBootAdmission } from "./worker-boot-admission.ts";
+export { completeWorkerBootAdmission } from "./boot/worker-boot-admission.ts";
 
 /** In-process-only fixture seams. Product entrypoints always call runWorker() without them. */
 export interface WorkerRunOptions {
@@ -195,7 +195,7 @@ export async function runWorker(options: WorkerRunOptions = {}) {
 
 	// att1b — attachment TTL/LRU reaper. 1h sweep interval; 24h TTL;
 	// 1 GB LRU cap on ~/.roost/attachments/.
-	const { startAttachmentReaper } = await import("./attachment-reaper.ts");
+	const { startAttachmentReaper } = await import("./attachments/attachment-reaper.ts");
 	startAttachmentReaper();
 	// Session manager emits cells plus negotiated semantic metadata through
 	// CoordLink; WBinary remains only for an old coordinator acknowledgement.

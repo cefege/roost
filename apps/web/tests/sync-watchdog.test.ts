@@ -3,7 +3,7 @@
 // onerror never fire — the terminal freezes until a manual refresh. The
 // watchdog force-closes the socket after sustained silence so the reconnect
 // loop re-dials with sinceEventId → backfill → recovery. Mirrors the worker
-// watchdog test (apps/worker/tests/coord-link-stale-watchdog.test.ts).
+// watchdog test (apps/worker/tests/transport/coord-link-stale-watchdog.test.ts).
 //
 // Real-clock integration tests: the behavior under test is real-clock silence
 // detection (setInterval + performance.now) driving a real WebSocket I/O loop,

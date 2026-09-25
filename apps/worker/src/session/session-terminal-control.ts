@@ -1,0 +1,361 @@
+// Entry points for coordinator terminal control and worker-owned terminal
+// input. Both input origins share one acknowledged keeper truth model, while
+// stream state validates geometry and delegates mutation to terminal-txn.
+// Every downstream request budget is enforced before queued keeper work.
+import { initCellEmitState } from "@roost/protocol/cell";
+import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS } from "@roost/protocol/viewport";
+import { newTraceId } from "@roost/observability/trace";
+import { log } from "@roost/observability/log";
+import type { SessionManager } from "./session-manager.ts";
+import type { TerminalRequestBudget } from "../transport/coord-link-types.ts";
+import { getMultiplexedPool } from "../keeper/multiplexed-client.ts";
+import { acquireKeeperAdmission, enqueueTerminalControl } from "./session-control-lanes.ts";
+import { applyTerminalStreamNow } from "./session-terminal-txn.ts";
+import { retireStreamDelivery } from "./session-snapshot-cursor.ts";
+import { clearStreamDeliveryDirty } from "./session-cell-sinks.ts";
+import { cancelCellEmission } from "./session-cell-scheduler.ts";
+import { releaseResizeCapture } from "./session-resize-capture.ts";
+import type {
+	LiveResizeCapture,
+	TerminalStreamState,
+	WorkerTerminalStreamResult,
+} from "./session-terminal-state.ts";
+
+export type { WorkerTerminalStreamResult } from "./session-terminal-state.ts";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export type WorkerInputResult =
+	| { status: "accepted"; writtenBytes: number }
+	| { status: "rejected"; writtenBytes: 0; reason: string }
+	| { status: "ambiguous"; writtenBytes: number; reason: string };
+
+/** Live predicates supplied only by browser-originated writers. */
+export interface TerminalWriteAuthority {
+	isSessionAuthorized(): boolean;
+	isCurrentInputRoute(): boolean;
+}
+
+export interface WorkerTerminalStreamIntent {
+	requestId: string;
+	sessionId: string;
+	streamId: string;
+	enabled: boolean;
+	cols: number;
+	rows: number;
+	budget?: TerminalRequestBudget;
+}
+
+export async function writeTerminalInput(
+	this: SessionManager,
+	sessionId: string,
+	inputSeq: bigint,
+	bytes: Uint8Array,
+	budget?: TerminalRequestBudget,
+	authority?: TerminalWriteAuthority,
+): Promise<WorkerInputResult> {
+	if (authority && !authority.isSessionAuthorized()) {
+		return { status: "rejected", writtenBytes: 0, reason: "terminal session is unavailable" };
+	}
+	if (authority && !authority.isCurrentInputRoute()) {
+		return { status: "rejected", writtenBytes: 0, reason: "terminal input route changed" };
+	}
+	const rec = this.getBySessionId(sessionId);
+	if (!rec) {
+		return authority
+			? { status: "rejected", writtenBytes: 0, reason: "terminal session is unavailable" }
+			: { status: "rejected", writtenBytes: 0, reason: "session is not live" };
+	}
+	if (inputSeq <= 0n) {
+		return { status: "rejected", writtenBytes: 0, reason: "input sequence must be positive" };
+	}
+	return writeAcknowledgedInputBatch(this, rec.channelId, bytes, budget, authority);
+}
+
+/** Write one worker-originated batch without manufacturing a coordinator input
+ * sequence. Keeper correlation remains private to beginInput(). */
+export async function writeWorkerOwnedTerminalInput(
+	this: SessionManager,
+	sessionId: string,
+	bytes: Uint8Array,
+): Promise<WorkerInputResult> {
+	const rec = this.getBySessionId(sessionId);
+	if (!rec) {
+		return { status: "rejected", writtenBytes: 0, reason: "session is not live" };
+	}
+	return writeAcknowledgedInputBatch(this, rec.channelId, bytes);
+}
+
+async function writeAcknowledgedInputBatch(
+	manager: SessionManager,
+	channelId: number,
+	bytes: Uint8Array,
+	budget?: TerminalRequestBudget,
+	authority?: TerminalWriteAuthority,
+): Promise<WorkerInputResult> {
+	if (bytes.byteLength === 0) return { status: "accepted", writtenBytes: 0 };
+	const admission = acquireKeeperAdmission(manager, channelId, "terminal_input");
+	if (!admission.admitted) {
+		return { status: "rejected", writtenBytes: 0, reason: admission.reason };
+	}
+	const ticket = admission.ticket;
+	const owned = bytes.slice();
+	let command;
+	try {
+		await ticket.granted;
+		if (authority && !authority.isSessionAuthorized()) {
+			return { status: "rejected", writtenBytes: 0, reason: "terminal session is unavailable" };
+		}
+		if (authority && !authority.isCurrentInputRoute()) {
+			return { status: "rejected", writtenBytes: 0, reason: "terminal input route changed" };
+		}
+		if (!manager.sessions.has(channelId)) {
+			return authority
+				? { status: "rejected", writtenBytes: 0, reason: "terminal session is unavailable" }
+				: { status: "rejected", writtenBytes: 0, reason: "session closed before the keeper write" };
+		}
+		if (budget && !budget.isCurrentConnection()) {
+			return { status: "rejected", writtenBytes: 0, reason: "worker connection superseded before the keeper write" };
+		}
+		if (budget && budget.remainingMs() <= 0) {
+			return { status: "rejected", writtenBytes: 0, reason: "input budget expired before the keeper write" };
+		}
+		manager.markInputSensitive(channelId);
+		command = getMultiplexedPool().beginInput(channelId, owned);
+		if (!command.admission.written) {
+			return { status: "rejected", writtenBytes: 0, reason: `keeper did not accept the input: ${command.admission.reason}` };
+		}
+	} catch (error) {
+		return ambiguousInputResult(
+			channelId,
+			0,
+			error instanceof Error ? error.message : String(error),
+		);
+	} finally {
+		ticket.release();
+	}
+
+	try {
+		const result = await command.result;
+		if (result.kind === "ack") {
+			return result.writtenBytes === owned.byteLength
+				? { status: "accepted", writtenBytes: result.writtenBytes }
+				: ambiguousInputResult(channelId, result.writtenBytes, "keeper acknowledged an incomplete input batch");
+		}
+		if (result.kind === "reject") {
+			return { status: "rejected", writtenBytes: 0, reason: result.reason };
+		}
+		return ambiguousInputResult(channelId, result.writtenBytes ?? 0, result.reason);
+	} catch (error) {
+		return ambiguousInputResult(
+			channelId,
+			0,
+			error instanceof Error ? error.message : String(error),
+		);
+	}
+}
+
+/** An unconfirmed keeper write is the only input outcome the user cannot
+ * attribute from the browser alone, so it is logged where it is manufactured. */
+function ambiguousInputResult(
+	channelId: number,
+	writtenBytes: number,
+	reason: string,
+): WorkerInputResult {
+	log.warn("worker", "terminal_input_ambiguous", {
+		channel_id: channelId,
+		written_bytes: writtenBytes,
+		reason,
+	});
+	return { status: "ambiguous", writtenBytes, reason };
+}
+
+function invalidResult(intent: WorkerTerminalStreamIntent, reason: string): WorkerTerminalStreamResult {
+	return {
+		status: "rejected",
+		streamId: intent.streamId,
+		enabled: intent.enabled,
+		channelResizeSeq: 0,
+		cols: intent.cols,
+		rows: intent.rows,
+		failure: "invalid_request",
+		reason,
+		phase: "pre_write",
+	};
+}
+
+function statePayloadMatches(state: TerminalStreamState, intent: WorkerTerminalStreamIntent): boolean {
+	return state.enabled === intent.enabled && state.cols === intent.cols && state.rows === intent.rows;
+}
+
+function settledStateResult(
+	state: TerminalStreamState,
+	channelResizeSeq: number,
+): WorkerTerminalStreamResult {
+	if (!state.coreValid) {
+		return {
+			status: "ambiguous",
+			streamId: state.streamId,
+			enabled: state.enabled,
+			channelResizeSeq,
+			cols: state.cols,
+			rows: state.rows,
+			failure: "core_failed",
+			reason: "terminal core is invalid and requires adoption",
+			phase: "pre_write",
+		};
+	}
+	return {
+		status: "committed",
+		streamId: state.streamId,
+		enabled: state.enabled,
+		channelResizeSeq,
+		cols: state.enabled ? state.cols : 0,
+		rows: state.enabled ? state.rows : 0,
+		resized: false,
+		phase: "written",
+	};
+}
+
+export function applyTerminalStreamState(
+	this: SessionManager,
+	intent: WorkerTerminalStreamIntent,
+): Promise<WorkerTerminalStreamResult> {
+	if (!UUID_RE.test(intent.sessionId)) return Promise.resolve(invalidResult(intent, "session_id must be a UUID"));
+	if (!UUID_RE.test(intent.streamId)) return Promise.resolve(invalidResult(intent, "stream_id must be a UUID"));
+	if (intent.requestId.length === 0 || intent.requestId.length > 128) {
+		return Promise.resolve(invalidResult(intent, "request_id is invalid"));
+	}
+	if (intent.enabled) {
+		if (!Number.isInteger(intent.cols) || intent.cols < 1 || intent.cols > TERMINAL_MAX_COLS
+			|| !Number.isInteger(intent.rows) || intent.rows < 1 || intent.rows > TERMINAL_MAX_ROWS) {
+			return Promise.resolve(invalidResult(
+				intent,
+				`enabled geometry must be within 1..${TERMINAL_MAX_COLS} cols and 1..${TERMINAL_MAX_ROWS} rows`,
+			));
+		}
+	} else if (intent.cols !== 0 || intent.rows !== 0) {
+		return Promise.resolve(invalidResult(intent, "disabled terminal stream must have zero geometry"));
+	}
+	const rec = this.getBySessionId(intent.sessionId);
+	if (!rec) {
+		return Promise.resolve({
+			...invalidResult(intent, "session is not live"),
+			failure: "session_not_live",
+		});
+	}
+	const channelId = rec.channelId;
+	const current = this.terminalStreams.get(channelId);
+	if (current?.streamId === intent.streamId) {
+		if (!statePayloadMatches(current, intent)) {
+			return Promise.resolve(invalidResult(intent, "stream_id was reused with a conflicting payload"));
+		}
+		return current.operation
+			?? Promise.resolve(settledStateResult(current, this.channelResizeSeq.get(channelId) ?? 0));
+	}
+	// Admission is taken before any stream-state mutation so a refused write
+	// leaves the previous stream, cursor and epoch exactly as they were.
+	const admission = acquireKeeperAdmission(this, channelId, "terminal_resize");
+	if (!admission.admitted) {
+		return Promise.resolve({
+			...invalidResult(intent, admission.reason),
+			failure: "retryable_pre_write",
+		});
+	}
+	const ticket = admission.ticket;
+	if (current) {
+		cancelCellEmission(this, channelId);
+		this.cellDirty.delete(channelId);
+		clearStreamDeliveryDirty(current);
+		retireStreamDelivery(this, channelId, current);
+	}
+	const inheritedCapture = current?.resizeCapture ?? null;
+	// A capture that recorded a failure can never reach a boundary, so nothing
+	// will ever release what it holds. Inheriting it would put this generation's
+	// bytes on the capture lane behind a replay that never runs and leave the
+	// emission gate set for the life of the channel.
+	const liveCapture: LiveResizeCapture | null = inheritedCapture?.failedReason === null
+		? inheritedCapture
+		: null;
+	if (inheritedCapture !== null && liveCapture === null) {
+		releaseResizeCapture(this, channelId, inheritedCapture, "generation_minted");
+		log.warn("session-manager", "terminal_stream_dead_capture_dropped", {
+			channelId,
+			streamId: intent.streamId,
+			previousStreamId: current?.streamId ?? null,
+			resizeSeq: inheritedCapture.resizeSeq,
+			reason: inheritedCapture.failedReason,
+		});
+	}
+	if (current && !current.coreValid) {
+		log.warn("session-manager", "terminal_stream_core_invalid", {
+			channelId,
+			streamId: intent.streamId,
+			previousStreamId: current.streamId,
+			enabled: intent.enabled,
+			reason: "frozen core requires adoption before any generation can emit",
+		});
+	}
+
+	// Empty deliveries: every sink owes a baseline on this generation before it
+	// can take a delta.
+	const next: TerminalStreamState = {
+		streamId: intent.streamId,
+		enabled: intent.enabled,
+		cols: intent.cols,
+		rows: intent.rows,
+		version: this.nextTerminalStreamVersion(),
+		// A keeper boundary proves GEOMETRY, never the bytes a frozen core never
+		// parsed: while coreValid is false every chunk takes the retain-only lane
+		// (session-scrollback.ts::appendCapturedScrollback), so this generation's
+		// core is missing everything since the trap and only a rebuild from the
+		// keeper's ordered history (session-resume.ts adoption) can re-prove it.
+		// The verdict therefore crosses generations, and each one reports
+		// core_failed instead of painting a grid with a hole in it.
+		coreValid: current?.coreValid ?? true,
+		deliveries: new Map(),
+		resizeCapture: liveCapture,
+	};
+	this.terminalStreams.set(channelId, next);
+	// Stream generations own sequence space, not grid identity. A reconnect or
+	// renewed viewer membership over the same core/geometry must keep the epoch
+	// so a warm renderer can merge the new viewport baseline into its retained
+	// history. Only a real geometry change invalidates row identity.
+	const previousEmit = rec.cell_emit;
+	const appliedSize = this.lastAppliedSize.get(channelId);
+	const geometryChanges = intent.enabled && appliedSize !== undefined
+		&& (appliedSize.cols !== intent.cols || appliedSize.rows !== intent.rows);
+	rec.cell_emit = {
+		...initCellEmitState(previousEmit.gridEpochBase, intent.streamId),
+		gridEpochRevision: previousEmit.gridEpochRevision + (geometryChanges ? 1 : 0),
+		lastSbTotal: previousEmit.lastSbTotal,
+		sentFull: previousEmit.sentFull,
+		cols: previousEmit.cols,
+		rows: previousEmit.rows,
+		alt: previousEmit.alt,
+		sbOrigin: previousEmit.sbOrigin,
+		sbDropped: previousEmit.sbDropped,
+	};
+	const operation = enqueueTerminalControl(
+		this,
+		channelId,
+		"terminal_stream",
+		() => applyTerminalStreamNow(this, channelId, next, intent.budget, ticket),
+	).finally(() => ticket.release());
+	next.operation = operation;
+	return operation;
+}
+
+export function requestTerminalSnapshot(
+	this: SessionManager,
+	sessionId: string,
+	streamId: string,
+): void {
+	const rec = this.getBySessionId(sessionId);
+	if (!rec) return;
+	const state = this.terminalStreams.get(rec.channelId);
+	if (!state || !state.enabled || !state.coreValid || state.streamId !== streamId) return;
+	retireStreamDelivery(this, rec.channelId, state);
+	clearStreamDeliveryDirty(state);
+	this.installTerminalBaseline(rec.channelId);
+}

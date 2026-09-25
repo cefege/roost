@@ -10,7 +10,7 @@ import {
   generatePairRequestId,
   generatePairRequesterToken,
 } from "@roost/protocol/pairing";
-import { createUnauthenticatedCoordClient } from "../../apps/worker/src/coord-client.ts";
+import { createUnauthenticatedCoordClient } from "../../apps/worker/src/transport/coord-client.ts";
 import { expect, test } from "./fixtures.ts";
 import {
   REQUESTER_RECORD_KEY,

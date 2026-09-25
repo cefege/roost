@@ -1,6 +1,9 @@
 // Builds the canonical transitive keeper bundle used for implementation identity.
-// scripts/gen-embed.ts persists the digest for source mode; build-binary.ts
-// injects the same value into compiled release artifacts.
+// The digest includes import-specifier text from the transitive closure, so moving a
+// closure file changes keeper identity even when executable code is byte-identical.
+// scripts/gen-embed.ts persists the digest for source mode; build-binary.ts injects
+// the same value into compiled release artifacts. This script is outside that bundle,
+// so its own header cannot change the digest it computes.
 
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";

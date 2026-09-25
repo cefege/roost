@@ -26,5 +26,5 @@ export const WEB_SOCKET_LISTENER_ALLOW: readonly string[] = [
   "apps/coord/src/main.ts",
   // The worker's loopback UI door: it serves the SPA and upgrades local
   // terminal sockets, so it is the one inbound listener the worker owns.
-  "apps/worker/src/local-ui-server.ts",
+  "apps/worker/src/local-door/local-ui-server.ts",
 ];

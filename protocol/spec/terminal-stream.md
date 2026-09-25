@@ -59,7 +59,7 @@ Every viewport row `0..rows-1` must occur exactly once. A chunk must match snaps
 
 - Cell schemas/adapters: `packages/protocol/src/cell/`, `packages/protocol/src/cell/frame-chunks.ts`
 - Chunk validation/assembly: `packages/protocol/src/cell/frame-chunk-validation.ts`, `packages/protocol/src/cell/frame-chunk-assembler.ts`
-- View authority: `packages/protocol/src/terminal-view/`, `apps/worker/src/terminal-view-owner.ts`, `apps/coord/src/terminal/view/terminal-view-hub.ts`
-- Worker stream lifecycle: `apps/worker/src/terminal-view-owner-streams.ts`, `apps/coord/src/terminal/screen/terminal-stream-dispatcher.ts`
+- View authority: `packages/protocol/src/terminal-view/`, `apps/worker/src/terminal/view/terminal-view-owner.ts`, `apps/coord/src/terminal/view/terminal-view-hub.ts`
+- Worker stream lifecycle: `apps/worker/src/terminal/view/terminal-view-owner-streams.ts`, `apps/coord/src/terminal/screen/terminal-stream-dispatcher.ts`
 - Browser replica/promotion: `apps/web/src/store/terminal-stream.ts`, `apps/web/src/client/terminal-stream/terminal-stream-frame-fold.ts`, `apps/web/src/store/terminal-stream-promotion.ts`
 - Conformance: `protocol/conformance/cell-chunks/`

@@ -2,7 +2,7 @@
 // It owns three negotiated channels and sends shared-codec packets only in normal mode.
 // Packet construction and verification stay in the driver-owned qualification helper.
 
-import type { TerminalPeerNative } from "../../apps/worker/src/terminal-peer-native.ts";
+import type { TerminalPeerNative } from "../../apps/worker/src/terminal/peer/terminal-peer-native.ts";
 import type { TerminalPeerPacketLane } from "@roost/protocol/terminal-peer";
 import {
   CLOSE_TIMEOUT_MS,

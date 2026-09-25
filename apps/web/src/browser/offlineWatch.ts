@@ -4,7 +4,7 @@
 //
 // The case: a session the coordinator still marks `status:"open"` but whose PTY
 // the worker lost. The worker deliberately keeps the row as an offline
-// "breadcrumb" (apps/worker/src/boot-reconcile.ts) so the sidebar keeps your
+// "breadcrumb" (apps/worker/src/boot/boot-reconcile.ts) so the sidebar keeps your
 // place — but no cell frame ever arrives, so the pane paints blank with no
 // explanation. A pane that painted and THEN lost its view is the same silence
 // with a stale screen still on display; both need a mechanism that re-claims

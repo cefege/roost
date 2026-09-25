@@ -365,7 +365,7 @@ bootstrap() {
 }
 
 # systemd --user counterpart of write_plist. Same env-key set minus the TLS
-# pair (dropped in phase-25e; see apps/worker/src/config.ts).
+# pair (dropped in phase-25e; see apps/worker/src/host/config.ts).
 write_unit() {
   mkdir -p "$(dirname "$UNIT")" "$DATA_DIR" "$LOG_DIR"
   local prog_bin prog_arg2 workdir prog_bin_unit prog_arg2_unit workdir_unit stdout_unit stderr_unit

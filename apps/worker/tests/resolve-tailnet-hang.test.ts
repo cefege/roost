@@ -9,7 +9,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveTailnetDnsName } from "../src/install.ts";
+import { resolveTailnetDnsName } from "../src/host/install.ts";
 
 test("resolveTailnetDnsName returns bounded on a hanging binary", () => {
   const dir = mkdtempSync(join(tmpdir(), "roost-tailhang-"));

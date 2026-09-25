@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildAuthorizedApiClient, type AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import { loadWorkerKey } from "../../apps/worker/src/jwt.ts";
+import { loadWorkerKey } from "../../apps/worker/src/host/jwt.ts";
 import {
   REPOSITORY_ROOT,
   authorizeTerminalTestApiKey,

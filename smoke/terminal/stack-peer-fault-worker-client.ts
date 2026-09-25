@@ -4,11 +4,11 @@
 // Commands mutate only in-process test state and are discarded on disconnect.
 
 import { createConnection, type Socket } from "node:net";
-import type { SessionManager } from "../../apps/worker/src/session-manager.ts";
+import type { SessionManager } from "../../apps/worker/src/session/session-manager.ts";
 import {
   TerminalPeerTestFaultState,
   type TerminalPeerOfferFault,
-} from "../../apps/worker/src/terminal-peer-test-faults.ts";
+} from "../../apps/worker/src/terminal/peer/terminal-peer-test-faults.ts";
 import type {
   PeerFaultCommand,
   PeerFaultCommandAction,

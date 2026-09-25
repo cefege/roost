@@ -19,8 +19,8 @@ import {
 	type TerminalCoverageReason,
 	type TerminalWorkerSection,
 } from "@roost/protocol/terminal-capture";
-import type { SessionRecord } from "../session-record.ts";
-import type { TerminalStreamState } from "../session-terminal-state.ts";
+import type { SessionRecord } from "../session/session-record.ts";
+import type { TerminalStreamState } from "../session/session-terminal-state.ts";
 import { snapshotByteCapture } from "./byte-capture.ts";
 import { workerOmissions } from "./terminal-capture-pools.ts";
 import type { WorkerCaptureRecorder } from "./terminal-capture-recorder.ts";

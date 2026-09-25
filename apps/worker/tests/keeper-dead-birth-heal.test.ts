@@ -8,12 +8,12 @@
 // callback, not the FSM transition).
 
 import { describe, test, expect } from "bun:test";
-import { SessionManager } from "../src/session-manager.ts";
+import { SessionManager } from "../src/session/session-manager.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/protocol/wire";
 import { initCellEmitState } from "@roost/protocol/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
-import { initAgentOscState } from "../src/terminal-stream-scan.ts";
-import { SessionEventTestSink } from "./session-event-test-sink.ts";
+import { initAgentOscState } from "../src/terminal/terminal-stream-scan.ts";
+import { SessionEventTestSink } from "./session/session-event-test-sink.ts";
 
 function freshMgr(): { mgr: SessionManager; calls: { n: number } } {
   const calls = { n: 0 };

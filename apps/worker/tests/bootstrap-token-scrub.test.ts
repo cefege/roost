@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scrubServiceDefinitionEnv } from "../src/service-definition-env.ts";
+import { scrubServiceDefinitionEnv } from "../src/host/service-definition-env.ts";
 
 const roots: string[] = [];
 const originalPath = process.env.PATH;

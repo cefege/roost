@@ -60,6 +60,6 @@ Attachment upload uses one immutable descriptor (`session_id`, `upload_id`, file
 
 - Shared browser-safe contract: `packages/protocol/src/attachment-transfer.ts`, `packages/protocol/src/attachment-transfer-packets.ts`
 - Proto frames: `protocol/proto/roost/v1/attachment_transfer.proto`
-- Worker loopback/direct owner: `apps/worker/src/local-ui-server.ts`, `apps/worker/src/attachment-direct-socket.ts`, `apps/worker/src/attachment-peer-owner.ts`
+- Worker loopback/direct owner: `apps/worker/src/local-door/local-ui-server.ts`, `apps/worker/src/attachments/attachment-direct-socket.ts`, `apps/worker/src/attachments/attachment-peer-owner.ts`
 - Coordinator grant/relay/signaling: `apps/coord/src/attachments/`
 - Browser selection/send/ACK recovery: `apps/web/src/client/attachments/attachmentDirect.ts`, `apps/web/src/client/carriers/attachment-loopback.ts`, `apps/web/src/client/attachments/attachmentPeer.ts`, `apps/web/src/client/attachments/attachmentTransfer.ts`

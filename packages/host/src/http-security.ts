@@ -1,6 +1,6 @@
 // Response security headers shared by every roost HTTP listener: the
 // coordinator's public door (apps/coord/src/middleware/security.ts) and the
-// worker's loopback UI server (apps/worker/src/local-ui-server.ts). One CSP
+// worker's loopback UI server (apps/worker/src/local-door/local-ui-server.ts). One CSP
 // builder keeps the two doors from drifting into different connect-src rules
 // for the same SPA bundle.
 

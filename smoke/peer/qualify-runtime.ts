@@ -6,12 +6,12 @@ import { chromium, type Browser, type Page } from "@playwright/test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadTerminalPeerNative } from "../../apps/worker/src/terminal-peer-native.ts";
+import { loadTerminalPeerNative } from "../../apps/worker/src/terminal/peer/terminal-peer-native.ts";
 import type {
   TerminalPeerNativeStageOperation,
   TerminalPeerNativeTarget,
 } from "../../scripts/terminal-peer-native-assets.ts";
-import type { TerminalPeerNative } from "../../apps/worker/src/terminal-peer-native.ts";
+import type { TerminalPeerNative } from "../../apps/worker/src/terminal/peer/terminal-peer-native.ts";
 import {
   createBrowserOfferer,
   type BrowserOfferer,

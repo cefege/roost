@@ -14,14 +14,14 @@ import {
   KEEPER_IDENTITY_UNPROVEN_ERROR,
   KEEPER_REPLACEMENT_BLOCKED_ERROR,
   handleKeeperSurvivor,
-} from "../src/boot-keeper.ts";
+} from "../src/boot/boot-keeper.ts";
 import { muxLocalEndpoint } from "../src/keeper/keeper-pool-config.ts";
 import { probeKeeperCompatible } from "../src/keeper/keeper-probe.ts";
-import { loadWorkerConfig } from "../src/config.ts";
+import { loadWorkerConfig } from "../src/host/config.ts";
 import {
   KEEPER_FORCE_LIVE_RETIRE_ENV,
   spendKeeperForceLiveRetireAuthorization,
-} from "../src/service-definition-env.ts";
+} from "../src/host/service-definition-env.ts";
 import {
   incompatibleKeeperContract,
   startFakeKeeper,

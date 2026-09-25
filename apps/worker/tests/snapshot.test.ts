@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { WorkerFp } from "@roost/protocol/wire";
 import { buildSnapshot } from "../src/snapshot.ts";
-import type { SessionRecord } from "../src/session-record.ts";
+import type { SessionRecord } from "../src/session/session-record.ts";
 
 const workerFp = "SHA256:snapshot-worker" as WorkerFp;
 

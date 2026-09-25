@@ -4,7 +4,7 @@
 // The input callback runs after authenticated reassembly and before LocalTerminalSockets writes.
 
 import { runWorker } from "../../apps/worker/src/main.ts";
-import { TerminalPeerTestFaultState } from "../../apps/worker/src/terminal-peer-test-faults.ts";
+import { TerminalPeerTestFaultState } from "../../apps/worker/src/terminal/peer/terminal-peer-test-faults.ts";
 import { awaitDirectInputHoldDecision } from "./stack-direct-input-hold.ts";
 import { startWorkerPeerFaultClient } from "./stack-peer-fault-worker-client.ts";
 

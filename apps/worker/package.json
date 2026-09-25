@@ -8,11 +8,11 @@
     "./keeper/multiplexed-main": "./src/keeper/multiplexed-main.ts",
     "./keeper/keeper-stamp": "./src/keeper/keeper-stamp.ts",
     "./keeper/keeper-pool-config": "./src/keeper/keeper-pool-config.ts",
-    "./coord-client": "./src/coord-client.ts",
-    "./jwt": "./src/jwt.ts",
-    "./config": "./src/config.ts",
-    "./install": "./src/install.ts",
-    "./service-definition-env": "./src/service-definition-env.ts"
+    "./coord-client": "./src/transport/coord-client.ts",
+    "./jwt": "./src/host/jwt.ts",
+    "./config": "./src/host/config.ts",
+    "./install": "./src/host/install.ts",
+    "./service-definition-env": "./src/host/service-definition-env.ts"
   },
   "scripts": {
     "dev": "bun --watch src/main.ts",

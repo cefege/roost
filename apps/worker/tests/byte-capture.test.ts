@@ -36,7 +36,7 @@ import {
 	_resetCaptureStorageForTest,
 } from "../src/diag/capture-storage.ts";
 import { writeTerminalIncidentBundle } from "../src/diag/terminal-capture-bundle-writer.ts";
-import { workerSectionFixture, incidentBundleInputFixture } from "./terminal-capture-fixtures.ts";
+import { workerSectionFixture, incidentBundleInputFixture } from "./terminal/terminal-capture-fixtures.ts";
 
 const RING_CAP = 256 * 1024;
 const SKIP_ON_WINDOWS = process.platform === "win32";

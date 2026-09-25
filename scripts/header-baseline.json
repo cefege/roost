@@ -76,13 +76,13 @@
   "apps/web/src/store/terminal-stream-state.ts": 0,
   "apps/web/src/store/terminal-stream-types.ts": 0,
   "apps/web/src/client/carriers/sync-outbound-smoke.ts": 2,
-  "apps/worker/src/browser-command-attachments.ts": 2,
-  "apps/worker/src/browser-command-diag.ts": 2,
-  "apps/worker/src/browser-command-files.ts": 2,
-  "apps/worker/src/host-sample-types.ts": 2,
+  "apps/worker/src/attachments/browser-command-attachments.ts": 2,
+  "apps/worker/src/browser-commands/browser-command-diag.ts": 2,
+  "apps/worker/src/browser-commands/browser-command-files.ts": 2,
+  "apps/worker/src/host/host-sample-types.ts": 2,
   "apps/worker/src/keeper/keeper-pool-config.ts": 2,
   "apps/worker/src/keeper/protocol-io.ts": 2,
   "apps/worker/src/keeper/protocol-terminal.ts": 2,
-  "apps/worker/src/session-constants.ts": 2,
+  "apps/worker/src/session/session-constants.ts": 2,
   "apps/worker/src/transport/coord-link-constants.ts": 2
 }

@@ -41,16 +41,16 @@ import type {
 import type { TerminalInputRouteResult, TerminalViewStateFrame } from "@roost/protocol/proto/sync_pb";
 import type { TerminalViewInput } from "@roost/protocol/terminal-view";
 import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/protocol/wire";
-import type { AttachmentGrantStore } from "../attachment-grants.ts";
-import type { AttachmentDirectSockets } from "../attachment-direct-socket.ts";
-import type { AttachmentPeerOwner } from "../attachment-peer-owner.ts";
-import type { LocalTerminalGrantStore } from "../local-terminal-grants.ts";
-import type { LocalTerminalSockets } from "../local-terminal-socket.ts";
-import type { TerminalInputRouteOwner } from "../terminal-input-route-owner.ts";
-import type { TerminalInputWorkBudget } from "../terminal-input-work-budget.ts";
-import type { TerminalPeerOwner } from "../terminal-peer-owner.ts";
-import type { TerminalPeerTestFaultState } from "../terminal-peer-test-faults.ts";
-import type { TerminalViewOwner } from "../terminal-view-owner.ts";
+import type { AttachmentGrantStore } from "../attachments/attachment-grants.ts";
+import type { AttachmentDirectSockets } from "../attachments/attachment-direct-socket.ts";
+import type { AttachmentPeerOwner } from "../attachments/attachment-peer-owner.ts";
+import type { LocalTerminalGrantStore } from "../local-door/local-terminal-grants.ts";
+import type { LocalTerminalSockets } from "../local-door/local-terminal-socket.ts";
+import type { TerminalInputRouteOwner } from "../terminal/terminal-input-route-owner.ts";
+import type { TerminalInputWorkBudget } from "../terminal/terminal-input-work-budget.ts";
+import type { TerminalPeerOwner } from "../terminal/peer/terminal-peer-owner.ts";
+import type { TerminalPeerTestFaultState } from "../terminal/peer/terminal-peer-test-faults.ts";
+import type { TerminalViewOwner } from "../terminal/view/terminal-view-owner.ts";
 import type { SessionEventStore } from "./session-event-store.ts";
 /** Bounded, monotonic budget for one downstream terminal-control request.
  * The coordinator sends a RELATIVE `budget_ms`, never an instant, and the

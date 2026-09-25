@@ -46,7 +46,7 @@ Roost carries two deliberately separate agent-adjacent contracts. `agent_referen
 | `AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES` | `8,192` | `packages/protocol/src/agent-conversation-reference.ts:16` |
 | `AGENT_ID_MAX_LENGTH` | `32` | `packages/protocol/src/wire/agent-status.ts:8` |
 | `AGENT_STATUS_MESSAGE_MAX_LENGTH` | `512` | `packages/protocol/src/wire/agent-status.ts:9` |
-| `INTEGRATION_LEASE_MS` | `30,000 ms` | `apps/worker/src/agent-status/stable-detection.ts` |
+| `INTEGRATION_LEASE_MS` | `30,000 ms` | `apps/worker/src/agents/stable-detection.ts` |
 | `AGENT_STATUS_WAIT_MAX_TIMEOUT_MS` | `300,000 ms` | `apps/coord/src/agents/agent-status-wait.ts:81` |
 | `AGENT_STATUS_WAIT_MAX_PER_SESSION` / global | `32 / 2,048` | `apps/coord/src/agents/agent-status-wait.ts:82-83` |
 | `AGENT_PROMPT_MAX_TEXT_BYTES` | `16,384` | `packages/protocol/src/terminal-input.ts:15` |
@@ -64,9 +64,9 @@ Roost carries two deliberately separate agent-adjacent contracts. `agent_referen
 ## Reference implementation
 
 - Private reference contract/fold: `packages/protocol/src/agent-conversation-reference.ts`, `packages/protocol/src/agent-conversation-reference-proto.ts`
-- Worker reporting/restore: `apps/worker/src/agent-status/reference-admission.ts`, `apps/worker/src/agent-conversation-restore.ts`
+- Worker reporting/restore: `apps/worker/src/agents/reference-admission.ts`, `apps/worker/src/agents/agent-conversation-restore.ts`
 - Coordinator private projection: `apps/coord/src/sessions/handlers-sessions.ts`, `apps/coord/src/events/`
 - Volatile status schema: `packages/protocol/src/wire/agent-status.ts`
-- Worker detection: `apps/worker/src/agent-status/`
+- Worker detection: `apps/worker/src/agents/`
 - Coordinator hub/waits: `apps/coord/src/agents/agent-status-hub.ts`, `apps/coord/src/agents/agent-status-wait.ts`
-- Prompt boundary: `apps/coord/src/agents/handlers-agent-prompt.ts`, `apps/coord/src/agents/agent-prompt-control.ts`, `apps/worker/src/agent-prompt-control.ts`
+- Prompt boundary: `apps/coord/src/agents/handlers-agent-prompt.ts`, `apps/coord/src/agents/agent-prompt-control.ts`, `apps/worker/src/agents/agent-prompt-control.ts`

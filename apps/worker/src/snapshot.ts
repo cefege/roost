@@ -2,7 +2,7 @@
 // Immutable launch fields come from admitted records while current terminal
 // metadata repairs replaceable events after reconnect.
 import type { WorkerFp, SessionEvent } from "@roost/protocol/wire";
-import type { SessionManager } from "./session-manager.ts";
+import type { SessionManager } from "./session/session-manager.ts";
 
 export type WorkerSnapshotEvent = Extract<SessionEvent, { kind: "snapshot" }>;
 

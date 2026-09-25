@@ -16,8 +16,8 @@ wins.
   worker HTTP terminal endpoint. Identified by the SHA-256 fingerprint of its
   ed25519 public key
   (`fp`).
-  Source: `apps/worker/src/main.ts`, `apps/worker/src/session-manager.ts`,
-  `apps/worker/src/boot-local-terminal.ts`.
+  Source: `apps/worker/src/main.ts`, `apps/worker/src/session/session-manager.ts`,
+  `apps/worker/src/boot/boot-local-terminal.ts`.
 
 - **coordinator** (coord) — the control-plane Bun process, one per cluster. Auth,
   the event log, the `sessions` projection, and fan-out to browsers. Holds no
@@ -27,7 +27,7 @@ wins.
 - **session** — a shell PTY running in a folder on a machine. It is built by
   folding `SessionEvent`s, not stored as a mutable snapshot. Identified by a
   `SessionId`.
-  Source: `apps/worker/src/session-manager.ts` (`SessionRecord`); projected into
+  Source: `apps/worker/src/session/session-manager.ts` (`SessionRecord`); projected into
   the coordinator's `sessions` table.
 
 - **channel** — a single PTY inside the keeper. The keeper multiplexes every
@@ -83,8 +83,8 @@ wins.
   coordinator-issued, worker-scoped grant and `LocalTerminalHello` authorize
   it. It has priority over WebRTC, needs no UDP/ICE, and can continue through a
   coordinator outage only while its existing grant and route remain valid.
-  Source: `apps/worker/src/local-ui-server.ts`,
-  `apps/worker/src/local-terminal-socket.ts`.
+  Source: `apps/worker/src/local-door/local-ui-server.ts`,
+  `apps/worker/src/local-door/local-terminal-socket.ts`.
 
 - **WebRTC terminal peer** — one browser-to-worker encrypted DTLS/SCTP
   `RTCPeerConnection` carrying ordered control, terminal-cell, and history data
@@ -94,13 +94,13 @@ wins.
   or unavailable peer falls back to Sync. It is not a worker HTTP endpoint,
   TURN relay, or a promise that NAT traversal will succeed.
   Source: `apps/web/src/store/transport/terminal-peer-connection.ts`,
-  `apps/worker/src/terminal-peer-owner.ts`.
+  `apps/worker/src/terminal/peer/terminal-peer-owner.ts`.
 
 - **worker epoch** — a fresh worker-process identity, distinct from terminal
   grid epoch, terminal `domain_generation`, and coordinator connection
   generation. Direct grants, SDP answers, `LocalTerminalReady`, probes, and
   input routes carry it so a restarted worker cannot accept stale peer work.
-  Source: `apps/worker/src/boot-local-terminal.ts`,
+  Source: `apps/worker/src/boot/boot-local-terminal.ts`,
   `apps/coord/src/terminal/direct/terminal-grant-owner.ts`.
 
 - **input route** — worker-acknowledged authority for one
@@ -111,7 +111,7 @@ wins.
   rejected, never replayed. Older loopback retains its established no-replay
   behavior without an unsupported claim. This is not a global PTY lock:
   worker-owned CLI and agent-prompt writers remain separate.
-  Source: `apps/worker/src/terminal-input-route-owner.ts`,
+  Source: `apps/worker/src/terminal/terminal-input-route-owner.ts`,
   `apps/web/src/store/transport/terminal-input-router.ts`.
 
 - **STUN** — operator-configured UDP address discovery for WebRTC. The default
@@ -133,7 +133,7 @@ wins.
   carry only the visible grid; a compatible same-grid renewal may carry a
   bounded recent tail. Older retained history is fetched separately, on
   explicit demand, by absolute row range.
-  Source: `apps/worker/src/browser-command-terminal.ts`
+  Source: `apps/worker/src/browser-commands/browser-command-terminal.ts`
   (`handleGetScrollbackCells`).
 
 - **agent CLI** — an arbitrary terminal program, such as `omp`, Claude Code, or
@@ -150,25 +150,25 @@ wins.
 - **lifecycle integration** — a small file Roost owns inside an agent's own
   extension directory (OMP, Pi) that reports that agent's state to the worker.
   Authoritative: it beats screen detection while its 30 s lease is fresh.
-  Source: `apps/worker/src/agent-status/integrations/`.
+  Source: `apps/worker/src/agents/integrations/`.
 
 - **agent report socket** — the worker's per-machine Unix socket
   (`ROOST_AGENT_SOCKET_PATH`, mode `0600`) that integrations write one JSON line
   to. The worker maps the reporting pid to the session that owns it, so a report
   cannot claim another terminal.
-  Source: `apps/worker/src/agent-status/report-server.ts`.
+  Source: `apps/worker/src/agents/report-server.ts`.
 
 - **screen fallback** — detection for terminals with no integration: the worker
   matches the session's own screen text and OSC title/progress against pinned
   per-agent manifests. Used for other agents and for terminals that predate an
   integration install.
-  Source: `apps/worker/src/agent-status/{manifests,stable-detection}.ts`.
+  Source: `apps/worker/src/agents/{manifests,stable-detection}.ts`.
 
 - **effective state / revision** — the one state the worker publishes per
   session after arbitrating integration over screen, stamped with a monotonic
   revision. Coordinator and browser drop anything at or below the revision they
   already hold, so a late frame can't resurrect stale state.
-  Source: `apps/worker/src/agent-status/registry.ts`.
+  Source: `apps/worker/src/agents/registry.ts`.
 
 - **done (derived)** — an `idle` agent whose completion revision the user has
   not acknowledged yet. Purely a browser-side presentation level: viewing the

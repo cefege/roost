@@ -16,7 +16,7 @@ Direct terminal is an optional carrier for the same authoritative cell protocol 
 | `SessionsNegotiateLocalTerminalPeerRequest/Response` | `protocol/proto/roost/v1/coordinator.proto:278-291` | Bounded offer/answer for exact worker epoch and grant. |
 | `LocalTerminalHello`, `LocalTerminalReady`, `LocalTerminalClientFrame`, `LocalTerminalServerFrame` | `protocol/proto/roost/v1/local_terminal.proto:20-89` | Carrier authentication, readiness, view/input/scrollback, cells, probes, and closure. |
 | `roost-terminal-control-v1`, `roost-terminal-data-v1`, `roost-terminal-history-v1` | `packages/protocol/src/terminal-peer.ts:90-109` | Ordered WebRTC lanes; protocol `roost.local-terminal.v1`. |
-| `/ws/local-terminal`; `roost-local-terminal` | `apps/worker/src/local-ui-server.ts:57-59` | Worker loopback WebSocket path and subprotocol. |
+| `/ws/local-terminal`; `roost-local-terminal` | `apps/worker/src/local-door/local-ui-server.ts:57-59` | Worker loopback WebSocket path and subprotocol. |
 
 ## State machine
 
@@ -60,6 +60,6 @@ Direct terminal is an optional carrier for the same authoritative cell protocol 
 
 - Shared limits/channels: `packages/protocol/src/terminal-peer.ts`, `packages/protocol/src/terminal-peer-packets.ts`
 - Local carrier proto: `protocol/proto/roost/v1/local_terminal.proto`
-- Worker socket/peer: `apps/worker/src/local-ui-server.ts`, `apps/worker/src/local-terminal-socket.ts`, `apps/worker/src/terminal-peer-owner.ts`
+- Worker socket/peer: `apps/worker/src/local-door/local-ui-server.ts`, `apps/worker/src/local-door/local-terminal-socket.ts`, `apps/worker/src/terminal/peer/terminal-peer-owner.ts`
 - Coordinator grants/signaling: `apps/coord/src/terminal/direct/`
 - Browser election/peer: `apps/web/src/store/terminal-stream-transport.ts`, `apps/web/src/store/transport/terminal-peer.ts`, `apps/web/src/store/transport/terminal-input-router.ts`
