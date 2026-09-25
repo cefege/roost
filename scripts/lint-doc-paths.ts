@@ -11,7 +11,7 @@ import * as transportAllowlists from "./lint-transport-allowlists.ts";
 const REPO = new URL("..", import.meta.url).pathname;
 const RULE = "docs: repo-root path references must exist";
 const MEMORY = "CLAUDE.md — documentation";
-const PATH_TOKEN = /`((?:apps|packages|protocol|scripts|smoke|docs|native)\/[^`\s]+)`/g;
+const PATH_TOKEN = /`((?:apps|packages|crates|protocol|scripts|smoke|docs|native|xtask|third_party)\/[^`\s]+)`/g;
 
 interface Violation {
   file: string;

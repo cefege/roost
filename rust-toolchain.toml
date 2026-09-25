@@ -1,0 +1,8 @@
+# Pinned to the stable release rustup installed when v3 was forked. Dioxus 0.7
+# breaks on nightly LLVM 23, so the whole workspace is stable-only and this file
+# is the single place that says so — do not add a nightly toolchain override.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

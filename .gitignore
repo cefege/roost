@@ -36,9 +36,5 @@ mockups/
 
 /playwright-report/
 /test-results/
-
-# Astro content-layer/type cache (apps/site).
-apps/site/.astro/
-
 # Scratch incident-evidence dumps (multi-GB Playwright traces).
 /terminal-reader-fix-evidence/

@@ -1,0 +1,11 @@
+[package]
+name = "roost-proto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Generated protobuf messages and Connect service stubs, built from protocol/proto/roost/v1 by connectrpc-build. Owned by nobody — every crate that speaks the wire depends on it. Reads the .proto tree at build time and nothing else does."
+
+[lints]
+workspace = true

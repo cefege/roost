@@ -1,0 +1,6 @@
+# `unwrap_used`/`expect_used` are denied workspace-wide (Cargo.toml
+# [workspace.lints.clippy]) because a panic on a bad wire value in the
+# coordinator or keeper is a fleet-visible outage. Tests and fixtures are
+# exempt: a test that asserts on a value legitimately unwraps it.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

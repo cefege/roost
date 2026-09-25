@@ -1,0 +1,11 @@
+[package]
+name = "roost-observability"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "tracing JSON-lines initialization and the structured event vocabulary. Every crate that logs depends on it. Owns the log line shape that roost status and roost doctor parse."
+
+[lints]
+workspace = true

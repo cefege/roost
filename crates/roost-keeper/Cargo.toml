@@ -1,0 +1,11 @@
+[package]
+name = "roost-keeper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The keeper daemon: PTY ownership, per-channel byte rings, and the framed keeper socket protocol. Shipped as a separate binary so a coordinator deploy never disturbs a live PTY."
+
+[lints]
+workspace = true

@@ -10,7 +10,7 @@
 // one `package.json` is enough.
 //
 // This used to be a hand-written list of two (`apps/roost-cli`, `smoke`).
-// `apps/site` was added to the root `workspaces` globs long afterwards and
+// The marketing site joined the root `workspaces` globs long afterwards and
 // every macOS deploy failed from that commit on, so the set is derived from the
 // root manifest instead of enumerated here.
 

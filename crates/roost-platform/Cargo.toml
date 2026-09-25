@@ -1,0 +1,11 @@
+[package]
+name = "roost-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Platform path and shell conventions: home-directory layout, executable suffixes, and per-platform data roots. No I/O, no async, no logging. Every crate that touches the filesystem depends on it instead of asking the OS directly."
+
+[lints]
+workspace = true

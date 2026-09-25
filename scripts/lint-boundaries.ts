@@ -147,7 +147,6 @@ function packageAllowed(workspaceName: string, specifier: string, isType: boolea
     if (workspaceName === "apps/web") return specifier.startsWith("@roost/protocol/") || specifier.startsWith("@roost/platform/") || specifier.startsWith("@roost/observability/");
     if (workspaceName === "apps/coord" || workspaceName === "apps/worker") return /^(?:@roost\/(?:observability|protocol|platform|wterm|host)\/)/.test(specifier);
     if (workspaceName === "apps/roost-cli") return /^(?:@roost\/(?:observability|protocol|platform|wterm|host|coord|worker)\/)/.test(specifier);
-    if (workspaceName === "apps/site") return false;
     return false;
   }
   if (workspaceName === "packages/observability") return specifier === "zod";
@@ -157,7 +156,6 @@ function packageAllowed(workspaceName: string, specifier: string, isType: boolea
   if (workspaceName === "packages/host") return specifier === "bun" || specifier.startsWith("bun:") || specifier.startsWith("node:") || specifier === "zod";
   if (workspaceName === "apps/web") return specifier !== "bun" && !specifier.startsWith("bun:") && !specifier.startsWith("node:");
   if (workspaceName === "apps/coord" || workspaceName === "apps/worker" || workspaceName === "apps/roost-cli") return true;
-  if (workspaceName === "apps/site") return true;
   return false;
 }
 

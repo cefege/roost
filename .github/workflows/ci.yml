@@ -1,13 +1,40 @@
 name: ci
 
+# v3 branch. The Rust gates and the TypeScript gates both run while the TS tree
+# is still here; the `upgrade` and `wterm-wasm` tiers and release.yml return in
+# Phase 7, once `smoke/` drives the Rust binaries instead of the TS ones.
 on:
   push:
-    branches: [main, v2]
+    branches: [main, v2, v3]
   pull_request:
-    branches: [main, v2]
+    branches: [main, v2, v3]
 
 jobs:
+  rust:
+    name: rust workspace
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      - name: repo invariants
+        run: cargo xtask lint
+      # roost-client-core and roost-protocol are the two crates every future
+      # front end links, and both must stay free of host-only dependencies.
+      - name: wasm32 build
+        run: cargo build -p roost-client-core -p roost-protocol --target wasm32-unknown-unknown
+
   invariants:
+    name: typescript invariants (pre-deletion)
     strategy:
       fail-fast: false
       matrix:
@@ -19,12 +46,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - name: install
-        run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
       - name: typecheck
         run: bun x tsgo -p tsconfig.base.json --noEmit
-      - name: typecheck (apps/site — astro check)
-        run: bun run --cwd apps/site typecheck
       - name: lint (roost invariants — blocking)
         run: bun run lint
       - name: knip (dead-code report, report-only)
@@ -32,67 +56,8 @@ jobs:
       - name: unit
         run: bun run test:unit
 
-  upgrade:
-    name: upgrade continuity
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    # Every case stages two other releases as git worktrees, installs their
-    # frozen dependencies, migrates a released coordinator database forward,
-    # and then waits out a 30s worker heartbeat for the keeper proof.
-    timeout-minutes: 30
-    needs: invariants
-    steps:
-      - uses: actions/checkout@v4
-        # The tier stages the previous commit and the newest release tag as git
-        # worktrees, so the default single-commit clone is not enough.
-        with:
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - name: playwright install
-        run: bunx playwright install --with-deps chromium
-      - name: upgrade
-        run: bun run test:upgrade
-      - name: upgrade artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: upgrade-playwright-artifacts-${{ matrix.os }}
-          path: |
-            test-results/upgrade/
-            test-results/upgrade-report/
-
-  wterm-wasm:
-    name: patched wterm wasm is reproducible
-    # ubuntu only: the artifact digest is toolchain-exact and this is the host
-    # the pinned build was verified on. The checksum half of the gate (committed
-    # artifact vs committed .sha256) also runs in `unit`, on every OS, through
-    # packages/wterm/tests/wterm-core-load.test.ts — this job adds the half that
-    # needs a Zig toolchain: that the bytes really are upstream + our patch, and
-    # that stock still exhibits the defect the mouse-report hunk guards.
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - name: install zig 0.16.0
-        run: |
-          set -euo pipefail
-          curl -fsSLO https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
-          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  zig-x86_64-linux-0.16.0.tar.xz" | sha256sum -c -
-          tar xf zig-x86_64-linux-0.16.0.tar.xz
-          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
-      - name: rebuild and compare
-        run: scripts/rebuild-wterm-wasm.sh --verify
-
   terminal:
+    name: terminal (mixed stack oracle)
     strategy:
       fail-fast: false
       matrix:
@@ -109,8 +74,7 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      # WebKit is macOS-only. Firefox runs only the peer-correctness project;
-      # the paused Windows terminal path continues to install Chromium alone.
+      # WebKit is macOS-only. Firefox runs only the peer-correctness project.
       - name: playwright install
         run: bunx playwright install --with-deps chromium firefox ${{ matrix.os == 'macos-latest' && 'webkit' || '' }}
       - name: terminal
@@ -124,16 +88,17 @@ jobs:
             playwright-report/
             test-results/
 
-
   windows-2022:
     name: windows server 2022 deterministic gates
-    # OFF by default, same gate as release.yml's Windows jobs: these failures are
-    # environmental (POSIX-only deploy fixtures, darwin-shaped path tests) and
-    # had kept main red on every run since 2026-08-16.
+    # OFF by default, same gate as the v2 release workflow's Windows jobs.
+    # These are still the TypeScript product's gates; they are re-derived when
+    # the Rust worker and keeper have Windows coverage, which is not in scope
+    # for v3 (Linux + macOS ship; Windows stays paused as on main).
     # Set repository variable ROOST_WINDOWS_GATE=on to turn the tier back on.
     if: vars.ROOST_WINDOWS_GATE == 'on'
     runs-on: windows-2022
     timeout-minutes: 60
+    needs: invariants
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -142,8 +107,7 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-      - name: install
-        run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
       - name: Windows invariants
         run: |
           bun x tsgo -p tsconfig.base.json --noEmit
@@ -160,45 +124,10 @@ jobs:
           apps/worker/tests/host/listening-ports.test.ts
       - name: Install and update invariants
         run: bun test --isolate apps/roost-cli/tests/
-      - name: Build embedded Windows binary
-        run: |
-          bun run --cwd apps/web build
-          bun scripts/build-binary.ts --windows-only
-      - name: Build native helper with static MSVC runtime
-        shell: pwsh
-        run: ./scripts/windows/build-helper.ps1
-      - name: Exercise native Windows executables
-        shell: pwsh
-        run: |
-          ./dist/roost-windows-x64.exe version
-          $helper = ./dist/roost-win-helper.exe version | ConvertFrom-Json
-          if ($null -eq $helper) { throw "helper did not emit version JSON" }
       - name: Install Playwright Chromium artifact
         run: bunx playwright install chromium
       - name: Terminal on Chromium
         run: bun run test:terminal
-      - name: Exercise generated embeds in Chromium artifact
-        run: >-
-          bun scripts/windows/smoke-embedded-assets.ts
-          --binary dist/roost-windows-x64.exe
-          --channel chromium
-          --artifact-dir test-results/windows-chromium-embedded
-      - name: Exercise generated embeds in installed Edge
-        run: >-
-          bun scripts/windows/smoke-embedded-assets.ts
-          --binary dist/roost-windows-x64.exe
-          --channel msedge
-          --artifact-dir test-results/windows-edge-embedded
-      - name: Assemble and verify unsigned CI package
-        shell: pwsh
-        env:
-          SHAWL_WIN64_SHA256: f883c5d09c9beae2efaeabd8513e7d3f57cd1d0864cec3df4f4a7b6ee904351c
-          SHAWL_LEGAL_SHA256: a2a1743a64b79922062906eb32cdaf23db131769f8cabcc98e5d57bbf66eb0b0
-        run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $publishedAt = ([DateTimeOffset]::Parse((git show -s --format=%cI HEAD))).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-          ./scripts/windows/package-windows.ps1 -Version $version -PublishedAt $publishedAt -Unsigned
-          ./scripts/windows/verify-windows-package.ps1 -AllowUnsigned
       - name: Windows Chromium, Edge, terminal and package artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -208,7 +137,3 @@ jobs:
           path: |
             playwright-report/
             test-results/
-            dist/roost-windows-x64.zip
-            dist/roost-windows-x64.zip.sha256
-            dist/roost-windows-x64.manifest.json
-            dist/roost-windows-x64.manifest.json.sha256
