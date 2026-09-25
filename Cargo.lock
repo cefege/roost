@@ -1003,6 +1003,11 @@ dependencies = [
 [[package]]
 name = "roost-keeper"
 version = "3.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "roost-observability"

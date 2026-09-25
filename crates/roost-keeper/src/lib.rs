@@ -4,3 +4,7 @@
 //! This is the one crate outside third_party/ permitted to use `unsafe`: it
 //! owns raw file descriptors and the controlling-TTY handshake, and every call
 //! site must name the invariant it protects.
+
+pub mod codec;
+pub mod history;
+pub mod payloads;

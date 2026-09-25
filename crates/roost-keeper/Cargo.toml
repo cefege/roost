@@ -7,5 +7,14 @@ license.workspace = true
 repository.workspace = true
 description = "The keeper daemon: PTY ownership, per-channel byte rings, and the framed keeper socket protocol. Shipped as a separate binary so a coordinator deploy never disturbs a live PTY."
 
-[lints]
-workspace = true
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+# Cargo will not let a crate inherit `lints.workspace` AND add its own table,
+# so this crate restates the workspace lints and overrides the one value it
+# needs. The override makes cargo pass --allow rather than -F, which an inner
+# `#![allow]` could not undo: `forbid` is irrevocable.
+[lints.rust]
+unsafe_code = "allow"
