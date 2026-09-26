@@ -1490,6 +1490,39 @@ could revive a released claim, because the admission guard was unreachable for
 release-created claims. **A vacuous test is not merely wasted; it is a place
 where a real defect goes to hide.**
 
+## A shared failure CLASS is as unreliable as a shared module
+
+A cluster of three was filed as three absences. Reading the panic **messages**
+rather than the line numbers found **two absences and one product defect** in it:
+
+- one test built a country as a header **name** when a country arrives as a
+  **value**, and the typed builder correctly refused a name with a trailing space
+  — a test-side error in how the input is built, not a product limit;
+- one asserted something genuinely unreachable, because **the product's own entry
+  point takes a typed `&HeaderMap`**, so a peer cannot deliver a CRLF in a header
+  value at all — the test was written as if the builder were the product, and the
+  builder *is* the same typed layer;
+- **the third was a product defect.** The bound is 512 and `read_bounded` was
+  **dropping** an over-long value rather than truncating it. **And the test was
+  named for exactly the property that distinguishes those two** — *"the bound
+  counts bytes and never splits a scalar"* — so **a dropped value cannot split a
+  scalar, and the test passed for a reason that was not its stated reason.**
+
+**And the agent had been reading the line number since the first report, on the
+strength of the other two in the same file being builder failures.** So:
+
+> **A shared module is an unreliable predictor of a shared cause, and a shared
+> failure CLASS is exactly as unreliable.** Twice in one evening: a shared
+> *symptom* pointed at a product cause and the cause was the fixture; a shared
+> *class* pointed at two absences and the third was a product defect.
+
+**The fix is the same in both cases and it is not "look harder": read the panic
+message, and read the test's NAME against what the assertion actually proves.**
+A name that specifies a property — *"counts bytes and never splits a scalar"* —
+is a claim about mechanism, and a value that is *absent* satisfies a
+never-splits-anything property trivially. **Any test whose name describes a
+property that absence would also satisfy is a test that can pass vacuously.**
+
 ## A test that drops the handle of the thing it is OBSERVING is not weak, it is unobserved
 
 `BoundedBus::subscribe` returns a `Subscription<T>`, and `impl Drop for
