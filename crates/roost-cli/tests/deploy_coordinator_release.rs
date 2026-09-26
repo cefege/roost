@@ -51,9 +51,17 @@ fn detached_release(label: &str) -> (PathBuf, String) {
     let sha = git(&["rev-parse", "HEAD"]);
     // Detach, and prove there is no branch to be the tip of.
     git(&["checkout", "--quiet", "--detach", "HEAD"]);
+    // `git symbolic-ref -q HEAD` exits 1 on a detached HEAD, which is the fact
+    // being asserted, so it is asked without the success assertion the rest of
+    // this helper makes.
+    let symbolic = Command::new("git")
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .current_dir(&root)
+        .output()
+        .expect("git runs");
     assert!(
-        git(&["symbolic-ref", "-q", "HEAD"]).is_empty(),
-        "a detached release has no symbolic HEAD"
+        !symbolic.status.success() && symbolic.stdout.is_empty(),
+        "a detached release has no symbolic HEAD to be the tip of"
     );
     (root, sha)
 }
