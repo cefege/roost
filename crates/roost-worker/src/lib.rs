@@ -2,3 +2,5 @@
 //! Owned here until a phase fills it in; nothing calls it yet.
 
 #![forbid(unsafe_code)]
+
+pub mod outbox;
